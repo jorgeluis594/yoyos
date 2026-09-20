@@ -2,9 +2,7 @@
 
 ## Purpose
 
-Organize each application by business features with explicit responsibility boundaries. These guidelines apply equally to the API and the Expo mobile app. Read them when planning features, implementing behavior, or refactoring code.
-
-Both applications must follow the same dependency rules and feature hierarchy. Framework entry points and technical adapters differ by platform; business logic must remain independent of those details. This is the target architecture, not a description of the current scaffolds.
+Organize the API and Expo mobile app by business features with the same responsibility boundaries, dependency rules, and feature hierarchy. Framework entry points and technical adapters differ by platform; business logic remains independent of them. Read these guidelines when planning, implementing, or refactoring. They define the target architecture, not the current scaffolds.
 
 ## Repository Hierarchy
 
@@ -29,13 +27,11 @@ apps/
             └── ui/                  # Generic presentation components
 ```
 
-The tree defines where responsibilities belong. Create folders only when they contain required code. Shared folders in this tree are local to each application; a common architecture does not require a shared package or duplicated implementations.
-
 ## Feature Hierarchy
 
 Use business names such as `orders`, `inventory`, or `accounts`. Do not group unrelated business operations under technical feature names such as `services` or `managers`.
 
-Every feature uses the following hierarchy in either application:
+Feature responsibilities follow this hierarchy:
 
 ```text
 features/
@@ -56,7 +52,7 @@ features/
     └── index.ts                     # Public feature exports, when consumed externally
 ```
 
-These filenames illustrate responsibilities, not mandatory boilerplate. Omit unused files and layers. For a small feature, application operations may live in `application/service.ts`; split them into `application/use-cases/` when independent operations or file size justify it. Do not create both merely to forward calls.
+These filenames illustrate responsibilities, not mandatory boilerplate. Create only required folders, files, and layers; do not add generic frameworks for hypothetical needs. For a small feature, application operations may live in `application/service.ts`; split them into `application/use-cases/` when independent operations or file size justify it. Do not create both merely to forward calls.
 
 Use descriptive filenames in kebab case. Keep tests next to the behavior they verify, for example `rules.test.ts` or `create-order.test.ts`.
 
@@ -72,7 +68,7 @@ Domain code must not import UI libraries, server frameworks, database clients, s
 
 `application/` owns use cases: complete application intentions such as creating an order or loading an order history. A use case coordinates domain rules and the external capabilities it needs, accepts plain input, and returns plain output or meaningful application failures.
 
-Dependencies must be supplied explicitly through function parameters or ordinary composition. Application code must not construct concrete repositories or import HTTP request/reply objects, UI hooks, navigation objects, or technical clients.
+Application code must not construct concrete repositories or import HTTP request/reply objects, UI hooks, navigation objects, or technical clients.
 
 `application/ports/` holds contracts for supplied repositories or external capabilities when named contracts are useful. A small dependency may be described inline with the use case. A port does not require a class, generic base repository, or dependency injection framework.
 
@@ -123,7 +119,7 @@ API `app.ts` creates the application, configures infrastructure, and registers f
 
 Mobile `src/app/` owns routing, layouts, providers, and application composition. Route files delegate feature-specific UI to screens in `features/<feature>/presentation/screens/`.
 
-Composition creates concrete adapters, supplies them to use cases, and exposes those operations to presentation. This wiring belongs at application startup, root setup, or feature registration, not inside individual request handlers or screen render logic. Use a separate composition file only if the setup grows enough to need it.
+Composition creates concrete adapters, supplies them explicitly to use cases through function parameters or ordinary composition, and exposes those operations to presentation. This wiring belongs at application startup, root setup, or feature registration, not inside individual request handlers or screen render logic. Use a separate composition file only if the setup grows enough to need it.
 
 ## Dependency Direction
 
@@ -135,13 +131,12 @@ infrastructure ────────┘
 composition ──→ presentation / application / infrastructure
 ```
 
-The arrows describe allowed source dependencies. The runtime flow is entry point → use case → supplied adapter → data source; the use case must not import the concrete adapter to execute that flow.
+The arrows describe allowed source dependencies, not runtime flow (entry point → use case → supplied adapter → data source). Application must not import concrete adapters.
 
 - Domain has no dependency on other feature layers.
-- Application may depend on domain and declares the capabilities it needs.
+- Application may depend on domain.
 - Infrastructure implements application contracts and may use domain types for mapping.
 - Presentation consumes application operations and their data contracts.
-- Composition may import the layers it needs to wire together.
 - A feature must not import another feature's internal files. Cross-feature access uses deliberate exports from its `index.ts` or an explicitly supplied capability.
 - Feature dependencies must remain acyclic. The feature owning an operation coordinates its dependencies.
 
@@ -149,9 +144,9 @@ Export only what other features or application entry points actually need. Do no
 
 ## Shared Code
 
-Keep code in its owning feature whenever possible. Move it to `shared/` only when multiple features use it and it has no business owner. Generic UI primitives belong in `components/ui/`; feature-specific components stay in feature presentation.
+Each application's `shared/` is local to that application. Keep code in its owning feature whenever possible; move it to `shared/` only when multiple features use it and it has no business owner. Generic UI primitives belong in `components/ui/`; feature-specific components stay in feature presentation.
 
-Do not use shared folders as a destination for unclassified code. Sharing contracts between the API and mobile app is optional and must follow a real integration need; it must not couple either application to the other's framework or persistence models.
+Do not use shared folders as a destination for unclassified code. A common architecture requires neither a shared package nor duplicated implementations. Sharing contracts between the API and mobile app is optional and must follow a real integration need; it must not couple either application to the other's framework or persistence models.
 
 ## Validation, Security, and Failures
 
@@ -174,4 +169,4 @@ For operations requiring atomic writes, the use case defines the consistency req
 
 Verify domain rules and use cases without starting a server or rendering UI. Test adapters against their actual data-access behavior and presentation for input/output translation where needed.
 
-Reuse existing code, standard library functions, native capabilities, and installed dependencies before adding structure. Do not add empty layers, forwarding services, generic frameworks, or shared packages for hypothetical future needs.
+Reuse existing code, standard library functions, native capabilities, and installed dependencies before adding structure.

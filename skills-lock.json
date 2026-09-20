@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "happy-memory-maintainer": {
+      "source": "jorgeluis594/happy-memory",
+      "sourceType": "github",
+      "skillPath": "skills/happy-memory-maintainer/SKILL.md",
+      "computedHash": "abf346bcabda351f4392262feed701ee6b617b11178840ebd388f64e868d578b"
+    },
+    "happy-memory-recall": {
+      "source": "jorgeluis594/happy-memory",
+      "sourceType": "github",
+      "skillPath": "skills/happy-memory-recall/SKILL.md",
+      "computedHash": "580dec9d6756d4bf361aff385c6b3f1a1cc96f221b8ac0d4a97e9f14fc5f75f1"
+    }
+  }
+}
