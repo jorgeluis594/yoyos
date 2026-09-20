@@ -1,0 +1,39 @@
+{
+  "name": "core",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "build": "react-router build",
+    "dev": "pnpm build && tsx watch src/server.ts",
+    "start": "tsx src/server.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "12.5.1",
+      "onFail": "download"
+    }
+  },
+  "packageManager": "pnpm@12.5.1",
+  "type": "module",
+  "devDependencies": {
+    "@react-router/dev": "^7.9.4",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.2",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0"
+  },
+  "dependencies": {
+    "@react-router/express": "^7.9.4",
+    "@react-router/node": "^7.18.4",
+    "express": "^5.2.1",
+    "isbot": "^5",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-router": "^7.9.4"
+  }
+}
