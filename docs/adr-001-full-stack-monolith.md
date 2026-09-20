@@ -32,7 +32,6 @@ Express será dueño del perímetro HTTP:
 Express
 ├── /api/*          API para mobile e integraciones
 ├── /webhooks/*     webhooks de pagos y mensajería
-├── /files/*        autorización y entrega de archivos privados
 └── /*              React Router SSR
 ```
 

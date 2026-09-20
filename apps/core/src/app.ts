@@ -9,7 +9,3 @@ app.use("/api", express.json(), (_request, response) => {
 app.use("/webhooks", express.raw({ type: "*/*" }), (_request, response) => {
   response.sendStatus(404);
 });
-
-app.use("/files", (_request, response) => {
-  response.sendStatus(404);
-});
