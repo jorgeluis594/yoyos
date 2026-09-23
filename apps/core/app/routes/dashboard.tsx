@@ -1,14 +1,11 @@
 import { useState } from "react";
-import { redirect, useLoaderData, useNavigate } from "react-router";
+import { useLoaderData, useNavigate, type LoaderFunctionArgs } from "react-router";
 import { Button } from "@/components/ui/button";
+import { privateUserContext } from "@/private-user-context";
 import { authClient } from "../../src/shared/infrastructure/auth-client";
-import { resolveCurrentUser } from "../../src/shared/infrastructure/current-user";
 
-export async function loader({ request }: { request: Request }) {
-  const user = await resolveCurrentUser(request.headers);
-  if (!user) throw redirect("/es-PE/login");
-  if (!user.companyId) throw redirect("/es-PE/register");
-  return { name: user.name };
+export function loader({ context }: LoaderFunctionArgs) {
+  return { name: context.get(privateUserContext).name };
 }
 
 export default function Dashboard() {
