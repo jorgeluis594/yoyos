@@ -14,11 +14,11 @@ test("monetary arithmetic and comparison compose through Result", () => {
   assert.deepEqual(andThen(add(pen(0.1), pen(0.2)), (sum) => add(sum, pen(0.3))), ok(pen(0.6)));
 });
 
-test("rounds each input to two decimals before arithmetic and comparison", () => {
-  assert.deepEqual(add(pen(1.005), pen(0)), ok(pen(1.01)));
-  assert.deepEqual(subtract(pen(-1.005), pen(0)), ok(pen(-1.01)));
+test("truncates each input to two decimals before arithmetic and comparison", () => {
+  assert.deepEqual(add(pen(1.239), pen(0)), ok(pen(1.23)));
+  assert.deepEqual(subtract(pen(-1.239), pen(0)), ok(pen(-1.23)));
   assert.deepEqual(add(pen(0.004), pen(0.004)), ok(pen(0)));
-  assert.deepEqual(compare(pen(1.004), pen(1)), ok(0));
+  assert.deepEqual(compare(pen(1.009), pen(1)), ok(0));
 });
 
 test("rejects different currencies, invalid amounts and lost precision", () => {

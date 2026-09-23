@@ -20,7 +20,7 @@ function validate(money: Money): Result<Decimal, MoneyError> {
     return err({ message: "Amount must be finite", code: "INVALID_AMOUNT" });
   }
   const amount = new DecimalMoney(money.amount.toString());
-  return ok(amount.toDecimalPlaces(2, DecimalMoney.ROUND_HALF_UP));
+  return ok(amount.toDecimalPlaces(2, DecimalMoney.ROUND_DOWN));
 }
 
 function pair(a: Money, b: Money): Result<[Decimal, Decimal], MoneyError> {
@@ -32,9 +32,9 @@ function pair(a: Money, b: Money): Result<[Decimal, Decimal], MoneyError> {
 }
 
 function finish(amount: Decimal, currency: string): Result<Money, MoneyError> {
-  const rounded = amount.toDecimalPlaces(2, DecimalMoney.ROUND_HALF_UP);
-  const value = rounded.toNumber();
-  if (!Number.isFinite(value) || !new DecimalMoney(value.toString()).equals(rounded)) {
+  const truncated = amount.toDecimalPlaces(2, DecimalMoney.ROUND_DOWN);
+  const value = truncated.toNumber();
+  if (!Number.isFinite(value) || !new DecimalMoney(value.toString()).equals(truncated)) {
     return err({ message: "Result cannot be represented as a number without losing precision", code: "PRECISION_LOSS" });
   }
   return ok({ amount: value, currency });
