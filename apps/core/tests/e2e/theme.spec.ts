@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 test("system preference, manual selection, persistence, and keyboard activation", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "dark" });
-  await page.goto("/");
+  await page.goto("/es-PE/");
   await page.evaluate(() => localStorage.removeItem("yoyos-theme"));
   await page.reload();
   await expect(page.locator("body")).toHaveCSS("background-color", "rgb(28, 27, 29)");
@@ -16,6 +16,7 @@ test("system preference, manual selection, persistence, and keyboard activation"
   await page.reload();
   await expect(page.locator("html")).toHaveClass(/dark/);
 
+  await page.getByRole("link", { name: "Iniciar sesión" }).focus();
   await page.keyboard.press("Tab");
   await expect(themeButton).toBeFocused();
   await page.keyboard.press("Enter");

@@ -6,8 +6,8 @@ import { resolveCurrentUser } from "../../src/shared/infrastructure/current-user
 
 export async function loader({ request }: { request: Request }) {
   const user = await resolveCurrentUser(request.headers);
-  if (!user) throw redirect("/login");
-  if (!user.companyId) throw redirect("/register");
+  if (!user) throw redirect("/es-PE/login");
+  if (!user.companyId) throw redirect("/es-PE/register");
   return { name: user.name };
 }
 
@@ -22,7 +22,7 @@ export default function Dashboard() {
     try {
       const result = await authClient.signOut();
       if (result.error) throw result.error;
-      navigate("/login");
+      navigate("/es-PE/login");
     } catch {
       setError("No se pudo cerrar la sesión. Inténtalo de nuevo.");
       setPending(false);

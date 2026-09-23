@@ -35,7 +35,7 @@ export default function Home() {
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-2xl font-semibold">Yoyos</h1>
         <div className="flex items-center gap-3">
-          <Link to="/login" className="text-sm font-medium text-primary underline underline-offset-4">Iniciar sesión</Link>
+          <Link to="/es-PE/login" className="text-sm font-medium text-primary underline underline-offset-4">Iniciar sesión</Link>
           <Button type="button" onClick={toggleTheme} aria-label="Alternar tema" aria-pressed={dark}>
             {dark ? "Modo claro" : "Modo oscuro"}
           </Button>

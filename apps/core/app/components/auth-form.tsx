@@ -51,7 +51,7 @@ export function AuthForm({ mode, pendingCompany = false }: { mode: "login" | "re
           return;
         }
       }
-      navigate("/dashboard");
+      navigate("/es-PE/dashboard");
     } catch {
       setError("No se pudo conectar. Inténtalo de nuevo.");
     } finally {
@@ -62,7 +62,7 @@ export function AuthForm({ mode, pendingCompany = false }: { mode: "login" | "re
   return (
     <main className="flex min-h-screen items-center justify-center px-4 py-12">
       <div className="w-full max-w-sm rounded-xl border border-border bg-card p-6 sm:p-8">
-        <Link to="/" className="text-sm font-semibold text-primary">Yoyos</Link>
+        <Link to="/es-PE/" className="text-sm font-semibold text-primary">Yoyos</Link>
         <h1 className="mt-6 text-2xl font-semibold">{companyStep ? "Crear empresa" : register ? "Crear cuenta" : "Iniciar sesión"}</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           {companyStep ? "Completa tu espacio de trabajo." : register ? "Empieza a organizar tus ventas." : "Accede a tu espacio de trabajo."}
@@ -93,7 +93,7 @@ export function AuthForm({ mode, pendingCompany = false }: { mode: "login" | "re
         </form>
         {!companyStep && <p className="mt-6 text-center text-sm text-muted-foreground">
           {register ? "¿Ya tienes cuenta? " : "¿Aún no tienes cuenta? "}
-          <Link to={register ? "/login" : "/register"} className="font-medium text-primary underline underline-offset-4">
+          <Link to={register ? "/es-PE/login" : "/es-PE/register"} className="font-medium text-primary underline underline-offset-4">
             {register ? "Inicia sesión" : "Regístrate"}
           </Link>
         </p>}

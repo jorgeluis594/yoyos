@@ -4,7 +4,7 @@ import { resolveCurrentUser } from "../../src/shared/infrastructure/current-user
 
 export async function loader({ request }: { request: Request }) {
   const user = await resolveCurrentUser(request.headers);
-  if (user?.companyId) throw redirect("/dashboard");
+  if (user?.companyId) throw redirect("/es-PE/dashboard");
   return { pendingCompany: Boolean(user) };
 }
 

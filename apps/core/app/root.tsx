@@ -18,7 +18,7 @@ document.documentElement.classList.toggle('dark', preference === 'dark' || (!pre
 
 export default function App() {
   return (
-    <html lang="es">
+    <html lang="es-PE">
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
