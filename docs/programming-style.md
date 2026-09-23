@@ -5,6 +5,15 @@ Business rules are pure: they receive what they need, do not mutate their inputs
 and do not access databases, networks, or global state. Use cases receive their
 dependencies as arguments and coordinate effects through adapters.
 
+Use type driven design: define domain types and explicit input and output types
+for business operations before implementing their logic. Dependency contracts
+also declare what each operation accepts and returns. Represent business variants
+with discriminated unions, keeping each variant's required fields explicit.
+Separate creation inputs from persisted entities when their requirements differ;
+for example, a persisted entity must have an ID. Validate external data before
+passing it to business logic, and avoid `as` assertions that hide incomplete
+contracts.
+
 Fallible operations return `Result<T, E>` or `Promise<Result<T, E>>`. Success
 contains `data`; failure contains `error`, with a required `message` and optional
 `code`. Transformations that always produce a value return it directly. Valid
