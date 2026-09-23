@@ -8,7 +8,7 @@ const adminUrl = process.env.TEST_ADMIN_DATABASE_URL;
 const appUrl = process.env.DATABASE_URL;
 
 test("company context enforces RLS and transaction boundaries", async (t) => {
-  assert(adminUrl && appUrl, "run pnpm test:integration to prepare core_test");
+  assert(adminUrl && appUrl, "run sh scripts/run-tests.sh integration to prepare core_test");
   const admin = new PrismaClient({ adapter: new PrismaPg({ connectionString: adminUrl }) });
   const role = new URL(appUrl).username.replaceAll('"', '""');
   const companyA = crypto.randomUUID();
