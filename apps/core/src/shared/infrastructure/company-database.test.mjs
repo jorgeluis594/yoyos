@@ -43,7 +43,7 @@ test("company context enforces RLS and transaction boundaries", async (t) => {
     await admin.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE, DELETE ON public.rls_probe TO "${role}"`);
 
     process.env.DATABASE_URL = appUrl;
-    const { prisma, withCompanyContext, getCompanyId, withinTransaction, authPrisma } = await import("./prisma.ts");
+    const { prisma, withCompanyContext, getCompanyId, withinTransaction, authPrisma, createCompanyForUser } = await import("./prisma.ts");
     const rows = () => prisma.$queryRaw`SELECT id FROM public.rls_probe ORDER BY id`;
     const insert = (id, parentId = null) => prisma.$executeRaw`INSERT INTO public.rls_probe (id, company_id, parent_id) VALUES (${id}, ${getCompanyId()}::uuid, ${parentId})`;
 
@@ -54,6 +54,7 @@ test("company context enforces RLS and transaction boundaries", async (t) => {
       await assert.rejects(authPrisma.company.findMany(), /authPrisma only permits/);
       await assert.rejects(authPrisma.$queryRaw`SELECT 1`, /authPrisma only permits/);
       await assert.rejects(authPrisma.$transaction((tx) => tx.company.findMany()), /authPrisma only permits/);
+      await assert.rejects(prisma.user.findMany(), /Authentication models require authPrisma/);
       assert.throws(() => prisma.$transaction([]), /Use withinTransaction/);
       const appPool = new pg.Pool({ connectionString: appUrl });
       try { await assert.rejects(appPool.query('TRUNCATE public."Company"'), /permission denied/); } finally { await appPool.end(); }
@@ -130,7 +131,7 @@ test("company context enforces RLS and transaction boundaries", async (t) => {
     });
 
     await t.test("does not report success on commit failure and clears local setting", async () => {
-      await assert.rejects(withCompanyContext(companyA, () => insert("commit-fails", 999)));
+      await assert.rejects(withCompanyContext(companyA, async () => insert("commit-fails", 999)), /ForeignKeyConstraintViolation/);
       const pool = new pg.Pool({ connectionString: appUrl, max: 1 });
       try {
         for (const companyId of [companyA, companyB]) {
@@ -141,6 +142,41 @@ test("company context enforces RLS and transaction boundaries", async (t) => {
           assert(!value);
         }
       } finally { await pool.end(); }
+    });
+
+    await t.test("links an authenticated user atomically and rolls back failed links", async () => {
+      const userId = crypto.randomUUID();
+      await authPrisma.user.create({ data: { id: userId, name: "Owner", email: `${userId}@example.test` } });
+      try {
+        const first = await createCompanyForUser(userId, "Owner company");
+        assert(first.created);
+        assert.equal((await authPrisma.user.findUniqueOrThrow({ where: { id: userId } })).companyId, first.companyId);
+        assert.equal((await createCompanyForUser(userId, "Ignored company")).companyId, first.companyId);
+        await withCompanyContext(first.companyId, async () => {
+          assert.equal((await prisma.company.findUniqueOrThrow({ where: { id: first.companyId } })).name, "Owner company");
+        });
+
+        const failedUserId = crypto.randomUUID();
+        await authPrisma.user.create({ data: { id: failedUserId, name: "Failure", email: `${failedUserId}@example.test` } });
+        await admin.$executeRawUnsafe(`CREATE FUNCTION reject_company_link() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.id = '${failedUserId}' THEN RAISE EXCEPTION 'link rejected'; END IF; RETURN NEW; END $$`);
+        await admin.$executeRawUnsafe('CREATE TRIGGER reject_company_link BEFORE UPDATE ON "user" FOR EACH ROW EXECUTE FUNCTION reject_company_link()');
+        try {
+          await assert.rejects(createCompanyForUser(failedUserId, "Rolled back"), /link rejected/);
+          assert.equal((await admin.$queryRaw`SELECT count(*)::int AS count FROM "Company" WHERE name = 'Rolled back'`)[0].count, 0);
+          assert.equal((await authPrisma.user.findUniqueOrThrow({ where: { id: failedUserId } })).companyId, null);
+        } finally {
+          await admin.$executeRawUnsafe('DROP TRIGGER reject_company_link ON "user"');
+          await admin.$executeRawUnsafe('DROP FUNCTION reject_company_link()');
+          await authPrisma.user.delete({ where: { id: failedUserId } });
+        }
+      } finally {
+        const user = await authPrisma.user.findUnique({ where: { id: userId }, select: { companyId: true } });
+        await authPrisma.user.deleteMany({ where: { id: userId } });
+        if (user?.companyId) {
+          const id = user.companyId;
+          await withCompanyContext(id, async () => prisma.company.delete({ where: { id } }));
+        }
+      }
     });
   } finally {
     if (process.env.DATABASE_URL === appUrl) {

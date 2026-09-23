@@ -1,0 +1,2 @@
+ALTER TABLE "user" ADD COLUMN "companyId" UUID;
+ALTER TABLE "user" ADD CONSTRAINT "user_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE SET NULL ON UPDATE CASCADE;

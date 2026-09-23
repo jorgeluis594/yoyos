@@ -2,12 +2,13 @@ import { useState } from "react";
 import { redirect, useLoaderData, useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { authClient } from "../../src/shared/infrastructure/auth-client";
-import { auth } from "../../src/shared/infrastructure/auth";
+import { resolveCurrentUser } from "../../src/shared/infrastructure/current-user";
 
 export async function loader({ request }: { request: Request }) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) throw redirect("/login");
-  return { name: session.user.name };
+  const user = await resolveCurrentUser(request.headers);
+  if (!user) throw redirect("/login");
+  if (!user.companyId) throw redirect("/register");
+  return { name: user.name };
 }
 
 export default function Dashboard() {

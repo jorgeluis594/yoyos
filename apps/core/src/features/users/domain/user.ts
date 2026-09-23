@@ -4,6 +4,7 @@ export type User = {
   email: string;
   emailVerified: boolean;
   image: string | null;
+  companyId: string | null;
   createdAt: Date;
   updatedAt: Date;
 };

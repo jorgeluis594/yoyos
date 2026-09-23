@@ -14,6 +14,8 @@ model User {
   image         String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+  companyId     String?   @db.Uuid
+  company       Company?  @relation(fields: [companyId], references: [id])
   sessions      Session[]
   accounts      Account[]
 
@@ -68,6 +70,7 @@ model Verification {
 }
 
 model Company {
-  id   String @id @default(uuid()) @db.Uuid
-  name String
+  id    String @id @db.Uuid
+  name  String
+  users User[]
 }
