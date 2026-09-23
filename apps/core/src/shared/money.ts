@@ -20,10 +20,7 @@ function validate(money: Money): Result<Decimal, MoneyError> {
     return err({ message: "Amount must be finite", code: "INVALID_AMOUNT" });
   }
   const amount = new DecimalMoney(money.amount.toString());
-  if (amount.decimalPlaces() > 2) {
-    return err({ message: "Amount must have at most two decimal places", code: "INVALID_AMOUNT" });
-  }
-  return ok(amount);
+  return ok(amount.toDecimalPlaces(2, DecimalMoney.ROUND_HALF_UP));
 }
 
 function pair(a: Money, b: Money): Result<[Decimal, Decimal], MoneyError> {
@@ -34,26 +31,24 @@ function pair(a: Money, b: Money): Result<[Decimal, Decimal], MoneyError> {
   );
 }
 
-function toMoney(amount: Decimal, currency: string): Result<Money, MoneyError> {
-  if (amount.decimalPlaces() > 2) {
-    return err({ message: "Result exceeds two decimal places", code: "PRECISION_LOSS" });
-  }
-  const value = amount.toNumber();
-  if (!Number.isFinite(value) || !new DecimalMoney(value.toString()).equals(amount)) {
+function finish(amount: Decimal, currency: string): Result<Money, MoneyError> {
+  const rounded = amount.toDecimalPlaces(2, DecimalMoney.ROUND_HALF_UP);
+  const value = rounded.toNumber();
+  if (!Number.isFinite(value) || !new DecimalMoney(value.toString()).equals(rounded)) {
     return err({ message: "Result cannot be represented as a number without losing precision", code: "PRECISION_LOSS" });
   }
   return ok({ amount: value, currency });
 }
 
-export function addMoney(a: Money, b: Money): Result<Money, MoneyError> {
-  return andThen(pair(a, b), ([left, right]) => toMoney(left.plus(right), a.currency));
+export function add(a: Money, b: Money): Result<Money, MoneyError> {
+  return andThen(pair(a, b), ([left, right]) => finish(left.plus(right), a.currency));
 }
 
-export function subtractMoney(a: Money, b: Money): Result<Money, MoneyError> {
-  return andThen(pair(a, b), ([left, right]) => toMoney(left.minus(right), a.currency));
+export function subtract(a: Money, b: Money): Result<Money, MoneyError> {
+  return andThen(pair(a, b), ([left, right]) => finish(left.minus(right), a.currency));
 }
 
-export function compareMoney(a: Money, b: Money): Result<-1 | 0 | 1, MoneyError> {
+export function compare(a: Money, b: Money): Result<-1 | 0 | 1, MoneyError> {
   return map(pair(a, b), ([left, right]) =>
     left.lessThan(right) ? -1 : left.greaterThan(right) ? 1 : 0,
   );
