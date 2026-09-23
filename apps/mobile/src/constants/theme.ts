@@ -3,24 +3,29 @@
  * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
  */
 
-import '@/global.css';
-
 import { Platform } from 'react-native';
+import tokens from '../../../../docs/design-tokens.json';
 
 export const Colors = {
   light: {
-    text: '#000000',
-    background: '#ffffff',
-    backgroundElement: '#F0F0F3',
-    backgroundSelected: '#E0E1E6',
-    textSecondary: '#60646C',
+    text: tokens.colors.light.foreground,
+    background: tokens.colors.light.background,
+    backgroundElement: tokens.colors.light.card,
+    backgroundSelected: tokens.colors.light.accent,
+    textSecondary: tokens.colors.light['muted-foreground'],
+    input: tokens.colors.light.input,
+    ring: tokens.colors.light.ring,
+    error: tokens.colors.light.error,
   },
   dark: {
-    text: '#ffffff',
-    background: '#000000',
-    backgroundElement: '#212225',
-    backgroundSelected: '#2E3135',
-    textSecondary: '#B0B4BA',
+    text: tokens.colors.dark.foreground,
+    background: tokens.colors.dark.background,
+    backgroundElement: tokens.colors.dark.card,
+    backgroundSelected: tokens.colors.dark.accent,
+    textSecondary: tokens.colors.dark['muted-foreground'],
+    input: tokens.colors.dark.input,
+    ring: tokens.colors.dark.ring,
+    error: tokens.colors.dark.error,
   },
 } as const;
 
