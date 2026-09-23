@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { redirect, useLoaderData, useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
-import { authClient } from "@/lib/auth-client";
-import { auth } from "../../src/infrastructure/auth";
+import { authClient } from "../../src/shared/infrastructure/auth-client";
+import { auth } from "../../src/shared/infrastructure/auth";
 
 export async function loader({ request }: { request: Request }) {
   const session = await auth.api.getSession({ headers: request.headers });

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { prisma } from "../../src/infrastructure/prisma";
+import { prisma } from "../../src/shared/infrastructure/prisma";
 
 test("register, persist session, sign out, reject bad password, and sign in", async ({ page }) => {
   const email = `auth-${crypto.randomUUID()}@example.test`;

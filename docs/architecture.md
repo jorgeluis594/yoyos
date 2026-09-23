@@ -149,7 +149,9 @@ Export only what other features or application entry points actually need. Do no
 
 Use a root-level `shared/`, alongside `apps/`, for types and code shared across applications. Each application's `src/shared/` holds code shared only within that app. Keep code in its owning feature whenever possible; move it to `shared/` only when multiple features or apps use it and it has no business owner. Generic UI primitives belong in `components/ui/`; feature-specific components stay in feature presentation.
 
-Do not use shared folders as a destination for unclassified code. Result types live in the root `shared/result.ts`; both apps import them with `import type { Result } from "@shared/result"`. Shared types use `import type` and must not depend on an application's framework or persistence models. Neither app imports the other's source. Feature entities remain in their owning feature.
+In `apps/core`, authentication infrastructure (Better Auth, its client, and Prisma) and the shared `User` identity type belong in `src/shared/`. These depend on core-specific runtime and persistence, so they do not belong in the root-level `shared/`.
+
+Do not use shared folders as a destination for unclassified code. Result types live in the root `shared/result.ts`; both apps import them with `import type { Result } from "@shared/result"`. Shared types use `import type` and must not depend on an application's framework or persistence models. Neither app imports the other's source. Feature entities remain in their owning feature unless they represent identity shared across core features.
 
 ## Validation, Security, and Failures
 

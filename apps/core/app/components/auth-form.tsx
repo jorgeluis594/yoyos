@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
-import { authClient } from "@/lib/auth-client";
+import { authClient } from "../../src/shared/infrastructure/auth-client";
 
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const register = mode === "register";
