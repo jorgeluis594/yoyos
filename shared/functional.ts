@@ -28,6 +28,31 @@ export function andThen<A, B, E extends AppError = never, F extends AppError = n
   return result.success ? next(result.data) : result;
 }
 
+/** Chain Result-returning steps, stopping at the first failure. */
+export function pipe<A, E extends AppError>(initial: Result<A, E>): Result<A, E>;
+export function pipe<A, B, E extends AppError, F extends AppError>(
+  initial: Result<A, E>, first: (value: A) => Result<B, F>,
+): Result<B, E | F>;
+export function pipe<A, B, C, E extends AppError, F extends AppError, G extends AppError>(
+  initial: Result<A, E>, first: (value: A) => Result<B, F>,
+  second: (value: B) => Result<C, G>,
+): Result<C, E | F | G>;
+export function pipe<A, B, C, D, E extends AppError, F extends AppError, G extends AppError, H extends AppError>(
+  initial: Result<A, E>, first: (value: A) => Result<B, F>,
+  second: (value: B) => Result<C, G>, third: (value: C) => Result<D, H>,
+): Result<D, E | F | G | H>;
+export function pipe(
+  initial: Result<unknown, AppError>,
+  ...steps: Array<(value: never) => Result<unknown, AppError>>
+): Result<unknown, AppError> {
+  let result = initial;
+  for (const step of steps) {
+    if (!result.success) return result;
+    result = step(result.data as never);
+  }
+  return result;
+}
+
 export async function mapAsync<A, B, E extends AppError = never>(
   input: Result<A, E> | Promise<Result<A, E>>,
   transform: (value: A) => B | Promise<B>,
@@ -42,6 +67,35 @@ export async function andThenAsync<A, B, E extends AppError = never, F extends A
 ): Promise<Result<B, E | F>> {
   const result = await input;
   return result.success ? next(result.data) : result;
+}
+
+/** Chain synchronous or asynchronous Result steps, stopping at the first failure. */
+export function pipeAsync<A, E extends AppError>(initial: Result<A, E> | Promise<Result<A, E>>): Promise<Result<A, E>>;
+export function pipeAsync<A, B, E extends AppError, F extends AppError>(
+  initial: Result<A, E> | Promise<Result<A, E>>,
+  first: (value: A) => Result<B, F> | Promise<Result<B, F>>,
+): Promise<Result<B, E | F>>;
+export function pipeAsync<A, B, C, E extends AppError, F extends AppError, G extends AppError>(
+  initial: Result<A, E> | Promise<Result<A, E>>,
+  first: (value: A) => Result<B, F> | Promise<Result<B, F>>,
+  second: (value: B) => Result<C, G> | Promise<Result<C, G>>,
+): Promise<Result<C, E | F | G>>;
+export function pipeAsync<A, B, C, D, E extends AppError, F extends AppError, G extends AppError, H extends AppError>(
+  initial: Result<A, E> | Promise<Result<A, E>>,
+  first: (value: A) => Result<B, F> | Promise<Result<B, F>>,
+  second: (value: B) => Result<C, G> | Promise<Result<C, G>>,
+  third: (value: C) => Result<D, H> | Promise<Result<D, H>>,
+): Promise<Result<D, E | F | G | H>>;
+export async function pipeAsync(
+  initial: Result<unknown, AppError> | Promise<Result<unknown, AppError>>,
+  ...steps: Array<(value: never) => Result<unknown, AppError> | Promise<Result<unknown, AppError>>>
+): Promise<Result<unknown, AppError>> {
+  let result = await initial;
+  for (const step of steps) {
+    if (!result.success) return result;
+    result = await step(result.data as never);
+  }
+  return result;
 }
 
 /** Collect values or return the first failure. Already evaluated work is not undone. */

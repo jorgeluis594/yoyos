@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  ok, err, map, mapError, andThen, mapAsync, andThenAsync, sequence, traverse,
+  ok, err, map, mapError, andThen, pipe, mapAsync, andThenAsync, pipeAsync, sequence, traverse,
 } from "./functional.ts";
 
 test("composition transforms values and preserves failures without running later work", async () => {
@@ -37,6 +37,18 @@ test("collections preserve order, accept empty input, and stop traversal on fail
   assert.deepEqual(visited, [1, 2]);
   const input = Object.freeze([1, 2]);
   assert.deepEqual(traverse(input, (n) => ok(n * 2)), ok([2, 4]));
+});
+
+test("pipelines pass successful data and stop after a failure", async () => {
+  const failure = err({ message: "Stopped" });
+  const unexpected = () => assert.fail("Later step must not run");
+  assert.deepEqual(pipe(ok(2), (n) => ok(n + 1), (n) => ok(String(n))), ok("3"));
+  assert.equal(pipe(failure, unexpected), failure);
+  assert.equal(pipe(ok(2), () => failure, unexpected), failure);
+  assert.deepEqual(pipe(ok(2)), ok(2));
+  assert.deepEqual(await pipeAsync(Promise.resolve(ok(2)), async (n) => ok(n + 1), (n) => ok(String(n))), ok("3"));
+  assert.equal(await pipeAsync(ok(2), async () => failure, unexpected), failure);
+  assert.deepEqual(await pipeAsync(ok(2)), ok(2));
 });
 
 test("exceptions and rejected promises remain observable", async () => {
