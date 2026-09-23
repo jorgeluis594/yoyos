@@ -16,6 +16,8 @@ const { base, companies, transactions } = globalPrisma.__yoyosPrisma ??= {
   transactions: new AsyncLocalStorage<TransactionScope>(),
 };
 
+export const systemPrisma = base;
+
 export function withTenantIsolation<T>(companyId: string, callback: () => T): T {
   const scope = transactions.getStore();
   if (scope?.active && scope.companyId !== companyId) {
@@ -78,29 +80,6 @@ export const authPrisma = base.$extends({
     },
   },
 });
-
-export async function createCompanyForUser(userId: string, name: string): Promise<{ companyId: string; created: boolean }> {
-  const existing = await authPrisma.user.findUnique({ where: { id: userId }, select: { companyId: true } });
-  if (!existing) throw new Error("Authenticated user no longer exists");
-  if (existing.companyId) return { companyId: existing.companyId, created: false };
-
-  const companyId = crypto.randomUUID();
-  const alreadyLinked = new Error("Company was linked concurrently");
-  try {
-    await base.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT set_config('app.company_id', ${companyId}, true)`;
-      await tx.company.create({ data: { id: companyId, name } });
-      const linked = await tx.user.updateMany({ where: { id: userId, companyId: null }, data: { companyId } });
-      if (linked.count !== 1) throw alreadyLinked;
-    });
-    return { companyId, created: true };
-  } catch (error) {
-    if (error !== alreadyLinked) throw error;
-    const user = await authPrisma.user.findUnique({ where: { id: userId }, select: { companyId: true } });
-    if (!user?.companyId) throw new Error("Company link was lost after a concurrent request", { cause: error });
-    return { companyId: user.companyId, created: false };
-  }
-}
 
 type OperationResult = Result<unknown, AppError>;
 export async function withinTransaction<R extends OperationResult>(callback: () => Promise<R> | R): Promise<R> {

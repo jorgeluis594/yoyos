@@ -1,13 +1,17 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
+import { countries } from "@shared/country";
 import { authClient } from "../../src/shared/infrastructure/auth-client";
+
+const countryNames = { PE: "Perú", US: "Estados Unidos", CO: "Colombia", AR: "Argentina", CL: "Chile", BR: "Brasil" };
 
 export function AuthForm({ mode, pendingCompany = false }: { mode: "login" | "register"; pendingCompany?: boolean }) {
   const register = mode === "register";
   const navigate = useNavigate();
   const [companyStep, setCompanyStep] = useState(pendingCompany);
   const [companyName, setCompanyName] = useState("");
+  const [companyCountry, setCompanyCountry] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
 
@@ -16,7 +20,10 @@ export function AuthForm({ mode, pendingCompany = false }: { mode: "login" | "re
     setError("");
     setPending(true);
     const data = new FormData(event.currentTarget);
-    if (register) setCompanyName(String(data.get("companyName")));
+    if (register) {
+      setCompanyName(String(data.get("companyName")));
+      setCompanyCountry(String(data.get("country")));
+    }
 
     try {
       if (companyStep || register) {
@@ -35,7 +42,7 @@ export function AuthForm({ mode, pendingCompany = false }: { mode: "login" | "re
         const response = await fetch("/api/company", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: String(data.get("companyName")) }),
+          body: JSON.stringify({ name: String(data.get("companyName")), country: String(data.get("country")) }),
         });
         if (!response.ok) {
           setError("No se pudo crear la empresa. Inténtalo de nuevo.");
@@ -87,6 +94,13 @@ export function AuthForm({ mode, pendingCompany = false }: { mode: "login" | "re
           {register && <label className="flex flex-col gap-1.5 text-sm font-medium">
             Nombre de empresa
             <input name="companyName" required maxLength={120} defaultValue={companyName} className="h-10 rounded-md border border-input bg-background px-3 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+          </label>}
+          {register && <label className="flex flex-col gap-1.5 text-sm font-medium">
+            País
+            <select name="country" required defaultValue={companyCountry} className="h-10 rounded-md border border-input bg-background px-3 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <option value="" disabled>Selecciona un país</option>
+              {countries.map((country) => <option key={country} value={country}>{countryNames[country]}</option>)}
+            </select>
           </label>}
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           <Button type="submit" disabled={pending}>{pending ? "Espera..." : companyStep ? "Crear empresa" : register ? "Crear cuenta" : "Entrar"}</Button>

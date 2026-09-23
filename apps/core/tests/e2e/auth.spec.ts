@@ -21,6 +21,8 @@ test("register, persist session, sign out, reject bad password, and sign in", as
     await page.getByRole("link", { name: "Regístrate" }).click();
     await page.getByLabel("Nombre", { exact: true }).fill("Ana Prueba");
     await page.getByLabel("Nombre de empresa").fill("Empresa Ana");
+    await expect(page.getByLabel("País")).toHaveValue("");
+    await page.getByLabel("País").selectOption("PE");
     await page.getByLabel("Correo electrónico").fill(email);
     await page.getByLabel("Contraseña").fill("test-password-123");
     const createdCompany = page.waitForResponse((response) => response.url().endsWith("/api/company"));
@@ -68,9 +70,11 @@ test("company creation can be retried after registration", async ({ page }) => {
     await page.getByLabel("Correo electrónico").fill(email);
     await page.getByLabel("Contraseña").fill("test-password-123");
     await page.getByLabel("Nombre de empresa").fill("Empresa Pendiente");
+    await page.getByLabel("País").selectOption("CO");
     await page.getByRole("button", { name: "Crear cuenta" }).click();
     await expect(page.getByRole("alert")).toContainText("No se pudo crear la empresa");
     await expect(page.getByRole("button", { name: "Crear empresa" })).toBeVisible();
+    await expect(page.getByLabel("País")).toHaveValue("CO");
 
     await page.goto("/es-PE/login");
     await page.getByLabel("Correo electrónico").fill(email);
@@ -83,16 +87,20 @@ test("company creation can be retried after registration", async ({ page }) => {
     expect((await page.request.get("/api/anything")).status()).toBe(409);
     expect((await page.request.post("/api/company", { data: { name: "   " } })).status()).toBe(400);
     expect((await page.request.post("/api/company", { data: { name: "x".repeat(121) } })).status()).toBe(400);
+    expect((await page.request.post("/api/company", { data: { name: "Empresa Pendiente" } })).status()).toBe(400);
+    expect((await page.request.post("/api/company", { data: { name: "Empresa Pendiente", country: "ZZ" } })).status()).toBe(400);
 
     await page.getByLabel("Nombre de empresa").fill("  Empresa Pendiente  ");
+    await page.getByLabel("País").selectOption("CO");
     await page.getByRole("button", { name: "Crear empresa" }).click();
     await expect(page).toHaveURL(/\/es-PE\/dashboard$/);
     const user = await authPrisma.user.findUniqueOrThrow({ where: { email }, select: { companyId: true } });
     expect(user.companyId).toBeTruthy();
     if (!user.companyId) throw new Error("Company was not linked");
     const companyId = user.companyId;
-    expect((await withTenantIsolation(companyId, async () => prisma.company.findUniqueOrThrow({ where: { id: companyId } }))).name).toBe("Empresa Pendiente");
-    const retry = await page.request.post("/api/company", { data: { name: "Otra empresa", companyId: crypto.randomUUID() } });
+    expect(await withTenantIsolation(companyId, async () => prisma.company.findUniqueOrThrow({ where: { id: companyId }, select: { name: true, country: true } }))).toEqual({ name: "Empresa Pendiente", country: "CO" });
+    expect((await page.request.post("/api/company", { data: { name: "Otra empresa", country: "ZZ" } })).status()).toBe(400);
+    const retry = await page.request.post("/api/company", { data: { name: "Otra empresa", country: "BR", companyId: crypto.randomUUID() } });
     expect(retry.status()).toBe(200);
     expect((await retry.json()).companyId).toBe(user.companyId);
   } finally {

@@ -40,7 +40,9 @@ test("company context enforces RLS and transaction boundaries", async (t) => {
     await admin.$executeRawUnsafe(`GRANT USAGE ON SCHEMA ${schema} TO "${role}"`);
     await admin.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE, DELETE ON ${schema}.rls_probe TO "${role}"`);
 
-    const { prisma, withTenantIsolation, getCompanyId, withinTransaction, authPrisma, createCompanyForUser } = await import("./persistance.ts");
+    const { prisma, withTenantIsolation, getCompanyId, withinTransaction, authPrisma } = await import("./persistance.ts");
+    const { createCompanyForUser } = await import("../../features/companies/application/create-company-for-user.ts");
+    const { companyRepository } = await import("../../features/companies/infrastructure/company-repository.ts");
     const rows = () => prisma.$queryRaw(Prisma.sql`SELECT id FROM ${probe} ORDER BY id`);
     const insert = (id, parentId = null) => prisma.$executeRaw(Prisma.sql`INSERT INTO ${probe} (id, company_id, parent_id) VALUES (${id}, ${getCompanyId()}::uuid, ${parentId})`);
 
@@ -60,20 +62,21 @@ test("company context enforces RLS and transaction boundaries", async (t) => {
 
     await t.test("isolates concurrent and nested contexts across model and raw SQL", async () => {
       await Promise.all([
-        withTenantIsolation(companyA, async () => { await Promise.resolve(); await prisma.company.create({ data: { id: getCompanyId(), name: "A" } }); await insert("a"); }),
-        withTenantIsolation(companyB, async () => { await Promise.resolve(); await prisma.company.create({ data: { id: getCompanyId(), name: "B" } }); await insert("b"); }),
+        withTenantIsolation(companyA, async () => { await Promise.resolve(); await prisma.company.create({ data: { id: getCompanyId(), name: "A", country: "PE" } }); await insert("a"); }),
+        withTenantIsolation(companyB, async () => { await Promise.resolve(); await prisma.company.create({ data: { id: getCompanyId(), name: "B", country: "US" } }); await insert("b"); }),
       ]);
       await withTenantIsolation(companyA, async () => {
         assert.deepEqual((await prisma.company.findMany()).map(({ name }) => name), ["A"]);
         assert.deepEqual((await rows()).map(({ id }) => id), ["a"]);
         assert.equal(await prisma.company.count(), 1);
         assert.equal((await prisma.company.findUnique({ where: { id: companyB } })), null);
+        await assert.rejects(prisma.company.create({ data: { id: crypto.randomUUID(), name: "Invalid country", country: "ZZ" } }));
         await prisma.company.update({ where: { id: companyA }, data: { name: "A updated" } });
-        assert.equal((await prisma.company.upsert({ where: { id: companyA }, update: { name: "A" }, create: { id: companyA, name: "unused" } })).name, "A");
-        await assert.rejects(prisma.company.upsert({ where: { id: companyB }, update: { name: "wrong" }, create: { id: companyB, name: "wrong" } }));
+        assert.equal((await prisma.company.upsert({ where: { id: companyA }, update: { name: "A" }, create: { id: companyA, name: "unused", country: "PE" } })).name, "A");
+        await assert.rejects(prisma.company.upsert({ where: { id: companyB }, update: { name: "wrong" }, create: { id: companyB, name: "wrong", country: "PE" } }));
         assert.equal(await prisma.company.updateMany({ where: { id: companyB }, data: { name: "wrong" } }).then(({ count }) => count), 0);
         assert.equal(await prisma.company.deleteMany({ where: { id: companyB } }).then(({ count }) => count), 0);
-        assert.equal(await prisma.company.createMany({ data: [{ id: companyA, name: "duplicate" }], skipDuplicates: true }).then(({ count }) => count), 0);
+        assert.equal(await prisma.company.createMany({ data: [{ id: companyA, name: "duplicate", country: "PE" }], skipDuplicates: true }).then(({ count }) => count), 0);
         assert.deepEqual(await prisma.$queryRaw(Prisma.sql`SELECT name FROM public."Company" WHERE id = ${companyA}::uuid`), [{ name: "A" }]);
         assert.deepEqual(await prisma.$queryRawUnsafe('SELECT name FROM public."Company" WHERE id = $1::uuid', companyB), []);
         assert.equal(await prisma.$executeRawUnsafe('UPDATE public."Company" SET name = $1 WHERE id = $2::uuid', "A", companyA), 1);
@@ -82,7 +85,7 @@ test("company context enforces RLS and transaction boundaries", async (t) => {
         await withTenantIsolation(companyB, async () => assert.deepEqual((await rows()).map(({ id }) => id), ["b"]));
         await assert.rejects(withTenantIsolation(companyB, async () => { throw new Error("nested"); }), /nested/);
         assert.deepEqual((await rows()).map(({ id }) => id), ["a"]);
-        await assert.rejects(prisma.company.create({ data: { id: companyB, name: "cross" } }));
+        await assert.rejects(prisma.company.create({ data: { id: companyB, name: "cross", country: "PE" } }));
         await assert.rejects(prisma.$executeRaw(Prisma.sql`UPDATE ${probe} SET company_id = ${companyB}::uuid WHERE id = 'a'`));
       });
     });
@@ -108,7 +111,7 @@ test("company context enforces RLS and transaction boundaries", async (t) => {
         await assert.rejects(withinTransaction(async () => { await insert("exception"); throw new Error("technical failure"); }), /technical failure/);
         await assert.rejects(withinTransaction(async () => {
           await insert("caught-error");
-          try { await prisma.company.create({ data: { id: companyB, name: "wrong" } }); } catch { /* caller ignored a technical error */ }
+          try { await prisma.company.create({ data: { id: companyB, name: "wrong", country: "PE" } }); } catch { /* caller ignored a technical error */ }
           return success();
         }), /aborted by a nested operation/);
         await assert.rejects(withinTransaction(async () => { await withTenantIsolation(companyB, () => insert("wrong-company")); return success(); }), /Cannot change company/);
@@ -146,12 +149,12 @@ test("company context enforces RLS and transaction boundaries", async (t) => {
       userIds.push(userId);
       await authPrisma.user.create({ data: { id: userId, name: "Owner", email: `${userId}@example.test` } });
       try {
-        const first = await createCompanyForUser(userId, "Owner company");
+        const first = await createCompanyForUser(userId, "Owner company", "PE", companyRepository);
         assert(first.created);
         assert.equal((await authPrisma.user.findUniqueOrThrow({ where: { id: userId } })).companyId, first.companyId);
-        assert.equal((await createCompanyForUser(userId, "Ignored company")).companyId, first.companyId);
+        assert.equal((await createCompanyForUser(userId, "Ignored company", "US", companyRepository)).companyId, first.companyId);
         await withTenantIsolation(first.companyId, async () => {
-          assert.equal((await prisma.company.findUniqueOrThrow({ where: { id: first.companyId } })).name, "Owner company");
+          assert.deepEqual(await prisma.company.findUniqueOrThrow({ where: { id: first.companyId }, select: { name: true, country: true } }), { name: "Owner company", country: "PE" });
         });
 
         const failedUserId = crypto.randomUUID();
@@ -160,7 +163,7 @@ test("company context enforces RLS and transaction boundaries", async (t) => {
         await admin.$executeRawUnsafe(`CREATE FUNCTION ${schema}.reject_company_link() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.id = '${failedUserId}' THEN RAISE EXCEPTION 'link rejected'; END IF; RETURN NEW; END $$`);
         await admin.$executeRawUnsafe(`CREATE TRIGGER reject_company_link BEFORE UPDATE ON "user" FOR EACH ROW EXECUTE FUNCTION ${schema}.reject_company_link()`);
         try {
-          await assert.rejects(createCompanyForUser(failedUserId, "Rolled back"), /link rejected/);
+          await assert.rejects(createCompanyForUser(failedUserId, "Rolled back", "BR", companyRepository), /link rejected/);
           assert.equal((await admin.$queryRaw`SELECT count(*)::int AS count FROM "Company" WHERE name = 'Rolled back'`)[0].count, 0);
           assert.equal((await authPrisma.user.findUniqueOrThrow({ where: { id: failedUserId } })).companyId, null);
         } finally {

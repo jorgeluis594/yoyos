@@ -70,7 +70,8 @@ model Verification {
 }
 
 model Company {
-  id    String @id @db.Uuid
-  name  String
-  users User[]
+  id      String @id @db.Uuid
+  name    String
+  country String
+  users   User[]
 }

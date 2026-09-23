@@ -8,5 +8,5 @@ export function generateCompany(input: CompanyInput): Result<Company, CompanyErr
   const validation = validateCompany(input);
   if (!validation.success) return err(validation.error);
 
-  return ok({ id: input.id ?? Crypto.randomUUID(), name: input.name });
+  return ok({ id: input.id ?? Crypto.randomUUID(), name: input.name, country: input.country });
 }

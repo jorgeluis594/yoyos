@@ -1,6 +1,6 @@
 import { Outlet, redirect, type MiddlewareFunction } from "react-router";
 import { privateUserContext } from "@/private-user-context";
-import { withTenantIsolation } from "@core/src/shared/infrastructure/company-database";
+import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { resolveCurrentUser } from "@core/src/shared/infrastructure/current-user";
 
 export const middleware: MiddlewareFunction<Response>[] = [async ({ request, context }, next) => {
