@@ -7,8 +7,7 @@ test("separate module copies share the Prisma client and company context", async
 
   assert.notEqual(api.withTenantIsolation, ssr.withTenantIsolation);
   assert.equal(api.prisma._originalClient, ssr.prisma._originalClient);
-  assert.equal(api.authPrisma._originalClient, ssr.authPrisma._originalClient);
-  assert.equal(api.prisma._originalClient, api.authPrisma._originalClient);
+  assert.equal(api.systemPrisma, ssr.systemPrisma);
   await api.withTenantIsolation("company-a", async () => {
     await Promise.resolve();
     assert.equal(ssr.getCompanyId(), "company-a");

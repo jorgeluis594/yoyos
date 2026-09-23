@@ -1,5 +1,7 @@
 # Yoyos
 
+Para cambios de base de datos, usar la [skill de migraciones](.agents/skills/database-migrations/SKILL.md).
+
 ## Desarrollo local con Docker
 
 Desde la raíz del repositorio, inicia la web y PostgreSQL:

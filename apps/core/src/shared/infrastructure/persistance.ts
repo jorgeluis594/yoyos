@@ -54,9 +54,6 @@ async function execute<T>(callback: (tx: Prisma.TransactionClient) => Promise<T>
 export const prisma = base.$extends({
   query: {
     async $allOperations({ model, operation, args }) {
-      if (model && ["User", "Session", "Account", "Verification"].includes(model)) {
-        throw new Error("Authentication models require authPrisma");
-      }
       return execute(async (tx) => {
         const target = model ? (tx as unknown as Record<string, Record<string, (args: unknown) => Promise<unknown>>>)[model] : tx as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>;
         return model
@@ -67,17 +64,6 @@ export const prisma = base.$extends({
   },
   client: {
     $transaction() { throw new Error("Use withinTransaction instead of prisma.$transaction"); },
-  },
-});
-
-export const authPrisma = base.$extends({
-  query: {
-    async $allOperations({ model, args, query }) {
-      if (!model || !["User", "Session", "Account", "Verification"].includes(model)) {
-        throw new Error("authPrisma only permits authentication models; raw SQL and tenant queries are forbidden");
-      }
-      return query(args);
-    },
   },
 });
 

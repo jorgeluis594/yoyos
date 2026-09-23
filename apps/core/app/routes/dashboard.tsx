@@ -19,7 +19,7 @@ export default function Dashboard() {
     try {
       const result = await authClient.signOut();
       if (result.error) throw result.error;
-      navigate("/es-PE/login");
+      navigate("/login");
     } catch {
       setError("No se pudo cerrar la sesión. Inténtalo de nuevo.");
       setPending(false);

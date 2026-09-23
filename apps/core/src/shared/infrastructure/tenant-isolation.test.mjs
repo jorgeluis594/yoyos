@@ -43,7 +43,7 @@ test("company context enforces RLS and transaction boundaries", async () => {
     await admin.$executeRawUnsafe(`GRANT USAGE ON SCHEMA ${schema} TO "${role}"`);
     await admin.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE, DELETE ON ${schema}.rls_probe TO "${role}"`);
 
-    const { prisma, withTenantIsolation, getCompanyId, withinTransaction, authPrisma } = await import("./persistance.ts");
+    const { prisma, withTenantIsolation, getCompanyId, withinTransaction, systemPrisma } = await import("./persistance.ts");
     const { createCompanyForUser } = await import("../../features/companies/application/create-company-for-user.ts");
     const { companyRepository } = await import("../../features/companies/infrastructure/company-repository.ts");
     const rows = () => prisma.$queryRaw(Prisma.sql`SELECT id FROM ${probe} ORDER BY id`);
@@ -53,10 +53,8 @@ test("company context enforces RLS and transaction boundaries", async () => {
       assert.throws(() => getCompanyId(), /Company context is required/);
       await assert.rejects(prisma.company.findMany(), /Company context is required/);
       await assert.rejects(rows(), /Company context is required/);
-      await assert.rejects(authPrisma.company.findMany(), /authPrisma only permits/);
-      await assert.rejects(authPrisma.$queryRaw`SELECT 1`, /authPrisma only permits/);
-      await assert.rejects(authPrisma.$transaction((tx) => tx.company.findMany()), /authPrisma only permits/);
-      await assert.rejects(prisma.user.findMany(), /Authentication models require authPrisma/);
+      await assert.rejects(prisma.user.findMany(), /Company context is required/);
+      assert.deepEqual(await systemPrisma.company.findMany(), []);
       assert.throws(() => prisma.$transaction([]), /Use withinTransaction/);
       const appPool = new pg.Pool({ connectionString: appUrl });
       try { await assert.rejects(appPool.query('TRUNCATE public."Company"'), /permission denied/); } finally { await appPool.end(); }
@@ -68,6 +66,7 @@ test("company context enforces RLS and transaction boundaries", async () => {
         withTenantIsolation(companyA, async () => { await Promise.resolve(); await prisma.company.create({ data: { id: getCompanyId(), name: "A", country: "PE" } }); await insert("a"); }),
         withTenantIsolation(companyB, async () => { await Promise.resolve(); await prisma.company.create({ data: { id: getCompanyId(), name: "B", country: "US" } }); await insert("b"); }),
       ]);
+      assert.deepEqual(await systemPrisma.company.findMany(), []);
       await withTenantIsolation(companyA, async () => {
         assert.deepEqual((await prisma.company.findMany()).map(({ name }) => name), ["A"]);
         assert.deepEqual((await rows()).map(({ id }) => id), ["a"]);
@@ -150,11 +149,12 @@ test("company context enforces RLS and transaction boundaries", async () => {
     await step("links an authenticated user atomically and rolls back failed links", async () => {
       const userId = crypto.randomUUID();
       userIds.push(userId);
-      await authPrisma.user.create({ data: { id: userId, name: "Owner", email: `${userId}@example.test` } });
+      await systemPrisma.user.create({ data: { id: userId, name: "Owner", email: `${userId}@example.test` } });
+      assert.equal((await systemPrisma.user.findUniqueOrThrow({ where: { id: userId } })).companyId, null);
       try {
         const first = await createCompanyForUser(userId, "Owner company", "PE", companyRepository);
         assert(first.created);
-        assert.equal((await authPrisma.user.findUniqueOrThrow({ where: { id: userId } })).companyId, first.companyId);
+        assert.equal((await systemPrisma.user.findUniqueOrThrow({ where: { id: userId } })).companyId, first.companyId);
         assert.equal((await createCompanyForUser(userId, "Ignored company", "US", companyRepository)).companyId, first.companyId);
         await withTenantIsolation(first.companyId, async () => {
           assert.deepEqual(await prisma.company.findUniqueOrThrow({ where: { id: first.companyId }, select: { name: true, country: true } }), { name: "Owner company", country: "PE" });
@@ -162,21 +162,21 @@ test("company context enforces RLS and transaction boundaries", async () => {
 
         const failedUserId = crypto.randomUUID();
         userIds.push(failedUserId);
-        await authPrisma.user.create({ data: { id: failedUserId, name: "Failure", email: `${failedUserId}@example.test` } });
+        await systemPrisma.user.create({ data: { id: failedUserId, name: "Failure", email: `${failedUserId}@example.test` } });
         await admin.$executeRawUnsafe(`CREATE FUNCTION ${schema}.reject_company_link() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.id = '${failedUserId}' THEN RAISE EXCEPTION 'link rejected'; END IF; RETURN NEW; END $$`);
         await admin.$executeRawUnsafe(`CREATE TRIGGER reject_company_link BEFORE UPDATE ON "user" FOR EACH ROW EXECUTE FUNCTION ${schema}.reject_company_link()`);
         try {
           await assert.rejects(createCompanyForUser(failedUserId, "Rolled back", "BR", companyRepository), /link rejected/);
           assert.equal((await admin.$queryRaw`SELECT count(*)::int AS count FROM "Company" WHERE name = 'Rolled back'`)[0].count, 0);
-          assert.equal((await authPrisma.user.findUniqueOrThrow({ where: { id: failedUserId } })).companyId, null);
+          assert.equal((await systemPrisma.user.findUniqueOrThrow({ where: { id: failedUserId } })).companyId, null);
         } finally {
           await admin.$executeRawUnsafe('DROP TRIGGER reject_company_link ON "user"');
           await admin.$executeRawUnsafe(`DROP FUNCTION ${schema}.reject_company_link()`);
-          await authPrisma.user.delete({ where: { id: failedUserId } });
+          await systemPrisma.user.delete({ where: { id: failedUserId } });
         }
       } finally {
-        const user = await authPrisma.user.findUnique({ where: { id: userId }, select: { companyId: true } });
-        await authPrisma.user.deleteMany({ where: { id: userId } });
+        const user = await systemPrisma.user.findUnique({ where: { id: userId }, select: { companyId: true } });
+        await systemPrisma.user.deleteMany({ where: { id: userId } });
         if (user?.companyId) {
           const id = user.companyId;
           await withTenantIsolation(id, async () => prisma.company.delete({ where: { id } }));

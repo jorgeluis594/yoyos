@@ -1,10 +1,9 @@
 import { browserExpect, expect, test } from "./fixtures";
-import { authPrisma } from "../../src/shared/infrastructure/persistance";
-import { prisma, withTenantIsolation } from "../../src/shared/infrastructure/persistance";
+import { prisma, systemPrisma, withTenantIsolation } from "../../src/shared/infrastructure/persistance";
 
 async function removeAccount(email: string) {
-  const user = await authPrisma.user.findUnique({ where: { email }, select: { companyId: true } });
-  await authPrisma.user.deleteMany({ where: { email } });
+  const user = await systemPrisma.user.findUnique({ where: { email }, select: { companyId: true } });
+  await systemPrisma.user.deleteMany({ where: { email } });
   if (user?.companyId) {
     const companyId = user.companyId;
     await withTenantIsolation(companyId, async () => prisma.company.delete({ where: { id: companyId } }));
@@ -15,6 +14,8 @@ test("register, persist session, sign out, reject bad password, and sign in", as
   const email = `auth-${crypto.randomUUID()}@example.test`;
 
   try {
+    await page.goto("/dashboard");
+    await browserExpect(page).toHaveURL(/\/login$/);
     await page.goto("/es-PE/dashboard");
     await browserExpect(page).toHaveURL(/\/es-PE\/login$/);
 
@@ -31,14 +32,14 @@ test("register, persist session, sign out, reject bad password, and sign in", as
     await browserExpect(page).toHaveURL(/\/es-PE\/dashboard$/);
     await browserExpect(page.getByRole("heading", { name: "Hola, Ana Prueba" })).toBeVisible();
 
-    await page.goto("/es-PE/register");
+    await page.goto("/register");
     await browserExpect(page).toHaveURL(/\/es-PE\/dashboard$/);
 
     await page.reload();
     await browserExpect(page.getByRole("heading", { name: "Hola, Ana Prueba" })).toBeVisible();
 
     await page.getByRole("button", { name: "Cerrar sesión" }).click();
-    await browserExpect(page).toHaveURL(/\/es-PE\/login$/);
+    await browserExpect(page).toHaveURL(/\/login$/);
     await page.goto("/es-PE/dashboard");
     await browserExpect(page).toHaveURL(/\/es-PE\/login$/);
 
@@ -76,11 +77,11 @@ test("company creation can be retried after registration", async ({ page }) => {
     await browserExpect(page.getByRole("button", { name: "Crear empresa" })).toBeVisible();
     await browserExpect(page.getByLabel("País")).toHaveValue("CO");
 
-    await page.goto("/es-PE/login");
+    await page.goto("/login");
     await page.getByLabel("Correo electrónico").fill(email);
     await page.getByLabel("Contraseña").fill("test-password-123");
     await page.getByRole("button", { name: "Entrar" }).click();
-    await browserExpect(page).toHaveURL(/\/es-PE\/register$/);
+    await browserExpect(page).toHaveURL(/\/register$/);
     await page.goto("/es-PE/dashboard");
     await browserExpect(page).toHaveURL(/\/es-PE\/register$/);
     await browserExpect(page.getByLabel("Correo electrónico")).toHaveCount(0);
@@ -93,8 +94,12 @@ test("company creation can be retried after registration", async ({ page }) => {
     await page.getByLabel("Nombre de empresa").fill("  Empresa Pendiente  ");
     await page.getByLabel("País").selectOption("CO");
     await page.getByRole("button", { name: "Crear empresa" }).click();
-    await browserExpect(page).toHaveURL(/\/es-PE\/dashboard$/);
-    const user = await authPrisma.user.findUniqueOrThrow({ where: { email }, select: { companyId: true } });
+    await browserExpect(page).toHaveURL(/\/es-CO\/dashboard$/);
+    await page.goto("/dashboard");
+    await browserExpect(page).toHaveURL(/\/es-CO\/dashboard$/);
+    await page.goto("/es-BR/dashboard");
+    await browserExpect(page).toHaveURL(/\/es-CO\/dashboard$/);
+    const user = await systemPrisma.user.findUniqueOrThrow({ where: { email }, select: { companyId: true } });
     expect(user.companyId).toBeTruthy();
     if (!user.companyId) throw new Error("Company was not linked");
     const companyId = user.companyId;
@@ -103,6 +108,12 @@ test("company creation can be retried after registration", async ({ page }) => {
     const retry = await page.request.post("/api/company", { data: { name: "Otra empresa", country: "BR", companyId: crypto.randomUUID() } });
     expect(retry.status()).toBe(200);
     expect((await retry.json()).companyId).toBe(user.companyId);
+    await page.getByRole("button", { name: "Cerrar sesión" }).click();
+    await browserExpect(page).toHaveURL(/\/login$/);
+    await page.getByLabel("Correo electrónico").fill(email);
+    await page.getByLabel("Contraseña").fill("test-password-123");
+    await page.getByRole("button", { name: "Entrar" }).click();
+    await browserExpect(page).toHaveURL(/\/es-CO\/dashboard$/);
   } finally {
     await removeAccount(email);
   }
