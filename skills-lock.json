@@ -13,6 +13,12 @@
       "skillPath": "skills/happy-memory-recall/SKILL.md",
       "computedHash": "580dec9d6756d4bf361aff385c6b3f1a1cc96f221b8ac0d4a97e9f14fc5f75f1"
     },
+    "playwright-cli": {
+      "source": "microsoft/playwright-cli",
+      "sourceType": "github",
+      "skillPath": "skills/playwright-cli/SKILL.md",
+      "computedHash": "1e6cef0264b72fbf47618ccb82644b9a72934b2eeb35186842332928492a3cd2"
+    },
     "shadcn": {
       "source": "shadcn-ui/ui",
       "sourceType": "github",
