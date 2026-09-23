@@ -40,16 +40,19 @@ function finish(amount: Decimal, currency: string): Result<Money, MoneyError> {
   return ok({ amount: value, currency });
 }
 
-export function add(a: Money, b: Money): Result<Money, MoneyError> {
-  return andThen(pair(a, b), ([left, right]) => finish(left.plus(right), a.currency));
+export function add(other: Money) {
+  return (current: Money): Result<Money, MoneyError> =>
+    andThen(pair(current, other), ([left, right]) => finish(left.plus(right), current.currency));
 }
 
-export function subtract(a: Money, b: Money): Result<Money, MoneyError> {
-  return andThen(pair(a, b), ([left, right]) => finish(left.minus(right), a.currency));
+export function subtract(other: Money) {
+  return (current: Money): Result<Money, MoneyError> =>
+    andThen(pair(current, other), ([left, right]) => finish(left.minus(right), current.currency));
 }
 
-export function compare(a: Money, b: Money): Result<-1 | 0 | 1, MoneyError> {
-  return map(pair(a, b), ([left, right]) =>
-    left.lessThan(right) ? -1 : left.greaterThan(right) ? 1 : 0,
-  );
+export function compare(other: Money) {
+  return (current: Money): Result<-1 | 0 | 1, MoneyError> =>
+    map(pair(current, other), ([left, right]) =>
+      left.lessThan(right) ? -1 : left.greaterThan(right) ? 1 : 0,
+    );
 }
