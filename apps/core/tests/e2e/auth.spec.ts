@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { prisma } from "../../src/shared/infrastructure/prisma";
+import { authPrisma } from "../../src/shared/infrastructure/prisma";
 
 test("register, persist session, sign out, reject bad password, and sign in", async ({ page }) => {
   const email = `auth-${crypto.randomUUID()}@example.test`;
@@ -36,6 +36,6 @@ test("register, persist session, sign out, reject bad password, and sign in", as
     await page.getByRole("button", { name: "Entrar" }).click();
     await expect(page).toHaveURL(/\/dashboard$/);
   } finally {
-    await prisma.user.deleteMany({ where: { email } });
+    await authPrisma.user.deleteMany({ where: { email } });
   }
 });

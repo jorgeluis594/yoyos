@@ -13,13 +13,25 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql
 
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/core/Dockerfile
+    command: sh -c 'pnpm exec prisma migrate deploy && psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -v app_password="$$APP_DB_PASSWORD" -v dbname=core -f scripts/provision-role.sql'
+    environment:
+      DATABASE_URL: postgresql://core:core@db:5432/core
+      APP_DB_PASSWORD: core_app_local
+    depends_on:
+      db:
+        condition: service_healthy
+
   web:
     build:
       context: .
       dockerfile: apps/core/Dockerfile
-    command: sh -c "pnpm exec prisma generate && pnpm exec prisma migrate deploy && pnpm dev"
+    command: sh -c "pnpm exec prisma generate && pnpm dev"
     environment:
-      DATABASE_URL: postgresql://core:core@db:5432/core
+      DATABASE_URL: postgresql://core_app:core_app_local@db:5432/core
       BETTER_AUTH_SECRET: local-development-secret-change-me-32chars
       BETTER_AUTH_URL: http://localhost:3000
       PORT: 3000
@@ -30,8 +42,8 @@ services:
       - /workspace/apps/core/node_modules
       - ./docs:/workspace/docs:ro
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
 volumes:
   postgres_data:
