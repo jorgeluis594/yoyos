@@ -4,12 +4,14 @@ import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import pg from "pg";
 
-const adminUrl = process.env.TEST_ADMIN_DATABASE_URL;
 const appUrl = process.env.DATABASE_URL;
 
 test("company context enforces RLS and transaction boundaries", async (t) => {
-  assert(adminUrl && appUrl, "run sh scripts/run-tests.sh integration to prepare core_test");
-  const admin = new PrismaClient({ adapter: new PrismaPg({ connectionString: adminUrl }) });
+  assert(appUrl, "run sh scripts/run-tests.sh integration to prepare core_test");
+  const adminUrl = new URL(appUrl);
+  adminUrl.username = "core";
+  adminUrl.password = "core";
+  const admin = new PrismaClient({ adapter: new PrismaPg({ connectionString: adminUrl.toString() }) });
   const role = new URL(appUrl).username.replaceAll('"', '""');
   const companyA = crypto.randomUUID();
   const companyB = crypto.randomUUID();
