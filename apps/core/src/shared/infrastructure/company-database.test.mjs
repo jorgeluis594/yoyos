@@ -7,7 +7,7 @@ import pg from "pg";
 const adminUrl = process.env.RLS_TEST_ADMIN_URL;
 const appUrl = process.env.RLS_TEST_DATABASE_URL;
 
-test("tenant Prisma enforces RLS and transaction boundaries", { skip: !adminUrl || !appUrl ? "set RLS_TEST_ADMIN_URL and RLS_TEST_DATABASE_URL" : false }, async (t) => {
+test("company context enforces RLS and transaction boundaries", { skip: !adminUrl || !appUrl ? "set RLS_TEST_ADMIN_URL and RLS_TEST_DATABASE_URL" : false }, async (t) => {
   const admin = new PrismaClient({ adapter: new PrismaPg({ connectionString: adminUrl }) });
   const role = new URL(appUrl).username.replaceAll('"', '""');
   const companyA = "11111111-1111-4111-8111-111111111111";
@@ -35,13 +35,13 @@ test("tenant Prisma enforces RLS and transaction boundaries", { skip: !adminUrl 
 
     process.env.DATABASE_URL = appUrl;
     const { prisma } = await import("./prisma.ts");
-    const { withCompanyContext, getCompanyId, tenantPrisma, withinTransaction } = await import("./company-database.ts");
-    const rows = () => tenantPrisma.$queryRaw`SELECT id FROM public.rls_probe ORDER BY id`;
-    const insert = (id, parentId = null) => tenantPrisma.$executeRaw`INSERT INTO public.rls_probe (id, company_id, parent_id) VALUES (${id}, ${getCompanyId()}::uuid, ${parentId})`;
+    const { withCompanyContext, withinCompanyContext, getCompanyId, withinTransaction } = await import("./company-database.ts");
+    const rows = () => withinCompanyContext((tx) => tx.$queryRaw`SELECT id FROM public.rls_probe ORDER BY id`);
+    const insert = (id, parentId = null) => withinCompanyContext((tx) => tx.$executeRaw`INSERT INTO public.rls_probe (id, company_id, parent_id) VALUES (${id}, ${getCompanyId()}::uuid, ${parentId})`);
 
     await t.test("requires context for model and raw operations", async () => {
       assert.throws(() => getCompanyId(), /Company context is required/);
-      await assert.rejects(tenantPrisma.company.findMany(), /Company context is required/);
+      await assert.rejects(withinCompanyContext((tx) => tx.company.findMany()), /Company context is required/);
       await assert.rejects(rows(), /Company context is required/);
       assert.deepEqual(await prisma.company.findMany(), []);
       await assert.rejects(prisma.$executeRaw`INSERT INTO public.rls_probe (id, company_id) VALUES ('no-context', ${companyA}::uuid)`);
@@ -49,30 +49,30 @@ test("tenant Prisma enforces RLS and transaction boundaries", { skip: !adminUrl 
 
     await t.test("isolates concurrent and nested contexts across model and raw SQL", async () => {
       await Promise.all([
-        withCompanyContext(companyA, async () => { await Promise.resolve(); await tenantPrisma.company.create({ data: { id: getCompanyId(), name: "A" } }); await insert("a"); }),
-        withCompanyContext(companyB, async () => { await Promise.resolve(); await tenantPrisma.company.create({ data: { id: getCompanyId(), name: "B" } }); await insert("b"); }),
+        withCompanyContext(companyA, async () => { await Promise.resolve(); await withinCompanyContext((tx) => tx.company.create({ data: { id: getCompanyId(), name: "A" } })); await insert("a"); }),
+        withCompanyContext(companyB, async () => { await Promise.resolve(); await withinCompanyContext((tx) => tx.company.create({ data: { id: getCompanyId(), name: "B" } })); await insert("b"); }),
       ]);
       await withCompanyContext(companyA, async () => {
-        assert.deepEqual((await tenantPrisma.company.findMany()).map(({ name }) => name), ["A"]);
+        assert.deepEqual((await withinCompanyContext((tx) => tx.company.findMany())).map(({ name }) => name), ["A"]);
         assert.deepEqual((await rows()).map(({ id }) => id), ["a"]);
-        assert.deepEqual(await tenantPrisma.$queryRaw`UPDATE public.rls_probe SET id = 'changed' WHERE id = 'b' RETURNING id`, []);
-        assert.deepEqual(await tenantPrisma.$queryRaw`DELETE FROM public.rls_probe WHERE id = 'b' RETURNING id`, []);
+        assert.deepEqual(await withinCompanyContext((tx) => tx.$queryRaw`UPDATE public.rls_probe SET id = 'changed' WHERE id = 'b' RETURNING id`), []);
+        assert.deepEqual(await withinCompanyContext((tx) => tx.$queryRaw`DELETE FROM public.rls_probe WHERE id = 'b' RETURNING id`), []);
         await withCompanyContext(companyB, async () => assert.deepEqual((await rows()).map(({ id }) => id), ["b"]));
         await assert.rejects(withCompanyContext(companyB, async () => { throw new Error("nested"); }), /nested/);
         assert.deepEqual((await rows()).map(({ id }) => id), ["a"]);
-        await assert.rejects(tenantPrisma.company.create({ data: { id: companyB, name: "cross" } }));
-        await assert.rejects(tenantPrisma.$executeRaw`UPDATE public.rls_probe SET company_id = ${companyB}::uuid WHERE id = 'a'`);
+        await assert.rejects(withinCompanyContext((tx) => tx.company.create({ data: { id: companyB, name: "cross" } })));
+        await assert.rejects(withinCompanyContext((tx) => tx.$executeRaw`UPDATE public.rls_probe SET company_id = ${companyB}::uuid WHERE id = 'a'`));
       });
     });
 
     await t.test("commits independent operations and rolls back grouped failures", async () => {
       await withCompanyContext(companyA, async () => {
         await withinTransaction(async () => {
-          const first = await tenantPrisma.$queryRaw`SELECT pg_backend_pid() AS pid, current_setting('app.company_id') AS company`;
-          const second = await tenantPrisma.$queryRaw`SELECT pg_backend_pid() AS pid, current_setting('app.company_id') AS company`;
+          const first = await withinCompanyContext((tx) => tx.$queryRaw`SELECT pg_backend_pid() AS pid, current_setting('app.company_id') AS company`);
+          const second = await withinCompanyContext((tx) => tx.$queryRaw`SELECT pg_backend_pid() AS pid, current_setting('app.company_id') AS company`);
           assert.deepEqual(first, second);
           assert.equal(first[0].company, companyA);
-          assert.equal(await tenantPrisma.company.count(), 1);
+          assert.equal(await withinCompanyContext((tx) => tx.company.count()), 1);
           return success();
         });
         await insert("committed");
@@ -86,7 +86,7 @@ test("tenant Prisma enforces RLS and transaction boundaries", { skip: !adminUrl 
         await assert.rejects(withinTransaction(async () => { await insert("exception"); throw new Error("technical failure"); }), /technical failure/);
         await assert.rejects(withinTransaction(async () => {
           await insert("caught-error");
-          try { await tenantPrisma.company.create({ data: { id: companyB, name: "wrong" } }); } catch { /* caller ignored a technical error */ }
+          try { await withinCompanyContext((tx) => tx.company.create({ data: { id: companyB, name: "wrong" } })); } catch { /* caller ignored a technical error */ }
           return success();
         }), /aborted by a nested operation/);
         await assert.rejects(withinTransaction(async () => { await withCompanyContext(companyB, () => insert("wrong-company")); return success(); }), /Cannot change company/);

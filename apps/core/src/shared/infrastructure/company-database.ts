@@ -82,14 +82,14 @@ export async function withinTransaction<R extends OperationResult>(
   }
 }
 
-async function runTenantOperation<T>(operation: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+export async function withinCompanyContext<T>(callback: (tx: Prisma.TransactionClient) => Promise<T> | T): Promise<T> {
   const companyId = getCompanyId();
   const scope = transactionContext.getStore();
   if (scope?.active) {
     if (scope.companyId !== companyId) throw new Error("Cannot change company during a transaction");
     if (scope.aborted) throw new Error("Transaction was already aborted");
     try {
-      return await operation(scope.tx);
+      return await callback(scope.tx);
     } catch (error) {
       scope.aborted = true;
       scope.abortCause ??= error;
@@ -98,21 +98,6 @@ async function runTenantOperation<T>(operation: (tx: Prisma.TransactionClient) =
   }
   return prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT set_config('app.company_id', ${companyId}, true)`;
-    return operation(tx);
+    return callback(tx);
   });
 }
-
-export const tenantPrisma = prisma.$extends({
-  query: {
-    $allOperations({ model, operation, args }) {
-      return runTenantOperation(async (tx) => {
-        if (model) {
-          const delegate = (tx as unknown as Record<string, Record<string, (args: unknown) => Promise<unknown>>>)[model];
-          return delegate[operation](args);
-        }
-        const method = (tx as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>)[operation];
-        return method.call(tx, args);
-      });
-    },
-  },
-});

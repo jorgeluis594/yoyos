@@ -1,6 +1,6 @@
 # RLS por Company con Prisma
 
-**Estado:** contexto asíncrono, `tenantPrisma` y transacciones cortas implementados; las políticas RLS productivas y la integración de entradas siguen pendientes. La relación usuario–Company y los flujos de selección y creación de compañías siguen pendientes de definición.
+**Estado:** contexto asíncrono, `withinCompanyContext` y transacciones cortas implementados; las políticas RLS productivas y la integración de entradas siguen pendientes. La relación usuario–Company y los flujos de selección y creación de compañías siguen pendientes de definición.
 
 ## Objetivo
 
@@ -13,7 +13,7 @@ Establecer una compañía para una petición no agrupa todas sus escrituras en u
 El aislamiento se implementa mediante los siguientes contratos:
 
 - **Contexto:** `withCompanyContext(companyId, callback)` publica una compañía previamente autorizada mediante `AsyncLocalStorage.run`. Los contextos anidados pueden cambiar de compañía fuera de una transacción activa; al regresar al callback exterior se conserva su compañía. Los flujos concurrentes mantienen contextos independientes.
-- **Conexión y transacción:** `tenantPrisma` intercepta cada operación de modelo o SQL directo. Exige contexto y abre una transacción interactiva por operación, incluidas las lecturas. Configura `app.company_id` mediante `set_config(..., true)` y ejecuta la consulta con el mismo `tx`. Si hay una transacción activa de esa compañía, reutiliza `tx` sin repetir la configuración.
+- **Conexión y transacción:** `withinCompanyContext(callback)` exige contexto y abre una transacción interactiva por llamada, incluidas las lecturas. Configura `app.company_id` mediante `set_config(..., true)` y entrega el mismo cliente transaccional al callback para consultas de modelo o SQL directo. Si hay una transacción activa de esa compañía, reutiliza su cliente sin repetir la configuración.
 - **Inserción:** el repositorio obtiene `companyId` del contexto autorizado y lo asigna a cada fila, incluidas las escrituras múltiples y anidadas. El cliente no elige ese valor mediante el payload. PostgreSQL verifica mediante `WITH CHECK` que la fila pertenece a la compañía activa.
 - **Lectura y eliminación:** cada tabla tenant aplica `USING` sobre su propio `companyId`. La condición restringe búsquedas por ID, listados, relaciones, conteos, agregaciones y eliminaciones a las filas de la compañía activa.
 - **Actualización:** `USING` restringe las filas modificables y `WITH CHECK` valida su estado resultante. El repositorio excluye `companyId` de los campos editables, y RLS rechaza trasladar una fila a otra compañía bajo el rol de aplicación.
@@ -80,21 +80,27 @@ La compañía es inmutable durante la transacción. Intentar establecer otra com
 
 El contexto transaccional tiene un alcance propio. No se muta el contexto compartido de la petición para colocar `tx`; así dos operaciones concurrentes fuera de `withinTransaction` no comparten accidentalmente una transacción.
 
-## Cliente de persistencia con RLS
+## Persistencia con RLS
 
-Los repositorios tenant importan `tenantPrisma` desde infraestructura. Una extensión de consultas intercepta operaciones de modelo y SQL directo y las ejecuta con el cliente transaccional activo. `getCompanyId()` entrega el identificador autorizado para asignarlo explícitamente al insertar.
+Los repositorios tenant llaman a `withinCompanyContext((prisma) => ...)` desde infraestructura y usan el cliente recibido para operaciones de modelo y SQL directo. `getCompanyId()` entrega el identificador autorizado para asignarlo explícitamente al insertar.
+
+```ts
+return withinCompanyContext((prisma) =>
+  prisma.product.create({ data: { ...input, companyId: getCompanyId() } }),
+);
+```
 
 | Contexto al invocarlo | Comportamiento |
 | --- | --- |
 | Falta Company | Falla antes de ejecutar consultas. |
-| Company presente, sin transacción activa | Abre una transacción corta, configura RLS, ejecuta la operación y confirma. |
+| Company presente, sin transacción activa | Abre una transacción corta, configura RLS, ejecuta el callback y confirma. |
 | Company presente, con transacción activa | Ejecuta mediante el mismo `tx`; la confirmación corresponde al bloque exterior. |
 
-El cliente transaccional queda dentro de infraestructura. Los repositorios usan `tenantPrisma` para todas sus consultas tenant, incluido SQL directo; el cliente base se reserva para autenticación y para abrir transacciones.
+El cliente transaccional se entrega solo al callback. Los repositorios usan ese cliente para todas sus consultas tenant, incluido SQL directo; el cliente base se reserva para autenticación y para abrir transacciones.
 
-Cada llamada a `tenantPrisma` fuera de `withinTransaction` confirma por separado. Si una operación de repositorio necesita varias consultas atómicas, debe agruparlas explícitamente con `withinTransaction`.
+Cada llamada a `withinCompanyContext` fuera de `withinTransaction` confirma por separado. Las consultas dentro de un mismo callback comparten la transacción corta. Para agrupar operaciones de varios repositorios, el caso de uso utiliza `withinTransaction`.
 
-Lecturas, conteos, búsquedas por ID, escrituras y eliminaciones tenant pasan por este cliente. No hay fallback silencioso al cliente global cuando falta contexto.
+Lecturas, conteos, búsquedas por ID, escrituras y eliminaciones tenant pasan por esta función. No hay fallback silencioso al cliente global cuando falta contexto.
 
 El cliente base se conserva para abrir transacciones y para accesos explícitos que funcionan antes de seleccionar Company, como autenticación. No se expone como alternativa genérica para saltar el aislamiento de los repositorios tenant.
 
@@ -107,14 +113,14 @@ Middleware o entrada web
     → handler / loader
       → caso de uso con dependencias inyectadas
         → repositorio
-          → tenantPrisma
+          → withinCompanyContext(prisma => consulta)
             → transacción corta + configuración RLS + consulta
 
 Caso de uso que necesita atomicidad entre operaciones
   → withinTransaction
     → transacción + configuración RLS + contexto tx
-      → repositorio A → tenantPrisma reutiliza tx
-      → repositorio B → tenantPrisma reutiliza tx
+      → repositorio A → withinCompanyContext reutiliza tx
+      → repositorio B → withinCompanyContext reutiliza tx
     → commit o rollback conjunto
 ```
 
@@ -154,7 +160,7 @@ Ambos repositorios comparten `tx`. Si falla cualquiera, se revierten las escritu
 
 - Retornar `Result` fallido no provoca rollback automáticamente en Prisma. El adaptador transaccional convierte ese resultado en una señal interna de aborto y recupera el fallo de aplicación fuera de la transacción.
 - Un fallo de un bloque transaccional anidado impide que el exterior confirme, incluso si un llamador ignora el resultado. La implementación conserva un estado de aborto para el bloque compartido o un mecanismo equivalente.
-- Un error técnico de `tenantPrisma` marca el bloque como abortado aunque el llamador capture la excepción. Un repositorio que convierta un fallo de negocio a `Result` debe propagarlo desde el callback de `withinTransaction`; un `Result` fallido ignorado no se detecta automáticamente.
+- Un error técnico propagado desde el callback de `withinCompanyContext` marca el bloque como abortado aunque el llamador capture la excepción. Un repositorio que convierta un fallo de negocio a `Result` debe propagarlo desde el callback de `withinTransaction`; un `Result` fallido ignorado no se detecta automáticamente.
 - Un fallo de commit, conexión o timeout nunca devuelve un resultado exitoso calculado antes de confirmar. Una pérdida de conexión durante el commit puede dejar su resultado incierto; no se presume rollback ni se reintentan escrituras automáticamente.
 - Los errores de aplicación siguen `shared/result.ts`. Los detalles técnicos se conservan para diagnóstico sin exponerlos al cliente.
 - Todo trabajo transaccional se espera antes de salir del callback. No se lanzan tareas en segundo plano que sigan usando `tx` después de su cierre.
@@ -204,7 +210,7 @@ Cada tabla tenant, incluidas las hijas indirectas, tiene su propio `companyId UU
 | Actualizar | `USING` limita las filas existentes que pueden modificarse; `WITH CHECK` comprueba el resultado. El repositorio no admite cambiar `companyId` como dato editable. Una fila de otra compañía no se modifica. |
 | Eliminar | `USING` limita las filas eliminables a la compañía activa. |
 
-La ausencia de contexto falla en `tenantPrisma`. Bajo el rol restringido, una consulta directa sin contexto no ve filas y sus inserciones no superan la política. Las escrituras masivas y los upserts también deben respetar las condiciones de cada operación.
+La ausencia de contexto falla en `withinCompanyContext`. Bajo el rol restringido, una consulta directa sin contexto no ve filas y sus inserciones no superan la política. Las escrituras masivas y los upserts también deben respetar las condiciones de cada operación.
 
 La referencia `pg_rls` usa una columna por fila y un parámetro de PostgreSQL, y automatiza políticas y triggers desde las migraciones. Su trigger de inserción sobrescribe el tenant recibido y otro bloquea su actualización. Aquí se mantiene la asignación explícita desde el repositorio y el parámetro local a la transacción; el helper de cambio de contexto no requiere triggers.
 
@@ -231,7 +237,7 @@ La conexión permanece ocupada hasta terminar la transacción. Se deben mantener
 
 La política compara el UUID de la fila con el tenant activo. No realiza consultas a padres. El rendimiento de listados y conteos depende de los índices y de cuántas filas pertenecen al tenant: por ejemplo, un listado por fecha puede beneficiarse de un índice por `(companyId, createdAt)`. No se presupone que todo acceso necesite ese índice ni que RLS fuerce un recorrido completo; se comprueba el plan real bajo el rol de ejecución.
 
-Evitar N+1 y escrituras de una fila por llamada cuando la operación admite consultas o inserciones por lotes. En una transacción ya activa, `tenantPrisma` reutiliza `tx` y no repite `set_config`. No agrupar escrituras independientes en `withinTransaction` solo para reducir costes: eso cambia su semántica de rollback.
+Evitar N+1 y escrituras de una fila por llamada cuando la operación admite consultas o inserciones por lotes. En una transacción ya activa, `withinCompanyContext` reutiliza `tx` y no repite `set_config`. No agrupar escrituras independientes en `withinTransaction` solo para reducir costes: eso cambia su semántica de rollback.
 
 Antes de optimizar, medir latencias p50/p95, espera por conexión y capacidad bajo concurrencia representativa. Comparar consultas con filtro explícito por compañía contra su equivalente con RLS, con los mismos datos y resultados, y separar el coste de la política del coste del wrapper transaccional. Revisar `EXPLAIN (ANALYZE, BUFFERS)` en un entorno de pruebas para listados, conteos y actualizaciones, incluyendo tenants de tamaños distintos. Las mediciones deben conservar las pruebas de aislamiento al reutilizar conexiones.
 
@@ -241,7 +247,7 @@ Antes de optimizar, medir latencias p50/p95, espera por conexión y capacidad ba
 | --- | --- |
 | Identidad y adaptación HTTP/web | Middleware y entradas de presentación. |
 | Pertenencia y autorización | Capacidades de aplicación y reglas del dominio correspondiente. |
-| Contexto asíncrono, `tenantPrisma` y wrapper transaccional | `apps/core/src/shared/infrastructure/`. |
+| Contexto asíncrono, `withinCompanyContext` y wrapper transaccional | `apps/core/src/shared/infrastructure/`. |
 | Consultas concretas | `features/<feature>/infrastructure/`. |
 | Contrato de atomicidad | Dependencia de aplicación, pequeña y sin tipos Prisma. |
 | Conexión de adaptadores y casos de uso | Composición de la aplicación o registro de features. |
@@ -267,7 +273,7 @@ Se conserva esa idea de propagación, con estas diferencias necesarias:
 Usar PostgreSQL real y el rol de ejecución para comprobar RLS y rollback. Los mocks no demuestran aislamiento.
 
 1. Company A no puede leer, contar, modificar ni eliminar filas de B; tampoco insertar una fila atribuida a B ni cambiar hacia B la compañía de una fila.
-2. La falta de contexto falla en `tenantPrisma`; una consulta directa sin contexto tampoco accede a filas tenant bajo el rol restringido.
+2. La falta de contexto falla en `withinCompanyContext`; una consulta directa sin contexto tampoco accede a filas tenant bajo el rol restringido.
 3. El contexto sobrevive a varios `await` desde middleware hasta caso de uso; dos peticiones concurrentes no intercambian compañía.
 4. Dos operaciones concurrentes fuera de `withinTransaction` tienen transacciones independientes.
 5. Una operación confirmada permanece si falla otra posterior fuera de `withinTransaction`.
