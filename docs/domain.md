@@ -98,22 +98,6 @@ Define accepted filters, default sorting, pagination limits, date ranges, and in
 
 Pass normalized criteria and trusted scope to infrastructure. Repositories translate criteria into queries; they must not interpret URL parameters, invent defaults, or silently repair invalid business input. Empty results and failed searches must remain distinguishable.
 
-## Outcomes and Functional Composition
-
-Functional programming and `Result` are the application-wide convention in core and mobile. Use pure functions, plain data, immutable input handling, and explicitly supplied dependencies as described above. Every fallible domain rule, application operation, and adapter capability returns `Result<T, E>` or `Promise<Result<T, E>>`, imported with `import type` from `@shared/result` (the root `shared/result.ts`). Total transformations return their value directly; framework entry points keep their required signatures and translate Results at the boundary.
-
-Success is `{ success: true, data: T }`; failure is `{ success: false, error: E }`. An error requires `message: string` and may include `code?: string`. A code is optional: require a stable code in a feature-specific error type only when callers need to distinguish that failure. Never branch on message text. Feature error types may extend the shared shape with meaningful plain data; do not invent another success/failure envelope. Domain failures must not contain HTTP statuses, navigation actions, or UI copy.
-
-Narrow on `result.success` before reading `data` or `error`. Return a failed Result immediately before dependent work. Use the framework-independent helpers in root `shared/functional.ts` through `@shared/functional`: `ok`, `err`, `map`, `mapError`, `andThen`, `mapAsync`, `andThenAsync`, `sequence`, and `traverse`. Ordinary early returns remain valid. These helpers propagate Result failures; they do not catch exceptions or validate external input. Async helpers accept either a Result or a promise of one. `traverse` stops invoking its callback at the first failure; `sequence` collects already evaluated Results. See [shared usage and checks](../shared/README.md).
-
-Represent valid absence as a successful `Result<T | null>` with `data: null`, and an empty listing as success with `[]`. A failed lookup is not evidence of absence. When presence is required, the application operation turns absence into a meaningful failure. Use `Result<void>` internally for successful operations without a value; use `null` in JSON contracts when a success payload is empty, because `undefined` is omitted during serialization.
-
-When composing fallible steps, stop dependent work on failure. For collection operations, define whether failure rejects the complete operation or returns explicit per-item outcomes; do not silently discard failures or present partial results as complete success.
-
-Infrastructure catches external I/O failures and translates them into the Result contract, preserving technical details in internal logs and returning safe error data. Unexpected exceptions must remain observable; boundary handlers catch them and report a safe failure rather than disguising them as business rejection. Declaring `Promise<Result<T>>` does not prevent rejection and is not exception handling. Presentation validates external response shapes at runtime and translates outcomes into API responses or mobile feedback, including a fallback when no code is present.
-
-A failed Result in an atomic operation must cause rollback. Infrastructure must also return failure when commit fails, even if the callback produced a successful Result. Result propagation alone does not undo side effects.
-
 ## Testing
 
 Test observable behavior rather than implementation details. Keep tests next to the rule or use case that owns the behavior.
