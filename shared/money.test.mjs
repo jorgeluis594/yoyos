@@ -21,6 +21,12 @@ test("truncates each input to two decimals before arithmetic and comparison", ()
   assert.deepEqual(compare(pen(1))(pen(1.009)), ok(0));
 });
 
+test("accepts the supported currencies", () => {
+  for (const currency of ["PEN", "USD", "COP", "ARS", "CLP", "BRL"]) {
+    assert.deepEqual(add({ amount: 1, currency })({ amount: 1, currency }), ok({ amount: 2, currency }));
+  }
+});
+
 test("rejects different currencies, invalid amounts and lost precision", () => {
   const usd = { amount: 1, currency: "USD" };
   for (const operation of [add, subtract, compare]) {

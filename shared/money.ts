@@ -10,7 +10,7 @@ export type Money = {
 
 // A finite number can reach 1e308; retain its cents during intermediate arithmetic.
 const DecimalMoney = Decimal.clone({ precision: 400 });
-const currencies = new Set(Intl.supportedValuesOf("currency"));
+const currencies = new Set(["PEN", "USD", "COP", "ARS", "CLP", "BRL"]);
 
 export type MoneyError = {
   message: string;
