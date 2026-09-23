@@ -9,7 +9,7 @@ const currencies = new Set(Intl.supportedValuesOf("currency"));
 
 export type MoneyError = {
   message: string;
-  code: "INVALID_AMOUNT" | "INVALID_CURRENCY" | "CURRENCY_MISMATCH" | "PRECISION_LOSS";
+  code: "INVALID_AMOUNT" | "INVALID_CURRENCY" | "INVALID_SCALAR" | "DIVISION_BY_ZERO" | "CURRENCY_MISMATCH" | "PRECISION_LOSS";
 };
 
 function validate(money: Money): Result<Decimal, MoneyError> {
@@ -21,6 +21,12 @@ function validate(money: Money): Result<Decimal, MoneyError> {
   }
   const amount = new DecimalMoney(money.amount.toString());
   return ok(amount.toDecimalPlaces(2, DecimalMoney.ROUND_DOWN));
+}
+
+function validateScalar(value: number): Result<Decimal, MoneyError> {
+  return typeof value === "number" && Number.isFinite(value)
+    ? ok(new DecimalMoney(value.toString()))
+    : err({ message: "Scalar must be finite", code: "INVALID_SCALAR" });
 }
 
 function pair(a: Money, b: Money): Result<[Decimal, Decimal], MoneyError> {
@@ -48,6 +54,24 @@ export function add(other: Money) {
 export function subtract(other: Money) {
   return (current: Money): Result<Money, MoneyError> =>
     andThen(pair(current, other), ([left, right]) => finish(left.minus(right), current.currency));
+}
+
+export function multiply(money: Money) {
+  return (factor: number): Result<Money, MoneyError> =>
+    andThen(validate(money), (amount) =>
+      andThen(validateScalar(factor), (scalar) => finish(amount.times(scalar), money.currency)),
+    );
+}
+
+export function divide(money: Money) {
+  return (divisor: number): Result<Money, MoneyError> =>
+    andThen(validate(money), (amount) =>
+      andThen(validateScalar(divisor), (scalar) =>
+        scalar.isZero()
+          ? err({ message: "Cannot divide by zero", code: "DIVISION_BY_ZERO" })
+          : finish(amount.div(scalar), money.currency),
+      ),
+    );
 }
 
 export function compare(other: Money) {
