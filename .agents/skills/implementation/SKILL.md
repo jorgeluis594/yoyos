@@ -12,7 +12,7 @@ description: Guide implementation through contextual analysis, case-specific pro
 3. Read the additional documents selected by the cases below before changing the corresponding behavior. Follow all applicable rows when a change spans responsibilities.
 4. Inspect Git status and preserve unrelated user changes.
 5. Inspect the affected application's `package.json`, tooling, and CI configuration to determine its actual validation commands. Do not assume root-level scripts or copy commands from another repository.
-6. Implement continuously, reusing existing code and creating only the layers and files the current behavior needs.
+6. Implement continuously, reusing existing code and creating only the layers and files the current behavior needs. For internal code imports, always use the path aliases configured by the owning application (such as `@/`, `@core/`, or `@shared/`) instead of absolute or relative paths.
 7. Add or update behavioral tests and run focused checks while developing, following [Testing Conventions](../../../docs/testing-conventions.md).
 8. Regularly evaluate whether the accumulated changes are ready for a commit. When ready, run the affected applications' configured lint, test, and type checks, plus integration checks required by the changed contracts.
 9. If the required checks pass, inspect the diff, stage only related changes, and create a concise commit describing their meaning, unless the user requested uncommitted changes. Commit readiness does not authorize pushing or deploying.
