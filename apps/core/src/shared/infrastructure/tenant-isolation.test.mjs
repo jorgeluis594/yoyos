@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "vitest";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import pg from "pg";
 
 const appUrl = process.env.DATABASE_URL;
+const step = async (name, run) => {
+  try { await run(); } catch (error) { throw new Error(name, { cause: error }); }
+};
 
-test("company context enforces RLS and transaction boundaries", async (t) => {
+test("company context enforces RLS and transaction boundaries", async () => {
   assert(appUrl, "run sh scripts/run-tests.sh integration to prepare core_test");
   const adminUrl = new URL(appUrl);
   adminUrl.username = "core";
@@ -46,7 +49,7 @@ test("company context enforces RLS and transaction boundaries", async (t) => {
     const rows = () => prisma.$queryRaw(Prisma.sql`SELECT id FROM ${probe} ORDER BY id`);
     const insert = (id, parentId = null) => prisma.$executeRaw(Prisma.sql`INSERT INTO ${probe} (id, company_id, parent_id) VALUES (${id}, ${getCompanyId()}::uuid, ${parentId})`);
 
-    await t.test("requires context for model and raw operations", async () => {
+    await step("requires context for model and raw operations", async () => {
       assert.throws(() => getCompanyId(), /Company context is required/);
       await assert.rejects(prisma.company.findMany(), /Company context is required/);
       await assert.rejects(rows(), /Company context is required/);
@@ -60,7 +63,7 @@ test("company context enforces RLS and transaction boundaries", async (t) => {
       await assert.rejects(prisma.$executeRaw(Prisma.sql`INSERT INTO ${probe} (id, company_id) VALUES ('no-context', ${companyA}::uuid)`));
     });
 
-    await t.test("isolates concurrent and nested contexts across model and raw SQL", async () => {
+    await step("isolates concurrent and nested contexts across model and raw SQL", async () => {
       await Promise.all([
         withTenantIsolation(companyA, async () => { await Promise.resolve(); await prisma.company.create({ data: { id: getCompanyId(), name: "A", country: "PE" } }); await insert("a"); }),
         withTenantIsolation(companyB, async () => { await Promise.resolve(); await prisma.company.create({ data: { id: getCompanyId(), name: "B", country: "US" } }); await insert("b"); }),
@@ -90,7 +93,7 @@ test("company context enforces RLS and transaction boundaries", async (t) => {
       });
     });
 
-    await t.test("commits independent operations and rolls back grouped failures", async () => {
+    await step("commits independent operations and rolls back grouped failures", async () => {
       await withTenantIsolation(companyA, async () => {
         await withinTransaction(async () => {
           const first = await prisma.$queryRaw`SELECT pg_backend_pid() AS pid, current_setting('app.company_id') AS company`;
@@ -130,7 +133,7 @@ test("company context enforces RLS and transaction boundaries", async (t) => {
       });
     });
 
-    await t.test("does not report success on commit failure and clears local setting", async () => {
+    await step("does not report success on commit failure and clears local setting", async () => {
       await assert.rejects(withTenantIsolation(companyA, async () => insert("commit-fails", 999)), /ForeignKeyConstraintViolation/);
       const pool = new pg.Pool({ connectionString: appUrl, max: 1 });
       try {
@@ -144,7 +147,7 @@ test("company context enforces RLS and transaction boundaries", async (t) => {
       } finally { await pool.end(); }
     });
 
-    await t.test("links an authenticated user atomically and rolls back failed links", async () => {
+    await step("links an authenticated user atomically and rolls back failed links", async () => {
       const userId = crypto.randomUUID();
       userIds.push(userId);
       await authPrisma.user.create({ data: { id: userId, name: "Owner", email: `${userId}@example.test` } });

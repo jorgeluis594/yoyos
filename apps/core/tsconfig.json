@@ -16,8 +16,10 @@
   "include": [
     "app",
     "src",
+    "tests",
     "react-router.config.ts",
     "vite.config.ts",
+    "vitest.config.ts",
     "../../shared/**/*.ts"
   ]
 }

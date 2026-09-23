@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { browserExpect, expect, test } from "./fixtures";
 
 test("legacy web routes preserve query parameters when redirecting", async ({ request }) => {
   for (const path of ["/", "/login", "/register", "/dashboard"]) {
@@ -12,13 +12,13 @@ test("legacy web routes preserve query parameters when redirecting", async ({ re
 
 test("public navigation stays under es-PE", async ({ page }) => {
   await page.goto("/es-PE/");
-  await expect(page.locator("html")).toHaveAttribute("lang", "es-PE");
+  await browserExpect(page.locator("html")).toHaveAttribute("lang", "es-PE");
   await page.getByRole("link", { name: "Iniciar sesión" }).click();
-  await expect(page).toHaveURL(/\/es-PE\/login$/);
+  await browserExpect(page).toHaveURL(/\/es-PE\/login$/);
   await page.getByRole("link", { name: "Regístrate" }).click();
-  await expect(page).toHaveURL(/\/es-PE\/register$/);
+  await browserExpect(page).toHaveURL(/\/es-PE\/register$/);
   await page.getByRole("link", { name: "Inicia sesión" }).click();
-  await expect(page).toHaveURL(/\/es-PE\/login$/);
+  await browserExpect(page).toHaveURL(/\/es-PE\/login$/);
   await page.getByRole("link", { name: "Yoyos" }).click();
-  await expect(page).toHaveURL(/\/es-PE\/$/);
+  await browserExpect(page).toHaveURL(/\/es-PE\/$/);
 });

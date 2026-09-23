@@ -8,9 +8,9 @@
     "start": "tsx src/server.ts",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
-    "test:unit": "vitest run --passWithNoTests",
-    "test:integration": "node --import tsx --test src/shared/infrastructure/*.test.mjs",
-    "test:e2e": "playwright test",
+    "test:unit": "vitest run --project unit --passWithNoTests",
+    "test:integration": "vitest run --project integration",
+    "test:e2e": "pnpm build && vitest run --project e2e",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "prisma:generate": "prisma generate"
