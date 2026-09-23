@@ -98,16 +98,6 @@ Define accepted filters, default sorting, pagination limits, date ranges, and in
 
 Pass normalized criteria and trusted scope to infrastructure. Repositories translate criteria into queries; they must not interpret URL parameters, invent defaults, or silently repair invalid business input. Empty results and failed searches must remain distinguishable.
 
-## Outcomes and Functional Composition
-
-Expected business rejection is part of an operation's public contract. Represent success and expected failure explicitly and consistently, using plain result data with stable failure identifiers where callers need to distinguish outcomes. Domain failures must not contain HTTP statuses, navigation actions, or UI copy.
-
-Use existing result conventions when available. This document does not assume that a `response<T>` type or helpers such as `pipeAsync` already exist. A small discriminated result type and ordinary control flow are sufficient; do not introduce a functional utility library just to express a sequence of operations.
-
-When composing fallible steps, stop dependent work on failure. For collection operations, define whether failure rejects the complete operation or returns explicit per-item outcomes; do not silently discard failures or present partial results as complete success.
-
-Infrastructure translates known technical failures into the application contract. Application code may interpret those failures according to the operation, but must not disguise unexpected exceptions as ordinary business rejection. Presentation translates outcomes into API responses or mobile feedback.
-
 ## Testing
 
 Test observable behavior rather than implementation details. Keep tests next to the rule or use case that owns the behavior.
