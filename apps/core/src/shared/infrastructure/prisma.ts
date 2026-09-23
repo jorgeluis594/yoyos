@@ -3,10 +3,18 @@ import { PrismaClient, type Prisma } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import type { AppError, Result } from "@shared/result";
 
-const base = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL ?? "" }) });
 type TransactionScope = { companyId: string; tx: Prisma.TransactionClient; aborted: boolean; abortCause?: unknown; active: boolean };
-const companies = new AsyncLocalStorage<string>();
-const transactions = new AsyncLocalStorage<TransactionScope>();
+type PrismaState = {
+  base: PrismaClient;
+  companies: AsyncLocalStorage<string>;
+  transactions: AsyncLocalStorage<TransactionScope>;
+};
+const globalPrisma = globalThis as typeof globalThis & { __yoyosPrisma?: PrismaState };
+const { base, companies, transactions } = globalPrisma.__yoyosPrisma ??= {
+  base: new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL ?? "" }) }),
+  companies: new AsyncLocalStorage<string>(),
+  transactions: new AsyncLocalStorage<TransactionScope>(),
+};
 
 export function withCompanyContext<T>(companyId: string, callback: () => T): T {
   const scope = transactions.getStore();
