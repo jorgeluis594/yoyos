@@ -3,7 +3,6 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "dependencies": {
-    "@yoyos/types": "file:../../packages/types",
     "@expo/ui": "~57.0.19",
     "expo": "~57.0.24",
     "expo-constants": "~57.0.19",

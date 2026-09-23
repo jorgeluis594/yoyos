@@ -1,4 +1,4 @@
-import type { Result } from "@yoyos/types";
+import type { Result } from "./result.js";
 
 const success: Result<number> = { success: true, data: 1 };
 const uncoded: Result<number> = { success: false, error: { message: "Failed" } };
@@ -12,11 +12,11 @@ const coded: Result<number, Duplicate> = {
 function consume(result: Result<number, Duplicate>): number | string {
   if (result.success) {
     // @ts-expect-error A success has no error.
-    result.error;
+    void result.error;
     return result.data;
   }
   // @ts-expect-error A failure has no data.
-  result.data;
+  void result.data;
   return result.error.existingId;
 }
 

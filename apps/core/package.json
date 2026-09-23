@@ -39,7 +39,6 @@
     "vite": "^8.3.0"
   },
   "dependencies": {
-    "@yoyos/types": "file:../../packages/types",
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
     "@react-router/express": "^7.9.4",

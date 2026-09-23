@@ -146,7 +146,7 @@ Export only what other features or application entry points actually need. Do no
 
 Each application's `shared/` is local to that application. Keep code in its owning feature whenever possible; move it to `shared/` only when multiple features use it and it has no business owner. Generic UI primitives belong in `components/ui/`; feature-specific components stay in feature presentation.
 
-Do not use shared folders as a destination for unclassified code. `packages/types` provides `@yoyos/types`, the shared Result contract for `apps/core` and `apps/mobile`. Import it with `import type`; it contains declarations only and has no framework or persistence dependencies. Keep feature entities in their owning feature. Additional shared contracts require a real integration need and must not couple either application to the other's framework or persistence models.
+Do not use shared folders as a destination for unclassified code. Each app defines its Result contract in `src/shared/result.ts`: `AppError`, `Success<T>`, `Failure<E>`, and `Result<T, E>`. Import these types from the current app with `import type`; neither app imports the other's source. Keep the Result envelope consistent across core and mobile when changing their integration contract. Feature entities remain in their owning feature. A separate shared package is not required; introduce one only when concrete reuse justifies changing this structure.
 
 ## Validation, Security, and Failures
 

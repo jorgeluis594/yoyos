@@ -178,9 +178,6 @@ importers:
       '@react-router/node':
         specifier: ^7.18.4
         version: 7.18.4(react-router@7.18.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(typescript@6.0.3)
-      '@yoyos/types':
-        specifier: file:../../packages/types
-        version: file:../../packages/types
       express:
         specifier: ^5.2.1
         version: 5.2.1(supports-color@7.2.0)
@@ -1247,9 +1244,6 @@ packages:
 
   '@visx/vendor@4.0.0-alpha.0':
     resolution: {integrity: sha512-6I+MuqXBcv9jnlcVowHoHKSdk9gXTWkHLKyqBwRWg7LY6A3Ei8SHfubpqGV5rBUSppxMq2RszPJUS6w+H0YgmQ==}
-
-  '@yoyos/types@file:../../packages/types':
-    resolution: {directory: ../../packages/types, type: directory}
 
   accepts@2.0.0:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
@@ -3943,8 +3937,6 @@ snapshots:
       d3-time: 3.1.0
       d3-time-format: 4.1.0
       internmap: 2.0.3
-
-  '@yoyos/types@file:../../packages/types': {}
 
   accepts@2.0.0:
     dependencies:
