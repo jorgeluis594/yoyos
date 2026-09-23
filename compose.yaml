@@ -28,6 +28,8 @@ services:
     volumes:
       - ./apps/core:/workspace/apps/core
       - /workspace/apps/core/node_modules
+      - ./shared:/workspace/shared
+      - /workspace/shared/node_modules
       - ./docs:/workspace/docs:ro
     depends_on:
       db:

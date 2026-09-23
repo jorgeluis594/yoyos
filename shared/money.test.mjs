@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ok, pipe } from "@shared/functional";
-import { add, compare, divide, multiply, subtract } from "./money";
+import { ok, pipe } from "./functional.ts";
+import { add, compare, divide, multiply, subtract } from "./money.ts";
 
-const pen = (amount: number) => ({ amount, currency: "PEN" });
+const pen = (amount) => ({ amount, currency: "PEN" });
 
 test("monetary arithmetic and comparison compose through Result", () => {
   assert.deepEqual(add(pen(0.1))(pen(0.2)), ok(pen(0.3)));

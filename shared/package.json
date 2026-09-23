@@ -1,0 +1,9 @@
+{
+  "name": "@yoyos/shared",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.5.1",
+  "dependencies": {
+    "decimal.js": "^10.6.0"
+  }
+}
