@@ -32,6 +32,7 @@ test('composes a controlled field with label, help, error and required state', a
   expect(input.props.accessibilityHint).toContain('Nombre para el cliente');
   expect(input.props.accessibilityHint).toContain('Ingresa el nombre');
   expect(input.props.style).toEqual(expect.arrayContaining([expect.objectContaining({ borderColor: tokens.colors.light.error })]));
+  expect(input.props.style).toEqual(expect.arrayContaining([expect.objectContaining({ fontFamily: tokens.typography.family })]));
   await fireEvent.changeText(input, 'Ana María');
   await fireEvent(input, 'blur');
   expect(change).toHaveBeenCalledWith('Ana María');

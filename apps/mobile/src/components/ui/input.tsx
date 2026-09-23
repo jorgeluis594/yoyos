@@ -47,6 +47,7 @@ export function Input({ invalid, disabled, style, accessibilityLabel, accessibil
 
 const styles = StyleSheet.create({
   input: {
+    fontFamily: tokens.typography.family,
     minHeight: tokens.sizing.touchTargetMinSize,
     borderRadius: tokens.radius.control,
     paddingHorizontal: tokens.spacing['3'],

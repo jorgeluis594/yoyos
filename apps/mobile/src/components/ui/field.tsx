@@ -110,6 +110,6 @@ const styles = StyleSheet.create({
   horizontal: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
   horizontalLabel: { flexBasis: 100 },
   horizontalSupporting: { width: '100%' },
-  label: { fontSize: tokens.typography.roles.label.size, lineHeight: tokens.typography.roles.label.lineHeight, fontWeight: '500' },
-  supporting: { fontSize: tokens.typography.roles['body-compact'].size, lineHeight: tokens.typography.roles['body-compact'].lineHeight },
+  label: { fontFamily: tokens.typography.family, fontSize: tokens.typography.roles.label.size, lineHeight: tokens.typography.roles.label.lineHeight, fontWeight: '500' },
+  supporting: { fontFamily: tokens.typography.family, fontSize: tokens.typography.roles['body-compact'].size, lineHeight: tokens.typography.roles['body-compact'].lineHeight },
 });
