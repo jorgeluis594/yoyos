@@ -18,12 +18,15 @@ const transactionContext = new AsyncLocalStorage<TransactionScope>();
 export function withCompanyContext<T>(companyId: string, callback: () => T): T {
   const scope = transactionContext.getStore();
   if (scope?.active && scope.companyId !== companyId) {
-    throw new Error("Cannot change company during a transaction");
+    const error = new Error("Cannot change company during a transaction");
+    scope.aborted = true;
+    scope.abortCause ??= error;
+    throw error;
   }
   return companyContext.run(companyId, callback);
 }
 
-function currentCompanyId(): string {
+export function getCompanyId(): string {
   const companyId = companyContext.getStore();
   if (!companyId) throw new Error("Company context is required");
   return companyId;
@@ -32,7 +35,7 @@ function currentCompanyId(): string {
 export async function withinTransaction<R extends OperationResult>(
   callback: () => Promise<R> | R,
 ): Promise<R> {
-  const companyId = currentCompanyId();
+  const companyId = getCompanyId();
   const scope = transactionContext.getStore();
 
   if (scope?.active) {
@@ -79,12 +82,37 @@ export async function withinTransaction<R extends OperationResult>(
   }
 }
 
-export function withCompanyDatabase<R extends OperationResult>(
-  callback: (tx: Prisma.TransactionClient, companyId: string) => Promise<R> | R,
-): Promise<R> {
-  return withinTransaction(() => {
-    const scope = transactionContext.getStore();
-    if (!scope?.active) throw new Error("Transaction context is required");
-    return callback(scope.tx, scope.companyId);
+async function runTenantOperation<T>(operation: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  const companyId = getCompanyId();
+  const scope = transactionContext.getStore();
+  if (scope?.active) {
+    if (scope.companyId !== companyId) throw new Error("Cannot change company during a transaction");
+    if (scope.aborted) throw new Error("Transaction was already aborted");
+    try {
+      return await operation(scope.tx);
+    } catch (error) {
+      scope.aborted = true;
+      scope.abortCause ??= error;
+      throw error;
+    }
+  }
+  return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT set_config('app.company_id', ${companyId}, true)`;
+    return operation(tx);
   });
 }
+
+export const tenantPrisma = prisma.$extends({
+  query: {
+    $allOperations({ model, operation, args }) {
+      return runTenantOperation(async (tx) => {
+        if (model) {
+          const delegate = (tx as unknown as Record<string, Record<string, (args: unknown) => Promise<unknown>>>)[model];
+          return delegate[operation](args);
+        }
+        const method = (tx as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>)[operation];
+        return method.call(tx, args);
+      });
+    },
+  },
+});
