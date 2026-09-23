@@ -4,7 +4,9 @@
     "jsx": "react-jsx",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "noEmit": true
+    "noEmit": true,
+    "types": ["vite/client"],
+    "paths": { "@/*": ["./app/*"] }
   },
   "include": ["app", "src", "react-router.config.ts", "vite.config.ts"]
 }

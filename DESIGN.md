@@ -11,7 +11,7 @@ description: Shared visual conventions for clear, compact sales management.
 
 A trustworthy, compact, warm interface for managing sales. Neutral surfaces, comparable rows, and subtle borders lead the design. Caramel identifies primary actions and selections, keeping the data in focus.
 
-**Status:** v1 specification for implementation. The user confirmed the Caramelo sobrio palette, dark mode, compact density, and a shared typeface across web and mobile. Inter, measurements, and complementary semantic colors are proposed decisions in this first convention; they do not yet constitute an implementation or visual validation on devices.
+**Status:** v1 specification. The user confirmed the Caramelo sobrio palette, dark mode, compact density, and a shared typeface across web and mobile. The web now consumes the color tokens and uses Inter; mobile and the proposed complementary semantic colors still need implementation and visual validation on devices.
 
 **Source of truth:** [docs/design-tokens.json](docs/design-tokens.json) defines values; this document defines their use. Names represent roles, not specific colors. Adjustments start in the tokens and then flow into their platform adapters.
 
@@ -22,7 +22,7 @@ A trustworthy, compact, warm interface for managing sales. Neutral surfaces, com
 - Flat surfaces and subtly rounded shapes.
 - Shared identity, with navigation and system controls adapted to each platform.
 
-At the initial review, `apps/core` has a minimal home page and no `components.json`; `apps/mobile` retains Expo sample components and colors. These template styles do not establish the Yoyos identity. The JSON is a data specification, not yet imported by the applications.
+At the initial review, `apps/core` had a minimal home page and no `components.json`; it now imports the JSON for its web theme. `apps/mobile` retains Expo sample components and colors.
 
 ## Colors
 

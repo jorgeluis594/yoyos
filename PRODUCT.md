@@ -63,7 +63,7 @@ The user selected **Caramelo sobrio**, inspired by their dog's charcoal, caramel
 | Primary action / accent | Toasted caramel `#8C552D` | Light caramel `#D5A16C` |
 | Text on primary action | White `#FFFFFF` | Charcoal `#1C1B1D` |
 
-Use calm neutral backgrounds and concentrate brand color on primary actions and selected states. Dark mode is required because many sellers work at night. These are approved palette commitments, not an implemented theme; semantic status colors and full interaction-state contrast validation remain to be defined.
+Use calm neutral backgrounds and concentrate brand color on primary actions and selected states. Dark mode is required because many sellers work at night. The web theme uses these approved colors; the mobile theme is still unimplemented. Semantic status colors and full interaction-state contrast validation remain to be defined.
 
 ## Evidence on Hand
 
