@@ -24,6 +24,7 @@ To compose operations:
 - `ok` and `err` construct results.
 - `map` transforms successful data; `mapError` transforms the error.
 - `andThen` chains a Result-returning operation and preserves error types.
+- `pipe` and `pipeAsync` chain Result-returning steps, stopping at the first failure.
 - `mapAsync` and `andThenAsync` support asynchronous steps.
 - `sequence` collects already evaluated results; `traverse` processes items and
   stops invoking its callback at the first failure.

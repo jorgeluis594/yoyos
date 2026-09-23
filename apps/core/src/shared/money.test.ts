@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { andThen, ok } from "@shared/functional";
+import { ok, pipe } from "@shared/functional";
 import { add, compare, subtract } from "./money";
 
 const pen = (amount: number) => ({ amount, currency: "PEN" });
@@ -11,7 +11,7 @@ test("monetary arithmetic and comparison compose through Result", () => {
   assert.deepEqual(compare(pen(3))(pen(2)), ok(-1));
   assert.deepEqual(compare(pen(3))(pen(3)), ok(0));
   assert.deepEqual(compare(pen(3))(pen(4)), ok(1));
-  assert.deepEqual(andThen(andThen(ok(pen(0.1)), add(pen(0.2))), subtract(pen(0.1))), ok(pen(0.2)));
+  assert.deepEqual(pipe(ok(pen(0.1)), add(pen(0.2)), subtract(pen(0.1))), ok(pen(0.2)));
 });
 
 test("truncates each input to two decimals before arithmetic and comparison", () => {
