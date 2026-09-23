@@ -100,7 +100,7 @@ Pass normalized criteria and trusted scope to infrastructure. Repositories trans
 
 ## Outcomes and Functional Composition
 
-Functional programming and `Result` are the application-wide convention in core and mobile. Use pure functions, plain data, immutable input handling, and explicitly supplied dependencies as described above. Every fallible domain rule, application operation, and adapter capability returns `Result<T, E>` or `Promise<Result<T, E>>`, imported with `import type` from the current application's `src/shared/result.ts`. Total transformations return their value directly; framework entry points keep their required signatures and translate Results at the boundary.
+Functional programming and `Result` are the application-wide convention in core and mobile. Use pure functions, plain data, immutable input handling, and explicitly supplied dependencies as described above. Every fallible domain rule, application operation, and adapter capability returns `Result<T, E>` or `Promise<Result<T, E>>`, imported with `import type` from `@shared/result` (the root `shared/result.ts`). Total transformations return their value directly; framework entry points keep their required signatures and translate Results at the boundary.
 
 Success is `{ success: true, data: T }`; failure is `{ success: false, error: E }`. An error requires `message: string` and may include `code?: string`. A code is optional: require a stable code in a feature-specific error type only when callers need to distinguish that failure. Never branch on message text. Feature error types may extend the shared shape with meaningful plain data; do not invent another success/failure envelope. Domain failures must not contain HTTP statuses, navigation actions, or UI copy.
 

@@ -4,7 +4,18 @@
     "jsx": "react-jsx",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "@shared/*": [
+        "../../shared/*"
+      ]
+    }
   },
-  "include": ["app", "src", "react-router.config.ts", "vite.config.ts"]
+  "include": [
+    "app",
+    "src",
+    "react-router.config.ts",
+    "vite.config.ts",
+    "../../shared/**/*.ts"
+  ]
 }

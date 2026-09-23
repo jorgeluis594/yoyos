@@ -1,4 +1,4 @@
-import type { Result } from "./result.js";
+import type { Result } from "@shared/result";
 
 const success: Result<number> = { success: true, data: 1 };
 const uncoded: Result<number> = { success: false, error: { message: "Failed" } };
