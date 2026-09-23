@@ -16,7 +16,7 @@ const { base, companies, transactions } = globalPrisma.__yoyosPrisma ??= {
   transactions: new AsyncLocalStorage<TransactionScope>(),
 };
 
-export function withCompanyContext<T>(companyId: string, callback: () => T): T {
+export function withTenantIsolation<T>(companyId: string, callback: () => T): T {
   const scope = transactions.getStore();
   if (scope?.active && scope.companyId !== companyId) {
     const error = new Error("Cannot change company during a transaction");

@@ -1,13 +1,13 @@
 import { expect, test } from "@playwright/test";
-import { authPrisma } from "../../src/shared/infrastructure/prisma";
-import { prisma, withCompanyContext } from "../../src/shared/infrastructure/prisma";
+import { authPrisma } from "../../src/shared/infrastructure/persistance";
+import { prisma, withTenantIsolation } from "../../src/shared/infrastructure/persistance";
 
 async function removeAccount(email: string) {
   const user = await authPrisma.user.findUnique({ where: { email }, select: { companyId: true } });
   await authPrisma.user.deleteMany({ where: { email } });
   if (user?.companyId) {
     const companyId = user.companyId;
-    await withCompanyContext(companyId, async () => prisma.company.delete({ where: { id: companyId } }));
+    await withTenantIsolation(companyId, async () => prisma.company.delete({ where: { id: companyId } }));
   }
 }
 
@@ -91,7 +91,7 @@ test("company creation can be retried after registration", async ({ page }) => {
     expect(user.companyId).toBeTruthy();
     if (!user.companyId) throw new Error("Company was not linked");
     const companyId = user.companyId;
-    expect((await withCompanyContext(companyId, async () => prisma.company.findUniqueOrThrow({ where: { id: companyId } }))).name).toBe("Empresa Pendiente");
+    expect((await withTenantIsolation(companyId, async () => prisma.company.findUniqueOrThrow({ where: { id: companyId } }))).name).toBe("Empresa Pendiente");
     const retry = await page.request.post("/api/company", { data: { name: "Otra empresa", companyId: crypto.randomUUID() } });
     expect(retry.status()).toBe(200);
     expect((await retry.json()).companyId).toBe(user.companyId);

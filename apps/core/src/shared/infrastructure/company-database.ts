@@ -1,1 +1,1 @@
-export { withCompanyContext, getCompanyId, withinTransaction } from "./prisma.js";
+export { withTenantIsolation, getCompanyId, withinTransaction } from "./persistance.js";

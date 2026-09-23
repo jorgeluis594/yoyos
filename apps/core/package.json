@@ -8,8 +8,8 @@
     "start": "tsx src/server.ts",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
-    "test:e2e": "playwright test",
-    "test:rls": "node --import tsx --test src/shared/infrastructure/company-database.test.mjs",
+    "test:integration": "sh scripts/run-tests.sh integration",
+    "test:e2e": "sh scripts/run-tests.sh e2e",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "prisma:generate": "prisma generate"

@@ -1,5 +1,5 @@
 import { auth } from "./auth.js";
-import { authPrisma } from "./prisma.js";
+import { authPrisma } from "./persistance.js";
 
 export async function resolveCurrentUser(headers: Headers) {
   const session = await auth.api.getSession({ headers });

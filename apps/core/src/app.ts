@@ -2,7 +2,7 @@ import express from "express";
 import { toNodeHandler } from "better-auth/node";
 import { auth } from "./shared/infrastructure/auth.js";
 import { resolveCurrentUser } from "./shared/infrastructure/current-user.js";
-import { createCompanyForUser, withCompanyContext } from "./shared/infrastructure/prisma.js";
+import { createCompanyForUser, withTenantIsolation } from "./shared/infrastructure/persistance.js";
 
 export const app = express();
 
@@ -24,7 +24,7 @@ app.use("/api", async (request, response, next) => {
   const user = await resolveCurrentUser(new Headers(request.headers as HeadersInit));
   if (!user) return response.status(401).json({ error: "Unauthorized" });
   if (!user.companyId) return response.status(409).json({ error: "Company required" });
-  return withCompanyContext(user.companyId, next);
+  return withTenantIsolation(user.companyId, next);
 });
 
 app.use("/api", (_request, response) => {
