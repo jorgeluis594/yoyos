@@ -25,7 +25,8 @@ Paths below are relative to this skill. The documents remain the source of truth
 | Case or definition needed | Read |
 | --- | --- |
 | Feature ownership, folder structure, layer responsibilities, dependency direction, public exports, shared code, or composition | [Application Architecture](../../../docs/architecture.md) |
-| Business types, calculations, normalization, invariants, state transitions, authorization policy, use cases, search defaults, or success and failure contracts | [Domain Conventions](../../../docs/domain.md) |
+| Writing or changing code: functional programming, Result contracts, composition, and available helpers | [Programming Style](../../../docs/programming-style.md) |
+| Business types, calculations, normalization, invariants, state transitions, authorization policy, use cases, or search defaults | [Domain Conventions](../../../docs/domain.md) |
 | Repositories, database queries, mobile API or local-storage adapters, technical mapping, ownership scoping, pagination, transactions, concurrency, or technical failure translation | [Persistence Conventions](../../../docs/persistence.md) |
 | Choosing test placement, scope, assertions, fakes, isolation, integration boundaries, or end-to-end verification | [Testing Conventions](../../../docs/testing-conventions.md) |
 | API handlers, mobile screens, hooks, forms, routing, or boundary validation | [Application Architecture — Presentation](../../../docs/architecture.md#presentation) and [Testing Conventions — Presentation](../../../docs/testing-conventions.md#presentation); also read Domain Conventions if business behavior changes |

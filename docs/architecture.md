@@ -9,6 +9,9 @@ Organize the API and Expo mobile app by business features with the same responsi
 ```text
 docs/
 └── architecture.md                  # Shared architecture guidelines
+shared/
+├── result.ts                       # Cross-app Result types
+└── result.test.ts                  # Shared type contract checks
 apps/
 ├── api/
 │   └── src/
@@ -144,9 +147,9 @@ Export only what other features or application entry points actually need. Do no
 
 ## Shared Code
 
-Each application's `shared/` is local to that application. Keep code in its owning feature whenever possible; move it to `shared/` only when multiple features use it and it has no business owner. Generic UI primitives belong in `components/ui/`; feature-specific components stay in feature presentation.
+Use a root-level `shared/`, alongside `apps/`, for types and code shared across applications. Each application's `src/shared/` holds code shared only within that app. Keep code in its owning feature whenever possible; move it to `shared/` only when multiple features or apps use it and it has no business owner. Generic UI primitives belong in `components/ui/`; feature-specific components stay in feature presentation.
 
-Do not use shared folders as a destination for unclassified code. A common architecture requires neither a shared package nor duplicated implementations. Sharing contracts between the API and mobile app is optional and must follow a real integration need; it must not couple either application to the other's framework or persistence models.
+Do not use shared folders as a destination for unclassified code. Result types live in the root `shared/result.ts`; both apps import them with `import type { Result } from "@shared/result"`. Shared types use `import type` and must not depend on an application's framework or persistence models. Neither app imports the other's source. Feature entities remain in their owning feature.
 
 ## Validation, Security, and Failures
 
