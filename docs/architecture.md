@@ -146,7 +146,7 @@ Export only what other features or application entry points actually need. Do no
 
 Each application's `shared/` is local to that application. Keep code in its owning feature whenever possible; move it to `shared/` only when multiple features use it and it has no business owner. Generic UI primitives belong in `components/ui/`; feature-specific components stay in feature presentation.
 
-Do not use shared folders as a destination for unclassified code. A common architecture requires neither a shared package nor duplicated implementations. Sharing contracts between the API and mobile app is optional and must follow a real integration need; it must not couple either application to the other's framework or persistence models.
+Do not use shared folders as a destination for unclassified code. `packages/types` provides `@yoyos/types`, the shared Result contract for `apps/core` and `apps/mobile`. Import it with `import type`; it contains declarations only and has no framework or persistence dependencies. Keep feature entities in their owning feature. Additional shared contracts require a real integration need and must not couple either application to the other's framework or persistence models.
 
 ## Validation, Security, and Failures
 
