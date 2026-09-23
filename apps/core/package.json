@@ -8,6 +8,7 @@
     "start": "tsx src/server.ts",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
+    "test:e2e": "playwright test",
     "lint": "eslint .",
     "prisma:generate": "prisma generate"
   },
@@ -25,6 +26,7 @@
   "type": "module",
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.55.0",
     "@react-router/dev": "^7.9.4",
     "@storybook/react-vite": "^10.6.0",
     "@tailwindcss/vite": "^4.3.3",
