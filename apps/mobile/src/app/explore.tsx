@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { Button, type ButtonProps } from '@/components/ui/button';
+import { ListRow } from '@/components/ui/list-row';
 import { BottomTabInset, MaxContentWidth } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -49,6 +50,11 @@ export default function ExploreScreen() {
           <Button onPress={() => setLastAction('Texto largo')}>
             {'Continuar con una acción que ocupa varias líneas cuando el texto crece'}
           </Button>
+        </View>
+        <View style={styles.section}>
+          <ThemedText type="subtitle">Fila de lista</ThemedText>
+          <ListRow title="Pedido #1042" description="Creado hoy · 3 productos" onPress={() => setLastAction('Pedido #1042')} />
+          <ListRow title="Café de origen" description="Producto disponible" trailing={<ThemedText type="smallBold">S/ 24.90</ThemedText>} onPress={() => setLastAction('Café de origen')} />
         </View>
       </View>
     </ScrollView>
