@@ -1,37 +1,37 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, ChevronRight, House, LogOut, Menu, Moon, ShoppingBag, Sun, X } from "lucide-react";
-import { Link, Outlet, createContext, redirect, useLoaderData, useNavigate, type LoaderFunctionArgs, type MiddlewareFunction } from "react-router";
+import { Link, Outlet, redirect, useLoaderData, useNavigate, type LoaderFunctionArgs, type MiddlewareFunction } from "react-router";
 import { Button } from "@/components/ui/button";
 import { privateUserContext } from "@/private-user-context";
 import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
-import { resolveCurrentUser } from "@core/src/shared/infrastructure/current-user";
+import { resolveCurrentAccess } from "@core/src/shared/infrastructure/current-user";
+import { requireCompany } from "@core/src/features/users";
 import { authClient } from "@core/src/shared/infrastructure/auth-client";
-import { companyRepository } from "@core/src/features/companies/infrastructure/company-repository";
 import { isLocale } from "@/locale";
-
-const companyContext = createContext<{ name: string; country: string }>();
 
 export const middleware: MiddlewareFunction<Response>[] = [async ({ request, context }, next) => {
   const path = new URL(request.url).pathname;
   const segment = path.split("/")[1];
   const locale = isLocale(segment) ? `/${segment}` : "";
-  const user = await resolveCurrentUser(request.headers);
-  if (!user) throw redirect(`${locale}/login`);
-  if (!user.companyId) throw redirect(`${locale}/register`);
-  const companyId = user.companyId;
-  return withTenantIsolation(companyId, async () => {
-    const company = await companyRepository.getIdentity(companyId);
-    const correctPath = `/es-${company.country}/dashboard`;
+  const result = await resolveCurrentAccess(request.headers);
+  if (!result.success) {
+    if (result.error.code === "UNAUTHENTICATED") throw redirect(`${locale}/login`);
+    throw new Response("Service unavailable", { status: result.error.code === "PERSISTENCE_UNAVAILABLE" || result.error.code === "AUTH_SERVICE_UNAVAILABLE" ? 503 : 500 });
+  }
+  const ready = requireCompany(result.data);
+  if (!ready.success) throw redirect(`${locale}/register`);
+  const access = ready.data;
+  return withTenantIsolation(access.company.id, async () => {
+    const correctPath = `/es-${access.company.country}/dashboard`;
     if (path !== correctPath) throw redirect(correctPath);
-    context.set(privateUserContext, user);
-    context.set(companyContext, company);
+    context.set(privateUserContext, access);
     return next();
   });
 }];
 
 export function loader({ context }: LoaderFunctionArgs) {
-  const company = context.get(companyContext);
-  return { company: company.name, home: `/es-${company.country}/dashboard`, name: context.get(privateUserContext).name };
+  const { company, user } = context.get(privateUserContext);
+  return { company: company.name, home: `/es-${company.country}/dashboard`, name: user.name };
 }
 
 function Navigation({ company, name, home, dark, pending, error, onTheme, onSignOut, onNavigate }: {

@@ -2,7 +2,7 @@ import { useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { privateUserContext } from "@/private-user-context";
 
 export function loader({ context }: LoaderFunctionArgs) {
-  return { name: context.get(privateUserContext).name };
+  return { name: context.get(privateUserContext).user.name };
 }
 
 export default function Dashboard() {

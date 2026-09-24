@@ -21,7 +21,8 @@ export async function seed() {
   });
   if (!credential) throw new Error(`Seed user ${email} has no password account`);
 
-  await createCompanyForUser(user.id, "Yoyos Demo", "PE", companyRepository);
+  const company = await createCompanyForUser({ userId: user.id, name: "Yoyos Demo", country: "PE" }, companyRepository);
+  if (!company.success) throw new Error(company.error.message);
   console.log(`Seed ready: ${email}`);
 }
 

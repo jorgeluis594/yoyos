@@ -2,9 +2,17 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { countries } from "@shared/country";
+import { createCompanyRequestSchema, createCompanyResponseSchema, apiErrorResponseSchema } from "@shared/contracts/registration";
+import { z } from "zod";
 import { authClient } from "../../src/shared/infrastructure/auth-client";
 
 const countryNames = { PE: "Perú", US: "Estados Unidos", CO: "Colombia", AR: "Argentina", CL: "Chile", BR: "Brasil" };
+const credentialsSchema = z.object({ email: z.email(), password: z.string().min(8) });
+const registrationSchema = credentialsSchema.extend({ name: z.string().trim().min(1) });
+const authResultSchema = z.object({
+  error: z.object({ message: z.string().optional() }).nullable(),
+  data: z.object({ user: z.object({ id: z.string().min(1) }) }).nullable(),
+});
 
 export function AuthForm({ mode, pendingCompany = false }: { mode: "login" | "register"; pendingCompany?: boolean }) {
   const register = mode === "register";
@@ -20,21 +28,29 @@ export function AuthForm({ mode, pendingCompany = false }: { mode: "login" | "re
     setError("");
     setPending(true);
     const data = new FormData(event.currentTarget);
-    if (register) {
-      setCompanyName(String(data.get("companyName")));
-      setCompanyCountry(String(data.get("country")));
-    }
 
     try {
       if (companyStep || register) {
+        const company = createCompanyRequestSchema.safeParse({ name: data.get("companyName"), country: data.get("country") });
+        if (!company.success || company.data.name.trim().length < 1 || company.data.name.trim().length > 120) {
+          setError("Revisa el nombre y el país de la empresa.");
+          return;
+        }
+        setCompanyName(company.data.name);
+        setCompanyCountry(company.data.country);
         if (!companyStep) {
-          const result = await authClient.signUp.email({
-            name: String(data.get("name")),
-            email: String(data.get("email")),
-            password: String(data.get("password")),
-          });
-          if (result.error) {
-            setError(result.error.message ?? "No se pudo crear la cuenta.");
+          const account = registrationSchema.safeParse({ name: data.get("name"), email: data.get("email"), password: data.get("password") });
+          if (!account.success) {
+            setError("Revisa los datos de la cuenta.");
+            return;
+          }
+          const result = authResultSchema.safeParse(await authClient.signUp.email(account.data));
+          if (!result.success || !result.data.data && !result.data.error) {
+            setError("Respuesta de autenticación inválida.");
+            return;
+          }
+          if (result.data.error) {
+            setError(result.data.error.message ?? "No se pudo crear la cuenta.");
             return;
           }
           setCompanyStep(true);
@@ -42,19 +58,36 @@ export function AuthForm({ mode, pendingCompany = false }: { mode: "login" | "re
         const response = await fetch("/api/company", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: String(data.get("companyName")), country: String(data.get("country")) }),
+          body: JSON.stringify(company.data),
         });
+        let body: unknown;
+        try { body = await response.json(); } catch { body = null; }
         if (!response.ok) {
+          const failure = apiErrorResponseSchema.safeParse(body);
+          if (!failure.success) {
+            setError("No se recibió una respuesta válida. Inténtalo de nuevo.");
+            return;
+          }
           setError("No se pudo crear la empresa. Inténtalo de nuevo.");
           return;
         }
+        if (!createCompanyResponseSchema.safeParse(body).success) {
+          setError("Respuesta de empresa inválida.");
+          return;
+        }
       } else {
-        const result = await authClient.signIn.email({
-          email: String(data.get("email")),
-          password: String(data.get("password")),
-        });
-        if (result.error) {
-          setError(result.error.message ?? "No se pudo iniciar sesión.");
+        const credentials = credentialsSchema.safeParse({ email: data.get("email"), password: data.get("password") });
+        if (!credentials.success) {
+          setError("Revisa el correo y la contraseña.");
+          return;
+        }
+        const result = authResultSchema.safeParse(await authClient.signIn.email(credentials.data));
+        if (!result.success || !result.data.data && !result.data.error) {
+          setError("Respuesta de autenticación inválida.");
+          return;
+        }
+        if (result.data.error) {
+          setError(result.data.error.message ?? "No se pudo iniciar sesión.");
           return;
         }
       }
