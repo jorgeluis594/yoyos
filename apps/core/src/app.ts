@@ -6,6 +6,9 @@ import { companyRepository } from "@core/src/features/companies/infrastructure/c
 import { auth } from "./shared/infrastructure/auth.js";
 import { resolveCurrentUser } from "./shared/infrastructure/current-user.js";
 import { withTenantIsolation } from "./shared/infrastructure/persistance.js";
+import { imageRoutes } from "@core/src/shared/images/presentation/routes";
+import { imageRepository } from "@core/src/shared/images/infrastructure/image-repository";
+import { createCloudflareImageStorage } from "@core/src/shared/images/infrastructure/cloudflare-image-storage";
 
 export const app = express();
 
@@ -30,6 +33,12 @@ app.use("/api", async (request, response, next) => {
   if (!user.companyId) return response.status(409).json({ error: "Company required" });
   return withTenantIsolation(user.companyId, next);
 });
+
+app.use("/api/images", imageRoutes(createCloudflareImageStorage({
+  accountId: process.env.CLOUDFLARE_IMAGES_ACCOUNT_ID ?? "",
+  apiToken: process.env.CLOUDFLARE_IMAGES_API_TOKEN ?? "",
+  deliveryHash: process.env.CLOUDFLARE_IMAGES_DELIVERY_HASH ?? "",
+}), imageRepository));
 
 app.use("/api", (_request, response) => {
   response.status(404).json({ error: "Not found" });

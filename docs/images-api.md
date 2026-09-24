@@ -2,13 +2,13 @@
 
 Fecha: 2026-09-23.
 
-Estado: diseño acordado para documentar; implementación pendiente. La visibilidad y la política de limpieza requieren definición antes de producción.
+Estado: subida y consulta implementadas en `apps/core`. Las URLs de entrega son públicas.
 
 ## Contexto y decisión
 
 Las distintas entidades necesitan asociar imágenes sin implementar su propia integración con el proveedor. Se creará una API de imágenes en `apps/core`, reutilizable por el frontend y los módulos de negocio.
 
-Cloudflare será el primer proveedor. Se propone Cloudflare Images como servicio concreto. El contrato y los casos de uso serán agnósticos mediante inversión de dependencias; únicamente el adaptador conocerá la API de Cloudflare.
+Cloudflare Images es el primer proveedor. El contrato y los casos de uso son agnósticos mediante inversión de dependencias; únicamente el adaptador conoce la API de Cloudflare.
 
 El frontend subirá el archivo a core y recibirá `{ id, url }`. Después enviará el identificador al crear o actualizar la entidad correspondiente. Se recomienda persistir un identificador interno en las entidades, en lugar de una URL del proveedor, para poder cambiar la entrega de imágenes sin actualizar cada entidad.
 
@@ -45,7 +45,7 @@ La URL permite mostrar la imagen inmediatamente. La referencia persistente es `i
 type Image = {
   id: string;          // Identificador interno de la aplicación.
   storageKey: string;  // Referencia opaca del proveedor.
-  ownerId: string;     // Propietario autorizado, determinado por el servidor.
+  companyId: string;   // Empresa autorizada, determinada por el servidor.
   createdAt: Date;
 };
 
@@ -57,7 +57,7 @@ type Product = {
 };
 ```
 
-Se debe definir si la propiedad corresponde al usuario o a la empresa y modelar esa relación explícitamente. `ownerId` expresa esa necesidad, no una relación polimórfica ya decidida.
+La implementación usa `companyId` como propietario y aplica RLS de PostgreSQL.
 
 La base de datos conservará la relación entre el identificador interno y `storageKey`. Las entidades podrán referenciar el registro de imagen con una clave foránea. No se almacenarán credenciales ni URLs temporales en las entidades.
 
@@ -99,7 +99,7 @@ apps/core/src/shared/images/
 
 Este código pertenece al `shared` de core. El `shared/` de la raíz sigue reservado para código compartido entre aplicaciones, como `Result`.
 
-El adaptador se construirá mediante una función como `createCloudflareImageStorage(config): ImageStorage`. `app.ts` lo suministrará a los casos de uso mediante parámetros, sin contenedor de inyección ni clases base.
+El adaptador se construye mediante `createCloudflareImageStorage(config): ImageStorage`. `app.ts` lo suministra a los casos de uso mediante parámetros, sin contenedor de inyección ni clases base.
 
 ```text
 Presentación → Aplicación → Contrato ImageStorage
@@ -112,7 +112,7 @@ Las reglas específicas permanecen en cada feature: permisos para modificar un p
 ## Validación, autorización y consistencia
 
 - La subida requiere autenticación. El servidor determina el propietario; no confía en un propietario enviado por el cliente.
-- Se limita el tamaño antes de cargar el archivo completo en memoria y se valida su contenido real, además del tipo declarado. Los formatos y límites concretos quedan por definir.
+- Se acepta un único archivo `file` de JPEG, PNG o WebP, de hasta 10 MB. Se limita el cuerpo antes de parsearlo y se comprueba la firma además del tipo declarado.
 - Al asociar un `imageId`, el caso de uso comprueba que exista y que el actor tenga permiso para utilizarlo. Conocer un ID no concede autorización.
 - Las credenciales de Cloudflare permanecen en el servidor. El adaptador valida las respuestas externas y traduce sus errores.
 - La subida guarda primero el archivo y después el registro local. Si falla el guardado, intenta eliminar el archivo subido; si la compensación falla, registra el fallo para su posterior limpieza.
@@ -121,16 +121,13 @@ Las reglas específicas permanecen en cada feature: permisos para modificar un p
 
 ## Alcance inicial y pendientes
 
-La primera implementación incluirá subida a través de core y consulta. No se expondrá todavía un endpoint público de borrado; `delete` estará disponible internamente para compensaciones.
+La primera implementación incluye subida a través de core y consulta. No se expone un endpoint público de borrado; `delete` está disponible internamente para compensaciones.
 
-Se asumen imágenes públicas para este contrato inicial. Si se necesitan imágenes privadas, habrá que definir autorización de lectura, visibilidad y vencimiento de URLs antes de implementar ese flujo.
+Las URLs de la variante `public` son públicas; los endpoints requieren sesión y empresa. Un ID de otra empresa responde `404`. Si se necesitan imágenes privadas, habrá que definir autorización de lectura, visibilidad y vencimiento de URLs antes de implementar ese flujo.
 
-Quedan pendientes:
+La integración requiere `CLOUDFLARE_IMAGES_ACCOUNT_ID`, `CLOUDFLARE_IMAGES_API_TOKEN` y `CLOUDFLARE_IMAGES_DELIVERY_HASH` en el servidor. El token debe permitir subir y borrar imágenes. La variante `public` debe existir en la cuenta.
 
-1. Confirmar Cloudflare Images y la visibilidad de las imágenes.
-2. Definir si el propietario es el usuario o la empresa.
-3. Establecer formatos admitidos y tamaño máximo.
-4. Definir la limpieza de subidas abandonadas, archivos huérfanos y registros sin referencias, sin eliminar imágenes todavía utilizadas.
+Las entidades futuras guardarán `imageId` y comprobarán que la imagen pertenece a la empresa al asociarla. No se incluye borrado público ni limpieza programada de imágenes válidas sin uso. Una caída entre la subida remota y el registro local todavía puede dejar un archivo huérfano; habrá que definir su limpieza antes de automatizarla.
 
 Se posponen las subidas directas al proveedor, variantes configurables y transformaciones hasta tener un requisito concreto. La subida directa requeriría un flujo distinto de autorización temporal y confirmación de carga.
 
@@ -138,7 +135,7 @@ Se posponen las subidas directas al proveedor, variantes configurables y transfo
 
 La API es reutilizable y las entidades solo conocen identificadores internos. El coste inicial es una tabla de imágenes y el tránsito de archivos por core. Cambiar de proveedor requiere otro adaptador y migrar los archivos y sus referencias internas; la inversión de dependencias no migra datos automáticamente.
 
-Al implementar se comprobarán la subida correcta, el rechazo de archivos inválidos, la autorización al asociar imágenes, la traducción de errores del proveedor y la compensación cuando falle el guardado local. Los casos de uso podrán comprobarse con dependencias simuladas, sin llamar a Cloudflare.
+Las pruebas comprueban la subida correcta, el rechazo de archivos inválidos, el aislamiento entre empresas, la traducción de errores del proveedor y la compensación cuando falla el guardado local. La autorización al asociar imágenes corresponde a los futuros casos de uso de las entidades.
 
 ## Referencias
 
