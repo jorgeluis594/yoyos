@@ -92,6 +92,13 @@ The `spacing` scale is shared. Geometry values represent CSS pixels on the web a
 | Data row | Minimum height 40 | Minimum 56 when it contains text and actions. |
 | Container | Maximum 1440, centered | One column by default. |
 | Form | Maximum 640 | Available width. |
+| Web sidebar | Width 256 | Replaced by modal navigation. |
+| Web navigation drawer | — | Width 288, capped at the viewport. |
+| Web app header | Minimum height 64 | Minimum height 64. |
+
+The web shell consumes `sidebarWidth`, `navigationDrawerWidth`, and `appHeaderMinHeight` as semantic tokens because these dimensions recur across authenticated pages. They describe web navigation only, not native navigation. App and Storybook share the same token adapter. Dimensions use rem so they scale with the user's root text size.
+
+Before using a dimension, check its role against the tokens. A Tailwind scale value is not automatically an approved design-system value. Reuse an existing role or spacing step; add a token only when a distinct, reusable role needs a missing dimension, and document it here in the same change. Desktop controls use the existing 36 minimum; touch controls use 48. Do not introduce an intermediate 44 height for one screen. Use the existing 32 spacing step for the shell's initials rather than adding an avatar size just for this layout.
 
 These values summarize `layout` and `sizing`; the JSON takes precedence when updated. Heights are minimums, never rigid values that clip content. Apply touch sizing on touch-enabled web interfaces too, even on large screens. Separate adjacent touch targets by at least 8 units and avoid overlapping invisible hit areas.
 

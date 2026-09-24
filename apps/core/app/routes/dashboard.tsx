@@ -9,9 +9,9 @@ export default function Dashboard() {
   const { name } = useLoaderData<typeof loader>();
 
   return (
-    <div className="max-w-prose">
+    <div>
       <h1 className="break-words text-2xl font-semibold tracking-tight text-balance">Hola, {name}</h1>
-      <p className="mt-2 text-sm leading-6 text-muted-foreground">Tu espacio de trabajo está listo.</p>
+      <p className="mt-2 text-sm leading-5 text-muted-foreground">Tu espacio de trabajo está listo.</p>
     </div>
   );
 }

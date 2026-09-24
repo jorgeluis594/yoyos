@@ -1,3 +1,4 @@
+import designTokens from "../../../../docs/design-tokens.json";
 import { browserExpect, expect, test } from "./fixtures";
 import { prisma, systemPrisma, withTenantIsolation } from "../../src/shared/infrastructure/persistance";
 
@@ -36,6 +37,9 @@ test("register, persist session, sign out, reject bad password, and sign in", as
     await browserExpect(page.getByRole("main")).toBeFocused();
     await page.setViewportSize({ width: 1440, height: 900 });
     const sidebar = page.getByRole("complementary");
+    await browserExpect(sidebar).toHaveCSS("width", `${designTokens.layout.sidebarWidth}px`);
+    await browserExpect(page.getByRole("banner")).toHaveCSS("min-height", `${designTokens.layout.appHeaderMinHeight}px`);
+    await browserExpect(sidebar.getByRole("button", { name: "Alternar tema" })).toHaveCSS("min-height", `${designTokens.sizing.controlDesktopMinHeight}px`);
     await browserExpect(sidebar).toContainText("Empresa Ana");
     await browserExpect(sidebar).toContainText("Ana Prueba");
     await browserExpect(sidebar.getByRole("link", { name: "Inicio" })).toHaveAttribute("href", "/es-PE/dashboard");
@@ -62,6 +66,8 @@ test("register, persist session, sign out, reject bad password, and sign in", as
     await page.keyboard.press("Enter");
     const menu = page.getByRole("dialog", { name: "Menú principal" });
     await browserExpect(menu).toBeVisible();
+    await browserExpect(menu).toHaveCSS("width", `${designTokens.layout.navigationDrawerWidth}px`);
+    await browserExpect(menu.getByRole("button", { name: "Alternar tema" })).toHaveCSS("min-height", `${designTokens.sizing.touchTargetMinSize}px`);
     await browserExpect(menu.getByRole("link", { name: "Inicio" })).toHaveAttribute("href", "/es-PE/dashboard");
     await browserExpect(menu.getByRole("button", { name: "Cerrar menú" })).toBeFocused();
     await page.keyboard.press("Tab");
