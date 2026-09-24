@@ -35,7 +35,7 @@ Successful responses are validated with `shared/contracts/images.ts`: `id` is a 
 | Condition | HTTP | `code` |
 | --- | --- | --- |
 | Invalid multipart body, file, or format | 400 | `INVALID_IMAGE` |
-| File or request exceeds the upload limit | 413 | `IMAGE_TOO_LARGE` |
+| File, request, or resolution exceeds the upload limits | 413 | `IMAGE_TOO_LARGE` |
 | Request is not multipart | 415 | `UNSUPPORTED_MEDIA_TYPE` |
 | Image missing or owned by another company | 404 | `NOT_FOUND` |
 | Storage provider failure | 502 | `IMAGE_STORAGE_UNAVAILABLE` |
@@ -124,7 +124,10 @@ Feature-specific rules remain in each feature: permission to modify a product, t
 ## Validation, authorization, and consistency
 
 - Uploads require authentication. The server determines the owner; it does not trust an owner sent by the client.
-- A single JPEG, PNG, or WebP file in the `file` field is accepted, up to 10 MB. The request body is limited before parsing, and the file signature is checked in addition to the declared type.
+- A single complete, static JPEG, PNG, or WebP file in the `file` field is accepted, up to 10,000,000 bytes (10 MB). The request body is limited before parsing to 10 MB plus 64 KiB of multipart overhead.
+- Images must have positive dimensions, at most 24,000,000 pixels (24 MP), and at most 8,000 pixels per side. Exceeding a byte or resolution limit returns `413 IMAGE_TOO_LARGE`.
+- The detected format must match the declared MIME. Empty, truncated, corrupt, animated WebP, and APNG files return `400 INVALID_IMAGE`. Sharp decodes the pixels with `stats()`, `failOn: "warning"`, and `limitInputPixels: 24_000_000` before storage or persistence. Header metadata alone is insufficient.
+- Accepted files retain their original bytes; validation does not convert or generate variants.
 - Future use cases that associate an `imageId` must verify that it exists and belongs to the authorized company. Knowing an ID does not grant authorization.
 - R2 credentials remain on the server. The adapter translates upload and deletion errors.
 - An upload stores the file first, then the local record. If saving the record fails, it attempts to delete the uploaded file; if compensation fails, it logs the failure for later cleanup.

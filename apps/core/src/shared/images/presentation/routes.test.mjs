@@ -1,4 +1,5 @@
 import { expect, test, vi } from "vitest";
+import sharp from "sharp";
 
 const send = vi.hoisted(() => vi.fn());
 vi.mock("@aws-sdk/client-s3", async (importOriginal) => {
@@ -56,7 +57,17 @@ test("authenticated image routes validate uploads and isolate companies", async 
     data.set("file", new File([bytes], name, { type }));
     return data;
   };
-  const png = Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10, 0);
+  const makeImage = (width = 16, height = 16) => sharp({ create: { width, height, channels: 3, background: "red" } });
+  const png = await makeImage().png().toBuffer();
+  const jpeg = await makeImage().jpeg().toBuffer();
+  const webp = await makeImage().webp().toBuffer();
+  // Two complete 1x1 frames (red and blue), with valid PNG chunk checksums.
+  const apng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACGFjVEwAAAACAAAAAPONk3AAAAAaZmNUTAAAAAAAAAABAAAAAQAAAAAAAAAAAAEACgAAWn8w0AAAAA1JREFUeJxj+M/A8B8ABQAB/4mZPR0AAAAaZmNUTAAAAAEAAAABAAAAAQAAAAAAAAAAAAEACgAAwQzaBAAAABFmZEFUAAAAAnicY2Bg+P8fAAMCAf/1e6XXAAAAAElFTkSuQmCC", "base64");
+  const animatedWebp = await sharp(Buffer.from([255, 0, 0, 0, 0, 255]), {
+    raw: { width: 1, height: 2, channels: 3, pageHeight: 1 },
+  }).webp({ loop: 0, delay: [100, 100] }).toBuffer();
+  const corrupt = Buffer.from(png);
+  corrupt[corrupt.indexOf("IDAT") + 4] ^= 0xff;
   const expectError = async (response, status, code) => {
     expect(response.status).toBe(status);
     expect(await response.json()).toEqual({ code, error: expect.any(String) });
@@ -89,14 +100,46 @@ test("authenticated image routes validate uploads and isolate companies", async 
     await expectError(await request("/api/images", { method: "POST", body: form(png) }, pending), 409, "COMPANY_REQUIRED");
     const owner = await register(true);
     const other = await register(true);
+    const { imageRepository } = await import("../infrastructure/image-repository.ts");
+    const createSpy = vi.spyOn(imageRepository, "create");
     const multiple = form(png);
     multiple.set("extra", "unexpected");
-    await expectError(await request("/api/images", { method: "POST", body: multiple }, owner), 400, "INVALID_IMAGE");
-    await expectError(await request("/api/images", { method: "POST", body: form(png.subarray(0, 3)) }, owner), 400, "INVALID_IMAGE");
-    await expectError(await request("/api/images", { method: "POST", body: form(png, "image/jpeg") }, owner), 400, "INVALID_IMAGE");
-    await expectError(await request("/api/images", { method: "POST", body: form(new Uint8Array(10_000_001)) }, owner), 413, "IMAGE_TOO_LARGE");
-    await expectError(await request("/api/images", { method: "POST", headers: { "content-type": "multipart/form-data" }, body: new Uint8Array(10_100_000) }, owner), 413, "IMAGE_TOO_LARGE");
-    await expectError(await request("/api/images", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }, owner), 415, "UNSUPPORTED_MEDIA_TYPE");
+    const invalidFiles = [
+      ["empty", Buffer.alloc(0), "image/png"],
+      ["PNG signature", Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10, 0), "image/png"],
+      ["JPEG signature", Uint8Array.of(255, 216, 255), "image/jpeg"],
+      ["WebP signature", Buffer.from("RIFF0000WEBP"), "image/webp"],
+      ["truncated PNG", png.subarray(0, png.indexOf("IDAT") + 8), "image/png"],
+      ["truncated JPEG", jpeg.subarray(0, jpeg.length - 10), "image/jpeg"],
+      ["truncated WebP", webp.subarray(0, webp.length - 10), "image/webp"],
+      ["corrupt pixels", corrupt, "image/png"],
+      ["MIME mismatch", png, "image/jpeg"],
+      ["unsupported MIME", png, "application/octet-stream"],
+      ["APNG declared PNG", apng, "image/png"],
+      ["APNG declared APNG", apng, "image/apng"],
+      ["animated WebP", animatedWebp, "image/webp"],
+    ];
+    const rejectedRequests = [
+      ...invalidFiles.map(([name, bytes, type]) => [name, { body: form(bytes, type) }, 400, "INVALID_IMAGE"]),
+      ["multiple fields", { body: multiple }, 400, "INVALID_IMAGE"],
+      ["file limit", { body: form(new Uint8Array(10_000_001)) }, 413, "IMAGE_TOO_LARGE"],
+      ["body limit", { headers: { "content-type": "multipart/form-data" }, body: new Uint8Array(10_100_000) }, 413, "IMAGE_TOO_LARGE"],
+      ["width limit", { body: form(await makeImage(8001, 1).png().toBuffer()) }, 413, "IMAGE_TOO_LARGE"],
+      ["height limit", { body: form(await makeImage(1, 8001).png().toBuffer()) }, 413, "IMAGE_TOO_LARGE"],
+      ["pixel limit", { body: form(await makeImage(6000, 4001).png().toBuffer()) }, 413, "IMAGE_TOO_LARGE"],
+      ["not multipart", { headers: { "content-type": "application/json" }, body: "{}" }, 415, "UNSUPPORTED_MEDIA_TYPE"],
+    ];
+    try {
+      for (const [name, options, status, code] of rejectedRequests) {
+        const response = await request("/api/images", { method: "POST", ...options }, owner);
+        expect(response.status, name).toBe(status);
+        await expectError(response, status, code);
+        expect(send, name).not.toHaveBeenCalled();
+        expect(createSpy, name).not.toHaveBeenCalled();
+      }
+    } finally {
+      createSpy.mockRestore();
+    }
     await expectError(await request("/probe/images", { method: "POST", body: form(png) }), 500, "INTERNAL_ERROR");
     await expectError(await request(`/probe/images/${probeId}`), 500, "INTERNAL_ERROR");
     probeConfigFails = true;
@@ -116,7 +159,6 @@ test("authenticated image routes validate uploads and isolate companies", async 
     expect(await (await request(`/api/images/${image.id}`, {}, owner)).json()).toEqual(image);
     await expectError(await request(`/api/images/${image.id}`, {}, other), 404, "NOT_FOUND");
     await expectError(await request(`/api/images/${crypto.randomUUID()}`, {}, owner), 404, "NOT_FOUND");
-    const { imageRepository } = await import("../infrastructure/image-repository.ts");
     const originalCreate = imageRepository.create;
     const originalFind = imageRepository.find;
     try {
@@ -132,6 +174,16 @@ test("authenticated image routes validate uploads and isolate companies", async 
     } finally {
       imageRepository.create = originalCreate;
       imageRepository.find = originalFind;
+    }
+    for (const [bytes, type] of [
+      [jpeg, "image/jpeg"], [webp, "image/webp"],
+      [await makeImage(8000, 3000).png().toBuffer(), "image/png"],
+      [await makeImage(1, 8000).png().toBuffer(), "image/png"],
+    ]) {
+      const response = await request("/api/images", { method: "POST", body: form(bytes, type) }, owner);
+      expect(response.status, await response.clone().text()).toBe(201);
+      expect(uploaded.at(-1).ContentType).toBe(type);
+      expect(Buffer.from(uploaded.at(-1).Body)).toEqual(bytes);
     }
     providerFails = true;
     await expectError(await request("/api/images", { method: "POST", body: form(png) }, owner), 502, "IMAGE_STORAGE_UNAVAILABLE");
