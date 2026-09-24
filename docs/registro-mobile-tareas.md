@@ -4,7 +4,7 @@
 
 Implementar la [arquitectura acordada](registro-mobile-pendientes.md) en cinco entregas completas y comprobables.
 
-**Estado:** T1–T3 terminadas y verificadas; T4 y T5 pendientes. La evidencia figura en cada sección.
+**Estado:** T1–T4 terminadas y verificadas; T5 pendiente. La evidencia figura en cada sección.
 
 Cada tarea incluye código, integración con los consumidores que ya existen, configuración necesaria y pruebas. Puede depender de tareas anteriores terminadas, pero debe compilar y pasar sus criterios de aceptación sin implementar ninguna tarea posterior. Un módulo sin pantalla puede ser una entrega completa si su API funciona y sus pruebas ejercitan el comportamiento real del módulo.
 
@@ -218,16 +218,16 @@ Los comandos siguientes se ejecutan desde el directorio indicado. `apps/core/scr
 
 ### Criterios de aceptación
 
-- [ ] Entrada inválida impide crear la cuenta y enviar solicitudes de empresa; las capacidades no reciben objetos JSON sin validar.
-- [ ] Registro exitoso devuelve `ReadyAccess` después de vincular empresa y recargar `/me`.
-- [ ] Si la cuenta ya tiene empresa al resolver acceso, el flujo utiliza esa empresa y no intenta crear otra.
-- [ ] Si el alta funciona y falla la empresa, se devuelve `REGISTRATION_INTERRUPTED` con `step`, `recovery` y `cause` correspondientes; el acceso persistido sigue disponible.
-- [ ] Recuperar desde empresa pendiente invoca `completeCompany`, no el alta de cuenta otra vez.
-- [ ] Si se pierde una respuesta, el flujo permite consultar el estado actual antes de decidir la recuperación; no declara que una escritura falló solo por un timeout.
-- [ ] Si la creación devuelve éxito pero la recarga falla, la recuperación es recargar acceso. Si la recarga devuelve un estado incoherente, se informa `INVALID_RESPONSE` y no se inventa un acceso listo.
-- [ ] `createCompany` acepta el contrato existente para `200` y `201`, valida su respuesta e ignora cualquier ID no autoritativo del formulario.
-- [ ] Types, errores y dependencias no crean imports circulares; companies no importa internals de users.
-- [ ] Los tests de login, restauración, renovación y logout de T3 siguen pasando.
+- [x] Entrada inválida impide crear la cuenta y enviar solicitudes de empresa; las capacidades no reciben objetos JSON sin validar.
+- [x] Registro exitoso devuelve `ReadyAccess` después de vincular empresa y recargar `/me`.
+- [x] Si la cuenta ya tiene empresa al resolver acceso, el flujo utiliza esa empresa y no intenta crear otra.
+- [x] Si el alta funciona y falla la empresa, se devuelve `REGISTRATION_INTERRUPTED` con `step`, `recovery` y `cause` correspondientes; el acceso persistido sigue disponible.
+- [x] Recuperar desde empresa pendiente invoca `completeCompany`, no el alta de cuenta otra vez.
+- [x] Si se pierde una respuesta, el flujo permite consultar el estado actual antes de decidir la recuperación; no declara que una escritura falló solo por un timeout.
+- [x] Si la creación devuelve éxito pero la recarga falla, la recuperación es recargar acceso. Si la recarga devuelve un estado incoherente, se informa `INVALID_RESPONSE` y no se inventa un acceso listo.
+- [x] `createCompany` acepta el contrato existente para `200` y `201`, valida su respuesta e ignora cualquier ID no autoritativo del formulario.
+- [x] Types, errores y dependencias no crean imports circulares; companies no importa internals de users.
+- [x] Los tests de login, restauración, renovación y logout de T3 siguen pasando.
 
 ### Pruebas para cerrar la tarea
 
@@ -236,6 +236,8 @@ Los comandos siguientes se ejecutan desde el directorio indicado. `apps/core/scr
 3. Adaptadores reales con respuestas controladas según los schemas de core, incluidos errores de formato y protocolo.
 
 **Comandos:** desde `apps/mobile`, `pnpm lint`, `pnpm typecheck` y `pnpm test`. Si cambia un contrato compartido, también ejecutar sus pruebas y el typecheck de core en esta misma tarea; no diferir compatibilidad a T5.
+
+**Verificación T4 (2026-09-23):** desde `apps/mobile`, `pnpm lint`, `pnpm typecheck` y `pnpm test` pasaron; Jest descubrió 9 suites y 51 pruebas. Las pruebas de composición ejecutan registro, consulta de acceso, creación idempotente de empresa y recuperación con adaptadores reales sobre Better Auth y HTTP controlados. No cambió ningún contrato compartido ni código de core.
 
 **Por qué se cierra por sí sola:** el registro y la recuperación pueden ejecutarse y verificarse directamente por sus funciones compuestas. La UI no decide su secuencia de negocio.
 

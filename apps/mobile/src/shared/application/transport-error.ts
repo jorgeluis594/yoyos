@@ -2,6 +2,7 @@ export type TransportError = Readonly<{
   code:
     | "UNAUTHENTICATED"
     | "COMPANY_REQUIRED"
+    | "INVALID_COMPANY"
     | "NETWORK_ERROR"
     | "RATE_LIMITED"
     | "SERVER_ERROR"

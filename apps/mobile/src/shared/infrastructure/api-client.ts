@@ -39,6 +39,7 @@ export function createApiClient(session: SessionTransport, fetcher: typeof fetch
         if (!parsed.success) return err({ code: "INVALID_RESPONSE", message: "Server returned an invalid error" });
         const code: TransportError["code"] = parsed.data.code === "UNAUTHENTICATED" ? "UNAUTHENTICATED"
           : parsed.data.code === "COMPANY_REQUIRED" ? "COMPANY_REQUIRED"
+            : parsed.data.code === "INVALID_COMPANY" ? "INVALID_COMPANY"
             : response.status === 429 ? "RATE_LIMITED"
               : response.status >= 500 ? "SERVER_ERROR" : "INVALID_RESPONSE";
         return err({ code, message: parsed.data.error });

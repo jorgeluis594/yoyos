@@ -2,7 +2,7 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { z } from "zod";
 import type { TransportError } from "@/shared/application/transport-error";
-import type { AccountError, MobileAuth, SignInInput } from "../application/contracts";
+import type { AccountError, MobileAuth, RegisterAccountInput, SignInInput } from "../application/contracts";
 import { authGeneration } from "@/shared/infrastructure/auth-generation";
 
 const resultSchema = z.object({ data: z.unknown(), error: z.unknown().nullable().optional() });
@@ -18,6 +18,7 @@ const tokenDataSchema = z.object({ token: z.string().min(1) });
 const claimsSchema = z.object({ exp: z.number().finite() }).passthrough();
 
 export type AuthClientBoundary = Readonly<{
+  signUp: (input: RegisterAccountInput) => Promise<unknown>;
   signIn: (input: SignInInput) => Promise<unknown>;
   getSession: (signal?: AbortSignal) => Promise<unknown>;
   token: (signal?: AbortSignal) => Promise<unknown>;
@@ -29,9 +30,16 @@ export type SecureSessionStorage = Readonly<{
   deleteItemAsync: (key: string) => Promise<void>;
 }>;
 
-function mapSdkError(value: unknown): AccountError {
+function mapSdkError(value: unknown, operation: "register" | "login" = "login"): AccountError {
   const parsed = sdkErrorSchema.safeParse(value);
   if (!parsed.success) return { code: "INVALID_RESPONSE", message: "Authentication returned an invalid error" };
+  if (["USER_ALREADY_EXISTS", "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL"].includes(parsed.data.code ?? "")) {
+    return { code: "EMAIL_IN_USE", message: "Email is already in use" };
+  }
+  if (["PASSWORD_TOO_SHORT", "PASSWORD_TOO_LONG", "INVALID_EMAIL"].includes(parsed.data.code ?? "") ||
+      (operation === "register" && parsed.data.code === "INVALID_PASSWORD")) {
+    return { code: "INVALID_INPUT", message: "Account details are invalid" };
+  }
   if (["INVALID_EMAIL_OR_PASSWORD", "INVALID_PASSWORD", "USER_NOT_FOUND"].includes(parsed.data.code ?? "")) {
     return { code: "INVALID_CREDENTIALS", message: "Email or password is incorrect" };
   }
@@ -129,6 +137,23 @@ export function createAuthAdapter(
   };
 
   return {
+    async registerAccount(input) {
+      const generation = authGeneration.advance();
+      refreshing = null;
+      accessToken = null;
+      logoutPending = false;
+      try {
+        const result = readResult(await client.signUp(input));
+        if (generation !== authGeneration.get()) return err({ code: "OPERATION_CANCELLED", message: "Session changed" });
+        if (!result.success) return result;
+        if (result.data.error) return err(mapSdkError(result.data.error, "register"));
+        if (!signInDataSchema.safeParse(result.data.data).success) return err({ code: "INVALID_RESPONSE", message: "Authentication returned an invalid registration" });
+        const token = await loadToken();
+        return token.success ? ok(undefined) : err(token.error);
+      } catch {
+        return err({ code: "NETWORK_ERROR", message: "Unable to register account" });
+      }
+    },
     async signIn(input) {
       const generation = authGeneration.advance();
       refreshing = null;

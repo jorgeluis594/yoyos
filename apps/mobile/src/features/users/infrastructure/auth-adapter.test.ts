@@ -16,6 +16,7 @@ function storage(): SecureSessionStorage {
 test("login validates Better Auth output, renews the server session, then keeps the JWT in memory", async () => {
   const calls: string[] = [];
   const client: AuthClientBoundary = {
+    signUp: async () => response({ user: { id: "user-1" } }),
     signIn: async () => { calls.push("sign-in"); return response({ user: { id: "user-1" } }); },
     getSession: async () => { calls.push("session"); return response(session); },
     token: async () => { calls.push("token"); return response({ token: token(1000) }); },
@@ -29,6 +30,7 @@ test("login validates Better Auth output, renews the server session, then keeps 
 
 test("maps incorrect credentials to the stable login error", async () => {
   const client: AuthClientBoundary = {
+    signUp: async () => response({ user: { id: "user-1" } }),
     signIn: async () => response(null, { code: "INVALID_EMAIL_OR_PASSWORD", message: "Invalid email or password", status: 401 }),
     getSession: async () => response(null), token: async () => response(null), signOut: async () => response({ success: true }),
   };
@@ -38,8 +40,20 @@ test("maps incorrect credentials to the stable login error", async () => {
   });
 });
 
+test("registration maps duplicate email and rejects malformed SDK data", async () => {
+  const client: AuthClientBoundary = {
+    signUp: async () => response(null, { code: "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL", message: "duplicate", status: 422 }),
+    signIn: async () => response(null), getSession: async () => response(session),
+    token: async () => response({ token: token(1000) }), signOut: async () => response({ success: true }),
+  };
+  const input = { name: "A", email: "a@example.com", password: "password123" };
+  expect(await createAuthAdapter(client, storage()).registerAccount(input)).toMatchObject({ success: false, error: { code: "EMAIL_IN_USE" } });
+  expect(await createAuthAdapter({ ...client, signUp: async () => response({ user: { id: "" } }) }, storage()).registerAccount(input)).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+});
+
 test("rejects incompatible SDK responses instead of treating them as absent sessions", async () => {
   const invalidSignIn: AuthClientBoundary = {
+    signUp: async () => response({ user: { id: "user-1" } }),
     signIn: async () => response({ user: { id: "" } }),
     getSession: async () => response(session), token: async () => response({ token: token(1000) }),
     signOut: async () => response({ success: true }),
@@ -48,6 +62,7 @@ test("rejects incompatible SDK responses instead of treating them as absent sess
     .toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
 
   const invalidSession: AuthClientBoundary = {
+    signUp: async () => response({ user: { id: "user-1" } }),
     signIn: async () => response({ user: { id: "user-1" } }),
     getSession: async () => response({ session: { id: "", expiresAt: "later" }, user: {} }),
     token: async () => response({ token: token(1000) }), signOut: async () => response({ success: true }),
@@ -60,6 +75,7 @@ test("coalesces JWT refresh and discards a result after logout invalidates it", 
   let release!: (value: unknown) => void;
   let sessionCalls = 0;
   const client: AuthClientBoundary = {
+    signUp: async () => response({ user: { id: "user-1" } }),
     signIn: async () => response({ user: { id: "user-1" } }),
     getSession: async () => { sessionCalls++; return new Promise((resolve) => { release = resolve; }); },
     token: async () => response({ token: token(1000) }),
@@ -79,6 +95,7 @@ test("a late sign-in response cannot restore credentials after logout", async ()
   let finishSignIn!: (value: unknown) => void;
   let sessionReads = 0;
   const client: AuthClientBoundary = {
+    signUp: async () => response({ user: { id: "user-1" } }),
     signIn: async () => new Promise((resolve) => { finishSignIn = resolve; }),
     getSession: async () => { sessionReads++; return response(session); },
     token: async () => response({ token: token(1000) }),
@@ -95,6 +112,7 @@ test("a late sign-in response cannot restore credentials after logout", async ()
 
 test("failed SecureStore deletion blocks session restoration", async () => {
   const client: AuthClientBoundary = {
+    signUp: async () => response({ user: { id: "user-1" } }),
     signIn: async () => response({ user: { id: "user-1" } }),
     getSession: async () => response(null),
     token: async () => response({ token: token(1000) }),
@@ -112,6 +130,7 @@ test("failed SecureStore deletion blocks session restoration", async () => {
 
 test("remote logout is bounded when the server never responds", async () => {
   const client: AuthClientBoundary = {
+    signUp: async () => response({ user: { id: "user-1" } }),
     signIn: async () => response({ user: { id: "user-1" } }),
     getSession: async () => response(null), token: async () => response(null),
     signOut: async () => new Promise(() => {}),
@@ -137,6 +156,7 @@ test("logout clears SDK cookie chunks and the in-memory access token", async () 
   };
   let active = true;
   const client: AuthClientBoundary = {
+    signUp: async () => response({ user: { id: "user-1" } }),
     signIn: async () => response({ user: { id: "user-1" } }),
     getSession: async () => response(active ? session : null),
     token: async () => response({ token: token(1000) }),
