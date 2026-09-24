@@ -1,4 +1,4 @@
 import { createContext } from "react-router";
-import type { resolveCurrentUser } from "@core/src/shared/infrastructure/current-user";
+import type { ReadyAccess } from "@core/src/features/users";
 
-export const privateUserContext = createContext<NonNullable<Awaited<ReturnType<typeof resolveCurrentUser>>>>();
+export const privateUserContext = createContext<ReadyAccess>();

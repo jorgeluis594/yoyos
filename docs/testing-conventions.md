@@ -98,6 +98,8 @@ Use end-to-end tests for critical journeys and integration risks that smaller te
 
 ## Scope and Workflow
 
+In `apps/core`, use Vitest for every unit, integration, and end-to-end test: define and run tests with Vitest and use its `expect` for general assertions. Do not use `node:test`, `node:assert`, or another test runner or general assertion library. Playwright may be used to control the browser and assert on pages and locators in end-to-end tests.
+
 1. Identify the layer that owns the behavior being changed.
 2. Add the smallest test that proves the rule or reproduces the defect. A regression test should fail without the fix.
 3. Cover additional boundaries or failures when they carry a distinct correctness risk.
@@ -105,4 +107,4 @@ Use end-to-end tests for critical journeys and integration risks that smaller te
 
 Test observable contracts, not implementation structure. Do not add tests solely for exports, trivial forwarding functions, or static markup. Avoid large snapshots and coverage targets that reward assertions without meaningful behavior.
 
-Use each application's configured tooling and scripts. These conventions do not prescribe a test framework or imply that runners, commands, or CI checks are already configured. Add tooling only when implementing runnable tests requires it.
+Use each application's configured tooling and scripts. Outside `apps/core`, these conventions do not prescribe a test framework or imply that runners, commands, or CI checks are already configured. Add tooling only when implementing runnable tests requires it.

@@ -1,37 +1,37 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronRight, House, LogOut, Menu, Moon, ShoppingBag, Sun, X } from "lucide-react";
-import { Link, Outlet, createContext, redirect, useLoaderData, useNavigate, type LoaderFunctionArgs, type MiddlewareFunction } from "react-router";
+import { Check, ChevronRight, House, LogOut, Menu, Moon, ShoppingBag, Sun, X } from "lucide-react";
+import { Link, Outlet, redirect, useLoaderData, useNavigate, type LoaderFunctionArgs, type MiddlewareFunction } from "react-router";
 import { Button } from "@/components/ui/button";
 import { privateUserContext } from "@/private-user-context";
 import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
-import { resolveCurrentUser } from "@core/src/shared/infrastructure/current-user";
+import { resolveCurrentAccess } from "@core/src/shared/infrastructure/current-user";
+import { requireCompany } from "@core/src/features/users";
 import { authClient } from "@core/src/shared/infrastructure/auth-client";
-import { companyRepository } from "@core/src/features/companies/infrastructure/company-repository";
 import { isLocale } from "@/locale";
-
-const companyContext = createContext<{ name: string; country: string }>();
 
 export const middleware: MiddlewareFunction<Response>[] = [async ({ request, context }, next) => {
   const path = new URL(request.url).pathname;
   const segment = path.split("/")[1];
   const locale = isLocale(segment) ? `/${segment}` : "";
-  const user = await resolveCurrentUser(request.headers);
-  if (!user) throw redirect(`${locale}/login`);
-  if (!user.companyId) throw redirect(`${locale}/register`);
-  const companyId = user.companyId;
-  return withTenantIsolation(companyId, async () => {
-    const company = await companyRepository.getIdentity(companyId);
-    const correctPath = `/es-${company.country}/dashboard`;
+  const result = await resolveCurrentAccess(request.headers);
+  if (!result.success) {
+    if (result.error.code === "UNAUTHENTICATED") throw redirect(`${locale}/login`);
+    throw new Response("Service unavailable", { status: result.error.code === "PERSISTENCE_UNAVAILABLE" || result.error.code === "AUTH_SERVICE_UNAVAILABLE" ? 503 : 500 });
+  }
+  const ready = requireCompany(result.data);
+  if (!ready.success) throw redirect(`${locale}/register`);
+  const access = ready.data;
+  return withTenantIsolation(access.company.id, async () => {
+    const correctPath = `/es-${access.company.country}/dashboard`;
     if (path !== correctPath) throw redirect(correctPath);
-    context.set(privateUserContext, user);
-    context.set(companyContext, company);
+    context.set(privateUserContext, access);
     return next();
   });
 }];
 
 export function loader({ context }: LoaderFunctionArgs) {
-  const company = context.get(companyContext);
-  return { company: company.name, home: `/es-${company.country}/dashboard`, name: context.get(privateUserContext).name };
+  const { company, user } = context.get(privateUserContext);
+  return { company: company.name, home: `/es-${company.country}/dashboard`, name: user.name };
 }
 
 function Navigation({ company, name, home, dark, pending, error, onTheme, onSignOut, onNavigate }: {
@@ -46,30 +46,34 @@ function Navigation({ company, name, home, dark, pending, error, onTheme, onSign
   onNavigate?: () => void;
 }) {
   return (
-    <div className="flex h-full flex-col gap-6 bg-background px-3 pb-4 pt-6">
-      <Link to={home} onClick={onNavigate} className="flex items-center gap-2 px-3 text-2xl font-semibold tracking-tight focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">
-        <ShoppingBag className="size-6 text-primary" aria-hidden="true" />yoyos
+    <div className="flex min-h-full flex-col gap-section bg-background px-4 pb-4 pt-3">
+      <Link to={home} onClick={onNavigate} className="flex min-h-app-header items-center gap-3 px-3 text-2xl font-semibold tracking-tight focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">
+        <ShoppingBag className="size-icon-navigation text-primary" aria-hidden="true" />yoyos
       </Link>
-      <div className="mx-1 flex min-w-0 items-center gap-2 border-y border-border px-2 py-3">
-        <span className="grid size-8 shrink-0 place-items-center rounded-full bg-secondary text-xs font-medium text-secondary-foreground" aria-hidden="true">{company.slice(0, 1).toUpperCase()}</span>
-        <span className="min-w-0 break-words text-sm font-medium leading-4">{company}</span>
+      <div className="flex min-w-0 items-center gap-3 rounded-md border border-border bg-card px-3 py-3 text-card-foreground">
+        <span className="grid size-8 shrink-0 place-items-center rounded-sm bg-secondary text-sm font-medium text-secondary-foreground" aria-hidden="true">{company.slice(0, 1).toUpperCase()}</span>
+        <div className="min-w-0">
+          <p className="break-words text-sm font-medium leading-5">{company}</p>
+          <p className="mt-1 text-xs text-muted-foreground">Espacio de trabajo</p>
+        </div>
       </div>
       <nav aria-label="Navegación principal">
-        <Link to={home} onClick={onNavigate} aria-current="page" className="flex min-h-10 items-center gap-2 rounded-sm bg-accent px-3 text-sm font-medium text-accent-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background max-md:min-h-12">
-          <House className="size-5" aria-hidden="true" />Inicio
+        <Link to={home} onClick={onNavigate} data-slot="navigation-link" aria-current="page" className="flex min-h-control items-center gap-3 rounded-sm bg-accent px-3 text-sm font-medium text-accent-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background max-md:min-h-touch">
+          <House className="size-icon-navigation shrink-0" aria-hidden="true" />Inicio
+          <Check className="ml-auto size-icon-inline" aria-hidden="true" />
         </Link>
       </nav>
       <div className="mt-auto flex flex-col gap-2 border-t border-border pt-4">
-        <div className="flex min-w-0 items-center gap-2 px-2 pb-2">
+        <div className="flex min-w-0 items-center gap-3 px-3 pb-2">
           <span className="grid size-8 shrink-0 place-items-center rounded-full bg-secondary text-xs font-medium text-secondary-foreground" aria-hidden="true">{name.slice(0, 1).toUpperCase()}</span>
-          <span className="truncate text-sm font-medium" title={name}>{name}</span>
+          <span className="min-w-0 break-words text-sm font-medium leading-5">{name}</span>
         </div>
-        <Button type="button" variant="ghost" className="w-full justify-start" onClick={onTheme} aria-label="Alternar tema" aria-pressed={dark}>
+        <Button type="button" variant="ghost" className="min-h-control w-full justify-start gap-3" onClick={onTheme} aria-label="Alternar tema" aria-pressed={dark}>
           {dark ? <Sun data-icon="inline-start" aria-hidden="true" /> : <Moon data-icon="inline-start" aria-hidden="true" />}
           {dark ? "Modo claro" : "Modo oscuro"}
         </Button>
-        <Button type="button" variant="ghost" className="w-full justify-start" onClick={onSignOut} disabled={pending}>
-          <LogOut data-icon="inline-start" aria-hidden="true" />Cerrar sesión
+        <Button type="button" variant="ghost" className="min-h-control w-full justify-start gap-3" onClick={onSignOut} disabled={pending}>
+          <LogOut data-icon="inline-start" aria-hidden="true" />{pending ? "Cerrando sesión…" : "Cerrar sesión"}
         </Button>
         {error && <p role="alert" className="px-2 text-sm text-destructive">{error}</p>}
       </div>
@@ -122,24 +126,31 @@ export default function PrivateLayout() {
   const navigation = { company, name, home, dark, pending, error, onTheme: toggleTheme, onSignOut: signOut };
 
   return (
-    <div className="min-h-screen md:flex">
-      <aside className="hidden border-r border-border md:block md:w-48 md:shrink-0">
+    <div className="flex min-h-dvh flex-col md:flex-row">
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-sm focus:bg-primary focus:px-4 focus:py-3 focus:text-primary-foreground">Saltar al contenido</a>
+      <aside className="hidden md:sticky md:top-0 md:block md:h-dvh md:w-sidebar md:shrink-0 md:overflow-y-auto">
         <Navigation {...navigation} />
       </aside>
-      <dialog ref={dialog} aria-label="Menú principal" className="m-0 h-dvh max-h-dvh w-72 max-w-full border-0 bg-background p-0 text-foreground shadow-xl backdrop:bg-foreground/40 md:hidden">
+      <dialog ref={dialog} aria-label="Menú principal" className="m-0 h-dvh max-h-dvh w-navigation-drawer max-w-full border-0 bg-background p-0 text-foreground shadow-xl backdrop:bg-foreground/40 md:hidden">
         <div className="flex h-full flex-col">
-          <Button type="button" variant="ghost" size="icon" aria-label="Cerrar menú" className="absolute right-3 top-5" onClick={() => dialog.current?.close()}><X aria-hidden="true" /></Button>
+          <Button type="button" variant="ghost" size="icon" aria-label="Cerrar menú" className="absolute right-3 top-4 min-h-touch min-w-touch" onClick={() => dialog.current?.close()}><X aria-hidden="true" /></Button>
           <Navigation {...navigation} onNavigate={() => dialog.current?.close()} />
         </div>
       </dialog>
-      <div className="min-w-0 flex-1">
-        <header className="flex h-14 items-center gap-3 border-b border-border px-4 text-sm sm:px-6">
-          <Button type="button" variant="ghost" size="icon" aria-label="Abrir menú" aria-haspopup="dialog" className="md:hidden" onClick={() => dialog.current?.showModal()}><Menu aria-hidden="true" /></Button>
-          <span className="truncate text-muted-foreground">{company}</span>
-          <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-          <span className="font-medium">Inicio</span>
+      <div className="min-w-0 flex-1 bg-card text-card-foreground md:my-3 md:mr-3 md:rounded-md md:border md:border-border">
+        <header className="flex min-h-app-header items-center gap-3 border-b border-border px-page-mobile py-2 text-sm sm:px-page-desktop">
+          <Button type="button" variant="ghost" size="icon" aria-label="Abrir menú" aria-haspopup="dialog" className="min-h-touch min-w-touch md:hidden" onClick={() => dialog.current?.showModal()}><Menu aria-hidden="true" /></Button>
+          <nav aria-label="Ruta de navegación" className="min-w-0">
+            <ol className="flex min-w-0 items-center gap-3">
+              <li className="min-w-0 truncate text-muted-foreground" title={company}>{company}</li>
+              <li className="flex shrink-0 items-center gap-3" aria-current="page">
+                <ChevronRight className="size-icon-inline text-muted-foreground" aria-hidden="true" />
+                <span className="font-medium">Inicio</span>
+              </li>
+            </ol>
+          </nav>
         </header>
-        <main className="mx-auto max-w-content px-4 py-6 sm:px-6"><Outlet /></main>
+        <main id="main-content" tabIndex={-1} className="mx-auto max-w-content px-page-mobile py-section outline-none sm:px-page-desktop"><Outlet /></main>
       </div>
     </div>
   );

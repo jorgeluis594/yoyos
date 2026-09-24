@@ -4,7 +4,9 @@ import * as SplashScreen from 'expo-splash-screen';
 import { Platform, useColorScheme } from 'react-native';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import AppTabs from '@/components/app-tabs';
+import { AccessProvider } from '@/features/users/presentation/access-provider';
+import { AccessGate } from '@/composition/access-gate';
+import * as auth from '@/composition/auth';
 
 import '../global.css';
 
@@ -17,7 +19,7 @@ export default function TabLayout() {
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <AnimatedSplashOverlay />
-      <AppTabs />
+      <AccessProvider operations={auth}><AccessGate /></AccessProvider>
     </ThemeProvider>
   );
 }

@@ -6,6 +6,17 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  --spacing: var(--space-unit);
+  --spacing-sidebar: var(--sidebar-width);
+  --spacing-navigation-drawer: var(--navigation-drawer-width);
+  --spacing-app-header: var(--app-header-min-height);
+  --spacing-page-mobile: var(--page-gutter-mobile);
+  --spacing-page-desktop: var(--page-gutter-desktop);
+  --spacing-section: var(--section-gap);
+  --spacing-control: var(--control-min-height);
+  --spacing-touch: var(--touch-target-min-size);
+  --spacing-icon-inline: var(--icon-inline-size);
+  --spacing-icon-navigation: var(--icon-navigation-size);
   --font-sans: "Inter Variable", sans-serif;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -38,7 +49,78 @@
   html.dark { color-scheme: dark; }
   body { @apply min-h-screen bg-background text-foreground; }
   button:not(:disabled) { cursor: pointer; }
-  @media (pointer: coarse) {
-    [data-slot="button"] { min-height: 48px; }
+}
+
+/* Touch targets take precedence over compact component size utilities. */
+@media (pointer: coarse), (width < 48rem) {
+  [data-slot="button"], [data-slot="navigation-link"] { min-height: var(--touch-target-min-size); }
+  [data-slot="button"][data-size^="icon"] { min-width: var(--touch-target-min-size); }
+}
+
+/* Reflow the same semantic cells when the table's own space is limited. */
+.data-table-container { container-type: inline-size; }
+.data-table-container [data-slot="table-cell"] { padding-block: 0.75rem; white-space: normal; overflow-wrap: anywhere; }
+.data-table-container [data-mobile-role="value"] { white-space: nowrap; }
+.data-table-container > div:not([data-mobile-table]) [data-slot="table"] { min-width: max-content; }
+
+@container (width < 48rem) {
+  [data-mobile-table="true"] [data-slot="table-container"] { overflow: visible; }
+  [data-mobile-table="true"] table,
+  [data-mobile-table="true"] tbody { display: block; min-width: 0; }
+  [data-mobile-table="true"] thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
+  [data-mobile-table="true"] tbody tr:not([data-mobile-empty]) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--touch-target-min-size);
+    gap: 0.5rem 0.75rem;
+    align-items: center;
+    padding: 1rem;
+    min-height: 3.5rem;
+  }
+  [data-mobile-table="true"] tbody tr:not(:has([data-mobile-role="actions"])) { grid-template-columns: minmax(0, 1fr); }
+  [data-mobile-table="true"] [data-slot="table-cell"] { min-width: 0; padding: 0; }
+  [data-mobile-table="true"] td:not([data-mobile-role]) { display: none; }
+  [data-mobile-table="true"] [data-mobile-role="title"] {
+    grid-column: 1;
+    grid-row: 1;
+    font-size: 1rem;
+    line-height: 1.5rem;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  [data-mobile-table="true"] [data-mobile-role="value"],
+  [data-mobile-table="true"] [data-mobile-role="description"] {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    gap: 0.75rem;
+    align-items: baseline;
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+  [data-mobile-table="true"] [data-mobile-role="value"]::before,
+  [data-mobile-table="true"] [data-mobile-role="description"]::before {
+    content: attr(data-mobile-label);
+    color: var(--muted-foreground);
+    font-size: 0.75rem;
+    font-weight: 400;
+    text-align: left;
+  }
+  [data-mobile-table="true"] [data-mobile-role="value"] {
+    border-top: 1px solid var(--border);
+    padding-top: 0.75rem;
+    font-size: 1rem;
+    font-weight: 600;
+    white-space: normal;
+  }
+  [data-mobile-table="true"] [data-mobile-role="actions"] { grid-column: 2; grid-row: 1; justify-self: end; }
+  [data-mobile-table="true"] [data-mobile-role="actions"] [data-slot="button"] { min-width: var(--touch-target-min-size); min-height: var(--touch-target-min-size); }
+  [data-mobile-table="true"] [data-mobile-empty] td { display: table-cell; padding: 1rem; }
+  [data-mobile-table="true"] [aria-busy="true"] tbody tr { min-height: 6rem; }
 }
