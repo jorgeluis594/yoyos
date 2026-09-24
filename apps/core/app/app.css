@@ -29,6 +29,7 @@
   --radius-sm: var(--radius-control);
   --radius-md: var(--radius-card);
   --radius-lg: var(--radius-overlay);
+  --container-content: var(--content-max-width);
 }
 
 @layer base {

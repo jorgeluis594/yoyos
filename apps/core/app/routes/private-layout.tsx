@@ -47,7 +47,7 @@ function Navigation({ company, name, home, dark, pending, error, onTheme, onSign
 }) {
   return (
     <div className="flex h-full flex-col gap-6 bg-background px-3 pb-4 pt-6">
-      <Link to={home} onClick={onNavigate} className="flex items-center gap-2 px-3 text-[26px] font-semibold tracking-tight focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">
+      <Link to={home} onClick={onNavigate} className="flex items-center gap-2 px-3 text-2xl font-semibold tracking-tight focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">
         <ShoppingBag className="size-6 text-primary" aria-hidden="true" />yoyos
       </Link>
       <div className="mx-1 flex min-w-0 items-center gap-2 border-y border-border px-2 py-3">
@@ -55,7 +55,7 @@ function Navigation({ company, name, home, dark, pending, error, onTheme, onSign
         <span className="min-w-0 break-words text-sm font-medium leading-4">{company}</span>
       </div>
       <nav aria-label="Navegación principal">
-        <Link to={home} onClick={onNavigate} aria-current="page" className="flex min-h-10 items-center gap-2 rounded-[var(--radius-control)] bg-accent px-3 text-sm font-medium text-accent-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background max-md:min-h-12">
+        <Link to={home} onClick={onNavigate} aria-current="page" className="flex min-h-10 items-center gap-2 rounded-sm bg-accent px-3 text-sm font-medium text-accent-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background max-md:min-h-12">
           <House className="size-5" aria-hidden="true" />Inicio
         </Link>
       </nav>
@@ -122,24 +122,24 @@ export default function PrivateLayout() {
   const navigation = { company, name, home, dark, pending, error, onTheme: toggleTheme, onSignOut: signOut };
 
   return (
-    <div className="min-h-screen md:grid md:grid-cols-[176px_minmax(0,1fr)]">
-      <aside className="hidden border-r border-border md:block">
+    <div className="min-h-screen md:flex">
+      <aside className="hidden border-r border-border md:block md:w-48 md:shrink-0">
         <Navigation {...navigation} />
       </aside>
-      <dialog ref={dialog} aria-label="Menú principal" className="m-0 h-dvh max-h-dvh w-[min(19rem,calc(100vw-3rem))] max-w-none border-0 bg-background p-0 text-foreground shadow-xl backdrop:bg-foreground/40 md:hidden">
+      <dialog ref={dialog} aria-label="Menú principal" className="m-0 h-dvh max-h-dvh w-72 max-w-full border-0 bg-background p-0 text-foreground shadow-xl backdrop:bg-foreground/40 md:hidden">
         <div className="flex h-full flex-col">
           <Button type="button" variant="ghost" size="icon" aria-label="Cerrar menú" className="absolute right-3 top-5" onClick={() => dialog.current?.close()}><X aria-hidden="true" /></Button>
           <Navigation {...navigation} onNavigate={() => dialog.current?.close()} />
         </div>
       </dialog>
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <header className="flex h-14 items-center gap-3 border-b border-border px-4 text-sm sm:px-6">
           <Button type="button" variant="ghost" size="icon" aria-label="Abrir menú" aria-haspopup="dialog" className="md:hidden" onClick={() => dialog.current?.showModal()}><Menu aria-hidden="true" /></Button>
           <span className="truncate text-muted-foreground">{company}</span>
           <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
           <span className="font-medium">Inicio</span>
         </header>
-        <main className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6"><Outlet /></main>
+        <main className="mx-auto max-w-content px-4 py-6 sm:px-6"><Outlet /></main>
       </div>
     </div>
   );
