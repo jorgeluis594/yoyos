@@ -4,7 +4,7 @@
 
 Permitir registro público, inicio y cierre de sesión desde mobile con las mismas cuentas y empresas de core. Web seguirá usando cookies de sesión de Better Auth; mobile usará JWT para las rutas de negocio `/api`.
 
-**Estado:** decisiones de comportamiento, organización de casos de uso, contratos principales y cobertura de verificación acordadas. T1–T4 están implementadas y verificadas; la integración de pantallas mobile sigue pendiente. Este documento define la arquitectura que implementarán las tareas; los detalles técnicos propuestos se validarán contra las versiones y entornos reales.
+**Estado:** decisiones de comportamiento, organización de casos de uso, contratos principales y cobertura de verificación acordadas. T1–T5 están implementadas y verificadas; el flujo mobile de registro y autenticación está integrado. Este documento define la arquitectura que implementarán las tareas; los detalles técnicos propuestos se validarán contra las versiones y entornos reales.
 
 Incluye recuperar registros con empresa pendiente y compartir usuario y empresa entre middleware y rutas privadas. La comprobación de integridad de la app, OAuth y recuperación de contraseña quedan fuera de esta etapa propuesta.
 
@@ -12,12 +12,10 @@ Incluye recuperar registros con empresa pendiente y compartir usuario y empresa 
 
 ## Estado actual comprobado
 
-- Core registra usuarios con email y contraseña mediante Better Auth y Prisma.
-- `resolveCurrentUser` valida la sesión y consulta `{ id, name, companyId }` en la base de datos.
-- `POST /api/company` autentica por su cuenta. Crea y vincula la empresa en una transacción; devuelve la empresa existente ante reintentos y resuelve carreras entre solicitudes.
-- El middleware general de `/api` exige usuario y empresa, y ejecuta las rutas siguientes dentro de `withTenantIsolation(companyId, next)`. No expone los datos del usuario o empresa al handler.
-- La web tiene otro middleware en `private-layout.tsx`: valida sesión, obtiene el país de la empresa dentro del contexto tenant y publica el usuario mediante `privateUserContext` de React Router.
-- Mobile aún muestra el scaffold. Su operación `generateCompany` construye datos en memoria; no registra empresas en core.
+- Core y web comparten usuario/empresa mediante el contexto autenticado; `/api/me` y `/api/company` admiten empresa pendiente.
+- La API acepta cookie web o JWT mobile, comprueba la sesión vinculada y mantiene aislamiento tenant en rutas privadas.
+- Mobile conserva la sesión de Better Auth en SecureStore, mantiene el JWT en memoria y compone registro, login, restauración, creación de empresa y logout.
+- El provider presenta acceso público, empresa pendiente, app privada y recuperación ante fallos. La pantalla privada actual muestra la empresa vinculada; las funciones de negocio privadas siguen fuera de este flujo.
 
 ## Decisiones de arquitectura
 
@@ -558,7 +556,7 @@ Los tests viven junto a la responsabilidad que verifican. La estructura no requi
 
 ### I. Comprobaciones de los contratos
 
-**Cobertura aprobada:** pruebas de casos de uso para éxito, errores y recuperación parcial; integración para cookies, JWT, revocación, Zod y aislamiento entre empresas; pruebas de sesión mobile para renovación simultánea, reapertura y logout sin conexión; regresión del registro web. La cobertura ejecutada de T1–T4 figura en [registro-mobile-tareas.md](registro-mobile-tareas.md); la presentación mobile sigue pendiente.
+**Cobertura aprobada:** pruebas de casos de uso para éxito, errores y recuperación parcial; integración para cookies, JWT, revocación, Zod y aislamiento entre empresas; pruebas de sesión mobile para renovación simultánea, reapertura y logout sin conexión; regresión del registro web. La cobertura ejecutada de T1–T4 figura en [registro-mobile-tareas.md](registro-mobile-tareas.md); la presentación mobile está cubierta por T5.
 
 | Nivel | Evidencia requerida |
 | --- | --- |
@@ -587,7 +585,7 @@ Seguir [architecture.md](architecture.md), usando las ubicaciones reales de `app
 | Mobile `src/shared/infrastructure/` | Cliente Better Auth, almacenamiento seguro y transporte HTTP con JWT y renovación |
 | Mobile feature `users` | Casos de uso de registro, login, restauración y logout; pantallas y estados de autenticación |
 | Mobile feature `companies` | Adaptador y operación para crear la empresa en core; no usar `generateCompany` como persistencia |
-| Mobile `src/app` | Composición, providers y rutas que delegan a las pantallas de features |
+| Mobile `src/composition` y `src/app` | Composición fuera del árbol de rutas; layout y rutas delegan a las pantallas/provider de users |
 
 Crear solo los archivos requeridos; dependencias entre features mediante exports públicos o capacidades suministradas. Los tipos compartidos no importan Prisma ni código de la otra app.
 
@@ -602,31 +600,31 @@ Crear solo los archivos requeridos; dependencias entre features mediante exports
 
 ## Tareas de implementación
 
-Las [tareas de implementación](registro-mobile-tareas.md) definen las entregas incrementales, el alcance, las exclusiones y los criterios de aceptación. T1–T4 están terminadas; T5 sigue pendiente.
+Las [tareas de implementación](registro-mobile-tareas.md) definen las entregas incrementales, el alcance, las exclusiones y los criterios de aceptación. T1–T5 están terminadas y verificadas.
 
 Las decisiones revisadas quedan cerradas para esta etapa. La URL de desarrollo confirmada es `http://localhost:3000`. T3 verificó Better Auth, su plugin Expo, Zod y Expo SDK 57 con las dependencias instaladas y su comprobación de compatibilidad. Conservar los valores operativos propuestos de este documento como base de implementación; cualquier incompatibilidad que cambie el comportamiento acordado debe quedar explícita.
 
-T1 implementa contexto y contratos de core/web; T2 implementa JWT revocables para core; T3 implementa login, restauración, renovación y logout mobile; T4 implementa registro recuperable y creación de empresa mobile. Las cuatro tienen pruebas ejecutadas. Las casillas siguientes representan trabajo pendiente de implementación y verificación, no decisiones de comportamiento pendientes.
+T1 implementa contexto y contratos de core/web; T2 implementa JWT revocables para core; T3 implementa sesión y transporte mobile; T4 implementa registro recuperable; T5 conecta formularios, estado y navegación. Las cinco tienen pruebas ejecutadas. Las casillas siguientes conservan criterios de verificación más amplios cuando su evidencia específica todavía no consta.
 
 ## Pendientes y criterios de aceptación
 
 - [x] Configurar Better Auth/Expo, JWT y migración de claves.
 - [x] Declarar Zod como dependencia runtime donde se importen schemas, con una versión compatible común; crear los contratos compartidos e inferir sus tipos.
-- [ ] Validar con Zod JSON de entrada/salida en core y los adaptadores mobile/web del flujo; comprobar que una entrada inválida no ejecuta el caso de uso.
+- [x] Validar con Zod JSON de entrada/salida en core y los adaptadores mobile/web del flujo; comprobar que una entrada inválida no ejecuta el caso de uso.
 - [x] Implementar autenticación dual y contexto tipado por petición; cargar usuario y empresa una vez para su consumo por handlers.
 - [x] Añadir `/api/me` y permitir onboarding sin empresa antes del guard de negocio.
-- [ ] Implementar cliente mobile, almacenamiento seguro, renovación y navegación por estado.
-- [ ] Implementar registro, login, creación pendiente y logout.
+- [x] Implementar cliente mobile, almacenamiento seguro, renovación y navegación por estado.
+- [x] Implementar registro, login, creación pendiente y logout.
 - [x] Verificar que una cuenta con `emailVerified: false` puede iniciar sesión, obtener JWT, crear empresa y acceder a negocio una vez vinculada, sin enviar correos.
 - [x] Verificar cookies web y JWT mobile contra las mismas rutas; JWT inválido con cookie válida también debe devolver `401`.
-- [ ] Probar tokens vencidos, firma/emisor/audiencia incorrectos, sesión revocada, usuario inexistente y fallos de infraestructura.
-- [ ] Probar acceso de dos empresas en peticiones concurrentes: ni contexto ni datos se mezclan; tenant suministrado por cliente no altera el acceso.
-- [ ] Probar reintentos y concurrencia al crear empresa, restauración después de reiniciar y pérdida de respuesta después del alta. Al reabrir con empresa pendiente, pedir nombre y país sin volver a registrar la cuenta.
+- [x] Probar tokens vencidos, firma/emisor/audiencia incorrectos, sesión revocada, usuario inexistente y fallos de infraestructura.
+- [x] Probar acceso de dos empresas en peticiones concurrentes: ni contexto ni datos se mezclan; tenant suministrado por cliente no altera el acceso.
+- [x] Probar reintentos y concurrencia al crear empresa, restauración después de reiniciar y pérdida de respuesta después del alta. Al reabrir con empresa pendiente, pedir nombre y país sin volver a registrar la cuenta.
 - [x] Confirmar el mecanismo de renovación: sesión persistente de Better Auth para obtener nuevos JWT.
 - [x] Confirmar la ventana de inactividad: 30 días, renovable con el uso de la app.
 - [ ] Probar que el uso prolongado renueva tanto JWT como sesión persistida y supera el vencimiento inicial sin pedir login; comprobar expiración tras inactividad y ausencia de renovaciones en segundo plano.
-- [ ] Probar renovación simultánea sin bucles y logout seguido de intento de reutilizar el JWT tras revocación confirmada.
-- [ ] Probar logout sin conexión o con fallo de revocación: almacenamiento y memoria limpios, navegación al login y ninguna renovación en curso restaura el acceso.
+- [x] Probar renovación simultánea sin bucles y logout seguido de intento de reutilizar el JWT tras revocación confirmada.
+- [x] Probar logout sin conexión o con fallo de revocación: almacenamiento y memoria limpios, navegación al login y ninguna renovación en curso restaura el acceso.
 - [x] Verificar que handlers reutilizan el contexto y que las rutas privadas nunca reciben empresa nula; mantener las comprobaciones transaccionales de negocio.
 - [x] Ejecutar regresión del flujo web existente.
 

@@ -22,7 +22,8 @@ apps/
 │           └── infrastructure/      # Shared connections and client setup
 └── mobile/
     └── src/
-        ├── app/                     # Expo routes, layouts, and composition
+        ├── app/                     # Expo routes and layouts
+        ├── composition/             # Startup wiring outside Expo Router routes
         ├── features/                # Business features
         ├── shared/                  # Reused code without a business owner
         │   └── infrastructure/      # Shared clients and platform setup
@@ -120,7 +121,7 @@ Screens, hooks, and handlers must invoke application operations for business beh
 
 API `app.ts` creates the application, configures infrastructure, and registers feature routes. `server.ts` owns process lifecycle. Framework plugins may implement registration and resource lifecycle without moving business logic into plugins.
 
-Mobile `src/app/` owns routing, layouts, providers, and application composition. Route files delegate feature-specific UI to screens in `features/<feature>/presentation/screens/`.
+Mobile `src/app/` owns Expo routes and layouts; `src/composition/` holds startup wiring imported by the root layout, because Expo Router treats TypeScript files inside its route directory as routes. Feature providers and screens live in their presentation layer. Route files delegate feature-specific UI to those screens.
 
 Composition creates concrete adapters, supplies them explicitly to use cases through function parameters or ordinary composition, and exposes those operations to presentation. This wiring belongs at application startup, root setup, or feature registration, not inside individual request handlers or screen render logic. Use a separate composition file only if the setup grows enough to need it.
 

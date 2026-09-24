@@ -4,7 +4,7 @@
 
 Implementar la [arquitectura acordada](registro-mobile-pendientes.md) en cinco entregas completas y comprobables.
 
-**Estado:** T1–T4 terminadas y verificadas; T5 pendiente. La evidencia figura en cada sección.
+**Estado:** T1–T5 terminadas y verificadas. La evidencia figura en cada sección.
 
 Cada tarea incluye código, integración con los consumidores que ya existen, configuración necesaria y pruebas. Puede depender de tareas anteriores terminadas, pero debe compilar y pasar sus criterios de aceptación sin implementar ninguna tarea posterior. Un módulo sin pantalla puede ser una entrega completa si su API funciona y sus pruebas ejercitan el comportamiento real del módulo.
 
@@ -258,7 +258,7 @@ Los comandos siguientes se ejecutan desde el directorio indicado. `apps/core/scr
 - Conectar logout, limpieza de datos y estados de fallo sin exponer credenciales en el provider o las pantallas.
 - Actualizar README y pendientes documentales para reflejar solo funcionalidades realmente terminadas.
 
-**Archivos principales:** mobile `features/users/presentation/`, `src/app/` y pruebas de presentación/provider; README y documentos del registro.
+**Archivos principales:** mobile `features/users/presentation/`, `src/composition/`, `src/app/` y pruebas de presentación/provider; README y documentos del registro.
 
 ### Fuera de alcance
 
@@ -269,16 +269,16 @@ Los comandos siguientes se ejecutan desde el directorio indicado. `apps/core/scr
 
 ### Criterios de aceptación
 
-- [ ] Durante restauración no se muestran pantallas ni datos privados. Una ausencia confirmada muestra login/registro; un fallo de red ofrece reintento sin borrar la sesión.
-- [ ] `company_required` muestra únicamente el paso de empresa; `ready` habilita la app privada. Cambios de estado actualizan la navegación y evitan volver a una pantalla privada tras logout.
-- [ ] Registro solicita nombre, correo, contraseña, empresa y país. Empresa pendiente solicita solo nombre de empresa/país y no vuelve a pedir alta de cuenta.
-- [ ] Los campos tienen etiquetas accesibles, el país no está preseleccionado y enviar repetidamente no duplica la operación.
-- [ ] Un fallo parcial muestra la recuperación correspondiente; la pantalla invoca los casos de uso ya probados y no reconstruye el flujo de negocio.
-- [ ] Al recrear provider/formulario con sesión de empresa pendiente se piden nombre y país otra vez; ningún borrador persistido aparece como fuente de esos campos.
-- [ ] Logout sin conexión vuelve al acceso público después de limpieza local; si el borrado seguro falla, no se anuncia éxito y se ofrece reintentar la limpieza.
-- [ ] Ni provider ni pantallas guardan JWT, cookies o contraseñas fuera del estado mínimo del formulario que las necesita.
-- [ ] Las pruebas de T3/T4 y las nuevas pruebas de UI pasan sin depender de un servidor core o dispositivo real.
-- [ ] Documentación y comandos reflejan el código final; las verificaciones afectadas de core/shared siguen exitosas y no hay pendientes de integración necesarios para usar las operaciones.
+- [x] Durante restauración no se muestran pantallas ni datos privados. Una ausencia confirmada muestra login/registro; un fallo de red ofrece reintento sin borrar la sesión.
+- [x] `company_required` muestra únicamente el paso de empresa; `ready` habilita la app privada. Cambios de estado actualizan la navegación y evitan volver a una pantalla privada tras logout.
+- [x] Registro solicita nombre, correo, contraseña, empresa y país. Empresa pendiente solicita solo nombre de empresa/país y no vuelve a pedir alta de cuenta.
+- [x] Los campos tienen etiquetas accesibles, el país no está preseleccionado y enviar repetidamente no duplica la operación.
+- [x] Un fallo parcial muestra la recuperación correspondiente; la pantalla invoca los casos de uso ya probados y no reconstruye el flujo de negocio.
+- [x] Al recrear provider/formulario con sesión de empresa pendiente se piden nombre y país otra vez; ningún borrador persistido aparece como fuente de esos campos.
+- [x] Logout sin conexión vuelve al acceso público después de limpieza local; si el borrado seguro falla, no se anuncia éxito y se ofrece reintentar la limpieza.
+- [x] Ni provider ni pantallas guardan JWT, cookies o contraseñas fuera del estado mínimo del formulario que las necesita.
+- [x] Las pruebas de T3/T4 y las nuevas pruebas de UI pasan sin depender de un servidor core o dispositivo real.
+- [x] Documentación y comandos reflejan el código final; las verificaciones afectadas de core/shared siguen exitosas y no hay pendientes de integración necesarios para usar las operaciones.
 
 ### Pruebas para cerrar la tarea
 
@@ -288,6 +288,8 @@ Los comandos siguientes se ejecutan desde el directorio indicado. `apps/core/scr
 4. Regresión de pruebas de aplicación/transporte de T3/T4. Revisar la evidencia vigente de core/shared; repetir sus suites si esta tarea cambia esos componentes o contratos.
 
 **Comandos:** desde `apps/mobile`, `pnpm lint`, `pnpm typecheck` y `pnpm test`; desde core, verificaciones de contratos/regresión que correspondan a cambios reales de esta tarea. No marcar pruebas sin ejecutar como aprobadas.
+
+**Verificación T5 (2026-09-23):** desde `apps/mobile`, `pnpm lint`, `pnpm typecheck` y `pnpm test` pasaron; Jest descubrió 11 suites y 60 pruebas. Las pruebas de presentación cubren restauración, estado pendiente, validación, envío único, recuperación de empresa, errores, logout y resultados tardíos. Una prueba de composición conecta pantalla y compuerta privada con `createAuthOperations` real y límites SDK, almacenamiento y HTTP controlados. Los bundles de `expo export --platform ios`, `--platform android` y `--platform web` también se generaron con éxito; la exportación web confirma que la composición no aparece como rutas. No se cambiaron core ni contratos shared; su evidencia de T1–T4 se conserva.
 
 **Por qué se cierra por sí sola:** integra exclusivamente capacidades ya terminadas y entrega el flujo de UI completo. Incluye su verificación y documentación, sin una tarea posterior de conexión o reparación.
 
