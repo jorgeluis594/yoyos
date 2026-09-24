@@ -19,7 +19,6 @@ export function ListRow({ title, description, leading, trailing, onPress }: List
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={title}
       onPress={onPress}
       style={({ pressed }) => [styles.row, { backgroundColor: pressed ? theme.backgroundSelected : 'transparent' }]}
     >
