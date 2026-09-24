@@ -30,8 +30,8 @@ export function OptionSelector({ options, value, onValueChange, placeholder = 'S
   const selectedIndex = value === null ? -1 : options.findIndex((option) => option.value === value && !option.disabled);
 
   return (
-    <Host style={styles.host}>
-      <View accessibilityRole="radiogroup" accessibilityLabel={field?.label} accessibilityLabelledBy={field?.label ? field.labelId : undefined} accessibilityHint={hint || undefined} accessibilityState={{ disabled }}>
+    <View accessibilityRole="radiogroup" accessibilityLabel={field?.label} accessibilityLabelledBy={field?.label ? field.labelId : undefined} accessibilityHint={hint || undefined} accessibilityState={{ disabled }}>
+      <Host style={styles.host}>
         <Picker
           testID={testID}
           selectedValue={selectedIndex}
@@ -41,8 +41,8 @@ export function OptionSelector({ options, value, onValueChange, placeholder = 'S
           <Picker.Item label={placeholder} value={-1} />
           {available.map(({ option, index }) => <Picker.Item key={option.value} label={option.description ? `${option.label} — ${option.description}` : option.label} value={index} />)}
         </Picker>
-      </View>
-    </Host>
+      </Host>
+    </View>
   );
 }
 

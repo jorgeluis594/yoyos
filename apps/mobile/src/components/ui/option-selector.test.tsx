@@ -14,7 +14,10 @@ jest.mock('@expo/ui', () => {
     </View>
   );
   Picker.Item = Item;
-  return { Host: ({ children }: any) => <View>{children}</View>, Picker };
+  return { Host: ({ children }: any) => {
+    if (children.type !== Picker) throw new Error('Host must contain the native Picker directly');
+    return <View>{children}</View>;
+  }, Picker };
 });
 
 const options = [
