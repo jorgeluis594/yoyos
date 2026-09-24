@@ -4,7 +4,7 @@ import { privateUserContext } from "@/private-user-context";
 import { products } from "@core/src/features/products/composition";
 import { parseCreateJson } from "@core/src/features/products/presentation/input";
 import { createErrors, type FormErrors } from "@core/src/features/products/presentation/messages";
-import { ProductForm, type ProductFormValues } from "@core/src/features/products/presentation/product-form";
+import { ProductForm, type ProductFormValues, type ProductImageSelection } from "@core/src/features/products/presentation/product-form";
 import type { CompanyId } from "@core/src/features/products/domain/product";
 
 export function loader({ context }: LoaderFunctionArgs) {
@@ -34,10 +34,11 @@ export default function ProductNew() {
   const errors = actionData && "errors" in actionData ? actionData.errors : {};
   const pending = navigation.state === "submitting";
 
-  function save(values: ProductFormValues) {
+  function save(values: ProductFormValues, image: ProductImageSelection) {
     submit({
       name: values.name,
       ...(values.description === "" ? {} : { description: values.description }),
+      ...(image.kind === "set" ? { imageId: image.id } : {}),
       currency,
       variants: [{ attributes: {}, ...(values.sku === "" ? {} : { sku: values.sku }), salePrice: Number(values.salePrice),
         ...(values.purchasePrice === "" ? {} : { purchasePrice: Number(values.purchasePrice) }),

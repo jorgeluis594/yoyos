@@ -4,7 +4,7 @@ import { privateUserContext } from "@/private-user-context";
 import { products } from "@core/src/features/products/composition";
 import { parseUpdateJson } from "@core/src/features/products/presentation/input";
 import { updateErrors, type FormErrors } from "@core/src/features/products/presentation/messages";
-import { ProductForm, type ProductFormValues } from "@core/src/features/products/presentation/product-form";
+import { ProductForm, type ProductFormValues, type ProductImageSelection } from "@core/src/features/products/presentation/product-form";
 import type { CompanyId, ProductId } from "@core/src/features/products/domain/product";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -22,6 +22,7 @@ export async function loader({ context, params }: LoaderFunctionArgs) {
     return {
       detail: `/es-${company.country}/products/${product.id}`,
       currency: product.currency,
+      imageUrl: result.data.image?.url,
       variantId: single ? variant.id : undefined,
       variantFields: single ? ("editable" as const) : ("hidden" as const),
       stock: product.variants.reduce((sum, item) => sum + item.stock.quantity, 0),
@@ -57,17 +58,18 @@ export async function action({ request, context, params }: ActionFunctionArgs): 
 }
 
 export default function ProductEdit() {
-  const { detail, currency, values, variantFields, stock, variantId } = useLoaderData<typeof loader>();
+  const { detail, currency, values, variantFields, stock, variantId, imageUrl } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
   const navigation = useNavigation();
   const errors = actionData && "errors" in actionData ? actionData.errors : {};
   const pending = navigation.state === "submitting";
 
-  function save(next: ProductFormValues) {
+  function save(next: ProductFormValues, image: ProductImageSelection) {
     submit({
       name: next.name,
       description: next.description === "" ? null : next.description,
+      ...(image.kind === "set" ? { imageId: image.id } : image.kind === "remove" ? { imageId: null } : {}),
       ...(variantId === undefined ? {} : { variants: [{
         id: variantId,
         sku: next.sku === "" ? null : next.sku,
@@ -80,7 +82,7 @@ export default function ProductEdit() {
   return <section className="mx-auto max-w-2xl">
     <h1 className="text-2xl font-semibold tracking-tight">Editar producto</h1>
     <p className="mt-2 text-sm text-muted-foreground">Actualiza los datos del producto.</p>
-    <ProductForm currency={currency} cancelTo={detail} errors={errors} pending={pending} values={values} variantFields={variantFields} stock={stock} submitLabel="Guardar cambios" onSave={save} />
+    <ProductForm currency={currency} cancelTo={detail} errors={errors} pending={pending} values={values} variantFields={variantFields} stock={stock} submitLabel="Guardar cambios" imageUrl={imageUrl} onSave={save} />
   </section>;
 }
 
