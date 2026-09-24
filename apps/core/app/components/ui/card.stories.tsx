@@ -9,7 +9,10 @@ import {
   CardTitle,
 } from "./card";
 
-const meta = { component: Card } satisfies Meta<typeof Card>;
+const meta = {
+  title: "Design System/Components/Card",
+  component: Card,
+} satisfies Meta<typeof Card>;
 export default meta;
 
 type Story = StoryObj<typeof meta>;

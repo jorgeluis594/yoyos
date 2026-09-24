@@ -2,7 +2,10 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Button } from "./button";
 import { ErrorState } from "./error-state";
 
-const meta = { component: ErrorState } satisfies Meta<typeof ErrorState>;
+const meta = {
+  title: "Design System/Components/ErrorState",
+  component: ErrorState,
+} satisfies Meta<typeof ErrorState>;
 export default meta;
 
 type Story = StoryObj<typeof meta>;

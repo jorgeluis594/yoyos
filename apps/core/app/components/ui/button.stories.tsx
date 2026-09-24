@@ -1,7 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Button } from "./button";
 
-const meta = { component: Button } satisfies Meta<typeof Button>;
+const meta = {
+  title: "Design System/Components/Button",
+  component: Button,
+} satisfies Meta<typeof Button>;
 export default meta;
 
 type Story = StoryObj<typeof meta>;

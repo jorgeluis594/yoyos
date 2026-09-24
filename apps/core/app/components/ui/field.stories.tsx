@@ -5,7 +5,10 @@ import { Input } from "./input";
 import { Select } from "./select";
 import { Textarea } from "./textarea";
 
-const meta = { component: Field } satisfies Meta<typeof Field>;
+const meta = {
+  title: "Design System/Components/Field",
+  component: Field,
+} satisfies Meta<typeof Field>;
 export default meta;
 
 type Story = StoryObj<typeof meta>;

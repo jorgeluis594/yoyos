@@ -3,7 +3,10 @@ import { Button } from "./button";
 import { PageContainer } from "./page-container";
 import { PageHeader } from "./page-header";
 
-const meta = { component: PageHeader } satisfies Meta<typeof PageHeader>;
+const meta = {
+  title: "Design System/Components/PageHeader",
+  component: PageHeader,
+} satisfies Meta<typeof PageHeader>;
 export default meta;
 
 type Story = StoryObj<typeof meta>;
