@@ -31,6 +31,7 @@
     "react-native-worklets": "0.10.1"
   },
   "devDependencies": {
+    "@storybook/react-native-web-vite": "^10.6.0",
     "@testing-library/react-native": "^13.3.3",
     "@types/jest": "^30.0.0",
     "@types/react": "~19.2.2",
@@ -39,8 +40,10 @@
     "jest": "^30.5.2",
     "jest-expo": "~57.0.5",
     "react-test-renderer": "19.2.3",
+    "storybook": "^10.6.0",
     "tailwindcss": "^3.4.19",
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "vite": "^8.3.0"
   },
   "scripts": {
     "test": "jest --runInBand",
@@ -50,6 +53,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
+    "storybook": "storybook dev -p 6007",
+    "build-storybook": "storybook build",
     "lint": "expo lint"
   },
   "jest": {
