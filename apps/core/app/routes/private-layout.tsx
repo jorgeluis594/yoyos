@@ -46,30 +46,34 @@ function Navigation({ company, name, home, dark, pending, error, onTheme, onSign
   onNavigate?: () => void;
 }) {
   return (
-    <div className="flex h-full flex-col gap-6 bg-background px-3 pb-4 pt-6">
-      <Link to={home} onClick={onNavigate} className="flex items-center gap-2 px-3 text-2xl font-semibold tracking-tight focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">
+    <div className="flex min-h-full flex-col gap-6 bg-background px-4 pb-4 pt-3">
+      <Link to={home} onClick={onNavigate} className="flex min-h-16 items-center gap-3 px-3 text-2xl font-semibold tracking-tight focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">
         <ShoppingBag className="size-6 text-primary" aria-hidden="true" />yoyos
       </Link>
-      <div className="mx-1 flex min-w-0 items-center gap-2 border-y border-border px-2 py-3">
-        <span className="grid size-8 shrink-0 place-items-center rounded-full bg-secondary text-xs font-medium text-secondary-foreground" aria-hidden="true">{company.slice(0, 1).toUpperCase()}</span>
-        <span className="min-w-0 break-words text-sm font-medium leading-4">{company}</span>
+      <div className="flex min-w-0 items-center gap-3 rounded-md border border-border bg-card px-3 py-3 text-card-foreground">
+        <span className="grid size-9 shrink-0 place-items-center rounded-sm bg-secondary text-sm font-medium text-secondary-foreground" aria-hidden="true">{company.slice(0, 1).toUpperCase()}</span>
+        <div className="min-w-0">
+          <p className="break-words text-sm font-medium leading-5">{company}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">Espacio de trabajo</p>
+        </div>
       </div>
       <nav aria-label="Navegación principal">
-        <Link to={home} onClick={onNavigate} aria-current="page" className="flex min-h-10 items-center gap-2 rounded-sm bg-accent px-3 text-sm font-medium text-accent-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background max-md:min-h-12">
-          <House className="size-5" aria-hidden="true" />Inicio
+        <Link to={home} onClick={onNavigate} aria-current="page" className="flex min-h-11 items-center gap-3 rounded-sm bg-accent px-3 text-sm font-medium text-accent-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background max-md:min-h-12">
+          <House className="size-5 shrink-0" aria-hidden="true" />Inicio
+          <span className="ml-auto size-1.5 rounded-full bg-current" aria-hidden="true" />
         </Link>
       </nav>
       <div className="mt-auto flex flex-col gap-2 border-t border-border pt-4">
-        <div className="flex min-w-0 items-center gap-2 px-2 pb-2">
+        <div className="flex min-w-0 items-center gap-3 px-3 pb-2">
           <span className="grid size-8 shrink-0 place-items-center rounded-full bg-secondary text-xs font-medium text-secondary-foreground" aria-hidden="true">{name.slice(0, 1).toUpperCase()}</span>
-          <span className="truncate text-sm font-medium" title={name}>{name}</span>
+          <span className="min-w-0 break-words text-sm font-medium leading-5">{name}</span>
         </div>
-        <Button type="button" variant="ghost" className="w-full justify-start" onClick={onTheme} aria-label="Alternar tema" aria-pressed={dark}>
+        <Button type="button" variant="ghost" className="min-h-11 w-full justify-start gap-3" onClick={onTheme} aria-label="Alternar tema" aria-pressed={dark}>
           {dark ? <Sun data-icon="inline-start" aria-hidden="true" /> : <Moon data-icon="inline-start" aria-hidden="true" />}
           {dark ? "Modo claro" : "Modo oscuro"}
         </Button>
-        <Button type="button" variant="ghost" className="w-full justify-start" onClick={onSignOut} disabled={pending}>
-          <LogOut data-icon="inline-start" aria-hidden="true" />Cerrar sesión
+        <Button type="button" variant="ghost" className="min-h-11 w-full justify-start gap-3" onClick={onSignOut} disabled={pending}>
+          <LogOut data-icon="inline-start" aria-hidden="true" />{pending ? "Cerrando sesión…" : "Cerrar sesión"}
         </Button>
         {error && <p role="alert" className="px-2 text-sm text-destructive">{error}</p>}
       </div>
@@ -122,24 +126,31 @@ export default function PrivateLayout() {
   const navigation = { company, name, home, dark, pending, error, onTheme: toggleTheme, onSignOut: signOut };
 
   return (
-    <div className="min-h-screen md:flex">
-      <aside className="hidden border-r border-border md:block md:w-48 md:shrink-0">
+    <div className="flex min-h-dvh flex-col md:flex-row">
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-sm focus:bg-primary focus:px-4 focus:py-3 focus:text-primary-foreground">Saltar al contenido</a>
+      <aside className="hidden md:sticky md:top-0 md:block md:h-dvh md:w-64 md:shrink-0 md:overflow-y-auto">
         <Navigation {...navigation} />
       </aside>
       <dialog ref={dialog} aria-label="Menú principal" className="m-0 h-dvh max-h-dvh w-72 max-w-full border-0 bg-background p-0 text-foreground shadow-xl backdrop:bg-foreground/40 md:hidden">
         <div className="flex h-full flex-col">
-          <Button type="button" variant="ghost" size="icon" aria-label="Cerrar menú" className="absolute right-3 top-5" onClick={() => dialog.current?.close()}><X aria-hidden="true" /></Button>
+          <Button type="button" variant="ghost" size="icon" aria-label="Cerrar menú" className="absolute right-3 top-5 min-h-12 min-w-12" onClick={() => dialog.current?.close()}><X aria-hidden="true" /></Button>
           <Navigation {...navigation} onNavigate={() => dialog.current?.close()} />
         </div>
       </dialog>
-      <div className="min-w-0 flex-1">
-        <header className="flex h-14 items-center gap-3 border-b border-border px-4 text-sm sm:px-6">
-          <Button type="button" variant="ghost" size="icon" aria-label="Abrir menú" aria-haspopup="dialog" className="md:hidden" onClick={() => dialog.current?.showModal()}><Menu aria-hidden="true" /></Button>
-          <span className="truncate text-muted-foreground">{company}</span>
-          <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-          <span className="font-medium">Inicio</span>
+      <div className="min-w-0 flex-1 bg-card text-card-foreground md:my-3 md:mr-3 md:rounded-md md:border md:border-border">
+        <header className="flex min-h-16 items-center gap-3 border-b border-border px-4 py-2 text-sm sm:px-6">
+          <Button type="button" variant="ghost" size="icon" aria-label="Abrir menú" aria-haspopup="dialog" className="min-h-12 min-w-12 md:hidden" onClick={() => dialog.current?.showModal()}><Menu aria-hidden="true" /></Button>
+          <nav aria-label="Ruta de navegación" className="min-w-0">
+            <ol className="flex min-w-0 items-center gap-3">
+              <li className="min-w-0 truncate text-muted-foreground" title={company}>{company}</li>
+              <li className="flex shrink-0 items-center gap-3" aria-current="page">
+                <ChevronRight className="size-4 text-muted-foreground" aria-hidden="true" />
+                <span className="font-medium">Inicio</span>
+              </li>
+            </ol>
+          </nav>
         </header>
-        <main className="mx-auto max-w-content px-4 py-6 sm:px-6"><Outlet /></main>
+        <main id="main-content" tabIndex={-1} className="mx-auto max-w-content px-4 py-8 outline-none sm:px-6"><Outlet /></main>
       </div>
     </div>
   );

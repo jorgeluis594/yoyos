@@ -31,6 +31,10 @@ test("register, persist session, sign out, reject bad password, and sign in", as
     expect((await createdCompany).status()).toBe(201);
     await browserExpect(page).toHaveURL(/\/es-PE\/dashboard$/);
     await browserExpect(page.getByRole("heading", { name: "Hola, Ana Prueba" })).toBeVisible();
+    await page.getByRole("link", { name: "Saltar al contenido" }).focus();
+    await page.keyboard.press("Enter");
+    await browserExpect(page.getByRole("main")).toBeFocused();
+    await page.setViewportSize({ width: 1440, height: 900 });
     const sidebar = page.getByRole("complementary");
     await browserExpect(sidebar).toContainText("Empresa Ana");
     await browserExpect(sidebar).toContainText("Ana Prueba");
@@ -52,6 +56,7 @@ test("register, persist session, sign out, reject bad password, and sign in", as
     await browserExpect(page.locator("html")).toHaveClass(/dark/);
     await browserExpect(sidebar.getByRole("button", { name: "Cerrar sesión" })).toHaveCSS("color", "rgb(238, 232, 223)");
     await page.setViewportSize({ width: 390, height: 780 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     const menuButton = page.getByRole("button", { name: "Abrir menú" });
     await menuButton.focus();
     await page.keyboard.press("Enter");
