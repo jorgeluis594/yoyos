@@ -18,6 +18,14 @@ docker compose down
 
 PostgreSQL conserva los datos en un volumen al detener los servicios. Para eliminar también esos datos, usa `docker compose down -v`.
 
+Para crear manualmente la cuenta de desarrollo y su empresa peruana:
+
+```sh
+docker compose exec web pnpm seed
+```
+
+Inicia sesión con `demo@yoyos.local` y `demo-password-123`. El comando puede repetirse sin cambiar el nombre, la contraseña ni la empresa ya vinculada.
+
 ## Instalación local
 
 Con Node.js 24 y pnpm, instala primero las dependencias compartidas y después las de cada app:
