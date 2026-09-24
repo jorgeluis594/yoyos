@@ -4,7 +4,7 @@
 
 Implementar la [arquitectura acordada](registro-mobile-pendientes.md) en cinco entregas completas y comprobables.
 
-**Estado:** T1 y T2 terminadas y verificadas; T3–T5 pendientes. La evidencia figura en cada sección.
+**Estado:** T1–T3 terminadas y verificadas; T4 y T5 pendientes. La evidencia figura en cada sección.
 
 Cada tarea incluye código, integración con los consumidores que ya existen, configuración necesaria y pruebas. Puede depender de tareas anteriores terminadas, pero debe compilar y pasar sus criterios de aceptación sin implementar ninguna tarea posterior. Un módulo sin pantalla puede ser una entrega completa si su API funciona y sus pruebas ejercitan el comportamiento real del módulo.
 
@@ -167,16 +167,16 @@ Los comandos siguientes se ejecutan desde el directorio indicado. `apps/core/scr
 
 ### Criterios de aceptación
 
-- [ ] `signIn` utiliza el adaptador real y devuelve `UserAccess` listo o pendiente de empresa; contraseña incorrecta produce el error tipado correspondiente.
-- [ ] `restoreSession` devuelve acceso válido o `ok(null)` ante ausencia/expiración confirmada. Fallo de red o JSON incompatible no borra la sesión ni se convierte en ausencia.
-- [ ] Varias solicitudes simultáneas comparten una renovación y utilizan su resultado; no hay ciclos infinitos ni tormenta de renovaciones por respuestas tardías.
-- [ ] Cada solicitud repite como máximo una vez tras `401`; no se reintentan mutaciones por timeout o `5xx`.
-- [ ] La renovación consulta la sesión por Better Auth y persiste sus actualizaciones antes de continuar con acceso renovado.
-- [ ] Logout sin conexión elimina sesión local, JWT y datos privados en memoria; la revocación remota queda distinguida como no confirmada.
-- [ ] Logout invalida operaciones antiguas: ninguna respuesta ni escritura tardía vuelve a habilitar acceso o mezcla datos de cuentas distintas.
-- [ ] Si falla la eliminación en SecureStore, se devuelve `SECURE_STORAGE_ERROR`, no éxito; la restauración automática queda bloqueada en ese proceso hasta resolverlo.
-- [ ] Tokens y credenciales no se entregan a los casos de uso/pantallas ni se escriben en logs.
-- [ ] Los módulos importan y se componen sin depender de archivos de registro o UI que todavía no existen. La navegación actual del scaffold se conserva.
+- [x] `signIn` utiliza el adaptador real y devuelve `UserAccess` listo o pendiente de empresa; contraseña incorrecta produce el error tipado correspondiente.
+- [x] `restoreSession` devuelve acceso válido o `ok(null)` ante ausencia/expiración confirmada. Fallo de red o JSON incompatible no borra la sesión ni se convierte en ausencia.
+- [x] Varias solicitudes simultáneas comparten una renovación y utilizan su resultado; no hay ciclos infinitos ni tormenta de renovaciones por respuestas tardías.
+- [x] Cada solicitud repite como máximo una vez tras `401`; no se reintentan mutaciones por timeout o `5xx`.
+- [x] La renovación consulta la sesión por Better Auth y persiste sus actualizaciones antes de continuar con acceso renovado.
+- [x] Logout sin conexión elimina sesión local, JWT y datos privados en memoria; la revocación remota queda distinguida como no confirmada.
+- [x] Logout invalida operaciones antiguas: ninguna respuesta ni escritura tardía vuelve a habilitar acceso o mezcla datos de cuentas distintas.
+- [x] Si falla la eliminación en SecureStore, se devuelve `SECURE_STORAGE_ERROR`, no éxito; la restauración automática queda bloqueada en ese proceso hasta resolverlo.
+- [x] Tokens y credenciales no se entregan a los casos de uso/pantallas ni se escriben en logs.
+- [x] Los módulos importan y se componen sin depender de archivos de registro o UI que todavía no existen. La navegación actual del scaffold se conserva.
 
 ### Pruebas para cerrar la tarea
 
@@ -186,6 +186,8 @@ Los comandos siguientes se ejecutan desde el directorio indicado. `apps/core/scr
 4. Comprobación de composición que conecte operaciones con adaptadores reales sobre esos límites controlados, sin sustituir la operación bajo prueba.
 
 **Comandos:** desde `apps/mobile`, `pnpm lint`, `pnpm typecheck` y `pnpm test`. Confirmar resolución de los paquetes compartidos en la configuración existente; cualquier ajuste imprescindible forma parte de esta tarea.
+
+**Verificación ejecutada:** `pnpm lint`, `pnpm typecheck` y `pnpm test` pasan; Jest descubre 7 suites y 41 pruebas. `pnpm exec expo install --check` confirma compatibilidad de dependencias con SDK 57. `expo config` confirma scheme `yoyos`, HTTP local solo en desarrollo y tráfico HTTP desactivado en producción. La prueba de composición ejecuta las operaciones y adaptadores reales con límites SDK, almacenamiento y HTTP controlados, sin servidor core ni dispositivo.
 
 **Por qué se cierra por sí sola:** login, restauración y logout tienen API de aplicación y pruebas completas. Una pantalla futura solo consumirá esas operaciones; no aporta piezas necesarias para validarlas.
 

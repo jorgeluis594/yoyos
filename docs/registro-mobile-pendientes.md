@@ -4,7 +4,7 @@
 
 Permitir registro público, inicio y cierre de sesión desde mobile con las mismas cuentas y empresas de core. Web seguirá usando cookies de sesión de Better Auth; mobile usará JWT para las rutas de negocio `/api`.
 
-**Estado:** decisiones de comportamiento, organización de casos de uso, contratos principales y cobertura de verificación acordadas. T1 y T2 están implementadas; la funcionalidad mobile sigue pendiente. Este documento define la arquitectura que implementarán las tareas; los detalles técnicos propuestos se validarán contra las versiones y entornos reales.
+**Estado:** decisiones de comportamiento, organización de casos de uso, contratos principales y cobertura de verificación acordadas. T1–T3 están implementadas y verificadas; el registro y la integración de pantallas mobile siguen pendientes. Este documento define la arquitectura que implementarán las tareas; los detalles técnicos propuestos se validarán contra las versiones y entornos reales.
 
 Incluye recuperar registros con empresa pendiente y compartir usuario y empresa entre middleware y rutas privadas. La comprobación de integridad de la app, OAuth y recuperación de contraseña quedan fuera de esta etapa propuesta.
 
@@ -604,9 +604,9 @@ Crear solo los archivos requeridos; dependencias entre features mediante exports
 
 Las [tareas de implementación](registro-mobile-tareas.md) definen las entregas incrementales, el alcance, las exclusiones y los criterios de aceptación. T1 y T2 están terminadas; T3–T5 siguen pendientes.
 
-Las decisiones revisadas quedan cerradas para esta etapa. La URL de desarrollo confirmada es `http://localhost:3000`. Durante las tareas se verificarán las versiones compatibles de Better Auth, su plugin Expo, Zod y Expo SDK 57. Conservar los valores operativos propuestos de este documento como base de implementación; cualquier incompatibilidad que cambie el comportamiento acordado debe quedar explícita.
+Las decisiones revisadas quedan cerradas para esta etapa. La URL de desarrollo confirmada es `http://localhost:3000`. T3 verificó Better Auth, su plugin Expo, Zod y Expo SDK 57 con las dependencias instaladas y su comprobación de compatibilidad. Conservar los valores operativos propuestos de este documento como base de implementación; cualquier incompatibilidad que cambie el comportamiento acordado debe quedar explícita.
 
-T1 implementa contexto y contratos de core/web; T2 implementa JWT revocables para core. Ambas tienen pruebas ejecutadas. Las casillas siguientes representan trabajo pendiente de implementación y verificación, no decisiones de comportamiento pendientes.
+T1 implementa contexto y contratos de core/web; T2 implementa JWT revocables para core; T3 implementa login, restauración, renovación y logout mobile. Las tres tienen pruebas ejecutadas. Las casillas siguientes representan trabajo pendiente de implementación y verificación, no decisiones de comportamiento pendientes.
 
 ## Pendientes y criterios de aceptación
 
