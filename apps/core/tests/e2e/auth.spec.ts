@@ -31,15 +31,49 @@ test("register, persist session, sign out, reject bad password, and sign in", as
     expect((await createdCompany).status()).toBe(201);
     await browserExpect(page).toHaveURL(/\/es-PE\/dashboard$/);
     await browserExpect(page.getByRole("heading", { name: "Hola, Ana Prueba" })).toBeVisible();
+    const sidebar = page.getByRole("complementary");
+    await browserExpect(sidebar).toContainText("Empresa Ana");
+    await browserExpect(sidebar).toContainText("Ana Prueba");
+    await browserExpect(sidebar.getByRole("link", { name: "Inicio" })).toHaveAttribute("href", "/es-PE/dashboard");
+    await browserExpect(sidebar.getByRole("link", { name: "Inicio" })).toHaveAttribute("aria-current", "page");
+    await sidebar.getByRole("link", { name: "Inicio" }).click();
+    await browserExpect(page).toHaveURL(/\/es-PE\/dashboard$/);
 
     await page.goto("/register");
     await browserExpect(page).toHaveURL(/\/es-PE\/dashboard$/);
 
     await page.reload();
     await browserExpect(page.getByRole("heading", { name: "Hola, Ana Prueba" })).toBeVisible();
-
-    await page.getByRole("button", { name: "Cerrar sesión" }).click();
+    await page.emulateMedia({ colorScheme: "dark" });
+    await browserExpect(page.locator("html")).toHaveClass(/dark/);
+    await page.emulateMedia({ colorScheme: "light" });
+    await browserExpect(page.locator("html")).not.toHaveClass(/dark/);
+    await sidebar.getByRole("button", { name: "Alternar tema" }).click();
+    await browserExpect(page.locator("html")).toHaveClass(/dark/);
+    await browserExpect(sidebar.getByRole("button", { name: "Cerrar sesión" })).toHaveCSS("color", "rgb(238, 232, 223)");
+    await page.setViewportSize({ width: 390, height: 780 });
+    const menuButton = page.getByRole("button", { name: "Abrir menú" });
+    await menuButton.focus();
+    await page.keyboard.press("Enter");
+    const menu = page.getByRole("dialog", { name: "Menú principal" });
+    await browserExpect(menu).toBeVisible();
+    await browserExpect(menu.getByRole("link", { name: "Inicio" })).toHaveAttribute("href", "/es-PE/dashboard");
+    await browserExpect(menu.getByRole("button", { name: "Cerrar menú" })).toBeFocused();
+    await page.keyboard.press("Tab");
+    await browserExpect(menu.getByRole("link", { name: "yoyos" })).toBeFocused();
+    await page.keyboard.press("Escape");
+    await browserExpect(menu).not.toBeVisible();
+    await browserExpect(menuButton).toBeFocused();
+    await menuButton.click();
+    await menu.getByRole("button", { name: "Alternar tema" }).click();
+    await browserExpect(page.locator("html")).not.toHaveClass(/dark/);
+    await browserExpect(menu.getByRole("button", { name: "Cerrar sesión" })).toHaveCSS("color", "rgb(36, 35, 38)");
+    await menu.getByRole("button", { name: "Cerrar menú" }).click();
+    await browserExpect(menu).not.toBeVisible();
+    await menuButton.click();
+    await menu.getByRole("button", { name: "Cerrar sesión" }).click();
     await browserExpect(page).toHaveURL(/\/login$/);
+
     await page.goto("/es-PE/dashboard");
     await browserExpect(page).toHaveURL(/\/es-PE\/login$/);
 

@@ -2,10 +2,10 @@ import { isCountry, type Country } from "@shared/country";
 import { prisma, systemPrisma } from "@core/src/shared/infrastructure/persistance";
 
 export const companyRepository = {
-  async getCountry(companyId: string): Promise<Country> {
-    const company = await prisma.company.findUniqueOrThrow({ where: { id: companyId }, select: { country: true } });
+  async getIdentity(companyId: string): Promise<{ name: string; country: Country }> {
+    const company = await prisma.company.findUniqueOrThrow({ where: { id: companyId }, select: { name: true, country: true } });
     if (!isCountry(company.country)) throw new Error("Unsupported stored company country");
-    return company.country;
+    return { name: company.name, country: company.country };
   },
   async getCompanyIdForUser(userId: string): Promise<string | null> {
     const user = await systemPrisma.user.findUnique({ where: { id: userId }, select: { companyId: true } });
