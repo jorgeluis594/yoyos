@@ -6,6 +6,9 @@ import { companyRepository } from "@core/src/features/companies/infrastructure/c
 import { auth } from "./shared/infrastructure/auth.js";
 import { resolveCurrentUser } from "./shared/infrastructure/current-user.js";
 import { withTenantIsolation } from "./shared/infrastructure/persistance.js";
+import { imageRoutes } from "@core/src/shared/images/presentation/routes";
+import { imageRepository } from "@core/src/shared/images/infrastructure/image-repository";
+import { createR2ImageStorage } from "@core/src/shared/images/infrastructure/r2-image-storage";
 
 export const app = express();
 
@@ -30,6 +33,14 @@ app.use("/api", async (request, response, next) => {
   if (!user.companyId) return response.status(409).json({ error: "Company required" });
   return withTenantIsolation(user.companyId, next);
 });
+
+app.use("/api/images", imageRoutes(createR2ImageStorage({
+  endpoint: process.env.R2_ENDPOINT ?? "",
+  bucket: process.env.R2_BUCKET ?? "",
+  accessKeyId: process.env.R2_ACCESS_KEY_ID ?? "",
+  secretAccessKey: process.env.R2_SECRET_ACCESS_KEY ?? "",
+  publicBaseUrl: process.env.R2_PUBLIC_BASE_URL ?? "",
+}), imageRepository));
 
 app.use("/api", (_request, response) => {
   response.status(404).json({ error: "Not found" });
