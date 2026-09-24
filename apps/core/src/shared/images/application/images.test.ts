@@ -12,8 +12,8 @@ function setup() {
     delete: vi.fn(async () => ({ success: true as const, data: undefined })),
   };
   const repository: ImageRepository = {
-    create: vi.fn(async () => ({ id })),
-    find: vi.fn(async () => ({ id, storageKey: "remote" })),
+    create: vi.fn(async () => ({ success: true as const, data: { id } })),
+    find: vi.fn(async () => ({ success: true as const, data: { id, storageKey: "remote" } })),
   };
   return { storage, repository };
 }
@@ -28,8 +28,8 @@ describe("images use cases", () => {
 
   it("deletes the remote file when local persistence fails", async () => {
     const { storage, repository } = setup();
-    repository.create = vi.fn(async () => { throw new Error("database down"); });
-    await expect(uploadImage(companyId, input, storage, repository)).rejects.toThrow("database down");
+    repository.create = vi.fn(async () => ({ success: false as const, error: { code: "PERSISTENCE_UNAVAILABLE", message: "database down" } }));
+    expect(await uploadImage(companyId, input, storage, repository)).toEqual({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE", message: "database down" } });
     expect(storage.delete).toHaveBeenCalledWith("remote");
   });
 
@@ -46,10 +46,49 @@ describe("images use cases", () => {
     }
   });
 
+  it("preserves a persistence failure when cleanup throws", async () => {
+    const { storage, repository } = setup();
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const failure = { code: "PERSISTENCE_UNAVAILABLE", message: "database down" };
+    repository.create = vi.fn(async () => ({ success: false as const, error: failure }));
+    storage.delete = vi.fn(async () => { throw new Error("delete failed"); });
+    try {
+      expect(await uploadImage(companyId, input, storage, repository)).toEqual({ success: false, error: failure });
+      expect(storage.delete).toHaveBeenCalledWith("remote");
+      expect(logged).toHaveBeenCalledWith("Image cleanup failed", expect.objectContaining({ cause: failure, error: expect.any(Error) }));
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
   it("passes provider failures through without writing locally", async () => {
     const { storage, repository } = setup();
     storage.upload = vi.fn(async () => ({ success: false as const, error: { message: "provider down" } }));
     expect(await uploadImage(companyId, input, storage, repository)).toEqual({ success: false, error: { message: "provider down" } });
     expect(repository.create).not.toHaveBeenCalled();
+  });
+
+  it("compensates when the public URL cannot be obtained", async () => {
+    const { storage, repository } = setup();
+    storage.getUrl = vi.fn(async () => ({ success: false as const, error: { code: "IMAGE_STORAGE_CONFIG_ERROR", message: "bad URL" } }));
+    expect(await uploadImage(companyId, input, storage, repository)).toEqual({ success: false, error: { code: "IMAGE_STORAGE_CONFIG_ERROR", message: "bad URL" } });
+    expect(storage.delete).toHaveBeenCalledWith("remote");
+    expect(repository.create).not.toHaveBeenCalled();
+  });
+
+  it("preserves an unexpected URL failure after cleanup", async () => {
+    const { storage, repository } = setup();
+    const failure = new Error("URL lookup failed");
+    storage.getUrl = vi.fn(async () => { throw failure; });
+    await expect(uploadImage(companyId, input, storage, repository)).rejects.toBe(failure);
+    expect(storage.delete).toHaveBeenCalledWith("remote");
+    expect(repository.create).not.toHaveBeenCalled();
+  });
+
+  it("propagates repository read failures without requesting a URL", async () => {
+    const { storage, repository } = setup();
+    repository.find = vi.fn(async () => ({ success: false as const, error: { code: "PERSISTENCE_UNAVAILABLE", message: "database down" } }));
+    expect(await getImage(companyId, id, storage, repository)).toEqual({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE", message: "database down" } });
+    expect(storage.getUrl).not.toHaveBeenCalled();
   });
 });

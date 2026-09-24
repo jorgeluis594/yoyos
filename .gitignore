@@ -2,3 +2,6 @@ node_modules/
 .env
 
 .happy-memory/
+.pnpm-store/
+storybook-static/
+debug-storybook.log

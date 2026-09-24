@@ -35,7 +35,7 @@ Core uses Vitest, with Playwright for browser interactions; mobile uses Jest and
 
 ## Commit & Pull Request Guidelines
 
-History uses imperative subjects such as `Add mobile list row component`, alongside `docs:` and `chore:` prefixes. Keep commits focused. In PRs, describe behavior changes, link relevant issues, report validation, and include screenshots for UI changes.
+Use imperative commit subjects such as `Add mobile list row component`, without prefixes such as `feat:`, `fix:`, `docs:`, or `chore:`. Keep commits focused. In PRs, describe behavior changes, link relevant issues, report validation, and include screenshots for UI changes.
 
 ## Security & Database Changes
 

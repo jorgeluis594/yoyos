@@ -2,17 +2,31 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { countries } from "@shared/country";
-import { createCompanyRequestSchema, createCompanyResponseSchema, apiErrorResponseSchema } from "@shared/contracts/registration";
 import { z } from "zod";
-import { authClient } from "../../src/shared/infrastructure/auth-client";
+import { authClient } from "@core/src/shared/infrastructure/auth-client";
+import type { RegisterError } from "@core/src/features/users/application/register";
+import { registerWeb } from "@/register";
 
 const countryNames = { PE: "Perú", US: "Estados Unidos", CO: "Colombia", AR: "Argentina", CL: "Chile", BR: "Brasil" };
 const credentialsSchema = z.object({ email: z.email(), password: z.string().min(8) });
-const registrationSchema = credentialsSchema.extend({ name: z.string().trim().min(1) });
 const authResultSchema = z.object({
   error: z.object({ message: z.string().optional() }).nullable(),
   data: z.object({ user: z.object({ id: z.string().min(1) }) }).nullable(),
 });
+
+function registrationMessage(error: RegisterError): string {
+  if (error.code === "NETWORK_ERROR") return "No se pudo conectar. Inténtalo de nuevo.";
+  if (error.step === "account") {
+    if (error.code === "INVALID_INPUT") return "Revisa los datos de la cuenta.";
+    if (error.code === "INVALID_RESPONSE") return "Respuesta de autenticación inválida.";
+    return error.message;
+  }
+  if (error.code === "INVALID_INPUT") return "Revisa el nombre y el país de la empresa.";
+  if (error.code === "REJECTED") return "No se pudo crear la empresa. Inténtalo de nuevo.";
+  return error.code === "INVALID_RESPONSE"
+    ? "Respuesta de empresa inválida."
+    : "No se recibió una respuesta válida. Inténtalo de nuevo.";
+}
 
 export function AuthForm({ mode, pendingCompany = false }: { mode: "login" | "register"; pendingCompany?: boolean }) {
   const register = mode === "register";
@@ -31,48 +45,18 @@ export function AuthForm({ mode, pendingCompany = false }: { mode: "login" | "re
 
     try {
       if (companyStep || register) {
-        const company = createCompanyRequestSchema.safeParse({ name: data.get("companyName"), country: data.get("country") });
-        if (!company.success || company.data.name.trim().length < 1 || company.data.name.trim().length > 120) {
-          setError("Revisa el nombre y el país de la empresa.");
-          return;
-        }
-        setCompanyName(company.data.name);
-        setCompanyCountry(company.data.country);
-        if (!companyStep) {
-          const account = registrationSchema.safeParse({ name: data.get("name"), email: data.get("email"), password: data.get("password") });
-          if (!account.success) {
-            setError("Revisa los datos de la cuenta.");
-            return;
-          }
-          const result = authResultSchema.safeParse(await authClient.signUp.email(account.data));
-          if (!result.success || !result.data.data && !result.data.error) {
-            setError("Respuesta de autenticación inválida.");
-            return;
-          }
-          if (result.data.error) {
-            setError(result.data.error.message ?? "No se pudo crear la cuenta.");
-            return;
-          }
-          setCompanyStep(true);
-        }
-        const response = await fetch("/api/company", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(company.data),
+        const company = { name: String(data.get("companyName") ?? ""), country: String(data.get("country") ?? "") };
+        const result = await registerWeb({
+          company,
+          ...(!companyStep && { account: { name: String(data.get("name") ?? ""), email: String(data.get("email") ?? ""), password: String(data.get("password") ?? "") } }),
         });
-        let body: unknown;
-        try { body = await response.json(); } catch { body = null; }
-        if (!response.ok) {
-          const failure = apiErrorResponseSchema.safeParse(body);
-          if (!failure.success) {
-            setError("No se recibió una respuesta válida. Inténtalo de nuevo.");
-            return;
+        if (!result.success) {
+          if (result.error.step === "company" && result.error.code !== "INVALID_INPUT") {
+            setCompanyName(company.name);
+            setCompanyCountry(company.country);
+            setCompanyStep(true);
           }
-          setError("No se pudo crear la empresa. Inténtalo de nuevo.");
-          return;
-        }
-        if (!createCompanyResponseSchema.safeParse(body).success) {
-          setError("Respuesta de empresa inválida.");
+          setError(registrationMessage(result.error));
           return;
         }
       } else {

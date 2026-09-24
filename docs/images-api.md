@@ -23,12 +23,26 @@ Response: { id, url }
 Frontend → create or update an entity with imageId
 ```
 
-Proposed HTTP contract:
+HTTP contract:
 
 | Operation | Input | Output |
 | --- | --- | --- |
 | `POST /api/images` | Multipart file in the `file` field | `201 { id, url }` |
 | `GET /api/images/:id` | Internal identifier | `200 { id, url }` |
+
+Successful responses are validated with `shared/contracts/images.ts`: `id` is a UUID and `url` is an HTTP or HTTPS URL. An invalid internal response is logged and returns `500 INTERNAL_ERROR`. Errors use the shared `{ code, error }` JSON contract:
+
+| Condition | HTTP | `code` |
+| --- | --- | --- |
+| Invalid multipart body, file, or format | 400 | `INVALID_IMAGE` |
+| File, request, or resolution exceeds the upload limits | 413 | `IMAGE_TOO_LARGE` |
+| Request is not multipart | 415 | `UNSUPPORTED_MEDIA_TYPE` |
+| Image missing or owned by another company | 404 | `NOT_FOUND` |
+| Storage provider failure | 502 | `IMAGE_STORAGE_UNAVAILABLE` |
+| Persistence failure | 503 | `SERVICE_UNAVAILABLE` |
+| Storage configuration or internal response failure | 500 | `INTERNAL_ERROR` |
+
+Authentication and company errors use the existing shared codes. The mobile transport preserves image-specific codes; a future image adapter must validate successful responses before use.
 
 Illustrative example of a future product API using this contract:
 
@@ -99,6 +113,8 @@ This code belongs in core's `shared` directory. The root `shared/` directory rem
 
 The adapter is constructed with `createR2ImageStorage(config): ImageStorage`. `app.ts` supplies it to the use cases through parameters, without an injection container or base classes. Each object uses an opaque UUID as its key; uploads preserve the content type, and the URL is formed with `R2_PUBLIC_BASE_URL`.
 
+The adapter validates URLs when constructed. `R2_PUBLIC_BASE_URL` must be an HTTP or HTTPS URL without credentials, query, or fragment. It may include a path prefix; the adapter removes its trailing slash and appends the URL-encoded object key after that prefix. `getUrl` needs only this public base. `R2_ENDPOINT` must be an HTTP or HTTPS URL without credentials, query, fragment, or path beyond `/`. Both URLs must use HTTPS when `NODE_ENV=production`; HTTP is permitted for local development. The S3 client is created only when the endpoint, bucket, and nonblank write credentials are valid. Missing or invalid configuration returns `IMAGE_STORAGE_CONFIG_ERROR` from the affected operation; provider failures return `IMAGE_STORAGE_UNAVAILABLE`.
+
 ```text
 Presentation → Application → ImageStorage contract
                                      ↑
@@ -110,7 +126,10 @@ Feature-specific rules remain in each feature: permission to modify a product, t
 ## Validation, authorization, and consistency
 
 - Uploads require authentication. The server determines the owner; it does not trust an owner sent by the client.
-- A single JPEG, PNG, or WebP file in the `file` field is accepted, up to 10 MB. The request body is limited before parsing, and the file signature is checked in addition to the declared type.
+- A single complete, static JPEG, PNG, or WebP file in the `file` field is accepted, up to 10,000,000 bytes (10 MB). The request body is limited before parsing to 10 MB plus 64 KiB of multipart overhead.
+- Images must have positive dimensions, at most 24,000,000 pixels (24 MP), and at most 8,000 pixels per side. Exceeding a byte or resolution limit returns `413 IMAGE_TOO_LARGE`.
+- The detected format must match the declared MIME. Empty, truncated, corrupt, animated WebP, and APNG files return `400 INVALID_IMAGE`. Sharp decodes the pixels with `stats()`, `failOn: "warning"`, and `limitInputPixels: 24_000_000` before storage or persistence. Header metadata alone is insufficient.
+- Accepted files retain their original bytes; validation does not convert or generate variants.
 - Future use cases that associate an `imageId` must verify that it exists and belongs to the authorized company. Knowing an ID does not grant authorization.
 - R2 credentials remain on the server. The adapter translates upload and deletion errors.
 - An upload stores the file first, then the local record. If saving the record fails, it attempts to delete the uploaded file; if compensation fails, it logs the failure for later cleanup.
@@ -123,7 +142,7 @@ The first implementation includes upload through core and retrieval. No public d
 
 Bucket domain URLs are public; the endpoints require a session and company. An ID belonging to another company returns `404`. If private images are needed, read authorization, visibility, and URL expiration must be defined before implementing that flow.
 
-The integration requires `R2_ENDPOINT` (`https://<ACCOUNT_ID>.r2.cloudflarestorage.com`), `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `R2_PUBLIC_BASE_URL` (for example, `https://images.example.com`) on the server. In Compose, these are supplied through a local `.env` file or environment variables. Create the bucket in R2, generate S3 credentials with object read and write access limited to that bucket, and connect the custom domain under **R2 → bucket → Settings → Custom Domains**. The domain must belong to a zone in the same Cloudflare account. Wait until it is shown as active before testing the URL. Credentials must not be exposed to the frontend. `r2.dev` is for development only; production uses the custom domain.
+The integration requires `R2_ENDPOINT` (`https://<ACCOUNT_ID>.r2.cloudflarestorage.com`), `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `R2_PUBLIC_BASE_URL` (for example, `https://images.example.com`) on the server for uploads. Only `R2_PUBLIC_BASE_URL` is required to resolve an existing image URL. In Compose, these are supplied through a local `.env` file or environment variables. Create the bucket in R2, generate S3 credentials with object read and write access limited to that bucket, and connect the custom domain under **R2 → bucket → Settings → Custom Domains**. The domain must belong to a zone in the same Cloudflare account. Wait until it is shown as active before testing the URL. Credentials must not be exposed to the frontend. `r2.dev` is for development only; production uses the custom domain.
 
 Future entities will store `imageId` and verify that the image belongs to the company when associating it. Public deletion and scheduled cleanup of valid unused images are not included. A failure between the remote upload and local record creation can still leave an orphaned file; its cleanup must be defined before it is automated.
 

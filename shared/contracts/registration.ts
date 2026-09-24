@@ -33,6 +33,7 @@ export const createCompanyResponseSchema = z.object({ companyId: z.uuid() }).rea
 export const apiErrorCodeSchema = z.enum([
   "UNAUTHENTICATED", "COMPANY_REQUIRED", "INVALID_COMPANY", "NOT_FOUND",
   "SERVICE_UNAVAILABLE", "INTERNAL_ERROR",
+  "INVALID_IMAGE", "IMAGE_TOO_LARGE", "UNSUPPORTED_MEDIA_TYPE", "IMAGE_STORAGE_UNAVAILABLE",
 ]);
 export const apiErrorResponseSchema = z.object({
   error: z.string(),
