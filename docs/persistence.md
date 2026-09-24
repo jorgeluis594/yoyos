@@ -28,7 +28,7 @@ Use the same hierarchy within `apps/api/` and `apps/mobile/`. An API adapter may
 
 Keep small mapper helpers local to the repository. Extract them when size or reuse justifies it. A small dependency contract may remain inline with its use case instead of requiring a separate port file.
 
-Shared connections and clients belong in `src/infrastructure/`. Feature queries, endpoint paths, and storage keys belong in the feature adapter. Application composition supplies configured dependencies; repositories must not create a new connection or client for every operation.
+Shared connections and clients belong in `src/shared/infrastructure/` in both core and mobile. Feature queries, endpoint paths, and storage keys belong in the feature adapter. Application composition supplies configured dependencies; repositories must not create a new connection or client for every operation.
 
 ## Responsibility Boundary
 

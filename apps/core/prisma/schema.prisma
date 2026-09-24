@@ -69,6 +69,18 @@ model Verification {
   @@map("verification")
 }
 
+model Jwks {
+  id         String    @id
+  publicKey  String
+  privateKey String
+  createdAt  DateTime
+  expiresAt  DateTime?
+  alg        String?
+  crv        String?
+
+  @@map("jwks")
+}
+
 model Company {
   id      String @id @db.Uuid
   name    String

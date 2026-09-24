@@ -17,15 +17,16 @@ apps/
 │   └── src/
 │       ├── app.ts                   # Application creation and composition
 │       ├── server.ts                # Process startup and shutdown
-│       ├── infrastructure/          # Shared connections and client setup
 │       ├── features/                # Business features
 │       └── shared/                  # Reused code without a business owner
+│           └── infrastructure/      # Shared connections and client setup
 └── mobile/
     └── src/
-        ├── app/                     # Expo routes, layouts, and composition
-        ├── infrastructure/          # Shared clients and platform setup
+        ├── app/                     # Expo routes and layouts
+        ├── composition/             # Startup wiring outside Expo Router routes
         ├── features/                # Business features
         ├── shared/                  # Reused code without a business owner
+        │   └── infrastructure/      # Shared clients and platform setup
         └── components/
             └── ui/                  # Generic presentation components
 ```
@@ -91,7 +92,7 @@ features/orders/infrastructure/
 
 Add separate adapter files or subdirectories only when multiple real sources require them. Repositories must not decide business policy, orchestrate business workflows, render UI, navigate, or produce HTTP responses.
 
-Application-wide `src/infrastructure/` configures shared technical resources such as database connections, HTTP clients, storage, and logging. Feature-specific queries and endpoints belong in the feature adapter, not in shared client setup.
+Application-wide `src/shared/infrastructure/` configures shared technical resources such as database connections, HTTP clients, storage, and logging. Feature-specific queries and endpoints belong in the feature adapter, not in shared client setup.
 
 ### Presentation
 
@@ -120,7 +121,7 @@ Screens, hooks, and handlers must invoke application operations for business beh
 
 API `app.ts` creates the application, configures infrastructure, and registers feature routes. `server.ts` owns process lifecycle. Framework plugins may implement registration and resource lifecycle without moving business logic into plugins.
 
-Mobile `src/app/` owns routing, layouts, providers, and application composition. Route files delegate feature-specific UI to screens in `features/<feature>/presentation/screens/`.
+Mobile `src/app/` owns Expo routes and layouts; `src/composition/` holds startup wiring imported by the root layout, because Expo Router treats TypeScript files inside its route directory as routes. Feature providers and screens live in their presentation layer. Route files delegate feature-specific UI to those screens.
 
 Composition creates concrete adapters, supplies them explicitly to use cases through function parameters or ordinary composition, and exposes those operations to presentation. This wiring belongs at application startup, root setup, or feature registration, not inside individual request handlers or screen render logic. Use a separate composition file only if the setup grows enough to need it.
 
@@ -149,7 +150,7 @@ Export only what other features or application entry points actually need. Do no
 
 Use a root-level `shared/`, alongside `apps/`, for types and code shared across applications. Each application's `src/shared/` holds code shared only within that app. Keep code in its owning feature whenever possible; move it to `shared/` only when multiple features or apps use it and it has no business owner. Generic UI primitives belong in `components/ui/`; feature-specific components stay in feature presentation.
 
-In `apps/core`, authentication infrastructure (Better Auth, its client, and Prisma) belongs in `src/shared/`. The `User` entity belongs in its own `features/users/` module.
+In both `apps/core` and `apps/mobile`, shared authentication infrastructure and client setup belong in `src/shared/infrastructure/`. Core keeps Better Auth and Prisma there; mobile keeps its auth client, secure storage setup, and shared HTTP transport there. Feature-specific adapters remain in `features/<feature>/infrastructure/`. The `User` entity belongs in its own `features/users/` module.
 
 Do not use shared folders as a destination for unclassified code. Result types live in the root `shared/result.ts`; both apps import them with `import type { Result } from "@shared/result"`. Shared types use `import type` and must not depend on an application's framework or persistence models. Neither app imports the other's source. Feature entities remain in their owning feature.
 

@@ -152,13 +152,24 @@ test("company context enforces RLS and transaction boundaries", async () => {
       await systemPrisma.user.create({ data: { id: userId, name: "Owner", email: `${userId}@example.test` } });
       assert.equal((await systemPrisma.user.findUniqueOrThrow({ where: { id: userId } })).companyId, null);
       try {
-        const first = await createCompanyForUser(userId, "Owner company", "PE", companyRepository);
-        assert(first.created);
-        assert.equal((await systemPrisma.user.findUniqueOrThrow({ where: { id: userId } })).companyId, first.companyId);
-        assert.equal((await createCompanyForUser(userId, "Ignored company", "US", companyRepository)).companyId, first.companyId);
-        await withTenantIsolation(first.companyId, async () => {
-          assert.deepEqual(await prisma.company.findUniqueOrThrow({ where: { id: first.companyId }, select: { name: true, country: true } }), { name: "Owner company", country: "PE" });
+        const first = await createCompanyForUser({ userId, name: "Owner company", country: "PE" }, companyRepository);
+        assert(first.success && first.data.created);
+        assert.equal((await systemPrisma.user.findUniqueOrThrow({ where: { id: userId } })).companyId, first.data.companyId);
+        assert.deepEqual(await createCompanyForUser({ userId, name: "Ignored company", country: "US" }, companyRepository), { success: true, data: { companyId: first.data.companyId, created: false } });
+        await withTenantIsolation(first.data.companyId, async () => {
+          assert.deepEqual(await prisma.company.findUniqueOrThrow({ where: { id: first.data.companyId }, select: { name: true, country: true } }), { name: "Owner company", country: "PE" });
         });
+
+        const concurrentUserId = crypto.randomUUID();
+        userIds.push(concurrentUserId);
+        await systemPrisma.user.create({ data: { id: concurrentUserId, name: "Concurrent", email: `${concurrentUserId}@example.test` } });
+        const concurrent = await Promise.all([
+          createCompanyForUser({ userId: concurrentUserId, name: "First", country: "PE" }, companyRepository),
+          createCompanyForUser({ userId: concurrentUserId, name: "Second", country: "US" }, companyRepository),
+        ]);
+        assert(concurrent.every((result) => result.success));
+        assert.equal(concurrent[0].data.companyId, concurrent[1].data.companyId);
+        assert.equal((await admin.$queryRaw`SELECT count(*)::int AS count FROM "Company" WHERE name IN ('First', 'Second')`)[0].count, 1);
 
         const failedUserId = crypto.randomUUID();
         userIds.push(failedUserId);
@@ -166,7 +177,7 @@ test("company context enforces RLS and transaction boundaries", async () => {
         await admin.$executeRawUnsafe(`CREATE FUNCTION ${schema}.reject_company_link() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.id = '${failedUserId}' THEN RAISE EXCEPTION 'link rejected'; END IF; RETURN NEW; END $$`);
         await admin.$executeRawUnsafe(`CREATE TRIGGER reject_company_link BEFORE UPDATE ON "user" FOR EACH ROW EXECUTE FUNCTION ${schema}.reject_company_link()`);
         try {
-          await assert.rejects(createCompanyForUser(failedUserId, "Rolled back", "BR", companyRepository), /link rejected/);
+          assert.deepEqual(await createCompanyForUser({ userId: failedUserId, name: "Rolled back", country: "BR" }, companyRepository), { success: false, error: { code: "PERSISTENCE_UNAVAILABLE", message: "Unable to create company" } });
           assert.equal((await admin.$queryRaw`SELECT count(*)::int AS count FROM "Company" WHERE name = 'Rolled back'`)[0].count, 0);
           assert.equal((await systemPrisma.user.findUniqueOrThrow({ where: { id: failedUserId } })).companyId, null);
         } finally {
