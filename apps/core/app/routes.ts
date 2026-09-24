@@ -8,6 +8,7 @@ export default [
     route("dashboard", "routes/dashboard.tsx", { id: "public-dashboard" }),
     route("products", "routes/product-list.tsx", { id: "public-product-list" }),
     route("products/new", "routes/product-new.tsx", { id: "public-product-new" }),
+    route("products/:productId/edit", "routes/product-edit.tsx", { id: "public-product-edit" }),
     route("products/:productId", "routes/product-detail.tsx", { id: "public-product-detail" }),
   ]),
   route(":locale", "routes/locale-layout.tsx", [
@@ -18,6 +19,7 @@ export default [
       route("dashboard", "routes/dashboard.tsx", { id: "localized-dashboard" }),
       route("products", "routes/product-list.tsx", { id: "localized-product-list" }),
       route("products/new", "routes/product-new.tsx", { id: "localized-product-new" }),
+      route("products/:productId/edit", "routes/product-edit.tsx", { id: "localized-product-edit" }),
       route("products/:productId", "routes/product-detail.tsx", { id: "localized-product-detail" }),
     ]),
   ]),

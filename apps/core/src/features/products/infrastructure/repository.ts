@@ -33,6 +33,12 @@ function mapProduct(row: DbAggregate): Product {
   };
 }
 
+function isDuplicateSku(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") return false;
+  const adapter = error.meta?.driverAdapterError as { cause?: { constraint?: { index?: string } } } | undefined;
+  return adapter?.cause?.constraint?.index === "ProductVariant_companyId_sku_normalized_key";
+}
+
 export const productRepository: ProductRepository = {
   async create(companyId, product) {
     if (getCompanyId() !== companyId || product.companyId !== companyId) throw new Error("Company context mismatch");
@@ -55,12 +61,38 @@ export const productRepository: ProductRepository = {
         return ok(product.id);
       });
     } catch (error) {
-      const adapter = error instanceof Prisma.PrismaClientKnownRequestError
-        ? error.meta?.driverAdapterError as { cause?: { constraint?: { index?: string } } } | undefined
-        : undefined;
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002" && adapter?.cause?.constraint?.index === "ProductVariant_companyId_sku_normalized_key") {
-        return err({ code: "DUPLICATE_SKU", message: "SKU is already used" });
-      }
+      if (isDuplicateSku(error)) return err({ code: "DUPLICATE_SKU", message: "SKU is already used" });
+      throw error;
+    }
+  },
+  async update(companyId, id, changes) {
+    if (getCompanyId() !== companyId) throw new Error("Company context mismatch");
+    try {
+      return await withinTransaction(async () => {
+        await prisma.product.update({
+          where: { companyId_id: { companyId, id } },
+          data: {
+            ...(changes.product.name === undefined ? {} : { name: changes.product.name }),
+            ...(changes.product.description === undefined ? {} : { description: changes.product.description }),
+            ...(changes.product.imageId === undefined ? {} : { imageId: changes.product.imageId }),
+            updatedAt: changes.product.updatedAt,
+          },
+        });
+        for (const variant of changes.variants) {
+          await prisma.productVariant.update({
+            where: { companyId_id: { companyId, id: variant.id } },
+            data: {
+              ...(variant.sku === undefined ? {} : { sku: variant.sku }),
+              ...(variant.salePrice === undefined ? {} : { salePrice: new Prisma.Decimal(variant.salePrice.amount.toString()) }),
+              ...(variant.purchasePrice === undefined ? {} : { purchasePrice: variant.purchasePrice === null ? null : new Prisma.Decimal(variant.purchasePrice.amount.toString()) }),
+            },
+          });
+        }
+        return ok(id);
+      });
+    } catch (error) {
+      if (isDuplicateSku(error)) return err({ code: "DUPLICATE_SKU", message: "SKU is already used" });
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") return err({ code: "PRODUCT_NOT_FOUND", message: "Product does not exist" });
       throw error;
     }
   },

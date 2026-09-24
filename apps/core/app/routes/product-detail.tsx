@@ -25,7 +25,10 @@ export default function ProductDetail() {
   return <section className="mx-auto max-w-3xl">
     <div className="flex flex-wrap items-start justify-between gap-4">
       <div><p className="text-sm text-muted-foreground">Producto</p><h1 className="mt-1 break-words text-2xl font-semibold tracking-tight">{product.name}</h1></div>
-      <Button asChild variant="outline"><Link to={catalog}>Volver a productos</Link></Button>
+      <div className="flex flex-wrap gap-3">
+        <Button asChild><Link to={`${catalog}/${product.id}/edit`}>Editar</Link></Button>
+        <Button asChild variant="outline"><Link to={catalog}>Volver a productos</Link></Button>
+      </div>
     </div>
     {image && <img src={image.url} alt={product.name} className="mt-6 max-h-80 w-full rounded-md object-contain" />}
     {product.description && <p className="mt-6 whitespace-pre-wrap text-sm leading-6">{product.description}</p>}
