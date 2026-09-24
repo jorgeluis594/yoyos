@@ -1,5 +1,7 @@
 import { redirect, useActionData, useLoaderData, useNavigation, useSubmit, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
 import { countryCurrencies, type Country } from "@shared/country";
+import { PageContainer } from "@/components/ui/page-container";
+import { PageHeader } from "@/components/ui/page-header";
 import { privateUserContext } from "@/private-user-context";
 import { products } from "@core/src/features/products/composition";
 import { parseCreateJson } from "@core/src/features/products/presentation/input";
@@ -46,9 +48,13 @@ export default function ProductNew() {
     }, { method: "post", encType: "application/json" });
   }
 
-  return <section className="mx-auto max-w-2xl">
-    <h1 className="text-2xl font-semibold tracking-tight">Nuevo producto</h1>
-    <p className="mt-2 text-sm text-muted-foreground">Completa los datos para agregarlo a tu empresa.</p>
+  return <PageContainer width="form">
+    <PageHeader>
+      <PageHeader.Heading>
+        <PageHeader.Title>Nuevo producto</PageHeader.Title>
+        <PageHeader.Description>Completa los datos para agregarlo a tu empresa.</PageHeader.Description>
+      </PageHeader.Heading>
+    </PageHeader>
     <ProductForm currency={currency} cancelTo={catalog} errors={errors} pending={pending} onSave={save} />
-  </section>;
+  </PageContainer>;
 }

@@ -1,6 +1,9 @@
 import { useState, type ChangeEvent, type FormEvent } from "react";
 import { Link } from "react-router";
 import { Button } from "@core/app/components/ui/button";
+import { Field, FieldLabel } from "@core/app/components/ui/field";
+import { Input } from "@core/app/components/ui/input";
+import { Textarea } from "@core/app/components/ui/textarea";
 import { uploadImageFile } from "@core/src/shared/images/presentation/client";
 import type { Currency } from "@shared/money";
 import type { FormErrors } from "@core/src/features/products/presentation/messages";
@@ -12,8 +15,6 @@ export type ProductImageSelection =
   | Readonly<{ kind: "keep" }>
   | Readonly<{ kind: "set"; id: string }>
   | Readonly<{ kind: "remove" }>;
-
-const inputClass = "min-h-control w-full rounded-md border border-input bg-background px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 function uploadMessage(code: string): string {
   if (code === "IMAGE_TOO_LARGE") return "La imagen supera el tamaño máximo de 10 MB.";
@@ -76,29 +77,27 @@ export function ProductForm({ currency, cancelTo, errors, pending, onSave, value
 
   return <form onSubmit={save} noValidate className="mt-8 flex flex-col gap-6">
     {variantFields === "hidden" && <p className="text-sm text-muted-foreground">Este producto tiene varias variantes. Solo puedes editar el nombre y la descripción.</p>}
-    <div className="grid gap-5 sm:grid-cols-2">
+    <div className="grid gap-4 sm:grid-cols-2">
       {fields.map((key) => {
         const readOnlyStock = key === "initialStock" && stock !== undefined;
         const label = { name: "Nombre", description: "Descripción", sku: "SKU", salePrice: `Precio de venta (${currency})`, purchasePrice: `Precio de compra (${currency})`, initialStock: stock === undefined ? "Stock inicial" : "Stock" }[key];
         const wide = key === "name" || key === "description";
-        return <div key={key} className={wide ? "sm:col-span-2" : ""}>
-          <label htmlFor={key} className="mb-1.5 block text-sm font-medium">{label}{key === "name" || key === "salePrice" ? " *" : ""}</label>
-          {readOnlyStock ? <input id={key} name={key} value={stock ?? ""} readOnly aria-readonly="true" className={`${inputClass} bg-muted text-muted-foreground`} /> :
-            key === "description" ? <textarea id={key} name={key} value={values[key]} onChange={(event) => setValues({ ...values, [key]: event.target.value })} maxLength={5000} rows={4} className={inputClass} aria-invalid={!!errors[key]} aria-describedby={errors[key] ? `${key}-error` : undefined} /> :
-            <input id={key} name={key} value={values[key]} onChange={(event) => setValues({ ...values, [key]: event.target.value })} type={key === "salePrice" || key === "purchasePrice" || key === "initialStock" ? "number" : "text"} inputMode={key === "initialStock" ? "numeric" : key === "salePrice" || key === "purchasePrice" ? "decimal" : undefined} step={key === "initialStock" ? "1" : key === "salePrice" || key === "purchasePrice" ? "0.01" : undefined} min={key === "salePrice" ? "0.01" : key === "purchasePrice" || key === "initialStock" ? "0" : undefined} maxLength={key === "name" ? 200 : key === "sku" ? 100 : undefined} className={inputClass} aria-invalid={!!errors[key]} aria-describedby={errors[key] ? `${key}-error` : undefined} />}
-          {errors[key] && <p id={`${key}-error`} role="alert" className="mt-1 text-sm text-destructive">{errors[key]}</p>}
-        </div>;
+        return <Field key={key} id={key} error={errors[key]} className={wide ? "sm:col-span-2" : ""}>
+          <FieldLabel>{label}{key === "name" || key === "salePrice" ? " *" : ""}</FieldLabel>
+          {readOnlyStock ? <Input name={key} value={stock ?? ""} readOnly aria-readonly="true" className="bg-muted text-muted-foreground" /> :
+            key === "description" ? <Textarea name={key} value={values[key]} onChange={(event) => setValues({ ...values, [key]: event.target.value })} maxLength={5000} rows={4} /> :
+            <Input name={key} value={values[key]} onChange={(event) => setValues({ ...values, [key]: event.target.value })} type={key === "salePrice" || key === "purchasePrice" || key === "initialStock" ? "number" : "text"} inputMode={key === "initialStock" ? "numeric" : key === "salePrice" || key === "purchasePrice" ? "decimal" : undefined} step={key === "initialStock" ? "1" : key === "salePrice" || key === "purchasePrice" ? "0.01" : undefined} min={key === "salePrice" ? "0.01" : key === "purchasePrice" || key === "initialStock" ? "0" : undefined} maxLength={key === "name" ? 200 : key === "sku" ? 100 : undefined} />}
+        </Field>;
       })}
-      <div className="sm:col-span-2">
-        <label htmlFor="photo" className="mb-1.5 block text-sm font-medium">Foto</label>
+      <Field id="photo" error={photoError} className="sm:col-span-2">
+        <FieldLabel>Foto</FieldLabel>
         <div className="flex flex-wrap items-center gap-3">
           <input id="photo" name="photo" type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading} onChange={selectPhoto} aria-invalid={!!photoError} aria-describedby={photoError ? "photo-error" : undefined} className="text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring aria-invalid:border-destructive" />
           {photo && <Button type="button" variant="outline" onClick={removePhoto}>Quitar foto</Button>}
         </div>
-        {uploading && <p role="status" className="mt-1 text-sm text-muted-foreground">Subiendo imagen…</p>}
-        {photoError && <p id="photo-error" role="alert" className="mt-1 text-sm text-destructive">{photoError}</p>}
-        {photo && <img src={photo.url} alt="Vista previa de la foto del producto" className="mt-3 max-h-48 rounded-md border border-border object-contain" />}
-      </div>
+        {uploading && <p role="status" className="text-sm text-muted-foreground">Subiendo imagen…</p>}
+        {photo && <img src={photo.url} alt="Vista previa de la foto del producto" className="max-h-48 rounded-md border border-border object-contain" />}
+      </Field>
     </div>
     {errors.form && <p role="alert" className="text-sm text-destructive">{errors.form}</p>}
     <div className="flex flex-wrap gap-3 border-t border-border pt-5">

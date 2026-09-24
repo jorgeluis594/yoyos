@@ -1,5 +1,8 @@
 import { isRouteErrorResponse, useActionData, useLoaderData, useNavigation, useSubmit, redirect, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
 import { Button } from "@/components/ui/button";
+import { ErrorState } from "@/components/ui/error-state";
+import { PageContainer } from "@/components/ui/page-container";
+import { PageHeader } from "@/components/ui/page-header";
 import { privateUserContext } from "@/private-user-context";
 import { products } from "@core/src/features/products/composition";
 import { parseUpdateJson } from "@core/src/features/products/presentation/input";
@@ -79,14 +82,28 @@ export default function ProductEdit() {
     }, { method: "post", encType: "application/json" });
   }
 
-  return <section className="mx-auto max-w-2xl">
-    <h1 className="text-2xl font-semibold tracking-tight">Editar producto</h1>
-    <p className="mt-2 text-sm text-muted-foreground">Actualiza los datos del producto.</p>
+  return <PageContainer width="form">
+    <PageHeader>
+      <PageHeader.Heading>
+        <PageHeader.Title>Editar producto</PageHeader.Title>
+        <PageHeader.Description>Actualiza los datos del producto.</PageHeader.Description>
+      </PageHeader.Heading>
+    </PageHeader>
     <ProductForm currency={currency} cancelTo={detail} errors={errors} pending={pending} values={values} variantFields={variantFields} stock={stock} submitLabel="Guardar cambios" imageUrl={imageUrl} onSave={save} />
-  </section>;
+  </PageContainer>;
 }
 
 export function ErrorBoundary({ error }: { error: unknown }) {
   const missing = isRouteErrorResponse(error) && error.status === 404;
-  return <section role="alert" className="mx-auto max-w-xl"><h1 className="text-2xl font-semibold">{missing ? "Producto no encontrado" : "No se pudo cargar el producto"}</h1><p className="mt-2 text-muted-foreground">{missing ? "No hay un producto disponible en esta dirección." : "Inténtalo de nuevo."}</p><Button asChild variant="outline" className="mt-5"><a href={missing ? "/dashboard" : ""}>{missing ? "Volver al inicio" : "Reintentar"}</a></Button></section>;
+  return (
+    <ErrorState
+      title={missing ? "Producto no encontrado" : "No se pudo cargar el producto"}
+      description={missing ? "No hay un producto disponible en esta dirección." : "Inténtalo de nuevo."}
+      action={
+        <Button asChild variant="outline">
+          <a href={missing ? "/dashboard" : ""}>{missing ? "Volver al inicio" : "Reintentar"}</a>
+        </Button>
+      }
+    />
+  );
 }

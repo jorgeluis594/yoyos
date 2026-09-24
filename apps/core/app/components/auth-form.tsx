@@ -1,6 +1,9 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { countries } from "@shared/country";
 import { z } from "zod";
 import { authClient } from "@core/src/shared/infrastructure/auth-client";
@@ -93,32 +96,36 @@ export function AuthForm({ mode, pendingCompany = false }: { mode: "login" | "re
         </p>
         <form onSubmit={submit} className="mt-6 flex flex-col gap-4">
           {register && !companyStep && (
-            <label className="flex flex-col gap-1.5 text-sm font-medium">
-              Nombre
-              <input name="name" autoComplete="name" required className="h-10 rounded-md border border-input bg-background px-3 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring" />
-            </label>
+            <Field>
+              <FieldLabel>Nombre</FieldLabel>
+              <Input name="name" autoComplete="name" required />
+            </Field>
           )}
           {!companyStep && <>
-            <label className="flex flex-col gap-1.5 text-sm font-medium">
-              Correo electrónico
-              <input name="email" type="email" autoComplete="email" required className="h-10 rounded-md border border-input bg-background px-3 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring" />
-            </label>
-            <label className="flex flex-col gap-1.5 text-sm font-medium">
-              Contraseña
-              <input name="password" type="password" autoComplete={register ? "new-password" : "current-password"} minLength={8} required className="h-10 rounded-md border border-input bg-background px-3 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring" />
-            </label>
+            <Field>
+              <FieldLabel>Correo electrónico</FieldLabel>
+              <Input name="email" type="email" autoComplete="email" required />
+            </Field>
+            <Field>
+              <FieldLabel>Contraseña</FieldLabel>
+              <Input name="password" type="password" autoComplete={register ? "new-password" : "current-password"} minLength={8} required />
+            </Field>
           </>}
-          {register && <label className="flex flex-col gap-1.5 text-sm font-medium">
-            Nombre de empresa
-            <input name="companyName" required maxLength={120} defaultValue={companyName} className="h-10 rounded-md border border-input bg-background px-3 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring" />
-          </label>}
-          {register && <label className="flex flex-col gap-1.5 text-sm font-medium">
-            País
-            <select name="country" required defaultValue={companyCountry} className="h-10 rounded-md border border-input bg-background px-3 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring">
-              <option value="" disabled>Selecciona un país</option>
-              {countries.map((country) => <option key={country} value={country}>{countryNames[country]}</option>)}
-            </select>
-          </label>}
+          {register && (
+            <Field>
+              <FieldLabel>Nombre de empresa</FieldLabel>
+              <Input name="companyName" required maxLength={120} defaultValue={companyName} />
+            </Field>
+          )}
+          {register && (
+            <Field>
+              <FieldLabel>País</FieldLabel>
+              <Select name="country" required defaultValue={companyCountry}>
+                <option value="" disabled>Selecciona un país</option>
+                {countries.map((country) => <option key={country} value={country}>{countryNames[country]}</option>)}
+              </Select>
+            </Field>
+          )}
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           <Button type="submit" disabled={pending}>{pending ? "Espera..." : companyStep ? "Crear empresa" : register ? "Crear cuenta" : "Entrar"}</Button>
         </form>

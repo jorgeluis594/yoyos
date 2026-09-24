@@ -1,5 +1,10 @@
 import { Form, isRouteErrorResponse, Link, useLoaderData, useNavigation, type LoaderFunctionArgs } from "react-router";
 import { Button } from "@/components/ui/button";
+import { DataTable, type TableColumn } from "@/components/ui/data-table";
+import { ErrorState } from "@/components/ui/error-state";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { PageHeader } from "@/components/ui/page-header";
 import { privateUserContext } from "@/private-user-context";
 import { products } from "@core/src/features/products/composition";
 import type { CompanyId } from "@core/src/features/products/domain/product";
@@ -30,27 +35,69 @@ export default function ProductList() {
   const pages = Math.ceil(list.total / list.pageSize);
   const pageUrl = (page: number) => `${base}?${new URLSearchParams({ ...(search ? { search } : {}), page: String(page), ...(list.pageSize === 20 ? {} : { pageSize: String(list.pageSize) }) })}`;
 
+  type Item = (typeof list.items)[number];
+  const columns: TableColumn<Item>[] = [
+    {
+      id: "name",
+      header: "Nombre",
+      mobile: "title",
+      cell: (item) => (
+        <Link to={`${base}/${item.id}`} className="font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring">
+          {item.name}
+        </Link>
+      ),
+    },
+    {
+      id: "sku",
+      header: "SKU",
+      mobile: "description",
+      cell: (item) => (item.variantCount > 1 ? "Varias variantes" : item.sku ?? "Sin SKU"),
+    },
+    {
+      id: "price",
+      header: "Precio de venta",
+      mobile: "value",
+      align: "right",
+      cell: (item) => `${item.hasDifferentPrices ? "Desde " : ""}${item.minSalePrice.amount.toFixed(2)} ${item.minSalePrice.currency}`,
+    },
+    {
+      id: "stock",
+      header: "Stock",
+      mobile: "description",
+      align: "right",
+      cell: (item) => item.totalStock,
+    },
+  ];
+
   return <section aria-busy={navigation.state === "loading"}>
-    <div className="flex flex-wrap items-start justify-between gap-4">
-      <div><h1 className="text-2xl font-semibold tracking-tight">Productos</h1><p className="mt-2 text-sm text-muted-foreground">{list.total} productos</p></div>
-      <Button asChild><Link to={`${base}/new`}>Nuevo producto</Link></Button>
-    </div>
+    <PageHeader>
+      <PageHeader.Heading>
+        <PageHeader.Title>
+          Productos
+          <PageHeader.Count>{list.total}</PageHeader.Count>
+        </PageHeader.Title>
+      </PageHeader.Heading>
+      <PageHeader.Actions>
+        <Button asChild><Link to={`${base}/new`}>Nuevo producto</Link></Button>
+      </PageHeader.Actions>
+    </PageHeader>
     <Form method="get" role="search" className="mt-6 flex flex-wrap items-end gap-3">
-      <div className="min-w-0 flex-1"><label htmlFor="product-search" className="mb-1.5 block text-sm font-medium">Buscar por nombre o SKU</label>
-        <input id="product-search" name="search" type="search" defaultValue={search} className="min-h-control w-full rounded-md border border-input bg-background px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring" /></div>
+      <Field className="min-w-0 flex-1">
+        <FieldLabel>Buscar por nombre o SKU</FieldLabel>
+        <Input name="search" type="search" defaultValue={search} />
+      </Field>
       <Button type="submit">Buscar</Button>
     </Form>
-    {list.items.length ? <div className="mt-6 overflow-x-auto rounded-md border border-border">
-      <table className="w-full min-w-[38rem] text-left text-sm">
-        <thead className="bg-muted text-muted-foreground"><tr><th scope="col" className="p-3">Nombre</th><th scope="col" className="p-3">SKU</th><th scope="col" className="p-3">Precio de venta</th><th scope="col" className="p-3">Stock</th></tr></thead>
-        <tbody>{list.items.map((item) => <tr key={item.id} className="border-t border-border">
-          <th scope="row" className="p-3 font-medium"><Link to={`${base}/${item.id}`} className="text-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring">{item.name}</Link></th>
-          <td className="p-3">{item.variantCount > 1 ? "Varias variantes" : item.sku ?? "Sin SKU"}</td>
-          <td className="p-3">{item.hasDifferentPrices ? "Desde " : ""}{item.minSalePrice.amount.toFixed(2)} {item.minSalePrice.currency}</td>
-          <td className="p-3">{item.totalStock}</td>
-        </tr>)}</tbody>
-      </table>
-    </div> : <p className="mt-8 rounded-md border border-border p-6 text-sm text-muted-foreground">{search ? "No se encontraron productos para esta búsqueda." : "Aún no hay productos en el catálogo."}</p>}
+    <DataTable
+      className="mt-6"
+      columns={columns}
+      caption="Productos del catálogo"
+      getRowId={(item) => item.id}
+      data={list.items}
+      emptyMessage={search
+        ? "No se encontraron productos para esta búsqueda."
+        : <>Aún no hay productos en el catálogo. <Link to={`${base}/new`} className="font-medium text-primary underline underline-offset-4">Crea el primero</Link>.</>}
+    />
     {pages > 1 && <nav aria-label="Páginas de productos" className="mt-6 flex flex-wrap items-center gap-2">
       {Array.from({ length: pages }, (_, index) => index + 1).map((page) => <Button key={page} asChild variant={page === list.page ? "default" : "outline"} size="sm"><Link to={pageUrl(page)} aria-label={`Página ${page}`} aria-current={page === list.page ? "page" : undefined}>{page}</Link></Button>)}
     </nav>}
@@ -59,8 +106,15 @@ export default function ProductList() {
 
 export function ErrorBoundary({ error }: { error: unknown }) {
   const invalid = isRouteErrorResponse(error) && error.status === 400;
-  return <section role="alert"><h1 className="text-2xl font-semibold">{invalid ? "Búsqueda no válida" : "No se pudo cargar el catálogo"}</h1>
-    <p className="mt-2 text-muted-foreground">{invalid ? "Revisa los criterios e inténtalo de nuevo." : "Inténtalo de nuevo."}</p>
-    <Button asChild variant="outline" className="mt-5"><a href={invalid ? "?" : ""}>{invalid ? "Volver al catálogo" : "Reintentar"}</a></Button>
-  </section>;
+  return (
+    <ErrorState
+      title={invalid ? "Búsqueda no válida" : "No se pudo cargar el catálogo"}
+      description={invalid ? "Revisa los criterios e inténtalo de nuevo." : "Inténtalo de nuevo."}
+      action={
+        <Button asChild variant="outline">
+          <a href={invalid ? "?" : ""}>{invalid ? "Volver al catálogo" : "Reintentar"}</a>
+        </Button>
+      }
+    />
+  );
 }

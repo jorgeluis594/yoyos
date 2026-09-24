@@ -1,5 +1,9 @@
 import { isRouteErrorResponse, Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { ErrorState } from "@/components/ui/error-state";
+import { PageContainer } from "@/components/ui/page-container";
+import { PageHeader } from "@/components/ui/page-header";
 import { privateUserContext } from "@/private-user-context";
 import { products } from "@core/src/features/products/composition";
 import type { CompanyId, ProductId } from "@core/src/features/products/domain/product";
@@ -22,19 +26,21 @@ export async function loader({ context, params }: LoaderFunctionArgs) {
 export default function ProductDetail() {
   const { detail, catalog } = useLoaderData<typeof loader>();
   const { product, image } = detail;
-  return <section className="mx-auto max-w-3xl">
-    <div className="flex flex-wrap items-start justify-between gap-4">
-      <div><p className="text-sm text-muted-foreground">Producto</p><h1 className="mt-1 break-words text-2xl font-semibold tracking-tight">{product.name}</h1></div>
-      <div className="flex flex-wrap gap-3">
+  return <PageContainer width="reader">
+    <PageHeader>
+      <PageHeader.Heading>
+        <PageHeader.Title>{product.name}</PageHeader.Title>
+      </PageHeader.Heading>
+      <PageHeader.Actions>
         <Button asChild><Link to={`${catalog}/${product.id}/edit`}>Editar</Link></Button>
         <Button asChild variant="outline"><Link to={catalog}>Volver a productos</Link></Button>
-      </div>
-    </div>
+      </PageHeader.Actions>
+    </PageHeader>
     {image && <img src={image.url} alt={product.name} className="mt-6 max-h-80 w-full rounded-md object-contain" />}
     {product.description && <p className="mt-6 whitespace-pre-wrap text-sm leading-6">{product.description}</p>}
     <h2 className="mt-8 text-lg font-semibold">Variantes</h2>
     <div className="mt-3 flex flex-col gap-4">
-      {product.variants.map((variant, index) => <article key={variant.id} className="rounded-md border border-border p-4">
+      {product.variants.map((variant, index) => <Card key={variant.id} role="article" className="p-4">
         <h3 className="font-medium">Variante {index + 1}</h3>
         <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
           <div><dt className="text-muted-foreground">SKU</dt><dd>{variant.sku ?? "Sin SKU"}</dd></div>
@@ -43,12 +49,22 @@ export default function ProductDetail() {
           <div><dt className="text-muted-foreground">Stock</dt><dd>{variant.stock.quantity}</dd></div>
           {Object.entries(variant.attributes).map(([name, value]) => <div key={name}><dt className="text-muted-foreground">{name}</dt><dd>{value}</dd></div>)}
         </dl>
-      </article>)}
+      </Card>)}
     </div>
-  </section>;
+  </PageContainer>;
 }
 
 export function ErrorBoundary({ error }: { error: unknown }) {
   const missing = isRouteErrorResponse(error) && error.status === 404;
-  return <section role="alert" className="mx-auto max-w-xl"><h1 className="text-2xl font-semibold">{missing ? "Producto no encontrado" : "No se pudo cargar el producto"}</h1><p className="mt-2 text-muted-foreground">{missing ? "No hay un producto disponible en esta dirección." : "Inténtalo de nuevo."}</p><Button asChild variant="outline" className="mt-5"><a href={missing ? "/dashboard" : ""}>{missing ? "Volver al inicio" : "Reintentar"}</a></Button></section>;
+  return (
+    <ErrorState
+      title={missing ? "Producto no encontrado" : "No se pudo cargar el producto"}
+      description={missing ? "No hay un producto disponible en esta dirección." : "Inténtalo de nuevo."}
+      action={
+        <Button asChild variant="outline">
+          <a href={missing ? "/dashboard" : ""}>{missing ? "Volver al inicio" : "Reintentar"}</a>
+        </Button>
+      }
+    />
+  );
 }

@@ -11,6 +11,8 @@ export const themeCss = `:root{${cssVariables({
   "radius-card": rem(tokens.radius.card),
   "radius-overlay": rem(tokens.radius.overlay),
   "content-max-width": rem(tokens.layout.contentMaxWidth),
+  "form-max-width": rem(tokens.layout.formMaxWidth),
+  "reader-max-width": rem(tokens.layout.readerMaxWidth),
   "space-unit": rem(tokens.spacing[1]),
   "sidebar-width": rem(tokens.layout.sidebarWidth),
   "navigation-drawer-width": rem(tokens.layout.navigationDrawerWidth),
