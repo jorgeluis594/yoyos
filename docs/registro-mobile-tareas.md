@@ -4,7 +4,7 @@
 
 Implementar la [arquitectura acordada](registro-mobile-pendientes.md) en cinco entregas completas y comprobables.
 
-**Estado:** T1 terminada y verificada; T2–T5 pendientes. La evidencia de T1 figura en su sección.
+**Estado:** T1 y T2 terminadas y verificadas; T3–T5 pendientes. La evidencia figura en cada sección.
 
 Cada tarea incluye código, integración con los consumidores que ya existen, configuración necesaria y pruebas. Puede depender de tareas anteriores terminadas, pero debe compilar y pasar sus criterios de aceptación sin implementar ninguna tarea posterior. Un módulo sin pantalla puede ser una entrega completa si su API funciona y sus pruebas ejercitan el comportamiento real del módulo.
 
@@ -115,15 +115,15 @@ Los comandos siguientes se ejecutan desde el directorio indicado. `apps/core/scr
 
 ### Criterios de aceptación
 
-- [ ] La migración aplica en la base destinada a desarrollo/pruebas sin resetear datos; `core_app` puede operar las claves sin obtener propiedad, privilegios administrativos o bypass de RLS.
-- [ ] Una sesión válida obtiene JWT con los claims acordados, incluso con `emailVerified: false`. La credencial de sesión y las claves privadas no aparecen en el JWT ni en DTO de negocio.
-- [ ] El mismo `/api/me` y `/api/company` funcionan con cookie o JWT y producen los mismos contratos de acceso.
-- [ ] JWT vencido, manipulado, de algoritmo/emisor/audiencia inválidos o con `sid` ajeno se rechaza con `401`.
-- [ ] Si existe `Authorization` inválido, no se acepta una cookie válida como fallback.
-- [ ] Una revocación confirmada hace que la siguiente petición con el JWT anterior falle, aunque el JWT no haya vencido.
-- [ ] Un error al consultar sesión o claves se distingue de credenciales inválidas y mantiene diagnóstico interno sin secretos.
-- [ ] La sesión extiende su vencimiento mediante el flujo Better Auth cuando corresponde; validar JWT por sí solo no pretende renovar la cookie.
-- [ ] Las pruebas de cookies, empresas, aislamiento y regresión web de T1 siguen pasando.
+- [x] La migración aplica en la base destinada a desarrollo/pruebas sin resetear datos; `core_app` puede operar las claves sin obtener propiedad, privilegios administrativos o bypass de RLS.
+- [x] Una sesión válida obtiene JWT con los claims acordados, incluso con `emailVerified: false`. La credencial de sesión y las claves privadas no aparecen en el JWT ni en DTO de negocio.
+- [x] El mismo `/api/me` y `/api/company` funcionan con cookie o JWT y producen los mismos contratos de acceso.
+- [x] JWT vencido, manipulado, de algoritmo/emisor/audiencia inválidos o con `sid` ajeno se rechaza con `401`.
+- [x] Si existe `Authorization` inválido, no se acepta una cookie válida como fallback.
+- [x] Una revocación confirmada hace que la siguiente petición con el JWT anterior falle, aunque el JWT no haya vencido.
+- [x] Un error al consultar sesión o claves se distingue de credenciales inválidas y mantiene diagnóstico interno sin secretos.
+- [x] La sesión extiende su vencimiento mediante el flujo Better Auth cuando corresponde; validar JWT por sí solo no pretende renovar la cookie.
+- [x] Las pruebas de cookies, empresas, aislamiento y regresión web de T1 siguen pasando.
 
 ### Pruebas para cerrar la tarea
 
@@ -133,6 +133,8 @@ Los comandos siguientes se ejecutan desde el directorio indicado. `apps/core/scr
 4. Permisos de la nueva tabla y regresión web.
 
 **Comandos:** desde `apps/core`, `pnpm lint`, `pnpm typecheck`, `pnpm test:unit`, `sh scripts/run-tests.sh integration` y `sh scripts/run-tests.sh e2e`. Generación/aplicación de migración según la skill del repo; no crear SQL con timestamps manuales.
+
+**Verificación T2 (2026-09-23):** migración `20260924034857_add_jwks` generada por Prisma y aplicada en `core_test` sin reset; la prueba HTTP comprueba permisos de `core_app`, emisión, claims, cookies/JWT, empresa pendiente/lista, rechazo y revocación. `pnpm lint`, `pnpm typecheck` y `pnpm test:unit` pasaron (10/10); `CORE_TEST_PORT=55435 sh scripts/run-tests.sh integration` pasó (3/3) y `CORE_TEST_PORT=55435 sh scripts/run-tests.sh e2e` pasó (7/7). Puerto 55435 usado porque 55433 estaba ocupado.
 
 **Por qué se cierra por sí sola:** los tests HTTP producen y consumen credenciales reales de core. No necesitan ninguna tarea de mobile para verificar el soporte JWT.
 

@@ -4,7 +4,7 @@
 
 Permitir registro público, inicio y cierre de sesión desde mobile con las mismas cuentas y empresas de core. Web seguirá usando cookies de sesión de Better Auth; mobile usará JWT para las rutas de negocio `/api`.
 
-**Estado:** decisiones de comportamiento, organización de casos de uso, contratos principales y cobertura de verificación acordadas. La funcionalidad mobile y el soporte JWT aún no están implementados. Este documento define la arquitectura que implementarán las tareas; los detalles técnicos propuestos se validarán contra las versiones y entornos reales.
+**Estado:** decisiones de comportamiento, organización de casos de uso, contratos principales y cobertura de verificación acordadas. T1 y T2 están implementadas; la funcionalidad mobile sigue pendiente. Este documento define la arquitectura que implementarán las tareas; los detalles técnicos propuestos se validarán contra las versiones y entornos reales.
 
 Incluye recuperar registros con empresa pendiente y compartir usuario y empresa entre middleware y rutas privadas. La comprobación de integridad de la app, OAuth y recuperación de contraseña quedan fuera de esta etapa propuesta.
 
@@ -558,7 +558,7 @@ Los tests viven junto a la responsabilidad que verifican. La estructura no requi
 
 ### I. Comprobaciones de los contratos
 
-**Cobertura aprobada:** pruebas de casos de uso para éxito, errores y recuperación parcial; integración para cookies, JWT, revocación, Zod y aislamiento entre empresas; pruebas de sesión mobile para renovación simultánea, reapertura y logout sin conexión; regresión del registro web. La cobertura de T1 figura como ejecutada en [registro-mobile-tareas.md](registro-mobile-tareas.md); JWT y mobile siguen pendientes.
+**Cobertura aprobada:** pruebas de casos de uso para éxito, errores y recuperación parcial; integración para cookies, JWT, revocación, Zod y aislamiento entre empresas; pruebas de sesión mobile para renovación simultánea, reapertura y logout sin conexión; regresión del registro web. La cobertura de T1 y T2 figura como ejecutada en [registro-mobile-tareas.md](registro-mobile-tareas.md); mobile sigue pendiente.
 
 | Nivel | Evidencia requerida |
 | --- | --- |
@@ -602,23 +602,23 @@ Crear solo los archivos requeridos; dependencias entre features mediante exports
 
 ## Tareas de implementación
 
-Las [tareas de implementación](registro-mobile-tareas.md) definen las entregas incrementales, el alcance, las exclusiones y los criterios de aceptación. T1 está terminada; T2–T5 siguen pendientes.
+Las [tareas de implementación](registro-mobile-tareas.md) definen las entregas incrementales, el alcance, las exclusiones y los criterios de aceptación. T1 y T2 están terminadas; T3–T5 siguen pendientes.
 
 Las decisiones revisadas quedan cerradas para esta etapa. La URL de desarrollo confirmada es `http://localhost:3000`. Durante las tareas se verificarán las versiones compatibles de Better Auth, su plugin Expo, Zod y Expo SDK 57. Conservar los valores operativos propuestos de este documento como base de implementación; cualquier incompatibilidad que cambie el comportamiento acordado debe quedar explícita.
 
-T1 implementa contexto y contratos de core/web y tiene pruebas ejecutadas. Las casillas siguientes representan trabajo pendiente de implementación y verificación, no decisiones de comportamiento pendientes.
+T1 implementa contexto y contratos de core/web; T2 implementa JWT revocables para core. Ambas tienen pruebas ejecutadas. Las casillas siguientes representan trabajo pendiente de implementación y verificación, no decisiones de comportamiento pendientes.
 
 ## Pendientes y criterios de aceptación
 
-- [ ] Configurar Better Auth/Expo, JWT y migración de claves.
+- [x] Configurar Better Auth/Expo, JWT y migración de claves.
 - [x] Declarar Zod como dependencia runtime donde se importen schemas, con una versión compatible común; crear los contratos compartidos e inferir sus tipos.
 - [ ] Validar con Zod JSON de entrada/salida en core y los adaptadores mobile/web del flujo; comprobar que una entrada inválida no ejecuta el caso de uso.
-- [ ] Implementar autenticación dual y contexto tipado por petición; cargar usuario y empresa una vez para su consumo por handlers.
+- [x] Implementar autenticación dual y contexto tipado por petición; cargar usuario y empresa una vez para su consumo por handlers.
 - [x] Añadir `/api/me` y permitir onboarding sin empresa antes del guard de negocio.
 - [ ] Implementar cliente mobile, almacenamiento seguro, renovación y navegación por estado.
 - [ ] Implementar registro, login, creación pendiente y logout.
-- [ ] Verificar que una cuenta con `emailVerified: false` puede iniciar sesión, obtener JWT, crear empresa y acceder a negocio una vez vinculada, sin enviar correos.
-- [ ] Verificar cookies web y JWT mobile contra las mismas rutas; JWT inválido con cookie válida también debe devolver `401`.
+- [x] Verificar que una cuenta con `emailVerified: false` puede iniciar sesión, obtener JWT, crear empresa y acceder a negocio una vez vinculada, sin enviar correos.
+- [x] Verificar cookies web y JWT mobile contra las mismas rutas; JWT inválido con cookie válida también debe devolver `401`.
 - [ ] Probar tokens vencidos, firma/emisor/audiencia incorrectos, sesión revocada, usuario inexistente y fallos de infraestructura.
 - [ ] Probar acceso de dos empresas en peticiones concurrentes: ni contexto ni datos se mezclan; tenant suministrado por cliente no altera el acceso.
 - [ ] Probar reintentos y concurrencia al crear empresa, restauración después de reiniciar y pérdida de respuesta después del alta. Al reabrir con empresa pendiente, pedir nombre y país sin volver a registrar la cuenta.
