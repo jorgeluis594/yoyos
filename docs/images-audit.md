@@ -1,6 +1,6 @@
 # Auditoría del flujo de imágenes
 
-Fecha: 2026-09-24. Estado: issues 1–3 implementados; issues 4–6 pendientes.
+Fecha: 2026-09-24. Estado: issues 1–4 implementados; issues 5–6 pendientes.
 
 ## Alcance y situación actual
 
@@ -186,6 +186,8 @@ cuando falla la creación del registro.
 
 ## 4. Configuración y construcción de URLs
 
+**Estado: resuelto.** La base pública conserva prefijos de ruta, codifica la clave y funciona sin credenciales de escritura. Las URLs y la configuración de escritura se validan al crear el adaptador; HTTP solo se admite fuera de producción.
+
 ### Evidencia e impacto
 
 El [adaptador R2](../apps/core/src/shared/images/infrastructure/r2-image-storage.ts)
@@ -306,7 +308,8 @@ que siguen asociadas a productos.
 
 ## Validación realizada y límites
 
-- `pnpm --dir apps/core test:unit src/shared/images`: 18 tests aprobados.
+- `pnpm --dir apps/core test:unit src/shared/images`: 39 tests aprobados, incluidos los casos nuevos de configuración y URLs.
+- `pnpm --dir apps/core lint` y `pnpm --dir apps/core typecheck`: aprobados.
 - Desde `apps/core`, `sh scripts/run-tests.sh integration`: 5 tests aprobados,
   incluido el escenario de imágenes con autenticación, RLS y compensación.
 - Comprobación local: `{ error: "Unsupported image" }` no satisface el esquema
