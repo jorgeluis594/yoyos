@@ -115,6 +115,13 @@ describe("update product", () => {
     expect(context.updates).toHaveLength(0);
   });
 
+  test("rejects malformed direct variant references without writing", async () => {
+    const context = setup();
+    const result = await updateProduct(companyId, productId, { variants: [null] } as unknown as UpdateInput, context.deps);
+    expect(result).toEqual({ success: false, error: { code: "VALIDATION_ERROR", message: "Invalid product", issues: [{ scope: "variant", index: 0, field: "id", reason: "INVALID_TYPE", message: "Invalid variant" }] } });
+    expect(context.updates).toHaveLength(0);
+  });
+
   test("validates image ownership and clears associations explicitly", async () => {
     const context = setup();
     const imageId = "00000000-0000-4000-8000-000000000099" as ImageId;

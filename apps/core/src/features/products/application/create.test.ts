@@ -71,6 +71,19 @@ describe("create product", () => {
     expect(await createProduct(companyId, { ...base, variants: [] } as unknown as CreateInput, context.deps)).toMatchObject({ success: false });
   });
 
+  test("rejects malformed direct variant inputs without writing", async () => {
+    const context = setup();
+    const result = await createProduct(companyId, { ...base, variants: [null, "invalid"] } as unknown as CreateInput, context.deps);
+    expect(result).toMatchObject({ success: false, error: { code: "VALIDATION_ERROR" } });
+    if (!result.success && result.error.code === "VALIDATION_ERROR") {
+      expect(result.error.issues).toEqual([
+        { scope: "variant", index: 0, field: "attributes", reason: "INVALID_TYPE", message: "Invalid variant" },
+        { scope: "variant", index: 1, field: "attributes", reason: "INVALID_TYPE", message: "Invalid variant" },
+      ]);
+    }
+    expect(context.writes).toBe(0);
+  });
+
   test("uses database-compatible character limits, price precision, and safe stock", async () => {
     const context = setup();
     const valid = await createProduct(companyId, {
