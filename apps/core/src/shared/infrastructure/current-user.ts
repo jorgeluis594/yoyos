@@ -1,11 +1,33 @@
-import { auth } from "./auth.js";
-import { systemPrisma } from "./persistance.js";
+import { err, ok } from "@shared/functional";
+import type { Result } from "@shared/result";
+import { loadUserAccess, type UserAccess } from "@core/src/features/users";
+import { companyRepository } from "@core/src/features/companies/infrastructure/company-repository";
+import { userRepository } from "@core/src/features/users/infrastructure/user-repository";
+import { auth } from "@core/src/shared/infrastructure/auth";
+import type { AccessLoadError } from "@core/src/features/users/application/load-user-access";
 
-export async function resolveCurrentUser(headers: Headers) {
-  const session = await auth.api.getSession({ headers });
-  if (!session) return null;
-  return systemPrisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { id: true, name: true, companyId: true },
-  });
+export type AuthenticationError = Readonly<{
+  code: "UNAUTHENTICATED" | "AUTH_SERVICE_UNAVAILABLE" | "UNEXPECTED_ERROR";
+  message: string;
+}>;
+export type AuthenticatedPrincipal = Readonly<{ userId: string; sessionId: string }>;
+
+export async function authenticateCookie(headers: Headers): Promise<Result<AuthenticatedPrincipal, AuthenticationError>> {
+  try {
+    const session = await auth.api.getSession({ headers });
+    if (!session) return err({ code: "UNAUTHENTICATED", message: "Session required" });
+    return ok({ userId: session.user.id, sessionId: session.session.id });
+  } catch (cause) {
+    console.error("Unable to validate session", cause);
+    return err({ code: "AUTH_SERVICE_UNAVAILABLE", message: "Unable to validate session" });
+  }
+}
+
+export async function resolveCurrentAccess(headers: Headers): Promise<Result<UserAccess, AuthenticationError | AccessLoadError>> {
+  const principal = await authenticateCookie(headers);
+  if (!principal.success) return principal;
+  const access = await loadUserAccess(principal.data.userId, { ...userRepository, findCompany: companyRepository.findCompany });
+  if (!access.success) return access;
+  if (!access.data) return err({ code: "UNAUTHENTICATED", message: "User no longer exists" });
+  return ok(access.data);
 }

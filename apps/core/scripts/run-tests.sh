@@ -6,8 +6,9 @@ case "${1:-}" in
   *) echo "Usage: $0 integration|e2e" >&2; exit 2 ;;
 esac
 
-admin_database_url=postgresql://core:core@127.0.0.1:55433/core_test
-export DATABASE_URL=postgresql://core_app:core_app_local@127.0.0.1:55433/core_test
+core_test_port=${CORE_TEST_PORT:-55433}
+admin_database_url=postgresql://core:core@127.0.0.1:${core_test_port}/core_test
+export DATABASE_URL=postgresql://core_app:core_app_local@127.0.0.1:${core_test_port}/core_test
 
 docker compose -f ../../compose.yaml up -d --wait db_test
 DATABASE_URL="$admin_database_url" pnpm exec prisma migrate deploy

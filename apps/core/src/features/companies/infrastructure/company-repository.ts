@@ -1,19 +1,38 @@
-import { isCountry, type Country } from "@shared/country";
-import { prisma, systemPrisma } from "@core/src/shared/infrastructure/persistance";
+import { companyDtoSchema } from "@shared/contracts/registration";
+import { err, ok } from "@shared/functional";
+import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import type { CompanyRegistrationRepository, CreateCompanyError } from "@core/src/features/companies/application/create-company-for-user";
+import type { Company } from "@core/src/features/companies/domain/company";
+import type { Result } from "@shared/result";
+
+type CompanyReadError = Readonly<{ code: "INVALID_STORED_DATA" | "PERSISTENCE_UNAVAILABLE"; message: string }>;
 
 export const companyRepository = {
-  async getCountry(companyId: string): Promise<Country> {
-    const company = await prisma.company.findUniqueOrThrow({ where: { id: companyId }, select: { country: true } });
-    if (!isCountry(company.country)) throw new Error("Unsupported stored company country");
-    return company.country;
+  async findCompany(companyId: string): Promise<Result<Company | null, CompanyReadError>> {
+    try {
+      const company = await withTenantIsolation(companyId, async () =>
+        await prisma.company.findUnique({ where: { id: companyId }, select: { id: true, name: true, country: true } }),
+      );
+      if (!company) return ok(null);
+      const parsed = companyDtoSchema.safeParse(company);
+      if (!parsed.success) return err({ code: "INVALID_STORED_DATA", message: "Invalid stored company" });
+      return ok(parsed.data);
+    } catch (cause) {
+      console.error("Unable to load linked company", cause);
+      return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to load company" });
+    }
   },
-  async getCompanyIdForUser(userId: string): Promise<string | null> {
-    const user = await systemPrisma.user.findUnique({ where: { id: userId }, select: { companyId: true } });
-    if (!user) throw new Error("Authenticated user no longer exists");
-    return user.companyId;
+  async findLink(userId: string) {
+    try {
+      const user = await systemPrisma.user.findUnique({ where: { id: userId }, select: { companyId: true } });
+      if (!user) return ok({ status: "user_missing" as const });
+      return ok(user.companyId ? { status: "linked" as const, companyId: user.companyId } : { status: "unlinked" as const });
+    } catch (cause) {
+      console.error("Unable to read company link", cause);
+      return err<CreateCompanyError>({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to read company link" });
+    }
   },
-
-  async createAndLinkCompany(userId: string, name: string, country: Country): Promise<string | null> {
+  async createAndLink({ userId, name, country }: Parameters<CompanyRegistrationRepository["createAndLink"]>[0]) {
     const companyId = crypto.randomUUID();
     const alreadyLinked = new Error("Company was linked concurrently");
     try {
@@ -23,10 +42,11 @@ export const companyRepository = {
         const linked = await tx.user.updateMany({ where: { id: userId, companyId: null }, data: { companyId } });
         if (linked.count !== 1) throw alreadyLinked;
       });
-      return companyId;
-    } catch (error) {
-      if (error === alreadyLinked) return null;
-      throw error;
+      return ok({ status: "created" as const, companyId });
+    } catch (cause) {
+      if (cause === alreadyLinked) return ok({ status: "link_changed" as const });
+      console.error("Unable to create company", cause);
+      return err<CreateCompanyError>({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to create company" });
     }
   },
-};
+} satisfies CompanyRegistrationRepository & { findCompany: (companyId: string) => Promise<Result<Company | null, CompanyReadError>> };

@@ -26,7 +26,7 @@ services:
       timeout: 5s
       retries: 10
     ports:
-      - "55433:5432"
+      - "${CORE_TEST_PORT:-55433}:5432"
     volumes:
       - postgres_test_data:/var/lib/postgresql
 

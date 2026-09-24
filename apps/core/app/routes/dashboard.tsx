@@ -3,9 +3,12 @@ import { useLoaderData, useNavigate, type LoaderFunctionArgs } from "react-route
 import { Button } from "@/components/ui/button";
 import { privateUserContext } from "@/private-user-context";
 import { authClient } from "../../src/shared/infrastructure/auth-client";
+import { z } from "zod";
+
+const signOutResultSchema = z.object({ error: z.object({ message: z.string().optional() }).nullable() });
 
 export function loader({ context }: LoaderFunctionArgs) {
-  return { name: context.get(privateUserContext).name };
+  return { name: context.get(privateUserContext).user.name };
 }
 
 export default function Dashboard() {
@@ -17,8 +20,8 @@ export default function Dashboard() {
   async function signOut() {
     setPending(true);
     try {
-      const result = await authClient.signOut();
-      if (result.error) throw result.error;
+      const result = signOutResultSchema.safeParse(await authClient.signOut());
+      if (!result.success || result.data.error) throw new Error("Sign out failed");
       navigate("/login");
     } catch {
       setError("No se pudo cerrar la sesión. Inténtalo de nuevo.");
