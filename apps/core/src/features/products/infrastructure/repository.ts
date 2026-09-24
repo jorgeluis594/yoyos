@@ -1,8 +1,8 @@
 import { Prisma, type Product as DbProduct, type ProductVariant as DbVariant, type ProductStock as DbStock } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import { prisma, withinTransaction, getCompanyId } from "@core/src/shared/infrastructure/persistance";
-import type { ProductRepository } from "../application/repository";
-import type { CompanyId, ImageId, Product, ProductId, ProductVariant, VariantId } from "../domain/product";
+import type { ProductRepository } from "@core/src/features/products/application/repository";
+import type { CompanyId, ImageId, Product, ProductId, ProductVariant, VariantId } from "@core/src/features/products/domain/product";
 
 type DbAggregate = DbProduct & { variants: (DbVariant & { stock: DbStock | null })[] };
 

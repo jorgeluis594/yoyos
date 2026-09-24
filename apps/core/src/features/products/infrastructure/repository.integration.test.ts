@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { expect, test } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
-import type { CreateInput } from "../application/create";
-import type { CompanyId, ImageId, ProductId, VariantId } from "../domain/product";
+import type { CreateInput } from "@core/src/features/products/application/create";
+import type { CompanyId, ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
 
 test("product persistence is atomic, isolated, and constrained", async () => {
   expect(process.env.DATABASE_URL, "run sh scripts/run-tests.sh integration").toBeTruthy();
@@ -23,10 +23,10 @@ test("product persistence is atomic, isolated, and constrained", async () => {
   const imageId = randomUUID() as ImageId;
   let foreignProductId: ProductId | undefined;
   let foreignVariantId: VariantId | undefined;
-  const { prisma, withTenantIsolation } = await import("../../../shared/infrastructure/persistance");
-  const { productRepository } = await import("./repository");
-  const { createProduct } = await import("../application/create");
-  const { getProduct } = await import("../application/get");
+  const { prisma, withTenantIsolation } = await import("@core/src/shared/infrastructure/persistance");
+  const { productRepository } = await import("@core/src/features/products/infrastructure/repository");
+  const { createProduct } = await import("@core/src/features/products/application/create");
+  const { getProduct } = await import("@core/src/features/products/application/get");
   await expect(productRepository.get(companyA, randomUUID() as ProductId)).rejects.toThrow("Company context is required");
   const newDeps = () => ({ repository: productRepository, findImage: async (companyId: CompanyId, id: ImageId) => !!(await prisma.image.findFirst({ where: { companyId, id } })), newId: randomUUID, clock: () => new Date("2026-09-24T00:00:00.000Z") });
   const base = (sku?: string): CreateInput => ({ name: "Camisa", currency: "PEN", variants: [{ attributes: {}, salePrice: 19.99, purchasePrice: 0, ...(sku === undefined ? {} : { sku }), initialStock: 4 }] });

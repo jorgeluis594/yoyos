@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
-import { createProduct, type CreateInput } from "./create";
-import { getProduct } from "./get";
-import type { CompanyId, Product, ProductId } from "../domain/product";
+import { createProduct, type CreateInput } from "@core/src/features/products/application/create";
+import { getProduct } from "@core/src/features/products/application/get";
+import type { CompanyId, Product, ProductId } from "@core/src/features/products/domain/product";
 import { countryCurrencies } from "@shared/country";
 
 const companyId = "00000000-0000-4000-8000-000000000001" as CompanyId;

@@ -2,9 +2,9 @@ import { randomUUID } from "node:crypto";
 import { getImage } from "@core/src/shared/images/application/images";
 import { imageRepository } from "@core/src/shared/images/infrastructure/image-repository";
 import { createR2ImageStorage } from "@core/src/shared/images/infrastructure/r2-image-storage";
-import { createProduct } from "./application/create";
-import { getProduct } from "./application/get";
-import { productRepository } from "./infrastructure/repository";
+import { createProduct } from "@core/src/features/products/application/create";
+import { getProduct } from "@core/src/features/products/application/get";
+import { productRepository } from "@core/src/features/products/infrastructure/repository";
 
 const imageStorage = createR2ImageStorage({
   endpoint: process.env.R2_ENDPOINT ?? "", bucket: process.env.R2_BUCKET ?? "",

@@ -1,4 +1,4 @@
-import type { Currency } from "./money.js";
+import type { Currency } from "@shared/money";
 
 export const countries = ["PE", "US", "CO", "AR", "CL", "BR"] as const;
 

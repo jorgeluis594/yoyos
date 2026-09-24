@@ -1,7 +1,7 @@
-import type { CreateError, CreateInput } from "../application/create";
-import type { DetailError } from "../application/get";
-import type { CompanyId, ImageId, Product, ProductId, ProductVariant, VariantId } from "./product";
-import type { ProductValidationReason } from "./errors";
+import type { CreateError, CreateInput } from "@core/src/features/products/application/create";
+import type { DetailError } from "@core/src/features/products/application/get";
+import type { CompanyId, ImageId, Product, ProductId, ProductVariant, VariantId } from "@core/src/features/products/domain/product";
+import type { ProductValidationReason } from "@core/src/features/products/domain/errors";
 
 type Assert<T extends true> = T;
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;

@@ -1,10 +1,10 @@
 import { err } from "@shared/functional";
 import type { Currency } from "@shared/money";
 import type { Result } from "@shared/result";
-import { validateCreate, type RawVariant } from "../domain/rules";
-import type { ValidationError } from "../domain/errors";
-import type { CompanyId, ImageId, Product, ProductId, ProductVariant, VariantId } from "../domain/product";
-import type { ProductRepository } from "./repository";
+import { validateCreate, type RawVariant } from "@core/src/features/products/domain/rules";
+import type { ValidationError } from "@core/src/features/products/domain/errors";
+import type { CompanyId, ImageId, Product, ProductId, ProductVariant, VariantId } from "@core/src/features/products/domain/product";
+import type { ProductRepository } from "@core/src/features/products/application/repository";
 
 export type CreateVariantInput = RawVariant;
 export type CreateInput = Readonly<{

@@ -1,5 +1,5 @@
 import { isCurrency, type Currency } from "@shared/money";
-import type { ValidationIssue } from "./errors";
+import type { ValidationIssue } from "@core/src/features/products/domain/errors";
 
 export type RawVariant = Readonly<{ attributes: Readonly<Record<string, string>>; sku?: string; salePrice: number; purchasePrice?: number; initialStock?: number }>;
 export type RawProduct = Readonly<{ name: string; description?: string; currency: Currency; variants: readonly RawVariant[] }>;

@@ -1,7 +1,7 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import type { CompanyId, ImageId, Product, ProductId } from "../domain/product";
-import type { ProductRepository } from "./repository";
+import type { CompanyId, ImageId, Product, ProductId } from "@core/src/features/products/domain/product";
+import type { ProductRepository } from "@core/src/features/products/application/repository";
 
 export type Detail = Readonly<{ product: Product; image?: Readonly<{ id: ImageId; url: string }> }>;
 export type DetailError = Readonly<{ code: "IMAGE_NOT_FOUND"; message: string }>;
