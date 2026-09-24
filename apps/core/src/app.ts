@@ -6,6 +6,9 @@ import { companyRepository } from "@core/src/features/companies/infrastructure/c
 import { auth } from "@core/src/shared/infrastructure/auth";
 import { apiError, loadApiAccess, requireApiCompany, type AuthenticatedLocals, type PrivateLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
 import type { Response } from "express";
+import { imageRoutes } from "@core/src/shared/images/presentation/routes";
+import { imageRepository } from "@core/src/shared/images/infrastructure/image-repository";
+import { createR2ImageStorage } from "@core/src/shared/images/infrastructure/r2-image-storage";
 
 export const app = express();
 
@@ -44,6 +47,14 @@ app.post("/api/company", async (request, response: Response<unknown, Authenticat
 });
 
 app.use("/api", requireApiCompany);
+app.use("/api/images", imageRoutes(createR2ImageStorage({
+  endpoint: process.env.R2_ENDPOINT ?? "",
+  bucket: process.env.R2_BUCKET ?? "",
+  accessKeyId: process.env.R2_ACCESS_KEY_ID ?? "",
+  secretAccessKey: process.env.R2_SECRET_ACCESS_KEY ?? "",
+  publicBaseUrl: process.env.R2_PUBLIC_BASE_URL ?? "",
+}), imageRepository));
+
 app.use("/api", (_request, response: Response<unknown, PrivateLocals>) => {
   apiError(response, 404, "NOT_FOUND", "Not found");
 });

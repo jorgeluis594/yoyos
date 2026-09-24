@@ -59,7 +59,8 @@ test("JWT uses the same access and becomes invalid after session revocation", as
       assert.equal(unavailable.status, 503);
       assert.deepEqual(await unavailable.json(), { code: "SERVICE_UNAVAILABLE", error: "Service unavailable" });
     } finally { sessionLookup.mockRestore(); }
-    const tampered = `${token.slice(0, -1)}${token.at(-1) === "a" ? "b" : "a"}`;
+    const signature = token.split(".")[2];
+    const tampered = `${token.slice(0, -signature.length)}${signature[0] === "a" ? "b" : "a"}${signature.slice(1)}`;
     assert.equal((await fetch(`${base}/api/me`, { headers: { authorization: `Bearer ${tampered}` } })).status, 401);
     const header = JSON.parse(Buffer.from(token.split(".")[0], "base64url").toString());
     const wrongAlgorithm = `${Buffer.from(JSON.stringify({ ...header, alg: "HS256" })).toString("base64url")}.${token.split(".").slice(1).join(".")}`;

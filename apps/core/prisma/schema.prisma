@@ -86,4 +86,15 @@ model Company {
   name    String
   country String
   users   User[]
+  images  Image[]
+}
+
+model Image {
+  id         String   @id @default(uuid()) @db.Uuid
+  companyId  String   @db.Uuid
+  company    Company  @relation(fields: [companyId], references: [id])
+  storageKey String
+  createdAt  DateTime @default(now())
+
+  @@index([companyId])
 }
