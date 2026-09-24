@@ -3,6 +3,7 @@ import { err, ok } from "@shared/functional";
 import { prisma, withinTransaction, getCompanyId } from "@core/src/shared/infrastructure/persistance";
 import type { ProductRepository } from "@core/src/features/products/application/repository";
 import type { CompanyId, ImageId, Product, ProductId, ProductVariant, VariantId } from "@core/src/features/products/domain/product";
+import { summarizeProduct } from "@core/src/features/products/domain/rules";
 
 type DbAggregate = DbProduct & { variants: (DbVariant & { stock: DbStock | null })[] };
 
@@ -67,5 +68,22 @@ export const productRepository: ProductRepository = {
     if (getCompanyId() !== companyId) throw new Error("Company context mismatch");
     const row = await prisma.product.findFirst({ where: { companyId, id }, include: { variants: { include: { stock: true }, orderBy: { id: "asc" } } } });
     return row ? mapProduct(row) : null;
+  },
+  async list(companyId, criteria) {
+    if (getCompanyId() !== companyId) throw new Error("Company context mismatch");
+    const search = criteria.search?.replace(/[\\%_]/g, "\\$&");
+    const where: Prisma.ProductWhereInput = {
+      companyId,
+      ...(search ? { OR: [
+        { name: { contains: search, mode: "insensitive" } },
+        { variants: { some: { companyId, sku: { contains: search, mode: "insensitive" } } } },
+      ] } : {}),
+    };
+    const [rows, total] = await Promise.all([
+      prisma.product.findMany({ where, orderBy: [{ createdAt: "desc" }, { id: "asc" }], skip: (criteria.page - 1) * criteria.pageSize, take: criteria.pageSize,
+        include: { variants: { include: { stock: true } } } }),
+      prisma.product.count({ where }),
+    ]);
+    return { page: criteria.page, pageSize: criteria.pageSize, total, items: rows.map((row) => summarizeProduct(mapProduct(row))) };
   },
 };

@@ -40,7 +40,7 @@ function Navigation({ company, name, home, productPath, active, dark, pending, e
   name: string;
   home: string;
   productPath: string;
-  active: "home" | "product" | "detail";
+  active: "home" | "products" | "new" | "detail";
   dark: boolean;
   pending: boolean;
   error: string;
@@ -65,9 +65,9 @@ function Navigation({ company, name, home, productPath, active, dark, pending, e
           <House className="size-icon-navigation shrink-0" aria-hidden="true" />Inicio
           {active === "home" && <Check className="ml-auto size-icon-inline" aria-hidden="true" />}
         </Link>
-        <Link to={productPath} onClick={onNavigate} data-slot="navigation-link" aria-current={active === "product" ? "page" : undefined} className={`mt-1 flex min-h-control items-center gap-3 rounded-sm px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background max-md:min-h-touch ${active === "product" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent"}`}>
-          <ShoppingBag className="size-icon-navigation shrink-0" aria-hidden="true" />Nuevo producto
-          {active === "product" && <Check className="ml-auto size-icon-inline" aria-hidden="true" />}
+        <Link to={productPath} onClick={onNavigate} data-slot="navigation-link" data-active={active !== "home" ? "true" : undefined} aria-current={active === "products" ? "page" : undefined} className={`mt-1 flex min-h-control items-center gap-3 rounded-sm px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background max-md:min-h-touch ${active !== "home" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent"}`}>
+          <ShoppingBag className="size-icon-navigation shrink-0" aria-hidden="true" />Productos
+          {active !== "home" && <Check className="ml-auto size-icon-inline" aria-hidden="true" />}
         </Link>
       </nav>
       <div className="mt-auto flex flex-col gap-2 border-t border-border pt-4">
@@ -131,8 +131,8 @@ export default function PrivateLayout() {
     }
   }
 
-  const productPath = home.replace(/\/dashboard$/, "/products/new");
-  const active: "home" | "product" | "detail" = location.pathname.endsWith("/products/new") ? "product" : location.pathname.includes("/products/") ? "detail" : "home";
+  const productPath = home.replace(/\/dashboard$/, "/products");
+  const active: "home" | "products" | "new" | "detail" = location.pathname.endsWith("/products") ? "products" : location.pathname.endsWith("/products/new") ? "new" : location.pathname.includes("/products/") ? "detail" : "home";
   const navigation = { company, name, home, productPath, active, dark, pending, error, onTheme: toggleTheme, onSignOut: signOut };
 
   return (
@@ -155,7 +155,7 @@ export default function PrivateLayout() {
               <li className="min-w-0 truncate text-muted-foreground" title={company}>{company}</li>
               <li className="flex shrink-0 items-center gap-3" aria-current="page">
                 <ChevronRight className="size-icon-inline text-muted-foreground" aria-hidden="true" />
-                <span className="font-medium">{active === "home" ? "Inicio" : active === "product" ? "Nuevo producto" : "Detalle del producto"}</span>
+                <span className="font-medium">{active === "home" ? "Inicio" : active === "products" ? "Productos" : active === "new" ? "Nuevo producto" : "Detalle del producto"}</span>
               </li>
             </ol>
           </nav>

@@ -11,7 +11,7 @@ export async function loader({ context, params }: LoaderFunctionArgs) {
     const result = await products.get(company.id as CompanyId, params.productId as ProductId);
     if (!result.success) throw new Response("La imagen no está disponible.", { status: 503 });
     if (!result.data) throw new Response("Not found", { status: 404 });
-    return { detail: result.data, home: `/es-${company.country}/dashboard` };
+    return { detail: result.data, catalog: `/es-${company.country}/products` };
   } catch (cause) {
     if (cause instanceof Response) throw cause;
     console.error("Unable to load product", cause);
@@ -20,12 +20,12 @@ export async function loader({ context, params }: LoaderFunctionArgs) {
 }
 
 export default function ProductDetail() {
-  const { detail, home } = useLoaderData<typeof loader>();
+  const { detail, catalog } = useLoaderData<typeof loader>();
   const { product, image } = detail;
   return <section className="mx-auto max-w-3xl">
     <div className="flex flex-wrap items-start justify-between gap-4">
       <div><p className="text-sm text-muted-foreground">Producto</p><h1 className="mt-1 break-words text-2xl font-semibold tracking-tight">{product.name}</h1></div>
-      <Button asChild variant="outline"><Link to={home}>Volver al inicio</Link></Button>
+      <Button asChild variant="outline"><Link to={catalog}>Volver a productos</Link></Button>
     </div>
     {image && <img src={image.url} alt={product.name} className="mt-6 max-h-80 w-full rounded-md object-contain" />}
     {product.description && <p className="mt-6 whitespace-pre-wrap text-sm leading-6">{product.description}</p>}

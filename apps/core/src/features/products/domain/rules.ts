@@ -1,5 +1,6 @@
 import { isCurrency, type Currency } from "@shared/money";
 import type { ValidationIssue } from "@core/src/features/products/domain/errors";
+import type { Product } from "@core/src/features/products/domain/product";
 
 export type RawVariant = Readonly<{ attributes: Readonly<Record<string, string>>; sku?: string; salePrice: number; purchasePrice?: number; initialStock?: number }>;
 export type RawProduct = Readonly<{ name: string; description?: string; currency: Currency; variants: readonly RawVariant[] }>;
@@ -8,6 +9,18 @@ export type ValidProduct = Readonly<{ name: string; description?: string; curren
 
 const length = (value: string) => [...value].length;
 const normalize = (value: string) => value.trim().toLowerCase();
+
+export function summarizeProduct(product: Product) {
+  const amounts = product.variants.map((variant) => variant.salePrice.amount);
+  const totalStock = product.variants.reduce((sum, variant) => sum + variant.stock.quantity, 0);
+  if (!Number.isSafeInteger(totalStock)) throw new Error("Stored total stock is outside the supported range");
+  return {
+    id: product.id, name: product.name, variantCount: product.variants.length,
+    ...(product.variants.length === 1 && product.variants[0].sku ? { sku: product.variants[0].sku } : {}),
+    minSalePrice: { amount: amounts.reduce((lowest, amount) => Math.min(lowest, amount)), currency: product.currency },
+    hasDifferentPrices: amounts.some((amount) => amount !== amounts[0]), totalStock,
+  };
+}
 
 export function validateCreate(input: RawProduct): { readonly value?: ValidProduct; readonly issues: readonly ValidationIssue[] } {
   const issues: ValidationIssue[] = [];

@@ -6,7 +6,7 @@ import type { ProductRepository } from "@core/src/features/products/application/
 export type Detail = Readonly<{ product: Product; image?: Readonly<{ id: ImageId; url: string }> }>;
 export type DetailError = Readonly<{ code: "IMAGE_NOT_FOUND"; message: string }>;
 export type GetDependencies = Readonly<{
-  repository: ProductRepository;
+  repository: Pick<ProductRepository, "get">;
   resolveImage: (companyId: CompanyId, imageId: ImageId) => Promise<{ id: ImageId; url: string } | null>;
 }>;
 

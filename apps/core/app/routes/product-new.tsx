@@ -9,7 +9,7 @@ import type { CompanyId } from "@core/src/features/products/domain/product";
 
 export function loader({ context }: LoaderFunctionArgs) {
   const company = context.get(privateUserContext).company;
-  return { currency: countryCurrencies[company.country as Country], home: `/es-${company.country}/dashboard` };
+  return { currency: countryCurrencies[company.country as Country], catalog: `/es-${company.country}/products` };
 }
 
 export async function action({ request, context }: ActionFunctionArgs): Promise<Response | { errors: FormErrors }> {
@@ -27,7 +27,7 @@ export async function action({ request, context }: ActionFunctionArgs): Promise<
 }
 
 export default function ProductNew() {
-  const { currency, home } = useLoaderData<typeof loader>();
+  const { currency, catalog } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
   const navigation = useNavigation();
@@ -48,6 +48,6 @@ export default function ProductNew() {
   return <section className="mx-auto max-w-2xl">
     <h1 className="text-2xl font-semibold tracking-tight">Nuevo producto</h1>
     <p className="mt-2 text-sm text-muted-foreground">Completa los datos para agregarlo a tu empresa.</p>
-    <ProductForm currency={currency} cancelTo={home} errors={errors} pending={pending} onSave={save} />
+    <ProductForm currency={currency} cancelTo={catalog} errors={errors} pending={pending} onSave={save} />
   </section>;
 }

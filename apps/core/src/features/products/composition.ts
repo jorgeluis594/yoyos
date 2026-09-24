@@ -4,6 +4,7 @@ import { imageRepository } from "@core/src/shared/images/infrastructure/image-re
 import { createR2ImageStorage } from "@core/src/shared/images/infrastructure/r2-image-storage";
 import { createProduct } from "@core/src/features/products/application/create";
 import { getProduct } from "@core/src/features/products/application/get";
+import { listProducts } from "@core/src/features/products/application/list";
 import { productRepository } from "@core/src/features/products/infrastructure/repository";
 
 const imageStorage = createR2ImageStorage({
@@ -23,4 +24,6 @@ export const products = {
     createProduct(companyId, input, { repository: productRepository, findImage: async (companyId, imageId) => !!(await imageRepository.find(companyId, imageId)), newId: randomUUID, clock: () => new Date() }),
   get: (companyId: Parameters<typeof getProduct>[0], id: Parameters<typeof getProduct>[1]) =>
     getProduct(companyId, id, { repository: productRepository, resolveImage }),
+  list: (companyId: Parameters<typeof listProducts>[0], input: Parameters<typeof listProducts>[1]) =>
+    listProducts(companyId, input, productRepository),
 };

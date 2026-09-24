@@ -18,7 +18,7 @@ export type CreateError = ValidationError
   | Readonly<{ code: "DUPLICATE_SKU"; message: string }>
   | Readonly<{ code: "IMAGE_NOT_FOUND"; message: string }>;
 export type CreateDependencies = Readonly<{
-  repository: ProductRepository;
+  repository: Pick<ProductRepository, "create">;
   findImage: (companyId: CompanyId, imageId: ImageId) => Promise<boolean>;
   newId: () => string;
   clock: () => Date;
