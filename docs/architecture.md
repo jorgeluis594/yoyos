@@ -17,15 +17,15 @@ apps/
 │   └── src/
 │       ├── app.ts                   # Application creation and composition
 │       ├── server.ts                # Process startup and shutdown
-│       ├── infrastructure/          # Shared connections and client setup
 │       ├── features/                # Business features
 │       └── shared/                  # Reused code without a business owner
+│           └── infrastructure/      # Shared connections and client setup
 └── mobile/
     └── src/
         ├── app/                     # Expo routes, layouts, and composition
-        ├── infrastructure/          # Shared clients and platform setup
         ├── features/                # Business features
         ├── shared/                  # Reused code without a business owner
+        │   └── infrastructure/      # Shared clients and platform setup
         └── components/
             └── ui/                  # Generic presentation components
 ```
@@ -91,7 +91,7 @@ features/orders/infrastructure/
 
 Add separate adapter files or subdirectories only when multiple real sources require them. Repositories must not decide business policy, orchestrate business workflows, render UI, navigate, or produce HTTP responses.
 
-Application-wide `src/infrastructure/` configures shared technical resources such as database connections, HTTP clients, storage, and logging. Feature-specific queries and endpoints belong in the feature adapter, not in shared client setup.
+Application-wide `src/shared/infrastructure/` configures shared technical resources such as database connections, HTTP clients, storage, and logging. Feature-specific queries and endpoints belong in the feature adapter, not in shared client setup.
 
 ### Presentation
 
@@ -149,7 +149,7 @@ Export only what other features or application entry points actually need. Do no
 
 Use a root-level `shared/`, alongside `apps/`, for types and code shared across applications. Each application's `src/shared/` holds code shared only within that app. Keep code in its owning feature whenever possible; move it to `shared/` only when multiple features or apps use it and it has no business owner. Generic UI primitives belong in `components/ui/`; feature-specific components stay in feature presentation.
 
-In `apps/core`, authentication infrastructure (Better Auth, its client, and Prisma) belongs in `src/shared/`. The `User` entity belongs in its own `features/users/` module.
+In both `apps/core` and `apps/mobile`, shared authentication infrastructure and client setup belong in `src/shared/infrastructure/`. Core keeps Better Auth and Prisma there; mobile keeps its auth client, secure storage setup, and shared HTTP transport there. Feature-specific adapters remain in `features/<feature>/infrastructure/`. The `User` entity belongs in its own `features/users/` module.
 
 Do not use shared folders as a destination for unclassified code. Result types live in the root `shared/result.ts`; both apps import them with `import type { Result } from "@shared/result"`. Shared types use `import type` and must not depend on an application's framework or persistence models. Neither app imports the other's source. Feature entities remain in their owning feature.
 

@@ -14,6 +14,20 @@ for example, a persisted entity must have an ID. Validate external data before
 passing it to business logic, and avoid `as` assertions that hide incomplete
 contracts.
 
+All JSON communication between backend, mobile, and frontend must use Zod
+schemas at the communication boundary. Parse incoming data before invoking the
+application use case, and parse remote responses before returning them from an
+adapter. Validate outgoing application-owned JSON against its response schema.
+Infer transport types from schemas with `z.infer`; do not maintain parallel
+handwritten DTO types or cast unvalidated JSON. Shared HTTP schemas belong in
+root `shared/` and must not import app entities or persistence models.
+
+Use `safeParse` and translate validation failures into the repository's `Result`
+errors at the boundary. Domain rules and application operations receive validated
+plain data and enforce their own business invariants; they do not receive
+`ZodError` or HTTP objects. SDK TypeScript annotations do not replace runtime
+validation of the data consumed by application-owned adapters.
+
 Fallible operations return `Result<T, E>` or `Promise<Result<T, E>>`. Success
 contains `data`; failure contains `error`, with a required `message` and optional
 `code`. Transformations that always produce a value return it directly. Valid
