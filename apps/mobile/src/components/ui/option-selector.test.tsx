@@ -9,7 +9,7 @@ jest.mock('@expo/ui', () => {
   const { Text, View } = require('react-native');
   const Item = () => null;
   const Picker = ({ children, selectedValue, onValueChange, testID }: any) => (
-    <View testID={testID} accessibilityRole="adjustable" accessibilityValue={{ text: String(selectedValue) }} onTouchEnd={() => onValueChange(0)}>
+    <View testID={testID} accessibilityRole="adjustable" accessibilityValue={{ text: String(selectedValue) }} onValueChange={onValueChange}>
       {React.Children.map(children, (child: any) => child.type === Item ? <Text>{child.props.label}</Text> : null)}
     </View>
   );
@@ -24,21 +24,21 @@ const options = [
   { value: 'four', label: 'Cuatro' },
 ];
 
-test('four options render radio rows, report selection, and reflect the controlled value', async () => {
+test('four options use the native picker, report selection, and reflect its controlled value', async () => {
   const change = jest.fn();
-  const screen = await render(<OptionSelector options={options} value="one" onValueChange={change} />);
-  expect(screen.getAllByRole('radio')).toHaveLength(4);
-  expect(screen.getByRole('radio', { name: 'Uno' }).props.accessibilityState.checked).toBe(true);
-  expect(screen.getByRole('radio', { name: 'Tres' }).props.accessibilityState.disabled).toBe(true);
-  await fireEvent.press(screen.getByRole('radio', { name: 'Dos' }));
+  const screen = await render(<OptionSelector options={options} value="one" onValueChange={change} testID="selector" />);
+  expect(screen.queryByRole('radio')).toBeNull();
+  expect(screen.getByTestId('selector').props.accessibilityValue.text).toBe('0');
+  expect(screen.getByText('Dos — Segunda opción')).toBeTruthy();
+  expect(screen.queryByText('Tres')).toBeNull();
+  await fireEvent(screen.getByTestId('selector'), 'valueChange', 1);
   expect(change).toHaveBeenCalledWith('two');
-  await screen.rerender(<OptionSelector options={options} value="two" onValueChange={change} />);
-  expect(screen.getByRole('radio', { name: 'Dos' }).props.accessibilityState.checked).toBe(true);
+  await screen.rerender(<OptionSelector options={options} value="two" onValueChange={change} testID="selector" />);
+  expect(screen.getByTestId('selector').props.accessibilityValue.text).toBe('1');
 });
 
-test('five options use the native picker with a null placeholder', async () => {
+test('five options also use the native picker with a null placeholder', async () => {
   const screen = await render(<OptionSelector options={[...options, { value: 'five', label: 'Cinco' }]} value={null} onValueChange={() => {}} testID="picker" />);
-  expect(screen.queryByRole('radio')).toBeNull();
   expect(screen.getByTestId('picker').props.accessibilityValue.text).toBe('-1');
   expect(screen.getByText('Selecciona una opción')).toBeTruthy();
   expect(screen.queryByText('Tres')).toBeNull();
