@@ -7,8 +7,8 @@ export interface ImageStorage {
 }
 
 export type ImageRepository = {
-  create(companyId: string, storageKey: string): Promise<{ id: string }>;
-  find(companyId: string, id: string): Promise<{ id: string; storageKey: string } | null>;
+  create(companyId: string, storageKey: string): Promise<Result<{ id: string }>>;
+  find(companyId: string, id: string): Promise<Result<{ id: string; storageKey: string } | null>>;
 };
 
 async function compensate(storage: ImageStorage, key: string, cause: unknown): Promise<void> {
@@ -36,7 +36,11 @@ export async function uploadImage(
       return url;
     }
     const image = await repository.create(companyId, key);
-    return { success: true, data: { id: image.id, url: url.data } };
+    if (!image.success) {
+      await compensate(storage, key, image.error);
+      return image;
+    }
+    return { success: true, data: { id: image.data.id, url: url.data } };
   } catch (error) {
     await compensate(storage, key, error);
     throw error;
@@ -50,9 +54,10 @@ export async function getImage(
   repository: ImageRepository,
 ): Promise<Result<{ id: string; url: string } | null>> {
   const image = await repository.find(companyId, id);
-  if (!image) return { success: true, data: null };
-  const url = await storage.getUrl(image.storageKey);
+  if (!image.success) return image;
+  if (!image.data) return { success: true, data: null };
+  const url = await storage.getUrl(image.data.storageKey);
   return url.success
-    ? { success: true, data: { id: image.id, url: url.data } }
+    ? { success: true, data: { id: image.data.id, url: url.data } }
     : url;
 }

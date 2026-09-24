@@ -10,7 +10,7 @@ type Config = {
   secretAccessKey: string;
   publicBaseUrl: string;
 };
-const failed = <T>(message: string): Result<T> => ({ success: false, error: { message } });
+const failed = <T>(code: "IMAGE_STORAGE_UNAVAILABLE" | "IMAGE_STORAGE_CONFIG_ERROR", message: string): Result<T> => ({ success: false, error: { code, message } });
 
 export function createR2ImageStorage(config: Config): ImageStorage {
   const ready = Object.values(config).every(Boolean) && URL.canParse(config.publicBaseUrl);
@@ -22,28 +22,28 @@ export function createR2ImageStorage(config: Config): ImageStorage {
 
   return {
     async upload({ bytes, contentType }) {
-      if (!client) return failed("Image storage is not configured");
+      if (!client) return failed("IMAGE_STORAGE_CONFIG_ERROR", "Image storage is not configured");
       const key = randomUUID();
       try {
         await client.send(new PutObjectCommand({ Bucket: config.bucket, Key: key, Body: bytes, ContentType: contentType }));
         return { success: true, data: { key } };
       } catch (error) {
         console.error("R2 image upload failed", error);
-        return failed("Image upload failed");
+        return failed("IMAGE_STORAGE_UNAVAILABLE", "Image upload failed");
       }
     },
     async getUrl(key) {
-      if (!client) return failed("Image storage is not configured");
+      if (!client) return failed("IMAGE_STORAGE_CONFIG_ERROR", "Image storage is not configured");
       return { success: true, data: `${config.publicBaseUrl.replace(/\/+$/, "")}/${encodeURIComponent(key)}` };
     },
     async delete(key) {
-      if (!client) return failed("Image storage is not configured");
+      if (!client) return failed("IMAGE_STORAGE_CONFIG_ERROR", "Image storage is not configured");
       try {
         await client.send(new DeleteObjectCommand({ Bucket: config.bucket, Key: key }));
         return { success: true, data: undefined };
       } catch (error) {
         console.error("R2 image deletion failed", error);
-        return failed("Image deletion failed");
+        return failed("IMAGE_STORAGE_UNAVAILABLE", "Image deletion failed");
       }
     },
   };

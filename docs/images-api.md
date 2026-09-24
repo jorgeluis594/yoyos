@@ -23,12 +23,26 @@ Response: { id, url }
 Frontend → create or update an entity with imageId
 ```
 
-Proposed HTTP contract:
+HTTP contract:
 
 | Operation | Input | Output |
 | --- | --- | --- |
 | `POST /api/images` | Multipart file in the `file` field | `201 { id, url }` |
 | `GET /api/images/:id` | Internal identifier | `200 { id, url }` |
+
+Successful responses are validated with `shared/contracts/images.ts`: `id` is a UUID and `url` is an HTTP or HTTPS URL. An invalid internal response is logged and returns `500 INTERNAL_ERROR`. Errors use the shared `{ code, error }` JSON contract:
+
+| Condition | HTTP | `code` |
+| --- | --- | --- |
+| Invalid multipart body, file, or format | 400 | `INVALID_IMAGE` |
+| File or request exceeds the upload limit | 413 | `IMAGE_TOO_LARGE` |
+| Request is not multipart | 415 | `UNSUPPORTED_MEDIA_TYPE` |
+| Image missing or owned by another company | 404 | `NOT_FOUND` |
+| Storage provider failure | 502 | `IMAGE_STORAGE_UNAVAILABLE` |
+| Persistence failure | 503 | `SERVICE_UNAVAILABLE` |
+| Storage configuration or internal response failure | 500 | `INTERNAL_ERROR` |
+
+Authentication and company errors use the existing shared codes. The mobile transport preserves image-specific codes; a future image adapter must validate successful responses before use.
 
 Illustrative example of a future product API using this contract:
 
