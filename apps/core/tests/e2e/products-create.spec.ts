@@ -47,11 +47,10 @@ test("create products from the private form, validate input, and reload detail",
     await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+$/);
     const firstProductUrl = page.url();
     await browserExpect(page.getByRole("heading", { name: "Cuaderno" })).toBeVisible();
-    await browserExpect(page.getByRole("article")).toHaveCount(1);
-    await browserExpect(page.getByText("12.50 PEN")).toBeVisible();
-    await browserExpect(page.getByText("Sin SKU")).toBeVisible();
-    await browserExpect(page.getByText("Sin precio")).toBeVisible();
-    await browserExpect(page.getByText("Stock").locator("..")).toContainText("0");
+    await browserExpect(page.getByLabel("Precio de venta (PEN) *")).toHaveValue("12.5");
+    await browserExpect(page.getByLabel("SKU")).toHaveValue("");
+    await browserExpect(page.getByLabel("Precio de compra (PEN)")).toHaveValue("");
+    await browserExpect(page.getByLabel("Stock")).toHaveValue("0");
     await page.reload();
     await browserExpect(page.getByRole("heading", { name: "Cuaderno" })).toBeVisible();
     await page.getByRole("link", { name: "Volver a productos" }).click();
@@ -73,10 +72,10 @@ test("create products from the private form, validate input, and reload detail",
     await page.getByRole("button", { name: "Guardar producto" }).click();
     await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+$/);
     await page.reload();
-    await browserExpect(page.getByText("LAP-1")).toBeVisible();
-    await browserExpect(page.getByText("1.20 PEN")).toBeVisible();
-    await browserExpect(page.getByText("Grafito")).toBeVisible();
-    await browserExpect(page.getByText("Stock").locator("..")).toContainText("7");
+    await browserExpect(page.getByLabel("SKU")).toHaveValue("LAP-1");
+    await browserExpect(page.getByLabel("Precio de compra (PEN)")).toHaveValue("1.2");
+    await browserExpect(page.getByLabel("Descripción")).toHaveValue("Grafito");
+    await browserExpect(page.getByLabel("Stock")).toHaveValue("7");
 
     await page.getByRole("complementary").getByRole("link", { name: "Productos" }).click();
     await page.getByRole("searchbox", { name: "Buscar por nombre o SKU" }).fill("lap-1");
@@ -141,7 +140,7 @@ test("create products from the private form, validate input, and reload detail",
     await browserExpect(page.getByText("25.00 PEN")).toBeVisible();
     await browserExpect(page.getByRole("article").filter({ hasText: "CAM-M" })).toContainText("Stock2");
     await browserExpect(page.getByRole("article").filter({ hasText: "CAM-L" })).toContainText("Stock3");
-    await browserExpect(page.getByRole("img", { name: "Camisa con tallas" })).toHaveAttribute("src", /prepared-product\.jpg$/);
+    await browserExpect(page.getByRole("img", { name: "Vista previa de la foto del producto" })).toHaveAttribute("src", /prepared-product\.jpg$/);
     await page.getByRole("link", { name: "Volver a productos" }).click();
     const catalogRow = page.getByRole("row", { name: /Camisa con tallas/ });
     await browserExpect(catalogRow).toContainText("Varias variantes");

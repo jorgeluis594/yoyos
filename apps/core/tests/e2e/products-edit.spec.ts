@@ -36,30 +36,43 @@ test("edit products from the private form, preserve unchanged data, and enforce 
     await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+$/);
     const firstProductUrl = page.url();
     const firstProductId = firstProductUrl.split("/").pop()!;
+    await page.goto(`${firstProductUrl}/edit`);
+    await browserExpect(page).toHaveURL(firstProductUrl);
 
-    await page.getByRole("link", { name: "Editar" }).click();
-    await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+\/edit$/);
     await browserExpect(page.getByLabel("SKU")).toHaveValue("CUAD-1");
     expect(await page.getByLabel("Stock").isEditable()).toBe(false);
     await browserExpect(page.getByLabel("Stock")).toHaveValue("4");
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.getByRole("button", { name: "Alternar tema" }).click();
+    await browserExpect(page.locator("html")).toHaveClass(/dark/);
+    await browserExpect(page.getByLabel("Nombre *")).toHaveCSS("background-color", "rgb(28, 27, 29)");
+    await page.setViewportSize({ width: 390, height: 780 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.getByRole("button", { name: "Abrir menú" }).click();
+    await page.getByRole("button", { name: "Alternar tema" }).click();
+    await browserExpect(page.locator("html")).not.toHaveClass(/dark/);
+    await page.getByRole("button", { name: "Cerrar menú" }).click();
+    await page.getByLabel("Nombre *").focus();
+    await page.keyboard.press("Tab");
+    await browserExpect(page.getByLabel("Descripción")).toBeFocused();
     await page.getByLabel("Nombre *").fill("Cuaderno editado");
     await page.getByLabel("Descripción").fill("");
     await page.getByLabel("SKU").fill("CUAD-2");
     await page.getByLabel("Precio de venta (PEN) *").fill("15.50");
     await page.getByLabel("Precio de compra (PEN)").fill("");
     await page.getByRole("button", { name: "Guardar cambios" }).click();
-    await browserExpect(page).toHaveURL(firstProductUrl);
+    await browserExpect(page).toHaveURL(`${firstProductUrl}?saved=1`);
+    await browserExpect(page.getByRole("status")).toContainText("Producto guardado correctamente.");
     await browserExpect(page.getByRole("heading", { name: "Cuaderno editado" })).toBeVisible();
-    await browserExpect(page.getByText("CUAD-2")).toBeVisible();
-    await browserExpect(page.getByText("15.50 PEN")).toBeVisible();
-    await browserExpect(page.getByText("Sin precio")).toBeVisible();
+    await browserExpect(page.getByLabel("SKU")).toHaveValue("CUAD-2");
+    await browserExpect(page.getByLabel("Precio de venta (PEN) *")).toHaveValue("15.50");
+    await browserExpect(page.getByLabel("Precio de compra (PEN)")).toHaveValue("");
     await browserExpect(page.getByText("Algodón")).toHaveCount(0);
-    await browserExpect(page.getByText("Stock").locator("..")).toContainText("4");
+    await browserExpect(page.getByLabel("Stock")).toHaveValue("4");
 
     const before = await withTenantIsolation(tenantId, async () => await prisma.product.findUniqueOrThrow({ where: { id: firstProductId }, select: { updatedAt: true } }));
-    await page.getByRole("link", { name: "Editar" }).click();
     await page.getByRole("button", { name: "Guardar cambios" }).click();
-    await browserExpect(page).toHaveURL(firstProductUrl);
+    await browserExpect(page).toHaveURL(`${firstProductUrl}?saved=1`);
     const after = await withTenantIsolation(tenantId, async () => await prisma.product.findUniqueOrThrow({ where: { id: firstProductId }, select: { updatedAt: true } }));
     expect(after.updatedAt).toEqual(before.updatedAt);
 
@@ -69,16 +82,17 @@ test("edit products from the private form, preserve unchanged data, and enforce 
     await page.getByLabel("Precio de venta (PEN) *").fill("5");
     await page.getByRole("button", { name: "Guardar producto" }).click();
     await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+$/);
-    await page.goto(`${firstProductUrl}/edit`);
+    await page.goto(firstProductUrl);
     await page.getByLabel("SKU").fill("DUP-1");
     await page.getByRole("button", { name: "Guardar cambios" }).click();
     await browserExpect(page.getByText("Este SKU ya está en uso.")).toBeVisible();
+    await browserExpect(page.getByLabel("SKU")).toHaveValue("DUP-1");
     await page.getByLabel("SKU").fill("CUAD-3");
     await page.getByRole("button", { name: "Guardar cambios" }).click();
-    await browserExpect(page).toHaveURL(firstProductUrl);
-    await browserExpect(page.getByText("CUAD-3")).toBeVisible();
+    await browserExpect(page).toHaveURL(`${firstProductUrl}?saved=1`);
+    await browserExpect(page.getByLabel("SKU")).toHaveValue("CUAD-3");
 
-    const manipulated = await page.request.post(`${firstProductUrl}/edit`, { data: { currency: "PEN" } });
+    const manipulated = await page.request.post(firstProductUrl, { data: { currency: "PEN" } });
     expect(manipulated.status()).toBe(200);
     expect(await manipulated.text()).toContain("La solicitud contiene campos no permitidos.");
     expect((await withTenantIsolation(tenantId, async () => await prisma.product.findUniqueOrThrow({ where: { id: firstProductId } }))).name).toBe("Cuaderno editado");
@@ -91,17 +105,20 @@ test("edit products from the private form, preserve unchanged data, and enforce 
       ],
     }));
     if (!prepared.success) throw new Error("Could not prepare multivariant product");
-    await page.goto(`/es-PE/products/${prepared.data}/edit`);
-    await browserExpect(page.getByText("Solo puedes editar el nombre y la descripción.")).toBeVisible();
+    await page.goto(`/es-PE/products/${prepared.data}`);
+    await browserExpect(page.getByText("Puedes editar los datos generales y la foto. Las variantes son de solo lectura.")).toBeVisible();
     await browserExpect(page.getByLabel("SKU")).toHaveCount(0);
     await browserExpect(page.getByLabel("Stock")).toHaveValue("5");
     await page.getByLabel("Nombre *").fill("Camisa con tallas editada");
     await page.getByRole("button", { name: "Guardar cambios" }).click();
-    await browserExpect(page).toHaveURL(new RegExp(`/es-PE/products/${prepared.data}$`));
+    await browserExpect(page).toHaveURL(new RegExp(`/es-PE/products/${prepared.data}\\?saved=1$`));
     await browserExpect(page.getByRole("heading", { name: "Camisa con tallas editada" })).toBeVisible();
     await browserExpect(page.getByText("CAM-M")).toBeVisible();
     await browserExpect(page.getByText("CAM-L")).toBeVisible();
+    await browserExpect(page.getByText("M", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("L", { exact: true })).toBeVisible();
 
+    await page.setViewportSize({ width: 1280, height: 900 });
     await page.getByRole("button", { name: "Cerrar sesión" }).click();
     await browserExpect(page).toHaveURL(/\/login$/);
     await page.goto("/es-PE/register");
@@ -112,8 +129,8 @@ test("edit products from the private form, preserve unchanged data, and enforce 
     await page.getByLabel("Contraseña").fill("test-password-123");
     await page.getByRole("button", { name: "Crear cuenta" }).click();
     await browserExpect(page).toHaveURL(/\/es-US\/dashboard$/);
-    await page.goto(`${firstProductUrl}/edit`);
-    await browserExpect(page).toHaveURL(/\/es-US\/products\/[0-9a-f-]+\/edit$/);
+    await page.goto(firstProductUrl);
+    await browserExpect(page).toHaveURL(/\/es-US\/products\/[0-9a-f-]+$/);
     await browserExpect(page.getByRole("heading", { name: "Producto no encontrado" })).toBeVisible();
   } finally {
     for (const accountEmail of [email, otherEmail]) {

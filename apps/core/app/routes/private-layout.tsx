@@ -155,7 +155,7 @@ export default function PrivateLayout() {
               <li className="min-w-0 truncate text-muted-foreground" title={company}>{company}</li>
               <li className="flex shrink-0 items-center gap-3" aria-current="page">
                 <ChevronRight className="size-icon-inline text-muted-foreground" aria-hidden="true" />
-                <span className="font-medium">{active === "home" ? "Inicio" : active === "products" ? "Productos" : active === "new" ? "Nuevo producto" : "Detalle del producto"}</span>
+                <span className="font-medium">{active === "home" ? "Inicio" : active === "products" ? "Productos" : active === "new" ? "Nuevo producto" : "Producto"}</span>
               </li>
             </ol>
           </nav>

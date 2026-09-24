@@ -1,6 +1,5 @@
 import type { ComponentType } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Eye } from "lucide-react";
 import { MemoryRouter } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -127,17 +126,13 @@ const editValues: ProductFormValues = {
   initialStock: "24",
 };
 
-function FormPage({ errors, values }: { errors?: FormErrors; values?: ProductFormValues }) {
+function FormPage({ errors }: { errors?: FormErrors }) {
   return (
     <PageContainer width="form">
       <PageHeader>
         <PageHeader.Heading>
-          <PageHeader.Title>{values ? "Editar producto" : "Nuevo producto"}</PageHeader.Title>
-          <PageHeader.Description>
-            {values
-              ? "Actualiza los datos de la variante principal."
-              : "Completa los datos para agregarlo a tu empresa."}
-          </PageHeader.Description>
+          <PageHeader.Title>Nuevo producto</PageHeader.Title>
+          <PageHeader.Description>Completa los datos para agregarlo a tu empresa.</PageHeader.Description>
         </PageHeader.Heading>
       </PageHeader>
       <ProductForm
@@ -146,7 +141,6 @@ function FormPage({ errors, values }: { errors?: FormErrors; values?: ProductFor
         errors={errors ?? {}}
         pending={false}
         onSave={() => {}}
-        {...(values ? { values } : {})}
       />
     </PageContainer>
   );
@@ -155,11 +149,6 @@ function FormPage({ errors, values }: { errors?: FormErrors; values?: ProductFor
 export const ProductNew: Story = {
   name: "Nuevo producto",
   render: () => <FormPage />,
-};
-
-export const ProductEdit: Story = {
-  name: "Editar producto",
-  render: () => <FormPage values={editValues} />,
 };
 
 export const ProductFormErrors: Story = {
@@ -175,86 +164,39 @@ export const ProductFormErrors: Story = {
   ),
 };
 
-type Variant = {
-  id: string;
-  sku: string;
-  salePrice: string;
-  purchasePrice: string;
-  stock: number;
-};
-
-const variants: Variant[] = [
-  { id: "v1", sku: "POLO-M-CAR", salePrice: "59.90 PEN", purchasePrice: "32.00 PEN", stock: 24 },
-  { id: "v2", sku: "POLO-L-CAR", salePrice: "59.90 PEN", purchasePrice: "32.00 PEN", stock: 17 },
-];
-
 export const ProductDetail: Story = {
-  name: "Detalle de producto",
+  name: "Manejo de producto",
   render: () => (
-    <PageContainer width="reader">
+    <PageContainer>
       <PageHeader>
-        <PageHeader.Heading>
-          <PageHeader.Title>Polo oversize</PageHeader.Title>
-        </PageHeader.Heading>
-        <PageHeader.Actions>
-          <Button asChild>
-            <a href="/products/1/edit">Editar</a>
-          </Button>
-          <Button asChild variant="outline">
-            <a href="/products">Volver a productos</a>
-          </Button>
-        </PageHeader.Actions>
+        <PageHeader.Heading><PageHeader.Title>Polo oversize</PageHeader.Title></PageHeader.Heading>
+        <PageHeader.Actions><Button asChild variant="outline"><a href="/products">Volver a productos</a></Button></PageHeader.Actions>
       </PageHeader>
-      <p className="mt-6 whitespace-pre-wrap text-sm leading-6">
-        Producto de temporada con acabado premium. Disponible en tallas M y L.
-      </p>
-      <h2 className="mt-8 text-lg font-semibold">Variantes</h2>
-      <div className="mt-3 flex flex-col gap-4">
-        {variants.map((variant, index) => (
-          <Card key={variant.id} role="article" className="p-4">
-            <h3 className="font-medium">Variante {index + 1}</h3>
-            <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
-              <div>
-                <dt className="text-muted-foreground">SKU</dt>
-                <dd>{variant.sku}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Precio de venta</dt>
-                <dd className="tabular-nums">{variant.salePrice}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Precio de compra</dt>
-                <dd className="tabular-nums">{variant.purchasePrice}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Stock</dt>
-                <dd className="tabular-nums">{variant.stock}</dd>
-              </div>
-            </dl>
-          </Card>
-        ))}
-      </div>
+      <ProductForm currency="PEN" cancelTo="/products" errors={{}} pending={false} values={editValues} stock={24} submitLabel="Guardar cambios" onSave={() => {}} />
     </PageContainer>
   ),
 };
 
-export const ProductDetailActions: Story = {
-  name: "Detalle con acciones",
+export const ProductDetailMultipleVariants: Story = {
+  name: "Producto con varias variantes",
   render: () => (
-    <PageContainer width="reader">
-      <PageHeader>
-        <PageHeader.Heading>
-          <PageHeader.Title>Gorro tejido</PageHeader.Title>
-        </PageHeader.Heading>
-        <PageHeader.Actions>
-          <Button asChild variant="outline">
-            <a href="/products/3/edit">
-              <Eye aria-hidden="true" />
-              Revisar
-            </a>
-          </Button>
-        </PageHeader.Actions>
-      </PageHeader>
+    <PageContainer>
+      <PageHeader><PageHeader.Heading><PageHeader.Title>Polo oversize</PageHeader.Title></PageHeader.Heading></PageHeader>
+      <ProductForm currency="PEN" cancelTo="/products" errors={{}} pending={false} values={editValues} stock={41} variantFields="hidden" submitLabel="Guardar cambios" onSave={() => {}} variants={
+        <section aria-labelledby="variants-story-heading">
+          <h2 id="variants-story-heading" className="text-base font-semibold">Variantes</h2>
+          <div className="mt-3 grid gap-3">{["M", "L"].map((size, index) => <Card key={size} role="article" className="p-4">
+            <h3 className="font-medium">Variante {index + 1}</h3>
+            <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+              <div><dt className="text-muted-foreground">Talla</dt><dd>{size}</dd></div>
+              <div><dt className="text-muted-foreground">SKU</dt><dd>POLO-{size}-CAR</dd></div>
+              <div><dt className="text-muted-foreground">Precio de venta</dt><dd>59.90 PEN</dd></div>
+              <div><dt className="text-muted-foreground">Precio de compra</dt><dd>32.00 PEN</dd></div>
+              <div><dt className="text-muted-foreground">Stock</dt><dd>{size === "M" ? 24 : 17}</dd></div>
+            </dl>
+          </Card>)}</div>
+        </section>
+      } />
     </PageContainer>
   ),
 };

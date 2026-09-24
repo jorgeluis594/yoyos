@@ -61,27 +61,25 @@ test("create, replace, keep, and remove a product photo", async ({ page }) => {
     await browserExpect(page.getByRole("row", { name: /Cuaderno con foto/ })).toContainText("FOTO-1");
     await browserExpect(page.getByRole("row", { name: /Cuaderno con foto/ }).locator("img")).toHaveCount(0);
 
-    await page.goto(`${productUrl}/edit`);
+    await page.goto(productUrl);
     await browserExpect(page.getByRole("img", { name: "Vista previa de la foto del producto" })).toHaveAttribute("src", /photo-first\.png$/);
     await page.getByLabel("Nombre *").fill("Cuaderno con foto editado");
     await page.getByRole("button", { name: "Guardar cambios" }).click();
-    await browserExpect(page).toHaveURL(productUrl);
+    await browserExpect(page).toHaveURL(`${productUrl}?saved=1`);
     await browserExpect(page.locator("main img")).toHaveAttribute("src", /photo-first\.png$/);
 
     const second = await prepare("photo-second.png");
     upload = { id: second.id, url: `${publicBase}/${second.storageKey}` };
-    await page.getByRole("link", { name: "Editar" }).click();
     await page.getByLabel("Foto", { exact: true }).setInputFiles(file("second.png"));
     await browserExpect(page.getByRole("img", { name: "Vista previa de la foto del producto" })).toHaveAttribute("src", /photo-second\.png$/);
     await page.getByRole("button", { name: "Guardar cambios" }).click();
-    await browserExpect(page).toHaveURL(productUrl);
+    await browserExpect(page).toHaveURL(`${productUrl}?saved=1`);
     await browserExpect(page.locator("main img")).toHaveAttribute("src", /photo-second\.png$/);
 
-    await page.getByRole("link", { name: "Editar" }).click();
     await page.getByRole("button", { name: "Quitar foto" }).click();
     await browserExpect(page.getByRole("img", { name: "Vista previa de la foto del producto" })).toHaveCount(0);
     await page.getByRole("button", { name: "Guardar cambios" }).click();
-    await browserExpect(page).toHaveURL(productUrl);
+    await browserExpect(page).toHaveURL(`${productUrl}?saved=1`);
     await browserExpect(page.locator("main img")).toHaveCount(0);
 
     const before = await withTenantIsolation(tenantId, async () => await prisma.product.count({ where: { companyId: tenantId } }));
