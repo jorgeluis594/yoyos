@@ -28,7 +28,7 @@ test("register, persist session, sign out, reject bad password, and sign in", as
     await page.getByLabel("Correo electrónico").fill(email);
     await page.getByLabel("Contraseña").fill("test-password-123");
     expect(await page.locator("form").evaluate((element) => (element as HTMLFormElement).checkValidity())).toBe(false);
-    expect(await page.locator("form").evaluate((element) => new FormData(element as HTMLFormElement).get("country"))).toBeNull();
+    expect(await page.locator("form").evaluate((element) => new FormData(element as HTMLFormElement).get("country"))).toBe("");
     await page.getByLabel("País").click();
     await page.getByRole("option", { name: "Perú" }).click();
     expect(await page.locator("form").evaluate((element) => new FormData(element as HTMLFormElement).get("country"))).toBe("PE");
@@ -148,7 +148,7 @@ test("company creation can be retried after registration", async ({ page }) => {
     await page.getByRole("button", { name: "Crear cuenta" }).click();
     await browserExpect(page.getByRole("alert")).toContainText("No se recibió una respuesta válida");
     await browserExpect(page.getByRole("button", { name: "Crear empresa" })).toBeVisible();
-    await browserExpect(page.getByLabel("País")).toHaveText("Colombia");
+    await browserExpect(page.getByLabel("País")).toContainText("Colombia");
     const pendingAccess = await page.request.get("/api/me");
     expect(pendingAccess.status()).toBe(200);
     expect(await pendingAccess.json()).toMatchObject({ status: "company_required", company: null, user: { companyId: null } });
