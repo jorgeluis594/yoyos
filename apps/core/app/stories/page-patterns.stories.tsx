@@ -128,7 +128,7 @@ const editValues: ProductFormValues = {
 
 function FormPage({ errors }: { errors?: FormErrors }) {
   return (
-    <PageContainer width="form">
+    <PageContainer>
       <PageHeader>
         <PageHeader.Heading>
           <PageHeader.Title>Nuevo producto</PageHeader.Title>
