@@ -46,7 +46,7 @@ services:
     build:
       context: .
       dockerfile: apps/core/Dockerfile
-    command: sh -c "pnpm exec prisma generate && pnpm dev"
+    command: sh -c "pnpm --dir /workspace/shared install --frozen-lockfile && pnpm exec prisma generate && pnpm dev"
     environment:
       DATABASE_URL: postgresql://core_app:core_app_local@db:5432/core
       BETTER_AUTH_SECRET: local-development-secret-change-me-32chars
