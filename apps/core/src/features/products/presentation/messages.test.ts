@@ -11,6 +11,9 @@ test("translates typed product reasons to their fields in Spanish", () => {
   });
   expect(createErrors({ code: "DUPLICATE_SKU", message: "Duplicate" })).toEqual({ sku: "Este SKU ya está en uso." });
   expect(createErrors({ code: "PERSISTENCE_UNAVAILABLE", message: "database down" })).toEqual({ form: "No se pudo verificar la imagen. Inténtalo de nuevo." });
+  expect(createErrors({ code: "VALIDATION_ERROR", message: "Invalid product", issues: [
+    { scope: "product", field: "variants", reason: "INVALID_TOTAL_STOCK", message: "Total stock exceeds the supported range" },
+  ] })).toEqual({ form: "El stock total no puede superar el máximo permitido." });
 });
 
 test("translates update failures without comparing technical messages", () => {

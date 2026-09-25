@@ -8,6 +8,7 @@ export type ProductValidationReason =
   | { readonly reason: "INVALID_PRICE"; readonly minimum: number; readonly maximum: number }
   | { readonly reason: "INVALID_PRECISION"; readonly maxDecimals: number }
   | { readonly reason: "INVALID_STOCK" }
+  | { readonly reason: "INVALID_TOTAL_STOCK" }
   | { readonly reason: "INVALID_ATTRIBUTES" }
   | { readonly reason: "DUPLICATE_ATTRIBUTES" }
   | { readonly reason: "DUPLICATE_SKU" }

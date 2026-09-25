@@ -125,7 +125,17 @@ export const createProductSchema = z.object({
     .min(1)
     .superRefine((items, ctx) => {
       if (Array.isArray(items)) checkUniqueAttributes(items, ctx);
-    }, { when: () => true }),
+    }, { when: () => true })
+    .superRefine((items, ctx) => {
+      let total = 0;
+      for (const item of items) {
+        if (item.initialStock > Number.MAX_SAFE_INTEGER - total) {
+          addIssue(ctx, { reason: "INVALID_TOTAL_STOCK", message: "Total stock exceeds the supported range" });
+          break;
+        }
+        total += item.initialStock;
+      }
+    }),
 });
 
 const updateVariant = z.preprocess(

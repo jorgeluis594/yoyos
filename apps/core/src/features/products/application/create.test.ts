@@ -132,6 +132,23 @@ describe("create product", () => {
     expect(context.writes).toBe(0);
   });
 
+  test("accepts the maximum total stock and rejects an overflow before writing", async () => {
+    const allowed = setup();
+    const variants = [
+      { attributes: { Color: "Azul" }, salePrice: 1, initialStock: Number.MAX_SAFE_INTEGER - 1 },
+      { attributes: { Color: "Rojo" }, salePrice: 1, initialStock: 1 },
+    ] as const;
+    expect((await createProduct(companyId, { ...base, variants }, allowed.deps)).success).toBe(true);
+    expect(allowed.writes).toBe(1);
+
+    const rejected = setup();
+    const result = await createProduct(companyId, { ...base, variants: [variants[0], { ...variants[1], initialStock: 2 }] }, rejected.deps);
+    expect(result).toMatchObject({ success: false, error: { code: "VALIDATION_ERROR", issues: [
+      { scope: "product", field: "variants", reason: "INVALID_TOTAL_STOCK" },
+    ] } });
+    expect(rejected.writes).toBe(0);
+  });
+
   test("distinguishes absence, absent image, missing image, and technical failure", async () => {
     const context = setup();
     const missing = await getProduct(companyId, "00000000-0000-4000-8000-999999999999" as ProductId, { repository: context.deps.repository, resolveImage: async () => null });

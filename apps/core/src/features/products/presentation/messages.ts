@@ -20,6 +20,7 @@ function message(issue: ValidationIssue): string {
     case "INVALID_PRICE": return `El ${label} debe estar entre ${issue.minimum} y ${issue.maximum}.`;
     case "INVALID_PRECISION": return `El ${label} admite hasta ${issue.maxDecimals} decimales.`;
     case "INVALID_STOCK": return "El stock inicial debe ser un número entero no negativo.";
+    case "INVALID_TOTAL_STOCK": return "El stock total no puede superar el máximo permitido.";
     case "DUPLICATE_SKU": return "El SKU está repetido.";
     case "DUPLICATE_ATTRIBUTES": return "Las variantes deben ser distintas.";
     case "DUPLICATE_VARIANT": return "No se puede repetir una variante.";
