@@ -17,7 +17,8 @@ test("create products from the private form, validate input, and reload detail",
     await page.getByRole("link", { name: "Regístrate" }).click();
     await page.getByLabel("Nombre", { exact: true }).fill("Ana Producto");
     await page.getByLabel("Nombre de empresa").fill("Empresa Producto");
-    await page.getByLabel("País").selectOption("PE");
+    await page.getByLabel("País").click();
+    await page.getByRole("option", { name: "Perú" }).click();
     await page.getByLabel("Correo electrónico").fill(email);
     await page.getByLabel("Contraseña").fill("test-password-123");
     await page.getByRole("button", { name: "Crear cuenta" }).click();
@@ -163,7 +164,8 @@ test("create products from the private form, validate input, and reload detail",
     await page.goto("/es-PE/register");
     await page.getByLabel("Nombre", { exact: true }).fill("Otra persona");
     await page.getByLabel("Nombre de empresa").fill("Otra empresa");
-    await page.getByLabel("País").selectOption("US");
+    await page.getByLabel("País").click();
+    await page.getByRole("option", { name: "Estados Unidos" }).click();
     await page.getByLabel("Correo electrónico").fill(otherEmail);
     await page.getByLabel("Contraseña").fill("test-password-123");
     await page.getByRole("button", { name: "Crear cuenta" }).click();

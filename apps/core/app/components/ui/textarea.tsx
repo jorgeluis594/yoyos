@@ -1,6 +1,6 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
-import { controlClass, useFieldContext } from "@/components/ui/field";
+import { controlClass } from "@/components/ui/field";
 
 function Textarea({
   className,
@@ -9,15 +9,12 @@ function Textarea({
   "aria-describedby": ariaDescribedBy,
   ...props
 }: React.ComponentProps<"textarea">) {
-  const field = useFieldContext();
-  const invalid = ariaInvalid ?? (field?.invalid || undefined);
-
   return (
     <textarea
       data-slot="textarea"
-      id={id ?? field?.id}
-      aria-invalid={invalid}
-      aria-describedby={ariaDescribedBy ?? (invalid ? field?.errorId : undefined)}
+      id={id}
+      aria-invalid={ariaInvalid}
+      aria-describedby={ariaDescribedBy}
       className={cn(controlClass, "py-2", className)}
       {...props}
     />

@@ -1,6 +1,6 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
-import { controlClass, useFieldContext } from "@/components/ui/field";
+import { controlClass } from "@/components/ui/field";
 
 function Input({
   className,
@@ -10,16 +10,13 @@ function Input({
   "aria-describedby": ariaDescribedBy,
   ...props
 }: React.ComponentProps<"input">) {
-  const field = useFieldContext();
-  const invalid = ariaInvalid ?? (field?.invalid || undefined);
-
   return (
     <input
       data-slot="input"
       type={type}
-      id={id ?? field?.id}
-      aria-invalid={invalid}
-      aria-describedby={ariaDescribedBy ?? (invalid ? field?.errorId : undefined)}
+      id={id}
+      aria-invalid={ariaInvalid}
+      aria-describedby={ariaDescribedBy}
       className={cn(controlClass, className)}
       {...props}
     />

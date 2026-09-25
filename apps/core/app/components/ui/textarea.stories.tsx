@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Field, FieldLabel } from "./field";
+import { Field, FieldError, FieldLabel } from "./field";
 import { Textarea } from "./textarea";
 
 const meta = {
@@ -34,9 +34,10 @@ export const WithField: Story = {
   name: "Dentro de Field",
   render: () => (
     <div className="max-w-form">
-      <Field error="La descripción es demasiado larga.">
-        <FieldLabel>Descripción</FieldLabel>
-        <Textarea name="description" rows={4} defaultValue="Producto de temporada con acabado premium." />
+      <Field data-invalid>
+        <FieldLabel htmlFor="field-description">Descripción</FieldLabel>
+        <Textarea id="field-description" name="description" rows={4} defaultValue="Producto de temporada con acabado premium." aria-invalid aria-describedby="field-description-error" />
+        <FieldError id="field-description-error">La descripción es demasiado larga.</FieldError>
       </Field>
     </div>
   ),

@@ -24,7 +24,8 @@ test("create, replace, keep, and remove a product photo", async ({ page }) => {
     await page.getByRole("link", { name: "Regístrate" }).click();
     await page.getByLabel("Nombre", { exact: true }).fill("Ana Foto");
     await page.getByLabel("Nombre de empresa").fill("Empresa Foto");
-    await page.getByLabel("País").selectOption("PE");
+    await page.getByLabel("País").click();
+    await page.getByRole("option", { name: "Perú" }).click();
     await page.getByLabel("Correo electrónico").fill(email);
     await page.getByLabel("Contraseña").fill("test-password-123");
     await page.getByRole("button", { name: "Crear cuenta" }).click();

@@ -25,10 +25,13 @@ test("register, persist session, sign out, reject bad password, and sign in", as
     await page.getByRole("link", { name: "Regístrate" }).click();
     await page.getByLabel("Nombre", { exact: true }).fill("Ana Prueba");
     await page.getByLabel("Nombre de empresa").fill("Empresa Ana");
-    await browserExpect(page.getByLabel("País")).toHaveValue("");
-    await page.getByLabel("País").selectOption("PE");
     await page.getByLabel("Correo electrónico").fill(email);
     await page.getByLabel("Contraseña").fill("test-password-123");
+    expect(await page.locator("form").evaluate((element) => (element as HTMLFormElement).checkValidity())).toBe(false);
+    expect(await page.locator("form").evaluate((element) => new FormData(element as HTMLFormElement).get("country"))).toBeNull();
+    await page.getByLabel("País").click();
+    await page.getByRole("option", { name: "Perú" }).click();
+    expect(await page.locator("form").evaluate((element) => new FormData(element as HTMLFormElement).get("country"))).toBe("PE");
     const createdCompany = page.waitForResponse((response) => response.url().endsWith("/api/company"));
     await page.getByRole("button", { name: "Crear cuenta" }).click();
     expect((await createdCompany).status()).toBe(201);
@@ -140,11 +143,12 @@ test("company creation can be retried after registration", async ({ page }) => {
     await page.getByLabel("Correo electrónico").fill(email);
     await page.getByLabel("Contraseña").fill("test-password-123");
     await page.getByLabel("Nombre de empresa").fill("Empresa Pendiente");
-    await page.getByLabel("País").selectOption("CO");
+    await page.getByLabel("País").click();
+    await page.getByRole("option", { name: "Colombia" }).click();
     await page.getByRole("button", { name: "Crear cuenta" }).click();
     await browserExpect(page.getByRole("alert")).toContainText("No se recibió una respuesta válida");
     await browserExpect(page.getByRole("button", { name: "Crear empresa" })).toBeVisible();
-    await browserExpect(page.getByLabel("País")).toHaveValue("CO");
+    await browserExpect(page.getByLabel("País")).toHaveText("Colombia");
     const pendingAccess = await page.request.get("/api/me");
     expect(pendingAccess.status()).toBe(200);
     expect(await pendingAccess.json()).toMatchObject({ status: "company_required", company: null, user: { companyId: null } });
@@ -168,7 +172,8 @@ test("company creation can be retried after registration", async ({ page }) => {
     expect(await malformed.json()).toMatchObject({ code: "INVALID_COMPANY" });
 
     await page.getByLabel("Nombre de empresa").fill("  Empresa Pendiente  ");
-    await page.getByLabel("País").selectOption("CO");
+    await page.getByLabel("País").click();
+    await page.getByRole("option", { name: "Colombia" }).click();
     await page.getByRole("button", { name: "Crear empresa" }).click();
     await browserExpect(page).toHaveURL(/\/es-CO\/dashboard$/);
     await page.goto("/dashboard");

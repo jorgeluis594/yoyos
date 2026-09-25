@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Field, FieldLabel } from "./field";
+import { Field, FieldError, FieldLabel } from "./field";
 import { Input } from "./input";
 
 const meta = {
@@ -48,12 +48,13 @@ export const WithField: Story = {
   render: () => (
     <div className="flex max-w-form flex-col gap-6">
       <Field>
-        <FieldLabel>Nombre</FieldLabel>
-        <Input name="name" placeholder="Polo oversize" />
+        <FieldLabel htmlFor="field-name">Nombre</FieldLabel>
+        <Input id="field-name" name="name" placeholder="Polo oversize" />
       </Field>
-      <Field error="El precio debe ser mayor a 0.">
-        <FieldLabel>Precio de venta (PEN)</FieldLabel>
-        <Input name="salePrice" type="number" inputMode="decimal" defaultValue="0" />
+      <Field data-invalid>
+        <FieldLabel htmlFor="field-sale-price">Precio de venta (PEN)</FieldLabel>
+        <Input id="field-sale-price" name="salePrice" type="number" inputMode="decimal" defaultValue="0" aria-invalid aria-describedby="field-sale-price-error" />
+        <FieldError id="field-sale-price-error">El precio debe ser mayor a 0.</FieldError>
       </Field>
     </div>
   ),

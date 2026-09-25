@@ -92,8 +92,8 @@ export const ProductList: Story = {
       </PageHeader>
       <form role="search" className="mt-6 flex flex-wrap items-end gap-3">
         <Field className="min-w-0 flex-1">
-          <FieldLabel>Buscar por nombre o SKU</FieldLabel>
-          <Input name="search" type="search" placeholder="Polo, gorra…" />
+          <FieldLabel htmlFor="pattern-search">Buscar por nombre o SKU</FieldLabel>
+          <Input id="pattern-search" name="search" type="search" placeholder="Polo, gorra…" />
         </Field>
         <Button type="submit">Buscar</Button>
       </form>

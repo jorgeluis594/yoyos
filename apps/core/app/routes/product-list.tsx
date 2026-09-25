@@ -83,8 +83,8 @@ export default function ProductList() {
     </PageHeader>
     <Form method="get" role="search" className="mt-6 flex flex-wrap items-end gap-3">
       <Field className="min-w-0 flex-1">
-        <FieldLabel>Buscar por nombre o SKU</FieldLabel>
-        <Input name="search" type="search" defaultValue={search} />
+        <FieldLabel htmlFor="product-search">Buscar por nombre o SKU</FieldLabel>
+        <Input id="product-search" name="search" type="search" defaultValue={search} />
       </Field>
       <Button type="submit">Buscar</Button>
     </Form>
