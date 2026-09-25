@@ -37,7 +37,7 @@ function setup(initial: Product = sample(), options: { imageExists?: boolean; im
   let clockReads = 0;
   const deps: UpdateDependencies = {
     repository: {
-      async get(_companyId, id) { return options.readError ? err({ code: "INVALID_STORED_DATA" as const, message: "Stored product data is invalid" }) : ok(stored.id === id ? stored : null); },
+      async get(id) { return options.readError ? err({ code: "INVALID_STORED_DATA" as const, message: "Stored product data is invalid" }) : ok(stored.id === id ? stored : null); },
       async update(_companyId, id, changes) {
         updates.push(changes);
         return options.updateFails ? { success: false as const, error: { code: "DUPLICATE_SKU" as const, message: "SKU is already used" } } : { success: true as const, data: id };

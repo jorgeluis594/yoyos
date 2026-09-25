@@ -23,13 +23,14 @@ test("product persistence is atomic, isolated, and constrained", async () => {
   const companyB = randomUUID() as CompanyId;
   const imageId = randomUUID() as ImageId;
   let foreignProductId: ProductId | undefined;
+  let companyAProductId: ProductId | undefined;
   let foreignVariantId: VariantId | undefined;
   const { prisma, withTenantIsolation } = await import("@core/src/shared/infrastructure/persistance");
   const { productRepository } = await import("@core/src/features/products/infrastructure/repository");
   const { createProduct } = await import("@core/src/features/products/application/create");
   const { getProduct } = await import("@core/src/features/products/application/get");
-  await expect(productRepository.get(companyA, randomUUID() as ProductId)).rejects.toThrow("Company context is required");
-  const newDeps = () => ({ repository: productRepository, findImage: async (companyId: CompanyId, id: ImageId) => ok(!!(await prisma.image.findFirst({ where: { companyId, id } }))), newId: randomUUID, clock: () => new Date("2026-09-24T00:00:00.000Z") });
+  await expect(productRepository.get(randomUUID() as ProductId)).resolves.toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
+  const newDeps = () => ({ repository: productRepository, findImage: async (id: ImageId) => ok(!!(await prisma.image.findUnique({ where: { id } }))), newId: randomUUID, clock: () => new Date("2026-09-24T00:00:00.000Z") });
   const base = (sku?: string): CreateInput => ({ name: "Camisa", currency: "PEN", variants: [{ attributes: {}, salePrice: 19.99, purchasePrice: 0, ...(sku === undefined ? {} : { sku }), initialStock: 4 }] });
   try {
     for (const id of [companyA, companyB]) await withTenantIsolation(id, async () => await prisma.company.create({ data: { id, name: id, country: "PE" } }));
@@ -42,7 +43,8 @@ test("product persistence is atomic, isolated, and constrained", async () => {
       ] }, newDeps());
       expect(first.success).toBe(true);
       if (!first.success) return;
-      const result = await getProduct(companyA, first.data, { repository: productRepository, resolveImage: async () => null });
+      companyAProductId = first.data;
+      const result = await getProduct(first.data, { repository: productRepository, resolveImage: async () => null });
       expect(result.success && result.data?.product.variants).toEqual(expect.arrayContaining([
         expect.objectContaining({ sku: "A-1", salePrice: { amount: 19.99, currency: "PEN" }, purchasePrice: { amount: 0, currency: "PEN" }, stock: expect.objectContaining({ quantity: 4 }) }),
         expect.objectContaining({ salePrice: { amount: 999999999.99, currency: "PEN" }, stock: expect.objectContaining({ quantity: 0 }) }),
@@ -59,7 +61,7 @@ test("product persistence is atomic, isolated, and constrained", async () => {
       const largeStock = await createProduct(companyA, { ...base(), variants: [{ attributes: {}, salePrice: 1, initialStock: Number.MAX_SAFE_INTEGER }] }, newDeps());
       expect(largeStock.success).toBe(true);
       if (largeStock.success) {
-        const loaded = await productRepository.get(companyA, largeStock.data);
+        const loaded = await productRepository.get(largeStock.data);
         expect(loaded.success && loaded.data?.variants[0].stock.quantity).toBe(Number.MAX_SAFE_INTEGER);
       }
       if (!result.success || !result.data) throw new Error("Product was not loaded");
@@ -78,23 +80,24 @@ test("product persistence is atomic, isolated, and constrained", async () => {
         { attributes: { color: "rojo" }, salePrice: 2 },
       ] }, { ...newDeps(), newId: () => suppliedIds.shift()! })).rejects.toThrow();
       expect(await prisma.product.findFirst({ where: { id: rollbackId } })).toBeNull();
-      const loadedFirst = await productRepository.get(companyA, first.data);
+      const loadedFirst = await productRepository.get(first.data);
       expect(loadedFirst.success && loadedFirst.data).not.toBeNull();
-      await expect(productRepository.get(companyB, first.data)).rejects.toThrow("Company context mismatch");
+      expect(await (await import("@core/src/shared/images/infrastructure/image-repository")).imageRepository.find(imageId)).toEqual({ success: true, data: null });
     });
 
     await withTenantIsolation(companyB, async () => {
+      expect(await productRepository.get(companyAProductId!)).toEqual({ success: true, data: null });
       const sameSku = await createProduct(companyB, base("a-1"), newDeps());
       expect(sameSku.success).toBe(true);
       if (!sameSku.success) throw new Error("Product was not created");
       foreignProductId = sameSku.data;
-      const loadedSameSku = await productRepository.get(companyB, sameSku.data);
+      const loadedSameSku = await productRepository.get(sameSku.data);
       if (!loadedSameSku.success || !loadedSameSku.data) throw new Error("Product was not loaded");
       foreignVariantId = loadedSameSku.data.variants[0].id;
       const imageProduct = await createProduct(companyB, { ...base(), imageId }, newDeps());
       expect(imageProduct.success).toBe(true);
       if (imageProduct.success) {
-        const detail = await getProduct(companyB, imageProduct.data, { repository: productRepository, resolveImage: async (_companyId, id) => ({ id, url: "https://example.test/image" }) });
+        const detail = await getProduct(imageProduct.data, { repository: productRepository, resolveImage: async (id) => ({ id, url: "https://example.test/image" }) });
         expect(detail.success && detail.data?.image?.url).toBe("https://example.test/image");
       }
     });
@@ -102,7 +105,7 @@ test("product persistence is atomic, isolated, and constrained", async () => {
     await withTenantIsolation(companyA, async () => {
       const foreign = await prisma.product.findFirst({ where: { companyId: companyB } });
       expect(foreign).toBeNull();
-      expect(await getProduct(companyA, foreignProductId!, { repository: productRepository, resolveImage: async () => null })).toEqual({ success: true, data: null });
+      expect(await getProduct(foreignProductId!, { repository: productRepository, resolveImage: async () => null })).toEqual({ success: true, data: null });
       const productId = randomUUID();
       const variantId = randomUUID();
       await expect(prisma.product.create({ data: { id: productId, companyId: companyA, name: "Wrong image", imageId, currency: "PEN", qrCode: randomUUID(), status: "active", createdAt: new Date(), updatedAt: new Date() } })).rejects.toThrow();

@@ -28,12 +28,12 @@ test("catalog searches distinct products and summarizes all variants within the 
     ]);
     await withTenantIsolation(companyB, () => add(companyB, "Match foreign", [{ sku: "MATCH-SECRET", price: 1, stock: 100 }]));
     await withTenantIsolation(companyA, async () => {
-      const match = await listProducts(companyA, { search: " mAtCh ", pageSize: 1 }, productRepository);
+      const match = await listProducts({ search: " mAtCh ", pageSize: 1 }, productRepository);
       expect(match.success).toBe(true);
       if (!match.success) return;
       expect(match.data.total).toBe(2);
       expect(match.data.items).toHaveLength(1);
-      const next = await listProducts(companyA, { search: "match", page: 2, pageSize: 1 }, productRepository);
+      const next = await listProducts({ search: "match", page: 2, pageSize: 1 }, productRepository);
       expect(next.success).toBe(true);
       if (!next.success) return;
       expect([match.data.items[0].id, next.data.items[0].id]).toEqual([ids[0], ids[1]].sort());
@@ -41,15 +41,15 @@ test("catalog searches distinct products and summarizes all variants within the 
       expect(all.find((item) => item.id === ids[0])).toMatchObject({ variantCount: 3, minSalePrice: { amount: 20, currency: "PEN" }, hasDifferentPrices: true, totalStock: 9 });
       expect(all.find((item) => item.id === ids[1])).toMatchObject({ variantCount: 2, minSalePrice: { amount: 10 }, hasDifferentPrices: false, totalStock: 3 });
       expect(all.every((item) => item.sku === undefined)).toBe(true);
-      const empty = await listProducts(companyA, { search: "secret" }, productRepository);
+      const empty = await listProducts({ search: "secret" }, productRepository);
       expect(empty).toMatchObject({ success: true, data: { items: [], total: 0 } });
-      expect(await listProducts(companyA, { search: "%" }, productRepository)).toMatchObject({ success: true, data: { items: [], total: 0 } });
-      expect(await listProducts(companyA, { search: "_" }, productRepository)).toMatchObject({ success: true, data: { items: [], total: 0 } });
-      const third = await listProducts(companyA, { page: 3, pageSize: 1 }, productRepository);
+      expect(await listProducts({ search: "%" }, productRepository)).toMatchObject({ success: true, data: { items: [], total: 0 } });
+      expect(await listProducts({ search: "_" }, productRepository)).toMatchObject({ success: true, data: { items: [], total: 0 } });
+      const third = await listProducts({ page: 3, pageSize: 1 }, productRepository);
       expect(third).toMatchObject({ success: true, data: { total: 3, items: [{ id: [...ids].sort()[2] }] } });
-      const unrelated = await listProducts(companyA, { search: "unrelated" }, productRepository);
+      const unrelated = await listProducts({ search: "unrelated" }, productRepository);
       expect(unrelated).toMatchObject({ success: true, data: { total: 1, items: [{ id: ids[2], variantCount: 1, sku: "SOLO", hasDifferentPrices: false, totalStock: 0 }] } });
-      expect(await listProducts(companyA, { search: "solo" }, productRepository)).toMatchObject({ success: true, data: { total: 1, items: [{ id: ids[2] }] } });
+      expect(await listProducts({ search: "solo" }, productRepository)).toMatchObject({ success: true, data: { total: 1, items: [{ id: ids[2] }] } });
     });
   } finally {
     for (const id of [companyA, companyB]) await withTenantIsolation(id, async () => {

@@ -21,7 +21,7 @@ export type CreateError = ValidationError
   | ImageLookupError;
 export type CreateDependencies = Readonly<{
   repository: Pick<ProductRepository, "create">;
-  findImage: (companyId: CompanyId, imageId: ImageId) => Promise<Result<boolean, ImageLookupError>>;
+  findImage: (imageId: ImageId) => Promise<Result<boolean, ImageLookupError>>;
   newId: () => string;
   clock: () => Date;
 }>;
@@ -30,7 +30,7 @@ export async function createProduct(companyId: CompanyId, input: CreateInput, de
   const validated = validateCreate(input);
   if (!validated.value) return err({ code: "VALIDATION_ERROR", message: "Invalid product", issues: validated.issues as ValidationError["issues"] });
   if (input.imageId !== undefined) {
-    const image = await deps.findImage(companyId, input.imageId);
+    const image = await deps.findImage(input.imageId);
     if (!image.success) return image;
     if (!image.data) return err({ code: "IMAGE_NOT_FOUND", message: "Image is unavailable" });
   }

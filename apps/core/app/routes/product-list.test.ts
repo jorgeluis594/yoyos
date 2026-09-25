@@ -11,9 +11,9 @@ afterEach(() => vi.restoreAllMocks());
 test("passes URL criteria to the catalog operation", async () => {
   const list = vi.spyOn(products, "list").mockResolvedValue({ success: true, data: { items: [], page: 2, pageSize: 20, total: 0 } });
   expect(await loader(args("http://localhost/es-PE/products?search=blue&page=2"))).toMatchObject({ search: "blue", list: { page: 2 } });
-  expect(list).toHaveBeenCalledWith("00000000-0000-4000-8000-000000000001", { search: "blue", page: 2 });
+  expect(list).toHaveBeenCalledWith({ search: "blue", page: 2 });
   await loader(args("http://localhost/es-PE/products?page=0x10"));
-  expect(list).toHaveBeenLastCalledWith("00000000-0000-4000-8000-000000000001", { page: NaN });
+  expect(list).toHaveBeenLastCalledWith({ page: NaN });
 });
 
 test("keeps invalid criteria and technical failures distinct", async () => {

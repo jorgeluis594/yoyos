@@ -22,8 +22,8 @@ describe("images use cases", () => {
   it("returns the stored ID and URL and resolves a tenant image", async () => {
     const { storage, repository } = setup();
     expect(await uploadImage(companyId, input, storage, repository)).toEqual({ success: true, data: { id, url: "https://example.test/image" } });
-    expect(await getImage(companyId, id, storage, repository)).toEqual({ success: true, data: { id, url: "https://example.test/image" } });
-    expect(repository.find).toHaveBeenCalledWith(companyId, id);
+    expect(await getImage(id, storage, repository)).toEqual({ success: true, data: { id, url: "https://example.test/image" } });
+    expect(repository.find).toHaveBeenCalledWith(id);
   });
 
   it("deletes the remote file when local persistence fails", async () => {
@@ -88,7 +88,7 @@ describe("images use cases", () => {
   it("propagates repository read failures without requesting a URL", async () => {
     const { storage, repository } = setup();
     repository.find = vi.fn(async () => ({ success: false as const, error: { code: "PERSISTENCE_UNAVAILABLE" as const, message: "database down" } }));
-    expect(await getImage(companyId, id, storage, repository)).toEqual({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE", message: "database down" } });
+    expect(await getImage(id, storage, repository)).toEqual({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE", message: "database down" } });
     expect(storage.getUrl).not.toHaveBeenCalled();
   });
 });

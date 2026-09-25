@@ -10,7 +10,7 @@ export type ImageLookupError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; messa
 
 export type ImageRepository = {
   create(companyId: string, storageKey: string): Promise<Result<{ id: string }>>;
-  find(companyId: string, id: string): Promise<Result<{ id: string; storageKey: string } | null, ImageLookupError>>;
+  find(id: string): Promise<Result<{ id: string; storageKey: string } | null, ImageLookupError>>;
 };
 
 async function compensate(storage: ImageStorage, key: string, cause: unknown): Promise<void> {
@@ -50,12 +50,11 @@ export async function uploadImage(
 }
 
 export async function getImage(
-  companyId: string,
   id: string,
   storage: ImageStorage,
   repository: ImageRepository,
 ): Promise<Result<{ id: string; url: string } | null>> {
-  const image = await repository.find(companyId, id);
+  const image = await repository.find(id);
   if (!image.success) return image;
   if (!image.data) return { success: true, data: null };
   const url = await storage.getUrl(image.data.storageKey);

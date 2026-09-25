@@ -17,12 +17,12 @@ export type UpdateError = ValidationError
   | ImageLookupError;
 export type UpdateDependencies = Readonly<{
   repository: Pick<ProductRepository, "get" | "update">;
-  findImage: (companyId: CompanyId, imageId: ImageId) => Promise<Result<boolean, ImageLookupError>>;
+  findImage: (imageId: ImageId) => Promise<Result<boolean, ImageLookupError>>;
   clock: () => Date;
 }>;
 
 export async function updateProduct(companyId: CompanyId, productId: ProductId, input: UpdateInput, deps: UpdateDependencies): Promise<Result<ProductId, UpdateError>> {
-  const loaded = await deps.repository.get(companyId, productId);
+  const loaded = await deps.repository.get(productId);
   if (!loaded.success) return loaded;
   const current = loaded.data;
   if (!current) return err({ code: "PRODUCT_NOT_FOUND", message: "Product does not exist" });
@@ -30,7 +30,7 @@ export async function updateProduct(companyId: CompanyId, productId: ProductId, 
   if (!validated.value) return err({ code: "VALIDATION_ERROR", message: "Invalid product", issues: validated.issues as ValidationError["issues"] });
   const imageId = validated.value.imageId;
   if (typeof imageId === "string") {
-    const image = await deps.findImage(companyId, imageId);
+    const image = await deps.findImage(imageId);
     if (!image.success) return image;
     if (!image.data) return err({ code: "IMAGE_NOT_FOUND", message: "Image is unavailable" });
   }

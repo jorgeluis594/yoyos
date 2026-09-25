@@ -72,7 +72,7 @@ export function imageRoutes(storage: ImageStorage, repository: ImageRepository) 
   router.get("/:id", async (request, response) => {
     const id = request.params.id;
     if (typeof id !== "string" || !uuid.test(id)) return apiError(response, 404, "NOT_FOUND", "Not found");
-    const result = await getImage(getCompanyId(), id, storage, repository);
+    const result = await getImage(id, storage, repository);
     if (!result.success) return sendFailure(response, result.error.code);
     return result.data ? sendResult(response, result.data) : apiError(response, 404, "NOT_FOUND", "Not found");
   });

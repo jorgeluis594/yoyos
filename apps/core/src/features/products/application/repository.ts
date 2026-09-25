@@ -13,6 +13,6 @@ export type UpdateChanges = Readonly<{ product: ProductChanges; variants: readon
 export type ProductRepository = Readonly<{
   create(companyId: CompanyId, product: Product): Promise<Result<ProductId, CreateError>>;
   update(companyId: CompanyId, id: ProductId, changes: UpdateChanges): Promise<Result<ProductId, UpdateError>>;
-  get(companyId: CompanyId, id: ProductId): Promise<Result<Product | null, ProductReadError>>;
-  list(companyId: CompanyId, criteria: Criteria): Promise<ListOutput>;
+  get(id: ProductId): Promise<Result<Product | null, ProductReadError>>;
+  list(criteria: Criteria): Promise<ListOutput>;
 }>;

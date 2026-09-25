@@ -19,9 +19,9 @@ export const imageRepository: ImageRepository = {
       return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to create image record" });
     }
   },
-  async find(companyId, id) {
+  async find(id) {
     try {
-      return ok(await prisma.image.findFirst({ where: { companyId, id }, select: { id: true, storageKey: true } }));
+      return ok(await prisma.image.findUnique({ where: { id }, select: { id: true, storageKey: true } }));
     } catch (cause) {
       if (!isPersistenceFailure(cause)) throw cause;
       console.error("Unable to find image record", cause);

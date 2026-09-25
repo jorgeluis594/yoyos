@@ -17,7 +17,7 @@ export async function loader({ context, params, request }: LoaderFunctionArgs) {
   if (!params.productId || !uuid.test(params.productId)) throw new Response("Not found", { status: 404 });
   const company = context.get(privateUserContext).company;
   try {
-    const result = await products.get(company.id as CompanyId, params.productId as ProductId);
+    const result = await products.get(params.productId as ProductId);
     if (!result.success) throw new Response("La imagen no está disponible.", { status: 503 });
     if (!result.data) throw new Response("Not found", { status: 404 });
     const { product } = result.data;

@@ -96,11 +96,10 @@ export const productRepository: ProductRepository = {
       throw error;
     }
   },
-  async get(companyId, id) {
-    if (getCompanyId() !== companyId) throw new Error("Company context mismatch");
+  async get(id) {
     let row: DbAggregate | null;
     try {
-      row = await prisma.product.findFirst({ where: { companyId, id }, include: { variants: { include: { stock: true }, orderBy: { id: "asc" } } } });
+      row = await prisma.product.findUnique({ where: { id }, include: { variants: { include: { stock: true }, orderBy: { id: "asc" } } } });
     } catch {
       return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to read product" });
     }
@@ -111,14 +110,12 @@ export const productRepository: ProductRepository = {
       return err({ code: "INVALID_STORED_DATA", message: "Stored product data is invalid" });
     }
   },
-  async list(companyId, criteria) {
-    if (getCompanyId() !== companyId) throw new Error("Company context mismatch");
+  async list(criteria) {
     const search = criteria.search?.replace(/[\\%_]/g, "\\$&");
     const where: Prisma.ProductWhereInput = {
-      companyId,
       ...(search ? { OR: [
         { name: { contains: search, mode: "insensitive" } },
-        { variants: { some: { companyId, sku: { contains: search, mode: "insensitive" } } } },
+        { variants: { some: { sku: { contains: search, mode: "insensitive" } } } },
       ] } : {}),
     };
     const [rows, total] = await Promise.all([

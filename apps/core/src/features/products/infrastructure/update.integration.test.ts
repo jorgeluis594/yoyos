@@ -22,7 +22,7 @@ test("product updates persist effective changes, ignore no-ops, and roll back at
     { attributes: { Talla: "L" }, sku: "CAM-L", salePrice: 25, initialStock: 6 },
   ] };
   const getStored = async (companyId: CompanyId, id: ProductId) => {
-    const result = await productRepository.get(companyId, id);
+    const result = await productRepository.get(id);
     if (!result.success || !result.data) throw new Error("Product was not loaded");
     return result.data;
   };

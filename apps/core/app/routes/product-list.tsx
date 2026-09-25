@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { privateUserContext } from "@/private-user-context";
 import { products } from "@core/src/features/products/composition";
-import type { CompanyId } from "@core/src/features/products/domain/product";
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const company = context.get(privateUserContext).company;
@@ -19,7 +18,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     ...(query.has("pageSize") ? { pageSize: numberParam("pageSize") } : {}),
   };
   try {
-    const result = await products.list(company.id as CompanyId, input);
+    const result = await products.list(input);
     if (!result.success) throw new Response("Criterios de búsqueda no válidos.", { status: 400 });
     return { list: result.data, search: input.search?.trim() ?? "", base: `/es-${company.country}/products` };
   } catch (cause) {

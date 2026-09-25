@@ -2,14 +2,14 @@ import { Prisma } from "@prisma/client";
 import { afterEach, expect, it, vi } from "vitest";
 import { imageRepository } from "@core/src/shared/images/infrastructure/image-repository";
 
-const queries = vi.hoisted(() => ({ create: vi.fn(), findFirst: vi.fn() }));
+const queries = vi.hoisted(() => ({ create: vi.fn(), findUnique: vi.fn() }));
 vi.mock("@core/src/shared/infrastructure/persistance", () => ({ prisma: { image: queries } }));
 
 afterEach(() => vi.restoreAllMocks());
 
 const operations = [
   { name: "create", query: queries.create, run: () => imageRepository.create("company", "remote") },
-  { name: "find", query: queries.findFirst, run: () => imageRepository.find("company", "image") },
+  { name: "find", query: queries.findUnique, run: () => imageRepository.find("image") },
 ];
 const prismaFailures = [
   new Prisma.PrismaClientKnownRequestError("database down", { code: "P1001", clientVersion: "7.10.0" }),
