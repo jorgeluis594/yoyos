@@ -4,6 +4,7 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import type { CreateInput } from "@core/src/features/products/application/create";
 import type { CompanyId, ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
+import { ok } from "@shared/functional";
 
 test("product persistence is atomic, isolated, and constrained", async () => {
   expect(process.env.DATABASE_URL, "run sh scripts/run-tests.sh integration").toBeTruthy();
@@ -28,7 +29,7 @@ test("product persistence is atomic, isolated, and constrained", async () => {
   const { createProduct } = await import("@core/src/features/products/application/create");
   const { getProduct } = await import("@core/src/features/products/application/get");
   await expect(productRepository.get(companyA, randomUUID() as ProductId)).rejects.toThrow("Company context is required");
-  const newDeps = () => ({ repository: productRepository, findImage: async (companyId: CompanyId, id: ImageId) => !!(await prisma.image.findFirst({ where: { companyId, id } })), newId: randomUUID, clock: () => new Date("2026-09-24T00:00:00.000Z") });
+  const newDeps = () => ({ repository: productRepository, findImage: async (companyId: CompanyId, id: ImageId) => ok(!!(await prisma.image.findFirst({ where: { companyId, id } }))), newId: randomUUID, clock: () => new Date("2026-09-24T00:00:00.000Z") });
   const base = (sku?: string): CreateInput => ({ name: "Camisa", currency: "PEN", variants: [{ attributes: {}, salePrice: 19.99, purchasePrice: 0, ...(sku === undefined ? {} : { sku }), initialStock: 4 }] });
   try {
     for (const id of [companyA, companyB]) await withTenantIsolation(id, async () => await prisma.company.create({ data: { id, name: id, country: "PE" } }));

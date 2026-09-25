@@ -49,6 +49,7 @@ function translate(error: CreateError | UpdateError | InputError): FormErrors {
   if (error.code === "PRODUCT_NOT_FOUND") return { form: "El producto ya no está disponible." };
   if (error.code === "DUPLICATE_SKU") return { sku: "Este SKU ya está en uso." };
   if (error.code === "IMAGE_NOT_FOUND") return { form: "La imagen ya no está disponible." };
+  if (error.code === "PERSISTENCE_UNAVAILABLE") return { form: "No se pudo verificar la imagen. Inténtalo de nuevo." };
   if (error.code === "MALFORMED_JSON") return { form: "La solicitud no es válida. Inténtalo de nuevo." };
   if (error.code === "INVALID_INPUT") return inputErrors(error);
   return validationErrors(error);

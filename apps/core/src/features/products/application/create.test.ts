@@ -1,13 +1,16 @@
 import { describe, expect, test } from "vitest";
 import { createProduct, type CreateInput } from "@core/src/features/products/application/create";
 import { getProduct } from "@core/src/features/products/application/get";
-import type { CompanyId, Product, ProductId } from "@core/src/features/products/domain/product";
+import type { CompanyId, ImageId, Product, ProductId } from "@core/src/features/products/domain/product";
 import { countryCurrencies } from "@shared/country";
+import { err, ok } from "@shared/functional";
+import type { ImageLookupError } from "@core/src/shared/images/application/images";
+import type { Result } from "@shared/result";
 
 const companyId = "00000000-0000-4000-8000-000000000001" as CompanyId;
 const base: CreateInput = { name: " Camisa ", currency: "PEN", variants: [{ attributes: {}, salePrice: 20 }] };
 
-function setup() {
+function setup(image: Result<boolean, ImageLookupError> = ok(true)) {
   let stored: Product | null = null;
   let writes = 0;
   let counter = 0;
@@ -16,7 +19,7 @@ function setup() {
       async create(_companyId: CompanyId, product: Product) { stored = product; writes++; return { success: true as const, data: product.id }; },
       async get(_companyId: CompanyId, id: ProductId) { return stored?.id === id ? stored : null; },
     },
-    findImage: async () => true,
+    findImage: async () => image,
     newId: () => `00000000-0000-4000-8000-${String(++counter).padStart(12, "0")}`,
     clock: () => new Date("2026-09-24T00:00:00.000Z"),
   };
@@ -24,6 +27,18 @@ function setup() {
 }
 
 describe("create product", () => {
+  test("rejects missing images and preserves lookup failures without writing", async () => {
+    const imageId = "00000000-0000-4000-8000-000000000099" as ImageId;
+    const missing = setup(ok(false));
+    expect(await createProduct(companyId, { ...base, imageId }, missing.deps)).toMatchObject({ success: false, error: { code: "IMAGE_NOT_FOUND" } });
+    expect(missing.writes).toBe(0);
+
+    const failure = { code: "PERSISTENCE_UNAVAILABLE" as const, message: "database down" };
+    const unavailable = setup(err(failure));
+    expect(await createProduct(companyId, { ...base, imageId }, unavailable.deps)).toEqual(err(failure));
+    expect(unavailable.writes).toBe(0);
+  });
+
   test("creates and retrieves complete immutable values", async () => {
     const context = setup();
     const input: CreateInput = { ...base, variants: [

@@ -5,6 +5,7 @@ import { createProduct, type CreateInput } from "@core/src/features/products/app
 import { updateProduct } from "@core/src/features/products/application/update";
 import { productRepository } from "@core/src/features/products/infrastructure/repository";
 import type { CompanyId, ProductId, VariantId } from "@core/src/features/products/domain/product";
+import { ok } from "@shared/functional";
 
 test("product updates persist effective changes, ignore no-ops, and roll back atomically", async () => {
   expect(process.env.DATABASE_URL, "run sh scripts/run-tests.sh integration").toBeTruthy();
@@ -12,7 +13,7 @@ test("product updates persist effective changes, ignore no-ops, and roll back at
   const companyB = randomUUID() as CompanyId;
   const deps = {
     repository: productRepository,
-    findImage: async () => true,
+    findImage: async () => ok(true),
     clock: () => new Date("2026-12-01T00:00:00.000Z"),
   };
   const createDeps = { ...deps, newId: randomUUID, clock: () => new Date("2026-09-24T00:00:00.000Z") };

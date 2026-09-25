@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import { updateProduct, type UpdateDependencies, type UpdateInput } from "@core/src/features/products/application/update";
 import type { UpdateChanges } from "@core/src/features/products/application/repository";
 import type { CompanyId, ImageId, Product, ProductId, VariantId } from "@core/src/features/products/domain/product";
+import { err, ok } from "@shared/functional";
 
 const companyId = "00000000-0000-4000-8000-000000000001" as CompanyId;
 const productId = "00000000-0000-4000-8000-000000000010" as ProductId;
@@ -30,7 +31,7 @@ function multiVariant(): Product {
   }] };
 }
 
-function setup(initial: Product = sample(), options: { imageExists?: boolean; updateFails?: boolean } = {}) {
+function setup(initial: Product = sample(), options: { imageExists?: boolean; imageError?: boolean; updateFails?: boolean } = {}) {
   const stored = initial;
   const updates: UpdateChanges[] = [];
   let clockReads = 0;
@@ -42,7 +43,7 @@ function setup(initial: Product = sample(), options: { imageExists?: boolean; up
         return options.updateFails ? { success: false as const, error: { code: "DUPLICATE_SKU" as const, message: "SKU is already used" } } : { success: true as const, data: id };
       },
     },
-    findImage: async () => options.imageExists ?? true,
+    findImage: async () => options.imageError ? err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "database down" }) : ok(options.imageExists ?? true),
     clock: () => { clockReads += 1; return new Date("2026-10-01T00:00:00.000Z"); },
   };
   return { deps, updates, get clockReads() { return clockReads; }, get stored() { return stored; } };
@@ -133,6 +134,14 @@ describe("update product", () => {
     const cleared = setup({ ...sample(), imageId });
     expect(await updateProduct(companyId, productId, { imageId: null }, cleared.deps)).toEqual({ success: true, data: productId });
     expect(cleared.updates[0].product.imageId).toBeNull();
+  });
+
+  test("preserves image lookup failure without writing", async () => {
+    const context = setup(sample(), { imageError: true });
+    const imageId = "00000000-0000-4000-8000-000000000099" as ImageId;
+    expect(await updateProduct(companyId, productId, { imageId }, context.deps)).toEqual(err({ code: "PERSISTENCE_UNAVAILABLE", message: "database down" }));
+    expect(context.updates).toHaveLength(0);
+    expect(context.clockReads).toBe(0);
   });
 
   test("returns the duplicate-SKU failure reported by persistence", async () => {

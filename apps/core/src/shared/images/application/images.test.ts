@@ -63,7 +63,7 @@ describe("images use cases", () => {
 
   it("propagates repository read failures without requesting a URL", async () => {
     const { storage, repository } = setup();
-    repository.find = vi.fn(async () => ({ success: false as const, error: { code: "PERSISTENCE_UNAVAILABLE", message: "database down" } }));
+    repository.find = vi.fn(async () => ({ success: false as const, error: { code: "PERSISTENCE_UNAVAILABLE" as const, message: "database down" } }));
     expect(await getImage(companyId, id, storage, repository)).toEqual({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE", message: "database down" } });
     expect(storage.getUrl).not.toHaveBeenCalled();
   });

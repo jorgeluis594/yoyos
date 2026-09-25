@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { map } from "@shared/functional";
 import { getImage } from "@core/src/shared/images/application/images";
 import { imageRepository } from "@core/src/shared/images/infrastructure/image-repository";
 import { createR2ImageStorage } from "@core/src/shared/images/infrastructure/r2-image-storage";
@@ -20,13 +21,17 @@ async function resolveImage(companyId: Parameters<typeof getProduct>[0], imageId
   return result.data ? { id: result.data.id as typeof imageId, url: result.data.url } : null;
 }
 
+async function findImage(companyId: Parameters<typeof createProduct>[0], imageId: NonNullable<Parameters<typeof createProduct>[1]["imageId"]>) {
+  return map(await imageRepository.find(companyId, imageId), (image) => image !== null);
+}
+
 export const products = {
   create: (companyId: Parameters<typeof createProduct>[0], input: Parameters<typeof createProduct>[1]) =>
-    createProduct(companyId, input, { repository: productRepository, findImage: async (companyId, imageId) => !!(await imageRepository.find(companyId, imageId)), newId: randomUUID, clock: () => new Date() }),
+    createProduct(companyId, input, { repository: productRepository, findImage, newId: randomUUID, clock: () => new Date() }),
   get: (companyId: Parameters<typeof getProduct>[0], id: Parameters<typeof getProduct>[1]) =>
     getProduct(companyId, id, { repository: productRepository, resolveImage }),
   update: (companyId: Parameters<typeof updateProduct>[0], id: Parameters<typeof updateProduct>[1], input: Parameters<typeof updateProduct>[2]) =>
-    updateProduct(companyId, id, input, { repository: productRepository, findImage: async (companyId, imageId) => !!(await imageRepository.find(companyId, imageId)), clock: () => new Date() }),
+    updateProduct(companyId, id, input, { repository: productRepository, findImage, clock: () => new Date() }),
   list: (companyId: Parameters<typeof listProducts>[0], input: Parameters<typeof listProducts>[1]) =>
     listProducts(companyId, input, productRepository),
 };

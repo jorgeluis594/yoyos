@@ -6,9 +6,11 @@ export interface ImageStorage {
   delete(key: string): Promise<Result<void>>;
 }
 
+export type ImageLookupError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
+
 export type ImageRepository = {
   create(companyId: string, storageKey: string): Promise<Result<{ id: string }>>;
-  find(companyId: string, id: string): Promise<Result<{ id: string; storageKey: string } | null>>;
+  find(companyId: string, id: string): Promise<Result<{ id: string; storageKey: string } | null, ImageLookupError>>;
 };
 
 async function compensate(storage: ImageStorage, key: string, cause: unknown): Promise<void> {

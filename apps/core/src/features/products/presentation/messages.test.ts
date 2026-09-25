@@ -10,11 +10,13 @@ test("translates typed product reasons to their fields in Spanish", () => {
     salePrice: "El precio de venta admite hasta 2 decimales.",
   });
   expect(createErrors({ code: "DUPLICATE_SKU", message: "Duplicate" })).toEqual({ sku: "Este SKU ya está en uso." });
+  expect(createErrors({ code: "PERSISTENCE_UNAVAILABLE", message: "database down" })).toEqual({ form: "No se pudo verificar la imagen. Inténtalo de nuevo." });
 });
 
 test("translates update failures without comparing technical messages", () => {
   expect(updateErrors({ code: "PRODUCT_NOT_FOUND", message: "Missing" })).toEqual({ form: "El producto ya no está disponible." });
   expect(updateErrors({ code: "DUPLICATE_SKU", message: "Duplicate" })).toEqual({ sku: "Este SKU ya está en uso." });
+  expect(updateErrors({ code: "PERSISTENCE_UNAVAILABLE", message: "database down" })).toEqual({ form: "No se pudo verificar la imagen. Inténtalo de nuevo." });
   expect(updateErrors({ code: "VALIDATION_ERROR", message: "Invalid", issues: [
     { scope: "variant", index: 0, field: "id", reason: "VARIANT_NOT_FOUND", message: "Foreign" },
   ] })).toEqual({ form: "La variante no pertenece a este producto." });
