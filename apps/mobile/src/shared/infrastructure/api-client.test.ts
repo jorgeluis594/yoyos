@@ -49,6 +49,18 @@ test("invalid JSON and network errors are returned without retry", async () => {
   expect(calls).toBe(2);
 });
 
+test("preserves image errors while keeping internal failures generic", async () => {
+  const session = {
+    getToken: async () => ok("token"),
+    renewToken: async () => ok("token"),
+    generation: () => 1,
+  };
+  for (const [status, code] of [[400, "INVALID_IMAGE"], [413, "IMAGE_TOO_LARGE"], [415, "UNSUPPORTED_MEDIA_TYPE"], [404, "NOT_FOUND"], [502, "IMAGE_STORAGE_UNAVAILABLE"], [503, "SERVICE_UNAVAILABLE"]] as const) {
+    const request = createApiClient(session, async () => Response.json({ code, error: "image failed" }, { status }));
+    expect(await request("/api/images")).toEqual({ success: false, error: { code, message: "image failed" } });
+  }
+});
+
 test("a late 401 reuses the refreshed token and a logout discards late API responses", async () => {
   let currentToken = "old-token";
   let generation = 1;

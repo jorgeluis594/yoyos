@@ -3,14 +3,19 @@ import { andThen, err, map, ok, traverse } from "@shared/functional";
 import type { Result } from "@shared/result";
 
 /** Monetary amount in major currency units. */
+export const currencies = ["PEN", "USD", "COP", "ARS", "CLP", "BRL"] as const;
+export type Currency = (typeof currencies)[number];
+export function isCurrency(value: unknown): value is Currency {
+  return typeof value === "string" && currencies.some((currency) => currency === value);
+}
+
 export type Money = {
-  amount: number;
-  currency: string;
+  readonly amount: number;
+  readonly currency: string;
 };
 
 // A finite number can reach 1e308; retain its cents during intermediate arithmetic.
 const DecimalMoney = Decimal.clone({ precision: 400 });
-const currencies = new Set(["PEN", "USD", "COP", "ARS", "CLP", "BRL"]);
 
 export type MoneyError = {
   message: string;
@@ -18,7 +23,7 @@ export type MoneyError = {
 };
 
 function validate(money: Money): Result<Decimal, MoneyError> {
-  if (typeof money.currency !== "string" || !currencies.has(money.currency)) {
+  if (!isCurrency(money.currency)) {
     return err({ message: "Unsupported currency", code: "INVALID_CURRENCY" });
   }
   if (typeof money.amount !== "number" || !Number.isFinite(money.amount)) {

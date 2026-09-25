@@ -18,7 +18,7 @@ const columns: TableColumn<Item>[] = [
 const props = { columns, caption: "Artículos de ejemplo", getRowId: (row: Item) => row.id };
 
 const meta = {
-  title: "UI/DataTable",
+  title: "Design System/Components/DataTable",
   decorators: [(Story: React.ComponentType) => <div className="mx-auto w-full max-w-5xl"><Story /></div>],
 } satisfies Meta;
 export default meta;

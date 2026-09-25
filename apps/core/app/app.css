@@ -41,6 +41,8 @@
   --radius-md: var(--radius-card);
   --radius-lg: var(--radius-overlay);
   --container-content: var(--content-max-width);
+  --container-form: var(--form-max-width);
+  --container-reader: var(--reader-max-width);
 }
 
 @layer base {
@@ -55,6 +57,7 @@
 @media (pointer: coarse), (width < 48rem) {
   [data-slot="button"], [data-slot="navigation-link"] { min-height: var(--touch-target-min-size); }
   [data-slot="button"][data-size^="icon"] { min-width: var(--touch-target-min-size); }
+  [data-slot="input"], [data-slot="select"] { min-height: var(--touch-target-min-size); }
 }
 
 /* Reflow the same semantic cells when the table's own space is limited. */

@@ -39,9 +39,9 @@ it("translates R2 upload and delete failures and rejects missing configuration",
   const logged = vi.spyOn(console, "error").mockImplementation(() => {});
   const storage = createR2ImageStorage(config);
   send.mockRejectedValueOnce(new Error("R2 unavailable"));
-  expect(await storage.upload({ bytes: new Uint8Array([1]), filename: "a.png", contentType: "image/png" })).toEqual({ success: false, error: { message: "Image upload failed" } });
+  expect(await storage.upload({ bytes: new Uint8Array([1]), filename: "a.png", contentType: "image/png" })).toEqual({ success: false, error: { code: "IMAGE_STORAGE_UNAVAILABLE", message: "Image upload failed" } });
   send.mockRejectedValueOnce(new Error("R2 unavailable"));
-  expect(await storage.delete("key")).toEqual({ success: false, error: { message: "Image deletion failed" } });
+  expect(await storage.delete("key")).toEqual({ success: false, error: { code: "IMAGE_STORAGE_UNAVAILABLE", message: "Image deletion failed" } });
   expect(logged).toHaveBeenCalledTimes(2);
-  expect((await createR2ImageStorage({ ...config, bucket: "" }).getUrl("key")).success).toBe(false);
+  expect(await createR2ImageStorage({ ...config, bucket: "" }).getUrl("key")).toEqual({ success: false, error: { code: "IMAGE_STORAGE_CONFIG_ERROR", message: "Image storage is not configured" } });
 });
