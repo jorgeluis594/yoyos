@@ -58,7 +58,10 @@ test("product persistence is atomic, isolated, and constrained", async () => {
       expect(await createProduct(companyA, base(), newDeps())).toMatchObject({ success: true });
       const largeStock = await createProduct(companyA, { ...base(), variants: [{ attributes: {}, salePrice: 1, initialStock: Number.MAX_SAFE_INTEGER }] }, newDeps());
       expect(largeStock.success).toBe(true);
-      if (largeStock.success) expect((await productRepository.get(companyA, largeStock.data))?.variants[0].stock.quantity).toBe(Number.MAX_SAFE_INTEGER);
+      if (largeStock.success) {
+        const loaded = await productRepository.get(companyA, largeStock.data);
+        expect(loaded.success && loaded.data?.variants[0].stock.quantity).toBe(Number.MAX_SAFE_INTEGER);
+      }
       if (!result.success || !result.data) throw new Error("Product was not loaded");
       await expect(prisma.productStock.update({ where: { variantId: result.data.product.variants[0].id }, data: { quantity: -1n } })).rejects.toThrow();
       const directVariant = () => ({ id: randomUUID(), companyId: companyA, productId: first.data, attributes: {}, salePrice: 1, qrCode: randomUUID(), status: "active" });
@@ -75,7 +78,8 @@ test("product persistence is atomic, isolated, and constrained", async () => {
         { attributes: { color: "rojo" }, salePrice: 2 },
       ] }, { ...newDeps(), newId: () => suppliedIds.shift()! })).rejects.toThrow();
       expect(await prisma.product.findFirst({ where: { id: rollbackId } })).toBeNull();
-      expect(await productRepository.get(companyA, first.data)).not.toBeNull();
+      const loadedFirst = await productRepository.get(companyA, first.data);
+      expect(loadedFirst.success && loadedFirst.data).not.toBeNull();
       await expect(productRepository.get(companyB, first.data)).rejects.toThrow("Company context mismatch");
     });
 
@@ -84,7 +88,9 @@ test("product persistence is atomic, isolated, and constrained", async () => {
       expect(sameSku.success).toBe(true);
       if (!sameSku.success) throw new Error("Product was not created");
       foreignProductId = sameSku.data;
-      foreignVariantId = (await productRepository.get(companyB, sameSku.data))!.variants[0].id;
+      const loadedSameSku = await productRepository.get(companyB, sameSku.data);
+      if (!loadedSameSku.success || !loadedSameSku.data) throw new Error("Product was not loaded");
+      foreignVariantId = loadedSameSku.data.variants[0].id;
       const imageProduct = await createProduct(companyB, { ...base(), imageId }, newDeps());
       expect(imageProduct.success).toBe(true);
       if (imageProduct.success) {

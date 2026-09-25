@@ -98,8 +98,18 @@ export const productRepository: ProductRepository = {
   },
   async get(companyId, id) {
     if (getCompanyId() !== companyId) throw new Error("Company context mismatch");
-    const row = await prisma.product.findFirst({ where: { companyId, id }, include: { variants: { include: { stock: true }, orderBy: { id: "asc" } } } });
-    return row ? mapProduct(row) : null;
+    let row: DbAggregate | null;
+    try {
+      row = await prisma.product.findFirst({ where: { companyId, id }, include: { variants: { include: { stock: true }, orderBy: { id: "asc" } } } });
+    } catch {
+      return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to read product" });
+    }
+    if (!row) return ok(null);
+    try {
+      return ok(mapProduct(row));
+    } catch {
+      return err({ code: "INVALID_STORED_DATA", message: "Stored product data is invalid" });
+    }
   },
   async list(companyId, criteria) {
     if (getCompanyId() !== companyId) throw new Error("Company context mismatch");

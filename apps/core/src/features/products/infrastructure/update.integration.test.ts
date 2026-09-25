@@ -21,6 +21,11 @@ test("product updates persist effective changes, ignore no-ops, and roll back at
     { attributes: { Talla: "M" }, sku: "CAM-M", salePrice: 20, purchasePrice: 0, initialStock: 4 },
     { attributes: { Talla: "L" }, sku: "CAM-L", salePrice: 25, initialStock: 6 },
   ] };
+  const getStored = async (companyId: CompanyId, id: ProductId) => {
+    const result = await productRepository.get(companyId, id);
+    if (!result.success || !result.data) throw new Error("Product was not loaded");
+    return result.data;
+  };
   try {
     for (const id of [companyA, companyB]) await withTenantIsolation(id, async () => await prisma.company.create({ data: { id, name: id, country: "PE" } }));
     await withTenantIsolation(companyA, async () => {
@@ -28,7 +33,7 @@ test("product updates persist effective changes, ignore no-ops, and roll back at
       expect(created.success).toBe(true);
       if (!created.success) return;
       const id = created.data;
-      const before = (await productRepository.get(companyA, id))!;
+      const before = await getStored(companyA, id);
       const medium = before.variants.find((variant) => variant.sku === "CAM-M")!;
       const large = before.variants.find((variant) => variant.sku === "CAM-L")!;
 
@@ -37,7 +42,7 @@ test("product updates persist effective changes, ignore no-ops, and roll back at
         variants: [{ id: medium.id, sku: "cam-m-2", purchasePrice: null }, { id: large.id, salePrice: 26 }],
       }, deps);
       expect(edited).toEqual({ success: true, data: id });
-      const after = (await productRepository.get(companyA, id))!;
+      const after = await getStored(companyA, id);
       expect(after).toMatchObject({
         name: "Camisa nueva", currency: "PEN", qrCode: before.qrCode, createdAt: before.createdAt,
         updatedAt: new Date("2026-12-01T00:00:00.000Z"),
@@ -51,13 +56,13 @@ test("product updates persist effective changes, ignore no-ops, and roll back at
 
       expect(await updateProduct(companyA, id, {}, deps)).toEqual({ success: true, data: id });
       expect(await updateProduct(companyA, id, { name: "Camisa nueva", variants: [{ id: medium.id, sku: "CAM-M-2" }] }, deps)).toEqual({ success: true, data: id });
-      expect((await productRepository.get(companyA, id))!.updatedAt).toEqual(new Date("2026-12-01T00:00:00.000Z"));
+      expect((await getStored(companyA, id)).updatedAt).toEqual(new Date("2026-12-01T00:00:00.000Z"));
 
       expect(await updateProduct(companyA, id, { description: "Nueva" }, deps)).toEqual({ success: true, data: id });
-      const withDescription = (await productRepository.get(companyA, id))!;
+      const withDescription = await getStored(companyA, id);
       expect(withDescription.description).toBe("Nueva");
       expect(await updateProduct(companyA, id, { variants: [{ id: medium.id, purchasePrice: 0 }] }, deps)).toEqual({ success: true, data: id });
-      expect((await productRepository.get(companyA, id))!.variants.find((variant) => variant.id === medium.id)!.purchasePrice).toEqual({ amount: 0, currency: "PEN" });
+      expect((await getStored(companyA, id)).variants.find((variant) => variant.id === medium.id)!.purchasePrice).toEqual({ amount: 0, currency: "PEN" });
 
       const foreign = await updateProduct(companyA, id, { variants: [{ id: randomUUID() as VariantId, salePrice: 1 }] }, deps);
       expect(foreign).toMatchObject({ success: false, error: { code: "VALIDATION_ERROR" } });
@@ -67,7 +72,7 @@ test("product updates persist effective changes, ignore no-ops, and roll back at
         variants: [{ id: medium.id, sku: "CAM-L" }],
       }, deps);
       expect(rollback).toMatchObject({ success: false, error: { code: "DUPLICATE_SKU" } });
-      const rolledBack = (await productRepository.get(companyA, id))!;
+      const rolledBack = await getStored(companyA, id);
       expect(rolledBack.name).toBe("Camisa nueva");
       expect(rolledBack.updatedAt).toEqual(new Date("2026-12-01T00:00:00.000Z"));
       expect(rolledBack.variants.find((variant) => variant.id === medium.id)!.sku).toBe("cam-m-2");
@@ -85,7 +90,7 @@ test("product updates persist effective changes, ignore no-ops, and roll back at
       expect(absent).toMatchObject({ success: true });
       if (!sameSku.success) throw new Error("Product was not created");
       foreignProductId = sameSku.data;
-      foreignVariantId = (await productRepository.get(companyB, sameSku.data))!.variants[0].id;
+      foreignVariantId = (await getStored(companyB, sameSku.data)).variants[0].id;
     });
 
     await withTenantIsolation(companyA, async () => {

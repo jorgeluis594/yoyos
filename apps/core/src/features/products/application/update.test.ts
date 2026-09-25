@@ -31,13 +31,13 @@ function multiVariant(): Product {
   }] };
 }
 
-function setup(initial: Product = sample(), options: { imageExists?: boolean; imageError?: boolean; updateFails?: boolean } = {}) {
+function setup(initial: Product = sample(), options: { imageExists?: boolean; imageError?: boolean; readError?: boolean; updateFails?: boolean } = {}) {
   const stored = initial;
   const updates: UpdateChanges[] = [];
   let clockReads = 0;
   const deps: UpdateDependencies = {
     repository: {
-      async get(_companyId, id) { return stored.id === id ? stored : null; },
+      async get(_companyId, id) { return options.readError ? err({ code: "INVALID_STORED_DATA" as const, message: "Stored product data is invalid" }) : ok(stored.id === id ? stored : null); },
       async update(_companyId, id, changes) {
         updates.push(changes);
         return options.updateFails ? { success: false as const, error: { code: "DUPLICATE_SKU" as const, message: "SKU is already used" } } : { success: true as const, data: id };
@@ -93,6 +93,13 @@ describe("update product", () => {
     const result = await updateProduct(companyId, "00000000-0000-4000-8000-000000000099" as ProductId, {}, context.deps);
     expect(result).toMatchObject({ success: false, error: { code: "PRODUCT_NOT_FOUND" } });
     expect(context.updates).toHaveLength(0);
+  });
+
+  test("propagates repository read failures without writing", async () => {
+    const context = setup(sample(), { readError: true });
+    expect(await updateProduct(companyId, productId, {}, context.deps)).toEqual(err({ code: "INVALID_STORED_DATA", message: "Stored product data is invalid" }));
+    expect(context.updates).toHaveLength(0);
+    expect(context.clockReads).toBe(0);
   });
 
   test("treats an empty, unchanged, or already-absent patch as a no-op without reading the clock", async () => {

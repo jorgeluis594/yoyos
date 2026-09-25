@@ -4,7 +4,7 @@ import type { Result } from "@shared/result";
 import { planUpdate, validateUpdate, type RawUpdate } from "@core/src/features/products/domain/rules";
 import type { ValidationError } from "@core/src/features/products/domain/errors";
 import type { CompanyId, ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
-import type { ProductRepository, UpdateChanges } from "@core/src/features/products/application/repository";
+import type { ProductReadError, ProductRepository, UpdateChanges } from "@core/src/features/products/application/repository";
 import type { ImageLookupError } from "@core/src/shared/images/application/images";
 
 export type UpdateVariantInput = Readonly<{ id: VariantId; sku?: string | null; salePrice?: number; purchasePrice?: number | null }>;
@@ -13,6 +13,7 @@ export type UpdateError = ValidationError
   | Readonly<{ code: "DUPLICATE_SKU"; message: string }>
   | Readonly<{ code: "IMAGE_NOT_FOUND"; message: string }>
   | Readonly<{ code: "PRODUCT_NOT_FOUND"; message: string }>
+  | ProductReadError
   | ImageLookupError;
 export type UpdateDependencies = Readonly<{
   repository: Pick<ProductRepository, "get" | "update">;
@@ -21,7 +22,9 @@ export type UpdateDependencies = Readonly<{
 }>;
 
 export async function updateProduct(companyId: CompanyId, productId: ProductId, input: UpdateInput, deps: UpdateDependencies): Promise<Result<ProductId, UpdateError>> {
-  const current = await deps.repository.get(companyId, productId);
+  const loaded = await deps.repository.get(companyId, productId);
+  if (!loaded.success) return loaded;
+  const current = loaded.data;
   if (!current) return err({ code: "PRODUCT_NOT_FOUND", message: "Product does not exist" });
   const validated = validateUpdate(current, input as RawUpdate);
   if (!validated.value) return err({ code: "VALIDATION_ERROR", message: "Invalid product", issues: validated.issues as ValidationError["issues"] });
