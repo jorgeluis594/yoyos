@@ -28,6 +28,8 @@ plain data and enforce their own business invariants; they do not receive
 `ZodError` or HTTP objects. SDK TypeScript annotations do not replace runtime
 validation of the data consumed by application-owned adapters.
 
+For Zod business validation within domain, follow [Validation and Authority](domain.md#validation-and-authority).
+
 Fallible operations return `Result<T, E>` or `Promise<Result<T, E>>`. Success
 contains `data`; failure contains `error`, with a required `message` and optional
 `code`. Transformations that always produce a value return it directly. Valid
