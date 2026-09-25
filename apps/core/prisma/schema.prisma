@@ -87,6 +87,9 @@ model Company {
   country String
   users   User[]
   images  Image[]
+  products Product[]
+  productVariants ProductVariant[]
+  productStocks ProductStock[]
 }
 
 model Image {
@@ -95,6 +98,56 @@ model Image {
   company    Company  @relation(fields: [companyId], references: [id])
   storageKey String
   createdAt  DateTime @default(now())
+  products Product[]
 
+  @@index([companyId])
+  @@unique([companyId, id])
+}
+
+model Product {
+  id String @id @db.Uuid
+  companyId String @db.Uuid
+  company Company @relation(fields: [companyId], references: [id])
+  name String @db.VarChar(200)
+  description String? @db.VarChar(5000)
+  imageId String? @db.Uuid
+  image Image? @relation(fields: [companyId, imageId], references: [companyId, id])
+  currency String
+  qrCode String @unique
+  status String
+  createdAt DateTime
+  updatedAt DateTime
+  variants ProductVariant[]
+
+  @@unique([companyId, id])
+  @@index([companyId])
+}
+
+model ProductVariant {
+  id String @id @db.Uuid
+  companyId String @db.Uuid
+  company Company @relation(fields: [companyId], references: [id])
+  productId String @db.Uuid
+  product Product @relation(fields: [companyId, productId], references: [companyId, id])
+  attributes Json
+  sku String? @db.VarChar(100)
+  salePrice Decimal @db.Decimal(11, 2)
+  purchasePrice Decimal? @db.Decimal(11, 2)
+  qrCode String @unique
+  status String
+  stock ProductStock?
+
+  @@unique([companyId, id])
+  @@index([companyId, productId])
+}
+
+model ProductStock {
+  variantId String @id @db.Uuid
+  companyId String @db.Uuid
+  company Company @relation(fields: [companyId], references: [id])
+  variant ProductVariant @relation(fields: [companyId, variantId], references: [companyId, id])
+  quantity BigInt
+
+  @@unique([companyId, variantId])
   @@index([companyId])
 }

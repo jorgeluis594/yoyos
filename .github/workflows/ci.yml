@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12.5.1
+      - run: pnpm --dir shared install --frozen-lockfile
+      - run: pnpm --dir apps/core install --frozen-lockfile
+      - run: pnpm exec tsx --test ../../shared/*.test.mjs ../../shared/contracts/*.test.mjs
+        working-directory: apps/core
+      - run: pnpm prisma:generate
+        working-directory: apps/core
+        env:
+          DATABASE_URL: postgresql://core_app:core_app_local@127.0.0.1:55433/core_test
+      - run: pnpm lint
+        working-directory: apps/core
+      - run: pnpm typecheck
+        working-directory: apps/core
+      - run: pnpm test:unit
+        working-directory: apps/core
+      - run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - run: pnpm exec playwright install --with-deps chromium
+        working-directory: apps/core
+      - run: sh scripts/run-tests.sh integration
+        working-directory: apps/core
+      - run: sh scripts/run-tests.sh e2e
+        working-directory: apps/core
+
+  mobile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12.5.1
+      - run: pnpm --dir shared install --frozen-lockfile
+      - run: pnpm --dir apps/mobile install --frozen-lockfile
+      - run: pnpm lint
+        working-directory: apps/mobile
+      - run: pnpm typecheck
+        working-directory: apps/mobile
+      - run: pnpm test
+        working-directory: apps/mobile

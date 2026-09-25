@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, ChevronRight, House, LogOut, Menu, Moon, ShoppingBag, Sun, X } from "lucide-react";
-import { Link, Outlet, redirect, useLoaderData, useNavigate, type LoaderFunctionArgs, type MiddlewareFunction } from "react-router";
+import { Link, Outlet, redirect, useLoaderData, useLocation, useNavigate, type LoaderFunctionArgs, type MiddlewareFunction } from "react-router";
 import { Button } from "@/components/ui/button";
 import { privateUserContext } from "@/private-user-context";
 import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
@@ -22,8 +22,9 @@ export const middleware: MiddlewareFunction<Response>[] = [async ({ request, con
   if (!ready.success) throw redirect(`${locale}/register`);
   const access = ready.data;
   return withTenantIsolation(access.company.id, async () => {
-    const correctPath = `/es-${access.company.country}/dashboard`;
-    if (path !== correctPath) throw redirect(correctPath);
+    const requestedPath = isLocale(segment) ? path.slice(segment.length + 1) : path;
+    const correctPath = `/es-${access.company.country}${requestedPath}`;
+    if (path !== correctPath) throw redirect(`${correctPath}${new URL(request.url).search}`);
     context.set(privateUserContext, access);
     return next();
   });
@@ -34,10 +35,12 @@ export function loader({ context }: LoaderFunctionArgs) {
   return { company: company.name, home: `/es-${company.country}/dashboard`, name: user.name };
 }
 
-function Navigation({ company, name, home, dark, pending, error, onTheme, onSignOut, onNavigate }: {
+function Navigation({ company, name, home, productPath, active, dark, pending, error, onTheme, onSignOut, onNavigate }: {
   company: string;
   name: string;
   home: string;
+  productPath: string;
+  active: "home" | "products" | "new" | "detail";
   dark: boolean;
   pending: boolean;
   error: string;
@@ -58,9 +61,13 @@ function Navigation({ company, name, home, dark, pending, error, onTheme, onSign
         </div>
       </div>
       <nav aria-label="Navegación principal">
-        <Link to={home} onClick={onNavigate} data-slot="navigation-link" aria-current="page" className="flex min-h-control items-center gap-3 rounded-sm bg-accent px-3 text-sm font-medium text-accent-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background max-md:min-h-touch">
+        <Link to={home} onClick={onNavigate} data-slot="navigation-link" aria-current={active === "home" ? "page" : undefined} className={`flex min-h-control items-center gap-3 rounded-sm px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background max-md:min-h-touch ${active === "home" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent"}`}>
           <House className="size-icon-navigation shrink-0" aria-hidden="true" />Inicio
-          <Check className="ml-auto size-icon-inline" aria-hidden="true" />
+          {active === "home" && <Check className="ml-auto size-icon-inline" aria-hidden="true" />}
+        </Link>
+        <Link to={productPath} onClick={onNavigate} data-slot="navigation-link" data-active={active !== "home" ? "true" : undefined} aria-current={active === "products" ? "page" : undefined} className={`mt-1 flex min-h-control items-center gap-3 rounded-sm px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background max-md:min-h-touch ${active !== "home" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent"}`}>
+          <ShoppingBag className="size-icon-navigation shrink-0" aria-hidden="true" />Productos
+          {active !== "home" && <Check className="ml-auto size-icon-inline" aria-hidden="true" />}
         </Link>
       </nav>
       <div className="mt-auto flex flex-col gap-2 border-t border-border pt-4">
@@ -84,6 +91,7 @@ function Navigation({ company, name, home, dark, pending, error, onTheme, onSign
 export default function PrivateLayout() {
   const { company, home, name } = useLoaderData<typeof loader>();
   const navigate = useNavigate();
+  const location = useLocation();
   const dialog = useRef<HTMLDialogElement>(null);
   const [dark, setDark] = useState(false);
   const [pending, setPending] = useState(false);
@@ -123,7 +131,9 @@ export default function PrivateLayout() {
     }
   }
 
-  const navigation = { company, name, home, dark, pending, error, onTheme: toggleTheme, onSignOut: signOut };
+  const productPath = home.replace(/\/dashboard$/, "/products");
+  const active: "home" | "products" | "new" | "detail" = location.pathname.endsWith("/products") ? "products" : location.pathname.endsWith("/products/new") ? "new" : location.pathname.includes("/products/") ? "detail" : "home";
+  const navigation = { company, name, home, productPath, active, dark, pending, error, onTheme: toggleTheme, onSignOut: signOut };
 
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
@@ -145,7 +155,7 @@ export default function PrivateLayout() {
               <li className="min-w-0 truncate text-muted-foreground" title={company}>{company}</li>
               <li className="flex shrink-0 items-center gap-3" aria-current="page">
                 <ChevronRight className="size-icon-inline text-muted-foreground" aria-hidden="true" />
-                <span className="font-medium">Inicio</span>
+                <span className="font-medium">{active === "home" ? "Inicio" : active === "products" ? "Productos" : active === "new" ? "Nuevo producto" : "Producto"}</span>
               </li>
             </ol>
           </nav>

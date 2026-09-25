@@ -1,4 +1,5 @@
 import { useLoaderData, type LoaderFunctionArgs } from "react-router";
+import { PageHeader } from "@/components/ui/page-header";
 import { privateUserContext } from "@/private-user-context";
 
 export function loader({ context }: LoaderFunctionArgs) {
@@ -9,9 +10,11 @@ export default function Dashboard() {
   const { name } = useLoaderData<typeof loader>();
 
   return (
-    <div>
-      <h1 className="break-words text-2xl font-semibold tracking-tight text-balance">Hola, {name}</h1>
-      <p className="mt-2 text-sm leading-5 text-muted-foreground">Tu espacio de trabajo está listo.</p>
-    </div>
+    <PageHeader>
+      <PageHeader.Heading>
+        <PageHeader.Title>Hola, {name}</PageHeader.Title>
+        <PageHeader.Description>Tu espacio de trabajo está listo.</PageHeader.Description>
+      </PageHeader.Heading>
+    </PageHeader>
   );
 }
