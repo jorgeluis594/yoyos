@@ -48,7 +48,7 @@ export default function ProductNew() {
     }, { method: "post", encType: "application/json" });
   }
 
-  return <PageContainer width="form">
+  return <PageContainer>
     <PageHeader>
       <PageHeader.Heading>
         <PageHeader.Title>Nuevo producto</PageHeader.Title>

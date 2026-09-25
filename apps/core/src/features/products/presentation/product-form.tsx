@@ -78,7 +78,7 @@ export function ProductForm({ currency, cancelTo, errors, pending, onSave, value
 
   return <form onSubmit={save} noValidate className="mt-8 flex flex-col gap-6">
     {variantFields === "hidden" && <p className="text-sm text-muted-foreground">Puedes editar los datos generales y la foto. Las variantes son de solo lectura.</p>}
-    <div className={stock === undefined ? "grid gap-6" : "grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]"}>
+    <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
       <div className="grid gap-5">
       <section aria-labelledby="product-data-heading" className="grid gap-4 sm:grid-cols-2">
         <h2 id="product-data-heading" className="text-base font-semibold sm:col-span-2">Datos del producto</h2>
