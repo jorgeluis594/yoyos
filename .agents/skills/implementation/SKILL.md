@@ -20,6 +20,8 @@ description: Guide implementation through contextual analysis, case-specific pro
 
 ## Guardrails
 
+- Use `Result` by default for expected failures. Do not throw inside a `try` only to catch and rethrow the same exception in that function; use `Result` or an early return. Use `try/catch` only when an exception must be handled and cannot be controlled with `Result`.
+- Define every port operation's return as `Result<T, E>` or `Promise<Result<T, E>>` in its domain- or application-owned dependency signature, whether the contract is named or declared inline in a use case. Infrastructure adapters must implement that signature: represent valid absence as `ok(null)` and declared failures as `err(...)`, rather than returning bare values or throwing expected errors.
 - In `apps/core` tests, do not use Node.js's native test runner or assertion library: `node:test`, `node:assert`, `node:assert/strict`, or their unprefixed equivalents. Do not substitute another test runner or general assertion library for Vitest.
 - In `apps/core`, Playwright may control the browser and assert on pages and locators in end-to-end tests; Vitest must still define and run those tests.
 
