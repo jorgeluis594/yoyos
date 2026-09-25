@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { DeleteObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { createR2ImageStorage } from "@core/src/shared/images/infrastructure/r2-image-storage";
 
 const send = vi.hoisted(() => vi.fn());
@@ -16,6 +16,32 @@ const config = {
   secretAccessKey: "secret",
   publicBaseUrl: "https://images.example.test/",
 };
+
+it("stores private objects in the private bucket and reads their original bytes", async () => {
+  const storage = createR2ImageStorage({ ...config, privateBucket: "private-images" });
+  const bytes = new Uint8Array([7, 8, 9]);
+  send.mockResolvedValueOnce({}).mockResolvedValueOnce({ Body: { transformToByteArray: async () => bytes }, ContentType: "image/png" });
+  expect(await storage.uploadPrivate("company/image", { bytes, contentType: "image/png" })).toEqual({ success: true, data: undefined });
+  expect(send.mock.calls[0][0]).toBeInstanceOf(PutObjectCommand);
+  expect(send.mock.calls[0][0].input).toEqual({ Bucket: "private-images", Key: "company/image", Body: bytes, ContentType: "image/png" });
+  expect(await storage.readPrivate("company/image")).toEqual({ success: true, data: { bytes, contentType: "image/png" } });
+  expect(send.mock.calls[1][0]).toBeInstanceOf(GetObjectCommand);
+  expect(send.mock.calls[1][0].input).toEqual({ Bucket: "private-images", Key: "company/image" });
+});
+
+it("does not fall back to the public bucket for private objects", async () => {
+  const storage = createR2ImageStorage(config);
+  expect(await storage.uploadPrivate("key", { bytes: new Uint8Array([1]), contentType: "image/png" })).toMatchObject({ success: false, error: { code: "IMAGE_STORAGE_CONFIG_ERROR" } });
+  expect(await storage.readPrivate("key")).toMatchObject({ success: false, error: { code: "IMAGE_STORAGE_CONFIG_ERROR" } });
+  expect(send).not.toHaveBeenCalled();
+});
+
+it("rejects using the public bucket as private storage", async () => {
+  const storage = createR2ImageStorage({ ...config, privateBucket: config.bucket });
+  expect(await storage.uploadPrivate("key", { bytes: new Uint8Array([1]), contentType: "image/png" })).toMatchObject({ success: false, error: { code: "IMAGE_STORAGE_CONFIG_ERROR" } });
+  expect(await storage.readPrivate("key")).toMatchObject({ success: false, error: { code: "IMAGE_STORAGE_CONFIG_ERROR" } });
+  expect(send).not.toHaveBeenCalled();
+});
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); send.mockReset(); construct.mockClear(); });
 

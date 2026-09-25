@@ -25,7 +25,7 @@ for (const operation of operations) {
       success: false,
       error: { code: "PERSISTENCE_UNAVAILABLE", message: `Unable to ${operation.name === "find" ? "find" : "create"} image record` },
     });
-    expect(logged).toHaveBeenCalledWith(expect.any(String), failure);
+    expect(logged).toHaveBeenCalledWith(expect.any(String), { error: failure.name });
   });
 
   it(`${operation.name} lets unexpected errors reach the caller`, async () => {
