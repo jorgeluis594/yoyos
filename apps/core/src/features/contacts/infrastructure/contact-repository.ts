@@ -10,10 +10,16 @@ function isPersistenceFailure(cause: unknown) {
     || cause instanceof Prisma.PrismaClientInitializationError;
 }
 
+function mapContact(contact: { id: string; phone: string; name: string | null; createdAt: Date; updatedAt: Date }) {
+  return { id: contact.id, phone: contact.phone, name: contact.name, createdAt: contact.createdAt, updatedAt: contact.updatedAt };
+}
+
 export const contactRepository: ContactRepository = {
-  async findByPhone(companyId, phone) {
+  async findByPhone(phone) {
     try {
-      return ok(await prisma.contact.findUnique({ where: { companyId_phone: { companyId, phone } } }));
+      const contact = await prisma.contact.findFirst({ where: { phone } });
+      if (!contact) return ok(null);
+      return ok(mapContact(contact));
     } catch (cause) {
       if (!isPersistenceFailure(cause)) throw cause;
       console.error("Unable to find WhatsApp contact", { error: cause.name });
@@ -23,23 +29,25 @@ export const contactRepository: ContactRepository = {
   async insertIfAbsent(input) {
     try {
       await prisma.$executeRaw`
-        INSERT INTO "Contact" ("id", "companyId", "phone", "name", "createdAt", "updatedAt")
-        VALUES (${randomUUID()}::uuid, ${input.companyId}::uuid, ${input.phone}, ${input.name}, now(), now())
+        INSERT INTO "Contact" ("id", "phone", "name", "createdAt", "updatedAt")
+        VALUES (${randomUUID()}::uuid, ${input.phone}, ${input.name}, now(), now())
         ON CONFLICT ("companyId", "phone") DO NOTHING
       `;
-      const contact = await prisma.contact.findUnique({ where: { companyId_phone: { companyId: input.companyId, phone: input.phone } } });
-      return contact ? ok(contact) : err({ code: "INVALID_STORED_DATA", message: "Contact insert was not visible" });
+      const contact = await prisma.contact.findFirst({ where: { phone: input.phone } });
+      if (!contact) return err({ code: "INVALID_STORED_DATA", message: "Contact insert was not visible" });
+      return ok(mapContact(contact));
     } catch (cause) {
       if (!isPersistenceFailure(cause)) throw cause;
       console.error("Unable to insert WhatsApp contact", { error: cause.name });
       return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to insert contact" });
     }
   },
-  async setName(companyId, contactId, name) {
+  async setName(contactId, name) {
     try {
-      await prisma.contact.updateMany({ where: { companyId, id: contactId }, data: { name } });
-      const contact = await prisma.contact.findUnique({ where: { companyId_id: { companyId, id: contactId } } });
-      return contact ? ok(contact) : err({ code: "INVALID_STORED_DATA", message: "Contact disappeared while updating name" });
+      await prisma.contact.updateMany({ where: { id: contactId }, data: { name } });
+      const contact = await prisma.contact.findFirst({ where: { id: contactId } });
+      if (!contact) return err({ code: "INVALID_STORED_DATA", message: "Contact disappeared while updating name" });
+      return ok(mapContact(contact));
     } catch (cause) {
       if (!isPersistenceFailure(cause)) throw cause;
       console.error("Unable to update WhatsApp contact", { error: cause.name });

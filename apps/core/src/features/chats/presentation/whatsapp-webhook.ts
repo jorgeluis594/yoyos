@@ -5,6 +5,7 @@ import type { WhatsAppConnection } from "@core/src/features/chats/infrastructure
 import { recordWhatsAppMessage } from "@core/src/features/chats";
 import type { RecordMessageInput } from "@core/src/features/chats/domain/message";
 import type { Result } from "@shared/result";
+import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
 export function whatsappWebhook(connections: readonly WhatsAppConnection[], appSecret: string, verifyToken: string, record: (input: RecordMessageInput) => Promise<Result<unknown>> = recordWhatsAppMessage) {
   const router = express.Router();
@@ -30,7 +31,7 @@ export function whatsappWebhook(connections: readonly WhatsAppConnection[], appS
       const connection = connections.find(({ phoneNumberId }) => phoneNumberId === event.phoneNumberId);
       if (!connection || connection.businessAccountId !== event.businessAccountId) { rejected = true; continue; }
       if (event.message.sentAt < connection.connectedAt) continue;
-      const saved = await record({ ...event.message, companyId: connection.companyId, receivedAt: new Date() });
+      const saved = await withTenantIsolation(connection.companyId, () => record({ ...event.message, receivedAt: new Date() }));
       if (!saved.success) {
         if (saved.error.code === "INVALID_MESSAGE" || saved.error.code === "INVALID_CONTACT") rejected = true;
         else retry = true;

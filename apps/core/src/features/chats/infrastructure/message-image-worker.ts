@@ -11,14 +11,14 @@ function isPersistenceFailure(cause: unknown) {
 }
 
 export const imageWorkRepository: ImageWorkRepository = {
-  async claimNext({ companyId, now, leaseUntil, claimToken, maxAttempts }) {
+  async claimNext({ now, leaseUntil, claimToken, maxAttempts }) {
     try {
       const rows = await prisma.$queryRaw<Array<{ id: string; whatsappMediaId: string; imageAttempts: number; previousStatus: string }>>`
         WITH exhausted AS (
           UPDATE "ChatMessage" SET "imageStatus" = 'failed', "imageNextAttemptAt" = NULL,
             "imageClaimToken" = NULL, "imageLeaseUntil" = NULL,
             "imageFailureCode" = 'RETRIES_EXHAUSTED', "imageFailureMessage" = 'Image processing retries exhausted'
-          WHERE "companyId" = ${companyId}::uuid AND (
+          WHERE (
             ("imageStatus" = 'processing' AND "imageLeaseUntil" <= ${now})
             OR ("imageStatus" = 'pending' AND "imageNextAttemptAt" <= ${now})
           ) AND "imageAttempts" >= ${maxAttempts}
@@ -27,7 +27,7 @@ export const imageWorkRepository: ImageWorkRepository = {
           RETURNING "id"
         ), candidate AS (
           SELECT "id", "imageStatus" AS "previousStatus" FROM "ChatMessage"
-          WHERE "companyId" = ${companyId}::uuid AND "type" = 'image'
+          WHERE "type" = 'image'
             AND ("imageAttempts" < ${maxAttempts} OR EXISTS (SELECT 1 FROM "Image" AS image WHERE image."companyId" = "ChatMessage"."companyId"
               AND image."sourceKey" = 'whatsapp-message:' || "ChatMessage"."id" AND image."visibility" = 'private' AND image."importStatus" = 'ready'))
             AND (("imageStatus" = 'pending' AND "imageNextAttemptAt" <= ${now})
@@ -42,21 +42,21 @@ export const imageWorkRepository: ImageWorkRepository = {
         RETURNING message."id", message."whatsappMediaId", message."imageAttempts", candidate."previousStatus"
       `;
       const row = rows[0];
-      return ok(row ? { companyId, messageId: row.id, mediaId: row.whatsappMediaId, claimToken, attempts: row.imageAttempts, leaseUntil, reclaimed: row.previousStatus === "processing" } : null);
+      return ok(row ? { messageId: row.id, mediaId: row.whatsappMediaId, claimToken, attempts: row.imageAttempts, leaseUntil, reclaimed: row.previousStatus === "processing" } : null);
     } catch (cause) {
       if (!isPersistenceFailure(cause)) throw cause;
       console.error("Unable to claim WhatsApp image", { error: cause.name });
       return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to claim image work" });
     }
   },
-  async complete({ companyId, messageId, claimToken, completion }) {
+  async complete({ messageId, claimToken, completion }) {
     try {
       const data = completion.status === "ready"
         ? { imageStatus: "ready" as const, imageId: completion.imageId, imageClaimToken: null, imageLeaseUntil: null, imageFailureCode: null, imageFailureMessage: null }
         : completion.status === "pending"
           ? { imageStatus: "pending" as const, imageNextAttemptAt: completion.nextAttemptAt, imageClaimToken: null, imageLeaseUntil: null }
           : { imageStatus: "failed" as const, imageFailureCode: completion.failure.code, imageFailureMessage: completion.failure.message, imageNextAttemptAt: null, imageClaimToken: null, imageLeaseUntil: null };
-      const result = await prisma.chatMessage.updateMany({ where: { companyId, id: messageId, imageStatus: "processing", imageClaimToken: claimToken }, data });
+      const result = await prisma.chatMessage.updateMany({ where: { id: messageId, imageStatus: "processing", imageClaimToken: claimToken }, data });
       return ok(result.count ? "updated" : "claim_lost");
     } catch (cause) {
       if (!isPersistenceFailure(cause)) throw cause;

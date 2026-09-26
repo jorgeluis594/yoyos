@@ -38,7 +38,7 @@ describe("WhatsApp webhook", () => {
     const signature = createHmac("sha256", "app-secret").update(payload).digest("hex");
     const accepted = await fetch(base, { method: "POST", headers: { "content-type": "application/json", "x-hub-signature-256": `sha256=${signature}` }, body: payload });
     expect(accepted.status).toBe(200);
-    expect(record).toHaveBeenCalledWith(expect.objectContaining({ companyId: "7b1d7be7-14bd-4b74-aecd-9fb56d8b64a0", contactPhone: "+14155552671", externalId: "m1" }));
+    expect(record).toHaveBeenCalledWith(expect.objectContaining({ contactPhone: "+14155552671", externalId: "m1" }));
     expect(record).toHaveBeenCalledWith(expect.objectContaining({ contactPhone: "+14155552672", externalId: "m2", origin: { direction: "outgoing", source: "seller", userId: null } }));
   });
 });

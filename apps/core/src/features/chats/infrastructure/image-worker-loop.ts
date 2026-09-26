@@ -1,5 +1,6 @@
 import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { imageRepository } from "@core/src/shared/images/infrastructure/image-repository";
+import { importPrivateImage } from "@core/src/shared/images/application/images";
 import { createR2ImageStorage } from "@core/src/shared/images/infrastructure/r2-image-storage";
 import { storeMessageImage } from "@core/src/features/chats/application/store-message-image";
 import { imageWorkRepository, newImageClaimToken } from "@core/src/features/chats/infrastructure/message-image-worker";
@@ -20,11 +21,11 @@ export function startImageWorker(connections: readonly WhatsAppConnection[]) {
       try {
         const now = new Date();
         await withTenantIsolation(connection.companyId, async () => {
-          const claim = await imageWorkRepository.claimNext({ companyId: connection.companyId, now, leaseUntil: new Date(now.getTime() + leaseMs), claimToken: newImageClaimToken(), maxAttempts: retryDelaysMs.length + 1 });
+          const claim = await imageWorkRepository.claimNext({ now, leaseUntil: new Date(now.getTime() + leaseMs), claimToken: newImageClaimToken(), maxAttempts: retryDelaysMs.length + 1 });
           if (!claim.success) { console.error("WhatsApp image claim failed", { companyId: connection.companyId }); return; }
           if (!claim.data) return;
           if (claim.data.reclaimed) console.warn("Reclaimed expired WhatsApp image reservation", { companyId: connection.companyId, messageId: claim.data.messageId, attempts: claim.data.attempts });
-          const result = await storeMessageImage(claim.data, { download: (_companyId, mediaId) => downloadWhatsAppMedia(connection, mediaId), storage, images: imageRepository, work: imageWorkRepository, now: () => new Date(), retryDelaysMs });
+          const result = await storeMessageImage(claim.data, { download: (mediaId) => downloadWhatsAppMedia(connection, mediaId), storage, findCompletedImport: (sourceKey) => imageRepository.findCompletedImport(connection.companyId, sourceKey), importImage: (sourceKey, file) => importPrivateImage(connection.companyId, sourceKey, file, storage, imageRepository), work: imageWorkRepository, now: () => new Date(), retryDelaysMs });
           if (!result.success) console.error("WhatsApp image processing failed", { companyId: connection.companyId, messageId: claim.data.messageId, code: result.error.code });
           else if (result.data === "retry_scheduled" || result.data === "failed") console.info("WhatsApp image work updated", { companyId: connection.companyId, messageId: claim.data.messageId, status: result.data });
         });

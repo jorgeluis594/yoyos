@@ -12,7 +12,7 @@ const entrySchema = z.object({ id: z.string().optional(), changes: z.array(chang
 export const whatsappEnvelopeSchema = z.object({ object: z.string(), entry: z.array(entrySchema) }).passthrough();
 
 export type IgnoredEventReason = "unsupported_type" | "delivery_status" | "group" | "history" | "before_connection" | "edit_or_delete";
-export type NormalizedEvent = Readonly<{ status: "message"; phoneNumberId: string; businessAccountId: string; message: Omit<RecordMessageInput, "companyId" | "receivedAt"> }> | Readonly<{ status: "ignored"; reason: IgnoredEventReason }>;
+export type NormalizedEvent = Readonly<{ status: "message"; phoneNumberId: string; businessAccountId: string; message: Omit<RecordMessageInput, "receivedAt"> }> | Readonly<{ status: "ignored"; reason: IgnoredEventReason }>;
 export type ParsedWebhook = Readonly<{ events: readonly NormalizedEvent[]; malformed: number }>;
 
 function messageContent(message: z.infer<typeof messageSchema>): ReceivedContent | null {
