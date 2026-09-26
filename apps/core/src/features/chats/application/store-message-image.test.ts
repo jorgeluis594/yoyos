@@ -8,7 +8,7 @@ function setup(): StoreImageDependencies {
   return {
     download: vi.fn(async () => ({ success: false as const, error: { code: "MEDIA_UNAVAILABLE", message: "temporary" } })),
     storage: { upload: vi.fn(), uploadPrivate: vi.fn(), readPrivate: vi.fn(), getUrl: vi.fn(), delete: vi.fn() },
-    images: { create: vi.fn(), find: vi.fn(), reserveImport: vi.fn(), completeImport: vi.fn() },
+    images: { create: vi.fn(), find: vi.fn(), findCompletedImport: vi.fn(async () => ({ success: true as const, data: null })), reserveImport: vi.fn(), completeImport: vi.fn() },
     work: { claimNext: vi.fn(), complete },
     now: () => new Date(1_000),
     retryDelaysMs: [60_000],
@@ -28,5 +28,23 @@ describe("storeMessageImage", () => {
     expect(await storeMessageImage(job, deps)).toEqual({ success: true, data: "claim_lost" });
     vi.mocked(deps.work.complete).mockResolvedValueOnce({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE", message: "database down" } });
     expect(await storeMessageImage(job, deps)).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
+  });
+
+  it("links an already completed import without downloading or uploading", async () => {
+    const deps = setup();
+    vi.mocked(deps.images.findCompletedImport).mockResolvedValueOnce({ success: true, data: { id: "image-1" } });
+    expect(await storeMessageImage(job, deps)).toEqual({ success: true, data: "stored" });
+    expect(deps.images.findCompletedImport).toHaveBeenCalledWith(job.companyId, `whatsapp-message:${job.messageId}`);
+    expect(deps.download).not.toHaveBeenCalled();
+    expect(deps.storage.uploadPrivate).not.toHaveBeenCalled();
+    expect(deps.work.complete).toHaveBeenCalledWith(expect.objectContaining({ completion: { status: "ready", imageId: "image-1" } }));
+  });
+
+  it("propagates an import lookup failure without downloading", async () => {
+    const deps = setup();
+    const failure = { code: "PERSISTENCE_UNAVAILABLE", message: "database down" } as const;
+    vi.mocked(deps.images.findCompletedImport).mockResolvedValueOnce({ success: false, error: failure });
+    expect(await storeMessageImage(job, deps)).toEqual({ success: false, error: failure });
+    expect(deps.download).not.toHaveBeenCalled();
   });
 });

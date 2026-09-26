@@ -22,6 +22,7 @@ test("WhatsApp persistence deduplicates concurrent conversations and safely recl
   });
   const cleanup = async (companyId) => withTenantIsolation(companyId, async () => {
     await prisma.chatMessage.deleteMany({ where: { companyId } });
+    await prisma.image.deleteMany({ where: { companyId } });
     await prisma.chat.deleteMany({ where: { companyId } });
     await prisma.contact.deleteMany({ where: { companyId } });
     await prisma.company.deleteMany({ where: { id: companyId } });
@@ -78,6 +79,17 @@ test("WhatsApp persistence deduplicates concurrent conversations and safely recl
       const exhausted = await imageWorkRepository.claimNext({ companyId: companyA, now: new Date(now.getTime() + 20), leaseUntil: new Date(now.getTime() + 120_000), claimToken: `${prefix}-crash-2`, maxAttempts: 1 });
       expect(exhausted).toEqual({ success: true, data: null });
       expect(await prisma.chatMessage.findFirst({ where: { companyId: companyA, externalId: `${prefix}-crashed-image` }, select: { imageStatus: true, imageFailureCode: true } })).toEqual({ imageStatus: "failed", imageFailureCode: "RETRIES_EXHAUSTED" });
+    });
+
+    await recordWhatsAppMessage(makeMessage(companyA, `${prefix}-ready-image`, { type: "image", mediaId: "media-ready", caption: null }));
+    await withTenantIsolation(companyA, async () => {
+      const now = new Date();
+      const first = await imageWorkRepository.claimNext({ companyId: companyA, now, leaseUntil: new Date(now.getTime() + 10), claimToken: `${prefix}-ready-1`, maxAttempts: 1 });
+      expect(first.success && first.data).toMatchObject({ mediaId: "media-ready", attempts: 1 });
+      const readyImage = await prisma.image.create({ data: { companyId: companyA, sourceKey: `whatsapp-message:${first.data.messageId}`, storageKey: `${companyA}/ready`, visibility: "private", importStatus: "ready", importCompletedAt: now } });
+      const reclaimed = await imageWorkRepository.claimNext({ companyId: companyA, now: new Date(now.getTime() + 20), leaseUntil: new Date(now.getTime() + 120_000), claimToken: `${prefix}-ready-2`, maxAttempts: 1 });
+      expect(reclaimed.success && reclaimed.data).toMatchObject({ mediaId: "media-ready", attempts: 2, reclaimed: true });
+      expect(await imageWorkRepository.complete({ companyId: companyA, messageId: reclaimed.data.messageId, claimToken: reclaimed.data.claimToken, completion: { status: "ready", imageId: readyImage.id } })).toEqual({ success: true, data: "updated" });
     });
 
     stage = "rollback";

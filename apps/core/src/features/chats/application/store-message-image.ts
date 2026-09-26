@@ -19,24 +19,31 @@ export type StoreImageDependencies = Readonly<{
 }>;
 
 export async function storeMessageImage(job: ClaimedMessageImage, deps: StoreImageDependencies): Promise<Result<"stored" | "retry_scheduled" | "failed" | "claim_lost">> {
-  const downloaded = await deps.download(job.companyId, job.mediaId);
+  const sourceKey = `whatsapp-message:${job.messageId}`;
+  const imported = await deps.images.findCompletedImport(job.companyId, sourceKey);
+  if (!imported.success) return imported;
   let completion: Parameters<ImageWorkRepository["complete"]>[0]["completion"];
-  if (!downloaded.success) {
-    const delay = downloaded.error.code === "INVALID_MEDIA_RESPONSE" ? undefined : deps.retryDelaysMs[job.attempts - 1];
-    completion = delay === undefined
-      ? { status: "failed", failure: { code: downloaded.error.code === "INVALID_MEDIA_RESPONSE" ? "INVALID_IMAGE" : "RETRIES_EXHAUSTED", message: downloaded.error.message } }
-      : { status: "pending", nextAttemptAt: new Date(deps.now().getTime() + delay) };
+  if (imported.data) {
+    completion = { status: "ready", imageId: imported.data.id };
   } else {
-    const stored = await importPrivateImage(job.companyId, `whatsapp-message:${job.messageId}`, downloaded.data, deps.storage, deps.images);
-    if (stored.success) completion = { status: "ready", imageId: stored.data.id };
-    else if (stored.error.code === "INVALID_IMAGE" || stored.error.code === "IMAGE_TOO_LARGE") completion = { status: "failed", failure: { code: "INVALID_IMAGE", message: stored.error.message } };
-    else if (stored.error.code === "IMAGE_STORAGE_UNAVAILABLE" || stored.error.code === "IMAGE_STORAGE_CONFIG_ERROR") {
-      const delay = deps.retryDelaysMs[job.attempts - 1];
+    const downloaded = await deps.download(job.companyId, job.mediaId);
+    if (!downloaded.success) {
+      const delay = downloaded.error.code === "INVALID_MEDIA_RESPONSE" ? undefined : deps.retryDelaysMs[job.attempts - 1];
       completion = delay === undefined
-        ? { status: "failed", failure: { code: "RETRIES_EXHAUSTED", message: "Image storage retries exhausted" } }
+        ? { status: "failed", failure: { code: downloaded.error.code === "INVALID_MEDIA_RESPONSE" ? "INVALID_IMAGE" : "RETRIES_EXHAUSTED", message: downloaded.error.message } }
         : { status: "pending", nextAttemptAt: new Date(deps.now().getTime() + delay) };
+    } else {
+      const stored = await importPrivateImage(job.companyId, sourceKey, downloaded.data, deps.storage, deps.images);
+      if (stored.success) completion = { status: "ready", imageId: stored.data.id };
+      else if (stored.error.code === "INVALID_IMAGE" || stored.error.code === "IMAGE_TOO_LARGE") completion = { status: "failed", failure: { code: "INVALID_IMAGE", message: stored.error.message } };
+      else if (stored.error.code === "IMAGE_STORAGE_UNAVAILABLE" || stored.error.code === "IMAGE_STORAGE_CONFIG_ERROR") {
+        const delay = deps.retryDelaysMs[job.attempts - 1];
+        completion = delay === undefined
+          ? { status: "failed", failure: { code: "RETRIES_EXHAUSTED", message: "Image storage retries exhausted" } }
+          : { status: "pending", nextAttemptAt: new Date(deps.now().getTime() + delay) };
+      }
+      else return err(stored.error);
     }
-    else return err(stored.error);
   }
   const completed = await deps.work.complete({ companyId: job.companyId, messageId: job.messageId, claimToken: job.claimToken, completion });
   if (!completed.success) return completed;

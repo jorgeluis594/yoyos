@@ -15,6 +15,7 @@ export type ImageLookupError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; messa
 export type ImageRepository = {
   create(storageKey: string): Promise<Result<{ id: string }>>;
   find(id: string): Promise<Result<{ id: string; storageKey: string; visibility?: "public" | "private" } | null, ImageLookupError>>;
+  findCompletedImport(companyId: string, sourceKey: string): Promise<Result<{ id: string } | null, ImageLookupError>>;
   reserveImport(companyId: string, sourceKey: string): Promise<Result<{ id: string; storageKey: string }>>;
   completeImport(companyId: string, id: string): Promise<Result<void>>;
 };

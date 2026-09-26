@@ -17,6 +17,7 @@ function setup() {
   const repository: ImageRepository = {
     create: vi.fn(async () => ({ success: true as const, data: { id } })),
     find: vi.fn(async () => ({ success: true as const, data: { id, storageKey: "remote" } })),
+    findCompletedImport: vi.fn(async () => ({ success: true as const, data: null })),
     reserveImport: vi.fn(async () => ({ success: true as const, data: { id, storageKey: "private/key" } })),
     completeImport: vi.fn(async () => ({ success: true as const, data: undefined })),
   };

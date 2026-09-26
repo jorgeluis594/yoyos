@@ -28,6 +28,15 @@ export const imageRepository: ImageRepository = {
       return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to find image record" });
     }
   },
+  async findCompletedImport(companyId, sourceKey) {
+    try {
+      return ok(await prisma.image.findFirst({ where: { companyId, sourceKey, visibility: "private", importStatus: "ready" }, select: { id: true } }));
+    } catch (cause) {
+      if (!isPersistenceFailure(cause)) throw cause;
+      console.error("Unable to find completed private image import", { error: cause.name });
+      return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to find completed image import" });
+    }
+  },
   async reserveImport(companyId, sourceKey) {
     try {
       const prior = await prisma.image.findUnique({ where: { companyId_sourceKey: { companyId, sourceKey } }, select: { id: true, storageKey: true } });

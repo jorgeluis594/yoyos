@@ -22,11 +22,14 @@ export const imageWorkRepository: ImageWorkRepository = {
             ("imageStatus" = 'processing' AND "imageLeaseUntil" <= ${now})
             OR ("imageStatus" = 'pending' AND "imageNextAttemptAt" <= ${now})
           ) AND "imageAttempts" >= ${maxAttempts}
+            AND NOT EXISTS (SELECT 1 FROM "Image" AS image WHERE image."companyId" = "ChatMessage"."companyId"
+              AND image."sourceKey" = 'whatsapp-message:' || "ChatMessage"."id" AND image."visibility" = 'private' AND image."importStatus" = 'ready')
           RETURNING "id"
         ), candidate AS (
           SELECT "id", "imageStatus" AS "previousStatus" FROM "ChatMessage"
           WHERE "companyId" = ${companyId}::uuid AND "type" = 'image'
-            AND "imageAttempts" < ${maxAttempts}
+            AND ("imageAttempts" < ${maxAttempts} OR EXISTS (SELECT 1 FROM "Image" AS image WHERE image."companyId" = "ChatMessage"."companyId"
+              AND image."sourceKey" = 'whatsapp-message:' || "ChatMessage"."id" AND image."visibility" = 'private' AND image."importStatus" = 'ready'))
             AND (("imageStatus" = 'pending' AND "imageNextAttemptAt" <= ${now})
               OR ("imageStatus" = 'processing' AND "imageLeaseUntil" <= ${now}))
           ORDER BY COALESCE("imageNextAttemptAt", "imageLeaseUntil"), "id"
