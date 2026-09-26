@@ -7,7 +7,7 @@ import type { RecordMessageInput } from "@core/src/features/chats/domain/message
 import type { Result } from "@shared/result";
 import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
-export function whatsappWebhook(connections: readonly WhatsAppConnection[], appSecret: string, verifyToken: string, record: (input: RecordMessageInput) => Promise<Result<unknown>> = recordWhatsAppMessage) {
+export function whatsappWebhook(connections: readonly WhatsAppConnection[], appSecret: string, verifyToken: string, record: (input: RecordMessageInput, connection: WhatsAppConnection) => Promise<Result<unknown>> = recordWhatsAppMessage) {
   const router = express.Router();
   router.get("/", (request, response) => {
     if (!verifyToken || request.query["hub.mode"] !== "subscribe" || request.query["hub.verify_token"] !== verifyToken || typeof request.query["hub.challenge"] !== "string") return response.sendStatus(403);
@@ -25,20 +25,20 @@ export function whatsappWebhook(connections: readonly WhatsAppConnection[], appS
     const batch = parseWhatsAppWebhook(body);
     if (!batch) return response.sendStatus(400);
     let rejected = batch.malformed > 0;
-    let retry = false;
+    let unavailable = false;
     for (const event of batch.events) {
       if (event.status === "ignored") continue;
       const connection = connections.find(({ phoneNumberId }) => phoneNumberId === event.phoneNumberId);
       if (!connection || connection.businessAccountId !== event.businessAccountId) { rejected = true; continue; }
       if (event.message.sentAt < connection.connectedAt) continue;
-      const saved = await withTenantIsolation(connection.companyId, () => record({ ...event.message, receivedAt: new Date() }));
+      const saved = await withTenantIsolation(connection.companyId, () => record({ ...event.message, receivedAt: new Date() }, connection));
       if (!saved.success) {
         if (saved.error.code === "INVALID_MESSAGE" || saved.error.code === "INVALID_CONTACT") rejected = true;
-        else retry = true;
+        else unavailable = true;
         console.error("Unable to record WhatsApp webhook message", { code: saved.error.code });
       }
     }
-    return response.sendStatus(rejected ? 400 : retry ? 503 : 200);
+    return response.sendStatus(rejected ? 400 : unavailable ? 503 : 200);
   });
   return router;
 }

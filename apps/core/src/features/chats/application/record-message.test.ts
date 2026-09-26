@@ -9,8 +9,9 @@ function dependencies(prior: string | null): RecordMessageDependencies {
     chats: {
       findMessageId: vi.fn(async () => ({ success: true as const, data: prior ? { id: prior } : null })),
       ensureChat: vi.fn(async () => ({ success: true as const, data: { id: "5b47b1ef-5d21-4c0b-9c53-3db6e5634b19", contactId: "2e98e108-1821-4fd1-a507-21e3e00b76f1", createdAt: new Date(0) } })),
-      insertMessage: vi.fn(async ({ content }) => ({ success: true as const, data: { status: "stored" as const, messageId: content.type === "image" ? content.image.mediaId : "2e98e108-1821-4fd1-a507-21e3e00b76f1" } })),
+      insertMessage: vi.fn(async () => ({ success: true as const, data: { status: "stored" as const, messageId: "2e98e108-1821-4fd1-a507-21e3e00b76f1" } })),
     },
+    storeImage: vi.fn(async (_externalId, mediaId) => ({ success: true as const, data: { status: "ready" as const, mediaId, imageId: "2e98e108-1821-4fd1-a507-21e3e00b76f1" } })),
     transaction: (operation) => operation(),
   };
 }
@@ -23,10 +24,20 @@ describe("recordMessage", () => {
     const imageInput = { ...input, externalId: "wamid.image", content: { type: "image" as const, mediaId: "media-1", caption: " caption " } };
     const image = dependencies(null);
     await recordMessage(imageInput, image);
-    expect(image.chats.insertMessage).toHaveBeenCalledWith(expect.objectContaining({ content: { type: "image", caption: " caption ", image: { status: "pending", mediaId: "media-1", attempts: 0, nextAttemptAt: input.receivedAt } } }));
+    expect(image.storeImage).toHaveBeenCalledWith("wamid.image", "media-1");
+    expect(image.chats.insertMessage).toHaveBeenCalledWith(expect.objectContaining({ content: { type: "image", caption: " caption ", image: { status: "ready", mediaId: "media-1", imageId: "2e98e108-1821-4fd1-a507-21e3e00b76f1" } } }));
     const duplicate = dependencies("existing-id");
     expect(await recordMessage(input, duplicate)).toEqual({ success: true, data: { status: "duplicate", messageId: "existing-id" } });
     expect(duplicate.ensureContact).not.toHaveBeenCalled();
+    expect(duplicate.storeImage).not.toHaveBeenCalled();
+  });
+
+  it("does not persist an image when its import fails", async () => {
+    const deps = dependencies(null);
+    vi.mocked(deps.storeImage).mockResolvedValueOnce({ success: false, error: { code: "MEDIA_UNAVAILABLE", message: "download failed" } });
+    expect(await recordMessage({ ...input, content: { type: "image", mediaId: "media-1", caption: null } }, deps)).toMatchObject({ success: false, error: { code: "MEDIA_UNAVAILABLE" } });
+    expect(deps.ensureContact).not.toHaveBeenCalled();
+    expect(deps.chats.insertMessage).not.toHaveBeenCalled();
   });
 
   it("rejects invalid origins", async () => {

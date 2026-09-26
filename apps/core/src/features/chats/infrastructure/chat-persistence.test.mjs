@@ -2,7 +2,7 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { expect, test } from "vitest";
 
-test("WhatsApp persistence deduplicates concurrent conversations and safely reclaims image work", async () => {
+test("WhatsApp persistence deduplicates conversations and stores completed image outcomes", async () => {
   const appUrl = process.env.DATABASE_URL;
   expect(appUrl, "run sh scripts/run-tests.sh integration to prepare core_test").toBeTruthy();
   const adminUrl = new URL(appUrl);
@@ -13,14 +13,20 @@ test("WhatsApp persistence deduplicates concurrent conversations and safely recl
   const companyB = crypto.randomUUID();
   const phone = "+14155552671";
   const prefix = `wa_${crypto.randomUUID().replaceAll("-", "")}`;
-  const { prisma, withTenantIsolation } = await import("@core/src/shared/infrastructure/persistance");
-  const { recordWhatsAppMessage } = await import("@core/src/features/chats/application/record-message.ts");
-  const { imageWorkRepository } = await import("@core/src/features/chats/infrastructure/message-image-worker.ts");
+  const { prisma, withTenantIsolation, withinTransaction } = await import("@core/src/shared/infrastructure/persistance");
+  const { recordMessage } = await import("@core/src/features/chats/application/record-message.ts");
+  const { ensureContact } = await import("@core/src/features/contacts/application/ensure-contact.ts");
+  const { contactRepository } = await import("@core/src/features/contacts/infrastructure/contact-repository.ts");
+  const { chatRepository } = await import("@core/src/features/chats/infrastructure/chat-repository.ts");
+  let imageId;
   const makeMessage = (externalId, content = { type: "text", text: "original" }, contactPhone = phone) => ({
     externalId, contactPhone, contactName: "Ada",
     origin: { direction: "incoming", source: "contact" }, sentAt: new Date("2026-01-01T00:00:00Z"), receivedAt: new Date("2026-01-01T00:00:01Z"), content,
   });
-  const record = (companyId, externalId, content, contactPhone) => withTenantIsolation(companyId, () => recordWhatsAppMessage(makeMessage(externalId, content, contactPhone)));
+  const record = (companyId, externalId, content, contactPhone) => withTenantIsolation(companyId, () => recordMessage(makeMessage(externalId, content, contactPhone), {
+    ensureContact: (input) => ensureContact(input, contactRepository), chats: chatRepository, transaction: withinTransaction,
+    storeImage: async (_id, mediaId) => ({ success: true, data: mediaId === "invalid" ? { status: "failed", mediaId, failure: { code: "INVALID_IMAGE", message: "Invalid image" } } : mediaId === "storage-down" ? { status: "failed", mediaId, failure: { code: "IMAGE_STORAGE_UNAVAILABLE", message: "Storage unavailable" } } : { status: "ready", mediaId, imageId } }),
+  }));
   const cleanup = async (companyId) => withTenantIsolation(companyId, async () => {
     await prisma.chatMessage.deleteMany({ where: { companyId } });
     await prisma.image.deleteMany({ where: { companyId } });
@@ -57,40 +63,17 @@ test("WhatsApp persistence deduplicates concurrent conversations and safely recl
       expect(await prisma.chatMessage.findFirst({ where: { companyId: companyA, externalId: `${prefix}-1` }, select: { text: true } })).toEqual({ text: "original" });
     });
 
-    stage = "image work";
-    const image = await record(companyA, `${prefix}-image`, { type: "image", mediaId: "media-1", caption: null });
-    expect(image.success).toBe(true);
+    stage = "image outcomes";
     await withTenantIsolation(companyA, async () => {
-      const now = new Date();
-      const first = await imageWorkRepository.claimNext({ now, leaseUntil: new Date(now.getTime() + 10), claimToken: `${prefix}-claim-1`, maxAttempts: 4 });
-      const concurrentClaim = await imageWorkRepository.claimNext({ now, leaseUntil: new Date(now.getTime() + 10), claimToken: `${prefix}-claim-concurrent`, maxAttempts: 4 });
-      expect(first.success && first.data).toMatchObject({ mediaId: "media-1", attempts: 1, reclaimed: false });
-      expect(concurrentClaim).toEqual({ success: true, data: null });
-      const reclaimed = await imageWorkRepository.claimNext({ now: new Date(now.getTime() + 20), leaseUntil: new Date(now.getTime() + 120_000), claimToken: `${prefix}-claim-2`, maxAttempts: 4 });
-      expect(reclaimed.success && reclaimed.data).toMatchObject({ attempts: 2, reclaimed: true, claimToken: `${prefix}-claim-2` });
-      expect(await imageWorkRepository.complete({ messageId: first.data.messageId, claimToken: first.data.claimToken, completion: { status: "failed", failure: { code: "INVALID_IMAGE", message: "stale worker" } } })).toEqual({ success: true, data: "claim_lost" });
-      expect(await imageWorkRepository.complete({ messageId: reclaimed.data.messageId, claimToken: reclaimed.data.claimToken, completion: { status: "pending", nextAttemptAt: new Date(now.getTime() + 60_000) } })).toEqual({ success: true, data: "updated" });
+      imageId = (await prisma.image.create({ data: { companyId: companyA, sourceKey: `whatsapp-message:${prefix}-ready-image`, storageKey: `${companyA}/ready`, visibility: "private", importStatus: "ready", importCompletedAt: new Date() } })).id;
     });
-
-    await record(companyA, `${prefix}-crashed-image`, { type: "image", mediaId: "media-crashed", caption: null });
+    expect(await record(companyA, `${prefix}-ready-image`, { type: "image", mediaId: "media-ready", caption: null })).toMatchObject({ success: true, data: { status: "stored" } });
+    expect(await record(companyA, `${prefix}-invalid-image`, { type: "image", mediaId: "invalid", caption: null })).toMatchObject({ success: true, data: { status: "stored" } });
+    expect(await record(companyA, `${prefix}-storage-image`, { type: "image", mediaId: "storage-down", caption: null })).toMatchObject({ success: true, data: { status: "stored" } });
     await withTenantIsolation(companyA, async () => {
-      const now = new Date();
-      const first = await imageWorkRepository.claimNext({ now, leaseUntil: new Date(now.getTime() + 10), claimToken: `${prefix}-crash-1`, maxAttempts: 1 });
-      expect(first.success && first.data).toMatchObject({ mediaId: "media-crashed", attempts: 1 });
-      const exhausted = await imageWorkRepository.claimNext({ now: new Date(now.getTime() + 20), leaseUntil: new Date(now.getTime() + 120_000), claimToken: `${prefix}-crash-2`, maxAttempts: 1 });
-      expect(exhausted).toEqual({ success: true, data: null });
-      expect(await prisma.chatMessage.findFirst({ where: { companyId: companyA, externalId: `${prefix}-crashed-image` }, select: { imageStatus: true, imageFailureCode: true } })).toEqual({ imageStatus: "failed", imageFailureCode: "RETRIES_EXHAUSTED" });
-    });
-
-    await record(companyA, `${prefix}-ready-image`, { type: "image", mediaId: "media-ready", caption: null });
-    await withTenantIsolation(companyA, async () => {
-      const now = new Date();
-      const first = await imageWorkRepository.claimNext({ now, leaseUntil: new Date(now.getTime() + 10), claimToken: `${prefix}-ready-1`, maxAttempts: 1 });
-      expect(first.success && first.data).toMatchObject({ mediaId: "media-ready", attempts: 1 });
-      const readyImage = await prisma.image.create({ data: { companyId: companyA, sourceKey: `whatsapp-message:${first.data.messageId}`, storageKey: `${companyA}/ready`, visibility: "private", importStatus: "ready", importCompletedAt: now } });
-      const reclaimed = await imageWorkRepository.claimNext({ now: new Date(now.getTime() + 20), leaseUntil: new Date(now.getTime() + 120_000), claimToken: `${prefix}-ready-2`, maxAttempts: 1 });
-      expect(reclaimed.success && reclaimed.data).toMatchObject({ mediaId: "media-ready", attempts: 2, reclaimed: true });
-      expect(await imageWorkRepository.complete({ messageId: reclaimed.data.messageId, claimToken: reclaimed.data.claimToken, completion: { status: "ready", imageId: readyImage.id } })).toEqual({ success: true, data: "updated" });
+      expect(await prisma.chatMessage.findFirst({ where: { externalId: `${prefix}-ready-image` }, select: { imageStatus: true, imageId: true } })).toEqual({ imageStatus: "ready", imageId });
+      expect(await prisma.chatMessage.findFirst({ where: { externalId: `${prefix}-invalid-image` }, select: { imageStatus: true, imageFailureCode: true } })).toEqual({ imageStatus: "failed", imageFailureCode: "INVALID_IMAGE" });
+      expect(await prisma.chatMessage.findFirst({ where: { externalId: `${prefix}-storage-image` }, select: { imageStatus: true, imageFailureCode: true } })).toEqual({ imageStatus: "failed", imageFailureCode: "IMAGE_STORAGE_UNAVAILABLE" });
     });
 
     stage = "rollback";

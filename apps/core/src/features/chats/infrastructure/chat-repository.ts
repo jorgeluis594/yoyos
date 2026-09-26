@@ -53,8 +53,9 @@ export const chatRepository: ChatRepository = {
         sentAt: input.sentAt, receivedAt: input.receivedAt,
         whatsappMediaId: image ? input.content.image.mediaId : null,
         imageStatus: image ? input.content.image.status : null,
-        imageAttempts: image ? input.content.image.attempts : null,
-        imageNextAttemptAt: image ? input.content.image.nextAttemptAt : null,
+        imageId: image && input.content.image.status === "ready" ? input.content.image.imageId : null,
+        imageFailureCode: image && input.content.image.status === "failed" ? input.content.image.failure.code : null,
+        imageFailureMessage: image && input.content.image.status === "failed" ? input.content.image.failure.message : null,
       }], skipDuplicates: true });
       const message = await prisma.chatMessage.findFirst({ where: { externalId: input.externalId }, select: { id: true } });
       if (!message) return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to persist message" });

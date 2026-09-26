@@ -18,6 +18,7 @@ model User {
   company       Company?  @relation(fields: [companyId], references: [id])
   sessions      Session[]
   accounts      Account[]
+  messages      ChatMessage[]
 
   @@unique([companyId, id])
 
@@ -118,15 +119,8 @@ enum MessageType {
   image
 }
 enum MessageImageStatus {
-  pending
-  processing
   ready
   failed
-}
-enum MessageImageFailureCode {
-  MEDIA_UNAVAILABLE
-  INVALID_IMAGE
-  RETRIES_EXHAUSTED
 }
 
 model Image {
@@ -232,6 +226,7 @@ model ChatMessage {
   direction           MessageDirection
   source              MessageSource
   userId              String?
+  user                User?                     @relation(fields: [companyId, userId], references: [companyId, id], onDelete: NoAction, onUpdate: NoAction, map: "ChatMessage_user_company_fkey")
   type                MessageType
   text                String?
   caption             String?
@@ -241,16 +236,10 @@ model ChatMessage {
   imageId             String?                   @db.Uuid
   image               Image?                    @relation(fields: [companyId, imageId], references: [companyId, id])
   imageStatus         MessageImageStatus?
-  imageAttempts       Int?
-  imageNextAttemptAt  DateTime?
-  imageClaimToken     String?
-  imageLeaseUntil     DateTime?
-  imageFailureCode    MessageImageFailureCode?
+  imageFailureCode    String?
   imageFailureMessage String?
 
   @@unique([companyId, id])
   @@unique([companyId, externalId])
   @@index([companyId, chatId, sentAt, id])
-  @@index([companyId, imageStatus, imageNextAttemptAt])
-  @@index([companyId, imageStatus, imageLeaseUntil])
 }

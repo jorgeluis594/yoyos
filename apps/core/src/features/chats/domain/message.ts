@@ -4,12 +4,9 @@ export type RecordMessageInput = Readonly<{ externalId: string; contactPhone: st
 export type RecordMessageError = Readonly<{ code: "INVALID_MESSAGE" | "INVALID_CONTACT" | "PERSISTENCE_UNAVAILABLE" | "INVALID_STORED_DATA"; message: string }>;
 export type RecordMessageOutcome = Readonly<{ status: "stored"; messageId: string }> | Readonly<{ status: "duplicate"; messageId: string }>;
 export type Chat = Readonly<{ id: string; contactId: string; createdAt: Date }>;
-export type ImageFailure = Readonly<{ code: "MEDIA_UNAVAILABLE" | "INVALID_IMAGE" | "RETRIES_EXHAUSTED"; message: string }>;
 export type MessageImage =
-  | Readonly<{ status: "pending"; mediaId: string; attempts: number; nextAttemptAt: Date }>
-  | Readonly<{ status: "processing"; mediaId: string; attempts: number; claimToken: string; leaseUntil: Date }>
   | Readonly<{ status: "ready"; mediaId: string; imageId: string }>
-  | Readonly<{ status: "failed"; mediaId: string; attempts: number; failure: ImageFailure }>;
+  | Readonly<{ status: "failed"; mediaId: string; failure: Readonly<{ code: "INVALID_IMAGE" | "MEDIA_UNAVAILABLE" | "IMAGE_STORAGE_UNAVAILABLE"; message: string }> }>;
 export type StoredContent = Readonly<{ type: "text"; text: string }> | Readonly<{ type: "image"; caption: string | null; image: MessageImage }>;
 export type ChatMessage = Readonly<{ id: string; chatId: string; externalId: string; origin: MessageOrigin; sentAt: Date; receivedAt: Date; content: StoredContent }>;
 export function validRecordMessage(input: RecordMessageInput): boolean {
