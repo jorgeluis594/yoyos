@@ -8,6 +8,7 @@ test("private image imports reuse their reservation after a completion interrupt
   const sourceKey = `whatsapp-message:${crypto.randomUUID()}`;
   const { prisma, withTenantIsolation } = await import("@core/src/shared/infrastructure/persistance");
   const { importPrivateImage, readPrivateImage } = await import("@core/src/shared/images/application/images.ts");
+  const { findCompletedPrivateImageImport } = await import("@core/src/shared/images/index.ts");
   const { imageRepository } = await import("@core/src/shared/images/infrastructure/image-repository.ts");
   const bytes = new Uint8Array(await sharp({ create: { width: 3, height: 2, channels: 3, background: "teal" } }).png().toBuffer());
   const objects = new Map();
@@ -35,11 +36,13 @@ test("private image imports reuse their reservation after a completion interrupt
       const reserved = await prisma.image.findUnique({ where: { companyId_sourceKey: { companyId, sourceKey } }, select: { id: true, importStatus: true } });
       expect(reserved).toMatchObject({ importStatus: "pending" });
       expect(await imageRepository.find(reserved.id)).toEqual({ success: true, data: null });
+      expect(await findCompletedPrivateImageImport(companyId, sourceKey)).toEqual({ success: true, data: null });
       const retried = await importPrivateImage(companyId, sourceKey, { bytes, filename: "original.png", declaredContentType: "image/png" }, storage, repository);
       expect(retried).toEqual({ success: true, data: { id: reserved.id } });
       expect(uploads).toHaveLength(2);
       expect(uploads[0]).toBe(uploads[1]);
       expect((await imageRepository.find(reserved.id)).data).toMatchObject({ visibility: "private" });
+      expect(await findCompletedPrivateImageImport(companyId, sourceKey)).toEqual({ success: true, data: { id: reserved.id } });
       expect(await readPrivateImage(reserved.id, storage, imageRepository)).toEqual({ success: true, data: { bytes, contentType: "image/png" } });
     });
   } finally {

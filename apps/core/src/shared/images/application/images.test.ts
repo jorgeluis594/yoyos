@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
-import { getImage, importPrivateImage, uploadImage, type ImageRepository, type ImageStorage } from "@core/src/shared/images/application/images";
+import { findCompletedPrivateImageImport, getImage, importPrivateImage, uploadImage, type ImageRepository, type ImageStorage } from "@core/src/shared/images/application/images";
 
 const id = crypto.randomUUID();
 const companyId = crypto.randomUUID();
@@ -25,6 +25,18 @@ function setup() {
 }
 
 describe("images use cases", () => {
+  it("looks up a completed private import within its company and propagates lookup failures", async () => {
+    const { repository } = setup();
+    const sourceKey = "whatsapp-message:message-1";
+    expect(await findCompletedPrivateImageImport(companyId, sourceKey, repository)).toEqual({ success: true, data: null });
+    expect(repository.findCompletedImport).toHaveBeenCalledWith(companyId, sourceKey);
+    vi.mocked(repository.findCompletedImport).mockResolvedValueOnce({ success: true, data: { id } });
+    expect(await findCompletedPrivateImageImport(companyId, sourceKey, repository)).toEqual({ success: true, data: { id } });
+    const failure = { code: "PERSISTENCE_UNAVAILABLE" as const, message: "database down" };
+    vi.mocked(repository.findCompletedImport).mockResolvedValueOnce({ success: false, error: failure });
+    expect(await findCompletedPrivateImageImport(companyId, sourceKey, repository)).toEqual({ success: false, error: failure });
+  });
+
   it("returns the stored ID and URL and resolves a tenant image", async () => {
     const { storage, repository } = setup();
     expect(await uploadImage(input, storage, repository)).toEqual({ success: true, data: { id, url: "https://example.test/image" } });

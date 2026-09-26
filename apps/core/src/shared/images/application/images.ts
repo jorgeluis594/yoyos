@@ -23,6 +23,10 @@ export type ImageRepository = {
 export type DownloadedImage = Readonly<{ bytes: Uint8Array; filename: string; declaredContentType: string }>;
 export type PrivateImageError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE" | "INVALID_IMAGE" | "IMAGE_TOO_LARGE" | "IMAGE_STORAGE_UNAVAILABLE" | "IMAGE_STORAGE_CONFIG_ERROR"; message: string }>;
 
+export function findCompletedPrivateImageImport(companyId: string, sourceKey: string, repository: ImageRepository): Promise<Result<{ id: string } | null, ImageLookupError>> {
+  return repository.findCompletedImport(companyId, sourceKey);
+}
+
 export async function validateImage(file: DownloadedImage): Promise<Result<{ contentType: string }, PrivateImageError>> {
   if (!file.bytes.length || file.bytes.length > 10_000_000) return { success: false, error: { code: file.bytes.length ? "IMAGE_TOO_LARGE" : "INVALID_IMAGE", message: "Invalid image size" } };
   try {
