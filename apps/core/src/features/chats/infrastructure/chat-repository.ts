@@ -12,8 +12,8 @@ function isPersistenceFailure(cause: unknown) {
 export const chatRepository: ChatRepository = {
   async findMessageId(companyId, externalId) {
     try {
-      const message = await prisma.chatMessage.findUnique({ where: { companyId_externalId: { companyId, externalId } }, select: { id: true } });
-      return ok(message?.id ?? null);
+      const message = await prisma.chatMessage.findUnique({ where: { companyId_externalId: { companyId, externalId } }, select: { id: true, companyId: true } });
+      return ok(message);
     } catch (cause) {
       if (!isPersistenceFailure(cause)) throw cause;
       console.error("Unable to find WhatsApp message", { error: cause.name });
@@ -24,7 +24,7 @@ export const chatRepository: ChatRepository = {
     try {
       return ok(await prisma.chat.upsert({
         where: { companyId_contactId: { companyId, contactId } },
-        create: { companyId, contactId }, update: {}, select: { id: true },
+        create: { companyId, contactId }, update: {},
       }));
     } catch (cause) {
       if (!isPersistenceFailure(cause)) throw cause;
@@ -49,7 +49,7 @@ export const chatRepository: ChatRepository = {
       }], skipDuplicates: true });
       const message = await prisma.chatMessage.findUnique({ where: { companyId_externalId: { companyId: input.companyId, externalId: input.externalId } }, select: { id: true } });
       if (!message) return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to persist message" });
-      return ok({ status: inserted.count ? "stored" as const : "duplicate" as const, messageId: message.id });
+      return ok({ status: inserted.count ? "stored" as const : "duplicate" as const, companyId: input.companyId, messageId: message.id });
     } catch (cause) {
       if (!isPersistenceFailure(cause)) throw cause;
       console.error("Unable to persist WhatsApp message", { error: cause.name });
