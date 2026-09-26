@@ -197,7 +197,7 @@ model ProductStock {
 
 model Contact {
   id        String   @id @default(uuid()) @db.Uuid
-  companyId String   @db.Uuid
+  companyId String   @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
   company   Company  @relation(fields: [companyId], references: [id])
   phone     String
   name      String?
@@ -211,7 +211,7 @@ model Contact {
 
 model Chat {
   id        String   @id @default(uuid()) @db.Uuid
-  companyId String   @db.Uuid
+  companyId String   @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
   company   Company  @relation(fields: [companyId], references: [id])
   contactId String   @db.Uuid
   contact   Contact  @relation(fields: [companyId, contactId], references: [companyId, id])
@@ -224,7 +224,7 @@ model Chat {
 
 model ChatMessage {
   id                  String                    @id @default(uuid()) @db.Uuid
-  companyId           String                    @db.Uuid
+  companyId           String                    @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
   company             Company                   @relation(fields: [companyId], references: [id])
   chatId              String                    @db.Uuid
   chat                Chat                      @relation(fields: [companyId, chatId], references: [companyId, id])
