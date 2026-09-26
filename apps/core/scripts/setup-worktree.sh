@@ -5,4 +5,4 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$repo_root"
 
 docker compose build migrate web
-docker compose run --rm web pnpm seed
+docker compose run --rm web sh -c 'pnpm exec prisma generate && pnpm seed'

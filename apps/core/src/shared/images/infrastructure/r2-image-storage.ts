@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { DeleteObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import type { Result } from "@shared/result";
 import type { ImageStorage } from "@core/src/shared/images/application/images";
 
 type Config = {
   endpoint: string;
   bucket: string;
+  privateBucket?: string;
   accessKeyId: string;
   secretAccessKey: string;
   publicBaseUrl: string;
@@ -47,6 +48,27 @@ export function createR2ImageStorage(config: Config): ImageStorage {
       } catch (error) {
         console.error("R2 image upload failed", error);
         return failed("IMAGE_STORAGE_UNAVAILABLE", "Image upload failed");
+      }
+    },
+    async uploadPrivate(key, { bytes, contentType }) {
+      if (!client || !config.privateBucket?.trim() || config.privateBucket === config.bucket) return failed("IMAGE_STORAGE_CONFIG_ERROR", "Private image storage is not configured");
+      try {
+        await client.send(new PutObjectCommand({ Bucket: config.privateBucket, Key: key, Body: bytes, ContentType: contentType }));
+        return { success: true, data: undefined };
+      } catch (error) {
+        console.error("R2 private image upload failed", { error: error instanceof Error ? error.name : "unknown" });
+        return failed("IMAGE_STORAGE_UNAVAILABLE", "Private image upload failed");
+      }
+    },
+    async readPrivate(key) {
+      if (!client || !config.privateBucket?.trim() || config.privateBucket === config.bucket) return failed("IMAGE_STORAGE_CONFIG_ERROR", "Private image storage is not configured");
+      try {
+        const object = await client.send(new GetObjectCommand({ Bucket: config.privateBucket, Key: key }));
+        if (!object.Body) return failed("IMAGE_STORAGE_UNAVAILABLE", "Private image is unavailable");
+        return { success: true, data: { bytes: await object.Body.transformToByteArray(), contentType: object.ContentType ?? "application/octet-stream" } };
+      } catch (error) {
+        console.error("R2 private image read failed", { error: error instanceof Error ? error.name : "unknown" });
+        return failed("IMAGE_STORAGE_UNAVAILABLE", "Private image is unavailable");
       }
     },
     async getUrl(key) {

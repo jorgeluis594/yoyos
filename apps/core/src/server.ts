@@ -11,4 +11,7 @@ app.all(
   createRequestHandler({ build, mode: process.env.NODE_ENV }),
 );
 
-app.listen(port, () => console.log(`Core listening on http://localhost:${port}`));
+const server = app.listen(port, () => console.log(`Core listening on http://localhost:${port}`));
+for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => {
+  server.close(() => process.exit(0));
+});

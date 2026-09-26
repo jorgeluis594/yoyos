@@ -9,6 +9,8 @@ import type { Response } from "express";
 import { imageRoutes } from "@core/src/shared/images/presentation/routes";
 import { imageRepository } from "@core/src/shared/images/infrastructure/image-repository";
 import { createR2ImageStorage } from "@core/src/shared/images/infrastructure/r2-image-storage";
+import { loadWhatsAppConnections } from "@core/src/features/chats/infrastructure/whatsapp-connections";
+import { whatsappWebhook } from "@core/src/features/chats/presentation/whatsapp-webhook";
 
 export const app = express();
 
@@ -50,6 +52,7 @@ app.use("/api", requireApiCompany);
 app.use("/api/images", imageRoutes(createR2ImageStorage({
   endpoint: process.env.R2_ENDPOINT ?? "",
   bucket: process.env.R2_BUCKET ?? "",
+  privateBucket: process.env.R2_PRIVATE_BUCKET ?? "",
   accessKeyId: process.env.R2_ACCESS_KEY_ID ?? "",
   secretAccessKey: process.env.R2_SECRET_ACCESS_KEY ?? "",
   publicBaseUrl: process.env.R2_PUBLIC_BASE_URL ?? "",
@@ -66,6 +69,9 @@ app.use("/api", (error: unknown, _request: express.Request, response: express.Re
   return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
 });
 
+app.use("/webhooks/whatsapp", express.raw({ type: "*/*", limit: "2mb" }), whatsappWebhook(
+  loadWhatsAppConnections(), process.env.WHATSAPP_APP_SECRET ?? "", process.env.WHATSAPP_VERIFY_TOKEN ?? "",
+));
 app.use("/webhooks", express.raw({ type: "*/*" }), (_request, response) => {
   response.sendStatus(404);
 });

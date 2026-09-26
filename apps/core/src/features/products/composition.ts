@@ -4,6 +4,7 @@ import { getImage } from "@core/src/shared/images/application/images";
 import { imageRepository } from "@core/src/shared/images/infrastructure/image-repository";
 import { createR2ImageStorage } from "@core/src/shared/images/infrastructure/r2-image-storage";
 import { createProduct } from "@core/src/features/products/application/create";
+import type { ImageId } from "@core/src/features/products/domain/product";
 import { getProduct } from "@core/src/features/products/application/get";
 import { listProducts } from "@core/src/features/products/application/list";
 import { updateProduct } from "@core/src/features/products/application/update";
@@ -15,14 +16,14 @@ const imageStorage = createR2ImageStorage({
   publicBaseUrl: process.env.R2_PUBLIC_BASE_URL ?? "",
 });
 
-async function resolveImage(imageId: NonNullable<Parameters<typeof createProduct>[1]["imageId"]>) {
+async function resolveImage(imageId: ImageId) {
   const result = await getImage(imageId, imageStorage, imageRepository);
   if (!result.success) throw new Error(result.error.message);
   return result.data ? { id: result.data.id as typeof imageId, url: result.data.url } : null;
 }
 
-async function findImage(imageId: NonNullable<Parameters<typeof createProduct>[1]["imageId"]>) {
-  return map(await imageRepository.find(imageId), (image) => image !== null);
+async function findImage(imageId: ImageId) {
+  return map(await imageRepository.find(imageId), (image) => image !== null && image.visibility !== "private");
 }
 
 export const products = {

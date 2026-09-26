@@ -18,6 +18,9 @@ model User {
   company       Company?  @relation(fields: [companyId], references: [id])
   sessions      Session[]
   accounts      Account[]
+  messages      ChatMessage[]
+
+  @@unique([companyId, id])
 
   @@map("user")
 }
@@ -87,19 +90,53 @@ model Company {
   country String
   users   User[]
   images  Image[]
+  contacts Contact[]
+  chats Chat[]
+  messages ChatMessage[]
   products Product[]
   productVariants ProductVariant[]
   productStocks ProductStock[]
 }
 
+enum ImageVisibility {
+  public
+  private
+}
+enum ImageImportStatus {
+  pending
+  ready
+}
+enum MessageDirection {
+  incoming
+  outgoing
+}
+enum MessageSource {
+  contact
+  seller
+}
+enum MessageType {
+  text
+  image
+}
+enum MessageImageStatus {
+  ready
+  failed
+}
+
 model Image {
-  id         String   @id @default(uuid()) @db.Uuid
-  companyId  String   @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
-  company    Company  @relation(fields: [companyId], references: [id])
-  storageKey String
-  createdAt  DateTime @default(now())
+  id                 String             @id @default(uuid()) @db.Uuid
+  companyId          String             @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company            Company            @relation(fields: [companyId], references: [id])
+  storageKey         String
+  visibility         ImageVisibility    @default(public)
+  sourceKey          String?
+  importStatus       ImageImportStatus?
+  importCompletedAt  DateTime?
+  createdAt          DateTime           @default(now())
+  messages           ChatMessage[]
   products Product[]
 
+  @@unique([companyId, sourceKey])
   @@index([companyId])
   @@unique([companyId, id])
 }
@@ -150,4 +187,59 @@ model ProductStock {
 
   @@unique([companyId, variantId])
   @@index([companyId])
+}
+
+model Contact {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company   Company  @relation(fields: [companyId], references: [id])
+  phone     String
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  chats     Chat[]
+
+  @@unique([companyId, id])
+  @@unique([companyId, phone])
+}
+
+model Chat {
+  id        String   @id @default(uuid()) @db.Uuid
+  companyId String   @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company   Company  @relation(fields: [companyId], references: [id])
+  contactId String   @db.Uuid
+  contact   Contact  @relation(fields: [companyId, contactId], references: [companyId, id])
+  createdAt DateTime @default(now())
+  messages  ChatMessage[]
+
+  @@unique([companyId, id])
+  @@unique([companyId, contactId])
+}
+
+model ChatMessage {
+  id                  String                    @id @default(uuid()) @db.Uuid
+  companyId           String                    @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company             Company                   @relation(fields: [companyId], references: [id])
+  chatId              String                    @db.Uuid
+  chat                Chat                      @relation(fields: [companyId, chatId], references: [companyId, id])
+  externalId          String
+  direction           MessageDirection
+  source              MessageSource
+  userId              String?
+  user                User?                     @relation(fields: [companyId, userId], references: [companyId, id], onDelete: NoAction, onUpdate: NoAction, map: "ChatMessage_user_company_fkey")
+  type                MessageType
+  text                String?
+  caption             String?
+  sentAt              DateTime
+  receivedAt          DateTime
+  whatsappMediaId     String?
+  imageId             String?                   @db.Uuid
+  image               Image?                    @relation(fields: [companyId, imageId], references: [companyId, id])
+  imageStatus         MessageImageStatus?
+  imageFailureCode    String?
+  imageFailureMessage String?
+
+  @@unique([companyId, id])
+  @@unique([companyId, externalId])
+  @@index([companyId, chatId, sentAt, id])
 }
