@@ -9,7 +9,7 @@ import { products } from "@core/src/features/products/composition";
 import { parseUpdateJson } from "@core/src/features/products/presentation/input";
 import { updateErrors, type FormErrors } from "@core/src/features/products/presentation/messages";
 import { ProductForm, type ProductFormValues, type ProductImageSelection } from "@core/src/features/products/presentation/product-form";
-import type { CompanyId, ProductId } from "@core/src/features/products/domain/product";
+import type { ProductId } from "@core/src/features/products/domain/product";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -51,7 +51,7 @@ export async function action({ request, context, params }: ActionFunctionArgs): 
   if (!parsed.success) return { errors: updateErrors(parsed.error) };
   const company = context.get(privateUserContext).company;
   try {
-    const result = await products.update(company.id as CompanyId, params.productId as ProductId, parsed.data);
+    const result = await products.update(params.productId as ProductId, parsed.data);
     if (!result.success) return { errors: updateErrors(result.error) };
     return redirect(`/es-${company.country}/products/${result.data}?saved=1`);
   } catch (cause) {

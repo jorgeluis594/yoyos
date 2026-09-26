@@ -26,12 +26,12 @@ async function findImage(imageId: NonNullable<Parameters<typeof createProduct>[1
 }
 
 export const products = {
-  create: (companyId: Parameters<typeof createProduct>[0], input: Parameters<typeof createProduct>[1]) =>
-    createProduct(companyId, input, { repository: productRepository, findImage, newId: randomUUID, clock: () => new Date() }),
+  create: (input: Parameters<typeof createProduct>[0]) =>
+    createProduct(input, { repository: productRepository, findImage, newId: randomUUID, clock: () => new Date() }),
   get: (id: Parameters<typeof getProduct>[0]) =>
     getProduct(id, { repository: productRepository, resolveImage }),
-  update: (companyId: Parameters<typeof updateProduct>[0], id: Parameters<typeof updateProduct>[1], input: Parameters<typeof updateProduct>[2]) =>
-    updateProduct(companyId, id, input, { repository: productRepository, findImage, clock: () => new Date() }),
+  update: (id: Parameters<typeof updateProduct>[0], input: Parameters<typeof updateProduct>[1]) =>
+    updateProduct(id, input, { repository: productRepository, findImage, clock: () => new Date() }),
   list: (input: Parameters<typeof listProducts>[0]) =>
     listProducts(input, productRepository),
 };

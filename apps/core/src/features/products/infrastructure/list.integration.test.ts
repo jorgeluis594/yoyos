@@ -3,30 +3,29 @@ import { expect, test } from "vitest";
 import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { listProducts } from "@core/src/features/products/application/list";
 import { productRepository } from "@core/src/features/products/infrastructure/repository";
-import type { CompanyId } from "@core/src/features/products/domain/product";
 
 test("catalog searches distinct products and summarizes all variants within the company", async () => {
-  const companyA = randomUUID() as CompanyId;
-  const companyB = randomUUID() as CompanyId;
+  const companyA = randomUUID();
+  const companyB = randomUUID();
   const when = new Date("2026-01-01T00:00:00.000Z");
-  const add = async (companyId: CompanyId, name: string, variants: { sku?: string; price: number; stock: number }[]) => {
+  const add = async (name: string, variants: { sku?: string; price: number; stock: number }[]) => {
     const id = randomUUID();
-    await prisma.product.create({ data: { id, companyId, name, currency: "PEN", qrCode: randomUUID(), status: "active", createdAt: when, updatedAt: when } });
+    await prisma.product.create({ data: { id, name, currency: "PEN", qrCode: randomUUID(), status: "active", createdAt: when, updatedAt: when } });
     for (const variant of variants) {
       const variantId = randomUUID();
-      await prisma.productVariant.create({ data: { id: variantId, companyId, productId: id, attributes: {}, sku: variant.sku, salePrice: variant.price, qrCode: randomUUID(), status: "active" } });
-      await prisma.productStock.create({ data: { companyId, variantId, quantity: BigInt(variant.stock) } });
+      await prisma.productVariant.create({ data: { id: variantId, productId: id, attributes: {}, sku: variant.sku, salePrice: variant.price, qrCode: randomUUID(), status: "active" } });
+      await prisma.productStock.create({ data: { variantId, quantity: BigInt(variant.stock) } });
     }
     return id;
   };
   try {
     for (const id of [companyA, companyB]) await withTenantIsolation(id, async () => await prisma.company.create({ data: { id, name: id, country: "PE" } }));
     const ids = await withTenantIsolation(companyA, async () => [
-      await add(companyA, "Camisa", [{ sku: "MATCH-M", price: 20, stock: 2 }, { sku: "MATCH-L", price: 25, stock: 3 }, { sku: "OTHER", price: 30, stock: 4 }]),
-      await add(companyA, "Match equal", [{ price: 10, stock: 1 }, { price: 10, stock: 2 }]),
-      await add(companyA, "Unrelated", [{ sku: "SOLO", price: 5, stock: 0 }]),
+      await add("Camisa", [{ sku: "MATCH-M", price: 20, stock: 2 }, { sku: "MATCH-L", price: 25, stock: 3 }, { sku: "OTHER", price: 30, stock: 4 }]),
+      await add("Match equal", [{ price: 10, stock: 1 }, { price: 10, stock: 2 }]),
+      await add("Unrelated", [{ sku: "SOLO", price: 5, stock: 0 }]),
     ]);
-    await withTenantIsolation(companyB, () => add(companyB, "Match foreign", [{ sku: "MATCH-SECRET", price: 1, stock: 100 }]));
+    await withTenantIsolation(companyB, () => add("Match foreign", [{ sku: "MATCH-SECRET", price: 1, stock: 100 }]));
     await withTenantIsolation(companyA, async () => {
       const match = await listProducts({ search: " mAtCh ", pageSize: 1 }, productRepository);
       expect(match.success).toBe(true);

@@ -1,7 +1,7 @@
 import { browserExpect, expect, test } from "./fixtures";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { products } from "@core/src/features/products/composition";
-import type { CompanyId, ImageId } from "@core/src/features/products/domain/product";
+import type { ImageId } from "@core/src/features/products/domain/product";
 
 test("create products from the private form, validate input, and reload detail", async ({ page, request }) => {
   const email = `product-${crypto.randomUUID()}@example.test`;
@@ -118,7 +118,7 @@ test("create products from the private form, validate input, and reload detail",
 
     const prepared = await withTenantIsolation(tenantId, async () => {
       const image = await prisma.image.create({ data: { companyId: tenantId, storageKey: "prepared-product.jpg" } });
-      return products.create(tenantId as CompanyId, {
+      return products.create({
         name: "Camisa con tallas", currency: "PEN", imageId: image.id as ImageId,
         variants: [
           { attributes: { Talla: "M" }, sku: "CAM-M", salePrice: 20, initialStock: 2 },

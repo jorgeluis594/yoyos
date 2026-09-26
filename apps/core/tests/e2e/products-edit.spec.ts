@@ -1,7 +1,6 @@
 import { browserExpect, expect, test } from "./fixtures";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { products } from "@core/src/features/products/composition";
-import type { CompanyId } from "@core/src/features/products/domain/product";
 
 test("edit products from the private form, preserve unchanged data, and enforce boundaries", async ({ page, request }) => {
   const email = `edit-${crypto.randomUUID()}@example.test`;
@@ -98,7 +97,7 @@ test("edit products from the private form, preserve unchanged data, and enforce 
     expect(await manipulated.text()).toContain("La solicitud contiene campos no permitidos.");
     expect((await withTenantIsolation(tenantId, async () => await prisma.product.findUniqueOrThrow({ where: { id: firstProductId } }))).name).toBe("Cuaderno editado");
 
-    const prepared = await withTenantIsolation(tenantId, async () => products.create(tenantId as CompanyId, {
+    const prepared = await withTenantIsolation(tenantId, async () => products.create({
       name: "Camisa con tallas", currency: "PEN",
       variants: [
         { attributes: { Talla: "M" }, sku: "CAM-M", salePrice: 20, initialStock: 2 },

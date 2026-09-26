@@ -10,9 +10,9 @@ function isPersistenceFailure(cause: unknown) {
 }
 
 export const imageRepository: ImageRepository = {
-  async create(companyId, storageKey) {
+  async create(storageKey) {
     try {
-      return ok(await prisma.image.create({ data: { companyId, storageKey }, select: { id: true } }));
+      return ok(await prisma.image.create({ data: { storageKey }, select: { id: true } }));
     } catch (cause) {
       if (!isPersistenceFailure(cause)) throw cause;
       console.error("Unable to create image record", cause);

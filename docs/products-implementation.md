@@ -435,7 +435,6 @@ type ProductVariant = {
 
 type Product = {
   id: ProductId;
-  companyId: CompanyId;
   name: string;
   description?: string;
   imageId?: ImageId;
@@ -466,10 +465,11 @@ consumers join separate variant and stock arrays. `ProductStock` remains its own
 entity and database table; the nested domain representation does not change
 persistence ownership or the one-stock-record-per-variant relationship.
 
-`Product` uses `ProductId` and `CompanyId`; `ProductVariant` uses `VariantId` and
-references its parent through `ProductId`. Validate the nonempty collection when
-constructing or mapping a product at runtime; a type assertion alone cannot
-establish this invariant for external or persisted data.
+`Product` uses `ProductId`; `ProductVariant` uses `VariantId` and references its
+parent through `ProductId`. Tenant identity comes from authenticated database
+context and is not part of the domain types. Validate the nonempty collection
+when constructing or mapping a product at runtime; a type assertion alone
+cannot establish this invariant for external or persisted data.
 
 ### Currency Type
 
@@ -517,9 +517,10 @@ Stock, currency, and QR identifiers remain excluded from editable fields.
 
 ### Nominal Identifiers
 
-Use distinct branded string types for `ProductId`, `VariantId`, and `CompanyId`
-so that the compiler rejects interchanging them. They remain strings at runtime
-and do not require a new dependency or identifier class.
+Use distinct branded string types for `ProductId` and `VariantId` so that the
+compiler rejects interchanging them. Tenant identity is supplied by the
+authenticated database context, not by product types. Identifiers remain strings
+at runtime and do not require a new dependency or identifier class.
 
 Use `ImageId` for image references in these product contracts as well, adapting
 the existing image module's string identifiers at its boundary.
@@ -629,9 +630,10 @@ defined in `application/repository.ts` and implemented in
 | `get` | Read the product with its variants and each variant's stock |
 | `list` | Read product summary rows and the total matching product count |
 
-All methods receive the trusted `CompanyId` explicitly and return promises.
-Read methods return their data directly: `get` represents absence with null,
-and `list` receives validated criteria. The application use cases own DetailError
+Methods return promises. Read methods return their data directly: `get`
+represents absence with null, and `list` receives validated criteria. Tenant
+scope comes from the authenticated database context and RLS; product repository
+contracts do not carry `CompanyId`. The application use cases own DetailError
 and ListError respectively; unexpected storage failures propagate to the server
 boundary rather than becoming product-write errors.
 
@@ -642,8 +644,7 @@ boundary rather than becoming product-write errors.
 | `get` | `Promise<Product \| null>` |
 | `list` | `Promise<ListOutput>` |
 
-Read through `repository.get(companyId, productId)` and
-`repository.list(companyId, criteria)`. The list use case validates and
+Read through `repository.get(productId)` and `repository.list(criteria)`. The list use case validates and
 normalizes user criteria and resolves defaults before calling the repository.
 The adapter does not interpret URL parameters or invent pagination defaults.
 
@@ -667,9 +668,9 @@ SKUs. The adapter computes the offset from page and page size; do not also
 pass an independently supplied offset that could disagree with them. Validate
 that numeric pagination calculations remain within safe integer limits.
 
-Company identity remains a separate trusted argument. Criteria does not contain
-company, arbitrary SQL fields, or a configurable sort: use the agreed creation
-date descending order with product ID as the tie-breaker. Apply the same
+Criteria does not contain company, arbitrary SQL fields, or a configurable
+sort: use the agreed creation date descending order with product ID as the
+tie-breaker. Apply the same
 normalized criteria to both rows and total, without requiring a shared snapshot.
 
 The repository's `get` returns the domain product; image resolution belongs to
@@ -678,17 +679,19 @@ functional immutability contract above.
 
 Use cases coordinate business rules and provide explicit persistence inputs.
 The adapter guarantees atomic writes using the existing transaction mechanism
-and scopes all reads and writes to the trusted company. Do not introduce separate
+and relies on the authenticated database context and RLS to scope reads and
+writes. Tenant columns take their default from that context. Do not introduce separate
 variant or stock repositories for this release. Repository methods must preserve
 the update distinction between omitted fields and explicit nulls.
 
-For creation, use `repository.create(companyId, product)`. The use case supplies
+For creation, use `repository.create(product)`. The use case supplies
 the complete, already constructed and validated product, including its variants,
-stock records, IDs, and QR identifiers. The repository checks that ownership
-matches the trusted company, persists the aggregate in one transaction, and
-returns the product ID without mutating the supplied entity.
+stock records, IDs, and QR identifiers. The repository persists the aggregate
+in one transaction, letting the database default tenant columns from the
+authenticated context, and returns the product ID without mutating the supplied
+entity.
 
-For updating, use `repository.update(companyId, productId, changes)`. The use
+For updating, use `repository.update(productId, changes)`. The use
 case loads the current product, checks the referenced variants and validates
 the proposed changes, then constructs a new changes object without mutating
 either the loaded product or the original input. The persistence contract
@@ -815,7 +818,9 @@ the domain boundary.
 
 All three tables require tenant isolation in their migration:
 
-- A required UUID `companyId` referencing `Company` on every table.
+- A required UUID `companyId` referencing `Company` on every table, defaulting
+  from `NULLIF(current_setting('app.company_id', true), '')::uuid` so repository
+  writes do not supply tenant IDs.
 - Both `ENABLE ROW LEVEL SECURITY` and `FORCE ROW LEVEL SECURITY`.
 - Policies with both `USING` and `WITH CHECK` comparing `companyId` to
   `NULLIF(current_setting('app.company_id', true), '')::uuid`.

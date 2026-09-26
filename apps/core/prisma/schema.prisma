@@ -94,7 +94,7 @@ model Company {
 
 model Image {
   id         String   @id @default(uuid()) @db.Uuid
-  companyId  String   @db.Uuid
+  companyId  String   @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
   company    Company  @relation(fields: [companyId], references: [id])
   storageKey String
   createdAt  DateTime @default(now())
@@ -106,7 +106,7 @@ model Image {
 
 model Product {
   id String @id @db.Uuid
-  companyId String @db.Uuid
+  companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
   company Company @relation(fields: [companyId], references: [id])
   name String @db.VarChar(200)
   description String? @db.VarChar(5000)
@@ -125,7 +125,7 @@ model Product {
 
 model ProductVariant {
   id String @id @db.Uuid
-  companyId String @db.Uuid
+  companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
   company Company @relation(fields: [companyId], references: [id])
   productId String @db.Uuid
   product Product @relation(fields: [companyId, productId], references: [companyId, id])
@@ -143,7 +143,7 @@ model ProductVariant {
 
 model ProductStock {
   variantId String @id @db.Uuid
-  companyId String @db.Uuid
+  companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
   company Company @relation(fields: [companyId], references: [id])
   variant ProductVariant @relation(fields: [companyId, variantId], references: [companyId, id])
   quantity BigInt

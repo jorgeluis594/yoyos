@@ -1,10 +1,9 @@
 import { describe, expect, test } from "vitest";
 import { updateProduct, type UpdateDependencies, type UpdateInput } from "@core/src/features/products/application/update";
 import type { UpdateChanges } from "@core/src/features/products/application/repository";
-import type { CompanyId, ImageId, Product, ProductId, VariantId } from "@core/src/features/products/domain/product";
+import type { ImageId, Product, ProductId, VariantId } from "@core/src/features/products/domain/product";
 import { err, ok } from "@shared/functional";
 
-const companyId = "00000000-0000-4000-8000-000000000001" as CompanyId;
 const productId = "00000000-0000-4000-8000-000000000010" as ProductId;
 const variantId = "00000000-0000-4000-8000-000000000011" as VariantId;
 const secondVariantId = "00000000-0000-4000-8000-000000000012" as VariantId;
@@ -12,7 +11,7 @@ const when = new Date("2026-09-01T00:00:00.000Z");
 
 function sample(): Product {
   return {
-    id: productId, companyId, name: "Camisa", description: "Algodón", currency: "PEN",
+    id: productId, name: "Camisa", description: "Algodón", currency: "PEN",
     qrCode: "qr-product", status: "active", createdAt: when, updatedAt: when,
     variants: [{
       id: variantId, productId, attributes: { Talla: "M" }, sku: "CAM-M",
@@ -38,7 +37,7 @@ function setup(initial: Product = sample(), options: { imageExists?: boolean; im
   const deps: UpdateDependencies = {
     repository: {
       async get(id) { return options.readError ? err({ code: "INVALID_STORED_DATA" as const, message: "Stored product data is invalid" }) : ok(stored.id === id ? stored : null); },
-      async update(_companyId, id, changes) {
+      async update(id, changes) {
         updates.push(changes);
         return options.updateFails ? { success: false as const, error: { code: "DUPLICATE_SKU" as const, message: "SKU is already used" } } : { success: true as const, data: id };
       },
@@ -54,7 +53,7 @@ describe("update product", () => {
     const context = setup();
     const input: UpdateInput = { name: "  Camisa nueva  ", description: null, variants: [{ id: variantId, sku: null, salePrice: 30, purchasePrice: 0 }] };
     const snapshot = structuredClone({ product: context.stored, input });
-    const result = await updateProduct(companyId, productId, input, context.deps);
+    const result = await updateProduct(productId, input, context.deps);
     expect(result).toEqual({ success: true, data: productId });
     expect(context.updates).toHaveLength(1);
     expect(context.updates[0]).toEqual({
@@ -69,7 +68,7 @@ describe("update product", () => {
 
   test("updates only the supplied variant and preserves stock, currency, attributes, and QR", async () => {
     const context = setup(multiVariant());
-    const result = await updateProduct(companyId, productId, { variants: [{ id: secondVariantId, salePrice: 26 }] }, context.deps);
+    const result = await updateProduct(productId, { variants: [{ id: secondVariantId, salePrice: 26 }] }, context.deps);
     expect(result).toEqual({ success: true, data: productId });
     expect(context.updates[0].variants).toEqual([{ id: secondVariantId, salePrice: { amount: 26, currency: "PEN" } }]);
     expect(context.updates[0].product).toEqual({ updatedAt: new Date("2026-10-01T00:00:00.000Z") });
@@ -80,9 +79,9 @@ describe("update product", () => {
 
   test("rejects repeated or foreign variant references before writing", async () => {
     const context = setup();
-    const repeated = await updateProduct(companyId, productId, { variants: [{ id: variantId, salePrice: 21 }, { id: variantId, salePrice: 22 }] }, context.deps);
+    const repeated = await updateProduct(productId, { variants: [{ id: variantId, salePrice: 21 }, { id: variantId, salePrice: 22 }] }, context.deps);
     expect(repeated).toMatchObject({ success: false, error: { code: "VALIDATION_ERROR" } });
-    const foreign = await updateProduct(companyId, productId, { variants: [{ id: secondVariantId, salePrice: 21 }] }, context.deps);
+    const foreign = await updateProduct(productId, { variants: [{ id: secondVariantId, salePrice: 21 }] }, context.deps);
     expect(foreign).toMatchObject({ success: false, error: { code: "VALIDATION_ERROR" } });
     expect(context.updates).toHaveLength(0);
     expect(context.clockReads).toBe(0);
@@ -90,14 +89,14 @@ describe("update product", () => {
 
   test("reports a missing target even for an empty patch", async () => {
     const context = setup();
-    const result = await updateProduct(companyId, "00000000-0000-4000-8000-000000000099" as ProductId, {}, context.deps);
+    const result = await updateProduct("00000000-0000-4000-8000-000000000099" as ProductId, {}, context.deps);
     expect(result).toMatchObject({ success: false, error: { code: "PRODUCT_NOT_FOUND" } });
     expect(context.updates).toHaveLength(0);
   });
 
   test("propagates repository read failures without writing", async () => {
     const context = setup(sample(), { readError: true });
-    expect(await updateProduct(companyId, productId, {}, context.deps)).toEqual(err({ code: "INVALID_STORED_DATA", message: "Stored product data is invalid" }));
+    expect(await updateProduct(productId, {}, context.deps)).toEqual(err({ code: "INVALID_STORED_DATA", message: "Stored product data is invalid" }));
     expect(context.updates).toHaveLength(0);
     expect(context.clockReads).toBe(0);
   });
@@ -110,7 +109,7 @@ describe("update product", () => {
       { variants: [{ id: variantId, sku: "cam-m", salePrice: 20, purchasePrice: 10 }] },
       { imageId: null },
     ] satisfies UpdateInput[]) {
-      expect(await updateProduct(companyId, productId, input, context.deps)).toEqual({ success: true, data: productId });
+      expect(await updateProduct(productId, input, context.deps)).toEqual({ success: true, data: productId });
     }
     expect(context.updates).toHaveLength(0);
     expect(context.clockReads).toBe(0);
@@ -118,14 +117,14 @@ describe("update product", () => {
 
   test("still rejects invalid fields when the patch would produce no changes", async () => {
     const context = setup();
-    const result = await updateProduct(companyId, productId, { name: "Camisa", variants: [{ id: variantId, salePrice: 0 }] }, context.deps);
+    const result = await updateProduct(productId, { name: "Camisa", variants: [{ id: variantId, salePrice: 0 }] }, context.deps);
     expect(result).toMatchObject({ success: false, error: { code: "VALIDATION_ERROR" } });
     expect(context.updates).toHaveLength(0);
   });
 
   test("rejects malformed direct variant references without writing", async () => {
     const context = setup();
-    const result = await updateProduct(companyId, productId, { variants: [null] } as unknown as UpdateInput, context.deps);
+    const result = await updateProduct(productId, { variants: [null] } as unknown as UpdateInput, context.deps);
     expect(result).toEqual({ success: false, error: { code: "VALIDATION_ERROR", message: "Invalid product", issues: [{ scope: "variant", index: 0, field: "id", reason: "INVALID_TYPE", message: "Invalid variant" }] } });
     expect(context.updates).toHaveLength(0);
   });
@@ -133,27 +132,27 @@ describe("update product", () => {
   test("validates image ownership and clears associations explicitly", async () => {
     const context = setup();
     const imageId = "00000000-0000-4000-8000-000000000099" as ImageId;
-    expect(await updateProduct(companyId, productId, { imageId }, context.deps)).toEqual({ success: true, data: productId });
+    expect(await updateProduct(productId, { imageId }, context.deps)).toEqual({ success: true, data: productId });
     expect(context.updates[0].product.imageId).toBe(imageId);
     const foreign = setup(sample(), { imageExists: false });
-    expect(await updateProduct(companyId, productId, { imageId }, foreign.deps)).toMatchObject({ success: false, error: { code: "IMAGE_NOT_FOUND" } });
+    expect(await updateProduct(productId, { imageId }, foreign.deps)).toMatchObject({ success: false, error: { code: "IMAGE_NOT_FOUND" } });
     expect(foreign.updates).toHaveLength(0);
     const cleared = setup({ ...sample(), imageId });
-    expect(await updateProduct(companyId, productId, { imageId: null }, cleared.deps)).toEqual({ success: true, data: productId });
+    expect(await updateProduct(productId, { imageId: null }, cleared.deps)).toEqual({ success: true, data: productId });
     expect(cleared.updates[0].product.imageId).toBeNull();
   });
 
   test("preserves image lookup failure without writing", async () => {
     const context = setup(sample(), { imageError: true });
     const imageId = "00000000-0000-4000-8000-000000000099" as ImageId;
-    expect(await updateProduct(companyId, productId, { imageId }, context.deps)).toEqual(err({ code: "PERSISTENCE_UNAVAILABLE", message: "database down" }));
+    expect(await updateProduct(productId, { imageId }, context.deps)).toEqual(err({ code: "PERSISTENCE_UNAVAILABLE", message: "database down" }));
     expect(context.updates).toHaveLength(0);
     expect(context.clockReads).toBe(0);
   });
 
   test("returns the duplicate-SKU failure reported by persistence", async () => {
     const context = setup(sample(), { updateFails: true });
-    const result = await updateProduct(companyId, productId, { variants: [{ id: variantId, sku: "TAKEN" }] }, context.deps);
+    const result = await updateProduct(productId, { variants: [{ id: variantId, sku: "TAKEN" }] }, context.deps);
     expect(result).toMatchObject({ success: false, error: { code: "DUPLICATE_SKU" } });
   });
 });

@@ -3,7 +3,7 @@ import type { Money } from "@shared/money";
 import type { Result } from "@shared/result";
 import { planUpdate, validateUpdate, type RawUpdate } from "@core/src/features/products/domain/rules";
 import type { ValidationError } from "@core/src/features/products/domain/errors";
-import type { CompanyId, ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
+import type { ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
 import type { ProductReadError, ProductRepository, UpdateChanges } from "@core/src/features/products/application/repository";
 import type { ImageLookupError } from "@core/src/shared/images/application/images";
 
@@ -21,7 +21,7 @@ export type UpdateDependencies = Readonly<{
   clock: () => Date;
 }>;
 
-export async function updateProduct(companyId: CompanyId, productId: ProductId, input: UpdateInput, deps: UpdateDependencies): Promise<Result<ProductId, UpdateError>> {
+export async function updateProduct(productId: ProductId, input: UpdateInput, deps: UpdateDependencies): Promise<Result<ProductId, UpdateError>> {
   const loaded = await deps.repository.get(productId);
   if (!loaded.success) return loaded;
   const current = loaded.data;
@@ -47,5 +47,5 @@ export async function updateProduct(companyId: CompanyId, productId: ProductId, 
       ...(variant.purchasePrice === undefined ? {} : { purchasePrice: variant.purchasePrice === null ? null : money(variant.purchasePrice) }),
     })),
   };
-  return deps.repository.update(companyId, productId, changes);
+  return deps.repository.update(productId, changes);
 }

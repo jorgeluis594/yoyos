@@ -3,7 +3,7 @@ import type { Currency } from "@shared/money";
 import type { Result } from "@shared/result";
 import { validateCreate, type RawVariant } from "@core/src/features/products/domain/rules";
 import type { ValidationError } from "@core/src/features/products/domain/errors";
-import type { CompanyId, ImageId, Product, ProductId, ProductVariant, VariantId } from "@core/src/features/products/domain/product";
+import type { ImageId, Product, ProductId, ProductVariant, VariantId } from "@core/src/features/products/domain/product";
 import type { ProductRepository } from "@core/src/features/products/application/repository";
 import type { ImageLookupError } from "@core/src/shared/images/application/images";
 
@@ -26,7 +26,7 @@ export type CreateDependencies = Readonly<{
   clock: () => Date;
 }>;
 
-export async function createProduct(companyId: CompanyId, input: CreateInput, deps: CreateDependencies): Promise<Result<ProductId, CreateError>> {
+export async function createProduct(input: CreateInput, deps: CreateDependencies): Promise<Result<ProductId, CreateError>> {
   const validated = validateCreate(input);
   if (!validated.value) return err({ code: "VALIDATION_ERROR", message: "Invalid product", issues: validated.issues as ValidationError["issues"] });
   if (input.imageId !== undefined) {
@@ -47,11 +47,11 @@ export async function createProduct(companyId: CompanyId, input: CreateInput, de
     };
   }) as [ProductVariant, ...ProductVariant[]];
   const product: Product = {
-    id, companyId, name: validated.value.name,
+    id, name: validated.value.name,
     ...(validated.value.description === undefined ? {} : { description: validated.value.description }),
     ...(input.imageId === undefined ? {} : { imageId: input.imageId }),
     currency: validated.value.currency, qrCode: deps.newId(), status: "active",
     createdAt: new Date(now), updatedAt: new Date(now), variants,
   };
-  return deps.repository.create(companyId, product);
+  return deps.repository.create(product);
 }

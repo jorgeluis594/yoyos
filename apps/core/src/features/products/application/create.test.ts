@@ -1,13 +1,12 @@
 import { describe, expect, test } from "vitest";
 import { createProduct, type CreateInput } from "@core/src/features/products/application/create";
 import { getProduct } from "@core/src/features/products/application/get";
-import type { CompanyId, ImageId, Product, ProductId } from "@core/src/features/products/domain/product";
+import type { ImageId, Product, ProductId } from "@core/src/features/products/domain/product";
 import { countryCurrencies } from "@shared/country";
 import { err, ok } from "@shared/functional";
 import type { ImageLookupError } from "@core/src/shared/images/application/images";
 import type { Result } from "@shared/result";
 
-const companyId = "00000000-0000-4000-8000-000000000001" as CompanyId;
 const base: CreateInput = { name: " Camisa ", currency: "PEN", variants: [{ attributes: {}, salePrice: 20 }] };
 
 function setup(image: Result<boolean, ImageLookupError> = ok(true)) {
@@ -16,7 +15,7 @@ function setup(image: Result<boolean, ImageLookupError> = ok(true)) {
   let counter = 0;
   const deps = {
     repository: {
-      async create(_companyId: CompanyId, product: Product) { stored = product; writes++; return { success: true as const, data: product.id }; },
+      async create(product: Product) { stored = product; writes++; return { success: true as const, data: product.id }; },
       async get(id: ProductId) { return ok(stored?.id === id ? stored : null); },
     },
     findImage: async () => image,
@@ -30,12 +29,12 @@ describe("create product", () => {
   test("rejects missing images and preserves lookup failures without writing", async () => {
     const imageId = "00000000-0000-4000-8000-000000000099" as ImageId;
     const missing = setup(ok(false));
-    expect(await createProduct(companyId, { ...base, imageId }, missing.deps)).toMatchObject({ success: false, error: { code: "IMAGE_NOT_FOUND" } });
+    expect(await createProduct({ ...base, imageId }, missing.deps)).toMatchObject({ success: false, error: { code: "IMAGE_NOT_FOUND" } });
     expect(missing.writes).toBe(0);
 
     const failure = { code: "PERSISTENCE_UNAVAILABLE" as const, message: "database down" };
     const unavailable = setup(err(failure));
-    expect(await createProduct(companyId, { ...base, imageId }, unavailable.deps)).toEqual(err(failure));
+    expect(await createProduct({ ...base, imageId }, unavailable.deps)).toEqual(err(failure));
     expect(unavailable.writes).toBe(0);
   });
 
@@ -45,7 +44,7 @@ describe("create product", () => {
       { attributes: { Color: " Azul " }, sku: " A-1 ", salePrice: 19.99, purchasePrice: 0, initialStock: 7 },
       { attributes: { Color: "Rojo" }, salePrice: 999999999.99 },
     ] };
-    const result = await createProduct(companyId, input, context.deps);
+    const result = await createProduct(input, context.deps);
     expect(result.success).toBe(true);
     if (!result.success) return;
     const detail = await getProduct(result.data, { repository: context.deps.repository, resolveImage: async () => null });
@@ -75,7 +74,7 @@ describe("create product", () => {
       { attributes: {}, sku: "a", salePrice: 1.001 },
       { attributes: {}, salePrice: 2 },
     ] } as unknown as CreateInput;
-    const result = await createProduct(companyId, input, context.deps);
+    const result = await createProduct(input, context.deps);
     expect(result.success).toBe(false);
     if (result.success) return;
     expect(result.error.code).toBe("VALIDATION_ERROR");
@@ -83,12 +82,12 @@ describe("create product", () => {
       "REQUIRED", "INVALID_CURRENCY", "INVALID_ATTRIBUTES", "INVALID_PRICE", "INVALID_STOCK", "DUPLICATE_SKU", "INVALID_PRECISION", "DUPLICATE_ATTRIBUTES",
     ]));
     expect(context.writes).toBe(0);
-    expect(await createProduct(companyId, { ...base, variants: [] } as unknown as CreateInput, context.deps)).toMatchObject({ success: false });
+    expect(await createProduct({ ...base, variants: [] } as unknown as CreateInput, context.deps)).toMatchObject({ success: false });
   });
 
   test("rejects malformed direct variant inputs without writing", async () => {
     const context = setup();
-    const result = await createProduct(companyId, { ...base, variants: [null, "invalid"] } as unknown as CreateInput, context.deps);
+    const result = await createProduct({ ...base, variants: [null, "invalid"] } as unknown as CreateInput, context.deps);
     expect(result).toMatchObject({ success: false, error: { code: "VALIDATION_ERROR" } });
     if (!result.success && result.error.code === "VALIDATION_ERROR") {
       expect(result.error.issues).toEqual([
@@ -101,13 +100,13 @@ describe("create product", () => {
 
   test("uses database-compatible character limits, price precision, and safe stock", async () => {
     const context = setup();
-    const valid = await createProduct(companyId, {
+    const valid = await createProduct({
       name: "🧵".repeat(200), description: "🧵".repeat(5000), currency: "PEN",
       variants: [{ attributes: {}, sku: "🧵".repeat(100), salePrice: 999999999.99, purchasePrice: 0, initialStock: Number.MAX_SAFE_INTEGER }],
     }, context.deps);
     expect(valid.success).toBe(true);
     expect(context.stored?.variants[0].stock.quantity).toBe(Number.MAX_SAFE_INTEGER);
-    const invalid = await createProduct(companyId, {
+    const invalid = await createProduct({
       name: "🧵".repeat(201), description: "🧵".repeat(5001), currency: "PEN",
       variants: [{ attributes: {}, sku: "🧵".repeat(101), salePrice: 1.001, purchasePrice: -1, initialStock: Number.MAX_SAFE_INTEGER + 1 }],
     }, context.deps);
@@ -122,7 +121,7 @@ describe("create product", () => {
 
   test("rejects non-finite prices and fractional stock", async () => {
     const context = setup();
-    const result = await createProduct(companyId, {
+    const result = await createProduct({
       ...base, variants: [{ attributes: {}, salePrice: Number.NaN, purchasePrice: Number.POSITIVE_INFINITY, initialStock: 1.5 }],
     }, context.deps);
     expect(result.success).toBe(false);
@@ -138,11 +137,11 @@ describe("create product", () => {
       { attributes: { Color: "Azul" }, salePrice: 1, initialStock: Number.MAX_SAFE_INTEGER - 1 },
       { attributes: { Color: "Rojo" }, salePrice: 1, initialStock: 1 },
     ] as const;
-    expect((await createProduct(companyId, { ...base, variants }, allowed.deps)).success).toBe(true);
+    expect((await createProduct({ ...base, variants }, allowed.deps)).success).toBe(true);
     expect(allowed.writes).toBe(1);
 
     const rejected = setup();
-    const result = await createProduct(companyId, { ...base, variants: [variants[0], { ...variants[1], initialStock: 2 }] }, rejected.deps);
+    const result = await createProduct({ ...base, variants: [variants[0], { ...variants[1], initialStock: 2 }] }, rejected.deps);
     expect(result).toMatchObject({ success: false, error: { code: "VALIDATION_ERROR", issues: [
       { scope: "product", field: "variants", reason: "INVALID_TOTAL_STOCK" },
     ] } });
@@ -153,7 +152,7 @@ describe("create product", () => {
     const context = setup();
     const missing = await getProduct("00000000-0000-4000-8000-999999999999" as ProductId, { repository: context.deps.repository, resolveImage: async () => null });
     expect(missing).toEqual({ success: true, data: null });
-    const created = await createProduct(companyId, base, context.deps);
+    const created = await createProduct(base, context.deps);
     if (!created.success) return;
     expect(await getProduct(created.data, { repository: context.deps.repository, resolveImage: async () => null })).toMatchObject({ success: true, data: { product: {} } });
     const withImage = { ...context.deps.repository, get: async () => ok({ ...context.stored!, imageId: "00000000-0000-4000-8000-000000000099" as Product["imageId"] }) };

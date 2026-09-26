@@ -7,7 +7,6 @@ import { products } from "@core/src/features/products/composition";
 import { parseCreateJson } from "@core/src/features/products/presentation/input";
 import { createErrors, type FormErrors } from "@core/src/features/products/presentation/messages";
 import { ProductForm, type ProductFormValues, type ProductImageSelection } from "@core/src/features/products/presentation/product-form";
-import type { CompanyId } from "@core/src/features/products/domain/product";
 
 export function loader({ context }: LoaderFunctionArgs) {
   const company = context.get(privateUserContext).company;
@@ -19,7 +18,7 @@ export async function action({ request, context }: ActionFunctionArgs): Promise<
   if (!parsed.success) return { errors: createErrors(parsed.error) };
   const company = context.get(privateUserContext).company;
   try {
-    const result = await products.create(company.id as CompanyId, parsed.data);
+    const result = await products.create(parsed.data);
     if (!result.success) return { errors: createErrors(result.error) };
     return redirect(`/es-${company.country}/products/${result.data}`);
   } catch (cause) {

@@ -8,7 +8,7 @@ vi.mock("@core/src/shared/infrastructure/persistance", () => ({ prisma: { image:
 afterEach(() => vi.restoreAllMocks());
 
 const operations = [
-  { name: "create", query: queries.create, run: () => imageRepository.create("company", "remote") },
+  { name: "create", query: queries.create, run: () => imageRepository.create("remote") },
   { name: "find", query: queries.findUnique, run: () => imageRepository.find("image") },
 ];
 const prismaFailures = [

@@ -1,7 +1,7 @@
 import type { CreateError, CreateInput } from "@core/src/features/products/application/create";
 import type { DetailError } from "@core/src/features/products/application/get";
 import type { UpdateError, UpdateInput, UpdateVariantInput } from "@core/src/features/products/application/update";
-import type { CompanyId, ImageId, Product, ProductId, ProductVariant, VariantId } from "@core/src/features/products/domain/product";
+import type { ImageId, Product, ProductId, ProductVariant, VariantId } from "@core/src/features/products/domain/product";
 import type { ProductValidationReason } from "@core/src/features/products/domain/errors";
 
 type Assert<T extends true> = T;
@@ -10,8 +10,8 @@ type ReadonlyField<T, K extends keyof T> = Equal<Pick<T, K>, Readonly<Pick<T, K>
 
 export type ProductContracts = [
   Assert<Equal<ProductId extends VariantId ? true : false, false>>,
-  Assert<Equal<ProductId extends CompanyId ? true : false, false>>,
   Assert<Equal<ImageId extends ProductId ? true : false, false>>,
+  Assert<Equal<Extract<keyof Product, "companyId">, never>>,
   Assert<Equal<[] extends Product["variants"] ? true : false, false>>,
   Assert<Equal<[] extends CreateInput["variants"] ? true : false, false>>,
   Assert<ReadonlyField<Product, "name">>,

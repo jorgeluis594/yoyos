@@ -3,7 +3,6 @@ import { fileTypeFromBuffer } from "file-type";
 import sharp from "sharp";
 import { imageResponseSchema } from "@shared/contracts/images";
 import { apiError } from "@core/src/shared/infrastructure/api-auth-middleware";
-import { getCompanyId } from "@core/src/shared/infrastructure/persistance";
 import { getImage, uploadImage, type ImageRepository, type ImageStorage } from "@core/src/shared/images/application/images";
 
 const maxBytes = 10_000_000;
@@ -66,7 +65,7 @@ export function imageRoutes(storage: ImageStorage, repository: ImageRepository) 
     } catch {
       return apiError(response, 400, "INVALID_IMAGE", "Invalid image data");
     }
-    const result = await uploadImage(getCompanyId(), { bytes, filename: file.name, contentType: file.type }, storage, repository);
+    const result = await uploadImage({ bytes, filename: file.name, contentType: file.type }, storage, repository);
     return result.success ? sendResult(response, result.data, 201) : sendFailure(response, result.error.code);
   });
   router.get("/:id", async (request, response) => {

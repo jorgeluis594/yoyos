@@ -27,7 +27,6 @@ export function generateProduct(input: ProductInput): Result<Product, ProductErr
   }
   return ok({
     id,
-    companyId: input.companyId,
     name: input.name,
     ...(input.photo === undefined ? {} : { photo: input.photo }),
     ...(input.category === undefined ? {} : { category: input.category }),

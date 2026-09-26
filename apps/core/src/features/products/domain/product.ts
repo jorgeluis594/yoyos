@@ -2,7 +2,6 @@ import type { Currency, Money } from "@shared/money";
 
 export type ProductId = string & { readonly __brand: "ProductId" };
 export type VariantId = string & { readonly __brand: "VariantId" };
-export type CompanyId = string & { readonly __brand: "CompanyId" };
 export type ImageId = string & { readonly __brand: "ImageId" };
 
 export type ProductStock = Readonly<{ variantId: VariantId; quantity: number }>;
@@ -19,7 +18,6 @@ export type ProductVariant = Readonly<{
 }>;
 export type Product = Readonly<{
   id: ProductId;
-  companyId: CompanyId;
   name: string;
   description?: string;
   imageId?: ImageId;

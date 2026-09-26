@@ -9,7 +9,7 @@ export interface ImageStorage {
 export type ImageLookupError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 
 export type ImageRepository = {
-  create(companyId: string, storageKey: string): Promise<Result<{ id: string }>>;
+  create(storageKey: string): Promise<Result<{ id: string }>>;
   find(id: string): Promise<Result<{ id: string; storageKey: string } | null, ImageLookupError>>;
 };
 
@@ -23,7 +23,6 @@ async function compensate(storage: ImageStorage, key: string, cause: unknown): P
 }
 
 export async function uploadImage(
-  companyId: string,
   input: { bytes: Uint8Array; filename: string; contentType: string },
   storage: ImageStorage,
   repository: ImageRepository,
@@ -37,7 +36,7 @@ export async function uploadImage(
       await compensate(storage, key, url.error);
       return url;
     }
-    const image = await repository.create(companyId, key);
+    const image = await repository.create(key);
     if (!image.success) {
       await compensate(storage, key, image.error);
       return image;

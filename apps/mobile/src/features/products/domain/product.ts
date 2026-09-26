@@ -18,7 +18,6 @@ export type ProductVariant = {
 
 export type Product = {
   id: string;
-  companyId: string;
   name: string;
   photo?: string;
   category?: string;
@@ -32,7 +31,6 @@ export type Product = {
 
 export type ProductInput = {
   id?: string;
-  companyId: string;
   name: string;
   photo?: string;
   category?: string;
@@ -63,11 +61,11 @@ function validPrice(amount: number, currency: string, allowZero: boolean): boole
 }
 
 export function validateProduct(input: ProductInput): Result<null, ProductError> {
-  if (!input || (input.id !== undefined && !nonempty(input.id)) || !nonempty(input.companyId) ||
+  if (!input || (input.id !== undefined && !nonempty(input.id)) ||
       !nonempty(input.name) || !nonempty(input.currency) ||
       !Array.isArray(input.variants) || input.variants.length === 0 ||
       !compare({ amount: 0, currency: input.currency })({ amount: 0, currency: input.currency }).success) {
-    return err({ message: "Product requires an owner, name, currency and variants", code: "INVALID_PRODUCT" });
+    return err({ message: "Product requires a name, currency and variants", code: "INVALID_PRODUCT" });
   }
 
   const skus = new Set<string>();

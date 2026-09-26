@@ -59,7 +59,6 @@ The URL lets the frontend display the image immediately. The persistent referenc
 type Image = {
   id: string;          // Internal application identifier.
   storageKey: string;  // Opaque provider reference.
-  companyId: string;   // Authorized company, determined by the server.
   createdAt: Date;
 };
 
@@ -71,7 +70,9 @@ type Product = {
 };
 ```
 
-The implementation uses `companyId` as the owner and applies PostgreSQL RLS.
+The database assigns `companyId` from the authenticated tenant context by
+default and applies PostgreSQL RLS. Image application and domain types do not
+carry tenant identity.
 
 The database will retain the mapping between the internal identifier and `storageKey`. Entities can reference the image record with a foreign key. Credentials and temporary URLs will not be stored in entities.
 
