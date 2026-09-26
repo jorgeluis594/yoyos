@@ -92,6 +92,7 @@ The `spacing` scale is shared. Geometry values represent CSS pixels on the web a
 | Data row | Minimum height 40 | Minimum 56 when it contains text and actions. |
 | Container | Maximum 1440, centered | One column by default. |
 | Form | Maximum 640 | Available width. |
+| Reading/detail container | Maximum 768, centered | One column by default. |
 | Web sidebar | Width 256 | Replaced by modal navigation. |
 | Web navigation drawer | — | Width 288, capped at the viewport. |
 | Web app header | Minimum height 64 | Minimum height 64. |
@@ -126,7 +127,7 @@ Proposed iconography: Lucide outline icons for product icons on web and mobile, 
 
 ## Components
 
-These are implementation recipes, not an existing component catalog.
+The web catalog lives in `apps/core/app/components/ui/` (page layout, form primitives, data display); these conventions remain its source of truth. Mobile implements the same recipes in its own components.
 
 | Component | Convention |
 | --- | --- |

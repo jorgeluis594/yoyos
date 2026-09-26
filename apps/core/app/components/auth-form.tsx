@@ -1,6 +1,9 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { countries } from "@shared/country";
 import { z } from "zod";
 import { authClient } from "@core/src/shared/infrastructure/auth-client";
@@ -8,6 +11,10 @@ import type { RegisterError } from "@core/src/features/users/application/registe
 import { registerWeb } from "@/register";
 
 const countryNames = { PE: "Perú", US: "Estados Unidos", CO: "Colombia", AR: "Argentina", CL: "Chile", BR: "Brasil" };
+const countryItems = [
+  { value: null, label: "Selecciona un país" },
+  ...countries.map((country) => ({ value: country, label: countryNames[country] })),
+];
 const credentialsSchema = z.object({ email: z.email(), password: z.string().min(8) });
 const authResultSchema = z.object({
   error: z.object({ message: z.string().optional() }).nullable(),
@@ -93,32 +100,40 @@ export function AuthForm({ mode, pendingCompany = false }: { mode: "login" | "re
         </p>
         <form onSubmit={submit} className="mt-6 flex flex-col gap-4">
           {register && !companyStep && (
-            <label className="flex flex-col gap-1.5 text-sm font-medium">
-              Nombre
-              <input name="name" autoComplete="name" required className="h-10 rounded-md border border-input bg-background px-3 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring" />
-            </label>
+            <Field>
+              <FieldLabel htmlFor="name">Nombre</FieldLabel>
+              <Input id="name" name="name" autoComplete="name" required />
+            </Field>
           )}
           {!companyStep && <>
-            <label className="flex flex-col gap-1.5 text-sm font-medium">
-              Correo electrónico
-              <input name="email" type="email" autoComplete="email" required className="h-10 rounded-md border border-input bg-background px-3 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring" />
-            </label>
-            <label className="flex flex-col gap-1.5 text-sm font-medium">
-              Contraseña
-              <input name="password" type="password" autoComplete={register ? "new-password" : "current-password"} minLength={8} required className="h-10 rounded-md border border-input bg-background px-3 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring" />
-            </label>
+            <Field>
+              <FieldLabel htmlFor="email">Correo electrónico</FieldLabel>
+              <Input id="email" name="email" type="email" autoComplete="email" required />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="password">Contraseña</FieldLabel>
+              <Input id="password" name="password" type="password" autoComplete={register ? "new-password" : "current-password"} minLength={8} required />
+            </Field>
           </>}
-          {register && <label className="flex flex-col gap-1.5 text-sm font-medium">
-            Nombre de empresa
-            <input name="companyName" required maxLength={120} defaultValue={companyName} className="h-10 rounded-md border border-input bg-background px-3 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring" />
-          </label>}
-          {register && <label className="flex flex-col gap-1.5 text-sm font-medium">
-            País
-            <select name="country" required defaultValue={companyCountry} className="h-10 rounded-md border border-input bg-background px-3 text-base outline-none focus-visible:ring-2 focus-visible:ring-ring">
-              <option value="" disabled>Selecciona un país</option>
-              {countries.map((country) => <option key={country} value={country}>{countryNames[country]}</option>)}
-            </select>
-          </label>}
+          {register && (
+            <Field>
+              <FieldLabel htmlFor="companyName">Nombre de empresa</FieldLabel>
+              <Input id="companyName" name="companyName" required maxLength={120} defaultValue={companyName} />
+            </Field>
+          )}
+          {register && (
+            <Field>
+              <FieldLabel htmlFor="country">País</FieldLabel>
+              <Select name="country" required items={countryItems} defaultValue={companyCountry || null}>
+                <SelectTrigger id="country"><SelectValue placeholder="Selecciona un país" /></SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {countryItems.map((item) => <SelectItem key={item.value ?? "placeholder"} value={item.value} disabled={item.value === null}>{item.label}</SelectItem>)}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
+          )}
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           <Button type="submit" disabled={pending}>{pending ? "Espera..." : companyStep ? "Crear empresa" : register ? "Crear cuenta" : "Entrar"}</Button>
         </form>

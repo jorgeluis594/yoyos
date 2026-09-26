@@ -88,6 +88,8 @@ An operation may coordinate other features through their public capabilities, bu
 
 Use cases must enforce their business contract independently of the entry point. Presentation validation must not be the only protection for business invariants.
 
+Use Zod schemas for transport validation in presentation and business validation in domain. Do not implement schema-expressible validation through scattered manual `if`/`else` checks. Zod is an implementation detail: translate failures into the owning layer’s error contracts and never expose `ZodError` through application contracts.
+
 The API must establish trusted identity and enforce authorization and authoritative rules independently of mobile. A mobile guard may explain why an action is unavailable, but cannot prove that the server should permit it. Keep identity acquisition outside pure rules and supply the trusted facts needed to evaluate policy.
 
 ## Searches and Listings

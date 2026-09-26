@@ -110,9 +110,6 @@ CREATE UNIQUE INDEX "ChatMessage_companyId_externalId_key" ON "ChatMessage"("com
 -- CreateIndex
 CREATE UNIQUE INDEX "Image_companyId_sourceKey_key" ON "Image"("companyId", "sourceKey");
 
--- CreateIndex
-CREATE UNIQUE INDEX "Image_companyId_id_key" ON "Image"("companyId", "id");
-
 -- AddForeignKey
 ALTER TABLE "Contact" ADD CONSTRAINT "Contact_companyId_fkey" FOREIGN KEY ("companyId") REFERENCES "Company"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 

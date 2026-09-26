@@ -10,18 +10,18 @@ function isPersistenceFailure(cause: unknown) {
 }
 
 export const imageRepository: ImageRepository = {
-  async create(companyId, storageKey) {
+  async create(storageKey) {
     try {
-      return ok(await prisma.image.create({ data: { companyId, storageKey }, select: { id: true } }));
+      return ok(await prisma.image.create({ data: { storageKey }, select: { id: true } }));
     } catch (cause) {
       if (!isPersistenceFailure(cause)) throw cause;
       console.error("Unable to create image record", { error: cause.name });
       return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to create image record" });
     }
   },
-  async find(companyId, id) {
+  async find(id) {
     try {
-      return ok(await prisma.image.findFirst({ where: { companyId, id, OR: [{ sourceKey: null }, { importStatus: "ready" }] }, select: { id: true, storageKey: true, visibility: true } }));
+      return ok(await prisma.image.findFirst({ where: { id, OR: [{ sourceKey: null }, { importStatus: "ready" }] }, select: { id: true, storageKey: true, visibility: true } }));
     } catch (cause) {
       if (!isPersistenceFailure(cause)) throw cause;
       console.error("Unable to find image record", { error: cause.name });

@@ -10,6 +10,11 @@ export async function setup() {
   server = spawn("node", ["--import", "tsx", "src/server.ts"], { env: {
     ...process.env, PORT: "4173", WHATSAPP_CONNECTIONS_JSON: JSON.stringify([{ companyId, phoneNumberId: "e2e-phone", businessAccountId: "e2e-waba", connectedAt, accessToken: "e2e-only-token" }]),
     WHATSAPP_APP_SECRET: "e2e-app-secret", WHATSAPP_VERIFY_TOKEN: "e2e-verify-token",
+    R2_ENDPOINT: process.env.R2_ENDPOINT ?? "http://127.0.0.1:9000",
+    R2_BUCKET: process.env.R2_BUCKET ?? "test-images",
+    R2_ACCESS_KEY_ID: process.env.R2_ACCESS_KEY_ID ?? "test",
+    R2_SECRET_ACCESS_KEY: process.env.R2_SECRET_ACCESS_KEY ?? "test",
+    R2_PUBLIC_BASE_URL: process.env.R2_PUBLIC_BASE_URL ?? "http://127.0.0.1:4173/test-images",
   }, stdio: "inherit" });
   for (let attempt = 0; attempt < 240; attempt++) {
     if (server.exitCode !== null) throw new Error(`Core server exited with code ${server.exitCode}`);

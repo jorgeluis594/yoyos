@@ -82,7 +82,7 @@
   },
   "spacing": { "0": 0, "1": 4, "2": 8, "3": 12, "4": 16, "6": 24, "8": 32, "12": 48 },
   "radius": { "badge": 4, "control": 6, "card": 8, "overlay": 12, "avatar": 9999 },
-  "layout": { "pageGutterMobile": 16, "pageGutterDesktop": 24, "sectionGap": 24, "fieldGap": 16, "labelGap": 8, "contentMaxWidth": 1440, "formMaxWidth": 640, "sidebarWidth": 256, "navigationDrawerWidth": 288, "appHeaderMinHeight": 64 },
+  "layout": { "pageGutterMobile": 16, "pageGutterDesktop": 24, "sectionGap": 24, "fieldGap": 16, "labelGap": 8, "contentMaxWidth": 1440, "formMaxWidth": 640, "readerMaxWidth": 768, "sidebarWidth": 256, "navigationDrawerWidth": 288, "appHeaderMinHeight": 64 },
   "sizing": { "controlDesktopMinHeight": 36, "tableRowDesktopMinHeight": 40, "touchTargetMinSize": 48, "listRowMobileMinHeight": 56, "iconInline": 16, "iconAction": 20, "iconNavigation": 24, "iconStroke": 1.75, "borderWidth": 1, "focusWidth": 2, "focusOffset": 2 },
   "motion": { "feedbackMs": 120, "overlayMs": 180, "easing": "ease-out" }
 }

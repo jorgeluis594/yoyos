@@ -34,13 +34,13 @@ test("private image imports reuse their reservation after a completion interrupt
       expect(await importPrivateImage(companyId, sourceKey, { bytes, filename: "original.png", declaredContentType: "image/png" }, storage, repository)).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
       const reserved = await prisma.image.findUnique({ where: { companyId_sourceKey: { companyId, sourceKey } }, select: { id: true, importStatus: true } });
       expect(reserved).toMatchObject({ importStatus: "pending" });
-      expect(await imageRepository.find(companyId, reserved.id)).toEqual({ success: true, data: null });
+      expect(await imageRepository.find(reserved.id)).toEqual({ success: true, data: null });
       const retried = await importPrivateImage(companyId, sourceKey, { bytes, filename: "original.png", declaredContentType: "image/png" }, storage, repository);
       expect(retried).toEqual({ success: true, data: { id: reserved.id } });
       expect(uploads).toHaveLength(2);
       expect(uploads[0]).toBe(uploads[1]);
-      expect((await imageRepository.find(companyId, reserved.id)).data).toMatchObject({ visibility: "private" });
-      expect(await readPrivateImage(companyId, reserved.id, storage, imageRepository)).toEqual({ success: true, data: { bytes, contentType: "image/png" } });
+      expect((await imageRepository.find(reserved.id)).data).toMatchObject({ visibility: "private" });
+      expect(await readPrivateImage(reserved.id, storage, imageRepository)).toEqual({ success: true, data: { bytes, contentType: "image/png" } });
     });
   } finally {
     await withTenantIsolation(companyId, async () => {

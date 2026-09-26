@@ -9,7 +9,7 @@ type Assert<T extends true> = T;
 
 // Exact public contracts: Decimal must not leak into inputs or outputs.
 export type MoneyContracts = [
-  Assert<Equal<Money, { amount: number; currency: string }>>,
+  Assert<Equal<Money, { readonly amount: number; readonly currency: string }>>,
   Assert<Equal<typeof add, (other: Money) => (current: Money) => Result<Money, MoneyError>>>,
   Assert<Equal<typeof subtract, (other: Money) => (current: Money) => Result<Money, MoneyError>>>,
   Assert<Equal<typeof multiply, (money: Money) => (factor: number) => Result<Money, MoneyError>>>,

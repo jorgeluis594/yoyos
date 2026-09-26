@@ -10,9 +10,11 @@ export interface ImageStorage {
   delete(key: string): Promise<Result<void>>;
 }
 
+export type ImageLookupError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
+
 export type ImageRepository = {
-  create(companyId: string, storageKey: string): Promise<Result<{ id: string }>>;
-  find(companyId: string, id: string): Promise<Result<{ id: string; storageKey: string; visibility?: "public" | "private" } | null>>;
+  create(storageKey: string): Promise<Result<{ id: string }>>;
+  find(id: string): Promise<Result<{ id: string; storageKey: string; visibility?: "public" | "private" } | null, ImageLookupError>>;
   reserveImport(companyId: string, sourceKey: string): Promise<Result<{ id: string; storageKey: string }>>;
   completeImport(companyId: string, id: string): Promise<Result<void>>;
 };
@@ -57,7 +59,6 @@ async function compensate(storage: ImageStorage, key: string, cause: unknown): P
 }
 
 export async function uploadImage(
-  companyId: string,
   input: { bytes: Uint8Array; filename: string; contentType: string },
   storage: ImageStorage,
   repository: ImageRepository,
@@ -71,7 +72,7 @@ export async function uploadImage(
       await compensate(storage, key, url.error);
       return url;
     }
-    const image = await repository.create(companyId, key);
+    const image = await repository.create(key);
     if (!image.success) {
       await compensate(storage, key, image.error);
       return image;
@@ -84,12 +85,11 @@ export async function uploadImage(
 }
 
 export async function getImage(
-  companyId: string,
   id: string,
   storage: ImageStorage,
   repository: ImageRepository,
 ): Promise<Result<{ id: string; url: string } | null>> {
-  const image = await repository.find(companyId, id);
+  const image = await repository.find(id);
   if (!image.success) return image;
   if (!image.data) return { success: true, data: null };
   if (image.data.visibility === "private") return { success: false, error: { code: "PRIVATE_IMAGE", message: "Private image requires authorized streaming" } };
@@ -99,8 +99,8 @@ export async function getImage(
     : url;
 }
 
-export async function readPrivateImage(companyId: string, id: string, storage: ImageStorage, repository: ImageRepository) {
-  const image = await repository.find(companyId, id);
+export async function readPrivateImage(id: string, storage: ImageStorage, repository: ImageRepository) {
+  const image = await repository.find(id);
   if (!image.success) return image;
   if (!image.data || image.data.visibility !== "private") return { success: true as const, data: null };
   return storage.readPrivate(image.data.storageKey);

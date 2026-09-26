@@ -7,7 +7,6 @@ jest.mock("expo-crypto", () => ({ randomUUID: jest.fn() }));
 const randomUUID = Crypto.randomUUID as jest.Mock;
 
 const input = (): ProductInput => ({
-  companyId: "company-1",
   name: "Shirt",
   currency: "PEN",
   variants: [
@@ -27,7 +26,7 @@ test("preserves supplied IDs and builds variants, prices, QR codes and stock", (
   expect(result.success).toBe(true);
   if (!result.success) return;
   expect(result.data).toMatchObject({
-    id: "product-1", companyId: "company-1", status: "active", qrCode: "uuid-4",
+    id: "product-1", status: "active", qrCode: "uuid-4",
     variants: [
       { id: "variant-1", productId: "product-1", qrCode: "uuid-1", salePrice: { amount: 25.9, currency: "PEN" }, purchasePrice: { amount: 10, currency: "PEN" }, status: "active" },
       { id: "uuid-2", productId: "product-1", qrCode: "uuid-3", salePrice: { amount: 26, currency: "PEN" }, status: "active" },

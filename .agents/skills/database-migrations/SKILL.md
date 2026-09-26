@@ -30,9 +30,11 @@ All paths below are relative to the repository root.
 ## Tables with Tenant Isolation
 
 - Add a UUID `companyId` and its relation to `Company`. For existing data, populate each row's actual company before enforcing `NOT NULL`. For `Company`, isolation uses its own `id`.
-- Add the table's policies to the generated SQL. For a new table, create it and configure RLS in the same short transaction before granting access. Example for `Order`:
+- For tenant-owned tables, declare `companyId` with `@default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid"))` in `schema.prisma` and confirm the generated migration sets the same column default. PostgreSQL normalizes this expression when introspected; matching its form avoids repeated Prisma diffs. Inserts can then omit `companyId`; the transaction context supplies it, and the RLS `WITH CHECK` policy still rejects a different value supplied explicitly.
+- Add the column default and the table's policies to the generated SQL. For a new table, create it and configure RLS in the same short transaction before granting access. Example for `Order`:
 
   ```sql
+  ALTER TABLE "Order" ALTER COLUMN "companyId" SET DEFAULT NULLIF(current_setting('app.company_id', true), '')::uuid;
   ALTER TABLE "Order" ENABLE ROW LEVEL SECURITY;
   ALTER TABLE "Order" FORCE ROW LEVEL SECURITY;
   CREATE POLICY order_company_isolation ON "Order"
@@ -42,4 +44,4 @@ All paths below are relative to the repository root.
 
 - Include the company in uniqueness constraints scoped to a tenant and in relationships between tenant entities. Filter backfills explicitly by company; the administrative role can bypass RLS. Do not disable policies.
 - Update DML permissions and ownership checks in `apps/core/scripts/provision-role.sql`; keep `core_app` without table ownership or `BYPASSRLS`.
-- Reuse the mechanism described in `docs/rls-con-prisma.md`. **Do not add table-specific logic to the isolation module or require isolation tests for each new table.**
+- Reuse the mechanism described in `docs/rls-with-prisma.md`. **Do not add table-specific logic to the isolation module or require isolation tests for each new table.**
