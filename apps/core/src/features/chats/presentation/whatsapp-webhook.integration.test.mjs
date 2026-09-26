@@ -29,7 +29,10 @@ test("signed webhook records both directions, observes connection cutoff, and re
     const signature = createHmac("sha256", "test-app-secret").update(body).digest("hex");
     return fetch(url, { method: "POST", headers: { "content-type": "application/json", "x-hub-signature-256": signed ? `sha256=${signature}` : "sha256=bad" }, body });
   };
-  const batch = (messages = [], echoes = [], account = "waba-1") => ({ object: "whatsapp_business_account", entry: [{ id: account, changes: [{ field: "messages", value: { metadata: { phone_number_id: "phone-1" }, contacts: [{ wa_id: phone, profile: { name: "Ada" } }], messages, smb_message_echoes: echoes } }] }] });
+  const batch = (messages = [], echoes = [], account = "waba-1") => ({ object: "whatsapp_business_account", entry: [{ id: account, changes: [
+    { field: "messages", value: { metadata: { phone_number_id: "phone-1" }, contacts: [{ wa_id: phone, profile: { name: "Ada" } }], messages } },
+    ...(echoes.length ? [{ field: "smb_message_echoes", value: { metadata: { phone_number_id: "phone-1" }, message_echoes: echoes } }] : []),
+  ] }] });
   const text = (id, timestamp, body = "text") => ({ id: `${prefix}-${id}`, from: phone, timestamp: String(timestamp), type: "text", text: { body } });
   const echo = (id, timestamp, body = "reply") => ({ id: `${prefix}-${id}`, to: phone, timestamp: String(timestamp), type: "text", text: { body } });
   const cleanup = () => withTenantIsolation(companyId, async () => {

@@ -6,7 +6,7 @@ const textSchema = z.object({ body: z.string() }).passthrough();
 const imageSchema = z.object({ id: z.string().min(1), caption: z.string().nullable().optional() }).passthrough();
 const messageSchema = z.object({ id: z.string().min(1), from: z.string().min(1).optional(), to: z.string().min(1).optional(), timestamp: z.union([z.string(), z.number()]), type: z.string(), text: textSchema.optional(), image: imageSchema.optional() }).passthrough();
 const contactSchema = z.object({ wa_id: z.string().min(1), profile: z.object({ name: z.string().nullable().optional() }).passthrough().optional() }).passthrough();
-const valueSchema = z.object({ metadata: z.object({ phone_number_id: z.string().min(1), display_phone_number: z.string().optional() }).passthrough(), contacts: z.array(contactSchema).optional(), messages: z.array(z.unknown()).optional(), smb_message_echoes: z.array(z.unknown()).optional(), statuses: z.array(z.unknown()).optional() }).passthrough();
+const valueSchema = z.object({ metadata: z.object({ phone_number_id: z.string().min(1), display_phone_number: z.string().optional() }).passthrough(), contacts: z.array(contactSchema).optional(), messages: z.array(z.unknown()).optional(), message_echoes: z.array(z.unknown()).optional(), statuses: z.array(z.unknown()).optional() }).passthrough();
 const changeSchema = z.object({ field: z.string(), value: valueSchema }).passthrough();
 const entrySchema = z.object({ id: z.string().optional(), changes: z.array(changeSchema) }).passthrough();
 export const whatsappEnvelopeSchema = z.object({ object: z.string(), entry: z.array(entrySchema) }).passthrough();
@@ -27,7 +27,7 @@ export function parseWhatsAppWebhook(input: unknown): ParsedWebhook | null {
   const events: NormalizedEvent[] = [];
   let malformed = 0;
   for (const entry of parsed.data.entry) for (const change of entry.changes) {
-    if (change.field !== "messages") { events.push({ status: "ignored", reason: change.field === "history" ? "history" : "unsupported_type" }); continue; }
+    if (change.field !== "messages" && change.field !== "smb_message_echoes") { events.push({ status: "ignored", reason: change.field === "history" ? "history" : "unsupported_type" }); continue; }
     const value = change.value;
     const map = (inputMessage: unknown, outgoing: boolean) => {
       const parsedMessage = messageSchema.safeParse(inputMessage);
@@ -61,9 +61,12 @@ export function parseWhatsAppWebhook(input: unknown): ParsedWebhook | null {
         origin, sentAt, content,
       } });
     };
-    for (const message of value.messages ?? []) map(message, false);
-    for (const message of value.smb_message_echoes ?? []) map(message, true);
-    if ((value.statuses?.length ?? 0) > 0 && !(value.messages?.length) && !(value.smb_message_echoes?.length)) events.push({ status: "ignored", reason: "delivery_status" });
+    if (change.field === "messages") {
+      for (const message of value.messages ?? []) map(message, false);
+      if ((value.statuses?.length ?? 0) > 0 && !(value.messages?.length)) events.push({ status: "ignored", reason: "delivery_status" });
+    } else {
+      for (const message of value.message_echoes ?? []) map(message, true);
+    }
   }
   return { events, malformed };
 }

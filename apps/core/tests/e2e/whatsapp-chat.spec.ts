@@ -18,7 +18,10 @@ async function send(request: APIRequestContext, payload: unknown) {
 test("full server records the seller's first echo and the contact reply exactly once", async ({ request }) => {
   const challenge = new URLSearchParams({ "hub.mode": "subscribe", "hub.verify_token": "e2e-verify-token", "hub.challenge": "subscription-ok" });
   expect(await request.get(`/webhooks/whatsapp?${challenge}`).then((response) => response.text())).toBe("subscription-ok");
-  const payload = (messages: unknown[], echoes: unknown[] = []) => ({ object: "whatsapp_business_account", entry: [{ id: "e2e-waba", changes: [{ field: "messages", value: { metadata: { phone_number_id: "e2e-phone" }, contacts: [{ wa_id: phone, profile: { name: "Ada" } }], messages, smb_message_echoes: echoes } }] }] });
+  const payload = (messages: unknown[], echoes: unknown[] = []) => ({ object: "whatsapp_business_account", entry: [{ id: "e2e-waba", changes: [
+    { field: "messages", value: { metadata: { phone_number_id: "e2e-phone" }, contacts: [{ wa_id: phone, profile: { name: "Ada" } }], messages } },
+    ...(echoes.length ? [{ field: "smb_message_echoes", value: { metadata: { phone_number_id: "e2e-phone" }, message_echoes: echoes } }] : []),
+  ] }] });
   const echo = { id: `${prefix}-seller`, to: phone, timestamp: "1767225600", type: "text", text: { body: "hello" } };
   const reply = { id: `${prefix}-contact`, from: phone, timestamp: "1767225601", type: "text", text: { body: " reply " } };
   expect((await send(request, payload([], [echo]))).status()).toBe(200);

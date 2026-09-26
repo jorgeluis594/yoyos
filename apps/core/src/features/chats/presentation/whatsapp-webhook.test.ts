@@ -28,7 +28,10 @@ describe("WhatsApp webhook", () => {
     const query = new URLSearchParams({ "hub.mode": "subscribe", "hub.verify_token": "verify-secret", "hub.challenge": "challenge-123" });
     expect(await fetch(`${base}?${query}`).then(async (response) => [response.status, await response.text()])).toEqual([200, "challenge-123"]);
     expect(await fetch(`${base}?${new URLSearchParams({ "hub.mode": "subscribe", "hub.verify_token": "wrong", "hub.challenge": "challenge" })}`)).toHaveProperty("status", 403);
-    const payload = JSON.stringify({ object: "whatsapp_business_account", entry: [{ id: "waba-1", changes: [{ field: "messages", value: { metadata: { phone_number_id: "phone-1" }, messages: [{ id: "m1", from: "14155552671", timestamp: "1767225600", type: "text", text: { body: "hello" } }] } }] }] });
+    const payload = JSON.stringify({ object: "whatsapp_business_account", entry: [{ id: "waba-1", changes: [
+      { field: "messages", value: { metadata: { phone_number_id: "phone-1" }, messages: [{ id: "m1", from: "14155552671", timestamp: "1767225600", type: "text", text: { body: "hello" } }] } },
+      { field: "smb_message_echoes", value: { metadata: { phone_number_id: "phone-1" }, message_echoes: [{ id: "m2", to: "14155552672", timestamp: "1767225600", type: "text", text: { body: "seller reply" } }] } },
+    ] }] });
     const invalid = await fetch(base, { method: "POST", headers: { "content-type": "application/json", "x-hub-signature-256": "sha256=bad" }, body: payload });
     expect(invalid.status).toBe(401);
     expect(record).not.toHaveBeenCalled();
@@ -36,5 +39,6 @@ describe("WhatsApp webhook", () => {
     const accepted = await fetch(base, { method: "POST", headers: { "content-type": "application/json", "x-hub-signature-256": `sha256=${signature}` }, body: payload });
     expect(accepted.status).toBe(200);
     expect(record).toHaveBeenCalledWith(expect.objectContaining({ companyId: "7b1d7be7-14bd-4b74-aecd-9fb56d8b64a0", contactPhone: "+14155552671", externalId: "m1" }));
+    expect(record).toHaveBeenCalledWith(expect.objectContaining({ contactPhone: "+14155552672", externalId: "m2", origin: { direction: "outgoing", source: "seller", userId: null } }));
   });
 });
