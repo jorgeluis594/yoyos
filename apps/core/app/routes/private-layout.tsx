@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronRight, House, LogOut, Menu, Moon, ShoppingBag, Sun, X } from "lucide-react";
+import { Check, ChevronRight, House, LogOut, Menu, Moon, ShoppingBag, Sun, X, ReceiptText } from "lucide-react";
 import { Link, Outlet, redirect, useLoaderData, useLocation, useNavigate, type LoaderFunctionArgs, type MiddlewareFunction } from "react-router";
 import { Button } from "@/components/ui/button";
 import { privateUserContext } from "@/private-user-context";
@@ -35,12 +35,13 @@ export function loader({ context }: LoaderFunctionArgs) {
   return { company: company.name, home: `/es-${company.country}/dashboard`, name: user.name };
 }
 
-function Navigation({ company, name, home, productPath, active, dark, pending, error, onTheme, onSignOut, onNavigate }: {
+function Navigation({ company, name, home, productPath, orderPath, active, dark, pending, error, onTheme, onSignOut, onNavigate }: {
   company: string;
   name: string;
   home: string;
   productPath: string;
-  active: "home" | "products" | "new" | "detail";
+  orderPath: string;
+  active: "home" | "products" | "new" | "detail" | "orders";
   dark: boolean;
   pending: boolean;
   error: string;
@@ -65,10 +66,11 @@ function Navigation({ company, name, home, productPath, active, dark, pending, e
           <House className="size-icon-navigation shrink-0" aria-hidden="true" />Inicio
           {active === "home" && <Check className="ml-auto size-icon-inline" aria-hidden="true" />}
         </Link>
-        <Link to={productPath} onClick={onNavigate} data-slot="navigation-link" data-active={active !== "home" ? "true" : undefined} aria-current={active === "products" ? "page" : undefined} className={`mt-1 flex min-h-control items-center gap-3 rounded-sm px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background max-md:min-h-touch ${active !== "home" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent"}`}>
+        <Link to={productPath} onClick={onNavigate} data-slot="navigation-link" data-active={["products", "new", "detail"].includes(active) ? "true" : undefined} aria-current={active === "products" ? "page" : undefined} className={`mt-1 flex min-h-control items-center gap-3 rounded-sm px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background max-md:min-h-touch ${["products", "new", "detail"].includes(active) ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent"}`}>
           <ShoppingBag className="size-icon-navigation shrink-0" aria-hidden="true" />Productos
-          {active !== "home" && <Check className="ml-auto size-icon-inline" aria-hidden="true" />}
+          {["products", "new", "detail"].includes(active) && <Check className="ml-auto size-icon-inline" aria-hidden="true" />}
         </Link>
+        <Link to={orderPath} onClick={onNavigate} data-slot="navigation-link" aria-current={active === "orders" ? "page" : undefined} className={`mt-1 flex min-h-control items-center gap-3 rounded-sm px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background max-md:min-h-touch ${active === "orders" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent"}`}><ReceiptText className="size-icon-navigation shrink-0" aria-hidden="true" />Ventas{active === "orders" && <Check className="ml-auto size-icon-inline" aria-hidden="true" />}</Link>
       </nav>
       <div className="mt-auto flex flex-col gap-2 border-t border-border pt-4">
         <div className="flex min-w-0 items-center gap-3 px-3 pb-2">
@@ -132,8 +134,9 @@ export default function PrivateLayout() {
   }
 
   const productPath = home.replace(/\/dashboard$/, "/products");
-  const active: "home" | "products" | "new" | "detail" = location.pathname.endsWith("/products") ? "products" : location.pathname.endsWith("/products/new") ? "new" : location.pathname.includes("/products/") ? "detail" : "home";
-  const navigation = { company, name, home, productPath, active, dark, pending, error, onTheme: toggleTheme, onSignOut: signOut };
+  const orderPath = home.replace(/\/dashboard$/, "/orders");
+  const active: "home" | "products" | "new" | "detail" | "orders" = location.pathname.includes("/orders") ? "orders" : location.pathname.endsWith("/products") ? "products" : location.pathname.endsWith("/products/new") ? "new" : location.pathname.includes("/products/") ? "detail" : "home";
+  const navigation = { company, name, home, productPath, orderPath, active, dark, pending, error, onTheme: toggleTheme, onSignOut: signOut };
 
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
@@ -155,7 +158,7 @@ export default function PrivateLayout() {
               <li className="min-w-0 truncate text-muted-foreground" title={company}>{company}</li>
               <li className="flex shrink-0 items-center gap-3" aria-current="page">
                 <ChevronRight className="size-icon-inline text-muted-foreground" aria-hidden="true" />
-                <span className="font-medium">{active === "home" ? "Inicio" : active === "products" ? "Productos" : active === "new" ? "Nuevo producto" : "Producto"}</span>
+                <span className="font-medium">{active === "home" ? "Inicio" : active === "products" ? "Productos" : active === "new" ? "Nuevo producto" : active === "orders" ? "Ventas" : "Producto"}</span>
               </li>
             </ol>
           </nav>

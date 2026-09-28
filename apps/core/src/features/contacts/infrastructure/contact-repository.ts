@@ -55,3 +55,27 @@ export const contactRepository: ContactRepository = {
     }
   },
 };
+
+export async function findContactById(id: string) {
+  try {
+    const contact = await prisma.contact.findFirst({ where: { id }, select: { id: true, name: true, phone: true } });
+    return ok(contact);
+  } catch (cause) {
+    if (!isPersistenceFailure(cause)) throw cause;
+    console.error("Unable to find sale contact", cause);
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to find contact" });
+  }
+}
+
+export async function searchSaleContacts(search: string) {
+  try {
+    return ok(await prisma.contact.findMany({ where: { OR: [
+      { name: { contains: search.replace(/[\\%_]/g, "\\$&"), mode: "insensitive" } },
+      { phone: { contains: search.replace(/[\\%_]/g, "\\$&"), mode: "insensitive" } },
+    ] }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, name: true, phone: true } }));
+  } catch (cause) {
+    if (!isPersistenceFailure(cause)) throw cause;
+    console.error("Unable to search sale contacts", cause);
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to search contacts" });
+  }
+}
