@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useNavigation } from "expo-router";
+import { usePreventRemove } from "expo-router/react-navigation";
 import { showConfirmation } from "@/components/ui/show-confirmation";
 import { useProductDraft } from "./draft-guard";
 
@@ -19,18 +20,17 @@ export function useProductNavigationGuard(dirty: boolean) {
     if (!dirty) discardedRef.current = false;
     setDirty(dirty && !discardedRef.current);
   }, [discardVersion, dirty, setDirty]);
-  useEffect(() => navigation.addListener("beforeRemove", (event) => {
-    if (!dirtyRef.current) return;
-    event.preventDefault();
+  usePreventRemove(dirty, ({ data }) => {
+    if (!dirtyRef.current) { navigation.dispatch(data.action); return; }
     showConfirmation({
       title: "¿Descartar cambios?",
       description: "Se perderán los cambios que no guardaste.",
       confirmLabel: "Descartar",
       cancelLabel: "Seguir editando",
       destructive: true,
-      onConfirm: () => { dirtyRef.current = false; discardedRef.current = true; discard(); navigation.dispatch(event.data.action); },
+      onConfirm: () => { dirtyRef.current = false; discardedRef.current = true; discard(); navigation.dispatch(data.action); },
     });
-  }), [discard, navigation]);
+  });
   useEffect(() => () => setDirty(false), [setDirty]);
   return (value: boolean) => {
     if (!value) {
