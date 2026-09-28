@@ -1,16 +1,18 @@
 import { useState } from "react";
 import { Form, isRouteErrorResponse, Link, useLoaderData, useLocation, type LoaderFunctionArgs } from "react-router";
-import { Search, SlidersHorizontal } from "lucide-react";
+import { SlidersHorizontal } from "lucide-react";
 import { listOrdersSchema, orderListLoaderSchema, saleContactsSchema } from "@shared/contracts/orders";
 import { privateUserContext } from "@core/app/private-user-context";
 import { orders } from "@core/src/features/orders/composition";
 import { toOrderListJson } from "@core/src/features/orders/presentation/order-json";
 import type { ContactId } from "@core/src/features/orders/domain/order";
 import { Button } from "@core/app/components/ui/button";
+import { Field, FieldLabel } from "@core/app/components/ui/field";
 import { Input } from "@core/app/components/ui/input";
 import { ErrorState } from "@core/app/components/ui/error-state";
 import { DataTable, type TableColumn } from "@core/app/components/ui/data-table";
 import { FilterBar } from "@core/app/components/ui/filter-bar";
+import { PageHeader } from "@core/app/components/ui/page-header";
 import { Sheet, SheetContent, SheetTrigger } from "@core/app/components/ui/sheet";
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
@@ -51,13 +53,22 @@ export default function OrderList() {
     ...(customerSearch ? { customerSearch } : {}),
     ...(filters.completedFrom ? { completedFrom: filters.completedFrom.slice(0, 10) } : {}),
     ...(filters.completedBefore ? { completedBefore: filters.completedBefore.slice(0, 10) } : {}), page: String(page) })}`;
-  return <section className="flex flex-col gap-5"><header className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-semibold">Ventas</h1><p className="text-muted-foreground">{list.total} {list.total === 1 ? "venta completada" : "ventas completadas"}</p></div><Button asChild><Link to={`${base}/new`}>Nueva venta</Link></Button></header>
-    <FilterBar label="Filtros de ventas" control={<Form method="get" role="search" aria-label="Buscar contacto para filtrar ventas" className="flex min-w-0 max-w-xl items-center gap-2">
-      <input type="hidden" name="customer" value={filters.customer} />{filters.contactId && <input type="hidden" name="contactId" value={filters.contactId} />}{filters.completedFrom && <input type="hidden" name="completedFrom" value={filters.completedFrom.slice(0, 10)} />}{filters.completedBefore && <input type="hidden" name="completedBefore" value={filters.completedBefore.slice(0, 10)} />}
-      <label htmlFor="customer-search" className="sr-only">Buscar contacto</label><Input id="customer-search" name="customerSearch" type="search" defaultValue={customerSearch} placeholder="Buscar contacto para filtrar" className="min-w-0 flex-1" /><Button type="submit" variant="outline" aria-label="Buscar contacto"><Search aria-hidden="true" /></Button>
-    </Form>} action={<OrderFilterSheet key={search} filters={filters} contacts={contacts} customerSearch={customerSearch} base={base} />} />
-    <DataTable columns={columns} caption="Ventas completadas" data={list.items} getRowId={(item) => item.id} emptyMessage="No hay ventas para estos filtros." />
-    <nav aria-label="Páginas de ventas" className="flex items-center justify-end gap-2"><span className="mr-auto text-sm text-muted-foreground">Página {list.page}</span>{list.page > 1 && <Button asChild variant="outline"><Link to={pageUrl(list.page - 1)}>Anterior</Link></Button>}{list.page * list.pageSize < list.total && <Button asChild variant="outline"><Link to={pageUrl(list.page + 1)}>Siguiente</Link></Button>}</nav>
+  const activeFilterInputs = [
+    { name: "customer", value: filters.customer },
+    ...(filters.contactId ? [{ name: "contactId", value: filters.contactId }] : []),
+    ...(filters.completedFrom ? [{ name: "completedFrom", value: filters.completedFrom.slice(0, 10) }] : []),
+    ...(filters.completedBefore ? [{ name: "completedBefore", value: filters.completedBefore.slice(0, 10) }] : []),
+  ];
+  return <section>
+    <PageHeader>
+      <PageHeader.Heading>
+        <PageHeader.Title>Ventas<PageHeader.Count>{list.total} {list.total === 1 ? "venta completada" : "ventas completadas"}</PageHeader.Count></PageHeader.Title>
+      </PageHeader.Heading>
+      <PageHeader.Actions><Button asChild><Link to={`${base}/new`}>Nueva venta</Link></Button></PageHeader.Actions>
+    </PageHeader>
+    <FilterBar searchName="customerSearch" searchValue={customerSearch} searchLabel="Buscar contacto para filtrar" submitLabel="Buscar contacto" hiddenFields={activeFilterInputs} action={<OrderFilterSheet key={search} filters={filters} contacts={contacts} customerSearch={customerSearch} base={base} />} />
+    <DataTable className="mt-6" columns={columns} caption="Ventas completadas" data={list.items} getRowId={(item) => item.id} emptyMessage="No hay ventas para estos filtros." />
+    <nav aria-label="Páginas de ventas" className="mt-6 flex items-center justify-end gap-2"><span className="mr-auto text-sm text-muted-foreground">Página {list.page}</span>{list.page > 1 && <Button asChild variant="outline"><Link to={pageUrl(list.page - 1)}>Anterior</Link></Button>}{list.page * list.pageSize < list.total && <Button asChild variant="outline"><Link to={pageUrl(list.page + 1)}>Siguiente</Link></Button>}</nav>
   </section>;
 }
 
@@ -68,9 +79,9 @@ function OrderFilterSheet({ filters, contacts, customerSearch, base }: Pick<Awai
       <SheetContent title="Filtros de ventas" description="Refina las ventas por cliente y fecha.">
         <Form method="get" className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-5">
           <input type="hidden" name="customerSearch" value={customerSearch} />
-          <label className="flex flex-col gap-2 text-sm font-medium">Cliente<select name="customer" value={customer} onChange={(event) => setCustomer(event.target.value as typeof customer)} className="min-h-10 rounded-[var(--radius-control)] border border-input bg-background px-3 font-normal"><option value="all">Todos los clientes</option><option value="general_public">Público general</option><option value="contact">Contacto</option></select></label>
-          {customer === "contact" && <div className="flex flex-col gap-2"><label className="flex flex-col gap-2 text-sm font-medium">Contacto<select name="contactId" defaultValue={filters.contactId ?? ""} required className="min-h-10 rounded-[var(--radius-control)] border border-input bg-background px-3 font-normal"><option value="">Seleccionar contacto</option>{contacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.name ? `${contact.name} · ${contact.phone}` : contact.phone}</option>)}</select></label><p className="text-xs text-muted-foreground">Busca un contacto en la barra sobre las ventas para encontrarlo aquí.</p></div>}
-          <div className="flex flex-col gap-4 border-t pt-5"><p className="text-sm font-medium">Fecha de venta</p><label className="flex flex-col gap-2 text-sm">Desde<Input name="completedFrom" type="date" defaultValue={filters.completedFrom?.slice(0, 10)} /></label><label className="flex flex-col gap-2 text-sm">Antes de<Input name="completedBefore" type="date" defaultValue={filters.completedBefore?.slice(0, 10)} /></label></div>
+          <Field><FieldLabel htmlFor="order-customer">Cliente</FieldLabel><select id="order-customer" name="customer" value={customer} onChange={(event) => setCustomer(event.target.value as typeof customer)} className="min-h-10 rounded-[var(--radius-control)] border border-input bg-background px-3 font-normal"><option value="all">Todos los clientes</option><option value="general_public">Público general</option><option value="contact">Contacto</option></select></Field>
+          {customer === "contact" && <div className="flex flex-col gap-2"><Field><FieldLabel htmlFor="order-contact">Contacto</FieldLabel><select id="order-contact" name="contactId" defaultValue={filters.contactId ?? ""} required className="min-h-10 rounded-[var(--radius-control)] border border-input bg-background px-3 font-normal"><option value="">Seleccionar contacto</option>{contacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.name ? `${contact.name} · ${contact.phone}` : contact.phone}</option>)}</select></Field><p className="text-xs text-muted-foreground">Busca un contacto en la barra sobre las ventas para encontrarlo aquí.</p></div>}
+          <div className="flex flex-col gap-4 border-t pt-5"><p className="text-sm font-medium">Fecha de venta</p><Field><FieldLabel htmlFor="completed-from">Desde</FieldLabel><Input id="completed-from" name="completedFrom" type="date" defaultValue={filters.completedFrom?.slice(0, 10)} /></Field><Field><FieldLabel htmlFor="completed-before">Antes de</FieldLabel><Input id="completed-before" name="completedBefore" type="date" defaultValue={filters.completedBefore?.slice(0, 10)} /></Field></div>
           <div className="mt-auto flex gap-2 border-t pt-5"><Button asChild variant="outline" className="flex-1"><Link to={base}>Limpiar</Link></Button><Button type="submit" className="flex-1">Aplicar filtros</Button></div>
         </Form>
       </SheetContent>

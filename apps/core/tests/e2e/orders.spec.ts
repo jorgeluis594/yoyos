@@ -73,10 +73,16 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     await browserExpect(page.getByText("Total: 0.30 PEN")).toBeVisible();
     const completedUrl = page.url();
     await page.getByRole("link", { name: "Ver ventas" }).click();
+    await page.getByRole("button", { name: "Filtros" }).click();
+    await browserExpect(page.getByRole("dialog", { name: "Filtros de ventas" })).toBeVisible();
     await page.getByLabel("Cliente", { exact: true }).selectOption("contact");
     await page.getByLabel("Contacto", { exact: true }).selectOption(contactId);
-    await page.getByRole("button", { name: "Filtrar" }).click();
+    await page.getByRole("button", { name: "Aplicar filtros" }).click();
     await browserExpect(page.getByText("1 venta completada")).toBeVisible();
+    await page.getByRole("searchbox", { name: "Buscar contacto para filtrar" }).fill("912345678");
+    await page.getByRole("button", { name: "Buscar contacto" }).click();
+    await browserExpect(page).toHaveURL(/customerSearch=912345678/);
+    await browserExpect(page).toHaveURL(new RegExp(`customer=contact.*contactId=${contactId}`));
     const tampered = await page.request.post("/es-PE/orders/new", { form: { order: JSON.stringify({ id: crypto.randomUUID(),
       companyId: crypto.randomUUID(), sellerId: crypto.randomUUID(), total: 0.01, contactId: null,
       items: [{ variantId: stock.variantId, quantity: 1 }] }) } });
@@ -120,14 +126,23 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
       }
     });
     await page.goto("/es-PE/orders");
-    await browserExpect(page.getByRole("list", { name: "Ventas completadas" }).getByRole("listitem")).toHaveCount(20);
+    await browserExpect(page.getByRole("table", { name: "Ventas completadas" }).getByRole("row")).toHaveCount(21);
     await page.getByRole("navigation", { name: "Páginas de ventas" }).getByRole("link", { name: "Siguiente" }).click();
     await browserExpect(page).toHaveURL(/page=2/);
-    await browserExpect(page.getByRole("list", { name: "Ventas completadas" }).getByRole("listitem")).toHaveCount(4);
+    await browserExpect(page.getByRole("table", { name: "Ventas completadas" }).getByRole("row")).toHaveCount(5);
+    await page.setViewportSize({ width: 390, height: 780 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await browserExpect(page.getByRole("searchbox", { name: "Buscar contacto para filtrar" })).toBeVisible();
+    await page.getByRole("button", { name: "Filtros" }).click();
     await page.getByLabel("Desde").fill("2020-01-01");
     await page.getByLabel("Antes de").fill("2020-01-02");
-    await page.getByRole("button", { name: "Filtrar" }).click();
+    await page.getByRole("button", { name: "Aplicar filtros" }).click();
     await browserExpect(page.getByText("No hay ventas para estos filtros.")).toBeVisible();
+    await page.getByRole("button", { name: /filtros activos/ }).click();
+    await page.getByRole("link", { name: "Limpiar" }).click();
+    await browserExpect(page).toHaveURL("/es-PE/orders");
+    await browserExpect(page.getByRole("button", { name: "Filtros" })).toBeVisible();
+    await page.setViewportSize({ width: 1280, height: 900 });
 
     await page.getByRole("button", { name: "Cerrar sesión" }).click();
     await browserExpect(page).toHaveURL(/\/login$/);
