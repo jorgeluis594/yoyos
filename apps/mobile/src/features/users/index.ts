@@ -1,7 +1,7 @@
 export { signIn } from "./application/sign-in";
 export { register } from "./application/register";
 export { completeCompany } from "./application/complete-company";
-export type { RegisterInput, RegistrationError } from "./application/register";
+export type { RegisterInput, RegistrationAccepted, RegistrationError } from "./application/register";
 export type { CompleteCompanyError } from "./application/complete-company";
 export type { SignInError } from "./application/sign-in";
 export { restoreSession } from "./application/restore-session";

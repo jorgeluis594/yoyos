@@ -1,18 +1,47 @@
-import { Pressable, StyleSheet } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { useAccess } from '@/features/users/presentation/access-provider';
+import { useRouter } from 'expo-router';
+
+import { ThemedText } from '@mobile/components/themed-text';
+import { ThemedView } from '@mobile/components/themed-view';
+import { Button } from '@mobile/components/ui/button';
+import { useAccess } from '@mobile/features/users/presentation/access-provider';
+import { useTheme } from '@mobile/hooks/use-theme';
 
 export default function HomeScreen() {
   const { state, signOut } = useAccess();
+  const router = useRouter();
+  const theme = useTheme();
   if (state.status !== 'ready') return null;
-  return <ThemedView style={styles.page}><SafeAreaView style={styles.content}>
-    <ThemedText type="title">Hola, {state.user.name}</ThemedText>
-    <ThemedText type="subtitle">{state.company.name}</ThemedText>
-    <ThemedText themeColor="textSecondary">Tu empresa está lista.</ThemedText>
-    <Pressable accessibilityRole="button" accessibilityLabel="Cerrar sesión" onPress={() => void signOut()} style={styles.button}><ThemedText type="link">Cerrar sesión</ThemedText></Pressable>
-  </SafeAreaView></ThemedView>;
+
+  return <ThemedView style={styles.page}>
+    <SafeAreaView style={styles.page} edges={['top', 'left', 'right']}>
+      <ScrollView contentContainerStyle={styles.content}>
+        <View style={styles.header}>
+          <ThemedText type="title" accessibilityRole="header">{state.company.name}</ThemedText>
+          <ThemedText themeColor="textSecondary">Hola, {state.user.name}</ThemedText>
+        </View>
+        <View style={styles.section}>
+          <ThemedText type="subtitle" accessibilityRole="header">Tu catálogo, a mano</ThemedText>
+          <ThemedText themeColor="textSecondary">Consulta tus productos, revisa precios y stock o agrega uno nuevo.</ThemedText>
+          <View style={[styles.actions, { backgroundColor: theme.backgroundElement }]}>
+            <Button onPress={() => router.navigate('/products')}>Ver productos</Button>
+            <Button variant="secondary" onPress={() => router.push('/products/new')}>Agregar producto</Button>
+          </View>
+        </View>
+        <View style={styles.account}>
+          <Button variant="ghost" onPress={() => void signOut()}>Cerrar sesión</Button>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  </ThemedView>;
 }
 
-const styles = StyleSheet.create({ page: { flex: 1 }, content: { flex: 1, gap: 16, padding: 24 }, button: { minHeight: 48, justifyContent: 'center', alignSelf: 'flex-start' } });
+const styles = StyleSheet.create({
+  page: { flex: 1 },
+  content: { flexGrow: 1, padding: 16, gap: 32, width: '100%', maxWidth: 640, alignSelf: 'center' },
+  header: { gap: 8, paddingTop: 8 },
+  section: { gap: 12 },
+  actions: { padding: 16, gap: 12, borderRadius: 8, marginTop: 4 },
+  account: { marginTop: 'auto', alignSelf: 'flex-start', paddingTop: 24 },
+});

@@ -19,7 +19,9 @@ const ready = { status: 'ready' as const, user: { id: 'u', name: 'A', companyId:
 const operations = {
   restoreSession: jest.fn(async () => ok(ready)),
   signIn: jest.fn(async () => ok(ready)),
-  register: jest.fn(async () => ok(ready)),
+  register: jest.fn(async () => ok({ status: 'accepted' as const })),
+  requestVerification: jest.fn(async () => ok(undefined)),
+  requestPasswordReset: jest.fn(async () => ok(undefined)),
   completeCompany: jest.fn(async () => ok(ready)),
   signOut: jest.fn(async (clear: () => void) => { clear(); return ok({ remoteRevocation: 'unconfirmed' as const }); }),
 };
@@ -65,4 +67,28 @@ test('the real composed operations connect login to the private gate', async () 
   fireEvent.changeText(screen.getByLabelText('Contraseña *'), 'password');
   fireEvent.press(screen.getByLabelText('Iniciar sesión'));
   await screen.findByText('Private tabs');
+});
+
+test('a rejected session check retries, then a direct null response shows login', async () => {
+  let sessionReads = 0;
+  const client = {
+    signUp: async () => ({ data: { user: { id: 'u' } }, error: null }),
+    signIn: async () => ({ data: { user: { id: 'u' } }, error: null }),
+    getSession: async () => {
+      sessionReads++;
+      if (sessionReads === 1) throw new Error('offline');
+      return null;
+    },
+    token: async () => ({ data: null, error: null }),
+    signOut: async () => ({ data: { success: true }, error: null }),
+  };
+  const storage = { getItemAsync: async () => null, setItemAsync: async () => {}, deleteItemAsync: async () => {} };
+  const composed = createAuthOperations(client, storage);
+  render(<AccessProvider operations={composed}><AccessGate /></AccessProvider>);
+
+  await screen.findByText('No se pudo comprobar el acceso');
+  fireEvent.press(screen.getByLabelText('Reintentar'));
+  await screen.findByText('Bienvenido a Yoyos');
+  expect(screen.getByLabelText('Correo *')).toBeTruthy();
+  expect(sessionReads).toBe(2);
 });

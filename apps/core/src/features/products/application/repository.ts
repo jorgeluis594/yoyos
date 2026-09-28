@@ -14,5 +14,5 @@ export type ProductRepository = Readonly<{
   create(product: Product): Promise<Result<ProductId, CreateError>>;
   update(id: ProductId, changes: UpdateChanges): Promise<Result<ProductId, UpdateError>>;
   get(id: ProductId): Promise<Result<Product | null, ProductReadError>>;
-  list(criteria: Criteria): Promise<ListOutput>;
+  list(criteria: Criteria): Promise<Result<ListOutput, ProductReadError>>;
 }>;

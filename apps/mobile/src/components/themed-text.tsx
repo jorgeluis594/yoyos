@@ -1,7 +1,9 @@
 import { Platform, StyleSheet, Text, type TextProps } from 'react-native';
 
-import { Fonts, ThemeColor } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+import tokens from '../../../../docs/design-tokens.json';
+
+import { Fonts, ThemeColor } from '@mobile/constants/theme';
+import { useTheme } from '@mobile/hooks/use-theme';
 
 export type ThemedTextProps = TextProps & {
   type?: 'default' | 'title' | 'small' | 'smallBold' | 'subtitle' | 'link' | 'linkPrimary' | 'code';
@@ -14,7 +16,7 @@ export function ThemedText({ style, type = 'default', themeColor, ...rest }: The
   return (
     <Text
       style={[
-        { color: theme[themeColor ?? 'text'] },
+        { color: theme[themeColor ?? 'text'], fontFamily: tokens.typography.family },
         type === 'default' && styles.default,
         type === 'title' && styles.title,
         type === 'small' && styles.small,
@@ -44,16 +46,16 @@ const styles = StyleSheet.create({
   default: {
     fontSize: 16,
     lineHeight: 24,
-    fontWeight: 500,
+    fontWeight: 400,
   },
   title: {
-    fontSize: 48,
+    fontSize: tokens.typography.roles['page-title'].size,
     fontWeight: 600,
-    lineHeight: 52,
+    lineHeight: tokens.typography.roles['page-title'].lineHeight,
   },
   subtitle: {
-    fontSize: 32,
-    lineHeight: 44,
+    fontSize: tokens.typography.roles['section-title'].size,
+    lineHeight: tokens.typography.roles['section-title'].lineHeight,
     fontWeight: 600,
   },
   link: {

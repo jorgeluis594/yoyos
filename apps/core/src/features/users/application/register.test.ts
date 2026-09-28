@@ -1,53 +1,21 @@
-import { describe, expect, test } from "vitest";
+import { expect, test } from "vitest";
 import { err, ok } from "@shared/functional";
-import { register, type RegisterDependencies } from "@core/src/features/users/application/register";
+import { register } from "@core/src/features/users/application/register";
 
-const input = {
-  account: { name: "Ana", email: "ana@example.com", password: "password123" },
-  company: { name: "  Tienda Ana  ", country: "PE" },
-};
+const account = { name: "Ana", email: "Ana+ventas@example.com", password: " pass word " };
 
-describe("web registration", () => {
-  test("validates both drafts before side effects", async () => {
-    const calls: string[] = [];
-    const dependencies: RegisterDependencies = {
-      registerAccount: async () => { calls.push("account"); return ok(undefined); },
-      createCompany: async () => { calls.push("company"); return ok(undefined); },
-    };
-    expect(await register({ ...input, company: { ...input.company, country: "ZZ" } }, dependencies)).toMatchObject({ success: false, error: { step: "company", code: "INVALID_INPUT" } });
-    expect(await register({ ...input, account: { ...input.account, email: "invalid" } }, dependencies)).toMatchObject({ success: false, error: { step: "account", code: "INVALID_INPUT" } });
-    expect(calls).toEqual([]);
-  });
+test("register validates account input before side effects and preserves password", async () => {
+  let received: unknown;
+  let calls = 0;
+  const dependencies = { registerAccount: async (input: unknown) => { calls++; received = input; return ok(undefined); } };
+  expect(await register({ ...account, email: "bad" }, dependencies)).toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
+  expect(calls).toBe(0);
+  expect(await register(account, dependencies)).toEqual(ok({ status: "accepted" }));
+  expect(received).toEqual({ name: "Ana", email: "ana+ventas@example.com", password: " pass word " });
+});
 
-  test("creates account, then company with a normalized name", async () => {
-    const calls: string[] = [];
-    expect(await register(input, {
-      registerAccount: async () => { calls.push("account"); return ok(undefined); },
-      createCompany: async (company) => { calls.push(`company:${company.name}`); return ok(undefined); },
-    })).toEqual(ok(undefined));
-    expect(calls).toEqual(["account", "company:Tienda Ana"]);
-  });
-
-  test("stops on account failure", async () => {
-    let companyCalls = 0;
-    expect(await register(input, {
-      registerAccount: async () => err({ code: "REJECTED", message: "duplicate" }),
-      createCompany: async () => { companyCalls++; return ok(undefined); },
-    })).toMatchObject({ success: false, error: { step: "account", code: "REJECTED", message: "duplicate" } });
-    expect(companyCalls).toBe(0);
-  });
-
-  test("retries company without creating the account again", async () => {
-    let accountCalls = 0;
-    let companyCalls = 0;
-    const dependencies: RegisterDependencies = {
-      registerAccount: async () => { accountCalls++; return ok(undefined); },
-      createCompany: async () => ++companyCalls === 1
-        ? err({ code: "NETWORK_ERROR", message: "disconnected" })
-        : ok(undefined),
-    };
-    expect(await register(input, dependencies)).toMatchObject({ success: false, error: { step: "company", code: "NETWORK_ERROR" } });
-    expect(await register({ company: input.company }, dependencies)).toEqual(ok(undefined));
-    expect({ accountCalls, companyCalls }).toEqual({ accountCalls: 1, companyCalls: 2 });
-  });
+test("register returns only a neutral result and propagates provider failures", async () => {
+  expect(await register({ name: "Ana", email: "ana@example.com", password: "password123" }, { registerAccount: async () => ok(undefined) })).toEqual(ok({ status: "accepted" }));
+  const failure = err({ code: "NETWORK_ERROR" as const, message: "Unavailable" });
+  expect(await register({ name: "Ana", email: "ana@example.com", password: "password123" }, { registerAccount: async () => failure })).toEqual(failure);
 });

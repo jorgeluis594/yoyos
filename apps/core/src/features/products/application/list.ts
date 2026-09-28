@@ -1,7 +1,7 @@
-import { err, ok } from "@shared/functional";
+import { err } from "@shared/functional";
 import type { Money } from "@shared/money";
 import type { Result } from "@shared/result";
-import type { Criteria, ProductRepository } from "@core/src/features/products/application/repository";
+import type { Criteria, ProductReadError, ProductRepository } from "@core/src/features/products/application/repository";
 import type { ProductId } from "@core/src/features/products/domain/product";
 
 export type ListInput = Readonly<{ search?: string; page?: number; pageSize?: number }>;
@@ -10,7 +10,7 @@ export type ListOutput = Readonly<{ items: readonly ProductListItem[]; page: num
 export type CriteriaField = "search" | "page" | "pageSize";
 export type CriteriaValidationReason = Readonly<{ reason: "INVALID_TYPE" | "INVALID_RANGE" | "UNSAFE_PAGINATION" }>;
 export type CriteriaIssue = Readonly<{ field: CriteriaField; message: string }> & CriteriaValidationReason;
-export type ListError = Readonly<{ code: "VALIDATION_ERROR"; issues: readonly [CriteriaIssue, ...CriteriaIssue[]]; message: string }>;
+export type ListError = Readonly<{ code: "VALIDATION_ERROR"; issues: readonly [CriteriaIssue, ...CriteriaIssue[]]; message: string }> | ProductReadError;
 
 export async function listProducts(input: ListInput, repository: Pick<ProductRepository, "list">): Promise<Result<ListOutput, ListError>> {
   const issues: CriteriaIssue[] = [];
@@ -23,5 +23,5 @@ export async function listProducts(input: ListInput, repository: Pick<ProductRep
   if (issues.length) return err({ code: "VALIDATION_ERROR", issues: issues as [CriteriaIssue, ...CriteriaIssue[]], message: "Invalid listing criteria" });
   const search = typeof input.search === "string" ? input.search.trim() : "";
   const criteria: Criteria = { ...(search ? { search } : {}), page, pageSize };
-  return ok(await repository.list(criteria));
+  return repository.list(criteria);
 }

@@ -7,8 +7,8 @@ import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance
 export type AuthenticatedLocals = { auth: UserAccess };
 export type PrivateLocals = { auth: ReadyAccess };
 
-export function apiError(response: Response, status: number, code: ApiErrorCode, message: string) {
-  return response.status(status).json(apiErrorResponseSchema.parse({ code, error: message }));
+export function apiError(response: Response, status: number, code: ApiErrorCode, message: string, issues?: readonly unknown[]) {
+  return response.status(status).json(apiErrorResponseSchema.parse({ code, error: message, ...(issues ? { issues } : {}) }));
 }
 
 export async function loadApiAccess(request: Request, response: Response<unknown, AuthenticatedLocals>, next: NextFunction) {
@@ -33,7 +33,9 @@ export async function loadApiAccess(request: Request, response: Response<unknown
 
 export function requireApiCompany(_request: Request, response: Response<unknown, AuthenticatedLocals>, next: NextFunction) {
   const result = requireCompany(response.locals.auth);
-  if (!result.success) return apiError(response, 409, "COMPANY_REQUIRED", "Company required");
+  if (!result.success) return result.error.code === "EMAIL_VERIFICATION_REQUIRED"
+    ? apiError(response, 403, "EMAIL_VERIFICATION_REQUIRED", "Email verification required")
+    : apiError(response, 409, "COMPANY_REQUIRED", "Company required");
   response.locals.auth = result.data;
   return next();
 }

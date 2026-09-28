@@ -11,6 +11,11 @@ export const companyDtoSchema = z.object({
 const accessUserFields = { id: z.string().min(1), name: z.string() };
 export const currentAccessDtoSchema = z.discriminatedUnion("status", [
   z.object({
+    status: z.literal("verification_required"),
+    user: z.object({ ...accessUserFields, companyId: z.null() }).readonly(),
+    company: z.null(),
+  }),
+  z.object({
     status: z.literal("company_required"),
     user: z.object({ ...accessUserFields, companyId: z.null() }).readonly(),
     company: z.null(),
@@ -32,12 +37,16 @@ export const createCompanyRequestSchema = z.object({
 export const createCompanyResponseSchema = z.object({ companyId: z.uuid() }).readonly();
 export const apiErrorCodeSchema = z.enum([
   "UNAUTHENTICATED", "COMPANY_REQUIRED", "INVALID_COMPANY", "NOT_FOUND",
+  "EMAIL_VERIFICATION_REQUIRED",
   "SERVICE_UNAVAILABLE", "INTERNAL_ERROR",
   "INVALID_IMAGE", "IMAGE_TOO_LARGE", "UNSUPPORTED_MEDIA_TYPE", "IMAGE_STORAGE_UNAVAILABLE",
+  "INVALID_INPUT", "VALIDATION_ERROR", "DUPLICATE_SKU", "PRODUCT_ID_CONFLICT",
+  "PRODUCT_NOT_FOUND", "IMAGE_NOT_FOUND", "PAYLOAD_TOO_LARGE",
 ]);
 export const apiErrorResponseSchema = z.object({
   error: z.string(),
   code: apiErrorCodeSchema,
+  issues: z.array(z.object({ field: z.string(), reason: z.string() }).loose()).optional(),
 }).readonly();
 
 export type CompanyDto = z.infer<typeof companyDtoSchema>;

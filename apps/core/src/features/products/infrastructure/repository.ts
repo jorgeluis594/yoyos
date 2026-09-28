@@ -39,6 +39,13 @@ function isDuplicateSku(error: unknown): boolean {
   return adapter?.cause?.constraint?.index === "ProductVariant_companyId_sku_normalized_key";
 }
 
+function isDuplicateProductId(error: unknown): boolean {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") return false;
+  const adapter = error.meta?.driverAdapterError as { cause?: { constraint?: { index?: string } } } | undefined;
+  const constraint = adapter?.cause?.constraint?.index;
+  return constraint === "Product_pkey" || constraint === "Product_id_key";
+}
+
 export const productRepository: ProductRepository = {
   async create(product) {
     try {
@@ -61,7 +68,9 @@ export const productRepository: ProductRepository = {
       });
     } catch (error) {
       if (isDuplicateSku(error)) return err({ code: "DUPLICATE_SKU", message: "SKU is already used" });
-      throw error;
+      if (isDuplicateProductId(error)) return err({ code: "PRODUCT_ID_CONFLICT", message: "Product ID is already used" });
+      console.error("Product create persistence failed", error);
+      return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to create product" });
     }
   },
   async update(id, changes) {
@@ -91,14 +100,16 @@ export const productRepository: ProductRepository = {
     } catch (error) {
       if (isDuplicateSku(error)) return err({ code: "DUPLICATE_SKU", message: "SKU is already used" });
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") return err({ code: "PRODUCT_NOT_FOUND", message: "Product does not exist" });
-      throw error;
+      console.error("Product update persistence failed", error);
+      return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to update product" });
     }
   },
   async get(id) {
     let row: DbAggregate | null;
     try {
       row = await prisma.product.findUnique({ where: { id }, include: { variants: { include: { stock: true }, orderBy: { id: "asc" } } } });
-    } catch {
+    } catch (error) {
+      console.error("Product read persistence failed", error);
       return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to read product" });
     }
     if (!row) return ok(null);
@@ -116,11 +127,20 @@ export const productRepository: ProductRepository = {
         { variants: { some: { sku: { contains: search, mode: "insensitive" } } } },
       ] } : {}),
     };
-    const [rows, total] = await Promise.all([
-      prisma.product.findMany({ where, orderBy: [{ createdAt: "desc" }, { id: "asc" }], skip: (criteria.page - 1) * criteria.pageSize, take: criteria.pageSize,
-        include: { variants: { include: { stock: true } } } }),
-      prisma.product.count({ where }),
-    ]);
-    return { page: criteria.page, pageSize: criteria.pageSize, total, items: rows.map((row) => summarizeProduct(mapProduct(row))) };
+    try {
+      const [rows, total] = await Promise.all([
+        prisma.product.findMany({ where, orderBy: [{ createdAt: "desc" }, { id: "asc" }], skip: (criteria.page - 1) * criteria.pageSize, take: criteria.pageSize,
+          include: { variants: { include: { stock: true } } } }),
+        prisma.product.count({ where }),
+      ]);
+      try {
+        return ok({ page: criteria.page, pageSize: criteria.pageSize, total, items: rows.map((row) => summarizeProduct(mapProduct(row))) });
+      } catch {
+        return err({ code: "INVALID_STORED_DATA", message: "Stored product data is invalid" });
+      }
+    } catch (error) {
+      console.error("Product list persistence failed", error);
+      return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to list products" });
+    }
   },
 };

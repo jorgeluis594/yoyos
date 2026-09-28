@@ -24,8 +24,9 @@ export const companyRepository = {
   },
   async findLink(userId: string) {
     try {
-      const user = await systemPrisma.user.findUnique({ where: { id: userId }, select: { companyId: true } });
+      const user = await systemPrisma.user.findUnique({ where: { id: userId }, select: { emailVerified: true, companyId: true } });
       if (!user) return ok({ status: "user_missing" as const });
+      if (!user.emailVerified) return ok({ status: "verification_required" as const });
       return ok(user.companyId ? { status: "linked" as const, companyId: user.companyId } : { status: "unlinked" as const });
     } catch (cause) {
       console.error("Unable to read company link", cause);

@@ -5,5 +5,5 @@ import { useAccess } from '@/features/users/presentation/access-provider';
 
 export function AccessGate() {
   const { state } = useAccess();
-  return state.status === 'ready' ? createElement(AppTabs) : createElement(AccessScreen, { key: state.status });
+  return state.status === 'ready' ? createElement(AppTabs, { key: state.company.id }) : createElement(AccessScreen, { key: state.status });
 }

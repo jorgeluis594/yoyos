@@ -28,6 +28,34 @@ test("login validates Better Auth output, renews the server session, then keeps 
   expect(calls).toEqual(["sign-in", "session", "token"]);
 });
 
+test("a direct null session restores as absent and clears the in-memory token", async () => {
+  let active = true;
+  const client: AuthClientBoundary = {
+    signUp: async () => response({ user: { id: "user-1" } }),
+    signIn: async () => response({ user: { id: "user-1" } }),
+    getSession: async () => active ? response(session) : null,
+    token: async () => response({ token: token(1000) }),
+    signOut: async () => response({ success: true }),
+  };
+  const auth = createAuthAdapter(client, storage(), { now: () => 0 });
+  expect((await auth.signIn({ email: "a@example.com", password: "password" })).success).toBe(true);
+  active = false;
+  expect(await auth.restoreSession()).toEqual({ success: true, data: "absent" });
+  expect(await auth.getToken()).toMatchObject({ success: false, error: { code: "UNAUTHENTICATED" } });
+});
+
+test("a direct null session during token renewal means unauthenticated", async () => {
+  const client: AuthClientBoundary = {
+    signUp: async () => response({ user: { id: "user-1" } }),
+    signIn: async () => response({ user: { id: "user-1" } }),
+    getSession: async () => null,
+    token: async () => response({ token: token(1000) }),
+    signOut: async () => response({ success: true }),
+  };
+  const auth = createAuthAdapter(client, storage());
+  expect(await auth.renewToken()).toMatchObject({ success: false, error: { code: "UNAUTHENTICATED" } });
+});
+
 test("maps incorrect credentials to the stable login error", async () => {
   const client: AuthClientBoundary = {
     signUp: async () => response({ user: { id: "user-1" } }),
@@ -40,15 +68,33 @@ test("maps incorrect credentials to the stable login error", async () => {
   });
 });
 
-test("registration maps duplicate email and rejects malformed SDK data", async () => {
+test("registration accepts Better Auth's neutral response and rejects malformed SDK data", async () => {
   const client: AuthClientBoundary = {
-    signUp: async () => response(null, { code: "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL", message: "duplicate", status: 422 }),
+    signUp: async () => response({ token: null, user: { id: "synthetic-user", emailVerified: false } }),
     signIn: async () => response(null), getSession: async () => response(session),
     token: async () => response({ token: token(1000) }), signOut: async () => response({ success: true }),
   };
   const input = { name: "A", email: "a@example.com", password: "password123" };
-  expect(await createAuthAdapter(client, storage()).registerAccount(input)).toMatchObject({ success: false, error: { code: "EMAIL_IN_USE" } });
+  expect(await createAuthAdapter(client, storage()).registerAccount(input)).toEqual({ success: true, data: undefined });
   expect(await createAuthAdapter({ ...client, signUp: async () => response({ user: { id: "" } }) }, storage()).registerAccount(input)).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+});
+
+test("verification and recovery requests validate Better Auth responses and use web callbacks", async () => {
+  const calls: unknown[] = [];
+  const client: AuthClientBoundary = {
+    signUp: async () => response({ user: { id: "u" } }), signIn: async () => response({ user: { id: "u" } }),
+    sendVerificationEmail: async (input) => { calls.push(input); return response({ status: true }); },
+    requestPasswordReset: async (input) => { calls.push(input); return response({ status: true }); },
+    getSession: async () => response(null), token: async () => response(null), signOut: async () => response({ success: true }),
+  };
+  const auth = createAuthAdapter(client, storage(), { accountVerificationUrl: "https://app.example/account-verified", passwordResetRedirectTo: "https://app.example/reset-password" });
+  expect(await auth.requestVerification({ email: "A@example.com" })).toEqual({ success: true, data: undefined });
+  expect(await auth.requestPasswordReset({ email: "A@example.com" })).toEqual({ success: true, data: undefined });
+  expect(calls).toEqual([
+    { email: "A@example.com", callbackURL: "https://app.example/account-verified" },
+    { email: "A@example.com", redirectTo: "https://app.example/reset-password" },
+  ]);
+  expect(await auth.requestVerification({ email: "bad" })).toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
 });
 
 test("rejects incompatible SDK responses instead of treating them as absent sessions", async () => {
