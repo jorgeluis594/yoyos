@@ -47,18 +47,14 @@ services:
       context: .
       dockerfile: apps/core/Dockerfile
     command: sh -c "pnpm --dir /workspace/shared install --frozen-lockfile && pnpm exec prisma generate && pnpm dev"
+    env_file:
+      - ./apps/core/.env
     environment:
       DATABASE_URL: postgresql://core_app:core_app_local@db:5432/core
       BETTER_AUTH_SECRET: local-development-secret-change-me-32chars
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3000
-      R2_ENDPOINT: ${R2_ENDPOINT:-}
-      R2_BUCKET: ${R2_BUCKET:-}
-      R2_PRIVATE_BUCKET: ${R2_PRIVATE_BUCKET:-}
-      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
-      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
-      R2_PUBLIC_BASE_URL: ${R2_PUBLIC_BASE_URL:-}
       WHATSAPP_CONNECTIONS_JSON: "${WHATSAPP_CONNECTIONS_JSON:-[]}"
       WHATSAPP_APP_SECRET: ${WHATSAPP_APP_SECRET:-}
       WHATSAPP_VERIFY_TOKEN: ${WHATSAPP_VERIFY_TOKEN:-}
