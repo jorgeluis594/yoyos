@@ -1,4 +1,6 @@
-import { Form, isRouteErrorResponse, Link, useLoaderData, type LoaderFunctionArgs } from "react-router";
+import { useState } from "react";
+import { Form, isRouteErrorResponse, Link, useLoaderData, useLocation, type LoaderFunctionArgs } from "react-router";
+import { Search, SlidersHorizontal } from "lucide-react";
 import { listOrdersSchema, orderListLoaderSchema, saleContactsSchema } from "@shared/contracts/orders";
 import { privateUserContext } from "@core/app/private-user-context";
 import { orders } from "@core/src/features/orders/composition";
@@ -7,6 +9,9 @@ import type { ContactId } from "@core/src/features/orders/domain/order";
 import { Button } from "@core/app/components/ui/button";
 import { Input } from "@core/app/components/ui/input";
 import { ErrorState } from "@core/app/components/ui/error-state";
+import { DataTable, type TableColumn } from "@core/app/components/ui/data-table";
+import { FilterBar } from "@core/app/components/ui/filter-bar";
+import { Sheet, SheetContent, SheetTrigger } from "@core/app/components/ui/sheet";
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const params = new URL(request.url).searchParams;
@@ -34,17 +39,42 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
 
 export default function OrderList() {
   const { list, filters, contacts, customerSearch, base } = useLoaderData<typeof loader>();
+  const { search } = useLocation();
+  type Sale = (typeof list.items)[number];
+  const columns: TableColumn<Sale>[] = [
+    { id: "customer", header: "Cliente", mobile: "title", cell: (item) => <div className="flex flex-col gap-0.5"><Link to={`${base}/${item.id}`} className="font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">{item.customer.kind === "contact" ? item.customer.name ?? item.customer.phone : "Público general"}</Link>{item.customer.kind === "contact" && item.customer.name && <span className="text-xs text-muted-foreground">{item.customer.phone}</span>}</div> },
+    { id: "completedAt", header: "Fecha y hora", mobile: "description", cell: (item) => new Date(item.completedAt).toLocaleString("es-PE", { dateStyle: "medium", timeStyle: "short" }) },
+    { id: "total", header: "Total", mobile: "value", align: "right", cell: (item) => <strong className="font-semibold tabular-nums">{item.total.toFixed(2)} {item.currency}</strong> },
+  ];
   const pageUrl = (page: number) => `${base}?${new URLSearchParams({ customer: filters.customer,
     ...(filters.contactId ? { contactId: filters.contactId } : {}),
     ...(customerSearch ? { customerSearch } : {}),
     ...(filters.completedFrom ? { completedFrom: filters.completedFrom.slice(0, 10) } : {}),
     ...(filters.completedBefore ? { completedBefore: filters.completedBefore.slice(0, 10) } : {}), page: String(page) })}`;
-  return <section className="space-y-6"><header className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-semibold">Ventas</h1><p className="text-muted-foreground">{list.total} {list.total === 1 ? "venta completada" : "ventas completadas"}</p></div><Button asChild><Link to={`${base}/new`}>Nueva venta</Link></Button></header>
-    <Form method="get" className="flex flex-wrap items-end gap-3"><label>Buscar contacto<Input name="customerSearch" type="search" defaultValue={customerSearch} className="mt-1" /></label><Button type="submit" variant="outline">Buscar contacto</Button></Form>
-    <Form method="get" className="flex flex-wrap items-end gap-3"><input type="hidden" name="customerSearch" value={customerSearch} /><label>Cliente<select aria-label="Cliente" name="customer" defaultValue={filters.customer} className="mt-1 block min-h-10 rounded-md border bg-background px-3"><option value="all">Todos</option><option value="general_public">Público general</option><option value="contact">Contacto</option></select></label><label>Contacto<select aria-label="Contacto" name="contactId" defaultValue={filters.contactId ?? ""} className="mt-1 block min-h-10 rounded-md border bg-background px-3"><option value="">Seleccionar contacto</option>{contacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.name ? `${contact.name} · ${contact.phone}` : contact.phone}</option>)}</select></label><label>Desde<Input name="completedFrom" type="date" defaultValue={filters.completedFrom?.slice(0, 10)} className="mt-1" /></label><label>Antes de<Input name="completedBefore" type="date" defaultValue={filters.completedBefore?.slice(0, 10)} className="mt-1" /></label><Button type="submit">Filtrar</Button></Form>
-    {list.items.length === 0 ? <p>No hay ventas para estos filtros.</p> : <ul aria-label="Ventas completadas" className="divide-y rounded-md border">{list.items.map((item) => <li key={item.id} className="flex flex-wrap items-center justify-between gap-3 p-4"><div><Link to={`${base}/${item.id}`} className="font-medium text-primary underline-offset-4 hover:underline">{item.customer.kind === "contact" ? item.customer.name ?? item.customer.phone : "Público general"}</Link><p className="text-sm text-muted-foreground">{new Date(item.completedAt).toLocaleString("es-PE")} · Vendedor: {item.sellerId}</p></div><strong>{item.total.toFixed(2)} {item.currency}</strong></li>)}</ul>}
-    <nav aria-label="Páginas de ventas" className="flex gap-2">{list.page > 1 && <Button asChild variant="outline"><Link to={pageUrl(list.page - 1)}>Anterior</Link></Button>}{list.page * list.pageSize < list.total && <Button asChild variant="outline"><Link to={pageUrl(list.page + 1)}>Siguiente</Link></Button>}</nav>
+  return <section className="flex flex-col gap-5"><header className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-semibold">Ventas</h1><p className="text-muted-foreground">{list.total} {list.total === 1 ? "venta completada" : "ventas completadas"}</p></div><Button asChild><Link to={`${base}/new`}>Nueva venta</Link></Button></header>
+    <FilterBar label="Filtros de ventas" control={<Form method="get" role="search" aria-label="Buscar contacto para filtrar ventas" className="flex min-w-0 max-w-xl items-center gap-2">
+      <input type="hidden" name="customer" value={filters.customer} />{filters.contactId && <input type="hidden" name="contactId" value={filters.contactId} />}{filters.completedFrom && <input type="hidden" name="completedFrom" value={filters.completedFrom.slice(0, 10)} />}{filters.completedBefore && <input type="hidden" name="completedBefore" value={filters.completedBefore.slice(0, 10)} />}
+      <label htmlFor="customer-search" className="sr-only">Buscar contacto</label><Input id="customer-search" name="customerSearch" type="search" defaultValue={customerSearch} placeholder="Buscar contacto para filtrar" className="min-w-0 flex-1" /><Button type="submit" variant="outline" aria-label="Buscar contacto"><Search aria-hidden="true" /></Button>
+    </Form>} action={<OrderFilterSheet key={search} filters={filters} contacts={contacts} customerSearch={customerSearch} base={base} />} />
+    <DataTable columns={columns} caption="Ventas completadas" data={list.items} getRowId={(item) => item.id} emptyMessage="No hay ventas para estos filtros." />
+    <nav aria-label="Páginas de ventas" className="flex items-center justify-end gap-2"><span className="mr-auto text-sm text-muted-foreground">Página {list.page}</span>{list.page > 1 && <Button asChild variant="outline"><Link to={pageUrl(list.page - 1)}>Anterior</Link></Button>}{list.page * list.pageSize < list.total && <Button asChild variant="outline"><Link to={pageUrl(list.page + 1)}>Siguiente</Link></Button>}</nav>
   </section>;
+}
+
+function OrderFilterSheet({ filters, contacts, customerSearch, base }: Pick<Awaited<ReturnType<typeof loader>>, "filters" | "contacts" | "customerSearch" | "base">) {
+  const [customer, setCustomer] = useState(filters.customer);
+  const activeFilters = Number(filters.customer !== "all") + Number(!!filters.completedFrom) + Number(!!filters.completedBefore);
+  return <Sheet><SheetTrigger asChild><Button variant="outline" aria-label={activeFilters ? `${activeFilters} ${activeFilters === 1 ? "filtro activo" : "filtros activos"}` : "Filtros"}><SlidersHorizontal data-icon="inline-start" aria-hidden="true" />Filtros{activeFilters ? ` (${activeFilters})` : ""}</Button></SheetTrigger>
+      <SheetContent title="Filtros de ventas" description="Refina las ventas por cliente y fecha.">
+        <Form method="get" className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-5">
+          <input type="hidden" name="customerSearch" value={customerSearch} />
+          <label className="flex flex-col gap-2 text-sm font-medium">Cliente<select name="customer" value={customer} onChange={(event) => setCustomer(event.target.value as typeof customer)} className="min-h-10 rounded-[var(--radius-control)] border border-input bg-background px-3 font-normal"><option value="all">Todos los clientes</option><option value="general_public">Público general</option><option value="contact">Contacto</option></select></label>
+          {customer === "contact" && <div className="flex flex-col gap-2"><label className="flex flex-col gap-2 text-sm font-medium">Contacto<select name="contactId" defaultValue={filters.contactId ?? ""} required className="min-h-10 rounded-[var(--radius-control)] border border-input bg-background px-3 font-normal"><option value="">Seleccionar contacto</option>{contacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.name ? `${contact.name} · ${contact.phone}` : contact.phone}</option>)}</select></label><p className="text-xs text-muted-foreground">Busca un contacto en la barra sobre las ventas para encontrarlo aquí.</p></div>}
+          <div className="flex flex-col gap-4 border-t pt-5"><p className="text-sm font-medium">Fecha de venta</p><label className="flex flex-col gap-2 text-sm">Desde<Input name="completedFrom" type="date" defaultValue={filters.completedFrom?.slice(0, 10)} /></label><label className="flex flex-col gap-2 text-sm">Antes de<Input name="completedBefore" type="date" defaultValue={filters.completedBefore?.slice(0, 10)} /></label></div>
+          <div className="mt-auto flex gap-2 border-t pt-5"><Button asChild variant="outline" className="flex-1"><Link to={base}>Limpiar</Link></Button><Button type="submit" className="flex-1">Aplicar filtros</Button></div>
+        </Form>
+      </SheetContent>
+    </Sheet>;
 }
 
 export function ErrorBoundary({ error }: { error: unknown }) {
