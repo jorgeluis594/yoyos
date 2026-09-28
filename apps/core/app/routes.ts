@@ -14,6 +14,9 @@ export default [
     route("products/new", "routes/product-new.tsx", { id: "public-product-new" }),
     route("products/:productId/edit", "routes/product-edit.tsx", { id: "public-product-edit" }),
     route("products/:productId", "routes/product-detail.tsx", { id: "public-product-detail" }),
+    route("orders/new", "routes/order-new.tsx", { id: "public-order-new" }),
+    route("orders", "routes/order-list.tsx", { id: "public-order-list" }),
+    route("orders/:orderId", "routes/order-detail.tsx", { id: "public-order-detail" }),
   ]),
   route(":locale", "routes/locale-layout.tsx", [
     index("routes/home.tsx"),
@@ -29,6 +32,9 @@ export default [
       route("products/new", "routes/product-new.tsx", { id: "localized-product-new" }),
       route("products/:productId/edit", "routes/product-edit.tsx", { id: "localized-product-edit" }),
       route("products/:productId", "routes/product-detail.tsx", { id: "localized-product-detail" }),
+      route("orders/new", "routes/order-new.tsx", { id: "localized-order-new" }),
+      route("orders", "routes/order-list.tsx", { id: "localized-order-list" }),
+      route("orders/:orderId", "routes/order-detail.tsx", { id: "localized-order-detail" }),
     ]),
   ]),
 ] satisfies RouteConfig;

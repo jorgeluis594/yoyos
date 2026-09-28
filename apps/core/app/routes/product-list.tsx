@@ -1,11 +1,10 @@
-import { Form, isRouteErrorResponse, Link, useLoaderData, useNavigation, type LoaderFunctionArgs } from "react-router";
-import { Button } from "@/components/ui/button";
-import { DataTable, type TableColumn } from "@/components/ui/data-table";
-import { ErrorState } from "@/components/ui/error-state";
-import { Field, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
-import { PageHeader } from "@/components/ui/page-header";
-import { privateUserContext } from "@/private-user-context";
+import { isRouteErrorResponse, Link, useLoaderData, useNavigation, type LoaderFunctionArgs } from "react-router";
+import { Button } from "@core/app/components/ui/button";
+import { DataTable, type TableColumn } from "@core/app/components/ui/data-table";
+import { ErrorState } from "@core/app/components/ui/error-state";
+import { FilterBar } from "@core/app/components/ui/filter-bar";
+import { PageHeader } from "@core/app/components/ui/page-header";
+import { privateUserContext } from "@core/app/private-user-context";
 import { products } from "@core/src/features/products/composition";
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
@@ -80,13 +79,7 @@ export default function ProductList() {
         <Button asChild><Link to={`${base}/new`}>Nuevo producto</Link></Button>
       </PageHeader.Actions>
     </PageHeader>
-    <Form method="get" role="search" className="mt-6 flex flex-wrap items-end gap-3">
-      <Field className="min-w-0 flex-1">
-        <FieldLabel htmlFor="product-search">Buscar por nombre o SKU</FieldLabel>
-        <Input id="product-search" name="search" type="search" defaultValue={search} />
-      </Field>
-      <Button type="submit">Buscar</Button>
-    </Form>
+    <FilterBar searchName="search" searchValue={search} searchLabel="Buscar por nombre o SKU" submitLabel="Buscar" />
     <DataTable
       className="mt-6"
       columns={columns}
