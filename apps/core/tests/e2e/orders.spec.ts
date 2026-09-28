@@ -49,7 +49,7 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     await browserExpect(page.getByText("Público general")).toBeVisible();
     await browserExpect(page.getByText("Total: 0.58 PEN")).toBeVisible();
     await page.getByRole("link", { name: "Ver ventas" }).click();
-    await browserExpect(page.getByText("1 venta completada")).toBeVisible();
+    await browserExpect(page.getByRole("heading", { name: /Ventas/ }).locator('[data-slot="page-header-count"]')).toHaveText("1");
     const stock = await withTenantIsolation(tenantId, async () => await prisma.productStock.findFirstOrThrow());
     expect(stock.quantity).toBe(1n);
 
@@ -78,7 +78,7 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     await page.getByLabel("Cliente", { exact: true }).selectOption("contact");
     await page.getByLabel("Contacto", { exact: true }).selectOption(contactId);
     await page.getByRole("button", { name: "Aplicar filtros" }).click();
-    await browserExpect(page.getByText("1 venta completada")).toBeVisible();
+    await browserExpect(page.getByRole("heading", { name: /Ventas/ }).locator('[data-slot="page-header-count"]')).toHaveText("1");
     await page.getByRole("searchbox", { name: "Buscar contacto para filtrar" }).fill("912345678");
     await page.getByRole("button", { name: "Buscar contacto" }).click();
     await browserExpect(page).toHaveURL(/customerSearch=912345678/);
