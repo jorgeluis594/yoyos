@@ -20,6 +20,7 @@ export function createAuthOperations(
   const sendCompany = createCompanyApi(request);
   const completeCompany = (input: Parameters<typeof runCompleteCompany>[0]) => runCompleteCompany(input, { createCompany: sendCompany, readAccess });
   return {
+    request,
     register: (input: Parameters<typeof runRegister>[0]) => runRegister(input, { registerAccount: auth.registerAccount, readAccess, completeCompany }),
     completeCompany,
     signIn: (input: Parameters<typeof runSignIn>[0]) => runSignIn(input, { signIn: auth.signIn, readAccess }),

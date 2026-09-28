@@ -14,6 +14,8 @@ export type TransportError = Readonly<{
     | "SERVER_ERROR"
     | "INVALID_RESPONSE"
     | "OPERATION_CANCELLED"
-    | "SECURE_STORAGE_ERROR";
+    | "SECURE_STORAGE_ERROR"
+    | "API_ERROR";
   message: string;
+  http?: Readonly<{ status: number; body: unknown }>;
 }>;

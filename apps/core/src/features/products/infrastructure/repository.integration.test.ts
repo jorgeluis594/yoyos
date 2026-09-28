@@ -44,7 +44,7 @@ test("product persistence is atomic, isolated, and constrained", async () => {
       expect(first.success).toBe(true);
       if (!first.success) return;
       companyAProductId = first.data;
-      const result = await getProduct(first.data, { repository: productRepository, resolveImage: async () => null });
+      const result = await getProduct(first.data, { repository: productRepository, resolveImage: async () => ok(null) });
       expect(result.success && result.data?.product.variants).toEqual(expect.arrayContaining([
         expect.objectContaining({ sku: "A-1", salePrice: { amount: 19.99, currency: "PEN" }, purchasePrice: { amount: 0, currency: "PEN" }, stock: expect.objectContaining({ quantity: 4 }) }),
         expect.objectContaining({ salePrice: { amount: 999999999.99, currency: "PEN" }, stock: expect.objectContaining({ quantity: 0 }) }),
@@ -78,7 +78,7 @@ test("product persistence is atomic, isolated, and constrained", async () => {
       await expect(createProduct({ ...base(), variants: [
         { attributes: { color: "azul" }, salePrice: 1 },
         { attributes: { color: "rojo" }, salePrice: 2 },
-      ] }, { ...newDeps(), newId: () => suppliedIds.shift()! })).rejects.toThrow();
+      ] }, { ...newDeps(), newId: () => suppliedIds.shift()! })).resolves.toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
       expect(await prisma.product.findFirst({ where: { id: rollbackId } })).toBeNull();
       const loadedFirst = await productRepository.get(first.data);
       expect(loadedFirst.success && loadedFirst.data).not.toBeNull();
@@ -97,7 +97,7 @@ test("product persistence is atomic, isolated, and constrained", async () => {
       const imageProduct = await createProduct({ ...base(), imageId }, newDeps());
       expect(imageProduct.success).toBe(true);
       if (imageProduct.success) {
-        const detail = await getProduct(imageProduct.data, { repository: productRepository, resolveImage: async (id) => ({ id, url: "https://example.test/image" }) });
+        const detail = await getProduct(imageProduct.data, { repository: productRepository, resolveImage: async (id) => ok({ id, url: "https://example.test/image" }) });
         expect(detail.success && detail.data?.image?.url).toBe("https://example.test/image");
       }
     });
@@ -105,7 +105,7 @@ test("product persistence is atomic, isolated, and constrained", async () => {
     await withTenantIsolation(companyA, async () => {
       const foreign = await prisma.product.findFirst({ where: { companyId: companyB } });
       expect(foreign).toBeNull();
-      expect(await getProduct(foreignProductId!, { repository: productRepository, resolveImage: async () => null })).toEqual({ success: true, data: null });
+      expect(await getProduct(foreignProductId!, { repository: productRepository, resolveImage: async () => ok(null) })).toEqual({ success: true, data: null });
       const productId = randomUUID();
       const variantId = randomUUID();
       await expect(prisma.product.create({ data: { id: productId, name: "Wrong image", imageId, currency: "PEN", qrCode: randomUUID(), status: "active", createdAt: new Date(), updatedAt: new Date() } })).rejects.toThrow();

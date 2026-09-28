@@ -57,7 +57,7 @@ test("preserves image errors while keeping internal failures generic", async () 
   };
   for (const [status, code] of [[400, "INVALID_IMAGE"], [413, "IMAGE_TOO_LARGE"], [415, "UNSUPPORTED_MEDIA_TYPE"], [404, "NOT_FOUND"], [502, "IMAGE_STORAGE_UNAVAILABLE"], [503, "SERVICE_UNAVAILABLE"]] as const) {
     const request = createApiClient(session, async () => Response.json({ code, error: "image failed" }, { status }));
-    expect(await request("/api/images")).toEqual({ success: false, error: { code, message: "image failed" } });
+    expect(await request("/api/images")).toEqual({ success: false, error: { code, message: "image failed", http: { status, body: { code, error: "image failed" } } } });
   }
 });
 

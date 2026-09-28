@@ -4,11 +4,12 @@ import type { Result } from "@shared/result";
 import { validateCreate, type RawVariant } from "@core/src/features/products/domain/rules";
 import type { ValidationError } from "@core/src/features/products/domain/errors";
 import type { ImageId, Product, ProductId, ProductVariant, VariantId } from "@core/src/features/products/domain/product";
-import type { ProductRepository } from "@core/src/features/products/application/repository";
+import type { ProductReadError, ProductRepository } from "@core/src/features/products/application/repository";
 import type { ImageLookupError } from "@core/src/shared/images/application/images";
 
 export type CreateVariantInput = RawVariant;
 export type CreateInput = Readonly<{
+  id?: ProductId;
   name: string;
   description?: string;
   imageId?: ImageId;
@@ -17,16 +18,23 @@ export type CreateInput = Readonly<{
 }>;
 export type CreateError = ValidationError
   | Readonly<{ code: "DUPLICATE_SKU"; message: string }>
+  | Readonly<{ code: "PRODUCT_ID_CONFLICT"; message: string }>
   | Readonly<{ code: "IMAGE_NOT_FOUND"; message: string }>
+  | ProductReadError
   | ImageLookupError;
 export type CreateDependencies = Readonly<{
-  repository: Pick<ProductRepository, "create">;
+  repository: Pick<ProductRepository, "create" | "get">;
   findImage: (imageId: ImageId) => Promise<Result<boolean, ImageLookupError>>;
   newId: () => string;
   clock: () => Date;
 }>;
 
 export async function createProduct(input: CreateInput, deps: CreateDependencies): Promise<Result<ProductId, CreateError>> {
+  if (input.id !== undefined) {
+    const existing = await deps.repository.get(input.id);
+    if (!existing.success) return err(existing.error);
+    if (existing.data) return err({ code: "PRODUCT_ID_CONFLICT", message: "Product ID is already used" });
+  }
   const validated = validateCreate(input);
   if (!validated.value) return err({ code: "VALIDATION_ERROR", message: "Invalid product", issues: validated.issues as ValidationError["issues"] });
   if (input.imageId !== undefined) {
@@ -35,7 +43,7 @@ export async function createProduct(input: CreateInput, deps: CreateDependencies
     if (!image.data) return err({ code: "IMAGE_NOT_FOUND", message: "Image is unavailable" });
   }
   const now = deps.clock();
-  const id = deps.newId() as ProductId;
+  const id = input.id ?? deps.newId() as ProductId;
   const variants = validated.value.variants.map((variant): ProductVariant => {
     const variantId = deps.newId() as VariantId;
     return {
