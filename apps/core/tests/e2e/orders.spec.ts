@@ -1,4 +1,4 @@
-import { browserExpect, expect, test } from "@core/tests/e2e/fixtures";
+import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { products } from "@core/src/features/products/composition";
@@ -13,17 +13,9 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     expect((await request.get("/es-PE/orders/new", { maxRedirects: 0 })).status()).toBe(302);
     expect((await request.get("/es-PE/orders", { maxRedirects: 0 })).status()).toBe(302);
     expect((await request.get(`/es-PE/orders/${crypto.randomUUID()}`, { maxRedirects: 0 })).status()).toBe(302);
-    await page.goto("/es-PE/register");
-    await page.getByLabel("Nombre", { exact: true }).fill("Seller Orders");
-    await page.getByLabel("Nombre de empresa").fill("Orders company");
-    await page.getByLabel("País").click();
-    await page.getByRole("option", { name: "Perú" }).click();
-    await page.getByLabel("Correo electrónico").fill(email);
-    await page.getByLabel("Contraseña").fill("test-password-123");
-    await page.getByRole("button", { name: "Crear cuenta" }).click();
+    companyId = await prepareVerifiedCompany(page, { email, name: "Seller Orders", companyName: "Orders company", country: "PE" });
+    await page.goto("/es-PE/dashboard");
     await browserExpect(page).toHaveURL(/\/es-PE\/dashboard$/);
-    companyId = (await (await page.request.get("/api/me")).json()).company.id;
-    if (!companyId) throw new Error("Company missing");
     const tenantId = companyId;
     const created = await withTenantIsolation(tenantId, () => products.create({ name: "Cuaderno POS", currency: "PEN",
       variants: [{ attributes: { Size: "M" }, sku: "POS-M", salePrice: 0.29, initialStock: 3 }] }));
@@ -154,14 +146,8 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
 
     await page.getByRole("button", { name: "Cerrar sesión" }).click();
     await browserExpect(page).toHaveURL(/\/login$/);
-    await page.goto("/es-PE/register");
-    await page.getByLabel("Nombre", { exact: true }).fill("Other seller");
-    await page.getByLabel("Nombre de empresa").fill("Other orders company");
-    await page.getByLabel("País").click();
-    await page.getByRole("option", { name: "Estados Unidos" }).click();
-    await page.getByLabel("Correo electrónico").fill(otherEmail);
-    await page.getByLabel("Contraseña").fill("test-password-123");
-    await page.getByRole("button", { name: "Crear cuenta" }).click();
+    await prepareVerifiedCompany(page, { email: otherEmail, name: "Other seller", companyName: "Other orders company", country: "US" });
+    await page.goto("/es-US/dashboard");
     await browserExpect(page).toHaveURL(/\/es-US\/dashboard$/);
     await page.goto(completedUrl);
     await browserExpect(page).toHaveURL(/\/es-US\/orders\/[0-9a-f-]+$/);
