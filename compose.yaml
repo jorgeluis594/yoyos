@@ -30,6 +30,12 @@ services:
     volumes:
       - postgres_test_data:/var/lib/postgresql
 
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
   migrate:
     build:
       context: .
@@ -53,6 +59,11 @@ services:
       DATABASE_URL: postgresql://core_app:core_app_local@db:5432/core
       BETTER_AUTH_SECRET: local-development-secret-change-me-32chars
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
+      EMAIL_TRANSPORT: ${EMAIL_TRANSPORT:-smtp}
+      EMAIL_FROM: ${EMAIL_FROM:-Yoyos <cuentas@yoyos.test>}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      SMTP_HOST: mailpit
+      SMTP_PORT: ${SMTP_PORT:-1025}
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3000
       WHATSAPP_CONNECTIONS_JSON: "${WHATSAPP_CONNECTIONS_JSON:-[]}"
@@ -70,6 +81,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      mailpit:
+        condition: service_started
 
 volumes:
   postgres_data:

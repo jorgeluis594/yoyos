@@ -4,7 +4,7 @@ import type { Result } from "@shared/result";
 import type { RegisterDependencies, RegisterError } from "@core/src/features/users/application/register";
 import { z } from "zod";
 
-type AdapterError = Omit<RegisterError, "step">;
+type AdapterError = RegisterError;
 type Account = Parameters<RegisterDependencies["registerAccount"]>[0];
 const authResultSchema = z.object({
   error: z.object({ message: z.string().optional() }).nullable(),
@@ -24,7 +24,7 @@ export function createRegisterAccountAdapter(signUp: (account: Account) => Promi
   };
 }
 
-export function createCompanyAdapter(send: typeof fetch): RegisterDependencies["createCompany"] {
+export function createCompanyAdapter(send: typeof fetch): (company: CreateCompanyRequest) => Promise<Result<void, AdapterError>> {
   return async (company: CreateCompanyRequest): Promise<Result<void, AdapterError>> => {
     try {
       const response = await send("/api/company", {

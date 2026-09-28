@@ -19,6 +19,7 @@ model User {
   sessions      Session[]
   accounts      Account[]
   messages      ChatMessage[]
+  orders        Order[]
 
   @@unique([companyId, id])
 
@@ -96,6 +97,8 @@ model Company {
   products Product[]
   productVariants ProductVariant[]
   productStocks ProductStock[]
+  orders Order[]
+  orderItems OrderItem[]
 }
 
 enum ImageVisibility {
@@ -173,6 +176,7 @@ model ProductVariant {
   qrCode String @unique
   status String
   stock ProductStock?
+  orderItems OrderItem[]
 
   @@unique([companyId, id])
   @@index([companyId, productId])
@@ -198,6 +202,7 @@ model Contact {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   chats     Chat[]
+  orders    Order[]
 
   @@unique([companyId, id])
   @@unique([companyId, phone])
@@ -242,4 +247,44 @@ model ChatMessage {
   @@unique([companyId, id])
   @@unique([companyId, externalId])
   @@index([companyId, chatId, sentAt, id])
+}
+
+model Order {
+  id String @id @db.Uuid
+  companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company Company @relation(fields: [companyId], references: [id])
+  sellerId String
+  seller User @relation(fields: [companyId, sellerId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
+  contactId String? @db.Uuid
+  contact Contact? @relation(fields: [companyId, contactId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
+  contactName String?
+  contactPhone String?
+  currency String
+  total Decimal @db.Decimal(15, 2)
+  paymentMethod String
+  completedAt DateTime
+  items OrderItem[]
+
+  @@unique([companyId, id])
+  @@index([companyId, completedAt(sort: Desc), id])
+  @@index([companyId, contactId, completedAt(sort: Desc), id])
+}
+
+model OrderItem {
+  id String @id @default(uuid()) @db.Uuid
+  companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company Company @relation(fields: [companyId], references: [id])
+  orderId String @db.Uuid
+  order Order @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
+  variantId String @db.Uuid
+  variant ProductVariant @relation(fields: [companyId, variantId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
+  productName String
+  variantAttributes Json
+  sku String?
+  quantity BigInt
+  unitPrice Decimal @db.Decimal(11, 2)
+  subtotal Decimal @db.Decimal(15, 2)
+
+  @@unique([companyId, orderId, variantId])
+  @@index([companyId, variantId])
 }

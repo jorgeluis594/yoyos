@@ -32,7 +32,15 @@ test("JWT uses the same access and becomes invalid after session revocation", as
     const registration = await registered.json();
     userId = registration.user.id;
     assert.equal(registration.user.emailVerified, false);
-    const cookie = registered.headers.get("set-cookie")?.split(";")[0];
+    assert.equal(registration.token, null);
+    assert.equal(registered.headers.get("set-cookie"), null);
+    await systemPrisma.user.update({ where: { id: userId }, data: { emailVerified: true } });
+    const signedUp = await fetch(`${base}/api/auth/sign-in/email`, {
+      method: "POST", headers: { "content-type": "application/json", origin: "http://localhost:3000" },
+      body: JSON.stringify({ email, password: "correct-horse-battery-staple" }),
+    });
+    assert.equal(signedUp.status, 200, await signedUp.clone().text());
+    const cookie = signedUp.headers.get("set-cookie")?.split(";")[0];
     assert(cookie);
     const tokenResponse = await fetch(`${base}/api/auth/token`, { headers: { cookie } });
     if (tokenResponse.status !== 200) throw new Error(`Token failed: ${tokenResponse.status} ${await tokenResponse.text()}`);

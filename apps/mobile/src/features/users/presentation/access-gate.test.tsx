@@ -19,7 +19,9 @@ const ready = { status: 'ready' as const, user: { id: 'u', name: 'A', companyId:
 const operations = {
   restoreSession: jest.fn(async () => ok(ready)),
   signIn: jest.fn(async () => ok(ready)),
-  register: jest.fn(async () => ok(ready)),
+  register: jest.fn(async () => ok({ status: 'accepted' as const })),
+  requestVerification: jest.fn(async () => ok(undefined)),
+  requestPasswordReset: jest.fn(async () => ok(undefined)),
   completeCompany: jest.fn(async () => ok(ready)),
   signOut: jest.fn(async (clear: () => void) => { clear(); return ok({ remoteRevocation: 'unconfirmed' as const }); }),
 };
