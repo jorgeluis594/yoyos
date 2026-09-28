@@ -49,6 +49,7 @@ function validationErrors(error: { issues: readonly [ValidationIssue, ...Validat
 function translate(error: CreateError | UpdateError | InputError): FormErrors {
   if (error.code === "PRODUCT_NOT_FOUND") return { form: "El producto ya no está disponible." };
   if (error.code === "DUPLICATE_SKU") return { sku: "Este SKU ya está en uso." };
+  if (error.code === "PRODUCT_ID_CONFLICT") return { form: "El identificador ya está en uso." };
   if (error.code === "IMAGE_NOT_FOUND") return { form: "La imagen ya no está disponible." };
   if (error.code === "PERSISTENCE_UNAVAILABLE") return { form: "No se pudo verificar la imagen. Inténtalo de nuevo." };
   if (error.code === "INVALID_STORED_DATA") return { form: "No se pudo leer el producto. Inténtalo de nuevo." };

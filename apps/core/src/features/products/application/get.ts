@@ -7,7 +7,7 @@ export type Detail = Readonly<{ product: Product; image?: Readonly<{ id: ImageId
 export type DetailError = Readonly<{ code: "IMAGE_NOT_FOUND"; message: string }> | ProductReadError;
 export type GetDependencies = Readonly<{
   repository: Pick<ProductRepository, "get">;
-  resolveImage: (imageId: ImageId) => Promise<{ id: ImageId; url: string } | null>;
+  resolveImage: (imageId: ImageId) => Promise<Result<{ id: ImageId; url: string } | null, ProductReadError>>;
 }>;
 
 export async function getProduct(id: ProductId, deps: GetDependencies): Promise<Result<Detail | null, DetailError>> {
@@ -17,6 +17,7 @@ export async function getProduct(id: ProductId, deps: GetDependencies): Promise<
   if (!product) return ok(null);
   if (!product.imageId) return ok({ product });
   const image = await deps.resolveImage(product.imageId);
-  if (!image) return err({ code: "IMAGE_NOT_FOUND", message: "Image is unavailable" });
-  return ok({ product, image });
+  if (!image.success) return image;
+  if (!image.data) return err({ code: "IMAGE_NOT_FOUND", message: "Image is unavailable" });
+  return ok({ product, image: image.data });
 }

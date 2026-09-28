@@ -50,7 +50,8 @@ services:
     environment:
       DATABASE_URL: postgresql://core_app:core_app_local@db:5432/core
       BETTER_AUTH_SECRET: local-development-secret-change-me-32chars
-      BETTER_AUTH_URL: http://localhost:3000
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
+      NODE_ENV: ${NODE_ENV:-development}
       PORT: 3000
       R2_ENDPOINT: ${R2_ENDPOINT:-}
       R2_BUCKET: ${R2_BUCKET:-}

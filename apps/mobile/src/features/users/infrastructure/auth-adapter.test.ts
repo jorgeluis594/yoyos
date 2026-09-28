@@ -28,6 +28,34 @@ test("login validates Better Auth output, renews the server session, then keeps 
   expect(calls).toEqual(["sign-in", "session", "token"]);
 });
 
+test("a direct null session restores as absent and clears the in-memory token", async () => {
+  let active = true;
+  const client: AuthClientBoundary = {
+    signUp: async () => response({ user: { id: "user-1" } }),
+    signIn: async () => response({ user: { id: "user-1" } }),
+    getSession: async () => active ? response(session) : null,
+    token: async () => response({ token: token(1000) }),
+    signOut: async () => response({ success: true }),
+  };
+  const auth = createAuthAdapter(client, storage(), { now: () => 0 });
+  expect((await auth.signIn({ email: "a@example.com", password: "password" })).success).toBe(true);
+  active = false;
+  expect(await auth.restoreSession()).toEqual({ success: true, data: "absent" });
+  expect(await auth.getToken()).toMatchObject({ success: false, error: { code: "UNAUTHENTICATED" } });
+});
+
+test("a direct null session during token renewal means unauthenticated", async () => {
+  const client: AuthClientBoundary = {
+    signUp: async () => response({ user: { id: "user-1" } }),
+    signIn: async () => response({ user: { id: "user-1" } }),
+    getSession: async () => null,
+    token: async () => response({ token: token(1000) }),
+    signOut: async () => response({ success: true }),
+  };
+  const auth = createAuthAdapter(client, storage());
+  expect(await auth.renewToken()).toMatchObject({ success: false, error: { code: "UNAUTHENTICATED" } });
+});
+
 test("maps incorrect credentials to the stable login error", async () => {
   const client: AuthClientBoundary = {
     signUp: async () => response({ user: { id: "user-1" } }),

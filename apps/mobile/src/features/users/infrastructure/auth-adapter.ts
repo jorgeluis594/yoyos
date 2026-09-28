@@ -89,7 +89,8 @@ export function createAuthAdapter(
   const loadToken = async (signal?: AbortSignal): Promise<Result<string, TransportError>> => {
     const generation = authGeneration.get();
     try {
-      const sessionResult = readResult(await client.getSession(signal));
+      const sessionResponse = await client.getSession(signal);
+      const sessionResult = readResult(sessionResponse === null ? { data: null, error: null } : sessionResponse);
       if (!sessionResult.success) return sessionResult;
       if (generation !== authGeneration.get()) return err({ code: "OPERATION_CANCELLED", message: "Session changed" });
       if (sessionResult.data.error) {
@@ -176,8 +177,27 @@ export function createAuthAdapter(
       if (logoutPending) return err({ code: "OPERATION_CANCELLED", message: "Sign-out is in progress" });
       const generation = authGeneration.get();
       try {
-        const result = readResult(await client.getSession());
-        if (!result.success) return result;
+        const sessionResponse = await client.getSession();
+        const result = readResult(sessionResponse === null ? { data: null, error: null } : sessionResponse);
+        if (!result.success) {
+          if (__DEV__) console.warn("[auth] get-session SDK result invalid", { code: result.error.code, message: result.error.message });
+          return result;
+        }
+        if (__DEV__) {
+          const payload = result.data.data;
+          const record = payload && typeof payload === "object" ? payload as Record<string, unknown> : null;
+          const keys = (value: unknown) => value && typeof value === "object" ? Object.keys(value) : typeof value;
+          const error = result.data.error === null ? null : sdkErrorSchema.safeParse(result.data.error);
+          console.info("[auth] get-session response", {
+            data: payload === null ? null : {
+              keys: keys(payload),
+              sessionKeys: keys(record?.session),
+              userKeys: keys(record?.user),
+              validSession: sessionSchema.safeParse(payload).success,
+            },
+            error: error === null ? null : error.success ? { code: error.data.code, status: error.data.status } : "unrecognized",
+          });
+        }
         if (generation !== authGeneration.get()) return err({ code: "OPERATION_CANCELLED", message: "Session changed" });
         if (result.data.error) return err({ code: "NETWORK_ERROR", message: "Unable to restore session" });
         if (result.data.data === null) {

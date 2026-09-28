@@ -1,8 +1,10 @@
+/** @jsxImportSource react */
+// Preserve native Pressable style callbacks outside NativeWind interop.
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import tokens from '../../../../../docs/design-tokens.json';
-import { useTheme } from '@/hooks/use-theme';
+import { useTheme } from '@mobile/hooks/use-theme';
 
 export type ButtonProps = {
   children: string;

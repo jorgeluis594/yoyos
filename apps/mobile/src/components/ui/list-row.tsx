@@ -1,9 +1,11 @@
+/** @jsxImportSource react */
+// Preserve native Pressable style callbacks outside NativeWind interop.
 import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import tokens from '../../../../../docs/design-tokens.json';
-import { ThemedText } from '@/components/themed-text';
-import { useTheme } from '@/hooks/use-theme';
+import { ThemedText } from '@mobile/components/themed-text';
+import { useTheme } from '@mobile/hooks/use-theme';
 
 export type ListRowProps = {
   title: string;

@@ -4,6 +4,7 @@
     "strict": true,
     "types": ["jest"],
     "paths": {
+      "@mobile/*": ["./src/*"],
       "@/*": [
         "./src/*"
       ],

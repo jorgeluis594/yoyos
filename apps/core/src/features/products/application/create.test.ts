@@ -47,7 +47,7 @@ describe("create product", () => {
     const result = await createProduct(input, context.deps);
     expect(result.success).toBe(true);
     if (!result.success) return;
-    const detail = await getProduct(result.data, { repository: context.deps.repository, resolveImage: async () => null });
+    const detail = await getProduct(result.data, { repository: context.deps.repository, resolveImage: async () => ok(null) });
     expect(detail.success && detail.data?.product).toMatchObject({
       name: "Camisa", currency: "PEN", status: "active",
       variants: [
@@ -150,15 +150,15 @@ describe("create product", () => {
 
   test("distinguishes absence, absent image, missing image, and technical failure", async () => {
     const context = setup();
-    const missing = await getProduct("00000000-0000-4000-8000-999999999999" as ProductId, { repository: context.deps.repository, resolveImage: async () => null });
+    const missing = await getProduct("00000000-0000-4000-8000-999999999999" as ProductId, { repository: context.deps.repository, resolveImage: async () => ok(null) });
     expect(missing).toEqual({ success: true, data: null });
     const created = await createProduct(base, context.deps);
     if (!created.success) return;
-    expect(await getProduct(created.data, { repository: context.deps.repository, resolveImage: async () => null })).toMatchObject({ success: true, data: { product: {} } });
+    expect(await getProduct(created.data, { repository: context.deps.repository, resolveImage: async () => ok(null) })).toMatchObject({ success: true, data: { product: {} } });
     const withImage = { ...context.deps.repository, get: async () => ok({ ...context.stored!, imageId: "00000000-0000-4000-8000-000000000099" as Product["imageId"] }) };
-    expect(await getProduct(created.data, { repository: withImage, resolveImage: async () => null })).toMatchObject({ success: false, error: { code: "IMAGE_NOT_FOUND" } });
+    expect(await getProduct(created.data, { repository: withImage, resolveImage: async () => ok(null) })).toMatchObject({ success: false, error: { code: "IMAGE_NOT_FOUND" } });
     const readFailure = err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "database down" });
-    expect(await getProduct(created.data, { repository: { ...context.deps.repository, get: async () => readFailure }, resolveImage: async () => null })).toEqual(readFailure);
+    expect(await getProduct(created.data, { repository: { ...context.deps.repository, get: async () => readFailure }, resolveImage: async () => ok(null) })).toEqual(readFailure);
     await expect(getProduct(created.data, { repository: withImage, resolveImage: async () => { throw new Error("storage failed"); } })).rejects.toThrow("storage failed");
   });
 });

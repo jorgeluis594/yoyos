@@ -7,8 +7,8 @@ import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance
 export type AuthenticatedLocals = { auth: UserAccess };
 export type PrivateLocals = { auth: ReadyAccess };
 
-export function apiError(response: Response, status: number, code: ApiErrorCode, message: string) {
-  return response.status(status).json(apiErrorResponseSchema.parse({ code, error: message }));
+export function apiError(response: Response, status: number, code: ApiErrorCode, message: string, issues?: readonly unknown[]) {
+  return response.status(status).json(apiErrorResponseSchema.parse({ code, error: message, ...(issues ? { issues } : {}) }));
 }
 
 export async function loadApiAccess(request: Request, response: Response<unknown, AuthenticatedLocals>, next: NextFunction) {

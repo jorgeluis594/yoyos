@@ -17,6 +17,10 @@ module.exports = {
   },
   plugins: [
     ...expo.plugins,
+    ['expo-image-picker', {
+      photosPermission: 'Permitir que Yoyos use tus fotos en productos.',
+      cameraPermission: 'Permitir que Yoyos tome fotos para tus productos.',
+    }],
     ['expo-build-properties', { android: { usesCleartextTraffic: development } }],
   ],
 };
