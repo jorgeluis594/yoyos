@@ -62,7 +62,7 @@ export default function OrderList() {
   return <section>
     <PageHeader>
       <PageHeader.Heading>
-        <PageHeader.Title>Ventas<PageHeader.Count>{list.total} {list.total === 1 ? "venta completada" : "ventas completadas"}</PageHeader.Count></PageHeader.Title>
+        <PageHeader.Title>Ventas<PageHeader.Count>{list.total}</PageHeader.Count></PageHeader.Title>
       </PageHeader.Heading>
       <PageHeader.Actions><Button asChild><Link to={`${base}/new`}>Nueva venta</Link></Button></PageHeader.Actions>
     </PageHeader>
@@ -75,7 +75,7 @@ export default function OrderList() {
 function OrderFilterSheet({ filters, contacts, customerSearch, base }: Pick<Awaited<ReturnType<typeof loader>>, "filters" | "contacts" | "customerSearch" | "base">) {
   const [customer, setCustomer] = useState(filters.customer);
   const activeFilters = Number(filters.customer !== "all") + Number(!!filters.completedFrom) + Number(!!filters.completedBefore);
-  return <Sheet><SheetTrigger asChild><Button variant="outline" aria-label={activeFilters ? `${activeFilters} ${activeFilters === 1 ? "filtro activo" : "filtros activos"}` : "Filtros"}><SlidersHorizontal data-icon="inline-start" aria-hidden="true" />Filtros{activeFilters ? ` (${activeFilters})` : ""}</Button></SheetTrigger>
+  return <Sheet><SheetTrigger asChild><Button variant="outline" className="min-h-11" aria-label={activeFilters ? `${activeFilters} ${activeFilters === 1 ? "filtro activo" : "filtros activos"}` : "Filtros"}><SlidersHorizontal data-icon="inline-start" aria-hidden="true" />Filtros{activeFilters ? ` (${activeFilters})` : ""}</Button></SheetTrigger>
       <SheetContent title="Filtros de ventas" description="Refina las ventas por cliente y fecha.">
         <Form method="get" className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-5">
           <input type="hidden" name="customerSearch" value={customerSearch} />
