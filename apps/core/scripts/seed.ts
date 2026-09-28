@@ -14,6 +14,7 @@ export async function seed() {
     const result = await auth.api.signUpEmail({ body: { name: "Usuario Demo", email, password } });
     user = { id: result.user.id };
   }
+  await systemPrisma.user.update({ where: { id: user.id }, data: { emailVerified: true } });
 
   const credential = await systemPrisma.account.findFirst({
     where: { userId: user.id, providerId: "credential", accountId: user.id, password: { not: null } },

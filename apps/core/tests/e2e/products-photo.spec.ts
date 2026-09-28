@@ -1,4 +1,4 @@
-import { browserExpect, expect, test } from "./fixtures";
+import { browserExpect, expect, prepareVerifiedCompany, test } from "./fixtures";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==", "base64");
@@ -19,19 +19,8 @@ test("create, replace, keep, and remove a product photo", async ({ page }) => {
         : route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify(upload) });
     });
 
-    await page.goto("/es-PE/products/new");
-    await browserExpect(page).toHaveURL(/\/es-PE\/login$/);
-    await page.getByRole("link", { name: "Regístrate" }).click();
-    await page.getByLabel("Nombre", { exact: true }).fill("Ana Foto");
-    await page.getByLabel("Nombre de empresa").fill("Empresa Foto");
-    await page.getByLabel("País").click();
-    await page.getByRole("option", { name: "Perú" }).click();
-    await page.getByLabel("Correo electrónico").fill(email);
-    await page.getByLabel("Contraseña").fill("test-password-123");
-    await page.getByRole("button", { name: "Crear cuenta" }).click();
-    await browserExpect(page).toHaveURL(/\/es-PE\/dashboard$/);
-    companyId = (await (await page.request.get("/api/me")).json()).company.id;
-    if (!companyId) throw new Error("Company was not created");
+    companyId = await prepareVerifiedCompany(page, { email, name: "Ana Foto", companyName: "Empresa Foto", country: "PE" });
+    await page.goto("/es-PE/dashboard");
     const tenantId = companyId;
     const prepare = (key: string) => withTenantIsolation(tenantId, async () => await prisma.image.create({ data: { companyId: tenantId, storageKey: key } }));
 

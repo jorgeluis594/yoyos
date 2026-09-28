@@ -5,11 +5,12 @@ import type { Result } from "@shared/result";
 export type CreateCompanyInput = Readonly<{ userId: string; name: string; country: Country }>;
 export type CreateCompanyOutcome = Readonly<{ companyId: string; created: boolean }>;
 export type CreateCompanyError = Readonly<{
-  code: "INVALID_COMPANY" | "USER_NOT_FOUND" | "PERSISTENCE_UNAVAILABLE" | "INVALID_STORED_DATA" | "UNEXPECTED_ERROR";
+  code: "INVALID_COMPANY" | "USER_NOT_FOUND" | "EMAIL_VERIFICATION_REQUIRED" | "PERSISTENCE_UNAVAILABLE" | "INVALID_STORED_DATA" | "UNEXPECTED_ERROR";
   message: string;
 }>;
 export type CompanyLink =
   | Readonly<{ status: "user_missing" }>
+  | Readonly<{ status: "verification_required" }>
   | Readonly<{ status: "unlinked" }>
   | Readonly<{ status: "linked"; companyId: string }>;
 export type CompanyRegistrationRepository = Readonly<{
@@ -31,6 +32,7 @@ export async function createCompanyForUser(
   const link = await repository.findLink(input.userId);
   if (!link.success) return link;
   if (link.data.status === "user_missing") return err({ code: "USER_NOT_FOUND", message: "User no longer exists" });
+  if (link.data.status === "verification_required") return err({ code: "EMAIL_VERIFICATION_REQUIRED", message: "Email verification required" });
   if (link.data.status === "linked") return ok({ companyId: link.data.companyId, created: false });
 
   const created = await repository.createAndLink({ ...input, name });
@@ -40,6 +42,7 @@ export async function createCompanyForUser(
   const winner = await repository.findLink(input.userId);
   if (!winner.success) return winner;
   if (winner.data.status === "user_missing") return err({ code: "USER_NOT_FOUND", message: "User no longer exists" });
+  if (winner.data.status === "verification_required") return err({ code: "EMAIL_VERIFICATION_REQUIRED", message: "Email verification required" });
   if (winner.data.status === "unlinked") return err({ code: "INVALID_STORED_DATA", message: "Company link was lost" });
   return ok({ companyId: winner.data.companyId, created: false });
 }

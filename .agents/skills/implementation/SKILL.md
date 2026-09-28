@@ -12,14 +12,13 @@ description: Guide implementation through contextual analysis, case-specific pro
 3. Read the additional documents selected by the cases below before changing the corresponding behavior. Follow all applicable rows when a change spans responsibilities.
 4. Inspect Git status and preserve unrelated user changes.
 5. Inspect the affected application's `package.json`, tooling, and CI configuration to determine its actual validation commands. Do not assume root-level scripts or copy commands from another repository.
-6. Implement continuously, reusing existing code and creating only the layers and files the current behavior needs. For internal code imports, use only `@shared/*`, `@core/*`, or `@mobile/*`, according to the owning module. Never use relative paths, absolute paths, or `@/*`. Configure any missing alias in the affected application's tooling before using it.
+6. Identify small logical units in dependency order, each independently reviewable and validatable. Implement them through the [Commit workflow](#commit-workflow), reusing existing code and creating only the layers and files the current behavior needs. For internal code imports, use only `@shared/*`, `@core/*`, or `@mobile/*`, according to the owning module. Never use relative paths, absolute paths, or `@/*`. Configure any missing alias in the affected application's tooling before using it.
 7. Add or update behavioral tests and run focused checks while developing, following [Testing Conventions](../../../docs/testing-conventions.md). In `apps/core`, use Vitest to define and run every unit, integration, and end-to-end test, and use its `expect` for general assertions.
-8. Regularly evaluate whether the accumulated changes are ready for a commit. When ready, run the affected applications' configured lint, test, and type checks, plus integration checks required by the changed contracts.
-9. If the required checks pass, inspect the diff, stage only related changes, and create a concise commit describing their meaning, unless the user requested uncommitted changes. Commit readiness does not authorize pushing or deploying.
-10. Continue implementing and repeat the flow until all requirements are complete. Before reporting completion, confirm the final diff is covered by successful checks; rerun checks affected by subsequent changes and report any validation gaps.
+8. Before reporting completion, verify that every completed unit is committed and that successful checks cover the final changes; report commit IDs and any remaining blockers.
 
 ## Guardrails
 
+- Always create commits during implementation unless the user explicitly requests uncommitted changes. Never accumulate multiple logical units into one final commit or wait until the entire feature is finished to split it into commits. A shared feature goal does not make all its changes one commit; a single commit is appropriate only when the task contains one logical unit.
 - Use `Result` by default for expected failures. Do not throw inside a `try` only to catch and rethrow the same exception in that function; use `Result` or an early return. Use `try/catch` only when an exception must be handled and cannot be controlled with `Result`.
 - Define every port operation's return as `Result<T, E>` or `Promise<Result<T, E>>` in its domain- or application-owned dependency signature, whether the contract is named or declared inline in a use case. Infrastructure adapters must implement that signature: represent valid absence as `ok(null)` and declared failures as `err(...)`, rather than returning bare values or throwing expected errors.
 - In `apps/core` tests, do not use Node.js's native test runner or assertion library: `node:test`, `node:assert`, `node:assert/strict`, or their unprefixed equivalents. Do not substitute another test runner or general assertion library for Vitest.
@@ -48,18 +47,14 @@ Run checks from the owning application directory using its declared package mana
 
 - `apps/core/package.json` declares `test:unit`, `test:integration`, and `test:e2e` using Vitest, plus `lint` and `typecheck`.
 - `apps/mobile/package.json` declares `test` using Jest with `jest-expo`, plus `lint` and `typecheck`. The Vitest requirement applies to `apps/core`.
-- A missing check is not a passing check. When the requested behavior needs runnable tests, add only the tooling necessary to run them, following Testing Conventions. Report remaining missing or blocked checks explicitly; do not claim full validation or commit with an unresolved required check.
+- When the requested behavior needs runnable tests, add only the tooling necessary to run them, following Testing Conventions.
 
-## Commit readiness
+## Commit workflow
 
-Changes are ready for a commit only when:
+Repeat this cycle for each logical unit before starting the next:
 
-- They complete a coherent part of the requirements.
-- They are understandable and reversible on their own.
-- They contain no intentionally incomplete or broken behavior.
-- They comply with Application Architecture and the conventions selected for the changed behavior.
-- They include the tests needed to validate the behavior, with successful checks covering the final changes.
-- Their diff has one clear meaning.
-- They exclude unrelated user changes.
+1. Complete one coherent, independently understandable and reversible part of the requirements, including its tests and related documentation. Follow Application Architecture and the applicable conventions; leave no intentionally incomplete or broken behavior. Adjust unit boundaries when dependencies require it, without absorbing unrelated work.
+2. Run the affected applications' configured lint, test, and type checks, plus integration checks required by changed contracts. Fix failures caused by the changes and rerun checks affected by subsequent edits. Missing or blocked required checks prevent the commit: report the blocker and validation performed, and do not claim completion or accumulate further units behind it.
+3. Inspect the diff for one clear purpose, stage only that unit's changes, and create the commit immediately. Use a concise imperative subject describing the behavior, without prefixes such as `feat:` or `fix:`. Exclude unrelated user changes.
 
-If any condition is false, continue implementing without committing. If checks fail because of the changes, fix the failures and rerun the affected checks before committing. If a required check is blocked by an unrelated failure or unavailable infrastructure, report the blocker and validation performed without presenting the check as passed.
+Committing does not authorize pushing or deploying. If the user requested uncommitted changes, apply the same unit boundaries and validation without staging or committing.

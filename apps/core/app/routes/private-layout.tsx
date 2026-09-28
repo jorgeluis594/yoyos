@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, ChevronRight, House, LogOut, Menu, Moon, ShoppingBag, Sun, X } from "lucide-react";
 import { Link, Outlet, redirect, useLoaderData, useLocation, useNavigate, type LoaderFunctionArgs, type MiddlewareFunction } from "react-router";
-import { Button } from "@/components/ui/button";
-import { privateUserContext } from "@/private-user-context";
+import { Button } from "@core/app/components/ui/button";
+import { privateUserContext } from "@core/app/private-user-context";
 import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { resolveCurrentAccess } from "@core/src/shared/infrastructure/current-user";
 import { requireCompany } from "@core/src/features/users";
 import { authClient } from "@core/src/shared/infrastructure/auth-client";
-import { isLocale } from "@/locale";
+import { isLocale } from "@core/app/locale";
 
 export const middleware: MiddlewareFunction<Response>[] = [async ({ request, context }, next) => {
   const path = new URL(request.url).pathname;
@@ -19,7 +19,7 @@ export const middleware: MiddlewareFunction<Response>[] = [async ({ request, con
     throw new Response("Service unavailable", { status: result.error.code === "PERSISTENCE_UNAVAILABLE" || result.error.code === "AUTH_SERVICE_UNAVAILABLE" ? 503 : 500 });
   }
   const ready = requireCompany(result.data);
-  if (!ready.success) throw redirect(`${locale}/register`);
+  if (!ready.success) throw redirect(`${locale}${ready.error.code === "EMAIL_VERIFICATION_REQUIRED" ? "/check-email" : "/register"}`);
   const access = ready.data;
   return withTenantIsolation(access.company.id, async () => {
     const requestedPath = isLocale(segment) ? path.slice(segment.length + 1) : path;

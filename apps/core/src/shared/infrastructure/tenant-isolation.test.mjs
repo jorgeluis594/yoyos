@@ -148,7 +148,7 @@ test("company context enforces RLS and transaction boundaries", async () => {
     await step("links an authenticated user atomically and rolls back failed links", async () => {
       const userId = crypto.randomUUID();
       userIds.push(userId);
-      await systemPrisma.user.create({ data: { id: userId, name: "Owner", email: `${userId}@example.test` } });
+      await systemPrisma.user.create({ data: { id: userId, name: "Owner", email: `${userId}@example.test`, emailVerified: true } });
       expect((await systemPrisma.user.findUniqueOrThrow({ where: { id: userId } })).companyId).toBe(null);
       try {
         const first = await createCompanyForUser({ userId, name: "Owner company", country: "PE" }, companyRepository);
@@ -161,7 +161,7 @@ test("company context enforces RLS and transaction boundaries", async () => {
 
         const concurrentUserId = crypto.randomUUID();
         userIds.push(concurrentUserId);
-        await systemPrisma.user.create({ data: { id: concurrentUserId, name: "Concurrent", email: `${concurrentUserId}@example.test` } });
+        await systemPrisma.user.create({ data: { id: concurrentUserId, name: "Concurrent", email: `${concurrentUserId}@example.test`, emailVerified: true } });
         const concurrent = await Promise.all([
           createCompanyForUser({ userId: concurrentUserId, name: "First", country: "PE" }, companyRepository),
           createCompanyForUser({ userId: concurrentUserId, name: "Second", country: "US" }, companyRepository),
@@ -172,7 +172,7 @@ test("company context enforces RLS and transaction boundaries", async () => {
 
         const failedUserId = crypto.randomUUID();
         userIds.push(failedUserId);
-        await systemPrisma.user.create({ data: { id: failedUserId, name: "Failure", email: `${failedUserId}@example.test` } });
+        await systemPrisma.user.create({ data: { id: failedUserId, name: "Failure", email: `${failedUserId}@example.test`, emailVerified: true } });
         await admin.$executeRawUnsafe(`CREATE FUNCTION ${schema}.reject_company_link() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.id = '${failedUserId}' THEN RAISE EXCEPTION 'link rejected'; END IF; RETURN NEW; END $$`);
         await admin.$executeRawUnsafe(`CREATE TRIGGER reject_company_link BEFORE UPDATE ON "user" FOR EACH ROW EXECUTE FUNCTION ${schema}.reject_company_link()`);
         try {

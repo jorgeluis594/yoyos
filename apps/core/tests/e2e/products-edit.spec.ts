@@ -1,4 +1,4 @@
-import { browserExpect, expect, test } from "./fixtures";
+import { browserExpect, expect, prepareVerifiedCompany, test } from "./fixtures";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { products } from "@core/src/features/products/composition";
 
@@ -12,17 +12,8 @@ test("edit products from the private form, preserve unchanged data, and enforce 
     await page.goto(`/es-PE/products/${missingId}/edit`);
     await browserExpect(page).toHaveURL(/\/es-PE\/login$/);
 
-    await page.getByRole("link", { name: "Regístrate" }).click();
-    await page.getByLabel("Nombre", { exact: true }).fill("Ana Edita");
-    await page.getByLabel("Nombre de empresa").fill("Empresa Edita");
-    await page.getByLabel("País").click();
-    await page.getByRole("option", { name: "Perú" }).click();
-    await page.getByLabel("Correo electrónico").fill(email);
-    await page.getByLabel("Contraseña").fill("test-password-123");
-    await page.getByRole("button", { name: "Crear cuenta" }).click();
-    await browserExpect(page).toHaveURL(/\/es-PE\/dashboard$/);
-    companyId = (await (await page.request.get("/api/me")).json()).company.id;
-    if (!companyId) throw new Error("Company was not created");
+    companyId = await prepareVerifiedCompany(page, { email, name: "Ana Edita", companyName: "Empresa Edita", country: "PE" });
+    await page.goto("/es-PE/dashboard");
     const tenantId = companyId;
 
     await page.goto("/es-PE/products/new");
@@ -121,15 +112,8 @@ test("edit products from the private form, preserve unchanged data, and enforce 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.getByRole("button", { name: "Cerrar sesión" }).click();
     await browserExpect(page).toHaveURL(/\/login$/);
-    await page.goto("/es-PE/register");
-    await page.getByLabel("Nombre", { exact: true }).fill("Otra persona");
-    await page.getByLabel("Nombre de empresa").fill("Otra empresa");
-    await page.getByLabel("País").click();
-    await page.getByRole("option", { name: "Estados Unidos" }).click();
-    await page.getByLabel("Correo electrónico").fill(otherEmail);
-    await page.getByLabel("Contraseña").fill("test-password-123");
-    await page.getByRole("button", { name: "Crear cuenta" }).click();
-    await browserExpect(page).toHaveURL(/\/es-US\/dashboard$/);
+    await prepareVerifiedCompany(page, { email: otherEmail, name: "Otra persona", companyName: "Otra empresa", country: "US" });
+    await page.goto("/es-US/dashboard");
     await page.goto(firstProductUrl);
     await browserExpect(page).toHaveURL(/\/es-US\/products\/[0-9a-f-]+$/);
     await browserExpect(page.getByRole("heading", { name: "Producto no encontrado" })).toBeVisible();
