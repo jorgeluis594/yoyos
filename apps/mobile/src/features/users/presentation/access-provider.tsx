@@ -1,13 +1,15 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import type { CompanyDraft } from '@/features/companies';
-import type { AccessError, CompleteCompanyError, RegisterInput, RegistrationError, SignInError, SignInInput, StorageError, UserAccess } from '@/features/users';
+import type { CompanyDraft } from '@mobile/features/companies';
+import type { AccessError, AccountError, CompleteCompanyError, RegisterInput, RegistrationAccepted, RegistrationError, SignInError, SignInInput, StorageError, UserAccess } from '@mobile/features/users';
 import type { Result } from '@shared/result';
 
-type AccessState = { status: 'checking' | 'signed_out' } | UserAccess | { status: 'unavailable'; error: AccessError | StorageError };
+type AccessState = { status: 'checking' | 'signed_out' } | { status: 'check_email'; email: string } | UserAccess | { status: 'unavailable'; error: AccessError | StorageError };
 type Operations = Readonly<{
   restoreSession: () => Promise<Result<UserAccess | null, AccessError>>;
   signIn: (input: SignInInput) => Promise<Result<UserAccess, SignInError>>;
-  register: (input: RegisterInput) => Promise<Result<Extract<UserAccess, { status: 'ready' }>, RegistrationError>>;
+  register: (input: RegisterInput) => Promise<Result<RegistrationAccepted, RegistrationError>>;
+  requestVerification: (email: string) => Promise<Result<void, AccountError>>;
+  requestPasswordReset: (email: string) => Promise<Result<void, AccountError>>;
   completeCompany: (input: CompanyDraft) => Promise<Result<Extract<UserAccess, { status: 'ready' }>, CompleteCompanyError>>;
   signOut: (clearPrivateState: () => void) => Promise<Result<unknown, StorageError>>;
 }>;
@@ -18,6 +20,8 @@ type AccessContextValue = Readonly<{
   restore: () => Promise<void>;
   signIn: (input: SignInInput) => ReturnType<Operations['signIn']>;
   register: (input: RegisterInput) => ReturnType<Operations['register']>;
+  requestVerification: (email: string) => ReturnType<Operations['requestVerification']>;
+  requestPasswordReset: (email: string) => ReturnType<Operations['requestPasswordReset']>;
   completeCompany: (input: CompanyDraft) => ReturnType<Operations['completeCompany']>;
   signOut: () => ReturnType<Operations['signOut']>;
 }>;
@@ -57,14 +61,12 @@ export function AccessProvider({ operations, children }: { operations: Operation
     const ticket = ++generation.current;
     const result = await operations.register(input);
     if (ticket === generation.current) {
-      if (result.success) { setCompanyDraft(null); setState(result.data); }
-      else if (result.error.step !== 'account' || result.error.cause.code !== 'INVALID_INPUT' && result.error.cause.code !== 'EMAIL_IN_USE') {
-        setCompanyDraft(input.company);
-        void restore();
-      }
+      if (result.success) { setCompanyDraft(null); setState({ status: 'check_email', email: input.email }); }
     }
     return result;
   };
+  const requestVerification: AccessContextValue['requestVerification'] = (email) => operations.requestVerification(email);
+  const requestPasswordReset: AccessContextValue['requestPasswordReset'] = (email) => operations.requestPasswordReset(email);
   const completeCompany: AccessContextValue['completeCompany'] = async (input) => {
     const ticket = ++generation.current;
     const result = await operations.completeCompany(input);
@@ -79,7 +81,7 @@ export function AccessProvider({ operations, children }: { operations: Operation
     setState(result.success ? { status: 'signed_out' } : { status: 'unavailable', error: result.error });
     return result;
   };
-  return <AccessContext.Provider value={{ state, companyDraft, restore, signIn, register, completeCompany, signOut }}>{children}</AccessContext.Provider>;
+  return <AccessContext.Provider value={{ state, companyDraft, restore, signIn, register, requestVerification, requestPasswordReset, completeCompany, signOut }}>{children}</AccessContext.Provider>;
 }
 
 export function useAccess() {

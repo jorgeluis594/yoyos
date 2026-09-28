@@ -1,4 +1,4 @@
-import { browserExpect, expect, test } from "./fixtures";
+import { browserExpect, expect, prepareVerifiedCompany, test } from "./fixtures";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { products } from "@core/src/features/products/composition";
 import type { ImageId } from "@core/src/features/products/domain/product";
@@ -12,19 +12,8 @@ test("create products from the private form, validate input, and reload detail",
     expect((await request.get("/es-PE/products/new", { maxRedirects: 0 })).status()).toBe(302);
     expect((await request.get(`/es-PE/products/${crypto.randomUUID()}`, { maxRedirects: 0 })).status()).toBe(302);
     expect((await request.post("/es-PE/products/new", { maxRedirects: 0, data: { name: "Sin sesión", currency: "PEN", variants: [{ attributes: {}, salePrice: 1 }] } })).status()).toBe(302);
-    await page.goto("/es-PE/products/new");
-    await browserExpect(page).toHaveURL(/\/es-PE\/login$/);
-    await page.getByRole("link", { name: "Regístrate" }).click();
-    await page.getByLabel("Nombre", { exact: true }).fill("Ana Producto");
-    await page.getByLabel("Nombre de empresa").fill("Empresa Producto");
-    await page.getByLabel("País").click();
-    await page.getByRole("option", { name: "Perú" }).click();
-    await page.getByLabel("Correo electrónico").fill(email);
-    await page.getByLabel("Contraseña").fill("test-password-123");
-    await page.getByRole("button", { name: "Crear cuenta" }).click();
-    await browserExpect(page).toHaveURL(/\/es-PE\/dashboard$/);
-    companyId = (await (await page.request.get("/api/me")).json()).company.id;
-    if (!companyId) throw new Error("Company was not created");
+    companyId = await prepareVerifiedCompany(page, { email, name: "Ana Producto", companyName: "Empresa Producto", country: "PE" });
+    await page.goto("/es-PE/dashboard");
     const tenantId = companyId;
 
     await page.getByRole("complementary").getByRole("link", { name: "Productos" }).click();
@@ -161,15 +150,8 @@ test("create products from the private form, validate input, and reload detail",
 
     await page.getByRole("button", { name: "Cerrar sesión" }).click();
     await browserExpect(page).toHaveURL(/\/login$/);
-    await page.goto("/es-PE/register");
-    await page.getByLabel("Nombre", { exact: true }).fill("Otra persona");
-    await page.getByLabel("Nombre de empresa").fill("Otra empresa");
-    await page.getByLabel("País").click();
-    await page.getByRole("option", { name: "Estados Unidos" }).click();
-    await page.getByLabel("Correo electrónico").fill(otherEmail);
-    await page.getByLabel("Contraseña").fill("test-password-123");
-    await page.getByRole("button", { name: "Crear cuenta" }).click();
-    await browserExpect(page).toHaveURL(/\/es-US\/dashboard$/);
+    await prepareVerifiedCompany(page, { email: otherEmail, name: "Otra persona", companyName: "Otra empresa", country: "US" });
+    await page.goto("/es-US/dashboard");
     await page.goto(firstProductUrl);
     await browserExpect(page).toHaveURL(/\/es-US\/products\/[0-9a-f-]+$/);
     await browserExpect(page.getByRole("heading", { name: "Producto no encontrado" })).toBeVisible();

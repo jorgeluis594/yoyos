@@ -1,8 +1,22 @@
 import { chromium, expect as browserExpect, request as browserRequest } from "@playwright/test";
 import type { APIRequestContext, Page } from "@playwright/test";
 import { expect, test as base } from "vitest";
+import { systemPrisma } from "@core/src/shared/infrastructure/persistance";
 
 const baseURL = "http://127.0.0.1:4173";
+
+export async function prepareVerifiedCompany(page: Page, input: { email: string; name: string; companyName: string; country: "PE" | "US" }) {
+  const password = "test-password-123";
+  const signup = await page.request.post("/api/auth/sign-up/email", { data: { name: input.name, email: input.email, password } });
+  if (!signup.ok()) throw new Error(`Account setup failed: ${signup.status()}`);
+  await systemPrisma.user.update({ where: { email: input.email }, data: { emailVerified: true } });
+  const signin = await page.request.post("/api/auth/sign-in/email", { data: { email: input.email, password } });
+  if (!signin.ok()) throw new Error(`Sign-in failed: ${signin.status()}`);
+  const company = await page.request.post("/api/company", { data: { name: input.companyName, country: input.country } });
+  const result = await company.json();
+  if (!company.ok() || typeof result.companyId !== "string") throw new Error(`Company setup failed: ${company.status()}`);
+  return result.companyId as string;
+}
 
 const test = base.extend<{ page: Page; request: APIRequestContext }>({
   page: async ({ task }, runFixture) => {

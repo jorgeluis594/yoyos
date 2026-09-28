@@ -4,8 +4,17 @@ import { loadUserAccess } from "@core/src/features/users/application/load-user-a
 import { requireCompany, type ReadyAccess, type UserAccess } from "@core/src/features/users/application/user-access";
 
 const companyId = "123e4567-e89b-42d3-a456-426614174000";
-const user = { id: "user-id", name: "Ana", companyId };
+const user = { id: "user-id", name: "Ana", emailVerified: true, companyId };
 const company = { id: companyId, name: "Tienda", country: "PE" as const };
+
+test("load access blocks unverified accounts before looking up company", async () => {
+  let companyLookups = 0;
+  const pendingUser = { ...user, emailVerified: false };
+  const pending = await loadUserAccess("user-id", { findUser: async () => ok(pendingUser), findCompany: async () => { companyLookups++; return ok(company); } });
+  expect(pending).toEqual(ok({ status: "verification_required", user: { id: user.id, name: user.name, emailVerified: false, companyId: null }, company: null }));
+  expect(companyLookups).toBe(0);
+  if (pending.success && pending.data) expect(requireCompany(pending.data)).toMatchObject({ success: false, error: { code: "EMAIL_VERIFICATION_REQUIRED" } });
+});
 
 test("load access distinguishes absence, pending company, and ready company", async () => {
   const findCompany = async () => ok(company);

@@ -41,6 +41,7 @@ app.post("/api/company", async (request, response: Response<unknown, Authenticat
     switch (result.error.code) {
       case "INVALID_COMPANY": return apiError(response, 400, "INVALID_COMPANY", "Invalid company");
       case "USER_NOT_FOUND": return apiError(response, 401, "UNAUTHENTICATED", "Unauthorized");
+      case "EMAIL_VERIFICATION_REQUIRED": return apiError(response, 403, "EMAIL_VERIFICATION_REQUIRED", "Email verification required");
       case "PERSISTENCE_UNAVAILABLE": return apiError(response, 503, "SERVICE_UNAVAILABLE", "Service unavailable");
       default: return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
     }

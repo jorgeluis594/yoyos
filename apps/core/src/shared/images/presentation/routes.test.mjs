@@ -80,7 +80,16 @@ test("authenticated image routes validate uploads and isolate companies", async 
     });
     expect(signup.status, await signup.clone().text()).toBe(200);
     users.push(email);
-    const cookie = signup.headers.get("set-cookie")?.split(";")[0];
+    const registered = await signup.json();
+    expect(registered.token).toBe(null);
+    expect(signup.headers.get("set-cookie")).toBe(null);
+    await systemPrisma.user.update({ where: { id: registered.user.id }, data: { emailVerified: true } });
+    const signedIn = await request("/api/auth/sign-in/email", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, password: "test-password-123" }),
+    });
+    expect(signedIn.status, await signedIn.clone().text()).toBe(200);
+    const cookie = signedIn.headers.get("set-cookie")?.split(";")[0];
     expect(cookie).toBeTruthy();
     if (withCompany) {
       const company = await request("/api/company", {

@@ -1,9 +1,9 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { z } from "zod";
-import type { TransportError } from "@/shared/application/transport-error";
+import type { TransportError } from "@mobile/shared/application/transport-error";
 import type { AccountError, MobileAuth, RegisterAccountInput, SignInInput } from "../application/contracts";
-import { authGeneration } from "@/shared/infrastructure/auth-generation";
+import { authGeneration } from "@mobile/shared/infrastructure/auth-generation";
 
 const resultSchema = z.object({ data: z.unknown(), error: z.unknown().nullable().optional() });
 const sdkErrorSchema = z.object({
@@ -18,8 +18,10 @@ const tokenDataSchema = z.object({ token: z.string().min(1) });
 const claimsSchema = z.object({ exp: z.number().finite() }).passthrough();
 
 export type AuthClientBoundary = Readonly<{
-  signUp: (input: RegisterAccountInput) => Promise<unknown>;
+  signUp: (input: RegisterAccountInput & Readonly<{ callbackURL: string }>) => Promise<unknown>;
   signIn: (input: SignInInput) => Promise<unknown>;
+  sendVerificationEmail?: (input: Readonly<{ email: string; callbackURL: string }>) => Promise<unknown>;
+  requestPasswordReset?: (input: Readonly<{ email: string; redirectTo: string }>) => Promise<unknown>;
   getSession: (signal?: AbortSignal) => Promise<unknown>;
   token: (signal?: AbortSignal) => Promise<unknown>;
   signOut: (signal: AbortSignal) => Promise<unknown>;
@@ -33,9 +35,7 @@ export type SecureSessionStorage = Readonly<{
 function mapSdkError(value: unknown, operation: "register" | "login" = "login"): AccountError {
   const parsed = sdkErrorSchema.safeParse(value);
   if (!parsed.success) return { code: "INVALID_RESPONSE", message: "Authentication returned an invalid error" };
-  if (["USER_ALREADY_EXISTS", "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL"].includes(parsed.data.code ?? "")) {
-    return { code: "EMAIL_IN_USE", message: "Email is already in use" };
-  }
+  if (parsed.data.code === "EMAIL_NOT_VERIFIED") return { code: "EMAIL_NOT_VERIFIED", message: "Verify your email before signing in" };
   if (["PASSWORD_TOO_SHORT", "PASSWORD_TOO_LONG", "INVALID_EMAIL"].includes(parsed.data.code ?? "") ||
       (operation === "register" && parsed.data.code === "INVALID_PASSWORD")) {
     return { code: "INVALID_INPUT", message: "Account details are invalid" };
@@ -71,7 +71,7 @@ function decodeExpiry(token: string, now: number): Result<string, TransportError
 export function createAuthAdapter(
   client: AuthClientBoundary,
   storage: SecureSessionStorage,
-  options: Readonly<{ now?: () => number; logoutTimeoutMs?: number }> = {},
+  options: Readonly<{ now?: () => number; logoutTimeoutMs?: number; accountVerificationUrl?: string; passwordResetRedirectTo?: string }> = {},
 ): Readonly<MobileAuth & {
   getToken: () => Promise<Result<string, TransportError>>;
   renewToken: () => Promise<Result<string, TransportError>>;
@@ -80,6 +80,8 @@ export function createAuthAdapter(
 }> {
   const now = options.now ?? Date.now;
   const logoutTimeoutMs = options.logoutTimeoutMs ?? 5000;
+  const accountVerificationUrl = options.accountVerificationUrl ?? "http://localhost:3000/account-verified";
+  const passwordResetRedirectTo = options.passwordResetRedirectTo ?? "http://localhost:3000/reset-password";
   let accessToken: string | null = null;
   let tokenExpiresAt = 0;
   let refreshing: Promise<Result<string, TransportError>> | null = null;
@@ -144,16 +146,35 @@ export function createAuthAdapter(
       accessToken = null;
       logoutPending = false;
       try {
-        const result = readResult(await client.signUp(input));
+        const result = readResult(await client.signUp({ ...input, callbackURL: accountVerificationUrl }));
         if (generation !== authGeneration.get()) return err({ code: "OPERATION_CANCELLED", message: "Session changed" });
         if (!result.success) return result;
         if (result.data.error) return err(mapSdkError(result.data.error, "register"));
         if (!signInDataSchema.safeParse(result.data.data).success) return err({ code: "INVALID_RESPONSE", message: "Authentication returned an invalid registration" });
-        const token = await loadToken();
-        return token.success ? ok(undefined) : err(token.error);
+        return ok(undefined);
       } catch {
         return err({ code: "NETWORK_ERROR", message: "Unable to register account" });
       }
+    },
+    async requestVerification(input) {
+      const email = z.email().safeParse(input.email);
+      if (!email.success) return err({ code: "INVALID_INPUT", message: "Invalid email address" });
+      try {
+        const result = readResult(await client.sendVerificationEmail?.({ email: email.data, callbackURL: accountVerificationUrl }));
+        if (!result.success) return result;
+        const accepted = z.object({ status: z.literal(true) }).safeParse(result.data.data);
+        return result.data.error || !accepted.success ? err(mapSdkError(result.data.error ?? { code: "INVALID_RESPONSE" })) : ok(undefined);
+      } catch { return err({ code: "NETWORK_ERROR", message: "Unable to request verification email" }); }
+    },
+    async requestPasswordReset(input) {
+      const email = z.email().safeParse(input.email);
+      if (!email.success) return err({ code: "INVALID_INPUT", message: "Invalid email address" });
+      try {
+        const result = readResult(await client.requestPasswordReset?.({ email: email.data, redirectTo: passwordResetRedirectTo }));
+        if (!result.success) return result;
+        const accepted = z.object({ status: z.literal(true) }).safeParse(result.data.data);
+        return result.data.error || !accepted.success ? err(mapSdkError(result.data.error ?? { code: "INVALID_RESPONSE" })) : ok(undefined);
+      } catch { return err({ code: "NETWORK_ERROR", message: "Unable to request password reset" }); }
     },
     async signIn(input) {
       const generation = authGeneration.advance();

@@ -29,6 +29,7 @@ test("rejects bad input before effects and reports missing or failed links", asy
   };
   expect(await createCompanyForUser({ ...input, name: "   " }, repository)).toMatchObject({ success: false, error: { code: "INVALID_COMPANY" } });
   expect(await createCompanyForUser(input, { ...repository, findLink: async () => ok({ status: "user_missing" }) })).toMatchObject({ success: false, error: { code: "USER_NOT_FOUND" } });
+  expect(await createCompanyForUser(input, { ...repository, findLink: async () => ok({ status: "verification_required" }) })).toMatchObject({ success: false, error: { code: "EMAIL_VERIFICATION_REQUIRED" } });
   const unavailable = err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "failed" });
   expect(await createCompanyForUser(input, { ...repository, findLink: async () => unavailable })).toEqual(unavailable);
   expect(await createCompanyForUser(input, { findLink: async () => ok({ status: "unlinked" }), createAndLink: async () => unavailable })).toEqual(unavailable);

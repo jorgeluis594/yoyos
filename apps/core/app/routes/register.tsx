@@ -7,6 +7,7 @@ export async function loader({ request }: { request: Request }) {
   if (!result.success && result.error.code !== "UNAUTHENTICATED") {
     throw new Response("Service unavailable", { status: result.error.code === "PERSISTENCE_UNAVAILABLE" || result.error.code === "AUTH_SERVICE_UNAVAILABLE" ? 503 : 500 });
   }
+  if (result.success && result.data.status === "verification_required") throw redirect("/check-email");
   if (result.success && result.data.status === "ready") throw redirect("/dashboard");
   return { pendingCompany: result.success };
 }
