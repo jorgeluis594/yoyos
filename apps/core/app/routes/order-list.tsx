@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { z } from "zod";
 import { Form, isRouteErrorResponse, Link, useLoaderData, useLocation, type LoaderFunctionArgs } from "react-router";
 import { SlidersHorizontal } from "lucide-react";
 import { listOrdersSchema, orderListLoaderSchema, saleContactsSchema } from "@shared/contracts/orders";
@@ -15,15 +16,24 @@ import { FilterBar } from "@core/app/components/ui/filter-bar";
 import { PageHeader } from "@core/app/components/ui/page-header";
 import { Sheet, SheetContent, SheetTrigger } from "@core/app/components/ui/sheet";
 
+const salesTimeZone = "America/Lima";
+const limaMidnightUtc = (date: string) => {
+  const offset = new Intl.DateTimeFormat("en-US", { timeZone: salesTimeZone, timeZoneName: "longOffset" })
+    .formatToParts(new Date(`${date}T12:00:00.000Z`)).find((part) => part.type === "timeZoneName")!.value.slice(3);
+  return new Date(`${date}T00:00:00${offset || "+00:00"}`).toISOString();
+};
+
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const params = new URL(request.url).searchParams;
   const raw = Object.fromEntries(params);
   const customerSearch = (raw.customerSearch ?? "").trim();
   delete raw.customerSearch;
+  if ([raw.completedFrom, raw.completedBefore].some((date) => date && !z.iso.date().safeParse(date).success))
+    throw new Response("Filtros no válidos", { status: 400 });
   const parsed = listOrdersSchema.safeParse({ ...raw,
     ...(raw.contactId ? {} : { contactId: undefined }),
-    ...(raw.completedFrom ? { completedFrom: `${raw.completedFrom}T00:00:00.000Z` } : { completedFrom: undefined }),
-    ...(raw.completedBefore ? { completedBefore: `${raw.completedBefore}T00:00:00.000Z` } : { completedBefore: undefined }),
+    ...(raw.completedFrom ? { completedFrom: limaMidnightUtc(raw.completedFrom) } : { completedFrom: undefined }),
+    ...(raw.completedBefore ? { completedBefore: limaMidnightUtc(raw.completedBefore) } : { completedBefore: undefined }),
   });
   if (!parsed.success) throw new Response("Filtros no válidos", { status: 400 });
   const { page, customer, contactId, completedFrom, completedBefore } = parsed.data;
@@ -45,7 +55,7 @@ export default function OrderList() {
   type Sale = (typeof list.items)[number];
   const columns: TableColumn<Sale>[] = [
     { id: "customer", header: "Cliente", mobile: "title", cell: (item) => <div className="flex flex-col gap-0.5"><Link to={`${base}/${item.id}`} className="font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">{item.customer.kind === "contact" ? item.customer.name ?? item.customer.phone : "Público general"}</Link>{item.customer.kind === "contact" && item.customer.name && <span className="text-xs text-muted-foreground">{item.customer.phone}</span>}</div> },
-    { id: "completedAt", header: "Fecha y hora", mobile: "description", cell: (item) => new Date(item.completedAt).toLocaleString("es-PE", { dateStyle: "medium", timeStyle: "short" }) },
+    { id: "completedAt", header: "Fecha y hora", mobile: "description", cell: (item) => new Date(item.completedAt).toLocaleString("es-PE", { dateStyle: "medium", timeStyle: "short", timeZone: salesTimeZone }) },
     { id: "total", header: "Total", mobile: "value", align: "right", cell: (item) => <strong className="font-semibold tabular-nums">{item.total.toFixed(2)} {item.currency}</strong> },
   ];
   const pageUrl = (page: number) => `${base}?${new URLSearchParams({ customer: filters.customer,
