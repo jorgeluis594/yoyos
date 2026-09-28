@@ -9,7 +9,7 @@ export type CatalogItem = Readonly<{ variantId: VariantId; productName: string; 
 export type ContactSnapshot = Readonly<{ id: string; name: string | null; phone: string }>;
 type LookupError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 export type CreateOrderDependencies = Readonly<{
-  transaction: <T extends Result<unknown, CreateOrderError>>(callback: () => Promise<T>) => Promise<T>;
+  transaction: <T>(callback: () => Promise<Result<T, CreateOrderError>>) => Promise<Result<T, CreateOrderError>>;
   orderExists: (id: string) => Promise<Result<boolean, LookupError>>;
   findContact: (id: string) => Promise<Result<ContactSnapshot | null, LookupError>>;
   findVariant: (id: string) => Promise<Result<CatalogItem | null, LookupError>>;
