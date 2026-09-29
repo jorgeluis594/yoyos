@@ -1,0 +1,27 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+def brotherLibraryDir = file('libs')
+rootProject.allprojects {
+  repositories { flatDir { dirs brotherLibraryDir } }
+}
+
+dependencies {
+  implementation(name: 'BrotherPrintLibrary', ext: 'aar')
+}
+
+group = 'expo.modules.brotherprinter'
+version = '0.1.0'
+
+android {
+  namespace "expo.modules.brotherprinter"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+  lintOptions {
+    abortOnError false
+  }
+}

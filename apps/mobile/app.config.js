@@ -4,7 +4,7 @@ const development = process.env.NODE_ENV === 'development';
 module.exports = {
   ...expo,
   scheme: 'yoyos',
-  android: { ...expo.android },
+  android: { ...expo.android, package: 'com.yoyos.mobile' },
   ios: {
     ...expo.ios,
     infoPlist: development ? {
