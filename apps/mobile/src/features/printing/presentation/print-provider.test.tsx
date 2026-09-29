@@ -1,6 +1,10 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { Platform } from "react-native";
+import { err, ok } from "@shared/functional";
 import { Button } from "@mobile/components/ui/button";
+import { createPrintingOperations } from "@mobile/features/printing/application/printing-operations";
+import type { PrintingDependencies } from "@mobile/features/printing/application/contracts";
+import { productLabelFormat, type AdapterId, type CopyCount, type PrinterId, type PrinterLocator, type PrinterSelection, type RenderProfile } from "@mobile/features/printing/domain/printing";
 import { PrintProvider, usePrint, type PrintWork } from "@mobile/features/printing/presentation/print-provider";
 
 const mockDiscover = jest.fn();
@@ -116,6 +120,50 @@ test("changing printer after an uncertain failure waits for duplicate confirmati
   fireEvent.press(screen.getByText("Confirmar repetición"));
   await screen.findByText("Impresión enviada");
   expect(work).toHaveBeenCalledTimes(2);
+});
+
+test("selection and printer change preserve the label and copies while rendering for each profile", async () => {
+  const first: PrinterSelection = { printer: { id: "serial:1" as PrinterId, adapterId: "brother" as AdapterId, displayName: "Brother A", model: "QL-810W" }, locator: "first" as PrinterLocator };
+  const second: PrinterSelection = { printer: { id: "serial:2" as PrinterId, adapterId: "brother" as AdapterId, displayName: "Brother B", model: "QL-810W" }, locator: "second" as PrinterLocator };
+  const firstProfile = { widthPx: 696, heightPx: 271, dpiX: 300, dpiY: 300 };
+  const secondProfile = { widthPx: 928, heightPx: 361, dpiX: 400, dpiY: 400 };
+  const send = jest.fn(async ({ printer }: Parameters<PrintingDependencies["adapters"][number]["send"]>[0]) =>
+    printer.selection.printer.id === first.printer.id
+      ? err({ code: "COMMUNICATION_FAILED" as const, message: "Connection lost", outcome: "unknown" as const })
+      : ok({ confirmation: "sdk" as const }));
+  const dependencies: PrintingDependencies = {
+    adapters: [{ id: "brother" as AdapterId, maxCopies: 99, validateSelection: () => ok(undefined), discover: async () => ok([first, second]), resolve: async (selection) => ok({ selection, profile: selection.printer.id === first.printer.id ? firstProfile : secondProfile }), send }],
+    preferences: { read: async () => ok(null), write: async () => ok(undefined) },
+    temporaryDocuments: { remove: async () => ok(undefined) }, reportDiagnostic: jest.fn(),
+  };
+  const operations = createPrintingOperations(dependencies);
+  mockLoad.mockImplementation(operations.loadPrinterPreference);
+  mockDiscover.mockImplementation(operations.discoverPrinters);
+  mockSelect.mockImplementation(operations.selectPrinter);
+  const label = "saved variant QR";
+  const renderDocument = jest.fn(async (_content: string, profile: RenderProfile) => ok({ uri: `file:///label-${profile.widthPx}.png`, widthPx: profile.widthPx, heightPx: profile.heightPx }));
+  const work: PrintWork = async (execution) => {
+    const result = await operations.printDocument({ format: productLabelFormat, copies: 3 as CopyCount, render: (profile) => renderDocument(label, profile) }, execution);
+    if (!result.success) return { status: "failed", message: result.error.message, outcome: result.error.outcome };
+    return result.data.status === "completed" ? { status: "completed" } : { status: "selection-required" };
+  };
+  function Controls() {
+    const print = usePrint();
+    return <Button onPress={() => print.startAttempt(work)}>Print</Button>;
+  }
+  render(<PrintProvider><Controls /></PrintProvider>);
+  fireEvent.press(screen.getByText("Print"));
+  fireEvent.press(await screen.findByText("Brother A"));
+  await screen.findByText("Connection lost");
+  expect(screen.getByText("Es posible que hayan salido algunas etiquetas. Revisa la impresora antes de repetir.")).toBeTruthy();
+  fireEvent.press(screen.getByText("Elegir impresora"));
+  fireEvent.press(await screen.findByText("Brother B"));
+  await screen.findByText("Confirma que deseas repetir aunque podrían salir duplicados.");
+  expect(send).toHaveBeenCalledTimes(1);
+  fireEvent.press(screen.getByText("Confirmar repetición"));
+  await screen.findByText("Impresión enviada");
+  expect(renderDocument.mock.calls).toEqual([[label, firstProfile], [label, secondProfile]]);
+  expect(send.mock.calls.map(([request]) => [request.printer.selection.printer.id, request.copies, request.document.widthPx])).toEqual([[first.printer.id, 3, 696], [second.printer.id, 3, 928]]);
 });
 
 test("a late preference read cannot replace a newly selected printer", async () => {
