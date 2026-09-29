@@ -12,19 +12,37 @@ const detail = { product: {
 } };
 
 test("keeps the variant QR from the validated product detail", async () => {
-  const api = createProductApi(async () => ok(detail));
+  const api = createProductApi(async () => ok(detail), () => 0);
   const result = await api.get(productId);
   expect(result.success).toBe(true);
   if (result.success) expect(result.data.variants[0].qrCode).toBe(variantQr);
 });
 
+test("shares one concurrent detail read within a session, then fetches fresh data", async () => {
+  let finish!: (value: ReturnType<typeof ok<typeof detail>>) => void;
+  const request = jest.fn()
+    .mockImplementationOnce(() => new Promise<ReturnType<typeof ok<typeof detail>>>((resolve) => { finish = resolve; }))
+    .mockResolvedValueOnce(ok(detail));
+  const api = createProductApi(request, () => 0);
+  const forPrint = api.get(productId);
+  const forDetail = api.get(productId);
+  expect(request).toHaveBeenCalledTimes(1);
+  finish(ok(detail));
+  expect((await forPrint).success).toBe(true);
+  expect((await forDetail).success).toBe(true);
+  expect((await api.get(productId)).success).toBe(true);
+  expect(request).toHaveBeenCalledTimes(2);
+});
+
 test("does not share a pending detail read across sessions", async () => {
+  let generation = 0;
   let finish!: (value: ReturnType<typeof ok<typeof detail>>) => void;
   const request = jest.fn()
     .mockImplementationOnce(() => new Promise<ReturnType<typeof ok<typeof detail>>>((resolve) => { finish = resolve; }))
     .mockImplementationOnce(async () => err({ code: "UNAUTHENTICATED" as const, message: "Session expired" }));
-  const api = createProductApi(request);
+  const api = createProductApi(request, () => generation);
   const formerSession = api.get(productId);
+  generation++;
   const currentSession = await api.get(productId);
   expect(request).toHaveBeenCalledTimes(2);
   expect(currentSession).toMatchObject({ success: false, error: { code: "UNAUTHENTICATED" } });

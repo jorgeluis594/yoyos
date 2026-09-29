@@ -35,8 +35,10 @@ test("composes the auth adapter, JWT HTTP client, and /me adapter", async () => 
     });
   });
 
+  const beforeSignIn = operations.sessionGeneration();
   const result = await operations.signIn({ email: "a@example.com", password: "password" });
   expect(result).toMatchObject({ success: true, data: { status: "ready", user: { id: "user-1" } } });
+  expect(operations.sessionGeneration()).toBeGreaterThan(beforeSignIn);
   expect(values.get("yoyos_mobile_cookie")).toBe("sdk-cookie");
   expect(requests).toEqual([`Bearer ${jwt}`]);
 });

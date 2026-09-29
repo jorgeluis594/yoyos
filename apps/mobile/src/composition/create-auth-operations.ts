@@ -25,6 +25,7 @@ export function createAuthOperations(
   const completeCompany = (input: Parameters<typeof runCompleteCompany>[0]) => runCompleteCompany(input, { createCompany: sendCompany, readAccess });
   return {
     request,
+    sessionGeneration: auth.generation,
     register: (input: Parameters<typeof runRegister>[0]) => runRegister(input, { registerAccount: auth.registerAccount }),
     requestVerification: (email: string) => auth.requestVerification({ email }),
     requestPasswordReset: (email: string) => auth.requestPasswordReset({ email }),

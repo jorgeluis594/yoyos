@@ -137,7 +137,8 @@ function productDetail(dto: ReturnType<typeof productDetailResponseSchema.parse>
   };
 }
 
-export function createProductApi(request: Request) {
+export function createProductApi(request: Request, sessionGeneration: () => number) {
+  const pendingProducts = new Map<string, Promise<Result<Product, GetProductError>>>();
   const run = async (path: string, init: RequestInit, allowed: readonly string[]) => {
     const result = await request(path, init);
     return result.success ? result : err(readApiFailure(result.error, allowed));
@@ -163,7 +164,14 @@ export function createProductApi(request: Request) {
         ? ok({ ...parsed.data, items: parsed.data.items.map(productListItem) })
         : err(fieldFailure("INVALID_RESPONSE", "Server returned invalid products"));
     },
-    get: readProduct,
+    get(id: ProductId): Promise<Result<Product, GetProductError>> {
+      const key = `${sessionGeneration()}:${id}`;
+      const pending = pendingProducts.get(key);
+      if (pending) return pending;
+      const read = readProduct(id).finally(() => pendingProducts.delete(key));
+      pendingProducts.set(key, read);
+      return read;
+    },
     async create(input: CreateProductRequest): Promise<Result<ProductId, CreateProductError>> {
       const body = createProductRequestSchema.safeParse(input);
       if (!body.success) return err({ code: "INVALID_INPUT", message: "Invalid product input" });

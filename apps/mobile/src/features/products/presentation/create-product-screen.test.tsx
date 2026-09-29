@@ -91,7 +91,7 @@ test("save and print retries a failed detail request through the real mobile ope
   const request = jest.fn(async (path: string) => path === "/api/products"
     ? ok({ id: productId })
     : ++reads === 1 ? err({ code: "NETWORK_ERROR" as const, message: "Offline" }) : ok(detail));
-  const products = createProductOperations(createProductApi(request));
+  const products = createProductOperations(createProductApi(request, () => 0));
   const renderProductLabel = jest.fn(async (_label: ProductLabel) => ok({ uri: "file:///label.png", widthPx: 696, heightPx: 271 }));
   const printDocument = jest.fn(async ({ render }: Parameters<ProductPrintingDependencies["printDocument"]>[0]) => {
     await render({ widthPx: 696, heightPx: 271, dpiX: 300, dpiY: 300 });

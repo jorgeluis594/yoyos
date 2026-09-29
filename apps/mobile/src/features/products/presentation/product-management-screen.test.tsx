@@ -70,7 +70,7 @@ test("an explicit variant prints saved data and copies while saving the draft do
       ],
     } });
   });
-  const products = createProductOperations(createProductApi(request));
+  const products = createProductOperations(createProductApi(request, () => 0));
   const renderProductLabel = jest.fn(async (_label: ProductLabel) => ok({ uri: "file:///label.png", widthPx: 696, heightPx: 271 }));
   const printDocument = jest.fn(async ({ render }: Parameters<ProductPrintingDependencies["printDocument"]>[0]) => {
     await render({ widthPx: 696, heightPx: 271, dpiX: 300, dpiY: 300 });
