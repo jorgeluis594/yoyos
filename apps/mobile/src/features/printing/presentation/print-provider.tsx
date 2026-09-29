@@ -34,6 +34,7 @@ function PrintSession({ children, sessionKey }: { children: ReactNode; sessionKe
   const sessionRef = useRef(sessionKey);
   const sequence = useRef(0);
   const selectionRevision = useRef(0);
+  const searchRevision = useRef(0);
   const activeWork = useRef<PrintWork | null>(null);
   const [notice, setNotice] = useState<Notice>({ status: "idle" });
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -56,15 +57,17 @@ function PrintSession({ children, sessionKey }: { children: ReactNode; sessionKe
   }, [sessionKey]);
 
   const search = () => {
+    const revision = ++searchRevision.current;
     setSearching(true);
     setPickerError(null);
+    setPrinters([]);
     void printing.discoverPrinters().then((result) => {
-      if (!sessionRef.current) return;
+      if (!sessionRef.current || searchRevision.current !== revision) return;
       if (result.success) setPrinters(result.data);
       else setPickerError(result.error.code === "PERMISSION_DENIED" ? "Permite el acceso a la red local para buscar impresoras."
         : result.error.message.includes("serial number or MAC") ? "La impresora no informó su número de serie ni dirección MAC; no se puede recordar de forma segura."
           : "No se pudieron buscar impresoras. Revisa la conexión Wi-Fi.");
-    }).finally(() => setSearching(false));
+    }).finally(() => { if (sessionRef.current && searchRevision.current === revision) setSearching(false); });
   };
 
   const execute = (id: number, work: PrintWork, key: string) => {

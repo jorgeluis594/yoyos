@@ -139,3 +139,24 @@ test("a late preference read cannot replace a newly selected printer", async () 
   expect(screen.getByText("Actual: Brother QL-810W")).toBeTruthy();
   expect(screen.queryByText("No se pudo recuperar la impresora guardada. Puedes elegirla de nuevo.")).toBeNull();
 });
+
+test("an old printer search cannot replace a newer picker result", async () => {
+  const older = { printer: { id: "serial:old", displayName: "Brother vieja", adapterId: "brother", model: "QL-810W" }, locator: "old" };
+  const newer = { printer: { id: "serial:new", displayName: "Brother nueva", adapterId: "brother", model: "QL-810W" }, locator: "new" };
+  const first = deferred<{ success: true; data: typeof older[] }>();
+  const second = deferred<{ success: true; data: typeof newer[] }>();
+  mockDiscover.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+  function Controls() {
+    const print = usePrint();
+    return <Button onPress={print.showPrinterPicker}>Choose</Button>;
+  }
+  render(<PrintProvider><Controls /></PrintProvider>);
+  fireEvent.press(screen.getByText("Choose"));
+  fireEvent.press(screen.getByText("Cancelar"));
+  fireEvent.press(screen.getByText("Choose"));
+  await act(async () => second.resolve({ success: true, data: [newer] }));
+  expect(screen.getByText("Brother nueva")).toBeTruthy();
+  await act(async () => first.resolve({ success: true, data: [older] }));
+  expect(screen.getByText("Brother nueva")).toBeTruthy();
+  expect(screen.queryByText("Brother vieja")).toBeNull();
+});
