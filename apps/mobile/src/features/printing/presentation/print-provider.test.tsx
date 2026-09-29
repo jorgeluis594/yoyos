@@ -6,8 +6,10 @@ import { PrintProvider, usePrint, type PrintWork } from "@mobile/features/printi
 const mockDiscover = jest.fn();
 const mockSelect = jest.fn();
 const mockLoad = jest.fn();
+const mockClean = jest.fn();
+let mockAccessState = { status: "ready", user: { id: "user" }, company: { id: "company" } };
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({
-  useAccess: () => ({ state: { status: "ready", user: { id: "user" }, company: { id: "company" } } }),
+  useAccess: () => ({ state: mockAccessState }),
 }));
 jest.mock("@mobile/features/printing/composition", () => ({
   printing: {
@@ -15,7 +17,7 @@ jest.mock("@mobile/features/printing/composition", () => ({
     discoverPrinters: (...args: unknown[]) => mockDiscover(...args),
     selectPrinter: (...args: unknown[]) => mockSelect(...args),
   },
-  cleanOldPrintDocuments: () => Promise.resolve({ success: true, data: undefined }),
+  cleanOldPrintDocuments: (...args: unknown[]) => mockClean(...args),
 }));
 
 const deferred = <T,>() => {
@@ -25,8 +27,16 @@ const deferred = <T,>() => {
 };
 
 const originalPlatform = Platform.OS;
-beforeEach(() => { Platform.OS = "android"; mockDiscover.mockReset(); mockSelect.mockReset(); mockLoad.mockReset().mockResolvedValue({ success: true, data: null }); });
+beforeEach(() => { Platform.OS = "android"; mockDiscover.mockReset(); mockSelect.mockReset(); mockLoad.mockReset().mockResolvedValue({ success: true, data: null }); mockClean.mockReset().mockResolvedValue({ success: true, data: undefined }); mockAccessState = { status: "ready", user: { id: "user" }, company: { id: "company" } }; });
 afterEach(() => { Platform.OS = originalPlatform; });
+
+test("cleans old documents once at app startup, not on a session change", async () => {
+  const { rerender } = render(<PrintProvider><Button onPress={() => {}}>Ready</Button></PrintProvider>);
+  expect(mockClean).toHaveBeenCalledTimes(1);
+  mockAccessState = { ...mockAccessState, company: { id: "second" } };
+  rerender(<PrintProvider><Button onPress={() => {}}>Ready</Button></PrintProvider>);
+  expect(mockClean).toHaveBeenCalledTimes(1);
+});
 
 test("a late earlier result cannot replace the latest print notice", async () => {
   const older = deferred<Awaited<ReturnType<PrintWork>>>();

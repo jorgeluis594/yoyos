@@ -26,6 +26,7 @@ const PrintContext = createContext<PrintContextValue | null>(null);
 export function PrintProvider({ children }: { children: ReactNode }) {
   const { state } = useAccess();
   const sessionKey = state.status === "ready" ? `${state.user.id}:${state.company.id}` : null;
+  useEffect(() => { void cleanOldPrintDocuments(); }, []);
   return <PrintSession key={sessionKey ?? "signed-out"} sessionKey={sessionKey}>{children}</PrintSession>;
 }
 
@@ -45,7 +46,6 @@ function PrintSession({ children, sessionKey }: { children: ReactNode; sessionKe
 
   useEffect(() => {
     if (!sessionKey) return;
-    void cleanOldPrintDocuments();
     const startedAt = selectionRevision.current;
     void printing.loadPrinterPreference().then((result) => {
       if (sessionRef.current !== sessionKey || selectionRevision.current !== startedAt) return;
