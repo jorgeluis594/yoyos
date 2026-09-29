@@ -188,16 +188,12 @@ export default function ProductManagementScreen() {
   const printVariant = (variantId: VariantId) => {
     const quantity = makeCopyCount(Number(copies));
     if (!quantity.success || quantity.data > 99) { setErrors((current) => ({ ...current, form: "Elige entre 1 y 99 copias." })); return; }
-    const start = () => startAttempt(productPrintWork({ kind: "saved-product", product, variantId }, quantity.data));
-    if (dirty) Alert.alert("Cambios sin guardar", "La etiqueta usará los datos guardados, sin incluir los cambios de este formulario.", [
-      { text: "Cancelar", style: "cancel" },
-      { text: "Imprimir datos guardados", onPress: start },
-    ]);
-    else start();
+    startAttempt(productPrintWork({ kind: "saved-product", product, variantId }, quantity.data));
   };
 
   return <ThemedView style={styles.page}><SafeAreaView style={styles.safe}>
     <View style={styles.header}><ThemedText type="subtitle">Gestionar producto</ThemedText><ThemedText themeColor="textSecondary">Moneda {product.currency}</ThemedText></View>
+    {dirty ? <ThemedText themeColor="textSecondary" style={styles.printNote}>La etiqueta usará los datos guardados, sin incluir los cambios de este formulario.</ThemedText> : null}
     <ProductForm
       values={values}
       setValue={setValue}
@@ -223,4 +219,4 @@ export default function ProductManagementScreen() {
   </SafeAreaView></ThemedView>;
 }
 
-const styles = StyleSheet.create({ page: { flex: 1 }, safe: { flex: 1 }, header: { paddingHorizontal: 20, paddingTop: 8, gap: 4 } });
+const styles = StyleSheet.create({ page: { flex: 1 }, safe: { flex: 1 }, header: { paddingHorizontal: 20, paddingTop: 8, gap: 4 }, printNote: { paddingHorizontal: 20, paddingTop: 8 } });
