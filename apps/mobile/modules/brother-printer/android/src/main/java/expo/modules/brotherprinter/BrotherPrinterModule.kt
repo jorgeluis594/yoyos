@@ -75,6 +75,7 @@ class BrotherPrinterModule : Module() {
     if (options.outWidth != 696 || options.outHeight != 271)
       return sendFailure("PRINTER_REJECTED", "Image has the wrong dimensions", "not-sent")
 
+    var sendStarted = false
     try {
       val search = PrinterSearcher.startNetworkSearch(context, NetworkSearchOption(5.0, false), input.ip)
       if (search.error.code.toString() != "NoError")
@@ -97,6 +98,7 @@ class BrotherPrinterModule : Module() {
           isAutoCut = true
           autoCutForEachPageCount = 1
         }
+        sendStarted = true
         val result = driver.printImage(file.path, settings)
         if (result.code.toString() == "NoError") return mapOf("success" to true, "data" to mapOf("confirmation" to "sdk"))
         val name = result.code.toString()
@@ -112,9 +114,9 @@ class BrotherPrinterModule : Module() {
         driver.closeChannel()
       }
     } catch (error: SecurityException) {
-      return sendFailure("CONNECTION_FAILED", error.message ?: "Network permission denied", "not-sent")
+      return sendFailure("CONNECTION_FAILED", error.message ?: "Network permission denied", if (sendStarted) "unknown" else "not-sent")
     } catch (error: Exception) {
-      return sendFailure("COMMUNICATION_FAILED", error.message ?: "Printer communication failed", "unknown")
+      return sendFailure("COMMUNICATION_FAILED", error.message ?: "Printer communication failed", if (sendStarted) "unknown" else "not-sent")
     }
   }
 
