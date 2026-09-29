@@ -27,7 +27,7 @@ function selectionFor(device: BrotherDevice): PrinterSelection | null {
   return { printer: { id: idFor(identity), adapterId, displayName: "Brother QL-810W", model: "QL-810W" }, locator: JSON.stringify(locator) as PrinterLocator };
 }
 
-export function parseBrotherSelection(selection: Pick<PrinterSelection, "printer" | "locator">): Locator | null {
+export function parseBrotherSelection(selection: Readonly<{ printer: Readonly<{ id: string; adapterId: string; model: string }>; locator: string }>): Locator | null {
   if (selection.printer.adapterId !== adapterId || selection.printer.model !== "QL-810W" || typeof selection.locator !== "string") return null;
   let value: unknown;
   try { value = JSON.parse(selection.locator); } catch { return null; }
