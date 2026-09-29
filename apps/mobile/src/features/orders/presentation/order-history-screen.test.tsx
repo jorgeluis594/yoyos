@@ -1,5 +1,5 @@
 import { fireEvent, render, waitFor } from "@testing-library/react-native";
-import { ok } from "@shared/functional";
+import { err, ok } from "@shared/functional";
 import OrderHistoryScreen from "@mobile/features/orders/presentation/order-history-screen";
 
 const mockPush = jest.fn();
@@ -43,4 +43,29 @@ test("direct orders route explains Peru availability", () => {
   const screen = render(<OrderHistoryScreen />);
   expect(screen.getByText("Ventas aún no disponibles")).toBeTruthy();
   expect(mockLoadOrders).not.toHaveBeenCalled();
+});
+
+test("history moves between pages and opens the selected detail", async () => {
+  const summary = (number: number) => ({ id: `00000000-0000-4000-8000-${String(number).padStart(12, "0")}`,
+    customer: { kind: "general_public" }, completedAt: "2026-09-28T12:00:00.000Z", currency: "PEN", total: number });
+  mockLoadOrders.mockImplementation(async ({ page }: { page: number }) => ok({
+    items: page === 1 ? Array.from({ length: 20 }, (_, index) => summary(index + 1)) : [summary(21)],
+    page, pageSize: 20, total: 21,
+  }));
+  const screen = render(<OrderHistoryScreen />);
+  await screen.findByRole("button", { name: "Siguiente" });
+  fireEvent.press(screen.getByRole("button", { name: "Siguiente" }));
+  await waitFor(() => expect(mockLoadOrders).toHaveBeenLastCalledWith({ page: 2, customer: { kind: "all" } }));
+  await screen.findByRole("button", { name: "Anterior" });
+  fireEvent.press(screen.getByText(/21[.,]00/));
+  expect(mockPush).toHaveBeenCalledWith("/orders/00000000-0000-4000-8000-000000000021");
+});
+
+test("history offers retry after a load error", async () => {
+  mockLoadOrders.mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "Offline" }))
+    .mockResolvedValueOnce(ok({ items: [], page: 1, pageSize: 20, total: 0 }));
+  const screen = render(<OrderHistoryScreen />);
+  await screen.findByText("No se pudieron cargar las ventas");
+  fireEvent.press(screen.getByRole("button", { name: "Reintentar" }));
+  await screen.findByText("Aún no hay ventas");
 });
