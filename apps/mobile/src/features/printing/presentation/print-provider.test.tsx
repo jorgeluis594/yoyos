@@ -131,7 +131,8 @@ test("a late preference read cannot replace a newly selected printer", async () 
   render(<PrintProvider><Controls /></PrintProvider>);
   fireEvent.press(screen.getByText("Choose"));
   fireEvent.press(await screen.findByText("Brother QL-810W"));
-  await waitFor(() => expect(screen.queryByText("Impresora de etiquetas")).toBeNull());
+  expect(mockSelect).toHaveBeenCalledWith(candidate);
+  await act(async () => { await Promise.resolve(); });
   await act(async () => pending.resolve({ success: false, error: { code: "PREFERENCE_READ_FAILED", message: "old read" } }));
   fireEvent.press(screen.getByText("Choose"));
   await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(2));
