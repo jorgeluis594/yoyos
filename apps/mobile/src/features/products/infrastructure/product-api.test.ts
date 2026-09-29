@@ -1,4 +1,4 @@
-import { ok } from "@shared/functional";
+import { err, ok } from "@shared/functional";
 import { createProductApi } from "@mobile/features/products/infrastructure/product-api";
 import type { ProductId } from "@mobile/features/products/domain/product";
 
@@ -18,18 +18,16 @@ test("keeps the variant QR from the validated product detail", async () => {
   if (result.success) expect(result.data.variants[0].qrCode).toBe(variantQr);
 });
 
-test("shares a concurrent detail read, then fetches fresh data", async () => {
+test("does not share a pending detail read across sessions", async () => {
   let finish!: (value: ReturnType<typeof ok<typeof detail>>) => void;
-  const request = jest.fn(() => new Promise<ReturnType<typeof ok<typeof detail>>>((resolve) => { finish = resolve; }));
+  const request = jest.fn()
+    .mockImplementationOnce(() => new Promise<ReturnType<typeof ok<typeof detail>>>((resolve) => { finish = resolve; }))
+    .mockImplementationOnce(async () => err({ code: "UNAUTHENTICATED" as const, message: "Session expired" }));
   const api = createProductApi(request);
-  const forPrint = api.get(productId);
-  const forDetail = api.get(productId);
-  expect(request).toHaveBeenCalledTimes(1);
-  finish(ok(detail));
-  expect((await forPrint).success).toBe(true);
-  expect((await forDetail).success).toBe(true);
-  const nextRead = api.get(productId);
+  const formerSession = api.get(productId);
+  const currentSession = await api.get(productId);
   expect(request).toHaveBeenCalledTimes(2);
+  expect(currentSession).toMatchObject({ success: false, error: { code: "UNAUTHENTICATED" } });
   finish(ok(detail));
-  await nextRead;
+  expect((await formerSession).success).toBe(true);
 });

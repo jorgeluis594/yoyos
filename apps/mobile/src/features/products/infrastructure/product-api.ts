@@ -11,7 +11,7 @@ import {
 import { imageResponseSchema } from "@shared/contracts/images";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import type { TransportError } from "@/shared/application/transport-error";
+import type { TransportError } from "@mobile/shared/application/transport-error";
 import type { ImageId, Product, ProductId, ProductListCriteria, ProductPage, VariantId, VariantQrCode } from "@mobile/features/products/domain/product";
 import type { GetProductError } from "@mobile/features/products/application/product-printing";
 
@@ -142,7 +142,6 @@ export function createProductApi(request: Request) {
     const result = await request(path, init);
     return result.success ? result : err(readApiFailure(result.error, allowed));
   };
-  const pendingProducts = new Map<ProductId, Promise<Result<Product, GetProductError>>>();
   const readProduct = async (id: ProductId): Promise<Result<Product, GetProductError>> => {
     const result = restrictFailure(await run(`/api/products/${encodeURIComponent(id)}`, {}, ["PRODUCT_NOT_FOUND", "UNAUTHENTICATED", "COMPANY_REQUIRED", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR"]), ["PRODUCT_NOT_FOUND"] as const);
     if (!result.success) return result;
@@ -164,13 +163,7 @@ export function createProductApi(request: Request) {
         ? ok({ ...parsed.data, items: parsed.data.items.map(productListItem) })
         : err(fieldFailure("INVALID_RESPONSE", "Server returned invalid products"));
     },
-    get(id: ProductId): Promise<Result<Product, GetProductError>> {
-      const pending = pendingProducts.get(id);
-      if (pending) return pending;
-      const read = readProduct(id).finally(() => pendingProducts.delete(id));
-      pendingProducts.set(id, read);
-      return read;
-    },
+    get: readProduct,
     async create(input: CreateProductRequest): Promise<Result<ProductId, CreateProductError>> {
       const body = createProductRequestSchema.safeParse(input);
       if (!body.success) return err({ code: "INVALID_INPUT", message: "Invalid product input" });
