@@ -11,6 +11,12 @@ export function createPrintingOperations({ adapters, preferences, temporaryDocum
   let selection: PrinterSelection | null = null;
   let loaded = false;
   let revision = 0;
+  let writeTail: Promise<void> = Promise.resolve();
+  const writePreference = (value: PrinterSelection) => {
+    const result = writeTail.then(() => preferences.write(value));
+    writeTail = result.then(() => undefined, () => undefined);
+    return result;
+  };
   const adapterFor = (value: PrinterSelection): PrinterAdapter | undefined => adapters.find((adapter) => adapter.id === value.printer.adapterId);
   const diagnostic = (error: Readonly<{ code: string; message: string }>) => {
     try { reportDiagnostic(error); } catch { /* Diagnostics cannot change a print outcome. */ }
@@ -48,7 +54,7 @@ export function createPrintingOperations({ adapters, preferences, temporaryDocum
     selection = value;
     loaded = true;
     revision++;
-    const saved = await preferences.write(value);
+    const saved = await writePreference(value);
     return ok({ selection: value, persistence: saved.success ? { status: "saved" } : { status: "session-only", error: saved.error } });
   };
 
@@ -78,7 +84,7 @@ export function createPrintingOperations({ adapters, preferences, temporaryDocum
     if (revision === startingRevision && resolved.data.selection.locator !== chosen.locator) {
       selection = resolved.data.selection;
       revision++;
-      const saved = await preferences.write(selection);
+      const saved = await writePreference(selection);
       if (!saved.success) diagnostic(saved.error);
     }
     if (!execution.isSessionCurrent()) return err(cancelled);

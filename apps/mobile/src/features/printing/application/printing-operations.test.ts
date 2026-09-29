@@ -73,3 +73,28 @@ test("a late preference read cannot replace a new selection", async () => {
   expect(await operations.printDocument(request(render), execution)).toMatchObject({ success: true, data: { status: "completed" } });
   expect(render).toHaveBeenCalled();
 });
+
+test("quick selections persist in order so the last printer remains saved", async () => {
+  const { deps } = setup();
+  const second = { ...chosen, locator: "second" as PrinterLocator };
+  let finishFirst!: () => void;
+  const firstWrite = new Promise<void>((resolve) => { finishFirst = resolve; });
+  let persisted: PrinterSelection | null = null;
+  const write = jest.fn(async (value: PrinterSelection) => {
+    if (value === chosen) await firstWrite;
+    persisted = value;
+    return ok(undefined);
+  });
+  const operations = createPrintingOperations({
+    ...deps,
+    adapters: [{ ...deps.adapters[0], validateSelection: () => ok(undefined) }],
+    preferences: { ...deps.preferences, write },
+  });
+  const first = operations.selectPrinter(chosen);
+  const latest = operations.selectPrinter(second);
+  await Promise.resolve();
+  expect(write).toHaveBeenCalledTimes(1);
+  finishFirst();
+  await Promise.all([first, latest]);
+  expect(persisted).toBe(second);
+});
