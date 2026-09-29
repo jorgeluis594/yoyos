@@ -13,6 +13,7 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { TransportError } from "@/shared/application/transport-error";
 import type { ImageId, Product, ProductId, ProductListCriteria, ProductPage, VariantId, VariantQrCode } from "@mobile/features/products/domain/product";
+import type { GetProductError } from "@mobile/features/products/application/product-printing";
 
 type ProductIssue = Readonly<{ field: string; reason: string; message?: string; scope?: string; index?: number; maxLength?: number }>;
 type MobileTransportCode = Extract<TransportError["code"], "UNAUTHENTICATED" | "COMPANY_REQUIRED" | "NETWORK_ERROR" | "SERVICE_UNAVAILABLE" | "RATE_LIMITED" | "SERVER_ERROR" | "INVALID_RESPONSE" | "OPERATION_CANCELLED" | "SECURE_STORAGE_ERROR" | "API_ERROR">;
@@ -34,7 +35,6 @@ export type ProductListInputIssue = Readonly<{ field: string; reason: "INVALID_T
 export type ListProductsError = ProductTransportFailure
   | Readonly<{ code: "INVALID_INPUT"; message: string; issues: readonly [ProductListInputIssue, ...ProductListInputIssue[]] }>
   | Readonly<{ code: "VALIDATION_ERROR"; message: string; issues: readonly [ProductListCriteriaIssue, ...ProductListCriteriaIssue[]] }>;
-export type GetProductError = ProductTransportFailure | Extract<ApiFailure, { code: "PRODUCT_NOT_FOUND" }>;
 export type CreateProductError = ProductTransportFailure | Extract<ApiFailure, { code: "INVALID_INPUT" | "VALIDATION_ERROR" | "DUPLICATE_SKU" | "PRODUCT_ID_CONFLICT" | "IMAGE_NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" }>;
 export type UpdateProductError = ProductTransportFailure | Extract<ApiFailure, { code: "INVALID_INPUT" | "VALIDATION_ERROR" | "DUPLICATE_SKU" | "PRODUCT_NOT_FOUND" | "IMAGE_NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" }>;
 export type UploadProductImageError = ProductTransportFailure | Extract<ApiFailure, { code: "INVALID_IMAGE" | "IMAGE_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" | "IMAGE_STORAGE_UNAVAILABLE" }>;
