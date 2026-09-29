@@ -22,14 +22,31 @@ export const listOrdersSchema = z.strictObject({
   contactId: z.uuid().optional(),
   completedFrom: z.iso.datetime().optional(),
   completedBefore: z.iso.datetime().optional(),
-}).refine((value) => value.customer !== "contact" || !!value.contactId, { message: "Contact is required", path: ["contactId"] });
+}).refine((value) => (value.customer === "contact") === !!value.contactId,
+  { message: "Contact must match customer filter", path: ["contactId"] })
+  .refine((value) => !value.completedFrom || !value.completedBefore || value.completedFrom < value.completedBefore,
+    { message: "Invalid date interval", path: ["completedBefore"] });
 export type ListOrdersRequest = z.infer<typeof listOrdersSchema>;
 export const orderSummarySchema = orderSchema.pick({ id: true, completedAt: true, customer: true, sellerId: true, currency: true, total: true });
 export const listOrdersResponseSchema = z.strictObject({ items: z.array(orderSummarySchema), page: z.number().int().positive(), pageSize: z.literal(20), total: z.number().int().nonnegative() });
-export const saleCatalogSchema = z.array(z.strictObject({ id: z.uuid(), name: z.string(), currency: z.enum(currencies),
+export const orderCatalogSchema = z.array(z.strictObject({ id: z.uuid(), name: z.string(), currency: z.enum(currencies),
   variants: z.array(z.strictObject({ id: z.uuid(), attributes: z.record(z.string(), z.string()), sku: z.string().nullable(), price: z.number().positive(), stock: z.number().int().nonnegative().safe() })) }));
-export const saleContactsSchema = z.array(z.strictObject({ id: z.uuid(), name: z.string().nullable(), phone: z.string() }));
+export const orderContactsSchema = z.array(z.strictObject({ id: z.uuid(), name: z.string().nullable(), phone: z.string() }));
+export const orderApiIssueSchema = z.strictObject({
+  field: z.string(), reason: z.string(), index: z.number().int().nonnegative().optional(), variantId: z.uuid().optional(),
+});
+export type OrderApiIssue = z.infer<typeof orderApiIssueSchema>;
+export const orderApiErrorSchema = z.strictObject({
+  code: z.enum([
+    "ORDERS_NOT_AVAILABLE", "INVALID_INPUT", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE",
+    "INVALID_ORDER", "CURRENCY_MISMATCH", "CONTACT_NOT_FOUND", "VARIANT_NOT_FOUND",
+    "INSUFFICIENT_STOCK", "ORDER_ALREADY_EXISTS", "ORDER_NOT_FOUND", "SERVICE_UNAVAILABLE",
+  ]),
+  error: z.string(),
+  issues: z.array(orderApiIssueSchema).optional(),
+});
+export type OrderApiError = z.infer<typeof orderApiErrorSchema>;
 export const orderActionErrorSchema = z.strictObject({ code: z.string(), error: z.string() });
-export const newOrderLoaderSchema = z.strictObject({ products: saleCatalogSchema, contacts: saleContactsSchema, base: z.string() });
-export const orderListLoaderSchema = z.strictObject({ list: listOrdersResponseSchema, filters: listOrdersSchema, contacts: saleContactsSchema, customerSearch: z.string(), base: z.string() });
+export const newOrderLoaderSchema = z.strictObject({ products: orderCatalogSchema, contacts: orderContactsSchema, base: z.string() });
+export const orderListLoaderSchema = z.strictObject({ list: listOrdersResponseSchema, filters: listOrdersSchema, contacts: orderContactsSchema, customerSearch: z.string(), base: z.string() });
 export const orderDetailLoaderSchema = z.strictObject({ order: orderSchema, base: z.string() });
