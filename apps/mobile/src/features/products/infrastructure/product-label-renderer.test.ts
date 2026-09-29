@@ -35,17 +35,20 @@ beforeAll(async () => {
 
 test("renders a Brother-size PNG whose QR decodes to the exact variant value", async () => {
   const { renderProductLabel } = jest.requireActual("@mobile/features/products/infrastructure/product-label-renderer");
-  const label = { productName: "Camiseta básica ñ", sku: "CAM-1", qrCode: "00000000-0000-4000-8000-000000000003" } as ProductLabel;
-  const result = await renderProductLabel(label, { widthPx: 696, heightPx: 271, dpiX: 300, dpiY: 300 });
-  expect(result).toMatchObject({ success: true });
-  expect(mockPng?.subarray(0, 8)).toEqual(Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]));
-  const image = mockSkia.Image.MakeImageFromEncoded(mockSkia.Data.fromBytes(mockPng!));
-  expect(image?.width()).toBe(696);
-  expect(image?.height()).toBe(271);
-  const pixels = image?.readPixels();
-  expect(pixels).toBeInstanceOf(Uint8Array);
-  expect(Array.from(pixels!).filter((_, index) => index % 4 === 3).every((alpha) => alpha === 255)).toBe(true);
-  expect(jsQR(Uint8ClampedArray.from(pixels!), 696, 271)?.data).toBe(label.qrCode);
+  for (const qrCode of ["00000000-0000-4000-8000-000000000003", "00000000-0000-4000-8000-000000000007"]) {
+    const label = { productName: "Camiseta básica ñ", sku: "CAM-1", qrCode } as ProductLabel;
+    const result = await renderProductLabel(label, { widthPx: 696, heightPx: 271, dpiX: 300, dpiY: 300 });
+    expect(result).toMatchObject({ success: true });
+    expect(mockPng?.subarray(0, 8)).toEqual(Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    const image = mockSkia.Image.MakeImageFromEncoded(mockSkia.Data.fromBytes(mockPng!));
+    expect(image?.width()).toBe(696);
+    expect(image?.height()).toBe(271);
+    const pixels = image?.readPixels();
+    expect(pixels).toBeInstanceOf(Uint8Array);
+    expect(Array.from(pixels!.subarray(0, 4))).toEqual([255, 255, 255, 255]);
+    expect(Array.from(pixels!).filter((_, index) => index % 4 === 3).every((alpha) => alpha === 255)).toBe(true);
+    expect(jsQR(Uint8ClampedArray.from(pixels!), 696, 271)?.data).toBe(label.qrCode);
+  }
 });
 
 test("renders a long name without SKU and rejects an SKU that cannot fit", async () => {
