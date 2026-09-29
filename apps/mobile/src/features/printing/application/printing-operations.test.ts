@@ -1,0 +1,67 @@
+import { err, ok } from "@shared/functional";
+import { createPrintingOperations } from "@mobile/features/printing/application/printing-operations";
+import type { PrintingDependencies, PrintRequest } from "@mobile/features/printing/application/contracts";
+import { productLabelFormat, type AdapterId, type CopyCount, type PrinterId, type PrinterLocator, type PrinterSelection } from "@mobile/features/printing/domain/printing";
+
+const chosen: PrinterSelection = { printer: { id: "serial-1" as PrinterId, adapterId: "brother" as AdapterId, displayName: "Brother", model: "QL-810W" }, locator: "first" as PrinterLocator };
+const profile = { widthPx: 696, heightPx: 271, dpiX: 300, dpiY: 300 };
+const document = { uri: "file:///cache/label.png", widthPx: 696, heightPx: 271 };
+const execution = { isSessionCurrent: () => true, onStage: jest.fn() };
+const request = (render: PrintRequest["render"] = async () => ok(document)): PrintRequest => ({ format: productLabelFormat, copies: 1 as CopyCount, render });
+
+function setup() {
+  const send = jest.fn(async () => ok({ confirmation: "sdk" as const }));
+  const remove = jest.fn(async () => ok(undefined));
+  const read = jest.fn(async () => ok(null as PrinterSelection | null));
+  const write = jest.fn(async () => ok(undefined));
+  const deps: PrintingDependencies = {
+    adapters: [{ id: "brother" as AdapterId, discover: async () => ok([chosen]), resolve: async () => ok({ selection: chosen, profile }), send }],
+    preferences: { read, write }, temporaryDocuments: { remove }, reportDiagnostic: jest.fn(),
+  };
+  return { operations: createPrintingOperations(deps), send, remove, read, write, deps };
+}
+
+test("asks for a printer before rendering, then sends and removes the image", async () => {
+  const { operations, send, remove } = setup();
+  const render = jest.fn(async () => ok(document));
+  expect(await operations.printDocument(request(render), execution)).toEqual(ok({ status: "selection-required" }));
+  expect(render).not.toHaveBeenCalled();
+  await operations.selectPrinter(chosen);
+  expect(await operations.printDocument(request(render), execution)).toEqual(ok({ status: "completed", printer: chosen.printer, receipt: { confirmation: "sdk" } }));
+  expect(render).toHaveBeenCalledWith(profile);
+  expect(send).toHaveBeenCalledWith({ printer: { selection: chosen, profile }, document, copies: 1 });
+  expect(remove).toHaveBeenCalledWith(document);
+});
+
+test("does not send invalid images and still removes them", async () => {
+  const { operations, send, remove } = setup();
+  await operations.selectPrinter(chosen);
+  const result = await operations.printDocument(request(async () => ok({ ...document, widthPx: 695 })), execution);
+  expect(result).toMatchObject({ success: false, error: { code: "RENDER_FAILED", outcome: "not-sent" } });
+  expect(send).not.toHaveBeenCalled();
+  expect(remove).toHaveBeenCalledTimes(1);
+});
+
+test("preserves an uncertain send failure and does not resend", async () => {
+  const { deps, remove } = setup();
+  const send = jest.fn(async () => err({ code: "COMMUNICATION_FAILED" as const, message: "Connection lost", outcome: "unknown" as const }));
+  const operations = createPrintingOperations({ ...deps, adapters: [{ ...deps.adapters[0], send }] });
+  await operations.selectPrinter(chosen);
+  expect(await operations.printDocument(request(), execution)).toMatchObject({ success: false, error: { code: "COMMUNICATION_FAILED", outcome: "unknown" } });
+  expect(send).toHaveBeenCalledTimes(1);
+  expect(remove).toHaveBeenCalledTimes(1);
+});
+
+test("a late preference read cannot replace a new selection", async () => {
+  const { deps } = setup();
+  let finishRead!: (value: ReturnType<typeof ok<PrinterSelection | null>>) => void;
+  const read = () => new Promise<ReturnType<typeof ok<PrinterSelection | null>>>((resolve) => { finishRead = resolve; });
+  const operations = createPrintingOperations({ ...deps, preferences: { ...deps.preferences, read } });
+  const pending = operations.loadPrinterPreference();
+  await operations.selectPrinter(chosen);
+  finishRead(ok(null));
+  await pending;
+  const render = jest.fn(async () => ok(document));
+  expect(await operations.printDocument(request(render), execution)).toMatchObject({ success: true, data: { status: "completed" } });
+  expect(render).toHaveBeenCalled();
+});
