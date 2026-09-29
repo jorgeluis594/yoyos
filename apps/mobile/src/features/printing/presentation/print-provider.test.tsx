@@ -79,6 +79,31 @@ test("signing out invalidates pending work and discards its late result", async 
   expect(screen.queryByText("Reintentar")).toBeNull();
 });
 
+test("navigation preserves a pending print and dismissing its notice ignores a late result", async () => {
+  const first = deferred<Awaited<ReturnType<PrintWork>>>();
+  const second = deferred<Awaited<ReturnType<PrintWork>>>();
+  function Screen({ route }: { route: string }) {
+    const print = usePrint();
+    return <>
+      <Button onPress={() => print.startAttempt(() => first.promise)}>{route}</Button>
+      <Button onPress={() => print.startAttempt(() => second.promise)}>Another print</Button>
+    </>;
+  }
+  const { rerender } = render(<PrintProvider><Screen route="Catalog" /></PrintProvider>);
+  fireEvent.press(screen.getByText("Catalog"));
+  expect(screen.getByText("Preparando impresión")).toBeTruthy();
+  rerender(<PrintProvider><Screen route="Detail" /></PrintProvider>);
+  expect(screen.getByText("Detail")).toBeTruthy();
+  expect(screen.getByText("Preparando impresión")).toBeTruthy();
+  await act(async () => first.resolve({ status: "completed" }));
+  expect(screen.getByText("Impresión enviada")).toBeTruthy();
+  fireEvent.press(screen.getByText("Another print"));
+  fireEvent.press(screen.getByText("Cerrar"));
+  await act(async () => second.resolve({ status: "failed", message: "late failure", outcome: "unknown" }));
+  expect(screen.queryByText("late failure")).toBeNull();
+  expect(screen.queryByText("Reintentar")).toBeNull();
+});
+
 test("choosing a discovered printer resumes the pending print", async () => {
   const candidate = { printer: { id: "serial:1", displayName: "Brother QL-810W", adapterId: "brother", model: "QL-810W" }, locator: "locator" };
   mockDiscover.mockResolvedValue({ success: true, data: [candidate] });
