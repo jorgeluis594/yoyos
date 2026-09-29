@@ -29,6 +29,16 @@ test("rejects an invalid printer before making it the active selection", async (
   expect(await operations.printDocument(request(), execution)).toEqual(ok({ status: "selection-required" }));
 });
 
+test("without a platform adapter, printing stops before rendering or reading preferences", async () => {
+  const { deps, read } = setup();
+  const operations = createPrintingOperations({ ...deps, adapters: [] });
+  const render = jest.fn(async () => ok(document));
+  expect(await operations.discoverPrinters()).toMatchObject({ success: false, error: { code: "PRINTING_UNAVAILABLE" } });
+  expect(await operations.printDocument(request(render), execution)).toMatchObject({ success: false, error: { code: "PRINTING_UNAVAILABLE", outcome: "not-sent" } });
+  expect(render).not.toHaveBeenCalled();
+  expect(read).not.toHaveBeenCalled();
+});
+
 test("asks for a printer before rendering, then sends and removes the image", async () => {
   const { operations, send, remove } = setup();
   const render = jest.fn(async () => ok(document));
