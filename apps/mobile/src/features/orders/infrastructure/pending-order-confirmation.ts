@@ -1,19 +1,8 @@
 import { z } from "zod";
-import { currencies, type Money } from "@shared/money";
+import { currencies } from "@shared/money";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import type { CreateOrderRequest, OrderResponse } from "@shared/contracts/orders";
-
-export type PendingOrderConfirmation = Readonly<{
-  companyId: OrderResponse["companyId"];
-  id: CreateOrderRequest["id"];
-  shownTotal: Money;
-}>;
-
-export type PendingOrderStoreError = Readonly<{
-  code: "PENDING_CONFIRMATION" | "PENDING_STORAGE_UNAVAILABLE" | "INVALID_PENDING_DATA";
-  message: string;
-}>;
+import type { PendingOrderConfirmation, PendingOrderStoreError } from "@mobile/features/orders/application/order-operations";
 
 const pendingSchema = z.strictObject({
   companyId: z.uuid(), id: z.uuid(),
