@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FlatList, Pressable, RefreshControl, StyleSheet, View } from "react-native";
+import { FlatList, Platform, Pressable, RefreshControl, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import { ThemedText } from "@mobile/components/themed-text";
@@ -11,6 +11,7 @@ import { useTheme } from "@mobile/hooks/use-theme";
 import { ScreenState } from "@mobile/components/ui/screen-state";
 import { products } from "@mobile/features/products/composition";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
+import { usePrint } from "@mobile/features/printing/presentation/print-provider";
 import type { ProductListItem } from "@mobile/features/products/domain/product";
 
 const PAGE_SIZE = 20;
@@ -20,6 +21,7 @@ export default function CatalogScreen() {
   const router = useRouter();
   const theme = useTheme();
   const { state } = useAccess();
+  const { showPrinterPicker } = usePrint();
   const [search, setSearch] = useState("");
   const [items, setItems] = useState<readonly ProductListItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -115,6 +117,7 @@ export default function CatalogScreen() {
       <ThemedText themeColor="textSecondary">{state.company.name}</ThemedText>
     </View>
     <Button onPress={() => router.push("/products/new")}>Agregar producto</Button>
+    {Platform.OS === "android" ? <Button variant="secondary" onPress={showPrinterPicker}>Configurar impresora</Button> : null}
     <View style={styles.search}>
       <ThemedText type="small">Buscar productos</ThemedText>
       <Input value={search} onChangeText={setSearch} placeholder="Nombre o SKU" accessibilityLabel="Buscar productos" returnKeyType="search" autoCapitalize="none" />

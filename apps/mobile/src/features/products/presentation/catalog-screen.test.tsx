@@ -12,6 +12,7 @@ jest.mock('@mobile/features/products/composition', () => ({ products: { loadProd
 jest.mock('@mobile/features/users/presentation/access-provider', () => ({
   useAccess: () => ({ state: { status: 'ready', company: { name: 'Mi tienda' } } }),
 }));
+jest.mock('@mobile/features/printing/presentation/print-provider', () => ({ usePrint: () => ({ showPrinterPicker: jest.fn() }) }));
 jest.mock('react-native-safe-area-context', () => ({ SafeAreaView: jest.requireActual('react-native').View }));
 
 beforeEach(() => { jest.clearAllMocks(); });

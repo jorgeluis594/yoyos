@@ -7,12 +7,15 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { products } from "@mobile/features/products/composition";
 import { useAccess } from "@/features/users/presentation/access-provider";
-import type { PhotoSelection, Product, ProductId } from "../domain/product";
+import type { PhotoSelection, Product, ProductId, VariantId } from "../domain/product";
 import { ProductForm } from "./product-form";
 import type { ProductFormField, ProductFormValues } from "./product-form";
 import { productErrors, validateProductForm, valuesForProduct } from "./product-form-state";
 import { useProductNavigationGuard } from "./use-product-navigation-guard";
 import { useProductDraft } from "./draft-guard";
+import { usePrint } from "@mobile/features/printing/presentation/print-provider";
+import { makeCopyCount } from "@mobile/features/printing/composition";
+import { productPrintWork } from "./product-print-work";
 
 function applySaved(current: Product, values: ProductFormValues, photo: PhotoSelection): Product {
   const variants = current.variants.length !== 1 ? current.variants : current.variants.map((variant) => ({
@@ -59,6 +62,7 @@ export default function ProductManagementScreen() {
   const { productId } = useLocalSearchParams<{ productId: string }>();
   const router = useRouter();
   const { state } = useAccess();
+  const { startAttempt } = usePrint();
   const [product, setProduct] = useState<Product | null>(null);
   const [values, setValues] = useState<ProductFormValues | null>(null);
   const [photo, setPhoto] = useState<PhotoSelection>({ kind: "keep" });
@@ -69,6 +73,7 @@ export default function ProductManagementScreen() {
   const [photoBusy, setPhotoBusy] = useState(false);
   const [uncertain, setUncertain] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [copies, setCopies] = useState("1");
   const { discardVersion } = useProductDraft();
   const discardVersionRef = useRef(discardVersion);
   const requestKey = `${productId}:${reloadKey}`;
@@ -180,6 +185,16 @@ export default function ProductManagementScreen() {
     }
     setUncertain(false);
   };
+  const printVariant = (variantId: VariantId) => {
+    const quantity = makeCopyCount(Number(copies));
+    if (!quantity.success) { setErrors((current) => ({ ...current, form: "Elige entre 1 y 99 copias." })); return; }
+    const start = () => startAttempt(productPrintWork({ kind: "saved-product", product, variantId }, quantity.data));
+    if (dirty) Alert.alert("Cambios sin guardar", "La etiqueta usará los datos guardados, sin incluir los cambios de este formulario.", [
+      { text: "Cancelar", style: "cancel" },
+      { text: "Imprimir datos guardados", onPress: start },
+    ]);
+    else start();
+  };
 
   return <ThemedView style={styles.page}><SafeAreaView style={styles.safe}>
     <View style={styles.header}><ThemedText type="subtitle">Gestionar producto</ThemedText><ThemedText themeColor="textSecondary">Moneda {product.currency}</ThemedText></View>
@@ -195,6 +210,10 @@ export default function ProductManagementScreen() {
       photoBusy={photoBusy}
       onPhotoBusy={setPhotoBusy}
       onSave={() => void save()}
+      onPrint={product.variants.length === 1 ? () => printVariant(product.variants[0].id) : undefined}
+      onPrintVariant={product.variants.length > 1 ? printVariant : undefined}
+      copies={copies}
+      onCopiesChange={setCopies}
       onCancel={() => router.replace("/products")}
       onReviewCatalog={() => { setDirty(false); router.replace("/products"); }}
       onCheckStatus={() => void checkStatus()}

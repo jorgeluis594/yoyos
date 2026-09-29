@@ -5,13 +5,13 @@ import { Input } from "@/components/ui/input";
 import { ThemedText } from "@/components/themed-text";
 import { products } from "@mobile/features/products/composition";
 import { ProductPhoto } from "./product-photo";
-import type { Product, PhotoSelection } from "../domain/product";
+import type { Product, PhotoSelection, VariantId } from "../domain/product";
 
 export type ProductFormValues = Readonly<{ name: string; description: string; sku: string; salePrice: string; purchasePrice: string; stock: string }>;
 export type ProductFormField = keyof ProductFormValues | "form";
 
 export function ProductForm({
-  values, setValue, currency, current, photo, onPhotoChange, errors, disabled, photoBusy, onPhotoBusy, onSave, onCancel, onReviewCatalog, onCheckStatus, saving, conflict, uncertain,
+  values, setValue, currency, current, photo, onPhotoChange, errors, disabled, photoBusy, onPhotoBusy, onSave, onCancel, onReviewCatalog, onCheckStatus, saving, conflict, uncertain, copies, onCopiesChange, onPrint, onPrintVariant,
 }: {
   values: ProductFormValues;
   setValue: (field: keyof ProductFormValues, value: string) => void;
@@ -30,6 +30,10 @@ export function ProductForm({
   saving: boolean;
   conflict?: boolean;
   uncertain?: boolean;
+  copies?: string;
+  onCopiesChange?: (value: string) => void;
+  onPrint?: () => void;
+  onPrintVariant?: (variantId: VariantId) => void;
 }) {
   const multiVariant = (current?.variants.length ?? 1) > 1;
   return <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
@@ -58,6 +62,7 @@ export function ProductForm({
         <ThemedText type="smallBold">{Object.entries(variant.attributes).map(([key, value]) => `${key}: ${value}`).join(" · ") || `Variante ${index + 1}`}</ThemedText>
         <ThemedText themeColor="textSecondary">{variant.sku ?? "Sin SKU"} · Venta {variant.salePrice.amount.toFixed(2)} {currency}{variant.purchasePrice ? ` · Compra ${variant.purchasePrice.amount.toFixed(2)} ${currency}` : ""}</ThemedText>
         <ThemedText themeColor="textSecondary">Stock {variant.stock}</ThemedText>
+        {onPrintVariant ? <Button variant="secondary" onPress={() => onPrintVariant(variant.id)}>Imprimir etiqueta</Button> : null}
       </View>)}
     </View> : <FieldGroup>
       <Field invalid={!!errors.sku} disabled={disabled}>
@@ -77,8 +82,10 @@ export function ProductForm({
         {errors.stock ? <FieldError>{errors.stock}</FieldError> : null}
       </Field>}
     </FieldGroup>}
+    {onCopiesChange ? <Field><FieldLabel>Copias de la etiqueta</FieldLabel><Input value={copies ?? "1"} onChangeText={onCopiesChange} keyboardType="number-pad" accessibilityLabel="Copias de la etiqueta" /></Field> : null}
     <View style={styles.actions}>
-      <Button onPress={onSave} loading={saving} disabled={disabled || photoBusy}>Guardar</Button>
+      <Button onPress={onSave} loading={saving} disabled={disabled || photoBusy}>{current ? "Guardar" : onPrint ? "Solo guardar" : "Guardar"}</Button>
+      {onPrint ? <Button variant="secondary" onPress={onPrint} disabled={saving || photoBusy || !!conflict}>{current ? "Imprimir etiqueta" : "Guardar e imprimir"}</Button> : null}
       <Button variant="secondary" onPress={onCancel} disabled={saving || photoBusy}>Cancelar</Button>
     </View>
     {conflict ? <Button variant="ghost" onPress={onReviewCatalog}>Volver al catálogo</Button> : null}
