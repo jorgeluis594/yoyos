@@ -9,6 +9,7 @@ import com.brother.sdk.lmprinter.OpenChannelError
 import com.brother.sdk.lmprinter.PrinterDriverGenerator
 import com.brother.sdk.lmprinter.PrinterModel
 import com.brother.sdk.lmprinter.PrinterSearcher
+import com.brother.sdk.lmprinter.setting.PrintImageSettings
 import com.brother.sdk.lmprinter.setting.QLPrintSettings
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -124,6 +125,8 @@ class BrotherPrinterModule : Module() {
       try {
         val settings = QLPrintSettings(PrinterModel.QL_810W).apply {
           labelSize = QLPrintSettings.LabelSize.DieCutW62H29
+          workPath = context.cacheDir.absolutePath
+          scaleMode = PrintImageSettings.ScaleMode.ActualSize
           numCopies = input.copies
           isAutoCut = true
           autoCutForEachPageCount = 1
