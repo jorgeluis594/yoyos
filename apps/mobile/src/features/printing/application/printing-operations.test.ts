@@ -15,7 +15,7 @@ function setup() {
   const read = jest.fn(async () => ok(null as PrinterSelection | null));
   const write = jest.fn(async () => ok(undefined));
   const deps: PrintingDependencies = {
-    adapters: [{ id: "brother" as AdapterId, validateSelection: (value) => value.locator === chosen.locator ? ok(undefined) : err({ code: "PRINTER_IDENTITY_MISMATCH" as const, message: "Invalid printer" }), discover: async () => ok([chosen]), resolve: async () => ok({ selection: chosen, profile }), send }],
+    adapters: [{ id: "brother" as AdapterId, maxCopies: 99, validateSelection: (value) => value.locator === chosen.locator ? ok(undefined) : err({ code: "PRINTER_IDENTITY_MISMATCH" as const, message: "Invalid printer" }), discover: async () => ok([chosen]), resolve: async () => ok({ selection: chosen, profile }), send }],
     preferences: { read, write }, temporaryDocuments: { remove }, reportDiagnostic: jest.fn(),
   };
   return { operations: createPrintingOperations(deps), send, remove, read, write, deps };
@@ -48,6 +48,15 @@ test("does not send invalid images and still removes them", async () => {
   expect(result).toMatchObject({ success: false, error: { code: "RENDER_FAILED", outcome: "not-sent" } });
   expect(send).not.toHaveBeenCalled();
   expect(remove).toHaveBeenCalledTimes(1);
+});
+
+test("rejects an unsupported copy count before rendering", async () => {
+  const { operations, send } = setup();
+  const render = jest.fn(async () => ok(document));
+  await operations.selectPrinter(chosen);
+  expect(await operations.printDocument({ ...request(render), copies: 100 as CopyCount }, execution)).toMatchObject({ success: false, error: { code: "INVALID_COPIES", outcome: "not-sent" } });
+  expect(render).not.toHaveBeenCalled();
+  expect(send).not.toHaveBeenCalled();
 });
 
 test("preserves an uncertain send failure and does not resend", async () => {

@@ -12,7 +12,6 @@ test("offers only identified QL-810W devices without duplicates", async () => {
   mockDiscover.mockResolvedValue(ok([
     { model: "QL-810W", ip: "192.168.1.10", serial: "ABC" },
     { model: "QL-810W", ip: "192.168.1.11", serial: "ABC" },
-    { model: "QL-810W", ip: "192.168.1.12" },
     { model: "QL-820NWB", ip: "192.168.1.13", serial: "OTHER" },
   ]));
   const result = await brotherAdapter.discover();
@@ -22,6 +21,11 @@ test("offers only identified QL-810W devices without duplicates", async () => {
     expect(result.data[0].printer.id).toBe("serial:ABC");
     expect(parseBrotherSelection(result.data[0])?.lastKnownIp).toBe("192.168.1.11");
   }
+});
+
+test("reports a Brother printer that cannot be identified safely", async () => {
+  mockDiscover.mockResolvedValue(ok([{ model: "QL-810W", ip: "192.168.1.12" }]));
+  expect(await brotherAdapter.discover()).toMatchObject({ success: false, error: { code: "DISCOVERY_FAILED" } });
 });
 
 test("reconnects by serial after an IP change and refuses another device at the old IP", async () => {

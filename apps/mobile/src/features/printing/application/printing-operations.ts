@@ -72,6 +72,7 @@ export function createPrintingOperations({ adapters, preferences, temporaryDocum
     if (!chosen) return ok({ status: "selection-required" });
     const adapter = adapterFor(chosen);
     if (!adapter) return err({ code: "PRINTING_UNAVAILABLE", message: "Printer adapter is unavailable", outcome: "not-sent" });
+    if (copies.data > adapter.maxCopies) return err({ code: "INVALID_COPIES", message: `Printer supports at most ${adapter.maxCopies} copies`, outcome: "not-sent" });
     const startingRevision = revision;
     stage(execution, "resolving");
     const resolved = await adapter.resolve(chosen, request.format);

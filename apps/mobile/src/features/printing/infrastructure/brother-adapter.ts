@@ -37,6 +37,7 @@ export function parseBrotherSelection(selection: Readonly<{ printer: Readonly<{ 
 
 export const brotherAdapter: PrinterAdapter = {
   id: adapterId,
+  maxCopies: 99,
   validateSelection(selection) {
     return parseBrotherSelection(selection) ? ok(undefined) : err({ code: "PRINTER_IDENTITY_MISMATCH", message: "Printer identity is invalid" });
   },
@@ -44,6 +45,8 @@ export const brotherAdapter: PrinterAdapter = {
     const result = await discoverBrother();
     if (!result.success) return result;
     const unique = new Map<PrinterId, PrinterSelection>();
+    if (result.data.some((device) => device.model === "QL-810W" && !identityFor(device)))
+      return err({ code: "DISCOVERY_FAILED", message: "Printer did not report a serial number or MAC address" });
     for (const device of result.data) {
       const selection = selectionFor(device);
       if (selection) unique.set(selection.printer.id, selection);
