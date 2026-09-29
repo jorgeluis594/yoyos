@@ -142,6 +142,13 @@ export function createProductApi(request: Request) {
     const result = await request(path, init);
     return result.success ? result : err(readApiFailure(result.error, allowed));
   };
+  const pendingProducts = new Map<ProductId, Promise<Result<Product, GetProductError>>>();
+  const readProduct = async (id: ProductId): Promise<Result<Product, GetProductError>> => {
+    const result = restrictFailure(await run(`/api/products/${encodeURIComponent(id)}`, {}, ["PRODUCT_NOT_FOUND", "UNAUTHENTICATED", "COMPANY_REQUIRED", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR"]), ["PRODUCT_NOT_FOUND"] as const);
+    if (!result.success) return result;
+    const parsed = productDetailResponseSchema.safeParse(result.data);
+    return parsed.success ? ok(productDetail(parsed.data)) : err(fieldFailure("INVALID_RESPONSE", "Server returned invalid product data"));
+  };
   return {
     async list(criteria: ProductListCriteria): Promise<Result<ProductPage, ListProductsError>> {
       const params = new URLSearchParams({ page: String(criteria.page), pageSize: String(criteria.pageSize) });
@@ -157,11 +164,12 @@ export function createProductApi(request: Request) {
         ? ok({ ...parsed.data, items: parsed.data.items.map(productListItem) })
         : err(fieldFailure("INVALID_RESPONSE", "Server returned invalid products"));
     },
-    async get(id: ProductId): Promise<Result<Product, GetProductError>> {
-      const result = restrictFailure(await run(`/api/products/${encodeURIComponent(id)}`, {}, ["PRODUCT_NOT_FOUND", "UNAUTHENTICATED", "COMPANY_REQUIRED", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR"]), ["PRODUCT_NOT_FOUND"] as const);
-      if (!result.success) return result;
-      const parsed = productDetailResponseSchema.safeParse(result.data);
-      return parsed.success ? ok(productDetail(parsed.data)) : err(fieldFailure("INVALID_RESPONSE", "Server returned invalid product data"));
+    get(id: ProductId): Promise<Result<Product, GetProductError>> {
+      const pending = pendingProducts.get(id);
+      if (pending) return pending;
+      const read = readProduct(id).finally(() => pendingProducts.delete(id));
+      pendingProducts.set(id, read);
+      return read;
     },
     async create(input: CreateProductRequest): Promise<Result<ProductId, CreateProductError>> {
       const body = createProductRequestSchema.safeParse(input);
