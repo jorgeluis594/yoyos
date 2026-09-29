@@ -150,6 +150,10 @@ export default function NewOrderScreen() {
     if (!result.success) {
       setError(errorText[result.error.code] ?? "No se pudo confirmar la venta. Revisa el intento antes de volver a enviar.");
       setProblemVariantId("issues" in result.error ? result.error.issues?.find((issue) => issue.variantId)?.variantId ?? null : null);
+      const current = await orders.readPendingOrderConfirmation(companyId);
+      if (!current.success) setPendingStatus("error");
+      else if (!current.data) { setPending(null); setPendingStatus("none"); submitted.current = null; }
+      else { setPending(current.data); setPendingStatus("uncertain"); }
       return;
     }
     if (result.data.kind === "completed") { openCompleted(result.data); return; }
