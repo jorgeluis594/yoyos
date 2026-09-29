@@ -2,8 +2,7 @@
 name: brainstorming
 description: Turn loosely defined ideas into clear decisions through conversational questions and alternatives. Use when the user wants to explore an idea, define requirements, clarify scope, or compare approaches before acting. Do not activate automatically for tasks that are already defined.
 ---
-
-# Simple Brainstorming
+# Brainstorming
 
 Help the user clarify what they want, who it is for, and what outcome would serve them. The usual deliverable is a shared understanding in chat; the conversation does not need to become a development process.
 
