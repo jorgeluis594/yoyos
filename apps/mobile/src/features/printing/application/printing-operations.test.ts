@@ -15,11 +15,19 @@ function setup() {
   const read = jest.fn(async () => ok(null as PrinterSelection | null));
   const write = jest.fn(async () => ok(undefined));
   const deps: PrintingDependencies = {
-    adapters: [{ id: "brother" as AdapterId, discover: async () => ok([chosen]), resolve: async () => ok({ selection: chosen, profile }), send }],
+    adapters: [{ id: "brother" as AdapterId, validateSelection: (value) => value.locator === chosen.locator ? ok(undefined) : err({ code: "PRINTER_IDENTITY_MISMATCH" as const, message: "Invalid printer" }), discover: async () => ok([chosen]), resolve: async () => ok({ selection: chosen, profile }), send }],
     preferences: { read, write }, temporaryDocuments: { remove }, reportDiagnostic: jest.fn(),
   };
   return { operations: createPrintingOperations(deps), send, remove, read, write, deps };
 }
+
+test("rejects an invalid printer before making it the active selection", async () => {
+  const { operations, write } = setup();
+  const invalid = { ...chosen, locator: "bad" as PrinterLocator };
+  expect(await operations.selectPrinter(invalid)).toMatchObject({ success: false, error: { code: "PRINTER_IDENTITY_MISMATCH" } });
+  expect(write).not.toHaveBeenCalled();
+  expect(await operations.printDocument(request(), execution)).toEqual(ok({ status: "selection-required" }));
+});
 
 test("asks for a printer before rendering, then sends and removes the image", async () => {
   const { operations, send, remove } = setup();

@@ -41,7 +41,10 @@ export function createPrintingOperations({ adapters, preferences, temporaryDocum
   };
 
   const selectPrinter = async (value: PrinterSelection): Promise<Result<SelectionResult, ResolveError>> => {
-    if (!adapterFor(value)) return err({ code: "PRINTING_UNAVAILABLE", message: "Printer adapter is unavailable" });
+    const adapter = adapterFor(value);
+    if (!adapter) return err({ code: "PRINTING_UNAVAILABLE", message: "Printer adapter is unavailable" });
+    const validated = adapter.validateSelection(value);
+    if (!validated.success) return validated;
     selection = value;
     loaded = true;
     revision++;

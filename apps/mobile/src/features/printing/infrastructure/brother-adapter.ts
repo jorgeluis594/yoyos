@@ -37,6 +37,9 @@ export function parseBrotherSelection(selection: Readonly<{ printer: Readonly<{ 
 
 export const brotherAdapter: PrinterAdapter = {
   id: adapterId,
+  validateSelection(selection) {
+    return parseBrotherSelection(selection) ? ok(undefined) : err({ code: "PRINTER_IDENTITY_MISMATCH", message: "Printer identity is invalid" });
+  },
   async discover() {
     const result = await discoverBrother();
     if (!result.success) return result;

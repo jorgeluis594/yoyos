@@ -15,6 +15,7 @@ export type PrinterPreferenceStore = Readonly<{
 }>;
 export type PrinterAdapter = Readonly<{
   id: AdapterId;
+  validateSelection: (selection: PrinterSelection) => Result<void, ResolveError>;
   discover: () => Promise<Result<readonly PrinterSelection[], DiscoveryError>>;
   resolve: (selection: PrinterSelection, format: LabelFormat) => Promise<Result<ResolvedPrinter, ResolveError>>;
   send: (input: Readonly<{ printer: ResolvedPrinter; document: RenderedDocument; copies: CopyCount }>) => Promise<Result<PrintReceipt, SendError>>;
