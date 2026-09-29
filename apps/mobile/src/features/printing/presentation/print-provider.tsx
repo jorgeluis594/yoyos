@@ -32,6 +32,7 @@ export function PrintProvider({ children }: { children: ReactNode }) {
 function PrintSession({ children, sessionKey }: { children: ReactNode; sessionKey: string | null }) {
   const sessionRef = useRef(sessionKey);
   const sequence = useRef(0);
+  const selectionRevision = useRef(0);
   const activeWork = useRef<PrintWork | null>(null);
   const [notice, setNotice] = useState<Notice>({ status: "idle" });
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -45,8 +46,9 @@ function PrintSession({ children, sessionKey }: { children: ReactNode; sessionKe
   useEffect(() => {
     if (!sessionKey) return;
     void cleanOldPrintDocuments();
+    const startedAt = selectionRevision.current;
     void printing.loadPrinterPreference().then((result) => {
-      if (sessionRef.current !== sessionKey) return;
+      if (sessionRef.current !== sessionKey || selectionRevision.current !== startedAt) return;
       if (result.success) setSelection(result.data);
       else setPreferenceWarning("No se pudo recuperar la impresora guardada. Puedes elegirla de nuevo.");
     });
@@ -92,8 +94,9 @@ function PrintSession({ children, sessionKey }: { children: ReactNode; sessionKe
   const dismissNotice = () => { sequence.current++; activeWork.current = null; setNotice({ status: "idle" }); setPickerOpen(false); setConfirmRetry(false); };
   const choose = (candidate: PrinterSelection) => {
     const selectingAttempt = notice.status === "selecting-printer" ? notice.id : null;
+    const revision = ++selectionRevision.current;
     void printing.selectPrinter(candidate).then((result) => {
-      if (!sessionRef.current) return;
+      if (!sessionRef.current || selectionRevision.current !== revision) return;
       if (!result.success) { setPickerError("No se pudo seleccionar la impresora."); return; }
       setSelection(result.data.selection);
       setPreferenceWarning(result.data.persistence.status === "session-only" ? "La impresora funcionará ahora, pero no quedó guardada en este teléfono." : null);

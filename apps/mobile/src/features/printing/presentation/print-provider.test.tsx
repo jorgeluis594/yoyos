@@ -5,12 +5,13 @@ import { PrintProvider, usePrint, type PrintWork } from "@mobile/features/printi
 
 const mockDiscover = jest.fn();
 const mockSelect = jest.fn();
+const mockLoad = jest.fn();
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({
   useAccess: () => ({ state: { status: "ready", user: { id: "user" }, company: { id: "company" } } }),
 }));
 jest.mock("@mobile/features/printing/composition", () => ({
   printing: {
-    loadPrinterPreference: () => Promise.resolve({ success: true, data: null }),
+    loadPrinterPreference: (...args: unknown[]) => mockLoad(...args),
     discoverPrinters: (...args: unknown[]) => mockDiscover(...args),
     selectPrinter: (...args: unknown[]) => mockSelect(...args),
   },
@@ -24,7 +25,7 @@ const deferred = <T,>() => {
 };
 
 const originalPlatform = Platform.OS;
-beforeEach(() => { Platform.OS = "android"; mockDiscover.mockReset(); mockSelect.mockReset(); });
+beforeEach(() => { Platform.OS = "android"; mockDiscover.mockReset(); mockSelect.mockReset(); mockLoad.mockReset().mockResolvedValue({ success: true, data: null }); });
 afterEach(() => { Platform.OS = originalPlatform; });
 
 test("a late earlier result cannot replace the latest print notice", async () => {
@@ -85,4 +86,26 @@ test("changing printer after an uncertain failure waits for duplicate confirmati
   fireEvent.press(screen.getByText("Confirmar repetición"));
   await screen.findByText("Impresión enviada");
   expect(work).toHaveBeenCalledTimes(2);
+});
+
+test("a late preference read cannot replace a newly selected printer", async () => {
+  const pending = deferred<{ success: false; error: { code: string; message: string } }>();
+  mockLoad.mockReturnValue(pending.promise);
+  const candidate = { printer: { id: "serial:1", displayName: "Brother QL-810W", adapterId: "brother", model: "QL-810W" }, locator: "locator" };
+  mockDiscover.mockResolvedValue({ success: true, data: [candidate] });
+  mockSelect.mockResolvedValue({ success: true, data: { selection: candidate, persistence: { status: "saved" } } });
+  function Controls() {
+    const print = usePrint();
+    return <Button onPress={print.showPrinterPicker}>Choose</Button>;
+  }
+  render(<PrintProvider><Controls /></PrintProvider>);
+  fireEvent.press(screen.getByText("Choose"));
+  fireEvent.press(await screen.findByText("Brother QL-810W"));
+  await waitFor(() => expect(screen.queryByText("Impresora de etiquetas")).toBeNull());
+  await act(async () => pending.resolve({ success: false, error: { code: "PREFERENCE_READ_FAILED", message: "old read" } }));
+  fireEvent.press(screen.getByText("Choose"));
+  await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(2));
+  await act(async () => { await Promise.resolve(); });
+  expect(screen.getByText("Actual: Brother QL-810W")).toBeTruthy();
+  expect(screen.queryByText("No se pudo recuperar la impresora guardada. Puedes elegirla de nuevo.")).toBeNull();
 });
