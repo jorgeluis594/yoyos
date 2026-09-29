@@ -55,6 +55,26 @@ test("a late earlier result cannot replace the latest print notice", async () =>
   expect(screen.getByText("Impresión enviada")).toBeTruthy();
 });
 
+test("signing out invalidates pending work and discards its late result", async () => {
+  const pending = deferred<Awaited<ReturnType<PrintWork>>>();
+  let execution!: Parameters<PrintWork>[0];
+  function Controls() {
+    const print = usePrint();
+    return <Button onPress={() => print.startAttempt((current) => { execution = current; return pending.promise; })}>Print</Button>;
+  }
+  const { rerender } = render(<PrintProvider><Controls /></PrintProvider>);
+  fireEvent.press(screen.getByText("Print"));
+  expect(execution.isSessionCurrent()).toBe(true);
+  mockAccessState = { ...mockAccessState, status: "signed-out" };
+  rerender(<PrintProvider><Controls /></PrintProvider>);
+  expect(execution.isSessionCurrent()).toBe(false);
+  await act(async () => pending.resolve({ status: "failed", message: "old failure", outcome: "unknown" }));
+  mockAccessState = { ...mockAccessState, status: "ready" };
+  rerender(<PrintProvider><Controls /></PrintProvider>);
+  expect(screen.queryByText("old failure")).toBeNull();
+  expect(screen.queryByText("Reintentar")).toBeNull();
+});
+
 test("choosing a discovered printer resumes the pending print", async () => {
   const candidate = { printer: { id: "serial:1", displayName: "Brother QL-810W", adapterId: "brother", model: "QL-810W" }, locator: "locator" };
   mockDiscover.mockResolvedValue({ success: true, data: [candidate] });
