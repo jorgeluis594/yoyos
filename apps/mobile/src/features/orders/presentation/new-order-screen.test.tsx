@@ -7,14 +7,20 @@ const mockReplace = jest.fn();
 const mockCompleteOrder = jest.fn();
 const mockReadPending = jest.fn();
 const mockResolvePending = jest.fn();
-const mockSetDirty = jest.fn();
+let mockDirty = false;
+let mockOffline = false;
+const mockSetDirty = jest.fn((value: boolean) => { mockDirty = value; });
+const mockDispatch = jest.fn();
+const mockUsePreventRemove = jest.fn();
+const mockShowConfirmation = jest.fn();
 const mockShow = jest.fn();
 jest.mock("expo-router", () => ({ useRouter: () => ({ back: jest.fn(), replace: mockReplace }),
-  useNavigation: () => ({ dispatch: jest.fn() }) }));
-jest.mock("expo-router/react-navigation", () => ({ usePreventRemove: jest.fn() }));
+  useNavigation: () => ({ dispatch: mockDispatch }) }));
+jest.mock("expo-router/react-navigation", () => ({ usePreventRemove: (...args: unknown[]) => mockUsePreventRemove(...args) }));
+jest.mock("@mobile/components/ui/show-confirmation", () => ({ showConfirmation: (...args: unknown[]) => mockShowConfirmation(...args) }));
 jest.mock("expo-crypto", () => ({ randomUUID: () => mockId(3) }));
-jest.mock("expo-network", () => ({ useNetworkState: () => ({ isConnected: true, isInternetReachable: true }),
-  getNetworkStateAsync: async () => ({ isConnected: true, isInternetReachable: true }) }));
+jest.mock("expo-network", () => ({ useNetworkState: () => ({ isConnected: !mockOffline, isInternetReachable: !mockOffline }),
+  getNetworkStateAsync: async () => ({ isConnected: !mockOffline, isInternetReachable: !mockOffline }) }));
 jest.mock("@mobile/composition/orders", () => ({ orders: {
   readPendingOrderConfirmation: (...args: unknown[]) => mockReadPending(...args),
   resolvePendingOrderConfirmation: (...args: unknown[]) => mockResolvePending(...args),
@@ -27,12 +33,12 @@ jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAcc
   status: "ready", company: { id: mockId(1), name: "Mi tienda", country: "PE" }, user: { id: "seller" },
 } }) }));
 jest.mock("@mobile/features/orders/presentation/order-draft-guard", () => ({ useOrderDraft: () => ({
-  dirty: false, setDirty: mockSetDirty, discardVersion: 0,
+  dirty: mockDirty, setDirty: mockSetDirty, discardVersion: 0,
 }) }));
 jest.mock("@mobile/features/orders/presentation/order-result", () => ({ useOrderResult: () => ({ show: mockShow }) }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 
-beforeEach(() => { jest.clearAllMocks(); mockReadPending.mockResolvedValue(ok(null)); });
+beforeEach(() => { jest.clearAllMocks(); mockDirty = false; mockOffline = false; mockReadPending.mockResolvedValue(ok(null)); });
 
 test("seller selects a variant, reviews the amount, and opens the completed sale", async () => {
   mockCompleteOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: { amount: 10, currency: "PEN" },
@@ -71,4 +77,37 @@ test("known stock rejection after uncertain resend returns to the editable cart"
   await screen.findByText("Ya no hay stock suficiente. Corrige la cantidad y vuelve a confirmar.");
   expect(screen.getByRole("button", { name: "Editar productos" })).toBeTruthy();
   expect(screen.getByText("Revisa esta variante.")).toBeTruthy();
+});
+
+test("leaving with items asks to discard and reopening starts with an empty cart", async () => {
+  const screen = render(<NewOrderScreen />);
+  await screen.findByText("Camisa");
+  fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
+  fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
+  expect(mockSetDirty).toHaveBeenLastCalledWith(true);
+  screen.rerender(<NewOrderScreen />);
+  expect(mockUsePreventRemove).toHaveBeenLastCalledWith(true, expect.any(Function));
+  const onLeave = mockUsePreventRemove.mock.lastCall?.[1];
+  onLeave({ data: { action: { type: "GO_BACK" } } });
+  expect(mockShowConfirmation).toHaveBeenCalledWith(expect.objectContaining({ title: "¿Descartar venta?" }));
+  expect(mockDispatch).not.toHaveBeenCalled();
+  mockShowConfirmation.mock.lastCall?.[0].onConfirm();
+  expect(mockDispatch).toHaveBeenCalledWith({ type: "GO_BACK" });
+  screen.unmount();
+  mockDirty = false;
+  const reopened = render(<NewOrderScreen />);
+  await reopened.findByText("Camisa");
+  expect(reopened.getByRole("button", { name: "Revisar venta" })).toBeDisabled();
+});
+
+test("offline selection remains editable without a confirm action", async () => {
+  mockOffline = true;
+  const screen = render(<NewOrderScreen />);
+  await screen.findByText("Camisa");
+  fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
+  fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
+  fireEvent.press(screen.getByRole("button", { name: "Revisar venta" }));
+  expect(screen.getByRole("button", { name: "Confirmar cobro y entrega" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Editar productos" })).toBeTruthy();
+  expect(mockCompleteOrder).not.toHaveBeenCalled();
 });

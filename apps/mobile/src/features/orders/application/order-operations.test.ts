@@ -86,3 +86,23 @@ test("recovery keeps the amount first shown and returns the core total", async (
   expect(await store.read(companyId)).toMatchObject({ success: true, data: { id: id(3) } });
   expect(await operations.clearPendingOrderConfirmation(companyId, id(3))).toEqual(ok(undefined));
 });
+
+test("a restarted session reads the same company attempt and explicitly resends its original ID", async () => {
+  const values = new Map<string, string>();
+  const secureStorage = { getItemAsync: async (key: string) => values.get(key) ?? null,
+    setItemAsync: async (key: string, value: string) => { values.set(key, value); },
+    deleteItemAsync: async (key: string) => { values.delete(key); } };
+  let sends = 0;
+  const api = createOrderApi(async (path) => path === "/api/orders" ? (sends++, err({ code: "NETWORK_ERROR", message: "Lost response" }))
+    : err({ code: "API_ERROR", message: "Absent", http: { status: 404, body: { code: "ORDER_NOT_FOUND", error: "Absent" } } }));
+  const first = createOrderOperations(api, createPendingOrderConfirmationStore(secureStorage));
+  expect(await first.completeOrder(draft(), companyId)).toMatchObject({ success: true, data: { kind: "uncertain" } });
+  const restarted = createOrderOperations(api, createPendingOrderConfirmationStore(secureStorage));
+  expect(await restarted.readPendingOrderConfirmation(id(4))).toEqual(ok(null));
+  expect(await restarted.resolvePendingOrderConfirmation(companyId)).toMatchObject({ success: true,
+    data: { kind: "uncertain", pending: { id: id(3), shownTotal: { amount: 10 } } } });
+  expect(sends).toBe(1);
+  expect(await restarted.completeOrder(draft(), companyId)).toMatchObject({ success: true,
+    data: { kind: "uncertain", pending: { id: id(3), shownTotal: { amount: 10 } } } });
+  expect(sends).toBe(2);
+});
