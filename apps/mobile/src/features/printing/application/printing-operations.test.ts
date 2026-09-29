@@ -69,6 +69,15 @@ test("preserves an uncertain send failure and does not resend", async () => {
   expect(remove).toHaveBeenCalledTimes(1);
 });
 
+test("a thrown cleanup failure cannot turn a confirmed send into a retryable error", async () => {
+  const { operations, send, remove, deps } = setup();
+  remove.mockRejectedValueOnce(new Error("cache unavailable"));
+  await operations.selectPrinter(chosen);
+  expect(await operations.printDocument(request(), execution)).toMatchObject({ success: true, data: { status: "completed" } });
+  expect(send).toHaveBeenCalledTimes(1);
+  expect(deps.reportDiagnostic).toHaveBeenCalledWith(expect.objectContaining({ code: "CLEANUP_FAILED" }));
+});
+
 test("a late preference read cannot replace a new selection", async () => {
   const { deps } = setup();
   let finishRead!: (value: ReturnType<typeof ok<PrinterSelection | null>>) => void;

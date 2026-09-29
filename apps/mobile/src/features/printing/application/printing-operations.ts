@@ -102,8 +102,12 @@ export function createPrintingOperations({ adapters, preferences, temporaryDocum
       const sent = await adapter.send({ printer: resolved.data, document, copies: copies.data });
       return sent.success ? ok({ status: "completed", printer: resolved.data.selection.printer, receipt: sent.data }) : sent;
     } finally {
-      const removed = await temporaryDocuments.remove(document);
-      if (!removed.success) diagnostic(removed.error);
+      try {
+        const removed = await temporaryDocuments.remove(document);
+        if (!removed.success) diagnostic(removed.error);
+      } catch (cause) {
+        diagnostic({ code: "CLEANUP_FAILED", message: String(cause) });
+      }
     }
   };
 
