@@ -2,6 +2,7 @@ package expo.modules.brotherprinter
 
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.util.Log
 import com.brother.sdk.lmprinter.Channel
 import com.brother.sdk.lmprinter.NetworkSearchOption
 import com.brother.sdk.lmprinter.OpenChannelError
@@ -140,7 +141,8 @@ class BrotherPrinterModule : Module() {
         }
         return sendFailure(code, name, "unknown")
       } finally {
-        driver.closeChannel()
+        try { driver.closeChannel() }
+        catch (error: Exception) { Log.w("BrotherPrinter", "Could not close printer channel", error) }
       }
     } catch (error: SecurityException) {
       return sendFailure("CONNECTION_FAILED", error.message ?: "Network permission denied", if (sendStarted) "unknown" else "not-sent")
