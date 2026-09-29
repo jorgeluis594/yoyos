@@ -12,8 +12,10 @@ import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
 
 import { MaxContentWidth, Spacing } from '@/constants/theme';
+import { useAccess } from '@mobile/features/users/presentation/access-provider';
 
 export default function AppTabs() {
+  const { state } = useAccess();
   return (
     <Tabs>
       <TabSlot style={{ height: '100%' }} />
@@ -22,6 +24,12 @@ export default function AppTabs() {
           <TabTrigger name="home" href="/" asChild>
             <TabButton>Inicio</TabButton>
           </TabTrigger>
+          <TabTrigger name="products" href="/products" asChild>
+            <TabButton>Productos</TabButton>
+          </TabTrigger>
+          {state.status === 'ready' && state.company.country === 'PE' ? <TabTrigger name="orders" href="/orders" asChild>
+            <TabButton>Ventas</TabButton>
+          </TabTrigger> : null}
         </CustomTabList>
       </TabList>
     </Tabs>

@@ -5,6 +5,8 @@ import { usePathname, useRouter } from 'expo-router';
 import { Colors } from '@mobile/constants/theme';
 import { showConfirmation } from '@mobile/components/ui/show-confirmation';
 import { useProductDraft } from '@mobile/features/products/presentation/draft-guard';
+import { useOrderDraft } from '@mobile/features/orders/presentation/order-draft-guard';
+import { useAccess } from '@mobile/features/users/presentation/access-provider';
 
 export default function AppTabs() {
   const scheme = useColorScheme();
@@ -12,16 +14,18 @@ export default function AppTabs() {
   const router = useRouter();
   const pathname = usePathname();
   const { dirty, discard } = useProductDraft();
-  const tabPress = (path: '/' | '/products') => (event: { data: { isPrevented: boolean } }) => {
+  const orderDraft = useOrderDraft();
+  const { state } = useAccess();
+  const tabPress = (path: '/' | '/products' | '/orders') => (event: { data: { isPrevented: boolean } }) => {
     const isCurrentTab = path === '/' ? pathname === '/' : pathname === path || pathname.startsWith(`${path}/`);
-    if (!event.data.isPrevented || !dirty || isCurrentTab) return;
+    if (!event.data.isPrevented || (!dirty && !orderDraft.dirty) || isCurrentTab) return;
     showConfirmation({
       title: '¿Descartar cambios?',
       description: 'Se perderán los cambios que no guardaste.',
       confirmLabel: 'Descartar',
       cancelLabel: 'Seguir editando',
       destructive: true,
-      onConfirm: () => { discard(); router.navigate(path); },
+      onConfirm: () => { if (dirty) discard(); if (orderDraft.dirty) orderDraft.discard(); router.navigate(path); },
     });
   };
 
@@ -32,17 +36,21 @@ export default function AppTabs() {
       iconColor={{ default: colors.textSecondary, selected: colors.primary }}
       indicatorColor={colors.backgroundSelected}
       labelStyle={{ default: { color: colors.textSecondary }, selected: { color: colors.primary } }}>
-      <NativeTabs.Trigger name="index" disabled={dirty} listeners={{ tabPress: tabPress('/') }}>
+      <NativeTabs.Trigger name="index" disabled={dirty || orderDraft.dirty} listeners={{ tabPress: tabPress('/') }}>
         <NativeTabs.Trigger.Label>Inicio</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
           sf={{ default: "house", selected: "house.fill" }}
           md="home"
         />
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="products" disabled={dirty} listeners={{ tabPress: tabPress('/products') }}>
+      <NativeTabs.Trigger name="products" disabled={dirty || orderDraft.dirty} listeners={{ tabPress: tabPress('/products') }}>
         <NativeTabs.Trigger.Label>Productos</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="shippingbox" md="inventory_2" />
       </NativeTabs.Trigger>
+      {state.status === 'ready' && state.company.country === 'PE' ? <NativeTabs.Trigger name="orders" disabled={dirty || orderDraft.dirty} listeners={{ tabPress: tabPress('/orders') }}>
+        <NativeTabs.Trigger.Label>Ventas</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf="bag" md="shopping_bag" />
+      </NativeTabs.Trigger> : null}
     </NativeTabs>
   );
 }

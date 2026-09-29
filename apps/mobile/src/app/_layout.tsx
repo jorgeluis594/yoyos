@@ -6,6 +6,7 @@ import { Platform, useColorScheme } from 'react-native';
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { AccessProvider } from '@/features/users/presentation/access-provider';
 import { ProductDraftProvider } from '@/features/products/presentation/draft-guard';
+import { OrderDraftProvider } from '@mobile/features/orders/presentation/order-draft-guard';
 import { AccessGate } from '@/composition/access-gate';
 import * as auth from '@/composition/auth';
 
@@ -20,7 +21,7 @@ export default function TabLayout() {
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <AnimatedSplashOverlay />
-      <ProductDraftProvider><AccessProvider operations={auth}><AccessGate /></AccessProvider></ProductDraftProvider>
+      <ProductDraftProvider><OrderDraftProvider><AccessProvider operations={auth}><AccessGate /></AccessProvider></OrderDraftProvider></ProductDraftProvider>
     </ThemeProvider>
   );
 }
