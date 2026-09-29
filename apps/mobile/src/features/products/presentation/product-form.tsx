@@ -84,8 +84,9 @@ export function ProductForm({
     </FieldGroup>}
     {onCopiesChange ? <Field><FieldLabel>Copias de la etiqueta</FieldLabel><Input value={copies ?? "1"} onChangeText={onCopiesChange} keyboardType="number-pad" accessibilityLabel="Copias de la etiqueta" /></Field> : null}
     <View style={styles.actions}>
-      <Button onPress={onSave} loading={saving} disabled={disabled || photoBusy}>{current ? "Guardar" : onPrint ? "Solo guardar" : "Guardar"}</Button>
-      {onPrint ? <Button variant="secondary" onPress={onPrint} disabled={saving || photoBusy || !!conflict}>{current ? "Imprimir etiqueta" : "Guardar e imprimir"}</Button> : null}
+      {!current && onPrint ? <Button onPress={onPrint} loading={saving} disabled={disabled || photoBusy}>Guardar e imprimir</Button> : null}
+      <Button variant={current ? "default" : "secondary"} onPress={onSave} loading={saving} disabled={disabled || photoBusy}>{current ? "Guardar" : onPrint ? "Solo guardar" : "Guardar"}</Button>
+      {current && onPrint ? <Button variant="secondary" onPress={onPrint} disabled={saving || photoBusy || !!conflict}>Imprimir etiqueta</Button> : null}
       <Button variant="secondary" onPress={onCancel} disabled={saving || photoBusy}>Cancelar</Button>
     </View>
     {conflict ? <Button variant="ghost" onPress={onReviewCatalog}>Volver al catálogo</Button> : null}
