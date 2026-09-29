@@ -79,6 +79,33 @@ test("preserves an uncertain send failure and does not resend", async () => {
   expect(remove).toHaveBeenCalledTimes(1);
 });
 
+test("overlapping sends keep their own image and cleanup result", async () => {
+  const { deps, remove } = setup();
+  const firstDocument = { ...document, uri: "file:///cache/yoyos-label-first.png" };
+  const secondDocument = { ...document, uri: "file:///cache/yoyos-label-second.png" };
+  let finishFirst!: () => void;
+  const firstSend = new Promise<void>((resolve) => { finishFirst = resolve; });
+  const send = jest.fn(async ({ document: image }: Parameters<PrintingDependencies["adapters"][number]["send"]>[0]) => {
+    if (image.uri === firstDocument.uri) {
+      await firstSend;
+      return err({ code: "COMMUNICATION_FAILED" as const, message: "Connection lost", outcome: "unknown" as const });
+    }
+    return ok({ confirmation: "sdk" as const });
+  });
+  const operations = createPrintingOperations({ ...deps, adapters: [{ ...deps.adapters[0], send }] });
+  await operations.selectPrinter(chosen);
+  const first = operations.printDocument({ ...request(async () => ok(firstDocument)), copies: 2 as CopyCount }, execution);
+  const second = operations.printDocument({ ...request(async () => ok(secondDocument)), copies: 3 as CopyCount }, execution);
+  expect(await second).toMatchObject({ success: true, data: { status: "completed" } });
+  expect(remove).toHaveBeenCalledTimes(1);
+  expect(remove).toHaveBeenCalledWith(secondDocument);
+  expect(send.mock.calls.map(([value]) => [value.document.uri, value.copies])).toEqual([[firstDocument.uri, 2], [secondDocument.uri, 3]]);
+  finishFirst();
+  expect(await first).toMatchObject({ success: false, error: { code: "COMMUNICATION_FAILED", outcome: "unknown" } });
+  expect(remove).toHaveBeenCalledTimes(2);
+  expect(remove).toHaveBeenCalledWith(firstDocument);
+});
+
 test("a thrown cleanup failure cannot turn a confirmed send into a retryable error", async () => {
   const { operations, send, remove, deps } = setup();
   remove.mockRejectedValueOnce(new Error("cache unavailable"));
