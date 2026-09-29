@@ -62,3 +62,27 @@ test("choosing a discovered printer resumes the pending print", async () => {
   await waitFor(() => expect(screen.getByText("Impresión enviada")).toBeTruthy());
   expect(work).toHaveBeenCalledTimes(2);
 });
+
+test("changing printer after an uncertain failure waits for duplicate confirmation", async () => {
+  const candidate = { printer: { id: "serial:1", displayName: "Brother QL-810W", adapterId: "brother", model: "QL-810W" }, locator: "locator" };
+  mockDiscover.mockResolvedValue({ success: true, data: [candidate] });
+  mockSelect.mockResolvedValue({ success: true, data: { selection: candidate, persistence: { status: "saved" } } });
+  const work = jest.fn<ReturnType<PrintWork>, Parameters<PrintWork>>()
+    .mockResolvedValueOnce({ status: "failed", message: "Connection lost", outcome: "unknown" })
+    .mockResolvedValueOnce({ status: "completed" });
+  function Controls() {
+    const print = usePrint();
+    return <Button onPress={() => print.startAttempt(work)}>Print</Button>;
+  }
+  render(<PrintProvider><Controls /></PrintProvider>);
+  fireEvent.press(screen.getByText("Print"));
+  await screen.findByText("Connection lost");
+  fireEvent.press(screen.getByText("Elegir impresora"));
+  await screen.findByText("Brother QL-810W");
+  fireEvent.press(screen.getByText("Brother QL-810W"));
+  await waitFor(() => expect(screen.getByText("Confirma que deseas repetir aunque podrían salir duplicados.")).toBeTruthy());
+  expect(work).toHaveBeenCalledTimes(1);
+  fireEvent.press(screen.getByText("Confirmar repetición"));
+  await screen.findByText("Impresión enviada");
+  expect(work).toHaveBeenCalledTimes(2);
+});
