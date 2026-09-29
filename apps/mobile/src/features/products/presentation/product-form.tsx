@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { ThemedText } from "@/components/themed-text";
-import { products } from "@/composition/products";
+import { products } from "@mobile/features/products/composition";
 import { ProductPhoto } from "./product-photo";
 import type { Product, PhotoSelection } from "../domain/product";
 

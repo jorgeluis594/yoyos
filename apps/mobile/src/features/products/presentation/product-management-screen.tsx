@@ -5,7 +5,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { ScreenState } from "@/components/ui/screen-state";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
-import { products } from "@/composition/products";
+import { products } from "@mobile/features/products/composition";
 import { useAccess } from "@/features/users/presentation/access-provider";
 import type { PhotoSelection, Product, ProductId } from "../domain/product";
 import { ProductForm } from "./product-form";

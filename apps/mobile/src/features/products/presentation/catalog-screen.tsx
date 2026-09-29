@@ -9,7 +9,7 @@ import { Button } from "@mobile/components/ui/button";
 import { Input } from "@mobile/components/ui/input";
 import { useTheme } from "@mobile/hooks/use-theme";
 import { ScreenState } from "@mobile/components/ui/screen-state";
-import { products } from "@mobile/composition/products";
+import { products } from "@mobile/features/products/composition";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import type { ProductListItem } from "@mobile/features/products/domain/product";
 

@@ -6,7 +6,7 @@ import { countryCurrencies } from "@shared/country";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
-import { products } from "@/composition/products";
+import { products } from "@mobile/features/products/composition";
 import { useAccess } from "@/features/users/presentation/access-provider";
 import type { ProductId, PhotoSelection } from "../domain/product";
 import { ProductForm } from "./product-form";
