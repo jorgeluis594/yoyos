@@ -16,11 +16,15 @@ export function productPrintWork(source: ProductLabelSource, copies: CopyCount):
       const message = cause.code === "VARIANT_SELECTION_REQUIRED" ? "Elige una variante desde el detalle para imprimir."
         : cause.code === "VARIANT_NOT_FOUND" ? "Este producto no tiene variantes para imprimir."
           : cause.code === "PRODUCT_NOT_FOUND" ? "No se encontró el producto guardado."
-            : cause.code === "PAPER_EMPTY" ? "La impresora no tiene etiquetas."
-              : cause.code === "PAPER_MISMATCH" ? "Coloca etiquetas Brother DK-1209 de 62 × 29 mm."
-                : cause.code === "COVER_OPEN" ? "Cierra la tapa de la impresora."
-                  : cause.code === "PRINTING_UNAVAILABLE" ? "La impresión está disponible en Android con una app compatible."
-                    : "No se pudo imprimir. Revisa la impresora y la conexión.";
+            : cause.code === "UNAUTHENTICATED" ? "Inicia sesión para consultar el producto e imprimir."
+              : cause.code === "COMPANY_REQUIRED" ? "Selecciona una empresa para consultar el producto e imprimir."
+                : cause.code === "LABEL_CONTENT_OVERFLOW" ? "El contenido no cabe completo en esta etiqueta."
+                  : cause.code === "PAPER_EMPTY" ? "La impresora no tiene etiquetas."
+                    : cause.code === "PAPER_MISMATCH" ? "Coloca etiquetas Brother DK-1209 de 62 × 29 mm."
+                      : cause.code === "COVER_OPEN" ? "Cierra la tapa de la impresora."
+                        : cause.code === "PRINTING_UNAVAILABLE" ? "La impresión está disponible en Android con una app compatible."
+                          : "outcome" in cause ? "No se pudo imprimir. Revisa la impresora y la conexión."
+                            : "No se pudo consultar el producto para imprimir.";
       return { status: "failed", message, outcome };
     }
     if (result.data.status === "selection-required") {
