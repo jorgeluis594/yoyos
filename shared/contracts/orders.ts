@@ -24,7 +24,10 @@ export const listOrdersSchema = z.strictObject({
   completedBefore: z.iso.datetime().optional(),
 }).refine((value) => (value.customer === "contact") === !!value.contactId,
   { message: "Contact must match customer filter", path: ["contactId"] })
-  .refine((value) => !value.completedFrom || !value.completedBefore || value.completedFrom < value.completedBefore,
+  .refine((value) => Number.isSafeInteger((value.page - 1) * 20),
+    { message: "Page exceeds safe offset", path: ["page"] })
+  .refine((value) => !value.completedFrom || !value.completedBefore ||
+    new Date(value.completedFrom).getTime() < new Date(value.completedBefore).getTime(),
     { message: "Invalid date interval", path: ["completedBefore"] });
 export type ListOrdersRequest = z.infer<typeof listOrdersSchema>;
 export const orderSummarySchema = orderSchema.pick({ id: true, completedAt: true, customer: true, sellerId: true, currency: true, total: true });
