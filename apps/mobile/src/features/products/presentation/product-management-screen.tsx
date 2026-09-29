@@ -187,7 +187,7 @@ export default function ProductManagementScreen() {
   };
   const printVariant = (variantId: VariantId) => {
     const quantity = makeCopyCount(Number(copies));
-    if (!quantity.success) { setErrors((current) => ({ ...current, form: "Elige entre 1 y 99 copias." })); return; }
+    if (!quantity.success || quantity.data > 99) { setErrors((current) => ({ ...current, form: "Elige entre 1 y 99 copias." })); return; }
     const start = () => startAttempt(productPrintWork({ kind: "saved-product", product, variantId }, quantity.data));
     if (dirty) Alert.alert("Cambios sin guardar", "La etiqueta usará los datos guardados, sin incluir los cambios de este formulario.", [
       { text: "Cancelar", style: "cancel" },

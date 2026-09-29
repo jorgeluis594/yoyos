@@ -53,7 +53,7 @@ export default function CreateProductScreen() {
   };
   const save = async (printAfter = false) => {
     const quantity = makeCopyCount(Number(copies));
-    if (printAfter && !quantity.success) { setErrors((current) => ({ ...current, form: "Elige entre 1 y 99 copias." })); return; }
+    if (printAfter && (!quantity.success || quantity.data > 99)) { setErrors((current) => ({ ...current, form: "Elige entre 1 y 99 copias." })); return; }
     const invalid = validateProductForm(values, true, true);
     if (Object.keys(invalid).length) { setErrors(invalid); return; }
     if (saving || photoBusy) return;
