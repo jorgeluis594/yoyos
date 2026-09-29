@@ -71,7 +71,7 @@ export async function renderProductLabel(label: ProductLabel, profile: RenderPro
     file.write(png);
     return ok({ uri: file.uri, widthPx, heightPx });
   } catch {
-    if (file?.exists) file.delete();
+    try { if (file?.exists) file.delete(); } catch { /* Preserve the render failure. */ }
     return err({ code: "RENDER_FAILED", message: "Could not render product label" });
   }
 }

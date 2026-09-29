@@ -7,6 +7,7 @@ import type { ProductLabel } from "@mobile/features/products/domain/product-labe
 
 let mockSkia: typeof Skia;
 let mockPng: Uint8Array | null = null;
+let mockWriteFailure = false;
 
 jest.mock("@shopify/react-native-skia", () => ({ Skia: mockSkia }));
 jest.mock("expo-asset", () => ({ Asset: { fromModule: () => ({ downloadAsync: async () => ({ localUri: "file:///font.ttf" }) }) } }));
@@ -15,7 +16,9 @@ jest.mock("expo-file-system", () => ({
   Paths: { cache: { uri: "file:///cache/" } },
   File: class {
     uri = "file:///cache/yoyos-label-00000000-0000-4000-8000-000000000001.png";
-    write(bytes: Uint8Array) { mockPng = bytes; }
+    get exists() { return mockWriteFailure; }
+    write(bytes: Uint8Array) { if (mockWriteFailure) throw new Error("write failed"); mockPng = bytes; }
+    delete() { throw new Error("cleanup failed"); }
   },
 }));
 
@@ -51,4 +54,13 @@ test("renders a long name without SKU and rejects an SKU that cannot fit", async
   const label = { productName: "Camisa de algodón ".repeat(10), qrCode: "00000000-0000-4000-8000-000000000004" } as ProductLabel;
   expect(await renderProductLabel(label, profile)).toMatchObject({ success: true });
   expect(await renderProductLabel({ ...label, sku: "W".repeat(100) }, profile)).toMatchObject({ success: false, error: { code: "LABEL_CONTENT_OVERFLOW" } });
+});
+
+test("reports a render failure even when cleanup also fails", async () => {
+  const { renderProductLabel } = jest.requireActual("@mobile/features/products/infrastructure/product-label-renderer");
+  mockWriteFailure = true;
+  try {
+    await expect(renderProductLabel({ productName: "Camisa", qrCode: "00000000-0000-4000-8000-000000000004" } as ProductLabel,
+      { widthPx: 696, heightPx: 271, dpiX: 300, dpiY: 300 })).resolves.toMatchObject({ success: false, error: { code: "RENDER_FAILED" } });
+  } finally { mockWriteFailure = false; }
 });
