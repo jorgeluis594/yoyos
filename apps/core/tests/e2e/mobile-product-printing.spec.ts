@@ -9,7 +9,7 @@ import { makeCopyCount } from "@mobile/features/printing/domain/printing";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { expect, prepareVerifiedCompany, test } from "./fixtures";
 
-function mobileProducts(request: APIRequestContext) {
+function mobileProducts(request: APIRequestContext, sessionGeneration: () => number) {
   return createProductApi(async (path, init) => {
     const response = await request.fetch(path, {
       method: init?.method ?? "GET",
@@ -18,14 +18,15 @@ function mobileProducts(request: APIRequestContext) {
     });
     const body: unknown = await response.json();
     return response.ok() ? ok(body) : err({ code: "API_ERROR", message: "Product request failed", http: { status: response.status(), body } });
-  });
+  }, sessionGeneration);
 }
 
 test("mobile prepares only the core-generated variant QR and rejects foreign or anonymous reads", async ({ page, request }) => {
   const emails = [`print-${crypto.randomUUID()}@example.test`, `print-other-${crypto.randomUUID()}@example.test`];
+  let sessionGeneration = 0;
   try {
     await prepareVerifiedCompany(page, { email: emails[0], name: "Print owner", companyName: "Print owner", country: "PE" });
-    const ownerProducts = mobileProducts(page.request);
+    const ownerProducts = mobileProducts(page.request, () => sessionGeneration);
     const id = crypto.randomUUID() as ProductId;
     expect(await ownerProducts.create({ id, name: "Camisa", currency: "PEN", variants: [{ attributes: {}, sku: "CAM-S", salePrice: 20 }] }))
       .toEqual({ success: true, data: id });
@@ -53,11 +54,12 @@ test("mobile prepares only the core-generated variant QR and rejects foreign or 
 
     await page.request.post("/api/auth/sign-out");
     await prepareVerifiedCompany(page, { email: emails[1], name: "Other owner", companyName: "Other owner", country: "PE" });
+    sessionGeneration++;
     renderProductLabel.mockClear();
     printDocument.mockClear();
     expect(await printing.printProductLabel({ kind: "created-product", productId: id }, copies.data, execution))
       .toMatchObject({ success: false, error: { cause: { code: "PRODUCT_NOT_FOUND" } } });
-    activeProducts = mobileProducts(request);
+    activeProducts = mobileProducts(request, () => sessionGeneration);
     expect(await printing.printProductLabel({ kind: "created-product", productId: id }, copies.data, execution))
       .toMatchObject({ success: false, error: { cause: { code: "UNAUTHENTICATED" } } });
     expect(renderProductLabel).not.toHaveBeenCalled();
