@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { err, ok } from "@shared/functional";
-import { discoverBrother, sendBrother, type BrotherDevice } from "@mobile/modules/brother-printer";
+import { discoverBrother, resolveBrother, sendBrother, type BrotherDevice } from "@mobile/modules/brother-printer";
 import type { PrinterAdapter } from "@mobile/features/printing/application/contracts";
 import type { AdapterId, PrinterId, PrinterLocator, PrinterSelection } from "@mobile/features/printing/domain/printing";
 
@@ -57,17 +57,17 @@ export const brotherAdapter: PrinterAdapter = {
     const locator = parseBrotherSelection(selection);
     if (!locator) return err({ code: "PRINTER_IDENTITY_MISMATCH", message: "Saved printer identity is invalid" });
     if (format.widthMm !== 62 || format.heightMm !== 29) return err({ code: "UNSUPPORTED_FORMAT", message: "Brother QL-810W requires 62 × 29 mm labels" });
-    const found = await discoverBrother();
-    if (!found.success) return err({ code: found.error.code === "PERMISSION_DENIED" ? "PERMISSION_DENIED" : "CONNECTION_FAILED", message: found.error.message });
-    const device = found.data.find((candidate) => candidate.model === "QL-810W" && sameIdentity(candidate, locator.identity));
-    if (!device) return err({ code: found.data.some((candidate) => candidate.ip === locator.lastKnownIp && candidate.model === "QL-810W") ? "PRINTER_IDENTITY_MISMATCH" : "PRINTER_NOT_FOUND", message: "Selected printer could not be verified" });
-    const refreshed = selectionFor(device);
+    const found = await resolveBrother({ model: "QL-810W", identityKind: locator.identity.kind, identityValue: locator.identity.value, lastKnownIp: locator.lastKnownIp });
+    if (!found.success) return err({ code: found.error.code === "DISCOVERY_FAILED" ? "CONNECTION_FAILED" : found.error.code, message: found.error.message });
+    if (found.data.model !== "QL-810W" || !sameIdentity(found.data, locator.identity))
+      return err({ code: "PRINTER_IDENTITY_MISMATCH", message: "Selected printer could not be verified" });
+    const refreshed = selectionFor(found.data);
     if (!refreshed) return err({ code: "PRINTER_IDENTITY_MISMATCH", message: "Selected printer has no stable identity" });
     return ok({ selection: refreshed, profile: { widthPx: 696, heightPx: 271, dpiX: 300, dpiY: 300 } });
   },
   async send({ printer, document, copies }) {
     const locator = parseBrotherSelection(printer.selection);
     if (!locator) return err({ code: "PRINTER_REJECTED", message: "Printer identity is invalid", outcome: "not-sent" });
-    return sendBrother({ ip: locator.lastKnownIp, identityKind: locator.identity.kind, identityValue: locator.identity.value, uri: document.uri, copies });
+    return sendBrother({ model: "QL-810W", labelSize: "DK-1209", ip: locator.lastKnownIp, identityKind: locator.identity.kind, identityValue: locator.identity.value, uri: document.uri, copies });
   },
 };

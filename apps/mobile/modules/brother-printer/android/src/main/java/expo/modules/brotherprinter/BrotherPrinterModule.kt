@@ -16,7 +16,16 @@ import expo.modules.kotlin.records.Record
 import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
 
-class SendInput : Record {
+class ResolveInput : Record {
+  @Field var model: String = ""
+  @Field var identityKind: String = ""
+  @Field var identityValue: String = ""
+  @Field var lastKnownIp: String = ""
+}
+
+class PrintInput : Record {
+  @Field var model: String = ""
+  @Field var labelSize: String = ""
   @Field var ip: String = ""
   @Field var identityKind: String = ""
   @Field var identityValue: String = ""
@@ -28,23 +37,41 @@ class BrotherPrinterModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("BrotherPrinter")
 
-    AsyncFunction("discover") { timeoutSeconds: Int ->
-      val context = appContext.reactContext ?: return@AsyncFunction failure("DISCOVERY_FAILED", "App context unavailable")
-      try {
-        val devices = CopyOnWriteArrayList<Map<String, String>>()
-        val result = PrinterSearcher.startNetworkSearch(context, NetworkSearchOption(timeoutSeconds.coerceIn(1, 15).toDouble(), false)) { channel ->
-          device(channel)?.let { devices.add(it) }
-        }
-        if (result.error.code.toString() != "NoError") failure("DISCOVERY_FAILED", result.error.code.toString())
-        else mapOf("success" to true, "data" to devices.distinctBy { it["serial"] ?: it["mac"] })
-      } catch (error: SecurityException) {
-        failure("PERMISSION_DENIED", error.message ?: "Network permission denied")
-      } catch (error: Exception) {
-        failure("DISCOVERY_FAILED", error.message ?: "Network search failed")
-      }
-    }
+    AsyncFunction("discoverPrinters") { timeoutMs: Int -> discoverDevices(timeoutMs) }
+    AsyncFunction("resolvePrinter") { input: ResolveInput -> resolvePrinter(input) }
+    AsyncFunction("printImage") { input: PrintInput -> printImage(input) }
+  }
 
-    AsyncFunction("send") { input: SendInput -> sendImage(input) }
+  private fun discoverDevices(timeoutMs: Int): Map<String, Any> {
+    val context = appContext.reactContext ?: return failure("DISCOVERY_FAILED", "App context unavailable")
+    return try {
+      val devices = CopyOnWriteArrayList<Map<String, String>>()
+      val result = PrinterSearcher.startNetworkSearch(context, NetworkSearchOption(timeoutMs.coerceIn(1000, 15000) / 1000.0, false)) { channel ->
+        device(channel)?.let { devices.add(it) }
+      }
+      if (result.error.code.toString() != "NoError") failure("DISCOVERY_FAILED", result.error.code.toString())
+      else success(devices.distinctBy { it["serial"] ?: it["mac"] })
+    } catch (error: SecurityException) {
+      failure("PERMISSION_DENIED", error.message ?: "Network permission denied")
+    } catch (error: Exception) {
+      failure("DISCOVERY_FAILED", error.message ?: "Network search failed")
+    }
+  }
+
+  private fun resolvePrinter(input: ResolveInput): Map<String, Any> {
+    if (input.model != "QL-810W" || !validIp(input.lastKnownIp) || input.identityKind !in setOf("serial", "mac") || input.identityValue.isBlank())
+      return failure("PRINTER_IDENTITY_MISMATCH", "Invalid printer identity")
+    val found = discoverDevices(5000)
+    if (found["status"] != "ok") return found
+    @Suppress("UNCHECKED_CAST")
+    val devices = found["data"] as List<Map<String, String>>
+    val key = input.identityKind
+    val match = devices.find { it["model"] == input.model && it[key]?.equals(input.identityValue, ignoreCase = key == "mac") == true }
+    if (match != null) return success(match)
+    return failure(
+      if (devices.any { it["model"] == input.model && it["ip"] == input.lastKnownIp }) "PRINTER_IDENTITY_MISMATCH" else "PRINTER_NOT_FOUND",
+      "Selected printer could not be verified",
+    )
   }
 
   private fun device(channel: Channel): Map<String, String>? {
@@ -57,8 +84,10 @@ class BrotherPrinterModule : Module() {
     return data
   }
 
-  private fun sendImage(input: SendInput): Map<String, Any> {
+  private fun printImage(input: PrintInput): Map<String, Any> {
     if (input.copies !in 1..99) return sendFailure("INVALID_COPIES", "Copies must be between 1 and 99", "not-sent")
+    if (input.model != "QL-810W" || input.labelSize != "DK-1209")
+      return sendFailure("PRINTER_REJECTED", "Unsupported printer or label size", "not-sent")
     if (!validIp(input.ip) || input.identityKind !in setOf("serial", "mac") || input.identityValue.isBlank())
       return sendFailure("PRINTER_REJECTED", "Invalid printer identity", "not-sent")
     val context = appContext.reactContext ?: return sendFailure("DEVICE_ERROR", "App context unavailable", "not-sent")
@@ -100,7 +129,7 @@ class BrotherPrinterModule : Module() {
         }
         sendStarted = true
         val result = driver.printImage(file.path, settings)
-        if (result.code.toString() == "NoError") return mapOf("success" to true, "data" to mapOf("confirmation" to "sdk"))
+        if (result.code.toString() == "NoError") return success(mapOf("confirmation" to "sdk"))
         val name = result.code.toString()
         val code = when {
           name.contains("PaperEmpty", true) -> "PAPER_EMPTY"
@@ -124,9 +153,11 @@ class BrotherPrinterModule : Module() {
     parts.size == 4 && parts.all { it.isNotEmpty() && it.length <= 3 && it.all(Char::isDigit) && it.toIntOrNull()?.let { value -> value in 0..255 } == true }
   }
 
+  private fun success(data: Any): Map<String, Any> = mapOf("status" to "ok", "data" to data)
+
   private fun failure(code: String, message: String): Map<String, Any> =
-    mapOf("success" to false, "error" to mapOf("code" to code, "message" to message))
+    mapOf("status" to "error", "code" to code, "message" to message)
 
   private fun sendFailure(code: String, message: String, outcome: String): Map<String, Any> =
-    mapOf("success" to false, "error" to mapOf("code" to code, "message" to message, "outcome" to outcome))
+    mapOf("status" to "error", "code" to code, "message" to message, "outcome" to outcome)
 }
