@@ -2,14 +2,12 @@ import type { Currency, Money } from "@shared/money";
 
 export type ProductId = string & { readonly __brand: "ProductId" };
 export type VariantId = string & { readonly __brand: "VariantId" };
-export type VariantQrCode = string & { readonly __brand: "VariantQrCode" };
 export type ImageId = string & { readonly __brand: "ImageId" };
 
 export type ProductVariant = Readonly<{
   id: VariantId;
   attributes: Readonly<Record<string, string>>;
   sku?: string;
-  qrCode: VariantQrCode;
   salePrice: Money;
   purchasePrice?: Money;
   stock: number;

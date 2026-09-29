@@ -12,7 +12,7 @@ import { imageResponseSchema } from "@shared/contracts/images";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { TransportError } from "@/shared/application/transport-error";
-import type { ImageId, Product, ProductId, ProductListCriteria, ProductPage, VariantId, VariantQrCode } from "../domain/product";
+import type { ImageId, Product, ProductId, ProductListCriteria, ProductPage, VariantId } from "../domain/product";
 
 type ProductIssue = Readonly<{ field: string; reason: string; message?: string; scope?: string; index?: number; maxLength?: number }>;
 type MobileTransportCode = Extract<TransportError["code"], "UNAUTHENTICATED" | "COMPANY_REQUIRED" | "NETWORK_ERROR" | "SERVICE_UNAVAILABLE" | "RATE_LIMITED" | "SERVER_ERROR" | "INVALID_RESPONSE" | "OPERATION_CANCELLED" | "SECURE_STORAGE_ERROR" | "API_ERROR">;
@@ -129,7 +129,6 @@ function productDetail(dto: ReturnType<typeof productDetailResponseSchema.parse>
       id: variant.id as VariantId,
       attributes: variant.attributes,
       ...(variant.sku === undefined ? {} : { sku: variant.sku }),
-      qrCode: variant.qrCode as VariantQrCode,
       salePrice: variant.salePrice,
       ...(variant.purchasePrice === undefined ? {} : { purchasePrice: variant.purchasePrice }),
       stock: variant.stock.quantity,
