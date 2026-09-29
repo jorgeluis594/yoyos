@@ -24,7 +24,7 @@ function selectionFor(device: BrotherDevice): PrinterSelection | null {
   const identity = identityFor(device);
   if (!identity) return null;
   const locator: Locator = { version: 1, adapterId: "brother", model: "QL-810W", identity, lastKnownIp: device.ip };
-  return { printer: { id: idFor(identity), adapterId, displayName: "Brother QL-810W", model: "QL-810W" }, locator: JSON.stringify(locator) as PrinterLocator };
+  return { printer: { id: idFor(identity), adapterId, displayName: `Brother QL-810W · ${device.ip}`, model: "QL-810W" }, locator: JSON.stringify(locator) as PrinterLocator };
 }
 
 export function parseBrotherSelection(selection: Readonly<{ printer: Readonly<{ id: string; adapterId: string; model: string }>; locator: string }>): Locator | null {
