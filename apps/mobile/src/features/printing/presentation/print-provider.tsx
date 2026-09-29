@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { Modal, Platform, ScrollView, StyleSheet, View } from "react-native";
 import { Button } from "@mobile/components/ui/button";
 import { ThemedText } from "@mobile/components/themed-text";
+import { ThemedView } from "@mobile/components/themed-view";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { cleanOldPrintDocuments, printing, type PrintExecution, type PrintStage, type PrinterSelection } from "@mobile/features/printing/composition";
 
@@ -122,7 +123,7 @@ function PrintSession({ children, sessionKey }: { children: ReactNode; sessionKe
 
   return <PrintContext.Provider value={{ startAttempt, showPrinterPicker, dismissNotice }}>
     {children}
-    {sessionKey && notice.status !== "idle" ? <View style={styles.notice} accessibilityLiveRegion="polite">
+    {sessionKey && notice.status !== "idle" ? <ThemedView type="backgroundElement" style={styles.notice} accessibilityLiveRegion="polite" testID="print-notice">
       <ThemedText type="smallBold">{notice.status === "succeeded" ? "Impresión enviada" : notice.status === "failed" ? "No se completó la impresión" : notice.status === "selecting-printer" ? "Elige una impresora" : "Preparando impresión"}</ThemedText>
       {notice.status === "failed" ? <ThemedText>{notice.message}</ThemedText> : notice.status === "succeeded" ? <ThemedText>El SDK confirmó el envío.</ThemedText> : <ThemedText themeColor="textSecondary">{notice.status === "sending" ? "Enviando a la impresora…" : "Espera un momento…"}</ThemedText>}
       {notice.status === "failed" && notice.outcome === "unknown" ? <ThemedText>Es posible que hayan salido algunas etiquetas. Revisa la impresora antes de repetir.</ThemedText> : null}
@@ -132,7 +133,7 @@ function PrintSession({ children, sessionKey }: { children: ReactNode; sessionKe
         {notice.status === "failed" || notice.status === "selecting-printer" ? <Button variant="secondary" onPress={showPrinterPicker}>Elegir impresora</Button> : null}
         <Button variant="ghost" onPress={dismissNotice}>Cerrar</Button>
       </View>
-    </View> : null}
+    </ThemedView> : null}
     <Modal visible={pickerOpen} animationType="slide" onRequestClose={() => { setPickerOpen(false); if (notice.status === "selecting-printer") dismissNotice(); }}>
       <ScrollView contentContainerStyle={styles.picker}>
         <ThemedText type="subtitle">Impresora de etiquetas</ThemedText>
@@ -157,7 +158,7 @@ export function usePrint() {
 }
 
 const styles = StyleSheet.create({
-  notice: { position: "absolute", left: 12, right: 12, bottom: 24, backgroundColor: "#fff", borderRadius: 16, padding: 16, gap: 8, elevation: 8, shadowColor: "#000", shadowOpacity: 0.2, shadowRadius: 10 },
+  notice: { position: "absolute", left: 12, right: 12, bottom: 24, borderRadius: 16, padding: 16, gap: 8, elevation: 8, shadowColor: "#000", shadowOpacity: 0.2, shadowRadius: 10 },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   picker: { padding: 24, paddingTop: 64, gap: 16 },
 });

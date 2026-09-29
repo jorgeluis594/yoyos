@@ -6,12 +6,15 @@ import { createPrintingOperations } from "@mobile/features/printing/application/
 import type { PrintingDependencies } from "@mobile/features/printing/application/contracts";
 import { productLabelFormat, type AdapterId, type CopyCount, type PrinterId, type PrinterLocator, type PrinterSelection, type RenderProfile } from "@mobile/features/printing/domain/printing";
 import { PrintProvider, usePrint, type PrintWork } from "@mobile/features/printing/presentation/print-provider";
+import { Colors } from "@mobile/constants/theme";
 
 const mockDiscover = jest.fn();
 const mockSelect = jest.fn();
 const mockLoad = jest.fn();
 const mockClean = jest.fn();
 let mockAccessState = { status: "ready", user: { id: "user" }, company: { id: "company" } };
+let mockScheme: "light" | "dark" = "light";
+jest.mock("@mobile/hooks/use-color-scheme", () => ({ useColorScheme: () => mockScheme }));
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({
   useAccess: () => ({ state: mockAccessState }),
 }));
@@ -31,8 +34,22 @@ const deferred = <T,>() => {
 };
 
 const originalPlatform = Platform.OS;
-beforeEach(() => { Platform.OS = "android"; mockDiscover.mockReset(); mockSelect.mockReset(); mockLoad.mockReset().mockResolvedValue({ success: true, data: null }); mockClean.mockReset().mockResolvedValue({ success: true, data: undefined }); mockAccessState = { status: "ready", user: { id: "user" }, company: { id: "company" } }; });
+beforeEach(() => { Platform.OS = "android"; mockScheme = "light"; mockDiscover.mockReset(); mockSelect.mockReset(); mockLoad.mockReset().mockResolvedValue({ success: true, data: null }); mockClean.mockReset().mockResolvedValue({ success: true, data: undefined }); mockAccessState = { status: "ready", user: { id: "user" }, company: { id: "company" } }; });
 afterEach(() => { Platform.OS = originalPlatform; });
+
+test("print failure notice uses the active card color", async () => {
+  function Controls() {
+    const print = usePrint();
+    return <Button onPress={() => print.startAttempt(async () => ({ status: "failed", message: "Sin conexión", outcome: "unknown" }))}>Print</Button>;
+  }
+  const view = render(<PrintProvider><Controls /></PrintProvider>);
+  fireEvent.press(screen.getByText("Print"));
+  await screen.findByText("Sin conexión");
+  expect(screen.getByTestId("print-notice").props.style[0].backgroundColor).toBe(Colors.light.backgroundElement);
+  mockScheme = "dark";
+  view.rerender(<PrintProvider><Controls /></PrintProvider>);
+  expect(screen.getByTestId("print-notice").props.style[0].backgroundColor).toBe(Colors.dark.backgroundElement);
+});
 
 test("cleans old documents once at app startup, not on a session change", async () => {
   const { rerender } = render(<PrintProvider><Button onPress={() => {}}>Ready</Button></PrintProvider>);
