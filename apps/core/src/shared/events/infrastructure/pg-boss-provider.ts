@@ -37,11 +37,11 @@ export function createPgBossProvider<Events extends object>(options: Options<Eve
   const subscriptions = new Map<string, Subscription<Events>>();
   const consumers = new Map<string, string>();
   let started = false;
+  let starting: Promise<void> | undefined;
   const log = options.logger ?? (entry => console.info(JSON.stringify(entry)));
   boss.on("error", cause => console.error("pg-boss error", cause));
 
-  async function start(): Promise<void> {
-    if (started) return;
+  async function startOnce(): Promise<void> {
     subscriptions.clear();
     for (const subscription of options.subscriptions) {
       if (!subscription.id || !/^[a-z][a-z0-9-]*$/.test(subscription.id)
@@ -69,7 +69,15 @@ export function createPgBossProvider<Events extends object>(options: Options<Eve
     }
   }
 
+  async function start(): Promise<void> {
+    if (started) return;
+    starting ??= startOnce();
+    try { await starting; }
+    finally { starting = undefined; }
+  }
+
   async function stop(): Promise<void> {
+    if (starting) await starting;
     if (started) await boss.stop({ graceful: true, timeout: 30_000 });
     started = false;
     consumers.clear();

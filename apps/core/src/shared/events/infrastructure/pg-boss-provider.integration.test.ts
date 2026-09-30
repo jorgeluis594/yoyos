@@ -34,7 +34,7 @@ describe("pg-boss event delivery", () => {
     const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
     const names = subscriptions.map(subscription => subscription.id);
     try {
-      await producer.start();
+      await Promise.all([producer.start(), producer.start()]);
       const metadata = { eventId, occurredAt: "2026-09-30T12:00:00.000Z" };
       const published = await withTenantIsolation(companyId, () => producer.publish(
         "test.completed", { companyId, value: "saved" }, metadata,
