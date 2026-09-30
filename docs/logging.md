@@ -2,7 +2,7 @@
 
 ## Estado y alcance
 
-Esta estrategia está implementada en el servidor de `apps/core` (Express y React Router). La aplicación móvil requiere una estrategia propia; el agente Node.js de New Relic no se carga en Expo.
+Esta infraestructura está lista en el servidor de `apps/core` (Express y React Router). Aún no hay entornos de staging ni producción; la comprobación de recepción en New Relic corresponde al primer despliegue. La aplicación móvil requiere una estrategia propia; el agente Node.js de New Relic no se carga en Expo.
 
 El objetivo es poder seguir una solicitud y diagnosticar un fallo sin registrar datos privados. La fuente de logs de la aplicación es Pino; el agente de New Relic está configurado para enviar esos logs y aportar APM y trazas cuando se habilite. No se necesita una tabla de logs en PostgreSQL.
 
@@ -51,12 +51,11 @@ Niveles: `debug` para diagnóstico temporal; `info` para hitos relevantes; `warn
 - Conservar `companyId` como contexto de diagnóstico sin mezclar datos entre empresas. Los logs no reemplazan las políticas de aislamiento de datos ni constituyen un registro de auditoría de acciones de negocio.
 - Para envíos de correo que continúan después de responder al HTTP, observar tanto un `Result` fallido como una promesa rechazada y registrar solamente un evento saneado; la respuesta HTTP no confirma la entrega del correo.
 
-## Validación de la implementación
+## Validación local y del primer despliegue
 
-- Una solicitud exitosa y una fallida producen eventos JSON con nivel, `event`, `requestId`, estado y duración; los errores inesperados conservan stack en el servidor sin devolverlo al cliente.
-- La prueba unitaria de `logger.ts` comprueba que valores señuelo de tokens, cabeceras y datos personales no aparecen en stdout. Repetirla en staging para comprobar los registros recibidos por New Relic.
-- En staging, comprobar que un evento de prueba aparece **una vez** en New Relic y queda asociado a la transacción/traza correspondiente (`trace.id` y `span.id`).
-- La aplicación sigue funcionando si New Relic no está disponible; el logging no debe bloquear solicitudes ni operaciones de negocio.
+- Validado localmente: solicitudes exitosas y fallidas producen eventos JSON con nivel, `event`, `requestId`, estado y duración; los errores inesperados conservan stack saneado en el servidor sin devolverlo al cliente.
+- La prueba unitaria de `logger.ts` comprueba que valores señuelo de tokens, cabeceras y datos personales no aparecen en stdout. Una prueba local con el agente habilitado comprobó un evento por solicitud en su buffer, con `trace.id` y `span.id`, sin el valor señuelo. El servidor también respondió cuando el colector no estaba disponible.
+- En el primer despliegue, comprobar que ese evento aparece **una vez** en New Relic, asociado a la transacción/traza correspondiente (`trace.id` y `span.id`), y que los valores señuelo tampoco aparecen allí.
 
 ## Referencias
 
