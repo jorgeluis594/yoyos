@@ -68,6 +68,8 @@ Use descriptive filenames in kebab case. Keep tests next to the behavior they ve
 
 Domain code must not import UI libraries, server frameworks, database clients, storage SDKs, or other feature layers. Use plain data and functions by default. Add classes or value objects only when they serve a concrete need.
 
+Purity alone does not make a function domain logic. Constructing or validating a transport payload belongs at the transport boundary, even when the function performs no I/O: presentation handles incoming API requests and outgoing API responses; infrastructure handles requests to and responses from remote services.
+
 ### Application
 
 `application/` owns use cases: complete application intentions such as creating an order or loading an order history. A use case coordinates domain rules and the external capabilities it needs, accepts plain input, and returns plain output or meaningful application failures.
@@ -143,6 +145,10 @@ The arrows describe allowed source dependencies, not runtime flow (entry point â
 - Presentation consumes application operations and their data contracts.
 - A feature must not import another feature's internal files. Cross-feature access uses deliberate exports from its `index.ts` or an explicitly supplied capability.
 - Feature dependencies must remain acyclic. The feature owning an operation coordinates its dependencies.
+
+These dependency rules are mandatory and non-negotiable. Every implementation and refactor must comply; convenience, reuse, and feature-specific documentation do not justify exceptions.
+
+Dependency rules apply to types and schemas as well as executable code. Domain and application must not depend on transport DTOs, wire-format schemas, persistence models, or provider-specific representations, even when these are plain data or live in `shared/`. Inner layers define the contracts they need; adapters translate between those contracts and external representations.
 
 Export only what other features or application entry points actually need. Do not expose repositories or technical clients through public exports just to bypass a boundary.
 
