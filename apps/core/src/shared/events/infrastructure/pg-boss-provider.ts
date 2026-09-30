@@ -32,7 +32,8 @@ type Options<Events extends object> = {
 
 /** Runtime adapter. The same subscription registry prepares queues in producers and workers. */
 export function createPgBossProvider<Events extends object>(options: Options<Events>) {
-  const boss = new PgBoss({ connectionString: options.connectionString, schema: "pgboss", migrate: false, createSchema: false });
+  const boss = new PgBoss({ connectionString: options.connectionString, schema: "pgboss",
+    migrate: false, createSchema: false, reindex: false });
   const pool = new pg.Pool({ connectionString: options.connectionString });
   const subscriptions = new Map<string, Subscription<Events>>();
   const consumers = new Map<string, string>();

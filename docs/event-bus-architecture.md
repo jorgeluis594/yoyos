@@ -416,7 +416,10 @@ apuntar a otra base PostgreSQL; en su ausencia se usa `DATABASE_URL`. El servici
 `worker` de Compose comparte la imagen de core y espera a `migrate`. El servidor
 solo publica; ambos procesos verifican el esquema `pgboss` sin migrarlo durante
 el arranque. La migración Prisma y `scripts/provision-role.sql` preparan el esquema
-y conceden al rol restringido acceso a sus tablas y funciones.
+y conceden al rol restringido acceso a sus tablas y funciones. El mantenimiento
+automático de índices (`reindex`) está desactivado en estos procesos; la
+reconstrucción de índices se realiza de forma operativa con credenciales de
+migración cuando los indicadores de PostgreSQL la justifiquen.
 
 Cada cola conserva jobs terminados, incluidos los fallidos, con
 `deleteAfterSeconds: 0`. Esto permite diagnóstico y reproceso manual, pero exige
