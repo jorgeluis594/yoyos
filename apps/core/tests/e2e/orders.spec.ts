@@ -141,7 +141,7 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     await page.getByRole("button", { name: /filtros activos/ }).click();
     await page.getByRole("link", { name: "Limpiar" }).click();
     await browserExpect(page).toHaveURL("/es-PE/orders");
-    await browserExpect(page.getByRole("button", { name: "Filtros" })).toBeVisible();
+    await browserExpect(page.getByRole("button", { name: "Filtros", exact: true })).toBeVisible();
     await page.setViewportSize({ width: 1280, height: 900 });
 
     await page.getByRole("button", { name: "Cerrar sesión" }).click();

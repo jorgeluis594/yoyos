@@ -6,7 +6,7 @@ import { countryCurrencies } from "@shared/country";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
-import { products } from "@/composition/products";
+import { products } from "@mobile/features/products/composition";
 import { useAccess } from "@/features/users/presentation/access-provider";
 import type { ProductId, PhotoSelection } from "../domain/product";
 import { ProductForm } from "./product-form";
@@ -14,16 +14,21 @@ import type { ProductFormField, ProductFormValues } from "./product-form";
 import { emptyProductForm, productErrors, validateProductForm } from "./product-form-state";
 import { useProductNavigationGuard } from "./use-product-navigation-guard";
 import { useProductDraft } from "./draft-guard";
+import { usePrint } from "@mobile/features/printing/presentation/print-provider";
+import { makeCopyCount } from "@mobile/features/printing/composition";
+import { productPrintWork } from "./product-print-work";
 
 export default function CreateProductScreen() {
   const router = useRouter();
   const { state } = useAccess();
+  const { startAttempt } = usePrint();
   const [values, setValues] = useState<ProductFormValues>(emptyProductForm);
   const [photo, setPhoto] = useState<PhotoSelection>({ kind: "keep" });
   const [errors, setErrors] = useState<Partial<Record<ProductFormField, string>>>({});
   const [saving, setSaving] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [conflict, setConflict] = useState(false);
+  const [copies, setCopies] = useState("1");
   const productId = useRef<ProductId | null>(null);
   const { discardVersion } = useProductDraft();
   const setDirty = useProductNavigationGuard(
@@ -46,7 +51,9 @@ export default function CreateProductScreen() {
     setValues((current) => ({ ...current, [field]: value }));
     setErrors((current) => ({ ...current, [field]: undefined, form: undefined }));
   };
-  const save = async () => {
+  const save = async (printAfter = false) => {
+    const quantity = makeCopyCount(Number(copies));
+    if (printAfter && (!quantity.success || quantity.data > 99)) { setErrors((current) => ({ ...current, form: "Elige entre 1 y 99 copias." })); return; }
     const invalid = validateProductForm(values, true, true);
     if (Object.keys(invalid).length) { setErrors(invalid); return; }
     if (saving || photoBusy) return;
@@ -70,6 +77,7 @@ export default function CreateProductScreen() {
       return;
     }
     setDirty(false);
+    if (printAfter && quantity.success) startAttempt(productPrintWork({ kind: "created-product", productId: result.data }, quantity.data));
     router.replace({ pathname: "/products/[productId]", params: { productId: result.data } });
   };
 
@@ -86,6 +94,9 @@ export default function CreateProductScreen() {
       photoBusy={photoBusy}
       onPhotoBusy={setPhotoBusy}
       onSave={() => void save()}
+      onPrint={() => void save(true)}
+      copies={copies}
+      onCopiesChange={setCopies}
       onCancel={() => router.replace("/products")}
       onReviewCatalog={() => { setDirty(false); router.replace("/products"); }}
       saving={saving}

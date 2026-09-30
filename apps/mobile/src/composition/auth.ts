@@ -15,4 +15,4 @@ const authSdk: AuthClientBoundary = {
 };
 
 const operations = createAuthOperations(authSdk, SecureStore, fetch, coreUrl);
-export const { register, completeCompany, signIn, restoreSession, signOut, request, requestVerification, requestPasswordReset } = operations;
+export const { register, completeCompany, signIn, restoreSession, signOut, request, sessionGeneration, requestVerification, requestPasswordReset } = operations;
