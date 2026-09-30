@@ -7,5 +7,6 @@ it("validates handler policy without silently changing zero retries or delay", (
   for (const changed of [
     { retries: -1 }, { retries: 1.5 }, { retryDelaySeconds: -1 },
     { retryDelaySeconds: 0.5 }, { concurrency: 0 }, { concurrency: 1.5 },
+    { retries: 2_147_483_648 }, { retryDelaySeconds: 2_147_483_648 },
   ]) expect(validHandlerPolicy({ ...valid, ...changed })).toBe(false);
 });

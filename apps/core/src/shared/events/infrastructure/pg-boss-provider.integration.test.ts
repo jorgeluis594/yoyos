@@ -4,7 +4,7 @@ import { PgBoss } from "pg-boss";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { err, ok } from "@shared/functional";
-import { getCompanyId, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { getCompanyId, prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import type { EventSubscription } from "@core/src/shared/events/application/contracts";
 import { createPgBossProvider } from "@core/src/shared/events/infrastructure/pg-boss-provider";
 
@@ -86,6 +86,8 @@ describe("pg-boss event delivery", () => {
         { eventId: randomUUID(), occurredAt: "2026-09-30T12:00:00.000Z" }))).toMatchObject({ success: false, error: { code: "INVALID_EVENT" } });
       expect(await withTenantIsolation(companyId, () => producer.publish("test.completed", { companyId, value: 1 } as unknown as { companyId: string; value: string },
         { eventId: randomUUID(), occurredAt: "2026-09-30T12:00:00.000Z" }))).toMatchObject({ success: false, error: { code: "INVALID_EVENT" } });
+      expect(await withTenantIsolation(companyId, () => producer.publish("test.completed", null as unknown as { companyId: string; value: string },
+        { eventId: randomUUID(), occurredAt: "2026-09-30T12:00:00.000Z" }))).toMatchObject({ success: false, error: { code: "INVALID_EVENT" } });
       expect(await withTenantIsolation(companyId, () => producer.publish("test.unhandled", { companyId, value: "no consumers" },
         { eventId: randomUUID(), occurredAt: "2026-09-30T12:00:00.000Z" }))).toEqual(ok(undefined));
       await pool.query("DELETE FROM pgboss.queue WHERE name = $1", [names[1]]);
@@ -162,7 +164,7 @@ describe("pg-boss event delivery", () => {
   it("isolates concurrent tenants and leaves jobs pending after local cleanup", async () => {
     const name = `event-isolation-${randomUUID().slice(0, 8)}`;
     const companies = [randomUUID(), randomUUID()];
-    const seen: string[] = [];
+    const seen: { context: string; visible: string[] }[] = [];
     let release!: () => void;
     const bothStarted = new Promise<void>(resolve => { release = resolve; });
     let started = 0;
@@ -173,7 +175,7 @@ describe("pg-boss event delivery", () => {
         started += 1;
         if (started === 2) release();
         await bothStarted;
-        seen.push(getCompanyId());
+        seen.push({ context: getCompanyId(), visible: (await prisma.company.findMany({ select: { id: true } })).map(company => company.id) });
         return ok(undefined);
       },
     };
@@ -185,11 +187,15 @@ describe("pg-boss event delivery", () => {
       await worker.start();
       const registered = await worker.subscribe(subscription);
       expect(registered.success).toBe(true);
+      for (const companyId of companies) await withTenantIsolation(companyId, async () =>
+        await prisma.company.create({ data: { id: companyId, name: `Event test ${companyId}`, country: "PE" } }));
       for (const companyId of companies) {
         expect(await withTenantIsolation(companyId, () => producer.publish("test.completed", { companyId, value: "concurrent" },
           { eventId: randomUUID(), occurredAt: "2026-09-30T12:00:00.000Z" }))).toEqual(ok(undefined));
       }
-      await vi.waitFor(() => expect(seen.slice().sort()).toEqual(companies.slice().sort()), { timeout: 15_000 });
+      await vi.waitFor(() => expect(seen.length).toBe(2), { timeout: 15_000 });
+      expect(seen.map(entry => entry.context).sort()).toEqual(companies.slice().sort());
+      expect(seen.every(entry => entry.visible.length === 1 && entry.visible[0] === entry.context)).toBe(true);
       if (registered.success) expect(await registered.data()).toEqual(ok(undefined));
       const pendingId = randomUUID();
       expect(await withTenantIsolation(companies[0], () => producer.publish("test.completed", { companyId: companies[0], value: "pending" },
@@ -203,6 +209,7 @@ describe("pg-boss event delivery", () => {
       await pool.query("DELETE FROM pgboss.job WHERE name = $1", [name]);
       await pool.query("DELETE FROM pgboss.queue WHERE name = $1", [name]);
       await pool.end();
+      for (const companyId of companies) await withTenantIsolation(companyId, async () => await prisma.company.delete({ where: { id: companyId } }));
     }
   });
 

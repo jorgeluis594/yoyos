@@ -17,8 +17,8 @@ type StoredEvent = z.infer<typeof envelopeSchema>;
 type Subscription<Events extends object> = AnyEventSubscription<Events>;
 
 export function validHandlerPolicy(policy: HandlerPolicy): boolean {
-  return Number.isSafeInteger(policy.retries) && policy.retries >= 0
-    && Number.isSafeInteger(policy.retryDelaySeconds) && policy.retryDelaySeconds >= 0
+  return Number.isInteger(policy.retries) && policy.retries >= 0 && policy.retries <= 2_147_483_647
+    && Number.isInteger(policy.retryDelaySeconds) && policy.retryDelaySeconds >= 0 && policy.retryDelaySeconds <= 2_147_483_647
     && Number.isSafeInteger(policy.concurrency) && policy.concurrency >= 1
     && typeof policy.exponentialBackoff === "boolean";
 }
@@ -122,8 +122,10 @@ export function createPgBossProvider<Events extends object>(options: Options<Eve
       let companyId: string;
       try { companyId = getCompanyId(); }
       catch { return err({ code: "INVALID_EVENT", message: "Company context is required" }); }
-      if (!z.uuid().safeParse(companyId).success || payload.companyId !== companyId
-        || !metadataSchema.safeParse(metadata).success || !z.json().safeParse(payload).success) {
+      if (!payload || typeof payload !== "object" || !("companyId" in payload)
+        || !z.uuid().safeParse(companyId).success || payload.companyId !== companyId
+        || !envelopeSchema.safeParse({ version: 1, name, payload, metadata }).success
+        || !z.json().safeParse(payload).success) {
         return err({ code: "INVALID_EVENT", message: "Invalid event payload or metadata" });
       }
       const matching = [...subscriptions.values()].filter(subscription => subscription.name === name);
@@ -175,7 +177,7 @@ export function createPgBossProvider<Events extends object>(options: Options<Eve
         return ok(async () => {
           if (consumers.get(subscription.id) === workId) {
             try {
-              await boss.offWork(subscription.id, { id: workId, wait: true });
+              await boss.offWork(subscription.id, { id: workId, wait: false });
               consumers.delete(subscription.id);
             } catch (cause) {
               console.error("Event bus cleanup failed", cause);

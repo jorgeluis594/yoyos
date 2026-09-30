@@ -15,7 +15,13 @@ let stopping = false;
 for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, async () => {
   if (stopping) return;
   stopping = true;
-  await registered.data();
-  await provider.stop();
-  process.exit(0);
+  try {
+    const result = await registered.data();
+    if (!result.success) throw new Error(result.error.message);
+    await provider.stop();
+    process.exit(0);
+  } catch (cause) {
+    console.error("Event worker shutdown failed", cause);
+    process.exit(1);
+  }
 });
