@@ -29,6 +29,9 @@ export type EventSubscription<Events extends object, Name extends EventName<Even
   policy: HandlerPolicy;
   parsePayload: (input: unknown) => Result<EventPayload<Events, Name>, EventBusError>;
 }>;
+export type AnyEventSubscription<Events extends object> = {
+  [Name in EventName<Events>]: EventSubscription<Events, Name>;
+}[EventName<Events>];
 export type Unsubscribe = () => Promise<Result<void, EventBusError>>;
 export interface EventPublisher<Events extends object> {
   publish<Name extends EventName<Events>>(
