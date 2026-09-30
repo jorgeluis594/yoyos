@@ -70,7 +70,10 @@ export default function NewOrderScreen() {
   const offline = network.isConnected === false || network.isInternetReachable === false;
   const prepared = prepareOrder(draft);
 
-  useEffect(() => { setDirty(draft.kind === "items" && !leaveAllowed.current); }, [draft, setDirty]);
+  useEffect(() => {
+    if (draft.kind === "empty") leaveAllowed.current = false;
+    setDirty(draft.kind === "items" && !leaveAllowed.current);
+  }, [draft, setDirty]);
   useEffect(() => () => setDirty(false), [setDirty]);
   useEffect(() => {
     if (version.current === discardVersion) return;

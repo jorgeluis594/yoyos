@@ -8,6 +8,7 @@ const mockCompleteOrder = jest.fn();
 const mockReadPending = jest.fn();
 const mockResolvePending = jest.fn();
 let mockDirty = false;
+let mockDiscardVersion = 0;
 let mockOffline = false;
 const mockSetDirty = jest.fn((value: boolean) => { mockDirty = value; });
 const mockDispatch = jest.fn();
@@ -33,12 +34,12 @@ jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAcc
   status: "ready", company: { id: mockId(1), name: "Mi tienda", country: "PE" }, user: { id: "seller" },
 } }) }));
 jest.mock("@mobile/features/orders/presentation/order-draft-guard", () => ({ useOrderDraft: () => ({
-  dirty: mockDirty, setDirty: mockSetDirty, discardVersion: 0,
+  dirty: mockDirty, setDirty: mockSetDirty, discardVersion: mockDiscardVersion,
 }) }));
 jest.mock("@mobile/features/orders/presentation/order-result", () => ({ useOrderResult: () => ({ show: mockShow }) }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 
-beforeEach(() => { jest.clearAllMocks(); mockDirty = false; mockOffline = false; mockReadPending.mockResolvedValue(ok(null)); });
+beforeEach(() => { jest.clearAllMocks(); mockDirty = false; mockDiscardVersion = 0; mockOffline = false; mockReadPending.mockResolvedValue(ok(null)); });
 
 test("seller selects a variant, reviews the amount, and opens the completed sale", async () => {
   mockCompleteOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: { amount: 10, currency: "PEN" },
@@ -98,6 +99,29 @@ test("leaving with items asks to discard and reopening starts with an empty cart
   const reopened = render(<NewOrderScreen />);
   await reopened.findByText("Camisa");
   expect(reopened.getByRole("button", { name: "Revisar venta" })).toBeDisabled();
+});
+
+test("tab discard rearms draft protection for a new selection on the mounted screen", async () => {
+  const screen = render(<NewOrderScreen />);
+  await screen.findByText("Camisa");
+  fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
+  fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
+  expect(mockDirty).toBe(true);
+
+  mockDirty = false;
+  mockDiscardVersion += 1;
+  screen.rerender(<NewOrderScreen />);
+  expect(screen.getByRole("button", { name: "Revisar venta" })).toBeDisabled();
+  expect(mockDirty).toBe(false);
+
+  fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
+  fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
+  expect(mockDirty).toBe(true);
+  screen.rerender(<NewOrderScreen />);
+  expect(mockUsePreventRemove).toHaveBeenLastCalledWith(true, expect.any(Function));
+  mockUsePreventRemove.mock.lastCall?.[1]({ data: { action: { type: "GO_BACK" } } });
+  expect(mockShowConfirmation).toHaveBeenCalledWith(expect.objectContaining({ title: "¿Descartar venta?" }));
+  expect(mockDispatch).not.toHaveBeenCalled();
 });
 
 test("offline selection remains editable without a confirm action", async () => {
