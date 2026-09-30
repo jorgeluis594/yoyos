@@ -13,8 +13,10 @@ import { loadWhatsAppConnections } from "@core/src/features/chats/infrastructure
 import { whatsappWebhook } from "@core/src/features/chats/presentation/whatsapp-webhook";
 import { productRoutes } from "@core/src/features/products/presentation/api-routes";
 import { hasDuplicateJsonKeys, orderRoutes } from "@core/src/features/orders/presentation/api-routes";
+import { currentLogger, requestLogging } from "@core/src/shared/infrastructure/logger";
 
 export const app = express();
+app.use(requestLogging);
 
 app.all("/api/auth/{*splat}", toNodeHandler(auth));
 
@@ -35,7 +37,7 @@ app.use("/api", loadApiAccess);
 app.get("/api/me", (_request, response: Response<unknown, AuthenticatedLocals>) => {
   const parsed = currentAccessDtoSchema.safeParse(response.locals.auth);
   if (!parsed.success) {
-    console.error("Invalid access projection", parsed.error);
+    currentLogger().error({ event: "access_projection_invalid", errorCode: "INVALID_STORED_DATA" }, "Invalid access projection");
     return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
   }
   return response.set("Cache-Control", "no-store").json(parsed.data);
@@ -56,7 +58,7 @@ app.post("/api/company", async (request, response: Response<unknown, Authenticat
   }
   const output = createCompanyResponseSchema.safeParse({ companyId: result.data.companyId });
   if (!output.success) {
-    console.error("Invalid company response", output.error);
+    currentLogger().error({ event: "company_response_invalid", errorCode: "INVALID_STORED_DATA" }, "Invalid company response");
     return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
   }
   return response.status(result.data.created ? 201 : 200).json(output.data);
@@ -88,7 +90,7 @@ app.use("/api", (error: unknown, _request: express.Request, response: express.Re
   if (typeof error === "object" && error !== null && "type" in error && error.type === "entity.too.large") {
     return apiError(response, 413, "PAYLOAD_TOO_LARGE", "Request exceeds 100 kB");
   }
-  console.error("Unhandled API error", error);
+  currentLogger().error({ event: "api_unhandled_error", err: error }, "Unhandled API error");
   return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
 });
 

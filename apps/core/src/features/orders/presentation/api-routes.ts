@@ -1,3 +1,4 @@
+import { logFailure } from "@core/src/shared/infrastructure/logger";
 import express, { type Request, type Response } from "express";
 import { z } from "zod";
 import { createOrderSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema } from "@shared/contracts/orders";
@@ -62,13 +63,13 @@ function operationError(response: Response, error: { code: string; variantId?: s
     case "ORDER_NOT_FOUND": return apiError(response, 404, "ORDER_NOT_FOUND", "Order not found");
     case "PERSISTENCE_UNAVAILABLE": return apiError(response, 503, "SERVICE_UNAVAILABLE", "Service unavailable");
     default:
-      console.error("Unexpected order error", error);
+      logFailure("unexpected_order_error", error);
       return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
   }
 }
 
 function unexpected(response: Response, error: unknown) {
-  console.error("Order API operation failed", error);
+  logFailure("order_api_operation_failed", error);
   return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
 }
 

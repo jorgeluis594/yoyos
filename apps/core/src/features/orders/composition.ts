@@ -1,3 +1,4 @@
+import { logFailure } from "@core/src/shared/infrastructure/logger";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { err } from "@shared/functional";
@@ -15,7 +16,7 @@ const orderTransaction: CreateOrderDependencies["transaction"] = async (callback
     if (!(cause instanceof Prisma.PrismaClientKnownRequestError
       || cause instanceof Prisma.PrismaClientUnknownRequestError
       || cause instanceof Prisma.PrismaClientInitializationError)) throw cause;
-    console.error("Unable to complete order transaction", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    logFailure("unable_to_complete_order_transaction", cause);
     return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to complete order transaction" });
   }
 };

@@ -1,3 +1,4 @@
+import { logFailure } from "@core/src/shared/infrastructure/logger";
 import { Prisma, type Product as DbProduct, type ProductVariant as DbVariant, type ProductStock as DbStock } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import { prisma, withinTransaction } from "@core/src/shared/infrastructure/persistance";
@@ -69,7 +70,7 @@ export const productRepository: ProductRepository = {
     } catch (error) {
       if (isDuplicateSku(error)) return err({ code: "DUPLICATE_SKU", message: "SKU is already used" });
       if (isDuplicateProductId(error)) return err({ code: "PRODUCT_ID_CONFLICT", message: "Product ID is already used" });
-      console.error("Product create persistence failed", error);
+      logFailure("product_create_persistence_failed", error);
       return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to create product" });
     }
   },
@@ -100,7 +101,7 @@ export const productRepository: ProductRepository = {
     } catch (error) {
       if (isDuplicateSku(error)) return err({ code: "DUPLICATE_SKU", message: "SKU is already used" });
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") return err({ code: "PRODUCT_NOT_FOUND", message: "Product does not exist" });
-      console.error("Product update persistence failed", error);
+      logFailure("product_update_persistence_failed", error);
       return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to update product" });
     }
   },
@@ -109,7 +110,7 @@ export const productRepository: ProductRepository = {
     try {
       row = await prisma.product.findUnique({ where: { id }, include: { variants: { include: { stock: true }, orderBy: { id: "asc" } } } });
     } catch (error) {
-      console.error("Product read persistence failed", error);
+      logFailure("product_read_persistence_failed", error);
       return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to read product" });
     }
     if (!row) return ok(null);
@@ -139,7 +140,7 @@ export const productRepository: ProductRepository = {
         return err({ code: "INVALID_STORED_DATA", message: "Stored product data is invalid" });
       }
     } catch (error) {
-      console.error("Product list persistence failed", error);
+      logFailure("product_list_persistence_failed", error);
       return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to list products" });
     }
   },

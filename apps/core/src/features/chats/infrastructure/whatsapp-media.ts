@@ -1,3 +1,4 @@
+import { logFailure } from "@core/src/shared/infrastructure/logger";
 import { z } from "zod";
 import { err, ok } from "@shared/functional";
 import type { WhatsAppConnection } from "@core/src/features/chats/infrastructure/whatsapp-connections";
@@ -38,7 +39,7 @@ export async function downloadWhatsAppMedia(connection: WhatsAppConnection, medi
     for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
     return ok({ bytes, filename: `${mediaId}`, declaredContentType: media.data.mime_type });
   } catch (cause) {
-    console.error("WhatsApp media download failed", { error: cause instanceof Error ? cause.name : "unknown" });
+    logFailure("whatsapp_media_download_failed", cause);
     return err({ code: "MEDIA_UNAVAILABLE", message: "WhatsApp media is unavailable" });
   }
 }

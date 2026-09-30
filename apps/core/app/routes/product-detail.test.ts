@@ -1,3 +1,4 @@
+import { logger } from "@core/src/shared/infrastructure/logger";
 import { afterEach, expect, test, vi } from "vitest";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { action, loader } from "@core/app/routes/product-detail";
@@ -20,7 +21,7 @@ test("surfaces expected update failures on the form and reports technical failur
   const notFound = new Request("http://localhost/es-PE/products/1", { method: "POST", body: JSON.stringify({ name: "Nuevo" }) });
   expect(await action({ request: notFound, context, params: { productId: id } } as unknown as ActionFunctionArgs)).toEqual({ errors: { form: "El producto ya no está disponible." } });
   vi.spyOn(products, "update").mockRejectedValue(new Error("secret database detail"));
-  vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.spyOn(logger, "error").mockImplementation(() => {});
   const request = new Request("http://localhost/es-PE/products/1", { method: "POST", body: JSON.stringify({ name: "Nuevo" }) });
   expect(await action({ request, context, params: { productId: id } } as unknown as ActionFunctionArgs)).toEqual({ errors: { form: "No se pudo guardar el producto. Inténtalo de nuevo." } });
 });
@@ -29,6 +30,6 @@ test("maps absence and technical failures while loading the edit form", async ()
   vi.spyOn(products, "get").mockResolvedValue({ success: true, data: null });
   await expect(loader({ context, params: { productId: id }, request: new Request(`http://localhost/es-PE/products/${id}`) } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 404 });
   vi.spyOn(products, "get").mockRejectedValue(new Error("secret storage detail"));
-  vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.spyOn(logger, "error").mockImplementation(() => {});
   await expect(loader({ context, params: { productId: id }, request: new Request(`http://localhost/es-PE/products/${id}`) } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 503 });
 });

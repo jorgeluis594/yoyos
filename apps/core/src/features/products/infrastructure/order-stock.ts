@@ -1,3 +1,4 @@
+import { logFailure } from "@core/src/shared/infrastructure/logger";
 import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import { prisma } from "@core/src/shared/infrastructure/persistance";
@@ -16,14 +17,14 @@ export async function findSellableVariant(id: string) {
     if (!row) return ok<CatalogItem | null>(null);
     const attributes = row.attributes;
     if (!attributes || typeof attributes !== "object" || Array.isArray(attributes) || Object.values(attributes).some((value) => typeof value !== "string")) {
-      console.error("Invalid stored variant attributes", { id });
+      logFailure("invalid_stored_variant_attributes");
       return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
     }
     return ok<CatalogItem>({ variantId: row.id as VariantId, productName: row.product.name, variantAttributes: { ...attributes } as Record<string, string>, sku: row.sku,
       unitPrice: { amount: row.salePrice.toNumber(), currency: row.product.currency } });
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
-    console.error("Unable to read sale variant", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    logFailure("unable_to_read_sale_variant", cause);
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
   }
 }
@@ -34,7 +35,7 @@ export async function deductProductStock(variantId: VariantId, quantity: number)
     return result.count === 1 ? ok<null>(null) : err<StockError>({ code: "INSUFFICIENT_STOCK", message: "Not enough stock", variantId });
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
-    console.error("Unable to deduct product stock", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    logFailure("unable_to_deduct_product_stock", cause);
     return err<StockError>({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to update stock" });
   }
 }
@@ -46,7 +47,7 @@ export async function searchSaleCatalog(search: string) {
     if (rows.some((row) => row.variants.some((variant) => !variant.attributes || typeof variant.attributes !== "object" || Array.isArray(variant.attributes) ||
       Object.values(variant.attributes).some((value) => typeof value !== "string") || !variant.stock ||
       variant.stock.quantity < 0n || variant.stock.quantity > BigInt(Number.MAX_SAFE_INTEGER)))) {
-      console.error("Invalid stored sale catalog");
+      logFailure("invalid_stored_sale_catalog");
       return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
     }
     return ok(rows.map((row) => ({ id: row.id, name: row.name, currency: row.currency,
@@ -54,7 +55,7 @@ export async function searchSaleCatalog(search: string) {
         price: variant.salePrice.toNumber(), stock: Number(variant.stock!.quantity) })) })));
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
-    console.error("Unable to search sale catalog", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    logFailure("unable_to_search_sale_catalog", cause);
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to search catalog" });
   }
 }

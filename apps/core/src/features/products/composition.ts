@@ -19,7 +19,6 @@ const imageStorage = createR2ImageStorage({
 async function resolveImage(imageId: ImageId) {
   const result = await getImage(imageId, imageStorage, imageRepository);
   if (!result.success) {
-    console.error("Product image resolution failed", result.error);
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: result.error.message });
   }
   return { success: true as const, data: result.data ? { id: result.data.id as typeof imageId, url: result.data.url } : null };

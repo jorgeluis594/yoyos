@@ -1,3 +1,4 @@
+import { logger } from "@core/src/shared/infrastructure/logger";
 import { Prisma } from "@prisma/client";
 import { expect, test, vi } from "vitest";
 import { ok } from "@shared/functional";
@@ -25,7 +26,7 @@ test("returns a recoverable failure when transaction acquisition or commit fails
     new Prisma.PrismaClientUnknownRequestError("database unavailable", { clientVersion: "7.10.0" }),
     new Prisma.PrismaClientInitializationError("database unavailable", "7.10.0"),
   ];
-  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  const log = vi.spyOn(logger, "error").mockImplementation(() => {});
   try {
     for (const failure of failures) {
       withinTransaction.mockRejectedValueOnce(failure);

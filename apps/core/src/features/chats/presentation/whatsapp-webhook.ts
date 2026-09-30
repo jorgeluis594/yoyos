@@ -1,3 +1,4 @@
+import { logFailure } from "@core/src/shared/infrastructure/logger";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import express from "express";
 import { parseWhatsAppWebhook } from "@core/src/features/chats/presentation/whatsapp-schemas";
@@ -35,7 +36,7 @@ export function whatsappWebhook(connections: readonly WhatsAppConnection[], appS
       if (!saved.success) {
         if (saved.error.code === "INVALID_MESSAGE" || saved.error.code === "INVALID_CONTACT") rejected = true;
         else unavailable = true;
-        console.error("Unable to record WhatsApp webhook message", { code: saved.error.code });
+        logFailure("unable_to_record_whatsapp_webhook_message", undefined, saved.error.code);
       }
     }
     return response.sendStatus(rejected ? 400 : unavailable ? 503 : 200);
