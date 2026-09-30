@@ -11,8 +11,9 @@ import {
 import { imageResponseSchema } from "@shared/contracts/images";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import type { TransportError } from "@/shared/application/transport-error";
-import type { ImageId, Product, ProductId, ProductListCriteria, ProductPage, VariantId } from "../domain/product";
+import type { TransportError } from "@mobile/shared/application/transport-error";
+import type { ImageId, Product, ProductId, ProductListCriteria, ProductPage, VariantId, VariantQrCode } from "@mobile/features/products/domain/product";
+import type { GetProductError } from "@mobile/features/products/application/product-printing";
 
 type ProductIssue = Readonly<{ field: string; reason: string; message?: string; scope?: string; index?: number; maxLength?: number }>;
 type MobileTransportCode = Extract<TransportError["code"], "UNAUTHENTICATED" | "COMPANY_REQUIRED" | "NETWORK_ERROR" | "SERVICE_UNAVAILABLE" | "RATE_LIMITED" | "SERVER_ERROR" | "INVALID_RESPONSE" | "OPERATION_CANCELLED" | "SECURE_STORAGE_ERROR" | "API_ERROR">;
@@ -34,7 +35,6 @@ export type ProductListInputIssue = Readonly<{ field: string; reason: "INVALID_T
 export type ListProductsError = ProductTransportFailure
   | Readonly<{ code: "INVALID_INPUT"; message: string; issues: readonly [ProductListInputIssue, ...ProductListInputIssue[]] }>
   | Readonly<{ code: "VALIDATION_ERROR"; message: string; issues: readonly [ProductListCriteriaIssue, ...ProductListCriteriaIssue[]] }>;
-export type GetProductError = ProductTransportFailure | Extract<ApiFailure, { code: "PRODUCT_NOT_FOUND" }>;
 export type CreateProductError = ProductTransportFailure | Extract<ApiFailure, { code: "INVALID_INPUT" | "VALIDATION_ERROR" | "DUPLICATE_SKU" | "PRODUCT_ID_CONFLICT" | "IMAGE_NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" }>;
 export type UpdateProductError = ProductTransportFailure | Extract<ApiFailure, { code: "INVALID_INPUT" | "VALIDATION_ERROR" | "DUPLICATE_SKU" | "PRODUCT_NOT_FOUND" | "IMAGE_NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" }>;
 export type UploadProductImageError = ProductTransportFailure | Extract<ApiFailure, { code: "INVALID_IMAGE" | "IMAGE_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" | "IMAGE_STORAGE_UNAVAILABLE" }>;
@@ -127,6 +127,7 @@ function productDetail(dto: ReturnType<typeof productDetailResponseSchema.parse>
     ...(dto.image === undefined ? {} : { photo: { id: dto.image.id as ImageId, url: dto.image.url } }),
     variants: dto.product.variants.map((variant) => ({
       id: variant.id as VariantId,
+      qrCode: variant.qrCode as VariantQrCode,
       attributes: variant.attributes,
       ...(variant.sku === undefined ? {} : { sku: variant.sku }),
       salePrice: variant.salePrice,
@@ -136,10 +137,17 @@ function productDetail(dto: ReturnType<typeof productDetailResponseSchema.parse>
   };
 }
 
-export function createProductApi(request: Request) {
+export function createProductApi(request: Request, sessionGeneration: () => number) {
+  const pendingProducts = new Map<string, Promise<Result<Product, GetProductError>>>();
   const run = async (path: string, init: RequestInit, allowed: readonly string[]) => {
     const result = await request(path, init);
     return result.success ? result : err(readApiFailure(result.error, allowed));
+  };
+  const readProduct = async (id: ProductId): Promise<Result<Product, GetProductError>> => {
+    const result = restrictFailure(await run(`/api/products/${encodeURIComponent(id)}`, {}, ["PRODUCT_NOT_FOUND", "UNAUTHENTICATED", "COMPANY_REQUIRED", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR"]), ["PRODUCT_NOT_FOUND"] as const);
+    if (!result.success) return result;
+    const parsed = productDetailResponseSchema.safeParse(result.data);
+    return parsed.success ? ok(productDetail(parsed.data)) : err(fieldFailure("INVALID_RESPONSE", "Server returned invalid product data"));
   };
   return {
     async list(criteria: ProductListCriteria): Promise<Result<ProductPage, ListProductsError>> {
@@ -156,11 +164,13 @@ export function createProductApi(request: Request) {
         ? ok({ ...parsed.data, items: parsed.data.items.map(productListItem) })
         : err(fieldFailure("INVALID_RESPONSE", "Server returned invalid products"));
     },
-    async get(id: ProductId): Promise<Result<Product, GetProductError>> {
-      const result = restrictFailure(await run(`/api/products/${encodeURIComponent(id)}`, {}, ["PRODUCT_NOT_FOUND", "UNAUTHENTICATED", "COMPANY_REQUIRED", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR"]), ["PRODUCT_NOT_FOUND"] as const);
-      if (!result.success) return result;
-      const parsed = productDetailResponseSchema.safeParse(result.data);
-      return parsed.success ? ok(productDetail(parsed.data)) : err(fieldFailure("INVALID_RESPONSE", "Server returned invalid product data"));
+    get(id: ProductId): Promise<Result<Product, GetProductError>> {
+      const key = `${sessionGeneration()}:${id}`;
+      const pending = pendingProducts.get(key);
+      if (pending) return pending;
+      const read = readProduct(id).finally(() => pendingProducts.delete(key));
+      pendingProducts.set(key, read);
+      return read;
     },
     async create(input: CreateProductRequest): Promise<Result<ProductId, CreateProductError>> {
       const body = createProductRequestSchema.safeParse(input);
