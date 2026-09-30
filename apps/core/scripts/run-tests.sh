@@ -2,8 +2,38 @@
 set -eu
 
 case "${1:-}" in
-  integration|e2e) ;;
-  *) echo "Usage: $0 integration|e2e" >&2; exit 2 ;;
+  unit|integration|e2e|mobile) ;;
+  *) echo "Usage: $0 unit|integration|e2e|mobile" >&2; exit 2 ;;
+esac
+
+test_log=$(mktemp)
+trap 'rm -f "$test_log"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+quiet() {
+  if "$@" >"$test_log" 2>&1; then
+    return 0
+  else
+    test_status=$?
+    cat "$test_log" >&2
+    return "$test_status"
+  fi
+}
+
+case "$1" in
+  unit)
+    shift
+    quiet pnpm exec vitest run --project unit --passWithNoTests "$@"
+    echo "Todo OK"
+    exit 0
+    ;;
+  mobile)
+    shift
+    quiet pnpm exec jest --runInBand --silent --reporters=summary "$@"
+    echo "Todo OK"
+    exit 0
+    ;;
 esac
 
 core_test_port=${CORE_TEST_PORT:-55433}
@@ -21,9 +51,15 @@ else
   export BETTER_AUTH_URL=http://localhost:3000
 fi
 
-QUIET_SUCCESS=1 sh ../../scripts/quiet-run.sh docker compose -f ../../compose.yaml up -d --wait db_test mailpit
-QUIET_SUCCESS=1 DATABASE_URL="$admin_database_url" sh ../../scripts/quiet-run.sh pnpm exec prisma migrate deploy
-QUIET_SUCCESS=1 sh ../../scripts/quiet-run.sh psql "$admin_database_url" -v ON_ERROR_STOP=1 -c 'TRUNCATE TABLE public."jwks"'
-QUIET_SUCCESS=1 sh ../../scripts/quiet-run.sh psql "$admin_database_url" -v ON_ERROR_STOP=1 -v app_password=core_app_local -v dbname=core_test -f scripts/provision-role.sql
+quiet docker compose -f ../../compose.yaml up -d --wait db_test mailpit
+DATABASE_URL="$admin_database_url" quiet pnpm exec prisma migrate deploy
+quiet psql "$admin_database_url" -v ON_ERROR_STOP=1 -c 'TRUNCATE TABLE public."jwks"'
+quiet psql "$admin_database_url" -v ON_ERROR_STOP=1 -v app_password=core_app_local -v dbname=core_test -f scripts/provision-role.sql
 
-exec pnpm --silent "test:$1"
+test_project=$1
+shift
+if [ "$test_project" = e2e ]; then
+  quiet pnpm --silent build
+fi
+quiet pnpm exec vitest run --project "$test_project" "$@"
+echo "Todo OK"

@@ -113,5 +113,5 @@ Test scripts print `Todo OK` on success and failure diagnostics otherwise. Use
 `pnpm --silent --dir apps/core test:unit` or `pnpm --silent --dir apps/mobile test`
 to also suppress pnpm's command banner. Core uses Vitest's minimal reporter;
 mobile uses Jest's summary reporter. Integration and E2E preparation and the E2E
-build print logs only if they fail. Check the output wrapper with
-`sh scripts/quiet-run.test.sh` from the repository root.
+build print logs only if they fail. The existing `apps/core/scripts/run-tests.sh`
+handles output for both apps; package scripts select the corresponding suite.
