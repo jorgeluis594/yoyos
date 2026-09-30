@@ -1,9 +1,12 @@
 import { createRequestHandler } from "@react-router/express";
 import express from "express";
 import { app } from "./app.js";
+import { createEventBusRuntime } from "@core/src/composition/event-bus";
 
 const port = Number(process.env.PORT ?? 3000);
 const build = await import(new URL("../build/server/index.js", import.meta.url).href);
+const { provider } = createEventBusRuntime();
+await provider.start();
 
 app.use(express.static("build/client", { index: false }));
 app.all(
@@ -13,5 +16,8 @@ app.all(
 
 const server = app.listen(port, () => console.log(`Core listening on http://localhost:${port}`));
 for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => {
-  server.close(() => process.exit(0));
+  server.close(async () => {
+    await provider.stop();
+    process.exit(0);
+  });
 });
