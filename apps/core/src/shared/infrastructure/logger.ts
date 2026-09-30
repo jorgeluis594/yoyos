@@ -54,7 +54,8 @@ export function requestLogging(request: Request, response: Response, next: NextF
   const started = performance.now();
   const log = logger.child({ requestId });
   response.set("x-request-id", requestId);
-  response.once("finish", () => {
+  // prefinish retains the agent's request context; finish runs after it is gone.
+  response.once("prefinish", () => {
     log.info({
       event: "http_request_completed",
       method: request.method,
