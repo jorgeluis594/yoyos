@@ -54,7 +54,7 @@
     "vite": "^8.3.0"
   },
   "scripts": {
-    "test": "jest --runInBand",
+    "test": "sh ../../scripts/quiet-run.sh jest --runInBand --silent --reporters=summary",
     "typecheck": "tsc --noEmit",
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",

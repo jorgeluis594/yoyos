@@ -21,9 +21,9 @@ else
   export BETTER_AUTH_URL=http://localhost:3000
 fi
 
-docker compose -f ../../compose.yaml up -d --wait db_test mailpit
-DATABASE_URL="$admin_database_url" pnpm exec prisma migrate deploy
-psql "$admin_database_url" -v ON_ERROR_STOP=1 -c 'TRUNCATE TABLE public."jwks"'
-psql "$admin_database_url" -v ON_ERROR_STOP=1 -v app_password=core_app_local -v dbname=core_test -f scripts/provision-role.sql
+QUIET_SUCCESS=1 sh ../../scripts/quiet-run.sh docker compose -f ../../compose.yaml up -d --wait db_test mailpit
+QUIET_SUCCESS=1 DATABASE_URL="$admin_database_url" sh ../../scripts/quiet-run.sh pnpm exec prisma migrate deploy
+QUIET_SUCCESS=1 sh ../../scripts/quiet-run.sh psql "$admin_database_url" -v ON_ERROR_STOP=1 -c 'TRUNCATE TABLE public."jwks"'
+QUIET_SUCCESS=1 sh ../../scripts/quiet-run.sh psql "$admin_database_url" -v ON_ERROR_STOP=1 -v app_password=core_app_local -v dbname=core_test -f scripts/provision-role.sql
 
-exec pnpm "test:$1"
+exec pnpm --silent "test:$1"

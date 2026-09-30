@@ -108,3 +108,10 @@ In `apps/core`, use Vitest for every unit, integration, and end-to-end test: def
 Test observable contracts, not implementation structure. Do not add tests solely for exports, trivial forwarding functions, or static markup. Avoid large snapshots and coverage targets that reward assertions without meaningful behavior.
 
 Use each application's configured tooling and scripts. Outside `apps/core`, these conventions do not prescribe a test framework or imply that runners, commands, or CI checks are already configured. Add tooling only when implementing runnable tests requires it.
+
+Test scripts print `Todo OK` on success and failure diagnostics otherwise. Use
+`pnpm --silent --dir apps/core test:unit` or `pnpm --silent --dir apps/mobile test`
+to also suppress pnpm's command banner. Core uses Vitest's minimal reporter;
+mobile uses Jest's summary reporter. Integration and E2E preparation and the E2E
+build print logs only if they fail. Check the output wrapper with
+`sh scripts/quiet-run.test.sh` from the repository root.
