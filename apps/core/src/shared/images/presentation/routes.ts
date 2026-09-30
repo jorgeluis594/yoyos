@@ -1,4 +1,4 @@
-import { logFailure } from "@core/src/shared/infrastructure/logger";
+import { log } from "@core/src/shared/infrastructure/logger";
 import express, { type ErrorRequestHandler } from "express";
 import { imageResponseSchema } from "@shared/contracts/images";
 import { apiError } from "@core/src/shared/infrastructure/api-auth-middleware";
@@ -13,7 +13,7 @@ export function imageRoutes(storage: ImageStorage, repository: ImageRepository) 
   const sendResult = (response: express.Response, value: unknown, status = 200) => {
     const parsed = imageResponseSchema.safeParse(value);
     if (!parsed.success) {
-      logFailure("invalid_image_response");
+      log.error({ event: "invalid_image_response" }, "invalid_image_response");
       return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
     }
     return response.status(status).json(parsed.data);

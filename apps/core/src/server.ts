@@ -1,7 +1,7 @@
 import { createRequestHandler } from "@react-router/express";
 import express from "express";
 import { app } from "./app.js";
-import { logger } from "@core/src/shared/infrastructure/logger";
+import { log } from "@core/src/shared/infrastructure/logger";
 import { createEventBusRuntime } from "@core/src/composition/event-bus";
 
 const port = Number(process.env.PORT ?? 3000);
@@ -15,7 +15,7 @@ app.all(
   createRequestHandler({ build, mode: process.env.NODE_ENV }),
 );
 
-const server = app.listen(port, () => logger.info({ event: "server_started", port }, "Core listening"));
+const server = app.listen(port, () => log.info({ event: "server_started", port }, "Core listening"));
 for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => {
   server.close(async () => {
     await provider.stop();

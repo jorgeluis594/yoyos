@@ -1,4 +1,4 @@
-import { logFailure } from "@core/src/shared/infrastructure/logger";
+import { log } from "@core/src/shared/infrastructure/logger";
 import { prisma } from "@core/src/shared/infrastructure/persistance";
 import type { ImageRepository } from "@core/src/shared/images/application/images";
 import { err, ok } from "@shared/functional";
@@ -16,7 +16,7 @@ export const imageRepository: ImageRepository = {
       return ok(await prisma.image.create({ data: { storageKey }, select: { id: true } }));
     } catch (cause) {
       if (!isPersistenceFailure(cause)) throw cause;
-      logFailure("unable_to_create_image_record", cause);
+      log.error({ event: "unable_to_create_image_record", err: cause }, "unable_to_create_image_record");
       return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to create image record" });
     }
   },
@@ -25,7 +25,7 @@ export const imageRepository: ImageRepository = {
       return ok(await prisma.image.findFirst({ where: { id, OR: [{ sourceKey: null }, { importStatus: "ready" }] }, select: { id: true, storageKey: true, visibility: true } }));
     } catch (cause) {
       if (!isPersistenceFailure(cause)) throw cause;
-      logFailure("unable_to_find_image_record", cause);
+      log.error({ event: "unable_to_find_image_record", err: cause }, "unable_to_find_image_record");
       return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to find image record" });
     }
   },
@@ -34,7 +34,7 @@ export const imageRepository: ImageRepository = {
       return ok(await prisma.image.findFirst({ where: { companyId, sourceKey, visibility: "private", importStatus: "ready" }, select: { id: true } }));
     } catch (cause) {
       if (!isPersistenceFailure(cause)) throw cause;
-      logFailure("unable_to_find_completed_private_image_import", cause);
+      log.error({ event: "unable_to_find_completed_private_image_import", err: cause }, "unable_to_find_completed_private_image_import");
       return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to find completed image import" });
     }
   },
@@ -55,7 +55,7 @@ export const imageRepository: ImageRepository = {
       }
     } catch (cause) {
       if (!isPersistenceFailure(cause)) throw cause;
-      logFailure("unable_to_reserve_private_image_import", cause);
+      log.error({ event: "unable_to_reserve_private_image_import", err: cause }, "unable_to_reserve_private_image_import");
       return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to reserve image import" });
     }
   },
@@ -66,7 +66,7 @@ export const imageRepository: ImageRepository = {
       return image ? ok(undefined) : err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to complete image import" });
     } catch (cause) {
       if (!isPersistenceFailure(cause)) throw cause;
-      logFailure("unable_to_complete_private_image_import", cause);
+      log.error({ event: "unable_to_complete_private_image_import", err: cause }, "unable_to_complete_private_image_import");
       return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to complete image import" });
     }
   },

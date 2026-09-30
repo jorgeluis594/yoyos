@@ -1,4 +1,4 @@
-import { logFailure } from "@core/src/shared/infrastructure/logger";
+import { log } from "@core/src/shared/infrastructure/logger";
 import { randomUUID } from "node:crypto";
 import { err, ok } from "@shared/functional";
 import { prisma } from "@core/src/shared/infrastructure/persistance";
@@ -23,7 +23,7 @@ export const contactRepository: ContactRepository = {
       return ok(mapContact(contact));
     } catch (cause) {
       if (!isPersistenceFailure(cause)) throw cause;
-      logFailure("unable_to_find_whatsapp_contact", cause);
+      log.error({ event: "unable_to_find_whatsapp_contact", err: cause }, "unable_to_find_whatsapp_contact");
       return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to find contact" });
     }
   },
@@ -39,7 +39,7 @@ export const contactRepository: ContactRepository = {
       return ok(mapContact(contact));
     } catch (cause) {
       if (!isPersistenceFailure(cause)) throw cause;
-      logFailure("unable_to_insert_whatsapp_contact", cause);
+      log.error({ event: "unable_to_insert_whatsapp_contact", err: cause }, "unable_to_insert_whatsapp_contact");
       return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to insert contact" });
     }
   },
@@ -51,7 +51,7 @@ export const contactRepository: ContactRepository = {
       return ok(mapContact(contact));
     } catch (cause) {
       if (!isPersistenceFailure(cause)) throw cause;
-      logFailure("unable_to_update_whatsapp_contact", cause);
+      log.error({ event: "unable_to_update_whatsapp_contact", err: cause }, "unable_to_update_whatsapp_contact");
       return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to update contact" });
     }
   },
@@ -63,7 +63,7 @@ export async function findContactById(id: string) {
     return ok(contact);
   } catch (cause) {
     if (!isPersistenceFailure(cause)) throw cause;
-    logFailure("unable_to_find_sale_contact", cause);
+    log.error({ event: "unable_to_find_sale_contact", err: cause }, "unable_to_find_sale_contact");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to find contact" });
   }
 }
@@ -76,7 +76,7 @@ export async function searchSaleContacts(search: string) {
     ] }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, name: true, phone: true } }));
   } catch (cause) {
     if (!isPersistenceFailure(cause)) throw cause;
-    logFailure("unable_to_search_sale_contacts", cause);
+    log.error({ event: "unable_to_search_sale_contacts", err: cause }, "unable_to_search_sale_contacts");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to search contacts" });
   }
 }

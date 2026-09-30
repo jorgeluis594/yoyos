@@ -1,4 +1,4 @@
-import { logger } from "@core/src/shared/infrastructure/logger";
+import { log } from "@core/src/shared/infrastructure/logger";
 import { afterEach, expect, test, vi } from "vitest";
 import type { LoaderFunctionArgs } from "react-router";
 import { loader } from "@core/app/routes/product-list";
@@ -20,7 +20,7 @@ test("passes URL criteria to the catalog operation", async () => {
 test("keeps invalid criteria and technical failures distinct", async () => {
   vi.spyOn(products, "list").mockResolvedValueOnce({ success: false, error: { code: "VALIDATION_ERROR", issues: [{ field: "page", reason: "INVALID_RANGE", message: "Invalid page" }], message: "Invalid criteria" } })
     .mockRejectedValueOnce(new Error("secret storage detail"));
-  vi.spyOn(logger, "error").mockImplementation(() => {});
+  vi.spyOn(log, "error").mockImplementation(() => {});
   await expect(loader(args("http://localhost/es-PE/products?page=0"))).rejects.toMatchObject({ status: 400 });
   await expect(loader(args("http://localhost/es-PE/products"))).rejects.toMatchObject({ status: 503 });
 });

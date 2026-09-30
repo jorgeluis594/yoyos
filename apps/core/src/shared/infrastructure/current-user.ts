@@ -1,4 +1,4 @@
-import { logFailure } from "@core/src/shared/infrastructure/logger";
+import { log } from "@core/src/shared/infrastructure/logger";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { loadUserAccess, type UserAccess } from "@core/src/features/users";
@@ -20,7 +20,7 @@ export async function authenticateCookie(headers: Headers): Promise<Result<Authe
     if (!session) return err({ code: "UNAUTHENTICATED", message: "Session required" });
     return ok({ userId: session.user.id, sessionId: session.session.id });
   } catch (cause) {
-    logFailure("unable_to_validate_session", cause);
+    log.error({ event: "unable_to_validate_session", err: cause }, "unable_to_validate_session");
     return err({ code: "AUTH_SERVICE_UNAVAILABLE", message: "Unable to validate session" });
   }
 }

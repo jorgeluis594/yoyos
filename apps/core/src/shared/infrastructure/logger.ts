@@ -3,9 +3,12 @@ import { randomUUID } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import pino from "pino";
 
-export const logger = pino({
+const requestLog = new AsyncLocalStorage<{ requestId: string; companyId?: string }>();
+
+export const log = pino({
   level: process.env.LOG_LEVEL ?? "info",
   base: { service: "yoyos-core" },
+  mixin: () => ({ ...requestLog.getStore() }),
   serializers: { err: safeError },
   redact: {
     paths: ["password", "token", "authorization", "cookie", "email", "phone", "headers", "body", "secret", "accessToken", "refreshToken", "apiKey"]
@@ -14,15 +17,11 @@ export const logger = pino({
   },
 });
 
-const requestLog = new AsyncLocalStorage<pino.Logger>();
 const validRequestId = /^[a-zA-Z0-9_-]{8,64}$/;
 
-export function currentLogger() {
-  return requestLog.getStore() ?? logger;
-}
-
 export function bindCompanyToRequest(companyId: string) {
-  requestLog.getStore()?.setBindings({ companyId });
+  const context = requestLog.getStore();
+  if (context) context.companyId = companyId;
 }
 
 export function safeError(cause: unknown) {
@@ -38,21 +37,10 @@ export function safeError(cause: unknown) {
   };
 }
 
-export function logFailure(event: string, cause?: unknown, errorCode?: string) {
-  const causeCode = cause && typeof cause === "object" && "code" in cause ? cause.code : undefined;
-  const code = errorCode ?? (typeof causeCode === "string" && /^[A-Z][A-Z0-9_]{1,39}$/.test(causeCode) ? causeCode : undefined);
-  currentLogger().error({
-    event,
-    ...(code ? { errorCode: code } : {}),
-    ...(cause === undefined ? {} : { err: cause }),
-  }, event);
-}
-
 export function requestLogging(request: Request, response: Response, next: NextFunction) {
   const supplied = request.get("x-request-id");
   const requestId = supplied && validRequestId.test(supplied) ? supplied : randomUUID();
   const started = performance.now();
-  const log = logger.child({ requestId });
   response.set("x-request-id", requestId);
   // prefinish retains the agent's request context; finish runs after it is gone.
   response.once("prefinish", () => {
@@ -64,5 +52,5 @@ export function requestLogging(request: Request, response: Response, next: NextF
       durationMs: Math.round(performance.now() - started),
     }, "HTTP request completed");
   });
-  requestLog.run(log, next);
+  requestLog.run({ requestId }, next);
 }

@@ -1,4 +1,4 @@
-import { logFailure } from "@core/src/shared/infrastructure/logger";
+import { log } from "@core/src/shared/infrastructure/logger";
 import { err, ok } from "@shared/functional";
 import { prisma } from "@core/src/shared/infrastructure/persistance";
 import type { ChatRepository } from "@core/src/features/chats/application/record-message";
@@ -22,7 +22,7 @@ export const chatRepository: ChatRepository = {
       return ok(message);
     } catch (cause) {
       if (!isPersistenceFailure(cause)) throw cause;
-      logFailure("unable_to_find_whatsapp_message", cause);
+      log.error({ event: "unable_to_find_whatsapp_message", err: cause }, "unable_to_find_whatsapp_message");
       return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to find message" });
     }
   },
@@ -38,7 +38,7 @@ export const chatRepository: ChatRepository = {
       return ok(mapChat(chat));
     } catch (cause) {
       if (!isPersistenceFailure(cause)) throw cause;
-      logFailure("unable_to_ensure_whatsapp_chat", cause);
+      log.error({ event: "unable_to_ensure_whatsapp_chat", err: cause }, "unable_to_ensure_whatsapp_chat");
       return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to ensure chat" });
     }
   },
@@ -63,7 +63,7 @@ export const chatRepository: ChatRepository = {
       return ok({ status: inserted.count ? "stored" as const : "duplicate" as const, messageId: message.id });
     } catch (cause) {
       if (!isPersistenceFailure(cause)) throw cause;
-      logFailure("unable_to_persist_whatsapp_message", cause);
+      log.error({ event: "unable_to_persist_whatsapp_message", err: cause }, "unable_to_persist_whatsapp_message");
       return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to persist message" });
     }
   },

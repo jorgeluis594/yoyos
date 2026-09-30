@@ -1,4 +1,4 @@
-import { logFailure } from "@core/src/shared/infrastructure/logger";
+import { log } from "@core/src/shared/infrastructure/logger";
 import { redirect, useActionData, useLoaderData, useNavigation, useSubmit, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
 import { countryCurrencies, type Country } from "@shared/country";
 import { PageContainer } from "@/components/ui/page-container";
@@ -23,7 +23,7 @@ export async function action({ request, context }: ActionFunctionArgs): Promise<
     if (!result.success) return { errors: createErrors(result.error) };
     return redirect(`/es-${company.country}/products/${result.data}`);
   } catch (cause) {
-    logFailure("unable_to_create_product", cause);
+    log.error({ event: "unable_to_create_product", err: cause }, "unable_to_create_product");
     return { errors: { form: "No se pudo guardar el producto. Inténtalo de nuevo." } };
   }
 }

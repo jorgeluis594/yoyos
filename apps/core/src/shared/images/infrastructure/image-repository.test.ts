@@ -1,4 +1,4 @@
-import { logger } from "@core/src/shared/infrastructure/logger";
+import { log } from "@core/src/shared/infrastructure/logger";
 import { Prisma } from "@prisma/client";
 import { afterEach, expect, it, vi } from "vitest";
 import { imageRepository } from "@core/src/shared/images/infrastructure/image-repository";
@@ -20,7 +20,7 @@ const prismaFailures = [
 
 for (const operation of operations) {
   it.each(prismaFailures)(`${operation.name} translates %s`, async (failure) => {
-    const logged = vi.spyOn(logger, "error").mockImplementation(() => {});
+    const logged = vi.spyOn(log, "error").mockImplementation(() => {});
     operation.query.mockRejectedValueOnce(failure);
     expect(await operation.run()).toEqual({
       success: false,

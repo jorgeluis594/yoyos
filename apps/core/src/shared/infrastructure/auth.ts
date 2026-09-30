@@ -1,4 +1,4 @@
-import { logFailure } from "@core/src/shared/infrastructure/logger";
+import { log } from "@core/src/shared/infrastructure/logger";
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { jwt } from "better-auth/plugins/jwt";
@@ -31,7 +31,7 @@ export const auth = betterAuth({
         try {
           await auth.api.sendVerificationEmail({ body: { email: user.email, callbackURL: `${authIssuer}/account-verified` } });
         } catch {
-          logFailure("email_verification_resend_failed");
+          log.error({ event: "email_verification_resend_failed" }, "email_verification_resend_failed");
         }
       }
     },

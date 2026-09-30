@@ -1,4 +1,4 @@
-import { logFailure } from "@core/src/shared/infrastructure/logger";
+import { log } from "@core/src/shared/infrastructure/logger";
 import { createLocalJWKSet, jwtVerify, errors, type JSONWebKeySet } from "jose";
 import { z } from "zod";
 import { err, ok } from "@shared/functional";
@@ -30,7 +30,7 @@ export async function authenticateJwt(token: string): Promise<Result<Authenticat
   let verify: ReturnType<typeof createLocalJWKSet>;
   try { verify = await keys(); }
   catch (cause) {
-    logFailure("unable_to_load_jwt_public_keys", cause);
+    log.error({ event: "unable_to_load_jwt_public_keys", err: cause }, "unable_to_load_jwt_public_keys");
     return err({ code: "AUTH_SERVICE_UNAVAILABLE", message: "Unable to load JWT public keys" });
   }
 
@@ -43,7 +43,7 @@ export async function authenticateJwt(token: string): Promise<Result<Authenticat
         ({ payload } = await jwtVerify(token, await keys(true), { algorithms: ["EdDSA"], issuer: authIssuer, audience: "yoyos-core-api" }));
       } catch (retryCause) {
         if (!(retryCause instanceof errors.JOSEError)) {
-          logFailure("unable_to_refresh_jwt_public_keys", retryCause);
+          log.error({ event: "unable_to_refresh_jwt_public_keys", err: retryCause }, "unable_to_refresh_jwt_public_keys");
           return err({ code: "AUTH_SERVICE_UNAVAILABLE", message: "Unable to load JWT public keys" });
         }
         return err({ code: "UNAUTHENTICATED", message: "Invalid token" });
@@ -61,7 +61,7 @@ export async function authenticateJwt(token: string): Promise<Result<Authenticat
     if (!session) return err({ code: "UNAUTHENTICATED", message: "Session expired or revoked" });
     return ok({ userId: claims.data.sub, sessionId: session.id });
   } catch (cause) {
-    logFailure("unable_to_validate_jwt_session", cause);
+    log.error({ event: "unable_to_validate_jwt_session", err: cause }, "unable_to_validate_jwt_session");
     return err({ code: "AUTH_SERVICE_UNAVAILABLE", message: "Unable to validate JWT session" });
   }
 }
