@@ -1,4 +1,5 @@
-import { fireEvent, render, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
+import type { orders } from "@mobile/composition/orders";
 import { err, ok } from "@shared/functional";
 import OrderHistoryScreen from "@mobile/features/orders/presentation/order-history-screen";
 
@@ -68,4 +69,33 @@ test("history offers retry after a load error", async () => {
   await screen.findByText("No se pudieron cargar las ventas");
   fireEvent.press(screen.getByRole("button", { name: "Reintentar" }));
   await screen.findByText("Aún no hay ventas");
+});
+
+test.each(["success", "error"])("history ignores a replaced request's %s before and after the latest load", async (outcome) => {
+  type ListResult = Awaited<ReturnType<typeof orders.loadOrders>>;
+  const requests: ((result: ListResult) => void)[] = [];
+  mockLoadOrders.mockImplementation(() => new Promise<ListResult>((resolve) => requests.push(resolve)));
+  mockReadPending.mockResolvedValueOnce(err({ code: "PENDING_STORAGE_UNAVAILABLE", message: "Unavailable" }));
+  const screen = render(<OrderHistoryScreen />);
+  fireEvent.press(screen.getByRole("button", { name: "Público general" }));
+  fireEvent.press(screen.getByRole("button", { name: "Aplicar filtros" }));
+  const stale: ListResult = outcome === "error" ? err({ code: "NETWORK_ERROR", message: "Offline" }) : ok({
+    items: [{ id: "old", sellerId: "seller", customer: { kind: "contact", contactId: "contact", name: "Venta anterior", phone: "999999999" },
+      completedAt: "2026-09-28T12:00:00.000Z", currency: "PEN", total: 10 }], page: 1, pageSize: 20, total: 80,
+  });
+  await act(async () => { requests[0](stale); });
+  expect(screen.getByText("Cargando ventas")).toBeTruthy();
+  expect(screen.queryByText("No se pudo leer la venta pendiente")).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: "Aplicar filtros" }));
+  await act(async () => { requests[2](ok({
+    items: [{ id: "latest", sellerId: "seller", customer: { kind: "general_public" }, completedAt: "2026-09-29T12:00:00.000Z", currency: "PEN", total: 20 }],
+    page: 1, pageSize: 20, total: 1,
+  })); });
+  await act(async () => { requests[1](stale); });
+  expect(screen.getByText("1 venta")).toBeTruthy();
+  expect(screen.queryByText("Venta anterior")).toBeNull();
+  expect(screen.queryByText("No se pudieron cargar las ventas")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Siguiente" })).toBeNull();
+  fireEvent.press(screen.getByText(/20[.,]00/));
+  expect(mockPush).toHaveBeenCalledWith("/orders/latest");
 });

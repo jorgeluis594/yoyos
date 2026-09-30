@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FlatList, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -39,17 +39,23 @@ export default function OrderHistoryScreen() {
   const [pendingState, setPendingState] = useState<"none" | "pending" | "error">("none");
   const [verifyMessage, setVerifyMessage] = useState("");
   const [verifying, setVerifying] = useState(false);
+  const activeRequest = useRef(0);
   const companyId = state.status === "ready" && state.company.country === "PE" ? state.company.id : null;
 
   const reload = useCallback(async (company: string, filters: OrderListCriteria) => {
+    const request = ++activeRequest.current;
     setLoading(true);
     const [list, pending] = await Promise.all([orders.loadOrders(filters), orders.readPendingOrderConfirmation(company)]);
+    if (request !== activeRequest.current) return;
     if (list.success) { setItems(list.data.items); setTotal(list.data.total); setError(""); }
     else setError(list.error.code === "INVALID_INPUT" ? "Revisa las fechas y el cliente del filtro." : "No se pudieron cargar las ventas.");
     setPendingState(!pending.success ? "error" : pending.data ? "pending" : "none");
     setLoading(false);
   }, []);
-  useFocusEffect(useCallback(() => { if (companyId) void reload(companyId, criteria); }, [companyId, criteria, reload]));
+  useFocusEffect(useCallback(() => {
+    if (companyId) void reload(companyId, criteria);
+    return () => { activeRequest.current += 1; };
+  }, [companyId, criteria, reload]));
 
   useEffect(() => {
     if (!companyId || customerKind !== "contact") return;
