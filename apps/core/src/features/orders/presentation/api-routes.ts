@@ -74,11 +74,6 @@ function unexpected(response: Response, error: unknown) {
 
 export const orderRoutes = express.Router();
 
-orderRoutes.use((_request, response: Response<unknown, PrivateLocals>, next) => {
-  if (response.locals.auth.company.country !== "PE") return apiError(response, 403, "ORDERS_NOT_AVAILABLE", "Orders unavailable");
-  return next();
-});
-
 orderRoutes.get("/", async (request, response) => {
   const query = queryFrom(request, response);
   if (!query) return;

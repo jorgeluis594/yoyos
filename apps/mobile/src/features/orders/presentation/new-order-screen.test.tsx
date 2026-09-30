@@ -8,6 +8,7 @@ const mockCompleteOrder = jest.fn();
 const mockReadPending = jest.fn();
 const mockResolvePending = jest.fn();
 let mockDirty = false;
+let mockCountry = "PE";
 let mockDiscardVersion = 0;
 let mockOffline = false;
 const mockSetDirty = jest.fn((value: boolean) => { mockDirty = value; });
@@ -31,7 +32,7 @@ jest.mock("@mobile/composition/orders", () => ({ orders: {
   completeOrder: (...args: unknown[]) => mockCompleteOrder(...args),
 } }));
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAccess: () => ({ state: {
-  status: "ready", company: { id: mockId(1), name: "Mi tienda", country: "PE" }, user: { id: "seller" },
+  status: "ready", company: { id: mockId(1), name: "Mi tienda", country: mockCountry }, user: { id: "seller" },
 } }) }));
 jest.mock("@mobile/features/orders/presentation/order-draft-guard", () => ({ useOrderDraft: () => ({
   dirty: mockDirty, setDirty: mockSetDirty, discardVersion: mockDiscardVersion,
@@ -39,9 +40,10 @@ jest.mock("@mobile/features/orders/presentation/order-draft-guard", () => ({ use
 jest.mock("@mobile/features/orders/presentation/order-result", () => ({ useOrderResult: () => ({ show: mockShow }) }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 
-beforeEach(() => { jest.clearAllMocks(); mockDirty = false; mockDiscardVersion = 0; mockOffline = false; mockReadPending.mockResolvedValue(ok(null)); });
+beforeEach(() => { jest.clearAllMocks(); mockCountry = "PE"; mockDirty = false; mockDiscardVersion = 0; mockOffline = false; mockReadPending.mockResolvedValue(ok(null)); });
 
-test("seller selects a variant, reviews the amount, and opens the completed sale", async () => {
+test("Chile seller selects a variant, reviews the amount, and opens the completed sale", async () => {
+  mockCountry = "CL";
   mockCompleteOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: { amount: 10, currency: "PEN" },
     order: { id: mockId(3), total: 12 } }));
   const screen = render(<NewOrderScreen />);

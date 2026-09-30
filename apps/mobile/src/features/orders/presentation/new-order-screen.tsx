@@ -32,7 +32,6 @@ const errorText: Record<string, string> = {
   CONTACT_NOT_FOUND: "El contacto ya no está disponible. Elige otro o usa público general.",
   CURRENCY_MISMATCH: "Los artículos deben tener la misma moneda.",
   INVALID_ORDER: "Revisa los artículos y cantidades.",
-  ORDERS_NOT_AVAILABLE: "Ventas aún no está disponible para esta empresa.",
   PENDING_STORAGE_UNAVAILABLE: "No se pudo guardar la confirmación pendiente. Reintenta sin salir.",
   INVALID_PENDING_DATA: "No se pudo leer la confirmación pendiente. Reintenta más tarde.",
   PENDING_CONFIRMATION: "Primero verifica la venta pendiente de esta empresa.",
@@ -66,7 +65,7 @@ export default function NewOrderScreen() {
   const submitted = useRef<OrderDraft | null>(null);
   const leaveAllowed = useRef(false);
   const version = useRef(discardVersion);
-  const companyId = state.status === "ready" && state.company.country === "PE" ? state.company.id : null;
+  const companyId = state.status === "ready" ? state.company.id : "";
   const offline = network.isConnected === false || network.isInternetReachable === false;
   const prepared = prepareOrder(draft);
 
@@ -119,7 +118,6 @@ export default function NewOrderScreen() {
   }, [companyId, contactSearch, pendingStatus, stage]);
 
   if (state.status !== "ready") return null;
-  if (!companyId) return <ScreenState status="empty" title="Ventas aún no disponibles" description="Esta función está disponible para empresas de Perú." />;
 
   const openCompleted = (outcome: Extract<ConfirmOrderOutcome, { kind: "completed" }>) => {
     leaveAllowed.current = true;

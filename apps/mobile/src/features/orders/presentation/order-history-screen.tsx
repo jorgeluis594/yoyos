@@ -40,7 +40,7 @@ export default function OrderHistoryScreen() {
   const [verifyMessage, setVerifyMessage] = useState("");
   const [verifying, setVerifying] = useState(false);
   const activeRequest = useRef(0);
-  const companyId = state.status === "ready" && state.company.country === "PE" ? state.company.id : null;
+  const companyId = state.status === "ready" ? state.company.id : "";
 
   const reload = useCallback(async (company: string, filters: OrderListCriteria) => {
     const request = ++activeRequest.current;
@@ -69,7 +69,6 @@ export default function OrderHistoryScreen() {
   }, [companyId, customerKind, contactSearch]);
 
   if (state.status !== "ready") return null;
-  if (!companyId) return <ScreenState status="empty" title="Ventas aún no disponibles" description="Esta función está disponible para empresas de Perú." />;
 
   const apply = () => {
     if (customerKind === "contact" && !contactId) { setError("Elige un contacto para filtrar."); return; }

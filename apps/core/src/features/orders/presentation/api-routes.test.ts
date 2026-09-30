@@ -30,9 +30,8 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
 });
 
-test("order API rejects other countries and invalid filters before reading orders", async () => {
+test("order API validates filters before reading orders", async () => {
   const list = vi.spyOn(orders, "list");
-  expect(await request("/", "CL")).toMatchObject({ status: 403, body: { code: "ORDERS_NOT_AVAILABLE" } });
   expect(await request(`/?customer=all&contactId=${contactId}`)).toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
   expect(await request("/?page=1&page=2")).toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
   expect(list).not.toHaveBeenCalled();
@@ -40,7 +39,7 @@ test("order API rejects other countries and invalid filters before reading order
 
 test("order API maps a validated contact and UTC interval to the existing list operation", async () => {
   const list = vi.spyOn(orders, "list").mockResolvedValue({ success: true, data: { items: [], page: 2, pageSize: 20, total: 0 } });
-  const response = await request(`/?page=2&customer=contact&contactId=${contactId}&completedFrom=2026-09-28T05%3A00%3A00.000Z&completedBefore=2026-09-29T05%3A00%3A00.000Z`);
+  const response = await request(`/?page=2&customer=contact&contactId=${contactId}&completedFrom=2026-09-28T05%3A00%3A00.000Z&completedBefore=2026-09-29T05%3A00%3A00.000Z`, "CL");
   expect(response).toMatchObject({ status: 200, body: { page: 2, items: [] } });
   expect(list).toHaveBeenCalledWith({ page: 2, customer: { kind: "contact", contactId },
     completedFrom: new Date("2026-09-28T05:00:00.000Z"), completedBefore: new Date("2026-09-29T05:00:00.000Z") });

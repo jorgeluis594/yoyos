@@ -66,24 +66,14 @@ afterAll(async () => {
   await systemPrisma.$disconnect();
 });
 
-test("orders HTTP requires a Peru company on every operation", async () => {
+test("orders HTTP requires authentication", async () => {
   const anonymous = await call("/api/orders");
   expect(anonymous.status).toBe(401);
   expect(anonymous.headers.get("cache-control")).toBe("no-store");
-  const chile = await fixture("CL");
-  for (const [path, input, method] of [["/api/orders", undefined, "GET"],
-    [`/api/orders/${randomUUID()}`, undefined, "GET"], ["/api/orders/catalog", undefined, "GET"],
-    ["/api/orders/contacts", undefined, "GET"],
-    ["/api/orders", { id: randomUUID(), contactId: null, items: [{ variantId: chile.variantId, quantity: 1 }] }, "POST"]] as const) {
-    const response = await call(path, chile.cookie, input, method);
-    expect(response.status).toBe(403);
-    expect(await response.json()).toMatchObject({ code: "ORDERS_NOT_AVAILABLE" });
-  }
-  expect(await withTenantIsolation(chile.companyId, async () => await prisma.order.count())).toBe(0);
 });
 
-test("orders HTTP completes once, returns historical data, and isolates other companies", async () => {
-  const seller = await fixture("PE");
+test("orders HTTP lets a Chile company complete sales, returns historical data, and isolates other companies", async () => {
+  const seller = await fixture("CL");
   const other = await fixture("PE");
   const id = randomUUID();
   const input = { id, contactId: seller.contactId, items: [{ variantId: seller.variantId, quantity: 2 }] };

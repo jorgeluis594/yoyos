@@ -3,6 +3,7 @@ import OrderDetailScreen from "@mobile/features/orders/presentation/order-detail
 
 const mockId = "00000000-0000-4000-8000-000000000003";
 let mockNotice: { id: string; shownTotal: { amount: number; currency: string } } | null = null;
+let mockCountry = "PE";
 const mockClear = jest.fn();
 jest.mock("expo-router", () => ({ useRouter: () => ({ back: jest.fn() }),
   useLocalSearchParams: () => ({ id: mockId }),
@@ -16,12 +17,13 @@ jest.mock("@mobile/composition/orders", () => ({ orders: {
   clearPendingOrderConfirmation: async () => ({ success: true, data: undefined }),
 } }));
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAccess: () => ({ state: {
-  status: "ready", company: { id: "00000000-0000-4000-8000-000000000001", country: "PE" },
+  status: "ready", company: { id: "00000000-0000-4000-8000-000000000001", country: mockCountry },
 } }) }));
 jest.mock("@mobile/features/orders/presentation/order-result", () => ({ useOrderResult: () => ({ notice: mockNotice, clear: mockClear }) }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 
 test("immediate result shows the amount difference; history detail shows only the recorded total", async () => {
+  mockCountry = "CL";
   mockNotice = { id: mockId, shownTotal: { amount: 10, currency: "PEN" } };
   const immediate = render(<OrderDetailScreen />);
   await immediate.findByText("Revisa el importe cobrado");

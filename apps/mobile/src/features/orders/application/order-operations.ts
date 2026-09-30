@@ -18,7 +18,7 @@ export type PendingOrderStoreError = Readonly<{
   message: string;
 }>;
 export type OrderRequestError = Readonly<{
-  code: TransportError["code"] | "ORDERS_NOT_AVAILABLE" | "INVALID_INPUT" | "INVALID_ORDER" | "CURRENCY_MISMATCH"
+  code: TransportError["code"] | "INVALID_INPUT" | "INVALID_ORDER" | "CURRENCY_MISMATCH"
     | "CONTACT_NOT_FOUND" | "VARIANT_NOT_FOUND" | "INSUFFICIENT_STOCK" | "ORDER_ALREADY_EXISTS"
     | "ORDER_NOT_FOUND" | "PAYLOAD_TOO_LARGE";
   message: string;
@@ -63,7 +63,7 @@ function listRequest(criteria: OrderListCriteria): Result<ListOrdersRequest, Ord
 }
 
 const definitive = new Set<OrderRequestError["code"]>(["INVALID_INPUT", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE",
-  "INVALID_ORDER", "CURRENCY_MISMATCH", "CONTACT_NOT_FOUND", "VARIANT_NOT_FOUND", "INSUFFICIENT_STOCK", "ORDERS_NOT_AVAILABLE"]);
+  "INVALID_ORDER", "CURRENCY_MISMATCH", "CONTACT_NOT_FOUND", "VARIANT_NOT_FOUND", "INSUFFICIENT_STOCK"]);
 
 export function createOrderOperations(api: Api, pendingStore: PendingStore) {
   let inFlight: Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>> | null = null;

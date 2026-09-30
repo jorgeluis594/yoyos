@@ -41,7 +41,7 @@ export const orderApiIssueSchema = z.strictObject({
 export type OrderApiIssue = z.infer<typeof orderApiIssueSchema>;
 export const orderApiErrorSchema = z.strictObject({
   code: z.enum([
-    "ORDERS_NOT_AVAILABLE", "INVALID_INPUT", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE",
+    "INVALID_INPUT", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE",
     "INVALID_ORDER", "CURRENCY_MISMATCH", "CONTACT_NOT_FOUND", "VARIANT_NOT_FOUND",
     "INSUFFICIENT_STOCK", "ORDER_ALREADY_EXISTS", "ORDER_NOT_FOUND", "SERVICE_UNAVAILABLE",
   ]),

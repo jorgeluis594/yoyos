@@ -47,7 +47,7 @@ export default function AppTabs() {
         <NativeTabs.Trigger.Label>Productos</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="shippingbox" md="inventory_2" />
       </NativeTabs.Trigger>
-      {state.status === 'ready' && state.company.country === 'PE' ? <NativeTabs.Trigger name="orders" disabled={dirty || orderDraft.dirty} listeners={{ tabPress: tabPress('/orders') }}>
+      {state.status === 'ready' ? <NativeTabs.Trigger name="orders" disabled={dirty || orderDraft.dirty} listeners={{ tabPress: tabPress('/orders') }}>
         <NativeTabs.Trigger.Label>Ventas</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="bag" md="shopping_bag" />
       </NativeTabs.Trigger> : null}

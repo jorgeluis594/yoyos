@@ -16,7 +16,7 @@ type Request = (path: string, init?: RequestInit) => Promise<Result<unknown, Tra
 type Operation = "list" | "get" | "create" | "catalog" | "contacts";
 
 const statusByCode: Record<OrderApiError["code"], number> = {
-  ORDERS_NOT_AVAILABLE: 403, INVALID_INPUT: 400, UNSUPPORTED_MEDIA_TYPE: 415, PAYLOAD_TOO_LARGE: 413,
+  INVALID_INPUT: 400, UNSUPPORTED_MEDIA_TYPE: 415, PAYLOAD_TOO_LARGE: 413,
   INVALID_ORDER: 422, CURRENCY_MISMATCH: 422, CONTACT_NOT_FOUND: 404, VARIANT_NOT_FOUND: 404,
   INSUFFICIENT_STOCK: 409, ORDER_ALREADY_EXISTS: 409, ORDER_NOT_FOUND: 404, SERVICE_UNAVAILABLE: 503,
 };
@@ -28,7 +28,7 @@ function requestError(error: TransportError, operation: Operation): OrderRequest
     const parsed = orderApiErrorSchema.safeParse(error.http.body);
     if (parsed.success) {
       const { code, issues } = parsed.data;
-      const allowed = ["ORDERS_NOT_AVAILABLE", "INVALID_INPUT", "SERVICE_UNAVAILABLE"].includes(code)
+      const allowed = ["INVALID_INPUT", "SERVICE_UNAVAILABLE"].includes(code)
         || operation === "create" && createCodes.has(code)
         || operation === "get" && code === "ORDER_NOT_FOUND";
       if (statusByCode[code] === error.http.status && allowed) return { code, message: parsed.data.error, ...(issues ? { issues } : {}) };

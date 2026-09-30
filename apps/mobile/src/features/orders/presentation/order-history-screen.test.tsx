@@ -39,11 +39,11 @@ test("history distinguishes empty sales from filtered results and sends full Lim
   expect(mockPush).toHaveBeenCalledWith("/orders/new");
 });
 
-test("direct orders route explains Peru availability", () => {
+test("a Chile company can open order history", async () => {
   mockCountry = "CL";
   const screen = render(<OrderHistoryScreen />);
-  expect(screen.getByText("Ventas aún no disponibles")).toBeTruthy();
-  expect(mockLoadOrders).not.toHaveBeenCalled();
+  await screen.findByText("Aún no hay ventas");
+  expect(mockLoadOrders).toHaveBeenCalledWith({ page: 1, customer: { kind: "all" } });
 });
 
 test("history moves between pages and opens the selected detail", async () => {

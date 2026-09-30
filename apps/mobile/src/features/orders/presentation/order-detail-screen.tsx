@@ -26,7 +26,7 @@ export default function OrderDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const loaded = useRef(false);
-  const companyId = state.status === "ready" && state.company.country === "PE" ? state.company.id : null;
+  const companyId = state.status === "ready" ? state.company.id : "";
   const reload = useCallback(async () => {
     setLoading(true);
     const result = await orders.loadOrder(id);
@@ -42,7 +42,6 @@ export default function OrderDetailScreen() {
   }, [companyId, id, notice, clear, reload]));
 
   if (state.status !== "ready") return null;
-  if (!companyId) return <ScreenState status="empty" title="Ventas aún no disponibles" description="Esta función está disponible para empresas de Perú." />;
   if (loading) return <ScreenState status="loading" title="Cargando venta" />;
   if (!order) return <ScreenState status="error" title="No se pudo abrir la venta" description={error} onRetry={() => void reload()} />;
 

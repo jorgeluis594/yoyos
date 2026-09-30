@@ -27,7 +27,7 @@ export default function AppTabs() {
           <TabTrigger name="products" href="/products" asChild>
             <TabButton>Productos</TabButton>
           </TabTrigger>
-          {state.status === 'ready' && state.company.country === 'PE' ? <TabTrigger name="orders" href="/orders" asChild>
+          {state.status === 'ready' ? <TabTrigger name="orders" href="/orders" asChild>
             <TabButton>Ventas</TabButton>
           </TabTrigger> : null}
         </CustomTabList>
