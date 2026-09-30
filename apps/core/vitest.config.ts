@@ -9,6 +9,7 @@ export default defineConfig({
     "@shared": fileURLToPath(new URL("../../shared", import.meta.url)),
   } },
   test: {
+    reporters: ["minimal"],
     projects: [
       { extends: true, test: { name: "unit", include: ["src/**/*.{test,spec}.{ts,tsx}", "app/**/*.{test,spec}.{ts,tsx}"], exclude: ["src/**/*.integration.test.ts"] } },
       { extends: true, test: { name: "integration", include: ["src/**/*.test.mjs", "src/**/*.integration.test.ts", "scripts/**/*.test.ts"], testTimeout: 60_000 } },
