@@ -178,7 +178,7 @@ apps/mobile/src/features/orders/
   infrastructure/order-api.ts                  # HTTP y validación JSON
   infrastructure/pending-order-confirmation.ts # almacenamiento del intento
   presentation/                                # historial, nueva venta, detalle y guardia de salida
-apps/mobile/src/composition/orders.ts
+apps/mobile/src/features/orders/composition.ts
 apps/mobile/src/components/app-tabs.tsx         # pestaña Ventas
 ```
 

@@ -7,7 +7,7 @@ import * as Crypto from "expo-crypto";
 import * as Network from "expo-network";
 import { z } from "zod";
 import { orderCatalogSchema, orderContactsSchema } from "@shared/contracts/orders";
-import { orders } from "@mobile/composition/orders";
+import { orders } from "@mobile/features/orders/composition";
 import { ThemedText } from "@mobile/components/themed-text";
 import { ThemedView } from "@mobile/components/themed-view";
 import { Button } from "@mobile/components/ui/button";

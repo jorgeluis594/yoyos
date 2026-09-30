@@ -3,7 +3,7 @@ import { FlatList, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import type { OrderResponse } from "@shared/contracts/orders";
-import { orders } from "@mobile/composition/orders";
+import { orders } from "@mobile/features/orders/composition";
 import { ThemedText } from "@mobile/components/themed-text";
 import { ThemedView } from "@mobile/components/themed-view";
 import { Button } from "@mobile/components/ui/button";

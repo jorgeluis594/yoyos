@@ -8,7 +8,7 @@ const mockClear = jest.fn();
 jest.mock("expo-router", () => ({ useRouter: () => ({ back: jest.fn() }),
   useLocalSearchParams: () => ({ id: mockId }),
   useFocusEffect: (callback: () => void) => jest.requireActual("react").useEffect(callback, [callback]) }));
-jest.mock("@mobile/composition/orders", () => ({ orders: {
+jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   loadOrder: async () => ({ success: true, data: { id: mockId, companyId: "00000000-0000-4000-8000-000000000001",
     sellerId: "seller", customer: { kind: "general_public" }, paymentMethod: "digital_wallet",
     completedAt: "2026-09-29T12:00:00.000Z", currency: "PEN", total: 12,

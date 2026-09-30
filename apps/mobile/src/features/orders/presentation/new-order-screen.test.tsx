@@ -23,7 +23,7 @@ jest.mock("@mobile/components/ui/show-confirmation", () => ({ showConfirmation: 
 jest.mock("expo-crypto", () => ({ randomUUID: () => mockId(3) }));
 jest.mock("expo-network", () => ({ useNetworkState: () => ({ isConnected: !mockOffline, isInternetReachable: !mockOffline }),
   getNetworkStateAsync: async () => ({ isConnected: !mockOffline, isInternetReachable: !mockOffline }) }));
-jest.mock("@mobile/composition/orders", () => ({ orders: {
+jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   readPendingOrderConfirmation: (...args: unknown[]) => mockReadPending(...args),
   resolvePendingOrderConfirmation: (...args: unknown[]) => mockResolvePending(...args),
   searchOrderCatalog: async () => ({ success: true, data: [{ id: mockId(4), name: "Camisa", currency: "PEN",

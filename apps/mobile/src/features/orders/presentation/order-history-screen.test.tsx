@@ -1,5 +1,5 @@
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
-import type { orders } from "@mobile/composition/orders";
+import type { orders } from "@mobile/features/orders/composition";
 import { err, ok } from "@shared/functional";
 import OrderHistoryScreen from "@mobile/features/orders/presentation/order-history-screen";
 
@@ -10,7 +10,7 @@ const mockSearchContacts = jest.fn();
 let mockCountry = "PE";
 jest.mock("expo-router", () => ({ useRouter: () => ({ push: mockPush }),
   useFocusEffect: (callback: () => void) => jest.requireActual("react").useEffect(callback, [callback]) }));
-jest.mock("@mobile/composition/orders", () => ({ orders: {
+jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   loadOrders: (...args: unknown[]) => mockLoadOrders(...args),
   readPendingOrderConfirmation: (...args: unknown[]) => mockReadPending(...args),
   searchOrderContacts: (...args: unknown[]) => mockSearchContacts(...args),
