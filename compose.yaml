@@ -88,7 +88,8 @@ services:
     build:
       context: .
       dockerfile: apps/core/Dockerfile
-    command: sh -c "pnpm --dir /workspace/shared install --frozen-lockfile && pnpm exec prisma generate && pnpm worker"
+    command: sh -c "pnpm --dir /workspace/shared install --frozen-lockfile && pnpm exec prisma generate && exec ./node_modules/.bin/tsx src/worker.ts"
+    stop_grace_period: 40s
     env_file:
       - ./apps/core/.env
     environment:
