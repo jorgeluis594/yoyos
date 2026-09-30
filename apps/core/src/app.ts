@@ -12,6 +12,7 @@ import { createR2ImageStorage } from "@core/src/shared/images/infrastructure/r2-
 import { loadWhatsAppConnections } from "@core/src/features/chats/infrastructure/whatsapp-connections";
 import { whatsappWebhook } from "@core/src/features/chats/presentation/whatsapp-webhook";
 import { productRoutes } from "@core/src/features/products/presentation/api-routes";
+import { hasDuplicateJsonKeys, orderRoutes } from "@core/src/features/orders/presentation/api-routes";
 
 export const app = express();
 
@@ -21,6 +22,13 @@ app.use("/api/products", (_request, response, next) => {
   response.set("Cache-Control", "no-store");
   next();
 });
+app.use("/api/orders", (_request, response, next) => {
+  response.set("Cache-Control", "no-store");
+  next();
+});
+app.use("/api/orders", express.json({ limit: "100kb", verify: (_request, _response, body) => {
+  if (hasDuplicateJsonKeys(body.toString("utf8"))) throw new Error("Duplicate JSON key");
+} }));
 app.use("/api", express.json({ limit: "100kb" }));
 app.use("/api", loadApiAccess);
 
@@ -56,6 +64,7 @@ app.post("/api/company", async (request, response: Response<unknown, Authenticat
 
 app.use("/api", requireApiCompany);
 app.use("/api/products", productRoutes);
+app.use("/api/orders", orderRoutes);
 app.use("/api/images", imageRoutes(createR2ImageStorage({
   endpoint: process.env.R2_ENDPOINT ?? "",
   bucket: process.env.R2_BUCKET ?? "",
@@ -72,8 +81,10 @@ app.use("/api", (_request, response: Response<unknown, PrivateLocals>) => {
 app.use("/api", (error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
   void _next;
   const pathname = _request.originalUrl.split("?", 1)[0];
-  const isProductRequest = pathname === "/api/products" || pathname.startsWith("/api/products/");
-  if (error instanceof SyntaxError && "body" in error) return apiError(response, 400, isProductRequest ? "INVALID_INPUT" : "INVALID_COMPANY", "Invalid JSON", isProductRequest ? [{ field: "body", reason: "INVALID_JSON" }] : undefined);
+  const isFeatureRequest = ["/api/products", "/api/orders"].some((base) => pathname === base || pathname.startsWith(`${base}/`));
+  if (pathname.startsWith("/api/orders") && typeof error === "object" && error !== null && "type" in error && error.type === "entity.verify.failed")
+    return apiError(response, 400, "INVALID_INPUT", "Duplicate JSON key");
+  if (error instanceof SyntaxError && "body" in error) return apiError(response, 400, isFeatureRequest ? "INVALID_INPUT" : "INVALID_COMPANY", "Invalid JSON", isFeatureRequest ? [{ field: "body", reason: "INVALID_JSON" }] : undefined);
   if (typeof error === "object" && error !== null && "type" in error && error.type === "entity.too.large") {
     return apiError(response, 413, "PAYLOAD_TOO_LARGE", "Request exceeds 100 kB");
   }
