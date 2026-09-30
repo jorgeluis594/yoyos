@@ -2,7 +2,8 @@ import { useState } from "react";
 import { z } from "zod";
 import { Form, isRouteErrorResponse, Link, useLoaderData, useLocation, type LoaderFunctionArgs } from "react-router";
 import { SlidersHorizontal } from "lucide-react";
-import { listOrdersSchema, orderListLoaderSchema, saleContactsSchema } from "@shared/contracts/orders";
+import { listOrdersSchema, orderListLoaderSchema, orderContactsSchema } from "@shared/contracts/orders";
+import { limaMidnightUtc } from "@shared/orders-date";
 import { privateUserContext } from "@core/app/private-user-context";
 import { orders } from "@core/src/features/orders/composition";
 import { toOrderListJson } from "@core/src/features/orders/presentation/order-json";
@@ -17,12 +18,6 @@ import { PageHeader } from "@core/app/components/ui/page-header";
 import { Sheet, SheetContent, SheetTrigger } from "@core/app/components/ui/sheet";
 
 const salesTimeZone = "America/Lima";
-const limaMidnightUtc = (date: string) => {
-  const offset = new Intl.DateTimeFormat("en-US", { timeZone: salesTimeZone, timeZoneName: "longOffset" })
-    .formatToParts(new Date(`${date}T12:00:00.000Z`)).find((part) => part.type === "timeZoneName")!.value.slice(3);
-  return new Date(`${date}T00:00:00${offset || "+00:00"}`).toISOString();
-};
-
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const params = new URL(request.url).searchParams;
   const raw = Object.fromEntries(params);
@@ -42,9 +37,9 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
   if (!result.success) throw new Response(result.error.message, { status: result.error.code === "INVALID_ORDER" ? 400 : 503 });
   const [searched, selected] = await Promise.all([orders.searchContacts(customerSearch), contactId ? orders.contactById(contactId) : Promise.resolve(null)]);
   if (!searched.success || (selected && !selected.success)) throw new Response("No se pudieron cargar los contactos.", { status: 503 });
-  const contacts = saleContactsSchema.parse(searched.data);
+  const contacts = orderContactsSchema.parse(searched.data);
   const selectedContact = selected?.success ? selected.data : null;
-  if (selectedContact && !contacts.some((contact) => contact.id === selectedContact.id)) contacts.unshift(saleContactsSchema.element.parse(selectedContact));
+  if (selectedContact && !contacts.some((contact) => contact.id === selectedContact.id)) contacts.unshift(orderContactsSchema.element.parse(selectedContact));
   const company = context.get(privateUserContext).company;
   return orderListLoaderSchema.parse({ list: toOrderListJson(result.data), filters: parsed.data, contacts, customerSearch, base: `/es-${company.country}/orders` });
 }
