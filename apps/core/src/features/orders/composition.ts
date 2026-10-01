@@ -7,8 +7,9 @@ import { createOrder } from "@core/src/features/orders/application/create-order"
 import { createPendingOrder, type CreatePendingOrderDependencies } from "@core/src/features/orders/application/create-pending-order";
 import { deductStock, type DeductStockDependencies } from "@core/src/features/orders/application/deduct-stock";
 import { registerPayment, type RegisterPaymentDependencies } from "@core/src/features/orders/application/register-payment";
+import { registerImmediateSale, type RegisterImmediateSaleDependencies } from "@core/src/features/orders/application/register-immediate-sale";
 import { getOrder, listOrders } from "@core/src/features/orders/application/read-orders";
-import { saveOrder, savePendingOrder, savePayment, saveStockDeduction, findOrder, findOrderForUpdate, findOrders, orderExists } from "@core/src/features/orders/infrastructure/order-repository";
+import { saveOrder, savePendingOrder, savePayment, saveStockDeduction, saveFulfillment, findOrder, findOrderForUpdate, findOrders, orderExists } from "@core/src/features/orders/infrastructure/order-repository";
 import { findSellableVariant, deductProductStock, searchSaleCatalog } from "@core/src/features/products";
 import { findContactById, searchSaleContacts } from "@core/src/features/contacts";
 import type { OrderItemId, PaymentId } from "@core/src/features/orders/domain/order";
@@ -32,8 +33,14 @@ function scopedOrderTransaction<T, E extends AppError>(companyId: string, callba
 const pendingTransaction: CreatePendingOrderDependencies["transaction"] = scopedOrderTransaction;
 const stockTransaction: DeductStockDependencies["transaction"] = scopedOrderTransaction;
 const paymentTransaction: RegisterPaymentDependencies["transaction"] = scopedOrderTransaction;
+const immediateTransaction: RegisterImmediateSaleDependencies["transaction"] = scopedOrderTransaction;
 
 export const orders = {
+  registerImmediateSale: (input: Parameters<typeof registerImmediateSale>[0], context: Parameters<typeof registerImmediateSale>[1]) =>
+    registerImmediateSale(input, context, { transaction: immediateTransaction, orderExists,
+      findContact: findContactById, findVariant: findSellableVariant, saveOrder: savePendingOrder,
+      savePayment, deductProductStock, saveStockDeduction, saveFulfillment,
+      newItemId: () => randomUUID() as OrderItemId, newPaymentId: () => randomUUID() as PaymentId, clock: () => new Date() }),
   registerPayment: (input: Parameters<typeof registerPayment>[0], context: Parameters<typeof registerPayment>[1]) => {
     requireNoActiveTransaction();
     return registerPayment(input, context, { transaction: paymentTransaction, findOrderForUpdate, savePayment,

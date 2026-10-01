@@ -195,6 +195,20 @@ export async function savePayment(payment: Payment, companyId: CompanyId) {
   }
 }
 
+export async function saveFulfillment(id: OrderId, companyId: CompanyId, completedAt: Date) {
+  requireActiveTransaction(companyId);
+  try {
+    const updated = await prisma.order.updateMany({ where: { id, companyId, deliveryStatus: "pending", completedAt: null,
+      cancelled: false, stockDeducted: true }, data: { deliveryStatus: "delivered", completedAt } });
+    if (updated.count !== 1) throw new Error("Locked order was not available for fulfillment");
+    return ok<null>(null);
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    console.error("Unable to save fulfillment", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save fulfillment" });
+  }
+}
+
 export async function findOrders(criteria: OrderCriteria) {
   const where: Prisma.OrderWhereInput = {
     ...(criteria.customer.kind === "general_public" ? { contactId: null } : criteria.customer.kind === "contact" ? { contactId: criteria.customer.contactId } : {}),

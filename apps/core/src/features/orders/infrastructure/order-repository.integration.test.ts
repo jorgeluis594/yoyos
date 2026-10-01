@@ -139,6 +139,41 @@ test("keeps stock after an unrequested partial payment and deducts it when payme
   } finally { await f.cleanup(); }
 });
 
+test("commits immediate creation, payment, deduction and delivery together", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const orderId = randomUUID() as OrderId;
+      const result = await orders.registerImmediateSale({ id: orderId, contactId: null,
+        items: [{ variantId: f.variantIds[0] as VariantId, quantity: 3 as PositiveInteger }] },
+      { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId });
+      expect(result).toMatchObject({ success: true, data: { deliveryStatus: "delivered", stockDeducted: true,
+        completedAt: expect.any(Date), payments: [{ amount: { amount: 0.3, currency: "PEN" } }] } });
+      const saved = await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { payments: true } });
+      expect(saved).toMatchObject({ delivery: null, deliveryStatus: "delivered", stockDeducted: true,
+        completedAt: expect.any(Date), payments: [{ orderId }] });
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(0n);
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("rolls back every immediate-sale write when stock is insufficient", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const orderId = randomUUID() as OrderId;
+      expect(await orders.registerImmediateSale({ id: orderId, contactId: null,
+        items: [{ variantId: f.variantIds[0] as VariantId, quantity: 4 as PositiveInteger }] },
+      { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId }))
+        .toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
+      expect(await prisma.order.count({ where: { id: orderId } })).toBe(0);
+      expect(await prisma.orderItem.count()).toBe(0);
+      expect(await prisma.payment.count()).toBe(0);
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
+    });
+  } finally { await f.cleanup(); }
+});
+
 test("persists completed sale, historical snapshots, listing and duplicate rejection", async () => {
   const f = await fixture();
   try {

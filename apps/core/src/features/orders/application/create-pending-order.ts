@@ -30,26 +30,30 @@ const access = z.strictObject({ companyId: z.uuid(), userId: z.string().min(1) }
 export async function createPendingOrder(input: CreatePendingOrderInput, context: OrderAccess, deps: CreatePendingOrderDependencies): Promise<Result<OrderAggregate, CreatePendingOrderError>> {
   if (!selection.safeParse(input).success || !access.safeParse(context).success ||
     new Set(input.items.map((item) => item.variantId)).size !== input.items.length) return err({ code: "INVALID_ORDER", message: "Invalid order input" });
-  return deps.transaction(context.companyId, async () => {
-    const existing = await deps.orderExists(input.id, context.companyId);
-    if (!existing.success) return existing;
-    if (existing.data) return err({ code: "ORDER_ALREADY_EXISTS", message: "Order already exists" });
-    const contact = input.contactId === null ? null : await deps.findContact(input.contactId, context.companyId);
-    if (contact && !contact.success) return contact;
-    if (input.contactId !== null && (!contact || !contact.data)) return err({ code: "CONTACT_NOT_FOUND", message: "Contact is not available" });
-    const items = [];
-    for (const item of input.items) {
-      const variant = await deps.findVariant(item.variantId, context.companyId);
-      if (!variant.success) return variant;
-      if (!variant.data) return err({ code: "VARIANT_NOT_FOUND", message: "Variant is not available", variantId: item.variantId });
-      items.push({ ...variant.data, id: deps.newItemId(), quantity: item.quantity });
-    }
-    const built = buildPendingOrder({ id: input.id, companyId: context.companyId, sellerId: context.userId,
-      customer: contact && contact.success && contact.data ? { kind: "contact", contactId: contact.data.id as ContactId,
-        name: contact.data.name, phone: contact.data.phone } : { kind: "general_public" },
-      createdAt: deps.clock(), items });
-    if (!built.success) return built;
-    const saved = await deps.saveOrder(built.data);
-    return saved.success ? built : saved;
-  });
+  return deps.transaction(context.companyId, () => createPendingOrderInTransaction(input, context, deps));
+}
+
+export async function createPendingOrderInTransaction(input: CreatePendingOrderInput, context: OrderAccess, deps: Omit<CreatePendingOrderDependencies, "transaction">): Promise<Result<OrderAggregate, CreatePendingOrderError>> {
+  if (!selection.safeParse(input).success || !access.safeParse(context).success ||
+    new Set(input.items.map((item) => item.variantId)).size !== input.items.length) return err({ code: "INVALID_ORDER", message: "Invalid order input" });
+  const existing = await deps.orderExists(input.id, context.companyId);
+  if (!existing.success) return existing;
+  if (existing.data) return err({ code: "ORDER_ALREADY_EXISTS", message: "Order already exists" });
+  const contact = input.contactId === null ? null : await deps.findContact(input.contactId, context.companyId);
+  if (contact && !contact.success) return contact;
+  if (input.contactId !== null && (!contact || !contact.data)) return err({ code: "CONTACT_NOT_FOUND", message: "Contact is not available" });
+  const items = [];
+  for (const item of input.items) {
+    const variant = await deps.findVariant(item.variantId, context.companyId);
+    if (!variant.success) return variant;
+    if (!variant.data) return err({ code: "VARIANT_NOT_FOUND", message: "Variant is not available", variantId: item.variantId });
+    items.push({ ...variant.data, id: deps.newItemId(), quantity: item.quantity });
+  }
+  const built = buildPendingOrder({ id: input.id, companyId: context.companyId, sellerId: context.userId,
+    customer: contact && contact.success && contact.data ? { kind: "contact", contactId: contact.data.id as ContactId,
+      name: contact.data.name, phone: contact.data.phone } : { kind: "general_public" },
+    createdAt: deps.clock(), items });
+  if (!built.success) return built;
+  const saved = await deps.saveOrder(built.data);
+  return saved.success ? built : saved;
 }
