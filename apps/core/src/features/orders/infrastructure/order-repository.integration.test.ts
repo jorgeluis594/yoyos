@@ -63,6 +63,32 @@ test("persists a pending order without payment or stock effects", async () => {
       expect(await withinTransaction(() => findOrderForUpdate(input.id, context.companyId))).toMatchObject({ success: true,
         data: { id: orderId, stockDeducted: false } });
       await expect(findOrderForUpdate(input.id, context.companyId)).rejects.toThrow("active transaction");
+      expect(await orders.deductStock(input.id, context)).toMatchObject({ success: true, data: { stockDeducted: false } });
+      await prisma.payment.create({ data: { id: randomUUID(), orderId, companyId: f.companyId,
+        amount: 0.2, currency: "PEN", method: "digital_wallet", recordedAt: new Date() } });
+      expect(await orders.deductStock(input.id, context)).toMatchObject({ success: true, data: { stockDeducted: true } });
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
+      expect(await orders.deductStock(input.id, context)).toMatchObject({ success: true, data: { stockDeducted: true } });
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("keeps all stock when a pending order cannot deduct every item", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const orderId = randomUUID() as OrderId;
+      const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+      expect(await orders.createPending({ id: orderId, contactId: null, items: [
+        { variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger },
+        { variantId: f.variantIds[1] as VariantId, quantity: 4 as PositiveInteger },
+      ] }, context)).toMatchObject({ success: true });
+      await prisma.payment.create({ data: { id: randomUUID(), orderId, companyId: f.companyId,
+        amount: 1, currency: "PEN", method: "digital_wallet", recordedAt: new Date() } });
+      expect(await orders.deductStock(orderId, context)).toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
+      expect((await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).stockDeducted).toBe(false);
+      expect((await prisma.productStock.findMany({ orderBy: { variantId: "asc" } })).map((stock) => stock.quantity)).toEqual([3n, 3n]);
     });
   } finally { await f.cleanup(); }
 });

@@ -166,6 +166,19 @@ export async function findOrderForUpdate(id: OrderId, companyId: CompanyId) {
   }
 }
 
+export async function saveStockDeduction(id: OrderId, companyId: CompanyId) {
+  requireActiveTransaction(companyId);
+  try {
+    const updated = await prisma.order.updateMany({ where: { id, companyId, stockDeducted: false }, data: { stockDeducted: true } });
+    if (updated.count !== 1) throw new Error("Locked order was not available for stock deduction");
+    return ok<null>(null);
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    console.error("Unable to save stock deduction", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save stock deduction" });
+  }
+}
+
 export async function findOrders(criteria: OrderCriteria) {
   const where: Prisma.OrderWhereInput = {
     ...(criteria.customer.kind === "general_public" ? { contactId: null } : criteria.customer.kind === "contact" ? { contactId: criteria.customer.contactId } : {}),
