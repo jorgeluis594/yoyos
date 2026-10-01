@@ -5,21 +5,21 @@ import { buildOrder, type LegacyOrder, type CompanyId, type UserId, type Contact
 import type { VariantId } from "@core/src/features/products/domain/product";
 import type { CatalogItem, ContactSnapshot } from "@core/src/features/orders/application/order-snapshots";
 
-export type CreateOrderError = Readonly<{ code: "ORDER_ALREADY_EXISTS" | "CONTACT_NOT_FOUND" | "VARIANT_NOT_FOUND" | "INSUFFICIENT_STOCK" | "CURRENCY_MISMATCH" | "INVALID_ORDER" | "PERSISTENCE_UNAVAILABLE"; message: string; variantId?: string; item?: number }>;
+export type CreateLegacyOrderError = Readonly<{ code: "ORDER_ALREADY_EXISTS" | "CONTACT_NOT_FOUND" | "VARIANT_NOT_FOUND" | "INSUFFICIENT_STOCK" | "CURRENCY_MISMATCH" | "INVALID_ORDER" | "PERSISTENCE_UNAVAILABLE"; message: string; variantId?: string; item?: number }>;
 type LookupError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
-export type CreateOrderDependencies = Readonly<{
-  transaction: <T>(callback: () => Promise<Result<T, CreateOrderError>>) => Promise<Result<T, CreateOrderError>>;
+export type CreateLegacyOrderDependencies = Readonly<{
+  transaction: <T>(callback: () => Promise<Result<T, CreateLegacyOrderError>>) => Promise<Result<T, CreateLegacyOrderError>>;
   orderExists: (id: string) => Promise<Result<boolean, LookupError>>;
   findContact: (id: string) => Promise<Result<ContactSnapshot | null, LookupError>>;
   findVariant: (id: string) => Promise<Result<CatalogItem | null, LookupError>>;
-  save: (order: LegacyOrder, paymentId: PaymentId) => Promise<Result<null, CreateOrderError>>;
-  deductStock: (variantId: VariantId, quantity: number) => Promise<Result<null, CreateOrderError>>;
+  save: (order: LegacyOrder, paymentId: PaymentId) => Promise<Result<null, CreateLegacyOrderError>>;
+  deductStock: (variantId: VariantId, quantity: number) => Promise<Result<null, CreateLegacyOrderError>>;
   newId: () => string;
   newPaymentId: () => PaymentId;
   clock: () => Date;
 }>;
 
-export async function createOrder(input: CreateOrderRequest, context: Readonly<{ companyId: string; sellerId: string }>, deps: CreateOrderDependencies): Promise<Result<LegacyOrder, CreateOrderError>> {
+export async function createLegacyOrder(input: CreateOrderRequest, context: Readonly<{ companyId: string; sellerId: string }>, deps: CreateLegacyOrderDependencies): Promise<Result<LegacyOrder, CreateLegacyOrderError>> {
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   if (!uuid.test(input.id) || !uuid.test(context.companyId) || !context.sellerId || (input.contactId !== null && !uuid.test(input.contactId)) || !input.items.length ||
     new Set(input.items.map((item) => item.variantId)).size !== input.items.length ||

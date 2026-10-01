@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { err } from "@shared/functional";
 import type { AppError, Result } from "@shared/result";
 import { getCompanyId, requireNoActiveTransaction, withinTransaction } from "@core/src/shared/infrastructure/persistance";
-import { createOrder } from "@core/src/features/orders/application/create-order";
+import { createLegacyOrder } from "@core/src/features/orders/application/create-legacy-order";
 import { createPendingOrder, type CreatePendingOrderDependencies } from "@core/src/features/orders/application/create-pending-order";
 import { deductStock, type DeductStockDependencies } from "@core/src/features/orders/application/deduct-stock";
 import { registerPayment, type RegisterPaymentDependencies } from "@core/src/features/orders/application/register-payment";
@@ -70,8 +70,8 @@ export const orders = {
     createPendingOrder(input, context, { transaction: pendingTransaction, orderExists,
       findContact: findContactById, findVariant: findSellableVariant, saveOrder: savePendingOrder,
       newItemId: () => randomUUID() as OrderItemId, clock: () => new Date() }),
-  create: (input: Parameters<typeof createOrder>[0], context: Parameters<typeof createOrder>[1]) =>
-    createOrder(input, context, { transaction: orderTransaction, orderExists, findContact: findContactById, findVariant: findSellableVariant,
+  create: (input: Parameters<typeof createLegacyOrder>[0], context: Parameters<typeof createLegacyOrder>[1]) =>
+    createLegacyOrder(input, context, { transaction: orderTransaction, orderExists, findContact: findContactById, findVariant: findSellableVariant,
       save: saveOrder, deductStock: deductProductStock, newId: randomUUID, newPaymentId: () => randomUUID() as PaymentId, clock: () => new Date() }),
   list: (criteria: Parameters<typeof listOrders>[0]) => listOrders(criteria, findOrders),
   get: (id: string) => getOrder(id, findOrder),

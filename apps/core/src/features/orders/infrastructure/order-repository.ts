@@ -3,7 +3,7 @@ import { err, ok } from "@shared/functional";
 import { isCurrency } from "@shared/money";
 import { getCompanyId, prisma, requireActiveTransaction } from "@core/src/shared/infrastructure/persistance";
 import { buildOrder, type LegacyOrder, type OrderItemId, type OrderId, type ContactId, type CompanyId, type UserId, type PositiveInteger, type PaymentId } from "@core/src/features/orders/domain/order";
-import type { CreateOrderError } from "@core/src/features/orders/application/create-order";
+import type { CreateLegacyOrderError } from "@core/src/features/orders/application/create-legacy-order";
 import { orderStateMachine, parseDeliveryDetails, type OrderAggregate, type Payment } from "@core/src/features/orders/domain/order-state-machine";
 import type { OrderCriteria } from "@core/src/features/orders/application/read-orders";
 import type { AggregateCriteria, AggregatePage } from "@core/src/features/orders/application/list-order-aggregates";
@@ -91,9 +91,9 @@ export async function saveOrder(order: LegacyOrder, paymentId: PaymentId) {
     return ok<null>(null);
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
-    if (cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2002") return err<CreateOrderError>({ code: "ORDER_ALREADY_EXISTS", message: "Order already exists" });
+    if (cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2002") return err<CreateLegacyOrderError>({ code: "ORDER_ALREADY_EXISTS", message: "Order already exists" });
     console.error("Unable to save order", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
-    return err<CreateOrderError>({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to save order" });
+    return err<CreateLegacyOrderError>({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to save order" });
   }
 }
 
