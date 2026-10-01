@@ -77,6 +77,23 @@ test("persists a pending order without payment or stock effects", async () => {
   } finally { await f.cleanup(); }
 });
 
+test("reports incompatible stored payments instead of returning an invalid aggregate", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const orderId = randomUUID() as OrderId;
+      const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+      expect(await orders.createPending({ id: orderId, contactId: null,
+        items: [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }] }, context)).toMatchObject({ success: true });
+      await prisma.payment.create({ data: { id: randomUUID(), orderId, companyId: f.companyId,
+        amount: 0.1, currency: "USD", method: "digital_wallet", recordedAt: new Date() } });
+      expect(await orders.getAggregate(orderId, context)).toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
+      expect(await orders.listAggregates({ page: 1, customer: { kind: "all" } }, context))
+        .toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
+    });
+  } finally { await f.cleanup(); }
+});
+
 test("keeps all stock when a pending order cannot deduct every item", async () => {
   const f = await fixture();
   try {
