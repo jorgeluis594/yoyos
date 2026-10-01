@@ -122,6 +122,45 @@ test("preserves a recorded payment when stock is short and retries its ID after 
   } finally { await f.cleanup(); }
 });
 
+test("concurrent retries of one payment record once and deduct stock once", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const orderId = randomUUID() as OrderId;
+      const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+      expect(await orders.createPending({ id: orderId, contactId: null,
+        items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] }, context)).toMatchObject({ success: true });
+      const payment = { orderId, paymentId: randomUUID() as PaymentId, amount: { amount: 0.2, currency: "PEN" as const },
+        method: "digital_wallet" as const, deductStockIfPartial: false };
+      const results = await Promise.all([orders.registerPayment(payment, context), orders.registerPayment(payment, context)]);
+      expect(results).toMatchObject([{ success: true }, { success: true }]);
+      expect(await prisma.payment.count({ where: { orderId } })).toBe(1);
+      expect((await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).stockDeducted).toBe(true);
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("concurrent distinct payments preserve both amounts and deduct once when covered", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const orderId = randomUUID() as OrderId;
+      const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+      expect(await orders.createPending({ id: orderId, contactId: null,
+        items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] }, context)).toMatchObject({ success: true });
+      const payment = { orderId, amount: { amount: 0.1, currency: "PEN" as const },
+        method: "digital_wallet" as const, deductStockIfPartial: false };
+      const results = await Promise.all([1, 2].map(() => orders.registerPayment({ ...payment, paymentId: randomUUID() as PaymentId }, context)));
+      expect(results).toMatchObject([{ success: true }, { success: true }]);
+      expect(await prisma.payment.count({ where: { orderId } })).toBe(2);
+      const order = await orders.getAggregate(orderId, context);
+      expect(order).toMatchObject({ success: true, data: { stockDeducted: true, payments: [{}, {}] } });
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
+    });
+  } finally { await f.cleanup(); }
+});
+
 test("keeps stock after an unrequested partial payment and deducts it when payments cover the order", async () => {
   const f = await fixture();
   try {
