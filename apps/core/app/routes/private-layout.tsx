@@ -33,9 +33,9 @@ export const middleware: MiddlewareFunction<Response>[] = [async ({ request, con
   });
 }];
 
-export function loader({ context }: LoaderFunctionArgs) {
+export function loader({ context, request }: LoaderFunctionArgs) {
   const { company, user } = context.get(privateUserContext);
-  return { company: company.name, home: `/es-${company.country}/dashboard`, name: user.name };
+  return { company: company.name, home: companyPath(new URL(request.url).pathname, company.country, "/dashboard"), name: user.name };
 }
 
 function Navigation({ company, name, home, productPath, orderPath, active, dark, pending, error, onTheme, onSignOut, onNavigate }: {
