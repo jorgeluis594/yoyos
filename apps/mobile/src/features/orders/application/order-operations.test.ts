@@ -97,6 +97,15 @@ test("recovery keeps the amount first shown and returns the core total", async (
   expect(await operations.loadOrder(id(3))).toMatchObject({ success: true, data: { total: amount } });
   expect(await store.read(companyId)).toMatchObject({ success: true, data: { id: id(3) } });
   expect(await operations.clearPendingOrderConfirmation(companyId, id(3))).toEqual(ok(undefined));
+
+  const pending = { ...order, status: "active" as const, paymentStatus: "pending" as const,
+    completedAt: null, deliveryStatus: "pending" as const, stockDeducted: false, payments: [], paidAmount: zero, balanceDue: amount };
+  const pendingStore = storage();
+  await pendingStore.save({ companyId, id: id(3), shownTotal: { amount: 10, currency: "PEN" } });
+  const pendingOperations = createOrderOperations(createOrderApi(async () => ok(pending)), pendingStore);
+  expect(await pendingOperations.resolvePendingOrderConfirmation(companyId)).toMatchObject({ success: false,
+    error: { code: "INVALID_RESPONSE" } });
+  expect(await pendingStore.read(companyId)).toMatchObject({ success: true, data: { id: id(3) } });
 });
 
 test("a restarted session reads the same company attempt and explicitly resends its original ID", async () => {

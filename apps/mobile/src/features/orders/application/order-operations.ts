@@ -81,6 +81,8 @@ function mixedListRequest(criteria: OrderListCriteria): Result<ListOrderAggregat
 
 const definitive = new Set<OrderRequestError["code"]>(["INVALID_INPUT", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE",
   "INVALID_ORDER", "CURRENCY_MISMATCH", "CONTACT_NOT_FOUND", "VARIANT_NOT_FOUND", "INSUFFICIENT_STOCK"]);
+const completedImmediateSale = (order: OrderAggregateResponse) => order.status === "completed" &&
+  order.paymentStatus === "paid" && order.deliveryStatus === "delivered" && order.stockDeducted && order.delivery === null;
 
 export function createOrderOperations(api: Api, pendingStore: PendingStore) {
   let inFlight: Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>> | null = null;
@@ -93,7 +95,9 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
       ? ok({ kind: "uncertain", pending: pending.data }) : found;
     if (found.data.companyId !== companyId || found.data.id !== pending.data.id)
       return err({ code: "INVALID_RESPONSE", message: "Order identity mismatch" });
-    return ok({ kind: "completed", order: found.data, shownTotal: pending.data.shownTotal });
+    return completedImmediateSale(found.data)
+      ? ok({ kind: "completed", order: found.data, shownTotal: pending.data.shownTotal })
+      : err({ code: "INVALID_RESPONSE", message: "Order is not a completed immediate sale" });
   };
   const send = async (draft: OrderDraft, companyId: string): Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>> => {
     const prepared = prepareOrder(draft);
@@ -108,7 +112,9 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
     if (result.success) {
       if (result.data.companyId !== companyId || result.data.id !== saved.data.id)
         return err({ code: "INVALID_RESPONSE", message: "Order identity mismatch" });
-      return ok({ kind: "completed", order: result.data, shownTotal: saved.data.shownTotal });
+      return completedImmediateSale(result.data)
+        ? ok({ kind: "completed", order: result.data, shownTotal: saved.data.shownTotal })
+        : err({ code: "INVALID_RESPONSE", message: "Order is not a completed immediate sale" });
     }
     if (definitive.has(result.error.code)) {
       const cleared = await pendingStore.clear(companyId, saved.data.id);
@@ -116,7 +122,7 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
     }
     if (result.error.code === "ORDER_ALREADY_EXISTS") {
       const found = await api.get(saved.data.id);
-      if (found.success && found.data.companyId === companyId && found.data.id === saved.data.id)
+      if (found.success && found.data.companyId === companyId && found.data.id === saved.data.id && completedImmediateSale(found.data))
         return ok({ kind: "completed", order: found.data, shownTotal: saved.data.shownTotal });
     }
     return ok({ kind: "uncertain", pending: saved.data });
