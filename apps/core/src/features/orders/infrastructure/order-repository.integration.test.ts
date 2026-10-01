@@ -66,7 +66,7 @@ test("persists a pending order without payment or stock effects", async () => {
       expect(created).toMatchObject({ success: true, data: { completedAt: null, payments: [], stockDeducted: false } });
       if (!created.success) throw new Error("Expected valid pending order");
       const saved = await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { items: true, payments: true } });
-      expect(saved).toMatchObject({ completedAt: null, paymentMethod: null, createdAt: created.data.createdAt, cancelled: false,
+      expect(saved).toMatchObject({ completedAt: null, createdAt: created.data.createdAt, cancelled: false,
         delivery: null, deliveryStatus: "pending", stockDeducted: false, payments: [] });
       expect(saved.total.toNumber()).toBe(0.2);
       expect(saved.itemsTotal.toNumber()).toBe(0.2);
@@ -473,7 +473,7 @@ test("separates companies and blocks cross-company references", async () => {
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: a.variantIds[0] } })).quantity).toBe(3n);
       await expect(prisma.order.create({ data: { id: randomUUID(), companyId: a.companyId, sellerId: a.sellerId,
         contactId: b.contactId, contactPhone: "+51999999999", currency: "PEN", total: 1, itemsTotal: 1,
-        paymentMethod: "digital_wallet", completedAt: new Date(), createdAt: new Date() } })).rejects.toThrow();
+        completedAt: new Date(), createdAt: new Date() } })).rejects.toThrow();
       await expect(prisma.orderItem.create({ data: { orderId: foreignOrderId, variantId: a.variantIds[0], productName: "Foreign order",
         variantAttributes: {}, quantity: 1n, unitPrice: 1, subtotal: 1 } })).rejects.toThrow();
     });
@@ -544,7 +544,6 @@ test("database constraints reject invalid completed sale writes", async () => {
       expect(await immediateSale({ id, contactId: null, items: [{ variantId: f.variantIds[0], quantity: 1 }] },
         { companyId: f.companyId, sellerId: f.sellerId })).toMatchObject({ success: true });
       const item = await prisma.orderItem.findFirstOrThrow({ where: { orderId: id } });
-      await expect(prisma.order.update({ where: { id }, data: { paymentMethod: "cash" } })).rejects.toThrow();
       await expect(prisma.order.update({ where: { id }, data: { total: 0 } })).rejects.toThrow();
       await expect(prisma.orderItem.update({ where: { id: item.id }, data: { quantity: 0n } })).rejects.toThrow();
       await expect(prisma.orderItem.update({ where: { id: item.id }, data: { quantity: BigInt(Number.MAX_SAFE_INTEGER) + 1n } })).rejects.toThrow();
@@ -553,7 +552,6 @@ test("database constraints reject invalid completed sale writes", async () => {
       await expect(prisma.orderItem.update({ where: { id: item.id }, data: { variantAttributes: { Size: 42 } } })).rejects.toThrow();
       await expect(prisma.orderItem.create({ data: { orderId: id, variantId: f.variantIds[0], productName: "Duplicate", variantAttributes: {}, quantity: 1n, unitPrice: 1, subtotal: 1 } })).rejects.toThrow();
       expect(await prisma.orderItem.count()).toBe(1);
-      expect(await prisma.order.findUniqueOrThrow({ where: { id } })).toMatchObject({ paymentMethod: null });
     });
   } finally { await f.cleanup(); }
 });

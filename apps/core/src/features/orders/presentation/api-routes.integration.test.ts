@@ -186,7 +186,7 @@ test("orders HTTP combines contact and Lima-day UTC bounds with stable pages and
   await withTenantIsolation(seller.companyId, async () => {
     await prisma.order.createMany({ data: ids.map((id) => ({ id, sellerId: seller.userId, contactId: seller.contactId,
       contactName: "Ana", contactPhone: "+51999999999", currency: "PEN", total: 10, itemsTotal: 10,
-      deliveryStatus: "delivered", stockDeducted: true, paymentMethod: "digital_wallet",
+      deliveryStatus: "delivered", stockDeducted: true,
       completedAt: new Date("2026-09-28T12:00:00.000Z"), createdAt: new Date("2026-09-28T12:00:00.000Z") })) });
     await prisma.contact.createMany({ data: Array.from({ length: 21 }, (_, index) => ({ id: randomUUID(),
       name: "Search contact", phone: `+51988${String(index).padStart(6, "0")}` })) });

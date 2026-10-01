@@ -66,7 +66,7 @@ export async function savePendingOrder(order: OrderAggregate) {
       deliveryCharge: new Prisma.Decimal(order.deliveryCharge.amount.toString()),
       delivery: Prisma.JsonNull,
       deliveryStatus: order.deliveryStatus, stockDeducted: order.stockDeducted, cancelled: order.cancelled,
-      createdAt: order.createdAt, completedAt: order.completedAt, paymentMethod: null,
+      createdAt: order.createdAt, completedAt: order.completedAt,
       items: { create: order.items.map((item) => ({ id: item.id, variantId: item.variantId, productName: item.productName,
         variantAttributes: item.variantAttributes as Prisma.InputJsonObject, sku: item.sku, quantity: BigInt(item.quantity),
         unitPrice: new Prisma.Decimal(item.unitPrice.amount.toString()), subtotal: new Prisma.Decimal(item.subtotal.amount.toString()) })) },

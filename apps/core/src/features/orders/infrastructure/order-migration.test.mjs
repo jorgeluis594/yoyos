@@ -8,6 +8,7 @@ import { expect, test } from "vitest";
 const migrations = fileURLToPath(new URL("../../../../prisma/migrations/", import.meta.url));
 const provision = fileURLToPath(new URL("../../../../scripts/provision-role.sql", import.meta.url));
 const currentMigration = "20261001004253_split_order_payment_delivery";
+const finalMigration = "20261001022053_remove_order_payment_method";
 
 test("migrates historical sales to paid delivered orders without changing stock", async () => {
   const adminUrl = process.env.MIGRATION_TEST_DATABASE_URL;
@@ -53,10 +54,17 @@ test("migrates historical sales to paid delivered orders without changing stock"
       [item, company, order, variant, "Old product", { Size: "M" }, "2", "7.50", "15.00"]);
 
     await isolated.query(await readFile(`${migrations}${currentMigration}/migration.sql`, "utf8"));
+    await isolated.query('UPDATE "Payment" SET "amount" = 14 WHERE "orderId" = $1', [order]);
+    await expect(isolated.query(await readFile(`${migrations}${finalMigration}/migration.sql`, "utf8")))
+      .rejects.toThrow(/Historical order payment method has not been transferred/);
+    await isolated.query("ROLLBACK");
+    await isolated.query('UPDATE "Payment" SET "amount" = 15 WHERE "orderId" = $1', [order]);
+    await isolated.query(await readFile(`${migrations}${finalMigration}/migration.sql`, "utf8"));
     const saved = await isolated.query('SELECT o.*, p."id" AS "paymentId", p."amount" AS "paidAmount", p."method" AS "paidMethod", p."recordedAt" AS "paidAt" FROM "Order" o JOIN "Payment" p ON p."companyId" = o."companyId" AND p."orderId" = o."id" WHERE o."id" = $1', [order]);
     expect(saved.rows).toHaveLength(1);
     expect(saved.rows[0]).toMatchObject({ id: order, companyId: company, delivery: null, deliveryStatus: "delivered",
-      stockDeducted: true, cancelled: false, paymentMethod: "digital_wallet", paidMethod: "digital_wallet" });
+      stockDeducted: true, cancelled: false, paidMethod: "digital_wallet" });
+    expect(saved.rows[0]).not.toHaveProperty("paymentMethod");
     expect(saved.rows[0].createdAt).toEqual(completedAt);
     expect(saved.rows[0].completedAt).toEqual(completedAt);
     expect(saved.rows[0].paidAt).toEqual(completedAt);
