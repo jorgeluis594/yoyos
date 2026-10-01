@@ -46,6 +46,7 @@ async function fixture(country: "PE" | "CL") {
   });
   const result = { companyId, userId, cookie, productId, variantId, contactId, async cleanup() {
     await withTenantIsolation(companyId, async () => {
+      await prisma.payment.deleteMany();
       await prisma.orderItem.deleteMany();
       await prisma.order.deleteMany();
       await prisma.contact.deleteMany();
@@ -126,8 +127,9 @@ test("orders HTTP combines contact and Lima-day UTC bounds with stable pages and
   const ids = Array.from({ length: 21 }, (_, index) => `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`);
   await withTenantIsolation(seller.companyId, async () => {
     await prisma.order.createMany({ data: ids.map((id) => ({ id, sellerId: seller.userId, contactId: seller.contactId,
-      contactName: "Ana", contactPhone: "+51999999999", currency: "PEN", total: 10,
-      paymentMethod: "digital_wallet", completedAt: new Date("2026-09-28T12:00:00.000Z") })) });
+      contactName: "Ana", contactPhone: "+51999999999", currency: "PEN", total: 10, itemsTotal: 10,
+      deliveryStatus: "delivered", stockDeducted: true, paymentMethod: "digital_wallet",
+      completedAt: new Date("2026-09-28T12:00:00.000Z"), createdAt: new Date("2026-09-28T12:00:00.000Z") })) });
     await prisma.contact.createMany({ data: Array.from({ length: 21 }, (_, index) => ({ id: randomUUID(),
       name: "Search contact", phone: `+51988${String(index).padStart(6, "0")}` })) });
   });

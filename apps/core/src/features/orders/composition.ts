@@ -7,6 +7,7 @@ import { getOrder, listOrders } from "@core/src/features/orders/application/read
 import { saveOrder, findOrder, findOrders, orderExists } from "@core/src/features/orders/infrastructure/order-repository";
 import { findSellableVariant, deductProductStock, searchSaleCatalog } from "@core/src/features/products";
 import { findContactById, searchSaleContacts } from "@core/src/features/contacts";
+import type { PaymentId } from "@core/src/features/orders/domain/order";
 
 const orderTransaction: CreateOrderDependencies["transaction"] = async (callback) => {
   try {
@@ -23,7 +24,7 @@ const orderTransaction: CreateOrderDependencies["transaction"] = async (callback
 export const orders = {
   create: (input: Parameters<typeof createOrder>[0], context: Parameters<typeof createOrder>[1]) =>
     createOrder(input, context, { transaction: orderTransaction, orderExists, findContact: findContactById, findVariant: findSellableVariant,
-      save: saveOrder, deductStock: deductProductStock, newId: randomUUID, clock: () => new Date() }),
+      save: saveOrder, deductStock: deductProductStock, newId: randomUUID, newPaymentId: () => randomUUID() as PaymentId, clock: () => new Date() }),
   list: (criteria: Parameters<typeof listOrders>[0]) => listOrders(criteria, findOrders),
   get: (id: string) => getOrder(id, findOrder),
   searchProducts: searchSaleCatalog,

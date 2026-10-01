@@ -14,7 +14,8 @@ function dependencies() {
   const findVariant = vi.fn(async (variantId: string) => ok({ variantId: variantId as VariantId, productName: "Current product",
     variantAttributes: {}, sku: null, unitPrice: { amount: 0.29, currency: "PEN" as const } }));
   const deps: CreateOrderDependencies = { transaction: async (callback) => callback(), orderExists: async () => ok(false), findContact, findVariant, save, deductStock,
-    newId: () => id(4), clock: () => new Date("2026-09-27T12:00:00Z") };
+    newId: () => id(4), newPaymentId: () => id(5) as ReturnType<CreateOrderDependencies["newPaymentId"]>,
+    clock: () => new Date("2026-09-27T12:00:00Z") };
   return { deps, save, deductStock, findContact, findVariant };
 }
 
@@ -22,7 +23,7 @@ test("creates from catalog price and authenticated context", async () => {
   const { deps, save, deductStock } = dependencies();
   const result = await createOrder(input, context, deps);
   expect(result).toMatchObject({ success: true, data: { companyId: context.companyId, sellerId: context.sellerId, total: { amount: 0.58, currency: "PEN" } } });
-  expect(save).toHaveBeenCalledWith(expect.objectContaining({ total: { amount: 0.58, currency: "PEN" } }));
+  expect(save).toHaveBeenCalledWith(expect.objectContaining({ total: { amount: 0.58, currency: "PEN" } }), id(5));
   expect(deductStock).toHaveBeenCalledWith(id(3), 2);
 });
 

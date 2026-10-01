@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import { isCurrency } from "@shared/money";
 import { prisma } from "@core/src/shared/infrastructure/persistance";
-import type { Order, OrderItemId, OrderId, ContactId, CompanyId, UserId, PositiveInteger } from "@core/src/features/orders/domain/order";
+import type { Order, OrderItemId, OrderId, ContactId, CompanyId, UserId, PositiveInteger, PaymentId } from "@core/src/features/orders/domain/order";
 import type { CreateOrderError } from "@core/src/features/orders/application/create-order";
 import type { OrderCriteria } from "@core/src/features/orders/application/read-orders";
 import type { VariantId } from "@core/src/features/products/domain/product";
@@ -15,6 +15,7 @@ function knownFailure(cause: unknown) {
 }
 
 function mapOrder(row: DbOrder): Order {
+  if (!row.completedAt || row.paymentMethod !== "digital_wallet") throw new Error("Order is not a completed immediate sale");
   if (!isCurrency(row.currency)) throw new Error("Invalid stored order currency");
   if (!row.items.length || row.items.some((item) => item.quantity <= 0n || item.quantity > BigInt(Number.MAX_SAFE_INTEGER))) throw new Error("Invalid stored order quantity");
   const items = row.items.map((item) => {
@@ -29,13 +30,17 @@ function mapOrder(row: DbOrder): Order {
     paymentMethod: "digital_wallet", completedAt: row.completedAt, items, total: { amount: row.total.toNumber(), currency: row.currency } };
 }
 
-export async function saveOrder(order: Order) {
+export async function saveOrder(order: Order, paymentId: PaymentId) {
   try {
     await prisma.order.create({ data: { id: order.id, sellerId: order.sellerId,
       contactId: order.customer.kind === "contact" ? order.customer.contactId : null,
       contactName: order.customer.kind === "contact" ? order.customer.name : null,
       contactPhone: order.customer.kind === "contact" ? order.customer.phone : null,
-      currency: order.total.currency, total: new Prisma.Decimal(order.total.amount.toString()), paymentMethod: order.paymentMethod, completedAt: order.completedAt,
+      currency: order.total.currency, total: new Prisma.Decimal(order.total.amount.toString()),
+      itemsTotal: new Prisma.Decimal(order.total.amount.toString()), createdAt: order.completedAt,
+      deliveryStatus: "delivered", stockDeducted: true, paymentMethod: order.paymentMethod, completedAt: order.completedAt,
+      payments: { create: { id: paymentId, amount: new Prisma.Decimal(order.total.amount.toString()),
+        currency: order.total.currency, method: order.paymentMethod, recordedAt: order.completedAt } },
       items: { create: order.items.map((item) => ({ id: item.id, variantId: item.variantId, productName: item.productName,
         variantAttributes: item.variantAttributes as Prisma.InputJsonObject, sku: item.sku, quantity: BigInt(item.quantity),
         unitPrice: new Prisma.Decimal(item.unitPrice.amount.toString()), subtotal: new Prisma.Decimal(item.subtotal.amount.toString()) })) },
@@ -73,7 +78,7 @@ export async function findOrder(id: string) {
 export async function findOrders(criteria: OrderCriteria) {
   const where: Prisma.OrderWhereInput = {
     ...(criteria.customer.kind === "general_public" ? { contactId: null } : criteria.customer.kind === "contact" ? { contactId: criteria.customer.contactId } : {}),
-    completedAt: { ...(criteria.completedFrom ? { gte: criteria.completedFrom } : {}), ...(criteria.completedBefore ? { lt: criteria.completedBefore } : {}) },
+    completedAt: { not: null, ...(criteria.completedFrom ? { gte: criteria.completedFrom } : {}), ...(criteria.completedBefore ? { lt: criteria.completedBefore } : {}) },
   };
   try {
     const [rows, total] = await Promise.all([
@@ -81,9 +86,9 @@ export async function findOrders(criteria: OrderCriteria) {
         select: { id: true, completedAt: true, contactId: true, contactName: true, contactPhone: true, sellerId: true, currency: true, total: true } }),
       prisma.order.count({ where }),
     ]);
-    return ok({ items: rows.map((row) => ({ id: row.id, completedAt: row.completedAt, sellerId: row.sellerId,
+    return ok({ items: rows.map((row) => { if (!row.completedAt) throw new Error("Completed order has no date"); return { id: row.id, completedAt: row.completedAt, sellerId: row.sellerId,
       customer: row.contactId ? { kind: "contact" as const, contactId: row.contactId, name: row.contactName, phone: row.contactPhone! } : { kind: "general_public" as const },
-      total: { amount: row.total.toNumber(), currency: row.currency } })), page: criteria.page, pageSize: 20, total });
+      total: { amount: row.total.toNumber(), currency: row.currency } }; }), page: criteria.page, pageSize: 20, total });
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
     console.error("Unable to list orders", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });

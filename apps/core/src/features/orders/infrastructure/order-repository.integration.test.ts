@@ -24,6 +24,7 @@ async function fixture() {
   });
   return { companyId, sellerId, productId, variantIds, contactId, async cleanup() {
     await withTenantIsolation(companyId, async () => {
+      await prisma.payment.deleteMany();
       await prisma.orderItem.deleteMany();
       await prisma.order.deleteMany();
       await prisma.contact.deleteMany();
@@ -46,6 +47,14 @@ test("persists completed sale, historical snapshots, listing and duplicate rejec
       ] }, { companyId: f.companyId, sellerId: f.sellerId });
       expect(created).toMatchObject({ success: true, data: { total: { amount: 0.7, currency: "PEN" },
         customer: { kind: "contact", name: null, phone: "+51999999999" } } });
+      const persisted = await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { payments: true } });
+      expect(persisted).toMatchObject({ itemsTotal: expect.anything(), deliveryStatus: "delivered", stockDeducted: true,
+        cancelled: false, delivery: null });
+      expect(persisted.itemsTotal.toNumber()).toBe(0.7);
+      expect(persisted.createdAt).toEqual(persisted.completedAt);
+      expect(persisted.payments).toHaveLength(1);
+      expect(persisted.payments[0]).toMatchObject({ orderId, currency: "PEN", method: "digital_wallet", recordedAt: persisted.completedAt });
+      expect(persisted.payments[0].amount.toNumber()).toBe(0.7);
       expect(await prisma.productStock.findMany({ orderBy: { variantId: "asc" } })).toHaveLength(2);
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(0n);
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[1] } })).quantity).toBe(1n);
@@ -80,6 +89,7 @@ test("rolls back all writes and stock when a later item is unavailable", async (
         { variantId: f.variantIds[0], quantity: 1 }, { variantId: f.variantIds[1], quantity: 4 },
       ] }, { companyId: f.companyId, sellerId: f.sellerId });
       expect(result).toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK", variantId: f.variantIds[1] } });
+      expect(await prisma.payment.count()).toBe(0);
       expect(await prisma.order.count()).toBe(0);
       expect(await prisma.orderItem.count()).toBe(0);
       expect((await prisma.productStock.findMany()).map(({ quantity }) => quantity)).toEqual([3n, 3n]);
@@ -141,7 +151,8 @@ test("separates companies and blocks cross-company references", async () => {
       expect(await prisma.order.count()).toBe(0);
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: a.variantIds[0] } })).quantity).toBe(3n);
       await expect(prisma.order.create({ data: { id: randomUUID(), companyId: a.companyId, sellerId: a.sellerId,
-        contactId: b.contactId, contactPhone: "+51999999999", currency: "PEN", total: 1, paymentMethod: "digital_wallet", completedAt: new Date() } })).rejects.toThrow();
+        contactId: b.contactId, contactPhone: "+51999999999", currency: "PEN", total: 1, itemsTotal: 1,
+        paymentMethod: "digital_wallet", completedAt: new Date(), createdAt: new Date() } })).rejects.toThrow();
       await expect(prisma.orderItem.create({ data: { orderId: foreignOrderId, variantId: a.variantIds[0], productName: "Foreign order",
         variantAttributes: {}, quantity: 1n, unitPrice: 1, subtotal: 1 } })).rejects.toThrow();
     });

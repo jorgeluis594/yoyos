@@ -1,7 +1,7 @@
 import { err } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { CreateOrderRequest } from "@shared/contracts/orders";
-import { buildOrder, type Order, type CompanyId, type UserId, type ContactId, type OrderItemId, type OrderId } from "@core/src/features/orders/domain/order";
+import { buildOrder, type Order, type CompanyId, type UserId, type ContactId, type OrderItemId, type OrderId, type PaymentId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import type { CatalogItem, ContactSnapshot } from "@core/src/features/orders/application/order-snapshots";
 
@@ -12,9 +12,10 @@ export type CreateOrderDependencies = Readonly<{
   orderExists: (id: string) => Promise<Result<boolean, LookupError>>;
   findContact: (id: string) => Promise<Result<ContactSnapshot | null, LookupError>>;
   findVariant: (id: string) => Promise<Result<CatalogItem | null, LookupError>>;
-  save: (order: Order) => Promise<Result<null, CreateOrderError>>;
+  save: (order: Order, paymentId: PaymentId) => Promise<Result<null, CreateOrderError>>;
   deductStock: (variantId: VariantId, quantity: number) => Promise<Result<null, CreateOrderError>>;
   newId: () => string;
+  newPaymentId: () => PaymentId;
   clock: () => Date;
 }>;
 
@@ -43,7 +44,7 @@ export async function createOrder(input: CreateOrderRequest, context: Readonly<{
       customer: contact && contact.success && contact.data ? { kind: "contact", contactId: contact.data.id as ContactId, name: contact.data.name, phone: contact.data.phone } : { kind: "general_public" },
       completedAt: deps.clock(), items });
     if (!built.success) return built;
-    const saved = await deps.save(built.data);
+    const saved = await deps.save(built.data, deps.newPaymentId());
     if (!saved.success) return saved;
     for (const item of [...built.data.items].sort((a, b) => a.variantId.localeCompare(b.variantId))) {
       const deducted = await deps.deductStock(item.variantId, item.quantity);
