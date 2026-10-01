@@ -10,6 +10,7 @@ import { ProductDraftProvider } from '@/features/products/presentation/draft-gua
 import { OrderDraftProvider } from '@mobile/features/orders/presentation/order-draft-guard';
 import { AccessGate } from '@/composition/access-gate';
 import * as auth from '@/composition/auth';
+import '@mobile/i18n';
 
 import '../global.css';
 

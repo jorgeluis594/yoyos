@@ -7,6 +7,7 @@ import {
   TabListProps,
 } from 'expo-router/ui';
 import { Pressable, View, StyleSheet } from 'react-native';
+import { useTranslation } from 'react-i18next';
 
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
@@ -16,19 +17,20 @@ import { useAccess } from '@mobile/features/users/presentation/access-provider';
 
 export default function AppTabs() {
   const { state } = useAccess();
+  const { t } = useTranslation();
   return (
     <Tabs>
       <TabSlot style={{ height: '100%' }} />
       <TabList asChild>
         <CustomTabList>
           <TabTrigger name="home" href="/" asChild>
-            <TabButton>Inicio</TabButton>
+            <TabButton>{t('home')}</TabButton>
           </TabTrigger>
           <TabTrigger name="products" href="/products" asChild>
-            <TabButton>Productos</TabButton>
+            <TabButton>{t('products')}</TabButton>
           </TabTrigger>
           {state.status === 'ready' ? <TabTrigger name="orders" href="/orders" asChild>
-            <TabButton>Ventas</TabButton>
+            <TabButton>{t('orders')}</TabButton>
           </TabTrigger> : null}
         </CustomTabList>
       </TabList>
