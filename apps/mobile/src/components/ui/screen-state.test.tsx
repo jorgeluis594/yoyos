@@ -1,3 +1,4 @@
+import '@mobile/i18n';
 import { fireEvent, render } from '@testing-library/react-native';
 import { ActivityIndicator, StyleSheet, Text } from 'react-native';
 

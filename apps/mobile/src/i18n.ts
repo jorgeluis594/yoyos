@@ -120,6 +120,7 @@ const resources = {
     checkProductError: 'No se pudo consultar el producto. Inténtalo otra vez.',
     productChangesConfirmed: 'El producto ya refleja tus cambios.', changesNotVisible: 'Los cambios no aparecen todavía. Puedes volver a intentar guardar.',
     manageProduct: 'Gestionar producto', printSavedDataHint: 'La etiqueta usará los datos guardados, sin incluir los cambios de este formulario.',
+    moreActions: 'Más acciones', selectOption: 'Selecciona una opción',
   } },
   'pt-BR': { translation: {
     home: 'Início', products: 'Produtos', orders: 'Vendas',
@@ -237,6 +238,7 @@ const resources = {
     checkProductError: 'Não foi possível consultar o produto. Tente novamente.',
     productChangesConfirmed: 'O produto já mostra suas alterações.', changesNotVisible: 'As alterações ainda não aparecem. Você pode tentar salvar novamente.',
     manageProduct: 'Gerenciar produto', printSavedDataHint: 'A etiqueta usará os dados salvos, sem incluir as alterações deste formulário.',
+    moreActions: 'Mais ações', selectOption: 'Selecione uma opção',
   } },
 } as const;
 
