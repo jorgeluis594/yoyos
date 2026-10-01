@@ -1,5 +1,6 @@
 import { Prisma, type Product as DbProduct, type ProductVariant as DbVariant, type ProductStock as DbStock } from "@prisma/client";
 import { err, ok } from "@shared/functional";
+import { isCurrency } from "@shared/money";
 import { prisma, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import type { ProductRepository } from "@core/src/features/products/application/repository";
 import type { ImageId, Product, ProductId, ProductVariant, VariantId } from "@core/src/features/products/domain/product";
@@ -8,6 +9,8 @@ import { summarizeProduct } from "@core/src/features/products/domain/rules";
 type DbAggregate = DbProduct & { variants: (DbVariant & { stock: DbStock | null })[] };
 
 function mapProduct(row: DbAggregate): Product {
+  if (!isCurrency(row.currency)) throw new Error("Stored product has invalid currency");
+  const currency = row.currency;
   if (!row.variants.length) throw new Error("Stored product has no variants");
   const variants = row.variants.map((variant): ProductVariant => {
     if (!variant.stock) throw new Error("Stored variant has no stock");
@@ -18,8 +21,8 @@ function mapProduct(row: DbAggregate): Product {
       id: variant.id as VariantId, productId: row.id as ProductId,
       attributes: { ...attributes } as Record<string, string>,
       ...(variant.sku === null ? {} : { sku: variant.sku }),
-      salePrice: { amount: variant.salePrice.toNumber(), currency: row.currency },
-      ...(variant.purchasePrice === null ? {} : { purchasePrice: { amount: variant.purchasePrice.toNumber(), currency: row.currency } }),
+      salePrice: { amount: variant.salePrice.toNumber(), currency },
+      ...(variant.purchasePrice === null ? {} : { purchasePrice: { amount: variant.purchasePrice.toNumber(), currency } }),
       qrCode: variant.qrCode, status: variant.status as "active",
       stock: { variantId: variant.stock.variantId as VariantId, quantity: Number(variant.stock.quantity) },
     };
@@ -28,7 +31,7 @@ function mapProduct(row: DbAggregate): Product {
     id: row.id as ProductId, name: row.name,
     ...(row.description === null ? {} : { description: row.description }),
     ...(row.imageId === null ? {} : { imageId: row.imageId as ImageId }),
-    currency: row.currency as Product["currency"], qrCode: row.qrCode, status: row.status as "active",
+    currency, qrCode: row.qrCode, status: row.status as "active",
     createdAt: new Date(row.createdAt), updatedAt: new Date(row.updatedAt), variants,
   };
 }

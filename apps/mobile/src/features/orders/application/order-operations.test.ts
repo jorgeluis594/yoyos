@@ -7,7 +7,7 @@ import { createPendingOrderConfirmationStore } from "@mobile/features/orders/inf
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const companyId = id(1);
 const item = { variantId: id(2), productName: "Sample", variantAttributes: {}, sku: null,
-  shownUnitPrice: { amount: 10, currency: "PEN" }, shownStock: 3, quantity: 1 };
+  shownUnitPrice: { amount: 10, currency: "PEN" as const }, shownStock: 3, quantity: 1 };
 const draft = () => {
   const result = addDraftItem(emptyOrderDraft(), item, () => id(3));
   if (!result.success) throw new Error("Invalid test cart");

@@ -1,11 +1,12 @@
 import { err } from "@shared/functional";
 import type { Result } from "@shared/result";
+import type { Money } from "@shared/money";
 import type { CreateOrderRequest } from "@shared/contracts/orders";
 import { buildOrder, type Order, type CompanyId, type UserId, type ContactId, type OrderItemId, type OrderId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
 export type CreateOrderError = Readonly<{ code: "ORDER_ALREADY_EXISTS" | "CONTACT_NOT_FOUND" | "VARIANT_NOT_FOUND" | "INSUFFICIENT_STOCK" | "CURRENCY_MISMATCH" | "INVALID_ORDER" | "PERSISTENCE_UNAVAILABLE"; message: string; variantId?: string; item?: number }>;
-export type CatalogItem = Readonly<{ variantId: VariantId; productName: string; variantAttributes: Readonly<Record<string, string>>; sku: string | null; unitPrice: Readonly<{ amount: number; currency: string }> }>;
+export type CatalogItem = Readonly<{ variantId: VariantId; productName: string; variantAttributes: Readonly<Record<string, string>>; sku: string | null; unitPrice: Money }>;
 export type ContactSnapshot = Readonly<{ id: string; name: string | null; phone: string }>;
 type LookupError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 export type CreateOrderDependencies = Readonly<{

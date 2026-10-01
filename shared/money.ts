@@ -11,7 +11,7 @@ export function isCurrency(value: unknown): value is Currency {
 
 export type Money = {
   readonly amount: number;
-  readonly currency: string;
+  readonly currency: Currency;
 };
 
 // A finite number can reach 1e308; retain its cents during intermediate arithmetic.
@@ -47,7 +47,7 @@ function pair(a: Money, b: Money): Result<[Decimal, Decimal], MoneyError> {
   );
 }
 
-function finish(amount: Decimal, currency: string): Result<Money, MoneyError> {
+function finish(amount: Decimal, currency: Currency): Result<Money, MoneyError> {
   const truncated = amount.toDecimalPlaces(2, DecimalMoney.ROUND_DOWN);
   const value = truncated.toNumber();
   if (!Number.isFinite(value) || !new DecimalMoney(value.toString()).equals(truncated)) {

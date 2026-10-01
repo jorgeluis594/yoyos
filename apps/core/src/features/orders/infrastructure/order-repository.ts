@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
+import { isCurrency } from "@shared/money";
 import { prisma } from "@core/src/shared/infrastructure/persistance";
 import type { Order, OrderItemId, OrderId, ContactId, CompanyId, UserId, PositiveInteger } from "@core/src/features/orders/domain/order";
 import type { CreateOrderError } from "@core/src/features/orders/application/create-order";
@@ -14,6 +15,7 @@ function knownFailure(cause: unknown) {
 }
 
 function mapOrder(row: DbOrder): Order {
+  if (!isCurrency(row.currency)) throw new Error("Invalid stored order currency");
   if (!row.items.length || row.items.some((item) => item.quantity <= 0n || item.quantity > BigInt(Number.MAX_SAFE_INTEGER))) throw new Error("Invalid stored order quantity");
   const items = row.items.map((item) => {
     const attributes = item.variantAttributes;

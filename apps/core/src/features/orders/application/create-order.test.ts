@@ -12,7 +12,7 @@ function dependencies() {
   const deductStock = vi.fn(async () => ok<null>(null));
   const findContact = vi.fn(async () => ok(null));
   const findVariant = vi.fn(async (variantId: string) => ok({ variantId: variantId as VariantId, productName: "Current product",
-    variantAttributes: {}, sku: null, unitPrice: { amount: 0.29, currency: "PEN" } }));
+    variantAttributes: {}, sku: null, unitPrice: { amount: 0.29, currency: "PEN" as const } }));
   const deps: CreateOrderDependencies = { transaction: async (callback) => callback(), orderExists: async () => ok(false), findContact, findVariant, save, deductStock,
     newId: () => id(4), clock: () => new Date("2026-09-27T12:00:00Z") };
   return { deps, save, deductStock, findContact, findVariant };

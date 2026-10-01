@@ -9,7 +9,7 @@ test("pending confirmation is company scoped, keeps its first amount, and refuse
     setItemAsync: async (key, value) => { values.set(key, value); },
     deleteItemAsync: async (key) => { values.delete(key); },
   });
-  const pending = { companyId: id(1), id: id(2), shownTotal: { amount: 10, currency: "PEN" } };
+  const pending = { companyId: id(1), id: id(2), shownTotal: { amount: 10, currency: "PEN" as const } };
   expect(await store.save(pending)).toMatchObject({ success: true, data: pending });
   expect(await store.read(id(3))).toEqual({ success: true, data: null });
   expect(await store.save({ ...pending, shownTotal: { amount: 12, currency: "PEN" } })).toMatchObject({ success: true, data: pending });

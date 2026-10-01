@@ -1,7 +1,8 @@
 import { addDraftItem, changeDraftQuantity, emptyOrderDraft, prepareOrder, removeDraftItem, setDraftCustomer } from "@mobile/features/orders/domain/order-draft";
+import type { Currency } from "@shared/money";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
-const item = (n: number, amount: number, currency = "PEN", stock = 3) => ({
+const item = (n: number, amount: number, currency: Currency = "PEN", stock = 3) => ({
   variantId: id(n), productName: `Product ${n}`, variantAttributes: {}, sku: null,
   shownUnitPrice: { amount, currency }, shownStock: stock, quantity: 1,
 });

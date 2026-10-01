@@ -1,9 +1,10 @@
 import { describe, expect, test } from "vitest";
 import { buildOrder, type BuildOrderInput, type CompanyId, type ContactId, type OrderId, type OrderItemId, type UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
+import type { Currency } from "@shared/money";
 
 const id = (n: number) => `00000000-0000-4000-8000-${n.toString().padStart(12, "0")}`;
-const item = (n: number, quantity: number, amount: number, currency = "PEN") => ({
+const item = (n: number, quantity: number, amount: number, currency: Currency = "PEN") => ({
   id: id(n + 10) as OrderItemId, variantId: id(n + 100) as VariantId, productName: `Product ${n}`,
   variantAttributes: { Size: "M" }, sku: null, quantity, unitPrice: { amount, currency },
 });

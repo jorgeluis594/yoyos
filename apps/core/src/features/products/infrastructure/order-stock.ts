@@ -1,9 +1,10 @@
 import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
+import { isCurrency, type Money } from "@shared/money";
 import { prisma } from "@core/src/shared/infrastructure/persistance";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
-type CatalogItem = Readonly<{ variantId: VariantId; productName: string; variantAttributes: Readonly<Record<string, string>>; sku: string | null; unitPrice: Readonly<{ amount: number; currency: string }> }>;
+type CatalogItem = Readonly<{ variantId: VariantId; productName: string; variantAttributes: Readonly<Record<string, string>>; sku: string | null; unitPrice: Money }>;
 type StockError = Readonly<{ code: "INSUFFICIENT_STOCK" | "PERSISTENCE_UNAVAILABLE"; message: string; variantId?: string }>;
 
 function knownFailure(cause: unknown) {
@@ -15,8 +16,8 @@ export async function findSellableVariant(id: string) {
     const row = await prisma.productVariant.findFirst({ where: { id, status: "active", product: { status: "active" } }, include: { product: true } });
     if (!row) return ok<CatalogItem | null>(null);
     const attributes = row.attributes;
-    if (!attributes || typeof attributes !== "object" || Array.isArray(attributes) || Object.values(attributes).some((value) => typeof value !== "string")) {
-      console.error("Invalid stored variant attributes", { id });
+    if (!isCurrency(row.product.currency) || !attributes || typeof attributes !== "object" || Array.isArray(attributes) || Object.values(attributes).some((value) => typeof value !== "string")) {
+      console.error("Invalid stored sale variant", { id });
       return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
     }
     return ok<CatalogItem>({ variantId: row.id as VariantId, productName: row.product.name, variantAttributes: { ...attributes } as Record<string, string>, sku: row.sku,
