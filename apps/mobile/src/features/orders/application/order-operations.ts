@@ -124,9 +124,11 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
       const cleared = await pendingStore.clear(companyId, saved.data.id);
       return cleared.success ? result : cleared;
     }
-    if (result.error.code === "ORDER_ALREADY_EXISTS") {
-      const found = await api.get(saved.data.id);
-      if (found.success && found.data.companyId === companyId && found.data.id === saved.data.id && completedImmediateSale(found.data))
+    const found = await api.get(saved.data.id);
+    if (found.success) {
+      if (found.data.companyId !== companyId || found.data.id !== saved.data.id)
+        return err({ code: "INVALID_RESPONSE", message: "Order identity mismatch" });
+      if (completedImmediateSale(found.data))
         return ok({ kind: "completed", order: found.data, shownTotal: saved.data.shownTotal });
     }
     return ok({ kind: "uncertain", pending: saved.data });

@@ -91,11 +91,15 @@ test("recovery keeps the amount first shown and returns the core total", async (
     payments: [{ id: id(6), orderId: id(3), amount, method: "digital_wallet", recordedAt: "2026-09-29T12:00:00.000Z" }],
     items: [{ id: id(5), variantId: id(2), productName: "Sample", variantAttributes: {}, sku: null,
       quantity: 1, unitPrice: amount, subtotal: amount }] };
+  let lookups = 0;
   const api = createOrderApi(async (path) => path === "/api/orders"
-    ? err({ code: "NETWORK_ERROR", message: "Lost response" }) : ok(order));
+    ? err({ code: "NETWORK_ERROR", message: "Lost response" }) : ++lookups === 1
+      ? err({ code: "API_ERROR", message: "Absent", http: { status: 404,
+        body: { code: "ORDER_NOT_FOUND", error: "Absent" } } }) : ok(order));
   const store = storage();
   const operations = createOrderOperations(api, store);
   expect(await operations.completeOrder(draft(), companyId)).toMatchObject({ success: true, data: { kind: "uncertain" } });
+  expect(lookups).toBe(1);
   expect(await operations.resolvePendingOrderConfirmation(companyId)).toMatchObject({ success: true,
     data: { kind: "completed", shownTotal: { amount: 10, currency: "PEN" }, order: { total: amount } } });
   expect(await operations.loadOrder(id(3))).toMatchObject({ success: true, data: { total: amount } });
@@ -117,6 +121,10 @@ test("recovery keeps the amount first shown and returns the core total", async (
     ? err({ code: "API_ERROR", message: "Exists", http: { status: 409,
       body: { code: "ORDER_ALREADY_EXISTS", error: "Exists" } } }) : ok(order));
   expect(await createOrderOperations(conflictApi, storage()).completeOrder(draft(), companyId))
+    .toMatchObject({ success: true, data: { kind: "completed", order: { id: id(3) } } });
+  const lostResponseApi = createOrderApi(async (path) => path === "/api/orders"
+    ? err({ code: "NETWORK_ERROR", message: "Lost response" }) : ok(order));
+  expect(await createOrderOperations(lostResponseApi, storage()).completeOrder(draft(), companyId))
     .toMatchObject({ success: true, data: { kind: "completed", order: { id: id(3) } } });
   const pendingConflictApi = createOrderApi(async (path) => path === "/api/orders"
     ? err({ code: "API_ERROR", message: "Exists", http: { status: 409,
