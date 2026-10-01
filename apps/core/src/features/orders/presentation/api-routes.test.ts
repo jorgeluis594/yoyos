@@ -46,7 +46,7 @@ test("order API maps a validated contact and UTC interval to the existing list o
 });
 
 test("order API takes company and seller from access and identifies rejected stock", async () => {
-  const create = vi.spyOn(orders, "create").mockResolvedValue({ success: false,
+  const create = vi.spyOn(orders, "registerImmediateSale").mockResolvedValue({ success: false,
     error: { code: "INSUFFICIENT_STOCK", message: "No stock", variantId: contactId } });
   const input = { id: "00000000-0000-4000-8000-000000000003", contactId: null,
     items: [{ variantId: contactId, quantity: 2 }] };
@@ -56,7 +56,7 @@ test("order API takes company and seller from access and identifies rejected sto
   expect(response).toMatchObject({ status: 409, body: { code: "INSUFFICIENT_STOCK",
     issues: [{ field: "items", variantId: contactId }] } });
   expect(create).toHaveBeenCalledOnce();
-  expect(create).toHaveBeenCalledWith(input, { companyId, sellerId: "seller" });
+  expect(create).toHaveBeenCalledWith(input, { companyId, userId: "seller" });
 });
 
 test("JSON key validation scopes keys to each object and decodes escaped names", () => {

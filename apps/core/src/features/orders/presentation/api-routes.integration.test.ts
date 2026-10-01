@@ -132,6 +132,7 @@ test("orders HTTP exposes pending payment, stock retry and completion with compa
   expect(created.status).toBe(201);
   expect(await created.json()).toMatchObject({ id, status: "active", paymentStatus: "pending", deliveryStatus: "pending",
     stockDeducted: false, completedAt: null, total: { amount: 40, currency: "PEN" }, payments: [] });
+  expect((await call(`/api/orders/${id}`, seller.cookie)).status).toBe(404);
   expect((await call(`/api/orders/${id}/aggregate`, other.cookie)).status).toBe(404);
   const payment = { paymentId, amount: { amount: 40, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false };
   const recorded = await call(`/api/orders/${id}/payments`, seller.cookie, payment, "POST");

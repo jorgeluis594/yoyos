@@ -3,7 +3,7 @@ import { z } from "zod";
 import { createOrderSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type CreateOrderRequest } from "@shared/contracts/orders";
 import { apiError, type PrivateLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { orders } from "@core/src/features/orders/composition";
-import { toOrderAggregateJson, toOrderAggregateListJson, toOrderJson, toOrderListJson } from "@core/src/features/orders/presentation/order-json";
+import { toLegacyOrderJson, toOrderAggregateJson, toOrderAggregateListJson, toOrderListJson } from "@core/src/features/orders/presentation/order-json";
 import type { CreateOrderInput, OrderAccess } from "@core/src/features/orders/application/create-order";
 import type { ContactId, CompanyId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { RegisterPaymentInput } from "@core/src/features/orders/application/register-payment";
@@ -149,12 +149,14 @@ orderRoutes.get("/contacts", async (request, response) => {
   } catch (error) { return unexpected(response, error); }
 });
 
-orderRoutes.get("/:id", async (request, response) => {
+orderRoutes.get("/:id", async (request, response: Response<unknown, PrivateLocals>) => {
   const parsed = z.uuid().safeParse(request.params.id);
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order ID");
   try {
-    const result = await orders.get(parsed.data);
-    return result.success ? response.json(toOrderJson(result.data)) : operationError(response, result.error);
+    const result = await orders.getAggregate(parsed.data as OrderId, orderContext(response));
+    if (!result.success) return operationError(response, result.error);
+    return result.data.completedAt && result.data.deliveryStatus === "delivered"
+      ? response.json(toLegacyOrderJson(result.data)) : apiError(response, 404, "ORDER_NOT_FOUND", "Order not found");
   } catch (error) { return unexpected(response, error); }
 });
 
@@ -172,7 +174,7 @@ orderRoutes.post("/pending", async (request, response: Response<unknown, Private
   const parsed = createOrderSchema.safeParse(request.body);
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order input");
   try {
-    const result = await orders.createPending(pendingInput(parsed.data), orderContext(response));
+    const result = await orders.create(pendingInput(parsed.data), orderContext(response));
     return result.success ? response.status(201).json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });
@@ -218,7 +220,7 @@ orderRoutes.post("/", async (request, response: Response<unknown, PrivateLocals>
   const parsed = createOrderSchema.safeParse(request.body);
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order input");
   try {
-    const result = await orders.create(parsed.data, { companyId: response.locals.auth.company.id, sellerId: response.locals.auth.user.id });
-    return result.success ? response.status(201).json(toOrderJson(result.data)) : operationError(response, result.error);
+    const result = await orders.registerImmediateSale(pendingInput(parsed.data), orderContext(response));
+    return result.success ? response.status(201).json(toLegacyOrderJson(result.data)) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });

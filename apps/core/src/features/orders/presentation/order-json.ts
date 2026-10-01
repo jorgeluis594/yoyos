@@ -11,6 +11,15 @@ export function toOrderJson(order: LegacyOrder) {
       variantAttributes: item.variantAttributes, sku: item.sku, quantity: item.quantity, unitPrice: item.unitPrice.amount, subtotal: item.subtotal.amount })) });
 }
 
+export function toLegacyOrderJson(order: OrderAggregate) {
+  if (!order.completedAt || order.deliveryStatus !== "delivered") throw new Error("Immediate sale is not completed");
+  return orderSchema.parse({ id: order.id, companyId: order.companyId, sellerId: order.sellerId, customer: order.customer,
+    paymentMethod: "digital_wallet", completedAt: order.completedAt.toISOString(), currency: order.total.currency, total: order.total.amount,
+    items: order.items.map((item) => ({ id: item.id, variantId: item.variantId, productName: item.productName,
+      variantAttributes: item.variantAttributes, sku: item.sku, quantity: item.quantity,
+      unitPrice: item.unitPrice.amount, subtotal: item.subtotal.amount })) });
+}
+
 export function toOrderAggregateJson(order: OrderAggregate) {
   const lifecycle = orderStateMachine.getLifecycle(order);
   const payment = orderStateMachine.getPaymentSummary(order);
