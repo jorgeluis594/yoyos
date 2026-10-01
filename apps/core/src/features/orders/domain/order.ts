@@ -5,6 +5,7 @@ import type { VariantId } from "@core/src/features/products/domain/product";
 
 export type OrderId = string & { readonly __brand: "OrderId" };
 export type OrderItemId = string & { readonly __brand: "OrderItemId" };
+export type PaymentId = string & { readonly __brand: "PaymentId" };
 export type ContactId = string & { readonly __brand: "ContactId" };
 export type CompanyId = string & { readonly __brand: "CompanyId" };
 export type UserId = string & { readonly __brand: "UserId" };
