@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
+import { useTranslation } from "react-i18next";
 import * as Crypto from "expo-crypto";
 import { countryCurrencies } from "@shared/country";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -20,6 +21,7 @@ import { productPrintWork } from "./product-print-work";
 
 export default function CreateProductScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
   const { state } = useAccess();
   const { startAttempt } = usePrint();
   const [values, setValues] = useState<ProductFormValues>(emptyProductForm);
@@ -53,7 +55,7 @@ export default function CreateProductScreen() {
   };
   const save = async (printAfter = false) => {
     const quantity = makeCopyCount(Number(copies));
-    if (printAfter && (!quantity.success || quantity.data > 99)) { setErrors((current) => ({ ...current, form: "Elige entre 1 y 99 copias." })); return; }
+    if (printAfter && (!quantity.success || quantity.data > 99)) { setErrors((current) => ({ ...current, form: t('copyCountError') })); return; }
     const invalid = validateProductForm(values, true, true);
     if (Object.keys(invalid).length) { setErrors(invalid); return; }
     if (saving || photoBusy) return;
@@ -82,7 +84,7 @@ export default function CreateProductScreen() {
   };
 
   return <ThemedView style={styles.page}><SafeAreaView style={styles.safe}>
-    <View style={styles.header}><ThemedText type="subtitle">Nuevo producto</ThemedText><ThemedText themeColor="textSecondary">Moneda {countryCurrencies[state.company.country]}</ThemedText></View>
+    <View style={styles.header}><ThemedText type="subtitle">{t('newProduct')}</ThemedText><ThemedText themeColor="textSecondary">{t('currencyLabel', { currency: countryCurrencies[state.company.country] })}</ThemedText></View>
     <ProductForm
       values={values}
       setValue={setValue}

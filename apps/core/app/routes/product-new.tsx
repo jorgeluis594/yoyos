@@ -1,3 +1,7 @@
+import { useTranslation } from "react-i18next";
+import { companyPath, languageForLocale } from "@core/app/locale";
+import resources from "@core/app/locales";
+import { log } from "@core/src/shared/infrastructure/logger";
 import { redirect, useActionData, useLoaderData, useNavigation, useSubmit, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
 import { countryCurrencies, type Country } from "@shared/country";
 import { PageContainer } from "@/components/ui/page-container";
@@ -8,26 +12,28 @@ import { parseCreateJson } from "@core/src/features/products/presentation/input"
 import { createErrors, type FormErrors } from "@core/src/features/products/presentation/messages";
 import { ProductForm, type ProductFormValues, type ProductImageSelection } from "@core/src/features/products/presentation/product-form";
 
-export function loader({ context }: LoaderFunctionArgs) {
+export function loader({ context, request }: LoaderFunctionArgs) {
   const company = context.get(privateUserContext).company;
-  return { currency: countryCurrencies[company.country as Country], catalog: `/es-${company.country}/products` };
+  return { currency: countryCurrencies[company.country as Country], catalog: companyPath(new URL(request.url).pathname, company.country, "/products") };
 }
 
 export async function action({ request, context }: ActionFunctionArgs): Promise<Response | { errors: FormErrors }> {
+  const language = languageForLocale(new URL(request.url).pathname.split("/")[1]);
   const parsed = parseCreateJson(await request.text());
-  if (!parsed.success) return { errors: createErrors(parsed.error) };
+  if (!parsed.success) return { errors: createErrors(parsed.error, language) };
   const company = context.get(privateUserContext).company;
   try {
     const result = await products.create(parsed.data);
-    if (!result.success) return { errors: createErrors(result.error) };
-    return redirect(`/es-${company.country}/products/${result.data}`);
+    if (!result.success) return { errors: createErrors(result.error, language) };
+    return redirect(companyPath(new URL(request.url).pathname, company.country, `/products/${result.data}`));
   } catch (cause) {
-    console.error("Unable to create product", cause);
-    return { errors: { form: "No se pudo guardar el producto. Inténtalo de nuevo." } };
+    log.error({ event: "unable_to_create_product", err: cause }, "unable_to_create_product");
+    return { errors: { form: resources[language].translation.productErrors.saveError } };
   }
 }
 
 export default function ProductNew() {
+  const { t } = useTranslation();
   const { currency, catalog } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
@@ -50,8 +56,8 @@ export default function ProductNew() {
   return <PageContainer>
     <PageHeader>
       <PageHeader.Heading>
-        <PageHeader.Title>Nuevo producto</PageHeader.Title>
-        <PageHeader.Description>Completa los datos para agregarlo a tu empresa.</PageHeader.Description>
+        <PageHeader.Title>{t("products.new")}</PageHeader.Title>
+        <PageHeader.Description>{t("products.newDescription")}</PageHeader.Description>
       </PageHeader.Heading>
     </PageHeader>
     <ProductForm currency={currency} cancelTo={catalog} errors={errors} pending={pending} onSave={save} />

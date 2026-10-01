@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { useTranslation } from 'react-i18next';
 
 import tokens from '../../../../../docs/design-tokens.json';
 import { useTheme } from '@/hooks/use-theme';
@@ -16,6 +17,7 @@ export type ScreenStateProps = {
 
 export function ScreenState({ status, title, description, media, action, onRetry }: ScreenStateProps) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const loading = status === 'loading';
 
   return (
@@ -26,7 +28,7 @@ export function ScreenState({ status, title, description, media, action, onRetry
           <Text style={[styles.title, { color: theme.text }]}>{title}</Text>
           {description ? <Text style={[styles.description, { color: theme.textSecondary }]}>{description}</Text> : null}
         </View>
-        {!loading ? action ?? (status === 'error' && onRetry ? <Button onPress={onRetry}>Reintentar</Button> : null) : null}
+        {!loading ? action ?? (status === 'error' && onRetry ? <Button onPress={onRetry}>{t('retry')}</Button> : null) : null}
       </View>
     </View>
   );

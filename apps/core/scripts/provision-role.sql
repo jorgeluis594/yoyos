@@ -17,4 +17,7 @@ REVOKE ALL ON DATABASE :"dbname" FROM core_app;
 GRANT CONNECT ON DATABASE :"dbname" TO core_app;
 GRANT USAGE ON SCHEMA public TO core_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."Company", public."Image", public."Contact", public."Chat", public."ChatMessage", public."Product", public."ProductVariant", public."ProductStock", public."Order", public."OrderItem", public."Payment", public."user", public."session", public."account", public."verification", public."jwks" TO core_app;
+GRANT USAGE ON SCHEMA pgboss TO core_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA pgboss TO core_app;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA pgboss TO core_app;
 COMMIT;

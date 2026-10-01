@@ -3,6 +3,7 @@ import { apiErrorResponseSchema, type ApiErrorCode } from "@shared/contracts/reg
 import { requireCompany, type ReadyAccess, type UserAccess } from "@core/src/features/users";
 import { resolveCurrentAccess } from "@core/src/shared/infrastructure/current-user";
 import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { bindCompanyToRequest } from "@core/src/shared/infrastructure/logger";
 
 export type AuthenticatedLocals = { auth: UserAccess };
 export type PrivateLocals = { auth: ReadyAccess };
@@ -27,7 +28,10 @@ export async function loadApiAccess(request: Request, response: Response<unknown
     }
   }
   response.locals.auth = result.data;
-  if (result.data.status === "ready") return withTenantIsolation(result.data.company.id, next);
+  if (result.data.status === "ready") {
+    bindCompanyToRequest(result.data.company.id);
+    return withTenantIsolation(result.data.company.id, next);
+  }
   return next();
 }
 

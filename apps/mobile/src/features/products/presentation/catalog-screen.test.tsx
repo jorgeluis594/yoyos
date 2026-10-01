@@ -1,6 +1,7 @@
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import { ok } from '@shared/functional';
 import CatalogScreen from '@mobile/features/products/presentation/catalog-screen';
+import i18n from '@mobile/i18n';
 
 const mockPush = jest.fn();
 const mockLoadProducts = jest.fn();
@@ -41,4 +42,18 @@ test('product rows expose price, SKU and stock and open the product', async () =
   expect(screen.getByText(/59[.,]90/)).toBeTruthy();
   fireEvent.press(screen.getByRole('button', { name: /Camisa de algodón/ }));
   await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/products/product-1'));
+});
+
+test('catalog translates empty state and search to Portuguese', async () => {
+  await i18n.changeLanguage('pt-BR');
+  mockLoadProducts.mockResolvedValue(ok({ items: [], total: 0 }));
+  try {
+    const screen = render(<CatalogScreen />);
+    await screen.findByText('Ainda não há produtos');
+    expect(screen.getByRole('button', { name: 'Adicionar produto' })).toBeTruthy();
+    expect(screen.getByLabelText('Buscar produtos')).toBeTruthy();
+    screen.unmount();
+  } finally {
+    await i18n.changeLanguage('es');
+  }
 });

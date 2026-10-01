@@ -1,3 +1,4 @@
+import { log } from "@core/src/shared/infrastructure/logger";
 import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import { isCurrency } from "@shared/money";
@@ -75,7 +76,7 @@ export async function savePendingOrder(order: OrderAggregate) {
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
     if (cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2002") return err({ code: "ORDER_ALREADY_EXISTS" as const, message: "Order already exists" });
-    console.error("Unable to save pending order", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    log.error({ event: "unable_to_save_pending_order", err: cause }, "unable_to_save_pending_order");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save pending order" });
   }
 }
@@ -85,7 +86,7 @@ export async function orderExists(id: string) {
     return ok(!!await prisma.order.findFirst({ where: { id }, select: { id: true } }));
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
-    console.error("Unable to check order ID", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    log.error({ event: "unable_to_check_order_id", err: cause }, "unable_to_check_order_id");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to check order ID" });
   }
 }
@@ -98,7 +99,7 @@ export async function findOrderAggregate(id: OrderId, companyId: CompanyId) {
   } catch (cause) {
     if (cause instanceof InvalidStoredOrderError) return err({ code: "INVALID_ORDER" as const, message: cause.message });
     if (!knownFailure(cause)) throw cause;
-    console.error("Unable to load order aggregate", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    log.error({ event: "unable_to_load_order_aggregate", err: cause }, "unable_to_load_order_aggregate");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to load order aggregate" });
   }
 }
@@ -110,7 +111,7 @@ export async function findOrderForUpdate(id: OrderId, companyId: CompanyId) {
     return rows.length ? findOrderAggregate(id, companyId) : ok(null);
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
-    console.error("Unable to lock order", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    log.error({ event: "unable_to_lock_order", err: cause }, "unable_to_lock_order");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to lock order" });
   }
 }
@@ -123,7 +124,7 @@ export async function saveStockDeduction(id: OrderId, companyId: CompanyId) {
     return ok<null>(null);
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
-    console.error("Unable to save stock deduction", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    log.error({ event: "unable_to_save_stock_deduction", err: cause }, "unable_to_save_stock_deduction");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save stock deduction" });
   }
 }
@@ -139,7 +140,7 @@ export async function savePayment(payment: Payment, companyId: CompanyId) {
     if (!knownFailure(cause)) throw cause;
     if (cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2002")
       return err({ code: "PAYMENT_CONFLICT" as const, message: "Payment ID already exists" });
-    console.error("Unable to save payment", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    log.error({ event: "unable_to_save_payment", err: cause }, "unable_to_save_payment");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save payment" });
   }
 }
@@ -154,7 +155,7 @@ export async function saveFulfillment(id: OrderId, companyId: CompanyId, change:
     return ok<null>(null);
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
-    console.error("Unable to save fulfillment", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    log.error({ event: "unable_to_save_fulfillment", err: cause }, "unable_to_save_fulfillment");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save fulfillment" });
   }
 }
@@ -168,7 +169,7 @@ export async function saveCancellation(id: OrderId, companyId: CompanyId, stockD
     return ok<null>(null);
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
-    console.error("Unable to save order cancellation", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    log.error({ event: "unable_to_save_order_cancellation", err: cause }, "unable_to_save_order_cancellation");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save order cancellation" });
   }
 }
@@ -186,7 +187,7 @@ export async function saveDelivery(id: OrderId, companyId: CompanyId, change: Pi
     return ok<null>(null);
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
-    console.error("Unable to save order delivery", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    log.error({ event: "unable_to_save_order_delivery", err: cause }, "unable_to_save_order_delivery");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save order delivery" });
   }
 }
@@ -213,7 +214,7 @@ export async function findOrders(criteria: OrderCriteria) {
   } catch (cause) {
     if (cause instanceof InvalidStoredOrderError) return err({ code: "INVALID_ORDER" as const, message: cause.message });
     if (!knownFailure(cause)) throw cause;
-    console.error("Unable to list orders", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    log.error({ event: "unable_to_list_orders", err: cause }, "unable_to_list_orders");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to list orders" });
   }
 }
@@ -236,7 +237,7 @@ export async function findOrderAggregates(criteria: AggregateCriteria, companyId
   } catch (cause) {
     if (cause instanceof InvalidStoredOrderError) return err({ code: "INVALID_ORDER" as const, message: cause.message });
     if (!knownFailure(cause)) throw cause;
-    console.error("Unable to list order aggregates", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    log.error({ event: "unable_to_list_order_aggregates", err: cause }, "unable_to_list_order_aggregates");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to list orders" });
   }
 }

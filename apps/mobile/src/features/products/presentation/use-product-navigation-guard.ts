@@ -1,10 +1,12 @@
 import { useEffect, useRef } from "react";
 import { useNavigation } from "expo-router";
 import { usePreventRemove } from "expo-router/react-navigation";
+import { useTranslation } from "react-i18next";
 import { showConfirmation } from "@/components/ui/show-confirmation";
 import { useProductDraft } from "./draft-guard";
 
 export function useProductNavigationGuard(dirty: boolean) {
+  const { t } = useTranslation();
   const navigation = useNavigation();
   const draft = useProductDraft();
   const { setDirty, discard, discardVersion } = draft;
@@ -23,10 +25,10 @@ export function useProductNavigationGuard(dirty: boolean) {
   usePreventRemove(dirty, ({ data }) => {
     if (!dirtyRef.current) { navigation.dispatch(data.action); return; }
     showConfirmation({
-      title: "¿Descartar cambios?",
-      description: "Se perderán los cambios que no guardaste.",
-      confirmLabel: "Descartar",
-      cancelLabel: "Seguir editando",
+      title: t('discardChanges'),
+      description: t('discardDescription'),
+      confirmLabel: t('discard'),
+      cancelLabel: t('keepEditing'),
       destructive: true,
       onConfirm: () => { dirtyRef.current = false; discardedRef.current = true; discard(); navigation.dispatch(data.action); },
     });

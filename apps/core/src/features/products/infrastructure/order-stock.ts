@@ -1,3 +1,4 @@
+import { log } from "@core/src/shared/infrastructure/logger";
 import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import { isCurrency, type Money } from "@shared/money";
@@ -17,14 +18,14 @@ export async function findSellableVariant(id: string) {
     if (!row) return ok<CatalogItem | null>(null);
     const attributes = row.attributes;
     if (!isCurrency(row.product.currency) || !attributes || typeof attributes !== "object" || Array.isArray(attributes) || Object.values(attributes).some((value) => typeof value !== "string")) {
-      console.error("Invalid stored sale variant", { id });
+      log.error({ event: "invalid_stored_sale_variant" }, "invalid_stored_sale_variant");
       return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
     }
     return ok<CatalogItem>({ variantId: row.id as VariantId, productName: row.product.name, variantAttributes: { ...attributes } as Record<string, string>, sku: row.sku,
       unitPrice: { amount: row.salePrice.toNumber(), currency: row.product.currency } });
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
-    console.error("Unable to read sale variant", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    log.error({ event: "unable_to_read_sale_variant", err: cause }, "unable_to_read_sale_variant");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
   }
 }
@@ -35,7 +36,7 @@ export async function deductProductStock(variantId: VariantId, quantity: number)
     return result.count === 1 ? ok<null>(null) : err<StockError>({ code: "INSUFFICIENT_STOCK", message: "Not enough stock", variantId });
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
-    console.error("Unable to deduct product stock", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    log.error({ event: "unable_to_deduct_product_stock", err: cause }, "unable_to_deduct_product_stock");
     return err<StockError>({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to update stock" });
   }
 }
@@ -47,7 +48,7 @@ export async function restoreProductStock(variantId: VariantId, quantity: number
     return ok<null>(null);
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
-    console.error("Unable to restore product stock", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    log.error({ event: "unable_to_restore_product_stock", err: cause }, "unable_to_restore_product_stock");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to restore stock" });
   }
 }
@@ -59,7 +60,7 @@ export async function searchSaleCatalog(search: string) {
     if (rows.some((row) => row.variants.some((variant) => !variant.attributes || typeof variant.attributes !== "object" || Array.isArray(variant.attributes) ||
       Object.values(variant.attributes).some((value) => typeof value !== "string") || !variant.stock ||
       variant.stock.quantity < 0n || variant.stock.quantity > BigInt(Number.MAX_SAFE_INTEGER)))) {
-      console.error("Invalid stored sale catalog");
+      log.error({ event: "invalid_stored_sale_catalog" }, "invalid_stored_sale_catalog");
       return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
     }
     return ok(rows.map((row) => ({ id: row.id, name: row.name, currency: row.currency,
@@ -67,7 +68,7 @@ export async function searchSaleCatalog(search: string) {
         price: variant.salePrice.toNumber(), stock: Number(variant.stock!.quantity) })) })));
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
-    console.error("Unable to search sale catalog", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    log.error({ event: "unable_to_search_sale_catalog", err: cause }, "unable_to_search_sale_catalog");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to search catalog" });
   }
 }

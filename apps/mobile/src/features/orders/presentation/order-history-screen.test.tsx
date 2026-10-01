@@ -1,7 +1,8 @@
-import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react-native";
 import type { orders } from "@mobile/features/orders/composition";
 import { err, ok } from "@shared/functional";
 import OrderHistoryScreen from "@mobile/features/orders/presentation/order-history-screen";
+import i18n from "@mobile/i18n";
 
 const mockPush = jest.fn();
 const mockLoadOrders = jest.fn();
@@ -44,6 +45,19 @@ test("a Chile company can open order history", async () => {
   const screen = render(<OrderHistoryScreen />);
   await screen.findByText("Aún no hay ventas");
   expect(mockLoadOrders).toHaveBeenCalledWith({ page: 1, customer: { kind: "all" } });
+});
+
+test("history translates empty state and filters to Portuguese", async () => {
+  await i18n.changeLanguage('pt-BR');
+  try {
+    const screen = render(<OrderHistoryScreen />);
+    await screen.findByText('Ainda não há vendas');
+    expect(screen.getByRole('button', { name: 'Nova venda' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Público geral' })).toBeTruthy();
+  } finally {
+    cleanup();
+    await i18n.changeLanguage('es');
+  }
 });
 
 test("history moves between pages and opens the selected detail", async () => {

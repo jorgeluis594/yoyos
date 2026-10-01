@@ -29,19 +29,19 @@ export function andThen<A, B, E extends AppError = never, F extends AppError = n
 }
 
 /** Chain Result-returning steps, stopping at the first failure. */
-export function pipe<A, E extends AppError>(initial: Result<A, E>): Result<A, E>;
-export function pipe<A, B, E extends AppError, F extends AppError>(
+function pipe<A, E extends AppError>(initial: Result<A, E>): Result<A, E>;
+function pipe<A, B, E extends AppError, F extends AppError>(
   initial: Result<A, E>, first: (value: A) => Result<B, F>,
 ): Result<B, E | F>;
-export function pipe<A, B, C, E extends AppError, F extends AppError, G extends AppError>(
+function pipe<A, B, C, E extends AppError, F extends AppError, G extends AppError>(
   initial: Result<A, E>, first: (value: A) => Result<B, F>,
   second: (value: B) => Result<C, G>,
 ): Result<C, E | F | G>;
-export function pipe<A, B, C, D, E extends AppError, F extends AppError, G extends AppError, H extends AppError>(
+function pipe<A, B, C, D, E extends AppError, F extends AppError, G extends AppError, H extends AppError>(
   initial: Result<A, E>, first: (value: A) => Result<B, F>,
   second: (value: B) => Result<C, G>, third: (value: C) => Result<D, H>,
 ): Result<D, E | F | G | H>;
-export function pipe(
+function pipe(
   initial: Result<unknown, AppError>,
   ...steps: Array<(value: never) => Result<unknown, AppError>>
 ): Result<unknown, AppError> {
@@ -70,23 +70,23 @@ export async function andThenAsync<A, B, E extends AppError = never, F extends A
 }
 
 /** Chain synchronous or asynchronous Result steps, stopping at the first failure. */
-export function pipeAsync<A, E extends AppError>(initial: Result<A, E> | Promise<Result<A, E>>): Promise<Result<A, E>>;
-export function pipeAsync<A, B, E extends AppError, F extends AppError>(
+function pipeAsync<A, E extends AppError>(initial: Result<A, E> | Promise<Result<A, E>>): Promise<Result<A, E>>;
+function pipeAsync<A, B, E extends AppError, F extends AppError>(
   initial: Result<A, E> | Promise<Result<A, E>>,
   first: (value: A) => Result<B, F> | Promise<Result<B, F>>,
 ): Promise<Result<B, E | F>>;
-export function pipeAsync<A, B, C, E extends AppError, F extends AppError, G extends AppError>(
+function pipeAsync<A, B, C, E extends AppError, F extends AppError, G extends AppError>(
   initial: Result<A, E> | Promise<Result<A, E>>,
   first: (value: A) => Result<B, F> | Promise<Result<B, F>>,
   second: (value: B) => Result<C, G> | Promise<Result<C, G>>,
 ): Promise<Result<C, E | F | G>>;
-export function pipeAsync<A, B, C, D, E extends AppError, F extends AppError, G extends AppError, H extends AppError>(
+function pipeAsync<A, B, C, D, E extends AppError, F extends AppError, G extends AppError, H extends AppError>(
   initial: Result<A, E> | Promise<Result<A, E>>,
   first: (value: A) => Result<B, F> | Promise<Result<B, F>>,
   second: (value: B) => Result<C, G> | Promise<Result<C, G>>,
   third: (value: C) => Result<D, H> | Promise<Result<D, H>>,
 ): Promise<Result<D, E | F | G | H>>;
-export async function pipeAsync(
+async function pipeAsync(
   initial: Result<unknown, AppError> | Promise<Result<unknown, AppError>>,
   ...steps: Array<(value: never) => Result<unknown, AppError> | Promise<Result<unknown, AppError>>>
 ): Promise<Result<unknown, AppError>> {
@@ -118,3 +118,5 @@ export function traverse<A, B, E extends AppError = never>(
   }
   return ok(values);
 }
+
+export { pipe, pipeAsync };

@@ -5,3 +5,6 @@ node_modules/
 .pnpm-store/
 storybook-static/
 debug-storybook.log
+
+# Local Obsidian content workspace (notes, assets and app settings)
+/contenido-local/

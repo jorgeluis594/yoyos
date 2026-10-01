@@ -1,3 +1,4 @@
+import { log } from "@core/src/shared/infrastructure/logger";
 import { afterEach, expect, it, vi } from "vitest";
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { createR2ImageStorage } from "@core/src/shared/images/infrastructure/r2-image-storage";
@@ -63,7 +64,7 @@ it("uploads bytes with content type, returns an opaque key and builds the public
 });
 
 it("translates R2 upload and delete failures", async () => {
-  const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+  const logged = vi.spyOn(log, "error").mockImplementation(() => {});
   const storage = createR2ImageStorage(config);
   send.mockRejectedValueOnce(new Error("R2 unavailable"));
   expect(await storage.upload({ bytes: new Uint8Array([1]), filename: "a.png", contentType: "image/png" })).toEqual({ success: false, error: { code: "IMAGE_STORAGE_UNAVAILABLE", message: "Image upload failed" } });

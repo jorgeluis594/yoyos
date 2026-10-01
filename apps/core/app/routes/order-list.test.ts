@@ -19,6 +19,8 @@ test("filters sales by Lima calendar days, including the start and excluding the
   { companyId: "company", userId: "seller" });
   expect(result.filters).toMatchObject({ createdFrom: "2026-09-28T05:00:00.000Z", createdBefore: "2026-09-29T05:00:00.000Z" });
 
+  expect((await loader(args("http://localhost/pt-BR/orders"))).base).toBe("/pt-BR/orders");
+
   await loader(args("http://localhost/es-PE/orders?createdFrom=1990-01-01"));
   expect(list).toHaveBeenLastCalledWith({ page: 1, customer: { kind: "all" }, createdFrom: new Date("1990-01-01T04:00:00.000Z") },
     { companyId: "company", userId: "seller" });

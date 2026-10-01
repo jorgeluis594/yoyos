@@ -1,5 +1,6 @@
 import { Host, Picker } from '@expo/ui';
 import { StyleSheet, View } from 'react-native';
+import { useTranslation } from 'react-i18next';
 
 import tokens from '../../../../../docs/design-tokens.json';
 import { useFieldContext } from './field';
@@ -19,7 +20,8 @@ export type OptionSelectorProps = {
   testID?: string;
 };
 
-export function OptionSelector({ options, value, onValueChange, placeholder = 'Selecciona una opción', testID }: OptionSelectorProps) {
+export function OptionSelector({ options, value, onValueChange, placeholder, testID }: OptionSelectorProps) {
+  const { t } = useTranslation();
   const field = useFieldContext();
   const disabled = field?.disabled ?? false;
   const invalid = field?.invalid ?? false;
@@ -38,7 +40,7 @@ export function OptionSelector({ options, value, onValueChange, placeholder = 'S
           onValueChange={(index) => onValueChange(index < 0 ? null : options[index].value)}
           enabled={!disabled}
         >
-          <Picker.Item label={placeholder} value={-1} />
+          <Picker.Item label={placeholder ?? t('selectOption')} value={-1} />
           {available.map(({ option, index }) => <Picker.Item key={option.value} label={option.description ? `${option.label} — ${option.description}` : option.label} value={index} />)}
         </Picker>
       </Host>

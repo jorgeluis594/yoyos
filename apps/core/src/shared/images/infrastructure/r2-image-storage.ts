@@ -1,3 +1,4 @@
+import { log } from "@core/src/shared/infrastructure/logger";
 import { randomUUID } from "node:crypto";
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import type { Result } from "@shared/result";
@@ -46,7 +47,7 @@ export function createR2ImageStorage(config: Config): ImageStorage {
         await client.send(new PutObjectCommand({ Bucket: config.bucket, Key: key, Body: bytes, ContentType: contentType }));
         return { success: true, data: { key } };
       } catch (error) {
-        console.error("R2 image upload failed", error);
+        log.error({ event: "r2_image_upload_failed", err: error }, "r2_image_upload_failed");
         return failed("IMAGE_STORAGE_UNAVAILABLE", "Image upload failed");
       }
     },
@@ -56,7 +57,7 @@ export function createR2ImageStorage(config: Config): ImageStorage {
         await client.send(new PutObjectCommand({ Bucket: config.privateBucket, Key: key, Body: bytes, ContentType: contentType }));
         return { success: true, data: undefined };
       } catch (error) {
-        console.error("R2 private image upload failed", { error: error instanceof Error ? error.name : "unknown" });
+        log.error({ event: "r2_private_image_upload_failed", err: error }, "r2_private_image_upload_failed");
         return failed("IMAGE_STORAGE_UNAVAILABLE", "Private image upload failed");
       }
     },
@@ -67,7 +68,7 @@ export function createR2ImageStorage(config: Config): ImageStorage {
         if (!object.Body) return failed("IMAGE_STORAGE_UNAVAILABLE", "Private image is unavailable");
         return { success: true, data: { bytes: await object.Body.transformToByteArray(), contentType: object.ContentType ?? "application/octet-stream" } };
       } catch (error) {
-        console.error("R2 private image read failed", { error: error instanceof Error ? error.name : "unknown" });
+        log.error({ event: "r2_private_image_read_failed", err: error }, "r2_private_image_read_failed");
         return failed("IMAGE_STORAGE_UNAVAILABLE", "Private image is unavailable");
       }
     },
@@ -81,7 +82,7 @@ export function createR2ImageStorage(config: Config): ImageStorage {
         await client.send(new DeleteObjectCommand({ Bucket: config.bucket, Key: key }));
         return { success: true, data: undefined };
       } catch (error) {
-        console.error("R2 image deletion failed", error);
+        log.error({ event: "r2_image_deletion_failed", err: error }, "r2_image_deletion_failed");
         return failed("IMAGE_STORAGE_UNAVAILABLE", "Image deletion failed");
       }
     },

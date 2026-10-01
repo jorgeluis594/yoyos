@@ -54,8 +54,8 @@ discarded candidates or summaries of them.
 ## Follow Read Failures
 
 Apply the process and error contract in the reference, including isolated batch
-item failures. If the executable is unavailable, follow
-[references/install-cli.md](references/install-cli.md) before retrying. Preserve
+item failures. If the executable is unavailable, report the failure without
+attempting to install the CLI. Preserve
 selected evidence when validation fails and report partial coverage. Never
 initialize or mutate memory data, and never convert an error into an empty
 result.
