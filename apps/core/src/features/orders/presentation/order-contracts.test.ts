@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { listOrdersSchema, orderApiErrorSchema } from "@shared/contracts/orders";
+import { deliveryDetailsSchema, listOrdersSchema, orderApiErrorSchema, registerPaymentSchema, stockOutcomeSchema } from "@shared/contracts/orders";
 import { limaMidnightUtc, nextCalendarDay } from "@shared/orders-date";
 
 test("a Lima calendar day has its own UTC bounds across an offset change", () => {
@@ -20,4 +20,18 @@ test("list filters reject an unrelated contact and reversed interval", () => {
   expect(listOrdersSchema.safeParse({ completedFrom: "2026-09-29T05:00:00.000Z", completedBefore: "2026-09-28T05:00:00.000Z" }).success).toBe(false);
   expect(listOrdersSchema.safeParse({ page: String(Number.MAX_SAFE_INTEGER) }).success).toBe(false);
   expect(listOrdersSchema.safeParse({ completedFrom: "2026-09-28T05:00:00Z", completedBefore: "2026-09-28T05:00:00.001Z" }).success).toBe(true);
+});
+
+test("payment and delivery contracts reject invented fields and incomplete agency identity", () => {
+  const payment = { paymentId: "00000000-0000-4000-8000-000000000001", amount: { amount: 1, currency: "PEN" },
+    method: "digital_wallet", deductStockIfPartial: false };
+  expect(registerPaymentSchema.safeParse(payment).success).toBe(true);
+  expect(registerPaymentSchema.safeParse({ ...payment, stockDeducted: true }).success).toBe(false);
+  expect(registerPaymentSchema.safeParse({ ...payment, amount: { amount: 1, currency: "XYZ" } }).success).toBe(false);
+  const agency = { method: "agency", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
+    destination: { agencyId: "a" } };
+  expect(deliveryDetailsSchema.safeParse(agency).success).toBe(false);
+  expect(deliveryDetailsSchema.safeParse({ ...agency, recipient: { ...agency.recipient,
+    identity: { kind: "document", documentType: "passport", document: "A-001" } } }).success).toBe(true);
+  expect(stockOutcomeSchema.safeParse({ kind: "pending", reason: "INSUFFICIENT_STOCK" }).success).toBe(true);
 });

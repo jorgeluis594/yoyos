@@ -10,8 +10,9 @@ import { registerPayment, type RegisterPaymentDependencies } from "@core/src/fea
 import { registerImmediateSale, type RegisterImmediateSaleDependencies } from "@core/src/features/orders/application/register-immediate-sale";
 import { cancelOrder, type CancelOrderDependencies } from "@core/src/features/orders/application/cancel-order";
 import { registerShipment, registerDelivery, type FulfillOrderDependencies } from "@core/src/features/orders/application/fulfill-order";
+import { getOrderAggregate } from "@core/src/features/orders/application/read-order-aggregate";
 import { getOrder, listOrders } from "@core/src/features/orders/application/read-orders";
-import { saveOrder, savePendingOrder, savePayment, saveStockDeduction, saveFulfillment, saveCancellation, findOrder, findOrderForUpdate, findOrders, orderExists } from "@core/src/features/orders/infrastructure/order-repository";
+import { saveOrder, savePendingOrder, savePayment, saveStockDeduction, saveFulfillment, saveCancellation, findOrder, findOrderAggregate, findOrderForUpdate, findOrders, orderExists } from "@core/src/features/orders/infrastructure/order-repository";
 import { findSellableVariant, deductProductStock, restoreProductStock, searchSaleCatalog } from "@core/src/features/products";
 import { findContactById, searchSaleContacts } from "@core/src/features/contacts";
 import type { OrderItemId, PaymentId } from "@core/src/features/orders/domain/order";
@@ -42,6 +43,8 @@ const fulfillmentDependencies: FulfillOrderDependencies = { transaction: fulfill
   saveFulfillment, clock: () => new Date() };
 
 export const orders = {
+  getAggregate: (id: Parameters<typeof getOrderAggregate>[0], context: Parameters<typeof getOrderAggregate>[1]) =>
+    getOrderAggregate(id, context, findOrderAggregate),
   ship: (id: Parameters<typeof registerShipment>[0], context: Parameters<typeof registerShipment>[1]) =>
     registerShipment(id, context, fulfillmentDependencies),
   deliver: (id: Parameters<typeof registerDelivery>[0], context: Parameters<typeof registerDelivery>[1]) =>

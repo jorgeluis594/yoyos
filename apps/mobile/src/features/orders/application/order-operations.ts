@@ -20,7 +20,9 @@ export type PendingOrderStoreError = Readonly<{
 export type OrderRequestError = Readonly<{
   code: TransportError["code"] | "INVALID_INPUT" | "INVALID_ORDER" | "CURRENCY_MISMATCH"
     | "CONTACT_NOT_FOUND" | "VARIANT_NOT_FOUND" | "INSUFFICIENT_STOCK" | "ORDER_ALREADY_EXISTS"
-    | "ORDER_NOT_FOUND" | "PAYLOAD_TOO_LARGE";
+    | "ORDER_NOT_FOUND" | "PAYLOAD_TOO_LARGE"
+    | "INVALID_PAYMENT" | "PAYMENT_CONFLICT" | "INVALID_TRANSITION" | "DELIVERY_LOCKED"
+    | "PAYMENT_REQUIRED" | "STOCK_NOT_DEDUCTED" | "ORDER_CANCELLED" | "DELIVERY_UNAVAILABLE";
   message: string;
   issues?: readonly OrderApiIssue[];
 }>;

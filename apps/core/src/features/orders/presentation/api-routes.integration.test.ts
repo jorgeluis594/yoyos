@@ -122,6 +122,38 @@ test("orders HTTP rejects invalid input and stock without partial sale", async (
   expect(await withTenantIsolation(seller.companyId, async () => await prisma.order.count())).toBe(0);
 });
 
+test("orders HTTP exposes pending payment, stock retry and completion with company isolation", async () => {
+  const seller = await fixture("PE");
+  const other = await fixture("CL");
+  const id = randomUUID();
+  const paymentId = randomUUID();
+  const created = await call("/api/orders/pending", seller.cookie,
+    { id, contactId: null, items: [{ variantId: seller.variantId, quantity: 4 }] }, "POST");
+  expect(created.status).toBe(201);
+  expect(await created.json()).toMatchObject({ id, status: "active", paymentStatus: "pending", deliveryStatus: "pending",
+    stockDeducted: false, completedAt: null, total: { amount: 40, currency: "PEN" }, payments: [] });
+  expect((await call(`/api/orders/${id}/aggregate`, other.cookie)).status).toBe(404);
+  const payment = { paymentId, amount: { amount: 40, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false };
+  const recorded = await call(`/api/orders/${id}/payments`, seller.cookie, payment, "POST");
+  expect(recorded.status).toBe(200);
+  expect(await recorded.json()).toMatchObject({ stock: { kind: "pending", reason: "INSUFFICIENT_STOCK" },
+    order: { paymentStatus: "paid", payments: [{ id: paymentId }] } });
+  expect((await call(`/api/orders/${id}/ship`, seller.cookie, undefined, "POST")).status).toBe(409);
+  await withTenantIsolation(seller.companyId, async () => {
+    await prisma.productStock.update({ where: { variantId: seller.variantId }, data: { quantity: { increment: 1n } } });
+  });
+  const deducted = await call(`/api/orders/${id}/deduct-stock`, seller.cookie, undefined, "POST");
+  expect(deducted.status).toBe(200);
+  expect(await deducted.json()).toMatchObject({ stockDeducted: true, payments: [{ id: paymentId }] });
+  expect((await call(`/api/orders/${id}/ship`, seller.cookie, undefined, "POST")).status).toBe(200);
+  const delivered = await call(`/api/orders/${id}/deliver`, seller.cookie, undefined, "POST");
+  expect(delivered.status).toBe(200);
+  expect(await delivered.json()).toMatchObject({ status: "completed", paymentStatus: "paid",
+    deliveryStatus: "delivered", completedAt: expect.any(String) });
+  expect((await call(`/api/orders/${id}/aggregate`, seller.cookie)).status).toBe(200);
+  expect((await call(`/api/orders/${id}/cancel`, seller.cookie, undefined, "POST")).status).toBe(409);
+});
+
 test("orders HTTP combines contact and Lima-day UTC bounds with stable pages and capped search", async () => {
   const seller = await fixture("PE");
   const ids = Array.from({ length: 21 }, (_, index) => `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`);
