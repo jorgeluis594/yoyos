@@ -1,7 +1,7 @@
 import { err } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { orderStateMachine, type OrderAggregate, type OrderDomainError } from "@core/src/features/orders/domain/order-state-machine";
-import type { OrderAccess } from "@core/src/features/orders/application/create-pending-order";
+import type { OrderAccess } from "@core/src/features/orders/application/create-order";
 import type { CompanyId, OrderId } from "@core/src/features/orders/domain/order";
 
 export type FulfillOrderError = OrderDomainError | Readonly<{ code: "ORDER_NOT_FOUND" | "PERSISTENCE_UNAVAILABLE"; message: string }>;

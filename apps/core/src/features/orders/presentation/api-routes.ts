@@ -4,7 +4,7 @@ import { createOrderSchema, listOrderAggregatesSchema, listOrdersSchema, orderCa
 import { apiError, type PrivateLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { orders } from "@core/src/features/orders/composition";
 import { toOrderAggregateJson, toOrderAggregateListJson, toOrderJson, toOrderListJson } from "@core/src/features/orders/presentation/order-json";
-import type { CreatePendingOrderInput, OrderAccess } from "@core/src/features/orders/application/create-pending-order";
+import type { CreateOrderInput, OrderAccess } from "@core/src/features/orders/application/create-order";
 import type { ContactId, CompanyId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { RegisterPaymentInput } from "@core/src/features/orders/application/register-payment";
 import type { VariantId } from "@core/src/features/products/domain/product";
@@ -88,7 +88,7 @@ const orderContext = (response: Response<unknown, PrivateLocals>): OrderAccess =
   companyId: response.locals.auth.company.id as CompanyId, userId: response.locals.auth.user.id as UserId,
 });
 const orderId = (value: string | undefined) => z.uuid().safeParse(value);
-function pendingInput(value: CreateOrderRequest): CreatePendingOrderInput {
+function pendingInput(value: CreateOrderRequest): CreateOrderInput {
   const [first, ...rest] = value.items;
   if (!first) throw new Error("Validated order has no items");
   const item = (selection: typeof first) => ({ variantId: selection.variantId as VariantId, quantity: selection.quantity as PositiveInteger });

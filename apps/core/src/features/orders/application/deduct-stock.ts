@@ -1,7 +1,7 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { orderStateMachine, type OrderAggregate, type OrderDomainError } from "@core/src/features/orders/domain/order-state-machine";
-import type { OrderAccess } from "@core/src/features/orders/application/create-pending-order";
+import type { OrderAccess } from "@core/src/features/orders/application/create-order";
 import type { CompanyId, OrderId, PositiveInteger } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 

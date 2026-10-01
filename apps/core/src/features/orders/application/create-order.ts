@@ -6,14 +6,14 @@ import type { CompanyId, ContactId, OrderId, OrderItemId, PositiveInteger, UserI
 import type { VariantId } from "@core/src/features/products/domain/product";
 import type { CatalogItem, ContactSnapshot } from "@core/src/features/orders/application/order-snapshots";
 
-export type CreatePendingOrderInput = Readonly<{ id: OrderId; contactId: ContactId | null;
+export type CreateOrderInput = Readonly<{ id: OrderId; contactId: ContactId | null;
   items: readonly [Readonly<{ variantId: VariantId; quantity: PositiveInteger }>, ...Readonly<{ variantId: VariantId; quantity: PositiveInteger }> []] }>;
 export type OrderAccess = Readonly<{ companyId: CompanyId; userId: UserId }>;
-export type CreatePendingOrderError = Readonly<{ code: "INVALID_ORDER" | "CURRENCY_MISMATCH" | "ORDER_ALREADY_EXISTS" | "CONTACT_NOT_FOUND" | "VARIANT_NOT_FOUND" | "PERSISTENCE_UNAVAILABLE";
+export type CreateOrderError = Readonly<{ code: "INVALID_ORDER" | "CURRENCY_MISMATCH" | "ORDER_ALREADY_EXISTS" | "CONTACT_NOT_FOUND" | "VARIANT_NOT_FOUND" | "PERSISTENCE_UNAVAILABLE";
   message: string; variantId?: string; item?: number }>;
 type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
-export type CreatePendingOrderDependencies = Readonly<{
-  transaction: <T>(companyId: CompanyId, work: () => Promise<Result<T, CreatePendingOrderError>>) => Promise<Result<T, CreatePendingOrderError>>;
+export type CreateOrderDependencies = Readonly<{
+  transaction: <T>(companyId: CompanyId, work: () => Promise<Result<T, CreateOrderError>>) => Promise<Result<T, CreateOrderError>>;
   orderExists: (id: OrderId, companyId: CompanyId) => Promise<Result<boolean, PersistenceError>>;
   findContact: (id: ContactId, companyId: CompanyId) => Promise<Result<ContactSnapshot | null, PersistenceError>>;
   findVariant: (id: VariantId, companyId: CompanyId) => Promise<Result<CatalogItem | null, PersistenceError>>;
@@ -27,13 +27,13 @@ const selection = z.strictObject({ id: z.uuid(), contactId: z.uuid().nullable(),
 })).min(1) });
 const access = z.strictObject({ companyId: z.uuid(), userId: z.string().min(1) });
 
-export async function createPendingOrder(input: CreatePendingOrderInput, context: OrderAccess, deps: CreatePendingOrderDependencies): Promise<Result<OrderAggregate, CreatePendingOrderError>> {
+export async function createOrder(input: CreateOrderInput, context: OrderAccess, deps: CreateOrderDependencies): Promise<Result<OrderAggregate, CreateOrderError>> {
   if (!selection.safeParse(input).success || !access.safeParse(context).success ||
     new Set(input.items.map((item) => item.variantId)).size !== input.items.length) return err({ code: "INVALID_ORDER", message: "Invalid order input" });
-  return deps.transaction(context.companyId, () => createPendingOrderInTransaction(input, context, deps));
+  return deps.transaction(context.companyId, () => createOrderInTransaction(input, context, deps));
 }
 
-export async function createPendingOrderInTransaction(input: CreatePendingOrderInput, context: OrderAccess, deps: Omit<CreatePendingOrderDependencies, "transaction">): Promise<Result<OrderAggregate, CreatePendingOrderError>> {
+export async function createOrderInTransaction(input: CreateOrderInput, context: OrderAccess, deps: Omit<CreateOrderDependencies, "transaction">): Promise<Result<OrderAggregate, CreateOrderError>> {
   if (!selection.safeParse(input).success || !access.safeParse(context).success ||
     new Set(input.items.map((item) => item.variantId)).size !== input.items.length) return err({ code: "INVALID_ORDER", message: "Invalid order input" });
   const existing = await deps.orderExists(input.id, context.companyId);

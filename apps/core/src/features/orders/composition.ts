@@ -4,7 +4,7 @@ import { err } from "@shared/functional";
 import type { AppError, Result } from "@shared/result";
 import { getCompanyId, requireNoActiveTransaction, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { createLegacyOrder } from "@core/src/features/orders/application/create-legacy-order";
-import { createPendingOrder, type CreatePendingOrderDependencies } from "@core/src/features/orders/application/create-pending-order";
+import { createOrder, type CreateOrderDependencies } from "@core/src/features/orders/application/create-order";
 import { deductStock, type DeductStockDependencies } from "@core/src/features/orders/application/deduct-stock";
 import { registerPayment, type RegisterPaymentDependencies } from "@core/src/features/orders/application/register-payment";
 import { registerImmediateSale, type RegisterImmediateSaleDependencies } from "@core/src/features/orders/application/register-immediate-sale";
@@ -34,7 +34,7 @@ function scopedOrderTransaction<T, E extends AppError>(companyId: string, callba
   if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
   return orderTransaction(callback);
 }
-const pendingTransaction: CreatePendingOrderDependencies["transaction"] = scopedOrderTransaction;
+const pendingTransaction: CreateOrderDependencies["transaction"] = scopedOrderTransaction;
 const stockTransaction: DeductStockDependencies["transaction"] = scopedOrderTransaction;
 const paymentTransaction: RegisterPaymentDependencies["transaction"] = scopedOrderTransaction;
 const immediateTransaction: RegisterImmediateSaleDependencies["transaction"] = scopedOrderTransaction;
@@ -66,8 +66,8 @@ export const orders = {
   },
   deductStock: (id: Parameters<typeof deductStock>[0], context: Parameters<typeof deductStock>[1]) =>
     deductStock(id, context, { transaction: stockTransaction, findOrderForUpdate, deductProductStock, saveStockDeduction }),
-  createPending: (input: Parameters<typeof createPendingOrder>[0], context: Parameters<typeof createPendingOrder>[1]) =>
-    createPendingOrder(input, context, { transaction: pendingTransaction, orderExists,
+  createPending: (input: Parameters<typeof createOrder>[0], context: Parameters<typeof createOrder>[1]) =>
+    createOrder(input, context, { transaction: pendingTransaction, orderExists,
       findContact: findContactById, findVariant: findSellableVariant, saveOrder: savePendingOrder,
       newItemId: () => randomUUID() as OrderItemId, clock: () => new Date() }),
   create: (input: Parameters<typeof createLegacyOrder>[0], context: Parameters<typeof createLegacyOrder>[1]) =>

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { err } from "@shared/functional";
 import type { Result } from "@shared/result";
-import type { OrderAccess } from "@core/src/features/orders/application/create-pending-order";
+import type { OrderAccess } from "@core/src/features/orders/application/create-order";
 import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { CompanyId, ContactId } from "@core/src/features/orders/domain/order";
 
