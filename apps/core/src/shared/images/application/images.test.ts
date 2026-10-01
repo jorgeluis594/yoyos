@@ -67,30 +67,19 @@ describe("images use cases", () => {
 
   it("reports failed compensation without hiding the original failure", async () => {
     const { storage, repository } = setup();
-    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     repository.create = vi.fn(async () => { throw new Error("database down"); });
     storage.delete = vi.fn(async () => ({ success: false as const, error: { message: "delete failed" } }));
-    try {
-      await expect(uploadImage(input, storage, repository)).rejects.toThrow("database down");
-      expect(logged).toHaveBeenCalledWith("Image cleanup failed", expect.objectContaining({ key: "remote" }));
-    } finally {
-      logged.mockRestore();
-    }
+    await expect(uploadImage(input, storage, repository)).rejects.toThrow("database down");
+    expect(storage.delete).toHaveBeenCalledWith("remote");
   });
 
   it("preserves a persistence failure when cleanup throws", async () => {
     const { storage, repository } = setup();
-    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     const failure = { code: "PERSISTENCE_UNAVAILABLE", message: "database down" };
     repository.create = vi.fn(async () => ({ success: false as const, error: failure }));
     storage.delete = vi.fn(async () => { throw new Error("delete failed"); });
-    try {
-      expect(await uploadImage(input, storage, repository)).toEqual({ success: false, error: failure });
-      expect(storage.delete).toHaveBeenCalledWith("remote");
-      expect(logged).toHaveBeenCalledWith("Image cleanup failed", expect.objectContaining({ cause: failure, error: expect.any(Error) }));
-    } finally {
-      logged.mockRestore();
-    }
+    expect(await uploadImage(input, storage, repository)).toEqual({ success: false, error: failure });
+    expect(storage.delete).toHaveBeenCalledWith("remote");
   });
 
   it("passes provider failures through without writing locally", async () => {

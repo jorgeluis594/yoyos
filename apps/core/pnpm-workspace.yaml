@@ -1,4 +1,7 @@
 allowBuilds:
+  '@newrelic/fn-inspect': false
+  '@newrelic/native-metrics': false
   '@prisma/engines': true
   esbuild: true
   prisma: true
+  protobufjs: false

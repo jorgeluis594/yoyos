@@ -38,13 +38,14 @@ esac
 
 core_test_port=${CORE_TEST_PORT:-55433}
 admin_database_url=postgresql://core:core@127.0.0.1:${core_test_port}/core_test
-export DATABASE_URL=postgresql://core_app:core_app_local@127.0.0.1:${core_test_port}/core_test
+app_database_url=postgresql://core_app:core_app_local@127.0.0.1:${core_test_port}/core_test
+export DATABASE_URL=$app_database_url
 export BETTER_AUTH_SECRET=integration-test-secret-at-least-32-characters
 export EMAIL_TRANSPORT=smtp
 export EMAIL_FROM='Yoyos <cuentas@yoyos.test>'
 export SMTP_HOST=localhost
-export SMTP_PORT=1025
-export MAILPIT_URL=http://127.0.0.1:8025
+export SMTP_PORT=${MAILPIT_SMTP_PORT:-1025}
+export MAILPIT_URL=http://127.0.0.1:${MAILPIT_UI_PORT:-8025}
 if [ "$1" = e2e ]; then
   export BETTER_AUTH_URL=http://127.0.0.1:4173
 else
@@ -55,6 +56,7 @@ quiet docker compose -f ../../compose.yaml up -d --wait db_test mailpit
 DATABASE_URL="$admin_database_url" quiet pnpm exec prisma migrate deploy
 quiet psql "$admin_database_url" -v ON_ERROR_STOP=1 -c 'TRUNCATE TABLE public."jwks"'
 quiet psql "$admin_database_url" -v ON_ERROR_STOP=1 -v app_password=core_app_local -v dbname=core_test -f scripts/provision-role.sql
+export DATABASE_URL=$app_database_url
 
 test_project=$1
 shift

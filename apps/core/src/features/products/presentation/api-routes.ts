@@ -1,3 +1,4 @@
+import { log } from "@core/src/shared/infrastructure/logger";
 import express, { type Request, type Response } from "express";
 import { createProductRequestSchema, productApiIssueSchema, productListQuerySchema, updateProductRequestSchema } from "@shared/contracts/products";
 import type { ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
@@ -41,16 +42,16 @@ function sendOperationError(response: Response, error: { code?: string; issues?:
     case "IMAGE_NOT_FOUND": return apiError(response, 404, "IMAGE_NOT_FOUND", "Image not found");
     case "PERSISTENCE_UNAVAILABLE": return apiError(response, 503, "SERVICE_UNAVAILABLE", "Service unavailable");
     case "INVALID_STORED_DATA":
-      console.error("Invalid stored product data", error);
+      log.error({ event: "invalid_stored_product_data", err: error }, "invalid_stored_product_data");
       return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
     default:
-      console.error("Product API application error", error);
+      log.error({ event: "product_api_application_error", err: error }, "product_api_application_error");
       return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
   }
 }
 
 function handleUnexpected(response: Response, error: unknown) {
-  console.error("Product API operation failed", error);
+  log.error({ event: "product_api_operation_failed", err: error }, "product_api_operation_failed");
   return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
 }
 
@@ -91,7 +92,6 @@ productRoutes.get("/:productId", async (request, response) => {
     const result = await products.get(id);
     if (!result.success) {
       if (result.error.code === "IMAGE_NOT_FOUND") {
-        console.error("Product image reference could not be resolved", id);
         return apiError(response, 503, "SERVICE_UNAVAILABLE", "Service unavailable");
       }
       return sendOperationError(response, result.error);

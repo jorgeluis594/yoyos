@@ -1,3 +1,4 @@
+import { log } from "@core/src/shared/infrastructure/logger";
 import { isRouteErrorResponse, Link, useActionData, useLoaderData, useNavigation, useSubmit, redirect, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -40,7 +41,7 @@ export async function loader({ context, params, request }: LoaderFunctionArgs) {
     };
   } catch (cause) {
     if (cause instanceof Response) throw cause;
-    console.error("Unable to load product", cause);
+    log.error({ event: "unable_to_load_product", err: cause }, "unable_to_load_product");
     throw new Response("No se pudo cargar el producto. Inténtalo de nuevo.", { status: 503 });
   }
 }
@@ -55,7 +56,7 @@ export async function action({ request, context, params }: ActionFunctionArgs): 
     if (!result.success) return { errors: updateErrors(result.error) };
     return redirect(`/es-${company.country}/products/${result.data}?saved=1`);
   } catch (cause) {
-    console.error("Unable to update product", cause);
+    log.error({ event: "unable_to_update_product", err: cause }, "unable_to_update_product");
     return { errors: { form: "No se pudo guardar el producto. Inténtalo de nuevo." } };
   }
 }

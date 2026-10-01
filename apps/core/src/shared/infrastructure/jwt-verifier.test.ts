@@ -1,3 +1,4 @@
+import { log } from "@core/src/shared/infrastructure/logger";
 import { expect, test, vi } from "vitest";
 
 const getJwks = vi.hoisted(() => vi.fn());
@@ -6,7 +7,7 @@ vi.mock("@core/src/shared/infrastructure/persistance", () => ({ systemPrisma: { 
 import { authenticateJwt } from "@core/src/shared/infrastructure/jwt-verifier";
 
 test("public key lookup failure remains a service error", async () => {
-  const diagnostic = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const diagnostic = vi.spyOn(log, "error").mockImplementation(() => undefined);
   getJwks.mockRejectedValueOnce(new Error("key store unavailable"));
   try {
     expect(await authenticateJwt("invalid.token.value")).toMatchObject({
