@@ -3,8 +3,11 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { expect, test } from "vitest";
 import { orders } from "@core/src/features/orders/composition";
-import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
-import type { ContactId } from "@core/src/features/orders/domain/order";
+import { prisma, systemPrisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
+import { buildPendingOrder } from "@core/src/features/orders/domain/order-state-machine";
+import { savePendingOrder } from "@core/src/features/orders/infrastructure/order-repository";
+import type { CompanyId, ContactId, OrderId, OrderItemId, UserId } from "@core/src/features/orders/domain/order";
+import type { VariantId } from "@core/src/features/products/domain/product";
 
 async function fixture() {
   const companyId = randomUUID();
@@ -36,6 +39,32 @@ async function fixture() {
     });
   } };
 }
+
+test("persists a pending order without payment or stock effects", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const orderId = randomUUID();
+      const createdAt = new Date("2026-09-29T12:00:00Z");
+      const built = buildPendingOrder({ id: orderId as OrderId, companyId: f.companyId as CompanyId,
+        sellerId: f.sellerId as UserId, customer: { kind: "general_public" }, createdAt,
+        items: [{ id: randomUUID() as OrderItemId, variantId: f.variantIds[0] as VariantId, productName: "Sample product",
+          variantAttributes: { Size: "M" }, sku: `SKU-${f.variantIds[0]}`, quantity: 2,
+          unitPrice: { amount: 0.1, currency: "PEN" } }] });
+      if (!built.success) throw new Error("Expected valid pending order");
+      expect(await withinTransaction(() => savePendingOrder(built.data))).toMatchObject({ success: true });
+      const saved = await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { items: true, payments: true } });
+      expect(saved).toMatchObject({ completedAt: null, paymentMethod: null, createdAt, cancelled: false,
+        delivery: null, deliveryStatus: "pending", stockDeducted: false, payments: [] });
+      expect(saved.total.toNumber()).toBe(0.2);
+      expect(saved.itemsTotal.toNumber()).toBe(0.2);
+      expect(saved.items).toMatchObject([{ productName: "Sample product", variantAttributes: { Size: "M" } }]);
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
+      expect(await withinTransaction(() => savePendingOrder(built.data))).toMatchObject({ success: false, error: { code: "ORDER_ALREADY_EXISTS" } });
+      expect(await prisma.payment.count()).toBe(0);
+    });
+  } finally { await f.cleanup(); }
+});
 
 test("persists completed sale, historical snapshots, listing and duplicate rejection", async () => {
   const f = await fixture();

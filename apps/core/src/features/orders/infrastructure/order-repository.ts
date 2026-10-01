@@ -4,6 +4,8 @@ import { isCurrency } from "@shared/money";
 import { prisma } from "@core/src/shared/infrastructure/persistance";
 import type { Order, OrderItemId, OrderId, ContactId, CompanyId, UserId, PositiveInteger, PaymentId } from "@core/src/features/orders/domain/order";
 import type { CreateOrderError } from "@core/src/features/orders/application/create-order";
+import type { CreatePendingOrderError } from "@core/src/features/orders/application/create-pending-order";
+import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { OrderCriteria } from "@core/src/features/orders/application/read-orders";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
@@ -51,6 +53,32 @@ export async function saveOrder(order: Order, paymentId: PaymentId) {
     if (cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2002") return err<CreateOrderError>({ code: "ORDER_ALREADY_EXISTS", message: "Order already exists" });
     console.error("Unable to save order", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
     return err<CreateOrderError>({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to save order" });
+  }
+}
+
+export async function savePendingOrder(order: OrderAggregate) {
+  try {
+    await prisma.order.create({ data: { id: order.id, companyId: order.companyId, sellerId: order.sellerId,
+      contactId: order.customer.kind === "contact" ? order.customer.contactId : null,
+      contactName: order.customer.kind === "contact" ? order.customer.name : null,
+      contactPhone: order.customer.kind === "contact" ? order.customer.phone : null,
+      currency: order.total.currency, total: new Prisma.Decimal(order.total.amount.toString()),
+      itemsTotal: new Prisma.Decimal(order.itemsTotal.amount.toString()),
+      deliveryCost: new Prisma.Decimal(order.deliveryCost.amount.toString()),
+      deliveryCharge: new Prisma.Decimal(order.deliveryCharge.amount.toString()),
+      delivery: Prisma.JsonNull,
+      deliveryStatus: order.deliveryStatus, stockDeducted: order.stockDeducted, cancelled: order.cancelled,
+      createdAt: order.createdAt, completedAt: order.completedAt, paymentMethod: null,
+      items: { create: order.items.map((item) => ({ id: item.id, variantId: item.variantId, productName: item.productName,
+        variantAttributes: item.variantAttributes as Prisma.InputJsonObject, sku: item.sku, quantity: BigInt(item.quantity),
+        unitPrice: new Prisma.Decimal(item.unitPrice.amount.toString()), subtotal: new Prisma.Decimal(item.subtotal.amount.toString()) })) },
+    } });
+    return ok<null>(null);
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    if (cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2002") return err<CreatePendingOrderError>({ code: "ORDER_ALREADY_EXISTS", message: "Order already exists" });
+    console.error("Unable to save pending order", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    return err<CreatePendingOrderError>({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to save pending order" });
   }
 }
 
