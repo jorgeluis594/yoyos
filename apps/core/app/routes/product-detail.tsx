@@ -121,7 +121,7 @@ export function ErrorBoundary({ error }: { error: unknown }) {
       description={missing ? t("products.missingDescription") : t("common.retry")}
       action={
         <Button asChild variant="outline">
-          <a href={missing ? localizedPath(location.pathname, "/dashboard") : ""}>{missing ? "Volver al inicio" : "Reintentar"}</a>
+          <a href={missing ? localizedPath(location.pathname, "/dashboard") : ""}>{missing ? t("products.backHome") : t("products.retry")}</a>
         </Button>
       }
     />

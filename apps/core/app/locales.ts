@@ -1,7 +1,7 @@
 import type { Resource } from "i18next";
 
 const es = {
-  common: { email: "Correo electrónico", password: "Contraseña", name: "Nombre", login: "Iniciar sesión", forgotPassword: "Recuperar contraseña", sending: "Enviando…", retry: "Inténtalo de nuevo." },
+  common: { email: "Correo electrónico", password: "Contraseña", name: "Nombre", login: "Iniciar sesión", forgotPassword: "Recuperar contraseña", sending: "Enviando…", retry: "Inténtalo de nuevo.", loading: "Cargando {{caption}}…", noResults: "Sin resultados." },
   auth: {
     createAccount: "Crear cuenta", createCompany: "Crear empresa", companyTitle: "Crea tu empresa",
     companyDescription: "Tu correo está verificado. Completa tu espacio de trabajo.", registerDescription: "Te enviaremos un enlace para verificar tu correo.", loginDescription: "Accede a tu espacio de trabajo.",
@@ -31,7 +31,7 @@ const es = {
 } as const;
 
 const pt: { [K in keyof typeof es]: Record<keyof typeof es[K], string> } = {
-  common: { email: "E-mail", password: "Senha", name: "Nome", login: "Entrar", forgotPassword: "Recuperar senha", sending: "Enviando…", retry: "Tente novamente." },
+  common: { email: "E-mail", password: "Senha", name: "Nome", login: "Entrar", forgotPassword: "Recuperar senha", sending: "Enviando…", retry: "Tente novamente.", loading: "Carregando {{caption}}…", noResults: "Nenhum resultado." },
   auth: {
     createAccount: "Criar conta", createCompany: "Criar empresa", companyTitle: "Crie sua empresa",
     companyDescription: "Seu e-mail foi verificado. Configure seu espaço de trabalho.", registerDescription: "Enviaremos um link para verificar seu e-mail.", loginDescription: "Acesse seu espaço de trabalho.",

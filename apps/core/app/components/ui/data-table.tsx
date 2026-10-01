@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useTranslation } from "react-i18next";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import {
@@ -54,6 +55,7 @@ function TableLayout<T>({
   className,
   isLoading = false,
 }: TableLayoutProps<T> & { children: React.ReactNode; isLoading?: boolean }) {
+  const { t } = useTranslation();
   const hasMobileLayout = columns.some((column) => column.mobile);
 
   if (process.env.NODE_ENV !== "production" && hasMobileLayout) {
@@ -77,7 +79,7 @@ function TableLayout<T>({
       >
         {isLoading && (
           <span role="status" className="sr-only">
-            Cargando {caption}…
+            {t("common.loading", { caption })}
           </span>
         )}
         <Table role="table" aria-busy={isLoading}>
@@ -148,9 +150,10 @@ function TableContent<T>({
   caption,
   getRowId,
   className,
-  emptyMessage = "Sin resultados.",
+  emptyMessage,
   getRowClassName,
 }: TableContentProps<T>) {
+  const { t } = useTranslation();
   return (
     <TableLayout columns={columns} caption={caption} className={className}>
       {data.length ? (
@@ -186,7 +189,7 @@ function TableContent<T>({
             colSpan={columns.length}
             className="h-32 text-center text-muted-foreground"
           >
-            {emptyMessage}
+            {emptyMessage ?? t("common.noResults")}
           </TableCell>
         </TableRow>
       )}
