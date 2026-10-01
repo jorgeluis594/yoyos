@@ -13,6 +13,7 @@ async function hydrate() {
     fallbackLng: "es",
     supportedLngs: Object.keys(resources),
     resources,
+    interpolation: { escapeValue: false },
   });
 
   startTransition(() => {

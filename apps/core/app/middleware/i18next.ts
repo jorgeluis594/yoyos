@@ -12,6 +12,6 @@ export const [i18nextMiddleware, getLocale, getInstance] = createI18nextMiddlewa
       return languageForLocale(locale);
     },
   },
-  i18next: { resources },
+  i18next: { resources, interpolation: { escapeValue: false } },
   plugins: [initReactI18next],
 });
