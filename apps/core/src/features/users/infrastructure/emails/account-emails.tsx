@@ -1,5 +1,3 @@
-import { languageFromPath } from "@core/app/locale";
-import { translate } from "@core/app/translations";
 import { render, toPlainText } from "@react-email/render";
 import { err, ok } from "@shared/functional";
 import type { EmailError, SendEmail } from "@core/src/shared/emails/application/send-email";
@@ -8,11 +6,8 @@ import { PasswordResetEmail } from "@core/src/features/users/infrastructure/emai
 import { VerificationEmail } from "@core/src/features/users/infrastructure/emails/verification-email";
 
 function createMessage(to: string, url: string, subject: string, idempotencyKey: string, template: "verification" | "reset") {
-  const link = new URL(url);
-  const callback = new URL(link.searchParams.get("callbackURL") ?? "/", link.origin);
-  const language = languageFromPath(callback.pathname);
-  return render(template === "verification" ? <VerificationEmail url={url} language={language} /> : <PasswordResetEmail url={url} language={language} />)
-    .then((html) => ({ to, subject: translate(language, subject), html, text: toPlainText(html), idempotencyKey }));
+  return render(template === "verification" ? <VerificationEmail url={url} /> : <PasswordResetEmail url={url} />)
+    .then((html) => ({ to, subject, html, text: toPlainText(html), idempotencyKey }));
 }
 
 export function createAccountEmails(sendEmail: SendEmail): Readonly<{
