@@ -1,7 +1,7 @@
 import type { Resource } from "i18next";
 
 const es = {
-  common: { email: "Correo electrónico", password: "Contraseña", name: "Nombre", login: "Iniciar sesión", forgotPassword: "Recuperar contraseña", sending: "Enviando…" },
+  common: { email: "Correo electrónico", password: "Contraseña", name: "Nombre", login: "Iniciar sesión", forgotPassword: "Recuperar contraseña", sending: "Enviando…", retry: "Inténtalo de nuevo." },
   auth: {
     createAccount: "Crear cuenta", createCompany: "Crear empresa", companyTitle: "Crea tu empresa",
     companyDescription: "Tu correo está verificado. Completa tu espacio de trabajo.", registerDescription: "Te enviaremos un enlace para verificar tu correo.", loginDescription: "Accede a tu espacio de trabajo.",
@@ -18,10 +18,14 @@ const es = {
     skipContent: "Saltar al contenido", mainMenu: "Menú principal", closeMenu: "Cerrar menú", openMenu: "Abrir menú", breadcrumb: "Ruta de navegación",
     greeting: "Hola, {{name}}", ready: "Tu espacio de trabajo está listo.",
   },
+  products: {
+    title: "Productos", new: "Nuevo producto", newDescription: "Completa los datos para agregarlo a tu empresa.", name: "Nombre", multipleVariants: "Varias variantes", noSku: "Sin SKU", salePrice: "Precio de venta", purchasePrice: "Precio de compra", from: "Desde ", stock: "Stock", searchLabel: "Buscar por nombre o SKU", search: "Buscar", caption: "Productos del catálogo", emptySearch: "No se encontraron productos para esta búsqueda.", empty: "Aún no hay productos en el catálogo. ", createFirst: "Crea el primero", pages: "Páginas de productos", page: "Página {{page}}", invalidSearch: "Búsqueda no válida", loadError: "No se pudo cargar el catálogo", invalidSearchDescription: "Revisa los criterios e inténtalo de nuevo.", retry: "Reintentar", backCatalog: "Volver al catálogo", backProducts: "Volver a productos", saved: "Producto guardado correctamente.", saveChanges: "Guardar cambios", variants: "Variantes", variant: "Variante {{number}}", noPrice: "Sin precio", missing: "Producto no encontrado", loadProductError: "No se pudo cargar el producto", missingDescription: "No hay un producto disponible en esta dirección.", backHome: "Volver al inicio",
+    readonlyVariants: "Puedes editar los datos generales y la foto. Las variantes son de solo lectura.", data: "Datos del producto", description: "Descripción", priceVariant: "Precio y variante", initialStock: "Stock inicial", photo: "Foto", removePhoto: "Quitar foto", uploading: "Subiendo imagen…", preview: "Vista previa de la foto del producto", saving: "Guardando…", save: "Guardar producto", cancel: "Cancelar", imageTooLarge: "La imagen supera el tamaño máximo de 10 MB.", invalidImage: "El archivo debe ser una imagen JPG, PNG o WebP.", uploadError: "No se pudo subir la imagen. Inténtalo de nuevo.",
+  },
 } as const;
 
 const pt: { [K in keyof typeof es]: Record<keyof typeof es[K], string> } = {
-  common: { email: "E-mail", password: "Senha", name: "Nome", login: "Entrar", forgotPassword: "Recuperar senha", sending: "Enviando…" },
+  common: { email: "E-mail", password: "Senha", name: "Nome", login: "Entrar", forgotPassword: "Recuperar senha", sending: "Enviando…", retry: "Tente novamente." },
   auth: {
     createAccount: "Criar conta", createCompany: "Criar empresa", companyTitle: "Crie sua empresa",
     companyDescription: "Seu e-mail foi verificado. Configure seu espaço de trabalho.", registerDescription: "Enviaremos um link para verificar seu e-mail.", loginDescription: "Acesse seu espaço de trabalho.",
@@ -37,6 +41,10 @@ const pt: { [K in keyof typeof es]: Record<keyof typeof es[K], string> } = {
     toggleTheme: "Alternar tema", lightMode: "Modo claro", darkMode: "Modo escuro", signingOut: "Saindo…", signOut: "Sair", signOutError: "Não foi possível sair. Tente novamente.",
     skipContent: "Ir para o conteúdo", mainMenu: "Menu principal", closeMenu: "Fechar menu", openMenu: "Abrir menu", breadcrumb: "Caminho de navegação",
     greeting: "Olá, {{name}}", ready: "Seu espaço de trabalho está pronto.",
+  },
+  products: {
+    title: "Produtos", new: "Novo produto", newDescription: "Preencha os dados para adicioná-lo à sua empresa.", name: "Nome", multipleVariants: "Várias variantes", noSku: "Sem SKU", salePrice: "Preço de venda", purchasePrice: "Preço de compra", from: "A partir de ", stock: "Estoque", searchLabel: "Buscar por nome ou SKU", search: "Buscar", caption: "Produtos do catálogo", emptySearch: "Nenhum produto encontrado para esta busca.", empty: "Ainda não há produtos no catálogo. ", createFirst: "Crie o primeiro", pages: "Páginas de produtos", page: "Página {{page}}", invalidSearch: "Busca inválida", loadError: "Não foi possível carregar o catálogo", invalidSearchDescription: "Confira os critérios e tente novamente.", retry: "Tentar novamente", backCatalog: "Voltar ao catálogo", backProducts: "Voltar aos produtos", saved: "Produto salvo com sucesso.", saveChanges: "Salvar alterações", variants: "Variantes", variant: "Variante {{number}}", noPrice: "Sem preço", missing: "Produto não encontrado", loadProductError: "Não foi possível carregar o produto", missingDescription: "Não há um produto disponível neste endereço.", backHome: "Voltar ao início",
+    readonlyVariants: "Você pode editar os dados gerais e a foto. As variantes são somente leitura.", data: "Dados do produto", description: "Descrição", priceVariant: "Preço e variante", initialStock: "Estoque inicial", photo: "Foto", removePhoto: "Remover foto", uploading: "Enviando imagem…", preview: "Prévia da foto do produto", saving: "Salvando…", save: "Salvar produto", cancel: "Cancelar", imageTooLarge: "A imagem excede o tamanho máximo de 10 MB.", invalidImage: "O arquivo deve ser uma imagem JPG, PNG ou WebP.", uploadError: "Não foi possível enviar a imagem. Tente novamente.",
   },
 };
 

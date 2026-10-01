@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import type { ActionFunctionArgs } from "react-router";
 import { action } from "@core/app/routes/product-new";
 import { products } from "@core/src/features/products/composition";
+import type { ProductId } from "@core/src/features/products/domain/product";
 
 const context = { get: () => ({ company: { id: "00000000-0000-4000-8000-000000000001", country: "PE" } }) } as unknown as ActionFunctionArgs["context"];
 const valid = { name: "Cuaderno", currency: "PEN", variants: [{ attributes: {}, salePrice: 12.5 }] };
@@ -22,4 +23,12 @@ test("reports technical save failures safely and preserves the form route", asyn
   const request = new Request("http://localhost/es-PE/products/new", { method: "POST", body: JSON.stringify(valid) });
   expect(await action({ request, context } as ActionFunctionArgs)).toEqual({ errors: { form: "No se pudo guardar el producto. Inténtalo de nuevo." } });
   expect(products.create).toHaveBeenCalledOnce();
+});
+
+test("keeps Portuguese in the product redirect", async () => {
+  vi.spyOn(products, "create").mockResolvedValue({ success: true, data: "00000000-0000-4000-8000-000000000002" as ProductId });
+  const request = new Request("http://localhost/pt-BR/products/new", { method: "POST", body: JSON.stringify(valid) });
+  const response = await action({ request, context } as ActionFunctionArgs);
+  expect(response).toBeInstanceOf(Response);
+  expect((response as Response).headers.get("Location")).toBe("/pt-BR/products/00000000-0000-4000-8000-000000000002");
 });

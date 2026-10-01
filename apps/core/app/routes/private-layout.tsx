@@ -9,7 +9,7 @@ import { bindCompanyToRequest } from "@core/src/shared/infrastructure/logger";
 import { resolveCurrentAccess } from "@core/src/shared/infrastructure/current-user";
 import { requireCompany } from "@core/src/features/users";
 import { authClient } from "@core/src/shared/infrastructure/auth-client";
-import { isLocale, localizedPath } from "@core/app/locale";
+import { companyPath, isLocale, localizedPath } from "@core/app/locale";
 
 export const middleware: MiddlewareFunction<Response>[] = [async ({ request, context }, next) => {
   const path = new URL(request.url).pathname;
@@ -26,7 +26,7 @@ export const middleware: MiddlewareFunction<Response>[] = [async ({ request, con
   bindCompanyToRequest(access.company.id);
   return withTenantIsolation(access.company.id, async () => {
     const requestedPath = isLocale(segment) ? path.slice(segment.length + 1) : path;
-    const correctPath = `/${segment === "pt-BR" ? segment : `es-${access.company.country}`}${requestedPath}`;
+    const correctPath = companyPath(path, access.company.country, requestedPath);
     if (path !== correctPath) throw redirect(`${correctPath}${new URL(request.url).search}`);
     context.set(privateUserContext, access);
     return next();

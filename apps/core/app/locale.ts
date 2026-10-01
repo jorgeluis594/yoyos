@@ -12,3 +12,7 @@ export function localizedPath(pathname: string, target: string): string {
   const segment = pathname.split("/")[1];
   return `${isLocale(segment) ? `/${segment}` : ""}${target}`;
 }
+
+export function companyPath(pathname: string, country: string, target: string): string {
+  return `/${pathname.split("/")[1] === "pt-BR" ? "pt-BR" : `es-${country}`}${target}`;
+}

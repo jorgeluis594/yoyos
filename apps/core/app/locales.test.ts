@@ -1,7 +1,7 @@
 import { createInstance } from "i18next";
 import { expect, test } from "vitest";
 import resources from "@core/app/locales";
-import { localizedPath } from "@core/app/locale";
+import { companyPath, localizedPath } from "@core/app/locale";
 
 test("authentication translations exist in both languages and preserve localized links", async () => {
   expect(Object.keys(resources.pt.translation.auth).sort()).toEqual(Object.keys(resources.es.translation.auth).sort());
@@ -14,4 +14,6 @@ test("authentication translations exist in both languages and preserve localized
   expect(localizedPath("/pt-BR/forgot-password", "/reset-password")).toBe("/pt-BR/reset-password");
   expect(localizedPath("/es-PE/login", "/dashboard")).toBe("/es-PE/dashboard");
   expect(localizedPath("/login", "/dashboard")).toBe("/dashboard");
+  expect(companyPath("/pt-BR/products", "PE", "/products/1")).toBe("/pt-BR/products/1");
+  expect(companyPath("/products", "PE", "/products/1")).toBe("/es-PE/products/1");
 });
