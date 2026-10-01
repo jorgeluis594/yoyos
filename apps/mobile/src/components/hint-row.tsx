@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { View, StyleSheet } from 'react-native';
+import { useTranslation } from 'react-i18next';
 
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
@@ -11,10 +12,11 @@ type HintRowProps = {
   hint?: ReactNode;
 };
 
-export function HintRow({ title = 'Try editing', hint = 'app/index.tsx' }: HintRowProps) {
+export function HintRow({ title, hint = 'app/index.tsx' }: HintRowProps) {
+  const { t } = useTranslation();
   return (
     <View style={styles.stepRow}>
-      <ThemedText type="small">{title}</ThemedText>
+      <ThemedText type="small">{title ?? t('tryEditing')}</ThemedText>
       <ThemedView type="backgroundSelected" style={styles.codeSnippet}>
         <ThemedText themeColor="textSecondary">{hint}</ThemedText>
       </ThemedView>

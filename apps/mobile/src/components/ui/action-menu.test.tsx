@@ -1,3 +1,4 @@
+import '@mobile/i18n';
 import { fireEvent, render } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 

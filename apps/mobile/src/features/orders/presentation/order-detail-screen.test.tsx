@@ -1,5 +1,6 @@
 import { render } from "@testing-library/react-native";
 import OrderDetailScreen from "@mobile/features/orders/presentation/order-detail-screen";
+import i18n from "@mobile/i18n";
 
 const mockId = "00000000-0000-4000-8000-000000000003";
 let mockNotice: { id: string; shownTotal: { amount: number; currency: string } } | null = null;
@@ -33,4 +34,18 @@ test("immediate result shows the amount difference; history detail shows only th
   const history = render(<OrderDetailScreen />);
   await history.findByText("Venta completada");
   expect(history.queryByText("Revisa el importe cobrado")).toBeNull();
+});
+
+test('order detail translates amounts and labels to Portuguese', async () => {
+  await i18n.changeLanguage('pt-BR');
+  mockNotice = { id: mockId, shownTotal: { amount: 10, currency: 'PEN' } };
+  try {
+    const detail = render(<OrderDetailScreen />);
+    await detail.findByText('Confira o valor cobrado');
+    expect(detail.getByText(/Diferença:/)).toBeTruthy();
+    expect(detail.getByText('Público geral')).toBeTruthy();
+    detail.unmount();
+  } finally {
+    await i18n.changeLanguage('es');
+  }
 });

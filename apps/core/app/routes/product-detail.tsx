@@ -1,5 +1,9 @@
+import { useTranslation } from "react-i18next";
+import { companyPath, languageForLocale, localizedPath } from "@core/app/locale";
+import resources from "@core/app/locales";
+import { formatCurrency } from "@core/app/format-currency";
 import { log } from "@core/src/shared/infrastructure/logger";
-import { isRouteErrorResponse, Link, useActionData, useLoaderData, useNavigation, useSubmit, redirect, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
+import { isRouteErrorResponse, Link, useActionData, useLoaderData, useNavigation, useSubmit, useLocation, redirect, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ErrorState } from "@/components/ui/error-state";
@@ -25,7 +29,7 @@ export async function loader({ context, params, request }: LoaderFunctionArgs) {
     const variant = product.variants.length === 1 ? product.variants[0] : undefined;
     return {
       product,
-      catalog: `/es-${company.country}/products`,
+      catalog: companyPath(new URL(request.url).pathname, company.country, "/products"),
       imageUrl: result.data.image?.url,
       variantId: variant?.id,
       saved: new URL(request.url).searchParams.get("saved") === "1",
@@ -47,21 +51,23 @@ export async function loader({ context, params, request }: LoaderFunctionArgs) {
 }
 
 export async function action({ request, context, params }: ActionFunctionArgs): Promise<Response | { errors: FormErrors }> {
+  const language = languageForLocale(new URL(request.url).pathname.split("/")[1]);
   if (!params.productId || !uuid.test(params.productId)) throw new Response("Not found", { status: 404 });
   const parsed = parseUpdateJson(await request.text());
-  if (!parsed.success) return { errors: updateErrors(parsed.error) };
+  if (!parsed.success) return { errors: updateErrors(parsed.error, language) };
   const company = context.get(privateUserContext).company;
   try {
     const result = await products.update(params.productId as ProductId, parsed.data);
-    if (!result.success) return { errors: updateErrors(result.error) };
-    return redirect(`/es-${company.country}/products/${result.data}?saved=1`);
+    if (!result.success) return { errors: updateErrors(result.error, language) };
+    return redirect(`${companyPath(new URL(request.url).pathname, company.country, `/products/${result.data}`)}?saved=1`);
   } catch (cause) {
     log.error({ event: "unable_to_update_product", err: cause }, "unable_to_update_product");
-    return { errors: { form: "No se pudo guardar el producto. Inténtalo de nuevo." } };
+    return { errors: { form: resources[language].translation.productErrors.saveError } };
   }
 }
 
 export default function ProductDetail() {
+  const { t, i18n } = useTranslation();
   const { product, catalog, values, stock, variantId, imageUrl, saved } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const submit = useSubmit();
@@ -88,19 +94,19 @@ export default function ProductDetail() {
       <PageHeader.Heading>
         <PageHeader.Title>{product.name}</PageHeader.Title>
       </PageHeader.Heading>
-      <PageHeader.Actions><Button asChild variant="outline"><Link to={catalog}>Volver a productos</Link></Button></PageHeader.Actions>
+      <PageHeader.Actions><Button asChild variant="outline"><Link to={catalog}>{t("products.backProducts")}</Link></Button></PageHeader.Actions>
     </PageHeader>
-    {saved && <p role="status" className="mt-5 text-sm">Producto guardado correctamente.</p>}
-    <ProductForm currency={product.currency} cancelTo={catalog} errors={errors} pending={pending} values={values} variantFields={variantId ? "editable" : "hidden"} stock={stock} submitLabel="Guardar cambios" imageUrl={imageUrl} onSave={save} variants={variantId ? undefined : <section aria-labelledby="variants-heading">
-      <h2 id="variants-heading" className="text-base font-semibold">Variantes</h2>
+    {saved && <p role="status" className="mt-5 text-sm">{t("products.saved")}</p>}
+    <ProductForm currency={product.currency} cancelTo={catalog} errors={errors} pending={pending} values={values} variantFields={variantId ? "editable" : "hidden"} stock={stock} submitLabel={t("products.saveChanges")} imageUrl={imageUrl} onSave={save} variants={variantId ? undefined : <section aria-labelledby="variants-heading">
+      <h2 id="variants-heading" className="text-base font-semibold">{t("products.variants")}</h2>
       <div className="mt-3 grid gap-3">{product.variants.map((variant, index) => <Card key={variant.id} role="article" className="p-4">
-        <h3 className="font-medium">Variante {index + 1}</h3>
+        <h3 className="font-medium">{t("products.variant", { number: index + 1 })}</h3>
         <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
           {Object.entries(variant.attributes).map(([name, value]) => <div key={name}><dt className="text-muted-foreground">{name}</dt><dd>{value}</dd></div>)}
-          <div><dt className="text-muted-foreground">SKU</dt><dd>{variant.sku ?? "Sin SKU"}</dd></div>
-          <div><dt className="text-muted-foreground">Precio de venta</dt><dd>{variant.salePrice.amount.toFixed(2)} {variant.salePrice.currency}</dd></div>
-          <div><dt className="text-muted-foreground">Precio de compra</dt><dd>{variant.purchasePrice ? `${variant.purchasePrice.amount.toFixed(2)} ${variant.purchasePrice.currency}` : "Sin precio"}</dd></div>
-          <div><dt className="text-muted-foreground">Stock</dt><dd>{variant.stock.quantity}</dd></div>
+          <div><dt className="text-muted-foreground">SKU</dt><dd>{variant.sku ?? t("products.noSku")}</dd></div>
+          <div><dt className="text-muted-foreground">{t("products.salePrice")}</dt><dd>{formatCurrency(variant.salePrice.amount, variant.salePrice.currency, i18n.language)}</dd></div>
+          <div><dt className="text-muted-foreground">{t("products.purchasePrice")}</dt><dd>{variant.purchasePrice ? formatCurrency(variant.purchasePrice.amount, variant.purchasePrice.currency, i18n.language) : t("products.noPrice")}</dd></div>
+          <div><dt className="text-muted-foreground">{t("products.stock")}</dt><dd>{variant.stock.quantity}</dd></div>
         </dl>
       </Card>)}</div>
     </section>} />
@@ -108,14 +114,16 @@ export default function ProductDetail() {
 }
 
 export function ErrorBoundary({ error }: { error: unknown }) {
+  const { t } = useTranslation();
+  const location = useLocation();
   const missing = isRouteErrorResponse(error) && error.status === 404;
   return (
     <ErrorState
-      title={missing ? "Producto no encontrado" : "No se pudo cargar el producto"}
-      description={missing ? "No hay un producto disponible en esta dirección." : "Inténtalo de nuevo."}
+      title={missing ? t("products.missing") : t("products.loadProductError")}
+      description={missing ? t("products.missingDescription") : t("common.retry")}
       action={
         <Button asChild variant="outline">
-          <a href={missing ? "/dashboard" : ""}>{missing ? "Volver al inicio" : "Reintentar"}</a>
+          <a href={missing ? localizedPath(location.pathname, "/dashboard") : ""}>{missing ? t("products.backHome") : t("products.retry")}</a>
         </Button>
       }
     />

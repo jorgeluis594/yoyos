@@ -7,6 +7,7 @@ import type { PrintingDependencies } from "@mobile/features/printing/application
 import { productLabelFormat, type AdapterId, type CopyCount, type PrinterId, type PrinterLocator, type PrinterSelection, type RenderProfile } from "@mobile/features/printing/domain/printing";
 import { PrintProvider, usePrint, type PrintWork } from "@mobile/features/printing/presentation/print-provider";
 import { Colors } from "@mobile/constants/theme";
+import i18n from '@mobile/i18n';
 
 const mockDiscover = jest.fn();
 const mockSelect = jest.fn();
@@ -49,6 +50,23 @@ test("print failure notice uses the active card color", async () => {
   mockScheme = "dark";
   view.rerender(<PrintProvider><Controls /></PrintProvider>);
   expect(screen.getByTestId("print-notice").props.style[0].backgroundColor).toBe(Colors.dark.backgroundElement);
+});
+
+test('print notice translates its actions to Portuguese', async () => {
+  await i18n.changeLanguage('pt-BR');
+  function Controls() {
+    const print = usePrint();
+    return <Button onPress={() => print.startAttempt(async () => ({ status: 'failed', message: 'Falha', outcome: 'unknown' }))}>Print</Button>;
+  }
+  try {
+    const view = render(<PrintProvider><Controls /></PrintProvider>);
+    fireEvent.press(screen.getByText('Print'));
+    await screen.findByText('A impressão não foi concluída');
+    expect(screen.getByRole('button', { name: 'Escolher impressora' })).toBeTruthy();
+    view.unmount();
+  } finally {
+    await i18n.changeLanguage('es');
+  }
 });
 
 test("cleans old documents once at app startup, not on a session change", async () => {

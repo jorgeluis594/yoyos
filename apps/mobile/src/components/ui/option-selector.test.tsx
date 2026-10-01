@@ -1,3 +1,4 @@
+import i18n from '@mobile/i18n';
 import { fireEvent, render } from '@testing-library/react-native';
 import { View } from 'react-native';
 
@@ -54,4 +55,15 @@ test('field label and error are connected to the selector', async () => {
   expect(group.props.accessibilityLabel).toBe('Plan');
   expect(group.props.accessibilityHint).toBe('Elige un plan');
   expect(screen.getByText('Elige un plan')).toBeTruthy();
+});
+
+test('default picker prompt follows the selected language', async () => {
+  await i18n.changeLanguage('pt-BR');
+  try {
+    const selector = render(<OptionSelector options={options} value={null} onValueChange={() => {}} />);
+    expect(selector.getByText('Selecione uma opção')).toBeTruthy();
+    selector.unmount();
+  } finally {
+    await i18n.changeLanguage('es');
+  }
 });

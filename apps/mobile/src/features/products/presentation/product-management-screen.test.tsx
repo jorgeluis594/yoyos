@@ -6,6 +6,7 @@ import { createProductOperations } from "@mobile/features/products/application/p
 import { createProductPrintingOperations, type ProductPrintingDependencies } from "@mobile/features/products/application/product-printing";
 import type { ProductLabel } from "@mobile/features/products/domain/product-label";
 import ProductManagementScreen from "@mobile/features/products/presentation/product-management-screen";
+import i18n from '@mobile/i18n';
 import type { AdapterId, PrinterId } from "@mobile/features/printing/domain/printing";
 import type { PrintWork } from "@mobile/features/printing/presentation/print-provider";
 
@@ -100,4 +101,17 @@ test("an explicit variant prints saved data and copies while saving the draft do
     expect(request.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1);
     expect(request.mock.calls.map(([path]) => path)).toEqual(Array(3).fill(`/api/products/${productId}`));
   } finally { alert.mockRestore(); }
+});
+
+test('product management uses Portuguese labels', async () => {
+  await i18n.changeLanguage('pt-BR');
+  mockLoadProduct.mockResolvedValue(ok(product));
+  try {
+    const form = render(<ProductManagementScreen />);
+    await screen.findByText('Gerenciar produto');
+    expect(screen.getByRole('button', { name: 'Imprimir etiqueta' })).toBeTruthy();
+    form.unmount();
+  } finally {
+    await i18n.changeLanguage('es');
+  }
 });

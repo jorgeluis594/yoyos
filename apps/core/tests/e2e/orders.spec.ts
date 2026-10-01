@@ -1,3 +1,4 @@
+import { formatCurrency } from "@core/app/format-currency";
 import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -28,7 +29,7 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     await page.getByRole("button", { name: "Buscar", exact: true }).first().click();
     await browserExpect(page.getByText("Cuaderno POS")).toBeVisible();
     await page.getByRole("button", { name: "Agregar Cuaderno POS" }).click();
-    await browserExpect(page.locator("#resumen strong")).toHaveText("0.29 PEN");
+    await browserExpect(page.locator("#resumen strong")).toHaveText(formatCurrency(0.29, "PEN", "es"));
     await page.setViewportSize({ width: 390, height: 844 });
     await browserExpect(page.getByRole("link", { name: "Revisar venta" })).toBeHidden();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -41,12 +42,12 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     expect(await withTenantIsolation(tenantId, async () => await prisma.order.count())).toBe(0);
     await page.getByRole("button", { name: "Agregar Cuaderno POS" }).click();
     await page.getByRole("button", { name: "Agregar Cuaderno POS" }).click();
-    await browserExpect(page.locator("#resumen strong")).toHaveText("0.58 PEN");
+    await browserExpect(page.locator("#resumen strong")).toHaveText(formatCurrency(0.58, "PEN", "es"));
     await page.getByRole("button", { name: "Confirmar cobro y completar venta" }).click();
     await browserExpect(page).toHaveURL(/\/es-PE\/orders\/[0-9a-f-]+$/);
     await browserExpect(page.getByRole("heading", { name: "Venta completada" })).toBeVisible();
     await browserExpect(page.getByText("Público general")).toBeVisible();
-    await browserExpect(page.getByText("Total: 0.58 PEN")).toBeVisible();
+    await browserExpect(page.getByText(`Total: ${formatCurrency(0.58, "PEN", "es")}`)).toBeVisible();
     await page.getByRole("link", { name: "Ver ventas" }).click();
     await browserExpect(page.getByRole("heading", { name: /Ventas/ }).locator('[data-slot="page-header-count"]')).toHaveText("1");
     const stock = await withTenantIsolation(tenantId, async () => await prisma.productStock.findFirstOrThrow());
@@ -65,12 +66,12 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     expect(await withTenantIsolation(tenantId, async () => await prisma.order.count())).toBe(1);
     await page.getByLabel("Cantidad").fill("1");
     await withTenantIsolation(tenantId, async () => await prisma.productVariant.update({ where: { id: stock.variantId }, data: { salePrice: 0.3 } }));
-    await browserExpect(page.locator("#resumen strong")).toHaveText("0.29 PEN");
+    await browserExpect(page.locator("#resumen strong")).toHaveText(formatCurrency(0.29, "PEN", "es"));
     await page.getByRole("button", { name: "Confirmar cobro y completar venta" }).click();
     await browserExpect(page).toHaveURL(/\/es-PE\/orders\/[0-9a-f-]+$/);
     await browserExpect(page.getByText("Teléfono al vender")).toBeVisible();
     await browserExpect(page.getByText("+51912345678", { exact: true }).first()).toBeVisible();
-    await browserExpect(page.getByText("Total: 0.30 PEN")).toBeVisible();
+    await browserExpect(page.getByText(`Total: ${formatCurrency(0.30, "PEN", "es")}`)).toBeVisible();
     const completedUrl = page.url();
     await page.getByRole("link", { name: "Ver ventas" }).click();
     await page.getByRole("button", { name: "Filtros" }).click();

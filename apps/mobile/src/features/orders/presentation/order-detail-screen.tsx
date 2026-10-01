@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useTranslation } from "react-i18next";
 import { subtract } from "@shared/money";
 import type { OrderResponse } from "@shared/contracts/orders";
 import { orders } from "@mobile/features/orders/composition";
@@ -12,13 +13,16 @@ import { ScreenState } from "@mobile/components/ui/screen-state";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
 import { useTheme } from "@mobile/hooks/use-theme";
+import translations from "@mobile/i18n";
 
-const money = (amount: number, currency: string) => new Intl.NumberFormat("es-PE", { style: "currency", currency }).format(amount);
-const date = (value: string) => new Intl.DateTimeFormat("es-PE", { dateStyle: "long", timeStyle: "short", timeZone: "America/Lima" }).format(new Date(value));
+const money = (amount: number, currency: string, locale: string) => new Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
+const date = (value: string, locale: string) => new Intl.DateTimeFormat(locale, { dateStyle: "long", timeStyle: "short", timeZone: "America/Lima" }).format(new Date(value));
 
 export default function OrderDetailScreen() {
   const router = useRouter();
   const theme = useTheme();
+  const { t, i18n } = useTranslation();
+  const locale = i18n.language === 'pt-BR' ? 'pt-BR' : 'es-PE';
   const { id } = useLocalSearchParams<{ id: string }>();
   const { state } = useAccess();
   const { notice, clear } = useOrderResult();
@@ -31,7 +35,7 @@ export default function OrderDetailScreen() {
     setLoading(true);
     const result = await orders.loadOrder(id);
     if (result.success) { setOrder(result.data); setError(""); loaded.current = true; }
-    else setError(result.error.code === "ORDER_NOT_FOUND" ? "Esta venta no existe o no está disponible para tu empresa." : "No se pudo cargar la venta.");
+    else setError(result.error.code === "ORDER_NOT_FOUND" ? translations.t('orderNotFound') : translations.t('loadOrderError'));
     setLoading(false);
   }, [id]);
   useFocusEffect(useCallback(() => {
@@ -42,8 +46,8 @@ export default function OrderDetailScreen() {
   }, [companyId, id, notice, clear, reload]));
 
   if (state.status !== "ready") return null;
-  if (loading) return <ScreenState status="loading" title="Cargando venta" />;
-  if (!order) return <ScreenState status="error" title="No se pudo abrir la venta" description={error} onRetry={() => void reload()} />;
+  if (loading) return <ScreenState status="loading" title={t('loadingOrder')} />;
+  if (!order) return <ScreenState status="error" title={t('openOrderError')} description={error} onRetry={() => void reload()} />;
 
   const original = notice?.id === order.id ? notice.shownTotal : null;
   const difference = original?.currency === order.currency
@@ -51,31 +55,31 @@ export default function OrderDetailScreen() {
   const changed = original && (original.currency !== order.currency || original.amount !== order.total);
   return <ThemedView style={styles.page}><SafeAreaView style={styles.page} edges={["top", "left", "right"]}>
     <ScrollView contentContainerStyle={styles.content}>
-      <Button variant="ghost" onPress={() => router.back()}>Volver a ventas</Button>
-      <View style={styles.heading}><ThemedText type="title" accessibilityRole="header">Venta completada</ThemedText>
-        <ThemedText themeColor="textSecondary">{date(order.completedAt)}</ThemedText></View>
+      <Button variant="ghost" onPress={() => router.back()}>{t('backToOrders')}</Button>
+      <View style={styles.heading}><ThemedText type="title" accessibilityRole="header">{t('orderCompleted')}</ThemedText>
+        <ThemedText themeColor="textSecondary">{date(order.completedAt, locale)}</ThemedText></View>
       <View style={[styles.summary, { backgroundColor: theme.backgroundElement }]}>
-        <ThemedText type="small" themeColor="textSecondary">Total registrado</ThemedText>
-        <ThemedText type="title">{money(order.total, order.currency)}</ThemedText>
-        <ThemedText type="small">Cobrado por billetera digital · Entregado</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary">{t('recordedTotal')}</ThemedText>
+        <ThemedText type="title">{money(order.total, order.currency, locale)}</ThemedText>
+        <ThemedText type="small">{t('paidAndDelivered')}</ThemedText>
       </View>
       {changed && original ? <View style={[styles.notice, { backgroundColor: theme.backgroundElement }]}>
-        <ThemedText type="subtitle" accessibilityRole="header">Revisa el importe cobrado</ThemedText>
-        <ThemedText>Mostrado al confirmar: {money(original.amount, original.currency)}</ThemedText>
-        <ThemedText>Total registrado: {money(order.total, order.currency)}</ThemedText>
-        {difference?.success ? <ThemedText>Diferencia: {money(difference.data.amount, order.currency)}</ThemedText> : null}
-        <ThemedText type="small">Ajusta el cobro fuera de la app.</ThemedText>
+        <ThemedText type="subtitle" accessibilityRole="header">{t('reviewCharge')}</ThemedText>
+        <ThemedText>{t('shownAtConfirmation', { amount: money(original.amount, original.currency, locale) })}</ThemedText>
+        <ThemedText>{t('recordedTotalAmount', { amount: money(order.total, order.currency, locale) })}</ThemedText>
+        {difference?.success ? <ThemedText>{t('amountDifference', { amount: money(difference.data.amount, order.currency, locale) })}</ThemedText> : null}
+        <ThemedText type="small">{t('adjustCharge')}</ThemedText>
       </View> : null}
-      <View style={styles.section}><ThemedText type="subtitle" accessibilityRole="header">Cliente</ThemedText>
-        <ThemedText>{order.customer.kind === "contact" ? order.customer.name ?? order.customer.phone : "Público general"}</ThemedText>
+      <View style={styles.section}><ThemedText type="subtitle" accessibilityRole="header">{t('customer')}</ThemedText>
+        <ThemedText>{order.customer.kind === "contact" ? order.customer.name ?? order.customer.phone : t('generalPublic')}</ThemedText>
         {order.customer.kind === "contact" && order.customer.name ? <ThemedText themeColor="textSecondary">{order.customer.phone}</ThemedText> : null}
       </View>
-      <View style={styles.section}><ThemedText type="subtitle" accessibilityRole="header">Artículos</ThemedText>
+      <View style={styles.section}><ThemedText type="subtitle" accessibilityRole="header">{t('items')}</ThemedText>
         {order.items.map((item) => <View key={item.id} style={styles.item}>
           <ThemedText type="smallBold">{item.productName}</ThemedText>
           {Object.entries(item.variantAttributes).length ? <ThemedText type="small" themeColor="textSecondary">{Object.entries(item.variantAttributes).map(([key, value]) => `${key}: ${value}`).join(" · ")}</ThemedText> : null}
           {item.sku ? <ThemedText type="small" themeColor="textSecondary">SKU {item.sku}</ThemedText> : null}
-          <ThemedText>{item.quantity} × {money(item.unitPrice, order.currency)} = {money(item.subtotal, order.currency)}</ThemedText>
+          <ThemedText>{item.quantity} × {money(item.unitPrice, order.currency, locale)} = {money(item.subtotal, order.currency, locale)}</ThemedText>
         </View>)}
       </View>
     </ScrollView>

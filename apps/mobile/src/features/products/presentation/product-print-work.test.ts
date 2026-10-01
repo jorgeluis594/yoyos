@@ -1,5 +1,6 @@
 import { productPrintWork } from "@mobile/features/products/presentation/product-print-work";
 import type { PrintWork } from "@mobile/features/printing/presentation/print-provider";
+import i18n from '@mobile/i18n';
 
 const mockPrint = jest.fn();
 jest.mock("@mobile/features/products/composition", () => ({ productPrinting: { printProductLabel: (...args: unknown[]) => mockPrint(...args) } }));
@@ -17,4 +18,14 @@ test.each([
 ])("explains %s without blaming the printer", async (code, message, nativeOutcome) => {
   mockPrint.mockResolvedValueOnce({ success: false, error: { cause: { code, message: "failure", ...(nativeOutcome ? { outcome: nativeOutcome } : {}) }, retry: { kind: "load-created-product" } } });
   expect(await work()(execution)).toEqual({ status: "failed", message, outcome: "not-sent" });
+});
+
+test('print failures are translated to Portuguese', async () => {
+  await i18n.changeLanguage('pt-BR');
+  try {
+    mockPrint.mockResolvedValueOnce({ success: false, error: { cause: { code: 'PAPER_EMPTY' }, retry: null } });
+    expect(await work()(execution)).toMatchObject({ status: 'failed', message: 'A impressora está sem etiquetas.' });
+  } finally {
+    await i18n.changeLanguage('es');
+  }
 });

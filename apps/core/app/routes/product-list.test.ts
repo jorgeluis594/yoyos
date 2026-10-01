@@ -15,6 +15,7 @@ test("passes URL criteria to the catalog operation", async () => {
   expect(list).toHaveBeenCalledWith({ search: "blue", page: 2 });
   await loader(args("http://localhost/es-PE/products?page=0x10"));
   expect(list).toHaveBeenLastCalledWith({ page: NaN });
+  expect(await loader(args("http://localhost/pt-BR/products"))).toMatchObject({ base: "/pt-BR/products" });
 });
 
 test("keeps invalid criteria and technical failures distinct", async () => {

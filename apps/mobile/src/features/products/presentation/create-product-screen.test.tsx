@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { err, ok } from "@shared/functional";
 import CreateProductScreen from "@mobile/features/products/presentation/create-product-screen";
+import i18n from '@mobile/i18n';
 import { createProductApi } from "@mobile/features/products/infrastructure/product-api";
 import { createProductOperations } from "@mobile/features/products/application/product-operations";
 import { createProductPrintingOperations, type ProductPrintingDependencies } from "@mobile/features/products/application/product-printing";
@@ -112,4 +113,17 @@ test("save and print retries a failed detail request through the real mobile ope
   expect(request.mock.calls.map(([path]) => path)).toEqual(["/api/products", `/api/products/${productId}`, `/api/products/${productId}`]);
   expect(renderProductLabel).toHaveBeenCalledWith({ productName: "Camisa", qrCode: variantQr }, expect.anything());
   expect(printDocument).toHaveBeenCalledTimes(1);
+});
+
+test('new product form and validation are translated to Portuguese', async () => {
+  await i18n.changeLanguage('pt-BR');
+  try {
+    const form = render(<CreateProductScreen />);
+    expect(screen.getByText('Novo produto')).toBeTruthy();
+    fireEvent.press(screen.getByRole('button', { name: 'Apenas salvar' }));
+    expect(screen.getByText('Informe o nome do produto.')).toBeTruthy();
+    form.unmount();
+  } finally {
+    await i18n.changeLanguage('es');
+  }
 });

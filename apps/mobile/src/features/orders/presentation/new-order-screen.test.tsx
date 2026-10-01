@@ -1,6 +1,7 @@
 import { fireEvent, render, waitFor } from "@testing-library/react-native";
 import { err, ok } from "@shared/functional";
 import NewOrderScreen from "@mobile/features/orders/presentation/new-order-screen";
+import i18n from "@mobile/i18n";
 
 const mockId = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const mockReplace = jest.fn();
@@ -136,4 +137,19 @@ test("offline selection remains editable without a confirm action", async () => 
   expect(screen.getByRole("button", { name: "Confirmar cobro y entrega" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Editar productos" })).toBeTruthy();
   expect(mockCompleteOrder).not.toHaveBeenCalled();
+});
+
+test('new sale translates selection and review actions to Portuguese', async () => {
+  await i18n.changeLanguage('pt-BR');
+  try {
+    const screen = render(<NewOrderScreen />);
+    await screen.findByText('Camisa');
+    fireEvent.press(screen.getByRole('button', { name: /Camisa/ }));
+    fireEvent.press(screen.getByRole('button', { name: 'Adicionar' }));
+    fireEvent.press(screen.getByRole('button', { name: 'Revisar venda' }));
+    expect(screen.getByRole('button', { name: 'Confirmar pagamento e entrega' })).toBeTruthy();
+    screen.unmount();
+  } finally {
+    await i18n.changeLanguage('es');
+  }
 });

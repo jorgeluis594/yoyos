@@ -17,6 +17,7 @@ test("filters sales by Lima calendar days, including the start and excluding the
   expect(list).toHaveBeenCalledWith({ page: 1, customer: { kind: "all" },
     completedFrom: new Date("2026-09-28T05:00:00.000Z"), completedBefore: new Date("2026-09-29T05:00:00.000Z") });
   expect(result.filters).toMatchObject({ completedFrom: "2026-09-28T05:00:00.000Z", completedBefore: "2026-09-29T05:00:00.000Z" });
+  expect((await loader(args("http://localhost/pt-BR/orders"))).base).toBe("/pt-BR/orders");
 
   await loader(args("http://localhost/es-PE/orders?completedFrom=1990-01-01"));
   expect(list).toHaveBeenLastCalledWith({ page: 1, customer: { kind: "all" }, completedFrom: new Date("1990-01-01T04:00:00.000Z") });
