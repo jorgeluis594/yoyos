@@ -12,6 +12,12 @@ const es = {
     checkEmailTitle: "Revisa tu correo", checkEmailDescription: "Revisa tu correo si tienes una verificación pendiente. Si ya tienes cuenta, inicia sesión o recupera tu contraseña.", verificationSent: "Si tienes una verificación pendiente, recibirás un enlace.", resendVerification: "Reenviar verificación",
     verifiedTitle: "Verificación completada", verificationFailedTitle: "No se pudo verificar el correo", verifiedDescription: "Inicia sesión para continuar. La verificación no inicia una sesión automáticamente.", verificationFailedDescription: "El enlace puede haber vencido o ya no ser válido. Solicita otro desde la página de revisión del correo.", backToCheckEmail: "Volver a revisar el correo",
   },
+  nav: {
+    workspace: "Espacio de trabajo", main: "Navegación principal", home: "Inicio", products: "Productos", orders: "Ventas", newProduct: "Nuevo producto", product: "Producto",
+    toggleTheme: "Alternar tema", lightMode: "Modo claro", darkMode: "Modo oscuro", signingOut: "Cerrando sesión…", signOut: "Cerrar sesión", signOutError: "No se pudo cerrar la sesión. Inténtalo de nuevo.",
+    skipContent: "Saltar al contenido", mainMenu: "Menú principal", closeMenu: "Cerrar menú", openMenu: "Abrir menú", breadcrumb: "Ruta de navegación",
+    greeting: "Hola, {{name}}", ready: "Tu espacio de trabajo está listo.",
+  },
 } as const;
 
 const pt: { [K in keyof typeof es]: Record<keyof typeof es[K], string> } = {
@@ -25,6 +31,12 @@ const pt: { [K in keyof typeof es]: Record<keyof typeof es[K], string> } = {
     resetTitle: "Redefinir senha", invalidPassword: "A senha deve ter entre 8 e 128 caracteres.", invalidResetLink: "O link é inválido ou expirou.", invalidResetRequest: "O link é inválido ou expirou. Solicite outro.", requestAnotherLink: "Solicitar outro link", passwordChanged: "A senha foi alterada. Entre para continuar.", newPassword: "Nova senha", saving: "Salvando…", changePassword: "Alterar senha",
     checkEmailTitle: "Confira seu e-mail", checkEmailDescription: "Confira seu e-mail se houver uma verificação pendente. Se já tem uma conta, entre ou recupere sua senha.", verificationSent: "Se houver uma verificação pendente, você receberá um link.", resendVerification: "Reenviar verificação",
     verifiedTitle: "Verificação concluída", verificationFailedTitle: "Não foi possível verificar o e-mail", verifiedDescription: "Entre para continuar. A verificação não inicia uma sessão automaticamente.", verificationFailedDescription: "O link pode ter expirado ou deixado de ser válido. Solicite outro na página de verificação do e-mail.", backToCheckEmail: "Voltar para verificar o e-mail",
+  },
+  nav: {
+    workspace: "Espaço de trabalho", main: "Navegação principal", home: "Início", products: "Produtos", orders: "Vendas", newProduct: "Novo produto", product: "Produto",
+    toggleTheme: "Alternar tema", lightMode: "Modo claro", darkMode: "Modo escuro", signingOut: "Saindo…", signOut: "Sair", signOutError: "Não foi possível sair. Tente novamente.",
+    skipContent: "Ir para o conteúdo", mainMenu: "Menu principal", closeMenu: "Fechar menu", openMenu: "Abrir menu", breadcrumb: "Caminho de navegação",
+    greeting: "Olá, {{name}}", ready: "Seu espaço de trabalho está pronto.",
   },
 };
 
