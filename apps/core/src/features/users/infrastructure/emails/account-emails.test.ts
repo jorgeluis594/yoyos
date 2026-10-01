@@ -24,6 +24,20 @@ test("account messages select the right subject and escape template content", as
   expect(sent[1].text).toContain("30 minutos");
 });
 
+test("account emails use the language in the verification and reset callbacks", async () => {
+  const sent: Parameters<SendEmail>[0][] = [];
+  const emails = createAccountEmails(async (message) => { sent.push(message); return ok({ emailId: "mail-pt" }); });
+  const verification = accountVerificationUrlSchema.parse("http://localhost:3000/api/auth/verify-email?token=abc&callbackURL=%2Fpt-BR%2Faccount-verified");
+  const reset = passwordResetUrlSchema.parse("http://localhost:3000/api/auth/reset-password/abc?callbackURL=%2Fpt-BR%2Freset-password");
+  expect(await emails.sendVerificationEmail({ to, verificationUrl: verification, idempotencyKey: "verify-pt" })).toEqual(ok(undefined));
+  expect(await emails.sendPasswordResetEmail({ to, resetUrl: reset, idempotencyKey: "reset-pt" })).toEqual(ok(undefined));
+  expect(sent[0].subject).toBe("Verifique seu e-mail do Yoyos");
+  expect(sent[0].html).toContain('<html lang="pt-BR"');
+  expect(sent[0].text).toContain("O link expira em 24 horas.");
+  expect(sent[1].subject).toBe("Recupere sua senha do Yoyos");
+  expect(sent[1].text).toContain("O link expira em 30 minutos.");
+});
+
 test("account email reports the transport failure", async () => {
   const emails = createAccountEmails(async () => err({ code: "EMAIL_SEND_FAILED", message: "Unable to send email" }));
   expect(await emails.sendVerificationEmail({ to, verificationUrl, idempotencyKey: "verification:retry" }))

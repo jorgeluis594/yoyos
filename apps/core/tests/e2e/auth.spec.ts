@@ -67,6 +67,24 @@ test("registration verifies through Mailpit, requires explicit sign-in, and comp
   } finally { await removeAccount(email); }
 });
 
+test("Portuguese registration keeps its language in the verification email and callback", async ({ page }) => {
+  const email = `verify-pt-${crypto.randomUUID()}@example.test`;
+  try {
+    await page.goto("/pt-BR/register");
+    await page.getByLabel("Nome", { exact: true }).fill("Ana");
+    await page.getByLabel("E-mail").fill(email);
+    await page.getByLabel("Senha").fill("test-password-123");
+    await page.getByRole("button", { name: "Criar conta" }).click();
+    await browserExpect(page).toHaveURL(/\/pt-BR\/check-email$/);
+    const link = await emailLink(email, "verify-email");
+    const message = await findEmail(email);
+    expect(message?.Subject).toBe("Verifique seu e-mail do Yoyos");
+    await page.goto(link);
+    await browserExpect(page).toHaveURL(/\/pt-BR\/account-verified$/);
+    await browserExpect(page.getByRole("heading", { name: "Verificação concluída" })).toBeVisible();
+  } finally { await removeAccount(email); }
+});
+
 test("password recovery opens its form without consuming the link, then resets and signs in", async ({ page, request }) => {
   const email = `reset-${crypto.randomUUID()}@example.test`;
   const password = "initial-password-123";
