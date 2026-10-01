@@ -1,7 +1,9 @@
 import { createInstance } from 'i18next';
 import { initReactI18next } from 'react-i18next';
+import { Platform } from 'react-native';
 
 const i18n = createInstance();
+export const languageForLocale = (locale: string) => locale.toLowerCase().startsWith('pt') ? 'pt-BR' : 'es';
 
 const resources = {
   es: { translation: {
@@ -290,7 +292,7 @@ const resources = {
 
 void i18n.use(initReactI18next).init({
   resources,
-  lng: Intl.DateTimeFormat().resolvedOptions().locale.toLowerCase().startsWith('pt') ? 'pt-BR' : 'es',
+  lng: Platform.OS === 'web' ? 'es' : languageForLocale(Intl.DateTimeFormat().resolvedOptions().locale),
   fallbackLng: 'es',
   interpolation: { escapeValue: false },
   react: { useSuspense: false },

@@ -2,6 +2,7 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import { Platform, useColorScheme } from 'react-native';
+import { useEffect } from 'react';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { AccessProvider } from '@/features/users/presentation/access-provider';
@@ -10,13 +11,16 @@ import { ProductDraftProvider } from '@/features/products/presentation/draft-gua
 import { OrderDraftProvider } from '@mobile/features/orders/presentation/order-draft-guard';
 import { AccessGate } from '@/composition/access-gate';
 import * as auth from '@/composition/auth';
-import '@mobile/i18n';
+import i18n, { languageForLocale } from '@mobile/i18n';
 
 import '../global.css';
 
 SplashScreen.preventAutoHideAsync();
 
 export default function TabLayout() {
+  useEffect(() => {
+    if (Platform.OS === 'web') void i18n.changeLanguage(languageForLocale(Intl.DateTimeFormat().resolvedOptions().locale));
+  }, []);
   const colorScheme = useColorScheme();
   const [fontsLoaded, fontError] = useFonts({ Inter: require('@/assets/fonts/InterVariable.ttf') });
   if (Platform.OS !== 'web' && !fontsLoaded && !fontError) return null;
