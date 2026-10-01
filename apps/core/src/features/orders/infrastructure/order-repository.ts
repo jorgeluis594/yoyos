@@ -224,6 +224,24 @@ export async function saveCancellation(id: OrderId, companyId: CompanyId, stockD
   }
 }
 
+export async function saveDelivery(id: OrderId, companyId: CompanyId, change: Pick<OrderAggregate, "delivery" | "deliveryCost" | "deliveryCharge" | "total">) {
+  requireActiveTransaction(companyId);
+  if (change.delivery === null || !parseDeliveryDetails(change.delivery).success) throw new Error("Invalid delivery snapshot");
+  try {
+    const updated = await prisma.order.updateMany({ where: { id, companyId, deliveryStatus: "pending", cancelled: false },
+      data: { delivery: change.delivery as Prisma.InputJsonObject,
+        deliveryCost: new Prisma.Decimal(change.deliveryCost.amount.toString()),
+        deliveryCharge: new Prisma.Decimal(change.deliveryCharge.amount.toString()),
+        total: new Prisma.Decimal(change.total.amount.toString()) } });
+    if (updated.count !== 1) throw new Error("Locked order was not available for delivery update");
+    return ok<null>(null);
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    console.error("Unable to save order delivery", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save order delivery" });
+  }
+}
+
 export async function findOrders(criteria: OrderCriteria) {
   const where: Prisma.OrderWhereInput = {
     ...(criteria.customer.kind === "general_public" ? { contactId: null } : criteria.customer.kind === "contact" ? { contactId: criteria.customer.contactId } : {}),
