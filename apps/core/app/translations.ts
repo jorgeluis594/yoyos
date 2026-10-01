@@ -264,7 +264,19 @@ export const portuguese: Readonly<Record<string, string>> = {
   "La imagen ya no está disponible.": "A imagem não está mais disponível.",
   "No se pudo verificar la imagen. Inténtalo de nuevo.": "Não foi possível verificar a imagem. Tente novamente.",
   "No se pudo leer el producto. Inténtalo de nuevo.": "Não foi possível ler o produto. Tente novamente.",
-  "La solicitud no es válida. Inténtalo de nuevo.": "A solicitação é inválida. Tente novamente."
+  "La solicitud no es válida. Inténtalo de nuevo.": "A solicitação é inválida. Tente novamente.",
+  "Verifica tu correo de Yoyos": "Verifique seu e-mail do Yoyos",
+  "Recupera tu contraseña de Yoyos": "Recupere sua senha do Yoyos",
+  "Verifica tu correo para continuar": "Verifique seu e-mail para continuar",
+  "Verifica tu correo": "Verifique seu e-mail",
+  "Confirma tu dirección para empezar a usar Yoyos.": "Confirme seu endereço para começar a usar o Yoyos.",
+  "Verificar correo": "Verificar e-mail",
+  "El enlace vence en 24 horas.": "O link expira em 24 horas.",
+  "Recupera el acceso a tu cuenta Yoyos": "Recupere o acesso à sua conta Yoyos",
+  "Restablece tu contraseña": "Redefina sua senha",
+  "Usa este enlace para elegir una contraseña nueva.": "Use este link para escolher uma nova senha.",
+  "El enlace vence en 30 minutos.": "O link expira em 30 minutos.",
+  "Si no solicitaste este correo, puedes ignorarlo.": "Se você não solicitou este e-mail, pode ignorá-lo."
 };
 
 export function translate(language: "es" | "pt", message: string, values: readonly (string | number)[] = []): string {

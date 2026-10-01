@@ -39,3 +39,21 @@ test("email and action-specific URLs reject malformed or cross-purpose values", 
   expect(passwordResetUrlSchema.safeParse("http://localhost:3000/api/auth/reset-password/x").success).toBe(true);
   expect(passwordResetUrlSchema.safeParse("http://localhost:3000/api/auth/reset-password/x/y").success).toBe(false);
 });
+
+test("translates account emails from relative or absolute Portuguese callback links", async () => {
+  const sent: Parameters<SendEmail>[0][] = [];
+  const emails = createAccountEmails(async (message) => { sent.push(message); return ok({ emailId: "mail-pt" }); });
+  const verification = new URL(verificationUrl);
+  verification.searchParams.set("callbackURL", "/pt-BR/account-verified");
+  const reset = new URL(resetUrl);
+  reset.searchParams.set("callbackURL", "http://localhost:3000/pt-PE/reset-password");
+  await emails.sendVerificationEmail({ to, verificationUrl: accountVerificationUrlSchema.parse(verification.href), idempotencyKey: "pt-verify" });
+  await emails.sendPasswordResetEmail({ to, resetUrl: passwordResetUrlSchema.parse(reset.href), idempotencyKey: "pt-reset" });
+  expect(sent[0].subject).toBe("Verifique seu e-mail do Yoyos");
+  expect(sent[0].html).toContain('lang="pt"');
+  expect(sent[0].text).toContain("Verificar e-mail");
+  expect(sent[0].text).toContain("Se você não solicitou este e-mail, pode ignorá-lo.");
+  expect(sent[1].subject).toBe("Recupere sua senha do Yoyos");
+  expect(sent[1].html).toContain("Redefina sua senha");
+  expect(sent[1].text).toContain("30 minutos");
+});
