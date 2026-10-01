@@ -4,7 +4,6 @@ import { isCurrency } from "@shared/money";
 import { prisma } from "@core/src/shared/infrastructure/persistance";
 import type { Order, OrderItemId, OrderId, ContactId, CompanyId, UserId, PositiveInteger, PaymentId } from "@core/src/features/orders/domain/order";
 import type { CreateOrderError } from "@core/src/features/orders/application/create-order";
-import type { CreatePendingOrderError } from "@core/src/features/orders/application/create-pending-order";
 import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { OrderCriteria } from "@core/src/features/orders/application/read-orders";
 import type { VariantId } from "@core/src/features/products/domain/product";
@@ -76,9 +75,9 @@ export async function savePendingOrder(order: OrderAggregate) {
     return ok<null>(null);
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
-    if (cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2002") return err<CreatePendingOrderError>({ code: "ORDER_ALREADY_EXISTS", message: "Order already exists" });
+    if (cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2002") return err({ code: "ORDER_ALREADY_EXISTS" as const, message: "Order already exists" });
     console.error("Unable to save pending order", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
-    return err<CreatePendingOrderError>({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to save pending order" });
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save pending order" });
   }
 }
 
