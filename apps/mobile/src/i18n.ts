@@ -115,6 +115,11 @@ const resources = {
     preparePhotoError: 'No se pudo preparar la foto', tryAgain: 'Inténtalo otra vez.',
     photo: 'Foto', photoPreview: 'Vista previa de la foto del producto', noPhoto: 'Sin foto',
     chooseGallery: 'Elegir de galería', takePhoto: 'Tomar foto', removePhoto: 'Quitar foto', keepPhoto: 'Conservar foto actual',
+    loadProductError: 'No se pudo cargar el producto. Revisa tu conexión e inténtalo otra vez.',
+    loadingProduct: 'Cargando producto', savedChanges: 'Cambios guardados', productUpdated: 'El producto se actualizó correctamente.',
+    checkProductError: 'No se pudo consultar el producto. Inténtalo otra vez.',
+    productChangesConfirmed: 'El producto ya refleja tus cambios.', changesNotVisible: 'Los cambios no aparecen todavía. Puedes volver a intentar guardar.',
+    manageProduct: 'Gestionar producto', printSavedDataHint: 'La etiqueta usará los datos guardados, sin incluir los cambios de este formulario.',
   } },
   'pt-BR': { translation: {
     home: 'Início', products: 'Produtos', orders: 'Vendas',
@@ -227,6 +232,11 @@ const resources = {
     preparePhotoError: 'Não foi possível preparar a foto', tryAgain: 'Tente novamente.',
     photo: 'Foto', photoPreview: 'Prévia da foto do produto', noPhoto: 'Sem foto',
     chooseGallery: 'Escolher da galeria', takePhoto: 'Tirar foto', removePhoto: 'Remover foto', keepPhoto: 'Manter foto atual',
+    loadProductError: 'Não foi possível carregar o produto. Verifique sua conexão e tente novamente.',
+    loadingProduct: 'Carregando produto', savedChanges: 'Alterações salvas', productUpdated: 'O produto foi atualizado com sucesso.',
+    checkProductError: 'Não foi possível consultar o produto. Tente novamente.',
+    productChangesConfirmed: 'O produto já mostra suas alterações.', changesNotVisible: 'As alterações ainda não aparecem. Você pode tentar salvar novamente.',
+    manageProduct: 'Gerenciar produto', printSavedDataHint: 'A etiqueta usará os dados salvos, sem incluir as alterações deste formulário.',
   } },
 } as const;
 

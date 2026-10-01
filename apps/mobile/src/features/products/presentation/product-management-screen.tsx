@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Alert, StyleSheet, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { useTranslation } from "react-i18next";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ScreenState } from "@/components/ui/screen-state";
 import { ThemedText } from "@/components/themed-text";
@@ -16,6 +17,7 @@ import { useProductDraft } from "./draft-guard";
 import { usePrint } from "@mobile/features/printing/presentation/print-provider";
 import { makeCopyCount } from "@mobile/features/printing/composition";
 import { productPrintWork } from "./product-print-work";
+import translations from '@mobile/i18n';
 
 function applySaved(current: Product, values: ProductFormValues, photo: PhotoSelection): Product {
   const variants = current.variants.length !== 1 ? current.variants : current.variants.map((variant) => ({
@@ -61,6 +63,7 @@ function mergeDraft(current: Product, fresh: Product, values: ProductFormValues)
 export default function ProductManagementScreen() {
   const { productId } = useLocalSearchParams<{ productId: string }>();
   const router = useRouter();
+  const { t } = useTranslation();
   const { state } = useAccess();
   const { startAttempt } = usePrint();
   const [product, setProduct] = useState<Product | null>(null);
@@ -100,7 +103,7 @@ export default function ProductManagementScreen() {
       if (!active) return;
       setLoadedKey(requestKey);
       if (!result.success) {
-        setLoadError(result.error.code === "PRODUCT_NOT_FOUND" ? "Producto no encontrado." : "No se pudo cargar el producto. Revisa tu conexión e inténtalo otra vez.");
+        setLoadError(result.error.code === "PRODUCT_NOT_FOUND" ? translations.t('productNotFound') : translations.t('loadProductError'));
         return;
       }
       setLoadError(null);
@@ -112,9 +115,9 @@ export default function ProductManagementScreen() {
   }, [productId, reloadKey, requestKey]);
 
   if (state.status !== "ready") return null;
-  if (loading) return <ThemedView style={styles.page}><ScreenState status="loading" title="Cargando producto" /></ThemedView>;
+  if (loading) return <ThemedView style={styles.page}><ScreenState status="loading" title={t('loadingProduct')} /></ThemedView>;
   if (loadError || !product || !values) return <ThemedView style={styles.page}><SafeAreaView style={styles.safe}>
-    <ScreenState status="error" title={loadError ?? "Producto no encontrado."} onRetry={() => { setLoadError(null); setReloadKey((value) => value + 1); }} />
+    <ScreenState status="error" title={loadError ?? t('productNotFound')} onRetry={() => { setLoadError(null); setReloadKey((value) => value + 1); }} />
   </SafeAreaView></ThemedView>;
 
   const setValue = (field: keyof ProductFormValues, value: string) => {
@@ -145,7 +148,7 @@ export default function ProductManagementScreen() {
     });
     setSaving(false);
     if (!result.success) {
-      if (result.error.code === "PRODUCT_NOT_FOUND") { setProduct(null); setValues(null); setLoadError("Producto no encontrado."); }
+      if (result.error.code === "PRODUCT_NOT_FOUND") { setProduct(null); setValues(null); setLoadError(t('productNotFound')); }
       else {
         setErrors(productErrors(result.error));
         setUncertain(["NETWORK_ERROR", "SERVER_ERROR", "SERVICE_UNAVAILABLE"].includes(result.error.code));
@@ -159,15 +162,15 @@ export default function ProductManagementScreen() {
     setErrors({});
     setUncertain(false);
     setDirty(false);
-    Alert.alert("Cambios guardados", "El producto se actualizó correctamente.");
+    Alert.alert(t('savedChanges'), t('productUpdated'));
     const refreshed = await products.loadProduct(product.id);
     if (refreshed.success) { setProduct(refreshed.data); setValues(valuesForProduct(refreshed.data)); }
   };
   const checkStatus = async () => {
     const result = await products.loadProduct(product.id);
     if (!result.success) {
-      if (result.error.code === "PRODUCT_NOT_FOUND") { setProduct(null); setValues(null); setLoadError("Producto no encontrado."); }
-      else setErrors({ form: "No se pudo consultar el producto. Inténtalo otra vez." });
+      if (result.error.code === "PRODUCT_NOT_FOUND") { setProduct(null); setValues(null); setLoadError(t('productNotFound')); }
+      else setErrors({ form: t('checkProductError') });
       return;
     }
     const expected = applySaved(product, values, photo);
@@ -178,22 +181,22 @@ export default function ProductManagementScreen() {
       setPhoto({ kind: "keep" });
       setErrors({});
       setDirty(false);
-      Alert.alert("Cambios guardados", "El producto ya refleja tus cambios.");
+      Alert.alert(t('savedChanges'), t('productChangesConfirmed'));
     } else {
       setValues(mergeDraft(product, result.data, values));
-      setErrors({ form: "Los cambios no aparecen todavía. Puedes volver a intentar guardar." });
+      setErrors({ form: t('changesNotVisible') });
     }
     setUncertain(false);
   };
   const printVariant = (variantId: VariantId) => {
     const quantity = makeCopyCount(Number(copies));
-    if (!quantity.success || quantity.data > 99) { setErrors((current) => ({ ...current, form: "Elige entre 1 y 99 copias." })); return; }
+    if (!quantity.success || quantity.data > 99) { setErrors((current) => ({ ...current, form: t('copyCountError') })); return; }
     startAttempt(productPrintWork({ kind: "saved-product", product, variantId }, quantity.data));
   };
 
   return <ThemedView style={styles.page}><SafeAreaView style={styles.safe}>
-    <View style={styles.header}><ThemedText type="subtitle">Gestionar producto</ThemedText><ThemedText themeColor="textSecondary">Moneda {product.currency}</ThemedText></View>
-    {dirty ? <ThemedText themeColor="textSecondary" style={styles.printNote}>La etiqueta usará los datos guardados, sin incluir los cambios de este formulario.</ThemedText> : null}
+    <View style={styles.header}><ThemedText type="subtitle">{t('manageProduct')}</ThemedText><ThemedText themeColor="textSecondary">{t('currencyLabel', { currency: product.currency })}</ThemedText></View>
+    {dirty ? <ThemedText themeColor="textSecondary" style={styles.printNote}>{t('printSavedDataHint')}</ThemedText> : null}
     <ProductForm
       values={values}
       setValue={setValue}
