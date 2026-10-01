@@ -9,6 +9,7 @@ import { deductStock, type DeductStockDependencies } from "@core/src/features/or
 import { registerPayment, type RegisterPaymentDependencies } from "@core/src/features/orders/application/register-payment";
 import { registerImmediateSale, type RegisterImmediateSaleDependencies } from "@core/src/features/orders/application/register-immediate-sale";
 import { cancelOrder, type CancelOrderDependencies } from "@core/src/features/orders/application/cancel-order";
+import { registerShipment, registerDelivery, type FulfillOrderDependencies } from "@core/src/features/orders/application/fulfill-order";
 import { getOrder, listOrders } from "@core/src/features/orders/application/read-orders";
 import { saveOrder, savePendingOrder, savePayment, saveStockDeduction, saveFulfillment, saveCancellation, findOrder, findOrderForUpdate, findOrders, orderExists } from "@core/src/features/orders/infrastructure/order-repository";
 import { findSellableVariant, deductProductStock, restoreProductStock, searchSaleCatalog } from "@core/src/features/products";
@@ -36,8 +37,15 @@ const stockTransaction: DeductStockDependencies["transaction"] = scopedOrderTran
 const paymentTransaction: RegisterPaymentDependencies["transaction"] = scopedOrderTransaction;
 const immediateTransaction: RegisterImmediateSaleDependencies["transaction"] = scopedOrderTransaction;
 const cancellationTransaction: CancelOrderDependencies["transaction"] = scopedOrderTransaction;
+const fulfillmentTransaction: FulfillOrderDependencies["transaction"] = scopedOrderTransaction;
+const fulfillmentDependencies: FulfillOrderDependencies = { transaction: fulfillmentTransaction, findOrderForUpdate,
+  saveFulfillment, clock: () => new Date() };
 
 export const orders = {
+  ship: (id: Parameters<typeof registerShipment>[0], context: Parameters<typeof registerShipment>[1]) =>
+    registerShipment(id, context, fulfillmentDependencies),
+  deliver: (id: Parameters<typeof registerDelivery>[0], context: Parameters<typeof registerDelivery>[1]) =>
+    registerDelivery(id, context, fulfillmentDependencies),
   cancel: (id: Parameters<typeof cancelOrder>[0], context: Parameters<typeof cancelOrder>[1]) =>
     cancelOrder(id, context, { transaction: cancellationTransaction, findOrderForUpdate, restoreProductStock, saveCancellation }),
   registerImmediateSale: (input: Parameters<typeof registerImmediateSale>[0], context: Parameters<typeof registerImmediateSale>[1]) =>

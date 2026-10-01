@@ -6,6 +6,7 @@ const { withinTransaction } = vi.hoisted(() => ({ withinTransaction: vi.fn() }))
 vi.mock("@core/src/shared/infrastructure/persistance", () => ({ withinTransaction }));
 vi.mock("@core/src/features/orders/infrastructure/order-repository", () => ({
   orderExists: async () => ok(false), saveOrder: async () => ok(null), findOrder: vi.fn(), findOrders: vi.fn(),
+  findOrderForUpdate: vi.fn(), saveFulfillment: vi.fn(),
 }));
 vi.mock("@core/src/features/products", () => ({
   findSellableVariant: async (variantId: string) => ok({ variantId, productName: "Product", variantAttributes: {}, sku: null,

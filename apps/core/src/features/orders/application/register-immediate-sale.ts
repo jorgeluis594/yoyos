@@ -11,7 +11,7 @@ export type RegisterImmediateSaleDependencies = Omit<CreatePendingOrderDependenc
   savePayment: (payment: Payment, companyId: CompanyId) => Promise<Result<null, RegisterImmediateSaleError>>;
   deductProductStock: (variantId: VariantId, quantity: PositiveInteger) => Promise<Result<null, RegisterImmediateSaleError>>;
   saveStockDeduction: (id: OrderId, companyId: CompanyId) => Promise<Result<null, RegisterImmediateSaleError>>;
-  saveFulfillment: (id: OrderId, companyId: CompanyId, completedAt: Date) => Promise<Result<null, RegisterImmediateSaleError>>;
+  saveFulfillment: (id: OrderId, companyId: CompanyId, change: Pick<OrderAggregate, "deliveryStatus" | "completedAt">) => Promise<Result<null, RegisterImmediateSaleError>>;
   newPaymentId: () => PaymentId;
 }>;
 
@@ -37,7 +37,7 @@ export async function registerImmediateSale(input: CreatePendingOrderInput, cont
     const completedAt = deps.clock();
     const delivered = orderStateMachine.registerDelivery(plan.data.nextOrder, completedAt);
     if (!delivered.success) return delivered;
-    const fulfilled = await deps.saveFulfillment(input.id, context.companyId, completedAt);
+    const fulfilled = await deps.saveFulfillment(input.id, context.companyId, delivered.data);
     return fulfilled.success ? ok(delivered.data) : fulfilled;
   });
 }

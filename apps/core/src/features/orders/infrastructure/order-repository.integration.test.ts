@@ -196,6 +196,30 @@ test("restores deducted stock once when cancelling before dispatch and preserves
   } finally { await f.cleanup(); }
 });
 
+test("ships and completes only a paid order with deducted stock", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const orderId = randomUUID() as OrderId;
+      const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+      expect(await orders.createPending({ id: orderId, contactId: null,
+        items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] }, context)).toMatchObject({ success: true });
+      expect(await orders.ship(orderId, context)).toMatchObject({ success: false, error: { code: "PAYMENT_REQUIRED" } });
+      expect(await orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId,
+        amount: { amount: 0.2, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context))
+        .toMatchObject({ success: true, data: { stock: { kind: "deducted" } } });
+      expect(await orders.ship(orderId, context)).toMatchObject({ success: true,
+        data: { deliveryStatus: "shipped", completedAt: null } });
+      expect(await orders.cancel(orderId, context)).toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
+      expect(await orders.deliver(orderId, context)).toMatchObject({ success: true,
+        data: { deliveryStatus: "delivered", completedAt: expect.any(Date) } });
+      const saved = await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { payments: true } });
+      expect(saved).toMatchObject({ deliveryStatus: "delivered", completedAt: expect.any(Date), payments: [{ orderId }] });
+      expect(await orders.deliver(orderId, context)).toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
+    });
+  } finally { await f.cleanup(); }
+});
+
 test("persists completed sale, historical snapshots, listing and duplicate rejection", async () => {
   const f = await fixture();
   try {

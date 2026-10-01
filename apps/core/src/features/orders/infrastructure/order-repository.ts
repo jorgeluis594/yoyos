@@ -195,11 +195,12 @@ export async function savePayment(payment: Payment, companyId: CompanyId) {
   }
 }
 
-export async function saveFulfillment(id: OrderId, companyId: CompanyId, completedAt: Date) {
+export async function saveFulfillment(id: OrderId, companyId: CompanyId, change: Pick<OrderAggregate, "deliveryStatus" | "completedAt">) {
   requireActiveTransaction(companyId);
   try {
-    const updated = await prisma.order.updateMany({ where: { id, companyId, deliveryStatus: "pending", completedAt: null,
-      cancelled: false, stockDeducted: true }, data: { deliveryStatus: "delivered", completedAt } });
+    const updated = await prisma.order.updateMany({ where: { id, companyId, cancelled: false, stockDeducted: true,
+      deliveryStatus: change.deliveryStatus === "shipped" ? "pending" : { in: ["pending", "shipped"] } },
+    data: { deliveryStatus: change.deliveryStatus, completedAt: change.completedAt } });
     if (updated.count !== 1) throw new Error("Locked order was not available for fulfillment");
     return ok<null>(null);
   } catch (cause) {
