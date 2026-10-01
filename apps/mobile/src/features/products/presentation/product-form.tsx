@@ -37,7 +37,8 @@ export function ProductForm({
   onPrintVariant?: (variantId: VariantId) => void;
 }) {
   const multiVariant = (current?.variants.length ?? 1) > 1;
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const price = new Intl.NumberFormat(i18n.language === 'pt-BR' ? 'pt-BR' : 'es-PE', { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
     {errors.form ? <ThemedText accessibilityRole="alert" style={styles.error}>{errors.form}</ThemedText> : null}
     <FieldGroup>
@@ -62,7 +63,7 @@ export function ProductForm({
       <ThemedText type="subtitle">{t('variants')}</ThemedText>
       {current?.variants.map((variant, index) => <View key={variant.id} style={styles.variant}>
         <ThemedText type="smallBold">{Object.entries(variant.attributes).map(([key, value]) => `${key}: ${value}`).join(" · ") || t('numberedVariant', { count: index + 1 })}</ThemedText>
-        <ThemedText themeColor="textSecondary">{variant.sku ?? t('noSku')} · {t('saleAmount', { amount: `${variant.salePrice.amount.toFixed(2)} ${currency}` })}{variant.purchasePrice ? ` · ${t('purchaseAmount', { amount: `${variant.purchasePrice.amount.toFixed(2)} ${currency}` })}` : ""}</ThemedText>
+        <ThemedText themeColor="textSecondary">{variant.sku ?? t('noSku')} · {t('saleAmount', { amount: price.format(variant.salePrice.amount) })}{variant.purchasePrice ? ` · ${t('purchaseAmount', { amount: price.format(variant.purchasePrice.amount) })}` : ""}</ThemedText>
         <ThemedText themeColor="textSecondary">{t('stockCount', { count: variant.stock })}</ThemedText>
         {onPrintVariant ? <Button variant="secondary" onPress={() => onPrintVariant(variant.id)}>{t('printLabel')}</Button> : null}
       </View>)}

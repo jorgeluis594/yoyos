@@ -9,3 +9,8 @@ test('translates navigation and interpolated greetings for both supported langua
   expect(i18n.t('greeting', { name: 'Ana' })).toBe('Olá, Ana');
   await i18n.changeLanguage('es');
 });
+
+test('Spanish and Portuguese catalogs contain the same keys', () => {
+  expect(Object.keys(i18n.getResourceBundle('es', 'translation')).sort())
+    .toEqual(Object.keys(i18n.getResourceBundle('pt-BR', 'translation')).sort());
+});

@@ -143,6 +143,7 @@ const resources = {
     paperMismatch: 'Coloca etiquetas Brother DK-1209 de 62 × 29 mm.', coverOpen: 'Cierra la tapa de la impresora.',
     printingAndroidOnly: 'La impresión está disponible en Android con una app compatible.',
     printCheckPrinter: 'No se pudo imprimir. Revisa la impresora y la conexión.', productPrintLookupError: 'No se pudo consultar el producto para imprimir.',
+    tryEditing: 'Prueba a editar',
   } },
   'pt-BR': { translation: {
     home: 'Início', products: 'Produtos', orders: 'Vendas',
@@ -283,6 +284,7 @@ const resources = {
     paperMismatch: 'Coloque etiquetas Brother DK-1209 de 62 × 29 mm.', coverOpen: 'Feche a tampa da impressora.',
     printingAndroidOnly: 'A impressão está disponível no Android com um aplicativo compatível.',
     printCheckPrinter: 'Não foi possível imprimir. Verifique a impressora e a conexão.', productPrintLookupError: 'Não foi possível consultar o produto para imprimir.',
+    tryEditing: 'Experimente editar',
   } },
 } as const;
 
