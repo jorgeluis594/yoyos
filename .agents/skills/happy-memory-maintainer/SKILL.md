@@ -67,4 +67,4 @@ For creation, load creation, scoring, tags, retrievable writing, and CLI contrac
 
 Use `batch` as the only mutation path. Batching does not change memory atomicity and does not provide an all-or-nothing transaction: preserve every item outcome and continue only with operations that do not depend on failed items.
 
-If a command fails because `happy-memory` is unavailable or cannot be found on `PATH`, read [install-cli.md](references/install-cli.md) for installation steps before retrying. Do not load that reference for other failures.
+If a command fails because `happy-memory` is unavailable or cannot be found on `PATH`, report the failure without attempting to install the CLI.
