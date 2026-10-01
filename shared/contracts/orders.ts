@@ -39,6 +39,23 @@ export const orderAggregateSchema = z.strictObject({ id: z.uuid(), companyId: z.
     unitPrice: moneySchema, subtotal: moneySchema })).min(1), payments: z.array(paymentSchema),
   itemsTotal: moneySchema, deliveryCost: moneySchema, deliveryCharge: moneySchema, total: moneySchema });
 export type OrderAggregateResponse = z.infer<typeof orderAggregateSchema>;
+export const listOrderAggregatesSchema = z.strictObject({
+  page: z.coerce.number().int().positive().safe().default(1),
+  customer: z.enum(["all", "general_public", "contact"]).default("all"),
+  contactId: z.uuid().optional(), createdFrom: z.iso.datetime().optional(), createdBefore: z.iso.datetime().optional(),
+}).refine((value) => (value.customer === "contact") === !!value.contactId,
+  { message: "Contact must match customer filter", path: ["contactId"] })
+  .refine((value) => Number.isSafeInteger((value.page - 1) * 20),
+    { message: "Page exceeds safe offset", path: ["page"] })
+  .refine((value) => !value.createdFrom || !value.createdBefore ||
+    new Date(value.createdFrom).getTime() < new Date(value.createdBefore).getTime(),
+    { message: "Invalid date interval", path: ["createdBefore"] });
+export type ListOrderAggregatesRequest = z.infer<typeof listOrderAggregatesSchema>;
+export const orderAggregateSummarySchema = orderAggregateSchema.pick({ id: true, createdAt: true, completedAt: true, status: true,
+  paymentStatus: true, deliveryStatus: true, stockDeducted: true, customer: true, sellerId: true, total: true });
+export const listOrderAggregatesResponseSchema = z.strictObject({ items: z.array(orderAggregateSummarySchema),
+  page: z.number().int().positive(), pageSize: z.literal(20), total: z.number().int().nonnegative() });
+export type ListOrderAggregatesResponse = z.infer<typeof listOrderAggregatesResponseSchema>;
 export const registerPaymentSchema = z.strictObject({ paymentId: z.uuid(), amount: moneySchema, method: z.literal("digital_wallet"), deductStockIfPartial: z.boolean() });
 export type RegisterPaymentRequest = z.infer<typeof registerPaymentSchema>;
 export const stockOutcomeSchema = z.discriminatedUnion("kind", [

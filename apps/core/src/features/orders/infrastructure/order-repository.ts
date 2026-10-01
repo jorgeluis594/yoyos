@@ -6,6 +6,7 @@ import { buildOrder, type Order, type OrderItemId, type OrderId, type ContactId,
 import type { CreateOrderError } from "@core/src/features/orders/application/create-order";
 import { orderStateMachine, parseDeliveryDetails, type OrderAggregate, type Payment } from "@core/src/features/orders/domain/order-state-machine";
 import type { OrderCriteria } from "@core/src/features/orders/application/read-orders";
+import type { AggregateCriteria, AggregatePage } from "@core/src/features/orders/application/list-order-aggregates";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
 const include = { items: { orderBy: { id: "asc" as const } } };
@@ -259,6 +260,28 @@ export async function findOrders(criteria: OrderCriteria) {
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
     console.error("Unable to list orders", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to list orders" });
+  }
+}
+
+export async function findOrderAggregates(criteria: AggregateCriteria, companyId: CompanyId) {
+  if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
+  const where: Prisma.OrderWhereInput = { companyId,
+    ...(criteria.customer.kind === "general_public" ? { contactId: null } : criteria.customer.kind === "contact" ? { contactId: criteria.customer.contactId } : {}),
+    ...(criteria.createdFrom || criteria.createdBefore ? { createdAt: {
+      ...(criteria.createdFrom ? { gte: criteria.createdFrom } : {}), ...(criteria.createdBefore ? { lt: criteria.createdBefore } : {}),
+    } } : {}),
+  };
+  try {
+    const [rows, total] = await Promise.all([
+      prisma.order.findMany({ where, include: aggregateInclude, orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+        skip: (criteria.page - 1) * 20, take: 20 }),
+      prisma.order.count({ where }),
+    ]);
+    return ok<AggregatePage>({ items: rows.map(mapAggregate), page: criteria.page, pageSize: 20, total });
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    console.error("Unable to list order aggregates", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to list orders" });
   }
 }

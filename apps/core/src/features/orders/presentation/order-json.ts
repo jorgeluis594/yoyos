@@ -1,7 +1,8 @@
-import { listOrdersResponseSchema, orderAggregateSchema, orderSchema } from "@shared/contracts/orders";
+import { listOrderAggregatesResponseSchema, listOrdersResponseSchema, orderAggregateSchema, orderAggregateSummarySchema, orderSchema } from "@shared/contracts/orders";
 import type { Order } from "@core/src/features/orders/domain/order";
 import { orderStateMachine, type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { ListOrdersOutput } from "@core/src/features/orders/application/read-orders";
+import type { AggregatePage } from "@core/src/features/orders/application/list-order-aggregates";
 
 export function toOrderJson(order: Order) {
   return orderSchema.parse({ id: order.id, companyId: order.companyId, sellerId: order.sellerId, customer: order.customer,
@@ -19,6 +20,13 @@ export function toOrderAggregateJson(order: OrderAggregate) {
     paymentStatus: payment.data.status, paidAmount: payment.data.paidAmount,
     balanceDue: payment.data.balanceDue, overpaidAmount: payment.data.overpaidAmount,
     payments: order.payments.map((item) => ({ ...item, recordedAt: item.recordedAt.toISOString() })) });
+}
+
+export function toOrderAggregateListJson(page: AggregatePage) {
+  return listOrderAggregatesResponseSchema.parse({ ...page, items: page.items.map((item) => {
+    const { id, createdAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, customer, sellerId, total } = toOrderAggregateJson(item);
+    return orderAggregateSummarySchema.parse({ id, createdAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, customer, sellerId, total });
+  }) });
 }
 
 export function toOrderListJson(list: ListOrdersOutput) {

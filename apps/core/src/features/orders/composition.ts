@@ -11,8 +11,9 @@ import { registerImmediateSale, type RegisterImmediateSaleDependencies } from "@
 import { cancelOrder, type CancelOrderDependencies } from "@core/src/features/orders/application/cancel-order";
 import { registerShipment, registerDelivery, type FulfillOrderDependencies } from "@core/src/features/orders/application/fulfill-order";
 import { getOrderAggregate } from "@core/src/features/orders/application/read-order-aggregate";
+import { listOrderAggregates } from "@core/src/features/orders/application/list-order-aggregates";
 import { getOrder, listOrders } from "@core/src/features/orders/application/read-orders";
-import { saveOrder, savePendingOrder, savePayment, saveStockDeduction, saveFulfillment, saveCancellation, findOrder, findOrderAggregate, findOrderForUpdate, findOrders, orderExists } from "@core/src/features/orders/infrastructure/order-repository";
+import { saveOrder, savePendingOrder, savePayment, saveStockDeduction, saveFulfillment, saveCancellation, findOrder, findOrderAggregate, findOrderAggregates, findOrderForUpdate, findOrders, orderExists } from "@core/src/features/orders/infrastructure/order-repository";
 import { findSellableVariant, deductProductStock, restoreProductStock, searchSaleCatalog } from "@core/src/features/products";
 import { findContactById, searchSaleContacts } from "@core/src/features/contacts";
 import type { OrderItemId, PaymentId } from "@core/src/features/orders/domain/order";
@@ -43,6 +44,8 @@ const fulfillmentDependencies: FulfillOrderDependencies = { transaction: fulfill
   saveFulfillment, clock: () => new Date() };
 
 export const orders = {
+  listAggregates: (criteria: Parameters<typeof listOrderAggregates>[0], context: Parameters<typeof listOrderAggregates>[1]) =>
+    listOrderAggregates(criteria, context, findOrderAggregates),
   getAggregate: (id: Parameters<typeof getOrderAggregate>[0], context: Parameters<typeof getOrderAggregate>[1]) =>
     getOrderAggregate(id, context, findOrderAggregate),
   ship: (id: Parameters<typeof registerShipment>[0], context: Parameters<typeof registerShipment>[1]) =>

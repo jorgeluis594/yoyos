@@ -1,9 +1,9 @@
 import express, { type Request, type Response } from "express";
 import { z } from "zod";
-import { createOrderSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type CreateOrderRequest } from "@shared/contracts/orders";
+import { createOrderSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type CreateOrderRequest } from "@shared/contracts/orders";
 import { apiError, type PrivateLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { orders } from "@core/src/features/orders/composition";
-import { toOrderAggregateJson, toOrderJson, toOrderListJson } from "@core/src/features/orders/presentation/order-json";
+import { toOrderAggregateJson, toOrderAggregateListJson, toOrderJson, toOrderListJson } from "@core/src/features/orders/presentation/order-json";
 import type { CreatePendingOrderInput, OrderAccess } from "@core/src/features/orders/application/create-pending-order";
 import type { ContactId, CompanyId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { RegisterPaymentInput } from "@core/src/features/orders/application/register-payment";
@@ -108,6 +108,22 @@ orderRoutes.get("/", async (request, response) => {
       ...(completedBefore ? { completedBefore: new Date(completedBefore) } : {}),
     });
     return result.success ? response.json(toOrderListJson(result.data)) : operationError(response, result.error);
+  } catch (error) { return unexpected(response, error); }
+});
+
+orderRoutes.get("/mixed", async (request, response: Response<unknown, PrivateLocals>) => {
+  const query = queryFrom(request, response);
+  if (!query) return;
+  const parsed = listOrderAggregatesSchema.safeParse(query);
+  if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order filters");
+  const { page, customer, contactId, createdFrom, createdBefore } = parsed.data;
+  try {
+    const result = await orders.listAggregates({ page,
+      customer: customer === "contact" ? { kind: "contact", contactId: contactId as ContactId } : { kind: customer },
+      ...(createdFrom ? { createdFrom: new Date(createdFrom) } : {}),
+      ...(createdBefore ? { createdBefore: new Date(createdBefore) } : {}),
+    }, orderContext(response));
+    return result.success ? response.json(toOrderAggregateListJson(result.data)) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });
 

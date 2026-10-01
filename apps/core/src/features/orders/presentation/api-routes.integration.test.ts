@@ -154,6 +154,31 @@ test("orders HTTP exposes pending payment, stock retry and completion with compa
   expect((await call(`/api/orders/${id}/cancel`, seller.cookie, undefined, "POST")).status).toBe(409);
 });
 
+test("mixed orders list uses creation date and includes pending and completed orders", async () => {
+  const seller = await fixture("PE");
+  const pendingId = randomUUID();
+  const completedId = randomUUID();
+  expect((await call("/api/orders/pending", seller.cookie,
+    { id: pendingId, contactId: seller.contactId, items: [{ variantId: seller.variantId, quantity: 1 }] }, "POST")).status).toBe(201);
+  expect((await call("/api/orders/immediate-sale", seller.cookie,
+    { id: completedId, contactId: null, items: [{ variantId: seller.variantId, quantity: 1 }] }, "POST")).status).toBe(201);
+  await withTenantIsolation(seller.companyId, async () => {
+    await prisma.order.update({ where: { id: pendingId }, data: { createdAt: new Date("2026-09-30T12:00:00Z") } });
+    await prisma.order.update({ where: { id: completedId }, data: { createdAt: new Date("2026-09-29T12:00:00Z") } });
+  });
+  const list = await call("/api/orders/mixed", seller.cookie);
+  expect(list.status).toBe(200);
+  expect(await list.json()).toMatchObject({ total: 2, page: 1, items: [
+    { id: pendingId, status: "active", paymentStatus: "pending", createdAt: "2026-09-30T12:00:00.000Z" },
+    { id: completedId, status: "completed", paymentStatus: "paid", createdAt: "2026-09-29T12:00:00.000Z" },
+  ] });
+  expect(await (await call(`/api/orders/mixed?customer=contact&contactId=${seller.contactId}`, seller.cookie)).json())
+    .toMatchObject({ total: 1, items: [{ id: pendingId }] });
+  expect(await (await call("/api/orders/mixed?createdFrom=2026-09-30T00%3A00%3A00.000Z", seller.cookie)).json())
+    .toMatchObject({ total: 1, items: [{ id: pendingId }] });
+  expect(await (await call("/api/orders", seller.cookie)).json()).toMatchObject({ total: 1, items: [{ id: completedId }] });
+});
+
 test("orders HTTP combines contact and Lima-day UTC bounds with stable pages and capped search", async () => {
   const seller = await fixture("PE");
   const ids = Array.from({ length: 21 }, (_, index) => `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`);
