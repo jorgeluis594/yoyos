@@ -1,3 +1,4 @@
+import { formatCurrency } from "@core/app/format-currency";
 import { browserExpect, expect, prepareVerifiedCompany, test } from "./fixtures";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { products } from "@core/src/features/products/composition";
@@ -126,15 +127,15 @@ test("create products from the private form, validate input, and reload detail",
     await browserExpect(page.getByText("Talla", { exact: true })).toHaveCount(2);
     await browserExpect(page.getByText("M", { exact: true })).toBeVisible();
     await browserExpect(page.getByText("L", { exact: true })).toBeVisible();
-    await browserExpect(page.getByText("20.00 PEN")).toBeVisible();
-    await browserExpect(page.getByText("25.00 PEN")).toBeVisible();
+    await browserExpect(page.getByText(formatCurrency(20, "PEN", "es"))).toBeVisible();
+    await browserExpect(page.getByText(formatCurrency(25, "PEN", "es"))).toBeVisible();
     await browserExpect(page.getByRole("article").filter({ hasText: "CAM-M" })).toContainText("Stock2");
     await browserExpect(page.getByRole("article").filter({ hasText: "CAM-L" })).toContainText("Stock3");
     await browserExpect(page.getByRole("img", { name: "Vista previa de la foto del producto" })).toHaveAttribute("src", /prepared-product\.jpg$/);
     await page.getByRole("link", { name: "Volver a productos" }).click();
     const catalogRow = page.getByRole("row", { name: /Camisa con tallas/ });
     await browserExpect(catalogRow).toContainText("Varias variantes");
-    await browserExpect(catalogRow).toContainText("Desde 20.00 PEN");
+    await browserExpect(catalogRow).toContainText(`Desde ${formatCurrency(20, "PEN", "es")}`);
     await browserExpect(catalogRow).toContainText("5");
     await page.goto("/es-PE/products?pageSize=1");
     await browserExpect(page.getByRole("row")).toHaveCount(2);
