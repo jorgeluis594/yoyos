@@ -66,11 +66,11 @@ export const orders = {
   },
   deductStock: (id: Parameters<typeof deductStock>[0], context: Parameters<typeof deductStock>[1]) =>
     deductStock(id, context, { transaction: stockTransaction, findOrderForUpdate, deductProductStock, saveStockDeduction }),
-  createPending: (input: Parameters<typeof createOrder>[0], context: Parameters<typeof createOrder>[1]) =>
+  create: (input: Parameters<typeof createOrder>[0], context: Parameters<typeof createOrder>[1]) =>
     createOrder(input, context, { transaction: pendingTransaction, orderExists,
       findContact: findContactById, findVariant: findSellableVariant, saveOrder: savePendingOrder,
       newItemId: () => randomUUID() as OrderItemId, clock: () => new Date() }),
-  create: (input: Parameters<typeof createLegacyOrder>[0], context: Parameters<typeof createLegacyOrder>[1]) =>
+  createLegacy: (input: Parameters<typeof createLegacyOrder>[0], context: Parameters<typeof createLegacyOrder>[1]) =>
     createLegacyOrder(input, context, { transaction: orderTransaction, orderExists, findContact: findContactById, findVariant: findSellableVariant,
       save: saveOrder, deductStock: deductProductStock, newId: randomUUID, newPaymentId: () => randomUUID() as PaymentId, clock: () => new Date() }),
   list: (criteria: Parameters<typeof listOrders>[0]) => listOrders(criteria, findOrders),

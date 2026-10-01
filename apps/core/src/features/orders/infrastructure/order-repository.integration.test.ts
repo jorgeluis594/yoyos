@@ -49,7 +49,7 @@ test("persists a pending order without payment or stock effects", async () => {
       const orderId = randomUUID();
       const input = { id: orderId as OrderId, contactId: null, items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] } as const;
       const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
-      const created = await orders.createPending(input, context);
+      const created = await orders.create(input, context);
       expect(created).toMatchObject({ success: true, data: { completedAt: null, payments: [], stockDeducted: false } });
       if (!created.success) throw new Error("Expected valid pending order");
       const saved = await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { items: true, payments: true } });
@@ -59,7 +59,7 @@ test("persists a pending order without payment or stock effects", async () => {
       expect(saved.itemsTotal.toNumber()).toBe(0.2);
       expect(saved.items).toMatchObject([{ productName: "Sample product", variantAttributes: { Size: "M" } }]);
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
-      expect(await orders.createPending(input, context)).toMatchObject({ success: false, error: { code: "ORDER_ALREADY_EXISTS" } });
+      expect(await orders.create(input, context)).toMatchObject({ success: false, error: { code: "ORDER_ALREADY_EXISTS" } });
       expect(await prisma.payment.count()).toBe(0);
       expect(await findOrderAggregate(input.id, context.companyId)).toMatchObject({ success: true,
         data: { id: orderId, completedAt: null, payments: [], total: { amount: 0.2, currency: "PEN" } } });
@@ -83,7 +83,7 @@ test("reports incompatible stored payments instead of returning an invalid aggre
     await withTenantIsolation(f.companyId, async () => {
       const orderId = randomUUID() as OrderId;
       const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
-      expect(await orders.createPending({ id: orderId, contactId: null,
+      expect(await orders.create({ id: orderId, contactId: null,
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }] }, context)).toMatchObject({ success: true });
       await prisma.payment.create({ data: { id: randomUUID(), orderId, companyId: f.companyId,
         amount: 0.1, currency: "USD", method: "digital_wallet", recordedAt: new Date() } });
@@ -100,7 +100,7 @@ test("keeps all stock when a pending order cannot deduct every item", async () =
     await withTenantIsolation(f.companyId, async () => {
       const orderId = randomUUID() as OrderId;
       const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
-      expect(await orders.createPending({ id: orderId, contactId: null, items: [
+      expect(await orders.create({ id: orderId, contactId: null, items: [
         { variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger },
         { variantId: f.variantIds[1] as VariantId, quantity: 4 as PositiveInteger },
       ] }, context)).toMatchObject({ success: true });
@@ -119,7 +119,7 @@ test("preserves a recorded payment when stock is short and retries its ID after 
     await withTenantIsolation(f.companyId, async () => {
       const orderId = randomUUID() as OrderId;
       const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
-      expect(await orders.createPending({ id: orderId, contactId: null,
+      expect(await orders.create({ id: orderId, contactId: null,
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: 4 as PositiveInteger }] }, context)).toMatchObject({ success: true });
       const input = { orderId, paymentId: randomUUID() as PaymentId, amount: { amount: 0.4, currency: "PEN" as const },
         method: "digital_wallet" as const, deductStockIfPartial: false };
@@ -145,7 +145,7 @@ test("concurrent retries of one payment record once and deduct stock once", asyn
     await withTenantIsolation(f.companyId, async () => {
       const orderId = randomUUID() as OrderId;
       const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
-      expect(await orders.createPending({ id: orderId, contactId: null,
+      expect(await orders.create({ id: orderId, contactId: null,
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] }, context)).toMatchObject({ success: true });
       const payment = { orderId, paymentId: randomUUID() as PaymentId, amount: { amount: 0.2, currency: "PEN" as const },
         method: "digital_wallet" as const, deductStockIfPartial: false };
@@ -164,7 +164,7 @@ test("concurrent distinct payments preserve both amounts and deduct once when co
     await withTenantIsolation(f.companyId, async () => {
       const orderId = randomUUID() as OrderId;
       const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
-      expect(await orders.createPending({ id: orderId, contactId: null,
+      expect(await orders.create({ id: orderId, contactId: null,
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] }, context)).toMatchObject({ success: true });
       const payment = { orderId, amount: { amount: 0.1, currency: "PEN" as const },
         method: "digital_wallet" as const, deductStockIfPartial: false };
@@ -184,7 +184,7 @@ test("keeps stock after an unrequested partial payment and deducts it when payme
     await withTenantIsolation(f.companyId, async () => {
       const orderId = randomUUID() as OrderId;
       const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
-      expect(await orders.createPending({ id: orderId, contactId: null,
+      expect(await orders.create({ id: orderId, contactId: null,
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] }, context)).toMatchObject({ success: true });
       const payment = { orderId, paymentId: randomUUID() as PaymentId, amount: { amount: 0.1, currency: "PEN" as const },
         method: "digital_wallet" as const, deductStockIfPartial: false };
@@ -239,7 +239,7 @@ test("restores deducted stock once when cancelling before dispatch and preserves
     await withTenantIsolation(f.companyId, async () => {
       const orderId = randomUUID() as OrderId;
       const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
-      expect(await orders.createPending({ id: orderId, contactId: null,
+      expect(await orders.create({ id: orderId, contactId: null,
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] }, context)).toMatchObject({ success: true });
       expect(await orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId,
         amount: { amount: 0.2, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context))
@@ -261,7 +261,7 @@ test("ships and completes only a paid order with deducted stock", async () => {
     await withTenantIsolation(f.companyId, async () => {
       const orderId = randomUUID() as OrderId;
       const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
-      expect(await orders.createPending({ id: orderId, contactId: null,
+      expect(await orders.create({ id: orderId, contactId: null,
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] }, context)).toMatchObject({ success: true });
       expect(await orders.ship(orderId, context)).toMatchObject({ success: false, error: { code: "PAYMENT_REQUIRED" } });
       expect(await orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId,
@@ -291,7 +291,7 @@ test("reducing a delivery charge to covered payment deducts stock atomically", a
       const deps: SetDeliveryDependencies = { transaction: async (_companyId, work) => withinTransaction(work),
         findOrderForUpdate, saveDelivery, saveStockDeduction, deductProductStock,
         resolveDelivery: async (selection, _companyId, currency) => ok({ delivery: selection, cost: { amount: cost, currency } }) };
-      expect(await orders.createPending({ id: orderId, contactId: null,
+      expect(await orders.create({ id: orderId, contactId: null,
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] }, context)).toMatchObject({ success: true });
       expect(await setOrderDelivery({ orderId, delivery, chargeDeliveryToCustomer: true }, context, deps))
         .toMatchObject({ success: true, data: { total: { amount: 0.3 }, stockDeducted: false } });
@@ -322,7 +322,7 @@ test("keeps the previous delivery when its required stock deduction fails", asyn
       const deps: SetDeliveryDependencies = { transaction: async (_companyId, work) => withinTransaction(work),
         findOrderForUpdate, saveDelivery, saveStockDeduction, deductProductStock,
         resolveDelivery: async (selection, _companyId, currency) => ok({ delivery: selection, cost: { amount: cost, currency } }) };
-      expect(await orders.createPending({ id: orderId, contactId: null,
+      expect(await orders.create({ id: orderId, contactId: null,
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: 4 as PositiveInteger }] }, context)).toMatchObject({ success: true });
       expect(await setOrderDelivery({ orderId, delivery, chargeDeliveryToCustomer: true }, context, deps)).toMatchObject({ success: true });
       expect(await orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId,
@@ -346,7 +346,7 @@ test("persists completed sale, historical snapshots, listing and duplicate rejec
   try {
     await withTenantIsolation(f.companyId, async () => {
       const orderId = randomUUID();
-      const created = await orders.create({ id: orderId, contactId: f.contactId, items: [
+      const created = await orders.createLegacy({ id: orderId, contactId: f.contactId, items: [
         { variantId: f.variantIds[0], quantity: 3 }, { variantId: f.variantIds[1], quantity: 2 },
       ] }, { companyId: f.companyId, sellerId: f.sellerId });
       expect(created).toMatchObject({ success: true, data: { total: { amount: 0.7, currency: "PEN" },
@@ -365,7 +365,7 @@ test("persists completed sale, historical snapshots, listing and duplicate rejec
       expect(await prisma.productStock.findMany({ orderBy: { variantId: "asc" } })).toHaveLength(2);
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(0n);
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[1] } })).quantity).toBe(1n);
-      expect(await orders.create({ id: orderId, contactId: null, items: [{ variantId: f.variantIds[1], quantity: 1 }] }, { companyId: f.companyId, sellerId: f.sellerId }))
+      expect(await orders.createLegacy({ id: orderId, contactId: null, items: [{ variantId: f.variantIds[1], quantity: 1 }] }, { companyId: f.companyId, sellerId: f.sellerId }))
         .toMatchObject({ success: false, error: { code: "ORDER_ALREADY_EXISTS" } });
       await prisma.contact.update({ where: { id: f.contactId }, data: { phone: "+51888888888", name: "Changed" } });
       await prisma.product.update({ where: { id: f.productId }, data: { name: "Changed product" } });
@@ -392,7 +392,7 @@ test("rolls back all writes and stock when a later item is unavailable", async (
   const f = await fixture();
   try {
     await withTenantIsolation(f.companyId, async () => {
-      const result = await orders.create({ id: randomUUID(), contactId: null, items: [
+      const result = await orders.createLegacy({ id: randomUUID(), contactId: null, items: [
         { variantId: f.variantIds[0], quantity: 1 }, { variantId: f.variantIds[1], quantity: 4 },
       ] }, { companyId: f.companyId, sellerId: f.sellerId });
       expect(result).toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK", variantId: f.variantIds[1] } });
@@ -409,7 +409,7 @@ test("two simultaneous sales cannot consume the last stock twice", async () => {
   try {
     await withTenantIsolation(f.companyId, async () => {
       await prisma.productStock.update({ where: { variantId: f.variantIds[0] }, data: { quantity: 1n } });
-      const results = await Promise.all([1, 2].map(() => orders.create({ id: randomUUID(), contactId: null,
+      const results = await Promise.all([1, 2].map(() => orders.createLegacy({ id: randomUUID(), contactId: null,
         items: [{ variantId: f.variantIds[0], quantity: 1 }] }, { companyId: f.companyId, sellerId: f.sellerId })));
       expect(results.filter((result) => result.success)).toHaveLength(1);
       expect(results.filter((result) => !result.success).map((result) => !result.success && result.error.code)).toEqual(["INSUFFICIENT_STOCK"]);
@@ -424,7 +424,7 @@ test("concurrent submissions of one order ID create only one sale", async () => 
   try {
     await withTenantIsolation(f.companyId, async () => {
       const orderId = randomUUID();
-      const results = await Promise.all([1, 2].map(() => orders.create({ id: orderId, contactId: null,
+      const results = await Promise.all([1, 2].map(() => orders.createLegacy({ id: orderId, contactId: null,
         items: [{ variantId: f.variantIds[0], quantity: 1 }] }, { companyId: f.companyId, sellerId: f.sellerId })));
       expect(results.filter((result) => result.success)).toHaveLength(1);
       expect(results.filter((result) => !result.success).map((result) => !result.success && result.error.code)).toEqual(["ORDER_ALREADY_EXISTS"]);
@@ -441,7 +441,7 @@ test("separates companies and blocks cross-company references", async () => {
   try {
     const foreignOrderId = randomUUID();
     await withTenantIsolation(b.companyId, async () => {
-      expect(await orders.create({ id: foreignOrderId, contactId: b.contactId, items: [{ variantId: b.variantIds[0], quantity: 1 }] },
+      expect(await orders.createLegacy({ id: foreignOrderId, contactId: b.contactId, items: [{ variantId: b.variantIds[0], quantity: 1 }] },
         { companyId: b.companyId, sellerId: b.sellerId })).toMatchObject({ success: true });
     });
     await withTenantIsolation(a.companyId, async () => {
@@ -449,11 +449,11 @@ test("separates companies and blocks cross-company references", async () => {
       expect(await orders.list({ page: 1, customer: { kind: "all" } })).toMatchObject({ success: true, data: { total: 0 } });
       expect(await prisma.order.count()).toBe(0);
       expect(await prisma.orderItem.count()).toBe(0);
-      expect(await orders.create({ id: randomUUID(), contactId: b.contactId, items: [{ variantId: a.variantIds[0], quantity: 1 }] },
+      expect(await orders.createLegacy({ id: randomUUID(), contactId: b.contactId, items: [{ variantId: a.variantIds[0], quantity: 1 }] },
         { companyId: a.companyId, sellerId: a.sellerId })).toMatchObject({ success: false, error: { code: "CONTACT_NOT_FOUND" } });
-      expect(await orders.create({ id: randomUUID(), contactId: null, items: [{ variantId: b.variantIds[0], quantity: 1 }] },
+      expect(await orders.createLegacy({ id: randomUUID(), contactId: null, items: [{ variantId: b.variantIds[0], quantity: 1 }] },
         { companyId: a.companyId, sellerId: a.sellerId })).toMatchObject({ success: false, error: { code: "VARIANT_NOT_FOUND", variantId: b.variantIds[0] } });
-      expect(await orders.create({ id: foreignOrderId, contactId: null, items: [{ variantId: a.variantIds[0], quantity: 1 }] },
+      expect(await orders.createLegacy({ id: foreignOrderId, contactId: null, items: [{ variantId: a.variantIds[0], quantity: 1 }] },
         { companyId: a.companyId, sellerId: a.sellerId })).toMatchObject({ success: false, error: { code: "ORDER_ALREADY_EXISTS" } });
       expect(await prisma.order.count()).toBe(0);
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: a.variantIds[0] } })).quantity).toBe(3n);
@@ -474,7 +474,7 @@ test("lists 20 per page with stable tie ordering and exclusive end date", async 
       const completedAt = new Date("2026-09-27T12:00:00.000Z");
       for (let index = 0; index < 25; index++) {
         const id = randomUUID();
-        expect(await orders.create({ id, contactId: null, items: [{ variantId: f.variantIds[0], quantity: 1 }] },
+        expect(await orders.createLegacy({ id, contactId: null, items: [{ variantId: f.variantIds[0], quantity: 1 }] },
           { companyId: f.companyId, sellerId: f.sellerId })).toMatchObject({ success: true });
         await prisma.order.update({ where: { id }, data: { completedAt } });
       }
@@ -507,7 +507,7 @@ test("rolls back order and items after a stock write fails", async () => {
     await admin.$executeRawUnsafe(`CREATE FUNCTION public.${name}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF OLD."companyId" = '${f.companyId}'::uuid THEN RAISE EXCEPTION 'stock write rejected by test'; END IF; RETURN NEW; END $$`);
     await admin.$executeRawUnsafe(`CREATE TRIGGER ${name} BEFORE UPDATE ON "ProductStock" FOR EACH ROW EXECUTE FUNCTION public.${name}()`);
     await withTenantIsolation(f.companyId, async () => {
-      const result = await orders.create({ id: randomUUID(), contactId: null, items: [{ variantId: f.variantIds[0], quantity: 1 }] },
+      const result = await orders.createLegacy({ id: randomUUID(), contactId: null, items: [{ variantId: f.variantIds[0], quantity: 1 }] },
         { companyId: f.companyId, sellerId: f.sellerId });
       expect(result).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
       expect(await prisma.order.count()).toBe(0);
@@ -527,7 +527,7 @@ test("database constraints reject invalid completed sale writes", async () => {
   try {
     await withTenantIsolation(f.companyId, async () => {
       const id = randomUUID();
-      expect(await orders.create({ id, contactId: null, items: [{ variantId: f.variantIds[0], quantity: 1 }] },
+      expect(await orders.createLegacy({ id, contactId: null, items: [{ variantId: f.variantIds[0], quantity: 1 }] },
         { companyId: f.companyId, sellerId: f.sellerId })).toMatchObject({ success: true });
       const item = await prisma.orderItem.findFirstOrThrow({ where: { orderId: id } });
       await expect(prisma.order.update({ where: { id }, data: { paymentMethod: "cash" } })).rejects.toThrow();

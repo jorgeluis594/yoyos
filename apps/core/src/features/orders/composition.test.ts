@@ -30,13 +30,13 @@ test("returns a recoverable failure when transaction acquisition or commit fails
   try {
     for (const failure of failures) {
       withinTransaction.mockRejectedValueOnce(failure);
-      expect(await orders.create(input, context)).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
+      expect(await orders.createLegacy(input, context)).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
       withinTransaction.mockImplementationOnce(async (callback) => { await callback(); throw failure; });
-      expect(await orders.create(input, context)).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
+      expect(await orders.createLegacy(input, context)).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
     }
     const unexpected = new Error("Unexpected transaction failure");
     withinTransaction.mockRejectedValueOnce(unexpected);
-    await expect(orders.create(input, context)).rejects.toBe(unexpected);
+    await expect(orders.createLegacy(input, context)).rejects.toBe(unexpected);
   } finally {
     log.mockRestore();
     withinTransaction.mockReset();

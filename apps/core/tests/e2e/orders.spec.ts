@@ -121,7 +121,7 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
       await prisma.productStock.update({ where: { variantId: stock.variantId }, data: { quantity: 25n } });
       const sellerId = (await systemPrisma.user.findUniqueOrThrow({ where: { email } })).id;
       for (let index = 0; index < 21; index++) {
-        expect(await orders.create({ id: crypto.randomUUID(), contactId: null, items: [{ variantId: stock.variantId, quantity: 1 }] },
+        expect(await orders.createLegacy({ id: crypto.randomUUID(), contactId: null, items: [{ variantId: stock.variantId, quantity: 1 }] },
           { companyId: tenantId, sellerId })).toMatchObject({ success: true });
       }
     });
