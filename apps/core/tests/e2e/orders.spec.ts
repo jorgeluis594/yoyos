@@ -126,10 +126,10 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
       }
     });
     await page.goto("/es-PE/orders");
-    await browserExpect(page.getByRole("table", { name: "Ventas completadas" }).getByRole("row")).toHaveCount(21);
+    await browserExpect(page.getByRole("table", { name: "Órdenes" }).getByRole("row")).toHaveCount(21);
     await page.getByRole("navigation", { name: "Páginas de ventas" }).getByRole("link", { name: "Siguiente" }).click();
     await browserExpect(page).toHaveURL(/page=2/);
-    await browserExpect(page.getByRole("table", { name: "Ventas completadas" }).getByRole("row")).toHaveCount(5);
+    await browserExpect(page.getByRole("table", { name: "Órdenes" }).getByRole("row")).toHaveCount(5);
     await page.setViewportSize({ width: 390, height: 780 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await browserExpect(page.getByRole("searchbox", { name: "Buscar contacto para filtrar" })).toBeVisible();
@@ -137,7 +137,7 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     await page.getByLabel("Desde").fill("2020-01-01");
     await page.getByLabel("Antes de").fill("2020-01-02");
     await page.getByRole("button", { name: "Aplicar filtros" }).click();
-    await browserExpect(page.getByText("No hay ventas para estos filtros.")).toBeVisible();
+    await browserExpect(page.getByText("No hay órdenes para estos filtros.")).toBeVisible();
     await page.getByRole("button", { name: /filtros activos/ }).click();
     await page.getByRole("link", { name: "Limpiar" }).click();
     await browserExpect(page).toHaveURL("/es-PE/orders");
@@ -156,6 +156,7 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     for (const accountEmail of [email, otherEmail]) {
       const user = await systemPrisma.user.findUnique({ where: { email: accountEmail }, select: { companyId: true } });
       if (user?.companyId) await withTenantIsolation(user.companyId, async () => {
+        await prisma.payment.deleteMany();
         await prisma.orderItem.deleteMany();
         await prisma.order.deleteMany();
         await prisma.contact.deleteMany();
@@ -166,5 +167,42 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
       await systemPrisma.user.deleteMany({ where: { email: accountEmail } });
       if (user?.companyId) await withTenantIsolation(user.companyId, async () => await prisma.company.delete({ where: { id: user.companyId! } }));
     }
+  }
+});
+
+test("pending order appears in the mixed list and detail without completion claims", async ({ page }) => {
+  const email = `orders-pending-${crypto.randomUUID()}@example.test`;
+  let companyId: string | undefined;
+  try {
+    companyId = await prepareVerifiedCompany(page, { email, name: "Pending Seller", companyName: "Pending company", country: "PE" });
+    const tenantId = companyId;
+    const product = await withTenantIsolation(tenantId, () => products.create({ name: "Producto pendiente", currency: "PEN",
+      variants: [{ attributes: {}, sku: "PENDING", salePrice: 10, initialStock: 2 }] }));
+    expect(product.success).toBe(true);
+    if (!product.success) return;
+    const variantId = await withTenantIsolation(tenantId, async () => (await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } })).id);
+    const orderId = crypto.randomUUID();
+    const created = await page.request.post("/api/orders/pending", { data: { id: orderId, contactId: null,
+      items: [{ variantId, quantity: 1 }] } });
+    expect(created.status()).toBe(201);
+    await page.goto("/es-PE/orders");
+    await browserExpect(page.getByRole("table", { name: "Órdenes" }).getByText("Activa")).toBeVisible();
+    await page.getByRole("table", { name: "Órdenes" }).getByRole("link", { name: "Público general" }).click();
+    await browserExpect(page).toHaveURL(new RegExp(`/orders/${orderId}$`));
+    await browserExpect(page.getByRole("heading", { name: "Orden activa" })).toBeVisible();
+    await browserExpect(page.getByText("Pendiente: 10.00 PEN")).toBeVisible();
+    expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(2n);
+  } finally {
+    const user = await systemPrisma.user.findUnique({ where: { email }, select: { companyId: true } });
+    if (user?.companyId) await withTenantIsolation(user.companyId, async () => {
+      await prisma.payment.deleteMany();
+      await prisma.orderItem.deleteMany();
+      await prisma.order.deleteMany();
+      await prisma.productStock.deleteMany();
+      await prisma.productVariant.deleteMany();
+      await prisma.product.deleteMany();
+    });
+    await systemPrisma.user.deleteMany({ where: { email } });
+    if (user?.companyId) await withTenantIsolation(user.companyId, async () => await prisma.company.delete({ where: { id: user.companyId! } }));
   }
 });
