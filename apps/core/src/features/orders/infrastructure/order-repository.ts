@@ -2,37 +2,18 @@ import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import { isCurrency } from "@shared/money";
 import { getCompanyId, prisma, requireActiveTransaction } from "@core/src/shared/infrastructure/persistance";
-import { buildOrder, type LegacyOrder, type OrderItemId, type OrderId, type ContactId, type CompanyId, type UserId, type PositiveInteger, type PaymentId } from "@core/src/features/orders/domain/order";
-import type { CreateLegacyOrderError } from "@core/src/features/orders/application/create-legacy-order";
+import { buildOrder, type OrderItemId, type OrderId, type ContactId, type CompanyId, type UserId, type PositiveInteger, type PaymentId } from "@core/src/features/orders/domain/order";
 import { orderStateMachine, parseDeliveryDetails, type OrderAggregate, type Payment } from "@core/src/features/orders/domain/order-state-machine";
 import type { OrderCriteria } from "@core/src/features/orders/application/read-orders";
 import type { AggregateCriteria, AggregatePage } from "@core/src/features/orders/application/list-order-aggregates";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
-const include = { items: { orderBy: { id: "asc" as const } } };
-type DbOrder = Prisma.OrderGetPayload<{ include: typeof include }>;
 const aggregateInclude = { items: { orderBy: { id: "asc" as const } }, payments: { orderBy: [{ recordedAt: "asc" as const }, { id: "asc" as const }] } };
 type DbAggregate = Prisma.OrderGetPayload<{ include: typeof aggregateInclude }>;
 class InvalidStoredOrderError extends Error {}
 
 function knownFailure(cause: unknown) {
   return cause instanceof Prisma.PrismaClientKnownRequestError || cause instanceof Prisma.PrismaClientUnknownRequestError || cause instanceof Prisma.PrismaClientInitializationError;
-}
-
-function mapOrder(row: DbOrder): LegacyOrder {
-  if (!row.completedAt || row.paymentMethod !== "digital_wallet") throw new Error("Order is not a completed immediate sale");
-  if (!isCurrency(row.currency)) throw new Error("Invalid stored order currency");
-  if (!row.items.length || row.items.some((item) => item.quantity <= 0n || item.quantity > BigInt(Number.MAX_SAFE_INTEGER))) throw new Error("Invalid stored order quantity");
-  const items = row.items.map((item) => {
-    const attributes = item.variantAttributes;
-    if (!attributes || typeof attributes !== "object" || Array.isArray(attributes) || Object.values(attributes).some((value) => typeof value !== "string")) throw new Error("Invalid stored order attributes");
-    return { id: item.id as OrderItemId, variantId: item.variantId as VariantId, productName: item.productName,
-      variantAttributes: { ...attributes } as Record<string, string>, sku: item.sku, quantity: Number(item.quantity) as PositiveInteger,
-      unitPrice: { amount: item.unitPrice.toNumber(), currency: row.currency }, subtotal: { amount: item.subtotal.toNumber(), currency: row.currency } };
-  }) as [LegacyOrder["items"][number], ...LegacyOrder["items"][number][]];
-  return { id: row.id as OrderId, companyId: row.companyId as CompanyId, sellerId: row.sellerId as UserId,
-    customer: row.contactId ? { kind: "contact", contactId: row.contactId as ContactId, name: row.contactName, phone: row.contactPhone! } : { kind: "general_public" },
-    paymentMethod: "digital_wallet", completedAt: row.completedAt, items, total: { amount: row.total.toNumber(), currency: row.currency } };
 }
 
 function mapAggregate(row: DbAggregate): OrderAggregate {
@@ -73,30 +54,6 @@ function mapAggregate(row: DbAggregate): OrderAggregate {
   return order;
 }
 
-export async function saveOrder(order: LegacyOrder, paymentId: PaymentId) {
-  try {
-    await prisma.order.create({ data: { id: order.id, sellerId: order.sellerId,
-      contactId: order.customer.kind === "contact" ? order.customer.contactId : null,
-      contactName: order.customer.kind === "contact" ? order.customer.name : null,
-      contactPhone: order.customer.kind === "contact" ? order.customer.phone : null,
-      currency: order.total.currency, total: new Prisma.Decimal(order.total.amount.toString()),
-      itemsTotal: new Prisma.Decimal(order.total.amount.toString()), createdAt: order.completedAt,
-      deliveryStatus: "delivered", stockDeducted: true, paymentMethod: order.paymentMethod, completedAt: order.completedAt,
-      payments: { create: { id: paymentId, amount: new Prisma.Decimal(order.total.amount.toString()),
-        currency: order.total.currency, method: order.paymentMethod, recordedAt: order.completedAt } },
-      items: { create: order.items.map((item) => ({ id: item.id, variantId: item.variantId, productName: item.productName,
-        variantAttributes: item.variantAttributes as Prisma.InputJsonObject, sku: item.sku, quantity: BigInt(item.quantity),
-        unitPrice: new Prisma.Decimal(item.unitPrice.amount.toString()), subtotal: new Prisma.Decimal(item.subtotal.amount.toString()) })) },
-    } });
-    return ok<null>(null);
-  } catch (cause) {
-    if (!knownFailure(cause)) throw cause;
-    if (cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2002") return err<CreateLegacyOrderError>({ code: "ORDER_ALREADY_EXISTS", message: "Order already exists" });
-    console.error("Unable to save order", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
-    return err<CreateLegacyOrderError>({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to save order" });
-  }
-}
-
 export async function savePendingOrder(order: OrderAggregate) {
   try {
     await prisma.order.create({ data: { id: order.id, companyId: order.companyId, sellerId: order.sellerId,
@@ -130,17 +87,6 @@ export async function orderExists(id: string) {
     if (!knownFailure(cause)) throw cause;
     console.error("Unable to check order ID", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to check order ID" });
-  }
-}
-
-export async function findOrder(id: string) {
-  try {
-    const row = await prisma.order.findFirst({ where: { id }, include });
-    return ok(row ? mapOrder(row) : null);
-  } catch (cause) {
-    if (!knownFailure(cause)) throw cause;
-    console.error("Unable to load order", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
-    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to load order" });
   }
 }
 

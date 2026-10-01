@@ -42,6 +42,19 @@ async function fixture() {
   } };
 }
 
+function immediateSale(input: { id: string; contactId: string | null; items: readonly { variantId: string; quantity: number }[] },
+  context: { companyId: string; sellerId: string }) {
+  const [first, ...rest] = input.items;
+  if (!first) throw new Error("Test sale requires items");
+  const item = (selection: typeof first) => ({ variantId: selection.variantId as VariantId, quantity: selection.quantity as PositiveInteger });
+  return orders.registerImmediateSale({ id: input.id as OrderId, contactId: input.contactId as ContactId | null,
+    items: [item(first), ...rest.map(item)] }, { companyId: context.companyId as CompanyId, userId: context.sellerId as UserId });
+}
+
+function orderDetail(id: string, owner: { companyId: string; sellerId: string }) {
+  return orders.getAggregate(id as OrderId, { companyId: owner.companyId as CompanyId, userId: owner.sellerId as UserId });
+}
+
 test("persists a pending order without payment or stock effects", async () => {
   const f = await fixture();
   try {
@@ -346,7 +359,7 @@ test("persists completed sale, historical snapshots, listing and duplicate rejec
   try {
     await withTenantIsolation(f.companyId, async () => {
       const orderId = randomUUID();
-      const created = await orders.createLegacy({ id: orderId, contactId: f.contactId, items: [
+      const created = await immediateSale({ id: orderId, contactId: f.contactId, items: [
         { variantId: f.variantIds[0], quantity: 3 }, { variantId: f.variantIds[1], quantity: 2 },
       ] }, { companyId: f.companyId, sellerId: f.sellerId });
       expect(created).toMatchObject({ success: true, data: { total: { amount: 0.7, currency: "PEN" },
@@ -355,9 +368,10 @@ test("persists completed sale, historical snapshots, listing and duplicate rejec
       expect(persisted).toMatchObject({ itemsTotal: expect.anything(), deliveryStatus: "delivered", stockDeducted: true,
         cancelled: false, delivery: null });
       expect(persisted.itemsTotal.toNumber()).toBe(0.7);
-      expect(persisted.createdAt).toEqual(persisted.completedAt);
+      expect(persisted.createdAt.getTime()).toBeLessThanOrEqual(persisted.completedAt!.getTime());
       expect(persisted.payments).toHaveLength(1);
-      expect(persisted.payments[0]).toMatchObject({ orderId, currency: "PEN", method: "digital_wallet", recordedAt: persisted.completedAt });
+      expect(persisted.payments[0]).toMatchObject({ orderId, currency: "PEN", method: "digital_wallet" });
+      expect(persisted.payments[0].recordedAt.getTime()).toBeLessThanOrEqual(persisted.completedAt!.getTime());
       expect(persisted.payments[0].amount.toNumber()).toBe(0.7);
       expect(await findOrderAggregate(orderId as OrderId, f.companyId as CompanyId)).toMatchObject({ success: true,
         data: { id: orderId, deliveryStatus: "delivered", stockDeducted: true, payments: [{ id: persisted.payments[0].id,
@@ -365,12 +379,12 @@ test("persists completed sale, historical snapshots, listing and duplicate rejec
       expect(await prisma.productStock.findMany({ orderBy: { variantId: "asc" } })).toHaveLength(2);
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(0n);
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[1] } })).quantity).toBe(1n);
-      expect(await orders.createLegacy({ id: orderId, contactId: null, items: [{ variantId: f.variantIds[1], quantity: 1 }] }, { companyId: f.companyId, sellerId: f.sellerId }))
+      expect(await immediateSale({ id: orderId, contactId: null, items: [{ variantId: f.variantIds[1], quantity: 1 }] }, { companyId: f.companyId, sellerId: f.sellerId }))
         .toMatchObject({ success: false, error: { code: "ORDER_ALREADY_EXISTS" } });
       await prisma.contact.update({ where: { id: f.contactId }, data: { phone: "+51888888888", name: "Changed" } });
       await prisma.product.update({ where: { id: f.productId }, data: { name: "Changed product" } });
       await prisma.productVariant.update({ where: { id: f.variantIds[0] }, data: { attributes: { Size: "XL" }, sku: `CHANGED-${f.variantIds[0]}`, salePrice: 3.5 } });
-      const detail = await orders.get(orderId);
+      const detail = await orderDetail(orderId, f);
       expect(detail).toMatchObject({ success: true, data: { customer: { name: null, phone: "+51999999999" },
         items: expect.arrayContaining([expect.objectContaining({ productName: "Sample product", variantAttributes: { Size: "M" },
           sku: `SKU-${f.variantIds[0]}`, unitPrice: { amount: 0.1, currency: "PEN" }, subtotal: { amount: 0.3, currency: "PEN" } })]) } });
@@ -383,7 +397,7 @@ test("persists completed sale, historical snapshots, listing and duplicate rejec
       await prisma.productStock.delete({ where: { variantId: f.variantIds[0] } });
       await expect(prisma.productVariant.delete({ where: { id: f.variantIds[0] } })).rejects.toThrow();
       await expect(prisma.product.delete({ where: { id: f.productId } })).rejects.toThrow();
-      expect(await orders.get(orderId)).toMatchObject({ success: true });
+      expect(await orderDetail(orderId, f)).toMatchObject({ success: true });
     });
   } finally { await f.cleanup(); }
 });
@@ -392,7 +406,7 @@ test("rolls back all writes and stock when a later item is unavailable", async (
   const f = await fixture();
   try {
     await withTenantIsolation(f.companyId, async () => {
-      const result = await orders.createLegacy({ id: randomUUID(), contactId: null, items: [
+      const result = await immediateSale({ id: randomUUID(), contactId: null, items: [
         { variantId: f.variantIds[0], quantity: 1 }, { variantId: f.variantIds[1], quantity: 4 },
       ] }, { companyId: f.companyId, sellerId: f.sellerId });
       expect(result).toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK", variantId: f.variantIds[1] } });
@@ -409,7 +423,7 @@ test("two simultaneous sales cannot consume the last stock twice", async () => {
   try {
     await withTenantIsolation(f.companyId, async () => {
       await prisma.productStock.update({ where: { variantId: f.variantIds[0] }, data: { quantity: 1n } });
-      const results = await Promise.all([1, 2].map(() => orders.createLegacy({ id: randomUUID(), contactId: null,
+      const results = await Promise.all([1, 2].map(() => immediateSale({ id: randomUUID(), contactId: null,
         items: [{ variantId: f.variantIds[0], quantity: 1 }] }, { companyId: f.companyId, sellerId: f.sellerId })));
       expect(results.filter((result) => result.success)).toHaveLength(1);
       expect(results.filter((result) => !result.success).map((result) => !result.success && result.error.code)).toEqual(["INSUFFICIENT_STOCK"]);
@@ -424,7 +438,7 @@ test("concurrent submissions of one order ID create only one sale", async () => 
   try {
     await withTenantIsolation(f.companyId, async () => {
       const orderId = randomUUID();
-      const results = await Promise.all([1, 2].map(() => orders.createLegacy({ id: orderId, contactId: null,
+      const results = await Promise.all([1, 2].map(() => immediateSale({ id: orderId, contactId: null,
         items: [{ variantId: f.variantIds[0], quantity: 1 }] }, { companyId: f.companyId, sellerId: f.sellerId })));
       expect(results.filter((result) => result.success)).toHaveLength(1);
       expect(results.filter((result) => !result.success).map((result) => !result.success && result.error.code)).toEqual(["ORDER_ALREADY_EXISTS"]);
@@ -441,19 +455,19 @@ test("separates companies and blocks cross-company references", async () => {
   try {
     const foreignOrderId = randomUUID();
     await withTenantIsolation(b.companyId, async () => {
-      expect(await orders.createLegacy({ id: foreignOrderId, contactId: b.contactId, items: [{ variantId: b.variantIds[0], quantity: 1 }] },
+      expect(await immediateSale({ id: foreignOrderId, contactId: b.contactId, items: [{ variantId: b.variantIds[0], quantity: 1 }] },
         { companyId: b.companyId, sellerId: b.sellerId })).toMatchObject({ success: true });
     });
     await withTenantIsolation(a.companyId, async () => {
-      expect(await orders.get(foreignOrderId)).toMatchObject({ success: false, error: { code: "ORDER_NOT_FOUND" } });
+      expect(await orderDetail(foreignOrderId, a)).toMatchObject({ success: false, error: { code: "ORDER_NOT_FOUND" } });
       expect(await orders.list({ page: 1, customer: { kind: "all" } })).toMatchObject({ success: true, data: { total: 0 } });
       expect(await prisma.order.count()).toBe(0);
       expect(await prisma.orderItem.count()).toBe(0);
-      expect(await orders.createLegacy({ id: randomUUID(), contactId: b.contactId, items: [{ variantId: a.variantIds[0], quantity: 1 }] },
+      expect(await immediateSale({ id: randomUUID(), contactId: b.contactId, items: [{ variantId: a.variantIds[0], quantity: 1 }] },
         { companyId: a.companyId, sellerId: a.sellerId })).toMatchObject({ success: false, error: { code: "CONTACT_NOT_FOUND" } });
-      expect(await orders.createLegacy({ id: randomUUID(), contactId: null, items: [{ variantId: b.variantIds[0], quantity: 1 }] },
+      expect(await immediateSale({ id: randomUUID(), contactId: null, items: [{ variantId: b.variantIds[0], quantity: 1 }] },
         { companyId: a.companyId, sellerId: a.sellerId })).toMatchObject({ success: false, error: { code: "VARIANT_NOT_FOUND", variantId: b.variantIds[0] } });
-      expect(await orders.createLegacy({ id: foreignOrderId, contactId: null, items: [{ variantId: a.variantIds[0], quantity: 1 }] },
+      expect(await immediateSale({ id: foreignOrderId, contactId: null, items: [{ variantId: a.variantIds[0], quantity: 1 }] },
         { companyId: a.companyId, sellerId: a.sellerId })).toMatchObject({ success: false, error: { code: "ORDER_ALREADY_EXISTS" } });
       expect(await prisma.order.count()).toBe(0);
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: a.variantIds[0] } })).quantity).toBe(3n);
@@ -474,7 +488,7 @@ test("lists 20 per page with stable tie ordering and exclusive end date", async 
       const completedAt = new Date("2026-09-27T12:00:00.000Z");
       for (let index = 0; index < 25; index++) {
         const id = randomUUID();
-        expect(await orders.createLegacy({ id, contactId: null, items: [{ variantId: f.variantIds[0], quantity: 1 }] },
+        expect(await immediateSale({ id, contactId: null, items: [{ variantId: f.variantIds[0], quantity: 1 }] },
           { companyId: f.companyId, sellerId: f.sellerId })).toMatchObject({ success: true });
         await prisma.order.update({ where: { id }, data: { completedAt } });
       }
@@ -507,7 +521,7 @@ test("rolls back order and items after a stock write fails", async () => {
     await admin.$executeRawUnsafe(`CREATE FUNCTION public.${name}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF OLD."companyId" = '${f.companyId}'::uuid THEN RAISE EXCEPTION 'stock write rejected by test'; END IF; RETURN NEW; END $$`);
     await admin.$executeRawUnsafe(`CREATE TRIGGER ${name} BEFORE UPDATE ON "ProductStock" FOR EACH ROW EXECUTE FUNCTION public.${name}()`);
     await withTenantIsolation(f.companyId, async () => {
-      const result = await orders.createLegacy({ id: randomUUID(), contactId: null, items: [{ variantId: f.variantIds[0], quantity: 1 }] },
+      const result = await immediateSale({ id: randomUUID(), contactId: null, items: [{ variantId: f.variantIds[0], quantity: 1 }] },
         { companyId: f.companyId, sellerId: f.sellerId });
       expect(result).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
       expect(await prisma.order.count()).toBe(0);
@@ -527,7 +541,7 @@ test("database constraints reject invalid completed sale writes", async () => {
   try {
     await withTenantIsolation(f.companyId, async () => {
       const id = randomUUID();
-      expect(await orders.createLegacy({ id, contactId: null, items: [{ variantId: f.variantIds[0], quantity: 1 }] },
+      expect(await immediateSale({ id, contactId: null, items: [{ variantId: f.variantIds[0], quantity: 1 }] },
         { companyId: f.companyId, sellerId: f.sellerId })).toMatchObject({ success: true });
       const item = await prisma.orderItem.findFirstOrThrow({ where: { orderId: id } });
       await expect(prisma.order.update({ where: { id }, data: { paymentMethod: "cash" } })).rejects.toThrow();
@@ -539,7 +553,7 @@ test("database constraints reject invalid completed sale writes", async () => {
       await expect(prisma.orderItem.update({ where: { id: item.id }, data: { variantAttributes: { Size: 42 } } })).rejects.toThrow();
       await expect(prisma.orderItem.create({ data: { orderId: id, variantId: f.variantIds[0], productName: "Duplicate", variantAttributes: {}, quantity: 1n, unitPrice: 1, subtotal: 1 } })).rejects.toThrow();
       expect(await prisma.orderItem.count()).toBe(1);
-      expect(await prisma.order.findUniqueOrThrow({ where: { id } })).toMatchObject({ paymentMethod: "digital_wallet" });
+      expect(await prisma.order.findUniqueOrThrow({ where: { id } })).toMatchObject({ paymentMethod: null });
     });
   } finally { await f.cleanup(); }
 });

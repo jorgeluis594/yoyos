@@ -3,7 +3,6 @@ import { Prisma } from "@prisma/client";
 import { err } from "@shared/functional";
 import type { AppError, Result } from "@shared/result";
 import { getCompanyId, requireNoActiveTransaction, withinTransaction } from "@core/src/shared/infrastructure/persistance";
-import { createLegacyOrder } from "@core/src/features/orders/application/create-legacy-order";
 import { createOrder, type CreateOrderDependencies } from "@core/src/features/orders/application/create-order";
 import { deductStock, type DeductStockDependencies } from "@core/src/features/orders/application/deduct-stock";
 import { registerPayment, type RegisterPaymentDependencies } from "@core/src/features/orders/application/register-payment";
@@ -12,8 +11,8 @@ import { cancelOrder, type CancelOrderDependencies } from "@core/src/features/or
 import { registerShipment, registerDelivery, type FulfillOrderDependencies } from "@core/src/features/orders/application/fulfill-order";
 import { getOrderAggregate } from "@core/src/features/orders/application/read-order-aggregate";
 import { listOrderAggregates } from "@core/src/features/orders/application/list-order-aggregates";
-import { getOrder, listOrders } from "@core/src/features/orders/application/read-orders";
-import { saveOrder, savePendingOrder, savePayment, saveStockDeduction, saveFulfillment, saveCancellation, findOrder, findOrderAggregate, findOrderAggregates, findOrderForUpdate, findOrders, orderExists } from "@core/src/features/orders/infrastructure/order-repository";
+import { listOrders } from "@core/src/features/orders/application/read-orders";
+import { savePendingOrder, savePayment, saveStockDeduction, saveFulfillment, saveCancellation, findOrderAggregate, findOrderAggregates, findOrderForUpdate, findOrders, orderExists } from "@core/src/features/orders/infrastructure/order-repository";
 import { findSellableVariant, deductProductStock, restoreProductStock, searchSaleCatalog } from "@core/src/features/products";
 import { findContactById, searchSaleContacts } from "@core/src/features/contacts";
 import type { OrderItemId, PaymentId } from "@core/src/features/orders/domain/order";
@@ -70,11 +69,7 @@ export const orders = {
     createOrder(input, context, { transaction: pendingTransaction, orderExists,
       findContact: findContactById, findVariant: findSellableVariant, saveOrder: savePendingOrder,
       newItemId: () => randomUUID() as OrderItemId, clock: () => new Date() }),
-  createLegacy: (input: Parameters<typeof createLegacyOrder>[0], context: Parameters<typeof createLegacyOrder>[1]) =>
-    createLegacyOrder(input, context, { transaction: orderTransaction, orderExists, findContact: findContactById, findVariant: findSellableVariant,
-      save: saveOrder, deductStock: deductProductStock, newId: randomUUID, newPaymentId: () => randomUUID() as PaymentId, clock: () => new Date() }),
   list: (criteria: Parameters<typeof listOrders>[0]) => listOrders(criteria, findOrders),
-  get: (id: string) => getOrder(id, findOrder),
   searchProducts: searchSaleCatalog,
   searchContacts: searchSaleContacts,
   contactById: findContactById,

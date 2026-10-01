@@ -4,6 +4,8 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { products } from "@core/src/features/products/composition";
 import { orders } from "@core/src/features/orders/composition";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import type { CompanyId, OrderId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
+import type { VariantId } from "@core/src/features/products/domain/product";
 
 test("seller completes a wallet sale and sees backend totals and stock", async ({ page, request }) => {
   const email = `orders-${crypto.randomUUID()}@example.test`;
@@ -121,8 +123,9 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
       await prisma.productStock.update({ where: { variantId: stock.variantId }, data: { quantity: 25n } });
       const sellerId = (await systemPrisma.user.findUniqueOrThrow({ where: { email } })).id;
       for (let index = 0; index < 21; index++) {
-        expect(await orders.createLegacy({ id: crypto.randomUUID(), contactId: null, items: [{ variantId: stock.variantId, quantity: 1 }] },
-          { companyId: tenantId, sellerId })).toMatchObject({ success: true });
+        expect(await orders.registerImmediateSale({ id: crypto.randomUUID() as OrderId, contactId: null,
+          items: [{ variantId: stock.variantId as VariantId, quantity: 1 as PositiveInteger }] },
+        { companyId: tenantId as CompanyId, userId: sellerId as UserId })).toMatchObject({ success: true });
       }
     });
     await page.goto("/es-PE/orders");
