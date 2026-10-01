@@ -3,6 +3,7 @@ import { createOrderOperations } from "@mobile/features/orders/application/order
 import { addDraftItem, emptyOrderDraft } from "@mobile/features/orders/domain/order-draft";
 import { createOrderApi } from "@mobile/features/orders/infrastructure/order-api";
 import { createPendingOrderConfirmationStore } from "@mobile/features/orders/infrastructure/pending-order-confirmation";
+import type { OrderAggregateResponse } from "@shared/contracts/orders";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const companyId = id(1);
@@ -29,14 +30,19 @@ test("Lima day filters include the whole through day and reject inverted days", 
   const query = new URL(`http://localhost${paths[0]}`).searchParams;
   expect(query.get("completedFrom")).toBe("1989-12-31T05:00:00.000Z");
   expect(query.get("completedBefore")).toBe("1990-01-01T04:00:00.000Z");
+  expect(await operations.loadMixedOrders({ page: 1, customer: { kind: "all" }, fromDay: "1989-12-31", throughDay: "1989-12-31" }))
+    .toMatchObject({ success: true, data: { total: 0 } });
+  const mixed = new URL(`http://localhost${paths[1]}`).searchParams;
+  expect(mixed.get("createdFrom")).toBe("1989-12-31T05:00:00.000Z");
+  expect(mixed.get("createdBefore")).toBe("1990-01-01T04:00:00.000Z");
   expect(await operations.loadOrders({ page: 1, customer: { kind: "all" }, fromDay: "2026-09-29", throughDay: "2026-09-28" }))
     .toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
-  expect(paths).toHaveLength(1);
+  expect(paths).toHaveLength(2);
 });
 
 test("save failure prevents POST; uncertain POST coalesces taps and blocks another order", async () => {
   let sends = 0;
-  const api = createOrderApi(async (path) => path === "/api/orders" ? (sends++, err({ code: "NETWORK_ERROR", message: "Offline" }))
+  const api = createOrderApi(async (path) => path === "/api/orders/immediate-sale" ? (sends++, err({ code: "NETWORK_ERROR", message: "Offline" }))
     : err({ code: "API_ERROR", message: "Absent", http: { status: 404, body: { code: "ORDER_NOT_FOUND", error: "Absent" } } }));
   const broken = createPendingOrderConfirmationStore({ getItemAsync: async () => null,
     setItemAsync: async () => { throw new Error("Cannot save"); }, deleteItemAsync: async () => {} });
@@ -71,18 +77,24 @@ test("known stock rejection clears the marker and leaves the cart available", as
 });
 
 test("recovery keeps the amount first shown and returns the core total", async () => {
-  const order = { id: id(3), companyId, sellerId: "seller", customer: { kind: "general_public" },
-    paymentMethod: "digital_wallet", completedAt: "2026-09-29T12:00:00.000Z", currency: "PEN", total: 12,
+  const amount = { amount: 12, currency: "PEN" as const };
+  const zero = { amount: 0, currency: "PEN" as const };
+  const order: OrderAggregateResponse = { id: id(3), companyId, sellerId: "seller", customer: { kind: "general_public" },
+    createdAt: "2026-09-29T12:00:00.000Z", completedAt: "2026-09-29T12:00:00.000Z",
+    status: "completed", paymentStatus: "paid", paidAmount: amount, balanceDue: zero, overpaidAmount: zero,
+    cancelled: false, delivery: null, deliveryStatus: "delivered", stockDeducted: true,
+    itemsTotal: amount, deliveryCost: zero, deliveryCharge: zero, total: amount,
+    payments: [{ id: id(6), orderId: id(3), amount, method: "digital_wallet", recordedAt: "2026-09-29T12:00:00.000Z" }],
     items: [{ id: id(5), variantId: id(2), productName: "Sample", variantAttributes: {}, sku: null,
-      quantity: 1, unitPrice: 12, subtotal: 12 }] };
-  const api = createOrderApi(async (path) => path === "/api/orders"
+      quantity: 1, unitPrice: amount, subtotal: amount }] };
+  const api = createOrderApi(async (path) => path === "/api/orders/immediate-sale"
     ? err({ code: "NETWORK_ERROR", message: "Lost response" }) : ok(order));
   const store = storage();
   const operations = createOrderOperations(api, store);
   expect(await operations.completeOrder(draft(), companyId)).toMatchObject({ success: true, data: { kind: "uncertain" } });
   expect(await operations.resolvePendingOrderConfirmation(companyId)).toMatchObject({ success: true,
-    data: { kind: "completed", shownTotal: { amount: 10, currency: "PEN" }, order: { total: 12 } } });
-  expect(await operations.loadOrder(id(3))).toMatchObject({ success: true, data: { total: 12 } });
+    data: { kind: "completed", shownTotal: { amount: 10, currency: "PEN" }, order: { total: amount } } });
+  expect(await operations.loadOrder(id(3))).toMatchObject({ success: true, data: { total: amount } });
   expect(await store.read(companyId)).toMatchObject({ success: true, data: { id: id(3) } });
   expect(await operations.clearPendingOrderConfirmation(companyId, id(3))).toEqual(ok(undefined));
 });
@@ -93,7 +105,7 @@ test("a restarted session reads the same company attempt and explicitly resends 
     setItemAsync: async (key: string, value: string) => { values.set(key, value); },
     deleteItemAsync: async (key: string) => { values.delete(key); } };
   let sends = 0;
-  const api = createOrderApi(async (path) => path === "/api/orders" ? (sends++, err({ code: "NETWORK_ERROR", message: "Lost response" }))
+  const api = createOrderApi(async (path) => path === "/api/orders/immediate-sale" ? (sends++, err({ code: "NETWORK_ERROR", message: "Lost response" }))
     : err({ code: "API_ERROR", message: "Absent", http: { status: 404, body: { code: "ORDER_NOT_FOUND", error: "Absent" } } }));
   const first = createOrderOperations(api, createPendingOrderConfirmationStore(secureStorage));
   expect(await first.completeOrder(draft(), companyId)).toMatchObject({ success: true, data: { kind: "uncertain" } });

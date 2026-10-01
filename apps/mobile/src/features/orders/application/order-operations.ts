@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { listOrdersResponseSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema,
-  type CreateOrderRequest, type ListOrdersRequest, type OrderApiIssue, type OrderResponse } from "@shared/contracts/orders";
+import { listOrderAggregatesResponseSchema, listOrderAggregatesSchema, listOrdersResponseSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema,
+  type CreateOrderRequest, type ListOrderAggregatesRequest, type ListOrdersRequest, type OrderAggregateResponse, type OrderApiIssue } from "@shared/contracts/orders";
 import { err, ok } from "@shared/functional";
 import type { Money } from "@shared/money";
 import { limaMidnightUtc, nextCalendarDay } from "@shared/orders-date";
@@ -9,7 +9,7 @@ import { prepareOrder, type CartError, type OrderDraft } from "@mobile/features/
 import type { TransportError } from "@mobile/shared/application/transport-error";
 
 export type PendingOrderConfirmation = Readonly<{
-  companyId: OrderResponse["companyId"];
+  companyId: OrderAggregateResponse["companyId"];
   id: CreateOrderRequest["id"];
   shownTotal: Money;
 }>;
@@ -28,7 +28,7 @@ export type OrderRequestError = Readonly<{
 }>;
 export type ConfirmOrderError = OrderRequestError | PendingOrderStoreError | CartError;
 export type ConfirmOrderOutcome =
-  | Readonly<{ kind: "completed"; order: OrderResponse; shownTotal: Money }>
+  | Readonly<{ kind: "completed"; order: OrderAggregateResponse; shownTotal: Money }>
   | Readonly<{ kind: "uncertain"; pending: PendingOrderConfirmation }>;
 
 export type OrderListCriteria = Readonly<{
@@ -39,9 +39,11 @@ export type OrderListCriteria = Readonly<{
 }>;
 
 type Api = Readonly<{
+  listAggregates: (input: ListOrderAggregatesRequest) => Promise<Result<z.infer<typeof listOrderAggregatesResponseSchema>, OrderRequestError>>;
+  getAggregate: (id: string) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
   list: (input: ListOrdersRequest) => Promise<Result<z.infer<typeof listOrdersResponseSchema>, OrderRequestError>>;
-  get: (id: string) => Promise<Result<OrderResponse, OrderRequestError>>;
-  create: (input: CreateOrderRequest) => Promise<Result<OrderResponse, OrderRequestError>>;
+  get: (id: string) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
+  create: (input: CreateOrderRequest) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
   searchCatalog: (search: string) => Promise<Result<z.infer<typeof orderCatalogSchema>, OrderRequestError>>;
   searchContacts: (search: string) => Promise<Result<z.infer<typeof orderContactsSchema>, OrderRequestError>>;
 }>;
@@ -60,6 +62,19 @@ function listRequest(criteria: OrderListCriteria): Result<ListOrdersRequest, Ord
     ...(criteria.customer.kind === "contact" ? { contactId: criteria.customer.contactId } : {}),
     ...(criteria.fromDay ? { completedFrom: limaMidnightUtc(criteria.fromDay) } : {}),
     ...(criteria.throughDay ? { completedBefore: limaMidnightUtc(nextCalendarDay(criteria.throughDay)) } : {}),
+  });
+  return parsed.success ? ok(parsed.data) : err({ code: "INVALID_INPUT", message: "Invalid order filters" });
+}
+
+function mixedListRequest(criteria: OrderListCriteria): Result<ListOrderAggregatesRequest, OrderRequestError> {
+  if ((criteria.fromDay && !z.iso.date().safeParse(criteria.fromDay).success) ||
+      (criteria.throughDay && !z.iso.date().safeParse(criteria.throughDay).success) ||
+      (criteria.fromDay && criteria.throughDay && criteria.fromDay > criteria.throughDay))
+    return err({ code: "INVALID_INPUT", message: "Invalid order days" });
+  const parsed = listOrderAggregatesSchema.safeParse({ page: criteria.page, customer: criteria.customer.kind,
+    ...(criteria.customer.kind === "contact" ? { contactId: criteria.customer.contactId } : {}),
+    ...(criteria.fromDay ? { createdFrom: limaMidnightUtc(criteria.fromDay) } : {}),
+    ...(criteria.throughDay ? { createdBefore: limaMidnightUtc(nextCalendarDay(criteria.throughDay)) } : {}),
   });
   return parsed.success ? ok(parsed.data) : err({ code: "INVALID_INPUT", message: "Invalid order filters" });
 }
@@ -107,6 +122,11 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
     return ok({ kind: "uncertain", pending: saved.data });
   };
   return {
+    loadMixedOrders: async (criteria: OrderListCriteria) => {
+      const input = mixedListRequest(criteria);
+      return input.success ? api.listAggregates(input.data) : input;
+    },
+    loadOrderAggregate: api.getAggregate,
     loadOrders: async (criteria: OrderListCriteria) => {
       const input = listRequest(criteria);
       return input.success ? api.list(input.data) : input;

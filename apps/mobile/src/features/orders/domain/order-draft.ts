@@ -1,4 +1,4 @@
-import { createOrderSchema, type CreateOrderRequest, type OrderResponse } from "@shared/contracts/orders";
+import { createOrderSchema, type CreateOrderRequest, type OrderAggregateResponse } from "@shared/contracts/orders";
 import { add, multiply, type Money } from "@shared/money";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
@@ -14,8 +14,8 @@ export type OrderDraftItem = Readonly<{
 }>;
 
 export type OrderDraft =
-  | Readonly<{ kind: "empty"; customer: OrderResponse["customer"]; items: readonly [] }>
-  | Readonly<{ kind: "items"; id: CreateOrderRequest["id"]; customer: OrderResponse["customer"];
+  | Readonly<{ kind: "empty"; customer: OrderAggregateResponse["customer"]; items: readonly [] }>
+  | Readonly<{ kind: "items"; id: CreateOrderRequest["id"]; customer: OrderAggregateResponse["customer"];
       items: readonly [OrderDraftItem, ...OrderDraftItem[]] }>;
 
 export type CartError = Readonly<{ code: "INVALID_CART"; message: string }>;

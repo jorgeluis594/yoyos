@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { FlatList, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
-import type { OrderResponse } from "@shared/contracts/orders";
+import type { ListOrderAggregatesResponse } from "@shared/contracts/orders";
 import { orders } from "@mobile/features/orders/composition";
 import { ThemedText } from "@mobile/components/themed-text";
 import { ThemedView } from "@mobile/components/themed-view";
@@ -14,9 +14,10 @@ import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
 import { OrderDayField } from "@mobile/features/orders/presentation/order-day-field";
 import { useTheme } from "@mobile/hooks/use-theme";
+import { orderLanguage, orderStatusLabel } from "@mobile/features/orders/presentation/order-labels";
 import type { OrderListCriteria } from "@mobile/features/orders/application/order-operations";
 
-type Summary = Pick<OrderResponse, "id" | "customer" | "completedAt" | "currency" | "total">;
+type Summary = ListOrderAggregatesResponse["items"][number];
 const money = (amount: number, currency: string) => new Intl.NumberFormat("es-PE", { style: "currency", currency }).format(amount);
 const limaDate = (value: string) => new Intl.DateTimeFormat("es-PE", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Lima" }).format(new Date(value));
 
@@ -45,7 +46,7 @@ export default function OrderHistoryScreen() {
   const reload = useCallback(async (company: string, filters: OrderListCriteria) => {
     const request = ++activeRequest.current;
     setLoading(true);
-    const [list, pending] = await Promise.all([orders.loadOrders(filters), orders.readPendingOrderConfirmation(company)]);
+    const [list, pending] = await Promise.all([orders.loadMixedOrders(filters), orders.readPendingOrderConfirmation(company)]);
     if (request !== activeRequest.current) return;
     if (list.success) { setItems(list.data.items); setTotal(list.data.total); setError(""); }
     else setError(list.error.code === "INVALID_INPUT" ? "Revisa las fechas y el cliente del filtro." : "No se pudieron cargar las ventas.");
@@ -69,6 +70,7 @@ export default function OrderHistoryScreen() {
   }, [companyId, customerKind, contactSearch]);
 
   if (state.status !== "ready") return null;
+  const language = orderLanguage(state.company.country);
 
   const apply = () => {
     if (customerKind === "contact" && !contactId) { setError("Elige un contacto para filtrar."); return; }
@@ -97,7 +99,7 @@ export default function OrderHistoryScreen() {
     </View> : null}
     <Button onPress={() => router.push("/orders/new")}>Nueva venta</Button>
     <View style={styles.filters}>
-      <ThemedText type="subtitle" accessibilityRole="header">Filtrar ventas</ThemedText>
+      <ThemedText type="subtitle" accessibilityRole="header">Filtrar por fecha de creación</ThemedText>
       <View style={styles.row}>
         <Button variant={customerKind === "all" ? "default" : "secondary"} onPress={() => { setCustomerKind("all"); setContactId(""); }}>Todos</Button>
         <Button variant={customerKind === "general_public" ? "default" : "secondary"} onPress={() => { setCustomerKind("general_public"); setContactId(""); }}>Público general</Button>
@@ -127,7 +129,8 @@ export default function OrderHistoryScreen() {
             title={criteria.page === 1 && criteria.customer.kind === "all" && !criteria.fromDay && !criteria.throughDay ? "Aún no hay ventas" : "Sin resultados"}
             description="Prueba otros filtros o registra una venta nueva." />}
           renderItem={({ item }) => <ListRow title={item.customer.kind === "contact" ? item.customer.name ?? item.customer.phone : "Público general"}
-            description={limaDate(item.completedAt)} trailing={<ThemedText type="smallBold">{money(item.total, item.currency)}</ThemedText>}
+            description={`${orderStatusLabel(item.status, language)} · ${limaDate(item.createdAt)}`}
+            trailing={<ThemedText type="smallBold">{money(item.total.amount, item.total.currency)}</ThemedText>}
             onPress={() => router.push(`/orders/${item.id}`)} />}
           ListFooterComponent={items.length ? <View style={styles.row}>
             {criteria.page > 1 ? <Button variant="secondary" onPress={() => setCriteria({ ...criteria, page: criteria.page - 1 })}>Anterior</Button> : null}
