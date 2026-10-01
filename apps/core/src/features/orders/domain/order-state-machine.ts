@@ -46,10 +46,10 @@ export type StockDeductionPlan =
   | Readonly<{ kind: "none"; reason: "already_deducted" | "not_requested"; nextOrder: OrderAggregate }>
   | Readonly<{ kind: "deduct"; nextOrder: OrderAggregate }>;
 export type CancellationPlan = Readonly<{ nextOrder: OrderAggregate; restoreStock: boolean }>;
-export type BuildPendingOrderInput = Readonly<Omit<BuildOrderInput, "completedAt"> & { createdAt: Date }>;
+export type BuildPendingOrderInput = BuildOrderInput;
 
 export function buildPendingOrder(input: BuildPendingOrderInput): Result<OrderAggregate, BuildOrderError> {
-  const built = buildOrder({ ...input, completedAt: input.createdAt });
+  const built = buildOrder(input);
   if (!built.success) return built;
   const snapshot = built.data;
   const zero: Money = { amount: 0, currency: snapshot.total.currency };

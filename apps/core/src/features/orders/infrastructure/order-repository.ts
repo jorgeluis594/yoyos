@@ -46,7 +46,7 @@ function mapAggregate(row: DbAggregate): OrderAggregate {
     deliveryCharge: { amount: row.deliveryCharge.toNumber(), currency: row.currency },
     total: { amount: row.total.toNumber(), currency: row.currency } };
   const rebuilt = buildOrder({ id: order.id, companyId: order.companyId, sellerId: order.sellerId,
-    customer: order.customer, completedAt: order.createdAt, items: order.items });
+    customer: order.customer, createdAt: order.createdAt, items: order.items });
   if (!rebuilt.success || rebuilt.data.total.amount !== order.itemsTotal.amount ||
     rebuilt.data.items.some((item, index) => item.subtotal.amount !== order.items[index]?.subtotal.amount))
     throw new InvalidStoredOrderError("Invalid stored order item totals");

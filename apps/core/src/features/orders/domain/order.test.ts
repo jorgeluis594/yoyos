@@ -9,7 +9,7 @@ const item = (n: number, quantity: number, amount: number, currency: Currency = 
   variantAttributes: { Size: "M" }, sku: null, quantity, unitPrice: { amount, currency },
 });
 const base = (): BuildOrderInput => ({ id: id(1) as OrderId, companyId: id(2) as CompanyId, sellerId: "seller" as UserId,
-  customer: { kind: "general_public" }, completedAt: new Date("2026-09-27T12:00:00Z"), items: [item(1, 3, 0.1), item(2, 2, 0.2)] });
+  customer: { kind: "general_public" }, createdAt: new Date("2026-09-27T12:00:00Z"), items: [item(1, 3, 0.1), item(2, 2, 0.2)] });
 
 describe("buildOrder", () => {
   test("calculates exact cents and keeps supplied identity and timestamp", () => {
@@ -17,8 +17,8 @@ describe("buildOrder", () => {
     expect(result.success).toBe(true);
     if (!result.success) return;
     expect(result.data).toMatchObject({ id: id(1), companyId: id(2), sellerId: "seller", customer: { kind: "general_public" },
-      paymentMethod: "digital_wallet", total: { amount: 0.7, currency: "PEN" } });
-    expect(result.data.completedAt).toEqual(new Date("2026-09-27T12:00:00Z"));
+      total: { amount: 0.7, currency: "PEN" } });
+    expect(result.data.createdAt).toEqual(new Date("2026-09-27T12:00:00Z"));
     expect(result.data.items.map((line) => line.subtotal.amount)).toEqual([0.3, 0.4]);
   });
 
