@@ -1,4 +1,3 @@
-import { useLocalization } from "@core/app/localization";
 import { useState, type ChangeEvent } from "react";
 import { Button } from "@core/app/components/ui/button";
 import { Field, FieldError, FieldLabel } from "@core/app/components/ui/field";
@@ -25,7 +24,6 @@ export function ProductPhotoField({ initialUrl, onChange, className }: {
   onChange: (state: ProductPhotoState) => void;
   className?: string;
 }) {
-  const { t } = useLocalization();
   const [photo, setPhoto] = useState<{ url: string } | null>(initialUrl ? { url: initialUrl } : null);
   const [uploadedId, setUploadedId] = useState<string | null>(null);
   const [removed, setRemoved] = useState(false);
@@ -62,14 +60,14 @@ export function ProductPhotoField({ initialUrl, onChange, className }: {
 
   return (
     <Field data-invalid={Boolean(error)} className={className}>
-      <FieldLabel htmlFor="photo">{t("Foto")}</FieldLabel>
+      <FieldLabel htmlFor="photo">Foto</FieldLabel>
       <div className="flex flex-wrap items-center gap-3">
         <input id="photo" name="photo" type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading} onChange={selectPhoto} aria-invalid={!!error} aria-describedby={error ? "photo-error" : undefined} className="text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring aria-invalid:border-destructive" />
-        {photo && <Button type="button" variant="outline" onClick={removePhoto}>{t("Quitar foto")}</Button>}
+        {photo && <Button type="button" variant="outline" onClick={removePhoto}>Quitar foto</Button>}
       </div>
-      {uploading && <p role="status" className="text-sm text-muted-foreground">{t("Subiendo imagen…")}</p>}
-      {photo && <img src={photo.url} alt={t("Vista previa de la foto del producto")} className="max-h-48 rounded-md border border-border object-contain" />}
-      {error && <FieldError id="photo-error">{t(error)}</FieldError>}
+      {uploading && <p role="status" className="text-sm text-muted-foreground">Subiendo imagen…</p>}
+      {photo && <img src={photo.url} alt="Vista previa de la foto del producto" className="max-h-48 rounded-md border border-border object-contain" />}
+      {error && <FieldError id="photo-error">{error}</FieldError>}
     </Field>
   );
 }

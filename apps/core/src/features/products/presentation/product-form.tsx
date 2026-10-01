@@ -1,4 +1,3 @@
-import { useLocalization } from "@core/app/localization";
 import { Fragment, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { Link } from "react-router";
 import { Button } from "@core/app/components/ui/button";
@@ -36,7 +35,6 @@ export function ProductForm({ currency, cancelTo, errors, pending, onSave, value
   imageUrl?: string;
   variants?: ReactNode;
 }) {
-  const { t } = useLocalization();
   const [values, setValues] = useState<ProductFormValues>(initialValues);
   const [photo, setPhoto] = useState<{ url: string } | null>(imageUrl ? { url: imageUrl } : null);
   const [uploadedId, setUploadedId] = useState<string | null>(null);
@@ -79,21 +77,21 @@ export function ProductForm({ currency, cancelTo, errors, pending, onSave, value
   }
 
   return <form onSubmit={save} noValidate className="mt-8 flex flex-col gap-6">
-    {variantFields === "hidden" && <p className="text-sm text-muted-foreground">{t("Puedes editar los datos generales y la foto. Las variantes son de solo lectura.")}</p>}
+    {variantFields === "hidden" && <p className="text-sm text-muted-foreground">Puedes editar los datos generales y la foto. Las variantes son de solo lectura.</p>}
     <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
       <div className="grid gap-5">
       <section aria-labelledby="product-data-heading" className="grid gap-4 sm:grid-cols-2">
-        <h2 id="product-data-heading" className="text-base font-semibold sm:col-span-2">{t("Datos del producto")}</h2>
+        <h2 id="product-data-heading" className="text-base font-semibold sm:col-span-2">Datos del producto</h2>
       {fields.map((key) => {
-        const label = { name: t("Nombre"), description: t("Descripción"), sku: t("SKU"), salePrice: t("Precio de venta ({0})", [currency]), purchasePrice: t("Precio de compra ({0})", [currency]), initialStock: stock === undefined ? t("Stock inicial") : t("Stock") }[key];
+        const label = { name: "Nombre", description: "Descripción", sku: "SKU", salePrice: `Precio de venta (${currency})`, purchasePrice: `Precio de compra (${currency})`, initialStock: stock === undefined ? "Stock inicial" : "Stock" }[key];
         const wide = key === "name" || key === "description";
         return <Fragment key={key}>
-          {key === "sku" && stock !== undefined && <h2 className="pt-2 text-base font-semibold sm:col-span-2">{t("Precio y variante")}</h2>}
+          {key === "sku" && stock !== undefined && <h2 className="pt-2 text-base font-semibold sm:col-span-2">Precio y variante</h2>}
           <Field data-invalid={Boolean(errors[key])} className={wide ? "sm:col-span-2" : ""}>
           <FieldLabel htmlFor={key}>{label}{key === "name" || key === "salePrice" ? " *" : ""}</FieldLabel>
           {key === "description" ? <Textarea id={key} name={key} aria-invalid={Boolean(errors[key]) || undefined} aria-describedby={errors[key] ? `${key}-error` : undefined} value={values[key]} onChange={(event) => setValues({ ...values, [key]: event.target.value })} maxLength={5000} rows={4} /> :
             <Input id={key} name={key} aria-invalid={Boolean(errors[key]) || undefined} aria-describedby={errors[key] ? `${key}-error` : undefined} value={values[key]} onChange={(event) => setValues({ ...values, [key]: event.target.value })} type={key === "salePrice" || key === "purchasePrice" || key === "initialStock" ? "number" : "text"} inputMode={key === "initialStock" ? "numeric" : key === "salePrice" || key === "purchasePrice" ? "decimal" : undefined} step={key === "initialStock" ? "1" : key === "salePrice" || key === "purchasePrice" ? "0.01" : undefined} min={key === "salePrice" ? "0.01" : key === "purchasePrice" || key === "initialStock" ? "0" : undefined} maxLength={key === "name" ? 200 : key === "sku" ? 100 : undefined} />}
-          {errors[key] && <FieldError id={`${key}-error`}>{t(errors[key]!)}</FieldError>}
+          {errors[key] && <FieldError id={`${key}-error`}>{errors[key]}</FieldError>}
           </Field>
         </Fragment>;
       })}
@@ -102,26 +100,26 @@ export function ProductForm({ currency, cancelTo, errors, pending, onSave, value
       </div>
       <aside className="grid gap-5">
       <Field data-invalid={Boolean(photoError)}>
-        <FieldLabel htmlFor="photo">{t("Foto")}</FieldLabel>
+        <FieldLabel htmlFor="photo">Foto</FieldLabel>
         <div className="flex flex-wrap items-center gap-3">
           <input id="photo" name="photo" type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading} onChange={selectPhoto} aria-invalid={!!photoError} aria-describedby={photoError ? "photo-error" : undefined} className="text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring aria-invalid:border-destructive" />
-          {photo && <Button type="button" variant="outline" onClick={removePhoto}>{t("Quitar foto")}</Button>}
+          {photo && <Button type="button" variant="outline" onClick={removePhoto}>Quitar foto</Button>}
         </div>
-        {uploading && <p role="status" className="text-sm text-muted-foreground">{t("Subiendo imagen…")}</p>}
-        {photo && <img src={photo.url} alt={t("Vista previa de la foto del producto")} className="max-h-48 rounded-md border border-border object-contain" />}
-        {photoError && <FieldError id="photo-error">{t(photoError)}</FieldError>}
+        {uploading && <p role="status" className="text-sm text-muted-foreground">Subiendo imagen…</p>}
+        {photo && <img src={photo.url} alt="Vista previa de la foto del producto" className="max-h-48 rounded-md border border-border object-contain" />}
+        {photoError && <FieldError id="photo-error">{photoError}</FieldError>}
       </Field>
       {stock === undefined ? <Field data-invalid={Boolean(errors.initialStock)}>
-        <FieldLabel htmlFor="initialStock">{t("Stock inicial")}</FieldLabel>
+        <FieldLabel htmlFor="initialStock">Stock inicial</FieldLabel>
         <Input id="initialStock" name="initialStock" aria-invalid={Boolean(errors.initialStock) || undefined} aria-describedby={errors.initialStock ? "initialStock-error" : undefined} value={values.initialStock} onChange={(event) => setValues({ ...values, initialStock: event.target.value })} type="number" inputMode="numeric" step="1" min="0" />
-        {errors.initialStock && <FieldError id="initialStock-error">{t(errors.initialStock)}</FieldError>}
-      </Field> : <Field><FieldLabel htmlFor="initialStock">{t("Stock")}</FieldLabel><Input id="initialStock" name="initialStock" value={stock} readOnly aria-readonly="true" className="bg-muted text-muted-foreground" /></Field>}
+        {errors.initialStock && <FieldError id="initialStock-error">{errors.initialStock}</FieldError>}
+      </Field> : <Field><FieldLabel htmlFor="initialStock">Stock</FieldLabel><Input id="initialStock" name="initialStock" value={stock} readOnly aria-readonly="true" className="bg-muted text-muted-foreground" /></Field>}
       </aside>
     </div>
-    {errors.form && <p role="alert" className="text-sm text-destructive">{t(errors.form)}</p>}
+    {errors.form && <p role="alert" className="text-sm text-destructive">{errors.form}</p>}
     <div className="flex flex-wrap gap-3 border-t border-border pt-5">
-      <Button type="submit" disabled={pending || uploading}>{pending ? t("Guardando…") : t(submitLabel)}</Button>
-      <Button asChild variant="outline"><Link to={cancelTo}>{t("Cancelar")}</Link></Button>
+      <Button type="submit" disabled={pending || uploading}>{pending ? "Guardando…" : submitLabel}</Button>
+      <Button asChild variant="outline"><Link to={cancelTo}>Cancelar</Link></Button>
     </div>
   </form>;
 }

@@ -1,5 +1,3 @@
-import { companyLocale } from "@core/app/locale";
-import { useLocalization } from "@core/app/localization";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { isRouteErrorResponse, Link, useLoaderData, useNavigation, type LoaderFunctionArgs } from "react-router";
 import { Button } from "@core/app/components/ui/button";
@@ -22,7 +20,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
   try {
     const result = await products.list(input);
     if (!result.success) throw new Response("Criterios de búsqueda no válidos.", { status: 400 });
-    return { list: result.data, search: input.search?.trim() ?? "", base: `/${companyLocale(new URL(request.url).pathname, company.country)}/products` };
+    return { list: result.data, search: input.search?.trim() ?? "", base: `/es-${company.country}/products` };
   } catch (cause) {
     if (cause instanceof Response) throw cause;
     log.error({ event: "unable_to_list_products", err: cause }, "unable_to_list_products");
@@ -31,7 +29,6 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
 }
 
 export default function ProductList() {
-  const { t } = useLocalization();
   const { list, search, base } = useLoaderData<typeof loader>();
   const navigation = useNavigation();
   const pages = Math.ceil(list.total / list.pageSize);
@@ -41,7 +38,7 @@ export default function ProductList() {
   const columns: TableColumn<Item>[] = [
     {
       id: "name",
-      header: t("Nombre"),
+      header: "Nombre",
       mobile: "title",
       cell: (item) => (
         <Link to={`${base}/${item.id}`} className="font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring">
@@ -51,20 +48,20 @@ export default function ProductList() {
     },
     {
       id: "sku",
-      header: t("SKU"),
+      header: "SKU",
       mobile: "description",
-      cell: (item) => (item.variantCount > 1 ? t("Varias variantes") : item.sku ?? t("Sin SKU")),
+      cell: (item) => (item.variantCount > 1 ? "Varias variantes" : item.sku ?? "Sin SKU"),
     },
     {
       id: "price",
-      header: t("Precio de venta"),
+      header: "Precio de venta",
       mobile: "value",
       align: "right",
-      cell: (item) => `${item.hasDifferentPrices ? t("Desde ") : ""}${item.minSalePrice.amount.toFixed(2)} ${item.minSalePrice.currency}`,
+      cell: (item) => `${item.hasDifferentPrices ? "Desde " : ""}${item.minSalePrice.amount.toFixed(2)} ${item.minSalePrice.currency}`,
     },
     {
       id: "stock",
-      header: t("Stock"),
+      header: "Stock",
       mobile: "description",
       align: "right",
       cell: (item) => item.totalStock,
@@ -75,40 +72,40 @@ export default function ProductList() {
     <PageHeader>
       <PageHeader.Heading>
         <PageHeader.Title>
-          {t("Productos")}<PageHeader.Count>{list.total}</PageHeader.Count>
+          Productos
+          <PageHeader.Count>{list.total}</PageHeader.Count>
         </PageHeader.Title>
       </PageHeader.Heading>
       <PageHeader.Actions>
-        <Button asChild><Link to={`${base}/new`}>{t("Nuevo producto")}</Link></Button>
+        <Button asChild><Link to={`${base}/new`}>Nuevo producto</Link></Button>
       </PageHeader.Actions>
     </PageHeader>
-    <FilterBar searchName="search" searchValue={search} searchLabel={t("Buscar por nombre o SKU")} submitLabel={t("Buscar")} />
+    <FilterBar searchName="search" searchValue={search} searchLabel="Buscar por nombre o SKU" submitLabel="Buscar" />
     <DataTable
       className="mt-6"
       columns={columns}
-      caption={t("Productos del catálogo")}
+      caption="Productos del catálogo"
       getRowId={(item) => item.id}
       data={list.items}
       emptyMessage={search
-        ? t("No se encontraron productos para esta búsqueda.")
-        : <>{t("Aún no hay productos en el catálogo.")} <Link to={`${base}/new`} className="font-medium text-primary underline underline-offset-4">{t("Crea el primero")}</Link>.</>}
+        ? "No se encontraron productos para esta búsqueda."
+        : <>Aún no hay productos en el catálogo. <Link to={`${base}/new`} className="font-medium text-primary underline underline-offset-4">Crea el primero</Link>.</>}
     />
-    {pages > 1 && <nav aria-label={t("Páginas de productos")} className="mt-6 flex flex-wrap items-center gap-2">
-      {Array.from({ length: pages }, (_, index) => index + 1).map((page) => <Button key={page} asChild variant={page === list.page ? "default" : "outline"} size="sm"><Link to={pageUrl(page)} aria-label={t("Página {0}", [page])} aria-current={page === list.page ? "page" : undefined}>{page}</Link></Button>)}
+    {pages > 1 && <nav aria-label="Páginas de productos" className="mt-6 flex flex-wrap items-center gap-2">
+      {Array.from({ length: pages }, (_, index) => index + 1).map((page) => <Button key={page} asChild variant={page === list.page ? "default" : "outline"} size="sm"><Link to={pageUrl(page)} aria-label={`Página ${page}`} aria-current={page === list.page ? "page" : undefined}>{page}</Link></Button>)}
     </nav>}
   </section>;
 }
 
 export function ErrorBoundary({ error }: { error: unknown }) {
-  const { t } = useLocalization();
   const invalid = isRouteErrorResponse(error) && error.status === 400;
   return (
     <ErrorState
-      title={invalid ? t("Búsqueda no válida") : t("No se pudo cargar el catálogo")}
-      description={invalid ? t("Revisa los criterios e inténtalo de nuevo.") : t("Inténtalo de nuevo.")}
+      title={invalid ? "Búsqueda no válida" : "No se pudo cargar el catálogo"}
+      description={invalid ? "Revisa los criterios e inténtalo de nuevo." : "Inténtalo de nuevo."}
       action={
         <Button asChild variant="outline">
-          <a href={invalid ? "?" : ""}>{invalid ? t("Volver al catálogo") : t("Reintentar")}</a>
+          <a href={invalid ? "?" : ""}>{invalid ? "Volver al catálogo" : "Reintentar"}</a>
         </Button>
       }
     />
