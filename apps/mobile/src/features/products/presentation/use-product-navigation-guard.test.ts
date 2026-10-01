@@ -1,5 +1,6 @@
 import { act, renderHook } from "@testing-library/react-native";
 import { useProductNavigationGuard } from "@mobile/features/products/presentation/use-product-navigation-guard";
+import '@mobile/i18n';
 
 const mockDispatch = jest.fn();
 const mockDiscard = jest.fn();

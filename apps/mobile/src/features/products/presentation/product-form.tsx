@@ -1,4 +1,5 @@
 import { ScrollView, StyleSheet, View } from "react-native";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -36,15 +37,16 @@ export function ProductForm({
   onPrintVariant?: (variantId: VariantId) => void;
 }) {
   const multiVariant = (current?.variants.length ?? 1) > 1;
+  const { t } = useTranslation();
   return <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
     {errors.form ? <ThemedText accessibilityRole="alert" style={styles.error}>{errors.form}</ThemedText> : null}
     <FieldGroup>
       <Field required invalid={!!errors.name} disabled={disabled}>
-        <FieldLabel>Nombre</FieldLabel><Input value={values.name} onChangeText={(value) => setValue("name", value)} maxLength={200} placeholder="Nombre del producto" accessibilityLabel="Nombre" />
+        <FieldLabel>{t('name')}</FieldLabel><Input value={values.name} onChangeText={(value) => setValue("name", value)} maxLength={200} placeholder={t('productNamePlaceholder')} accessibilityLabel={t('name')} />
         {errors.name ? <FieldError>{errors.name}</FieldError> : null}
       </Field>
       <Field invalid={!!errors.description} disabled={disabled}>
-        <FieldLabel>Descripción</FieldLabel><Input multiline value={values.description} onChangeText={(value) => setValue("description", value)} maxLength={5000} placeholder="Descripción opcional" accessibilityLabel="Descripción" />
+        <FieldLabel>{t('descriptionLabel')}</FieldLabel><Input multiline value={values.description} onChangeText={(value) => setValue("description", value)} maxLength={5000} placeholder={t('optionalDescription')} accessibilityLabel={t('descriptionLabel')} />
         {errors.description ? <FieldError>{errors.description}</FieldError> : null}
       </Field>
     </FieldGroup>
@@ -57,40 +59,40 @@ export function ProductForm({
       onBusy={onPhotoBusy}
     />
     {multiVariant ? <View style={styles.variants}>
-      <ThemedText type="subtitle">Variantes</ThemedText>
+      <ThemedText type="subtitle">{t('variants')}</ThemedText>
       {current?.variants.map((variant, index) => <View key={variant.id} style={styles.variant}>
-        <ThemedText type="smallBold">{Object.entries(variant.attributes).map(([key, value]) => `${key}: ${value}`).join(" · ") || `Variante ${index + 1}`}</ThemedText>
-        <ThemedText themeColor="textSecondary">{variant.sku ?? "Sin SKU"} · Venta {variant.salePrice.amount.toFixed(2)} {currency}{variant.purchasePrice ? ` · Compra ${variant.purchasePrice.amount.toFixed(2)} ${currency}` : ""}</ThemedText>
-        <ThemedText themeColor="textSecondary">Stock {variant.stock}</ThemedText>
-        {onPrintVariant ? <Button variant="secondary" onPress={() => onPrintVariant(variant.id)}>Imprimir etiqueta</Button> : null}
+        <ThemedText type="smallBold">{Object.entries(variant.attributes).map(([key, value]) => `${key}: ${value}`).join(" · ") || t('numberedVariant', { count: index + 1 })}</ThemedText>
+        <ThemedText themeColor="textSecondary">{variant.sku ?? t('noSku')} · {t('saleAmount', { amount: `${variant.salePrice.amount.toFixed(2)} ${currency}` })}{variant.purchasePrice ? ` · ${t('purchaseAmount', { amount: `${variant.purchasePrice.amount.toFixed(2)} ${currency}` })}` : ""}</ThemedText>
+        <ThemedText themeColor="textSecondary">{t('stockCount', { count: variant.stock })}</ThemedText>
+        {onPrintVariant ? <Button variant="secondary" onPress={() => onPrintVariant(variant.id)}>{t('printLabel')}</Button> : null}
       </View>)}
     </View> : <FieldGroup>
       <Field invalid={!!errors.sku} disabled={disabled}>
-        <FieldLabel>SKU (opcional)</FieldLabel><Input value={values.sku} onChangeText={(value) => setValue("sku", value)} maxLength={100} placeholder="SKU" accessibilityLabel="SKU" autoCapitalize="characters" />
+        <FieldLabel>{t('optionalSku')}</FieldLabel><Input value={values.sku} onChangeText={(value) => setValue("sku", value)} maxLength={100} placeholder="SKU" accessibilityLabel="SKU" autoCapitalize="characters" />
         {errors.sku ? <FieldError>{errors.sku}</FieldError> : null}
       </Field>
       <Field required invalid={!!errors.salePrice} disabled={disabled}>
-        <FieldLabel>Precio de venta ({currency})</FieldLabel><Input value={values.salePrice} onChangeText={(value) => setValue("salePrice", value)} keyboardType="decimal-pad" placeholder="0.00" accessibilityLabel="Precio de venta" />
+        <FieldLabel>{t('salePriceLabel', { currency })}</FieldLabel><Input value={values.salePrice} onChangeText={(value) => setValue("salePrice", value)} keyboardType="decimal-pad" placeholder="0.00" accessibilityLabel={t('salePrice')} />
         {errors.salePrice ? <FieldError>{errors.salePrice}</FieldError> : null}
       </Field>
       <Field invalid={!!errors.purchasePrice} disabled={disabled}>
-        <FieldLabel>Precio de compra ({currency}, opcional)</FieldLabel><Input value={values.purchasePrice} onChangeText={(value) => setValue("purchasePrice", value)} keyboardType="decimal-pad" placeholder="0.00" accessibilityLabel="Precio de compra" />
+        <FieldLabel>{t('purchasePriceLabel', { currency })}</FieldLabel><Input value={values.purchasePrice} onChangeText={(value) => setValue("purchasePrice", value)} keyboardType="decimal-pad" placeholder="0.00" accessibilityLabel={t('purchasePrice')} />
         {errors.purchasePrice ? <FieldError>{errors.purchasePrice}</FieldError> : null}
       </Field>
-      {current ? <ThemedText themeColor="textSecondary">Stock: {current.variants[0]?.stock ?? 0} · Solo lectura</ThemedText> : <Field invalid={!!errors.stock} disabled={disabled}>
-        <FieldLabel>Stock inicial (opcional)</FieldLabel><Input value={values.stock} onChangeText={(value) => setValue("stock", value)} keyboardType="number-pad" placeholder="0" accessibilityLabel="Stock inicial" />
+      {current ? <ThemedText themeColor="textSecondary">{t('readonlyStock', { count: current.variants[0]?.stock ?? 0 })}</ThemedText> : <Field invalid={!!errors.stock} disabled={disabled}>
+        <FieldLabel>{t('optionalInitialStock')}</FieldLabel><Input value={values.stock} onChangeText={(value) => setValue("stock", value)} keyboardType="number-pad" placeholder="0" accessibilityLabel={t('initialStock')} />
         {errors.stock ? <FieldError>{errors.stock}</FieldError> : null}
       </Field>}
     </FieldGroup>}
-    {onCopiesChange ? <Field><FieldLabel>Copias de la etiqueta</FieldLabel><Input value={copies ?? "1"} onChangeText={onCopiesChange} keyboardType="number-pad" accessibilityLabel="Copias de la etiqueta" /></Field> : null}
+    {onCopiesChange ? <Field><FieldLabel>{t('labelCopies')}</FieldLabel><Input value={copies ?? "1"} onChangeText={onCopiesChange} keyboardType="number-pad" accessibilityLabel={t('labelCopies')} /></Field> : null}
     <View style={styles.actions}>
-      {!current && onPrint ? <Button onPress={onPrint} loading={saving} disabled={disabled || photoBusy}>Guardar e imprimir</Button> : null}
-      <Button variant={current ? "default" : "secondary"} onPress={onSave} loading={saving} disabled={disabled || photoBusy}>{current ? "Guardar" : onPrint ? "Solo guardar" : "Guardar"}</Button>
-      {current && onPrint ? <Button variant="secondary" onPress={onPrint} disabled={saving || photoBusy || !!conflict}>Imprimir etiqueta</Button> : null}
-      <Button variant="secondary" onPress={onCancel} disabled={saving || photoBusy}>Cancelar</Button>
+      {!current && onPrint ? <Button onPress={onPrint} loading={saving} disabled={disabled || photoBusy}>{t('saveAndPrint')}</Button> : null}
+      <Button variant={current ? "default" : "secondary"} onPress={onSave} loading={saving} disabled={disabled || photoBusy}>{current ? t('save') : onPrint ? t('saveOnly') : t('save')}</Button>
+      {current && onPrint ? <Button variant="secondary" onPress={onPrint} disabled={saving || photoBusy || !!conflict}>{t('printLabel')}</Button> : null}
+      <Button variant="secondary" onPress={onCancel} disabled={saving || photoBusy}>{t('cancel')}</Button>
     </View>
-    {conflict ? <Button variant="ghost" onPress={onReviewCatalog}>Volver al catálogo</Button> : null}
-    {uncertain && onCheckStatus ? <Button variant="ghost" onPress={onCheckStatus}>Consultar estado del producto</Button> : null}
+    {conflict ? <Button variant="ghost" onPress={onReviewCatalog}>{t('backToCatalog')}</Button> : null}
+    {uncertain && onCheckStatus ? <Button variant="ghost" onPress={onCheckStatus}>{t('checkProductStatus')}</Button> : null}
   </ScrollView>;
 }
 

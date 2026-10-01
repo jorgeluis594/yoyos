@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { Alert, StyleSheet, View } from "react-native";
 import { Image } from "expo-image";
+import { useTranslation } from "react-i18next";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { Button } from "@/components/ui/button";
 import { ThemedText } from "@/components/themed-text";
 import type { ImageId, PhotoSelection, Product } from "../domain/product";
 import { useProductDraft } from "./draft-guard";
+import i18n from '@mobile/i18n';
 
 const MAX_BYTES = 10_000_000;
 const MAX_PIXELS = 24_000_000;
@@ -16,7 +18,7 @@ type UploadImage = (uri: string) => Promise<{ success: true; data: Readonly<{ id
 async function preparePhoto(asset: ImagePicker.ImagePickerAsset) {
   const width = asset.width;
   const height = asset.height;
-  if (!width || !height) throw new Error("La foto no tiene dimensiones válidas.");
+  if (!width || !height) throw new Error(i18n.t('photoInvalidDimensions'));
   const scale = Math.min(1, MAX_SIDE / Math.max(width, height), Math.sqrt(MAX_PIXELS / (width * height)));
   // ponytail: four JPEG size attempts cap device work; the upload API remains the final size check.
   for (let attempt = 0; attempt < 4; attempt++) {
@@ -29,7 +31,7 @@ async function preparePhoto(asset: ImagePicker.ImagePickerAsset) {
     const file = await fetch(result.uri).then((response) => response.blob());
     if (file.size <= MAX_BYTES && result.width * result.height <= MAX_PIXELS && Math.max(result.width, result.height) <= MAX_SIDE) return result.uri;
   }
-  throw new Error("La foto supera el tamaño permitido. Elige una imagen más pequeña.");
+  throw new Error(i18n.t('photoTooLarge'));
 }
 
 export function ProductPhoto({ value, original, upload, disabled = false, onChange, onBusy }: {
@@ -41,6 +43,7 @@ export function ProductPhoto({ value, original, upload, disabled = false, onChan
   onBusy: (busy: boolean) => void;
 }) {
   const [busyVersion, setBusyVersion] = useState<number | null>(null);
+  const { t } = useTranslation();
   const { discardVersion } = useProductDraft();
   const discardVersionRef = useRef(discardVersion);
   const previousDiscardVersionRef = useRef(discardVersion);
@@ -66,7 +69,7 @@ export function ProductPhoto({ value, original, upload, disabled = false, onChan
       if (source === "camera") {
         const permission = await ImagePicker.requestCameraPermissionsAsync();
         if (!permission.granted) {
-          Alert.alert("Permiso de cámara", "Puedes continuar y elegir una foto de la galería.");
+          Alert.alert(t('cameraPermission'), t('cameraPermissionHint'));
           return;
         }
       }
@@ -75,31 +78,31 @@ export function ProductPhoto({ value, original, upload, disabled = false, onChan
         : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 1 });
       if (result.canceled || !mountedRef.current || currentDiscardVersion !== discardVersionRef.current) return;
       const asset = result.assets[0];
-      if (!asset) throw new Error("No se encontró la foto elegida.");
+      if (!asset) throw new Error(t('photoNotFound'));
       const uri = await preparePhoto(asset);
       if (!mountedRef.current || currentDiscardVersion !== discardVersionRef.current) return;
       const uploaded = await upload(uri);
       if (!mountedRef.current || currentDiscardVersion !== discardVersionRef.current) return;
       if (!uploaded.success) {
-        if (uploaded.error.code !== "OPERATION_CANCELLED") Alert.alert("No se pudo subir la foto", "Tus datos siguen intactos. Revisa la conexión e inténtalo otra vez.");
+        if (uploaded.error.code !== "OPERATION_CANCELLED") Alert.alert(t('uploadPhotoError'), t('uploadPhotoHint'));
         return;
       }
       onChange({ kind: "set", imageId: uploaded.data.id, previewUrl: uploaded.data.url });
     } catch (error) {
-      if (mountedRef.current) Alert.alert("No se pudo preparar la foto", error instanceof Error ? error.message : "Inténtalo otra vez.");
+      if (mountedRef.current) Alert.alert(t('preparePhotoError'), error instanceof Error ? error.message : t('tryAgain'));
     } finally {
       if (mountedRef.current) { setBusyVersion(null); onBusy(false); }
     }
   };
 
   return <View style={styles.root}>
-    <ThemedText type="subtitle">Foto</ThemedText>
-    {preview ? <Image source={{ uri: preview }} contentFit="cover" style={styles.preview} accessibilityLabel="Vista previa de la foto del producto" /> : <View style={styles.placeholder}><ThemedText themeColor="textSecondary">Sin foto</ThemedText></View>}
+    <ThemedText type="subtitle">{t('photo')}</ThemedText>
+    {preview ? <Image source={{ uri: preview }} contentFit="cover" style={styles.preview} accessibilityLabel={t('photoPreview')} /> : <View style={styles.placeholder}><ThemedText themeColor="textSecondary">{t('noPhoto')}</ThemedText></View>}
     <View style={styles.actions}>
-      <Button variant="secondary" disabled={busy || disabled} loading={busy} onPress={() => void choose("gallery")}>Elegir de galería</Button>
-      <Button variant="secondary" disabled={busy || disabled} onPress={() => void choose("camera")}>Tomar foto</Button>
-      {value.kind !== "keep" || original ? <Button variant="ghost" disabled={busy || disabled} onPress={() => onChange(original ? { kind: "remove" } : { kind: "keep" })}>Quitar foto</Button> : null}
-      {value.kind === "remove" && original ? <Button variant="ghost" disabled={disabled} onPress={() => onChange({ kind: "keep" })}>Conservar foto actual</Button> : null}
+      <Button variant="secondary" disabled={busy || disabled} loading={busy} onPress={() => void choose("gallery")}>{t('chooseGallery')}</Button>
+      <Button variant="secondary" disabled={busy || disabled} onPress={() => void choose("camera")}>{t('takePhoto')}</Button>
+      {value.kind !== "keep" || original ? <Button variant="ghost" disabled={busy || disabled} onPress={() => onChange(original ? { kind: "remove" } : { kind: "keep" })}>{t('removePhoto')}</Button> : null}
+      {value.kind === "remove" && original ? <Button variant="ghost" disabled={disabled} onPress={() => onChange({ kind: "keep" })}>{t('keepPhoto')}</Button> : null}
     </View>
   </View>;
 }
