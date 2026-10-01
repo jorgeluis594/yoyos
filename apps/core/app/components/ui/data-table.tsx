@@ -1,6 +1,7 @@
+import { useLocalization } from "@core/app/localization";
 import * as React from "react";
-import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
+import { Skeleton } from "@core/app/components/ui/skeleton";
+import { cn } from "@core/app/lib/utils";
 import {
   Table,
   TableBody,
@@ -9,7 +10,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
+} from "@core/app/components/ui/table";
 
 export type TableColumn<T> = {
   id: string;
@@ -54,6 +55,7 @@ function TableLayout<T>({
   className,
   isLoading = false,
 }: TableLayoutProps<T> & { children: React.ReactNode; isLoading?: boolean }) {
+  const { t } = useLocalization();
   const hasMobileLayout = columns.some((column) => column.mobile);
 
   if (process.env.NODE_ENV !== "production" && hasMobileLayout) {
@@ -77,7 +79,7 @@ function TableLayout<T>({
       >
         {isLoading && (
           <span role="status" className="sr-only">
-            Cargando {caption}…
+            {t("Cargando")} {caption}…
           </span>
         )}
         <Table role="table" aria-busy={isLoading}>
@@ -151,6 +153,7 @@ function TableContent<T>({
   emptyMessage = "Sin resultados.",
   getRowClassName,
 }: TableContentProps<T>) {
+  const { t } = useLocalization();
   return (
     <TableLayout columns={columns} caption={caption} className={className}>
       {data.length ? (
@@ -186,7 +189,7 @@ function TableContent<T>({
             colSpan={columns.length}
             className="h-32 text-center text-muted-foreground"
           >
-            {emptyMessage}
+            {typeof emptyMessage === "string" ? t(emptyMessage) : emptyMessage}
           </TableCell>
         </TableRow>
       )}

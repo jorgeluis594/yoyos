@@ -1,5 +1,6 @@
+import { useLocalization } from "@core/app/localization";
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@core/app/components/ui/button";
 import { Link } from "react-router";
 
 export function meta() {
@@ -7,6 +8,7 @@ export function meta() {
 }
 
 export default function Home() {
+  const { t, href } = useLocalization();
   const [dark, setDark] = useState(false);
 
   useEffect(() => {
@@ -35,9 +37,9 @@ export default function Home() {
       <div className="flex items-center justify-between gap-4">
         <h1 className="text-2xl font-semibold">Yoyos</h1>
         <div className="flex items-center gap-3">
-          <Link to="/login" className="text-sm font-medium text-primary underline underline-offset-4">Iniciar sesión</Link>
-          <Button type="button" onClick={toggleTheme} aria-label="Alternar tema" aria-pressed={dark}>
-            {dark ? "Modo claro" : "Modo oscuro"}
+          <Link to={href("/login")} className="text-sm font-medium text-primary underline underline-offset-4">{t("Iniciar sesión")}</Link>
+          <Button type="button" onClick={toggleTheme} aria-label={t("Alternar tema")} aria-pressed={dark}>
+            {dark ? t("Modo claro") : t("Modo oscuro")}
           </Button>
         </div>
       </div>

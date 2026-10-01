@@ -23,3 +23,18 @@ test("reports technical save failures safely and preserves the form route", asyn
   expect(await action({ request, context } as ActionFunctionArgs)).toEqual({ errors: { form: "No se pudo guardar el producto. Inténtalo de nuevo." } });
   expect(products.create).toHaveBeenCalledOnce();
 });
+
+test("preserves Portuguese while redirecting to the company's country after creation", async () => {
+  vi.spyOn(products, "create").mockResolvedValue({ success: true, data: "00000000-0000-4000-8000-000000000002" as import("@core/src/features/products/domain/product").ProductId });
+  const request = new Request("http://localhost/pt-BR/products/new", { method: "POST", body: JSON.stringify(valid) });
+  const result = await action({ request, context } as ActionFunctionArgs);
+  expect(result).toBeInstanceOf(Response);
+  expect((result as Response).headers.get("Location")).toBe("/pt-PE/products/00000000-0000-4000-8000-000000000002");
+});
+
+test("returns Portuguese input errors without invoking creation", async () => {
+  const create = vi.spyOn(products, "create");
+  const request = new Request("http://localhost/pt-PE/products/new", { method: "POST", body: JSON.stringify({ ...valid, companyId: "forged" }) });
+  expect(await action({ request, context } as ActionFunctionArgs)).toMatchObject({ errors: { form: "A solicitação contém campos não permitidos." } });
+  expect(create).not.toHaveBeenCalled();
+});
