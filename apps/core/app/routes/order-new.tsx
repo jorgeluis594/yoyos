@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Plus, Search, ShoppingBag } from "lucide-react";
 import { Form, Link, useActionData, useFetcher, useLoaderData, useNavigation, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
-import { createOrderSchema, newOrderLoaderSchema, orderActionErrorSchema } from "@shared/contracts/orders";
+import { orderSelectionSchema, newOrderLoaderSchema, orderActionErrorSchema } from "@shared/contracts/orders";
 import { privateUserContext } from "@core/app/private-user-context";
 import { orders } from "@core/src/features/orders/composition";
 import type { ContactId, OrderId, PositiveInteger } from "@core/src/features/orders/domain/order";
@@ -26,7 +26,7 @@ export async function action({ request, context }: ActionFunctionArgs) {
   let raw: unknown;
   try { raw = JSON.parse(String((await request.formData()).get("order"))); }
   catch { return orderActionErrorSchema.parse({ code: "INVALID_ORDER", error: "Revisa los datos de la venta." }); }
-  const parsed = createOrderSchema.safeParse(raw);
+  const parsed = orderSelectionSchema.safeParse(raw);
   if (!parsed.success) return orderActionErrorSchema.parse({ code: "INVALID_ORDER", error: "Revisa los datos de la venta." });
   const [first, ...rest] = parsed.data.items;
   if (!first) return orderActionErrorSchema.parse({ code: "INVALID_ORDER", error: "Revisa los datos de la venta." });

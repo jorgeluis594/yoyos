@@ -82,7 +82,9 @@ function mixedListRequest(criteria: OrderListCriteria): Result<ListOrderAggregat
 const definitive = new Set<OrderRequestError["code"]>(["INVALID_INPUT", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE",
   "INVALID_ORDER", "CURRENCY_MISMATCH", "CONTACT_NOT_FOUND", "VARIANT_NOT_FOUND", "INSUFFICIENT_STOCK"]);
 const completedImmediateSale = (order: OrderAggregateResponse) => order.status === "completed" &&
-  order.paymentStatus === "paid" && order.deliveryStatus === "delivered" && order.stockDeducted && order.delivery === null;
+  order.paymentStatus === "paid" && order.balanceDue.amount === 0 &&
+  order.paidAmount.currency === order.total.currency && order.paidAmount.amount >= order.total.amount &&
+  order.deliveryStatus === "delivered" && order.stockDeducted && order.delivery === null;
 
 export function createOrderOperations(api: Api, pendingStore: PendingStore) {
   let inFlight: Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>> | null = null;
@@ -108,7 +110,9 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
       return err({ code: "PENDING_CONFIRMATION", message: "Another order needs verification" });
     const saved = await pendingStore.save({ companyId, id: prepared.data.request.id, shownTotal: prepared.data.shownTotal });
     if (!saved.success) return saved;
-    const result = await api.create(prepared.data.request);
+    const request: CreateOrderRequest = { ...prepared.data.request,
+      payment: { method: "digital_wallet" }, delivery: { method: "handover" } };
+    const result = await api.create(request);
     if (result.success) {
       if (result.data.companyId !== companyId || result.data.id !== saved.data.id)
         return err({ code: "INVALID_RESPONSE", message: "Order identity mismatch" });

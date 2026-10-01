@@ -1,6 +1,6 @@
 import express, { type Request, type Response } from "express";
 import { z } from "zod";
-import { createOrderSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type CreateOrderRequest } from "@shared/contracts/orders";
+import { createOrderSchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
 import { apiError, type PrivateLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { orders } from "@core/src/features/orders/composition";
 import { toLegacyOrderJson, toOrderAggregateJson, toOrderAggregateListJson, toOrderListJson } from "@core/src/features/orders/presentation/order-json";
@@ -88,7 +88,7 @@ const orderContext = (response: Response<unknown, PrivateLocals>): OrderAccess =
   companyId: response.locals.auth.company.id as CompanyId, userId: response.locals.auth.user.id as UserId,
 });
 const orderId = (value: string | undefined) => z.uuid().safeParse(value);
-function pendingInput(value: CreateOrderRequest): CreateOrderInput {
+function toCreateOrderInput(value: OrderSelectionRequest): CreateOrderInput {
   const [first, ...rest] = value.items;
   if (!first) throw new Error("Validated order has no items");
   const item = (selection: typeof first) => ({ variantId: selection.variantId as VariantId, quantity: selection.quantity as PositiveInteger });
@@ -171,20 +171,20 @@ orderRoutes.get("/:id/aggregate", async (request, response: Response<unknown, Pr
 
 orderRoutes.post("/pending", async (request, response: Response<unknown, PrivateLocals>) => {
   if (!request.is("application/json")) return apiError(response, 415, "UNSUPPORTED_MEDIA_TYPE", "JSON body required");
-  const parsed = createOrderSchema.safeParse(request.body);
+  const parsed = orderSelectionSchema.safeParse(request.body);
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order input");
   try {
-    const result = await orders.create(pendingInput(parsed.data), orderContext(response));
+    const result = await orders.create(toCreateOrderInput(parsed.data), orderContext(response));
     return result.success ? response.status(201).json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });
 
 orderRoutes.post("/immediate-sale", async (request, response: Response<unknown, PrivateLocals>) => {
   if (!request.is("application/json")) return apiError(response, 415, "UNSUPPORTED_MEDIA_TYPE", "JSON body required");
-  const parsed = createOrderSchema.safeParse(request.body);
+  const parsed = orderSelectionSchema.safeParse(request.body);
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order input");
   try {
-    const result = await orders.registerImmediateSale(pendingInput(parsed.data), orderContext(response));
+    const result = await orders.registerImmediateSale(toCreateOrderInput(parsed.data), orderContext(response));
     return result.success ? response.status(201).json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });
@@ -220,7 +220,10 @@ orderRoutes.post("/", async (request, response: Response<unknown, PrivateLocals>
   const parsed = createOrderSchema.safeParse(request.body);
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order input");
   try {
-    const result = await orders.registerImmediateSale(pendingInput(parsed.data), orderContext(response));
-    return result.success ? response.status(201).json(toLegacyOrderJson(result.data)) : operationError(response, result.error);
+    const input = toCreateOrderInput(parsed.data);
+    const context = orderContext(response);
+    const result = "payment" in parsed.data
+      ? await orders.registerImmediateSale(input, context) : await orders.create(input, context);
+    return result.success ? response.status(201).json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });

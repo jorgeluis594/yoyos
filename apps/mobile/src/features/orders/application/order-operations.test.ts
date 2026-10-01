@@ -42,7 +42,9 @@ test("Lima day filters include the whole through day and reject inverted days", 
 
 test("save failure prevents POST; uncertain POST coalesces taps and blocks another order", async () => {
   let sends = 0;
-  const api = createOrderApi(async (path) => path === "/api/orders/immediate-sale" ? (sends++, err({ code: "NETWORK_ERROR", message: "Offline" }))
+  const bodies: unknown[] = [];
+  const api = createOrderApi(async (path, init) => path === "/api/orders" ? (sends++, bodies.push(JSON.parse(String(init?.body))),
+    err({ code: "NETWORK_ERROR", message: "Offline" }))
     : err({ code: "API_ERROR", message: "Absent", http: { status: 404, body: { code: "ORDER_NOT_FOUND", error: "Absent" } } }));
   const broken = createPendingOrderConfirmationStore({ getItemAsync: async () => null,
     setItemAsync: async () => { throw new Error("Cannot save"); }, deleteItemAsync: async () => {} });
@@ -55,6 +57,8 @@ test("save failure prevents POST; uncertain POST coalesces taps and blocks anoth
   expect(first).toEqual(second);
   expect(first).toMatchObject({ success: true, data: { kind: "uncertain", pending: { id: id(3) } } });
   expect(sends).toBe(1);
+  expect(bodies).toEqual([{ id: id(3), contactId: null, items: [{ variantId: id(2), quantity: 1 }],
+    payment: { method: "digital_wallet" }, delivery: { method: "handover" } }]);
   expect(await operations.resolvePendingOrderConfirmation(companyId))
     .toMatchObject({ success: true, data: { kind: "uncertain", pending: { id: id(3) } } });
   const other = addDraftItem(emptyOrderDraft(), item, () => id(4));
@@ -87,7 +91,7 @@ test("recovery keeps the amount first shown and returns the core total", async (
     payments: [{ id: id(6), orderId: id(3), amount, method: "digital_wallet", recordedAt: "2026-09-29T12:00:00.000Z" }],
     items: [{ id: id(5), variantId: id(2), productName: "Sample", variantAttributes: {}, sku: null,
       quantity: 1, unitPrice: amount, subtotal: amount }] };
-  const api = createOrderApi(async (path) => path === "/api/orders/immediate-sale"
+  const api = createOrderApi(async (path) => path === "/api/orders"
     ? err({ code: "NETWORK_ERROR", message: "Lost response" }) : ok(order));
   const store = storage();
   const operations = createOrderOperations(api, store);
@@ -106,6 +110,19 @@ test("recovery keeps the amount first shown and returns the core total", async (
   expect(await pendingOperations.resolvePendingOrderConfirmation(companyId)).toMatchObject({ success: false,
     error: { code: "INVALID_RESPONSE" } });
   expect(await pendingStore.read(companyId)).toMatchObject({ success: true, data: { id: id(3) } });
+  const incomplete = { ...order, paidAmount: zero, balanceDue: amount };
+  expect(await createOrderOperations(createOrderApi(async () => ok(incomplete)), storage()).completeOrder(draft(), companyId))
+    .toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+  const conflictApi = createOrderApi(async (path) => path === "/api/orders"
+    ? err({ code: "API_ERROR", message: "Exists", http: { status: 409,
+      body: { code: "ORDER_ALREADY_EXISTS", error: "Exists" } } }) : ok(order));
+  expect(await createOrderOperations(conflictApi, storage()).completeOrder(draft(), companyId))
+    .toMatchObject({ success: true, data: { kind: "completed", order: { id: id(3) } } });
+  const pendingConflictApi = createOrderApi(async (path) => path === "/api/orders"
+    ? err({ code: "API_ERROR", message: "Exists", http: { status: 409,
+      body: { code: "ORDER_ALREADY_EXISTS", error: "Exists" } } }) : ok(pending));
+  expect(await createOrderOperations(pendingConflictApi, storage()).completeOrder(draft(), companyId))
+    .toMatchObject({ success: true, data: { kind: "uncertain" } });
 });
 
 test("a restarted session reads the same company attempt and explicitly resends its original ID", async () => {
@@ -114,7 +131,7 @@ test("a restarted session reads the same company attempt and explicitly resends 
     setItemAsync: async (key: string, value: string) => { values.set(key, value); },
     deleteItemAsync: async (key: string) => { values.delete(key); } };
   let sends = 0;
-  const api = createOrderApi(async (path) => path === "/api/orders/immediate-sale" ? (sends++, err({ code: "NETWORK_ERROR", message: "Lost response" }))
+  const api = createOrderApi(async (path) => path === "/api/orders" ? (sends++, err({ code: "NETWORK_ERROR", message: "Lost response" }))
     : err({ code: "API_ERROR", message: "Absent", http: { status: 404, body: { code: "ORDER_NOT_FOUND", error: "Absent" } } }));
   const first = createOrderOperations(api, createPendingOrderConfirmationStore(secureStorage));
   expect(await first.completeOrder(draft(), companyId)).toMatchObject({ success: true, data: { kind: "uncertain" } });

@@ -1,11 +1,19 @@
 import { z } from "zod";
 import { currencies } from "@shared/money";
 
-export const createOrderSchema = z.strictObject({
+export const orderSelectionSchema = z.strictObject({
   id: z.uuid(),
   contactId: z.uuid().nullable(),
   items: z.array(z.strictObject({ variantId: z.uuid(), quantity: z.number().int().positive().safe() })).min(1),
 });
+export type OrderSelectionRequest = z.infer<typeof orderSelectionSchema>;
+export const createOrderSchema = z.union([
+  orderSelectionSchema,
+  orderSelectionSchema.extend({
+    payment: z.strictObject({ method: z.literal("digital_wallet") }),
+    delivery: z.strictObject({ method: z.literal("handover") }),
+  }),
+]);
 export type CreateOrderRequest = z.infer<typeof createOrderSchema>;
 
 export const orderCustomerSchema = z.discriminatedUnion("kind", [

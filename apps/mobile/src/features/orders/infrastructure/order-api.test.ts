@@ -9,10 +9,14 @@ test("order API sends only validated creation fields and validates the reply", a
   const input = { id: id(1), contactId: null, items: [{ variantId: id(2), quantity: 2 }] };
   expect(await api.create(input)).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
   expect(calls).toHaveLength(1);
-  expect(calls[0][0]).toBe("/api/orders/immediate-sale");
+  expect(calls[0][0]).toBe("/api/orders");
   expect(JSON.parse(String(calls[0][1]?.body))).toEqual(input);
   expect(await api.create({ ...input, items: [] })).toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
   expect(calls).toHaveLength(1);
+  const complete = { ...input, payment: { method: "digital_wallet" }, delivery: { method: "handover" } } as const;
+  await api.create(complete);
+  expect(calls[1][0]).toBe("/api/orders");
+  expect(JSON.parse(String(calls[1][1]?.body))).toEqual(complete);
 });
 
 test("order API preserves matching business errors and rejects mismatched status or operation", async () => {
@@ -43,13 +47,13 @@ test("order API reads mixed summaries and validates complete aggregate states", 
   expect(await api.listAggregates({ page: 1, customer: "all" })).toMatchObject({ success: true,
     data: { items: [{ id: id(1), status: "active" }] } });
   expect(await api.getAggregate(id(1))).toMatchObject({ success: true, data: { id: id(1), payments: [] } });
-  expect(await api.createPending({ id: id(1), contactId: null, items: [{ variantId: id(4), quantity: 1 }] }))
+  expect(await api.create({ id: id(1), contactId: null, items: [{ variantId: id(4), quantity: 1 }] }))
     .toMatchObject({ success: true, data: { status: "active" } });
   expect(await api.registerPayment(id(1), { paymentId: id(5), amount: total, method: "digital_wallet", deductStockIfPartial: false }))
     .toMatchObject({ success: true, data: { stock: { kind: "pending", reason: "INSUFFICIENT_STOCK" } } });
   expect(await api.deductStock(id(1))).toMatchObject({ success: true, data: { id: id(1) } });
   expect(paths).toEqual(["/api/orders/mixed?page=1&customer=all", `/api/orders/${id(1)}/aggregate`,
-    "/api/orders/pending", `/api/orders/${id(1)}/payments`, `/api/orders/${id(1)}/deduct-stock`]);
+    "/api/orders", `/api/orders/${id(1)}/payments`, `/api/orders/${id(1)}/deduct-stock`]);
   expect(await api.registerPayment(id(1), { paymentId: "bad", amount: total, method: "digital_wallet", deductStockIfPartial: false }))
     .toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
   expect(paths).toHaveLength(5);

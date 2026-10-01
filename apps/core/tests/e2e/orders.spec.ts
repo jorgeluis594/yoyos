@@ -185,7 +185,7 @@ test("pending order remains active when paid before delivery", async ({ page }) 
     if (!product.success) return;
     const variantId = await withTenantIsolation(tenantId, async () => (await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } })).id);
     const orderId = crypto.randomUUID();
-    const created = await page.request.post("/api/orders/pending", { data: { id: orderId, contactId: null,
+    const created = await page.request.post("/api/orders", { data: { id: orderId, contactId: null,
       items: [{ variantId, quantity: 1 }] } });
     expect(created.status()).toBe(201);
     await page.goto("/es-PE/orders");

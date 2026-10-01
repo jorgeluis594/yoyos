@@ -7,10 +7,16 @@ test("parses only primitive order input", () => {
   const valid = { id: id(1), contactId: null, items: [{ variantId: id(2), quantity: 1 }] };
   expect(createOrderSchema.safeParse(valid).success).toBe(true);
   expect(createOrderSchema.safeParse({ ...valid, contactId: id(3) }).success).toBe(true);
+  const completed = { ...valid, payment: { method: "digital_wallet" }, delivery: { method: "handover" } };
+  expect(createOrderSchema.safeParse(completed).success).toBe(true);
   for (const invalid of ["{", { ...valid, id: "bad" }, { id: id(1), contactId: null },
     { ...valid, items: [{ variantId: id(2), quantity: 0 }] }, { ...valid, items: [{ variantId: id(2), quantity: 1.5 }] },
     { ...valid, total: 0.01 }, { ...valid, companyId: id(3) }, { ...valid, sellerId: "attacker" },
-    { ...valid, completedAt: "2026-09-27T12:00:00.000Z" }, { ...valid, items: [{ variantId: id(2), quantity: 1, unitPrice: 0.01 }] }]) {
+    { ...valid, completedAt: "2026-09-27T12:00:00.000Z" }, { ...valid, items: [{ variantId: id(2), quantity: 1, unitPrice: 0.01 }] },
+    { ...valid, payment: completed.payment }, { ...valid, delivery: completed.delivery },
+    { ...valid, payment: null, delivery: null }, { ...completed, payment: { method: "cash" } },
+    { ...completed, delivery: { method: "home" } }, { ...completed, payment: { ...completed.payment, id: id(4) } },
+    { ...completed, delivery: { ...completed.delivery, address: "Here" } }]) {
     expect(createOrderSchema.safeParse(invalid).success).toBe(false);
   }
 });
