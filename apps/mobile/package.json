@@ -28,6 +28,7 @@
     "expo-symbols": "~57.0.3",
     "expo-system-ui": "~57.0.4",
     "expo-web-browser": "~57.0.3",
+    "i18next": "^26.4.2",
     "nativewind": "^4.2.7",
     "qrcode": "^1.5.4",
     "react": "19.2.3",
