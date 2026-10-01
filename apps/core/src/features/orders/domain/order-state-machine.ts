@@ -152,7 +152,7 @@ function registerPayment(order: OrderAggregate, payment: Payment): Result<OrderA
   const next = { ...order, payments: [...order.payments, payment] };
   const summary = paymentSummary(next);
   if (!summary.success) return summary;
-  return ok(order.deliveryStatus === "delivered" && summary.data.status === "paid" ? { ...next, completedAt: payment.recordedAt } : next);
+  return ok(order.deliveryStatus === "delivered" && summary.data.status === "paid" ? { ...next, completedAt: order.completedAt ?? payment.recordedAt } : next);
 }
 
 function planStockDeduction(order: OrderAggregate, requestedIfPartial: boolean): Result<StockDeductionPlan, OrderDomainError> {

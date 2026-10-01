@@ -179,6 +179,22 @@ export async function saveStockDeduction(id: OrderId, companyId: CompanyId) {
   }
 }
 
+export async function savePayment(payment: Payment, companyId: CompanyId) {
+  requireActiveTransaction(companyId);
+  try {
+    await prisma.payment.create({ data: { id: payment.id, companyId, orderId: payment.orderId,
+      amount: new Prisma.Decimal(payment.amount.amount.toString()), currency: payment.amount.currency,
+      method: payment.method, recordedAt: payment.recordedAt } });
+    return ok<null>(null);
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    if (cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2002")
+      return err({ code: "PAYMENT_CONFLICT" as const, message: "Payment ID already exists" });
+    console.error("Unable to save payment", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save payment" });
+  }
+}
+
 export async function findOrders(criteria: OrderCriteria) {
   const where: Prisma.OrderWhereInput = {
     ...(criteria.customer.kind === "general_public" ? { contactId: null } : criteria.customer.kind === "contact" ? { contactId: criteria.customer.contactId } : {}),

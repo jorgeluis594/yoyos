@@ -82,6 +82,13 @@ describe("order payment and lifecycle", () => {
       .toMatchObject({ success: false, error: { code: "CURRENCY_MISMATCH" } });
   });
 
+  test("preserves an existing completion date when another payment is recorded", () => {
+    const completed = { ...order(), payments: [payment(5, 10)], stockDeducted: true,
+      deliveryStatus: "delivered" as const, completedAt: createdAt };
+    expect(orderStateMachine.registerPayment(completed, payment(6, 1))).toMatchObject({ success: true,
+      data: { completedAt: createdAt, payments: [{ id: id(5) }, { id: id(6) }] } });
+  });
+
   test("rejects accumulated payments outside the supported range", () => {
     const enormous = { ...order(), itemsTotal: money(9_999_999_999_999.99), total: money(9_999_999_999_999.99) };
     const first = orderStateMachine.registerPayment(enormous, payment(5, 9_999_999_999_999.99));

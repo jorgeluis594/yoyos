@@ -5,7 +5,7 @@ import { expect, test } from "vitest";
 import { orders } from "@core/src/features/orders/composition";
 import { prisma, systemPrisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { findOrderAggregate, findOrderForUpdate } from "@core/src/features/orders/infrastructure/order-repository";
-import type { CompanyId, ContactId, OrderId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
+import type { CompanyId, ContactId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
 async function fixture() {
@@ -89,6 +89,52 @@ test("keeps all stock when a pending order cannot deduct every item", async () =
       expect(await orders.deductStock(orderId, context)).toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
       expect((await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).stockDeducted).toBe(false);
       expect((await prisma.productStock.findMany({ orderBy: { variantId: "asc" } })).map((stock) => stock.quantity)).toEqual([3n, 3n]);
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("preserves a recorded payment when stock is short and retries its ID after replenishment", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const orderId = randomUUID() as OrderId;
+      const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+      expect(await orders.createPending({ id: orderId, contactId: null,
+        items: [{ variantId: f.variantIds[0] as VariantId, quantity: 4 as PositiveInteger }] }, context)).toMatchObject({ success: true });
+      const input = { orderId, paymentId: randomUUID() as PaymentId, amount: { amount: 0.4, currency: "PEN" as const },
+        method: "digital_wallet" as const, deductStockIfPartial: false };
+      expect(await orders.registerPayment(input, context)).toMatchObject({ success: true,
+        data: { stock: { kind: "pending", reason: "INSUFFICIENT_STOCK" }, order: { payments: [{ id: input.paymentId }] } } });
+      expect(await prisma.payment.count({ where: { orderId } })).toBe(1);
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
+      await prisma.productStock.update({ where: { variantId: f.variantIds[0] }, data: { quantity: { increment: 1n } } });
+      expect(await orders.registerPayment(input, context)).toMatchObject({ success: true,
+        data: { stock: { kind: "deducted" }, order: { stockDeducted: true } } });
+      expect(await orders.registerPayment(input, context)).toMatchObject({ success: true, data: { stock: { kind: "deducted" } } });
+      expect(await orders.registerPayment({ ...input, amount: { amount: 0.3, currency: "PEN" } }, context))
+        .toMatchObject({ success: false, error: { code: "PAYMENT_CONFLICT" } });
+      expect(await prisma.payment.count({ where: { orderId } })).toBe(1);
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(0n);
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("keeps stock after an unrequested partial payment and deducts it when payments cover the order", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const orderId = randomUUID() as OrderId;
+      const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+      expect(await orders.createPending({ id: orderId, contactId: null,
+        items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] }, context)).toMatchObject({ success: true });
+      const payment = { orderId, paymentId: randomUUID() as PaymentId, amount: { amount: 0.1, currency: "PEN" as const },
+        method: "digital_wallet" as const, deductStockIfPartial: false };
+      expect(await orders.registerPayment(payment, context)).toMatchObject({ success: true, data: { stock: { kind: "not_requested" } } });
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
+      expect(await orders.registerPayment({ ...payment, paymentId: randomUUID() as PaymentId }, context))
+        .toMatchObject({ success: true, data: { stock: { kind: "deducted" } } });
+      expect(await prisma.payment.count({ where: { orderId } })).toBe(2);
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
     });
   } finally { await f.cleanup(); }
 });

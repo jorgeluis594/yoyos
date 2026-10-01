@@ -2,12 +2,13 @@ import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { err } from "@shared/functional";
 import type { AppError, Result } from "@shared/result";
-import { getCompanyId, withinTransaction } from "@core/src/shared/infrastructure/persistance";
+import { getCompanyId, requireNoActiveTransaction, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { createOrder } from "@core/src/features/orders/application/create-order";
 import { createPendingOrder, type CreatePendingOrderDependencies } from "@core/src/features/orders/application/create-pending-order";
 import { deductStock, type DeductStockDependencies } from "@core/src/features/orders/application/deduct-stock";
+import { registerPayment, type RegisterPaymentDependencies } from "@core/src/features/orders/application/register-payment";
 import { getOrder, listOrders } from "@core/src/features/orders/application/read-orders";
-import { saveOrder, savePendingOrder, saveStockDeduction, findOrder, findOrderForUpdate, findOrders, orderExists } from "@core/src/features/orders/infrastructure/order-repository";
+import { saveOrder, savePendingOrder, savePayment, saveStockDeduction, findOrder, findOrderForUpdate, findOrders, orderExists } from "@core/src/features/orders/infrastructure/order-repository";
 import { findSellableVariant, deductProductStock, searchSaleCatalog } from "@core/src/features/products";
 import { findContactById, searchSaleContacts } from "@core/src/features/contacts";
 import type { OrderItemId, PaymentId } from "@core/src/features/orders/domain/order";
@@ -30,8 +31,14 @@ function scopedOrderTransaction<T, E extends AppError>(companyId: string, callba
 }
 const pendingTransaction: CreatePendingOrderDependencies["transaction"] = scopedOrderTransaction;
 const stockTransaction: DeductStockDependencies["transaction"] = scopedOrderTransaction;
+const paymentTransaction: RegisterPaymentDependencies["transaction"] = scopedOrderTransaction;
 
 export const orders = {
+  registerPayment: (input: Parameters<typeof registerPayment>[0], context: Parameters<typeof registerPayment>[1]) => {
+    requireNoActiveTransaction();
+    return registerPayment(input, context, { transaction: paymentTransaction, findOrderForUpdate, savePayment,
+      deductProductStock, saveStockDeduction, clock: () => new Date() });
+  },
   deductStock: (id: Parameters<typeof deductStock>[0], context: Parameters<typeof deductStock>[1]) =>
     deductStock(id, context, { transaction: stockTransaction, findOrderForUpdate, deductProductStock, saveStockDeduction }),
   createPending: (input: Parameters<typeof createPendingOrder>[0], context: Parameters<typeof createPendingOrder>[1]) =>
