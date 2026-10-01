@@ -76,6 +76,10 @@ const delivery = z.discriminatedUnion("method", [
   z.strictObject({ method: z.literal("agency"), recipient: documentedRecipient, destination: z.strictObject({ agencyId: requiredText }) }),
   z.strictObject({ method: z.literal("store"), recipient, destination: z.strictObject({ storeId: requiredText }) }),
 ]);
+export function parseDeliveryDetails(value: unknown): Result<DeliveryDetails, OrderDomainError> {
+  const parsed = delivery.safeParse(value);
+  return parsed.success ? ok(parsed.data) : err({ code: "INVALID_ORDER", message: "Invalid delivery snapshot" });
+}
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const validDate = (date: Date) => date instanceof Date && Number.isFinite(date.getTime());
 const failure = (code: OrderDomainError["code"], message: string): Result<never, OrderDomainError> => err({ code, message });

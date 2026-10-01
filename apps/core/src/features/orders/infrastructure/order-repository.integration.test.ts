@@ -3,7 +3,8 @@ import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { expect, test } from "vitest";
 import { orders } from "@core/src/features/orders/composition";
-import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { prisma, systemPrisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
+import { findOrderAggregate, findOrderForUpdate } from "@core/src/features/orders/infrastructure/order-repository";
 import type { CompanyId, ContactId, OrderId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
@@ -57,6 +58,11 @@ test("persists a pending order without payment or stock effects", async () => {
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
       expect(await orders.createPending(input, context)).toMatchObject({ success: false, error: { code: "ORDER_ALREADY_EXISTS" } });
       expect(await prisma.payment.count()).toBe(0);
+      expect(await findOrderAggregate(input.id, context.companyId)).toMatchObject({ success: true,
+        data: { id: orderId, completedAt: null, payments: [], total: { amount: 0.2, currency: "PEN" } } });
+      expect(await withinTransaction(() => findOrderForUpdate(input.id, context.companyId))).toMatchObject({ success: true,
+        data: { id: orderId, stockDeducted: false } });
+      await expect(findOrderForUpdate(input.id, context.companyId)).rejects.toThrow("active transaction");
     });
   } finally { await f.cleanup(); }
 });
@@ -79,6 +85,9 @@ test("persists completed sale, historical snapshots, listing and duplicate rejec
       expect(persisted.payments).toHaveLength(1);
       expect(persisted.payments[0]).toMatchObject({ orderId, currency: "PEN", method: "digital_wallet", recordedAt: persisted.completedAt });
       expect(persisted.payments[0].amount.toNumber()).toBe(0.7);
+      expect(await findOrderAggregate(orderId as OrderId, f.companyId as CompanyId)).toMatchObject({ success: true,
+        data: { id: orderId, deliveryStatus: "delivered", stockDeducted: true, payments: [{ id: persisted.payments[0].id,
+          amount: { amount: 0.7, currency: "PEN" } }] } });
       expect(await prisma.productStock.findMany({ orderBy: { variantId: "asc" } })).toHaveLength(2);
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(0n);
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[1] } })).quantity).toBe(1n);
