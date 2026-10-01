@@ -3,6 +3,7 @@ import type { ProductFormField, ProductFormValues } from "./product-form";
 import i18n from '@mobile/i18n';
 
 export const emptyProductForm: ProductFormValues = { name: "", description: "", sku: "", salePrice: "", purchasePrice: "", stock: "" };
+const fieldLabels: Record<string, string> = { name: 'name', description: 'descriptionLabel', sku: 'optionalSku', salePrice: 'salePrice', purchasePrice: 'purchasePrice', stock: 'initialStock', initialStock: 'initialStock' };
 
 export function valuesForProduct(product: Product): ProductFormValues {
   const variant = product.variants.length === 1 ? product.variants[0] : undefined;
@@ -47,7 +48,7 @@ export function productErrors(error: { code?: string; issues?: readonly { field:
         const key = field === "initialStock" ? "stock" : field as ProductFormField;
         mapped[key] = issue.reason === "TOO_LONG" ? i18n.t('maxCharacters', { count: issue.maxLength ?? '' })
           : issue.reason === "DUPLICATE_SKU" ? i18n.t('duplicateSku')
-          : i18n.t('reviewField', { field });
+          : i18n.t('reviewField', { field: i18n.t(fieldLabels[field ?? '']) });
       } else mapped.form = i18n.t('reviewProductData');
     }
     return Object.keys(mapped).length ? mapped : { form: i18n.t('reviewProductData') };
