@@ -79,7 +79,7 @@ export function AuthForm({ mode, pendingCompany = false }: { mode: "login" | "re
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       <Button type="submit" disabled={pending}>{pending ? t("auth.wait") : pendingCompany ? t("auth.createCompany") : isRegister ? t("auth.createAccount") : t("auth.enter")}</Button>
     </form>
-    {!pendingCompany && <p className="mt-6 text-center text-sm text-muted-foreground">{isRegister ? t("auth.hasAccount") : t("auth.noAccount")}<Link to={path(isRegister ? "/login" : "/register")} className="font-medium text-primary underline underline-offset-4">{isRegister ? t("common.login") : t("auth.register")}</Link></p>}
+    {!pendingCompany && <p className="mt-6 text-center text-sm text-muted-foreground">{isRegister ? t("auth.hasAccount") : t("auth.noAccount")}<Link to={path(isRegister ? "/login" : "/register")} className="font-medium text-primary underline underline-offset-4">{isRegister ? t("auth.loginLink") : t("auth.register")}</Link></p>}
     {!pendingCompany && !isRegister && <Link to={path("/forgot-password")} className="mt-3 block text-center text-sm font-medium text-primary underline underline-offset-4">{t("auth.forgotLink")}</Link>}
   </div></main>;
 }
