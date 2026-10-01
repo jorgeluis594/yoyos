@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
-import { companyPath } from "@core/app/locale";
+import { companyPath, languageForLocale } from "@core/app/locale";
+import resources from "@core/app/locales";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { redirect, useActionData, useLoaderData, useNavigation, useSubmit, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
 import { countryCurrencies, type Country } from "@shared/country";
@@ -17,16 +18,17 @@ export function loader({ context, request }: LoaderFunctionArgs) {
 }
 
 export async function action({ request, context }: ActionFunctionArgs): Promise<Response | { errors: FormErrors }> {
+  const language = languageForLocale(new URL(request.url).pathname.split("/")[1]);
   const parsed = parseCreateJson(await request.text());
-  if (!parsed.success) return { errors: createErrors(parsed.error) };
+  if (!parsed.success) return { errors: createErrors(parsed.error, language) };
   const company = context.get(privateUserContext).company;
   try {
     const result = await products.create(parsed.data);
-    if (!result.success) return { errors: createErrors(result.error) };
+    if (!result.success) return { errors: createErrors(result.error, language) };
     return redirect(companyPath(new URL(request.url).pathname, company.country, `/products/${result.data}`));
   } catch (cause) {
     log.error({ event: "unable_to_create_product", err: cause }, "unable_to_create_product");
-    return { errors: { form: "No se pudo guardar el producto. Inténtalo de nuevo." } };
+    return { errors: { form: resources[language].translation.productErrors.saveError } };
   }
 }
 

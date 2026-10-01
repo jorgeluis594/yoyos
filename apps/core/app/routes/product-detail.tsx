@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
-import { companyPath, localizedPath } from "@core/app/locale";
+import { companyPath, languageForLocale, localizedPath } from "@core/app/locale";
+import resources from "@core/app/locales";
 import { formatCurrency } from "@core/app/format-currency";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { isRouteErrorResponse, Link, useActionData, useLoaderData, useNavigation, useSubmit, useLocation, redirect, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
@@ -50,17 +51,18 @@ export async function loader({ context, params, request }: LoaderFunctionArgs) {
 }
 
 export async function action({ request, context, params }: ActionFunctionArgs): Promise<Response | { errors: FormErrors }> {
+  const language = languageForLocale(new URL(request.url).pathname.split("/")[1]);
   if (!params.productId || !uuid.test(params.productId)) throw new Response("Not found", { status: 404 });
   const parsed = parseUpdateJson(await request.text());
-  if (!parsed.success) return { errors: updateErrors(parsed.error) };
+  if (!parsed.success) return { errors: updateErrors(parsed.error, language) };
   const company = context.get(privateUserContext).company;
   try {
     const result = await products.update(params.productId as ProductId, parsed.data);
-    if (!result.success) return { errors: updateErrors(result.error) };
+    if (!result.success) return { errors: updateErrors(result.error, language) };
     return redirect(`${companyPath(new URL(request.url).pathname, company.country, `/products/${result.data}`)}?saved=1`);
   } catch (cause) {
     log.error({ event: "unable_to_update_product", err: cause }, "unable_to_update_product");
-    return { errors: { form: "No se pudo guardar el producto. Inténtalo de nuevo." } };
+    return { errors: { form: resources[language].translation.productErrors.saveError } };
   }
 }
 

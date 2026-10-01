@@ -32,3 +32,8 @@ test("keeps Portuguese in the product redirect", async () => {
   expect(response).toBeInstanceOf(Response);
   expect((response as Response).headers.get("Location")).toBe("/pt-BR/products/00000000-0000-4000-8000-000000000002");
 });
+
+test("returns Portuguese validation errors for Portuguese routes", async () => {
+  const request = new Request("http://localhost/pt-BR/products/new", { method: "POST", body: JSON.stringify({ ...valid, companyId: "forged" }) });
+  expect(await action({ request, context } as ActionFunctionArgs)).toMatchObject({ errors: { form: "A solicitação contém campos não permitidos." } });
+});

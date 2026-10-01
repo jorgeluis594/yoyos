@@ -24,3 +24,11 @@ test("translates update failures without comparing technical messages", () => {
     { scope: "variant", index: 0, field: "id", reason: "VARIANT_NOT_FOUND", message: "Foreign" },
   ] })).toEqual({ form: "La variante no pertenece a este producto." });
 });
+
+test("translates product validation and technical errors in Portuguese", () => {
+  expect(createErrors({ code: "VALIDATION_ERROR", message: "Invalid", issues: [
+    { scope: "product", field: "description", reason: "TOO_LONG", maxLength: 5000, message: "Too long" },
+  ] }, "pt")).toEqual({ description: "A descrição deve ter no máximo 5000 caracteres." });
+  expect(updateErrors({ code: "PERSISTENCE_UNAVAILABLE", message: "database down" }, "pt"))
+    .toEqual({ form: "Não foi possível verificar a imagem. Tente novamente." });
+});
