@@ -209,6 +209,20 @@ export async function saveFulfillment(id: OrderId, companyId: CompanyId, complet
   }
 }
 
+export async function saveCancellation(id: OrderId, companyId: CompanyId, stockDeducted: false) {
+  requireActiveTransaction(companyId);
+  try {
+    const updated = await prisma.order.updateMany({ where: { id, companyId, deliveryStatus: "pending", cancelled: false, completedAt: null },
+      data: { cancelled: true, stockDeducted } });
+    if (updated.count !== 1) throw new Error("Locked order was not available for cancellation");
+    return ok<null>(null);
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    console.error("Unable to save order cancellation", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save order cancellation" });
+  }
+}
+
 export async function findOrders(criteria: OrderCriteria) {
   const where: Prisma.OrderWhereInput = {
     ...(criteria.customer.kind === "general_public" ? { contactId: null } : criteria.customer.kind === "contact" ? { contactId: criteria.customer.contactId } : {}),

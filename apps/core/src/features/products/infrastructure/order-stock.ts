@@ -40,6 +40,18 @@ export async function deductProductStock(variantId: VariantId, quantity: number)
   }
 }
 
+export async function restoreProductStock(variantId: VariantId, quantity: number) {
+  try {
+    const result = await prisma.productStock.updateMany({ where: { variantId }, data: { quantity: { increment: BigInt(quantity) } } });
+    if (result.count !== 1) return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to restore stock" });
+    return ok<null>(null);
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    console.error("Unable to restore product stock", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to restore stock" });
+  }
+}
+
 export async function searchSaleCatalog(search: string) {
   try {
     const rows = await prisma.product.findMany({ where: { name: { contains: search.replace(/[\\%_]/g, "\\$&"), mode: "insensitive" }, status: "active" },

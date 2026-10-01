@@ -174,6 +174,28 @@ test("rolls back every immediate-sale write when stock is insufficient", async (
   } finally { await f.cleanup(); }
 });
 
+test("restores deducted stock once when cancelling before dispatch and preserves payments", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const orderId = randomUUID() as OrderId;
+      const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+      expect(await orders.createPending({ id: orderId, contactId: null,
+        items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] }, context)).toMatchObject({ success: true });
+      expect(await orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId,
+        amount: { amount: 0.2, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context))
+        .toMatchObject({ success: true, data: { stock: { kind: "deducted" } } });
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
+      expect(await orders.cancel(orderId, context)).toMatchObject({ success: true,
+        data: { cancelled: true, stockDeducted: false, payments: [{ amount: { amount: 0.2 } }] } });
+      expect(await orders.cancel(orderId, context)).toMatchObject({ success: true, data: { cancelled: true } });
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
+      expect(await prisma.payment.count({ where: { orderId } })).toBe(1);
+      expect(await orders.deductStock(orderId, context)).toMatchObject({ success: false, error: { code: "ORDER_CANCELLED" } });
+    });
+  } finally { await f.cleanup(); }
+});
+
 test("persists completed sale, historical snapshots, listing and duplicate rejection", async () => {
   const f = await fixture();
   try {

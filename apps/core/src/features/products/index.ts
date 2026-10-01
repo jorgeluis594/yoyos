@@ -1,1 +1,1 @@
-export { findSellableVariant, deductProductStock, searchSaleCatalog } from "@core/src/features/products/infrastructure/order-stock";
+export { findSellableVariant, deductProductStock, restoreProductStock, searchSaleCatalog } from "@core/src/features/products/infrastructure/order-stock";
