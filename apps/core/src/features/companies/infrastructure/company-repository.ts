@@ -1,3 +1,4 @@
+import { log } from "@core/src/shared/infrastructure/logger";
 import { companyDtoSchema } from "@shared/contracts/registration";
 import { err, ok } from "@shared/functional";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
@@ -18,7 +19,7 @@ export const companyRepository = {
       if (!parsed.success) return err({ code: "INVALID_STORED_DATA", message: "Invalid stored company" });
       return ok(parsed.data);
     } catch (cause) {
-      console.error("Unable to load linked company", cause);
+      log.error({ event: "unable_to_load_linked_company", err: cause }, "unable_to_load_linked_company");
       return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to load company" });
     }
   },
@@ -29,7 +30,7 @@ export const companyRepository = {
       if (!user.emailVerified) return ok({ status: "verification_required" as const });
       return ok(user.companyId ? { status: "linked" as const, companyId: user.companyId } : { status: "unlinked" as const });
     } catch (cause) {
-      console.error("Unable to read company link", cause);
+      log.error({ event: "unable_to_read_company_link", err: cause }, "unable_to_read_company_link");
       return err<CreateCompanyError>({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to read company link" });
     }
   },
@@ -46,7 +47,7 @@ export const companyRepository = {
       return ok({ status: "created" as const, companyId });
     } catch (cause) {
       if (cause === alreadyLinked) return ok({ status: "link_changed" as const });
-      console.error("Unable to create company", cause);
+      log.error({ event: "unable_to_create_company", err: cause }, "unable_to_create_company");
       return err<CreateCompanyError>({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to create company" });
     }
   },

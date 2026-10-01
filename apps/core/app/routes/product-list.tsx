@@ -1,3 +1,4 @@
+import { log } from "@core/src/shared/infrastructure/logger";
 import { isRouteErrorResponse, Link, useLoaderData, useNavigation, type LoaderFunctionArgs } from "react-router";
 import { Button } from "@core/app/components/ui/button";
 import { DataTable, type TableColumn } from "@core/app/components/ui/data-table";
@@ -22,7 +23,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     return { list: result.data, search: input.search?.trim() ?? "", base: `/es-${company.country}/products` };
   } catch (cause) {
     if (cause instanceof Response) throw cause;
-    console.error("Unable to list products", cause);
+    log.error({ event: "unable_to_list_products", err: cause }, "unable_to_list_products");
     throw new Response("No se pudo cargar el catálogo.", { status: 503 });
   }
 }

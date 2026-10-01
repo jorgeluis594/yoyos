@@ -1,3 +1,4 @@
+import { log } from "@core/src/shared/infrastructure/logger";
 import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import { prisma } from "@core/src/shared/infrastructure/persistance";
@@ -42,7 +43,7 @@ export async function saveOrder(order: Order) {
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
     if (cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2002") return err<CreateOrderError>({ code: "ORDER_ALREADY_EXISTS", message: "Order already exists" });
-    console.error("Unable to save order", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    log.error({ event: "unable_to_save_order", err: cause }, "unable_to_save_order");
     return err<CreateOrderError>({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to save order" });
   }
 }
@@ -52,7 +53,7 @@ export async function orderExists(id: string) {
     return ok(!!await prisma.order.findFirst({ where: { id }, select: { id: true } }));
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
-    console.error("Unable to check order ID", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    log.error({ event: "unable_to_check_order_id", err: cause }, "unable_to_check_order_id");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to check order ID" });
   }
 }
@@ -63,7 +64,7 @@ export async function findOrder(id: string) {
     return ok(row ? mapOrder(row) : null);
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
-    console.error("Unable to load order", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    log.error({ event: "unable_to_load_order", err: cause }, "unable_to_load_order");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to load order" });
   }
 }
@@ -84,7 +85,7 @@ export async function findOrders(criteria: OrderCriteria) {
       total: { amount: row.total.toNumber(), currency: row.currency } })), page: criteria.page, pageSize: 20, total });
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
-    console.error("Unable to list orders", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
+    log.error({ event: "unable_to_list_orders", err: cause }, "unable_to_list_orders");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to list orders" });
   }
 }

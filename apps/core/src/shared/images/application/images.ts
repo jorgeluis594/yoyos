@@ -54,13 +54,10 @@ export async function importPrivateImage(companyId: string, sourceKey: string, f
   return completed.success ? { success: true, data: { id: reserved.data.id } } : completed;
 }
 
-async function compensate(storage: ImageStorage, key: string, cause: unknown): Promise<void> {
+async function compensate(storage: ImageStorage, key: string): Promise<void> {
   try {
-    const result = await storage.delete(key);
-    if (!result.success) console.error("Image cleanup failed", { key, cause, error: result.error });
-  } catch (error) {
-    console.error("Image cleanup failed", { key, cause, error });
-  }
+    await storage.delete(key);
+  } catch { /* Preserve the original failure; the storage adapter reports its own failures. */ }
 }
 
 export async function uploadImage(
@@ -74,17 +71,17 @@ export async function uploadImage(
   try {
     const url = await storage.getUrl(key);
     if (!url.success) {
-      await compensate(storage, key, url.error);
+      await compensate(storage, key);
       return url;
     }
     const image = await repository.create(key);
     if (!image.success) {
-      await compensate(storage, key, image.error);
+      await compensate(storage, key);
       return image;
     }
     return { success: true, data: { id: image.data.id, url: url.data } };
   } catch (error) {
-    await compensate(storage, key, error);
+    await compensate(storage, key);
     throw error;
   }
 }

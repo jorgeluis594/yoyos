@@ -92,6 +92,7 @@ Do not use `docker compose down -v` during an update: it deletes the data.
 - [Product definition](PRODUCT.md).
 - [Architecture](docs/architecture.md) and [domain rules](docs/domain.md).
 - [Programming style](docs/programming-style.md) and [testing conventions](docs/testing-conventions.md).
+- [Logging conventions](docs/logging-conventions.md).
 - [Persistence](docs/persistence.md) and [company data isolation](docs/rls-with-prisma.md).
 - [Image API](docs/images-api.md).
 - [Event bus quick start](docs/event-bus-quick-start.md).
