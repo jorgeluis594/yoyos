@@ -173,7 +173,7 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
   }
 });
 
-test("pending order appears in the mixed list and detail without completion claims", async ({ page }) => {
+test("pending order remains active when paid before delivery", async ({ page }) => {
   const email = `orders-pending-${crypto.randomUUID()}@example.test`;
   let companyId: string | undefined;
   try {
@@ -195,6 +195,16 @@ test("pending order appears in the mixed list and detail without completion clai
     await browserExpect(page.getByRole("heading", { name: "Orden activa" })).toBeVisible();
     await browserExpect(page.getByText("Pendiente: 10.00 PEN")).toBeVisible();
     expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(2n);
+    const paymentId = crypto.randomUUID();
+    const paid = await page.request.post(`/api/orders/${orderId}/payments`, { data: { paymentId,
+      amount: { amount: 10, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false } });
+    expect(paid.status()).toBe(200);
+    await page.reload();
+    await browserExpect(page.getByRole("heading", { name: "Orden activa" })).toBeVisible();
+    await browserExpect(page.getByText("Cubierto")).toBeVisible();
+    await browserExpect(page.getByText("Pendiente", { exact: true }).first()).toBeVisible();
+    expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(1n);
+    expect(await withTenantIsolation(tenantId, async () => await prisma.payment.count({ where: { orderId } }))).toBe(1);
   } finally {
     const user = await systemPrisma.user.findUnique({ where: { email }, select: { companyId: true } });
     if (user?.companyId) await withTenantIsolation(user.companyId, async () => {
