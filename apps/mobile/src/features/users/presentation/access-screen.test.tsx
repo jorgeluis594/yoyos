@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react-nativ
 import { err, ok } from '@shared/functional';
 import { AccessProvider } from './access-provider';
 import { AccessScreen } from './access-screen';
+import i18n from '@mobile/i18n';
 
 const pending = { status: 'company_required' as const, user: { id: 'u', name: 'A', companyId: null }, company: null };
 const ready = { status: 'ready' as const, user: { id: 'u', name: 'A', companyId: 'c' }, company: { id: 'c', name: 'Shop', country: 'PE' as const } };
@@ -65,4 +66,17 @@ test('verified account can finish company onboarding', async () => {
   fireEvent.press(screen.getByRole('radio', { name: 'Perú' }));
   fireEvent.press(screen.getByLabelText('Crear empresa'));
   await waitFor(() => expect(operations.completeCompany).toHaveBeenCalledWith({ name: 'Shop', country: 'PE' }));
+});
+
+test('access labels and validation are translated to Portuguese', async () => {
+  await i18n.changeLanguage('pt-BR');
+  try {
+    setup();
+    fireEvent.press(await screen.findByLabelText('Entrar'));
+    await screen.findByText('Informe um e-mail e uma senha.');
+    expect(screen.getByLabelText('E-mail *')).toBeTruthy();
+    expect(screen.getByLabelText('Senha *')).toBeTruthy();
+  } finally {
+    await i18n.changeLanguage('es');
+  }
 });
