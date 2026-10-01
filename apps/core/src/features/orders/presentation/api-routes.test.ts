@@ -46,17 +46,29 @@ test("order API maps a validated contact and UTC interval to the existing list o
 });
 
 test("order API takes company and seller from access and identifies rejected stock", async () => {
-  const create = vi.spyOn(orders, "create").mockResolvedValue({ success: false,
+  const create = vi.spyOn(orders, "registerImmediateSale").mockResolvedValue({ success: false,
     error: { code: "INSUFFICIENT_STOCK", message: "No stock", variantId: contactId } });
+  const pending = vi.spyOn(orders, "create").mockResolvedValue({ success: false,
+    error: { code: "ORDER_ALREADY_EXISTS", message: "Exists" } });
   const input = { id: "00000000-0000-4000-8000-000000000003", contactId: null,
     items: [{ variantId: contactId, quantity: 2 }] };
   expect(await request("/", "PE", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...input, sellerId: "intruder" }) }))
     .toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
-  const response = await request("/", "PE", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
+  const response = await request("/", "PE", { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...input, payment: { method: "digital_wallet" }, delivery: { method: "handover" } }) });
   expect(response).toMatchObject({ status: 409, body: { code: "INSUFFICIENT_STOCK",
     issues: [{ field: "items", variantId: contactId }] } });
   expect(create).toHaveBeenCalledOnce();
-  expect(create).toHaveBeenCalledWith(input, { companyId, sellerId: "seller" });
+  expect(create).toHaveBeenCalledWith(input, { companyId, userId: "seller" });
+  expect(pending).not.toHaveBeenCalled();
+  expect(await request("/", "PE", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) }))
+    .toMatchObject({ status: 409, body: { code: "ORDER_ALREADY_EXISTS" } });
+  expect(pending).toHaveBeenCalledWith(input, { companyId, userId: "seller" });
+  expect(create).toHaveBeenCalledOnce();
+  expect(await request("/", "PE", { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...input, payment: { method: "digital_wallet" } }) }))
+    .toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
+  expect(pending).toHaveBeenCalledOnce();
 });
 
 test("JSON key validation scopes keys to each object and decodes escaped names", () => {

@@ -5,11 +5,11 @@ import { useState } from "react";
 import { z } from "zod";
 import { Form, isRouteErrorResponse, Link, useLoaderData, useLocation, type LoaderFunctionArgs } from "react-router";
 import { SlidersHorizontal } from "lucide-react";
-import { listOrdersSchema, orderListLoaderSchema, orderContactsSchema } from "@shared/contracts/orders";
+import { listOrderAggregatesSchema, orderListLoaderSchema, orderContactsSchema } from "@shared/contracts/orders";
 import { limaMidnightUtc } from "@shared/orders-date";
 import { privateUserContext } from "@core/app/private-user-context";
 import { orders } from "@core/src/features/orders/composition";
-import { toOrderListJson } from "@core/src/features/orders/presentation/order-json";
+import { toOrderAggregateListJson } from "@core/src/features/orders/presentation/order-json";
 import type { ContactId } from "@core/src/features/orders/domain/order";
 import { Button } from "@core/app/components/ui/button";
 import { Field, FieldLabel } from "@core/app/components/ui/field";
@@ -26,25 +26,27 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
   const raw = Object.fromEntries(params);
   const customerSearch = (raw.customerSearch ?? "").trim();
   delete raw.customerSearch;
-  if ([raw.completedFrom, raw.completedBefore].some((date) => date && !z.iso.date().safeParse(date).success))
+  if ([raw.createdFrom, raw.createdBefore].some((date) => date && !z.iso.date().safeParse(date).success))
     throw new Response("Filtros no válidos", { status: 400 });
-  const parsed = listOrdersSchema.safeParse({ ...raw,
+  const parsed = listOrderAggregatesSchema.safeParse({ ...raw,
     ...(raw.contactId ? {} : { contactId: undefined }),
-    ...(raw.completedFrom ? { completedFrom: limaMidnightUtc(raw.completedFrom) } : { completedFrom: undefined }),
-    ...(raw.completedBefore ? { completedBefore: limaMidnightUtc(raw.completedBefore) } : { completedBefore: undefined }),
+    ...(raw.createdFrom ? { createdFrom: limaMidnightUtc(raw.createdFrom) } : { createdFrom: undefined }),
+    ...(raw.createdBefore ? { createdBefore: limaMidnightUtc(raw.createdBefore) } : { createdBefore: undefined }),
   });
   if (!parsed.success) throw new Response("Filtros no válidos", { status: 400 });
-  const { page, customer, contactId, completedFrom, completedBefore } = parsed.data;
-  const result = await orders.list({ page, customer: customer === "contact" ? { kind: "contact", contactId: contactId! as ContactId } : { kind: customer },
-    ...(completedFrom ? { completedFrom: new Date(completedFrom) } : {}), ...(completedBefore ? { completedBefore: new Date(completedBefore) } : {}) });
+  const { page, customer, contactId, createdFrom, createdBefore } = parsed.data;
+  const company = context.get(privateUserContext).company;
+  const user = context.get(privateUserContext).user;
+  const result = await orders.listAggregates({ page, customer: customer === "contact" ? { kind: "contact", contactId: contactId! as ContactId } : { kind: customer },
+    ...(createdFrom ? { createdFrom: new Date(createdFrom) } : {}), ...(createdBefore ? { createdBefore: new Date(createdBefore) } : {}) },
+  { companyId: company.id, userId: user.id });
   if (!result.success) throw new Response(result.error.message, { status: result.error.code === "INVALID_ORDER" ? 400 : 503 });
   const [searched, selected] = await Promise.all([orders.searchContacts(customerSearch), contactId ? orders.contactById(contactId) : Promise.resolve(null)]);
   if (!searched.success || (selected && !selected.success)) throw new Response("No se pudieron cargar los contactos.", { status: 503 });
   const contacts = orderContactsSchema.parse(searched.data);
   const selectedContact = selected?.success ? selected.data : null;
   if (selectedContact && !contacts.some((contact) => contact.id === selectedContact.id)) contacts.unshift(orderContactsSchema.element.parse(selectedContact));
-  const company = context.get(privateUserContext).company;
-  return orderListLoaderSchema.parse({ list: toOrderListJson(result.data), filters: parsed.data, contacts, customerSearch, base: companyPath(new URL(request.url).pathname, company.country, "/orders") });
+  return orderListLoaderSchema.parse({ list: toOrderAggregateListJson(result.data), filters: parsed.data, contacts, customerSearch, base: companyPath(new URL(request.url).pathname, company.country, "/orders") });
 }
 
 export default function OrderList() {
@@ -54,19 +56,19 @@ export default function OrderList() {
   type Sale = (typeof list.items)[number];
   const columns: TableColumn<Sale>[] = [
     { id: "customer", header: t("orders.customer"), mobile: "title", cell: (item) => <div className="flex flex-col gap-0.5"><Link to={`${base}/${item.id}`} className="font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">{item.customer.kind === "contact" ? item.customer.name ?? item.customer.phone : t("orders.generalPublic")}</Link>{item.customer.kind === "contact" && item.customer.name && <span className="text-xs text-muted-foreground">{item.customer.phone}</span>}</div> },
-    { id: "completedAt", header: t("orders.dateTime"), mobile: "description", cell: (item) => new Date(item.completedAt).toLocaleString(i18n.language === "pt" ? "pt-BR" : "es-PE", { dateStyle: "medium", timeStyle: "short", timeZone: salesTimeZone }) },
-    { id: "total", header: t("orders.total"), mobile: "value", align: "right", cell: (item) => <strong className="font-semibold tabular-nums">{formatCurrency(item.total, item.currency, i18n.language)}</strong> },
+    { id: "createdAt", header: t("orders.dateAndStatus"), mobile: "description", cell: (item) => <>{new Date(item.createdAt).toLocaleString(i18n.language === "pt" ? "pt-BR" : "es-PE", { dateStyle: "medium", timeStyle: "short", timeZone: salesTimeZone })} · {t(`orders.statusShort.${item.status}`)}</> },
+    { id: "total", header: t("orders.total"), mobile: "value", align: "right", cell: (item) => <strong className="font-semibold tabular-nums">{formatCurrency(item.total.amount, item.total.currency, i18n.language)}</strong> },
   ];
   const pageUrl = (page: number) => `${base}?${new URLSearchParams({ customer: filters.customer,
     ...(filters.contactId ? { contactId: filters.contactId } : {}),
     ...(customerSearch ? { customerSearch } : {}),
-    ...(filters.completedFrom ? { completedFrom: filters.completedFrom.slice(0, 10) } : {}),
-    ...(filters.completedBefore ? { completedBefore: filters.completedBefore.slice(0, 10) } : {}), page: String(page) })}`;
+    ...(filters.createdFrom ? { createdFrom: filters.createdFrom.slice(0, 10) } : {}),
+    ...(filters.createdBefore ? { createdBefore: filters.createdBefore.slice(0, 10) } : {}), page: String(page) })}`;
   const activeFilterInputs = [
     { name: "customer", value: filters.customer },
     ...(filters.contactId ? [{ name: "contactId", value: filters.contactId }] : []),
-    ...(filters.completedFrom ? [{ name: "completedFrom", value: filters.completedFrom.slice(0, 10) }] : []),
-    ...(filters.completedBefore ? [{ name: "completedBefore", value: filters.completedBefore.slice(0, 10) }] : []),
+    ...(filters.createdFrom ? [{ name: "createdFrom", value: filters.createdFrom.slice(0, 10) }] : []),
+    ...(filters.createdBefore ? [{ name: "createdBefore", value: filters.createdBefore.slice(0, 10) }] : []),
   ];
   return <section>
     <PageHeader>
@@ -76,7 +78,7 @@ export default function OrderList() {
       <PageHeader.Actions><Button asChild><Link to={`${base}/new`}>{t("orders.new")}</Link></Button></PageHeader.Actions>
     </PageHeader>
     <FilterBar searchName="customerSearch" searchValue={customerSearch} searchLabel={t("orders.searchContactFilter")} submitLabel={t("orders.searchContact")} hiddenFields={activeFilterInputs} action={<OrderFilterSheet key={search} filters={filters} contacts={contacts} customerSearch={customerSearch} base={base} />} />
-    <DataTable className="mt-6" columns={columns} caption={t("orders.completedSales")} data={list.items} getRowId={(item) => item.id} emptyMessage={t("orders.emptyFiltered")} />
+    <DataTable className="mt-6" columns={columns} caption={t("orders.allOrders")} data={list.items} getRowId={(item) => item.id} emptyMessage={t("orders.emptyFiltered")} />
     <nav aria-label={t("orders.pages")} className="mt-6 flex items-center justify-end gap-2"><span className="mr-auto text-sm text-muted-foreground">{t("orders.page", { page: list.page })}</span>{list.page > 1 && <Button asChild variant="outline"><Link to={pageUrl(list.page - 1)}>{t("orders.previous")}</Link></Button>}{list.page * list.pageSize < list.total && <Button asChild variant="outline"><Link to={pageUrl(list.page + 1)}>{t("orders.next")}</Link></Button>}</nav>
   </section>;
 }
@@ -84,14 +86,14 @@ export default function OrderList() {
 function OrderFilterSheet({ filters, contacts, customerSearch, base }: Pick<Awaited<ReturnType<typeof loader>>, "filters" | "contacts" | "customerSearch" | "base">) {
   const { t } = useTranslation();
   const [customer, setCustomer] = useState(filters.customer);
-  const activeFilters = Number(filters.customer !== "all") + Number(!!filters.completedFrom) + Number(!!filters.completedBefore);
+  const activeFilters = Number(filters.customer !== "all") + Number(!!filters.createdFrom) + Number(!!filters.createdBefore);
   return <Sheet><SheetTrigger asChild><Button variant="outline" className="min-h-11" aria-label={activeFilters ? t(activeFilters === 1 ? "orders.activeFilter_one" : "orders.activeFilter_other", { count: activeFilters }) : t("orders.filters")}><SlidersHorizontal data-icon="inline-start" aria-hidden="true" />{t("orders.filters")}{activeFilters ? ` (${activeFilters})` : ""}</Button></SheetTrigger>
       <SheetContent title={t("orders.filterTitle")} description={t("orders.filterDescription")}>
         <Form method="get" className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-5">
           <input type="hidden" name="customerSearch" value={customerSearch} />
           <Field><FieldLabel htmlFor="order-customer">{t("orders.customer")}</FieldLabel><select id="order-customer" name="customer" value={customer} onChange={(event) => setCustomer(event.target.value as typeof customer)} className="min-h-10 rounded-[var(--radius-control)] border border-input bg-background px-3 font-normal"><option value="all">{t("orders.allCustomers")}</option><option value="general_public">{t("orders.generalPublic")}</option><option value="contact">{t("orders.contact")}</option></select></Field>
           {customer === "contact" && <div className="flex flex-col gap-2"><Field><FieldLabel htmlFor="order-contact">{t("orders.contact")}</FieldLabel><select id="order-contact" name="contactId" defaultValue={filters.contactId ?? ""} required className="min-h-10 rounded-[var(--radius-control)] border border-input bg-background px-3 font-normal"><option value="">{t("orders.selectContact")}</option>{contacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.name ? `${contact.name} · ${contact.phone}` : contact.phone}</option>)}</select></Field><p className="text-xs text-muted-foreground">{t("orders.contactHint")}</p></div>}
-          <div className="flex flex-col gap-4 border-t pt-5"><p className="text-sm font-medium">{t("orders.saleDate")}</p><Field><FieldLabel htmlFor="completed-from">{t("orders.from")}</FieldLabel><Input id="completed-from" name="completedFrom" type="date" defaultValue={filters.completedFrom?.slice(0, 10)} /></Field><Field><FieldLabel htmlFor="completed-before">{t("orders.before")}</FieldLabel><Input id="completed-before" name="completedBefore" type="date" defaultValue={filters.completedBefore?.slice(0, 10)} /></Field></div>
+          <div className="flex flex-col gap-4 border-t pt-5"><p className="text-sm font-medium">{t("orders.creationDate")}</p><Field><FieldLabel htmlFor="created-from">{t("orders.from")}</FieldLabel><Input id="created-from" name="createdFrom" type="date" defaultValue={filters.createdFrom?.slice(0, 10)} /></Field><Field><FieldLabel htmlFor="created-before">{t("orders.before")}</FieldLabel><Input id="created-before" name="createdBefore" type="date" defaultValue={filters.createdBefore?.slice(0, 10)} /></Field></div>
           <div className="mt-auto flex gap-2 border-t pt-5"><Button asChild variant="outline" className="flex-1"><Link to={base}>{t("orders.clear")}</Link></Button><Button type="submit" className="flex-1">{t("orders.apply")}</Button></div>
         </Form>
       </SheetContent>

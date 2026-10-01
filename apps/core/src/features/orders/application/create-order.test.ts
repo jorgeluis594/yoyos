@@ -1,74 +1,59 @@
 import { expect, test, vi } from "vitest";
 import { err, ok } from "@shared/functional";
-import { createOrder, type CreateOrderDependencies } from "@core/src/features/orders/application/create-order";
+import { createOrder, type CreateOrderDependencies, type CreateOrderInput, type OrderAccess } from "@core/src/features/orders/application/create-order";
+import type { CompanyId, OrderId, OrderItemId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
-const id = (n: number) => `00000000-0000-4000-8000-${n.toString().padStart(12, "0")}`;
-const context = { companyId: id(1), sellerId: "seller" };
-const input = { id: id(2), contactId: null, items: [{ variantId: id(3), quantity: 2 }] };
+const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const companyId = id(1) as CompanyId;
+const context: OrderAccess = { companyId, userId: "seller" as UserId };
+const input: CreateOrderInput = { id: id(2) as OrderId, contactId: null,
+  items: [{ variantId: id(3) as VariantId, quantity: 2 as PositiveInteger }] };
 
 function dependencies() {
-  const save = vi.fn(async () => ok<null>(null));
-  const deductStock = vi.fn(async () => ok<null>(null));
+  const saveOrder = vi.fn(async () => ok<null>(null));
   const findContact = vi.fn(async () => ok(null));
-  const findVariant = vi.fn(async (variantId: string) => ok({ variantId: variantId as VariantId, productName: "Current product",
-    variantAttributes: {}, sku: null, unitPrice: { amount: 0.29, currency: "PEN" } }));
-  const deps: CreateOrderDependencies = { transaction: async (callback) => callback(), orderExists: async () => ok(false), findContact, findVariant, save, deductStock,
-    newId: () => id(4), clock: () => new Date("2026-09-27T12:00:00Z") };
-  return { deps, save, deductStock, findContact, findVariant };
+  const findVariant = vi.fn(async (variantId: VariantId) => ok({ variantId, productName: "Current product",
+    variantAttributes: { Size: "M" }, sku: null, unitPrice: { amount: 0.29, currency: "PEN" as const } }));
+  const scopedCompanies: CompanyId[] = [];
+  const transaction: CreateOrderDependencies["transaction"] = async (id, work) => { scopedCompanies.push(id); return work(); };
+  const deps: CreateOrderDependencies = { transaction, orderExists: async () => ok(false), findContact,
+    findVariant, saveOrder, newItemId: () => id(4) as OrderItemId, clock: () => new Date("2026-09-29T12:00:00Z") };
+  return { deps, saveOrder, findContact, findVariant, scopedCompanies };
 }
 
-test("creates from catalog price and authenticated context", async () => {
-  const { deps, save, deductStock } = dependencies();
+test("creates a pending order from company scoped catalog and trusted seller without deducting stock", async () => {
+  const { deps, saveOrder, findVariant, scopedCompanies } = dependencies();
   const result = await createOrder(input, context, deps);
-  expect(result).toMatchObject({ success: true, data: { companyId: context.companyId, sellerId: context.sellerId, total: { amount: 0.58, currency: "PEN" } } });
-  expect(save).toHaveBeenCalledWith(expect.objectContaining({ total: { amount: 0.58, currency: "PEN" } }));
-  expect(deductStock).toHaveBeenCalledWith(id(3), 2);
+  expect(result).toMatchObject({ success: true, data: { id: input.id, companyId, sellerId: context.userId,
+    completedAt: null, payments: [], deliveryStatus: "pending", stockDeducted: false,
+    total: { amount: 0.58, currency: "PEN" }, items: [{ id: id(4), subtotal: { amount: 0.58 } }] } });
+  expect(scopedCompanies).toEqual([companyId]);
+  expect(findVariant).toHaveBeenCalledWith(input.items[0].variantId, companyId);
+  expect(saveOrder).toHaveBeenCalledWith(expect.objectContaining({ payments: [], stockDeducted: false }));
 });
 
-test("rejects absent contact before writes", async () => {
-  const { deps, save, deductStock } = dependencies();
-  expect(await createOrder({ ...input, contactId: id(5) }, context, deps)).toMatchObject({ success: false, error: { code: "CONTACT_NOT_FOUND" } });
-  expect(save).not.toHaveBeenCalled();
-  expect(deductStock).not.toHaveBeenCalled();
-});
-
-test("reports an existing order ID before checking changed cart data", async () => {
-  const { deps, findVariant, save } = dependencies();
-  expect(await createOrder({ ...input, items: [{ variantId: id(5), quantity: 1 }] }, context,
-    { ...deps, orderExists: async () => ok(true) })).toMatchObject({ success: false, error: { code: "ORDER_ALREADY_EXISTS" } });
-  expect(findVariant).not.toHaveBeenCalled();
-  expect(save).not.toHaveBeenCalled();
-});
-
-test("rejects absent variant before writes", async () => {
-  const { deps, save, deductStock } = dependencies();
-  expect(await createOrder(input, context, { ...deps, findVariant: async () => ok(null) })).toMatchObject({ success: false, error: { code: "VARIANT_NOT_FOUND", variantId: id(3) } });
-  expect(save).not.toHaveBeenCalled();
-  expect(deductStock).not.toHaveBeenCalled();
-});
-
-test("stops on save and stock errors", async () => {
+test("rejects invalid input and missing snapshots before writing", async () => {
   const first = dependencies();
-  expect(await createOrder(input, context, { ...first.deps, save: async () => err({ code: "ORDER_ALREADY_EXISTS", message: "Duplicate" }) })).toMatchObject({ success: false, error: { code: "ORDER_ALREADY_EXISTS" } });
-  expect(first.deductStock).not.toHaveBeenCalled();
+  expect(await createOrder({ ...input, items: [] } as unknown as CreateOrderInput, context, first.deps))
+    .toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
+  expect(first.scopedCompanies).toEqual([]);
   const second = dependencies();
-  expect(await createOrder(input, context, { ...second.deps, deductStock: async () => err({ code: "INSUFFICIENT_STOCK", message: "No stock", variantId: id(3) }) })).toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK", variantId: id(3) } });
+  expect(await createOrder(input, context, { ...second.deps, findVariant: async () => ok(null) }))
+    .toMatchObject({ success: false, error: { code: "VARIANT_NOT_FOUND" } });
+  expect(second.saveOrder).not.toHaveBeenCalled();
+  const third = dependencies();
+  expect(await createOrder({ ...input, contactId: id(5) as CreateOrderInput["contactId"] }, context, third.deps))
+    .toMatchObject({ success: false, error: { code: "CONTACT_NOT_FOUND" } });
+  expect(third.saveOrder).not.toHaveBeenCalled();
 });
 
-test("preserves known persistence failures and unexpected exceptions", async () => {
-  const { deps } = dependencies();
-  expect(await createOrder(input, context, { ...deps, orderExists: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "Database unavailable" }) }))
+test("preserves duplicate and persistence failures from supplied capabilities", async () => {
+  const first = dependencies();
+  expect(await createOrder(input, context, { ...first.deps, orderExists: async () => ok(true) }))
+    .toMatchObject({ success: false, error: { code: "ORDER_ALREADY_EXISTS" } });
+  expect(first.findVariant).not.toHaveBeenCalled();
+  const second = dependencies();
+  expect(await createOrder(input, context, { ...second.deps, saveOrder: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unavailable" }) }))
     .toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
-  const unexpected = new Error("Unexpected adapter error");
-  await expect(createOrder(input, context, { ...deps, findVariant: async () => { throw unexpected; } })).rejects.toBe(unexpected);
-});
-
-test("rejects duplicates and bad quantity before transaction", async () => {
-  const { deps } = dependencies();
-  let transactions = 0;
-  const transaction: CreateOrderDependencies["transaction"] = (callback) => { transactions++; return callback(); };
-  expect(await createOrder({ ...input, items: [input.items[0], input.items[0]] }, context, { ...deps, transaction })).toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
-  expect(await createOrder({ ...input, items: [{ variantId: id(3), quantity: 0 }] }, context, { ...deps, transaction })).toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
-  expect(transactions).toBe(0);
 });

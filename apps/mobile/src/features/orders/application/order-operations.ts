@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { listOrdersResponseSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema,
-  type CreateOrderRequest, type ListOrdersRequest, type OrderApiIssue, type OrderResponse } from "@shared/contracts/orders";
+import { listOrderAggregatesResponseSchema, listOrderAggregatesSchema, listOrdersResponseSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema,
+  type CreateOrderRequest, type ListOrderAggregatesRequest, type ListOrdersRequest, type OrderAggregateResponse, type OrderApiIssue } from "@shared/contracts/orders";
 import { err, ok } from "@shared/functional";
 import type { Money } from "@shared/money";
 import { limaMidnightUtc, nextCalendarDay } from "@shared/orders-date";
@@ -9,7 +9,7 @@ import { prepareOrder, type CartError, type OrderDraft } from "@mobile/features/
 import type { TransportError } from "@mobile/shared/application/transport-error";
 
 export type PendingOrderConfirmation = Readonly<{
-  companyId: OrderResponse["companyId"];
+  companyId: OrderAggregateResponse["companyId"];
   id: CreateOrderRequest["id"];
   shownTotal: Money;
 }>;
@@ -20,13 +20,15 @@ export type PendingOrderStoreError = Readonly<{
 export type OrderRequestError = Readonly<{
   code: TransportError["code"] | "INVALID_INPUT" | "INVALID_ORDER" | "CURRENCY_MISMATCH"
     | "CONTACT_NOT_FOUND" | "VARIANT_NOT_FOUND" | "INSUFFICIENT_STOCK" | "ORDER_ALREADY_EXISTS"
-    | "ORDER_NOT_FOUND" | "PAYLOAD_TOO_LARGE";
+    | "ORDER_NOT_FOUND" | "PAYLOAD_TOO_LARGE"
+    | "INVALID_PAYMENT" | "PAYMENT_CONFLICT" | "INVALID_TRANSITION" | "DELIVERY_LOCKED"
+    | "PAYMENT_REQUIRED" | "STOCK_NOT_DEDUCTED" | "ORDER_CANCELLED" | "DELIVERY_UNAVAILABLE";
   message: string;
   issues?: readonly OrderApiIssue[];
 }>;
 export type ConfirmOrderError = OrderRequestError | PendingOrderStoreError | CartError;
 export type ConfirmOrderOutcome =
-  | Readonly<{ kind: "completed"; order: OrderResponse; shownTotal: Money }>
+  | Readonly<{ kind: "completed"; order: OrderAggregateResponse; shownTotal: Money }>
   | Readonly<{ kind: "uncertain"; pending: PendingOrderConfirmation }>;
 
 export type OrderListCriteria = Readonly<{
@@ -37,9 +39,11 @@ export type OrderListCriteria = Readonly<{
 }>;
 
 type Api = Readonly<{
+  listAggregates: (input: ListOrderAggregatesRequest) => Promise<Result<z.infer<typeof listOrderAggregatesResponseSchema>, OrderRequestError>>;
+  getAggregate: (id: string) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
   list: (input: ListOrdersRequest) => Promise<Result<z.infer<typeof listOrdersResponseSchema>, OrderRequestError>>;
-  get: (id: string) => Promise<Result<OrderResponse, OrderRequestError>>;
-  create: (input: CreateOrderRequest) => Promise<Result<OrderResponse, OrderRequestError>>;
+  get: (id: string) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
+  create: (input: CreateOrderRequest) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
   searchCatalog: (search: string) => Promise<Result<z.infer<typeof orderCatalogSchema>, OrderRequestError>>;
   searchContacts: (search: string) => Promise<Result<z.infer<typeof orderContactsSchema>, OrderRequestError>>;
 }>;
@@ -62,8 +66,25 @@ function listRequest(criteria: OrderListCriteria): Result<ListOrdersRequest, Ord
   return parsed.success ? ok(parsed.data) : err({ code: "INVALID_INPUT", message: "Invalid order filters" });
 }
 
+function mixedListRequest(criteria: OrderListCriteria): Result<ListOrderAggregatesRequest, OrderRequestError> {
+  if ((criteria.fromDay && !z.iso.date().safeParse(criteria.fromDay).success) ||
+      (criteria.throughDay && !z.iso.date().safeParse(criteria.throughDay).success) ||
+      (criteria.fromDay && criteria.throughDay && criteria.fromDay > criteria.throughDay))
+    return err({ code: "INVALID_INPUT", message: "Invalid order days" });
+  const parsed = listOrderAggregatesSchema.safeParse({ page: criteria.page, customer: criteria.customer.kind,
+    ...(criteria.customer.kind === "contact" ? { contactId: criteria.customer.contactId } : {}),
+    ...(criteria.fromDay ? { createdFrom: limaMidnightUtc(criteria.fromDay) } : {}),
+    ...(criteria.throughDay ? { createdBefore: limaMidnightUtc(nextCalendarDay(criteria.throughDay)) } : {}),
+  });
+  return parsed.success ? ok(parsed.data) : err({ code: "INVALID_INPUT", message: "Invalid order filters" });
+}
+
 const definitive = new Set<OrderRequestError["code"]>(["INVALID_INPUT", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE",
   "INVALID_ORDER", "CURRENCY_MISMATCH", "CONTACT_NOT_FOUND", "VARIANT_NOT_FOUND", "INSUFFICIENT_STOCK"]);
+const completedImmediateSale = (order: OrderAggregateResponse) => order.status === "completed" &&
+  order.paymentStatus === "paid" && order.balanceDue.amount === 0 &&
+  order.paidAmount.currency === order.total.currency && order.paidAmount.amount >= order.total.amount &&
+  order.deliveryStatus === "delivered" && order.stockDeducted && order.delivery === null;
 
 export function createOrderOperations(api: Api, pendingStore: PendingStore) {
   let inFlight: Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>> | null = null;
@@ -76,7 +97,9 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
       ? ok({ kind: "uncertain", pending: pending.data }) : found;
     if (found.data.companyId !== companyId || found.data.id !== pending.data.id)
       return err({ code: "INVALID_RESPONSE", message: "Order identity mismatch" });
-    return ok({ kind: "completed", order: found.data, shownTotal: pending.data.shownTotal });
+    return completedImmediateSale(found.data)
+      ? ok({ kind: "completed", order: found.data, shownTotal: pending.data.shownTotal })
+      : err({ code: "INVALID_RESPONSE", message: "Order is not a completed immediate sale" });
   };
   const send = async (draft: OrderDraft, companyId: string): Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>> => {
     const prepared = prepareOrder(draft);
@@ -87,24 +110,35 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
       return err({ code: "PENDING_CONFIRMATION", message: "Another order needs verification" });
     const saved = await pendingStore.save({ companyId, id: prepared.data.request.id, shownTotal: prepared.data.shownTotal });
     if (!saved.success) return saved;
-    const result = await api.create(prepared.data.request);
+    const request: CreateOrderRequest = { ...prepared.data.request,
+      payment: { method: "digital_wallet" }, delivery: { method: "handover" } };
+    const result = await api.create(request);
     if (result.success) {
       if (result.data.companyId !== companyId || result.data.id !== saved.data.id)
         return err({ code: "INVALID_RESPONSE", message: "Order identity mismatch" });
-      return ok({ kind: "completed", order: result.data, shownTotal: saved.data.shownTotal });
+      return completedImmediateSale(result.data)
+        ? ok({ kind: "completed", order: result.data, shownTotal: saved.data.shownTotal })
+        : err({ code: "INVALID_RESPONSE", message: "Order is not a completed immediate sale" });
     }
     if (definitive.has(result.error.code)) {
       const cleared = await pendingStore.clear(companyId, saved.data.id);
       return cleared.success ? result : cleared;
     }
-    if (result.error.code === "ORDER_ALREADY_EXISTS") {
-      const found = await api.get(saved.data.id);
-      if (found.success && found.data.companyId === companyId && found.data.id === saved.data.id)
+    const found = await api.get(saved.data.id);
+    if (found.success) {
+      if (found.data.companyId !== companyId || found.data.id !== saved.data.id)
+        return err({ code: "INVALID_RESPONSE", message: "Order identity mismatch" });
+      if (completedImmediateSale(found.data))
         return ok({ kind: "completed", order: found.data, shownTotal: saved.data.shownTotal });
     }
     return ok({ kind: "uncertain", pending: saved.data });
   };
   return {
+    loadMixedOrders: async (criteria: OrderListCriteria) => {
+      const input = mixedListRequest(criteria);
+      return input.success ? api.listAggregates(input.data) : input;
+    },
+    loadOrderAggregate: api.getAggregate,
     loadOrders: async (criteria: OrderListCriteria) => {
       const input = listRequest(criteria);
       return input.success ? api.list(input.data) : input;

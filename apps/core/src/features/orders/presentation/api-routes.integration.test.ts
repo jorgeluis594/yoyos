@@ -46,6 +46,7 @@ async function fixture(country: "PE" | "CL") {
   });
   const result = { companyId, userId, cookie, productId, variantId, contactId, async cleanup() {
     await withTenantIsolation(companyId, async () => {
+      await prisma.payment.deleteMany();
       await prisma.orderItem.deleteMany();
       await prisma.order.deleteMany();
       await prisma.contact.deleteMany();
@@ -76,12 +77,16 @@ test("orders HTTP lets a Chile company complete sales, returns historical data, 
   const seller = await fixture("CL");
   const other = await fixture("PE");
   const id = randomUUID();
-  const input = { id, contactId: seller.contactId, items: [{ variantId: seller.variantId, quantity: 2 }] };
+  const input = { id, contactId: seller.contactId, items: [{ variantId: seller.variantId, quantity: 2 }],
+    payment: { method: "digital_wallet" }, delivery: { method: "handover" } };
   const created = await call("/api/orders", seller.cookie, input, "POST");
   expect(created.status).toBe(201);
   expect(await created.json()).toMatchObject({ id, companyId: seller.companyId, sellerId: seller.userId,
-    total: 20, currency: "PEN", customer: { kind: "contact", name: "Ana", phone: "+51999999999" },
-    items: [{ productName: "Camisa", variantAttributes: { Talla: "M" }, quantity: 2, unitPrice: 10, subtotal: 20 }] });
+    status: "completed", paymentStatus: "paid", deliveryStatus: "delivered", stockDeducted: true,
+    total: { amount: 20, currency: "PEN" }, customer: { kind: "contact", name: "Ana", phone: "+51999999999" },
+    payments: [{ amount: { amount: 20, currency: "PEN" } }],
+    items: [{ productName: "Camisa", variantAttributes: { Talla: "M" }, quantity: 2,
+      unitPrice: { amount: 10, currency: "PEN" }, subtotal: { amount: 20, currency: "PEN" } }] });
   expect((await call("/api/orders", seller.cookie, input, "POST")).status).toBe(409);
   expect(await withTenantIsolation(seller.companyId, async () =>
     (await prisma.productStock.findUniqueOrThrow({ where: { variantId: seller.variantId } })).quantity)).toBe(1n);
@@ -93,6 +98,14 @@ test("orders HTTP lets a Chile company complete sales, returns historical data, 
   expect(detail.status).toBe(200);
   expect(await detail.json()).toMatchObject({ customer: { name: "Ana" }, items: [{ productName: "Camisa" }] });
   expect((await call(`/api/orders/${id}`, other.cookie)).status).toBe(404);
+  const foreignVariant = await call("/api/orders", other.cookie, { id: randomUUID(), contactId: null,
+    items: [{ variantId: seller.variantId, quantity: 1 }] }, "POST");
+  expect(foreignVariant.status).toBe(404);
+  expect(await foreignVariant.json()).toMatchObject({ code: "VARIANT_NOT_FOUND" });
+  const foreignContact = await call("/api/orders", other.cookie, { id: randomUUID(), contactId: seller.contactId,
+    items: [{ variantId: other.variantId, quantity: 1 }] }, "POST");
+  expect(foreignContact.status).toBe(404);
+  expect(await foreignContact.json()).toMatchObject({ code: "CONTACT_NOT_FOUND" });
   const list = await call(`/api/orders?customer=contact&contactId=${seller.contactId}`, seller.cookie);
   expect(await list.json()).toMatchObject({ total: 1, page: 1, pageSize: 20, items: [{ id, total: 20 }] });
   expect(await (await call("/api/orders", other.cookie)).json()).toMatchObject({ total: 0, items: [] });
@@ -102,7 +115,8 @@ test("orders HTTP lets a Chile company complete sales, returns historical data, 
 
 test("orders HTTP rejects invalid input and stock without partial sale", async () => {
   const seller = await fixture("PE");
-  const input = { id: randomUUID(), contactId: null, items: [{ variantId: seller.variantId, quantity: 4 }] };
+  const input = { id: randomUUID(), contactId: null, items: [{ variantId: seller.variantId, quantity: 4 }],
+    payment: { method: "digital_wallet" }, delivery: { method: "handover" } };
   const stock = await call("/api/orders", seller.cookie, input, "POST");
   expect(stock.status).toBe(409);
   expect(await stock.json()).toMatchObject({ code: "INSUFFICIENT_STOCK", issues: [{ variantId: seller.variantId }] });
@@ -119,6 +133,68 @@ test("orders HTTP rejects invalid input and stock without partial sale", async (
   expect(await invalid.json()).toMatchObject({ code: "INVALID_INPUT" });
   expect((await call("/api/orders?customer=all&contactId=" + seller.contactId, seller.cookie)).status).toBe(400);
   expect(await withTenantIsolation(seller.companyId, async () => await prisma.order.count())).toBe(0);
+  expect(await withTenantIsolation(seller.companyId, async () => await prisma.payment.count())).toBe(0);
+  expect(await withTenantIsolation(seller.companyId, async () =>
+    (await prisma.productStock.findUniqueOrThrow({ where: { variantId: seller.variantId } })).quantity)).toBe(3n);
+});
+
+test("orders HTTP exposes pending payment, stock retry and completion with company isolation", async () => {
+  const seller = await fixture("PE");
+  const other = await fixture("CL");
+  const id = randomUUID();
+  const paymentId = randomUUID();
+  const created = await call("/api/orders", seller.cookie,
+    { id, contactId: null, items: [{ variantId: seller.variantId, quantity: 4 }] }, "POST");
+  expect(created.status).toBe(201);
+  expect(await created.json()).toMatchObject({ id, status: "active", paymentStatus: "pending", deliveryStatus: "pending",
+    stockDeducted: false, completedAt: null, total: { amount: 40, currency: "PEN" }, payments: [] });
+  expect((await call(`/api/orders/${id}`, seller.cookie)).status).toBe(404);
+  expect((await call(`/api/orders/${id}/aggregate`, other.cookie)).status).toBe(404);
+  const payment = { paymentId, amount: { amount: 40, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false };
+  const recorded = await call(`/api/orders/${id}/payments`, seller.cookie, payment, "POST");
+  expect(recorded.status).toBe(200);
+  expect(await recorded.json()).toMatchObject({ stock: { kind: "pending", reason: "INSUFFICIENT_STOCK" },
+    order: { paymentStatus: "paid", payments: [{ id: paymentId }] } });
+  expect((await call(`/api/orders/${id}/ship`, seller.cookie, undefined, "POST")).status).toBe(409);
+  await withTenantIsolation(seller.companyId, async () => {
+    await prisma.productStock.update({ where: { variantId: seller.variantId }, data: { quantity: { increment: 1n } } });
+  });
+  const deducted = await call(`/api/orders/${id}/deduct-stock`, seller.cookie, undefined, "POST");
+  expect(deducted.status).toBe(200);
+  expect(await deducted.json()).toMatchObject({ stockDeducted: true, payments: [{ id: paymentId }] });
+  expect((await call(`/api/orders/${id}/ship`, seller.cookie, undefined, "POST")).status).toBe(200);
+  const delivered = await call(`/api/orders/${id}/deliver`, seller.cookie, undefined, "POST");
+  expect(delivered.status).toBe(200);
+  expect(await delivered.json()).toMatchObject({ status: "completed", paymentStatus: "paid",
+    deliveryStatus: "delivered", completedAt: expect.any(String) });
+  expect((await call(`/api/orders/${id}/aggregate`, seller.cookie)).status).toBe(200);
+  expect((await call(`/api/orders/${id}/cancel`, seller.cookie, undefined, "POST")).status).toBe(409);
+});
+
+test("mixed orders list uses creation date and includes pending and completed orders", async () => {
+  const seller = await fixture("PE");
+  const pendingId = randomUUID();
+  const completedId = randomUUID();
+  expect((await call("/api/orders", seller.cookie,
+    { id: pendingId, contactId: seller.contactId, items: [{ variantId: seller.variantId, quantity: 1 }] }, "POST")).status).toBe(201);
+  expect((await call("/api/orders", seller.cookie,
+    { id: completedId, contactId: null, items: [{ variantId: seller.variantId, quantity: 1 }],
+      payment: { method: "digital_wallet" }, delivery: { method: "handover" } }, "POST")).status).toBe(201);
+  await withTenantIsolation(seller.companyId, async () => {
+    await prisma.order.update({ where: { id: pendingId }, data: { createdAt: new Date("2026-09-30T12:00:00Z") } });
+    await prisma.order.update({ where: { id: completedId }, data: { createdAt: new Date("2026-09-29T12:00:00Z") } });
+  });
+  const list = await call("/api/orders/mixed", seller.cookie);
+  expect(list.status).toBe(200);
+  expect(await list.json()).toMatchObject({ total: 2, page: 1, items: [
+    { id: pendingId, status: "active", paymentStatus: "pending", createdAt: "2026-09-30T12:00:00.000Z" },
+    { id: completedId, status: "completed", paymentStatus: "paid", createdAt: "2026-09-29T12:00:00.000Z" },
+  ] });
+  expect(await (await call(`/api/orders/mixed?customer=contact&contactId=${seller.contactId}`, seller.cookie)).json())
+    .toMatchObject({ total: 1, items: [{ id: pendingId }] });
+  expect(await (await call("/api/orders/mixed?createdFrom=2026-09-30T00%3A00%3A00.000Z", seller.cookie)).json())
+    .toMatchObject({ total: 1, items: [{ id: pendingId }] });
+  expect(await (await call("/api/orders", seller.cookie)).json()).toMatchObject({ total: 1, items: [{ id: completedId }] });
 });
 
 test("orders HTTP combines contact and Lima-day UTC bounds with stable pages and capped search", async () => {
@@ -126,8 +202,9 @@ test("orders HTTP combines contact and Lima-day UTC bounds with stable pages and
   const ids = Array.from({ length: 21 }, (_, index) => `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`);
   await withTenantIsolation(seller.companyId, async () => {
     await prisma.order.createMany({ data: ids.map((id) => ({ id, sellerId: seller.userId, contactId: seller.contactId,
-      contactName: "Ana", contactPhone: "+51999999999", currency: "PEN", total: 10,
-      paymentMethod: "digital_wallet", completedAt: new Date("2026-09-28T12:00:00.000Z") })) });
+      contactName: "Ana", contactPhone: "+51999999999", currency: "PEN", total: 10, itemsTotal: 10,
+      deliveryStatus: "delivered", stockDeducted: true,
+      completedAt: new Date("2026-09-28T12:00:00.000Z"), createdAt: new Date("2026-09-28T12:00:00.000Z") })) });
     await prisma.contact.createMany({ data: Array.from({ length: 21 }, (_, index) => ({ id: randomUUID(),
       name: "Search contact", phone: `+51988${String(index).padStart(6, "0")}` })) });
   });

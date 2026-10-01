@@ -1,9 +1,9 @@
+import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FlatList, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useTranslation } from "react-i18next";
-import type { OrderResponse } from "@shared/contracts/orders";
+import type { ListOrderAggregatesResponse } from "@shared/contracts/orders";
 import { orders } from "@mobile/features/orders/composition";
 import { ThemedText } from "@mobile/components/themed-text";
 import { ThemedView } from "@mobile/components/themed-view";
@@ -15,10 +15,11 @@ import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
 import { OrderDayField } from "@mobile/features/orders/presentation/order-day-field";
 import { useTheme } from "@mobile/hooks/use-theme";
+import { orderLanguage, orderStatusLabel } from "@mobile/features/orders/presentation/order-labels";
 import type { OrderListCriteria } from "@mobile/features/orders/application/order-operations";
 import translations from "@mobile/i18n";
 
-type Summary = Pick<OrderResponse, "id" | "customer" | "completedAt" | "currency" | "total">;
+type Summary = ListOrderAggregatesResponse["items"][number];
 const money = (amount: number, currency: string, locale: string) => new Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
 const limaDate = (value: string, locale: string) => new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short", timeZone: "America/Lima" }).format(new Date(value));
 
@@ -49,7 +50,7 @@ export default function OrderHistoryScreen() {
   const reload = useCallback(async (company: string, filters: OrderListCriteria) => {
     const request = ++activeRequest.current;
     setLoading(true);
-    const [list, pending] = await Promise.all([orders.loadOrders(filters), orders.readPendingOrderConfirmation(company)]);
+    const [list, pending] = await Promise.all([orders.loadMixedOrders(filters), orders.readPendingOrderConfirmation(company)]);
     if (request !== activeRequest.current) return;
     if (list.success) { setItems(list.data.items); setTotal(list.data.total); setError(""); }
     else setError(list.error.code === "INVALID_INPUT" ? translations.t('filterInputError') : translations.t('loadOrdersError'));
@@ -73,6 +74,7 @@ export default function OrderHistoryScreen() {
   }, [companyId, customerKind, contactSearch]);
 
   if (state.status !== "ready") return null;
+  const language = orderLanguage(state.company.country, i18n.language);
 
   const apply = () => {
     if (customerKind === "contact" && !contactId) { setError(t('selectContactError')); return; }
@@ -101,7 +103,7 @@ export default function OrderHistoryScreen() {
     </View> : null}
     <Button onPress={() => router.push("/orders/new")}>{t('newOrder')}</Button>
     <View style={styles.filters}>
-      <ThemedText type="subtitle" accessibilityRole="header">{t('filterOrders')}</ThemedText>
+      <ThemedText type="subtitle" accessibilityRole="header">{t('filterCreationDate')}</ThemedText>
       <View style={styles.row}>
         <Button variant={customerKind === "all" ? "default" : "secondary"} onPress={() => { setCustomerKind("all"); setContactId(""); }}>{t('all')}</Button>
         <Button variant={customerKind === "general_public" ? "default" : "secondary"} onPress={() => { setCustomerKind("general_public"); setContactId(""); }}>{t('generalPublic')}</Button>
@@ -131,7 +133,8 @@ export default function OrderHistoryScreen() {
             title={criteria.page === 1 && criteria.customer.kind === "all" && !criteria.fromDay && !criteria.throughDay ? t('noOrders') : t('noResults')}
             description={t('ordersEmptyHint')} />}
           renderItem={({ item }) => <ListRow title={item.customer.kind === "contact" ? item.customer.name ?? item.customer.phone : t('generalPublic')}
-            description={limaDate(item.completedAt, locale)} trailing={<ThemedText type="smallBold">{money(item.total, item.currency, locale)}</ThemedText>}
+            description={`${orderStatusLabel(item.status, language)} · ${limaDate(item.createdAt, locale)}`}
+            trailing={<ThemedText type="smallBold">{money(item.total.amount, item.total.currency, locale)}</ThemedText>}
             onPress={() => router.push(`/orders/${item.id}`)} />}
           ListFooterComponent={items.length ? <View style={styles.row}>
             {criteria.page > 1 ? <Button variant="secondary" onPress={() => setCriteria({ ...criteria, page: criteria.page - 1 })}>{t('previous')}</Button> : null}

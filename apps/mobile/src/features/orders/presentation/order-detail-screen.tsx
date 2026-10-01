@@ -4,7 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { subtract } from "@shared/money";
-import type { OrderResponse } from "@shared/contracts/orders";
+import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import { orders } from "@mobile/features/orders/composition";
 import { ThemedText } from "@mobile/components/themed-text";
 import { ThemedView } from "@mobile/components/themed-view";
@@ -12,6 +12,7 @@ import { Button } from "@mobile/components/ui/button";
 import { ScreenState } from "@mobile/components/ui/screen-state";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
+import { deliveryMethodLabel, deliveryStatusLabel, documentTypeLabel, orderLanguage, orderStatusLabel } from "@mobile/features/orders/presentation/order-labels";
 import { useTheme } from "@mobile/hooks/use-theme";
 import translations from "@mobile/i18n";
 
@@ -26,14 +27,14 @@ export default function OrderDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { state } = useAccess();
   const { notice, clear } = useOrderResult();
-  const [order, setOrder] = useState<OrderResponse | null>(null);
+  const [order, setOrder] = useState<OrderAggregateResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const loaded = useRef(false);
   const companyId = state.status === "ready" ? state.company.id : "";
   const reload = useCallback(async () => {
     setLoading(true);
-    const result = await orders.loadOrder(id);
+    const result = await orders.loadOrderAggregate(id);
     if (result.success) { setOrder(result.data); setError(""); loaded.current = true; }
     else setError(result.error.code === "ORDER_NOT_FOUND" ? translations.t('orderNotFound') : translations.t('loadOrderError'));
     setLoading(false);
@@ -50,38 +51,53 @@ export default function OrderDetailScreen() {
   if (!order) return <ScreenState status="error" title={t('openOrderError')} description={error} onRetry={() => void reload()} />;
 
   const original = notice?.id === order.id ? notice.shownTotal : null;
-  const difference = original?.currency === order.currency
-    ? subtract(original)({ amount: order.total, currency: order.currency }) : null;
-  const changed = original && (original.currency !== order.currency || original.amount !== order.total);
+  const difference = original?.currency === order.total.currency ? subtract(original)(order.total) : null;
+  const changed = original && (original.currency !== order.total.currency || original.amount !== order.total.amount);
+  const language = orderLanguage(state.company.country, i18n.language);
+  const title = orderStatusLabel(order.status, language);
+  const delivery = deliveryStatusLabel(order.deliveryStatus, language);
   return <ThemedView style={styles.page}><SafeAreaView style={styles.page} edges={["top", "left", "right"]}>
     <ScrollView contentContainerStyle={styles.content}>
       <Button variant="ghost" onPress={() => router.back()}>{t('backToOrders')}</Button>
-      <View style={styles.heading}><ThemedText type="title" accessibilityRole="header">{t('orderCompleted')}</ThemedText>
-        <ThemedText themeColor="textSecondary">{date(order.completedAt, locale)}</ThemedText></View>
+      <View style={styles.heading}><ThemedText type="title" accessibilityRole="header">{title}</ThemedText>
+        <ThemedText themeColor="textSecondary">{t('createdOn', { date: date(order.createdAt, locale) })}</ThemedText>
+        {order.completedAt ? <ThemedText themeColor="textSecondary">{t('completedOn', { date: date(order.completedAt, locale) })}</ThemedText> : null}</View>
       <View style={[styles.summary, { backgroundColor: theme.backgroundElement }]}>
         <ThemedText type="small" themeColor="textSecondary">{t('recordedTotal')}</ThemedText>
-        <ThemedText type="title">{money(order.total, order.currency, locale)}</ThemedText>
-        <ThemedText type="small">{t('paidAndDelivered')}</ThemedText>
+        <ThemedText type="title">{money(order.total.amount, order.total.currency, locale)}</ThemedText>
+        <ThemedText type="small">{order.paymentStatus === "paid" ? t('paymentCovered') : t('balanceDue', { amount: money(order.balanceDue.amount, order.balanceDue.currency, locale) })} · {delivery}</ThemedText>
+        <ThemedText type="small">{order.stockDeducted ? t('stockDeducted') : t('stockPending')}</ThemedText>
+        {order.overpaidAmount.amount > 0 ? <ThemedText type="small">{t('overpaid', { amount: money(order.overpaidAmount.amount, order.overpaidAmount.currency, locale) })}</ThemedText> : null}
       </View>
       {changed && original ? <View style={[styles.notice, { backgroundColor: theme.backgroundElement }]}>
         <ThemedText type="subtitle" accessibilityRole="header">{t('reviewCharge')}</ThemedText>
         <ThemedText>{t('shownAtConfirmation', { amount: money(original.amount, original.currency, locale) })}</ThemedText>
-        <ThemedText>{t('recordedTotalAmount', { amount: money(order.total, order.currency, locale) })}</ThemedText>
-        {difference?.success ? <ThemedText>{t('amountDifference', { amount: money(difference.data.amount, order.currency, locale) })}</ThemedText> : null}
+        <ThemedText>{t('recordedTotalAmount', { amount: money(order.total.amount, order.total.currency, locale) })}</ThemedText>
+        {difference?.success ? <ThemedText>{t('amountDifference', { amount: money(difference.data.amount, order.total.currency, locale) })}</ThemedText> : null}
         <ThemedText type="small">{t('adjustCharge')}</ThemedText>
       </View> : null}
       <View style={styles.section}><ThemedText type="subtitle" accessibilityRole="header">{t('customer')}</ThemedText>
         <ThemedText>{order.customer.kind === "contact" ? order.customer.name ?? order.customer.phone : t('generalPublic')}</ThemedText>
         {order.customer.kind === "contact" && order.customer.name ? <ThemedText themeColor="textSecondary">{order.customer.phone}</ThemedText> : null}
       </View>
+      {order.delivery ? <View style={styles.section}><ThemedText type="subtitle" accessibilityRole="header">{t('delivery')}</ThemedText>
+        <ThemedText>{deliveryMethodLabel(order.delivery.method, language)}</ThemedText>
+        <ThemedText>{order.delivery.recipient.name} · {order.delivery.recipient.phone}</ThemedText>
+        {order.delivery.recipient.identity.kind === "document" ? <ThemedText>
+          {documentTypeLabel(order.delivery.recipient.identity.documentType, language)}: {order.delivery.recipient.identity.document}
+        </ThemedText> : null}
+      </View> : null}
       <View style={styles.section}><ThemedText type="subtitle" accessibilityRole="header">{t('items')}</ThemedText>
         {order.items.map((item) => <View key={item.id} style={styles.item}>
           <ThemedText type="smallBold">{item.productName}</ThemedText>
           {Object.entries(item.variantAttributes).length ? <ThemedText type="small" themeColor="textSecondary">{Object.entries(item.variantAttributes).map(([key, value]) => `${key}: ${value}`).join(" · ")}</ThemedText> : null}
           {item.sku ? <ThemedText type="small" themeColor="textSecondary">SKU {item.sku}</ThemedText> : null}
-          <ThemedText>{item.quantity} × {money(item.unitPrice, order.currency, locale)} = {money(item.subtotal, order.currency, locale)}</ThemedText>
+          <ThemedText>{item.quantity} × {money(item.unitPrice.amount, item.unitPrice.currency, locale)} = {money(item.subtotal.amount, item.subtotal.currency, locale)}</ThemedText>
         </View>)}
       </View>
+      {order.payments.length ? <View style={styles.section}><ThemedText type="subtitle" accessibilityRole="header">{t('payments')}</ThemedText>
+        {order.payments.map((payment) => <ThemedText key={payment.id}>{money(payment.amount.amount, payment.amount.currency, locale)} · {date(payment.recordedAt, locale)}</ThemedText>)}
+      </View> : null}
     </ScrollView>
   </SafeAreaView></ThemedView>;
 }

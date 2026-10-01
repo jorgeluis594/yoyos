@@ -1,10 +1,10 @@
-import { createOrderSchema, type CreateOrderRequest, type OrderResponse } from "@shared/contracts/orders";
+import { orderSelectionSchema, type OrderSelectionRequest, type OrderAggregateResponse } from "@shared/contracts/orders";
 import { add, multiply, type Money } from "@shared/money";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 
 export type OrderDraftItem = Readonly<{
-  variantId: CreateOrderRequest["items"][number]["variantId"];
+  variantId: OrderSelectionRequest["items"][number]["variantId"];
   productName: string;
   variantAttributes: Readonly<Record<string, string>>;
   sku: string | null;
@@ -14,8 +14,8 @@ export type OrderDraftItem = Readonly<{
 }>;
 
 export type OrderDraft =
-  | Readonly<{ kind: "empty"; customer: OrderResponse["customer"]; items: readonly [] }>
-  | Readonly<{ kind: "items"; id: CreateOrderRequest["id"]; customer: OrderResponse["customer"];
+  | Readonly<{ kind: "empty"; customer: OrderAggregateResponse["customer"]; items: readonly [] }>
+  | Readonly<{ kind: "items"; id: OrderSelectionRequest["id"]; customer: OrderAggregateResponse["customer"];
       items: readonly [OrderDraftItem, ...OrderDraftItem[]] }>;
 
 export type CartError = Readonly<{ code: "INVALID_CART"; message: string }>;
@@ -23,7 +23,7 @@ const invalid = () => err<CartError>({ code: "INVALID_CART", message: "Invalid o
 
 export const emptyOrderDraft = (): OrderDraft => ({ kind: "empty", customer: { kind: "general_public" }, items: [] });
 
-export function prepareOrder(draft: OrderDraft): Result<{ request: CreateOrderRequest; shownTotal: Money }, CartError> {
+export function prepareOrder(draft: OrderDraft): Result<{ request: OrderSelectionRequest; shownTotal: Money }, CartError> {
   if (draft.kind === "empty" || new Set(draft.items.map((item) => item.variantId)).size !== draft.items.length) return invalid();
   let total: Money | null = null;
   for (const item of draft.items) {
@@ -37,7 +37,7 @@ export function prepareOrder(draft: OrderDraft): Result<{ request: CreateOrderRe
       total = sum.data;
     } else total = subtotal.data;
   }
-  const parsed = createOrderSchema.safeParse({ id: draft.id,
+  const parsed = orderSelectionSchema.safeParse({ id: draft.id,
     contactId: draft.customer.kind === "contact" ? draft.customer.contactId : null,
     items: draft.items.map(({ variantId, quantity }) => ({ variantId, quantity })) });
   return parsed.success && total ? ok({ request: parsed.data, shownTotal: total }) : invalid();

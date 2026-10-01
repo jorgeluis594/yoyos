@@ -1,11 +1,14 @@
 import { log } from "@core/src/shared/infrastructure/logger";
 import express, { type Request, type Response } from "express";
 import { z } from "zod";
-import { createOrderSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema } from "@shared/contracts/orders";
+import { createOrderSchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
 import { apiError, type PrivateLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { orders } from "@core/src/features/orders/composition";
-import { toOrderJson, toOrderListJson } from "@core/src/features/orders/presentation/order-json";
-import type { ContactId } from "@core/src/features/orders/domain/order";
+import { toLegacyOrderJson, toOrderAggregateJson, toOrderAggregateListJson, toOrderListJson } from "@core/src/features/orders/presentation/order-json";
+import type { CreateOrderInput, OrderAccess } from "@core/src/features/orders/application/create-order";
+import type { ContactId, CompanyId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
+import type { RegisterPaymentInput } from "@core/src/features/orders/application/register-payment";
+import type { VariantId } from "@core/src/features/products/domain/product";
 
 const searchSchema = z.strictObject({ search: z.string().trim().max(100).default("") });
 
@@ -61,6 +64,14 @@ function operationError(response: Response, error: { code: string; variantId?: s
     case "INSUFFICIENT_STOCK": return apiError(response, 409, "INSUFFICIENT_STOCK", "Insufficient stock", issues);
     case "ORDER_ALREADY_EXISTS": return apiError(response, 409, "ORDER_ALREADY_EXISTS", "Order already exists");
     case "ORDER_NOT_FOUND": return apiError(response, 404, "ORDER_NOT_FOUND", "Order not found");
+    case "INVALID_PAYMENT": return apiError(response, 422, "INVALID_PAYMENT", "Invalid payment");
+    case "PAYMENT_CONFLICT": return apiError(response, 409, "PAYMENT_CONFLICT", "Payment ID conflict");
+    case "INVALID_TRANSITION": return apiError(response, 409, "INVALID_TRANSITION", "Invalid order transition");
+    case "DELIVERY_LOCKED": return apiError(response, 409, "DELIVERY_LOCKED", "Delivery is locked");
+    case "PAYMENT_REQUIRED": return apiError(response, 409, "PAYMENT_REQUIRED", "Payment is required");
+    case "STOCK_NOT_DEDUCTED": return apiError(response, 409, "STOCK_NOT_DEDUCTED", "Stock is not deducted");
+    case "ORDER_CANCELLED": return apiError(response, 409, "ORDER_CANCELLED", "Order is cancelled");
+    case "DELIVERY_UNAVAILABLE": return apiError(response, 422, "DELIVERY_UNAVAILABLE", "Delivery is unavailable");
     case "PERSISTENCE_UNAVAILABLE": return apiError(response, 503, "SERVICE_UNAVAILABLE", "Service unavailable");
     default:
       log.error({ event: "unexpected_order_error", err: error }, "unexpected_order_error");
@@ -74,6 +85,16 @@ function unexpected(response: Response, error: unknown) {
 }
 
 export const orderRoutes = express.Router();
+const orderContext = (response: Response<unknown, PrivateLocals>): OrderAccess => ({
+  companyId: response.locals.auth.company.id as CompanyId, userId: response.locals.auth.user.id as UserId,
+});
+const orderId = (value: string | undefined) => z.uuid().safeParse(value);
+function toCreateOrderInput(value: OrderSelectionRequest): CreateOrderInput {
+  const [first, ...rest] = value.items;
+  if (!first) throw new Error("Validated order has no items");
+  const item = (selection: typeof first) => ({ variantId: selection.variantId as VariantId, quantity: selection.quantity as PositiveInteger });
+  return { id: value.id as OrderId, contactId: value.contactId as ContactId | null, items: [item(first), ...rest.map(item)] };
+}
 
 orderRoutes.get("/", async (request, response) => {
   const query = queryFrom(request, response);
@@ -88,6 +109,22 @@ orderRoutes.get("/", async (request, response) => {
       ...(completedBefore ? { completedBefore: new Date(completedBefore) } : {}),
     });
     return result.success ? response.json(toOrderListJson(result.data)) : operationError(response, result.error);
+  } catch (error) { return unexpected(response, error); }
+});
+
+orderRoutes.get("/mixed", async (request, response: Response<unknown, PrivateLocals>) => {
+  const query = queryFrom(request, response);
+  if (!query) return;
+  const parsed = listOrderAggregatesSchema.safeParse(query);
+  if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order filters");
+  const { page, customer, contactId, createdFrom, createdBefore } = parsed.data;
+  try {
+    const result = await orders.listAggregates({ page,
+      customer: customer === "contact" ? { kind: "contact", contactId: contactId as ContactId } : { kind: customer },
+      ...(createdFrom ? { createdFrom: new Date(createdFrom) } : {}),
+      ...(createdBefore ? { createdBefore: new Date(createdBefore) } : {}),
+    }, orderContext(response));
+    return result.success ? response.json(toOrderAggregateListJson(result.data)) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });
 
@@ -113,21 +150,81 @@ orderRoutes.get("/contacts", async (request, response) => {
   } catch (error) { return unexpected(response, error); }
 });
 
-orderRoutes.get("/:id", async (request, response) => {
+orderRoutes.get("/:id", async (request, response: Response<unknown, PrivateLocals>) => {
   const parsed = z.uuid().safeParse(request.params.id);
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order ID");
   try {
-    const result = await orders.get(parsed.data);
-    return result.success ? response.json(toOrderJson(result.data)) : operationError(response, result.error);
+    const result = await orders.getAggregate(parsed.data as OrderId, orderContext(response));
+    if (!result.success) return operationError(response, result.error);
+    return result.data.completedAt && result.data.deliveryStatus === "delivered"
+      ? response.json(toLegacyOrderJson(result.data)) : apiError(response, 404, "ORDER_NOT_FOUND", "Order not found");
   } catch (error) { return unexpected(response, error); }
 });
+
+orderRoutes.get("/:id/aggregate", async (request, response: Response<unknown, PrivateLocals>) => {
+  const parsed = orderId(request.params.id);
+  if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order ID");
+  try {
+    const result = await orders.getAggregate(parsed.data as OrderId, orderContext(response));
+    return result.success ? response.json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
+  } catch (error) { return unexpected(response, error); }
+});
+
+orderRoutes.post("/pending", async (request, response: Response<unknown, PrivateLocals>) => {
+  if (!request.is("application/json")) return apiError(response, 415, "UNSUPPORTED_MEDIA_TYPE", "JSON body required");
+  const parsed = orderSelectionSchema.safeParse(request.body);
+  if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order input");
+  try {
+    const result = await orders.create(toCreateOrderInput(parsed.data), orderContext(response));
+    return result.success ? response.status(201).json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
+  } catch (error) { return unexpected(response, error); }
+});
+
+orderRoutes.post("/immediate-sale", async (request, response: Response<unknown, PrivateLocals>) => {
+  if (!request.is("application/json")) return apiError(response, 415, "UNSUPPORTED_MEDIA_TYPE", "JSON body required");
+  const parsed = orderSelectionSchema.safeParse(request.body);
+  if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order input");
+  try {
+    const result = await orders.registerImmediateSale(toCreateOrderInput(parsed.data), orderContext(response));
+    return result.success ? response.status(201).json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
+  } catch (error) { return unexpected(response, error); }
+});
+
+orderRoutes.post("/:id/payments", async (request, response: Response<unknown, PrivateLocals>) => {
+  if (!request.is("application/json")) return apiError(response, 415, "UNSUPPORTED_MEDIA_TYPE", "JSON body required");
+  const parsedId = orderId(request.params.id);
+  const parsed = registerPaymentSchema.safeParse(request.body);
+  if (!parsedId.success || !parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid payment input");
+  try {
+    const input: RegisterPaymentInput = { ...parsed.data, orderId: parsedId.data as OrderId, paymentId: parsed.data.paymentId as PaymentId };
+    const result = await orders.registerPayment(input, orderContext(response));
+    return result.success ? response.json(registerPaymentResponseSchema.parse({ order: toOrderAggregateJson(result.data.order), stock: result.data.stock }))
+      : operationError(response, result.error);
+  } catch (error) { return unexpected(response, error); }
+});
+
+for (const [path, operation] of [
+  ["deduct-stock", orders.deductStock], ["cancel", orders.cancel], ["ship", orders.ship], ["deliver", orders.deliver],
+] as const) {
+  orderRoutes.post(`/:id/${path}`, async (request, response: Response<unknown, PrivateLocals>) => {
+    const parsed = orderId(request.params.id);
+    if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order ID");
+    try {
+      const result = await operation(parsed.data as OrderId, orderContext(response));
+      return result.success ? response.json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
+    } catch (error) { return unexpected(response, error); }
+  });
+}
 
 orderRoutes.post("/", async (request, response: Response<unknown, PrivateLocals>) => {
   if (!request.is("application/json")) return apiError(response, 415, "UNSUPPORTED_MEDIA_TYPE", "JSON body required");
   const parsed = createOrderSchema.safeParse(request.body);
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order input");
   try {
-    const result = await orders.create(parsed.data, { companyId: response.locals.auth.company.id, sellerId: response.locals.auth.user.id });
-    return result.success ? response.status(201).json(toOrderJson(result.data)) : operationError(response, result.error);
+    const input = toCreateOrderInput(parsed.data);
+    const context = orderContext(response);
+    const result = "payment" in parsed.data
+      ? await orders.registerImmediateSale(input, context) : await orders.create(input, context);
+    return result.success ? response.status(201).json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });

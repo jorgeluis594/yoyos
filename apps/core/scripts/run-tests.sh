@@ -38,6 +38,7 @@ esac
 
 core_test_port=${CORE_TEST_PORT:-55433}
 admin_database_url=postgresql://core:core@127.0.0.1:${core_test_port}/core_test
+export MIGRATION_TEST_DATABASE_URL="$admin_database_url"
 app_database_url=postgresql://core_app:core_app_local@127.0.0.1:${core_test_port}/core_test
 export DATABASE_URL=$app_database_url
 export BETTER_AUTH_SECRET=integration-test-secret-at-least-32-characters

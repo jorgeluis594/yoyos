@@ -4,9 +4,11 @@ import { formatCurrency } from "@core/app/format-currency";
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Plus, Search, ShoppingBag } from "lucide-react";
 import { Form, Link, useActionData, useFetcher, useLoaderData, useNavigation, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
-import { createOrderSchema, newOrderLoaderSchema, orderActionErrorSchema } from "@shared/contracts/orders";
+import { orderSelectionSchema, newOrderLoaderSchema, orderActionErrorSchema } from "@shared/contracts/orders";
 import { privateUserContext } from "@core/app/private-user-context";
 import { orders } from "@core/src/features/orders/composition";
+import type { ContactId, OrderId, PositiveInteger } from "@core/src/features/orders/domain/order";
+import type { VariantId } from "@core/src/features/products/domain/product";
 import { Button } from "@core/app/components/ui/button";
 import { Input } from "@core/app/components/ui/input";
 import { ErrorState } from "@core/app/components/ui/error-state";
@@ -27,9 +29,14 @@ export async function action({ request, context }: ActionFunctionArgs) {
   let raw: unknown;
   try { raw = JSON.parse(String((await request.formData()).get("order"))); }
   catch { return orderActionErrorSchema.parse({ code: "INVALID_ORDER", error: "Revisa los datos de la venta." }); }
-  const parsed = createOrderSchema.safeParse(raw);
+  const parsed = orderSelectionSchema.safeParse(raw);
   if (!parsed.success) return orderActionErrorSchema.parse({ code: "INVALID_ORDER", error: "Revisa los datos de la venta." });
-  const result = await orders.create(parsed.data, { companyId: access.company.id, sellerId: access.user.id });
+  const [first, ...rest] = parsed.data.items;
+  if (!first) return orderActionErrorSchema.parse({ code: "INVALID_ORDER", error: "Revisa los datos de la venta." });
+  const item = (selection: typeof first) => ({ variantId: selection.variantId as VariantId, quantity: selection.quantity as PositiveInteger });
+  const result = await orders.registerImmediateSale({ id: parsed.data.id as OrderId,
+    contactId: parsed.data.contactId as ContactId | null, items: [item(first), ...rest.map(item)] },
+  { companyId: access.company.id, userId: access.user.id });
   if (!result.success) return orderActionErrorSchema.parse({ code: result.error.code, error: result.error.code === "INSUFFICIENT_STOCK" ? "No hay stock suficiente para uno de los productos." :
     result.error.code === "ORDER_ALREADY_EXISTS" ? "Esta venta ya se registró. Revisa el historial antes de intentar otra." :
     result.error.code === "CONTACT_NOT_FOUND" ? "El cliente ya no está disponible." :

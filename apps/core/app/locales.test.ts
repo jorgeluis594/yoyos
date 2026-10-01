@@ -15,6 +15,8 @@ test("authentication translations exist in both languages and preserve localized
   expect(Object.keys(resources.pt.translation.emails).sort()).toEqual(Object.keys(resources.es.translation.emails).sort());
   const i18n = createInstance();
   await i18n.init({ lng: "pt", resources });
+  expect(i18n.t("orders.status.active")).toBe("Pedido ativo");
+  expect(i18n.t("orders.balanceDue", { amount: "R$ 10,00" })).toBe("Pendente: R$ 10,00");
   expect(i18n.t("auth.resetTitle")).toBe("Redefinir senha");
   expect(i18n.t("common.close")).toBe("Fechar");
   expect(i18n.t("nav.greeting", { name: "Ana" })).toBe("Olá, Ana");

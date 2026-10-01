@@ -35,6 +35,16 @@ export function getCompanyId(): string {
   return companyId;
 }
 
+export function requireActiveTransaction(companyId: string): void {
+  const scope = transactions.getStore();
+  if (!scope?.active || scope.aborted || scope.companyId !== companyId || getCompanyId() !== companyId)
+    throw new Error("An active transaction for this company is required");
+}
+
+export function requireNoActiveTransaction(): void {
+  if (transactions.getStore()?.active) throw new Error("Payment recording requires independent transactions");
+}
+
 async function execute<T>(callback: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
   const companyId = getCompanyId();
   const scope = transactions.getStore();
