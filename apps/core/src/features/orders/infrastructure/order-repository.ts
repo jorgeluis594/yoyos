@@ -193,6 +193,7 @@ export async function saveDelivery(id: OrderId, companyId: CompanyId, change: Pi
 
 export async function findOrders(criteria: OrderCriteria) {
   const where: Prisma.OrderWhereInput = {
+    companyId: getCompanyId(),
     ...(criteria.customer.kind === "general_public" ? { contactId: null } : criteria.customer.kind === "contact" ? { contactId: criteria.customer.contactId } : {}),
     completedAt: { not: null, ...(criteria.completedFrom ? { gte: criteria.completedFrom } : {}), ...(criteria.completedBefore ? { lt: criteria.completedBefore } : {}) },
   };
@@ -202,10 +203,15 @@ export async function findOrders(criteria: OrderCriteria) {
         select: { id: true, completedAt: true, contactId: true, contactName: true, contactPhone: true, sellerId: true, currency: true, total: true } }),
       prisma.order.count({ where }),
     ]);
-    return ok({ items: rows.map((row) => { if (!row.completedAt) throw new Error("Completed order has no date"); return { id: row.id, completedAt: row.completedAt, sellerId: row.sellerId,
-      customer: row.contactId ? { kind: "contact" as const, contactId: row.contactId, name: row.contactName, phone: row.contactPhone! } : { kind: "general_public" as const },
-      total: { amount: row.total.toNumber(), currency: row.currency } }; }), page: criteria.page, pageSize: 20, total });
+    return ok({ items: rows.map((row) => {
+      if (!row.completedAt || !isCurrency(row.currency) || (row.contactId && !row.contactPhone))
+        throw new InvalidStoredOrderError("Invalid stored order summary");
+      return { id: row.id, completedAt: row.completedAt, sellerId: row.sellerId,
+        customer: row.contactId ? { kind: "contact" as const, contactId: row.contactId, name: row.contactName, phone: row.contactPhone! } : { kind: "general_public" as const },
+        total: { amount: row.total.toNumber(), currency: row.currency } };
+    }), page: criteria.page, pageSize: 20, total });
   } catch (cause) {
+    if (cause instanceof InvalidStoredOrderError) return err({ code: "INVALID_ORDER" as const, message: cause.message });
     if (!knownFailure(cause)) throw cause;
     console.error("Unable to list orders", { error: cause.name, code: cause instanceof Prisma.PrismaClientKnownRequestError ? cause.code : undefined });
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to list orders" });
