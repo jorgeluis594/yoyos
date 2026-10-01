@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { orderStateMachine, type OrderAggregate, type Payment, type DeliveryDetails } from "@core/src/features/orders/domain/order-state-machine";
+import { buildPendingOrder, orderStateMachine, type OrderAggregate, type Payment, type DeliveryDetails } from "@core/src/features/orders/domain/order-state-machine";
 import type { CompanyId, OrderId, OrderItemId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
@@ -19,6 +19,38 @@ const payment = (n: number, amount: number): Payment => ({ id: id(n) as PaymentI
   amount: money(amount), method: "digital_wallet", recordedAt: paymentAt });
 const home: DeliveryDetails = { method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
   destination: { address: "Av. Lima 123" } };
+
+describe("pending order construction", () => {
+  test("preserves identity and snapshots while leaving payment, delivery and stock pending", () => {
+    const input = { id: id(1) as OrderId, companyId: id(2) as CompanyId, sellerId: "seller" as UserId,
+      customer: { kind: "general_public" as const }, createdAt,
+      items: [{ id: id(3) as OrderItemId, variantId: id(4) as VariantId, productName: "Item", variantAttributes: { Size: "M" },
+        sku: null, quantity: 3, unitPrice: money(0.1) }] };
+    const built = buildPendingOrder(input);
+    expect(built).toMatchObject({ success: true, data: { id: id(1), createdAt, completedAt: null, cancelled: false,
+      payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false,
+      itemsTotal: money(0.3), deliveryCost: money(0), deliveryCharge: money(0), total: money(0.3),
+      items: [{ subtotal: money(0.3), variantAttributes: { Size: "M" } }] } });
+    if (!built.success) return;
+    input.items[0].variantAttributes.Size = "L";
+    expect(built.data.items[0].variantAttributes).toEqual({ Size: "M" });
+    expect(orderStateMachine.getLifecycle(built.data)).toEqual({ success: true, data: { status: "active", completedAt: null } });
+  });
+
+  test("rejects empty, repeated, invalidly priced and mixed currency items", () => {
+    const input = { id: id(1) as OrderId, companyId: id(2) as CompanyId, sellerId: "seller" as UserId,
+      customer: { kind: "general_public" as const }, createdAt,
+      items: [{ id: id(3) as OrderItemId, variantId: id(4) as VariantId, productName: "Item", variantAttributes: {},
+        sku: null, quantity: 1, unitPrice: money(10) }] };
+    expect(buildPendingOrder({ ...input, items: [] })).toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
+    expect(buildPendingOrder({ ...input, items: [input.items[0], input.items[0]] })).toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
+    expect(buildPendingOrder({ ...input, items: [{ ...input.items[0], unitPrice: money(0.001) }] }))
+      .toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
+    expect(buildPendingOrder({ ...input, items: [input.items[0], { ...input.items[0], id: id(5) as OrderItemId,
+      variantId: id(6) as VariantId, unitPrice: { amount: 1, currency: "USD" as const } }] }))
+      .toMatchObject({ success: false, error: { code: "CURRENCY_MISMATCH" } });
+  });
+});
 
 describe("order payment and lifecycle", () => {
   test("derives pending, covered and excess amounts without changing the order", () => {
