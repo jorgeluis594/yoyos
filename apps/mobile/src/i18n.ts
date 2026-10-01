@@ -46,6 +46,13 @@ const resources = {
     loadingOrders: 'Cargando ventas', noOrders: 'Aún no hay ventas', noResults: 'Sin resultados',
     ordersEmptyHint: 'Prueba otros filtros o registra una venta nueva.', previous: 'Anterior', next: 'Siguiente',
     chooseDay: 'Elegir día', clearDay: 'Limpiar {{label}}', dateAccessibility: '{{label}}, año mes día',
+    orderNotFound: 'Esta venta no existe o no está disponible para tu empresa.', loadOrderError: 'No se pudo cargar la venta.',
+    loadingOrder: 'Cargando venta', openOrderError: 'No se pudo abrir la venta', backToOrders: 'Volver a ventas',
+    orderCompleted: 'Venta completada', recordedTotal: 'Total registrado',
+    paidAndDelivered: 'Cobrado por billetera digital · Entregado', reviewCharge: 'Revisa el importe cobrado',
+    shownAtConfirmation: 'Mostrado al confirmar: {{amount}}', recordedTotalAmount: 'Total registrado: {{amount}}',
+    amountDifference: 'Diferencia: {{amount}}', adjustCharge: 'Ajusta el cobro fuera de la app.',
+    customer: 'Cliente', items: 'Artículos',
   } },
   'pt-BR': { translation: {
     home: 'Início', products: 'Produtos', orders: 'Vendas',
@@ -89,6 +96,13 @@ const resources = {
     loadingOrders: 'Carregando vendas', noOrders: 'Ainda não há vendas', noResults: 'Sem resultados',
     ordersEmptyHint: 'Experimente outros filtros ou registre uma nova venda.', previous: 'Anterior', next: 'Próximo',
     chooseDay: 'Escolher dia', clearDay: 'Limpar {{label}}', dateAccessibility: '{{label}}, ano mês dia',
+    orderNotFound: 'Esta venda não existe ou não está disponível para sua empresa.', loadOrderError: 'Não foi possível carregar a venda.',
+    loadingOrder: 'Carregando venda', openOrderError: 'Não foi possível abrir a venda', backToOrders: 'Voltar às vendas',
+    orderCompleted: 'Venda concluída', recordedTotal: 'Total registrado',
+    paidAndDelivered: 'Pago por carteira digital · Entregue', reviewCharge: 'Confira o valor cobrado',
+    shownAtConfirmation: 'Exibido ao confirmar: {{amount}}', recordedTotalAmount: 'Total registrado: {{amount}}',
+    amountDifference: 'Diferença: {{amount}}', adjustCharge: 'Ajuste a cobrança fora do aplicativo.',
+    customer: 'Cliente', items: 'Itens',
   } },
 } as const;
 
