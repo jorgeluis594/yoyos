@@ -1,4 +1,4 @@
-import type { OrderCustomer, OrderId, OrderItemId, PaymentId, ContactId, CompanyId, UserId, PositiveInteger } from "@core/src/features/orders/domain/order";
+import type { Order, OrderCustomer, OrderId, OrderItemId, PaymentId, ContactId, CompanyId, UserId, PositiveInteger } from "@core/src/features/orders/domain/order";
 import type { AgencyRecipient, OrderAggregate, OrderLifecycle, Recipient } from "@core/src/features/orders/domain/order-state-machine";
 import type { Currency } from "@shared/money";
 import type { VariantId } from "@core/src/features/products/domain/product";
@@ -14,6 +14,9 @@ export type OrderContracts = [
   Assert<Equal<UserId extends VariantId ? true : false, false>>,
   Assert<Equal<{ kind: "contact"; contactId: ContactId } extends OrderCustomer ? true : false, false>>,
   Assert<Equal<number extends PositiveInteger ? true : false, false>>,
+  Assert<Equal<"paymentMethod" extends keyof Order ? true : false, false>>,
+  Assert<Equal<Order["completedAt"], Date | null>>,
+  Assert<Equal<[] extends Order["items"] ? true : false, false>>,
   Assert<Equal<[] extends OrderAggregate["items"] ? true : false, false>>,
   Assert<Equal<OrderAggregate["total"]["currency"], Currency>>,
   Assert<Equal<AgencyRecipient["identity"], Extract<Recipient["identity"], { kind: "document" }>>>,

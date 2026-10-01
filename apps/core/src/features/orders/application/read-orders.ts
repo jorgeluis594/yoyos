@@ -1,6 +1,6 @@
 import { err } from "@shared/functional";
 import type { Result } from "@shared/result";
-import type { ContactId, Order } from "@core/src/features/orders/domain/order";
+import type { ContactId, LegacyOrder } from "@core/src/features/orders/domain/order";
 
 export type OrderCriteria = Readonly<{ page: number; customer: { kind: "all" } | { kind: "general_public" } | { kind: "contact"; contactId: ContactId }; completedFrom?: Date; completedBefore?: Date }>;
 
@@ -16,7 +16,7 @@ export async function listOrders(criteria: OrderCriteria, find: (criteria: Order
   return find(criteria);
 }
 
-export async function getOrder(id: string, find: (id: string) => Promise<Result<Order | null, ReadError>>): Promise<Result<Order, ReadError>> {
+export async function getOrder(id: string, find: (id: string) => Promise<Result<LegacyOrder | null, ReadError>>): Promise<Result<LegacyOrder, ReadError>> {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) return err({ code: "INVALID_ORDER", message: "Invalid order ID" });
   const result = await find(id);
   return result.success ? result.data ? { success: true, data: result.data } : err({ code: "ORDER_NOT_FOUND", message: "Order not found" }) : result;

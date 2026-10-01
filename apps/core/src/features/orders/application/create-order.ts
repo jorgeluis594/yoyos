@@ -1,7 +1,7 @@
 import { err } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { CreateOrderRequest } from "@shared/contracts/orders";
-import { buildOrder, type Order, type CompanyId, type UserId, type ContactId, type OrderItemId, type OrderId, type PaymentId } from "@core/src/features/orders/domain/order";
+import { buildOrder, type LegacyOrder, type CompanyId, type UserId, type ContactId, type OrderItemId, type OrderId, type PaymentId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import type { CatalogItem, ContactSnapshot } from "@core/src/features/orders/application/order-snapshots";
 
@@ -12,14 +12,14 @@ export type CreateOrderDependencies = Readonly<{
   orderExists: (id: string) => Promise<Result<boolean, LookupError>>;
   findContact: (id: string) => Promise<Result<ContactSnapshot | null, LookupError>>;
   findVariant: (id: string) => Promise<Result<CatalogItem | null, LookupError>>;
-  save: (order: Order, paymentId: PaymentId) => Promise<Result<null, CreateOrderError>>;
+  save: (order: LegacyOrder, paymentId: PaymentId) => Promise<Result<null, CreateOrderError>>;
   deductStock: (variantId: VariantId, quantity: number) => Promise<Result<null, CreateOrderError>>;
   newId: () => string;
   newPaymentId: () => PaymentId;
   clock: () => Date;
 }>;
 
-export async function createOrder(input: CreateOrderRequest, context: Readonly<{ companyId: string; sellerId: string }>, deps: CreateOrderDependencies): Promise<Result<Order, CreateOrderError>> {
+export async function createOrder(input: CreateOrderRequest, context: Readonly<{ companyId: string; sellerId: string }>, deps: CreateOrderDependencies): Promise<Result<LegacyOrder, CreateOrderError>> {
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   if (!uuid.test(input.id) || !uuid.test(context.companyId) || !context.sellerId || (input.contactId !== null && !uuid.test(input.contactId)) || !input.items.length ||
     new Set(input.items.map((item) => item.variantId)).size !== input.items.length ||

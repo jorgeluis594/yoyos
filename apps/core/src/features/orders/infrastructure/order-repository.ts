@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import { isCurrency } from "@shared/money";
 import { getCompanyId, prisma, requireActiveTransaction } from "@core/src/shared/infrastructure/persistance";
-import { buildOrder, type Order, type OrderItemId, type OrderId, type ContactId, type CompanyId, type UserId, type PositiveInteger, type PaymentId } from "@core/src/features/orders/domain/order";
+import { buildOrder, type LegacyOrder, type OrderItemId, type OrderId, type ContactId, type CompanyId, type UserId, type PositiveInteger, type PaymentId } from "@core/src/features/orders/domain/order";
 import type { CreateOrderError } from "@core/src/features/orders/application/create-order";
 import { orderStateMachine, parseDeliveryDetails, type OrderAggregate, type Payment } from "@core/src/features/orders/domain/order-state-machine";
 import type { OrderCriteria } from "@core/src/features/orders/application/read-orders";
@@ -19,7 +19,7 @@ function knownFailure(cause: unknown) {
   return cause instanceof Prisma.PrismaClientKnownRequestError || cause instanceof Prisma.PrismaClientUnknownRequestError || cause instanceof Prisma.PrismaClientInitializationError;
 }
 
-function mapOrder(row: DbOrder): Order {
+function mapOrder(row: DbOrder): LegacyOrder {
   if (!row.completedAt || row.paymentMethod !== "digital_wallet") throw new Error("Order is not a completed immediate sale");
   if (!isCurrency(row.currency)) throw new Error("Invalid stored order currency");
   if (!row.items.length || row.items.some((item) => item.quantity <= 0n || item.quantity > BigInt(Number.MAX_SAFE_INTEGER))) throw new Error("Invalid stored order quantity");
@@ -29,7 +29,7 @@ function mapOrder(row: DbOrder): Order {
     return { id: item.id as OrderItemId, variantId: item.variantId as VariantId, productName: item.productName,
       variantAttributes: { ...attributes } as Record<string, string>, sku: item.sku, quantity: Number(item.quantity) as PositiveInteger,
       unitPrice: { amount: item.unitPrice.toNumber(), currency: row.currency }, subtotal: { amount: item.subtotal.toNumber(), currency: row.currency } };
-  }) as [Order["items"][number], ...Order["items"][number][]];
+  }) as [LegacyOrder["items"][number], ...LegacyOrder["items"][number][]];
   return { id: row.id as OrderId, companyId: row.companyId as CompanyId, sellerId: row.sellerId as UserId,
     customer: row.contactId ? { kind: "contact", contactId: row.contactId as ContactId, name: row.contactName, phone: row.contactPhone! } : { kind: "general_public" },
     paymentMethod: "digital_wallet", completedAt: row.completedAt, items, total: { amount: row.total.toNumber(), currency: row.currency } };
@@ -73,7 +73,7 @@ function mapAggregate(row: DbAggregate): OrderAggregate {
   return order;
 }
 
-export async function saveOrder(order: Order, paymentId: PaymentId) {
+export async function saveOrder(order: LegacyOrder, paymentId: PaymentId) {
   try {
     await prisma.order.create({ data: { id: order.id, sellerId: order.sellerId,
       contactId: order.customer.kind === "contact" ? order.customer.contactId : null,

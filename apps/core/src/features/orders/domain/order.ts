@@ -2,6 +2,7 @@ import { add, isCurrency, multiply, type Money } from "@shared/money";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { VariantId } from "@core/src/features/products/domain/product";
+import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 
 export type OrderId = string & { readonly __brand: "OrderId" };
 export type OrderItemId = string & { readonly __brand: "OrderItemId" };
@@ -13,10 +14,11 @@ export type PositiveInteger = number & { readonly __brand: "PositiveInteger" };
 
 export type OrderCustomer = Readonly<{ kind: "general_public" }> | Readonly<{ kind: "contact"; contactId: ContactId; name: string | null; phone: string }>;
 export type OrderItem = Readonly<{ id: OrderItemId; variantId: VariantId; productName: string; variantAttributes: Readonly<Record<string, string>>; sku: string | null; quantity: PositiveInteger; unitPrice: Money; subtotal: Money }>;
-export type Order = Readonly<{ id: OrderId; companyId: CompanyId; sellerId: UserId; customer: OrderCustomer; paymentMethod: "digital_wallet"; completedAt: Date; items: readonly [OrderItem, ...OrderItem[]]; total: Money }>;
+export type Order = OrderAggregate;
+export type LegacyOrder = Readonly<{ id: OrderId; companyId: CompanyId; sellerId: UserId; customer: OrderCustomer; paymentMethod: "digital_wallet"; completedAt: Date; items: readonly [OrderItem, ...OrderItem[]]; total: Money }>;
 export type BuildOrderError = Readonly<{ code: "INVALID_ORDER" | "CURRENCY_MISMATCH"; message: string; item?: number }>;
 export type BuildOrderItem = Readonly<Omit<OrderItem, "quantity" | "subtotal"> & { quantity: number }>;
-export type BuildOrderInput = Readonly<Omit<Order, "items" | "total" | "paymentMethod"> & { items: readonly BuildOrderItem[] }>;
+export type BuildOrderInput = Readonly<Omit<LegacyOrder, "items" | "total" | "paymentMethod"> & { items: readonly BuildOrderItem[] }>;
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const maxTotalCents = 999999999999999;
@@ -27,7 +29,7 @@ const validAmount = (amount: number, maxCents: number) => {
   return BigInt(whole) * 100n + BigInt(fraction.padEnd(2, "0")) <= BigInt(maxCents);
 };
 
-export function buildOrder(input: BuildOrderInput): Result<Order, BuildOrderError> {
+export function buildOrder(input: BuildOrderInput): Result<LegacyOrder, BuildOrderError> {
   if (!uuid.test(input.id) || !uuid.test(input.companyId) || !input.sellerId || !(input.completedAt instanceof Date) || !Number.isFinite(input.completedAt.getTime()) || !input.items.length ||
     !["contact", "general_public"].includes(input.customer.kind) ||
     (input.customer.kind === "contact" && (!uuid.test(input.customer.contactId) || !input.customer.phone || (input.customer.name !== null && typeof input.customer.name !== "string")))) {

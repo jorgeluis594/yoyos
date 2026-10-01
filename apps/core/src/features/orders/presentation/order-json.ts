@@ -1,10 +1,10 @@
 import { listOrderAggregatesResponseSchema, listOrdersResponseSchema, orderAggregateSchema, orderAggregateSummarySchema, orderSchema } from "@shared/contracts/orders";
-import type { Order } from "@core/src/features/orders/domain/order";
+import type { LegacyOrder } from "@core/src/features/orders/domain/order";
 import { orderStateMachine, type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { ListOrdersOutput } from "@core/src/features/orders/application/read-orders";
 import type { AggregatePage } from "@core/src/features/orders/application/list-order-aggregates";
 
-export function toOrderJson(order: Order) {
+export function toOrderJson(order: LegacyOrder) {
   return orderSchema.parse({ id: order.id, companyId: order.companyId, sellerId: order.sellerId, customer: order.customer,
     paymentMethod: order.paymentMethod, completedAt: order.completedAt.toISOString(), currency: order.total.currency, total: order.total.amount,
     items: order.items.map((item) => ({ id: item.id, variantId: item.variantId, productName: item.productName,
