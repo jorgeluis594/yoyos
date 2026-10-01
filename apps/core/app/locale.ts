@@ -7,3 +7,8 @@ export function isLocale(value: string): boolean {
 export function languageForLocale(locale: string): "es" | "pt" {
   return locale === "pt-BR" ? "pt" : "es";
 }
+
+export function localizedPath(pathname: string, target: string): string {
+  const segment = pathname.split("/")[1];
+  return `${isLocale(segment) ? `/${segment}` : ""}${target}`;
+}
