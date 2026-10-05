@@ -7,7 +7,7 @@ BEGIN
   IF pg_has_role('core_app', current_user, 'member') THEN
     RAISE EXCEPTION 'core_app must not belong to the migration role';
   END IF;
-  IF EXISTS (SELECT 1 FROM pg_class WHERE relname IN ('Company', 'CompanyDeliverySettings', 'Image', 'Contact', 'Chat', 'ChatMessage', 'Product', 'ProductVariant', 'ProductStock', 'Order', 'OrderItem', 'Payment', 'user', 'session', 'account', 'verification', 'jwks') AND relowner = 'core_app'::regrole) THEN
+  IF EXISTS (SELECT 1 FROM pg_class WHERE relname IN ('Company', 'CompanyDeliverySettings', 'CompanyCourier', 'Image', 'Contact', 'Chat', 'ChatMessage', 'Product', 'ProductVariant', 'ProductStock', 'Order', 'OrderItem', 'Payment', 'user', 'session', 'account', 'verification', 'jwks') AND relowner = 'core_app'::regrole) THEN
     RAISE EXCEPTION 'core_app must not own application tables';
   END IF;
 END $$;
@@ -17,7 +17,7 @@ REVOKE ALL ON DATABASE :"dbname" FROM core_app;
 GRANT CONNECT ON DATABASE :"dbname" TO core_app;
 GRANT USAGE ON SCHEMA public TO core_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."Company", public."Image", public."Contact", public."Chat", public."ChatMessage", public."Product", public."ProductVariant", public."ProductStock", public."Order", public."OrderItem", public."Payment", public."user", public."session", public."account", public."verification", public."jwks" TO core_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."CompanyDeliverySettings" TO core_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."CompanyDeliverySettings", public."CompanyCourier" TO core_app;
 GRANT USAGE ON SCHEMA pgboss TO core_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA pgboss TO core_app;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA pgboss TO core_app;

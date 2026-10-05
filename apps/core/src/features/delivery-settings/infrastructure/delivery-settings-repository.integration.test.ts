@@ -16,7 +16,7 @@ async function fixture() {
   await withTenantIsolation(companyId, async () => {
     await prisma.company.create({ data: { id: companyId, name: "Delivery test", country: "PE" } });
   });
-  return { context, run: <T>(work: () => Promise<T>) => withTenantIsolation(companyId, work),
+  return { context, run: <T>(work: () => Promise<T>) => withTenantIsolation(companyId, async () => await work()),
     cleanup: () => withTenantIsolation(companyId, async () => {
       await prisma.companyDeliverySettings.deleteMany();
       await prisma.company.delete({ where: { id: companyId } });
@@ -124,4 +124,26 @@ test("enforces relational constraints and keeps another company's settings inacc
       expect(await deliverySettings.get(a.context)).toMatchObject({ success: false, error: { code: "INVALID_STORED_DATA" } });
     });
   } finally { await Promise.all([a.cleanup(), b.cleanup()]); }
+});
+
+test("courier storage requires configuration and retains deactivated records under the application role", async () => {
+  const f = await fixture();
+  const id = randomUUID();
+  try {
+    await f.run(async () => {
+      await expect(prisma.companyCourier.create({ data: { id, name: "Courier", enabled: true } })).rejects.toMatchObject({ code: "P2003" });
+      const settings = await prisma.companyDeliverySettings.create({ data: { storeEnabled: false, version: 1 } });
+      expect(settings).toMatchObject({ companyId: f.context.companyId, agencyEnabled: false, homeEnabled: false });
+      const courier = await prisma.companyCourier.create({ data: { id, name: "Courier", enabled: true } });
+      expect(courier).toEqual({ id, companyId: f.context.companyId, name: "Courier", enabled: true });
+      await prisma.companyCourier.update({ where: { id }, data: { name: "Renamed", enabled: false } });
+      expect(await prisma.companyCourier.findMany()).toEqual([{ ...courier, name: "Renamed", enabled: false }]);
+      await expect(prisma.companyCourier.create({ data: { id: randomUUID(), name: " ", enabled: true } })).rejects.toThrow();
+      await expect(prisma.companyCourier.create({ data: { id: randomUUID(), name: "n".repeat(121), enabled: true } })).rejects.toThrow();
+      expect(await prisma.companyCourier.count()).toBe(1);
+    });
+  } finally {
+    await f.run(() => prisma.companyCourier.deleteMany());
+    await f.cleanup();
+  }
 });
