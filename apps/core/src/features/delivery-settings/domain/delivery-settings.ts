@@ -3,6 +3,7 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 
 export type PickupPoint = Readonly<{ name: string; address: string; instructions: string | null }>;
+export type CourierId = string & { readonly __brand: "CourierId" };
 export type StoreDeliverySettings =
   | Readonly<{ enabled: false; pickupPoint: PickupPoint | null }>
   | Readonly<{ enabled: true; pickupPoint: PickupPoint }>;

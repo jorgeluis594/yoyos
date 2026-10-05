@@ -4,7 +4,7 @@ import { err, ok } from "@shared/functional";
 import { isCurrency } from "@shared/money";
 import { getCompanyId, prisma, requireActiveTransaction } from "@core/src/shared/infrastructure/persistance";
 import { buildOrder, type OrderItemId, type OrderId, type ContactId, type CompanyId, type UserId, type PositiveInteger, type PaymentId } from "@core/src/features/orders/domain/order";
-import { orderStateMachine, parseDeliveryDetails, type OrderAggregate, type Payment } from "@core/src/features/orders/domain/order-state-machine";
+import { orderStateMachine, parseDeliverySnapshot, type OrderAggregate, type Payment } from "@core/src/features/orders/domain/order-state-machine";
 import type { OrderCriteria } from "@core/src/features/orders/application/read-orders";
 import type { AggregateCriteria, AggregatePage } from "@core/src/features/orders/application/list-order-aggregates";
 import type { VariantId } from "@core/src/features/products/domain/product";
@@ -21,8 +21,12 @@ function mapAggregate(row: DbAggregate): OrderAggregate {
   if (!isCurrency(row.currency) || !row.items.length || (row.contactId && !row.contactPhone) ||
     row.items.some((item) => item.quantity <= 0n || item.quantity > BigInt(Number.MAX_SAFE_INTEGER)))
     throw new InvalidStoredOrderError("Invalid stored order identity or items");
-  const delivery = row.delivery === null ? null : parseDeliveryDetails(row.delivery);
-  if (delivery !== null && !delivery.success) throw new InvalidStoredOrderError("Invalid stored order delivery");
+  const delivery = row.delivery === null ? null : parseDeliverySnapshot(row.delivery);
+  if (delivery !== null && !delivery.success) {
+    log.error({ event: "order_delivery_stored_data_invalid", orderId: row.id, operation: "get_order_aggregate",
+      stage: "load_order", errorCode: "INVALID_ORDER", reason: "invalid_snapshot_shape" }, "Stored order delivery is invalid");
+    throw new InvalidStoredOrderError("Invalid stored order delivery");
+  }
   if (row.deliveryStatus !== "pending" && row.deliveryStatus !== "shipped" && row.deliveryStatus !== "delivered") throw new InvalidStoredOrderError("Invalid stored delivery state");
   const items = row.items.map((item) => {
     const attributes = item.variantAttributes;
@@ -176,7 +180,7 @@ export async function saveCancellation(id: OrderId, companyId: CompanyId, stockD
 
 export async function saveDelivery(id: OrderId, companyId: CompanyId, change: Pick<OrderAggregate, "delivery" | "deliveryCost" | "deliveryCharge" | "total">) {
   requireActiveTransaction(companyId);
-  if (change.delivery === null || !parseDeliveryDetails(change.delivery).success) throw new Error("Invalid delivery snapshot");
+  if (change.delivery === null || !parseDeliverySnapshot(change.delivery).success) throw new Error("Invalid delivery snapshot");
   try {
     const updated = await prisma.order.updateMany({ where: { id, companyId, deliveryStatus: "pending", cancelled: false },
       data: { delivery: change.delivery as Prisma.InputJsonObject,

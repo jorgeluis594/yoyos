@@ -1,7 +1,8 @@
-import { add, compare, isCurrency, subtract, type Money } from "@shared/money";
+import { add, compare, isCurrency, subtract, type Currency, type Money } from "@shared/money";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { z } from "zod";
+import type { CourierId, PickupPoint } from "@core/src/features/delivery-settings";
 import { buildOrder, type BuildOrderInput, type BuildOrderError, type CompanyId, type OrderCustomer, type OrderId, type OrderItem, type PaymentId, type UserId } from "@core/src/features/orders/domain/order";
 
 export type OrderStatus = "active" | "cancelled" | "completed";
@@ -11,10 +12,18 @@ export type PaymentMethod = "digital_wallet";
 export type DocumentType = "national_id" | "passport" | "foreign_id";
 export type Recipient = Readonly<{ name: string; phone: string; identity: { kind: "absent" } | { kind: "document"; documentType: DocumentType; document: string } }>;
 export type AgencyRecipient = Readonly<Omit<Recipient, "identity"> & { identity: Extract<Recipient["identity"], { kind: "document" }> }>;
-export type DeliveryDetails =
-  | Readonly<{ method: "home"; recipient: Recipient; destination: { address: string } }>
-  | Readonly<{ method: "agency"; recipient: AgencyRecipient; destination: { agencyId: string } }>
-  | Readonly<{ method: "store"; recipient: Recipient; destination: { storeId: string } }>;
+export type { CourierId, PickupPoint } from "@core/src/features/delivery-settings";
+export type HomeDestination = Readonly<{ address: string; district: string; instructions: string | null }>;
+export type DeliveryAuthor = Readonly<{ kind: "seller"; userId: UserId }> | Readonly<{ kind: "buyer" }>;
+export type DeliverySelection =
+  | Readonly<{ method: "home"; recipient: Recipient; destination: HomeDestination }>
+  | Readonly<{ method: "agency"; recipient: AgencyRecipient; courierId: CourierId; agency: string }>
+  | Readonly<{ method: "store"; recipient: Recipient }>;
+export type DeliverySnapshot = Readonly<{ recordedBy: DeliveryAuthor }> & (
+  | Readonly<{ method: "home"; recipient: Recipient; destination: HomeDestination }>
+  | Readonly<{ method: "agency"; recipient: AgencyRecipient; courier: Readonly<{ id: CourierId; name: string }>; agency: string }>
+  | Readonly<{ method: "store"; recipient: Recipient; pickupPoint: PickupPoint }>
+);
 export type Payment = Readonly<{ id: PaymentId; orderId: OrderId; amount: Money; method: PaymentMethod; recordedAt: Date }>;
 export type OrderAggregate = Readonly<{
   id: OrderId;
@@ -26,7 +35,7 @@ export type OrderAggregate = Readonly<{
   cancelled: boolean;
   items: readonly [OrderItem, ...OrderItem[]];
   payments: readonly Payment[];
-  delivery: DeliveryDetails | null;
+  delivery: DeliverySnapshot | null;
   deliveryStatus: DeliveryStatus;
   stockDeducted: boolean;
   itemsTotal: Money;
@@ -40,7 +49,7 @@ export type OrderLifecycle =
   | Readonly<{ status: "cancelled"; completedAt: null }>
   | Readonly<{ status: "completed"; completedAt: Date }>;
 export type OrderDomainError = Readonly<{ code: "INVALID_ORDER" | "INVALID_PAYMENT" | "CURRENCY_MISMATCH" | "PAYMENT_CONFLICT" | "INVALID_TRANSITION" | "DELIVERY_LOCKED" | "PAYMENT_REQUIRED" | "STOCK_NOT_DEDUCTED" | "ORDER_CANCELLED"; message: string }>;
-export type ResolvedDelivery = Readonly<{ delivery: DeliveryDetails; cost: Money }>;
+export type ResolvedDelivery = Readonly<{ delivery: DeliverySnapshot; cost: Money }>;
 export type SetDeliveryChange = Readonly<{ resolved: ResolvedDelivery; chargeDeliveryToCustomer: boolean }>;
 export type StockDeductionPlan =
   | Readonly<{ kind: "none"; reason: "already_deducted" | "not_requested"; nextOrder: OrderAggregate }>
@@ -71,12 +80,29 @@ const identity = z.discriminatedUnion("kind", [
 const recipient = z.strictObject({ name: requiredText, phone: requiredText, identity });
 const documentedRecipient = z.strictObject({ name: requiredText, phone: requiredText,
   identity: z.strictObject({ kind: z.literal("document"), documentType: z.enum(["national_id", "passport", "foreign_id"]), document: requiredText }) });
-const delivery = z.discriminatedUnion("method", [
-  z.strictObject({ method: z.literal("home"), recipient, destination: z.strictObject({ address: requiredText }) }),
-  z.strictObject({ method: z.literal("agency"), recipient: documentedRecipient, destination: z.strictObject({ agencyId: requiredText }) }),
-  z.strictObject({ method: z.literal("store"), recipient, destination: z.strictObject({ storeId: requiredText }) }),
+const homeDestination = z.strictObject({ address: requiredText.max(500), district: requiredText.max(120), instructions: requiredText.max(1000).nullable() });
+const pickupPoint = z.strictObject({ name: requiredText.max(120), address: requiredText.max(500), instructions: requiredText.max(1000).nullable() });
+const recordedBy = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("seller"), userId: requiredText.transform((value) => value as UserId) }),
+  z.strictObject({ kind: z.literal("buyer") }),
 ]);
-export function parseDeliveryDetails(value: unknown): Result<DeliveryDetails, OrderDomainError> {
+const courierId = z.uuid().transform((value) => value as CourierId);
+const selection = z.discriminatedUnion("method", [
+  z.strictObject({ method: z.literal("home"), recipient, destination: homeDestination }),
+  z.strictObject({ method: z.literal("agency"), recipient: documentedRecipient, courierId, agency: requiredText.max(500) }),
+  z.strictObject({ method: z.literal("store"), recipient }),
+]);
+const delivery = z.discriminatedUnion("method", [
+  z.strictObject({ method: z.literal("home"), recipient, destination: homeDestination, recordedBy }),
+  z.strictObject({ method: z.literal("agency"), recipient: documentedRecipient,
+    courier: z.strictObject({ id: courierId, name: requiredText.max(120) }), agency: requiredText.max(500), recordedBy }),
+  z.strictObject({ method: z.literal("store"), recipient, pickupPoint, recordedBy }),
+]);
+export function parseDeliverySelection(value: unknown): Result<DeliverySelection, OrderDomainError> {
+  const parsed = selection.safeParse(value);
+  return parsed.success ? ok(parsed.data) : err({ code: "INVALID_ORDER", message: "Invalid delivery selection" });
+}
+export function parseDeliverySnapshot(value: unknown): Result<DeliverySnapshot, OrderDomainError> {
   const parsed = delivery.safeParse(value);
   return parsed.success ? ok(parsed.data) : err({ code: "INVALID_ORDER", message: "Invalid delivery snapshot" });
 }
@@ -84,6 +110,11 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const validDate = (date: Date) => date instanceof Date && Number.isFinite(date.getTime());
 const failure = (code: OrderDomainError["code"], message: string): Result<never, OrderDomainError> => err({ code, message });
 const validMoney = (value: Money, positive: boolean) => isCurrency(value?.currency) && moneyAmount.safeParse(value?.amount).success && (!positive || value.amount > 0);
+
+export function validateDeliveryCost(cost: Money, currency: Currency): Result<Money, OrderDomainError> {
+  if (!validMoney(cost, false)) return failure("INVALID_ORDER", "Invalid delivery cost");
+  return cost.currency === currency ? ok(cost) : failure("CURRENCY_MISMATCH", "Delivery currency differs from order");
+}
 
 function paymentSummary(order: OrderAggregate): Result<PaymentSummary, OrderDomainError> {
   if (!uuid.test(order.id) || !uuid.test(order.companyId) || !order.sellerId || !order.items.length ||
@@ -126,17 +157,23 @@ function lifecycle(order: OrderAggregate): Result<OrderLifecycle, OrderDomainErr
 }
 
 function setDelivery(order: OrderAggregate, change: SetDeliveryChange): Result<OrderAggregate, OrderDomainError> {
-  const state = lifecycle(order);
-  if (!state.success) return state;
-  if (state.data.status === "cancelled") return failure("ORDER_CANCELLED", "Order is cancelled");
-  if (order.deliveryStatus !== "pending") return failure("DELIVERY_LOCKED", "Delivery has progressed");
+  const allowed = canSetDelivery(order);
+  if (!allowed.success) return allowed;
   const { cost, delivery: details } = change.resolved;
-  if (!delivery.safeParse(details).success || !validMoney(cost, false) || typeof change.chargeDeliveryToCustomer !== "boolean") return failure("INVALID_ORDER", "Invalid delivery");
-  if (cost.currency !== order.total.currency) return failure("CURRENCY_MISMATCH", "Delivery currency differs from order");
+  if (!delivery.safeParse(details).success || typeof change.chargeDeliveryToCustomer !== "boolean") return failure("INVALID_ORDER", "Invalid delivery");
+  const validatedCost = validateDeliveryCost(cost, order.total.currency);
+  if (!validatedCost.success) return validatedCost;
   const charge: Money = change.chargeDeliveryToCustomer ? cost : { amount: 0, currency: cost.currency };
   const total = add(charge)(order.itemsTotal);
   if (!total.success || !validMoney(total.data, true)) return failure("INVALID_ORDER", "Total exceeds supported range");
   return ok({ ...order, delivery: details, deliveryCost: cost, deliveryCharge: charge, total: total.data });
+}
+
+function canSetDelivery(order: OrderAggregate): Result<null, OrderDomainError> {
+  const state = lifecycle(order);
+  if (!state.success) return state;
+  if (state.data.status === "cancelled") return failure("ORDER_CANCELLED", "Order is cancelled");
+  return order.deliveryStatus === "pending" ? ok(null) : failure("DELIVERY_LOCKED", "Delivery has progressed");
 }
 
 function registerPayment(order: OrderAggregate, payment: Payment): Result<OrderAggregate, OrderDomainError> {
@@ -201,5 +238,5 @@ function cancel(order: OrderAggregate): Result<CancellationPlan, OrderDomainErro
   return ok({ nextOrder: { ...order, cancelled: true, stockDeducted: false }, restoreStock: order.stockDeducted });
 }
 
-export const orderStateMachine = { setDelivery, registerPayment, planStockDeduction, registerShipment,
+export const orderStateMachine = { setDelivery, canSetDelivery, registerPayment, planStockDeduction, registerShipment,
   registerDelivery, cancel, getPaymentSummary: paymentSummary, getLifecycle: lifecycle } as const;

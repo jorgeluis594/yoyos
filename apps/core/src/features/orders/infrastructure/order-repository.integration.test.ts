@@ -299,11 +299,14 @@ test("reducing a delivery charge to covered payment deducts stock atomically", a
       const orderId = randomUUID() as OrderId;
       const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
       const delivery = { method: "home" as const, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } },
-        destination: { address: "Av. Lima 123" } };
+        destination: { address: "Av. Lima 123", district: "Lima", instructions: null } };
       let cost = 0.1;
       const deps: SetDeliveryDependencies = { transaction: async (_companyId, work) => withinTransaction(work),
         findOrderForUpdate, saveDelivery, saveStockDeduction, deductProductStock,
-        resolveDelivery: async (selection, _companyId, currency) => ok({ delivery: selection, cost: { amount: cost, currency } }) };
+        resolveDelivery: async (selection, access, currency) => {
+          if (selection.method !== "home") throw new Error("Expected home selection");
+          return ok({ delivery: { ...selection, recordedBy: { kind: "seller", userId: access.userId } }, cost: { amount: cost, currency } });
+        } };
       expect(await orders.create({ id: orderId, contactId: null,
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] }, context)).toMatchObject({ success: true });
       expect(await setOrderDelivery({ orderId, delivery, chargeDeliveryToCustomer: true }, context, deps))
@@ -330,11 +333,14 @@ test("keeps the previous delivery when its required stock deduction fails", asyn
       const orderId = randomUUID() as OrderId;
       const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
       const delivery = { method: "home" as const, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } },
-        destination: { address: "Original" } };
+        destination: { address: "Original", district: "Lima", instructions: null } };
       let cost = 0.1;
       const deps: SetDeliveryDependencies = { transaction: async (_companyId, work) => withinTransaction(work),
         findOrderForUpdate, saveDelivery, saveStockDeduction, deductProductStock,
-        resolveDelivery: async (selection, _companyId, currency) => ok({ delivery: selection, cost: { amount: cost, currency } }) };
+        resolveDelivery: async (selection, access, currency) => {
+          if (selection.method !== "home") throw new Error("Expected home selection");
+          return ok({ delivery: { ...selection, recordedBy: { kind: "seller", userId: access.userId } }, cost: { amount: cost, currency } });
+        } };
       expect(await orders.create({ id: orderId, contactId: null,
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: 4 as PositiveInteger }] }, context)).toMatchObject({ success: true });
       expect(await setOrderDelivery({ orderId, delivery, chargeDeliveryToCustomer: true }, context, deps)).toMatchObject({ success: true });
@@ -342,7 +348,7 @@ test("keeps the previous delivery when its required stock deduction fails", asyn
         amount: { amount: 0.4, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context))
         .toMatchObject({ success: true, data: { stock: { kind: "not_requested" } } });
       cost = 0;
-      expect(await setOrderDelivery({ orderId, delivery: { ...delivery, destination: { address: "Changed" } },
+      expect(await setOrderDelivery({ orderId, delivery: { ...delivery, destination: { address: "Changed", district: "Lima", instructions: null } },
         chargeDeliveryToCustomer: false }, context, deps))
         .toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
       const saved = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });

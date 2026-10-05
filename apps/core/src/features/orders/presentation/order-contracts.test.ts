@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { deliveryDetailsSchema, listOrdersSchema, orderApiErrorSchema, registerPaymentSchema, stockOutcomeSchema } from "@shared/contracts/orders";
+import { deliverySnapshotSchema, deliverySelectionSchema, setOrderDeliverySchema, listOrdersSchema, orderApiErrorSchema, registerPaymentSchema, stockOutcomeSchema } from "@shared/contracts/orders";
 import { limaMidnightUtc, nextCalendarDay } from "@shared/orders-date";
 
 test("a Lima calendar day has its own UTC bounds across an offset change", () => {
@@ -29,9 +29,23 @@ test("payment and delivery contracts reject invented fields and incomplete agenc
   expect(registerPaymentSchema.safeParse({ ...payment, stockDeducted: true }).success).toBe(false);
   expect(registerPaymentSchema.safeParse({ ...payment, amount: { amount: 1, currency: "XYZ" } }).success).toBe(false);
   const agency = { method: "agency", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
-    destination: { agencyId: "a" } };
-  expect(deliveryDetailsSchema.safeParse(agency).success).toBe(false);
-  expect(deliveryDetailsSchema.safeParse({ ...agency, recipient: { ...agency.recipient,
+    courier: { id: "00000000-0000-4000-8000-000000000002", name: "Courier" }, agency: "Lima", recordedBy: { kind: "seller", userId: "seller" } };
+  expect(deliverySnapshotSchema.safeParse(agency).success).toBe(false);
+  expect(deliverySnapshotSchema.safeParse({ ...agency, recipient: { ...agency.recipient,
     identity: { kind: "document", documentType: "passport", document: "A-001" } } }).success).toBe(true);
   expect(stockOutcomeSchema.safeParse({ kind: "pending", reason: "INSUFFICIENT_STOCK" }).success).toBe(true);
+});
+
+test("delivery selections cannot supply authority or resolved destinations", () => {
+  const selection = { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } };
+  expect(deliverySelectionSchema.safeParse(selection).success).toBe(true);
+  for (const extra of [{ recordedBy: { kind: "buyer" } }, { pickupPoint: { name: "Fake", address: "Fake", instructions: null } },
+    { cost: 0 }, { courier: { id: "foreign", name: "Fake" } }, { destination: { storeId: "old" } }]) {
+    expect(deliverySelectionSchema.safeParse({ ...selection, ...extra }).success).toBe(false);
+  }
+  expect(setOrderDeliverySchema.safeParse({ delivery: selection, chargeDeliveryToCustomer: true, companyId: "other" }).success).toBe(false);
+  const snapshot = { ...selection, pickupPoint: { name: "Tienda", address: "Av. Lima 123", instructions: null } };
+  expect(deliverySnapshotSchema.safeParse(snapshot).success).toBe(false);
+  expect(deliverySnapshotSchema.safeParse({ ...snapshot, recordedBy: { kind: "seller" } }).success).toBe(false);
+  expect(deliverySnapshotSchema.safeParse({ ...snapshot, recordedBy: { kind: "buyer" } }).success).toBe(true);
 });

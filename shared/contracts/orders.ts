@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { currencies } from "@shared/money";
+import { pickupPointSchema } from "@shared/contracts/delivery-settings";
 
 export const orderSelectionSchema = z.strictObject({
   id: z.uuid(),
@@ -32,16 +33,30 @@ const identitySchema = z.discriminatedUnion("kind", [
 const recipientSchema = z.strictObject({ name: z.string().trim().min(1), phone: z.string().trim().min(1), identity: identitySchema });
 const agencyRecipientSchema = z.strictObject({ name: z.string().trim().min(1), phone: z.string().trim().min(1),
   identity: z.strictObject({ kind: z.literal("document"), documentType: z.enum(["national_id", "passport", "foreign_id"]), document: z.string().trim().min(1) }) });
-export const deliveryDetailsSchema = z.discriminatedUnion("method", [
-  z.strictObject({ method: z.literal("home"), recipient: recipientSchema, destination: z.strictObject({ address: z.string().trim().min(1) }) }),
-  z.strictObject({ method: z.literal("agency"), recipient: agencyRecipientSchema, destination: z.strictObject({ agencyId: z.string().trim().min(1) }) }),
-  z.strictObject({ method: z.literal("store"), recipient: recipientSchema, destination: z.strictObject({ storeId: z.string().trim().min(1) }) }),
+const homeDestinationSchema = z.strictObject({ address: z.string().trim().min(1).max(500), district: z.string().trim().min(1).max(120), instructions: z.string().trim().min(1).max(1000).nullable() });
+const deliveryAuthorSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("seller"), userId: z.string().trim().min(1) }),
+  z.strictObject({ kind: z.literal("buyer") }),
+]);
+export const deliverySelectionSchema = z.discriminatedUnion("method", [
+  z.strictObject({ method: z.literal("home"), recipient: recipientSchema, destination: homeDestinationSchema }),
+  z.strictObject({ method: z.literal("agency"), recipient: agencyRecipientSchema, courierId: z.uuid(), agency: z.string().trim().min(1).max(500) }),
+  z.strictObject({ method: z.literal("store"), recipient: recipientSchema }),
+]);
+export type DeliverySelectionRequest = z.infer<typeof deliverySelectionSchema>;
+export const setOrderDeliverySchema = z.strictObject({ delivery: deliverySelectionSchema, chargeDeliveryToCustomer: z.boolean() });
+export type SetOrderDeliveryRequest = z.infer<typeof setOrderDeliverySchema>;
+export const deliverySnapshotSchema = z.discriminatedUnion("method", [
+  z.strictObject({ method: z.literal("home"), recipient: recipientSchema, destination: homeDestinationSchema, recordedBy: deliveryAuthorSchema }),
+  z.strictObject({ method: z.literal("agency"), recipient: agencyRecipientSchema,
+    courier: z.strictObject({ id: z.uuid(), name: z.string().trim().min(1).max(120) }), agency: z.string().trim().min(1).max(500), recordedBy: deliveryAuthorSchema }),
+  z.strictObject({ method: z.literal("store"), recipient: recipientSchema, pickupPoint: pickupPointSchema, recordedBy: deliveryAuthorSchema }),
 ]);
 export const paymentSchema = z.strictObject({ id: z.uuid(), orderId: z.uuid(), amount: moneySchema, method: z.literal("digital_wallet"), recordedAt: z.iso.datetime() });
 export const orderAggregateSchema = z.strictObject({ id: z.uuid(), companyId: z.uuid(), sellerId: z.string(), customer: orderCustomerSchema,
   createdAt: z.iso.datetime(), completedAt: z.iso.datetime().nullable(), status: z.enum(["active", "cancelled", "completed"]),
   paymentStatus: z.enum(["pending", "paid"]), paidAmount: moneySchema, balanceDue: moneySchema, overpaidAmount: moneySchema,
-  cancelled: z.boolean(), delivery: deliveryDetailsSchema.nullable(), deliveryStatus: z.enum(["pending", "shipped", "delivered"]),
+  cancelled: z.boolean(), delivery: deliverySnapshotSchema.nullable(), deliveryStatus: z.enum(["pending", "shipped", "delivered"]),
   stockDeducted: z.boolean(), items: z.array(z.strictObject({ id: z.uuid(), variantId: z.uuid(), productName: z.string(),
     variantAttributes: z.record(z.string(), z.string()), sku: z.string().nullable(), quantity: z.number().int().positive().safe(),
     unitPrice: moneySchema, subtotal: moneySchema })).min(1), payments: z.array(paymentSchema),
