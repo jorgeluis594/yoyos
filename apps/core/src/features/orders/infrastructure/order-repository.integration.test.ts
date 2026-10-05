@@ -800,3 +800,21 @@ test.each(["CompanyDeliverySettings", "Order"] as const)("a deferred %s commit f
     summary.mockRestore(); failure.mockRestore(); await f.cleanup();
   }
 });
+
+test("a corrupt persisted delivery snapshot fails explicitly without inventing legacy authorship", async () => {
+  const f = await fixture();
+  const failure = vi.spyOn(log, "error").mockImplementation(() => {});
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const orderId = randomUUID() as OrderId;
+      const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+      expect(await orders.create({ id: orderId, contactId: null, items: [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }] }, context)).toMatchObject({ success: true });
+      await prisma.order.update({ where: { id: orderId }, data: { delivery: { method: "store", recipient: { name: "Private recipient", phone: "Private phone", identity: { kind: "absent" } }, pickupPoint: { name: "Private store", address: "Private address", instructions: null } } } });
+      expect(await orderDetail(orderId, f)).toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
+      expect(failure).toHaveBeenCalledOnce();
+      expect(failure.mock.calls[0][0]).toMatchObject({ event: "order_delivery_stored_data_invalid", orderId, operation: "get_order_aggregate", reason: "invalid_snapshot_shape" });
+      expect(JSON.stringify(failure.mock.calls)).not.toContain("Private");
+      expect((await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).delivery).not.toHaveProperty("recordedBy");
+    });
+  } finally { failure.mockRestore(); await f.cleanup(); }
+});

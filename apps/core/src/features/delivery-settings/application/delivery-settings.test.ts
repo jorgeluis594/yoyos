@@ -19,6 +19,8 @@ describe("store delivery configuration", () => {
     { enabled: false, pickupPoint: { name: "Tienda", address: " " } },
     { enabled: true, pickupPoint: { ...point, name: " " } },
     { enabled: true, pickupPoint: { ...point, address: "a".repeat(501) } },
+    { enabled: true, pickupPoint: { ...point, name: "n".repeat(121) } },
+    { enabled: true, pickupPoint: { ...point, instructions: "i".repeat(1001) } },
     { enabled: false, pickupPoint: { instructions: "Puerta azul" } },
   ])("rejects incomplete or invalid configuration: %j", (invalid) => {
     expect(parseDeliverySettings({ version: 0, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: invalid })).toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_SETTINGS" } });

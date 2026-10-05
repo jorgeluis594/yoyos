@@ -1,3 +1,4 @@
+import { parseDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { expect, test } from "vitest";
 import { deliverySnapshotSchema, deliverySelectionSchema, setOrderDeliverySchema, listOrdersSchema, orderApiErrorSchema, registerPaymentSchema, stockOutcomeSchema } from "@shared/contracts/orders";
 import { limaMidnightUtc, nextCalendarDay } from "@shared/orders-date";
@@ -48,4 +49,18 @@ test("delivery selections cannot supply authority or resolved destinations", () 
   expect(deliverySnapshotSchema.safeParse(snapshot).success).toBe(false);
   expect(deliverySnapshotSchema.safeParse({ ...snapshot, recordedBy: { kind: "seller" } }).success).toBe(false);
   expect(deliverySnapshotSchema.safeParse({ ...snapshot, recordedBy: { kind: "buyer" } }).success).toBe(true);
+});
+
+test("delivery text boundaries accept their limits and reject excess without limiting recipient strings", () => {
+  const recipient = { name: "n".repeat(1000), phone: "p".repeat(1000), identity: { kind: "document", documentType: "foreign_id", document: `00-${"a".repeat(1000)}` } };
+  const home = { method: "home", recipient, destination: { address: "a".repeat(500), district: "d".repeat(120), instructions: "i".repeat(1000) } };
+  const agency = { method: "agency", recipient, courierId: "00000000-0000-4000-8000-000000000002", agency: "a".repeat(500) };
+  for (const parse of [deliverySelectionSchema.safeParse.bind(deliverySelectionSchema), parseDeliverySelection]) {
+    expect(parse(home).success).toBe(true);
+    expect(parse(agency).success).toBe(true);
+    for (const [key, limit] of [["address", 500], ["district", 120], ["instructions", 1000]] as const) {
+      expect(parse({ ...home, destination: { ...home.destination, [key]: "x".repeat(limit + 1) } }).success).toBe(false);
+    }
+    expect(parse({ ...agency, agency: "x".repeat(501) }).success).toBe(false);
+  }
 });
