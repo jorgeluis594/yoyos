@@ -5,7 +5,7 @@ import { err, ok } from "@shared/functional";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
 import { saveDeliverySettings } from "@core/src/features/delivery-settings/application/delivery-settings";
 import { readDeliverySettings, writeDeliverySettings } from "@core/src/features/delivery-settings/infrastructure/delivery-settings-repository";
-import { prisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
+import { prisma, systemPrisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { log } from "@core/src/shared/infrastructure/logger";
 
 const point = { name: "Tienda principal", address: "Av. Lima 123", instructions: "Puerta azul" };
@@ -166,7 +166,7 @@ test("courier write failure rolls back settings and earlier courier edits; inval
       await prisma.companyDeliverySettings.create({ data: { version: 1, storeEnabled: false } });
       await prisma.companyCourier.create({ data: { id, name: "Original", enabled: true } });
       const result = await withinTransaction(() => writeDeliverySettings(f.context.companyId, { version: 2, home: { enabled: true }, store: { enabled: false, pickupPoint: null }, agency: { enabled: true },
-        couriers: [{ id, name: "Renamed", enabled: true }, { id: randomUUID() as CourierId, name: " ", enabled: true }] }));
+        couriers: [{ id, name: "Renamed", enabled: true }, { id: randomUUID() as CourierId, name: "New courier", enabled: true }, { id: randomUUID() as CourierId, name: " ", enabled: true }] }));
       expect(result).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
       expect(await deliverySettings.get(f.context)).toMatchObject({ success: true, data: { version: 1, home: { enabled: false }, agency: { enabled: false }, couriers: [{ id, name: "Original" }] } });
       expect(summary).not.toHaveBeenCalled();
@@ -177,4 +177,36 @@ test("courier write failure rolls back settings and earlier courier edits; inval
       expect(await deliverySettings.get(f.context)).toMatchObject({ success: false, error: { code: "INVALID_STORED_DATA" } });
     });
   } finally { summary.mockRestore(); failure.mockRestore(); await f.cleanup(); }
+});
+
+
+test("a reader during a settings write receives one complete version including couriers", async () => {
+  const f = await fixture();
+  let release!: () => void;
+  let written!: () => void;
+  const hold = new Promise<void>(resolve => { release = resolve; });
+  const partialWrite = new Promise<void>(resolve => { written = resolve; });
+  try {
+    const created = await f.run(() => deliverySettings.save({ expectedVersion: 0, agency: { enabled: true }, couriers: [{ kind: "new", name: "Original", enabled: true }], home: { enabled: false }, store }, f.context));
+    if (!created.success) throw new Error("Expected initial configuration");
+    const courier = created.data.couriers[0];
+    const writer = f.run(() => withinTransaction(async () => {
+      expect((await readDeliverySettings(f.context.companyId, "exclusive")).success).toBe(true);
+      await prisma.companyDeliverySettings.update({ where: { companyId: f.context.companyId }, data: { version: 2, homeEnabled: true, pickupAddress: "New address" } });
+      written();
+      await hold;
+      await prisma.companyCourier.update({ where: { id: courier.id }, data: { name: "New name" } });
+      return ok(null);
+    }));
+    await partialWrite;
+    const reader = f.run(() => deliverySettings.get(f.context));
+    try {
+      await vi.waitFor(async () => {
+        const waiting = await systemPrisma.$queryRaw<{ count: bigint }[]>`SELECT count(*) AS count FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%CompanyDeliverySettings%'`;
+        expect(Number(waiting[0].count)).toBeGreaterThan(0);
+      });
+    } finally { release(); }
+    expect(await writer).toEqual(ok(null));
+    expect(await reader).toEqual(ok({ ...created.data, version: 2, home: { enabled: true }, store: { enabled: true, pickupPoint: { ...point, address: "New address" } }, couriers: [{ ...courier, name: "New name" }] }));
+  } finally { release?.(); await f.cleanup(); }
 });
