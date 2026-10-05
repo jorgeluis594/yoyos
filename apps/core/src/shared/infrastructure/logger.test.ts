@@ -87,3 +87,27 @@ it("adds request and company context only to logs in that request", () => {
   expect(entries.filter((entry) => entry.requestId === "second-request").every((entry) => !("companyId" in entry))).toBe(true);
   expect(entries.find((entry) => entry.event === "outside_request")).not.toHaveProperty("requestId");
 });
+
+it("normalizes checkout URLs and redacts the UUID credential even in separate fields", () => {
+  const output = execFileSync(process.execPath, ["--import", "tsx", "-e", `
+    import express from "express";
+    import { log, requestLogging, bindRequestOperation, bindCompanyToRequest } from "./src/shared/infrastructure/logger.ts";
+    const app = express();
+    app.use(requestLogging);
+    app.get("/{*splat}", (_req, res) => {
+      bindCompanyToRequest("verified-company");
+      bindRequestOperation({ outcome: "pending", orderNumber: 1001 });
+      const error = new Error("secret-link"); error.name = "secret-link";
+      log.error({ event: "privacy_probe", orderId: "secret-order-uuid", nested: { url: "secret-link" }, buyer: { name: "Private buyer", phone: "Private phone" }, err: error }, "Privacy probe");
+      res.sendStatus(200);
+    });
+    const server = app.listen(0);
+    await fetch("http://127.0.0.1:" + server.address().port + "/checkout/claimed-company/secret-order-uuid?secret-link");
+    server.close();
+  `], { cwd: process.cwd(), encoding: "utf8" });
+  for (const value of ["secret-order-uuid", "secret-link", "Private buyer", "Private phone", "claimed-company"]) expect(output).not.toContain(value);
+  const entries = output.trim().split("\n").map((line) => JSON.parse(line));
+  expect(entries.filter((entry) => entry.event === "http_request_completed")).toEqual([
+    expect.objectContaining({ route: "/checkout/:companyId/:orderId", operation: "get_checkout", outcome: "pending", orderNumber: 1001, companyId: "verified-company" }),
+  ]);
+});

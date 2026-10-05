@@ -224,3 +224,22 @@ test("orders HTTP combines contact and Lima-day UTC bounds with stable pages and
   const contacts = await (await call("/api/orders/contacts?search=Search", seller.cookie)).json();
   expect(contacts).toHaveLength(20);
 });
+
+test("checkout-link HTTP requires the seller company and returns a stable UUID URL", async () => {
+  const owner = await fixture("PE");
+  const other = await fixture("PE");
+  const id = randomUUID();
+  expect((await call("/api/orders", owner.cookie, { id, contactId: owner.contactId, items: [{ variantId: owner.variantId, quantity: 1 }] })).status).toBe(201);
+  const path = `/api/orders/${id}/checkout-link`;
+  expect((await call(path, "", {})).status).toBe(401);
+  expect((await call(path, other.cookie, {})).status).toBe(404);
+  expect((await call(path, owner.cookie, { companyId: other.companyId })).status).toBe(422);
+  const first = await call(path, owner.cookie, {});
+  expect(first.status).toBe(200);
+  expect(first.headers.get("cache-control")).toBe("no-store");
+  const link = await first.json();
+  expect(link).toEqual({ url: `${process.env.BETTER_AUTH_URL}/checkout/${owner.companyId}/${id}` });
+  expect(await (await call(path, owner.cookie, {})).json()).toEqual(link);
+  await withTenantIsolation(owner.companyId, async () => await prisma.order.update({ where: { id }, data: { cancelled: true } }));
+  expect((await call(path, owner.cookie, {})).status).toBe(409);
+});

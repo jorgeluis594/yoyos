@@ -273,7 +273,7 @@ El vendedor ve el número del pedido, puede copiar el enlace y distingue “Pend
 
 ## Observabilidad: qué registrar y dónde
 
-Esta sección define la instrumentación pendiente para checkout y sus cambios de persistencia. Se reutiliza el logger de servidor `log` y la infraestructura descrita en [logging](logging.md) y [convenciones de logging](logging-conventions.md). No se crea otra biblioteca, wrapper, tabla de logs ni sistema de auditoría.
+Esta sección define el contrato de observabilidad para checkout y sus cambios de persistencia. La presencia de instrumentación parcial en el worktree no acredita que este contrato esté verificado. Se reutiliza el logger de servidor `log` y la infraestructura descrita en [logging](logging.md) y [convenciones de logging](logging-conventions.md). No se crea otra biblioteca, wrapper, tabla de logs ni sistema de auditoría.
 
 ### Análisis del flujo actual y puntos críticos
 
@@ -288,6 +288,24 @@ Esta sección define la instrumentación pendiente para checkout y sus cambios d
 | Renderizado de la página y telemetría automática | Una excepción o URL capturada fuera del logger puede revelar el acceso o datos privados. | Verificar también el límite de errores de renderizado, APM y cualquier colector/proxy que registre solicitudes. |
 
 El repositorio ya emite, entre otros, `unable_to_load_order_aggregate`, `unable_to_lock_order`, `unable_to_save_pending_order` y `unable_to_complete_order_transaction`. Se conservan esos nombres. La conversión actual de datos almacenados inválidos a `INVALID_ORDER` necesita distinguirse de una entrada incorrecta del comprador: es un problema del servidor que sí merece un log técnico.
+
+### Ubicación concreta de la instrumentación
+
+Las rutas siguientes son relativas a `apps/core`. Esta tabla asigna responsabilidades para implementar y revisar; no agrega logging dentro de las reglas puras.
+
+| Archivo y punto | Qué debe registrar o aportar |
+| --- | --- |
+| `src/shared/infrastructure/logger.ts` → `requestLogging` | Un resumen al terminar la respuesta; generar/validar `requestId`, medir duración y normalizar las dos rutas de checkout. Conservar el estado HTTP realmente enviado. |
+| `src/features/orders/presentation/api-routes.ts` → POST de `checkout-link` | Operación `enable_checkout` y resultado de validación/acceso; las excepciones inesperadas pertenecen al límite de error de esta ruta. La autenticación fallida debe quedar en el resumen aunque no se ejecute el handler. |
+| Loader/action de la página pública de checkout | Operación `get_checkout` o `confirm_checkout` y resultado final, incluidos validación, conflicto e idempotencia. Si hay varias llamadas internas, el resumen refleja la petición completa, no el último helper ejecutado. |
+| `src/features/orders/infrastructure/checkout-repository.ts` → `readCheckout` | Añadir empresa y número únicamente después de comprobar pertenencia y habilitación. Propagar errores de `findOrderAggregate`/`findOrderForUpdate` ya registrados sin repetirlos. |
+| Mismo adaptador → `saveCheckoutEnabled`, `saveCheckoutBuyer`, `saveCheckoutConfirmed` | Un error técnico de la escritura que falla, con el evento específico del catálogo. Ningún evento de éxito dentro de estas escrituras. |
+| `src/features/orders/composition.ts` → `enableCheckout`, `confirmCheckout` | Hito de primera transición una vez resuelta la transacción exterior. En una repetición, aportar `already_enabled` o `already_confirmed` al resumen. |
+| Mismo archivo → `orderTransaction` | Fallos técnicos del límite transaccional; diferenciar una excepción propia del cierre de una causa que el adaptador ya manejó. |
+| `src/features/orders/infrastructure/order-repository.ts` → `allocateOrderNumber`, `savePendingOrder` y mapeo de lecturas | Fallos de contador, colisión de número y datos persistidos inválidos; conservar eventos existentes y códigos distinguibles. |
+| `app/entry.server.tsx` → errores de renderizado y límite global de errores web | Sustituir la salida cruda de excepciones por el evento saneado del catálogo cuando ese límite sea su propietario. Evitar que el límite global vuelva a emitir el mismo fallo. |
+
+**Caso crítico de renderizado:** si la respuesta ya comenzó, un fallo posterior puede coexistir con un HTTP 200. El error técnico debe seguir siendo visible; no alterar el log para simular que se envió un 500. Si la confirmación ya se persistió, el fallo al renderizar su respuesta tampoco revierte esa confirmación. O07 debe cubrir este caso.
 
 ### Contexto permitido y protección del enlace
 
@@ -359,6 +377,8 @@ Si el adaptador registra un error y retorna un `Result` fallido, composición y 
 - Colisiones de numeración y datos almacenados inválidos requieren investigación por posible incumplimiento de invariantes. Las alertas de disponibilidad y latencia necesitan umbrales y ventanas basados en el entorno desplegado; este diseño no inventa un SLA ni configura alertas sin esa evidencia.
 
 Se reutiliza el envío existente a New Relic cuando esté habilitado. En el primer despliegue se debe comprobar recepción, correlación y ausencia de duplicados y URLs sensibles tanto en logs como en trazas y registros del proxy, si existe. El logger de Node no se importa en navegador ni Expo; la telemetría propia de móvil queda fuera de este cambio. Un fallo del colector de observabilidad no debe convertir una confirmación ya persistida en un fallo de negocio.
+
+Para investigar, partir del `requestId` de la respuesta y revisar el resumen HTTP y, si existe, su único error técnico. Para seguir un pedido entre solicitudes, utilizar empresa verificada y `orderNumber`. Ante una respuesta perdida o un commit incierto, comprobar el estado persistido mediante el acceso autorizado: la ausencia de un hito en logs no demuestra que el pedido siga pendiente.
 
 ### Pruebas de observabilidad a definir junto con el flujo
 

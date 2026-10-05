@@ -1,9 +1,14 @@
-import { log } from "@core/src/shared/infrastructure/logger";
+import { enableOrderCheckout, getOrderCheckout, confirmOrderCheckout, type CheckoutDependencies, type ConfirmOrderCheckoutInput } from "@core/src/features/orders/application/checkout";
+import { findCheckoutOrder, findCheckoutOrderForUpdate, saveCheckoutEnabled, saveCheckoutBuyer, saveCheckoutConfirmed } from "@core/src/features/orders/infrastructure/checkout-repository";
+import type { CheckoutAccess, CheckoutError } from "@core/src/features/orders/domain/checkout";
+import type { OrderAccess } from "@core/src/features/orders/application/create-order";
+import type { OrderId } from "@core/src/features/orders/domain/order";
+import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
-import { err } from "@shared/functional";
+import { err, ok } from "@shared/functional";
 import type { AppError, Result } from "@shared/result";
-import { getCompanyId, requireNoActiveTransaction, withinTransaction } from "@core/src/shared/infrastructure/persistance";
+import { getCompanyId, requireNoActiveTransaction, withinTransaction, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { createOrder, type CreateOrderDependencies } from "@core/src/features/orders/application/create-order";
 import { deductStock, type DeductStockDependencies } from "@core/src/features/orders/application/deduct-stock";
 import { registerPayment, type RegisterPaymentDependencies } from "@core/src/features/orders/application/register-payment";
@@ -43,7 +48,41 @@ const fulfillmentTransaction: FulfillOrderDependencies["transaction"] = scopedOr
 const fulfillmentDependencies: FulfillOrderDependencies = { transaction: fulfillmentTransaction, findOrderForUpdate,
   saveFulfillment, clock: () => new Date() };
 
+const checkoutDependencies: CheckoutDependencies = { transaction: scopedOrderTransaction,
+  findOrder: findCheckoutOrder, findOrderForUpdate: findCheckoutOrderForUpdate,
+  saveEnabled: saveCheckoutEnabled, saveBuyer: saveCheckoutBuyer, saveConfirmed: saveCheckoutConfirmed };
+function rejectedCheckout(error: CheckoutError) {
+  const outcomes = { CHECKOUT_UNAVAILABLE: "unavailable", ORDER_CANCELLED: "cancelled", INVALID_BUYER: "invalid_input",
+    TOTAL_CHANGED: "total_changed", INVALID_CHECKOUT: "technical_failure", PERSISTENCE_UNAVAILABLE: "technical_failure" } as const;
+  bindRequestOperation({ outcome: outcomes[error.code] });
+}
+
 export const orders = {
+  enableCheckout: async (orderId: OrderId, access: OrderAccess) => {
+    requireNoActiveTransaction();
+    bindRequestOperation({ operation: "enable_checkout" });
+    const result = await enableOrderCheckout(orderId, access, new Date(), checkoutDependencies);
+    if (!result.success) { rejectedCheckout(result.error); return result; }
+    bindRequestOperation({ outcome: result.data.changed ? "enabled" : "already_enabled", orderNumber: result.data.number });
+    if (result.data.changed) log.info({ event: "order_checkout_enabled", companyId: access.companyId, orderNumber: result.data.number, userId: access.userId }, "Order checkout enabled");
+    return ok({ url: new URL(`/checkout/${access.companyId}/${orderId}`, process.env.BETTER_AUTH_URL ?? "http://localhost:3000").toString() });
+  },
+  getCheckout: async (access: CheckoutAccess) => {
+    bindRequestOperation({ operation: "get_checkout" });
+    const result = await withTenantIsolation(access.companyId, () => getOrderCheckout(access, checkoutDependencies));
+    if (!result.success) rejectedCheckout(result.error);
+    else bindRequestOperation({ outcome: result.data.state.kind, orderNumber: result.data.number });
+    return result;
+  },
+  confirmCheckout: async (input: ConfirmOrderCheckoutInput, access: CheckoutAccess) => {
+    requireNoActiveTransaction();
+    bindRequestOperation({ operation: "confirm_checkout" });
+    const result = await withTenantIsolation(access.companyId, () => confirmOrderCheckout(input, access, new Date(), checkoutDependencies));
+    if (!result.success) { rejectedCheckout(result.error); return result; }
+    bindRequestOperation({ outcome: result.data.changed ? "confirmed" : "already_confirmed", orderNumber: result.data.checkout.number });
+    if (result.data.changed) log.info({ event: "order_checkout_confirmed", companyId: access.companyId, orderNumber: result.data.checkout.number }, "Order checkout confirmed");
+    return ok(result.data.checkout);
+  },
   listAggregates: (criteria: Parameters<typeof listOrderAggregates>[0], context: Parameters<typeof listOrderAggregates>[1]) =>
     listOrderAggregates(criteria, context, findOrderAggregates),
   getAggregate: (id: Parameters<typeof getOrderAggregate>[0], context: Parameters<typeof getOrderAggregate>[1]) =>

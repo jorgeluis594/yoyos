@@ -3,7 +3,8 @@ import { randomUUID } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import pino from "pino";
 
-const requestLog = new AsyncLocalStorage<{ requestId: string; companyId?: string }>();
+type OperationContext = { operation?: "create_order" | "enable_checkout" | "get_checkout" | "confirm_checkout"; outcome?: "enabled" | "already_enabled" | "cancelled" | "unavailable" | "invalid_input" | "unauthenticated" | "technical_failure" | "pending" | "confirmed" | "already_confirmed" | "total_changed"; orderNumber?: number };
+const requestLog = new AsyncLocalStorage<{ requestId: string; companyId?: string } & OperationContext>();
 
 export const log = pino({
   level: process.env.LOG_LEVEL ?? "info",
@@ -11,7 +12,7 @@ export const log = pino({
   mixin: () => ({ ...requestLog.getStore() }),
   serializers: { err: safeError },
   redact: {
-    paths: ["password", "token", "authorization", "cookie", "email", "phone", "headers", "body", "secret", "accessToken", "refreshToken", "apiKey"]
+    paths: ["password", "token", "authorization", "cookie", "email", "phone", "headers", "body", "secret", "accessToken", "refreshToken", "apiKey", "orderId", "url", "originalUrl", "referer", "buyer", "name", "address", "expectedTotal"]
       .flatMap((key) => [key, `*.${key}`, `*.*.${key}`, `*.*.*.${key}`]),
     censor: "[Redacted]",
   },
@@ -24,16 +25,22 @@ export function bindCompanyToRequest(companyId: string) {
   if (context) context.companyId = companyId;
 }
 
+export function bindRequestOperation(fields: OperationContext) {
+  const context = requestLog.getStore();
+  if (context) Object.assign(context, fields);
+}
+
 export function safeError(cause: unknown) {
   if (!(cause instanceof Error)) return { type: "Error", message: "Unexpected failure" };
   const frames = cause.stack?.split("\n").flatMap((line) => {
     const frame = /^\s+at\s+.*?((?:file:\/\/)?\/[^\s()?=@]+|node:[^\s()?=@]+):(\d+):(\d+)\)?$/.exec(line);
     return frame ? [`    at ${frame[1]}:${frame[2]}:${frame[3]}`] : [];
   });
+  const type = /^(Error|TypeError|RangeError|SyntaxError|AbortError|PrismaClientKnownRequestError|PrismaClientUnknownRequestError|PrismaClientInitializationError)$/.test(cause.name) ? cause.name : "Error";
   return {
-    type: cause.name,
+    type,
     message: "Unexpected failure",
-    stack: `${cause.name}: Unexpected failure\n${frames?.join("\n") ?? ""}`,
+    stack: `${type}: Unexpected failure\n${frames?.join("\n") ?? ""}`,
   };
 }
 
@@ -41,16 +48,24 @@ export function requestLogging(request: Request, response: Response, next: NextF
   const supplied = request.get("x-request-id");
   const requestId = supplied && validRequestId.test(supplied) ? supplied : randomUUID();
   const started = performance.now();
+  const pathname = request.path;
+  const checkout = /^\/checkout(?:\/|$)/.test(pathname);
+  const enable = /^\/api\/orders\/[^/]+\/checkout-link\/?$/.test(pathname);
+  const operation = checkout ? request.method === "POST" ? "confirm_checkout" : "get_checkout" : enable ? "enable_checkout" : undefined;
   response.set("x-request-id", requestId);
   // prefinish retains the agent's request context; finish runs after it is gone.
   response.once("prefinish", () => {
+    const context = requestLog.getStore();
+    if (operation && context && !context.outcome) context.outcome = response.statusCode >= 500 ? "technical_failure"
+      : response.statusCode === 401 ? "unauthenticated" : response.statusCode === 404 ? "unavailable" : "invalid_input";
     log.info({
       event: "http_request_completed",
       method: request.method,
-      route: request.route?.path ? `${request.baseUrl}${request.route.path}` : "unmatched",
+      route: checkout ? "/checkout/:companyId/:orderId" : enable ? "/api/orders/:orderId/checkout-link"
+        : request.route?.path ? `${request.baseUrl}${request.route.path}` : "unmatched",
       statusCode: response.statusCode,
       durationMs: Math.round(performance.now() - started),
     }, "HTTP request completed");
   });
-  requestLog.run({ requestId }, next);
+  requestLog.run({ requestId, ...(operation ? { operation } : {}) }, next);
 }
