@@ -41,7 +41,7 @@ const pending: OrderAggregateResponse = { ...initialOrder, status: "active", del
   customer: { kind: "contact", contactId: "00000000-0000-4000-8000-000000000004", name: "Customer", phone: "555001" } };
 beforeEach(() => {
   load.mockReset(); save.mockReset(); getSettings.mockReset(); mockBack.mockReset(); mockPush.mockReset();
-  load.mockResolvedValue(ok(pending)); getSettings.mockResolvedValue(ok({ version: 1, home: { enabled: false }, store: { enabled: true, pickupPoint: point } }));
+  load.mockResolvedValue(ok(pending)); getSettings.mockResolvedValue(ok({ version: 1, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: true, pickupPoint: point } }));
 });
 test("recipient can differ from buyer; unavailable save preserves data and confirmed aggregate returns to detail", async () => {
   save.mockResolvedValueOnce(err({ code: "DELIVERY_UNAVAILABLE", message: "private" })).mockResolvedValueOnce(ok({ ...pending,
@@ -104,7 +104,7 @@ test.each(["shipped", "delivered"] as const)("direct route to %s order exposes n
   expect(screen.queryByText("Guardar entrega")).toBeNull(); expect(save).not.toHaveBeenCalled();
 });
 test("disabled store points to configuration and failed settings read never becomes editable defaults", async () => {
-  getSettings.mockResolvedValueOnce(ok({ version: 0, home: { enabled: false }, store: { enabled: false, pickupPoint: null } }));
+  getSettings.mockResolvedValueOnce(ok({ version: 0, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: false, pickupPoint: null } }));
   const screen = render(<OrderDeliveryScreen />);
   await screen.findByText(/no está habilitad/);
   expect(screen.queryByText("Guardar entrega")).toBeNull();
@@ -125,9 +125,9 @@ test("cancelled orders expose no editor even when delivery remains pending", asy
 });
 
 test("returning from configuration refreshes availability and point without erasing recipient draft", async () => {
-  getSettings.mockResolvedValueOnce(ok({ version: 0, home: { enabled: false }, store: { enabled: false, pickupPoint: null } }))
-    .mockResolvedValueOnce(ok({ version: 1, home: { enabled: false }, store: { enabled: true, pickupPoint: point } }))
-    .mockResolvedValueOnce(ok({ version: 2, home: { enabled: false }, store: { enabled: true, pickupPoint: { ...point, address: "Updated" } } }));
+  getSettings.mockResolvedValueOnce(ok({ version: 0, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: false, pickupPoint: null } }))
+    .mockResolvedValueOnce(ok({ version: 1, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: true, pickupPoint: point } }))
+    .mockResolvedValueOnce(ok({ version: 2, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: true, pickupPoint: { ...point, address: "Updated" } } }));
   const screen = render(<OrderDeliveryScreen />);
   await screen.findByText("Configurar modalidades");
   await act(async () => { mockFocus(); });
@@ -140,7 +140,7 @@ test("returning from configuration refreshes availability and point without eras
 });
 
 test("home-only settings default to home, require district and preserve destination after unavailable costs", async () => {
-  getSettings.mockResolvedValue(ok({ version: 1, home: { enabled: true }, store: { enabled: false, pickupPoint: null } }));
+  getSettings.mockResolvedValue(ok({ version: 1, agency: { enabled: false }, couriers: [], home: { enabled: true }, store: { enabled: false, pickupPoint: null } }));
   save.mockResolvedValue(err({ code: "DELIVERY_UNAVAILABLE", message: "private" }));
   const screen = render(<OrderDeliveryScreen />);
   await screen.findByLabelText("Dirección de entrega *");
@@ -159,7 +159,7 @@ test("home-only settings default to home, require district and preserve destinat
 });
 
 test("switching store to home preserves shared recipient, document and charge and removes pickup data from request", async () => {
-  getSettings.mockResolvedValue(ok({ version: 1, home: { enabled: true }, store: { enabled: true, pickupPoint: point } }));
+  getSettings.mockResolvedValue(ok({ version: 1, agency: { enabled: false }, couriers: [], home: { enabled: true }, store: { enabled: true, pickupPoint: point } }));
   save.mockResolvedValue(ok({ ...pending, delivery: { method: "home", recipient: { name: "Different", phone: "555001", identity: { kind: "document", documentType: "passport", document: "00-A" } },
     destination: { address: "Destination", district: "District", instructions: "Side door" }, recordedBy: { kind: "seller", userId: "server-author" } } }));
   const screen = render(<OrderDeliveryScreen />);
@@ -187,8 +187,8 @@ test("switching store to home preserves shared recipient, document and charge an
 test("saved home prefill and configuration refresh keep destination draft; disabling its method blocks save", async () => {
   load.mockResolvedValue(ok({ ...pending, delivery: { method: "home", recipient: { name: "Saved recipient", phone: "555", identity: { kind: "absent" } },
     destination: { address: "Historic destination", district: "Historic district", instructions: null }, recordedBy: { kind: "seller", userId: "seller" } } }));
-  getSettings.mockResolvedValueOnce(ok({ version: 1, home: { enabled: true }, store: { enabled: true, pickupPoint: point } }))
-    .mockResolvedValueOnce(ok({ version: 2, home: { enabled: false }, store: { enabled: true, pickupPoint: point } }));
+  getSettings.mockResolvedValueOnce(ok({ version: 1, agency: { enabled: false }, couriers: [], home: { enabled: true }, store: { enabled: true, pickupPoint: point } }))
+    .mockResolvedValueOnce(ok({ version: 2, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: true, pickupPoint: point } }));
   const screen = render(<OrderDeliveryScreen />);
   await screen.findByLabelText("Dirección de entrega *");
   expect(screen.getByLabelText("Dirección de entrega *").props.value).toBe("Historic destination");

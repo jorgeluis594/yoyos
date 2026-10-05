@@ -15,7 +15,7 @@ import { ScreenState } from "@mobile/components/ui/screen-state";
 import { useTheme } from "@mobile/hooks/use-theme";
 
 function draftFrom(settings: DeliverySettingsResponse): DeliverySettingsDraft {
-  return { expectedVersion: settings.version, homeEnabled: settings.home.enabled, storeEnabled: settings.store.enabled, pickupName: settings.store.pickupPoint?.name ?? "",
+  return { expectedVersion: settings.version, agencyEnabled: settings.agency.enabled, couriers: settings.couriers.map(courier => ({ ...courier, kind: "existing" as const })), homeEnabled: settings.home.enabled, storeEnabled: settings.store.enabled, pickupName: settings.store.pickupPoint?.name ?? "",
     pickupAddress: settings.store.pickupPoint?.address ?? "", pickupInstructions: settings.store.pickupPoint?.instructions ?? "" };
 }
 

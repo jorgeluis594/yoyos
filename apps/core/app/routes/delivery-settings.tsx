@@ -1,3 +1,4 @@
+import { parseCourierInputs } from "@core/src/features/delivery-settings/domain/delivery-settings";
 import { useState } from "react";
 import { useClientReady } from "@core/app/use-client-ready";
 import { useTranslation } from "react-i18next";
@@ -28,7 +29,9 @@ export async function action({ context, request }: ActionFunctionArgs) {
   if (!parsed.success) return { error: "invalid" as const };
   const access = context.get(privateUserContext);
   try {
-    const result = await deliverySettings.save(parsed.data, { companyId: access.company.id, userId: access.user.id });
+    const couriers = parseCourierInputs(parsed.data.couriers);
+    if (!couriers.success) return { error: "invalid" as const };
+    const result = await deliverySettings.save({ ...parsed.data, couriers: couriers.data }, { companyId: access.company.id, userId: access.user.id });
     if (result.success) return { saved: deliverySettingsSchema.parse(result.data) };
     return { error: result.error.code === "DELIVERY_SETTINGS_CONFLICT" ? "conflict" as const
       : result.error.code === "INVALID_DELIVERY_SETTINGS" ? "invalid" as const : "saveError" as const };
@@ -46,6 +49,8 @@ function SettingsForm({ settings }: { settings: DeliverySettingsResponse }) {
   const navigation = useNavigation();
   const result = useActionData<typeof action>();
   const [version, setVersion] = useState(settings.version);
+  const [agency, setAgency] = useState(settings.agency);
+  const [couriers, setCouriers] = useState(settings.couriers);
   const [homeEnabled, setHomeEnabled] = useState(settings.home.enabled);
   const [enabled, setEnabled] = useState(settings.store.enabled);
   const [name, setName] = useState(settings.store.pickupPoint?.name ?? "");
@@ -55,6 +60,8 @@ function SettingsForm({ settings }: { settings: DeliverySettingsResponse }) {
   // Only a confirmed save replaces the draft; loader revalidation preserves it.
   if (saved && saved.version !== version) {
     setVersion(saved.version);
+    setAgency(saved.agency);
+    setCouriers(saved.couriers);
     setHomeEnabled(saved.home.enabled);
     setEnabled(saved.store.enabled);
     setName(saved.store.pickupPoint?.name ?? "");
@@ -67,7 +74,7 @@ function SettingsForm({ settings }: { settings: DeliverySettingsResponse }) {
   return <form className="flex flex-col gap-6" onSubmit={event => {
     event.preventDefault();
     if (!ready) return;
-    submit({ expectedVersion: version, home: { enabled: homeEnabled }, store: { enabled, pickupPoint: configured
+    submit({ expectedVersion: version, agency, couriers: couriers.map(courier => ({ ...courier, kind: "existing" as const })), home: { enabled: homeEnabled }, store: { enabled, pickupPoint: configured
       ? { name, address, instructions: instructions.trim() || null } : null } }, { method: "post", encType: "application/json" });
   }}>
     <fieldset className="flex min-w-0 flex-col gap-4" disabled={pending || !ready}>

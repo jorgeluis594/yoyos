@@ -18,9 +18,14 @@ export async function resolveDeliverySelection(input: DeliverySelection, context
   const found = await deps.getSettings(context);
   if (!found.success) return found;
   const delivery = selection.data;
-  if (delivery.method === "agency" || (delivery.method === "store" ? !found.data.store.enabled : !found.data.home.enabled))
+  if (delivery.method === "store" ? !found.data.store.enabled : delivery.method === "home" ? !found.data.home.enabled : !found.data.agency.enabled)
     return err({ code: "DELIVERY_METHOD_DISABLED", message: "Delivery method is disabled" });
-  const snapshot = parseDeliverySnapshot({ ...delivery,
+  const courier = delivery.method === "agency" ? found.data.couriers.find(courier => courier.id === delivery.courierId && courier.enabled) : undefined;
+  if (delivery.method === "agency" && !courier) return err({ code: "COURIER_UNAVAILABLE", message: "Courier is unavailable" });
+  const destination = delivery.method === "agency" && courier
+    ? { method: delivery.method, recipient: delivery.recipient, agency: delivery.agency, courier: { id: courier.id, name: courier.name } }
+    : delivery;
+  const snapshot = parseDeliverySnapshot({ ...destination,
     ...(delivery.method === "store" ? { pickupPoint: found.data.store.pickupPoint } : {}),
     recordedBy: { kind: "seller", userId: context.userId } });
   if (!snapshot.success) return snapshot;

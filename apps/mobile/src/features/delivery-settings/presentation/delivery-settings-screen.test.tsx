@@ -12,12 +12,12 @@ const save = jest.mocked(deliverySettings.save);
 const point = { name: "Store", address: "Original", instructions: null };
 beforeEach(() => {
   get.mockReset(); save.mockReset();
-  get.mockResolvedValue(ok({ version: 0, home: { enabled: false }, store: { enabled: false, pickupPoint: null } }));
+  get.mockResolvedValue(ok({ version: 0, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: false, pickupPoint: null } }));
 });
 
 test("initial empty settings can be enabled and saved, then disabled without losing the point", async () => {
-  save.mockResolvedValueOnce(ok({ version: 1, home: { enabled: false }, store: { enabled: true, pickupPoint: point } }))
-    .mockResolvedValueOnce(ok({ version: 2, home: { enabled: false }, store: { enabled: false, pickupPoint: point } }));
+  save.mockResolvedValueOnce(ok({ version: 1, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: true, pickupPoint: point } }))
+    .mockResolvedValueOnce(ok({ version: 2, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: false, pickupPoint: point } }));
   const screen = render(<DeliverySettingsScreen />);
   await screen.findByText("Recojo en tienda");
   expect(screen.getByLabelText("Ofrecer recojo en tienda").props.value).toBe(false);
@@ -26,17 +26,17 @@ test("initial empty settings can be enabled and saved, then disabled without los
   fireEvent.changeText(screen.getByLabelText("Dirección"), "Original");
   fireEvent.press(screen.getByText("Guardar configuración"));
   await screen.findByText("Configuración guardada.");
-  expect(save).toHaveBeenLastCalledWith({ expectedVersion: 0, homeEnabled: false, storeEnabled: true, pickupName: "Store", pickupAddress: "Original", pickupInstructions: "" });
+  expect(save).toHaveBeenLastCalledWith({ expectedVersion: 0, agencyEnabled: false, couriers: [], homeEnabled: false, storeEnabled: true, pickupName: "Store", pickupAddress: "Original", pickupInstructions: "" });
   fireEvent(screen.getByLabelText("Ofrecer recojo en tienda"), "valueChange", false);
   fireEvent.press(screen.getByText("Guardar configuración"));
   await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
-  expect(save).toHaveBeenLastCalledWith({ expectedVersion: 1, homeEnabled: false, storeEnabled: false, pickupName: "Store", pickupAddress: "Original", pickupInstructions: "" });
+  expect(save).toHaveBeenLastCalledWith({ expectedVersion: 1, agencyEnabled: false, couriers: [], homeEnabled: false, storeEnabled: false, pickupName: "Store", pickupAddress: "Original", pickupInstructions: "" });
   expect(screen.getByLabelText("Dirección").props.value).toBe("Original");
 });
 
 test("a conflict preserves the draft across language changes and only reloads explicitly", async () => {
-  get.mockResolvedValueOnce(ok({ version: 1, home: { enabled: false }, store: { enabled: true, pickupPoint: point } }))
-    .mockResolvedValueOnce(ok({ version: 2, home: { enabled: false }, store: { enabled: true, pickupPoint: { ...point, address: "Concurrent" } } }));
+  get.mockResolvedValueOnce(ok({ version: 1, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: true, pickupPoint: point } }))
+    .mockResolvedValueOnce(ok({ version: 2, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: true, pickupPoint: { ...point, address: "Concurrent" } } }));
   save.mockResolvedValue(err({ code: "DELIVERY_SETTINGS_CONFLICT", message: "Private detail" }));
   const screen = render(<DeliverySettingsScreen />);
   await screen.findByText("Recojo en tienda");
@@ -75,19 +75,32 @@ test("a failed save keeps edited data and a pending save prevents duplicate subm
 
 
 test("home can be enabled alone and store changes preserve its enablement", async () => {
-  save.mockResolvedValueOnce(ok({ version: 1, home: { enabled: true }, store: { enabled: false, pickupPoint: null } }))
-    .mockResolvedValueOnce(ok({ version: 2, home: { enabled: true }, store: { enabled: true, pickupPoint: point } }));
+  save.mockResolvedValueOnce(ok({ version: 1, agency: { enabled: false }, couriers: [], home: { enabled: true }, store: { enabled: false, pickupPoint: null } }))
+    .mockResolvedValueOnce(ok({ version: 2, agency: { enabled: false }, couriers: [], home: { enabled: true }, store: { enabled: true, pickupPoint: point } }));
   const screen = render(<DeliverySettingsScreen />);
   await screen.findByText("Entrega a domicilio");
   expect(screen.getByLabelText("Ofrecer entrega a domicilio").props.value).toBe(false);
   fireEvent(screen.getByLabelText("Ofrecer entrega a domicilio"), "valueChange", true);
   fireEvent.press(screen.getByText("Guardar configuración"));
   await screen.findByText("Configuración guardada.");
-  expect(save).toHaveBeenLastCalledWith({ expectedVersion: 0, homeEnabled: true, storeEnabled: false, pickupName: "", pickupAddress: "", pickupInstructions: "" });
+  expect(save).toHaveBeenLastCalledWith({ expectedVersion: 0, agencyEnabled: false, couriers: [], homeEnabled: true, storeEnabled: false, pickupName: "", pickupAddress: "", pickupInstructions: "" });
   fireEvent(screen.getByLabelText("Ofrecer recojo en tienda"), "valueChange", true);
   fireEvent.changeText(screen.getByLabelText("Nombre del punto de recojo"), "Store");
   fireEvent.changeText(screen.getByLabelText("Dirección"), "Original");
   fireEvent.press(screen.getByText("Guardar configuración"));
   await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
-  expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ expectedVersion: 1, homeEnabled: true, storeEnabled: true }));
+  expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ expectedVersion: 1, agencyEnabled: false, couriers: [], homeEnabled: true, storeEnabled: true }));
+});
+
+
+test("editing home preserves every loaded courier and agency enablement in the whole-configuration draft", async () => {
+  const couriers = [{ id: "00000000-0000-4000-8000-000000000003", name: "Active", enabled: true }, { id: "00000000-0000-4000-8000-000000000004", name: "Inactive", enabled: false }];
+  get.mockResolvedValue(ok({ version: 4, agency: { enabled: true }, couriers, home: { enabled: false }, store: { enabled: false, pickupPoint: null } }));
+  save.mockResolvedValue(err({ code: "NETWORK_ERROR", message: "Offline" }));
+  const screen = render(<DeliverySettingsScreen />);
+  await screen.findByText("Entrega a domicilio");
+  fireEvent(screen.getByLabelText("Ofrecer entrega a domicilio"), "valueChange", true);
+  fireEvent.press(screen.getByText("Guardar configuración"));
+  await screen.findByText(/No se pudo guardar/);
+  expect(save).toHaveBeenCalledWith(expect.objectContaining({ expectedVersion: 4, homeEnabled: true, agencyEnabled: true, couriers: couriers.map(courier => ({ ...courier, kind: "existing" })) }));
 });

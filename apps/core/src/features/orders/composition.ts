@@ -52,7 +52,7 @@ const fulfillmentDependencies: FulfillOrderDependencies = { transaction: fulfill
 export async function setConfiguredOrderDelivery(input: SetDeliveryInput, context: OrderAccess,
   resolveCost: ResolveDeliveryDependencies["resolveCost"] = async () => err({ code: "DELIVERY_UNAVAILABLE", reason: "resolver_not_integrated", message: "Delivery cost resolver is not integrated" })) {
   const started = performance.now();
-  const observed: { previous: OrderAggregate | null; settingsVersion?: number; stage: string } = { previous: null, stage: "lock_order" };
+  const observed: { previous: OrderAggregate | null; settingsVersion?: number; courierId?: string; stage: string } = { previous: null, stage: "lock_order" };
   const result = await setOrderDelivery(input, context, {
     transaction: (companyId, work) => {
       if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
@@ -65,6 +65,7 @@ export async function setConfiguredOrderDelivery(input: SetDeliveryInput, contex
     },
     resolveDelivery: (selection, access, currency) => {
       observed.stage = "resolve_delivery";
+      if (selection.method === "agency") observed.courierId = selection.courierId;
       return resolveDeliverySelection(selection, access, currency, {
         getSettings: async (authorized) => {
           const settings = await deliverySettings.get(authorized, "set_order_delivery");
@@ -77,12 +78,12 @@ export async function setConfiguredOrderDelivery(input: SetDeliveryInput, contex
             if (resolved.success) {
               const valid = validateDeliveryCost(resolved.data, orderCurrency);
               if (!valid.success) log.error({ event: "order_delivery_resolution_invalid", operation: "set_order_delivery", orderId: input.orderId,
-                deliveryMethod: selection.method, stage: observed.stage, reason: valid.error.code === "CURRENCY_MISMATCH" ? "currency_mismatch" : "invalid_cost", errorCode: valid.error.code }, "Delivery cost resolution is invalid");
+                courierId: observed.courierId, deliveryMethod: selection.method, stage: observed.stage, reason: valid.error.code === "CURRENCY_MISMATCH" ? "currency_mismatch" : "invalid_cost", errorCode: valid.error.code }, "Delivery cost resolution is invalid");
             }
             return resolved;
           } catch (cause) {
             log.error({ event: "order_delivery_resolution_failed", operation: "set_order_delivery", orderId: input.orderId,
-              deliveryMethod: selection.method, settingsVersion: observed.settingsVersion, stage: observed.stage, errorCode: "DELIVERY_UNAVAILABLE", err: cause }, "Unable to resolve delivery cost");
+              courierId: observed.courierId, deliveryMethod: selection.method, settingsVersion: observed.settingsVersion, stage: observed.stage, errorCode: "DELIVERY_UNAVAILABLE", err: cause }, "Unable to resolve delivery cost");
             return err({ code: "DELIVERY_UNAVAILABLE", message: "Unable to resolve delivery cost" });
           }
         },
@@ -97,13 +98,13 @@ export async function setConfiguredOrderDelivery(input: SetDeliveryInput, contex
     const before = observed.previous;
     afterTransactionCommit(() => log.info({ event: "order_delivery_saved", operation: "set_order_delivery", orderId: input.orderId,
       userId: context.userId, authorKind: "seller", changeKind: before?.delivery ? "replaced" : "assigned",
-      previousDeliveryMethod: before?.delivery?.method, deliveryMethod: input.delivery.method, settingsVersion: observed.settingsVersion,
+      courierId: observed.courierId, previousDeliveryMethod: before?.delivery?.method, deliveryMethod: input.delivery.method, settingsVersion: observed.settingsVersion,
       chargeDeliveryToCustomer: input.chargeDeliveryToCustomer, totalChanged: before?.total.amount !== result.data.total.amount,
       stockDeductionRequired: !before?.stockDeducted && result.data.stockDeducted, stockDeducted: result.data.stockDeducted,
       transactionOutcome: "committed", durationMs }, "Order delivery saved"));
   } else if (!["ORDER_NOT_FOUND", "PERSISTENCE_UNAVAILABLE", "INVALID_STORED_DATA", "INVALID_ORDER", "CURRENCY_MISMATCH"].includes(result.error.code)) {
     log.debug({ event: "order_delivery_rejected", operation: "set_order_delivery", orderId: input.orderId, userId: context.userId,
-      deliveryMethod: input.delivery.method, settingsVersion: observed.settingsVersion, deliveryStatus: observed.previous?.deliveryStatus, cancelled: observed.previous?.cancelled,
+      courierId: observed.courierId, deliveryMethod: input.delivery.method, settingsVersion: observed.settingsVersion, deliveryStatus: observed.previous?.deliveryStatus, cancelled: observed.previous?.cancelled,
       errorCode: result.error.code, stage: observed.stage,
       ...(result.error.code === "DELIVERY_UNAVAILABLE" ? { reason: result.error.reason } : {}),
       ...(result.error.code === "INSUFFICIENT_STOCK" ? { variantId: result.error.variantId } : {}) }, "Order delivery rejected");

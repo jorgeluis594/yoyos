@@ -1,3 +1,4 @@
+import type { CourierId } from "@core/src/features/delivery-settings/domain/delivery-settings";
 import { expect, test, vi } from "vitest";
 import { err, ok } from "@shared/functional";
 import type { CompanyId, UserId } from "@core/src/features/orders/domain/order";
@@ -8,7 +9,7 @@ const context = { companyId: "00000000-0000-4000-8000-000000000001" as CompanyId
 const recipient = { name: "Ana", phone: "999", identity: { kind: "absent" as const } };
 const selection = { method: "store" as const, recipient };
 const point = { name: "Tienda", address: "Av. Lima 123", instructions: null };
-const settings = { version: 1, home: { enabled: false }, store: { enabled: true as const, pickupPoint: point } };
+const settings = { version: 1, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: true as const, pickupPoint: point } };
 const cost = { amount: 3, currency: "PEN" as const };
 const dependencies = (): ResolveDeliveryDependencies => ({ getSettings: async () => ok(settings), resolveCost: async () => ok(cost) });
 
@@ -30,7 +31,7 @@ test("rejects absent or disabled settings without requesting a cost", async () =
   const resolveCost = vi.fn(dependencies().resolveCost);
   for (const pickupPoint of [null, point]) {
     expect(await resolveDeliverySelection(selection, context, "PEN", {
-      getSettings: async () => ok({ version: pickupPoint ? 1 : 0, home: { enabled: false }, store: { enabled: false, pickupPoint } }), resolveCost,
+      getSettings: async () => ok({ version: pickupPoint ? 1 : 0, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: false, pickupPoint } }), resolveCost,
     })).toMatchObject({ success: false, error: { code: "DELIVERY_METHOD_DISABLED" } });
   }
   expect(resolveCost).not.toHaveBeenCalled();
@@ -74,7 +75,7 @@ test("home requires its enabled flag and snapshots typed destination with option
     .toMatchObject({ success: false, error: { code: "DELIVERY_METHOD_DISABLED" } });
   expect(resolveCost).not.toHaveBeenCalled();
   const result = await resolveDeliverySelection(home, context, "PEN", {
-    getSettings: async () => ok({ ...settings, home: { enabled: true } }), resolveCost,
+    getSettings: async () => ok({ ...settings, agency: { enabled: false }, couriers: [], home: { enabled: true } }), resolveCost,
   });
   expect(result).toEqual(ok({ delivery: { method: "home", recipient, destination: { address: "Calle 123", district: "Lima", instructions: null },
     recordedBy: { kind: "seller", userId: context.userId } }, cost }));
@@ -85,4 +86,24 @@ test("home requires its enabled flag and snapshots typed destination with option
   }
   expect(parseDeliverySelection({ ...home, destination: { address: "Street", district: "District", instructions: " Entrance " } }))
     .toMatchObject({ success: true, data: { destination: { instructions: "Entrance" } } });
+});
+
+
+test("agency snapshots the configured active courier and document; unknown and inactive IDs never request a cost", async () => {
+  const id = "00000000-0000-4000-8000-000000000003" as CourierId;
+  const agency = { method: "agency" as const, courierId: id, agency: " Office Lima ", recipient: { ...recipient, identity: { kind: "document" as const, documentType: "passport" as const, document: "00-A-001" } } };
+  const courier = { id, name: "Courier", enabled: true };
+  const resolveCost = vi.fn(dependencies().resolveCost);
+  const deps = { getSettings: async () => ok({ ...settings, agency: { enabled: true }, couriers: [courier] }), resolveCost };
+  const assigned = await resolveDeliverySelection(agency, context, "PEN", deps);
+  expect(assigned).toEqual(ok({ delivery: { method: "agency", recipient: agency.recipient, agency: "Office Lima", courier: { id, name: "Courier" }, recordedBy: { kind: "seller", userId: context.userId } }, cost }));
+  courier.name = "Renamed";
+  courier.enabled = false;
+  expect(assigned).toMatchObject({ data: { delivery: { courier: { name: "Courier" } } } });
+  resolveCost.mockClear();
+  for (const courierId of [id, "00000000-0000-4000-8000-000000000004" as CourierId]) {
+    expect(await resolveDeliverySelection({ ...agency, courierId }, context, "PEN", deps)).toMatchObject({ success: false, error: { code: "COURIER_UNAVAILABLE" } });
+  }
+  expect(resolveCost).not.toHaveBeenCalled();
+  expect(parseDeliverySelection({ ...agency, recipient }).success).toBe(false);
 });

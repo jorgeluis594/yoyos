@@ -9,13 +9,23 @@ export const storeDeliverySettingsSchema = z.discriminatedUnion("enabled", [
   z.strictObject({ enabled: z.literal(false), pickupPoint: pickupPointSchema.nullable() }),
   z.strictObject({ enabled: z.literal(true), pickupPoint: pickupPointSchema }),
 ]);
+const courierNameSchema = z.string().trim().min(1).max(120);
+const courierSchema = z.strictObject({ id: z.uuid(), name: courierNameSchema, enabled: z.boolean() });
+export const courierInputSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("new"), name: courierNameSchema, enabled: z.boolean() }),
+  z.strictObject({ kind: z.literal("existing"), id: z.uuid(), name: courierNameSchema, enabled: z.boolean() }),
+]);
 export const deliverySettingsSchema = z.strictObject({
   version: z.number().int().min(0).max(2147483647),
+  agency: z.strictObject({ enabled: z.boolean() }),
+  couriers: z.array(courierSchema),
   home: z.strictObject({ enabled: z.boolean() }),
   store: storeDeliverySettingsSchema,
-});
+}).refine(value => new Set(value.couriers.map(courier => courier.id)).size === value.couriers.length && (!value.agency.enabled || value.couriers.some(courier => courier.enabled)));
 export type DeliverySettingsResponse = z.infer<typeof deliverySettingsSchema>;
 export const saveDeliverySettingsSchema = z.strictObject({
+  agency: z.strictObject({ enabled: z.boolean() }),
+  couriers: z.array(courierInputSchema),
   expectedVersion: z.number().int().min(0).max(2147483646),
   home: z.strictObject({ enabled: z.boolean() }),
   store: storeDeliverySettingsSchema,

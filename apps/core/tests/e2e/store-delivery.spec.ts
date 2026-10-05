@@ -55,7 +55,7 @@ test("store assignment preserves unavailable delivery, freezes its point and ato
     const assigned = await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json();
     expect(assigned).toMatchObject({ delivery: { method: "store", pickupPoint: { address: "Av. Original 123" }, recordedBy: { kind: "seller", userId: sellerId } }, deliveryCost: { amount: 3 }, deliveryCharge: { amount: 3 }, stockDeducted: false });
     const changed = await page.request.put("/api/delivery-settings", { data: { expectedVersion: 1,
-      home: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Tienda nueva", address: "Av. Nueva 456", instructions: null } } } });
+      agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Tienda nueva", address: "Av. Nueva 456", instructions: null } } } });
     expect(changed.ok()).toBe(true);
     await page.reload();
     await browserExpect(page.getByText("Av. Original 123", { exact: true })).toBeVisible();
@@ -85,7 +85,7 @@ test("store assignment preserves unavailable delivery, freezes its point and ato
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
     await page.screenshot({ path: "../../.impeccable/review/store-order-mobile.png", fullPage: true });
-    expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 2, home: { enabled: true },
+    expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 2, agency: { enabled: false }, couriers: [], home: { enabled: true },
       store: { enabled: true, pickupPoint: { name: "Tienda nueva", address: "Av. Nueva 456", instructions: null } } } })).ok()).toBe(true);
     await page.reload();
     await page.getByLabel("Modalidad de entrega").selectOption("home");

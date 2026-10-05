@@ -38,6 +38,7 @@ async function fixture(withCompany = true) {
   const f = { companyId, cookie, async cleanup() {
     await systemPrisma.user.delete({ where: { id: userId } });
     if (companyId) await withTenantIsolation(companyId, async () => {
+      await prisma.companyCourier.deleteMany();
       await prisma.companyDeliverySettings.deleteMany();
       await prisma.company.delete({ where: { id: companyId } });
     });
@@ -66,23 +67,23 @@ test("authenticated configuration HTTP persists, conflicts, rejects manipulation
   const [seller, other] = await Promise.all([fixture(), fixture()]);
   const initial = await request("/api/delivery-settings", seller.cookie);
   expect(initial.status).toBe(200);
-  expect(await initial.json()).toEqual({ version: 0, home: { enabled: false }, store: { enabled: false, pickupPoint: null } });
+  expect(await initial.json()).toEqual({ version: 0, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: false, pickupPoint: null } });
   const store = { enabled: true, pickupPoint: { name: "Tienda", address: "Av. Lima 123", instructions: null } };
-  const input = { expectedVersion: 0, home: { enabled: false }, store };
+  const input = { expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: false }, store };
   for (const extra of [{ companyId: other.companyId }, { userId: "other" }, { version: 99 }, { recordedBy: { kind: "buyer" } }]) {
     expect((await request("/api/delivery-settings", seller.cookie, { ...input, ...extra }, "PUT")).status).toBe(400);
   }
   const saved = await request("/api/delivery-settings", seller.cookie, input, "PUT");
   expect(saved.status).toBe(200);
-  expect(deliverySettingsSchema.parse(await saved.json())).toEqual({ version: 1, home: { enabled: false }, store });
-  const stale = await request("/api/delivery-settings", seller.cookie, { expectedVersion: 0, home: { enabled: false }, store: { enabled: false, pickupPoint: null } }, "PUT");
+  expect(deliverySettingsSchema.parse(await saved.json())).toEqual({ version: 1, agency: { enabled: false }, couriers: [], home: { enabled: false }, store });
+  const stale = await request("/api/delivery-settings", seller.cookie, { expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: false, pickupPoint: null } }, "PUT");
   expect(stale.status).toBe(409);
   expect(await stale.json()).toMatchObject({ code: "DELIVERY_SETTINGS_CONFLICT" });
-  expect(await (await request("/api/delivery-settings", seller.cookie)).json()).toEqual({ version: 1, home: { enabled: false }, store });
-  expect(await (await request("/api/delivery-settings", other.cookie)).json()).toEqual({ version: 0, home: { enabled: false }, store: { enabled: false, pickupPoint: null } });
+  expect(await (await request("/api/delivery-settings", seller.cookie)).json()).toEqual({ version: 1, agency: { enabled: false }, couriers: [], home: { enabled: false }, store });
+  expect(await (await request("/api/delivery-settings", other.cookie)).json()).toEqual({ version: 0, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: false, pickupPoint: null } });
   const disabled = { ...store, enabled: false };
-  expect((await request("/api/delivery-settings", seller.cookie, { expectedVersion: 1, home: { enabled: false }, store: disabled }, "PUT")).status).toBe(200);
-  expect(await (await request("/api/delivery-settings", seller.cookie)).json()).toEqual({ version: 2, home: { enabled: false }, store: disabled });
+  expect((await request("/api/delivery-settings", seller.cookie, { expectedVersion: 1, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: disabled }, "PUT")).status).toBe(200);
+  expect(await (await request("/api/delivery-settings", seller.cookie)).json()).toEqual({ version: 2, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: disabled });
 });
 
 
@@ -93,10 +94,35 @@ test("mobile settings adapter exchanges authenticated settings and preserves a r
     const body: unknown = await response.json();
     return response.ok ? ok(body) : err({ code: "API_ERROR", message: "HTTP failure", http: { status: response.status, body } });
   });
-  expect(await mobile.get()).toEqual({ success: true, data: { version: 0, home: { enabled: false }, store: { enabled: false, pickupPoint: null } } });
-  const input = { expectedVersion: 0, home: { enabled: false }, store: { enabled: true as const, pickupPoint: { name: " Store ", address: " Lima ", instructions: null } } };
+  expect(await mobile.get()).toEqual({ success: true, data: { version: 0, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: false, pickupPoint: null } } });
+  const input = { expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: true as const, pickupPoint: { name: " Store ", address: " Lima ", instructions: null } } };
   const saved = await mobile.save(input);
-  expect(saved).toMatchObject({ success: true, data: { version: 1, home: { enabled: false }, store: { pickupPoint: { name: "Store", address: "Lima" } } } });
+  expect(saved).toMatchObject({ success: true, data: { version: 1, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { pickupPoint: { name: "Store", address: "Lima" } } } });
   expect(await mobile.save(input)).toMatchObject({ success: false, error: { code: "DELIVERY_SETTINGS_CONFLICT" } });
   expect(await mobile.get()).toEqual(saved);
+});
+
+
+test("courier HTTP generates IDs, rejects omission and foreign IDs, and retains deactivated couriers through the mobile adapter", async () => {
+  const [seller, other] = await Promise.all([fixture(), fixture()]);
+  const input = { expectedVersion: 0, home: { enabled: false }, store: { enabled: false as const, pickupPoint: null }, agency: { enabled: true }, couriers: [{ kind: "new" as const, name: " Courier ", enabled: true }] };
+  expect((await request("/api/delivery-settings", seller.cookie, { ...input, couriers: [{ ...input.couriers[0], id: randomUUID() }] }, "PUT")).status).toBe(400);
+  const saved = await request("/api/delivery-settings", seller.cookie, input, "PUT");
+  expect(saved.status).toBe(200);
+  const first = deliverySettingsSchema.parse(await saved.json());
+  expect(first).toMatchObject({ version: 1, agency: { enabled: true }, couriers: [{ name: "Courier", enabled: true }] });
+  const courier = first.couriers[0];
+  expect(courier.id).toMatch(/^[0-9a-f-]{36}$/);
+  expect((await request("/api/delivery-settings", seller.cookie, input, "PUT")).status).toBe(409);
+  expect(await (await request("/api/delivery-settings", seller.cookie)).json()).toEqual(first);
+  const edit = { ...input, expectedVersion: 1, couriers: [{ ...courier, kind: "existing", name: "Renamed", enabled: false }] };
+  for (const couriers of [[], [edit.couriers[0], edit.couriers[0]], [{ ...edit.couriers[0], id: randomUUID() }]]) {
+    expect((await request("/api/delivery-settings", seller.cookie, { ...edit, agency: { enabled: false }, couriers }, "PUT")).status).toBe(422);
+  }
+  expect((await request("/api/delivery-settings", other.cookie, { ...edit, expectedVersion: 0 }, "PUT")).status).toBe(422);
+  expect((await request("/api/delivery-settings", seller.cookie, edit, "PUT")).status).toBe(422);
+  const disabled = await request("/api/delivery-settings", seller.cookie, { ...edit, agency: { enabled: false } }, "PUT");
+  expect(disabled.status).toBe(200);
+  expect(await disabled.json()).toMatchObject({ version: 2, agency: { enabled: false }, couriers: [{ id: courier.id, name: "Renamed", enabled: false }] });
+  expect(await withTenantIsolation(seller.companyId ?? "", async () => await prisma.companyCourier.count())).toBe(1);
 });
