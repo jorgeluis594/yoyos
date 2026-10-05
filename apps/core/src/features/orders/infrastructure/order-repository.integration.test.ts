@@ -9,6 +9,7 @@ import { setOrderDelivery, type SetDeliveryDependencies } from "@core/src/featur
 import { findOrderAggregate, findOrderForUpdate, saveDelivery, saveStockDeduction } from "@core/src/features/orders/infrastructure/order-repository";
 import { deductProductStock } from "@core/src/features/products";
 import type { CompanyId, ContactId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
+import type { ImageId } from "@core/src/features/orders/domain/payment";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
 async function fixture() {
@@ -54,6 +55,35 @@ function immediateSale(input: { id: string; contactId: string | null; items: rea
 function orderDetail(id: string, owner: { companyId: string; sellerId: string }) {
   return orders.getAggregate(id as OrderId, { companyId: owner.companyId as CompanyId, userId: owner.sellerId as UserId });
 }
+
+test("reports a company receipt once without changing coverage or stock", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const orderId = randomUUID() as OrderId;
+      const paymentId = randomUUID() as PaymentId;
+      const receiptImageId = randomUUID() as ImageId;
+      const access = { kind: "buyer" as const, companyId: f.companyId as CompanyId, orderId };
+      await orders.create({ id: orderId, contactId: null,
+        items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] },
+      { companyId: access.companyId, userId: f.sellerId as UserId });
+      const input = { paymentId, receiptImageId };
+      expect(await orders.reportPayment(input, access)).toMatchObject({ success: false, error: { code: "RECEIPT_NOT_FOUND" } });
+      await prisma.image.create({ data: { id: receiptImageId, storageKey: `test/${receiptImageId}` } });
+      const reported = await orders.reportPayment(input, access);
+      expect(reported).toMatchObject({ success: true, data: { stockDeducted: false,
+        payments: [{ id: paymentId, status: "reported", amount: null, method: null, data: { receiptImageId } }] } });
+      expect(await orders.reportPayment(input, access)).toEqual(reported);
+      expect(await orders.reportPayment({ ...input, receiptImageId: randomUUID() as ImageId }, access))
+        .toMatchObject({ success: false, error: { code: "PAYMENT_CONFLICT" } });
+      expect(await prisma.payment.count()).toBe(1);
+      expect((await prisma.payment.findUniqueOrThrow({ where: { id: paymentId } })).status).toBe("reported");
+      expect(await orderDetail(orderId, f)).toMatchObject({ success: true, data: { payments: [{ status: "reported" }] } });
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
+      await prisma.image.delete({ where: { id: receiptImageId } });
+    });
+  } finally { await f.cleanup(); }
+});
 
 test("persists a pending order without payment or stock effects", async () => {
   const f = await fixture();

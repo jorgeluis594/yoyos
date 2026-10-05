@@ -11,4 +11,9 @@ export const findCompletedPrivateImageImport = (companyId: string, sourceKey: st
 export const importPrivateImage = (companyId: string, sourceKey: string, file: DownloadedImage) =>
   importImage(companyId, sourceKey, file, storage, imageRepository);
 
+export async function findAvailablePublicImage(id: string) {
+  const found = await imageRepository.find(id);
+  return found.success ? { success: true as const, data: found.data?.visibility !== "private" ? found.data?.id ?? null : null } : found;
+}
+
 export type { DownloadedImage } from "@core/src/shared/images/application/images";

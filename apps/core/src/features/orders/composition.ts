@@ -7,6 +7,7 @@ import { getCompanyId, withinTransaction } from "@core/src/shared/infrastructure
 import { createOrder, type CreateOrderDependencies } from "@core/src/features/orders/application/create-order";
 import { deductStock, type DeductStockDependencies } from "@core/src/features/orders/application/deduct-stock";
 import { registerPayment, type RegisterPaymentDependencies } from "@core/src/features/orders/application/register-payment";
+import { reportPayment, type ReportPaymentDependencies } from "@core/src/features/orders/application/report-payment";
 import { registerImmediateSale, type RegisterImmediateSaleDependencies } from "@core/src/features/orders/application/register-immediate-sale";
 import { cancelOrder, type CancelOrderDependencies } from "@core/src/features/orders/application/cancel-order";
 import { registerShipment, registerDelivery, type FulfillOrderDependencies } from "@core/src/features/orders/application/fulfill-order";
@@ -16,6 +17,7 @@ import { listOrders } from "@core/src/features/orders/application/read-orders";
 import { savePendingOrder, savePayment, saveStockDeduction, saveFulfillment, saveCancellation, findOrderAggregate, findOrderAggregates, findOrderForUpdate, findOrders, orderExists } from "@core/src/features/orders/infrastructure/order-repository";
 import { findSellableVariant, deductProductStock, restoreProductStock, searchSaleCatalog } from "@core/src/features/products";
 import { findContactById, searchSaleContacts } from "@core/src/features/contacts";
+import { findAvailablePublicImage } from "@core/src/shared/images";
 import type { OrderItemId, PaymentId } from "@core/src/features/orders/domain/order";
 
 async function orderTransaction<T, E extends AppError>(callback: () => Promise<Result<T, E>>): Promise<Result<T, E | Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>>> {
@@ -37,6 +39,7 @@ function scopedOrderTransaction<T, E extends AppError>(companyId: string, callba
 const pendingTransaction: CreateOrderDependencies["transaction"] = scopedOrderTransaction;
 const stockTransaction: DeductStockDependencies["transaction"] = scopedOrderTransaction;
 const paymentTransaction: RegisterPaymentDependencies["transaction"] = scopedOrderTransaction;
+const reportTransaction: ReportPaymentDependencies["transaction"] = scopedOrderTransaction;
 const immediateTransaction: RegisterImmediateSaleDependencies["transaction"] = scopedOrderTransaction;
 const cancellationTransaction: CancelOrderDependencies["transaction"] = scopedOrderTransaction;
 const fulfillmentTransaction: FulfillOrderDependencies["transaction"] = scopedOrderTransaction;
@@ -62,6 +65,9 @@ export const orders = {
   registerPayment: (input: Parameters<typeof registerPayment>[0], context: Parameters<typeof registerPayment>[1]) =>
     registerPayment(input, context, { transaction: paymentTransaction, findOrderForUpdate, savePayment,
       deductProductStock, saveStockDeduction, clock: () => new Date() }),
+  reportPayment: (input: Parameters<typeof reportPayment>[0], access: Parameters<typeof reportPayment>[1]) =>
+    reportPayment(input, access, { transaction: reportTransaction, findOrderForUpdate, findReceipt: findAvailablePublicImage,
+      savePayment, clock: () => new Date() }),
   deductStock: (id: Parameters<typeof deductStock>[0], context: Parameters<typeof deductStock>[1]) =>
     deductStock(id, context, { transaction: stockTransaction, findOrderForUpdate, deductProductStock, saveStockDeduction }),
   create: (input: Parameters<typeof createOrder>[0], context: Parameters<typeof createOrder>[1]) =>
