@@ -1,3 +1,5 @@
+import { createOrderApi } from "@mobile/features/orders/infrastructure/order-api";
+import { ok, err } from "@shared/functional";
 import { randomUUID } from "node:crypto";
 import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
 import { products } from "@core/src/features/products/composition";
@@ -169,7 +171,13 @@ test("seller copies a stable link and sees buyer confirmation separately from pa
     await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
     await page.getByRole("button", { name: "Copiar enlace", exact: true }).click();
     await browserExpect(page.getByRole("status")).toHaveText("Enlace copiado");
+    const mobileApi = createOrderApi(async (path, init) => {
+      const response = await page.request.fetch(path, { method: init?.method ?? "GET" });
+      const body: unknown = await response.json();
+      return response.ok() ? ok(body) : err({ code: "API_ERROR", message: "Order request failed", http: { status: response.status(), body } });
+    });
     const copied = await page.evaluate(() => navigator.clipboard.readText());
+    expect(await mobileApi.enableCheckout(orderId)).toEqual(ok({ url: copied }));
     expect(copied).toBe(await link.inputValue());
     await page.getByRole("button", { name: "Obtener enlace", exact: true }).click();
     await browserExpect(link).toHaveValue(copied);
@@ -179,6 +187,8 @@ test("seller copies a stable link and sees buyer confirmation separately from pa
     await buyerPage.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
     await buyerPage.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
     await browserExpect(buyerPage.getByRole("heading", { name: "Pedido confirmado", exact: true })).toBeVisible();
+    expect(await mobileApi.getAggregate(orderId)).toMatchObject({ data: { number: 10000, buyer: { name: "Ana" }, checkoutConfirmedAt: expect.any(String), paymentStatus: "pending" } });
+    expect(await mobileApi.listAggregates({ page: 1, customer: "all" })).toMatchObject({ data: { total: 2, items: expect.arrayContaining([expect.objectContaining({ number: 10000, checkoutConfirmedAt: expect.any(String) })]) } });
     await page.reload();
     await browserExpect(page.getByText("Confirmado por el comprador", { exact: true })).toBeVisible();
     await browserExpect(page.getByText("Ana", { exact: true })).toBeVisible();

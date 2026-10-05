@@ -133,7 +133,7 @@ export default function OrderHistoryScreen() {
             title={criteria.page === 1 && criteria.customer.kind === "all" && !criteria.fromDay && !criteria.throughDay ? t('noOrders') : t('noResults')}
             description={t('ordersEmptyHint')} />}
           renderItem={({ item }) => <ListRow title={item.buyer !== null ? item.buyer.name ?? item.buyer.phone : t('generalPublic')}
-            description={`${t("orderNumber", { number: item.number })} · ${orderStatusLabel(item.status, language)} · ${limaDate(item.createdAt, locale)}`}
+            description={`${t("orderNumber", { number: item.number })}${item.checkoutEnabledAt ? ` · ${t(item.status === "cancelled" ? "checkoutCancelled" : item.checkoutConfirmedAt ? "checkoutConfirmed" : "checkoutPending")}` : ""} · ${orderStatusLabel(item.status, language)} · ${limaDate(item.createdAt, locale)}`}
             trailing={<ThemedText type="smallBold">{money(item.total.amount, item.total.currency, locale)}</ThemedText>}
             onPress={() => router.push(`/orders/${item.id}`)} />}
           ListFooterComponent={items.length ? <View style={styles.row}>

@@ -39,6 +39,7 @@ export type OrderListCriteria = Readonly<{
 }>;
 
 type Api = Readonly<{
+  enableCheckout: (orderId: string) => Promise<Result<Readonly<{ url: string }>, OrderRequestError>>;
   listAggregates: (input: ListOrderAggregatesRequest) => Promise<Result<z.infer<typeof listOrderAggregatesResponseSchema>, OrderRequestError>>;
   getAggregate: (id: string) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
   list: (input: ListOrdersRequest) => Promise<Result<z.infer<typeof listOrdersResponseSchema>, OrderRequestError>>;
@@ -139,6 +140,7 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
       return input.success ? api.listAggregates(input.data) : input;
     },
     loadOrderAggregate: api.getAggregate,
+    enableOrderCheckout: api.enableCheckout,
     loadOrders: async (criteria: OrderListCriteria) => {
       const input = listRequest(criteria);
       return input.success ? api.list(input.data) : input;

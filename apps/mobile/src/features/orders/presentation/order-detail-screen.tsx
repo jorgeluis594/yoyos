@@ -1,3 +1,4 @@
+import * as Clipboard from "expo-clipboard";
 import { useCallback, useRef, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -30,6 +31,10 @@ export default function OrderDetailScreen() {
   const [order, setOrder] = useState<OrderAggregateResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [checkoutUrl, setCheckoutUrl] = useState("");
+  const [checkoutBusy, setCheckoutBusy] = useState(false);
+  const [checkoutMessage, setCheckoutMessage] = useState("");
+  const checkoutGeneration = useRef(0);
   const loaded = useRef(false);
   const companyId = state.status === "ready" ? state.company.id : "";
   const reload = useCallback(async () => {
@@ -40,11 +45,31 @@ export default function OrderDetailScreen() {
     setLoading(false);
   }, [id]);
   useFocusEffect(useCallback(() => {
+    checkoutGeneration.current += 1;
+    setCheckoutUrl(""); setCheckoutMessage("");
     if (companyId) void reload();
     return () => {
+      checkoutGeneration.current += 1;
       if (notice?.id === id && loaded.current) { void orders.clearPendingOrderConfirmation(companyId ?? "", id); clear(); }
     };
   }, [companyId, id, notice, clear, reload]));
+
+  async function obtainCheckoutLink() {
+    if (checkoutBusy) return;
+    const generation = checkoutGeneration.current;
+    setCheckoutBusy(true); setCheckoutMessage("");
+    try {
+      const result = await orders.enableOrderCheckout(id);
+      if (generation !== checkoutGeneration.current) return;
+      if (result.success) { await reload(); if (generation === checkoutGeneration.current) setCheckoutUrl(result.data.url); }
+      else setCheckoutMessage(t("checkoutLinkError"));
+    } catch { if (generation === checkoutGeneration.current) setCheckoutMessage(t("checkoutLinkError")); }
+    finally { setCheckoutBusy(false); }
+  }
+  async function copyCheckoutLink() {
+    try { setCheckoutMessage(t(await Clipboard.setStringAsync(checkoutUrl) ? "checkoutCopied" : "checkoutCopyManually")); }
+    catch { setCheckoutMessage(t("checkoutCopyManually")); }
+  }
 
   if (state.status !== "ready") return null;
   if (loading) return <ScreenState status="loading" title={t('loadingOrder')} />;
@@ -62,6 +87,15 @@ export default function OrderDetailScreen() {
       <View style={styles.heading}><ThemedText type="title" accessibilityRole="header">{t("orderNumber", { number: order.number })}</ThemedText><ThemedText>{title}</ThemedText>
         <ThemedText themeColor="textSecondary">{t('createdOn', { date: date(order.createdAt, locale) })}</ThemedText>
         {order.completedAt ? <ThemedText themeColor="textSecondary">{t('completedOn', { date: date(order.completedAt, locale) })}</ThemedText> : null}</View>
+      <View style={styles.section}>
+        <ThemedText type="subtitle" accessibilityRole="header">{t("checkoutTitle")}</ThemedText>
+        <ThemedText>{t(order.cancelled ? "checkoutCancelled" : order.checkoutConfirmedAt ? "checkoutConfirmed" : order.checkoutEnabledAt ? "checkoutPending" : "checkoutDisabled")}</ThemedText>
+        {!order.cancelled ? <>
+          <Button disabled={checkoutBusy} onPress={() => void obtainCheckoutLink()}>{t("getCheckoutLink")}</Button>
+          {checkoutUrl ? <><ThemedText selectable>{checkoutUrl}</ThemedText><Button variant="secondary" onPress={() => void copyCheckoutLink()}>{t("copyCheckoutLink")}</Button></> : null}
+          {checkoutMessage ? <ThemedText accessibilityRole="alert">{checkoutMessage}</ThemedText> : null}
+        </> : null}
+      </View>
       <View style={[styles.summary, { backgroundColor: theme.backgroundElement }]}>
         <ThemedText type="small" themeColor="textSecondary">{t('recordedTotal')}</ThemedText>
         <ThemedText type="title">{money(order.total.amount, order.total.currency, locale)}</ThemedText>

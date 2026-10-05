@@ -118,3 +118,22 @@ test.each(["success", "error"])("history ignores a replaced request's %s before 
   fireEvent.press(screen.getByText(/20[.,]00/));
   expect(mockPush).toHaveBeenCalledWith("/orders/latest");
 });
+
+test("history distinguishes checkout states and preserves numbers beyond 9999", async () => {
+  const date = "2026-10-05T00:00:00.000Z";
+  const states = [
+    { number: 1001, checkoutEnabledAt: null, checkoutConfirmedAt: null, status: "active" },
+    { number: 9999, checkoutEnabledAt: date, checkoutConfirmedAt: null, status: "active" },
+    { number: 10000, checkoutEnabledAt: date, checkoutConfirmedAt: date, status: "active" },
+    { number: 10001, checkoutEnabledAt: date, checkoutConfirmedAt: date, status: "cancelled" },
+  ];
+  mockLoadOrders.mockResolvedValue(ok({ page: 1, pageSize: 20, total: 4, items: states.map((state) => ({
+    ...state, id: String(state.number), buyer: null, createdAt: date, completedAt: null,
+    paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false, total: { amount: 10, currency: "PEN" },
+  })) }));
+  const screen = render(<OrderHistoryScreen />);
+  await screen.findByText(/Pedido #10000 · Confirmado por el comprador/);
+  expect(screen.getByText(/Pedido #9999 · Pendiente de confirmación/)).toBeTruthy();
+  expect(screen.getByText(/Pedido #10001 · Pedido cancelado/)).toBeTruthy();
+  expect(screen.getByText(/Pedido #1001 · Orden activa/)).toBeTruthy();
+});
