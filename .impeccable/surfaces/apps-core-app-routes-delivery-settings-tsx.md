@@ -7,10 +7,10 @@ related_targets: ["apps/core/app/routes/private-layout.tsx"]
 
 # Delivery settings
 
-Operate surface, web only. Inherits the compact caramel system in DESIGN.md. Sellers configure one store pickup point; initial state is disabled, null point, version 0. Disabling retains the configured point. A supplied point requires complete name/address with trimmed values; optional instructions normalize to null when blank.
+Operate surface, web only. Inherits the compact caramel system in DESIGN.md. Sellers independently enable home delivery and store pickup via checkboxes; both start disabled, pickup point null, version 0. Disabling retains the configured point. A supplied point requires complete name/address with trimmed values; optional instructions normalize to null when blank.
 
-Saving uses optimistic version checks. A conflict retains the draft and disables saving until explicit full reload. Successful confirmation resets fields and version to the saved response. Pending controls are disabled; feedback uses alert/status roles.
+Saving sends complete settings with optimistic version checks. A conflict retains both flags and pickup draft and disables saving until explicit full reload. Successful confirmation resets fields and version to the saved response. Pending controls are disabled; feedback uses alert/status roles.
 
-Navigation exposes the settings entry with aria-current and a visible Check for the active page. Reviewer’s sole fix was applied; final desktop/mobile recaptures confirm the fix; reviewer scored it resolved (ship).
+Navigation exposes the settings entry with aria-current and a visible Check for the active page. Reviewer `home_settings_review`: ship; updated 1280/390 captures show readable scope. Lint/typecheck, core unit, mobile Jest, and focused web E2E passed.
 
 Evidence: `.impeccable/review/delivery-settings-desktop.png`, `.impeccable/review/delivery-settings-mobile.png`; E2E: `apps/core/tests/e2e/delivery-settings.spec.ts`.

@@ -77,6 +77,11 @@ export default function DeliverySettingsScreen() {
           <Field disabled={busy}><FieldLabel>{t("pickupAddress")}</FieldLabel><Input value={draft.pickupAddress} onChangeText={value => setText("pickupAddress", value)} maxLength={500} multiline accessibilityLabel={t("pickupAddress")} /></Field>
           <Field disabled={busy}><FieldLabel>{t("pickupInstructions")}</FieldLabel><Input value={draft.pickupInstructions} onChangeText={value => setText("pickupInstructions", value)} maxLength={1000} multiline accessibilityLabel={t("pickupInstructions")} /></Field></FieldGroup>
       </View>
+      <View style={styles.section}><ThemedText type="subtitle" accessibilityRole="header">{t("homeDeliveryTitle")}</ThemedText>
+        <View style={styles.toggle}><ThemedText style={styles.label}>{t("homeDeliveryEnabled")}</ThemedText><Switch accessibilityLabel={t("homeDeliveryEnabled")}
+          value={draft.homeEnabled} disabled={busy} hitSlop={10} trackColor={{ true: theme.primary }}
+          onValueChange={value => { setDraft({ ...draft, homeEnabled: value }); setSaved(false); }} /></View>
+      </View>
       {error ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t(error)}</ThemedText> : null}
       {saved ? <ThemedText accessibilityLiveRegion="polite">{t("deliverySettingsSaved")}</ThemedText> : null}
       <Button onPress={() => void save()} disabled={busy || conflict} loading={busy}>{t("saveDeliverySettings")}</Button>

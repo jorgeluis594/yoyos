@@ -72,3 +72,22 @@ test("a failed save keeps edited data and a pending save prevents duplicate subm
   expect(screen.getByLabelText("Nombre del punto de recojo").props.value).toBe("Draft store");
   expect(screen.queryByText("Configuración guardada.")).toBeNull();
 });
+
+
+test("home can be enabled alone and store changes preserve its enablement", async () => {
+  save.mockResolvedValueOnce(ok({ version: 1, home: { enabled: true }, store: { enabled: false, pickupPoint: null } }))
+    .mockResolvedValueOnce(ok({ version: 2, home: { enabled: true }, store: { enabled: true, pickupPoint: point } }));
+  const screen = render(<DeliverySettingsScreen />);
+  await screen.findByText("Entrega a domicilio");
+  expect(screen.getByLabelText("Ofrecer entrega a domicilio").props.value).toBe(false);
+  fireEvent(screen.getByLabelText("Ofrecer entrega a domicilio"), "valueChange", true);
+  fireEvent.press(screen.getByText("Guardar configuración"));
+  await screen.findByText("Configuración guardada.");
+  expect(save).toHaveBeenLastCalledWith({ expectedVersion: 0, homeEnabled: true, storeEnabled: false, pickupName: "", pickupAddress: "", pickupInstructions: "" });
+  fireEvent(screen.getByLabelText("Ofrecer recojo en tienda"), "valueChange", true);
+  fireEvent.changeText(screen.getByLabelText("Nombre del punto de recojo"), "Store");
+  fireEvent.changeText(screen.getByLabelText("Dirección"), "Original");
+  fireEvent.press(screen.getByText("Guardar configuración"));
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+  expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ expectedVersion: 1, homeEnabled: true, storeEnabled: true }));
+});
