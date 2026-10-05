@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { browserExpect, expect, test } from "@core/tests/e2e/fixtures";
+import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
 import { products } from "@core/src/features/products/composition";
 import { orders } from "@core/src/features/orders/composition";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
@@ -144,4 +144,57 @@ test("failed network requests recover pending orders and lost responses recover 
     await browserExpect(page.getByRole("heading", { name: "Pedido confirmado", exact: true })).toBeVisible();
     expect(await f.read()).toEqual(persisted);
   } finally { await page.unrouteAll(); await f.cleanup(); }
+});
+
+test("seller copies a stable link and sees buyer confirmation separately from payment", async ({ page }) => {
+  const email = `checkout-seller-${randomUUID()}@example.test`;
+  const companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "Seller checkout", country: "PE" });
+  const buyer = await page.context().browser()!.newContext({ baseURL: "http://127.0.0.1:4173", viewport: { width: 390, height: 844 } });
+  try {
+    const product = await withTenantIsolation(companyId, () => products.create({ name: "Producto compartido", currency: "PEN", variants: [{ attributes: {}, salePrice: 10, initialStock: 3 }] }));
+    if (!product.success) throw new Error("Product fixture failed");
+    const variantId = await withTenantIsolation(companyId, async () => (await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } })).id);
+    const firstId = randomUUID();
+    const orderId = randomUUID();
+    expect((await page.request.post("/api/orders", { data: { id: firstId, contactId: null, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
+    await withTenantIsolation(companyId, async () => { await prisma.company.update({ where: { id: companyId }, data: { nextOrderNumber: 10000n } }); });
+    expect((await page.request.post("/api/orders", { data: { id: orderId, contactId: null, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
+    await page.goto(`/es-PE/orders/${orderId}`);
+    await browserExpect(page.getByRole("heading", { name: "Pedido #10000" })).toBeVisible();
+    await browserExpect(page.getByText("Enlace aún no habilitado", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Obtener enlace", exact: true }).click();
+    const link = page.getByLabel("Enlace del pedido", { exact: true });
+    await browserExpect(link).toHaveValue(`http://127.0.0.1:4173/checkout/${companyId}/${orderId}`);
+    await browserExpect(page.getByText("Pendiente de confirmación", { exact: true })).toBeVisible();
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.getByRole("button", { name: "Copiar enlace", exact: true }).click();
+    await browserExpect(page.getByRole("status")).toHaveText("Enlace copiado");
+    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    expect(copied).toBe(await link.inputValue());
+    await page.getByRole("button", { name: "Obtener enlace", exact: true }).click();
+    await browserExpect(link).toHaveValue(copied);
+    const buyerPage = await buyer.newPage();
+    await buyerPage.goto(copied);
+    await buyerPage.getByLabel("Nombre", { exact: true }).fill("Ana");
+    await buyerPage.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
+    await buyerPage.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
+    await browserExpect(buyerPage.getByRole("heading", { name: "Pedido confirmado", exact: true })).toBeVisible();
+    await page.reload();
+    await browserExpect(page.getByText("Confirmado por el comprador", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Ana", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Pendiente: S/ 10.00", { exact: true })).toBeVisible();
+    await page.goto("/es-PE/orders");
+    const table = page.getByRole("table", { name: "Órdenes" });
+    await browserExpect(table.getByText("Pedido #10000", { exact: true })).toBeVisible();
+    await browserExpect(table.getByText("Confirmado por el comprador", { exact: true })).toBeVisible();
+    await browserExpect(table.getByText("Pedido #1001", { exact: true })).toBeVisible();
+    await browserExpect(table.getByText("Pendiente de confirmación", { exact: true })).toHaveCount(0);
+  } finally {
+    await buyer.close();
+    await withTenantIsolation(companyId, async () => {
+      await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
+      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+      await systemPrisma.user.deleteMany({ where: { email } }); await prisma.company.delete({ where: { id: companyId } });
+    });
+  }
 });

@@ -24,6 +24,8 @@ const es = {
   },
   orders: {
     orderNumber: "Pedido #{{number}}",
+    checkout: "Confirmación del comprador", checkoutDisabled: "Enlace aún no habilitado", checkoutPending: "Pendiente de confirmación", checkoutConfirmed: "Confirmado por el comprador", checkoutCancelled: "Pedido cancelado",
+    getCheckoutLink: "Obtener enlace", checkoutLink: "Enlace del pedido", copyCheckoutLink: "Copiar enlace", copied: "Enlace copiado", copyManually: "Selecciona el enlace y cópialo manualmente.", checkoutLinkError: "No se pudo obtener el enlace. Inténtalo de nuevo.",
     status: {"active": "Orden activa", "cancelled": "Orden cancelada", "completed": "Venta completada"},
     deliveryStatus: {"pending": "Pendiente", "shipped": "Despachada", "delivered": "Entregada"},
     documentType: {"national_id": "Documento de identidad", "passport": "Pasaporte", "foreign_id": "Documento de extranjería"},
@@ -81,6 +83,8 @@ const pt = {
   },
   orders: {
     orderNumber: "Pedido #{{number}}",
+    checkout: "Confirmação do comprador", checkoutDisabled: "Link ainda não habilitado", checkoutPending: "Aguardando confirmação", checkoutConfirmed: "Confirmado pelo comprador", checkoutCancelled: "Pedido cancelado",
+    getCheckoutLink: "Obter link", checkoutLink: "Link do pedido", copyCheckoutLink: "Copiar link", copied: "Link copiado", copyManually: "Selecione o link e copie manualmente.", checkoutLinkError: "Não foi possível obter o link. Tente novamente.",
     status: {"active": "Pedido ativo", "cancelled": "Pedido cancelado", "completed": "Venda concluída"},
     deliveryStatus: {"pending": "Pendente", "shipped": "Enviada", "delivered": "Entregue"},
     documentType: {"national_id": "Documento de identidade", "passport": "Passaporte", "foreign_id": "Documento de estrangeiro"},
