@@ -48,7 +48,7 @@ export SMTP_HOST=localhost
 export SMTP_PORT=${MAILPIT_SMTP_PORT:-1025}
 export MAILPIT_URL=http://127.0.0.1:${MAILPIT_UI_PORT:-8025}
 if [ "$1" = e2e ]; then
-  export BETTER_AUTH_URL=http://127.0.0.1:4173
+  export BETTER_AUTH_URL=http://127.0.0.1:${CORE_E2E_PORT:-4173}
 else
   export BETTER_AUTH_URL=http://localhost:3000
 fi

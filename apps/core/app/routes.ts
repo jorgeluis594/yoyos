@@ -18,6 +18,7 @@ export default [
     route("orders/new", "routes/order-new.tsx", { id: "public-order-new" }),
     route("orders", "routes/order-list.tsx", { id: "public-order-list" }),
     route("orders/:orderId", "routes/order-detail.tsx", { id: "public-order-detail" }),
+    route("settings/payments", "routes/payment-settings.tsx", { id: "public-payment-settings" }),
   ]),
   route(":locale", "routes/locale-layout.tsx", [
     index("routes/home.tsx"),
@@ -36,6 +37,7 @@ export default [
       route("orders/new", "routes/order-new.tsx", { id: "localized-order-new" }),
       route("orders", "routes/order-list.tsx", { id: "localized-order-list" }),
       route("orders/:orderId", "routes/order-detail.tsx", { id: "localized-order-detail" }),
+      route("settings/payments", "routes/payment-settings.tsx", { id: "localized-payment-settings" }),
     ]),
   ]),
 ] satisfies RouteConfig;

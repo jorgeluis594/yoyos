@@ -134,4 +134,5 @@ export type OrderApiError = z.infer<typeof orderApiErrorSchema>;
 export const orderActionErrorSchema = z.strictObject({ code: z.string(), error: z.string() });
 export const newOrderLoaderSchema = z.strictObject({ products: orderCatalogSchema, contacts: orderContactsSchema, base: z.string() });
 export const orderListLoaderSchema = z.strictObject({ list: listOrderAggregatesResponseSchema, filters: listOrderAggregatesSchema, contacts: orderContactsSchema, customerSearch: z.string(), base: z.string() });
-export const orderDetailLoaderSchema = z.strictObject({ order: orderAggregateSchema, base: z.string() });
+export const orderDetailLoaderSchema = z.strictObject({ order: orderAggregateSchema, base: z.string(), manualPaymentId: z.uuid(),
+  receiptUrls: z.record(z.string(), z.url()) });
