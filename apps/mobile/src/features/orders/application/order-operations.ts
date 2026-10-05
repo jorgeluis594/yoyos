@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { listOrderAggregatesResponseSchema, listOrderAggregatesSchema, listOrdersResponseSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema,
-  type CreateOrderRequest, type ListOrderAggregatesRequest, type ListOrdersRequest, type OrderAggregateResponse, type OrderApiIssue } from "@shared/contracts/orders";
+  type SetOrderDeliveryRequest, type CreateOrderRequest, type ListOrderAggregatesRequest, type ListOrdersRequest, type OrderAggregateResponse, type OrderApiIssue } from "@shared/contracts/orders";
 import { err, ok } from "@shared/functional";
 import type { Money } from "@shared/money";
 import { limaMidnightUtc, nextCalendarDay } from "@shared/orders-date";
@@ -40,6 +40,7 @@ export type OrderListCriteria = Readonly<{
 }>;
 
 type Api = Readonly<{
+  setDelivery: (orderId: string, input: SetOrderDeliveryRequest) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
   listAggregates: (input: ListOrderAggregatesRequest) => Promise<Result<z.infer<typeof listOrderAggregatesResponseSchema>, OrderRequestError>>;
   getAggregate: (id: string) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
   list: (input: ListOrdersRequest) => Promise<Result<z.infer<typeof listOrdersResponseSchema>, OrderRequestError>>;
@@ -135,6 +136,7 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
     return ok({ kind: "uncertain", pending: saved.data });
   };
   return {
+    setDelivery: api.setDelivery,
     loadMixedOrders: async (criteria: OrderListCriteria) => {
       const input = mixedListRequest(criteria);
       return input.success ? api.listAggregates(input.data) : input;

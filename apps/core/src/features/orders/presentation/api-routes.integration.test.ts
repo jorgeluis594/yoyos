@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, expect, test, vi } from "vitest";
+import { err, ok } from "@shared/functional";
+import { createOrderApi } from "@mobile/features/orders/infrastructure/order-api";
 import { orders, setConfiguredOrderDelivery } from "@core/src/features/orders/composition";
 import { orderAggregateSchema } from "@shared/contracts/orders";
 import { app } from "@core/src/app";
@@ -80,17 +82,25 @@ test("delivery HTTP resolves real configuration, preserves snapshots, replaces a
   expect((await call("/api/delivery-settings", seller.cookie, { expectedVersion: 0, store }, "PUT")).status).toBe(200);
   expect((await call("/api/orders/pending", seller.cookie, { id: orderId, contactId: seller.contactId,
     items: [{ variantId: seller.variantId, quantity: 2 }] })).status).toBe(201);
-  const input = { delivery: { method: "store", recipient: { name: "Destinatario distinto", phone: "987", identity: { kind: "absent" } } }, chargeDeliveryToCustomer: true };
+  const input = { delivery: { method: "store", recipient: { name: "Destinatario distinto", phone: "987", identity: { kind: "absent" } } }, chargeDeliveryToCustomer: true } as const;
+  const mobile = createOrderApi(async (path, init) => {
+    const response = await fetch(`${base}${path}`, { ...init, headers: { ...Object.fromEntries(new Headers(init?.headers)), origin, cookie: seller.cookie } });
+    const body: unknown = await response.json();
+    return response.ok ? ok(body) : err({ code: "API_ERROR", message: "HTTP failure", http: { status: response.status, body } });
+  });
+
   const unresolved = await call(`/api/orders/${orderId}/delivery`, seller.cookie, input, "PUT");
   expect(unresolved.status).toBe(422);
   expect(await unresolved.json()).toMatchObject({ code: "DELIVERY_UNAVAILABLE" });
+  expect(await mobile.setDelivery(orderId, input)).toMatchObject({ success: false, error: { code: "DELIVERY_UNAVAILABLE" } });
   expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toMatchObject({ delivery: null, total: { amount: 20 }, stockDeducted: false });
   expect((await call(`/api/orders/${orderId}/delivery`, second.cookie, input, "PUT")).status).toBe(404);
   vi.spyOn(orders, "setDelivery").mockImplementation((value, context) => setConfiguredOrderDelivery(value, context,
     async (_snapshot, _authorized, currency) => ({ success: true, data: { amount: 3, currency } })));
-  const assigned = await call(`/api/orders/${orderId}/delivery`, seller.cookie, input, "PUT");
-  expect(assigned.status).toBe(200);
-  const first = orderAggregateSchema.parse(await assigned.json());
+  const assigned = await mobile.setDelivery(orderId, input);
+  expect(assigned.success).toBe(true);
+  if (!assigned.success) throw new Error("Expected mobile assignment");
+  const first = assigned.data;
   expect(first).toMatchObject({ delivery: { method: "store", pickupPoint: store.pickupPoint,
     recordedBy: { kind: "seller", userId: seller.userId } }, total: { amount: 23 }, deliveryCost: { amount: 3 }, deliveryCharge: { amount: 3 } });
   expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toEqual(first);

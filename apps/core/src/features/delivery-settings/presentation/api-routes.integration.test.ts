@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, expect, test } from "vitest";
+import { err, ok } from "@shared/functional";
+import { createDeliverySettingsApi } from "@mobile/features/delivery-settings/infrastructure/delivery-settings-api";
 import { deliverySettingsSchema } from "@shared/contracts/delivery-settings";
 import { app } from "@core/src/app";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
@@ -81,4 +83,20 @@ test("authenticated configuration HTTP persists, conflicts, rejects manipulation
   const disabled = { ...store, enabled: false };
   expect((await request("/api/delivery-settings", seller.cookie, { expectedVersion: 1, store: disabled }, "PUT")).status).toBe(200);
   expect(await (await request("/api/delivery-settings", seller.cookie)).json()).toEqual({ version: 2, store: disabled });
+});
+
+
+test("mobile settings adapter exchanges authenticated settings and preserves a real stale-version conflict", async () => {
+  const seller = await fixture();
+  const mobile = createDeliverySettingsApi(async (path, init) => {
+    const response = await fetch(`${base}${path}`, { ...init, headers: { ...Object.fromEntries(new Headers(init?.headers)), origin, cookie: seller.cookie } });
+    const body: unknown = await response.json();
+    return response.ok ? ok(body) : err({ code: "API_ERROR", message: "HTTP failure", http: { status: response.status, body } });
+  });
+  expect(await mobile.get()).toEqual({ success: true, data: { version: 0, store: { enabled: false, pickupPoint: null } } });
+  const input = { expectedVersion: 0, store: { enabled: true as const, pickupPoint: { name: " Store ", address: " Lima ", instructions: null } } };
+  const saved = await mobile.save(input);
+  expect(saved).toMatchObject({ success: true, data: { version: 1, store: { pickupPoint: { name: "Store", address: "Lima" } } } });
+  expect(await mobile.save(input)).toMatchObject({ success: false, error: { code: "DELIVERY_SETTINGS_CONFLICT" } });
+  expect(await mobile.get()).toEqual(saved);
 });

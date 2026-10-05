@@ -60,3 +60,33 @@ test("order API reads mixed summaries and validates complete aggregate states", 
   const bad = createOrderApi(async () => ok({ ...order, stockDeducted: "yes" }));
   expect(await bad.getAggregate(id(1))).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
 });
+
+test("delivery API rejects forged snapshots and preserves applicable errors with no retries", async () => {
+  const input = { delivery: { method: "store" as const, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } } }, chargeDeliveryToCustomer: false };
+  const request = jest.fn(async () => err({ code: "API_ERROR" as const, message: "Failed", http: { status: 422, body: { code: "DELIVERY_METHOD_DISABLED", error: "Disabled" } } }));
+  const api = createOrderApi(request);
+  expect(await api.setDelivery(id(1), { ...input, delivery: { ...input.delivery, recordedBy: { kind: "buyer" } } } as typeof input))
+    .toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
+  expect(request).not.toHaveBeenCalled();
+  expect(await api.setDelivery(id(1), input)).toMatchObject({ success: false, error: { code: "DELIVERY_METHOD_DISABLED" } });
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(request).toHaveBeenCalledWith(`/api/orders/${id(1)}/delivery`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
+  const mismatch = createOrderApi(async () => err({ code: "API_ERROR", message: "Failed", http: { status: 409, body: { code: "DELIVERY_METHOD_DISABLED", error: "Disabled" } } }));
+  expect(await mismatch.setDelivery(id(1), input)).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+});
+
+test("delivery API validates the complete authored snapshot and updated aggregate identity", async () => {
+  const total = { amount: 10, currency: "PEN" as const };
+  const zero = { amount: 0, currency: "PEN" as const };
+  const delivery = { method: "store" as const, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } },
+    pickupPoint: { name: "Store", address: "Lima", instructions: null }, recordedBy: { kind: "seller" as const, userId: "current-editor" } };
+  const input = { delivery: { method: "store" as const, recipient: delivery.recipient }, chargeDeliveryToCustomer: false };
+  const order = { id: id(1), companyId: id(2), sellerId: "original-seller", customer: { kind: "general_public" }, createdAt: "2026-10-05T12:00:00.000Z", completedAt: null,
+    status: "active", paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false, total, paidAmount: zero, balanceDue: total, overpaidAmount: zero,
+    cancelled: false, delivery, payments: [], itemsTotal: total, deliveryCost: { amount: 3, currency: "PEN" }, deliveryCharge: zero,
+    items: [{ id: id(3), variantId: id(4), productName: "Item", variantAttributes: {}, sku: null, quantity: 1, unitPrice: total, subtotal: total }] };
+  expect(await createOrderApi(async () => ok(order)).setDelivery(id(1), input)).toMatchObject({ success: true, data: { delivery, total } });
+  for (const invalid of [{ ...order, id: id(5) }, { ...order, delivery: null }, { ...order, delivery: { ...delivery, recordedBy: undefined } }, { ...order, delivery: { ...delivery, pickupPoint: undefined } }]) {
+    expect(await createOrderApi(async () => ok(invalid)).setDelivery(id(1), input)).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+  }
+});
