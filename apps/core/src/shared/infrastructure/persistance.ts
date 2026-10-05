@@ -3,7 +3,7 @@ import { PrismaClient, type Prisma } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import type { AppError, Result } from "@shared/result";
 
-type TransactionScope = { companyId: string; tx: Prisma.TransactionClient; aborted: boolean; abortCause?: unknown; active: boolean };
+type TransactionScope = { companyId: string; tx: Prisma.TransactionClient; aborted: boolean; abortCause?: unknown; active: boolean; afterCommit: (() => void)[] };
 type PrismaState = {
   base: PrismaClient;
   companies: AsyncLocalStorage<string>;
@@ -43,6 +43,12 @@ export function requireActiveTransaction(companyId: string): void {
 
 export function requireNoActiveTransaction(): void {
   if (transactions.getStore()?.active) throw new Error("Payment recording requires independent transactions");
+}
+
+export function afterTransactionCommit(observe: () => void): void {
+  const scope = transactions.getStore();
+  if (scope?.active) scope.afterCommit.push(observe);
+  else observe();
 }
 
 async function execute<T>(callback: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
@@ -91,11 +97,13 @@ export async function withinTransaction<R extends OperationResult>(callback: () 
     } catch (error) { scope.aborted = true; scope.abortCause ??= error; throw error; }
   }
   let failedResult: R | undefined;
+  let committedResult: R;
+  const afterCommit: (() => void)[] = [];
   const rollback = new Error("Rollback requested by failed Result");
   try {
-    return await base.$transaction(async (tx) => {
+    committedResult = await base.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT set_config('app.company_id', ${companyId}, true)`;
-      const activeScope: TransactionScope = { companyId, tx, aborted: false, active: true };
+      const activeScope: TransactionScope = { companyId, tx, aborted: false, active: true, afterCommit };
       try {
         const result = await transactions.run(activeScope, callback);
         if (!result.success) failedResult = result;
@@ -110,4 +118,6 @@ export async function withinTransaction<R extends OperationResult>(callback: () 
     }
     throw error;
   }
+  for (const observe of afterCommit) observe();
+  return committedResult;
 }

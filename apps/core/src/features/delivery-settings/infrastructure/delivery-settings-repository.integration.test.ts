@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { err, ok } from "@shared/functional";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
 import { saveDeliverySettings } from "@core/src/features/delivery-settings/application/delivery-settings";
 import { readDeliverySettings, writeDeliverySettings } from "@core/src/features/delivery-settings/infrastructure/delivery-settings-repository";
 import { prisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
+import { log } from "@core/src/shared/infrastructure/logger";
 
 const point = { name: "Tienda principal", address: "Av. Lima 123", instructions: "Puerta azul" };
 const store = { enabled: true as const, pickupPoint: point };
@@ -70,6 +71,7 @@ test("serializes two initial creations and same-version edits with no duplicate 
 
 test("rolls back configuration writes when an enclosing transaction rejects", async () => {
   const f = await fixture();
+  const summary = vi.spyOn(log, "info").mockImplementation(() => {});
   try {
     await f.run(async () => {
       const result = await withinTransaction(async () => {
@@ -78,9 +80,23 @@ test("rolls back configuration writes when an enclosing transaction rejects", as
       });
       expect(result.success).toBe(false);
       expect(await deliverySettings.get(f.context)).toMatchObject({ success: true, data: { version: 0 } });
-      await expect(withinTransaction(() => deliverySettings.save({ expectedVersion: 0, store }, f.context))).rejects.toThrow("independent transactions");
+      expect(await withinTransaction(async () => {
+        expect((await deliverySettings.save({ expectedVersion: 0, store }, f.context)).success).toBe(true);
+        expect(summary).not.toHaveBeenCalled();
+        return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Controlled failure after nested save" });
+      })).toMatchObject({ success: false });
+      expect(summary).not.toHaveBeenCalled();
+      expect(await deliverySettings.get(f.context)).toMatchObject({ success: true, data: { version: 0 } });
+      await withinTransaction(async () => {
+        expect((await deliverySettings.save({ expectedVersion: 0, store }, f.context)).success).toBe(true);
+        expect(summary).not.toHaveBeenCalled();
+        return ok(null);
+      });
+      expect(summary).toHaveBeenCalledOnce();
+      expect(summary.mock.calls[0][0]).toMatchObject({ event: "delivery_settings_saved", savedVersion: 1, transactionOutcome: "committed" });
+      expect(JSON.stringify(summary.mock.calls)).not.toContain(point.address);
     });
-  } finally { await f.cleanup(); }
+  } finally { summary.mockRestore(); await f.cleanup(); }
 });
 
 test("enforces relational constraints and keeps another company's settings inaccessible", async () => {
