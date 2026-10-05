@@ -41,7 +41,10 @@ export function createR2ImageStorage(config: Config): ImageStorage {
 
   return {
     async upload({ bytes, contentType }) {
-      if (!client) return failed("IMAGE_STORAGE_CONFIG_ERROR", "Image storage is not configured");
+      if (!client) {
+        log.error({ event: "image_storage_configuration_invalid", errorCode: "IMAGE_STORAGE_CONFIG_ERROR" }, "image_storage_configuration_invalid");
+        return failed("IMAGE_STORAGE_CONFIG_ERROR", "Image storage is not configured");
+      }
       const key = randomUUID();
       try {
         await client.send(new PutObjectCommand({ Bucket: config.bucket, Key: key, Body: bytes, ContentType: contentType }));

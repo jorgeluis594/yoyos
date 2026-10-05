@@ -32,7 +32,7 @@ export async function resolveBuyerOrderCompany(id: OrderId) {
   }
 }
 
-function mapPayment(row: DbAggregate["payments"][number]): Payment {
+function mapPaymentUnsafe(row: DbAggregate["payments"][number]): Payment {
   if (!isCurrency(row.currency)) throw new InvalidStoredOrderError("Invalid stored payment currency");
   let candidate: unknown;
   if (row.status === "reported") {
@@ -56,6 +56,15 @@ function mapPayment(row: DbAggregate["payments"][number]): Payment {
   const payment = parsePayment(candidate);
   if (!payment.success) throw new InvalidStoredOrderError("Invalid stored payment");
   return payment.data;
+}
+
+function mapPayment(row: DbAggregate["payments"][number]): Payment {
+  try { return mapPaymentUnsafe(row); }
+  catch (cause) {
+    if (cause instanceof InvalidStoredOrderError) log.error({ event: "invalid_stored_payment", paymentId: row.id,
+      errorCode: "INVALID_STORED_DATA" }, "invalid_stored_payment");
+    throw cause;
+  }
 }
 
 function paymentDataJson(payment: Payment): Prisma.InputJsonObject {

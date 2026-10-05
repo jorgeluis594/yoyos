@@ -10,6 +10,7 @@ import type { PaymentId } from "@core/src/features/orders/domain/order";
 
 export function buyerPaymentRoutes(images: express.Router) {
   const router = express.Router();
+  router.use((_request, response, next) => { response.set("Cache-Control", "no-store"); next(); });
   router.use("/:orderId", async (request, response, next) => {
     try {
       const access = await orders.resolveBuyerAccess(request.params.orderId as string);

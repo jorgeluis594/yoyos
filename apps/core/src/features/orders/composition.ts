@@ -112,14 +112,48 @@ export const orders = {
       findContact: findContactById, findVariant: findSellableVariant, saveOrder: savePendingOrder,
       savePayment, deductProductStock, saveStockDeduction, saveFulfillment,
       newItemId: () => randomUUID() as OrderItemId, newPaymentId: () => randomUUID() as PaymentId, clock: () => new Date() }),
-  registerPayment: (input: Parameters<typeof registerPayment>[0], context: Parameters<typeof registerPayment>[1]) =>
-    registerPayment(input, context, { transaction: paymentTransaction, findOrderForUpdate, savePayment, updatePayment, saveCompletion,
-      deductProductStock, saveStockDeduction, clock: () => new Date() }),
-  reportPayment: (input: Parameters<typeof reportPayment>[0], access: Parameters<typeof reportPayment>[1]) =>
-    reportPayment(input, access, { transaction: reportTransaction, findOrderForUpdate, findReceipt: findAvailablePublicImage,
-      savePayment, clock: () => new Date() }),
-  voidPayment: (input: Parameters<typeof voidPayment>[0], context: Parameters<typeof voidPayment>[1]) =>
-    voidPayment(input, context, { transaction: voidTransaction, findOrderForUpdate, updatePayment, saveCompletion, clock: () => new Date() }),
+  registerPayment: async (input: Parameters<typeof registerPayment>[0], context: Parameters<typeof registerPayment>[1]) => {
+    let applied = false;
+    const markSaved: typeof savePayment = async (...args) => { const result = await savePayment(...args); if (result.success) applied = true; return result; };
+    const markUpdated: typeof updatePayment = async (...args) => { const result = await updatePayment(...args); if (result.success) applied = true; return result; };
+    const result = await registerPayment(input, context, { transaction: paymentTransaction, findOrderForUpdate,
+      savePayment: markSaved, updatePayment: markUpdated, saveCompletion, deductProductStock, saveStockDeduction, clock: () => new Date() });
+    if (result.success) {
+      if (applied) log.info({ event: "payment_confirmed", paymentId: input.paymentId, actorKind: "seller", userId: context.userId,
+        source: input.source ?? "manual", stockOutcome: result.data.stock.kind, transactionOutcome: "committed" }, "payment_confirmed");
+      else log.debug({ event: "payment_operation_replayed", operation: "confirm", paymentId: input.paymentId }, "payment_operation_replayed");
+    } else if (result.error.code === "INSUFFICIENT_STOCK") log.warn({ event: "payment_confirmation_stock_rejected", paymentId: input.paymentId,
+      variantId: "variantId" in result.error ? result.error.variantId : undefined,
+      errorCode: result.error.code, transactionOutcome: "rolled_back" }, "payment_confirmation_stock_rejected");
+    else if (result.error.code === "PAYMENT_CONFLICT") log.debug({ event: "payment_operation_conflict", operation: "confirm",
+      paymentId: input.paymentId, errorCode: result.error.code }, "payment_operation_conflict");
+    return result;
+  },
+  reportPayment: async (input: Parameters<typeof reportPayment>[0], access: Parameters<typeof reportPayment>[1]) => {
+    let applied = false;
+    const markSaved: typeof savePayment = async (...args) => { const result = await savePayment(...args); if (result.success) applied = true; return result; };
+    const result = await reportPayment(input, access, { transaction: reportTransaction, findOrderForUpdate, findReceipt: findAvailablePublicImage,
+      savePayment: markSaved, clock: () => new Date() });
+    if (result.success) {
+      if (applied) log.info({ event: "payment_reported", paymentId: input.paymentId, imageId: input.receiptImageId,
+        actorKind: "buyer", outcome: "applied" }, "payment_reported");
+      else log.debug({ event: "payment_operation_replayed", operation: "report", paymentId: input.paymentId }, "payment_operation_replayed");
+    } else if (result.error.code === "PAYMENT_CONFLICT") log.debug({ event: "payment_operation_conflict", operation: "report",
+      paymentId: input.paymentId, errorCode: result.error.code }, "payment_operation_conflict");
+    return result;
+  },
+  voidPayment: async (input: Parameters<typeof voidPayment>[0], context: Parameters<typeof voidPayment>[1]) => {
+    let applied = false;
+    const markUpdated: typeof updatePayment = async (...args) => { const result = await updatePayment(...args); if (result.success) applied = true; return result; };
+    const result = await voidPayment(input, context, { transaction: voidTransaction, findOrderForUpdate,
+      updatePayment: markUpdated, saveCompletion, clock: () => new Date() });
+    if (result.success) {
+      if (applied) log.info({ event: "payment_voided", paymentId: input.paymentId, actorKind: "seller", userId: context.userId,
+        outcome: "applied", transactionOutcome: "committed" }, "payment_voided");
+      else log.debug({ event: "payment_operation_replayed", operation: "void", paymentId: input.paymentId }, "payment_operation_replayed");
+    }
+    return result;
+  },
   deductStock: (id: Parameters<typeof deductStock>[0], context: Parameters<typeof deductStock>[1]) =>
     deductStock(id, context, { transaction: stockTransaction, findOrderForUpdate, deductProductStock, saveStockDeduction }),
   create: (input: Parameters<typeof createOrder>[0], context: Parameters<typeof createOrder>[1]) =>

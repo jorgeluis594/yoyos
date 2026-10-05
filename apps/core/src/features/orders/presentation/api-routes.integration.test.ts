@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, expect, test } from "vitest";
+import { afterAll, expect, test, vi } from "vitest";
 import { app } from "@core/src/app";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { log } from "@core/src/shared/infrastructure/logger";
 
 const server = app.listen(0, "127.0.0.1");
 await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -97,10 +98,19 @@ test("buyer order link resolves one company and reports only its receipt", async
   await withTenantIsolation(seller.companyId, async () => {
     await prisma.image.create({ data: { id: imageId, storageKey: `test/${imageId}` } });
   });
+  const info = vi.spyOn(log, "info");
+  const debug = vi.spyOn(log, "debug");
   expect((await call(`${path}/reports`, undefined, { paymentId, receiptImageId: imageId }, "POST")).status).toBe(201);
   expect((await call(`${path}/reports`, undefined, { paymentId, receiptImageId: imageId }, "POST")).status).toBe(201);
   await withTenantIsolation(seller.companyId, async () => expect(await prisma.payment.count()).toBe(1));
   expect((await call(`${path}/reports`, undefined, { paymentId, receiptImageId: foreignImageId }, "POST")).status).toBe(409);
+  const paymentEvents = info.mock.calls.map(([entry]) => entry).filter((entry) => typeof entry === "object" && entry !== null && "event" in entry && entry.event === "payment_reported");
+  expect(paymentEvents).toEqual([{ event: "payment_reported", paymentId, imageId, actorKind: "buyer", outcome: "applied" }]);
+  expect(debug.mock.calls.map(([entry]) => entry)).toEqual(expect.arrayContaining([
+    { event: "payment_operation_replayed", operation: "report", paymentId },
+    { event: "payment_operation_conflict", operation: "report", paymentId, errorCode: "PAYMENT_CONFLICT" },
+  ]));
+  info.mockRestore(); debug.mockRestore();
   expect((await call(`${path}/images/${imageId}`)).status).toBe(404);
   expect((await call(`/api/orders/${orderId}/aggregate`)).status).toBe(401);
 });
