@@ -35,3 +35,35 @@ export function parseDeliverySettings(value: unknown): Result<DeliverySettings, 
 export function initialDeliverySettings(): DeliverySettings {
   return { version: 0, home: { enabled: false }, store: { enabled: false, pickupPoint: null } };
 }
+
+export type Courier = Readonly<{ id: CourierId; name: string; enabled: boolean }>;
+export type CourierInput =
+  | Readonly<{ kind: "new"; name: string; enabled: boolean }>
+  | Readonly<{ kind: "existing"; id: CourierId; name: string; enabled: boolean }>;
+
+const courierName = z.string().trim().min(1).max(120);
+const courierInput = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("new"), name: courierName, enabled: z.boolean() }),
+  z.strictObject({ kind: z.literal("existing"), id: z.uuid(), name: courierName, enabled: z.boolean() }),
+]);
+
+export function prepareCouriers(input: Readonly<{ agencyEnabled: boolean; couriers: readonly CourierInput[] }>,
+  current: readonly Courier[], generateId: () => CourierId): Result<readonly Courier[], DeliverySettingsError> {
+  const parsed = z.strictObject({ agencyEnabled: z.boolean(), couriers: z.array(courierInput) }).safeParse(input);
+  if (!parsed.success) return err({ code: "INVALID_DELIVERY_SETTINGS", message: "Invalid couriers" });
+  const existing = new Set(current.map(courier => courier.id as string));
+  const retained = new Set<string>();
+  for (const courier of parsed.data.couriers) {
+    if (courier.kind === "new") continue;
+    if (!existing.has(courier.id) || retained.has(courier.id))
+      return err({ code: "INVALID_DELIVERY_SETTINGS", message: "Courier identity does not match the current configuration" });
+    retained.add(courier.id);
+  }
+  if (retained.size !== existing.size) return err({ code: "INVALID_DELIVERY_SETTINGS", message: "Existing couriers must be retained" });
+  if (parsed.data.agencyEnabled && !parsed.data.couriers.some(courier => courier.enabled))
+    return err({ code: "INVALID_DELIVERY_SETTINGS", message: "Agency delivery requires an enabled courier" });
+  const couriers = parsed.data.couriers.map(courier => ({ id: courier.kind === "existing" ? courier.id as CourierId : generateId(), name: courier.name, enabled: courier.enabled }));
+  if (new Set(couriers.map(courier => courier.id)).size !== couriers.length || couriers.some(courier => !z.uuid().safeParse(courier.id).success))
+    return err({ code: "INVALID_DELIVERY_SETTINGS", message: "Generated courier identities must be unique UUIDs" });
+  return ok(couriers);
+}
