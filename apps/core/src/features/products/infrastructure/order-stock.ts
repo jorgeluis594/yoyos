@@ -30,13 +30,14 @@ export async function findSellableVariant(id: string) {
   }
 }
 
-export async function deductProductStock(variantId: VariantId, quantity: number) {
+export async function deductProductStock(variantId: VariantId, quantity: number, context?: Readonly<{ operation: string; orderId: string }>) {
   try {
     const result = await prisma.productStock.updateMany({ where: { variantId, quantity: { gte: BigInt(quantity) } }, data: { quantity: { decrement: BigInt(quantity) } } });
     return result.count === 1 ? ok<null>(null) : err<StockError>({ code: "INSUFFICIENT_STOCK", message: "Not enough stock", variantId });
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
-    log.error({ event: "unable_to_deduct_product_stock", err: cause }, "unable_to_deduct_product_stock");
+    log.error({ event: "unable_to_deduct_product_stock", variantId, operation: context?.operation, orderId: context?.orderId,
+      stage: "deduct_stock", errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "unable_to_deduct_product_stock");
     return err<StockError>({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to update stock" });
   }
 }

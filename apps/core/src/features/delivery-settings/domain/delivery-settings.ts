@@ -8,8 +8,9 @@ export type StoreDeliverySettings =
   | Readonly<{ enabled: false; pickupPoint: PickupPoint | null }>
   | Readonly<{ enabled: true; pickupPoint: PickupPoint }>;
 export type DeliverySettings = Readonly<{ version: number; store: StoreDeliverySettings }>;
-export type DeliverySettingsError = Readonly<{
-  code: "INVALID_DELIVERY_SETTINGS" | "DELIVERY_SETTINGS_CONFLICT" | "PERSISTENCE_UNAVAILABLE" | "INVALID_STORED_DATA";
+export type DeliverySettingsReadError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE" | "INVALID_STORED_DATA"; message: string }>;
+export type DeliverySettingsError = DeliverySettingsReadError | Readonly<{
+  code: "INVALID_DELIVERY_SETTINGS" | "DELIVERY_SETTINGS_CONFLICT";
   message: string;
   currentVersion?: number;
   reason?: "stale_version" | "concurrent_creation";

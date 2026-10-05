@@ -3,15 +3,14 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { prisma, requireActiveTransaction } from "@core/src/shared/infrastructure/persistance";
-import { parseDeliverySettings, type DeliverySettings, type DeliverySettingsError } from "@core/src/features/delivery-settings/domain/delivery-settings";
+import { parseDeliverySettings, type DeliverySettings, type DeliverySettingsError, type DeliverySettingsReadError } from "@core/src/features/delivery-settings/domain/delivery-settings";
 
 export function isSettingsPersistenceFailure(cause: unknown): boolean {
   return cause instanceof Prisma.PrismaClientKnownRequestError || cause instanceof Prisma.PrismaClientUnknownRequestError || cause instanceof Prisma.PrismaClientInitializationError;
 }
 
-export async function readDeliverySettings(companyId: string, lockMode: "shared" | "exclusive", expectedVersion?: number): Promise<Result<DeliverySettings | null, DeliverySettingsError>> {
+export async function readDeliverySettings(companyId: string, lockMode: "shared" | "exclusive", expectedVersion?: number, operation = lockMode === "exclusive" ? "save_delivery_settings" : "get_delivery_settings"): Promise<Result<DeliverySettings | null, DeliverySettingsReadError>> {
   requireActiveTransaction(companyId);
-  const operation = lockMode === "exclusive" ? "save_delivery_settings" : "get_delivery_settings";
   try {
     const started = performance.now();
     const rows = lockMode === "exclusive"

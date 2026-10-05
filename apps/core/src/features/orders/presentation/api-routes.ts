@@ -1,7 +1,8 @@
 import { log } from "@core/src/shared/infrastructure/logger";
 import express, { type Request, type Response } from "express";
 import { z } from "zod";
-import { createOrderSchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
+import { createOrderSchema, setOrderDeliverySchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
+import { parseDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { apiError, type PrivateLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { orders } from "@core/src/features/orders/composition";
 import { toLegacyOrderJson, toOrderAggregateJson, toOrderAggregateListJson, toOrderListJson } from "@core/src/features/orders/presentation/order-json";
@@ -72,6 +73,9 @@ function operationError(response: Response, error: { code: string; variantId?: s
     case "STOCK_NOT_DEDUCTED": return apiError(response, 409, "STOCK_NOT_DEDUCTED", "Stock is not deducted");
     case "ORDER_CANCELLED": return apiError(response, 409, "ORDER_CANCELLED", "Order is cancelled");
     case "DELIVERY_UNAVAILABLE": return apiError(response, 422, "DELIVERY_UNAVAILABLE", "Delivery is unavailable");
+    case "DELIVERY_METHOD_DISABLED": return apiError(response, 422, "DELIVERY_METHOD_DISABLED", "Delivery method is disabled");
+    case "COURIER_UNAVAILABLE": return apiError(response, 422, "COURIER_UNAVAILABLE", "Courier is unavailable");
+    case "INVALID_STORED_DATA": return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
     case "PERSISTENCE_UNAVAILABLE": return apiError(response, 503, "SERVICE_UNAVAILABLE", "Service unavailable");
     default:
       log.error({ event: "unexpected_order_error", err: error }, "unexpected_order_error");
@@ -79,8 +83,8 @@ function operationError(response: Response, error: { code: string; variantId?: s
   }
 }
 
-function unexpected(response: Response, error: unknown) {
-  log.error({ event: "order_api_operation_failed", err: error }, "order_api_operation_failed");
+function unexpected(response: Response, error: unknown, context?: Readonly<{ operation: string; orderId: string; userId: string }>) {
+  log.error({ event: "order_api_operation_failed", ...(context ? { operation: context.operation, orderId: context.orderId, userId: context.userId } : {}), err: error }, "order_api_operation_failed");
   return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
 }
 
@@ -201,6 +205,21 @@ orderRoutes.post("/:id/payments", async (request, response: Response<unknown, Pr
     return result.success ? response.json(registerPaymentResponseSchema.parse({ order: toOrderAggregateJson(result.data.order), stock: result.data.stock }))
       : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
+});
+
+orderRoutes.put("/:id/delivery", async (request, response: Response<unknown, PrivateLocals>) => {
+  if (!request.is("application/json")) return apiError(response, 415, "UNSUPPORTED_MEDIA_TYPE", "JSON body required");
+  const parsedId = orderId(request.params.id);
+  const parsed = setOrderDeliverySchema.safeParse(request.body);
+  if (!parsedId.success || !parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid delivery input");
+  const selection = parseDeliverySelection(parsed.data.delivery);
+  if (!selection.success) return operationError(response, selection.error);
+  const context = orderContext(response);
+  try {
+    const result = await orders.setDelivery({ orderId: parsedId.data as OrderId, delivery: selection.data,
+      chargeDeliveryToCustomer: parsed.data.chargeDeliveryToCustomer }, context);
+    return result.success ? response.json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
+  } catch (cause) { return unexpected(response, cause, { operation: "set_order_delivery", orderId: parsedId.data, userId: context.userId }); }
 });
 
 for (const [path, operation] of [

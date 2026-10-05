@@ -77,6 +77,23 @@ test("JSON key validation scopes keys to each object and decodes escaped names",
   expect(hasDuplicateJsonKeys('{"items":[{"quantity":1,"quantity":2}]}')).toBe(true);
 });
 
+test("delivery HTTP rejects client authority and maps disabled or locked delivery", async () => {
+  const set = vi.spyOn(orders, "setDelivery").mockResolvedValue({ success: false, error: { code: "DELIVERY_METHOD_DISABLED", message: "Disabled" } });
+  const body = { delivery: { method: "store", recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } } }, chargeDeliveryToCustomer: true };
+  const put = (input: unknown): RequestInit => ({ method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
+  for (const extra of [{ cost: 0 }, { companyId: "other" }, { recordedBy: { kind: "buyer" } }]) {
+    expect(await request(`/${contactId}/delivery`, "PE", put({ ...body, ...extra }))).toMatchObject({ status: 400 });
+  }
+  for (const extra of [{ recordedBy: { kind: "seller", userId: "other" } }, { pickupPoint: { name: "Fake", address: "Fake", instructions: null } }]) {
+    expect(await request(`/${contactId}/delivery`, "PE", put({ ...body, delivery: { ...body.delivery, ...extra } }))).toMatchObject({ status: 400 });
+  }
+  expect(set).not.toHaveBeenCalled();
+  expect(await request(`/${contactId}/delivery`, "PE", put(body))).toMatchObject({ status: 422, body: { code: "DELIVERY_METHOD_DISABLED" } });
+  expect(set).toHaveBeenCalledWith({ orderId: contactId, ...body }, { companyId, userId: "seller" });
+  set.mockResolvedValueOnce({ success: false, error: { code: "DELIVERY_LOCKED", message: "Locked" } });
+  expect(await request(`/${contactId}/delivery`, "PE", put(body))).toMatchObject({ status: 409, body: { code: "DELIVERY_LOCKED" } });
+});
+
 test("order JSON errors preserve no-store before authentication", async () => {
   const server = fullApp.listen(0);
   servers.push(server);

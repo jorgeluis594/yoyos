@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, expect, test } from "vitest";
+import { afterAll, afterEach, expect, test, vi } from "vitest";
+import { orders, setConfiguredOrderDelivery } from "@core/src/features/orders/composition";
+import { orderAggregateSchema } from "@shared/contracts/orders";
 import { app } from "@core/src/app";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
@@ -53,6 +55,7 @@ async function fixture(country: "PE" | "CL") {
       await prisma.productStock.deleteMany();
       await prisma.productVariant.deleteMany();
       await prisma.product.deleteMany();
+      await prisma.companyDeliverySettings.deleteMany();
       await systemPrisma.user.delete({ where: { id: userId } });
       await prisma.company.delete({ where: { id: companyId } });
     });
@@ -65,6 +68,50 @@ afterAll(async () => {
   for (const entry of fixtures.reverse()) await entry.cleanup();
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
   await systemPrisma.$disconnect();
+});
+
+afterEach(() => vi.restoreAllMocks());
+
+test("delivery HTTP resolves real configuration, preserves snapshots, replaces author and updates covered stock atomically", async () => {
+  const seller = await fixture("PE");
+  const second = await fixture("PE");
+  const orderId = randomUUID();
+  const store = { enabled: true, pickupPoint: { name: "Tienda", address: "Dirección original", instructions: null } };
+  expect((await call("/api/delivery-settings", seller.cookie, { expectedVersion: 0, store }, "PUT")).status).toBe(200);
+  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, contactId: seller.contactId,
+    items: [{ variantId: seller.variantId, quantity: 2 }] })).status).toBe(201);
+  const input = { delivery: { method: "store", recipient: { name: "Destinatario distinto", phone: "987", identity: { kind: "absent" } } }, chargeDeliveryToCustomer: true };
+  const unresolved = await call(`/api/orders/${orderId}/delivery`, seller.cookie, input, "PUT");
+  expect(unresolved.status).toBe(422);
+  expect(await unresolved.json()).toMatchObject({ code: "DELIVERY_UNAVAILABLE" });
+  expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toMatchObject({ delivery: null, total: { amount: 20 }, stockDeducted: false });
+  expect((await call(`/api/orders/${orderId}/delivery`, second.cookie, input, "PUT")).status).toBe(404);
+  vi.spyOn(orders, "setDelivery").mockImplementation((value, context) => setConfiguredOrderDelivery(value, context,
+    async (_snapshot, _authorized, currency) => ({ success: true, data: { amount: 3, currency } })));
+  const assigned = await call(`/api/orders/${orderId}/delivery`, seller.cookie, input, "PUT");
+  expect(assigned.status).toBe(200);
+  const first = orderAggregateSchema.parse(await assigned.json());
+  expect(first).toMatchObject({ delivery: { method: "store", pickupPoint: store.pickupPoint,
+    recordedBy: { kind: "seller", userId: seller.userId } }, total: { amount: 23 }, deliveryCost: { amount: 3 }, deliveryCharge: { amount: 3 } });
+  expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toEqual(first);
+  const nextStore = { ...store, pickupPoint: { ...store.pickupPoint, address: "Dirección nueva" } };
+  expect((await call("/api/delivery-settings", seller.cookie, { expectedVersion: 1, store: nextStore }, "PUT")).status).toBe(200);
+  expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toEqual(first);
+  expect((await call(`/api/orders/${orderId}/payments`, seller.cookie, { paymentId: randomUUID(), amount: { amount: 20, currency: "PEN" },
+    method: "digital_wallet", deductStockIfPartial: false })).status).toBe(200);
+  await systemPrisma.user.update({ where: { id: second.userId }, data: { companyId: seller.companyId } });
+  const replaced = await call(`/api/orders/${orderId}/delivery`, second.cookie, { ...input, chargeDeliveryToCustomer: false }, "PUT");
+  expect(replaced.status).toBe(200);
+  const updated = orderAggregateSchema.parse(await replaced.json());
+  expect(updated).toMatchObject({ delivery: { pickupPoint: nextStore.pickupPoint, recordedBy: { kind: "seller", userId: second.userId } },
+    total: { amount: 20 }, balanceDue: { amount: 0 }, paidAmount: { amount: 20 }, stockDeducted: true });
+  expect(await withTenantIsolation(seller.companyId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId: seller.variantId } })).quantity)).toBe(1n);
+  expect((await call(`/api/orders/${orderId}/delivery`, second.cookie, { ...input, chargeDeliveryToCustomer: false }, "PUT")).status).toBe(200);
+  expect(await withTenantIsolation(seller.companyId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId: seller.variantId } })).quantity)).toBe(1n);
+  expect((await call(`/api/orders/${orderId}/ship`, seller.cookie, {})).status).toBe(200);
+  expect((await call(`/api/orders/${orderId}/delivery`, seller.cookie, input, "PUT")).status).toBe(409);
+  const shipped = await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json();
+  expect(shipped.delivery).toEqual(updated.delivery);
 });
 
 test("orders HTTP requires authentication", async () => {

@@ -4,10 +4,10 @@ import { afterTransactionCommit, getCompanyId, withinTransaction } from "@core/s
 import { log } from "@core/src/shared/infrastructure/logger";
 import { getDeliverySettings, saveDeliverySettings, type DeliverySettingsAccess, type SaveDeliverySettingsInput } from "@core/src/features/delivery-settings/application/delivery-settings";
 import { isSettingsPersistenceFailure, readDeliverySettings, writeDeliverySettings } from "@core/src/features/delivery-settings/infrastructure/delivery-settings-repository";
-import type { DeliverySettingsError } from "@core/src/features/delivery-settings/domain/delivery-settings";
+import type { DeliverySettingsError, DeliverySettingsReadError } from "@core/src/features/delivery-settings/domain/delivery-settings";
 
-async function settingsTransaction<T>(context: DeliverySettingsAccess, operation: string, expectedVersion: number | undefined,
-  work: () => Promise<Result<T, DeliverySettingsError>>): Promise<Result<T, DeliverySettingsError>> {
+async function settingsTransaction<T, E extends DeliverySettingsError>(context: DeliverySettingsAccess, operation: string, expectedVersion: number | undefined,
+  work: () => Promise<Result<T, E>>): Promise<Result<T, E | DeliverySettingsReadError>> {
   if (getCompanyId() !== context.companyId) throw new Error("Settings company differs from tenant context");
   try { return await withinTransaction(work); }
   catch (cause) {
@@ -19,8 +19,8 @@ async function settingsTransaction<T>(context: DeliverySettingsAccess, operation
 }
 
 export const deliverySettings = {
-  get: (context: DeliverySettingsAccess) => settingsTransaction(context, "get_delivery_settings", undefined,
-    () => getDeliverySettings(context, (companyId) => readDeliverySettings(companyId, "shared"))),
+  get: (context: DeliverySettingsAccess, operation = "get_delivery_settings") => settingsTransaction(context, operation, undefined,
+    () => getDeliverySettings(context, (companyId) => readDeliverySettings(companyId, "shared", undefined, operation))),
   async save(input: SaveDeliverySettingsInput, context: DeliverySettingsAccess) {
     const started = performance.now();
     const result = await saveDeliverySettings(input, context, {

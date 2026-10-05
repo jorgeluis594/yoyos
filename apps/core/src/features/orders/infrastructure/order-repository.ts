@@ -17,13 +17,13 @@ function knownFailure(cause: unknown) {
   return cause instanceof Prisma.PrismaClientKnownRequestError || cause instanceof Prisma.PrismaClientUnknownRequestError || cause instanceof Prisma.PrismaClientInitializationError;
 }
 
-function mapAggregate(row: DbAggregate): OrderAggregate {
+function mapAggregate(row: DbAggregate, operation = "get_order_aggregate"): OrderAggregate {
   if (!isCurrency(row.currency) || !row.items.length || (row.contactId && !row.contactPhone) ||
     row.items.some((item) => item.quantity <= 0n || item.quantity > BigInt(Number.MAX_SAFE_INTEGER)))
     throw new InvalidStoredOrderError("Invalid stored order identity or items");
   const delivery = row.delivery === null ? null : parseDeliverySnapshot(row.delivery);
   if (delivery !== null && !delivery.success) {
-    log.error({ event: "order_delivery_stored_data_invalid", orderId: row.id, operation: "get_order_aggregate",
+    log.error({ event: "order_delivery_stored_data_invalid", orderId: row.id, operation,
       stage: "load_order", errorCode: "INVALID_ORDER", reason: "invalid_snapshot_shape" }, "Stored order delivery is invalid");
     throw new InvalidStoredOrderError("Invalid stored order delivery");
   }
@@ -95,32 +95,35 @@ export async function orderExists(id: string) {
   }
 }
 
-export async function findOrderAggregate(id: OrderId, companyId: CompanyId) {
+export async function findOrderAggregate(id: OrderId, companyId: CompanyId, operation = "get_order_aggregate") {
   if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
   try {
     const row = await prisma.order.findFirst({ where: { id, companyId }, include: aggregateInclude });
-    return ok(row ? mapAggregate(row) : null);
+    return ok(row ? mapAggregate(row, operation) : null);
   } catch (cause) {
     if (cause instanceof InvalidStoredOrderError) return err({ code: "INVALID_ORDER" as const, message: cause.message });
     if (!knownFailure(cause)) throw cause;
-    log.error({ event: "unable_to_load_order_aggregate", err: cause }, "unable_to_load_order_aggregate");
+    log.error({ event: "unable_to_load_order_aggregate", operation, orderId: id, stage: "load_order", errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "unable_to_load_order_aggregate");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to load order aggregate" });
   }
 }
 
-export async function findOrderForUpdate(id: OrderId, companyId: CompanyId) {
+export async function findOrderForUpdate(id: OrderId, companyId: CompanyId, operation?: string) {
   requireActiveTransaction(companyId);
   try {
+    const started = performance.now();
     const rows = await prisma.$queryRaw<Array<{ id: string }>>`SELECT id FROM "Order" WHERE id = ${id}::uuid AND "companyId" = ${companyId}::uuid FOR UPDATE`;
-    return rows.length ? findOrderAggregate(id, companyId) : ok(null);
+    if (rows.length && operation === "set_order_delivery") log.debug({ event: "delivery_lock_acquired", operation, orderId: id,
+      lockTarget: "order", lockMode: "exclusive", lockWaitMs: Math.round(performance.now() - started) }, "Order delivery lock acquired");
+    return rows.length ? findOrderAggregate(id, companyId, operation) : ok(null);
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
-    log.error({ event: "unable_to_lock_order", err: cause }, "unable_to_lock_order");
+    log.error({ event: "unable_to_lock_order", operation, orderId: id, stage: "lock_order", errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "unable_to_lock_order");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to lock order" });
   }
 }
 
-export async function saveStockDeduction(id: OrderId, companyId: CompanyId) {
+export async function saveStockDeduction(id: OrderId, companyId: CompanyId, operation?: string) {
   requireActiveTransaction(companyId);
   try {
     const updated = await prisma.order.updateMany({ where: { id, companyId, stockDeducted: false }, data: { stockDeducted: true } });
@@ -128,7 +131,7 @@ export async function saveStockDeduction(id: OrderId, companyId: CompanyId) {
     return ok<null>(null);
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
-    log.error({ event: "unable_to_save_stock_deduction", err: cause }, "unable_to_save_stock_deduction");
+    log.error({ event: "unable_to_save_stock_deduction", operation, orderId: id, stage: "save_stock_deduction", errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "unable_to_save_stock_deduction");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save stock deduction" });
   }
 }
@@ -191,7 +194,8 @@ export async function saveDelivery(id: OrderId, companyId: CompanyId, change: Pi
     return ok<null>(null);
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
-    log.error({ event: "unable_to_save_order_delivery", err: cause }, "unable_to_save_order_delivery");
+    log.error({ event: "unable_to_save_order_delivery", operation: "set_order_delivery", orderId: id, deliveryMethod: change.delivery?.method,
+      stage: "save_delivery", errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "unable_to_save_order_delivery");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save order delivery" });
   }
 }
@@ -237,7 +241,7 @@ export async function findOrderAggregates(criteria: AggregateCriteria, companyId
         skip: (criteria.page - 1) * 20, take: 20 }),
       prisma.order.count({ where }),
     ]);
-    return ok<AggregatePage>({ items: rows.map(mapAggregate), page: criteria.page, pageSize: 20, total });
+    return ok<AggregatePage>({ items: rows.map((row) => mapAggregate(row, "list_order_aggregates")), page: criteria.page, pageSize: 20, total });
   } catch (cause) {
     if (cause instanceof InvalidStoredOrderError) return err({ code: "INVALID_ORDER" as const, message: cause.message });
     if (!knownFailure(cause)) throw cause;

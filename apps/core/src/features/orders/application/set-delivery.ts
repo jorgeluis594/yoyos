@@ -7,7 +7,7 @@ import type { CompanyId, OrderId, PositiveInteger } from "@core/src/features/ord
 import type { VariantId } from "@core/src/features/products/domain/product";
 
 export type SetDeliveryInput = Readonly<{ orderId: OrderId; delivery: DeliverySelection; chargeDeliveryToCustomer: boolean }>;
-export type SetDeliveryError = OrderDomainError | Readonly<{ code: "ORDER_NOT_FOUND" | "INSUFFICIENT_STOCK" | "PERSISTENCE_UNAVAILABLE" | "DELIVERY_UNAVAILABLE" | "DELIVERY_METHOD_DISABLED" | "COURIER_UNAVAILABLE" | "INVALID_STORED_DATA"; message: string; variantId?: string }>;
+export type SetDeliveryError = OrderDomainError | Readonly<{ code: "ORDER_NOT_FOUND" | "INSUFFICIENT_STOCK" | "PERSISTENCE_UNAVAILABLE" | "DELIVERY_UNAVAILABLE" | "DELIVERY_METHOD_DISABLED" | "COURIER_UNAVAILABLE" | "INVALID_STORED_DATA"; message: string; variantId?: string; reason?: "resolver_not_integrated" | "availability_unconfirmed" }>;
 export type SetDeliveryDependencies = Readonly<{
   transaction: <T>(companyId: CompanyId, work: () => Promise<Result<T, SetDeliveryError>>) => Promise<Result<T, SetDeliveryError>>;
   findOrderForUpdate: (id: OrderId, companyId: CompanyId) => Promise<Result<OrderAggregate | null, SetDeliveryError>>;
