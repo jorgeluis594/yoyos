@@ -68,8 +68,6 @@ export const registerPaymentSchema = z.strictObject({ paymentId: z.uuid(), amoun
 export type RegisterPaymentRequest = z.infer<typeof registerPaymentSchema>;
 export const stockOutcomeSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("deducted") }), z.strictObject({ kind: z.literal("not_requested") }),
-  z.strictObject({ kind: z.literal("pending"), reason: z.enum(["INSUFFICIENT_STOCK", "PERSISTENCE_UNAVAILABLE"]) }),
-  z.strictObject({ kind: z.literal("inapplicable"), reason: z.literal("ORDER_CANCELLED") }),
 ]);
 export const registerPaymentResponseSchema = z.strictObject({ order: orderAggregateSchema, stock: stockOutcomeSchema });
 export type RegisterPaymentResponse = z.infer<typeof registerPaymentResponseSchema>;

@@ -138,7 +138,7 @@ test("orders HTTP rejects invalid input and stock without partial sale", async (
     (await prisma.productStock.findUniqueOrThrow({ where: { variantId: seller.variantId } })).quantity)).toBe(3n);
 });
 
-test("orders HTTP exposes pending payment, stock retry and completion with company isolation", async () => {
+test("orders HTTP rejects payment without stock and allows retry with company isolation", async () => {
   const seller = await fixture("PE");
   const other = await fixture("CL");
   const id = randomUUID();
@@ -152,16 +152,15 @@ test("orders HTTP exposes pending payment, stock retry and completion with compa
   expect((await call(`/api/orders/${id}/aggregate`, other.cookie)).status).toBe(404);
   const payment = { paymentId, amount: { amount: 40, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false };
   const recorded = await call(`/api/orders/${id}/payments`, seller.cookie, payment, "POST");
-  expect(recorded.status).toBe(200);
-  expect(await recorded.json()).toMatchObject({ stock: { kind: "pending", reason: "INSUFFICIENT_STOCK" },
-    order: { paymentStatus: "paid", payments: [{ id: paymentId }] } });
+  expect(recorded.status).toBe(409);
+  expect(await recorded.json()).toMatchObject({ code: "INSUFFICIENT_STOCK" });
   expect((await call(`/api/orders/${id}/ship`, seller.cookie, undefined, "POST")).status).toBe(409);
   await withTenantIsolation(seller.companyId, async () => {
     await prisma.productStock.update({ where: { variantId: seller.variantId }, data: { quantity: { increment: 1n } } });
   });
-  const deducted = await call(`/api/orders/${id}/deduct-stock`, seller.cookie, undefined, "POST");
-  expect(deducted.status).toBe(200);
-  expect(await deducted.json()).toMatchObject({ stockDeducted: true, payments: [{ id: paymentId }] });
+  const retried = await call(`/api/orders/${id}/payments`, seller.cookie, payment, "POST");
+  expect(retried.status).toBe(200);
+  expect(await retried.json()).toMatchObject({ stock: { kind: "deducted" }, order: { stockDeducted: true, payments: [{ id: paymentId }] } });
   expect((await call(`/api/orders/${id}/ship`, seller.cookie, undefined, "POST")).status).toBe(200);
   const delivered = await call(`/api/orders/${id}/deliver`, seller.cookie, undefined, "POST");
   expect(delivered.status).toBe(200);

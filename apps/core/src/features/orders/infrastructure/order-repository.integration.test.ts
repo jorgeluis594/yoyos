@@ -126,7 +126,7 @@ test("keeps all stock when a pending order cannot deduct every item", async () =
   } finally { await f.cleanup(); }
 });
 
-test("preserves a recorded payment when stock is short and retries its ID after replenishment", async () => {
+test("rolls back payment when stock is short and retries its ID after replenishment", async () => {
   const f = await fixture();
   try {
     await withTenantIsolation(f.companyId, async () => {
@@ -136,9 +136,8 @@ test("preserves a recorded payment when stock is short and retries its ID after 
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: 4 as PositiveInteger }] }, context)).toMatchObject({ success: true });
       const input = { orderId, paymentId: randomUUID() as PaymentId, amount: { amount: 0.4, currency: "PEN" as const },
         method: "digital_wallet" as const, deductStockIfPartial: false };
-      expect(await orders.registerPayment(input, context)).toMatchObject({ success: true,
-        data: { stock: { kind: "pending", reason: "INSUFFICIENT_STOCK" }, order: { payments: [{ id: input.paymentId }] } } });
-      expect(await prisma.payment.count({ where: { orderId } })).toBe(1);
+      expect(await orders.registerPayment(input, context)).toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
+      expect(await prisma.payment.count({ where: { orderId } })).toBe(0);
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
       await prisma.productStock.update({ where: { variantId: f.variantIds[0] }, data: { quantity: { increment: 1n } } });
       expect(await orders.registerPayment(input, context)).toMatchObject({ success: true,

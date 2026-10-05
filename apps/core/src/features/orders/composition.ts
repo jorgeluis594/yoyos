@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { err } from "@shared/functional";
 import type { AppError, Result } from "@shared/result";
-import { getCompanyId, requireNoActiveTransaction, withinTransaction } from "@core/src/shared/infrastructure/persistance";
+import { getCompanyId, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { createOrder, type CreateOrderDependencies } from "@core/src/features/orders/application/create-order";
 import { deductStock, type DeductStockDependencies } from "@core/src/features/orders/application/deduct-stock";
 import { registerPayment, type RegisterPaymentDependencies } from "@core/src/features/orders/application/register-payment";
@@ -59,11 +59,9 @@ export const orders = {
       findContact: findContactById, findVariant: findSellableVariant, saveOrder: savePendingOrder,
       savePayment, deductProductStock, saveStockDeduction, saveFulfillment,
       newItemId: () => randomUUID() as OrderItemId, newPaymentId: () => randomUUID() as PaymentId, clock: () => new Date() }),
-  registerPayment: (input: Parameters<typeof registerPayment>[0], context: Parameters<typeof registerPayment>[1]) => {
-    requireNoActiveTransaction();
-    return registerPayment(input, context, { transaction: paymentTransaction, findOrderForUpdate, savePayment,
-      deductProductStock, saveStockDeduction, clock: () => new Date() });
-  },
+  registerPayment: (input: Parameters<typeof registerPayment>[0], context: Parameters<typeof registerPayment>[1]) =>
+    registerPayment(input, context, { transaction: paymentTransaction, findOrderForUpdate, savePayment,
+      deductProductStock, saveStockDeduction, clock: () => new Date() }),
   deductStock: (id: Parameters<typeof deductStock>[0], context: Parameters<typeof deductStock>[1]) =>
     deductStock(id, context, { transaction: stockTransaction, findOrderForUpdate, deductProductStock, saveStockDeduction }),
   create: (input: Parameters<typeof createOrder>[0], context: Parameters<typeof createOrder>[1]) =>

@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { err, ok } from "@shared/functional";
 import { registerPayment, type RegisterPaymentDependencies } from "@core/src/features/orders/application/register-payment";
-import { buildPendingOrder, type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
+import { buildPendingOrder } from "@core/src/features/orders/domain/order-state-machine";
 import type { CompanyId, OrderId, OrderItemId, PaymentId, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
@@ -20,37 +20,33 @@ function pendingOrder() {
   return built.data;
 }
 
-test("returns pending stock after a known second-transaction failure without losing the payment", async () => {
-  let current = pendingOrder();
+test("confirms payment and required stock in one transaction", async () => {
   let transactions = 0;
-  const transaction: RegisterPaymentDependencies["transaction"] = async (_company, work) => {
-    transactions++;
-    return transactions === 2 ? err({ code: "PERSISTENCE_UNAVAILABLE", message: "Database unavailable" }) : work();
+  let paymentSaved = false;
+  let stockSaved = false;
+  const deps: RegisterPaymentDependencies = {
+    transaction: async (_company, work) => { transactions++; return work(); },
+    findOrderForUpdate: async () => ok(pendingOrder()),
+    savePayment: async () => { paymentSaved = true; return ok(null); },
+    deductProductStock: async () => paymentSaved ? ok(null) : err({ code: "PERSISTENCE_UNAVAILABLE", message: "Payment missing" }),
+    saveStockDeduction: async () => { stockSaved = true; return ok(null); },
+    clock: () => new Date("2026-09-30T12:00:00Z"),
   };
-  const deps: RegisterPaymentDependencies = { transaction, findOrderForUpdate: async () => ok(current),
-    savePayment: async (payment) => { current = { ...current, payments: [payment] }; return ok(null); },
-    deductProductStock: async () => { throw new Error("Stock should not be called"); },
-    saveStockDeduction: async () => { throw new Error("Flag should not be saved"); },
-    clock: () => new Date("2026-09-30T12:00:00Z") };
   expect(await registerPayment(input, context, deps)).toMatchObject({ success: true,
-    data: { order: { payments: [{ id: input.paymentId }] }, stock: { kind: "pending", reason: "PERSISTENCE_UNAVAILABLE" } } });
-  expect(transactions).toBe(2);
-  expect(current.payments).toHaveLength(1);
+    data: { order: { stockDeducted: true, payments: [{ id: input.paymentId }] }, stock: { kind: "deducted" } } });
+  expect({ transactions, paymentSaved, stockSaved }).toEqual({ transactions: 1, paymentSaved: true, stockSaved: true });
 });
 
-test("reports cancellation that interleaves after payment recording", async () => {
-  let current: OrderAggregate = pendingOrder();
+test("returns stock failure instead of claiming a confirmed payment", async () => {
   let transactions = 0;
-  const transaction: RegisterPaymentDependencies["transaction"] = async (_company, work) => {
-    transactions++;
-    if (transactions === 2) current = { ...current, cancelled: true };
-    return work();
+  const deps: RegisterPaymentDependencies = {
+    transaction: async (_company, work) => { transactions++; return work(); },
+    findOrderForUpdate: async () => ok(pendingOrder()),
+    savePayment: async () => ok(null),
+    deductProductStock: async () => err({ code: "INSUFFICIENT_STOCK", message: "Stock unavailable" }),
+    saveStockDeduction: async () => { throw new Error("Stock flag must not be saved"); },
+    clock: () => new Date("2026-09-30T12:00:00Z"),
   };
-  const deps: RegisterPaymentDependencies = { transaction, findOrderForUpdate: async () => ok(current),
-    savePayment: async (payment) => { current = { ...current, payments: [payment] }; return ok(null); },
-    deductProductStock: async () => { throw new Error("Cancelled order must not deduct stock"); },
-    saveStockDeduction: async () => { throw new Error("Cancelled order must not mark stock"); },
-    clock: () => new Date("2026-09-30T12:00:00Z") };
-  expect(await registerPayment(input, context, deps)).toMatchObject({ success: true,
-    data: { order: { cancelled: true, payments: [{ id: input.paymentId }] }, stock: { kind: "inapplicable", reason: "ORDER_CANCELLED" } } });
+  expect(await registerPayment(input, context, deps)).toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
+  expect(transactions).toBe(1);
 });
