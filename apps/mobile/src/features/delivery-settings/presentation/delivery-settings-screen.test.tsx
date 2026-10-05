@@ -12,12 +12,12 @@ const save = jest.mocked(deliverySettings.save);
 const point = { name: "Store", address: "Original", instructions: null };
 beforeEach(() => {
   get.mockReset(); save.mockReset();
-  get.mockResolvedValue(ok({ version: 0, store: { enabled: false, pickupPoint: null } }));
+  get.mockResolvedValue(ok({ version: 0, home: { enabled: false }, store: { enabled: false, pickupPoint: null } }));
 });
 
 test("initial empty settings can be enabled and saved, then disabled without losing the point", async () => {
-  save.mockResolvedValueOnce(ok({ version: 1, store: { enabled: true, pickupPoint: point } }))
-    .mockResolvedValueOnce(ok({ version: 2, store: { enabled: false, pickupPoint: point } }));
+  save.mockResolvedValueOnce(ok({ version: 1, home: { enabled: false }, store: { enabled: true, pickupPoint: point } }))
+    .mockResolvedValueOnce(ok({ version: 2, home: { enabled: false }, store: { enabled: false, pickupPoint: point } }));
   const screen = render(<DeliverySettingsScreen />);
   await screen.findByText("Recojo en tienda");
   expect(screen.getByLabelText("Ofrecer recojo en tienda").props.value).toBe(false);
@@ -26,17 +26,17 @@ test("initial empty settings can be enabled and saved, then disabled without los
   fireEvent.changeText(screen.getByLabelText("Dirección"), "Original");
   fireEvent.press(screen.getByText("Guardar configuración"));
   await screen.findByText("Configuración guardada.");
-  expect(save).toHaveBeenLastCalledWith({ expectedVersion: 0, storeEnabled: true, pickupName: "Store", pickupAddress: "Original", pickupInstructions: "" });
+  expect(save).toHaveBeenLastCalledWith({ expectedVersion: 0, homeEnabled: false, storeEnabled: true, pickupName: "Store", pickupAddress: "Original", pickupInstructions: "" });
   fireEvent(screen.getByLabelText("Ofrecer recojo en tienda"), "valueChange", false);
   fireEvent.press(screen.getByText("Guardar configuración"));
   await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
-  expect(save).toHaveBeenLastCalledWith({ expectedVersion: 1, storeEnabled: false, pickupName: "Store", pickupAddress: "Original", pickupInstructions: "" });
+  expect(save).toHaveBeenLastCalledWith({ expectedVersion: 1, homeEnabled: false, storeEnabled: false, pickupName: "Store", pickupAddress: "Original", pickupInstructions: "" });
   expect(screen.getByLabelText("Dirección").props.value).toBe("Original");
 });
 
 test("a conflict preserves the draft across language changes and only reloads explicitly", async () => {
-  get.mockResolvedValueOnce(ok({ version: 1, store: { enabled: true, pickupPoint: point } }))
-    .mockResolvedValueOnce(ok({ version: 2, store: { enabled: true, pickupPoint: { ...point, address: "Concurrent" } } }));
+  get.mockResolvedValueOnce(ok({ version: 1, home: { enabled: false }, store: { enabled: true, pickupPoint: point } }))
+    .mockResolvedValueOnce(ok({ version: 2, home: { enabled: false }, store: { enabled: true, pickupPoint: { ...point, address: "Concurrent" } } }));
   save.mockResolvedValue(err({ code: "DELIVERY_SETTINGS_CONFLICT", message: "Private detail" }));
   const screen = render(<DeliverySettingsScreen />);
   await screen.findByText("Recojo en tienda");

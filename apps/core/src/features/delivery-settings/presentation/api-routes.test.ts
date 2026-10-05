@@ -7,7 +7,7 @@ import { log } from "@core/src/shared/infrastructure/logger";
 
 const context = { companyId: "00000000-0000-4000-8000-000000000001", userId: "seller" };
 const store = { enabled: true as const, pickupPoint: { name: "Tienda", address: "Av. Lima 123", instructions: null } };
-const input = { expectedVersion: 0, store };
+const input = { expectedVersion: 0, home: { enabled: false }, store };
 const servers: import("node:http").Server[] = [];
 
 async function request(init?: RequestInit) {
@@ -34,18 +34,18 @@ afterEach(async () => {
 });
 
 test("configuration HTTP validates inputs and uses authenticated context", async () => {
-  const get = vi.spyOn(deliverySettings, "get").mockResolvedValue({ success: true, data: { version: 0, store: { enabled: false, pickupPoint: null } } });
-  const save = vi.spyOn(deliverySettings, "save").mockResolvedValue({ success: true, data: { version: 1, store } });
+  const get = vi.spyOn(deliverySettings, "get").mockResolvedValue({ success: true, data: { version: 0, home: { enabled: false }, store: { enabled: false, pickupPoint: null } } });
+  const save = vi.spyOn(deliverySettings, "save").mockResolvedValue({ success: true, data: { version: 1, home: { enabled: false }, store } });
   expect(await request()).toMatchObject({ status: 200, body: { version: 0 } });
   expect(get).toHaveBeenCalledWith(context);
   for (const invalid of [{ ...input, companyId: "other" }, { ...input, userId: "other" }, { ...input, expectedVersion: -1 },
-    { ...input, store: { enabled: true, pickupPoint: null } }]) {
+    { ...input, home: { enabled: false }, store: { enabled: true, pickupPoint: null } }]) {
     expect(await request(put(invalid))).toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
   }
   expect(save).not.toHaveBeenCalled();
   expect(await request({ method: "PUT", headers: { "content-type": "text/plain" }, body: "input" }))
     .toMatchObject({ status: 415, body: { code: "UNSUPPORTED_MEDIA_TYPE" } });
-  expect(await request(put(input))).toMatchObject({ status: 200, body: { version: 1, store } });
+  expect(await request(put(input))).toMatchObject({ status: 200, body: { version: 1, home: { enabled: false }, store } });
   expect(save).toHaveBeenCalledWith(input, context);
 });
 
@@ -75,7 +75,7 @@ test("unexpected exceptions are handled once with safe request context", async (
 
 test("configuration JSON contracts reject partial points and authoritative client fields", () => {
   expect(saveDeliverySettingsSchema.safeParse(input).success).toBe(true);
-  expect(deliverySettingsSchema.safeParse({ version: 1, store }).success).toBe(true);
-  expect(deliverySettingsSchema.safeParse({ version: 1, store: { enabled: false, pickupPoint: { instructions: "Door" } } }).success).toBe(false);
+  expect(deliverySettingsSchema.safeParse({ version: 1, home: { enabled: false }, store }).success).toBe(true);
+  expect(deliverySettingsSchema.safeParse({ version: 1, home: { enabled: false }, store: { enabled: false, pickupPoint: { instructions: "Door" } } }).success).toBe(false);
   expect(saveDeliverySettingsSchema.safeParse({ ...input, recordedBy: { kind: "buyer" } }).success).toBe(false);
 });

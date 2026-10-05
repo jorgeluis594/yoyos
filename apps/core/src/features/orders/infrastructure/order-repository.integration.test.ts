@@ -572,7 +572,7 @@ test("rolls back earlier stock deductions and the configured snapshot when a lat
       const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
       const orderId = randomUUID() as OrderId;
       const [first, second] = [...f.variantIds].sort();
-      expect(await deliverySettings.save({ expectedVersion: 0, store: { enabled: true,
+      expect(await deliverySettings.save({ expectedVersion: 0, home: { enabled: false }, store: { enabled: true,
         pickupPoint: { name: "Store", address: "Original", instructions: null } } }, context)).toMatchObject({ success: true });
       expect(await orders.create({ id: orderId, contactId: null, items: [
         { variantId: first as VariantId, quantity: 2 as PositiveInteger },

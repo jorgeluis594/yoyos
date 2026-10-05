@@ -20,10 +20,10 @@ test("seller configures store pickup, preserves a conflicting draft and explicit
     await page.getByRole("button", { name: "Guardar configuración" }).click();
     await browserExpect(page.getByRole("status")).toHaveText("Configuración guardada.");
     const saved = await page.request.get("/api/delivery-settings");
-    expect(await saved.json()).toMatchObject({ version: 1, store: { enabled: true, pickupPoint: { address: "Av. Lima 123" } } });
+    expect(await saved.json()).toMatchObject({ version: 1, home: { enabled: false }, store: { enabled: true, pickupPoint: { address: "Av. Lima 123" } } });
     await page.getByLabel("Dirección", { exact: true }).fill("Mi borrador");
     const concurrent = await page.request.put("/api/delivery-settings", { data: { expectedVersion: 1,
-      store: { enabled: true, pickupPoint: { name: "Otra tienda", address: "Dirección concurrente", instructions: null } } } });
+      home: { enabled: true }, store: { enabled: true, pickupPoint: { name: "Otra tienda", address: "Dirección concurrente", instructions: null } } } });
     expect(concurrent.ok()).toBe(true);
     await page.getByRole("button", { name: "Guardar configuración" }).click();
     await browserExpect(page.getByRole("alert")).toContainText("Otra persona cambió");
@@ -35,7 +35,7 @@ test("seller configures store pickup, preserves a conflicting draft and explicit
     await page.getByRole("button", { name: "Guardar configuración" }).click();
     await browserExpect(page.getByRole("status")).toHaveText("Configuración guardada.");
     expect(await (await page.request.get("/api/delivery-settings")).json()).toMatchObject({ version: 3,
-      store: { enabled: false, pickupPoint: { address: "Dirección concurrente" } } });
+      home: { enabled: true }, store: { enabled: false, pickupPoint: { address: "Dirección concurrente" } } });
     await mkdir("../../.impeccable/review", { recursive: true });
     await page.screenshot({ path: "../../.impeccable/review/delivery-settings-desktop.png", fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });

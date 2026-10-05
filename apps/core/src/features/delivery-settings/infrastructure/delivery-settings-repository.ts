@@ -19,7 +19,7 @@ export async function readDeliverySettings(companyId: string, lockMode: "shared"
     if (!rows[0]) return ok(null);
     log.debug({ event: "delivery_lock_acquired", operation, companyId, lockTarget: "delivery_settings", lockMode, lockWaitMs: Math.round(performance.now() - started) }, "Delivery settings lock acquired");
     const row = rows[0];
-    const parsed = parseDeliverySettings({ version: row.version, store: { enabled: row.storeEnabled,
+    const parsed = parseDeliverySettings({ version: row.version, home: { enabled: row.homeEnabled }, store: { enabled: row.storeEnabled,
       pickupPoint: row.pickupName === null && row.pickupAddress === null && row.pickupInstructions === null ? null
         : { name: row.pickupName, address: row.pickupAddress, instructions: row.pickupInstructions } } });
     if (!parsed.success || row.version <= 0) {
@@ -39,7 +39,7 @@ export async function writeDeliverySettings(companyId: string, settings: Deliver
   requireActiveTransaction(companyId);
   const point = settings.store.pickupPoint;
   const expectedVersion = settings.version - 1;
-  const data = { storeEnabled: settings.store.enabled, pickupName: point?.name ?? null,
+  const data = { homeEnabled: settings.home.enabled, storeEnabled: settings.store.enabled, pickupName: point?.name ?? null,
     pickupAddress: point?.address ?? null, pickupInstructions: point?.instructions ?? null, version: settings.version };
   try {
     if (expectedVersion === 0) await prisma.companyDeliverySettings.create({ data: { companyId, ...data } });

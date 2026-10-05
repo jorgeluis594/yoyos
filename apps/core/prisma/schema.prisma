@@ -106,6 +106,7 @@ model Company {
 model CompanyDeliverySettings {
   companyId          String  @id @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
   company            Company @relation(fields: [companyId], references: [id])
+  homeEnabled        Boolean @default(false)
   storeEnabled       Boolean
   pickupName         String?
   pickupAddress      String?

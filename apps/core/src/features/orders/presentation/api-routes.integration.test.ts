@@ -79,7 +79,7 @@ test("delivery HTTP resolves real configuration, preserves snapshots, replaces a
   const second = await fixture("PE");
   const orderId = randomUUID();
   const store = { enabled: true, pickupPoint: { name: "Tienda", address: "Dirección original", instructions: null } };
-  expect((await call("/api/delivery-settings", seller.cookie, { expectedVersion: 0, store }, "PUT")).status).toBe(200);
+  expect((await call("/api/delivery-settings", seller.cookie, { expectedVersion: 0, home: { enabled: false }, store }, "PUT")).status).toBe(200);
   expect((await call("/api/orders/pending", seller.cookie, { id: orderId, contactId: seller.contactId,
     items: [{ variantId: seller.variantId, quantity: 2 }] })).status).toBe(201);
   const input = { delivery: { method: "store", recipient: { name: "Destinatario distinto", phone: "987", identity: { kind: "absent" } } }, chargeDeliveryToCustomer: true } as const;
@@ -105,7 +105,7 @@ test("delivery HTTP resolves real configuration, preserves snapshots, replaces a
     recordedBy: { kind: "seller", userId: seller.userId } }, total: { amount: 23 }, deliveryCost: { amount: 3 }, deliveryCharge: { amount: 3 } });
   expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toEqual(first);
   const nextStore = { ...store, pickupPoint: { ...store.pickupPoint, address: "Dirección nueva" } };
-  expect((await call("/api/delivery-settings", seller.cookie, { expectedVersion: 1, store: nextStore }, "PUT")).status).toBe(200);
+  expect((await call("/api/delivery-settings", seller.cookie, { expectedVersion: 1, home: { enabled: false }, store: nextStore }, "PUT")).status).toBe(200);
   expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toEqual(first);
   expect((await call(`/api/orders/${orderId}/payments`, seller.cookie, { paymentId: randomUUID(), amount: { amount: 20, currency: "PEN" },
     method: "digital_wallet", deductStockIfPartial: false })).status).toBe(200);
@@ -280,4 +280,40 @@ test("orders HTTP combines contact and Lima-day UTC bounds with stable pages and
   expect((await call(`/api/orders?${filters}`, seller.cookie)).status).toBe(400);
   const contacts = await (await call("/api/orders/contacts?search=Search", seller.cookie)).json();
   expect(contacts).toHaveLength(20);
+});
+
+test("home HTTP uses persisted enablement, requires district and replaces store without retaining its destination", async () => {
+  const seller = await fixture("PE");
+  const orderId = randomUUID();
+  const store = { enabled: true, pickupPoint: { name: "Store", address: "Historic pickup", instructions: null } };
+  const settings = { expectedVersion: 0, home: { enabled: true }, store };
+  expect((await call("/api/delivery-settings", seller.cookie, settings, "PUT")).status).toBe(200);
+  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, contactId: null, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
+  const recipient = { name: "Different recipient", phone: "00123", identity: { kind: "absent" } } as const;
+  const home = { delivery: { method: "home", recipient, destination: { address: " Street 123 ", district: " District ", instructions: null } }, chargeDeliveryToCustomer: true } as const;
+  expect((await call(`/api/orders/${orderId}/delivery`, seller.cookie, home, "PUT")).status).toBe(422);
+  expect((await call(`/api/orders/${orderId}/delivery`, seller.cookie, { ...home, delivery: { ...home.delivery, destination: { address: "Street" } } }, "PUT")).status).toBe(400);
+  const before = await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json();
+  expect(before).toMatchObject({ delivery: null, total: { amount: 10 } });
+  vi.spyOn(orders, "setDelivery").mockImplementation((input, context) => setConfiguredOrderDelivery(input, context,
+    async (_snapshot, _authorized, currency) => ok({ amount: 6, currency })));
+  expect((await call(`/api/orders/${orderId}/delivery`, seller.cookie, { delivery: { method: "store", recipient }, chargeDeliveryToCustomer: false }, "PUT")).status).toBe(200);
+  const mobile = createOrderApi(async (path, init) => {
+    const response = await fetch(`${base}${path}`, { ...init, headers: { ...Object.fromEntries(new Headers(init?.headers)), origin, cookie: seller.cookie } });
+    const body: unknown = await response.json();
+    return response.ok ? ok(body) : err({ code: "API_ERROR", message: "HTTP failure", http: { status: response.status, body } });
+  });
+  const saved = await mobile.setDelivery(orderId, home);
+  expect(saved.success).toBe(true);
+  if (!saved.success) throw new Error("Expected home assignment through mobile adapter");
+  const assigned = saved.data;
+  expect(assigned).toMatchObject({ delivery: { method: "home", recipient, destination: { address: "Street 123", district: "District", instructions: null },
+    recordedBy: { kind: "seller", userId: seller.userId } }, deliveryCost: { amount: 6 }, deliveryCharge: { amount: 6 }, total: { amount: 16 } });
+  expect(assigned.delivery).not.toHaveProperty("pickupPoint");
+  expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toEqual(assigned);
+  expect((await call("/api/delivery-settings", seller.cookie, { ...settings, expectedVersion: 1, home: { enabled: false } }, "PUT")).status).toBe(200);
+  const blocked = await call(`/api/orders/${orderId}/delivery`, seller.cookie, home, "PUT");
+  expect(blocked.status).toBe(422); expect(await blocked.json()).toMatchObject({ code: "DELIVERY_METHOD_DISABLED" });
+  expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toEqual(assigned);
+  expect(await (await call("/api/delivery-settings", seller.cookie)).json()).toEqual({ version: 2, home: { enabled: false }, store });
 });

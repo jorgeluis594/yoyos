@@ -31,7 +31,7 @@ export const deliverySettings = {
     const durationMs = Math.round(performance.now() - started);
     if (result.success) afterTransactionCommit(() => log.info({ event: "delivery_settings_saved", operation: "save_delivery_settings", companyId: context.companyId,
       userId: context.userId, expectedVersion: input.expectedVersion, savedVersion: result.data.version,
-      storeEnabled: result.data.store.enabled, pickupConfigured: result.data.store.pickupPoint !== null,
+      homeEnabled: result.data.home.enabled, storeEnabled: result.data.store.enabled, pickupConfigured: result.data.store.pickupPoint !== null,
       transactionOutcome: "committed", durationMs }, "Delivery settings saved"));
     else if (result.error.code === "DELIVERY_SETTINGS_CONFLICT") log.debug({ event: "delivery_settings_conflict", operation: "save_delivery_settings", companyId: context.companyId,
       userId: context.userId, expectedVersion: input.expectedVersion, currentVersion: result.error.currentVersion,

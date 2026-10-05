@@ -17,10 +17,12 @@ export async function resolveDeliverySelection(input: DeliverySelection, context
   if (!selection.success) return selection;
   const found = await deps.getSettings(context);
   if (!found.success) return found;
-  if (selection.data.method !== "store" || !found.data.store.enabled)
+  const delivery = selection.data;
+  if (delivery.method === "agency" || (delivery.method === "store" ? !found.data.store.enabled : !found.data.home.enabled))
     return err({ code: "DELIVERY_METHOD_DISABLED", message: "Delivery method is disabled" });
-  const snapshot = parseDeliverySnapshot({ method: "store", recipient: selection.data.recipient,
-    pickupPoint: found.data.store.pickupPoint, recordedBy: { kind: "seller", userId: context.userId } });
+  const snapshot = parseDeliverySnapshot({ ...delivery,
+    ...(delivery.method === "store" ? { pickupPoint: found.data.store.pickupPoint } : {}),
+    recordedBy: { kind: "seller", userId: context.userId } });
   if (!snapshot.success) return snapshot;
   const cost = await deps.resolveCost(snapshot.data, context, currency);
   if (!cost.success) return cost;

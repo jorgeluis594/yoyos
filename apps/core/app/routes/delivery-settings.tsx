@@ -44,6 +44,7 @@ function SettingsForm({ settings }: { settings: DeliverySettingsResponse }) {
   const navigation = useNavigation();
   const result = useActionData<typeof action>();
   const [version, setVersion] = useState(settings.version);
+  const [homeEnabled, setHomeEnabled] = useState(settings.home.enabled);
   const [enabled, setEnabled] = useState(settings.store.enabled);
   const [name, setName] = useState(settings.store.pickupPoint?.name ?? "");
   const [address, setAddress] = useState(settings.store.pickupPoint?.address ?? "");
@@ -52,6 +53,7 @@ function SettingsForm({ settings }: { settings: DeliverySettingsResponse }) {
   // Only a confirmed save replaces the draft; loader revalidation preserves it.
   if (saved && saved.version !== version) {
     setVersion(saved.version);
+    setHomeEnabled(saved.home.enabled);
     setEnabled(saved.store.enabled);
     setName(saved.store.pickupPoint?.name ?? "");
     setAddress(saved.store.pickupPoint?.address ?? "");
@@ -62,7 +64,7 @@ function SettingsForm({ settings }: { settings: DeliverySettingsResponse }) {
   const configured = enabled || [name, address, instructions].some(value => value.trim() !== "");
   return <form className="flex flex-col gap-6" onSubmit={event => {
     event.preventDefault();
-    submit({ expectedVersion: version, store: { enabled, pickupPoint: configured
+    submit({ expectedVersion: version, home: { enabled: homeEnabled }, store: { enabled, pickupPoint: configured
       ? { name, address, instructions: instructions.trim() || null } : null } }, { method: "post", encType: "application/json" });
   }}>
     <fieldset className="flex min-w-0 flex-col gap-4" disabled={pending}>

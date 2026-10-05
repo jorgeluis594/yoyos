@@ -55,7 +55,7 @@ test("store assignment preserves unavailable delivery, freezes its point and ato
     const assigned = await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json();
     expect(assigned).toMatchObject({ delivery: { method: "store", pickupPoint: { address: "Av. Original 123" }, recordedBy: { kind: "seller", userId: sellerId } }, deliveryCost: { amount: 3 }, deliveryCharge: { amount: 3 }, stockDeducted: false });
     const changed = await page.request.put("/api/delivery-settings", { data: { expectedVersion: 1,
-      store: { enabled: true, pickupPoint: { name: "Tienda nueva", address: "Av. Nueva 456", instructions: null } } } });
+      home: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Tienda nueva", address: "Av. Nueva 456", instructions: null } } } });
     expect(changed.ok()).toBe(true);
     await page.reload();
     await browserExpect(page.getByText("Av. Original 123", { exact: true })).toBeVisible();

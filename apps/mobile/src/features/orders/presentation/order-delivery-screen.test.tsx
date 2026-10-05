@@ -41,7 +41,7 @@ const pending: OrderAggregateResponse = { ...initialOrder, status: "active", del
   customer: { kind: "contact", contactId: "00000000-0000-4000-8000-000000000004", name: "Customer", phone: "555001" } };
 beforeEach(() => {
   load.mockReset(); save.mockReset(); getSettings.mockReset(); mockBack.mockReset(); mockPush.mockReset();
-  load.mockResolvedValue(ok(pending)); getSettings.mockResolvedValue(ok({ version: 1, store: { enabled: true, pickupPoint: point } }));
+  load.mockResolvedValue(ok(pending)); getSettings.mockResolvedValue(ok({ version: 1, home: { enabled: false }, store: { enabled: true, pickupPoint: point } }));
 });
 test("recipient can differ from buyer; unavailable save preserves data and confirmed aggregate returns to detail", async () => {
   save.mockResolvedValueOnce(err({ code: "DELIVERY_UNAVAILABLE", message: "private" })).mockResolvedValueOnce(ok({ ...pending,
@@ -104,7 +104,7 @@ test.each(["shipped", "delivered"] as const)("direct route to %s order exposes n
   expect(screen.queryByText("Guardar entrega")).toBeNull(); expect(save).not.toHaveBeenCalled();
 });
 test("disabled store points to configuration and failed settings read never becomes editable defaults", async () => {
-  getSettings.mockResolvedValueOnce(ok({ version: 0, store: { enabled: false, pickupPoint: null } }));
+  getSettings.mockResolvedValueOnce(ok({ version: 0, home: { enabled: false }, store: { enabled: false, pickupPoint: null } }));
   const screen = render(<OrderDeliveryScreen />);
   await screen.findByText(/no está habilitado/);
   expect(screen.queryByText("Guardar entrega")).toBeNull();
@@ -125,9 +125,9 @@ test("cancelled orders expose no editor even when delivery remains pending", asy
 });
 
 test("returning from configuration refreshes availability and point without erasing recipient draft", async () => {
-  getSettings.mockResolvedValueOnce(ok({ version: 0, store: { enabled: false, pickupPoint: null } }))
-    .mockResolvedValueOnce(ok({ version: 1, store: { enabled: true, pickupPoint: point } }))
-    .mockResolvedValueOnce(ok({ version: 2, store: { enabled: true, pickupPoint: { ...point, address: "Updated" } } }));
+  getSettings.mockResolvedValueOnce(ok({ version: 0, home: { enabled: false }, store: { enabled: false, pickupPoint: null } }))
+    .mockResolvedValueOnce(ok({ version: 1, home: { enabled: false }, store: { enabled: true, pickupPoint: point } }))
+    .mockResolvedValueOnce(ok({ version: 2, home: { enabled: false }, store: { enabled: true, pickupPoint: { ...point, address: "Updated" } } }));
   const screen = render(<OrderDeliveryScreen />);
   await screen.findByText("Configurar modalidades");
   await act(async () => { mockFocus(); });

@@ -25,7 +25,7 @@ function dependencies(current: OrderAggregate | null, amount = 3) {
   const deductProductStock = vi.fn<SetDeliveryDependencies["deductProductStock"]>(async () => ok(null));
   const saveStockDeduction = vi.fn<SetDeliveryDependencies["saveStockDeduction"]>(async () => ok(null));
   const resolveDelivery = vi.fn<SetDeliveryDependencies["resolveDelivery"]>((selection, access, currency) => resolveDeliverySelection(selection, access, currency, {
-    getSettings: async () => ok({ version: 1, store: { enabled: true, pickupPoint: point } }), resolveCost: async () => ok(money(amount)),
+    getSettings: async () => ok({ version: 1, home: { enabled: false }, store: { enabled: true, pickupPoint: point } }), resolveCost: async () => ok(money(amount)),
   }));
   const deps: SetDeliveryDependencies = { transaction: async (_companyId, work) => work(),
     findOrderForUpdate: async () => ok(current), resolveDelivery, saveDelivery, deductProductStock, saveStockDeduction };

@@ -21,12 +21,12 @@ describe("store delivery configuration", () => {
     { enabled: true, pickupPoint: { ...point, address: "a".repeat(501) } },
     { enabled: false, pickupPoint: { instructions: "Puerta azul" } },
   ])("rejects incomplete or invalid configuration: %j", (invalid) => {
-    expect(parseDeliverySettings({ version: 0, store: invalid })).toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_SETTINGS" } });
+    expect(parseDeliverySettings({ version: 0, home: { enabled: false }, store: invalid })).toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_SETTINGS" } });
   });
 
   it("normalizes required texts and accepts their exact limits", () => {
-    expect(parseDeliverySettings({ version: 0, store: { enabled: true, pickupPoint: { ...point, name: " Tienda " } } })).toEqual(ok({ version: 0, store }));
-    expect(parseDeliverySettings({ version: 1, store: { enabled: true, pickupPoint: {
+    expect(parseDeliverySettings({ version: 0, home: { enabled: false }, store: { enabled: true, pickupPoint: { ...point, name: " Tienda " } } })).toEqual(ok({ version: 0, home: { enabled: false }, store }));
+    expect(parseDeliverySettings({ version: 1, home: { enabled: false }, store: { enabled: true, pickupPoint: {
       name: "n".repeat(120), address: "a".repeat(500), instructions: "i".repeat(1000),
     } } }).success).toBe(true);
   });
@@ -43,22 +43,36 @@ describe("store delivery configuration", () => {
 
   it("creates version one, rejects stale retries, and retains a disabled pickup point", async () => {
     const repo = repository(null);
-    expect(await saveDeliverySettings({ expectedVersion: 0, store }, context, repo.deps)).toEqual(ok({ version: 1, store }));
-    expect(await saveDeliverySettings({ expectedVersion: 0, store: { enabled: false, pickupPoint: null } }, context, repo.deps))
+    expect(await saveDeliverySettings({ expectedVersion: 0, home: { enabled: false }, store }, context, repo.deps)).toEqual(ok({ version: 1, home: { enabled: false }, store }));
+    expect(await saveDeliverySettings({ expectedVersion: 0, home: { enabled: false }, store: { enabled: false, pickupPoint: null } }, context, repo.deps))
       .toMatchObject({ success: false, error: { code: "DELIVERY_SETTINGS_CONFLICT", currentVersion: 1 } });
-    expect(repo.read()).toEqual({ version: 1, store });
+    expect(repo.read()).toEqual({ version: 1, home: { enabled: false }, store });
     const disabled = { enabled: false as const, pickupPoint: point };
-    expect(await saveDeliverySettings({ expectedVersion: 1, store: disabled }, context, repo.deps)).toEqual(ok({ version: 2, store: disabled }));
-    expect(await saveDeliverySettings({ expectedVersion: 2, store }, context, repo.deps)).toEqual(ok({ version: 3, store }));
+    expect(await saveDeliverySettings({ expectedVersion: 1, home: { enabled: false }, store: disabled }, context, repo.deps)).toEqual(ok({ version: 2, home: { enabled: false }, store: disabled }));
+    expect(await saveDeliverySettings({ expectedVersion: 2, home: { enabled: false }, store }, context, repo.deps)).toEqual(ok({ version: 3, home: { enabled: false }, store }));
   });
 
   it("propagates write failures and rejects invalid input before persistence", async () => {
     const repo = repository(null);
     const failure = err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unavailable" });
-    expect(await saveDeliverySettings({ expectedVersion: 0, store }, context, { ...repo.deps, save: async () => failure })).toEqual(failure);
+    expect(await saveDeliverySettings({ expectedVersion: 0, home: { enabled: false }, store }, context, { ...repo.deps, save: async () => failure })).toEqual(failure);
     for (const expectedVersion of [-1, 1.5, NaN, 2147483647]) {
-      expect(await saveDeliverySettings({ expectedVersion, store }, context, repo.deps)).toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_SETTINGS" } });
+      expect(await saveDeliverySettings({ expectedVersion, home: { enabled: false }, store }, context, repo.deps)).toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_SETTINGS" } });
     }
     expect(repo.read()).toBeNull();
   });
+});
+
+it("home enablement changes independently without losing the retained pickup point", async () => {
+  let persisted: DeliverySettings = { version: 1, home: { enabled: false }, store };
+  const deps: SaveDeliverySettingsDependencies = {
+    transaction: async (_companyId, work) => work(), findForUpdate: async () => ok(persisted),
+    save: async (_companyId, next) => { persisted = next; return ok(null); },
+  };
+  expect(await saveDeliverySettings({ expectedVersion: 1, home: { enabled: true }, store }, context, deps))
+    .toEqual(ok({ version: 2, home: { enabled: true }, store }));
+  const disabled = { enabled: false as const, pickupPoint: point };
+  expect(await saveDeliverySettings({ expectedVersion: 2, home: { enabled: true }, store: disabled }, context, deps))
+    .toEqual(ok({ version: 3, home: { enabled: true }, store: disabled }));
+  expect(parseDeliverySettings({ version: 1, home: { enabled: "true" }, store }).success).toBe(false);
 });

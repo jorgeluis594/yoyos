@@ -11,11 +11,13 @@ export const storeDeliverySettingsSchema = z.discriminatedUnion("enabled", [
 ]);
 export const deliverySettingsSchema = z.strictObject({
   version: z.number().int().min(0).max(2147483647),
+  home: z.strictObject({ enabled: z.boolean() }),
   store: storeDeliverySettingsSchema,
 });
 export type DeliverySettingsResponse = z.infer<typeof deliverySettingsSchema>;
 export const saveDeliverySettingsSchema = z.strictObject({
   expectedVersion: z.number().int().min(0).max(2147483646),
+  home: z.strictObject({ enabled: z.boolean() }),
   store: storeDeliverySettingsSchema,
 });
 export type SaveDeliverySettingsRequest = z.infer<typeof saveDeliverySettingsSchema>;

@@ -8,7 +8,7 @@ const context = { companyId: "00000000-0000-4000-8000-000000000001" as CompanyId
 const recipient = { name: "Ana", phone: "999", identity: { kind: "absent" as const } };
 const selection = { method: "store" as const, recipient };
 const point = { name: "Tienda", address: "Av. Lima 123", instructions: null };
-const settings = { version: 1, store: { enabled: true as const, pickupPoint: point } };
+const settings = { version: 1, home: { enabled: false }, store: { enabled: true as const, pickupPoint: point } };
 const cost = { amount: 3, currency: "PEN" as const };
 const dependencies = (): ResolveDeliveryDependencies => ({ getSettings: async () => ok(settings), resolveCost: async () => ok(cost) });
 
@@ -30,7 +30,7 @@ test("rejects absent or disabled settings without requesting a cost", async () =
   const resolveCost = vi.fn(dependencies().resolveCost);
   for (const pickupPoint of [null, point]) {
     expect(await resolveDeliverySelection(selection, context, "PEN", {
-      getSettings: async () => ok({ version: pickupPoint ? 1 : 0, store: { enabled: false, pickupPoint } }), resolveCost,
+      getSettings: async () => ok({ version: pickupPoint ? 1 : 0, home: { enabled: false }, store: { enabled: false, pickupPoint } }), resolveCost,
     })).toMatchObject({ success: false, error: { code: "DELIVERY_METHOD_DISABLED" } });
   }
   expect(resolveCost).not.toHaveBeenCalled();
@@ -65,4 +65,24 @@ test("rejects partial recipients, forged authority and legacy snapshots while pr
   expect(parseDeliverySelection({ ...documented, recipient: { ...recipient, identity: { kind: "document", documentType: "unknown", document: "001" } } }).success).toBe(false);
   expect(parseDeliverySnapshot({ ...selection, destination: { storeId: "legacy" } }).success).toBe(false);
   expect(parseDeliverySnapshot({ ...selection, pickupPoint: point, recordedBy: { kind: "seller" } }).success).toBe(false);
+});
+
+test("home requires its enabled flag and snapshots typed destination with optional instructions and seller authority", async () => {
+  const home = { method: "home" as const, recipient, destination: { address: " Calle 123 ", district: " Lima ", instructions: null } };
+  const resolveCost = vi.fn(dependencies().resolveCost);
+  expect(await resolveDeliverySelection(home, context, "PEN", { ...dependencies(), resolveCost }))
+    .toMatchObject({ success: false, error: { code: "DELIVERY_METHOD_DISABLED" } });
+  expect(resolveCost).not.toHaveBeenCalled();
+  const result = await resolveDeliverySelection(home, context, "PEN", {
+    getSettings: async () => ok({ ...settings, home: { enabled: true } }), resolveCost,
+  });
+  expect(result).toEqual(ok({ delivery: { method: "home", recipient, destination: { address: "Calle 123", district: "Lima", instructions: null },
+    recordedBy: { kind: "seller", userId: context.userId } }, cost }));
+  home.destination.address = "Changed after resolution";
+  expect(result).toMatchObject({ data: { delivery: { destination: { address: "Calle 123" } } } });
+  for (const destination of [{ address: "Street", district: " ", instructions: null }, { address: "Street", instructions: null }]) {
+    expect(parseDeliverySelection({ ...home, destination }).success).toBe(false);
+  }
+  expect(parseDeliverySelection({ ...home, destination: { address: "Street", district: "District", instructions: " Entrance " } }))
+    .toMatchObject({ success: true, data: { destination: { instructions: "Entrance" } } });
 });

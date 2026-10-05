@@ -66,23 +66,23 @@ test("authenticated configuration HTTP persists, conflicts, rejects manipulation
   const [seller, other] = await Promise.all([fixture(), fixture()]);
   const initial = await request("/api/delivery-settings", seller.cookie);
   expect(initial.status).toBe(200);
-  expect(await initial.json()).toEqual({ version: 0, store: { enabled: false, pickupPoint: null } });
+  expect(await initial.json()).toEqual({ version: 0, home: { enabled: false }, store: { enabled: false, pickupPoint: null } });
   const store = { enabled: true, pickupPoint: { name: "Tienda", address: "Av. Lima 123", instructions: null } };
-  const input = { expectedVersion: 0, store };
+  const input = { expectedVersion: 0, home: { enabled: false }, store };
   for (const extra of [{ companyId: other.companyId }, { userId: "other" }, { version: 99 }, { recordedBy: { kind: "buyer" } }]) {
     expect((await request("/api/delivery-settings", seller.cookie, { ...input, ...extra }, "PUT")).status).toBe(400);
   }
   const saved = await request("/api/delivery-settings", seller.cookie, input, "PUT");
   expect(saved.status).toBe(200);
-  expect(deliverySettingsSchema.parse(await saved.json())).toEqual({ version: 1, store });
-  const stale = await request("/api/delivery-settings", seller.cookie, { expectedVersion: 0, store: { enabled: false, pickupPoint: null } }, "PUT");
+  expect(deliverySettingsSchema.parse(await saved.json())).toEqual({ version: 1, home: { enabled: false }, store });
+  const stale = await request("/api/delivery-settings", seller.cookie, { expectedVersion: 0, home: { enabled: false }, store: { enabled: false, pickupPoint: null } }, "PUT");
   expect(stale.status).toBe(409);
   expect(await stale.json()).toMatchObject({ code: "DELIVERY_SETTINGS_CONFLICT" });
-  expect(await (await request("/api/delivery-settings", seller.cookie)).json()).toEqual({ version: 1, store });
-  expect(await (await request("/api/delivery-settings", other.cookie)).json()).toEqual({ version: 0, store: { enabled: false, pickupPoint: null } });
+  expect(await (await request("/api/delivery-settings", seller.cookie)).json()).toEqual({ version: 1, home: { enabled: false }, store });
+  expect(await (await request("/api/delivery-settings", other.cookie)).json()).toEqual({ version: 0, home: { enabled: false }, store: { enabled: false, pickupPoint: null } });
   const disabled = { ...store, enabled: false };
-  expect((await request("/api/delivery-settings", seller.cookie, { expectedVersion: 1, store: disabled }, "PUT")).status).toBe(200);
-  expect(await (await request("/api/delivery-settings", seller.cookie)).json()).toEqual({ version: 2, store: disabled });
+  expect((await request("/api/delivery-settings", seller.cookie, { expectedVersion: 1, home: { enabled: false }, store: disabled }, "PUT")).status).toBe(200);
+  expect(await (await request("/api/delivery-settings", seller.cookie)).json()).toEqual({ version: 2, home: { enabled: false }, store: disabled });
 });
 
 
@@ -93,10 +93,10 @@ test("mobile settings adapter exchanges authenticated settings and preserves a r
     const body: unknown = await response.json();
     return response.ok ? ok(body) : err({ code: "API_ERROR", message: "HTTP failure", http: { status: response.status, body } });
   });
-  expect(await mobile.get()).toEqual({ success: true, data: { version: 0, store: { enabled: false, pickupPoint: null } } });
-  const input = { expectedVersion: 0, store: { enabled: true as const, pickupPoint: { name: " Store ", address: " Lima ", instructions: null } } };
+  expect(await mobile.get()).toEqual({ success: true, data: { version: 0, home: { enabled: false }, store: { enabled: false, pickupPoint: null } } });
+  const input = { expectedVersion: 0, home: { enabled: false }, store: { enabled: true as const, pickupPoint: { name: " Store ", address: " Lima ", instructions: null } } };
   const saved = await mobile.save(input);
-  expect(saved).toMatchObject({ success: true, data: { version: 1, store: { pickupPoint: { name: "Store", address: "Lima" } } } });
+  expect(saved).toMatchObject({ success: true, data: { version: 1, home: { enabled: false }, store: { pickupPoint: { name: "Store", address: "Lima" } } } });
   expect(await mobile.save(input)).toMatchObject({ success: false, error: { code: "DELIVERY_SETTINGS_CONFLICT" } });
   expect(await mobile.get()).toEqual(saved);
 });
