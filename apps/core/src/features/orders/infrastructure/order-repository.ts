@@ -2,7 +2,7 @@ import { log } from "@core/src/shared/infrastructure/logger";
 import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import { isCurrency } from "@shared/money";
-import { getCompanyId, prisma, requireActiveTransaction } from "@core/src/shared/infrastructure/persistance";
+import { getCompanyId, prisma, requireActiveTransaction, withLockedForUpdate } from "@core/src/shared/infrastructure/persistance";
 import { buildOrder, type OrderItemId, type OrderId, type ContactId, type CompanyId, type UserId, type PositiveInteger, type PaymentId } from "@core/src/features/orders/domain/order";
 import { orderStateMachine, parseDeliveryDetails, type OrderAggregate, type Payment } from "@core/src/features/orders/domain/order-state-machine";
 import type { OrderCriteria } from "@core/src/features/orders/application/read-orders";
@@ -107,8 +107,9 @@ export async function findOrderAggregate(id: OrderId, companyId: CompanyId) {
 export async function findOrderForUpdate(id: OrderId, companyId: CompanyId) {
   requireActiveTransaction(companyId);
   try {
-    const rows = await prisma.$queryRaw<Array<{ id: string }>>`SELECT id FROM "Order" WHERE id = ${id}::uuid AND "companyId" = ${companyId}::uuid FOR UPDATE`;
-    return rows.length ? findOrderAggregate(id, companyId) : ok(null);
+    return await withLockedForUpdate(companyId,
+      Prisma.sql`SELECT id FROM "Order" WHERE id = ${id}::uuid AND "companyId" = ${companyId}::uuid`,
+      (row: { id: string } | null) => row ? findOrderAggregate(id, companyId) : ok(null));
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
     log.error({ event: "unable_to_lock_order", err: cause }, "unable_to_lock_order");
