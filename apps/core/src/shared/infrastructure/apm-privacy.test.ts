@@ -12,7 +12,7 @@ test("configured agent strips checkout credentials from transaction and span pay
     const agent = new Agent(config);
     const uuid = '00000000-0000-4000-8000-000000000099';
     const results = [];
-    for (const path of ['/checkout/company/' + uuid, '/api/orders/' + uuid + '/checkout-link', '/es-PE/orders/' + uuid]) {
+    for (const path of ['/checkout/company/' + uuid, '/api/orders/' + uuid + '/checkout-link', '/es-PE/orders/' + uuid, '/es-PE/orders/' + uuid + '.data']) {
       const transaction = new Transaction(agent);
       transaction.url = path;
       for (const key of ['request.uri', 'request.parameters.orderId', 'request.headers.referer', 'http.url', 'orderId']) {
@@ -30,7 +30,7 @@ test("configured agent strips checkout credentials from transaction and span pay
   const result = JSON.parse(output);
   expect(result.stripMessages).toBe(true);
   expect(result.results.map((entry: { name: string }) => entry.name)).toEqual([
-    "WebTransaction/NormalizedUri/checkout", "WebTransaction/NormalizedUri/orders/checkout-link", "WebTransaction/NormalizedUri/orders/detail",
+    "WebTransaction/NormalizedUri/checkout", "WebTransaction/NormalizedUri/orders/checkout-link", "WebTransaction/NormalizedUri/orders/detail", "WebTransaction/NormalizedUri/orders/detail",
   ]);
   for (const entry of result.results) {
     expect(entry.payload[3]).toBeNull();

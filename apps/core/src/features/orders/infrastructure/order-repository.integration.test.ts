@@ -1,7 +1,7 @@
 import { log } from "@core/src/shared/infrastructure/logger";
 import { parseBuyer, type CheckoutAccess } from "@core/src/features/orders/domain/checkout";
 import { confirmOrderCheckout } from "@core/src/features/orders/application/checkout";
-import { findCheckoutOrderForUpdate, saveCheckoutBuyer } from "@core/src/features/orders/infrastructure/checkout-repository";
+import { findCheckoutOrderForUpdate, saveCheckoutBuyer, saveCheckoutConfirmed } from "@core/src/features/orders/infrastructure/checkout-repository";
 import { randomUUID } from "node:crypto";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -773,4 +773,70 @@ test("checkout persistence failure produces one technical log and no confirmatio
     write.mockRestore();
     expect(await orders.getCheckout(access)).toMatchObject({ data: { buyer: null, state: { kind: "pending" } } });
   } finally { write?.mockRestore(); error.mockRestore(); info.mockRestore(); await f.cleanup(); }
+});
+
+
+test("confirmation committed first survives a concurrent total update or cancellation", async () => {
+  const f = await fixture();
+  try {
+    for (const change of ["total", "cancel"] as const) {
+      const { access, context } = await pendingCheckout(f);
+      await withTenantIsolation(f.companyId, () => orders.enableCheckout(access.orderId, context));
+      const locked = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const confirmation = withTenantIsolation(f.companyId, () => confirmOrderCheckout(checkoutInput(), access, new Date(), {
+        transaction: (_company, work) => withinTransaction(work),
+        findOrderForUpdate: async (scope) => {
+          const found = await findCheckoutOrderForUpdate(scope);
+          locked.resolve();
+          await release.promise;
+          return found;
+        },
+        saveBuyer: saveCheckoutBuyer, saveConfirmed: saveCheckoutConfirmed,
+      }));
+      await locked.promise;
+      const mutation = withTenantIsolation(f.companyId, () => withinTransaction(async () => {
+        const found = await findOrderForUpdate(access.orderId, access.companyId);
+        if (!found.success) return found;
+        await prisma.order.update({ where: { id: access.orderId }, data: change === "cancel" ? { cancelled: true } : {
+          total: 1, deliveryCost: 0.9, deliveryCharge: 0.9,
+          delivery: { method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, destination: { address: "Av. Lima 123" } },
+        } });
+        return ok(null);
+      }));
+      release.resolve();
+      expect(await confirmation).toMatchObject({ success: true });
+      expect(await mutation).toMatchObject({ success: true });
+      expect(await orders.getCheckout(access)).toMatchObject({ data: {
+        state: { kind: change === "cancel" ? "cancelled" : "confirmed" }, buyer: checkoutInput().buyer,
+      } });
+      await withTenantIsolation(f.companyId, async () => {
+        expect((await prisma.order.findUniqueOrThrow({ where: { id: access.orderId } })).checkoutConfirmedAt).toBeInstanceOf(Date);
+        expect(await prisma.orderBuyer.count({ where: { orderId: access.orderId } })).toBe(1);
+      });
+    }
+  } finally { await f.cleanup(); }
+});
+
+test("interleaved public reads and confirmations retain their own company and buyer", async () => {
+  const fixtures = await Promise.all([fixture(), fixture()]);
+  try {
+    const cases = await Promise.all(fixtures.map(async (f) => {
+      const checkout = await pendingCheckout(f);
+      await withTenantIsolation(f.companyId, () => orders.enableCheckout(checkout.access.orderId, checkout.context));
+      return checkout;
+    }));
+    const results = await Promise.all(cases.map(async ({ access }, index) => {
+      expect(await orders.getCheckout(access)).toMatchObject({ data: { buyer: null } });
+      const input = checkoutInput(index ? "Bruno" : "Ana");
+      expect(await orders.confirmCheckout(input, access)).toMatchObject({ data: { buyer: input.buyer } });
+      return orders.getCheckout(access);
+    }));
+    expect(results[0]).toMatchObject({ data: { buyer: { name: "Ana" } } });
+    expect(results[1]).toMatchObject({ data: { buyer: { name: "Bruno" } } });
+    for (const [index, { access }] of cases.entries()) {
+      const other = cases[1 - index];
+      expect(await orders.getCheckout({ ...access, companyId: other.access.companyId })).toMatchObject({ error: { code: "CHECKOUT_UNAVAILABLE" } });
+    }
+  } finally { await Promise.all(fixtures.map((f) => f.cleanup())); }
 });
