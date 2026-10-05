@@ -28,6 +28,10 @@ export default function OrderDeliveryScreen() {
   const companyId = state.status === "ready" ? state.company.id : "";
   const [order, setOrder] = useState<OrderAggregateResponse | null>(null);
   const [settings, setSettings] = useState<DeliverySettingsResponse | null>(null);
+  const [method, setMethod] = useState<"store" | "home" | null>("store");
+  const [address, setAddress] = useState("");
+  const [district, setDistrict] = useState("");
+  const [instructions, setInstructions] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [documentType, setDocumentType] = useState<DocumentType>("absent");
@@ -54,6 +58,9 @@ export default function OrderDeliveryScreen() {
       setDocumentType(recipient?.identity.kind === "document" ? recipient.identity.documentType : "absent");
       setDocument(recipient?.identity.kind === "document" ? recipient.identity.document : "");
       setCharge(current.deliveryCharge.amount > 0);
+      setMethod(current.delivery?.method === "home" || (!config.data.store.enabled && config.data.home.enabled) ? "home" : "store");
+      const destination = current.delivery?.method === "home" ? current.delivery.destination : null;
+      setAddress(destination?.address ?? ""); setDistrict(destination?.district ?? ""); setInstructions(destination?.instructions ?? "");
     } else setError(!aggregate.success && aggregate.error.code === "ORDER_NOT_FOUND" ? "orderNotFound" : "loadOrderDeliveryError");
     inFlight.current = false; setBusy(false);
   }, [companyId, id]);
@@ -71,11 +78,13 @@ export default function OrderDeliveryScreen() {
     if (focused.current) void refreshSettings();
     else focused.current = true;
   }, [companyId, refreshSettings]));
+  const enabled = method === "store" ? settings?.store.enabled : method === "home" ? settings?.home.enabled : false;
   const save = async () => {
-    if (inFlight.current || locked || !settings?.store.enabled) return;
-    const parsed = setOrderDeliverySchema.safeParse({ delivery: { method: "store", recipient: { name, phone,
-      identity: documentType === "absent" ? { kind: "absent" } : { kind: "document", documentType, document } } }, chargeDeliveryToCustomer: charge });
-    if (!parsed.success) { setError("invalidOrderDelivery"); return; }
+    if (inFlight.current || locked || !enabled) return;
+    const recipient = { name, phone, identity: documentType === "absent" ? { kind: "absent" } : { kind: "document", documentType, document } };
+    const delivery = method === "store" ? { method, recipient } : { method, recipient, destination: { address, district, instructions: instructions.trim() || null } };
+    const parsed = setOrderDeliverySchema.safeParse({ delivery, chargeDeliveryToCustomer: charge });
+    if (!parsed.success) { setError(method === "home" && (!address.trim() || !district.trim()) ? "invalidHomeDestination" : "invalidOrderDelivery"); return; }
     inFlight.current = true; setBusy(true); setError("");
     const result = await orders.setDelivery(id, parsed.data);
     if (result.success) { setOrder(result.data); router.back(); }
@@ -99,20 +108,30 @@ export default function OrderDeliveryScreen() {
     <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
       <Button variant="ghost" onPress={() => router.back()} disabled={busy}>{t("backToOrder")}</Button>
       <ThemedText type="title" accessibilityRole="header">{t(order.delivery ? "replaceOrderDelivery" : "assignOrderDelivery")}</ThemedText>
-      {locked ? (!error ? <ThemedText>{t("orderDeliveryLocked")}</ThemedText> : null) : !settings.store.enabled ? <View style={styles.section}>
+      {locked ? (!error ? <ThemedText>{t("orderDeliveryLocked")}</ThemedText> : null) : !settings.store.enabled && !settings.home.enabled ? <View style={styles.section}>
         <ThemedText>{t("orderDeliveryDisabled")}</ThemedText><Button variant="secondary" onPress={() => router.push("/settings/delivery")}>{t("configureOrderDelivery")}</Button>
       </View> : <>
-        <View style={styles.section}><ThemedText type="subtitle">{t("pickupStoreTitle")}</ThemedText>
+        <Field disabled={busy}><FieldLabel>{t("orderDeliveryMethod")}</FieldLabel><OptionSelector testID="delivery-method" value={enabled ? method : null}
+          onValueChange={value => setMethod(value as "store" | "home" | null)} options={[
+            ...(settings.store.enabled ? [{ value: "store", label: t("pickupStoreTitle") }] : []),
+            ...(settings.home.enabled ? [{ value: "home", label: t("homeDeliveryTitle") }] : []),
+          ]} /></Field>
+        {!enabled ? <ThemedText>{t("orderDeliveryDisabled")}</ThemedText> : null}
+        {method === "store" ? <View style={styles.section}><ThemedText type="subtitle" accessibilityRole="header">{t("pickupStoreTitle")}</ThemedText>
           <ThemedText>{point?.name}</ThemedText><ThemedText>{point?.address}</ThemedText>
-          {point?.instructions ? <ThemedText themeColor="textSecondary">{point.instructions}</ThemedText> : null}</View>
+          {point?.instructions ? <ThemedText themeColor="textSecondary">{point.instructions}</ThemedText> : null}</View> : method === "home" ? <FieldGroup>
+          <Field required disabled={busy}><FieldLabel>{t("orderDeliveryAddress")}</FieldLabel><Input value={address} onChangeText={setAddress} maxLength={500} multiline accessibilityLabel={t("orderDeliveryAddress")} /></Field>
+          <Field required disabled={busy}><FieldLabel>{t("orderDeliveryDistrict")}</FieldLabel><Input value={district} onChangeText={setDistrict} maxLength={120} accessibilityLabel={t("orderDeliveryDistrict")} /></Field>
+          <Field disabled={busy}><FieldLabel>{t("orderDeliveryInstructions")}</FieldLabel><Input value={instructions} onChangeText={setInstructions} maxLength={1000} multiline accessibilityLabel={t("orderDeliveryInstructions")} /></Field>
+        </FieldGroup> : null}
         <FieldGroup><Field required disabled={busy}><FieldLabel>{t("deliveryRecipientName")}</FieldLabel><Input value={name} onChangeText={setName} accessibilityLabel={t("deliveryRecipientName")} /></Field>
           <Field required disabled={busy}><FieldLabel>{t("deliveryRecipientPhone")}</FieldLabel><Input value={phone} onChangeText={setPhone} keyboardType="phone-pad" accessibilityLabel={t("deliveryRecipientPhone")} /></Field>
-          <Field disabled={busy}><FieldLabel>{t("deliveryDocumentType")}</FieldLabel><OptionSelector value={documentType} onValueChange={value => setDocumentType((value ?? "absent") as DocumentType)}
+          <Field disabled={busy}><FieldLabel>{t("deliveryDocumentType")}</FieldLabel><OptionSelector testID="delivery-document-type" value={documentType} onValueChange={value => setDocumentType((value ?? "absent") as DocumentType)}
             options={[{ value: "absent", label: t("deliveryNoDocument") }, ...(["national_id", "passport", "foreign_id"] as const).map(value => ({ value, label: documentTypeLabel(value, language) }))]} /></Field>
           {documentType !== "absent" ? <Field required disabled={busy}><FieldLabel>{t("deliveryDocument")}</FieldLabel><Input value={document} onChangeText={setDocument} accessibilityLabel={t("deliveryDocument")} /></Field> : null}</FieldGroup>
         <View style={styles.toggle}><ThemedText style={styles.label}>{t("chargeOrderDelivery")}</ThemedText><Switch value={charge} disabled={busy} hitSlop={10} trackColor={{ true: theme.primary }} accessibilityLabel={t("chargeOrderDelivery")} onValueChange={setCharge} /></View>
         <ThemedText type="small" themeColor="textSecondary">{t("orderDeliveryCostHint")}</ThemedText>
-        <Button onPress={() => void save()} loading={busy} disabled={busy}>{t("saveOrderDelivery")}</Button>
+        <Button onPress={() => void save()} loading={busy} disabled={busy || !enabled}>{t("saveOrderDelivery")}</Button>
       </>}
       {error ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t(error)}</ThemedText> : null}
     </ScrollView>

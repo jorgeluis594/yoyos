@@ -122,3 +122,15 @@ test("a failed refetch after returning hides obsolete details and offers retry",
   fireEvent.press(screen.getByText("Reintentar"));
   await screen.findByText("Venta completada");
 });
+
+test("home details show historical address, district, instructions and seller alongside cost and charge", async () => {
+  mockOrder = { ...initialOrder, status: "active", completedAt: null, deliveryStatus: "pending", deliveryCost: { amount: 3, currency: "PEN" },
+    delivery: { method: "home", recipient: { name: "Recipient", phone: "555", identity: { kind: "absent" } }, destination: { address: "Historic destination", district: "Historic district", instructions: "Historic instructions" }, recordedBy: { kind: "seller", userId: "second-seller" } } };
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Historic destination");
+  expect(screen.getByText("Historic district")).toBeTruthy();
+  expect(screen.getByText("Historic instructions")).toBeTruthy();
+  expect(screen.getByText(/Registrada por vendedor: second-seller/)).toBeTruthy();
+  expect(screen.getByText(/Costo de entrega:/)).toBeTruthy();
+  expect(screen.getByText(/Cargo al cliente:/)).toBeTruthy();
+});

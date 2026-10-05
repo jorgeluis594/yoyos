@@ -5,10 +5,10 @@ primary_target: "apps/mobile/src/features/orders/presentation/order-delivery-scr
 related_targets: ["apps/mobile/src/features/orders/presentation/order-detail-screen.tsx"]
 ---
 
-# Native store delivery assignment
+# Native delivery assignment
 
-Operate; inherits compact caramel and native platform conventions. Active pending orders support store assignment/replacement using the currently configured point. Recipient fields prefill from saved recipient or buyer contact but remain editable and distinct from buyer data. Optional identity uses the native option picker; customer charging uses a Switch. The server authors the pickup snapshot and cost, separately from customer charge.
+Operate; inherits compact caramel and native conventions. Active pending orders choose enabled home/store methods. Home requires address/district, with optional instructions. Editable recipient, optional native-picker identity, and charge decision persist across choices, distinct from buyer data. Server-authored destination snapshots and cost display separately from customer charge on detail.
 
-Unavailable production cost resolution preserves the draft. Returning from configuration refreshes settings without replacing recipient edits. Pending submissions prevent duplicates; server race responses lock further changes. Successful save returns to detail, which refetches and hides stale content on error with retry.
+Unavailable cost preserves drafts. Focus refresh updates settings while preserving home/recipient edits; disabled methods cannot save. Pending submissions prevent duplicates; server race responses lock changes. Successful save returns to refetched detail, hiding stale content on error with retry.
 
-Spanish/Portuguese translations and tests cover the flow. Lint, typecheck, and full Jest passed. Reviewer scored both listed code/UX fixes resolved (ship at that scope). No native captures or device E2E: SDK, simulator, and device unavailable. Native visual/E2E acceptance remains pending.
+Spanish/Portuguese and native home tests cover behavior; full Jest, lint and typecheck passed. Code/accessibility/i18n review complete with no material fixes; disposition is recapture because no native captures were supplied. SDK/simulator/device unavailable. Native visual review and device E2E remain explicitly pending; full acceptance is unverified.

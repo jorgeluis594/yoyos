@@ -17,7 +17,7 @@ jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAcc
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 jest.mock("@expo/ui", () => {
   const { View } = jest.requireActual<typeof import("react-native")>("react-native");
-  const Picker = ({ onValueChange, children }: { onValueChange: (value: number) => void; children: React.ReactNode }) => <View accessible accessibilityRole="adjustable" {...{ onValueChange }}>{children}</View>;
+  const Picker = ({ onValueChange, children, testID }: { onValueChange: (value: number) => void; children: React.ReactNode; testID?: string }) => <View testID={testID} accessible accessibilityRole="adjustable" {...{ onValueChange }}>{children}</View>;
   Picker.Item = function PickerItem() { return null; };
   return { Host: View, Picker };
 });
@@ -71,7 +71,7 @@ test("validation requires recipient and selected document; values preserve leadi
   await screen.findByText(/Completa el nombre/);
   expect(save).not.toHaveBeenCalled();
   fireEvent.changeText(screen.getByLabelText("Nombre del destinatario *"), "Recipient");
-  fireEvent(screen.getByRole("adjustable"), "valueChange", 2);
+  fireEvent(screen.getByTestId("delivery-document-type"), "valueChange", 2);
   fireEvent.press(screen.getByText("Guardar entrega"));
   expect(save).not.toHaveBeenCalled();
   fireEvent.changeText(screen.getByLabelText("Número de documento *"), "00-A123");
@@ -106,7 +106,7 @@ test.each(["shipped", "delivered"] as const)("direct route to %s order exposes n
 test("disabled store points to configuration and failed settings read never becomes editable defaults", async () => {
   getSettings.mockResolvedValueOnce(ok({ version: 0, home: { enabled: false }, store: { enabled: false, pickupPoint: null } }));
   const screen = render(<OrderDeliveryScreen />);
-  await screen.findByText(/no está habilitado/);
+  await screen.findByText(/no está habilitad/);
   expect(screen.queryByText("Guardar entrega")).toBeNull();
   fireEvent.press(screen.getByText("Configurar modalidades")); expect(mockPush).toHaveBeenCalledWith("/settings/delivery");
   screen.unmount();
@@ -137,4 +137,67 @@ test("returning from configuration refreshes availability and point without eras
   await screen.findByText("Updated");
   expect(screen.getByLabelText("Nombre del destinatario *").props.value).toBe("My draft");
   expect(load).toHaveBeenCalledTimes(1);
+});
+
+test("home-only settings default to home, require district and preserve destination after unavailable costs", async () => {
+  getSettings.mockResolvedValue(ok({ version: 1, home: { enabled: true }, store: { enabled: false, pickupPoint: null } }));
+  save.mockResolvedValue(err({ code: "DELIVERY_UNAVAILABLE", message: "private" }));
+  const screen = render(<OrderDeliveryScreen />);
+  await screen.findByLabelText("Dirección de entrega *");
+  fireEvent.changeText(screen.getByLabelText("Dirección de entrega *"), "Destination");
+  fireEvent.press(screen.getByText("Guardar entrega"));
+  await screen.findByText("Completa la dirección y el distrito de entrega.");
+  expect(save).not.toHaveBeenCalled();
+  fireEvent.changeText(screen.getByLabelText("Distrito *"), " District ");
+  fireEvent.changeText(screen.getByLabelText("Indicaciones de entrega (opcional)"), "  ");
+  fireEvent.press(screen.getByText("Guardar entrega"));
+  await screen.findByText(/No se pudo determinar/);
+  expect(save).toHaveBeenCalledWith(mockId, { delivery: { method: "home", recipient: { name: "Customer", phone: "555001", identity: { kind: "absent" } },
+    destination: { address: "Destination", district: "District", instructions: null } }, chargeDeliveryToCustomer: false });
+  expect(screen.getByLabelText("Dirección de entrega *").props.value).toBe("Destination");
+  expect(mockBack).not.toHaveBeenCalled();
+});
+
+test("switching store to home preserves shared recipient, document and charge and removes pickup data from request", async () => {
+  getSettings.mockResolvedValue(ok({ version: 1, home: { enabled: true }, store: { enabled: true, pickupPoint: point } }));
+  save.mockResolvedValue(ok({ ...pending, delivery: { method: "home", recipient: { name: "Different", phone: "555001", identity: { kind: "document", documentType: "passport", document: "00-A" } },
+    destination: { address: "Destination", district: "District", instructions: "Side door" }, recordedBy: { kind: "seller", userId: "server-author" } } }));
+  const screen = render(<OrderDeliveryScreen />);
+  await screen.findByText("Current address");
+  fireEvent.changeText(screen.getByLabelText("Nombre del destinatario *"), "Different");
+  fireEvent(screen.getByTestId("delivery-document-type"), "valueChange", 2);
+  fireEvent.changeText(screen.getByLabelText("Número de documento *"), "00-A");
+  fireEvent(screen.getByLabelText("Cobrar el costo de entrega al cliente"), "valueChange", true);
+  fireEvent(screen.getByTestId("delivery-method"), "valueChange", 1);
+  expect(screen.queryByText("Current address")).toBeNull();
+  expect(screen.getByLabelText("Nombre del destinatario *").props.value).toBe("Different");
+  fireEvent.changeText(screen.getByLabelText("Dirección de entrega *"), "Destination");
+  fireEvent.changeText(screen.getByLabelText("Distrito *"), "District");
+  fireEvent.changeText(screen.getByLabelText("Indicaciones de entrega (opcional)"), "Side door");
+  fireEvent(screen.getByTestId("delivery-method"), "valueChange", 0);
+  await screen.findByText("Current address");
+  fireEvent(screen.getByTestId("delivery-method"), "valueChange", 1);
+  expect(screen.getByLabelText("Dirección de entrega *").props.value).toBe("Destination");
+  fireEvent.press(screen.getByText("Guardar entrega"));
+  await waitFor(() => expect(mockBack).toHaveBeenCalledTimes(1));
+  expect(save).toHaveBeenCalledWith(mockId, { delivery: { method: "home", recipient: { name: "Different", phone: "555001", identity: { kind: "document", documentType: "passport", document: "00-A" } },
+    destination: { address: "Destination", district: "District", instructions: "Side door" } }, chargeDeliveryToCustomer: true });
+});
+
+test("saved home prefill and configuration refresh keep destination draft; disabling its method blocks save", async () => {
+  load.mockResolvedValue(ok({ ...pending, delivery: { method: "home", recipient: { name: "Saved recipient", phone: "555", identity: { kind: "absent" } },
+    destination: { address: "Historic destination", district: "Historic district", instructions: null }, recordedBy: { kind: "seller", userId: "seller" } } }));
+  getSettings.mockResolvedValueOnce(ok({ version: 1, home: { enabled: true }, store: { enabled: true, pickupPoint: point } }))
+    .mockResolvedValueOnce(ok({ version: 2, home: { enabled: false }, store: { enabled: true, pickupPoint: point } }));
+  const screen = render(<OrderDeliveryScreen />);
+  await screen.findByLabelText("Dirección de entrega *");
+  expect(screen.getByLabelText("Dirección de entrega *").props.value).toBe("Historic destination");
+  fireEvent.changeText(screen.getByLabelText("Dirección de entrega *"), "My draft");
+  await act(async () => { mockFocus(); });
+  expect(screen.getByLabelText("Dirección de entrega *").props.value).toBe("My draft");
+  expect(screen.getByRole("button", { name: "Guardar entrega" }).props.accessibilityState.disabled).toBe(true);
+  fireEvent.press(screen.getByText("Guardar entrega"));
+  expect(save).not.toHaveBeenCalled();
+  fireEvent(screen.getByTestId("delivery-method"), "valueChange", 0);
+  expect(screen.getByRole("button", { name: "Guardar entrega" }).props.accessibilityState.disabled).toBe(false);
 });

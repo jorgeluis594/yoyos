@@ -1,5 +1,6 @@
 export const translations = {
   es: {
+    orderDeliveryMethod: "Modalidad de entrega", orderDeliveryAddress: "Dirección de entrega", orderDeliveryDistrict: "Distrito", orderDeliveryInstructions: "Indicaciones de entrega (opcional)", invalidHomeDestination: "Completa la dirección y el distrito de entrega.",
     assignOrderDelivery: "Asignar entrega",
     replaceOrderDelivery: "Editar entrega",
     backToOrder: "Volver al pedido",
@@ -7,7 +8,7 @@ export const translations = {
     loadOrderDeliveryError: "No se pudo cargar la entrega",
     invalidOrderDelivery: "Completa el nombre, el teléfono y el documento si lo seleccionaste.",
     orderDeliveryUnavailable: "No se pudo determinar la disponibilidad y el costo. Conservamos tus datos para reintentar.",
-    orderDeliveryDisabled: "El recojo en tienda no está habilitado. Revisa la configuración antes de guardar.",
+    orderDeliveryDisabled: "La modalidad de entrega no está habilitada. Revisa la configuración antes de guardar.",
     orderDeliveryLocked: "La entrega ya no se puede editar en el estado actual del pedido.",
     saveOrderDeliveryError: "No se pudo guardar la entrega. Conservamos tus datos para reintentar.",
     configureOrderDelivery: "Configurar modalidades",
@@ -131,6 +132,7 @@ export const translations = {
     offlineEditing: 'Sin conexión. Puedes seguir editando.',
   },
   'pt-BR': {
+    orderDeliveryMethod: "Modalidade de entrega", orderDeliveryAddress: "Endereço de entrega", orderDeliveryDistrict: "Distrito", orderDeliveryInstructions: "Instruções de entrega (opcional)", invalidHomeDestination: "Preencha o endereço e o distrito da entrega.",
     assignOrderDelivery: "Definir entrega",
     replaceOrderDelivery: "Editar entrega",
     backToOrder: "Voltar ao pedido",
@@ -138,7 +140,7 @@ export const translations = {
     loadOrderDeliveryError: "Não foi possível carregar a entrega",
     invalidOrderDelivery: "Preencha o nome, o telefone e o documento caso selecionado.",
     orderDeliveryUnavailable: "Não foi possível determinar a disponibilidade e o custo. Mantemos seus dados para tentar novamente.",
-    orderDeliveryDisabled: "A retirada na loja não está habilitada. Confira a configuração antes de salvar.",
+    orderDeliveryDisabled: "A modalidade de entrega não está habilitada. Confira a configuração antes de salvar.",
     orderDeliveryLocked: "A entrega não pode mais ser editada no estado atual do pedido.",
     saveOrderDeliveryError: "Não foi possível salvar a entrega. Mantemos seus dados para tentar novamente.",
     configureOrderDelivery: "Configurar modalidades",
