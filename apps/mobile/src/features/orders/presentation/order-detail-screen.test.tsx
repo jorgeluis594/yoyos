@@ -134,3 +134,14 @@ test("home details show historical address, district, instructions and seller al
   expect(screen.getByText(/Costo de entrega:/)).toBeTruthy();
   expect(screen.getByText(/Cargo al cliente:/)).toBeTruthy();
 });
+
+test("agency history shows the saved courier and document after shipment", async () => {
+  mockOrder = { ...initialOrder, status: "active", completedAt: null, deliveryStatus: "shipped",
+    delivery: { method: "agency", recipient: { name: "Recipient", phone: "00123", identity: { kind: "document", documentType: "passport", document: "00-A001" } },
+      courier: { id: "00000000-0000-4000-8000-000000000011", name: "Historic courier" }, agency: "Historic agency", recordedBy: { kind: "seller", userId: "second-seller" } } };
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Historic courier");
+  expect(screen.getByText("Historic agency")).toBeTruthy();
+  expect(screen.getByText(/00-A001/)).toBeTruthy();
+  expect(screen.queryByText("Editar entrega")).toBeNull();
+});

@@ -94,6 +94,9 @@ export default function OrderDetailScreen() {
           <ThemedText>{order.delivery.destination.address}</ThemedText><ThemedText>{order.delivery.destination.district}</ThemedText>
           {order.delivery.destination.instructions ? <ThemedText themeColor="textSecondary">{order.delivery.destination.instructions}</ThemedText> : null}
         </> : null}
+        {order.delivery.method === "agency" ? <>
+          <ThemedText>{order.delivery.courier.name}</ThemedText><ThemedText>{order.delivery.agency}</ThemedText>
+        </> : null}
         <ThemedText>{t("orderDeliveryCost", { amount: money(order.deliveryCost.amount, order.deliveryCost.currency, locale) })}</ThemedText>
         <ThemedText>{t("orderDeliveryCharge", { amount: money(order.deliveryCharge.amount, order.deliveryCharge.currency, locale) })}</ThemedText>
         <ThemedText type="small" themeColor="textSecondary">{order.delivery.recordedBy.kind === "seller" ? t("orderDeliverySeller", { id: order.delivery.recordedBy.userId }) : t("orderDeliveryBuyer")}</ThemedText>

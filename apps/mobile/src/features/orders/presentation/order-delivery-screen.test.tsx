@@ -201,3 +201,51 @@ test("saved home prefill and configuration refresh keep destination draft; disab
   fireEvent(screen.getByTestId("delivery-method"), "valueChange", 0);
   expect(screen.getByRole("button", { name: "Guardar entrega" }).props.accessibilityState.disabled).toBe(false);
 });
+
+test("agency-only defaults require a document and stale couriers refresh without erasing drafts", async () => {
+  const courier = { id: "00000000-0000-4000-8000-000000000011", name: "Original", enabled: true };
+  const alternate = { id: "00000000-0000-4000-8000-000000000012", name: "Alternate", enabled: true };
+  const config = { version: 1, agency: { enabled: true }, couriers: [courier, alternate], home: { enabled: false }, store: { enabled: false as const, pickupPoint: null } };
+  getSettings.mockResolvedValueOnce(ok(config)).mockResolvedValueOnce(ok({ ...config, version: 2, couriers: [{ ...courier, enabled: false }, alternate] }));
+  save.mockResolvedValueOnce(err({ code: "COURIER_UNAVAILABLE", message: "private" })).mockResolvedValueOnce(ok(pending));
+  const screen = render(<OrderDeliveryScreen />);
+  await screen.findByLabelText("Agencia de destino *");
+  expect(screen.getByRole("button", { name: "Guardar entrega" }).props.accessibilityState.disabled).toBe(true);
+  fireEvent(screen.getByTestId("delivery-courier"), "valueChange", 0);
+  fireEvent.changeText(screen.getByLabelText("Agencia de destino *"), "Lima centro");
+  fireEvent.press(screen.getByText("Guardar entrega"));
+  await screen.findByText(/Selecciona un courier activo y completa/);
+  expect(save).not.toHaveBeenCalled();
+  fireEvent(screen.getByTestId("delivery-document-type"), "valueChange", 1);
+  fireEvent.changeText(screen.getByLabelText("Número de documento *"), "00-A001");
+  fireEvent.press(screen.getByText("Guardar entrega"));
+  await screen.findByText(/El courier ya no está disponible/);
+  expect(screen.getByLabelText("Agencia de destino *").props.value).toBe("Lima centro");
+  expect(screen.getByLabelText("Número de documento *").props.value).toBe("00-A001");
+  expect(screen.getByRole("button", { name: "Guardar entrega" }).props.accessibilityState.disabled).toBe(true);
+  expect(mockBack).not.toHaveBeenCalled();
+  fireEvent(screen.getByTestId("delivery-courier"), "valueChange", 0);
+  fireEvent.press(screen.getByText("Guardar entrega"));
+  await waitFor(() => expect(mockBack).toHaveBeenCalledTimes(1));
+  expect(save).toHaveBeenLastCalledWith(mockId, { delivery: { method: "agency", courierId: alternate.id, agency: "Lima centro", recipient: { name: "Customer", phone: "555001", identity: { kind: "document", documentType: "passport", document: "00-A001" } } }, chargeDeliveryToCustomer: false });
+});
+
+test("saved agency keeps its inactive courier unselected and preserves drafts across all methods", async () => {
+  const courier = { id: "00000000-0000-4000-8000-000000000011", name: "Inactive", enabled: false };
+  getSettings.mockResolvedValue(ok({ version: 2, agency: { enabled: true }, couriers: [courier, { ...courier, id: "00000000-0000-4000-8000-000000000012", name: "Active", enabled: true }], home: { enabled: true }, store: { enabled: true, pickupPoint: point } }));
+  load.mockResolvedValue(ok({ ...pending, delivery: { method: "agency", recipient: { name: "Saved", phone: "00123", identity: { kind: "document", documentType: "foreign_id", document: "000123" } }, courier: { id: courier.id, name: "Historic" }, agency: "Historic agency", recordedBy: { kind: "seller", userId: "seller" } } }));
+  const screen = render(<OrderDeliveryScreen />);
+  await screen.findByLabelText("Agencia de destino *");
+  expect(screen.getByRole("button", { name: "Guardar entrega" }).props.accessibilityState.disabled).toBe(true);
+  fireEvent.changeText(screen.getByLabelText("Agencia de destino *"), "Agency draft");
+  fireEvent(screen.getByTestId("delivery-method"), "valueChange", 1);
+  fireEvent.changeText(screen.getByLabelText("Dirección de entrega *"), "Home draft");
+  fireEvent(screen.getByTestId("delivery-method"), "valueChange", 0);
+  await screen.findByText("Current address");
+  fireEvent(screen.getByTestId("delivery-method"), "valueChange", 2);
+  expect(screen.getByLabelText("Agencia de destino *").props.value).toBe("Agency draft");
+  expect(screen.getByLabelText("Nombre del destinatario *").props.value).toBe("Saved");
+  expect(screen.getByLabelText("Número de documento *").props.value).toBe("000123");
+  fireEvent(screen.getByTestId("delivery-method"), "valueChange", 1);
+  expect(screen.getByLabelText("Dirección de entrega *").props.value).toBe("Home draft");
+});
