@@ -54,7 +54,7 @@ else
 fi
 
 quiet docker compose -f ../../compose.yaml up -d --wait db_test mailpit
-DATABASE_URL="$admin_database_url" quiet pnpm exec prisma migrate deploy
+DATABASE_URL="$admin_database_url" quiet pnpm exec tsx scripts/migrate.ts
 quiet psql "$admin_database_url" -v ON_ERROR_STOP=1 -c 'TRUNCATE TABLE public."jwks"'
 quiet psql "$admin_database_url" -v ON_ERROR_STOP=1 -v app_password=core_app_local -v dbname=core_test -f scripts/provision-role.sql
 export DATABASE_URL=$app_database_url
