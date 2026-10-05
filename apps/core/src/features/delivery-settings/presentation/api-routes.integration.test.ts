@@ -126,3 +126,26 @@ test("courier HTTP generates IDs, rejects omission and foreign IDs, and retains 
   expect(await disabled.json()).toMatchObject({ version: 2, agency: { enabled: false }, couriers: [{ id: courier.id, name: "Renamed", enabled: false }] });
   expect(await withTenantIsolation(seller.companyId ?? "", async () => await prisma.companyCourier.count())).toBe(1);
 });
+
+test("a lost settings response after commit recovers persisted courier IDs without replaying the save", async () => {
+  const seller = await fixture();
+  let dropResponse = true;
+  const mobile = createDeliverySettingsApi(async (path, init) => {
+    const response = await fetch(`${base}${path}`, { ...init, headers: { ...Object.fromEntries(new Headers(init?.headers)), origin, cookie: seller.cookie } });
+    if (dropResponse && init?.method === "PUT") {
+      expect(response.status).toBe(200);
+      await response.arrayBuffer();
+      dropResponse = false;
+      return err({ code: "NETWORK_ERROR", message: "Response lost after server commit" });
+    }
+    const body: unknown = await response.json();
+    return response.ok ? ok(body) : err({ code: "API_ERROR", message: "HTTP failure", http: { status: response.status, body } });
+  });
+  const input = { expectedVersion: 0, home: { enabled: false }, store: { enabled: false as const, pickupPoint: null }, agency: { enabled: true }, couriers: [{ kind: "new" as const, name: "Courier", enabled: true }] };
+  expect(await mobile.save(input)).toMatchObject({ success: false, error: { code: "NETWORK_ERROR" } });
+  const confirmed = await mobile.get();
+  expect(confirmed).toMatchObject({ success: true, data: { version: 1, couriers: [{ name: "Courier" }] } });
+  expect(await mobile.save(input)).toMatchObject({ success: false, error: { code: "DELIVERY_SETTINGS_CONFLICT" } });
+  expect(await mobile.get()).toEqual(confirmed);
+  expect(await withTenantIsolation(seller.companyId ?? "", async () => await prisma.companyCourier.count())).toBe(1);
+});
