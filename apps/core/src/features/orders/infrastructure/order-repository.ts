@@ -185,6 +185,33 @@ export async function savePayment(payment: Payment, companyId: CompanyId) {
   }
 }
 
+export async function updatePayment(payment: Payment, companyId: CompanyId, expectedStatus: "reported" | "confirmed") {
+  requireActiveTransaction(companyId);
+  try {
+    const updated = await prisma.payment.updateMany({ where: { id: payment.id, orderId: payment.orderId, companyId, status: expectedStatus },
+      data: { status: payment.status, amount: payment.amount ? new Prisma.Decimal(payment.amount.amount.toString()) : null,
+        method: payment.method, data: paymentDataJson(payment) } });
+    return updated.count === 1 ? ok<null>(null) : err({ code: "PAYMENT_CONFLICT" as const, message: "Payment changed during update" });
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_update_payment", err: cause }, "unable_to_update_payment");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to update payment" });
+  }
+}
+
+export async function saveCompletion(id: OrderId, companyId: CompanyId, completedAt: Date | null) {
+  requireActiveTransaction(companyId);
+  try {
+    const updated = await prisma.order.updateMany({ where: { id, companyId, deliveryStatus: "delivered", cancelled: false },
+      data: { completedAt } });
+    return updated.count === 1 ? ok<null>(null) : err({ code: "INVALID_ORDER" as const, message: "Delivered order changed during update" });
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_save_order_completion", err: cause }, "unable_to_save_order_completion");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save order completion" });
+  }
+}
+
 export async function saveFulfillment(id: OrderId, companyId: CompanyId, change: Pick<OrderAggregate, "deliveryStatus" | "deliveredAt" | "completedAt">) {
   requireActiveTransaction(companyId);
   try {

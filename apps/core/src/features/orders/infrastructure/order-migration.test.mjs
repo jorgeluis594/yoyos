@@ -84,6 +84,7 @@ test("migrates historical sales to paid delivered orders without changing stock"
     await isolated.query(await readFile(`${migrations}20261005060921_order_delivery_timestamp/migration.sql`, "utf8"));
     expect((await isolated.query('SELECT "deliveredAt" FROM "Order" WHERE "id" = $1', [order])).rows[0].deliveredAt).toEqual(completedAt);
     await isolated.query(await readFile(`${migrations}20261005061907_payment_states/migration.sql`, "utf8"));
+    await isolated.query(await readFile(`${migrations}20261005064010_allow_bank_transfer_payments/migration.sql`, "utf8"));
     const migrated = (await isolated.query('SELECT "id", "amount", "currency", "method", "status", "data" FROM "Payment" WHERE "orderId" = $1', [order])).rows[0];
     expect(migrated).toMatchObject({ id: saved.rows[0].paymentId, amount: "15.00", currency: "PEN", method: "digital_wallet", status: "confirmed",
       data: { confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" } } });

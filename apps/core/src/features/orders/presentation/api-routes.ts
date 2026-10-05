@@ -66,6 +66,8 @@ function operationError(response: Response, error: { code: string; variantId?: s
     case "ORDER_NOT_FOUND": return apiError(response, 404, "ORDER_NOT_FOUND", "Order not found");
     case "INVALID_PAYMENT": return apiError(response, 422, "INVALID_PAYMENT", "Invalid payment");
     case "PAYMENT_CONFLICT": return apiError(response, 409, "PAYMENT_CONFLICT", "Payment ID conflict");
+    case "PAYMENT_NOT_FOUND": return apiError(response, 404, "PAYMENT_NOT_FOUND", "Payment not found");
+    case "RECEIPT_NOT_FOUND": return apiError(response, 422, "RECEIPT_NOT_FOUND", "Receipt not found");
     case "INVALID_TRANSITION": return apiError(response, 409, "INVALID_TRANSITION", "Invalid order transition");
     case "DELIVERY_LOCKED": return apiError(response, 409, "DELIVERY_LOCKED", "Delivery is locked");
     case "PAYMENT_REQUIRED": return apiError(response, 409, "PAYMENT_REQUIRED", "Payment is required");
@@ -200,6 +202,16 @@ orderRoutes.post("/:id/payments", async (request, response: Response<unknown, Pr
     const result = await orders.registerPayment(input, orderContext(response));
     return result.success ? response.json(registerPaymentResponseSchema.parse({ order: toOrderAggregateJson(result.data.order), stock: result.data.stock }))
       : operationError(response, result.error);
+  } catch (error) { return unexpected(response, error); }
+});
+
+orderRoutes.post("/:id/payments/:paymentId/void", async (request, response: Response<unknown, PrivateLocals>) => {
+  const parsedId = orderId(request.params.id);
+  const parsedPaymentId = z.uuid().safeParse(request.params.paymentId);
+  if (!parsedId.success || !parsedPaymentId.success) return apiError(response, 400, "INVALID_INPUT", "Invalid payment ID");
+  try {
+    const result = await orders.voidPayment({ orderId: parsedId.data as OrderId, paymentId: parsedPaymentId.data as PaymentId }, orderContext(response));
+    return result.success ? response.json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });
 

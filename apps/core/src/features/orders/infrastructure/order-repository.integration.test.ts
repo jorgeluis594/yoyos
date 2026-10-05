@@ -37,6 +37,7 @@ async function fixture() {
       await prisma.productStock.deleteMany();
       await prisma.productVariant.deleteMany();
       await prisma.product.deleteMany();
+      await prisma.image.deleteMany();
       await systemPrisma.user.delete({ where: { id: sellerId } });
       await prisma.company.delete({ where: { id: companyId } });
     });
@@ -80,7 +81,40 @@ test("reports a company receipt once without changing coverage or stock", async 
       expect((await prisma.payment.findUniqueOrThrow({ where: { id: paymentId } })).status).toBe("reported");
       expect(await orderDetail(orderId, f)).toMatchObject({ success: true, data: { payments: [{ status: "reported" }] } });
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
-      await prisma.image.delete({ where: { id: receiptImageId } });
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("confirms a report and voids a delivered payment without changing stock or delivery", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const orderId = randomUUID() as OrderId;
+      const paymentId = randomUUID() as PaymentId;
+      const receiptImageId = randomUUID() as ImageId;
+      const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+      await orders.create({ id: orderId, contactId: null,
+        items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] }, context);
+      await prisma.image.create({ data: { id: receiptImageId, storageKey: `test/${receiptImageId}` } });
+      const access = { kind: "buyer" as const, companyId: context.companyId, orderId };
+      expect(await orders.reportPayment({ paymentId, receiptImageId }, access)).toMatchObject({ success: true });
+      const confirmation = { orderId, paymentId, source: "buyer_report" as const, amount: { amount: 0.2, currency: "PEN" as const },
+        method: "bank_transfer" as const, deductStockIfPartial: false };
+      expect(await orders.registerPayment(confirmation, context)).toMatchObject({ success: true,
+        data: { order: { payments: [{ status: "confirmed", method: "bank_transfer", data: { evidence: { kind: "buyer_report", report: { receiptImageId } } } }] } } });
+      expect(await orders.registerPayment(confirmation, context)).toMatchObject({ success: true });
+      expect(await orders.deliver(orderId, context)).toMatchObject({ success: true, data: { completedAt: expect.any(Date) } });
+      const deliveredAt = (await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).deliveredAt;
+      const voided = await orders.voidPayment({ orderId, paymentId }, context);
+      expect(voided).toMatchObject({ success: true, data: { completedAt: null, deliveredAt,
+        payments: [{ status: "voided", amount: { amount: 0.2 }, data: { evidence: { kind: "buyer_report" }, voidedBy: context.userId } }] } });
+      expect(await orders.voidPayment({ orderId, paymentId }, context)).toEqual(voided);
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
+      const correction = await orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId, amount: confirmation.amount,
+        method: "digital_wallet", deductStockIfPartial: false }, context);
+      expect(correction).toMatchObject({ success: true, data: { order: { deliveredAt, completedAt: expect.any(Date), payments: expect.arrayContaining([
+        expect.objectContaining({ status: "voided" }), expect.objectContaining({ status: "confirmed" })]) } } });
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
     });
   } finally { await f.cleanup(); }
 });

@@ -76,7 +76,8 @@ export const orderAggregateSummarySchema = orderAggregateSchema.pick({ id: true,
 export const listOrderAggregatesResponseSchema = z.strictObject({ items: z.array(orderAggregateSummarySchema),
   page: z.number().int().positive(), pageSize: z.literal(20), total: z.number().int().nonnegative() });
 export type ListOrderAggregatesResponse = z.infer<typeof listOrderAggregatesResponseSchema>;
-export const registerPaymentSchema = z.strictObject({ paymentId: z.uuid(), amount: moneySchema, method: z.literal("digital_wallet"), deductStockIfPartial: z.boolean() });
+export const registerPaymentSchema = z.strictObject({ paymentId: z.uuid(), source: z.enum(["manual", "buyer_report"]).optional(),
+  amount: moneySchema, method: z.enum(["digital_wallet", "bank_transfer"]), deductStockIfPartial: z.boolean() });
 export type RegisterPaymentRequest = z.infer<typeof registerPaymentSchema>;
 export const stockOutcomeSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("deducted") }), z.strictObject({ kind: z.literal("not_requested") }),
@@ -112,7 +113,7 @@ export const orderApiErrorSchema = z.strictObject({
     "INVALID_INPUT", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE",
     "INVALID_ORDER", "CURRENCY_MISMATCH", "CONTACT_NOT_FOUND", "VARIANT_NOT_FOUND",
     "INSUFFICIENT_STOCK", "ORDER_ALREADY_EXISTS", "ORDER_NOT_FOUND", "SERVICE_UNAVAILABLE",
-    "INVALID_PAYMENT", "PAYMENT_CONFLICT", "INVALID_TRANSITION", "DELIVERY_LOCKED", "PAYMENT_REQUIRED",
+    "INVALID_PAYMENT", "PAYMENT_CONFLICT", "PAYMENT_NOT_FOUND", "RECEIPT_NOT_FOUND", "INVALID_TRANSITION", "DELIVERY_LOCKED", "PAYMENT_REQUIRED",
     "STOCK_NOT_DEDUCTED", "ORDER_CANCELLED", "DELIVERY_UNAVAILABLE",
   ]),
   error: z.string(),

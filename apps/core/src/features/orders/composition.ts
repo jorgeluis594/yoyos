@@ -8,13 +8,14 @@ import { createOrder, type CreateOrderDependencies } from "@core/src/features/or
 import { deductStock, type DeductStockDependencies } from "@core/src/features/orders/application/deduct-stock";
 import { registerPayment, type RegisterPaymentDependencies } from "@core/src/features/orders/application/register-payment";
 import { reportPayment, type ReportPaymentDependencies } from "@core/src/features/orders/application/report-payment";
+import { voidPayment, type VoidPaymentDependencies } from "@core/src/features/orders/application/void-payment";
 import { registerImmediateSale, type RegisterImmediateSaleDependencies } from "@core/src/features/orders/application/register-immediate-sale";
 import { cancelOrder, type CancelOrderDependencies } from "@core/src/features/orders/application/cancel-order";
 import { registerShipment, registerDelivery, type FulfillOrderDependencies } from "@core/src/features/orders/application/fulfill-order";
 import { getOrderAggregate } from "@core/src/features/orders/application/read-order-aggregate";
 import { listOrderAggregates } from "@core/src/features/orders/application/list-order-aggregates";
 import { listOrders } from "@core/src/features/orders/application/read-orders";
-import { savePendingOrder, savePayment, saveStockDeduction, saveFulfillment, saveCancellation, findOrderAggregate, findOrderAggregates, findOrderForUpdate, findOrders, orderExists } from "@core/src/features/orders/infrastructure/order-repository";
+import { savePendingOrder, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveCancellation, findOrderAggregate, findOrderAggregates, findOrderForUpdate, findOrders, orderExists } from "@core/src/features/orders/infrastructure/order-repository";
 import { findSellableVariant, deductProductStock, restoreProductStock, searchSaleCatalog } from "@core/src/features/products";
 import { findContactById, searchSaleContacts } from "@core/src/features/contacts";
 import { findAvailablePublicImage } from "@core/src/shared/images";
@@ -40,6 +41,7 @@ const pendingTransaction: CreateOrderDependencies["transaction"] = scopedOrderTr
 const stockTransaction: DeductStockDependencies["transaction"] = scopedOrderTransaction;
 const paymentTransaction: RegisterPaymentDependencies["transaction"] = scopedOrderTransaction;
 const reportTransaction: ReportPaymentDependencies["transaction"] = scopedOrderTransaction;
+const voidTransaction: VoidPaymentDependencies["transaction"] = scopedOrderTransaction;
 const immediateTransaction: RegisterImmediateSaleDependencies["transaction"] = scopedOrderTransaction;
 const cancellationTransaction: CancelOrderDependencies["transaction"] = scopedOrderTransaction;
 const fulfillmentTransaction: FulfillOrderDependencies["transaction"] = scopedOrderTransaction;
@@ -63,11 +65,13 @@ export const orders = {
       savePayment, deductProductStock, saveStockDeduction, saveFulfillment,
       newItemId: () => randomUUID() as OrderItemId, newPaymentId: () => randomUUID() as PaymentId, clock: () => new Date() }),
   registerPayment: (input: Parameters<typeof registerPayment>[0], context: Parameters<typeof registerPayment>[1]) =>
-    registerPayment(input, context, { transaction: paymentTransaction, findOrderForUpdate, savePayment,
+    registerPayment(input, context, { transaction: paymentTransaction, findOrderForUpdate, savePayment, updatePayment, saveCompletion,
       deductProductStock, saveStockDeduction, clock: () => new Date() }),
   reportPayment: (input: Parameters<typeof reportPayment>[0], access: Parameters<typeof reportPayment>[1]) =>
     reportPayment(input, access, { transaction: reportTransaction, findOrderForUpdate, findReceipt: findAvailablePublicImage,
       savePayment, clock: () => new Date() }),
+  voidPayment: (input: Parameters<typeof voidPayment>[0], context: Parameters<typeof voidPayment>[1]) =>
+    voidPayment(input, context, { transaction: voidTransaction, findOrderForUpdate, updatePayment, saveCompletion, clock: () => new Date() }),
   deductStock: (id: Parameters<typeof deductStock>[0], context: Parameters<typeof deductStock>[1]) =>
     deductStock(id, context, { transaction: stockTransaction, findOrderForUpdate, deductProductStock, saveStockDeduction }),
   create: (input: Parameters<typeof createOrder>[0], context: Parameters<typeof createOrder>[1]) =>

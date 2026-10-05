@@ -3,7 +3,7 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { z } from "zod";
 import { buildOrder, type BuildOrderInput, type BuildOrderError, type CompanyId, type OrderCustomer, type OrderId, type OrderItem, type UserId } from "@core/src/features/orders/domain/order";
-import { parsePayment, type ConfirmedPayment, type Payment, type ReportedPayment, type VoidedPayment } from "@core/src/features/orders/domain/payment";
+import { parsePayment, voidPayment, type ConfirmedPayment, type Payment, type ReportedPayment } from "@core/src/features/orders/domain/payment";
 
 export type OrderStatus = "active" | "cancelled" | "completed";
 export type PaymentStatus = "pending" | "paid";
@@ -176,13 +176,16 @@ function addReportedPayment(order: OrderAggregate, payment: ReportedPayment): Re
   return ok({ ...order, payments: [...order.payments, payment] });
 }
 
-function voidConfirmedPayment(order: OrderAggregate, payment: VoidedPayment): Result<OrderAggregate, OrderDomainError> {
+function voidConfirmedPayment(order: OrderAggregate, paymentId: string, actor: UserId, at: Date): Result<OrderAggregate, OrderDomainError> {
   const state = lifecycle(order);
   if (!state.success) return state;
-  const existing = order.payments.find((item) => item.id === payment.id);
-  if (!existing || existing.status !== "confirmed" || !parsePayment(payment).success || payment.orderId !== order.id)
+  const existing = order.payments.find((item) => item.id === paymentId);
+  if (!existing || existing.status === "reported")
     return failure("INVALID_TRANSITION", "Payment cannot be voided");
-  const next = { ...order, payments: order.payments.map((item) => item.id === payment.id ? payment : item) };
+  if (existing.status === "voided") return ok(order);
+  const payment = voidPayment(existing, actor, at);
+  if (!payment.success) return failure("INVALID_PAYMENT", payment.error.message);
+  const next = { ...order, payments: order.payments.map((item) => item.id === paymentId ? payment.data : item) };
   const summary = paymentSummary(next);
   if (!summary.success) return summary;
   return ok({ ...next, completedAt: summary.data.status === "paid" ? order.completedAt : null });
