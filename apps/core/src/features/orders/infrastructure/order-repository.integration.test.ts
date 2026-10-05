@@ -3,7 +3,7 @@ import { parseBuyer, type CheckoutAccess } from "@core/src/features/orders/domai
 import { confirmOrderCheckout } from "@core/src/features/orders/application/checkout";
 import { findCheckoutOrderForUpdate, saveCheckoutBuyer } from "@core/src/features/orders/infrastructure/checkout-repository";
 import { randomUUID } from "node:crypto";
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { expect, test, vi } from "vitest";
 import { ok, err } from "@shared/functional";
@@ -754,4 +754,23 @@ test("confirmation observes total changes and cancellation committed by a concur
       });
     }
   } finally { await f.cleanup(); }
+});
+
+test("checkout persistence failure produces one technical log and no confirmation hito", async () => {
+  const f = await fixture();
+  const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  const info = vi.spyOn(log, "info").mockImplementation(() => undefined);
+  let write: ReturnType<typeof vi.spyOn> | undefined;
+  try {
+    const { access, context } = await pendingCheckout(f);
+    await withTenantIsolation(f.companyId, () => orders.enableCheckout(access.orderId, context));
+    info.mockClear();
+    write = vi.spyOn(prisma.orderBuyer, "upsert").mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError("private database detail", { code: "P2003", clientVersion: "7.10.0" }));
+    expect(await orders.confirmCheckout(checkoutInput(), access)).toMatchObject({ error: { code: "PERSISTENCE_UNAVAILABLE" } });
+    expect(error).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ event: "unable_to_save_order_buyer", errorCode: "PERSISTENCE_UNAVAILABLE" }), "Checkout persistence failed");
+    expect(info).not.toHaveBeenCalled();
+    write.mockRestore();
+    expect(await orders.getCheckout(access)).toMatchObject({ data: { buyer: null, state: { kind: "pending" } } });
+  } finally { write?.mockRestore(); error.mockRestore(); info.mockRestore(); await f.cleanup(); }
 });

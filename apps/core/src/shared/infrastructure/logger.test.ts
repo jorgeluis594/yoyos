@@ -63,15 +63,18 @@ it("adds request and company context only to logs in that request", () => {
     import { bindCompanyToRequest, log, requestLogging } from "./src/shared/infrastructure/logger.ts";
     const app = express();
     app.use(requestLogging);
-    app.get("/company/:id", (request, response) => {
+    app.get("/company/:id", async (request, response) => {
       if (request.params.id === "first") bindCompanyToRequest("company-one");
+      await new Promise((resolve) => setImmediate(resolve));
       log.info({ event: "company_loaded" }, "Company loaded");
       response.sendStatus(200);
     });
     const server = app.listen(0);
     const address = server.address();
-    await fetch("http://127.0.0.1:" + address.port + "/company/first", { headers: { "x-request-id": "first-request" } });
-    await fetch("http://127.0.0.1:" + address.port + "/company/second", { headers: { "x-request-id": "second-request" } });
+    await Promise.all([
+      fetch("http://127.0.0.1:" + address.port + "/company/first", { headers: { "x-request-id": "first-request" } }),
+      fetch("http://127.0.0.1:" + address.port + "/company/second", { headers: { "x-request-id": "second-request" } }),
+    ]);
     log.info({ event: "outside_request" }, "Outside request");
     server.close();
   `], { cwd: process.cwd(), encoding: "utf8" });
