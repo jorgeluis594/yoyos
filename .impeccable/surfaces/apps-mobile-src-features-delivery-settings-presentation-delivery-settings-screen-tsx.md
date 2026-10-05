@@ -7,10 +7,8 @@ related_targets: []
 
 # Native delivery settings
 
-Operate, seller-facing independent home/store enablement; inherits PRODUCT.md’s platform conventions and DESIGN.md’s compact caramel hierarchy. Native Switch sections, labeled pickup fields, scroll/keyboard accommodation, and safe areas adapt the shared task. Spanish and Brazilian Portuguese are supported.
+Operate; preserves compact caramel and native conventions. Spanish/Portuguese labeled fields/Switches independently enable home/store/agency. Scroll, keyboard, safe areas, max640 form width, and minimum 48-unit controls accommodate native use. Version-0 defaults disable all modalities with null pickup; disabling retains its point. Complete pickup name/address are trimmed; blank optional instructions normalize to null. Courier rows support unsaved add/remove, persisted rename/deactivation, and retained inactive rows. Local keys are excluded from requests; confirmed saves restore canonical IDs. Complete versioned saves preserve every row, flag, and pickup field on conflict until explicit reload; success resets canonical fields/version. Mobile web tabs remain in normal flow and wrap the fourth tab.
 
-Both methods start disabled, pickup point null, version 0. Complete pickup values are trimmed; disabling retains the point. Complete settings saves use expectedVersion. Conflicts preserve both flags and fields and block saving until explicit reload; successful confirmation replaces fields/version. Tests cover retained points, conflict/language changes, validation, and duplicate submission prevention.
+Core/mobile lint/typecheck, focused web E2E, and focused settings Jest passed after required-marker label queries were corrected. Full suite previously passed 198 tests with two query failures; corrected focused results do not establish a full rerun.
 
-The mobile app’s web tab bar stays in normal flow, wraps its fourth tab, and uses minimum 48-unit controls.
-
-Reviewer `home_settings_review`: ship for native code/accessibility/i18n scope. Lint/typecheck, core unit, mobile Jest, and focused web E2E passed. No native captures: adb devices is empty and Android emulator SDK/Xcode simulator are unavailable. Native visual review and device E2E remain pending; unit tests provide behavioral evidence only.
+Reviewer `agency_settings_native_review`: recapture. Code/fidelity review stopped at missing iOS/Android phone evidence; no code approval. No device/simulator: adb only, no Android SDK; Xcode CommandLineTools only. Native light/dark, enlarged-text, keyboard captures and device E2E remain pending. Browser captures cannot substitute. Pending evidence is accepted until prepared, not full acceptance.

@@ -7,10 +7,8 @@ related_targets: ["apps/core/app/routes/private-layout.tsx"]
 
 # Delivery settings
 
-Operate surface, web only. Inherits the compact caramel system in DESIGN.md. Sellers independently enable home delivery and store pickup via checkboxes; both start disabled, pickup point null, version 0. Disabling retains the configured point. A supplied point requires complete name/address with trimmed values; optional instructions normalize to null when blank.
+Operate, web only; preserves incumbent compact caramel. Independent home/store/agency flags and courier rows share a complete versioned save. Version-0 defaults disable all modalities with null pickup. Disabling retains its point; supplied pickup requires complete trimmed name/address, with blank optional instructions normalized to null. Couriers can be added/removed only while unsaved; persisted rows support rename/deactivation and remain present when inactive. Local keys never enter requests; confirmed saves replace them with canonical IDs. Conflicts preserve all rows, flags, and pickup fields until explicit reload. Successful saves reset canonical fields/version. Pending or unhydrated controls are disabled; alert/status feedback and aria-current/Check navigation remain.
 
-Saving sends complete settings with optimistic version checks. A conflict retains both flags and pickup draft and disables saving until explicit full reload. Successful confirmation resets fields and version to the saved response. Pending controls are disabled; feedback uses alert/status roles.
+Reviewer `agency_settings_web_review`: ship, no material fixes; actual scope light mode at 1280/390. Document-top/fullpage evidence: `.impeccable/review/delivery-settings-desktop.png`, `.impeccable/review/delivery-settings-mobile.png`, `.impeccable/review/agency-settings-desktop.png`, `.impeccable/review/agency-settings-mobile.png`. Dark/uncaptured states remain outside approval.
 
-Navigation exposes the settings entry with aria-current and a visible Check for the active page. Reviewer `home_settings_review`: ship; updated 1280/390 captures show readable scope. Lint/typecheck, core unit, mobile Jest, and focused web E2E passed.
-
-Evidence: `.impeccable/review/delivery-settings-desktop.png`, `.impeccable/review/delivery-settings-mobile.png`; E2E: `apps/core/tests/e2e/delivery-settings.spec.ts`.
+Core/mobile lint/typecheck, core unit, focused settings Jest, and focused real Chromium `apps/core/tests/e2e/delivery-settings.spec.ts` passed, including new-courier lifecycle/version conflict.

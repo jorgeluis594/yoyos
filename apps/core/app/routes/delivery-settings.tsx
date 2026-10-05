@@ -1,9 +1,9 @@
 import { parseCourierInputs } from "@core/src/features/delivery-settings/domain/delivery-settings";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useClientReady } from "@core/app/use-client-ready";
 import { useTranslation } from "react-i18next";
 import { useActionData, useLoaderData, useNavigation, useSubmit, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
-import { deliverySettingsSchema, saveDeliverySettingsSchema, type DeliverySettingsResponse } from "@shared/contracts/delivery-settings";
+import { deliverySettingsSchema, saveDeliverySettingsSchema, type DeliverySettingsResponse, type SaveDeliverySettingsRequest } from "@shared/contracts/delivery-settings";
 import { privateUserContext } from "@core/app/private-user-context";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
 import { log } from "@core/src/shared/infrastructure/logger";
@@ -42,6 +42,9 @@ export async function action({ context, request }: ActionFunctionArgs) {
   }
 }
 
+type CourierDraft = Extract<SaveDeliverySettingsRequest["couriers"][number], { kind: "existing" }>
+  | (Extract<SaveDeliverySettingsRequest["couriers"][number], { kind: "new" }> & { localKey: number });
+
 function SettingsForm({ settings }: { settings: DeliverySettingsResponse }) {
   const { t } = useTranslation();
   const submit = useSubmit();
@@ -50,7 +53,8 @@ function SettingsForm({ settings }: { settings: DeliverySettingsResponse }) {
   const result = useActionData<typeof action>();
   const [version, setVersion] = useState(settings.version);
   const [agency, setAgency] = useState(settings.agency);
-  const [couriers, setCouriers] = useState(settings.couriers);
+  const [couriers, setCouriers] = useState<CourierDraft[]>(settings.couriers.map(courier => ({ ...courier, kind: "existing" })));
+  const nextCourierKey = useRef(0);
   const [homeEnabled, setHomeEnabled] = useState(settings.home.enabled);
   const [enabled, setEnabled] = useState(settings.store.enabled);
   const [name, setName] = useState(settings.store.pickupPoint?.name ?? "");
@@ -61,7 +65,7 @@ function SettingsForm({ settings }: { settings: DeliverySettingsResponse }) {
   if (saved && saved.version !== version) {
     setVersion(saved.version);
     setAgency(saved.agency);
-    setCouriers(saved.couriers);
+    setCouriers(saved.couriers.map(courier => ({ ...courier, kind: "existing" })));
     setHomeEnabled(saved.home.enabled);
     setEnabled(saved.store.enabled);
     setName(saved.store.pickupPoint?.name ?? "");
@@ -74,7 +78,7 @@ function SettingsForm({ settings }: { settings: DeliverySettingsResponse }) {
   return <form className="flex flex-col gap-6" onSubmit={event => {
     event.preventDefault();
     if (!ready) return;
-    submit({ expectedVersion: version, agency, couriers: couriers.map(courier => ({ ...courier, kind: "existing" as const })), home: { enabled: homeEnabled }, store: { enabled, pickupPoint: configured
+    submit({ expectedVersion: version, agency, couriers: couriers.map(courier => courier.kind === "new" ? { kind: courier.kind, name: courier.name, enabled: courier.enabled } : courier), home: { enabled: homeEnabled }, store: { enabled, pickupPoint: configured
       ? { name, address, instructions: instructions.trim() || null } : null } }, { method: "post", encType: "application/json" });
   }}>
     <fieldset className="flex min-w-0 flex-col gap-4" disabled={pending || !ready}>
@@ -88,6 +92,24 @@ function SettingsForm({ settings }: { settings: DeliverySettingsResponse }) {
     <fieldset className="flex min-w-0 flex-col gap-4" disabled={pending || !ready}>
       <legend className="mb-3 text-lg font-semibold">{t("deliverySettings.home")}</legend>
       <label className="flex min-h-touch items-center gap-3"><input type="checkbox" checked={homeEnabled} onChange={event => setHomeEnabled(event.target.checked)} />{t("deliverySettings.homeEnabled")}</label>
+    </fieldset>
+    <fieldset className="flex min-w-0 flex-col gap-4" disabled={pending || !ready}>
+      <legend className="mb-3 text-lg font-semibold">{t("deliverySettings.agency")}</legend>
+      <label className="flex min-h-touch items-center gap-3"><input type="checkbox" checked={agency.enabled} onChange={event => setAgency({ enabled: event.target.checked })} />{t("deliverySettings.agencyEnabled")}</label>
+      <p className="text-sm text-muted-foreground">{t("deliverySettings.courierHint")}</p>
+      {couriers.length === 0 && <p className="text-sm text-muted-foreground">{t("deliverySettings.noCouriers")}</p>}
+      {couriers.map((courier, index) => {
+        const key = courier.kind === "existing" ? courier.id : `new-${courier.localKey}`;
+        const label = t("deliverySettings.courierName", { number: index + 1 });
+        const update = (change: Partial<Pick<CourierDraft, "name" | "enabled">>) => setCouriers(rows => rows.map((row, rowIndex) => rowIndex === index ? { ...row, ...change } : row));
+        return <div key={key} className="flex min-w-0 flex-col gap-3 border-t border-border pt-4">
+          <Field><FieldLabel htmlFor={`courier-${key}`}>{label}</FieldLabel><Input id={`courier-${key}`} value={courier.name} maxLength={120} required onChange={event => update({ name: event.target.value })} /></Field>
+          <label className="flex min-h-touch items-center gap-3"><input type="checkbox" checked={courier.enabled} onChange={event => update({ enabled: event.target.checked })} />{t("deliverySettings.courierEnabled", { number: index + 1 })}</label>
+          {courier.kind === "new" && <Button type="button" variant="ghost" className="self-start max-md:min-h-touch" aria-label={t("deliverySettings.removeCourierLabel", { number: index + 1 })}
+            onClick={() => setCouriers(rows => rows.filter(row => row !== courier))}>{t("deliverySettings.removeCourier")}</Button>}
+        </div>;
+      })}
+      <Button type="button" variant="outline" className="self-start max-md:min-h-touch" onClick={() => { const localKey = ++nextCourierKey.current; setCouriers(rows => [...rows, { kind: "new", localKey, name: "", enabled: true }]); }}>{t("deliverySettings.addCourier")}</Button>
     </fieldset>
     {result?.error && <p role="alert" className="text-sm text-destructive">{t(`deliverySettings.${result.error}`)}</p>}
     {result?.saved && <p role="status">{t("deliverySettings.saved")}</p>}

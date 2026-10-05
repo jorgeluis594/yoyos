@@ -104,3 +104,51 @@ test("editing home preserves every loaded courier and agency enablement in the w
   await screen.findByText(/No se pudo guardar/);
   expect(save).toHaveBeenCalledWith(expect.objectContaining({ expectedVersion: 4, homeEnabled: true, agencyEnabled: true, couriers: couriers.map(courier => ({ ...courier, kind: "existing" })) }));
 });
+
+
+test("courier rows keep draft values when removing unsaved rows and receive canonical IDs after saving", async () => {
+  const id = "00000000-0000-4000-8000-000000000003";
+  save.mockResolvedValueOnce(ok({ version: 1, home: { enabled: false }, store: { enabled: false, pickupPoint: null }, agency: { enabled: true }, couriers: [{ id, name: "New courier", enabled: true }] }))
+    .mockResolvedValueOnce(ok({ version: 2, home: { enabled: false }, store: { enabled: false, pickupPoint: null }, agency: { enabled: false }, couriers: [{ id, name: "Renamed", enabled: false }] }));
+  const screen = render(<DeliverySettingsScreen />);
+  await screen.findByText("Envío a agencia");
+  fireEvent(screen.getByLabelText("Ofrecer envío a agencia"), "valueChange", true);
+  fireEvent.press(screen.getByText("Agregar courier"));
+  fireEvent.changeText(screen.getByLabelText("Nombre del courier 1", { exact: false }), "Discard");
+  fireEvent.press(screen.getByText("Agregar courier"));
+  fireEvent.changeText(screen.getByLabelText("Nombre del courier 2", { exact: false }), "New courier");
+  fireEvent.press(screen.getByLabelText("Quitar courier 1 sin guardar"));
+  expect(screen.getByLabelText("Nombre del courier 1", { exact: false }).props.value).toBe("New courier");
+  fireEvent.press(screen.getByText("Guardar configuración"));
+  await screen.findByText("Configuración guardada.");
+  expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ agencyEnabled: true, couriers: [{ kind: "new", name: "New courier", enabled: true, localKey: 2 }] }));
+  expect(screen.queryByText("Quitar alta sin guardar")).toBeNull();
+  fireEvent.changeText(screen.getByLabelText("Nombre del courier 1", { exact: false }), "Renamed");
+  fireEvent(screen.getByLabelText("Habilitar courier 1"), "valueChange", false);
+  fireEvent(screen.getByLabelText("Ofrecer envío a agencia"), "valueChange", false);
+  fireEvent.press(screen.getByText("Guardar configuración"));
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+  expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ expectedVersion: 1, agencyEnabled: false, couriers: [{ kind: "existing", id, name: "Renamed", enabled: false }] }));
+});
+
+test("courier configuration conflict retains new and existing rows, flags and names until explicit reload", async () => {
+  const id = "00000000-0000-4000-8000-000000000003";
+  get.mockResolvedValueOnce(ok({ version: 1, home: { enabled: false }, store: { enabled: false, pickupPoint: null }, agency: { enabled: true }, couriers: [{ id, name: "Existing", enabled: true }] }))
+    .mockResolvedValueOnce(ok({ version: 2, home: { enabled: false }, store: { enabled: false, pickupPoint: null }, agency: { enabled: false }, couriers: [{ id, name: "Concurrent", enabled: false }] }));
+  save.mockResolvedValue(err({ code: "DELIVERY_SETTINGS_CONFLICT", message: "Changed" }));
+  const screen = render(<DeliverySettingsScreen />);
+  await screen.findByText("Envío a agencia");
+  fireEvent.changeText(screen.getByLabelText("Nombre del courier 1", { exact: false }), "My edit");
+  fireEvent.press(screen.getByText("Agregar courier"));
+  fireEvent.changeText(screen.getByLabelText("Nombre del courier 2", { exact: false }), "My new courier");
+  fireEvent.press(screen.getByText("Guardar configuración"));
+  await screen.findByText(/Otra persona cambió/);
+  expect(screen.getByLabelText("Nombre del courier 1", { exact: false }).props.value).toBe("My edit");
+  expect(screen.getByLabelText("Nombre del courier 2", { exact: false }).props.value).toBe("My new courier");
+  expect(screen.getByLabelText("Ofrecer envío a agencia").props.value).toBe(true);
+  expect(screen.getByRole("button", { name: "Guardar configuración" }).props.accessibilityState.disabled).toBe(true);
+  fireEvent.press(screen.getByText("Recargar configuración"));
+  await waitFor(() => expect(screen.getByLabelText("Nombre del courier 1", { exact: false }).props.value).toBe("Concurrent"));
+  expect(screen.queryByLabelText("Nombre del courier 2", { exact: false })).toBeNull();
+  expect(screen.getByLabelText("Habilitar courier 1").props.value).toBe(false);
+});

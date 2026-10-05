@@ -27,3 +27,12 @@ test("a store edit preserves the loaded home enablement in the complete settings
   await saveDeliverySettings({ ...draft, agencyEnabled: false, couriers: [], homeEnabled: true }, save);
   expect(save).toHaveBeenCalledWith({ expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: true }, store: { enabled: false, pickupPoint: null } });
 });
+
+
+test("new courier row keys stay local while all existing inactive couriers are sent", async () => {
+  const id = "00000000-0000-4000-8000-000000000003";
+  const save = jest.fn(async () => err({ code: "NETWORK_ERROR" as const, message: "Offline" }));
+  await saveDeliverySettings({ ...draft, agencyEnabled: true, couriers: [{ kind: "existing", id, name: " Inactive ", enabled: false }, { kind: "new", localKey: 4, name: " New ", enabled: true }] }, save);
+  expect(save).toHaveBeenCalledWith({ expectedVersion: 0, home: { enabled: false }, store: { enabled: false, pickupPoint: null }, agency: { enabled: true },
+    couriers: [{ kind: "existing", id, name: "Inactive", enabled: false }, { kind: "new", name: "New", enabled: true }] });
+});
