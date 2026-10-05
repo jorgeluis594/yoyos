@@ -1,3 +1,4 @@
+import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import { describe, expect, test } from "vitest";
 import { buildPendingOrder, orderStateMachine, type OrderAggregate, type Payment, type DeliveryDetails } from "@core/src/features/orders/domain/order-state-machine";
 import type { CompanyId, OrderId, OrderItemId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
@@ -8,7 +9,7 @@ const createdAt = new Date("2026-09-29T12:00:00Z");
 const paymentAt = new Date("2026-09-30T12:00:00Z");
 const money = (amount: number) => ({ amount, currency: "PEN" as const });
 const order = (): OrderAggregate => ({
-  id: id(1) as OrderId, companyId: id(2) as CompanyId, sellerId: "seller" as UserId,
+  number: 1001 as OrderNumber, id: id(1) as OrderId, companyId: id(2) as CompanyId, sellerId: "seller" as UserId,
   customer: { kind: "general_public" }, createdAt, completedAt: null, cancelled: false,
   items: [{ id: id(3) as OrderItemId, variantId: id(4) as VariantId, productName: "Item", variantAttributes: {}, sku: null,
     quantity: 1 as PositiveInteger, unitPrice: money(10), subtotal: money(10) }],
@@ -22,7 +23,7 @@ const home: DeliveryDetails = { method: "home", recipient: { name: "Ana", phone:
 
 describe("pending order construction", () => {
   test("preserves identity and snapshots while leaving payment, delivery and stock pending", () => {
-    const input = { id: id(1) as OrderId, companyId: id(2) as CompanyId, sellerId: "seller" as UserId,
+    const input = { number: 1001 as OrderNumber, id: id(1) as OrderId, companyId: id(2) as CompanyId, sellerId: "seller" as UserId,
       customer: { kind: "general_public" as const }, createdAt,
       items: [{ id: id(3) as OrderItemId, variantId: id(4) as VariantId, productName: "Item", variantAttributes: { Size: "M" },
         sku: null, quantity: 3, unitPrice: money(0.1) }] };
@@ -38,7 +39,7 @@ describe("pending order construction", () => {
   });
 
   test("rejects empty, repeated, invalidly priced and mixed currency items", () => {
-    const input = { id: id(1) as OrderId, companyId: id(2) as CompanyId, sellerId: "seller" as UserId,
+    const input = { number: 1001 as OrderNumber, id: id(1) as OrderId, companyId: id(2) as CompanyId, sellerId: "seller" as UserId,
       customer: { kind: "general_public" as const }, createdAt,
       items: [{ id: id(3) as OrderItemId, variantId: id(4) as VariantId, productName: "Item", variantAttributes: {},
         sku: null, quantity: 1, unitPrice: money(10) }] };

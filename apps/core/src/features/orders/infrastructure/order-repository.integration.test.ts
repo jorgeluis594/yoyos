@@ -471,7 +471,7 @@ test("separates companies and blocks cross-company references", async () => {
         { companyId: a.companyId, sellerId: a.sellerId })).toMatchObject({ success: false, error: { code: "ORDER_ALREADY_EXISTS" } });
       expect(await prisma.order.count()).toBe(0);
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: a.variantIds[0] } })).quantity).toBe(3n);
-      await expect(prisma.order.create({ data: { id: randomUUID(), companyId: a.companyId, sellerId: a.sellerId,
+      await expect(prisma.order.create({ data: { number: 1001n, id: randomUUID(), companyId: a.companyId, sellerId: a.sellerId,
         contactId: b.contactId, contactPhone: "+51999999999", currency: "PEN", total: 1, itemsTotal: 1,
         completedAt: new Date(), createdAt: new Date() } })).rejects.toThrow();
       await expect(prisma.orderItem.create({ data: { orderId: foreignOrderId, variantId: a.variantIds[0], productName: "Foreign order",
@@ -554,4 +554,45 @@ test("database constraints reject invalid completed sale writes", async () => {
       expect(await prisma.orderItem.count()).toBe(1);
     });
   } finally { await f.cleanup(); }
+});
+
+test("allocates permanent company numbers atomically across concurrent orders and rollbacks", async () => {
+  const a = await fixture();
+  const b = await fixture();
+  const create = (f: typeof a) => withTenantIsolation(f.companyId, () => orders.create({ id: randomUUID() as OrderId, contactId: null,
+    items: [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }] },
+  { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId }));
+  try {
+    const results = await Promise.all(Array.from({ length: 6 }, () => create(a)));
+    expect(results.every((result) => result.success)).toBe(true);
+    const numbers = results.flatMap((result) => result.success ? [result.data.number] : []).sort((x, y) => x - y);
+    expect(numbers).toEqual([1001, 1002, 1003, 1004, 1005, 1006]);
+    expect(await create(b)).toMatchObject({ data: { number: 1001 } });
+    await withTenantIsolation(a.companyId, async () => {
+      const cancelled = results[0];
+      if (!cancelled.success) throw new Error("Creation failed");
+      expect(await orders.cancel(cancelled.data.id, { companyId: a.companyId as CompanyId, userId: a.sellerId as UserId })).toMatchObject({ success: true });
+      expect(await create(a)).toMatchObject({ data: { number: 1007 } });
+      await prisma.company.update({ where: { id: a.companyId }, data: { nextOrderNumber: 1001n } });
+      expect(await create(a)).toMatchObject({ error: { code: "PERSISTENCE_UNAVAILABLE" } });
+      await prisma.company.update({ where: { id: a.companyId }, data: { nextOrderNumber: 9999n } });
+      expect(await create(a)).toMatchObject({ data: { number: 9999 } });
+      expect(await create(a)).toMatchObject({ data: { number: 10000 } });
+      const before = await prisma.company.findUniqueOrThrow({ where: { id: a.companyId } });
+      const count = await prisma.order.count();
+      // Stock failure occurs after allocating and saving the immediate sale.
+      expect(await immediateSale({ id: randomUUID(), contactId: null, items: [{ variantId: a.variantIds[0], quantity: 100 }] },
+        { companyId: a.companyId, sellerId: a.sellerId })).toMatchObject({ error: { code: "INSUFFICIENT_STOCK" } });
+      expect((await prisma.company.findUniqueOrThrow({ where: { id: a.companyId } })).nextOrderNumber).toBe(before.nextOrderNumber);
+      expect(await prisma.order.count()).toBe(count);
+      const existing = await prisma.order.findFirstOrThrow();
+      await expect(prisma.order.update({ where: { id: existing.id }, data: { number: 0n } })).rejects.toThrow();
+      const another = await prisma.order.findFirstOrThrow({ where: { id: { not: existing.id } } });
+      await expect(prisma.order.update({ where: { id: another.id }, data: { number: existing.number } })).rejects.toThrow();
+      await prisma.company.update({ where: { id: a.companyId }, data: { nextOrderNumber: 9007199254740991n } });
+      expect(await create(a)).toMatchObject({ data: { number: Number.MAX_SAFE_INTEGER } });
+      expect(await create(a)).toMatchObject({ error: { code: "PERSISTENCE_UNAVAILABLE" } });
+      expect((await prisma.company.findUniqueOrThrow({ where: { id: a.companyId } })).nextOrderNumber).toBe(9007199254740992n);
+    });
+  } finally { await a.cleanup(); await b.cleanup(); }
 });

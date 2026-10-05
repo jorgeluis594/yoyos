@@ -201,7 +201,7 @@ test("orders HTTP combines contact and Lima-day UTC bounds with stable pages and
   const seller = await fixture("PE");
   const ids = Array.from({ length: 21 }, (_, index) => `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`);
   await withTenantIsolation(seller.companyId, async () => {
-    await prisma.order.createMany({ data: ids.map((id) => ({ id, sellerId: seller.userId, contactId: seller.contactId,
+    await prisma.order.createMany({ data: ids.map((id, index) => ({ number: BigInt(1001 + index), id, sellerId: seller.userId, contactId: seller.contactId,
       contactName: "Ana", contactPhone: "+51999999999", currency: "PEN", total: 10, itemsTotal: 10,
       deliveryStatus: "delivered", stockDeducted: true,
       completedAt: new Date("2026-09-28T12:00:00.000Z"), createdAt: new Date("2026-09-28T12:00:00.000Z") })) });

@@ -1,3 +1,4 @@
+import { parseOrderNumber, type OrderNumber } from "@core/src/features/orders/domain/checkout";
 import { add, compare, isCurrency, subtract, type Money } from "@shared/money";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
@@ -17,6 +18,7 @@ export type DeliveryDetails =
   | Readonly<{ method: "store"; recipient: Recipient; destination: { storeId: string } }>;
 export type Payment = Readonly<{ id: PaymentId; orderId: OrderId; amount: Money; method: PaymentMethod; recordedAt: Date }>;
 export type OrderAggregate = Readonly<{
+  number: OrderNumber;
   id: OrderId;
   companyId: CompanyId;
   sellerId: UserId;
@@ -46,14 +48,15 @@ export type StockDeductionPlan =
   | Readonly<{ kind: "none"; reason: "already_deducted" | "not_requested"; nextOrder: OrderAggregate }>
   | Readonly<{ kind: "deduct"; nextOrder: OrderAggregate }>;
 export type CancellationPlan = Readonly<{ nextOrder: OrderAggregate; restoreStock: boolean }>;
-export type BuildPendingOrderInput = BuildOrderInput;
+export type BuildPendingOrderInput = BuildOrderInput & Readonly<{ number: OrderNumber }>;
 
 export function buildPendingOrder(input: BuildPendingOrderInput): Result<OrderAggregate, BuildOrderError> {
+  if (!parseOrderNumber(input.number).success) return err({ code: "INVALID_ORDER", message: "Invalid order number" });
   const built = buildOrder(input);
   if (!built.success) return built;
   const snapshot = built.data;
   const zero: Money = { amount: 0, currency: snapshot.total.currency };
-  return ok({ id: snapshot.id, companyId: snapshot.companyId, sellerId: snapshot.sellerId,
+  return ok({ number: input.number, id: snapshot.id, companyId: snapshot.companyId, sellerId: snapshot.sellerId,
     customer: snapshot.customer, items: snapshot.items, total: snapshot.total,
     createdAt: new Date(input.createdAt), completedAt: null, cancelled: false,
     payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false,

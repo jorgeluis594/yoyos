@@ -86,6 +86,7 @@ model Jwks {
 }
 
 model Company {
+  nextOrderNumber BigInt @default(1001)
   id      String @id @db.Uuid
   name    String
   country String
@@ -251,6 +252,7 @@ model ChatMessage {
 }
 
 model Order {
+  number BigInt
   id String @id @db.Uuid
   companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
   company Company @relation(fields: [companyId], references: [id])
@@ -275,6 +277,7 @@ model Order {
   payments Payment[]
 
   @@unique([companyId, id])
+  @@unique([companyId, number])
   @@index([companyId, completedAt(sort: Desc), id])
   @@index([companyId, contactId, completedAt(sort: Desc), id])
 }

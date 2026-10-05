@@ -94,7 +94,7 @@ Las respuestas públicas no se almacenan en caché compartida. Se evita registra
 - Es permanente y no se reutiliza al cancelar.
 - Un incremento atómico del contador y la creación del pedido ocurren en la misma transacción.
 - La base de datos impone unicidad de `(companyId, number)`; no se calcula con `MAX + 1` ni contando pedidos.
-- La representación numérica de dominio, transporte y persistencia debe conservar el entero exactamente y rechazar desbordamientos; el límite no es 9999.
+- Persistencia usa `BIGINT`; dominio y JSON usan enteros seguros entre 1001 y `Number.MAX_SAFE_INTEGER`. El contador puede llegar a ese máximo más uno para representar agotamiento; se rechazan nuevas asignaciones sin perder precisión. El límite no es 9999.
 
 ### Comprador del pedido
 
@@ -132,6 +132,8 @@ Una restricción garantiza que no exista `checkoutConfirmedAt` sin `checkoutEnab
 3. Actualizar lecturas, escrituras, filtros y consumidores para mantener una sola fuente de datos del comprador; retirar las columnas anteriores al completar la transición.
 4. Dejar ambas fechas de checkout en null para los pedidos históricos.
 5. Incorporar índices, restricciones, RLS y permisos del rol de aplicación para la nueva tabla.
+
+Durante la migración de numeración deben detenerse las escrituras de pedidos hasta desplegar la aplicación que asigna el contador. El backfill se separa de los bloqueos de DDL, con esperas acotadas e índice único concurrente.
 
 Las migraciones deben generarse con Prisma CLI y revisarse según [database-migrations](../.agents/skills/database-migrations/SKILL.md). No se eliminan datos ni volúmenes para aplicar el cambio.
 

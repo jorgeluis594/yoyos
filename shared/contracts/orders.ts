@@ -21,7 +21,7 @@ export const orderCustomerSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("contact"), contactId: z.uuid(), name: z.string().nullable(), phone: z.string() }),
 ]);
 export const orderItemSchema = z.strictObject({ id: z.uuid(), variantId: z.uuid(), productName: z.string(), variantAttributes: z.record(z.string(), z.string()), sku: z.string().nullable(), quantity: z.number().int().positive().safe(), unitPrice: z.number().positive(), subtotal: z.number().positive() });
-export const orderSchema = z.strictObject({ id: z.uuid(), companyId: z.uuid(), sellerId: z.string(), customer: orderCustomerSchema, paymentMethod: z.literal("digital_wallet"), completedAt: z.iso.datetime(), currency: z.enum(currencies), items: z.array(orderItemSchema).min(1), total: z.number().positive() });
+export const orderSchema = z.strictObject({ number: z.number().int().safe().min(1001), id: z.uuid(), companyId: z.uuid(), sellerId: z.string(), customer: orderCustomerSchema, paymentMethod: z.literal("digital_wallet"), completedAt: z.iso.datetime(), currency: z.enum(currencies), items: z.array(orderItemSchema).min(1), total: z.number().positive() });
 export type OrderResponse = z.infer<typeof orderSchema>;
 
 export const moneySchema = z.strictObject({ amount: z.number().finite(), currency: z.enum(currencies) });
@@ -38,7 +38,7 @@ export const deliveryDetailsSchema = z.discriminatedUnion("method", [
   z.strictObject({ method: z.literal("store"), recipient: recipientSchema, destination: z.strictObject({ storeId: z.string().trim().min(1) }) }),
 ]);
 export const paymentSchema = z.strictObject({ id: z.uuid(), orderId: z.uuid(), amount: moneySchema, method: z.literal("digital_wallet"), recordedAt: z.iso.datetime() });
-export const orderAggregateSchema = z.strictObject({ id: z.uuid(), companyId: z.uuid(), sellerId: z.string(), customer: orderCustomerSchema,
+export const orderAggregateSchema = z.strictObject({ number: z.number().int().safe().min(1001), id: z.uuid(), companyId: z.uuid(), sellerId: z.string(), customer: orderCustomerSchema,
   createdAt: z.iso.datetime(), completedAt: z.iso.datetime().nullable(), status: z.enum(["active", "cancelled", "completed"]),
   paymentStatus: z.enum(["pending", "paid"]), paidAmount: moneySchema, balanceDue: moneySchema, overpaidAmount: moneySchema,
   cancelled: z.boolean(), delivery: deliveryDetailsSchema.nullable(), deliveryStatus: z.enum(["pending", "shipped", "delivered"]),
@@ -59,7 +59,7 @@ export const listOrderAggregatesSchema = z.strictObject({
     new Date(value.createdFrom).getTime() < new Date(value.createdBefore).getTime(),
     { message: "Invalid date interval", path: ["createdBefore"] });
 export type ListOrderAggregatesRequest = z.infer<typeof listOrderAggregatesSchema>;
-export const orderAggregateSummarySchema = orderAggregateSchema.pick({ id: true, createdAt: true, completedAt: true, status: true,
+export const orderAggregateSummarySchema = orderAggregateSchema.pick({ number: true, id: true, createdAt: true, completedAt: true, status: true,
   paymentStatus: true, deliveryStatus: true, stockDeducted: true, customer: true, sellerId: true, total: true });
 export const listOrderAggregatesResponseSchema = z.strictObject({ items: z.array(orderAggregateSummarySchema),
   page: z.number().int().positive(), pageSize: z.literal(20), total: z.number().int().nonnegative() });
@@ -88,7 +88,7 @@ export const listOrdersSchema = z.strictObject({
     new Date(value.completedFrom).getTime() < new Date(value.completedBefore).getTime(),
     { message: "Invalid date interval", path: ["completedBefore"] });
 export type ListOrdersRequest = z.infer<typeof listOrdersSchema>;
-export const orderSummarySchema = orderSchema.pick({ id: true, completedAt: true, customer: true, sellerId: true, currency: true, total: true });
+export const orderSummarySchema = orderSchema.pick({ number: true, id: true, completedAt: true, customer: true, sellerId: true, currency: true, total: true });
 export const listOrdersResponseSchema = z.strictObject({ items: z.array(orderSummarySchema), page: z.number().int().positive(), pageSize: z.literal(20), total: z.number().int().nonnegative() });
 export const orderCatalogSchema = z.array(z.strictObject({ id: z.uuid(), name: z.string(), currency: z.enum(currencies),
   variants: z.array(z.strictObject({ id: z.uuid(), attributes: z.record(z.string(), z.string()), sku: z.string().nullable(), price: z.number().positive(), stock: z.number().int().nonnegative().safe() })) }));

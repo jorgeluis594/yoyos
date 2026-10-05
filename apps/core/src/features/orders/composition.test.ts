@@ -1,3 +1,4 @@
+import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { Prisma } from "@prisma/client";
 import { expect, test, vi } from "vitest";
@@ -9,7 +10,7 @@ const { withinTransaction } = vi.hoisted(() => ({ withinTransaction: vi.fn() }))
 vi.mock("@core/src/shared/infrastructure/persistance", () => ({ withinTransaction,
   getCompanyId: () => "00000000-0000-4000-8000-000000000003" }));
 vi.mock("@core/src/features/orders/infrastructure/order-repository", () => ({
-  orderExists: async () => ok(false), savePendingOrder: async () => ok(null), savePayment: async () => ok(null),
+  allocateOrderNumber: async () => ok(1001 as OrderNumber), orderExists: async () => ok(false), savePendingOrder: async () => ok(null), savePayment: async () => ok(null),
   saveStockDeduction: async () => ok(null), findOrders: vi.fn(), findOrderForUpdate: vi.fn(), saveFulfillment: async () => ok(null),
 }));
 vi.mock("@core/src/features/products", () => ({

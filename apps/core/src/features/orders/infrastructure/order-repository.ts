@@ -1,3 +1,5 @@
+import { z } from "zod";
+import { parseOrderNumber, type OrderNumber } from "@core/src/features/orders/domain/checkout";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
@@ -38,7 +40,9 @@ function mapAggregate(row: DbAggregate): OrderAggregate {
     return { id: payment.id as PaymentId, orderId: payment.orderId as OrderId,
       amount: { amount: payment.amount.toNumber(), currency: payment.currency }, method: payment.method, recordedAt: payment.recordedAt };
   });
-  const order: OrderAggregate = { id: row.id as OrderId, companyId: row.companyId as CompanyId, sellerId: row.sellerId as UserId,
+  const number = parseOrderNumber(Number(row.number));
+  if (!number.success) throw new InvalidStoredOrderError("Invalid stored order number");
+  const order: OrderAggregate = { number: number.data, id: row.id as OrderId, companyId: row.companyId as CompanyId, sellerId: row.sellerId as UserId,
     customer: row.contactId ? { kind: "contact", contactId: row.contactId as ContactId, name: row.contactName, phone: row.contactPhone! } : { kind: "general_public" },
     createdAt: row.createdAt, completedAt: row.completedAt, cancelled: row.cancelled, items, payments,
     delivery: delivery === null ? null : delivery.data, deliveryStatus: row.deliveryStatus, stockDeducted: row.stockDeducted,
@@ -57,7 +61,7 @@ function mapAggregate(row: DbAggregate): OrderAggregate {
 
 export async function savePendingOrder(order: OrderAggregate) {
   try {
-    await prisma.order.create({ data: { id: order.id, companyId: order.companyId, sellerId: order.sellerId,
+    await prisma.order.create({ data: { number: BigInt(order.number), id: order.id, companyId: order.companyId, sellerId: order.sellerId,
       contactId: order.customer.kind === "contact" ? order.customer.contactId : null,
       contactName: order.customer.kind === "contact" ? order.customer.name : null,
       contactPhone: order.customer.kind === "contact" ? order.customer.phone : null,
@@ -75,7 +79,18 @@ export async function savePendingOrder(order: OrderAggregate) {
     return ok<null>(null);
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
-    if (cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2002") return err({ code: "ORDER_ALREADY_EXISTS" as const, message: "Order already exists" });
+    if (cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2002") {
+      const target = cause.meta?.target;
+      const adapterConstraint = z.object({ driverAdapterError: z.object({ cause: z.object({
+        constraint: z.object({ index: z.string() }),
+      }) }) }).safeParse(cause.meta);
+      if ((Array.isArray(target) && target.includes("number")) || target === "Order_companyId_number_key" ||
+        (adapterConstraint.success && adapterConstraint.data.driverAdapterError.cause.constraint.index === "Order_companyId_number_key")) {
+        log.error({ event: "unable_to_save_pending_order", operation: "create_order", errorCode: "ORDER_NUMBER_CONFLICT", err: cause }, "Unable to save pending order");
+        return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save order" });
+      }
+      return err({ code: "ORDER_ALREADY_EXISTS" as const, message: "Order already exists" });
+    }
     log.error({ event: "unable_to_save_pending_order", err: cause }, "unable_to_save_pending_order");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save pending order" });
   }
@@ -201,13 +216,13 @@ export async function findOrders(criteria: OrderCriteria) {
   try {
     const [rows, total] = await Promise.all([
       prisma.order.findMany({ where, orderBy: [{ completedAt: "desc" }, { id: "asc" }], skip: (criteria.page - 1) * 20, take: 20,
-        select: { id: true, completedAt: true, contactId: true, contactName: true, contactPhone: true, sellerId: true, currency: true, total: true } }),
+        select: { number: true, id: true, completedAt: true, contactId: true, contactName: true, contactPhone: true, sellerId: true, currency: true, total: true } }),
       prisma.order.count({ where }),
     ]);
     return ok({ items: rows.map((row) => {
       if (!row.completedAt || !isCurrency(row.currency) || (row.contactId && !row.contactPhone))
         throw new InvalidStoredOrderError("Invalid stored order summary");
-      return { id: row.id, completedAt: row.completedAt, sellerId: row.sellerId,
+      return { number: storedNumber(row.number), id: row.id, completedAt: row.completedAt, sellerId: row.sellerId,
         customer: row.contactId ? { kind: "contact" as const, contactId: row.contactId, name: row.contactName, phone: row.contactPhone! } : { kind: "general_public" as const },
         total: { amount: row.total.toNumber(), currency: row.currency } };
     }), page: criteria.page, pageSize: 20, total });
@@ -239,5 +254,27 @@ export async function findOrderAggregates(criteria: AggregateCriteria, companyId
     if (!knownFailure(cause)) throw cause;
     log.error({ event: "unable_to_list_order_aggregates", err: cause }, "unable_to_list_order_aggregates");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to list orders" });
+  }
+}
+
+function storedNumber(value: bigint): OrderNumber {
+  const parsed = parseOrderNumber(Number(value));
+  if (!parsed.success) throw new InvalidStoredOrderError("Invalid stored order number");
+  return parsed.data;
+}
+
+export async function allocateOrderNumber(companyId: CompanyId) {
+  requireActiveTransaction(companyId);
+  try {
+    const rows = await prisma.$queryRaw<Array<{ number: bigint }>>`UPDATE "Company" SET "nextOrderNumber" = "nextOrderNumber" + 1 WHERE id = ${companyId}::uuid AND "nextOrderNumber" <= 9007199254740991 RETURNING "nextOrderNumber" - 1 AS number`;
+    if (!rows.length) {
+      log.error({ event: "unable_to_allocate_order_number", operation: "create_order", errorCode: "ORDER_NUMBER_EXHAUSTED" }, "Unable to allocate order number");
+      return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to allocate order number" });
+    }
+    return ok(storedNumber(rows[0].number));
+  } catch (cause) {
+    if (!knownFailure(cause) && !(cause instanceof InvalidStoredOrderError)) throw cause;
+    log.error({ event: "unable_to_allocate_order_number", operation: "create_order", errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "Unable to allocate order number");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to allocate order number" });
   }
 }
