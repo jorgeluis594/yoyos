@@ -19,8 +19,7 @@ export default function AppTabs() {
   const { state } = useAccess();
   const { t } = useTranslation();
   return (
-    <Tabs>
-      <TabSlot style={{ height: '100%' }} />
+    <Tabs style={{ flex: 1 }}>
       <TabList asChild>
         <CustomTabList>
           <TabTrigger name="home" href="/" asChild>
@@ -32,8 +31,12 @@ export default function AppTabs() {
           {state.status === 'ready' ? <TabTrigger name="orders" href="/orders" asChild>
             <TabButton>{t('orders')}</TabButton>
           </TabTrigger> : null}
+          {state.status === 'ready' ? <TabTrigger name="settings" href="/settings" asChild>
+            <TabButton>{t('deliverySettingsNav')}</TabButton>
+          </TabTrigger> : null}
         </CustomTabList>
       </TabList>
+      <TabSlot style={{ flex: 1 }} />
     </Tabs>
   );
 }
@@ -69,7 +72,6 @@ export function CustomTabList(props: TabListProps) {
 
 const styles = StyleSheet.create({
   tabListContainer: {
-    position: 'absolute',
     width: '100%',
     padding: Spacing.three,
     justifyContent: 'center',
@@ -78,11 +80,12 @@ const styles = StyleSheet.create({
   },
   innerContainer: {
     paddingVertical: Spacing.two,
-    paddingHorizontal: Spacing.five,
+    paddingHorizontal: Spacing.two,
     borderRadius: Spacing.five,
     flexDirection: 'row',
     alignItems: 'center',
     flexGrow: 1,
+    flexWrap: 'wrap',
     gap: Spacing.two,
     maxWidth: MaxContentWidth,
   },
@@ -93,6 +96,8 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   tabButtonView: {
+    minHeight: 48,
+    justifyContent: 'center',
     paddingVertical: Spacing.one,
     paddingHorizontal: Spacing.three,
     borderRadius: Spacing.three,

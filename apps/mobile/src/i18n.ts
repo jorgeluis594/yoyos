@@ -6,6 +6,7 @@ import { translations as commonTranslations } from '@mobile/components/translati
 import { translations as userTranslations } from '@mobile/features/users/presentation/translations';
 import { translations as orderTranslations } from '@mobile/features/orders/presentation/translations';
 import { translations as productTranslations } from '@mobile/features/products/presentation/translations';
+import { translations as deliverySettingsTranslations } from '@mobile/features/delivery-settings/presentation/translations';
 import { translations as printTranslations } from '@mobile/features/printing/presentation/translations';
 
 const i18n = createInstance();
@@ -19,6 +20,7 @@ const resources = {
     ...orderTranslations.es,
     ...productTranslations.es,
     ...printTranslations.es,
+    ...deliverySettingsTranslations.es,
   } },
   'pt-BR': { translation: {
     ...commonTranslations['pt-BR'],
@@ -27,6 +29,7 @@ const resources = {
     ...orderTranslations['pt-BR'],
     ...productTranslations['pt-BR'],
     ...printTranslations['pt-BR'],
+    ...deliverySettingsTranslations['pt-BR'],
   } },
 } as const;
 

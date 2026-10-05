@@ -18,7 +18,7 @@ export default function AppTabs() {
   const orderDraft = useOrderDraft();
   const { state } = useAccess();
   const { t } = useTranslation();
-  const tabPress = (path: '/' | '/products' | '/orders') => (event: { data: { isPrevented: boolean } }) => {
+  const tabPress = (path: '/' | '/products' | '/orders' | '/settings') => (event: { data: { isPrevented: boolean } }) => {
     const isCurrentTab = path === '/' ? pathname === '/' : pathname === path || pathname.startsWith(`${path}/`);
     if (!event.data.isPrevented || (!dirty && !orderDraft.dirty) || isCurrentTab) return;
     showConfirmation({
@@ -52,6 +52,10 @@ export default function AppTabs() {
       {state.status === 'ready' ? <NativeTabs.Trigger name="orders" disabled={dirty || orderDraft.dirty} listeners={{ tabPress: tabPress('/orders') }}>
         <NativeTabs.Trigger.Label>{t('orders')}</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf="bag" md="shopping_bag" />
+      </NativeTabs.Trigger> : null}
+      {state.status === 'ready' ? <NativeTabs.Trigger name="settings" disabled={dirty || orderDraft.dirty} listeners={{ tabPress: tabPress('/settings') }}>
+        <NativeTabs.Trigger.Label>{t('deliverySettingsNav')}</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf="gearshape" md="settings" />
       </NativeTabs.Trigger> : null}
     </NativeTabs>
   );
