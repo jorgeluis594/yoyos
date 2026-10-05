@@ -48,6 +48,8 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     await page.getByRole("button", { name: "Confirmar cobro y completar venta" }).click();
     await browserExpect(page).toHaveURL(/\/es-PE\/orders\/[0-9a-f-]+$/);
     await browserExpect(page.getByRole("heading", { name: "Venta completada" })).toBeVisible();
+    await browserExpect(page.getByText("Entrega por definir", { exact: true })).toHaveCount(0);
+    await browserExpect(page.getByRole("button", { name: "Guardar entrega" })).toHaveCount(0);
     await browserExpect(page.getByText("Público general")).toBeVisible();
     await browserExpect(page.getByText(`Total: ${formatCurrency(0.58, "PEN", "es")}`)).toBeVisible();
     await page.getByRole("link", { name: "Ver ventas" }).click();
