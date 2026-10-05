@@ -76,6 +76,8 @@ test("migrates historical sales to paid delivered orders without changing stock"
       .toEqual([{ productName: "Old product", variantAttributes: { Size: "M" }, quantity: "2", unitPrice: "7.50", subtotal: "15.00" }]);
     expect((await isolated.query('SELECT "quantity" FROM "ProductStock" WHERE "variantId" = $1', [variant])).rows[0].quantity).toBe("7");
 
+    for (const name of (await readdir(migrations)).filter((name) => name > finalMigration && /^\d/.test(name)).sort())
+      execFileSync("psql", [isolatedAdminUrl.toString(), "-v", "ON_ERROR_STOP=1", "-f", `${migrations}${name}/migration.sql`], { stdio: "pipe" });
     execFileSync("psql", [isolatedAdminUrl.toString(), "-v", "ON_ERROR_STOP=1", "-v", "app_password=core_app_local", "-v", `dbname=${database}`, "-f", provision]);
     app = new pg.Client({ connectionString: isolatedAppUrl.toString() });
     await app.connect();

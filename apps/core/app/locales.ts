@@ -23,6 +23,7 @@ const es = {
     readonlyVariants: "Puedes editar los datos generales y la foto. Las variantes son de solo lectura.", data: "Datos del producto", description: "Descripción", priceVariant: "Precio y variante", initialStock: "Stock inicial", photo: "Foto", removePhoto: "Quitar foto", uploading: "Subiendo imagen…", preview: "Vista previa de la foto del producto", saving: "Guardando…", save: "Guardar producto", cancel: "Cancelar", imageTooLarge: "La imagen supera el tamaño máximo de 10 MB.", invalidImage: "El archivo debe ser una imagen JPG, PNG o WebP.", uploadError: "No se pudo subir la imagen. Inténtalo de nuevo.",
   },
   orders: {
+    orderNumber: "Pedido #{{number}}",
     status: {"active": "Orden activa", "cancelled": "Orden cancelada", "completed": "Venta completada"},
     deliveryStatus: {"pending": "Pendiente", "shipped": "Despachada", "delivered": "Entregada"},
     documentType: {"national_id": "Documento de identidad", "passport": "Pasaporte", "foreign_id": "Documento de extranjería"},
@@ -79,6 +80,7 @@ const pt = {
     readonlyVariants: "Você pode editar os dados gerais e a foto. As variantes são somente leitura.", data: "Dados do produto", description: "Descrição", priceVariant: "Preço e variante", initialStock: "Estoque inicial", photo: "Foto", removePhoto: "Remover foto", uploading: "Enviando imagem…", preview: "Prévia da foto do produto", saving: "Salvando…", save: "Salvar produto", cancel: "Cancelar", imageTooLarge: "A imagem excede o tamanho máximo de 10 MB.", invalidImage: "O arquivo deve ser uma imagem JPG, PNG ou WebP.", uploadError: "Não foi possível enviar a imagem. Tente novamente.",
   },
   orders: {
+    orderNumber: "Pedido #{{number}}",
     status: {"active": "Pedido ativo", "cancelled": "Pedido cancelado", "completed": "Venda concluída"},
     deliveryStatus: {"pending": "Pendente", "shipped": "Enviada", "delivered": "Entregue"},
     documentType: {"national_id": "Documento de identidade", "passport": "Passaporte", "foreign_id": "Documento de estrangeiro"},

@@ -83,7 +83,7 @@ test("orders HTTP lets a Chile company complete sales, returns historical data, 
   expect(created.status).toBe(201);
   expect(await created.json()).toMatchObject({ id, companyId: seller.companyId, sellerId: seller.userId,
     status: "completed", paymentStatus: "paid", deliveryStatus: "delivered", stockDeducted: true,
-    total: { amount: 20, currency: "PEN" }, customer: { kind: "contact", name: "Ana", phone: "+51999999999" },
+    total: { amount: 20, currency: "PEN" }, buyer: { name: "Ana", phone: "+51999999999" },
     payments: [{ amount: { amount: 20, currency: "PEN" } }],
     items: [{ productName: "Camisa", variantAttributes: { Talla: "M" }, quantity: 2,
       unitPrice: { amount: 10, currency: "PEN" }, subtotal: { amount: 20, currency: "PEN" } }] });
@@ -96,7 +96,7 @@ test("orders HTTP lets a Chile company complete sales, returns historical data, 
   });
   const detail = await call(`/api/orders/${id}`, seller.cookie);
   expect(detail.status).toBe(200);
-  expect(await detail.json()).toMatchObject({ customer: { name: "Ana" }, items: [{ productName: "Camisa" }] });
+  expect(await detail.json()).toMatchObject({ buyer: { name: "Ana" }, items: [{ productName: "Camisa" }] });
   expect((await call(`/api/orders/${id}`, other.cookie)).status).toBe(404);
   const foreignVariant = await call("/api/orders", other.cookie, { id: randomUUID(), contactId: null,
     items: [{ variantId: seller.variantId, quantity: 1 }] }, "POST");
@@ -201,10 +201,10 @@ test("orders HTTP combines contact and Lima-day UTC bounds with stable pages and
   const seller = await fixture("PE");
   const ids = Array.from({ length: 21 }, (_, index) => `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`);
   await withTenantIsolation(seller.companyId, async () => {
-    await prisma.order.createMany({ data: ids.map((id, index) => ({ number: BigInt(1001 + index), id, sellerId: seller.userId, contactId: seller.contactId,
-      contactName: "Ana", contactPhone: "+51999999999", currency: "PEN", total: 10, itemsTotal: 10,
+    await prisma.order.createMany({ data: ids.map((id, index) => ({ number: BigInt(1001 + index), id, sellerId: seller.userId, currency: "PEN", total: 10, itemsTotal: 10,
       deliveryStatus: "delivered", stockDeducted: true,
       completedAt: new Date("2026-09-28T12:00:00.000Z"), createdAt: new Date("2026-09-28T12:00:00.000Z") })) });
+    await prisma.orderBuyer.createMany({ data: ids.map((orderId) => ({ orderId, contactId: seller.contactId, name: "Ana", phone: "+51999999999" })) });
     await prisma.contact.createMany({ data: Array.from({ length: 21 }, (_, index) => ({ id: randomUUID(),
       name: "Search contact", phone: `+51988${String(index).padStart(6, "0")}` })) });
   });

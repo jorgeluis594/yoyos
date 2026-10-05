@@ -59,7 +59,7 @@ export default function OrderDetailScreen() {
   return <ThemedView style={styles.page}><SafeAreaView style={styles.page} edges={["top", "left", "right"]}>
     <ScrollView contentContainerStyle={styles.content}>
       <Button variant="ghost" onPress={() => router.back()}>{t('backToOrders')}</Button>
-      <View style={styles.heading}><ThemedText type="title" accessibilityRole="header">{title}</ThemedText>
+      <View style={styles.heading}><ThemedText type="title" accessibilityRole="header">{t("orderNumber", { number: order.number })}</ThemedText><ThemedText>{title}</ThemedText>
         <ThemedText themeColor="textSecondary">{t('createdOn', { date: date(order.createdAt, locale) })}</ThemedText>
         {order.completedAt ? <ThemedText themeColor="textSecondary">{t('completedOn', { date: date(order.completedAt, locale) })}</ThemedText> : null}</View>
       <View style={[styles.summary, { backgroundColor: theme.backgroundElement }]}>
@@ -77,8 +77,8 @@ export default function OrderDetailScreen() {
         <ThemedText type="small">{t('adjustCharge')}</ThemedText>
       </View> : null}
       <View style={styles.section}><ThemedText type="subtitle" accessibilityRole="header">{t('customer')}</ThemedText>
-        <ThemedText>{order.customer.kind === "contact" ? order.customer.name ?? order.customer.phone : t('generalPublic')}</ThemedText>
-        {order.customer.kind === "contact" && order.customer.name ? <ThemedText themeColor="textSecondary">{order.customer.phone}</ThemedText> : null}
+        <ThemedText>{order.buyer !== null ? order.buyer.name ?? order.buyer.phone : t('generalPublic')}</ThemedText>
+        {order.buyer !== null && order.buyer.name ? <ThemedText themeColor="textSecondary">{order.buyer.phone}</ThemedText> : null}
       </View>
       {order.delivery ? <View style={styles.section}><ThemedText type="subtitle" accessibilityRole="header">{t('delivery')}</ThemedText>
         <ThemedText>{deliveryMethodLabel(order.delivery.method, language)}</ThemedText>

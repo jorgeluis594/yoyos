@@ -99,6 +99,7 @@ model Company {
   productVariants ProductVariant[]
   productStocks ProductStock[]
   orders Order[]
+  orderBuyers OrderBuyer[]
   orderItems OrderItem[]
   payments Payment[]
 }
@@ -204,7 +205,7 @@ model Contact {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   chats     Chat[]
-  orders    Order[]
+  orderBuyers OrderBuyer[]
 
   @@unique([companyId, id])
   @@unique([companyId, phone])
@@ -258,10 +259,9 @@ model Order {
   company Company @relation(fields: [companyId], references: [id])
   sellerId String
   seller User @relation(fields: [companyId, sellerId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
-  contactId String? @db.Uuid
-  contact Contact? @relation(fields: [companyId, contactId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
-  contactName String?
-  contactPhone String?
+  buyer OrderBuyer?
+  checkoutEnabledAt DateTime?
+  checkoutConfirmedAt DateTime?
   currency String
   total Decimal @db.Decimal(15, 2)
   itemsTotal Decimal @db.Decimal(15, 2)
@@ -279,7 +279,6 @@ model Order {
   @@unique([companyId, id])
   @@unique([companyId, number])
   @@index([companyId, completedAt(sort: Desc), id])
-  @@index([companyId, contactId, completedAt(sort: Desc), id])
 }
 
 model Payment {
@@ -314,4 +313,18 @@ model OrderItem {
 
   @@unique([companyId, orderId, variantId])
   @@index([companyId, variantId])
+}
+
+model OrderBuyer {
+  orderId String @id @db.Uuid
+  companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company Company @relation(fields: [companyId], references: [id])
+  order Order @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Cascade, onUpdate: NoAction)
+  contactId String? @db.Uuid
+  contact Contact? @relation(fields: [companyId, contactId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
+  name String?
+  phone String
+
+  @@unique([companyId, orderId])
+  @@index([companyId, contactId])
 }

@@ -1,5 +1,6 @@
 export const translations = {
   es: {
+    orderNumber: "Pedido #{{number}}",
     filterCreationDate: "Filtrar por fecha de creación",
     createdOn: "Creada el {{date}}",
     completedOn: "Completada el {{date}}",
@@ -106,6 +107,7 @@ export const translations = {
     offlineEditing: 'Sin conexión. Puedes seguir editando.',
   },
   'pt-BR': {
+    orderNumber: "Pedido #{{number}}",
     filterCreationDate: "Filtrar por data de criação",
     createdOn: "Criado em {{date}}",
     completedOn: "Concluído em {{date}}",

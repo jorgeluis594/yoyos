@@ -83,7 +83,7 @@ test("known stock rejection clears the marker and leaves the cart available", as
 test("recovery keeps the amount first shown and returns the core total", async () => {
   const amount = { amount: 12, currency: "PEN" as const };
   const zero = { amount: 0, currency: "PEN" as const };
-  const order: OrderAggregateResponse = { number: 1001, id: id(3), companyId, sellerId: "seller", customer: { kind: "general_public" },
+  const order: OrderAggregateResponse = { number: 1001, id: id(3), companyId, sellerId: "seller", buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null,
     createdAt: "2026-09-29T12:00:00.000Z", completedAt: "2026-09-29T12:00:00.000Z",
     status: "completed", paymentStatus: "paid", paidAmount: amount, balanceDue: zero, overpaidAmount: zero,
     cancelled: false, delivery: null, deliveryStatus: "delivered", stockDeducted: true,

@@ -1,9 +1,9 @@
-import { parseOrderNumber, type OrderNumber } from "@core/src/features/orders/domain/checkout";
+import { parseOrderNumber, type OrderNumber, type OrderBuyer } from "@core/src/features/orders/domain/checkout";
 import { add, compare, isCurrency, subtract, type Money } from "@shared/money";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { z } from "zod";
-import { buildOrder, type BuildOrderInput, type BuildOrderError, type CompanyId, type OrderCustomer, type OrderId, type OrderItem, type PaymentId, type UserId } from "@core/src/features/orders/domain/order";
+import { buildOrder, type BuildOrderInput, type BuildOrderError, type CompanyId, type OrderId, type OrderItem, type PaymentId, type UserId } from "@core/src/features/orders/domain/order";
 
 export type OrderStatus = "active" | "cancelled" | "completed";
 export type PaymentStatus = "pending" | "paid";
@@ -22,7 +22,9 @@ export type OrderAggregate = Readonly<{
   id: OrderId;
   companyId: CompanyId;
   sellerId: UserId;
-  customer: OrderCustomer;
+  buyer: OrderBuyer | null;
+  checkoutEnabledAt: Date | null;
+  checkoutConfirmedAt: Date | null;
   createdAt: Date;
   completedAt: Date | null;
   cancelled: boolean;
@@ -57,7 +59,8 @@ export function buildPendingOrder(input: BuildPendingOrderInput): Result<OrderAg
   const snapshot = built.data;
   const zero: Money = { amount: 0, currency: snapshot.total.currency };
   return ok({ number: input.number, id: snapshot.id, companyId: snapshot.companyId, sellerId: snapshot.sellerId,
-    customer: snapshot.customer, items: snapshot.items, total: snapshot.total,
+    buyer: snapshot.customer.kind === "contact" ? { contactId: snapshot.customer.contactId, name: snapshot.customer.name, phone: snapshot.customer.phone } : null,
+    checkoutEnabledAt: null, checkoutConfirmedAt: null, items: snapshot.items, total: snapshot.total,
     createdAt: new Date(input.createdAt), completedAt: null, cancelled: false,
     payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false,
     itemsTotal: snapshot.total, deliveryCost: zero, deliveryCharge: zero });

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { parseOrderNumber, type OrderNumber } from "@core/src/features/orders/domain/checkout";
+import { checkoutState, parseOrderNumber, type OrderNumber } from "@core/src/features/orders/domain/checkout";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
@@ -11,7 +11,7 @@ import type { OrderCriteria } from "@core/src/features/orders/application/read-o
 import type { AggregateCriteria, AggregatePage } from "@core/src/features/orders/application/list-order-aggregates";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
-const aggregateInclude = { items: { orderBy: { id: "asc" as const } }, payments: { orderBy: [{ recordedAt: "asc" as const }, { id: "asc" as const }] } };
+const aggregateInclude = { buyer: true, items: { orderBy: { id: "asc" as const } }, payments: { orderBy: [{ recordedAt: "asc" as const }, { id: "asc" as const }] } };
 type DbAggregate = Prisma.OrderGetPayload<{ include: typeof aggregateInclude }>;
 class InvalidStoredOrderError extends Error {}
 
@@ -20,7 +20,7 @@ function knownFailure(cause: unknown) {
 }
 
 function mapAggregate(row: DbAggregate): OrderAggregate {
-  if (!isCurrency(row.currency) || !row.items.length || (row.contactId && !row.contactPhone) ||
+  if (!isCurrency(row.currency) || !row.items.length || (row.buyer && !row.buyer.phone) ||
     row.items.some((item) => item.quantity <= 0n || item.quantity > BigInt(Number.MAX_SAFE_INTEGER)))
     throw new InvalidStoredOrderError("Invalid stored order identity or items");
   const delivery = row.delivery === null ? null : parseDeliveryDetails(row.delivery);
@@ -43,7 +43,8 @@ function mapAggregate(row: DbAggregate): OrderAggregate {
   const number = parseOrderNumber(Number(row.number));
   if (!number.success) throw new InvalidStoredOrderError("Invalid stored order number");
   const order: OrderAggregate = { number: number.data, id: row.id as OrderId, companyId: row.companyId as CompanyId, sellerId: row.sellerId as UserId,
-    customer: row.contactId ? { kind: "contact", contactId: row.contactId as ContactId, name: row.contactName, phone: row.contactPhone! } : { kind: "general_public" },
+    buyer: row.buyer ? { contactId: row.buyer.contactId as ContactId | null, name: row.buyer.name, phone: row.buyer.phone } : null,
+    checkoutEnabledAt: row.checkoutEnabledAt, checkoutConfirmedAt: row.checkoutConfirmedAt,
     createdAt: row.createdAt, completedAt: row.completedAt, cancelled: row.cancelled, items, payments,
     delivery: delivery === null ? null : delivery.data, deliveryStatus: row.deliveryStatus, stockDeducted: row.stockDeducted,
     itemsTotal: { amount: row.itemsTotal.toNumber(), currency: row.currency },
@@ -51,10 +52,11 @@ function mapAggregate(row: DbAggregate): OrderAggregate {
     deliveryCharge: { amount: row.deliveryCharge.toNumber(), currency: row.currency },
     total: { amount: row.total.toNumber(), currency: row.currency } };
   const rebuilt = buildOrder({ id: order.id, companyId: order.companyId, sellerId: order.sellerId,
-    customer: order.customer, createdAt: order.createdAt, items: order.items });
+    customer: order.buyer?.contactId ? { kind: "contact", contactId: order.buyer.contactId, name: order.buyer.name, phone: order.buyer.phone } : { kind: "general_public" }, createdAt: order.createdAt, items: order.items });
   if (!rebuilt.success || rebuilt.data.total.amount !== order.itemsTotal.amount ||
     rebuilt.data.items.some((item, index) => item.subtotal.amount !== order.items[index]?.subtotal.amount))
     throw new InvalidStoredOrderError("Invalid stored order item totals");
+  if (!checkoutState(order).success) throw new InvalidStoredOrderError("Invalid stored checkout state");
   if (!orderStateMachine.getLifecycle(order).success) throw new InvalidStoredOrderError("Invalid stored order state");
   return order;
 }
@@ -62,9 +64,8 @@ function mapAggregate(row: DbAggregate): OrderAggregate {
 export async function savePendingOrder(order: OrderAggregate) {
   try {
     await prisma.order.create({ data: { number: BigInt(order.number), id: order.id, companyId: order.companyId, sellerId: order.sellerId,
-      contactId: order.customer.kind === "contact" ? order.customer.contactId : null,
-      contactName: order.customer.kind === "contact" ? order.customer.name : null,
-      contactPhone: order.customer.kind === "contact" ? order.customer.phone : null,
+      buyer: order.buyer ? { create: { contactId: order.buyer.contactId, name: order.buyer.name, phone: order.buyer.phone } } : undefined,
+      checkoutEnabledAt: order.checkoutEnabledAt, checkoutConfirmedAt: order.checkoutConfirmedAt,
       currency: order.total.currency, total: new Prisma.Decimal(order.total.amount.toString()),
       itemsTotal: new Prisma.Decimal(order.itemsTotal.amount.toString()),
       deliveryCost: new Prisma.Decimal(order.deliveryCost.amount.toString()),
@@ -112,7 +113,10 @@ export async function findOrderAggregate(id: OrderId, companyId: CompanyId) {
     const row = await prisma.order.findFirst({ where: { id, companyId }, include: aggregateInclude });
     return ok(row ? mapAggregate(row) : null);
   } catch (cause) {
-    if (cause instanceof InvalidStoredOrderError) return err({ code: "INVALID_ORDER" as const, message: cause.message });
+    if (cause instanceof InvalidStoredOrderError) {
+      log.error({ event: "order_checkout_data_invalid", errorCode: "INVALID_STORED_ORDER", err: cause }, "Invalid stored order");
+      return err({ code: "INVALID_ORDER" as const, message: "Invalid stored order" });
+    }
     if (!knownFailure(cause)) throw cause;
     log.error({ event: "unable_to_load_order_aggregate", err: cause }, "unable_to_load_order_aggregate");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to load order aggregate" });
@@ -210,24 +214,27 @@ export async function saveDelivery(id: OrderId, companyId: CompanyId, change: Pi
 export async function findOrders(criteria: OrderCriteria) {
   const where: Prisma.OrderWhereInput = {
     companyId: getCompanyId(),
-    ...(criteria.customer.kind === "general_public" ? { contactId: null } : criteria.customer.kind === "contact" ? { contactId: criteria.customer.contactId } : {}),
+    ...(criteria.customer.kind === "general_public" ? { buyer: { is: null } } : criteria.customer.kind === "contact" ? { buyer: { is: { contactId: criteria.customer.contactId } } } : {}),
     completedAt: { not: null, ...(criteria.completedFrom ? { gte: criteria.completedFrom } : {}), ...(criteria.completedBefore ? { lt: criteria.completedBefore } : {}) },
   };
   try {
     const [rows, total] = await Promise.all([
       prisma.order.findMany({ where, orderBy: [{ completedAt: "desc" }, { id: "asc" }], skip: (criteria.page - 1) * 20, take: 20,
-        select: { number: true, id: true, completedAt: true, contactId: true, contactName: true, contactPhone: true, sellerId: true, currency: true, total: true } }),
+        select: { number: true, id: true, completedAt: true, buyer: true, sellerId: true, currency: true, total: true } }),
       prisma.order.count({ where }),
     ]);
     return ok({ items: rows.map((row) => {
-      if (!row.completedAt || !isCurrency(row.currency) || (row.contactId && !row.contactPhone))
+      if (!row.completedAt || !isCurrency(row.currency) || (row.buyer && !row.buyer.phone))
         throw new InvalidStoredOrderError("Invalid stored order summary");
       return { number: storedNumber(row.number), id: row.id, completedAt: row.completedAt, sellerId: row.sellerId,
-        customer: row.contactId ? { kind: "contact" as const, contactId: row.contactId, name: row.contactName, phone: row.contactPhone! } : { kind: "general_public" as const },
+        buyer: row.buyer ? { contactId: row.buyer.contactId, name: row.buyer.name, phone: row.buyer.phone } : null,
         total: { amount: row.total.toNumber(), currency: row.currency } };
     }), page: criteria.page, pageSize: 20, total });
   } catch (cause) {
-    if (cause instanceof InvalidStoredOrderError) return err({ code: "INVALID_ORDER" as const, message: cause.message });
+    if (cause instanceof InvalidStoredOrderError) {
+      log.error({ event: "order_checkout_data_invalid", errorCode: "INVALID_STORED_ORDER", err: cause }, "Invalid stored order");
+      return err({ code: "INVALID_ORDER" as const, message: "Invalid stored order" });
+    }
     if (!knownFailure(cause)) throw cause;
     log.error({ event: "unable_to_list_orders", err: cause }, "unable_to_list_orders");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to list orders" });
@@ -237,7 +244,7 @@ export async function findOrders(criteria: OrderCriteria) {
 export async function findOrderAggregates(criteria: AggregateCriteria, companyId: CompanyId) {
   if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
   const where: Prisma.OrderWhereInput = { companyId,
-    ...(criteria.customer.kind === "general_public" ? { contactId: null } : criteria.customer.kind === "contact" ? { contactId: criteria.customer.contactId } : {}),
+    ...(criteria.customer.kind === "general_public" ? { buyer: { is: null } } : criteria.customer.kind === "contact" ? { buyer: { is: { contactId: criteria.customer.contactId } } } : {}),
     ...(criteria.createdFrom || criteria.createdBefore ? { createdAt: {
       ...(criteria.createdFrom ? { gte: criteria.createdFrom } : {}), ...(criteria.createdBefore ? { lt: criteria.createdBefore } : {}),
     } } : {}),
@@ -250,7 +257,10 @@ export async function findOrderAggregates(criteria: AggregateCriteria, companyId
     ]);
     return ok<AggregatePage>({ items: rows.map(mapAggregate), page: criteria.page, pageSize: 20, total });
   } catch (cause) {
-    if (cause instanceof InvalidStoredOrderError) return err({ code: "INVALID_ORDER" as const, message: cause.message });
+    if (cause instanceof InvalidStoredOrderError) {
+      log.error({ event: "order_checkout_data_invalid", errorCode: "INVALID_STORED_ORDER", err: cause }, "Invalid stored order");
+      return err({ code: "INVALID_ORDER" as const, message: "Invalid stored order" });
+    }
     if (!knownFailure(cause)) throw cause;
     log.error({ event: "unable_to_list_order_aggregates", err: cause }, "unable_to_list_order_aggregates");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to list orders" });

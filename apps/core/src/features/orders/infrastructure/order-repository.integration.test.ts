@@ -363,7 +363,7 @@ test("persists completed sale, historical snapshots, listing and duplicate rejec
         { variantId: f.variantIds[0], quantity: 3 }, { variantId: f.variantIds[1], quantity: 2 },
       ] }, { companyId: f.companyId, sellerId: f.sellerId });
       expect(created).toMatchObject({ success: true, data: { total: { amount: 0.7, currency: "PEN" },
-        customer: { kind: "contact", name: null, phone: "+51999999999" } } });
+        buyer: { name: null, phone: "+51999999999" } } });
       const persisted = await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { payments: true } });
       expect(persisted).toMatchObject({ itemsTotal: expect.anything(), deliveryStatus: "delivered", stockDeducted: true,
         cancelled: false, delivery: null });
@@ -385,7 +385,7 @@ test("persists completed sale, historical snapshots, listing and duplicate rejec
       await prisma.product.update({ where: { id: f.productId }, data: { name: "Changed product" } });
       await prisma.productVariant.update({ where: { id: f.variantIds[0] }, data: { attributes: { Size: "XL" }, sku: `CHANGED-${f.variantIds[0]}`, salePrice: 3.5 } });
       const detail = await orderDetail(orderId, f);
-      expect(detail).toMatchObject({ success: true, data: { customer: { name: null, phone: "+51999999999" },
+      expect(detail).toMatchObject({ success: true, data: { buyer: { name: null, phone: "+51999999999" },
         items: expect.arrayContaining([expect.objectContaining({ productName: "Sample product", variantAttributes: { Size: "M" },
           sku: `SKU-${f.variantIds[0]}`, unitPrice: { amount: 0.1, currency: "PEN" }, subtotal: { amount: 0.3, currency: "PEN" } })]) } });
       const list = await orders.list({ page: 1, customer: { kind: "contact", contactId: f.contactId as ContactId } });
@@ -472,7 +472,7 @@ test("separates companies and blocks cross-company references", async () => {
       expect(await prisma.order.count()).toBe(0);
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: a.variantIds[0] } })).quantity).toBe(3n);
       await expect(prisma.order.create({ data: { number: 1001n, id: randomUUID(), companyId: a.companyId, sellerId: a.sellerId,
-        contactId: b.contactId, contactPhone: "+51999999999", currency: "PEN", total: 1, itemsTotal: 1,
+        buyer: { create: { contactId: b.contactId, phone: "+51999999999" } }, currency: "PEN", total: 1, itemsTotal: 1,
         completedAt: new Date(), createdAt: new Date() } })).rejects.toThrow();
       await expect(prisma.orderItem.create({ data: { orderId: foreignOrderId, variantId: a.variantIds[0], productName: "Foreign order",
         variantAttributes: {}, quantity: 1n, unitPrice: 1, subtotal: 1 } })).rejects.toThrow();
@@ -594,5 +594,38 @@ test("allocates permanent company numbers atomically across concurrent orders an
       expect(await create(a)).toMatchObject({ error: { code: "PERSISTENCE_UNAVAILABLE" } });
       expect((await prisma.company.findUniqueOrThrow({ where: { id: a.companyId } })).nextOrderNumber).toBe(9007199254740992n);
     });
+  } finally { await a.cleanup(); await b.cleanup(); }
+});
+
+test("buyer snapshots stay independent of contacts and preserve guest buyers in reads and filters", async () => {
+  const a = await fixture();
+  const b = await fixture();
+  const create = (f: typeof a, contactId: string | null) => withTenantIsolation(f.companyId, () => orders.create({ id: randomUUID() as OrderId, contactId: contactId as ContactId | null,
+    items: [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }] }, { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId }));
+  try {
+    const contactOrder = await create(a, a.contactId);
+    const guestOrder = await create(a, null);
+    const anonymousOrder = await create(a, null);
+    const foreignOrder = await create(b, b.contactId);
+    if (!contactOrder.success || !guestOrder.success || !anonymousOrder.success || !foreignOrder.success) throw new Error("Fixture creation failed");
+    expect(contactOrder.data).toMatchObject({ buyer: { contactId: a.contactId, name: null, phone: "+51999999999" }, checkoutEnabledAt: null, checkoutConfirmedAt: null });
+    await withTenantIsolation(a.companyId, async () => {
+      await prisma.contact.update({ where: { id: a.contactId }, data: { name: "New global name", phone: "+51988888888" } });
+      expect(await orderDetail(contactOrder.data.id, a)).toMatchObject({ data: { buyer: { name: null, phone: "+51999999999" } } });
+      await prisma.orderBuyer.create({ data: { orderId: guestOrder.data.id, name: "Guest", phone: "+14155552671" } });
+      expect(await orderDetail(guestOrder.data.id, a)).toMatchObject({ data: { buyer: { contactId: null, name: "Guest" } } });
+      const context = { companyId: a.companyId as CompanyId, userId: a.sellerId as UserId };
+      expect(await orders.listAggregates({ page: 1, customer: { kind: "general_public" } }, context))
+        .toMatchObject({ data: { total: 1, items: [{ id: anonymousOrder.data.id, buyer: null }] } });
+      expect(await orders.listAggregates({ page: 1, customer: { kind: "contact", contactId: a.contactId as ContactId } }, context))
+        .toMatchObject({ data: { total: 1, items: [{ id: contactOrder.data.id }] } });
+      expect(await prisma.orderBuyer.findUnique({ where: { orderId: foreignOrder.data.id } })).toBeNull();
+      expect(await prisma.orderBuyer.updateMany({ where: { orderId: foreignOrder.data.id }, data: { name: "Forbidden" } })).toEqual({ count: 0 });
+      await expect(prisma.orderBuyer.create({ data: { companyId: b.companyId, orderId: anonymousOrder.data.id, phone: "+14155552671" } })).rejects.toThrow();
+      await expect(prisma.orderBuyer.create({ data: { orderId: anonymousOrder.data.id, contactId: b.contactId, phone: "+14155552671" } })).rejects.toThrow();
+      await expect(prisma.orderBuyer.create({ data: { orderId: guestOrder.data.id, phone: "+14155552671" } })).rejects.toThrow();
+      await expect(prisma.order.update({ where: { id: guestOrder.data.id }, data: { checkoutConfirmedAt: new Date() } })).rejects.toThrow();
+    });
+    expect(await systemPrisma.orderBuyer.findMany()).toEqual([]);
   } finally { await a.cleanup(); await b.cleanup(); }
 });

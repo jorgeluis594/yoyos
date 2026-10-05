@@ -132,8 +132,8 @@ export default function OrderHistoryScreen() {
           ListEmptyComponent={<ScreenState status={criteria.page === 1 && criteria.customer.kind === "all" && !criteria.fromDay && !criteria.throughDay ? "empty" : "no-results"}
             title={criteria.page === 1 && criteria.customer.kind === "all" && !criteria.fromDay && !criteria.throughDay ? t('noOrders') : t('noResults')}
             description={t('ordersEmptyHint')} />}
-          renderItem={({ item }) => <ListRow title={item.customer.kind === "contact" ? item.customer.name ?? item.customer.phone : t('generalPublic')}
-            description={`${orderStatusLabel(item.status, language)} · ${limaDate(item.createdAt, locale)}`}
+          renderItem={({ item }) => <ListRow title={item.buyer !== null ? item.buyer.name ?? item.buyer.phone : t('generalPublic')}
+            description={`${t("orderNumber", { number: item.number })} · ${orderStatusLabel(item.status, language)} · ${limaDate(item.createdAt, locale)}`}
             trailing={<ThemedText type="smallBold">{money(item.total.amount, item.total.currency, locale)}</ThemedText>}
             onPress={() => router.push(`/orders/${item.id}`)} />}
           ListFooterComponent={items.length ? <View style={styles.row}>
