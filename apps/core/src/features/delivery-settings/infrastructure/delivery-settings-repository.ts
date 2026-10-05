@@ -1,3 +1,4 @@
+import { isPersistenceFailure } from "@core/src/shared/infrastructure/persistence-error";
 import { Prisma, type CompanyDeliverySettings } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
@@ -5,9 +6,6 @@ import { log } from "@core/src/shared/infrastructure/logger";
 import { prisma, requireActiveTransaction } from "@core/src/shared/infrastructure/persistance";
 import { parseDeliverySettings, type DeliverySettings, type DeliverySettingsError, type DeliverySettingsReadError } from "@core/src/features/delivery-settings/domain/delivery-settings";
 
-export function isSettingsPersistenceFailure(cause: unknown): boolean {
-  return cause instanceof Prisma.PrismaClientKnownRequestError || cause instanceof Prisma.PrismaClientUnknownRequestError || cause instanceof Prisma.PrismaClientInitializationError;
-}
 
 export async function readDeliverySettings(companyId: string, lockMode: "shared" | "exclusive", expectedVersion?: number, operation = lockMode === "exclusive" ? "save_delivery_settings" : "get_delivery_settings"): Promise<Result<DeliverySettings | null, DeliverySettingsReadError>> {
   requireActiveTransaction(companyId);
@@ -31,7 +29,7 @@ export async function readDeliverySettings(companyId: string, lockMode: "shared"
     }
     return parsed;
   } catch (cause) {
-    if (!isSettingsPersistenceFailure(cause)) throw cause;
+    if (!isPersistenceFailure(cause)) throw cause;
     log.error({ event: "delivery_settings_read_failed", operation, companyId, stage, expectedVersion, errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "Unable to read delivery settings");
     return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to read delivery settings" });
   }
@@ -57,7 +55,7 @@ export async function writeDeliverySettings(companyId: string, settings: Deliver
     }
     return ok(null);
   } catch (cause) {
-    if (!isSettingsPersistenceFailure(cause)) throw cause;
+    if (!isPersistenceFailure(cause)) throw cause;
     if (stage === "save_settings" && expectedVersion === 0 && cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2002")
       return err({ code: "DELIVERY_SETTINGS_CONFLICT", reason: "concurrent_creation", message: "Settings were created concurrently" });
     log.error({ event: "delivery_settings_write_failed", operation: "save_delivery_settings", companyId, stage, expectedVersion, errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "Unable to save delivery settings");

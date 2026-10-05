@@ -1,6 +1,6 @@
 import { log } from "@core/src/shared/infrastructure/logger";
 import { randomUUID } from "node:crypto";
-import { Prisma } from "@prisma/client";
+import { isPersistenceFailure } from "@core/src/shared/infrastructure/persistence-error";
 import { err } from "@shared/functional";
 import type { AppError, Result } from "@shared/result";
 import { afterTransactionCommit, getCompanyId, requireNoActiveTransaction, withinTransaction } from "@core/src/shared/infrastructure/persistance";
@@ -27,9 +27,7 @@ async function orderTransaction<T, E extends AppError>(callback: () => Promise<R
   try {
     return await withinTransaction(callback);
   } catch (cause) {
-    if (!(cause instanceof Prisma.PrismaClientKnownRequestError
-      || cause instanceof Prisma.PrismaClientUnknownRequestError
-      || cause instanceof Prisma.PrismaClientInitializationError)) throw cause;
+    if (!isPersistenceFailure(cause)) throw cause;
     log.error({ event: "unable_to_complete_order_transaction", ...(deliveryContext ? { operation: "set_order_delivery",
       orderId: deliveryContext.orderId, userId: deliveryContext.userId, transactionOutcome: "unknown", errorCode: "PERSISTENCE_UNAVAILABLE" } : {}), err: cause }, "unable_to_complete_order_transaction");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to complete order transaction" });

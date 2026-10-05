@@ -1,3 +1,4 @@
+import { log, safeError } from "@core/src/shared/infrastructure/logger";
 import { randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -756,4 +757,46 @@ test("two delivery edits serialize complete snapshots, authors and amounts", asy
     expect(confirmed).toMatchObject({ success: true, data: { delivery: { recipient: { name: "Second" }, destination: { address: "Second" }, recordedBy: { userId: nextAuthor } }, total: { amount: 0.1 }, deliveryCost: { amount: 4 }, deliveryCharge: { amount: 0 }, stockDeducted: false } });
     expect(await run(() => orderDetail(orderId, f))).toEqual(confirmed);
   } finally { release?.(); await f.cleanup(); }
+});
+
+
+test.each(["CompanyDeliverySettings", "Order"] as const)("a deferred %s commit failure returns one safe error and no success summary", async table => {
+  const f = await fixture();
+  const adminUrl = new URL(process.env.MIGRATION_TEST_DATABASE_URL!);
+  const admin = new PrismaClient({ adapter: new PrismaPg({ connectionString: adminUrl.toString() }) });
+  const trigger = `reject_commit_${randomUUID().replaceAll("-", "")}`;
+  const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+  const summary = vi.spyOn(log, "info").mockImplementation(() => {});
+  const failure = vi.spyOn(log, "error").mockImplementation(() => {});
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const orderId = randomUUID() as OrderId;
+      expect(await deliverySettings.save({ expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: true }, store: { enabled: false, pickupPoint: null } }, context)).toMatchObject({ success: true });
+      expect(await orders.create({ id: orderId, contactId: null, items: [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }] }, context)).toMatchObject({ success: true });
+      const settingsBefore = await deliverySettings.get(context);
+      const orderBefore = await orderDetail(orderId, f);
+      await admin.$executeRawUnsafe(`CREATE FUNCTION public.${trigger}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW."companyId" = '${f.companyId}'::uuid THEN RAISE EXCEPTION 'private destination in deferred failure'; END IF; RETURN NEW; END $$`);
+      await admin.$executeRawUnsafe(`CREATE CONSTRAINT TRIGGER ${trigger} AFTER UPDATE ON "${table}" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.${trigger}()`);
+      summary.mockClear(); failure.mockClear();
+      const operation = () => table === "CompanyDeliverySettings"
+        ? deliverySettings.save({ expectedVersion: 1, agency: { enabled: false }, couriers: [{ kind: "new", name: "New courier", enabled: true }], home: { enabled: false }, store: { enabled: false, pickupPoint: null } }, context)
+        : setConfiguredOrderDelivery({ orderId, delivery: { method: "home", recipient: { name: "Recipient", phone: "00123", identity: { kind: "absent" } }, destination: { address: "Address", district: "Lima", instructions: null } }, chargeDeliveryToCustomer: false }, context, async (_snapshot, _access, currency) => ok({ amount: 3, currency }));
+      expect(await operation()).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
+      expect(summary).not.toHaveBeenCalled();
+      expect(failure).toHaveBeenCalledOnce();
+      expect(failure.mock.calls[0][0]).toMatchObject({ event: table === "Order" ? "unable_to_complete_order_transaction" : "delivery_settings_transaction_failed", transactionOutcome: "unknown" });
+      expect(JSON.stringify(safeError((failure.mock.calls[0][0] as { err: unknown }).err))).not.toContain("private destination");
+      expect(await deliverySettings.get(context)).toEqual(settingsBefore);
+      expect(await orderDetail(orderId, f)).toEqual(orderBefore);
+      expect(await prisma.companyCourier.count()).toBe(0);
+      await admin.$executeRawUnsafe(`DROP TRIGGER ${trigger} ON "${table}"`);
+      expect(await operation()).toMatchObject({ success: true });
+      expect(summary).toHaveBeenCalledOnce();
+    });
+  } finally {
+    await admin.$executeRawUnsafe(`DROP TRIGGER IF EXISTS ${trigger} ON "${table}"`);
+    await admin.$executeRawUnsafe(`DROP FUNCTION IF EXISTS public.${trigger}()`);
+    await admin.$disconnect();
+    summary.mockRestore(); failure.mockRestore(); await f.cleanup();
+  }
 });

@@ -1,10 +1,11 @@
+import { isPersistenceFailure } from "@core/src/shared/infrastructure/persistence-error";
 import { randomUUID } from "node:crypto";
 import { err } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { afterTransactionCommit, getCompanyId, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { getDeliverySettings, saveDeliverySettings, type DeliverySettingsAccess, type SaveDeliverySettingsInput } from "@core/src/features/delivery-settings/application/delivery-settings";
-import { isSettingsPersistenceFailure, readDeliverySettings, writeDeliverySettings } from "@core/src/features/delivery-settings/infrastructure/delivery-settings-repository";
+import { readDeliverySettings, writeDeliverySettings } from "@core/src/features/delivery-settings/infrastructure/delivery-settings-repository";
 import type { CourierId, DeliverySettingsError, DeliverySettingsReadError } from "@core/src/features/delivery-settings/domain/delivery-settings";
 
 async function settingsTransaction<T, E extends DeliverySettingsError>(context: DeliverySettingsAccess, operation: string, expectedVersion: number | undefined,
@@ -12,7 +13,7 @@ async function settingsTransaction<T, E extends DeliverySettingsError>(context: 
   if (getCompanyId() !== context.companyId) throw new Error("Settings company differs from tenant context");
   try { return await withinTransaction(work); }
   catch (cause) {
-    if (!isSettingsPersistenceFailure(cause)) throw cause;
+    if (!isPersistenceFailure(cause)) throw cause;
     log.error({ event: "delivery_settings_transaction_failed", operation, companyId: context.companyId, userId: context.userId,
       expectedVersion, transactionOutcome: "unknown", errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "Unable to complete delivery settings transaction");
     return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to complete delivery settings transaction" });
