@@ -9,6 +9,12 @@ import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infr
 import type { CompanyId, ContactId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
+function requestLogs(requestId: string) {
+  return readFileSync("test-results/server.jsonl", "utf8").trim().split("\n")
+    .flatMap((line) => { try { return [JSON.parse(line)]; } catch { return []; } })
+    .filter((event) => event.requestId === requestId);
+}
+
 async function fixture(prefill: "none" | "phone" | "full" = "none", enabled = true) {
   const companyId = randomUUID() as CompanyId;
   const userId = randomUUID() as UserId;
@@ -61,11 +67,8 @@ test("anonymous mobile buyer reviews fixed products, corrects prefilled data and
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
     await browserExpect(page.getByRole("heading", { name: "Pedido confirmado", exact: true })).toBeVisible();
     await browserExpect(page.getByRole("textbox")).toHaveCount(0);
-    const requestLogs = () => readFileSync("test-results/server.jsonl", "utf8").trim().split("\n")
-      .flatMap((line) => { try { return [JSON.parse(line)]; } catch { return []; } })
-      .filter((event) => event.requestId === requestId);
-    await expect.poll(() => requestLogs().some((event) => event.event === "http_request_completed" && event.method === "POST" && event.outcome === "confirmed")).toBe(true);
-    const logs = requestLogs();
+    await expect.poll(() => requestLogs(requestId).some((event) => event.event === "http_request_completed" && event.method === "POST" && event.outcome === "confirmed")).toBe(true);
+    const logs = requestLogs(requestId);
     expect(logs.filter((event) => event.event === "order_checkout_confirmed")).toEqual([
       expect.objectContaining({ requestId, companyId: f.companyId, orderNumber: 1001, operation: "confirm_checkout" }),
     ]);
@@ -88,6 +91,8 @@ test("anonymous mobile buyer reviews fixed products, corrects prefilled data and
 
 test("changed total preserves buyer input and needs an explicit new confirmation", async ({ page }) => {
   const f = await fixture();
+  const requestId = `checkout-${randomUUID()}`;
+  await page.setExtraHTTPHeaders({ "x-request-id": requestId });
   try {
     await page.goto(f.path);
     await page.getByLabel("Nombre", { exact: true }).fill("Ana");
@@ -105,6 +110,10 @@ test("changed total preserves buyer input and needs an explicit new confirmation
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
     await browserExpect(page.getByRole("heading", { name: "Pedido confirmado", exact: true })).toBeVisible();
     expect((await f.read()).total.toNumber()).toBe(12);
+    await expect.poll(() => requestLogs(requestId).filter((event) => event.event === "http_request_completed" && event.method === "POST").map((event) => event.outcome))
+      .toEqual(["total_changed", "confirmed"]);
+    expect(requestLogs(requestId).filter((event) => event.event === "order_checkout_confirmed")).toHaveLength(1);
+    expect(JSON.stringify(requestLogs(requestId))).not.toContain(f.orderId);
   } finally { await f.cleanup(); }
 });
 
@@ -129,6 +138,8 @@ test("public links hide unavailable orders and show cancellation received during
 
 test("failed network requests recover pending orders and lost responses recover committed confirmations", async ({ page }) => {
   const f = await fixture();
+  const requestId = `checkout-${randomUUID()}`;
+  await page.setExtraHTTPHeaders({ "x-request-id": requestId });
   try {
     await page.goto(f.path);
     await page.getByLabel("Nombre", { exact: true }).fill("Ana");
@@ -157,6 +168,9 @@ test("failed network requests recover pending orders and lost responses recover 
     await page.getByRole("link", { name: "Reintentar" }).click();
     await browserExpect(page.getByRole("heading", { name: "Pedido confirmado", exact: true })).toBeVisible();
     expect(await f.read()).toEqual(persisted);
+    await expect.poll(() => requestLogs(requestId).filter((event) => event.event === "order_checkout_confirmed").length).toBe(1);
+    expect(requestLogs(requestId)).toContainEqual(expect.objectContaining({ event: "http_request_completed", method: "POST", outcome: "confirmed" }));
+    expect(JSON.stringify(requestLogs(requestId))).not.toContain(f.orderId);
   } finally { await page.unrouteAll(); await f.cleanup(); }
 });
 

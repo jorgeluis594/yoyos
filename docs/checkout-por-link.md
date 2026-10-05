@@ -2,7 +2,7 @@
 
 Definiciones de producto y arquitectura acordadas para [MVP · Checkout del pedido por link](https://app.todoist.com/app/task/6hfvfVX2fwpmcwx3).
 
-Este documento describe el diseño acordado, no una funcionalidad ya implementada. Última consolidación: 5 de octubre de 2026.
+Este documento recoge el alcance implementado y sus contratos de producto, arquitectura y observabilidad. La evidencia local y las comprobaciones de despliegue pendientes se detallan al final. Última consolidación: 5 de octubre de 2026.
 
 ## Objetivo
 
@@ -273,7 +273,7 @@ El vendedor ve el número del pedido, puede copiar el enlace y distingue “Pend
 
 ## Observabilidad: qué registrar y dónde
 
-Esta sección define el contrato de observabilidad para checkout y sus cambios de persistencia. La presencia de instrumentación parcial en el worktree no acredita que este contrato esté verificado. Se reutiliza el logger de servidor `log` y la infraestructura descrita en [logging](logging.md) y [convenciones de logging](logging-conventions.md). No se crea otra biblioteca, wrapper, tabla de logs ni sistema de auditoría.
+Esta sección define el contrato de observabilidad para checkout y sus cambios de persistencia. La instrumentación se comprueba con logs reales del servidor y pruebas de fallos; la recepción remota se valida durante el despliegue. Se reutiliza el logger de servidor `log` y la infraestructura descrita en [logging](logging.md) y [convenciones de logging](logging-conventions.md). No se crea otra biblioteca, wrapper, tabla de logs ni sistema de auditoría.
 
 ### Análisis del flujo actual y puntos críticos
 
@@ -281,13 +281,13 @@ Esta sección define el contrato de observabilidad para checkout y sus cambios d
 | --- | --- | --- |
 | `src/shared/infrastructure/logger.ts`, montado desde `src/app.ts` en core | Petición fallida o lenta sin correlación; ruta de checkout confundida con el comodín de la aplicación web. | Reutilizar `http_request_completed`, `requestId`, estado HTTP y duración. Identificar la plantilla pública sin incluir los UUID reales. |
 | Endpoint privado en `features/orders/presentation/api-routes.ts` | No poder habilitar el enlace o interpretar una repetición como nueva habilitación. | Registrar la primera habilitación después del commit; distinguir reutilización en el resumen HTTP. |
-| Loader/action públicos de la futura página de checkout | Enlace no disponible, formulario rechazado, total cambiado o confirmación repetida. | Añadir un resultado de checkout de vocabulario cerrado al resumen HTTP; no emitir un error adicional por cada rechazo esperado. |
+| Loader/action públicos de `app/routes/checkout.tsx` | Enlace no disponible, formulario rechazado, total cambiado o confirmación repetida. | Añadir un resultado de checkout de vocabulario cerrado al resumen HTTP; no emitir un error adicional por cada rechazo esperado. |
 | `features/orders/infrastructure/order-repository.ts` | Fallo de lectura, bloqueo o escritura; datos almacenados inválidos. | Reutilizar eventos técnicos existentes para operaciones existentes y definir eventos específicos solo para nuevas operaciones. No registrar filas, SQL ni parámetros. |
 | `features/orders/composition.ts` y `src/shared/infrastructure/persistance.ts` | Fallo de commit, rollback y carreras entre confirmar, cancelar o cambiar el total. | Un fallo técnico tiene un único propietario de log. Publicar hitos de éxito únicamente después del commit de la transacción exterior. |
 | Creación de pedidos y migración de OrderBuyer | Colisiones de numeración, contador inconsistente o pérdida de datos históricos. | Identificar fallos de asignación e integridad sin registrar compradores; conservar evidencia agregada de la migración. |
 | Renderizado de la página y telemetría automática | Una excepción o URL capturada fuera del logger puede revelar el acceso o datos privados. | Verificar también el límite de errores de renderizado, APM y cualquier colector/proxy que registre solicitudes. |
 
-El repositorio ya emite, entre otros, `unable_to_load_order_aggregate`, `unable_to_lock_order`, `unable_to_save_pending_order` y `unable_to_complete_order_transaction`. Se conservan esos nombres. La conversión actual de datos almacenados inválidos a `INVALID_ORDER` necesita distinguirse de una entrada incorrecta del comprador: es un problema del servidor que sí merece un log técnico.
+El repositorio ya emite, entre otros, `unable_to_load_order_aggregate`, `unable_to_lock_order`, `unable_to_save_pending_order` y `unable_to_complete_order_transaction`. Se conservan esos nombres. Los datos almacenados inválidos se distinguen de una entrada incorrecta del comprador mediante `order_checkout_data_invalid`: son un problema del servidor.
 
 ### Ubicación concreta de la instrumentación
 
@@ -332,7 +332,7 @@ Las plantillas son `/api/orders/:orderId/checkout-link` y `/checkout/:companyId/
 
 ### Catálogo de eventos y responsables
 
-Los eventos nuevos de esta tabla son definiciones para implementar, no eventos ya disponibles.
+Esta tabla define los eventos instrumentados y el límite que es responsable de emitirlos.
 
 | Evento | Nivel | Dónde y cuándo | Contexto específico |
 | --- | --- | --- | --- |
@@ -382,7 +382,7 @@ Para investigar, partir del `requestId` de la respuesta y revisar el resumen HTT
 
 ### Pruebas de observabilidad a definir junto con el flujo
 
-Estas pruebas complementan la matriz funcional siguiente; siguen siendo definiciones, sin implementación.
+Estas definiciones complementan la matriz funcional siguiente. Sus archivos ejecutables y límites de verificación se indican al final.
 
 | ID | Nivel | Escenario y resultado esperado |
 | --- | --- | --- |
@@ -397,7 +397,7 @@ Estas pruebas complementan la matriz funcional siguiente; siguen siendo definici
 
 ## Definición de pruebas
 
-Esta sección especifica escenarios y resultados esperados para pruebas unitarias, de integración y E2E. No incluye implementación de tests ni afirma que se hayan ejecutado. La cobertura se refiere a los comportamientos acordados, no a un porcentaje de líneas.
+Esta sección especifica escenarios y resultados esperados para pruebas unitarias, de integración y E2E. No incluye código de implementación de tests; su ejecución se registra en la sección de evidencia. La cobertura se refiere a los comportamientos acordados, no a un porcentaje de líneas.
 
 Se siguen las [convenciones de testing](testing-conventions.md): probar cada regla en la capa que la posee y repetirla en otra capa solo cuando exista un riesgo distinto. Las pruebas de dominio y aplicación no necesitan infraestructura; las garantías de RLS, restricciones y transacciones requieren una base de datos real aislada. Las E2E recorren la aplicación real desde el navegador.
 
@@ -493,4 +493,33 @@ Los consumidores móviles tienen además pruebas de interacción y adaptación d
 - Los módulos de entrega, cobertura y pagos mantienen sus propias pruebas. Aquí se cubren sus límites y los importes ya persistidos, sin implementar sus funcionalidades para probar checkout.
 - Al implementar se informarán los casos ejecutados, sus resultados y cualquier limitación real de entorno; esta definición por sí sola no constituye evidencia de ejecución.
 
-Este documento cierra la definición de producto y arquitectura para el alcance acordado. La implementación y sus migraciones se realizan como trabajo posterior.
+## Evidencia de implementación y verificación local
+
+Verificado el 5 de octubre de 2026 con Node 24, pnpm 12.5.1, PostgreSQL aislado, rol restringido de aplicación y Chromium. Los escenarios anteriores siguen siendo la especificación; las pruebas ejecutables viven en el código.
+
+| Comportamiento | Evidencia ejecutable |
+| --- | --- |
+| U01–U11: número, comprador, estados, acceso, idempotencia y total | [Dominio](../apps/core/src/features/orders/domain/checkout.test.ts) y [casos de uso](../apps/core/src/features/orders/application/checkout.test.ts). |
+| U12–U14: fallos, contratos estrictos y adaptación | [Composición](../apps/core/src/features/orders/composition.test.ts), [contratos](../apps/core/src/features/orders/presentation/checkout-contracts.test.ts), [JSON de pedidos](../apps/core/src/features/orders/presentation/order-json.test.ts) y [rutas públicas](../apps/core/app/routes/checkout.test.ts). |
+| I01–I06, I09–I15, I20: numeración, comprador, RLS, restricciones, concurrencia y rollback | [Integración de pedidos](../apps/core/src/features/orders/infrastructure/order-repository.integration.test.ts). Incluye ambos órdenes de adquisición del bloqueo, empresas intercaladas y un fallo real de COMMIT mediante una restricción diferida temporal. |
+| I07–I08, I16–I17: acceso privado/público, contratos HTTP y errores | [API de pedidos](../apps/core/src/features/orders/presentation/api-routes.integration.test.ts) y [checkout contra el servidor compilado](../apps/core/tests/e2e/checkout.spec.ts). |
+| I18–I19: migración histórica y operación posterior | [Migración de número y comprador](../apps/core/src/features/orders/infrastructure/order-number-migration.integration.test.ts) y [conservación de ventas históricas](../apps/core/src/features/orders/infrastructure/order-migration.test.mjs). Se crean y leen datos con el rol restringido después del backfill y continúa la secuencia. |
+| E01–E11: vendedor y comprador en navegador | [Recorridos de checkout](../apps/core/tests/e2e/checkout.spec.ts): portapapeles real, pantalla de 390 px, cambio de total, cancelación, reintento, pérdida de respuesta, historial y pedidos pagados/enviados/entregados. |
+| E01/E11 desde la app móvil | [Expo Web contra core real](../apps/core/tests/e2e/mobile-checkout.spec.ts): copia, confirmación anónima y lista/detalle con los cuatro estados, antes y después de 10000. Complementa las pruebas de pantallas, operaciones y adaptadores en `apps/mobile/src/features/orders/`. |
+| O01–O06: contexto, privacidad, resultados y propietario único del error | [Logger](../apps/core/src/shared/infrastructure/logger.test.ts), [composición](../apps/core/src/features/orders/composition.test.ts), integración de pedidos y recorridos HTTP anteriores. El logger comparte su contexto entre los módulos fuente de Express y el bundle SSR. |
+| O07: correlación y fallos de respuesta/renderizado | [Checkout E2E](../apps/core/tests/e2e/checkout.spec.ts) correlaciona confirmación, cambio de total y respuesta perdida. [Renderizado E2E](../apps/core/tests/e2e/checkout-render-error.spec.ts) inyecta un componente fallido después del shell, usando HTTP, navegador y streaming reales: un error técnico y el HTTP 200 efectivamente enviado. |
+| Privacidad de APM y evidencia de migraciones | [Agente local](../apps/core/src/shared/infrastructure/apm-privacy.test.ts) comprueba payloads y nombres, incluidas rutas `.data`. [Despliegue de migraciones](../apps/core/scripts/migrate.test.ts) comprueba identificadores, tiempos, conteos y fallos sin datos privados. |
+
+Validaciones satisfactorias:
+
+- Core: `lint`, `typecheck`, `test:unit`, `test:integration`, `test:e2e` y build de producción utilizado por E2E.
+- Mobile: `lint`, `typecheck` y `test`. Lint conserva tres advertencias anteriores al checkout, sin errores.
+- Shared: las pruebas de utilidades y contratos ejecutadas por CI.
+
+El servicio de migración ejecuta `scripts/migrate.ts`: conserva Prisma deploy y agrega resúmenes seguros. Los conteos representan filas persistidas, no nuevos eventos de negocio. En un fallo se informa la migración incompleta, el código de invariante reconocido y los conteos disponibles; el detalle administrativo permanece en `_prisma_migrations`, sin copiar su columna `logs` a la salida. El procedimiento está en [README](../README.md).
+
+### Comprobaciones que corresponden al despliegue
+
+O08 permanece pendiente del primer despliegue con colector: recepción en New Relic, correlación remota, ausencia de duplicados y credenciales en APM/proxy, y continuidad del negocio cuando el colector no está disponible. La prueba local del agente no demuestra recepción remota. No se realizó despliegue.
+
+El recorrido móvil real se ejecutó mediante Expo Web y core. No equivale a una compilación o prueba en un dispositivo iOS/Android; no había simulador nativo disponible. Las pantallas y el adaptador móvil sí se ejercitaron juntos contra persistencia real.
