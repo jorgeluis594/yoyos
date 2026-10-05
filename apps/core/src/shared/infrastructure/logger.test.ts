@@ -114,3 +114,25 @@ it("normalizes checkout URLs and redacts the UUID credential even in separate fi
     expect.objectContaining({ route: "/checkout/:companyId/:orderId", operation: "get_checkout", outcome: "pending", orderNumber: 1001, companyId: "verified-company" }),
   ]);
 });
+
+it("shares context between independently loaded source and server-bundled modules", () => {
+  const output = execFileSync(process.execPath, ["--import", "tsx", "-e", `
+    import express from 'express';
+    import { requestLogging } from './src/shared/infrastructure/logger.ts';
+    const separate = await import('./src/shared/infrastructure/logger.ts?server-build');
+    const app = express();
+    app.use(requestLogging);
+    app.get('/checkout/:companyId/:orderId', (_req, res) => {
+      separate.bindRequestOperation({ operation: 'get_checkout', outcome: 'pending', orderNumber: 1001 });
+      separate.bindCompanyToRequest('verified-company');
+      separate.log.info({ event: 'shared_context_probe' }, 'Shared context probe');
+      res.sendStatus(200);
+    });
+    const server = app.listen(0);
+    await fetch('http://127.0.0.1:' + server.address().port + '/checkout/company/order', { headers: { 'x-request-id': 'bundled-request' } });
+    server.close();
+  `], { cwd: process.cwd(), encoding: "utf8" });
+  const events = output.trim().split("\n").map((line) => JSON.parse(line));
+  expect(events).toHaveLength(2);
+  for (const event of events) expect(event).toMatchObject({ requestId: "bundled-request", companyId: "verified-company", outcome: "pending", orderNumber: 1001 });
+});

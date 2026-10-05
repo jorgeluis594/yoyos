@@ -4,9 +4,15 @@ import type { NextFunction, Request, Response } from "express";
 import pino from "pino";
 
 type OperationContext = { operation?: "create_order" | "enable_checkout" | "get_checkout" | "confirm_checkout"; outcome?: "enabled" | "already_enabled" | "cancelled" | "unavailable" | "invalid_input" | "unauthenticated" | "technical_failure" | "pending" | "confirmed" | "already_confirmed" | "total_changed"; orderNumber?: number };
-const requestLog = new AsyncLocalStorage<{ requestId: string; companyId?: string } & OperationContext>();
+type LogContext = { requestId: string; companyId?: string } & OperationContext;
+type LoggingState = { context: AsyncLocalStorage<LogContext>; log?: pino.Logger };
+// Express loads source modules; the React Router server build bundles them.
+// Both must use the same logger and request context in this process.
+const globalLogging = globalThis as typeof globalThis & { __yoyosLogging?: LoggingState };
+const state: LoggingState = globalLogging.__yoyosLogging ??= { context: new AsyncLocalStorage<LogContext>() };
+const requestLog = state.context;
 
-export const log = pino({
+export const log = state.log ??= pino({
   level: process.env.LOG_LEVEL ?? "info",
   base: { service: "yoyos-core" },
   mixin: () => ({ ...requestLog.getStore() }),

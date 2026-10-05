@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { createOrderApi } from "@mobile/features/orders/infrastructure/order-api";
 import { ok, err } from "@shared/functional";
 import { randomUUID } from "node:crypto";
@@ -5,7 +6,7 @@ import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests
 import { products } from "@core/src/features/products/composition";
 import { orders } from "@core/src/features/orders/composition";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
-import type { CompanyId, ContactId, OrderId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
+import type { CompanyId, ContactId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
 async function fixture(prefill: "none" | "phone" | "full" = "none", enabled = true) {
@@ -24,7 +25,7 @@ async function fixture(prefill: "none" | "phone" | "full" = "none", enabled = tr
     if (!created.success) throw new Error("Order fixture failed");
     if (enabled) expect(await orders.enableCheckout(orderId, { companyId, userId })).toMatchObject({ success: true });
   });
-  return { companyId, orderId, path: `/checkout/${companyId}/${orderId}`,
+  return { companyId, userId, orderId, path: `/checkout/${companyId}/${orderId}`,
     read: () => withTenantIsolation(companyId, async () => await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { buyer: true, payments: true } })),
     cancel: () => withTenantIsolation(companyId, () => orders.cancel(orderId, { companyId, userId })),
     async cleanup() {
@@ -39,6 +40,8 @@ async function fixture(prefill: "none" | "phone" | "full" = "none", enabled = tr
 
 test("anonymous mobile buyer reviews fixed products, corrects prefilled data and confirms once", async ({ page }) => {
   const f = await fixture("phone");
+  const requestId = `checkout-${randomUUID()}`;
+  await page.setExtraHTTPHeaders({ "x-request-id": requestId });
   try {
     await page.setViewportSize({ width: 390, height: 844 });
     const response = await page.goto(f.path);
@@ -58,6 +61,15 @@ test("anonymous mobile buyer reviews fixed products, corrects prefilled data and
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
     await browserExpect(page.getByRole("heading", { name: "Pedido confirmado", exact: true })).toBeVisible();
     await browserExpect(page.getByRole("textbox")).toHaveCount(0);
+    const requestLogs = () => readFileSync("test-results/server.jsonl", "utf8").trim().split("\n")
+      .flatMap((line) => { try { return [JSON.parse(line)]; } catch { return []; } })
+      .filter((event) => event.requestId === requestId);
+    await expect.poll(() => requestLogs().some((event) => event.event === "http_request_completed" && event.method === "POST" && event.outcome === "confirmed")).toBe(true);
+    const logs = requestLogs();
+    expect(logs.filter((event) => event.event === "order_checkout_confirmed")).toEqual([
+      expect.objectContaining({ requestId, companyId: f.companyId, orderNumber: 1001, operation: "confirm_checkout" }),
+    ]);
+    for (const secret of [f.orderId, "+14155552671", "Tienda del checkout"]) expect(JSON.stringify(logs)).not.toContain(secret);
     const stored = await f.read();
     expect(stored.buyer).toMatchObject({ name: "Ana", phone: "+14155552671" });
     expect(stored.payments).toEqual([]);
@@ -207,4 +219,59 @@ test("seller copies a stable link and sees buyer confirmation separately from pa
       await systemPrisma.user.deleteMany({ where: { email } }); await prisma.company.delete({ where: { id: companyId } });
     });
   }
+});
+
+test("old links remain usable for paid, shipped and delivered orders", async ({ page }) => {
+  for (const state of ["paid", "shipped", "delivered"] as const) {
+    const f = await fixture();
+    try {
+      await withTenantIsolation(f.companyId, async () => {
+        const context = { companyId: f.companyId, userId: f.userId };
+        expect(await orders.registerPayment({ orderId: f.orderId, paymentId: randomUUID() as PaymentId,
+          amount: { amount: 10, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context)).toMatchObject({ success: true });
+        if (state !== "paid") expect(await orders.ship(f.orderId, context)).toMatchObject({ success: true });
+        if (state === "delivered") expect(await orders.deliver(f.orderId, context)).toMatchObject({ success: true });
+        await prisma.order.update({ where: { id: f.orderId }, data: { checkoutEnabledAt: new Date("2000-01-01") } });
+        expect(await orders.enableCheckout(f.orderId, context)).toMatchObject({ data: { url: `http://127.0.0.1:4173${f.path}` } });
+      });
+      const before = await f.read();
+      await page.goto(f.path);
+      await page.getByLabel("Nombre", { exact: true }).fill("Ana");
+      await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
+      await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
+      await browserExpect(page.getByRole("heading", { name: "Pedido confirmado", exact: true })).toBeVisible();
+      const after = await f.read();
+      expect(after.payments).toEqual(before.payments);
+      expect(after.deliveryStatus).toBe(before.deliveryStatus);
+      expect(after.stockDeducted).toBe(before.stockDeducted);
+      expect(after.checkoutEnabledAt).toEqual(before.checkoutEnabledAt);
+    } finally { await f.cleanup(); }
+  }
+});
+
+test("pending submit is disabled and browser history cannot reopen confirmed buyer editing", async ({ page }) => {
+  const f = await fixture();
+  const intercepted = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let submissions = 0;
+  try {
+    await page.goto(f.path);
+    await page.getByLabel("Nombre", { exact: true }).fill("Ana");
+    await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
+    await page.route("**/checkout/**", async (route) => {
+      if (route.request().method() === "POST") { submissions++; intercepted.resolve(); await release.promise; }
+      await route.continue();
+    });
+    await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
+    await intercepted.promise;
+    await browserExpect(page.getByRole("button", { name: "Confirmando…", exact: true })).toBeDisabled();
+    await page.getByRole("button", { name: "Confirmando…", exact: true }).evaluate((button: HTMLButtonElement) => button.click());
+    release.resolve();
+    await browserExpect(page.getByRole("heading", { name: "Pedido confirmado", exact: true })).toBeVisible();
+    expect(submissions).toBe(1);
+    await page.goto("/checkout/unavailable");
+    await page.goBack();
+    await browserExpect(page.getByRole("heading", { name: "Pedido confirmado", exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("textbox")).toHaveCount(0);
+  } finally { release.resolve(); await page.unrouteAll({ behavior: "wait" }); await f.cleanup(); }
 });
