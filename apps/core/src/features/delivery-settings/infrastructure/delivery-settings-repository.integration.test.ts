@@ -210,3 +210,29 @@ test("a reader during a settings write receives one complete version including c
     expect(await reader).toEqual(ok({ ...created.data, version: 2, home: { enabled: true }, store: { enabled: true, pickupPoint: { ...point, address: "New address" } }, couriers: [{ ...courier, name: "New name" }] }));
   } finally { release?.(); await f.cleanup(); }
 });
+
+test("courier RLS blocks foreign reads, writes and company moves with a restricted application role", async () => {
+  const [a, b] = await Promise.all([fixture(), fixture()]);
+  const courierId = randomUUID();
+  try {
+    await a.run(async () => {
+      expect(await deliverySettings.save({ expectedVersion: 0, agency: { enabled: true }, couriers: [{ kind: "new", name: "Own courier", enabled: true }], home: { enabled: false }, store }, a.context)).toMatchObject({ success: true });
+      const own = await prisma.companyCourier.findFirstOrThrow();
+      await expect(prisma.companyCourier.update({ where: { id: own.id }, data: { companyId: b.context.companyId } })).rejects.toThrow();
+      const role = await prisma.$queryRaw<{ superuser: boolean; bypass: boolean; owns: boolean; forced: boolean }[]>`SELECT r.rolsuper AS superuser, r.rolbypassrls AS bypass, c.relowner = r.oid AS owns, c.relforcerowsecurity AS forced FROM pg_roles r CROSS JOIN pg_class c WHERE r.rolname = current_user AND c.oid = '"CompanyCourier"'::regclass`;
+      expect(role).toEqual([{ superuser: false, bypass: false, owns: false, forced: true }]);
+    });
+    await b.run(async () => {
+      expect(await deliverySettings.get(b.context)).toMatchObject({ success: true, data: { version: 0, couriers: [] } });
+      expect(await prisma.companyCourier.findMany()).toEqual([]);
+      expect(await prisma.companyCourier.updateMany({ where: { companyId: a.context.companyId }, data: { name: "Foreign overwrite" } })).toMatchObject({ count: 0 });
+      expect(await prisma.companyCourier.deleteMany({ where: { companyId: a.context.companyId } })).toMatchObject({ count: 0 });
+      await expect(prisma.companyCourier.create({ data: { id: courierId, companyId: a.context.companyId, name: "Foreign courier", enabled: true } })).rejects.toThrow();
+      expect(await prisma.$queryRaw`SELECT * FROM "CompanyCourier" WHERE "companyId" = ${a.context.companyId}::uuid`).toEqual([]);
+    });
+    await a.run(async () => {
+      expect(await prisma.companyCourier.count()).toBe(1);
+      expect(await prisma.companyCourier.findFirst()).toMatchObject({ name: "Own courier", companyId: a.context.companyId });
+    });
+  } finally { await Promise.all([a.cleanup(), b.cleanup()]); }
+});
