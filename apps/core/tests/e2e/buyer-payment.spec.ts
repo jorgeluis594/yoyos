@@ -48,17 +48,36 @@ test("buyer reports a receipt and sees the seller confirmed balance", async ({ p
     await browserExpect(page.getByRole("button", { name: "Ya pagué" })).toBeDisabled();
     const imageId = crypto.randomUUID();
     await withTenantIsolation(tenantId, async () => await prisma.image.create({ data: { id: imageId, storageKey: `test/${imageId}` } }));
-    await page.route(`**/api/buyer/orders/${orderId}/images`, (route) => route.fulfill({ status: 201, contentType: "application/json",
-      body: JSON.stringify({ id: imageId, url: `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}/test-images/test%2F${imageId}` }) }));
+    let uploadFailed = false;
+    await page.route(`**/api/buyer/orders/${orderId}/images`, (route) => {
+      if (!uploadFailed) { uploadFailed = true; return route.fulfill({ status: 502, body: "Upload unavailable" }); }
+      return route.fulfill({ status: 201, contentType: "application/json",
+        body: JSON.stringify({ id: imageId, url: `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}/test-images/test%2F${imageId}` }) });
+    });
     await page.getByLabel("Captura del pago").setInputFiles({ name: "pago.png", mimeType: "image/png", buffer: png });
+    await browserExpect(page.getByText("No se pudo subir la captura. Inténtalo de nuevo.")).toBeVisible();
+    await page.getByRole("button", { name: "Reintentar subida" }).click();
     await browserExpect(page.getByText("Captura lista para enviar.")).toBeVisible();
     expect(await withTenantIsolation(tenantId, async () => await prisma.payment.count({ where: { orderId } }))).toBe(0);
+    let responseLost = false;
+    await page.route(`**/api/buyer/orders/${orderId}/reports`, async (route) => {
+      if (!responseLost) {
+        responseLost = true;
+        await route.fetch();
+        return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ code: "SERVICE_UNAVAILABLE" }) });
+      }
+      return route.continue();
+    });
+    await page.getByRole("button", { name: "Ya pagué" }).click();
+    await browserExpect(page.getByText("No se pudo enviar el aviso. Tu captura sigue lista; vuelve a intentarlo.")).toBeVisible();
+    expect(await withTenantIsolation(tenantId, async () => await prisma.payment.count({ where: { orderId } }))).toBe(1);
     await page.getByRole("button", { name: "Ya pagué" }).click();
     await browserExpect(page.getByRole("heading", { name: "Pago pendiente de revisión" })).toBeVisible();
     const payment = await withTenantIsolation(tenantId, async () => await prisma.payment.findFirstOrThrow({ where: { orderId } }));
     expect(payment.status).toBe("reported");
     expect(payment.amount).toBeNull();
     await page.goto(`/es-PE/orders/${orderId}`);
+    await browserExpect(page.getByRole("link", { name: "Abrir enlace de pago" })).toHaveAttribute("href", `/pago/${orderId}`);
     await browserExpect(page.getByRole("link", { name: "Ver captura" })).toBeVisible();
     const report = page.getByRole("listitem").filter({ hasText: "Pago reportado, pendiente de revisión" });
     await report.getByLabel("Medio de pago").selectOption("bank_transfer");
