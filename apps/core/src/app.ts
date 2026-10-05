@@ -3,6 +3,7 @@ import { toNodeHandler } from "better-auth/node";
 import { createCompanyRequestSchema, createCompanyResponseSchema, currentAccessDtoSchema } from "@shared/contracts/registration";
 import { createCompanyForUser } from "@core/src/features/companies";
 import { companyRepository } from "@core/src/features/companies/infrastructure/company-repository";
+import { paymentSettingsRoutes } from "@core/src/features/companies/presentation/payment-settings-routes";
 import { auth } from "@core/src/shared/infrastructure/auth";
 import { apiError, loadApiAccess, requireApiCompany, type AuthenticatedLocals, type PrivateLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
 import type { Response } from "express";
@@ -65,6 +66,7 @@ app.post("/api/company", async (request, response: Response<unknown, Authenticat
 });
 
 app.use("/api", requireApiCompany);
+app.use("/api/company/payment-settings", paymentSettingsRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/images", imageRoutes(createR2ImageStorage({

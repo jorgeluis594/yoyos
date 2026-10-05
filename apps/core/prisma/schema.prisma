@@ -100,6 +100,13 @@ model Company {
   orders Order[]
   orderItems OrderItem[]
   payments Payment[]
+  paymentSettings CompanyPaymentSettings?
+}
+
+model CompanyPaymentSettings {
+  companyId String @id @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  settings Json
 }
 
 enum ImageVisibility {
