@@ -53,6 +53,7 @@ async function fixture(country: "PE" | "CL") {
       await prisma.productStock.deleteMany();
       await prisma.productVariant.deleteMany();
       await prisma.product.deleteMany();
+      await prisma.image.deleteMany();
       await systemPrisma.user.delete({ where: { id: userId } });
       await prisma.company.delete({ where: { id: companyId } });
     });
@@ -71,6 +72,37 @@ test("orders HTTP requires authentication", async () => {
   const anonymous = await call("/api/orders");
   expect(anonymous.status).toBe(401);
   expect(anonymous.headers.get("cache-control")).toBe("no-store");
+});
+
+test("buyer order link resolves one company and reports only its receipt", async () => {
+  const seller = await fixture("PE");
+  const other = await fixture("CL");
+  const orderId = randomUUID();
+  const paymentId = randomUUID();
+  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, contactId: null,
+    items: [{ variantId: seller.variantId, quantity: 1 }] }, "POST")).status).toBe(201);
+  const path = `/api/buyer/orders/${orderId}`;
+  const view = await call(`${path}/payment`);
+  expect(view.status).toBe(200);
+  expect(await view.json()).toMatchObject({ orderId, total: { amount: 10, currency: "PEN" }, balanceDue: { amount: 10 }, payments: [] });
+  expect((await call("/api/buyer/orders/not-a-uuid/payment")).status).toBe(400);
+  expect((await call(`/api/buyer/orders/${randomUUID()}/payment`)).status).toBe(404);
+  expect((await call(`${path}/reports`, undefined, { paymentId, receiptImageId: randomUUID() }, "POST")).status).toBe(422);
+  const foreignImageId = randomUUID();
+  await withTenantIsolation(other.companyId, async () => {
+    await prisma.image.create({ data: { id: foreignImageId, storageKey: `test/${foreignImageId}` } });
+  });
+  expect((await call(`${path}/reports`, undefined, { paymentId, receiptImageId: foreignImageId }, "POST")).status).toBe(422);
+  const imageId = randomUUID();
+  await withTenantIsolation(seller.companyId, async () => {
+    await prisma.image.create({ data: { id: imageId, storageKey: `test/${imageId}` } });
+  });
+  expect((await call(`${path}/reports`, undefined, { paymentId, receiptImageId: imageId }, "POST")).status).toBe(201);
+  expect((await call(`${path}/reports`, undefined, { paymentId, receiptImageId: imageId }, "POST")).status).toBe(201);
+  await withTenantIsolation(seller.companyId, async () => expect(await prisma.payment.count()).toBe(1));
+  expect((await call(`${path}/reports`, undefined, { paymentId, receiptImageId: foreignImageId }, "POST")).status).toBe(409);
+  expect((await call(`${path}/images/${imageId}`)).status).toBe(404);
+  expect((await call(`/api/orders/${orderId}/aggregate`)).status).toBe(401);
 });
 
 test("orders HTTP lets a Chile company complete sales, returns historical data, and isolates other companies", async () => {

@@ -1,4 +1,4 @@
-import { findCompletedPrivateImageImport as findCompletedImport, importPrivateImage as importImage } from "@core/src/shared/images/application/images";
+import { findCompletedPrivateImageImport as findCompletedImport, importPrivateImage as importImage, getImage } from "@core/src/shared/images/application/images";
 import { imageRepository } from "@core/src/shared/images/infrastructure/image-repository";
 import { createR2ImageStorage } from "@core/src/shared/images/infrastructure/r2-image-storage";
 import type { DownloadedImage } from "@core/src/shared/images/application/images";
@@ -15,5 +15,7 @@ export async function findAvailablePublicImage(id: string) {
   const found = await imageRepository.find(id);
   return found.success ? { success: true as const, data: found.data?.visibility !== "private" ? found.data?.id ?? null : null } : found;
 }
+
+export const resolvePublicImage = (id: string) => getImage(id, storage, imageRepository);
 
 export type { DownloadedImage } from "@core/src/shared/images/application/images";

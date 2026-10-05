@@ -85,6 +85,7 @@ test("migrates historical sales to paid delivered orders without changing stock"
     expect((await isolated.query('SELECT "deliveredAt" FROM "Order" WHERE "id" = $1', [order])).rows[0].deliveredAt).toEqual(completedAt);
     await isolated.query(await readFile(`${migrations}20261005061907_payment_states/migration.sql`, "utf8"));
     await isolated.query(await readFile(`${migrations}20261005064010_allow_bank_transfer_payments/migration.sql`, "utf8"));
+    await isolated.query(await readFile(`${migrations}20261005064406_resolve_buyer_order_access/migration.sql`, "utf8"));
     const migrated = (await isolated.query('SELECT "id", "amount", "currency", "method", "status", "data" FROM "Payment" WHERE "orderId" = $1', [order])).rows[0];
     expect(migrated).toMatchObject({ id: saved.rows[0].paymentId, amount: "15.00", currency: "PEN", method: "digital_wallet", status: "confirmed",
       data: { confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" } } });
@@ -93,6 +94,10 @@ test("migrates historical sales to paid delivered orders without changing stock"
     execFileSync("psql", [isolatedAdminUrl.toString(), "-v", "ON_ERROR_STOP=1", "-v", "app_password=core_app_local", "-v", `dbname=${database}`, "-f", provision]);
     app = new pg.Client({ connectionString: isolatedAppUrl.toString() });
     await app.connect();
+    expect((await app.query('SELECT public.resolve_buyer_order_company($1::uuid) AS company', [order])).rows)
+      .toEqual([{ company }]);
+    expect((await app.query('SELECT public.resolve_buyer_order_company($1::uuid) AS company', [randomUUID()])).rows)
+      .toEqual([{ company: null }]);
     await app.query("SELECT set_config('app.company_id', $1, false)", [company]);
     expect((await app.query('SELECT "id" FROM "Payment"')).rows).toEqual([{ id: saved.rows[0].paymentId }]);
     await app.query("SELECT set_config('app.company_id', $1, false)", [otherCompany]);

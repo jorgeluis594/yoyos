@@ -2,8 +2,9 @@ import { log } from "@core/src/shared/infrastructure/logger";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { err } from "@shared/functional";
+import { z } from "zod";
 import type { AppError, Result } from "@shared/result";
-import { getCompanyId, withinTransaction } from "@core/src/shared/infrastructure/persistance";
+import { getCompanyId, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { createOrder, type CreateOrderDependencies } from "@core/src/features/orders/application/create-order";
 import { deductStock, type DeductStockDependencies } from "@core/src/features/orders/application/deduct-stock";
 import { registerPayment, type RegisterPaymentDependencies } from "@core/src/features/orders/application/register-payment";
@@ -15,11 +16,14 @@ import { registerShipment, registerDelivery, type FulfillOrderDependencies } fro
 import { getOrderAggregate } from "@core/src/features/orders/application/read-order-aggregate";
 import { listOrderAggregates } from "@core/src/features/orders/application/list-order-aggregates";
 import { listOrders } from "@core/src/features/orders/application/read-orders";
-import { savePendingOrder, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveCancellation, findOrderAggregate, findOrderAggregates, findOrderForUpdate, findOrders, orderExists } from "@core/src/features/orders/infrastructure/order-repository";
+import { savePendingOrder, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveCancellation, findOrderAggregate, findOrderAggregates, findOrderForUpdate, findOrders, orderExists, resolveBuyerOrderCompany } from "@core/src/features/orders/infrastructure/order-repository";
 import { findSellableVariant, deductProductStock, restoreProductStock, searchSaleCatalog } from "@core/src/features/products";
 import { findContactById, searchSaleContacts } from "@core/src/features/contacts";
-import { findAvailablePublicImage } from "@core/src/shared/images";
-import type { OrderItemId, PaymentId } from "@core/src/features/orders/domain/order";
+import { findAvailablePublicImage, resolvePublicImage } from "@core/src/shared/images";
+import { companyPaymentSettings } from "@core/src/features/companies";
+import { orderStateMachine } from "@core/src/features/orders/domain/order-state-machine";
+import type { BuyerPaymentView } from "@shared/contracts/orders";
+import type { CompanyId, OrderId, OrderItemId, PaymentId } from "@core/src/features/orders/domain/order";
 
 async function orderTransaction<T, E extends AppError>(callback: () => Promise<Result<T, E>>): Promise<Result<T, E | Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>>> {
   try {
@@ -48,7 +52,51 @@ const fulfillmentTransaction: FulfillOrderDependencies["transaction"] = scopedOr
 const fulfillmentDependencies: FulfillOrderDependencies = { transaction: fulfillmentTransaction, findOrderForUpdate,
   saveFulfillment, clock: () => new Date() };
 
+export async function resolveBuyerAccess(id: string) {
+  if (!z.uuid().safeParse(id).success) return err({ code: "INVALID_ORDER" as const, message: "Invalid order ID" });
+  const resolved = await resolveBuyerOrderCompany(id as OrderId);
+  return resolved.success ? resolved.data ? { success: true as const, data: { kind: "buyer" as const,
+    companyId: resolved.data as CompanyId, orderId: id as OrderId } }
+    : err({ code: "ORDER_NOT_FOUND" as const, message: "Order not found" }) : resolved;
+}
+
+export async function getBuyerPaymentView(id: string) {
+  const access = await resolveBuyerAccess(id);
+  if (!access.success) return access;
+  return withTenantIsolation(access.data.companyId, async () => {
+    const [found, settings] = await Promise.all([
+      findOrderAggregate(access.data.orderId, access.data.companyId), companyPaymentSettings.get(access.data.companyId),
+    ]);
+    if (!found.success) return found;
+    if (!found.data) return err({ code: "ORDER_NOT_FOUND" as const, message: "Order not found" });
+    if (!settings.success) return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Payment settings unavailable" });
+    const summary = orderStateMachine.getPaymentSummary(found.data);
+    if (!summary.success) return summary;
+    const imageIds = [...settings.data.map((item) => item.imageId), ...found.data.payments.map((payment) =>
+      payment.status === "reported" ? payment.data.receiptImageId : payment.data.evidence.kind === "buyer_report"
+        ? payment.data.evidence.report.receiptImageId : null)].filter((value): value is NonNullable<typeof value> => value !== null);
+    const images = new Map<string, string | null>();
+    for (const imageId of new Set(imageIds)) {
+      const resolved = await resolvePublicImage(imageId);
+      if (!resolved.success) return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Image unavailable" });
+      images.set(imageId, resolved.data?.url ?? null);
+    }
+    const view: BuyerPaymentView = { orderId: found.data.id, total: found.data.total, deliveryCharge: found.data.deliveryCharge,
+      paidAmount: summary.data.paidAmount, balanceDue: summary.data.balanceDue, paymentStatus: summary.data.status,
+      settings: settings.data.map((item) => { const imageUrl = item.imageId ? images.get(item.imageId) ?? null : null;
+        return item.method === "digital_wallet" ? { method: item.method, provider: item.provider, holder: item.holder, imageUrl }
+          : { method: item.method, bank: item.bank, holder: item.holder, accountNumber: item.accountNumber, cci: item.cci, imageUrl }; }),
+      payments: found.data.payments.map((payment) => { const imageId = payment.status === "reported" ? payment.data.receiptImageId
+        : payment.data.evidence.kind === "buyer_report" ? payment.data.evidence.report.receiptImageId : null;
+      return { id: payment.id, status: payment.status, amount: payment.amount, method: payment.method,
+        receiptImageUrl: imageId ? images.get(imageId) ?? null : null }; }) };
+    return { success: true as const, data: view };
+  });
+}
+
 export const orders = {
+  resolveBuyerAccess,
+  getBuyerPaymentView,
   listAggregates: (criteria: Parameters<typeof listOrderAggregates>[0], context: Parameters<typeof listOrderAggregates>[1]) =>
     listOrderAggregates(criteria, context, findOrderAggregates),
   getAggregate: (id: Parameters<typeof getOrderAggregate>[0], context: Parameters<typeof getOrderAggregate>[1]) =>

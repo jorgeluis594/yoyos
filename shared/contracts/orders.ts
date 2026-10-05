@@ -84,6 +84,17 @@ export const stockOutcomeSchema = z.discriminatedUnion("kind", [
 ]);
 export const registerPaymentResponseSchema = z.strictObject({ order: orderAggregateSchema, stock: stockOutcomeSchema });
 export type RegisterPaymentResponse = z.infer<typeof registerPaymentResponseSchema>;
+export const reportPaymentSchema = z.strictObject({ paymentId: z.uuid(), receiptImageId: z.uuid() });
+export const reportPaymentResponseSchema = z.strictObject({ paymentId: z.uuid(), status: z.literal("reported") });
+export const buyerPaymentViewSchema = z.strictObject({ orderId: z.uuid(), total: moneySchema, deliveryCharge: moneySchema,
+  paidAmount: moneySchema, balanceDue: moneySchema, paymentStatus: z.enum(["pending", "paid"]),
+  settings: z.array(z.discriminatedUnion("method", [
+    z.strictObject({ method: z.literal("digital_wallet"), provider: z.string(), holder: z.string(), imageUrl: z.url().nullable() }),
+    z.strictObject({ method: z.literal("bank_transfer"), bank: z.string(), holder: z.string(), accountNumber: z.string().nullable(), cci: z.string().nullable(), imageUrl: z.url().nullable() }),
+  ])),
+  payments: z.array(z.strictObject({ id: z.uuid(), status: z.enum(["reported", "confirmed", "voided"]),
+    amount: moneySchema.nullable(), method: z.enum(["digital_wallet", "bank_transfer"]).nullable(), receiptImageUrl: z.url().nullable() })) });
+export type BuyerPaymentView = z.infer<typeof buyerPaymentViewSchema>;
 
 export const listOrdersSchema = z.strictObject({
   page: z.coerce.number().int().positive().safe().default(1),

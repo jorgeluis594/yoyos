@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import { isCurrency } from "@shared/money";
 import { z } from "zod";
-import { getCompanyId, prisma, requireActiveTransaction, withLockedForUpdate } from "@core/src/shared/infrastructure/persistance";
+import { getCompanyId, prisma, systemPrisma, requireActiveTransaction, withLockedForUpdate } from "@core/src/shared/infrastructure/persistance";
 import { buildOrder, type OrderItemId, type OrderId, type ContactId, type CompanyId, type UserId, type PositiveInteger } from "@core/src/features/orders/domain/order";
 import { orderStateMachine, parseDeliveryDetails, type OrderAggregate, type Payment } from "@core/src/features/orders/domain/order-state-machine";
 import { parsePayment } from "@core/src/features/orders/domain/payment";
@@ -20,6 +20,17 @@ const confirmationData = z.strictObject({ confirmedAt: dateText,
   confirmedBy: z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("seller"), userId: z.string().min(1) }), z.strictObject({ kind: z.literal("legacy") })]),
   evidence: z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("manual") }), z.strictObject({ kind: z.literal("buyer_report"), report: reportData })]) });
 const voidedData = confirmationData.extend({ voidedAt: dateText, voidedBy: z.string().min(1) });
+
+export async function resolveBuyerOrderCompany(id: OrderId) {
+  try {
+    const rows = await systemPrisma.$queryRaw<{ companyId: string | null }[]>`SELECT public.resolve_buyer_order_company(${id}::uuid) AS "companyId"`;
+    return ok(rows[0]?.companyId ?? null);
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_resolve_buyer_order", err: cause }, "unable_to_resolve_buyer_order");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to resolve buyer order" });
+  }
+}
 
 function mapPayment(row: DbAggregate["payments"][number]): Payment {
   if (!isCurrency(row.currency)) throw new InvalidStoredOrderError("Invalid stored payment currency");
