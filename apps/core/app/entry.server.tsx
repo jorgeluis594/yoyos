@@ -8,6 +8,8 @@ import { renderToPipeableStream } from "react-dom/server";
 import { I18nextProvider } from "react-i18next";
 import { getInstance } from "@/middleware/i18next";
 
+export { createDeliveryRequestContext } from "@core/app/delivery-cost-context";
+
 export const streamTimeout = 5_000;
 
 export default function handleRequest(
