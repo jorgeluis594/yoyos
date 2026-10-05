@@ -293,13 +293,14 @@ model Payment {
   company Company @relation(fields: [companyId], references: [id])
   orderId String @db.Uuid
   order Order @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
-  amount Decimal @db.Decimal(15, 2)
+  status String
+  amount Decimal? @db.Decimal(15, 2)
   currency String
-  method String
-  recordedAt DateTime
+  method String?
+  data Json
 
   @@unique([companyId, id])
-  @@index([companyId, orderId, recordedAt, id])
+  @@index([companyId, orderId, id])
 }
 
 model OrderItem {

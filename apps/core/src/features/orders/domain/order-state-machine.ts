@@ -2,12 +2,13 @@ import { add, compare, isCurrency, subtract, type Money } from "@shared/money";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { z } from "zod";
-import { buildOrder, type BuildOrderInput, type BuildOrderError, type CompanyId, type OrderCustomer, type OrderId, type OrderItem, type PaymentId, type UserId } from "@core/src/features/orders/domain/order";
+import { buildOrder, type BuildOrderInput, type BuildOrderError, type CompanyId, type OrderCustomer, type OrderId, type OrderItem, type UserId } from "@core/src/features/orders/domain/order";
+import { parsePayment, type ConfirmedPayment, type Payment, type ReportedPayment, type VoidedPayment } from "@core/src/features/orders/domain/payment";
 
 export type OrderStatus = "active" | "cancelled" | "completed";
 export type PaymentStatus = "pending" | "paid";
 export type DeliveryStatus = "pending" | "shipped" | "delivered";
-export type PaymentMethod = "digital_wallet";
+export type { Payment, PaymentMethod } from "@core/src/features/orders/domain/payment";
 export type DocumentType = "national_id" | "passport" | "foreign_id";
 export type Recipient = Readonly<{ name: string; phone: string; identity: { kind: "absent" } | { kind: "document"; documentType: DocumentType; document: string } }>;
 export type AgencyRecipient = Readonly<Omit<Recipient, "identity"> & { identity: Extract<Recipient["identity"], { kind: "document" }> }>;
@@ -15,7 +16,6 @@ export type DeliveryDetails =
   | Readonly<{ method: "home"; recipient: Recipient; destination: { address: string } }>
   | Readonly<{ method: "agency"; recipient: AgencyRecipient; destination: { agencyId: string } }>
   | Readonly<{ method: "store"; recipient: Recipient; destination: { storeId: string } }>;
-export type Payment = Readonly<{ id: PaymentId; orderId: OrderId; amount: Money; method: PaymentMethod; recordedAt: Date }>;
 export type OrderAggregate = Readonly<{
   id: OrderId;
   companyId: CompanyId;
@@ -98,10 +98,12 @@ function paymentSummary(order: OrderAggregate): Result<PaymentSummary, OrderDoma
   let paidAmount: Money = { amount: 0, currency: order.total.currency };
   const ids = new Set<string>();
   for (const payment of order.payments) {
-    if (!uuid.test(payment.id) || ids.has(payment.id) || payment.orderId !== order.id || payment.method !== "digital_wallet" || !validDate(payment.recordedAt) ||
-      !validMoney(payment.amount, true)) return failure("INVALID_PAYMENT", "Invalid recorded payment");
-    if (payment.amount.currency !== order.total.currency) return failure("CURRENCY_MISMATCH", "Payment currency differs from order");
+    if (!parsePayment(payment).success || ids.has(payment.id) || payment.orderId !== order.id)
+      return failure("INVALID_PAYMENT", "Invalid payment");
+    const currency = payment.status === "reported" ? payment.currency : payment.amount.currency;
+    if (currency !== order.total.currency) return failure("CURRENCY_MISMATCH", "Payment currency differs from order");
     ids.add(payment.id);
+    if (payment.status !== "confirmed") continue;
     const sum = add(payment.amount)(paidAmount);
     if (!sum.success || !validMoney(sum.data, false)) return failure("INVALID_PAYMENT", "Payments exceed supported range");
     paidAmount = sum.data;
@@ -122,9 +124,12 @@ function lifecycle(order: OrderAggregate): Result<OrderLifecycle, OrderDomainErr
     (order.completedAt !== null && !validDate(order.completedAt)) ||
     (order.deliveryStatus !== "pending" && order.deliveryStatus !== "shipped" && order.deliveryStatus !== "delivered") ||
     ((order.deliveryStatus === "delivered") !== (order.deliveredAt !== null)) ||
-    ((order.deliveryStatus === "shipped" || order.deliveryStatus === "delivered") && (!order.stockDeducted || summary.data.status !== "paid"))) return failure("INVALID_ORDER", "Invalid order state");
+    ((order.deliveryStatus === "shipped" || order.deliveryStatus === "delivered") && !order.stockDeducted)) return failure("INVALID_ORDER", "Invalid order state");
   if (order.cancelled) return order.completedAt === null ? ok({ status: "cancelled", completedAt: null }) : failure("INVALID_ORDER", "Cancelled order has completion date");
-  if (order.deliveryStatus === "delivered") return order.completedAt ? ok({ status: "completed", completedAt: order.completedAt }) : failure("INVALID_ORDER", "Completed order lacks date");
+  if (order.deliveryStatus === "delivered") {
+    if (summary.data.status === "paid") return order.completedAt ? ok({ status: "completed", completedAt: order.completedAt }) : failure("INVALID_ORDER", "Covered delivery lacks completion date");
+    return order.completedAt === null ? ok({ status: "active", completedAt: null }) : failure("INVALID_ORDER", "Unpaid delivery has completion date");
+  }
   return order.completedAt === null ? ok({ status: "active", completedAt: null }) : failure("INVALID_ORDER", "Active order has completion date");
 }
 
@@ -142,20 +147,45 @@ function setDelivery(order: OrderAggregate, change: SetDeliveryChange): Result<O
   return ok({ ...order, delivery: details, deliveryCost: cost, deliveryCharge: charge, total: total.data });
 }
 
-function registerPayment(order: OrderAggregate, payment: Payment): Result<OrderAggregate, OrderDomainError> {
+function registerPayment(order: OrderAggregate, payment: ConfirmedPayment): Result<OrderAggregate, OrderDomainError> {
   const state = lifecycle(order);
   if (!state.success) return state;
   if (state.data.status === "cancelled") return failure("ORDER_CANCELLED", "Order is cancelled");
-  if (!uuid.test(payment.id) ||
-    payment.orderId !== order.id || payment.method !== "digital_wallet" || !validDate(payment.recordedAt) || !validMoney(payment.amount, true)) return failure("INVALID_PAYMENT", "Invalid payment");
+  if (!parsePayment(payment).success || payment.orderId !== order.id) return failure("INVALID_PAYMENT", "Invalid payment");
   if (payment.amount.currency !== order.total.currency) return failure("CURRENCY_MISMATCH", "Payment currency differs from order");
   const existing = order.payments.find((candidate) => candidate.id === payment.id);
-  if (existing) return existing.orderId === payment.orderId && existing.amount.amount === payment.amount.amount && existing.amount.currency === payment.amount.currency && existing.method === payment.method
+  if (existing?.status === "confirmed") return existing.amount.amount === payment.amount.amount && existing.amount.currency === payment.amount.currency &&
+    existing.method === payment.method && existing.data.evidence.kind === payment.data.evidence.kind
     ? ok(order) : failure("PAYMENT_CONFLICT", "Payment ID has different data");
-  const next = { ...order, payments: [...order.payments, payment] };
+  if (existing?.status === "voided") return failure("INVALID_TRANSITION", "Voided payment cannot be confirmed");
+  if (existing && (payment.data.evidence.kind !== "buyer_report" || payment.data.evidence.report.receiptImageId !== existing.data.receiptImageId))
+    return failure("PAYMENT_CONFLICT", "Payment report differs");
+  const next = { ...order, payments: existing ? order.payments.map((item) => item.id === payment.id ? payment : item) : [...order.payments, payment] };
   const summary = paymentSummary(next);
   if (!summary.success) return summary;
-  return ok(order.deliveryStatus === "delivered" && summary.data.status === "paid" ? { ...next, completedAt: order.completedAt ?? payment.recordedAt } : next);
+  return ok(order.deliveryStatus === "delivered" && summary.data.status === "paid" ? { ...next, completedAt: order.completedAt ?? payment.data.confirmedAt } : next);
+}
+
+function addReportedPayment(order: OrderAggregate, payment: ReportedPayment): Result<OrderAggregate, OrderDomainError> {
+  const state = lifecycle(order);
+  if (!state.success) return state;
+  if (state.data.status === "cancelled") return failure("ORDER_CANCELLED", "Order is cancelled");
+  if (!parsePayment(payment).success || payment.orderId !== order.id) return failure("INVALID_PAYMENT", "Invalid report");
+  if (payment.currency !== order.total.currency) return failure("CURRENCY_MISMATCH", "Report currency differs from order");
+  if (order.payments.some((item) => item.id === payment.id)) return failure("PAYMENT_CONFLICT", "Payment ID already exists");
+  return ok({ ...order, payments: [...order.payments, payment] });
+}
+
+function voidConfirmedPayment(order: OrderAggregate, payment: VoidedPayment): Result<OrderAggregate, OrderDomainError> {
+  const state = lifecycle(order);
+  if (!state.success) return state;
+  const existing = order.payments.find((item) => item.id === payment.id);
+  if (!existing || existing.status !== "confirmed" || !parsePayment(payment).success || payment.orderId !== order.id)
+    return failure("INVALID_TRANSITION", "Payment cannot be voided");
+  const next = { ...order, payments: order.payments.map((item) => item.id === payment.id ? payment : item) };
+  const summary = paymentSummary(next);
+  if (!summary.success) return summary;
+  return ok({ ...next, completedAt: summary.data.status === "paid" ? order.completedAt : null });
 }
 
 function planStockDeduction(order: OrderAggregate, requestedIfPartial: boolean): Result<StockDeductionPlan, OrderDomainError> {
@@ -204,5 +234,5 @@ function cancel(order: OrderAggregate): Result<CancellationPlan, OrderDomainErro
   return ok({ nextOrder: { ...order, cancelled: true, stockDeducted: false }, restoreStock: order.stockDeducted });
 }
 
-export const orderStateMachine = { setDelivery, registerPayment, planStockDeduction, registerShipment,
+export const orderStateMachine = { setDelivery, registerPayment, addReportedPayment, voidConfirmedPayment, planStockDeduction, registerShipment,
   registerDelivery, cancel, getPaymentSummary: paymentSummary, getLifecycle: lifecycle } as const;

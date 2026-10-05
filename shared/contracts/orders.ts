@@ -37,7 +37,19 @@ export const deliveryDetailsSchema = z.discriminatedUnion("method", [
   z.strictObject({ method: z.literal("agency"), recipient: agencyRecipientSchema, destination: z.strictObject({ agencyId: z.string().trim().min(1) }) }),
   z.strictObject({ method: z.literal("store"), recipient: recipientSchema, destination: z.strictObject({ storeId: z.string().trim().min(1) }) }),
 ]);
-export const paymentSchema = z.strictObject({ id: z.uuid(), orderId: z.uuid(), amount: moneySchema, method: z.literal("digital_wallet"), recordedAt: z.iso.datetime() });
+const reportDataSchema = z.strictObject({ receiptImageId: z.uuid(), reportedAt: z.iso.datetime() });
+const confirmationDataSchema = z.strictObject({ confirmedAt: z.iso.datetime(),
+  confirmedBy: z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("seller"), userId: z.string().min(1) }), z.strictObject({ kind: z.literal("legacy") })]),
+  evidence: z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("manual") }), z.strictObject({ kind: z.literal("buyer_report"), report: reportDataSchema })]) });
+const paymentIdentitySchema = { id: z.uuid(), orderId: z.uuid() };
+export const paymentSchema = z.discriminatedUnion("status", [
+  z.strictObject({ ...paymentIdentitySchema, status: z.literal("reported"), currency: z.enum(currencies),
+    amount: z.null(), method: z.null(), data: reportDataSchema }),
+  z.strictObject({ ...paymentIdentitySchema, status: z.literal("confirmed"), amount: moneySchema,
+    method: z.enum(["digital_wallet", "bank_transfer"]), data: confirmationDataSchema }),
+  z.strictObject({ ...paymentIdentitySchema, status: z.literal("voided"), amount: moneySchema,
+    method: z.enum(["digital_wallet", "bank_transfer"]), data: confirmationDataSchema.extend({ voidedAt: z.iso.datetime(), voidedBy: z.string().min(1) }) }),
+]);
 export const orderAggregateSchema = z.strictObject({ id: z.uuid(), companyId: z.uuid(), sellerId: z.string(), customer: orderCustomerSchema,
   createdAt: z.iso.datetime(), deliveredAt: z.iso.datetime().nullable(), completedAt: z.iso.datetime().nullable(), status: z.enum(["active", "cancelled", "completed"]),
   paymentStatus: z.enum(["pending", "paid"]), paidAmount: moneySchema, balanceDue: moneySchema, overpaidAmount: moneySchema,

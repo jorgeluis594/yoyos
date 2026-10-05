@@ -2,16 +2,59 @@ import { log } from "@core/src/shared/infrastructure/logger";
 import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import { isCurrency } from "@shared/money";
+import { z } from "zod";
 import { getCompanyId, prisma, requireActiveTransaction, withLockedForUpdate } from "@core/src/shared/infrastructure/persistance";
-import { buildOrder, type OrderItemId, type OrderId, type ContactId, type CompanyId, type UserId, type PositiveInteger, type PaymentId } from "@core/src/features/orders/domain/order";
+import { buildOrder, type OrderItemId, type OrderId, type ContactId, type CompanyId, type UserId, type PositiveInteger } from "@core/src/features/orders/domain/order";
 import { orderStateMachine, parseDeliveryDetails, type OrderAggregate, type Payment } from "@core/src/features/orders/domain/order-state-machine";
+import { parsePayment } from "@core/src/features/orders/domain/payment";
 import type { OrderCriteria } from "@core/src/features/orders/application/read-orders";
 import type { AggregateCriteria, AggregatePage } from "@core/src/features/orders/application/list-order-aggregates";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
-const aggregateInclude = { items: { orderBy: { id: "asc" as const } }, payments: { orderBy: [{ recordedAt: "asc" as const }, { id: "asc" as const }] } };
+const aggregateInclude = { items: { orderBy: { id: "asc" as const } }, payments: { orderBy: { id: "asc" as const } } };
 type DbAggregate = Prisma.OrderGetPayload<{ include: typeof aggregateInclude }>;
 class InvalidStoredOrderError extends Error {}
+const dateText = z.iso.datetime();
+const reportData = z.strictObject({ receiptImageId: z.uuid(), reportedAt: dateText });
+const confirmationData = z.strictObject({ confirmedAt: dateText,
+  confirmedBy: z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("seller"), userId: z.string().min(1) }), z.strictObject({ kind: z.literal("legacy") })]),
+  evidence: z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("manual") }), z.strictObject({ kind: z.literal("buyer_report"), report: reportData })]) });
+const voidedData = confirmationData.extend({ voidedAt: dateText, voidedBy: z.string().min(1) });
+
+function mapPayment(row: DbAggregate["payments"][number]): Payment {
+  if (!isCurrency(row.currency)) throw new InvalidStoredOrderError("Invalid stored payment currency");
+  let candidate: unknown;
+  if (row.status === "reported") {
+    const parsed = reportData.safeParse(row.data);
+    if (!parsed.success || row.amount !== null || row.method !== null) throw new InvalidStoredOrderError("Invalid stored payment report");
+    candidate = { id: row.id, orderId: row.orderId, status: row.status, currency: row.currency,
+      amount: null, method: null, data: { receiptImageId: parsed.data.receiptImageId, reportedAt: new Date(parsed.data.reportedAt) } };
+  } else if (row.status === "confirmed" || row.status === "voided") {
+    const parsed = (row.status === "confirmed" ? confirmationData : voidedData).safeParse(row.data);
+    if (!parsed.success || row.amount === null || (row.method !== "digital_wallet" && row.method !== "bank_transfer"))
+      throw new InvalidStoredOrderError("Invalid stored payment confirmation");
+    const voided = row.status === "voided" ? voidedData.safeParse(row.data) : null;
+    if (voided && !voided.success) throw new InvalidStoredOrderError("Invalid stored payment void");
+    const evidence = parsed.data.evidence.kind === "manual" ? parsed.data.evidence : { kind: "buyer_report",
+      report: { receiptImageId: parsed.data.evidence.report.receiptImageId, reportedAt: new Date(parsed.data.evidence.report.reportedAt) } };
+    candidate = { id: row.id, orderId: row.orderId, status: row.status,
+      amount: { amount: row.amount.toNumber(), currency: row.currency }, method: row.method,
+      data: { confirmedAt: new Date(parsed.data.confirmedAt), confirmedBy: parsed.data.confirmedBy, evidence,
+        ...(voided?.success ? { voidedAt: new Date(voided.data.voidedAt), voidedBy: voided.data.voidedBy } : {}) } };
+  } else throw new InvalidStoredOrderError("Invalid stored payment status");
+  const payment = parsePayment(candidate);
+  if (!payment.success) throw new InvalidStoredOrderError("Invalid stored payment");
+  return payment.data;
+}
+
+function paymentDataJson(payment: Payment): Prisma.InputJsonObject {
+  if (payment.status === "reported") return { receiptImageId: payment.data.receiptImageId, reportedAt: payment.data.reportedAt.toISOString() };
+  const evidence: Prisma.InputJsonObject = payment.data.evidence.kind === "manual" ? { kind: "manual" } :
+    { kind: "buyer_report", report: { receiptImageId: payment.data.evidence.report.receiptImageId,
+      reportedAt: payment.data.evidence.report.reportedAt.toISOString() } };
+  return { confirmedAt: payment.data.confirmedAt.toISOString(), confirmedBy: payment.data.confirmedBy,
+    evidence, ...(payment.status === "voided" ? { voidedAt: payment.data.voidedAt.toISOString(), voidedBy: payment.data.voidedBy } : {}) };
+}
 
 function knownFailure(cause: unknown) {
   return cause instanceof Prisma.PrismaClientKnownRequestError || cause instanceof Prisma.PrismaClientUnknownRequestError || cause instanceof Prisma.PrismaClientInitializationError;
@@ -32,12 +75,7 @@ function mapAggregate(row: DbAggregate): OrderAggregate {
       variantAttributes: { ...attributes } as Record<string, string>, sku: item.sku, quantity: Number(item.quantity) as PositiveInteger,
       unitPrice: { amount: item.unitPrice.toNumber(), currency: row.currency }, subtotal: { amount: item.subtotal.toNumber(), currency: row.currency } };
   }) as [OrderAggregate["items"][number], ...OrderAggregate["items"][number][]];
-  const payments: Payment[] = row.payments.map((payment) => {
-    if (payment.method !== "digital_wallet" || !isCurrency(payment.currency) || payment.currency !== row.currency)
-      throw new InvalidStoredOrderError("Invalid stored payment");
-    return { id: payment.id as PaymentId, orderId: payment.orderId as OrderId,
-      amount: { amount: payment.amount.toNumber(), currency: payment.currency }, method: payment.method, recordedAt: payment.recordedAt };
-  });
+  const payments: Payment[] = row.payments.map(mapPayment);
   const order: OrderAggregate = { id: row.id as OrderId, companyId: row.companyId as CompanyId, sellerId: row.sellerId as UserId,
     customer: row.contactId ? { kind: "contact", contactId: row.contactId as ContactId, name: row.contactName, phone: row.contactPhone! } : { kind: "general_public" },
     createdAt: row.createdAt, deliveredAt: row.deliveredAt, completedAt: row.completedAt, cancelled: row.cancelled, items, payments,
@@ -134,8 +172,9 @@ export async function savePayment(payment: Payment, companyId: CompanyId) {
   requireActiveTransaction(companyId);
   try {
     await prisma.payment.create({ data: { id: payment.id, companyId, orderId: payment.orderId,
-      amount: new Prisma.Decimal(payment.amount.amount.toString()), currency: payment.amount.currency,
-      method: payment.method, recordedAt: payment.recordedAt } });
+      status: payment.status, amount: payment.amount ? new Prisma.Decimal(payment.amount.amount.toString()) : null,
+      currency: payment.status === "reported" ? payment.currency : payment.amount.currency,
+      method: payment.method, data: paymentDataJson(payment) } });
     return ok<null>(null);
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;

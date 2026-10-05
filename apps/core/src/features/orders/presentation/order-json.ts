@@ -20,7 +20,12 @@ export function toOrderAggregateJson(order: OrderAggregate) {
     completedAt: order.completedAt?.toISOString() ?? null, status: lifecycle.data.status,
     paymentStatus: payment.data.status, paidAmount: payment.data.paidAmount,
     balanceDue: payment.data.balanceDue, overpaidAmount: payment.data.overpaidAmount,
-    payments: order.payments.map((item) => ({ ...item, recordedAt: item.recordedAt.toISOString() })) });
+    payments: order.payments.map((item) => item.status === "reported" ? { ...item,
+      data: { ...item.data, reportedAt: item.data.reportedAt.toISOString() } } : { ...item,
+      data: { ...item.data, confirmedAt: item.data.confirmedAt.toISOString(),
+        evidence: item.data.evidence.kind === "manual" ? item.data.evidence : { kind: "buyer_report",
+          report: { ...item.data.evidence.report, reportedAt: item.data.evidence.report.reportedAt.toISOString() } },
+        ...(item.status === "voided" ? { voidedAt: item.data.voidedAt.toISOString() } : {}) } }) });
 }
 
 export function toOrderAggregateListJson(page: AggregatePage) {

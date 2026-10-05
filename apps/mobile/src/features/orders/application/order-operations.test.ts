@@ -88,7 +88,7 @@ test("recovery keeps the amount first shown and returns the core total", async (
     status: "completed", paymentStatus: "paid", paidAmount: amount, balanceDue: zero, overpaidAmount: zero,
     cancelled: false, delivery: null, deliveryStatus: "delivered", stockDeducted: true,
     itemsTotal: amount, deliveryCost: zero, deliveryCharge: zero, total: amount,
-    payments: [{ id: id(6), orderId: id(3), amount, method: "digital_wallet", recordedAt: "2026-09-29T12:00:00.000Z" }],
+    payments: [{ id: id(6), orderId: id(3), amount, method: "digital_wallet", status: "confirmed", data: { confirmedAt: "2026-09-29T12:00:00.000Z", confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" } } }],
     items: [{ id: id(5), variantId: id(2), productName: "Sample", variantAttributes: {}, sku: null,
       quantity: 1, unitPrice: amount, subtotal: amount }] };
   let lookups = 0;

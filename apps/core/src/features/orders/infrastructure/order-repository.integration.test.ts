@@ -81,7 +81,7 @@ test("persists a pending order without payment or stock effects", async () => {
       await expect(findOrderForUpdate(input.id, context.companyId)).rejects.toThrow("active transaction");
       expect(await orders.deductStock(input.id, context)).toMatchObject({ success: true, data: { stockDeducted: false } });
       await prisma.payment.create({ data: { id: randomUUID(), orderId, companyId: f.companyId,
-        amount: 0.2, currency: "PEN", method: "digital_wallet", recordedAt: new Date() } });
+        amount: 0.2, currency: "PEN", method: "digital_wallet", status: "confirmed", data: { confirmedAt: new Date().toISOString(), confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" } } } });
       expect(await orders.deductStock(input.id, context)).toMatchObject({ success: true, data: { stockDeducted: true } });
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
       expect(await orders.deductStock(input.id, context)).toMatchObject({ success: true, data: { stockDeducted: true } });
@@ -99,7 +99,7 @@ test("reports incompatible stored payments instead of returning an invalid aggre
       expect(await orders.create({ id: orderId, contactId: null,
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }] }, context)).toMatchObject({ success: true });
       await prisma.payment.create({ data: { id: randomUUID(), orderId, companyId: f.companyId,
-        amount: 0.1, currency: "USD", method: "digital_wallet", recordedAt: new Date() } });
+        amount: 0.1, currency: "USD", method: "digital_wallet", status: "confirmed", data: { confirmedAt: new Date().toISOString(), confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" } } } });
       expect(await orders.getAggregate(orderId, context)).toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
       expect(await orders.listAggregates({ page: 1, customer: { kind: "all" } }, context))
         .toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
@@ -118,7 +118,7 @@ test("keeps all stock when a pending order cannot deduct every item", async () =
         { variantId: f.variantIds[1] as VariantId, quantity: 4 as PositiveInteger },
       ] }, context)).toMatchObject({ success: true });
       await prisma.payment.create({ data: { id: randomUUID(), orderId, companyId: f.companyId,
-        amount: 1, currency: "PEN", method: "digital_wallet", recordedAt: new Date() } });
+        amount: 1, currency: "PEN", method: "digital_wallet", status: "confirmed", data: { confirmedAt: new Date().toISOString(), confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" } } } });
       expect(await orders.deductStock(orderId, context)).toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
       expect((await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).stockDeducted).toBe(false);
       expect((await prisma.productStock.findMany({ orderBy: { variantId: "asc" } })).map((stock) => stock.quantity)).toEqual([3n, 3n]);
@@ -370,8 +370,8 @@ test("persists completed sale, historical snapshots, listing and duplicate rejec
       expect(persisted.createdAt.getTime()).toBeLessThanOrEqual(persisted.completedAt!.getTime());
       expect(persisted.payments).toHaveLength(1);
       expect(persisted.payments[0]).toMatchObject({ orderId, currency: "PEN", method: "digital_wallet" });
-      expect(persisted.payments[0].recordedAt.getTime()).toBeLessThanOrEqual(persisted.completedAt!.getTime());
-      expect(persisted.payments[0].amount.toNumber()).toBe(0.7);
+      expect(new Date((persisted.payments[0].data as { confirmedAt: string }).confirmedAt).getTime()).toBeLessThanOrEqual(persisted.completedAt!.getTime());
+      expect(persisted.payments[0].amount?.toNumber()).toBe(0.7);
       expect(await findOrderAggregate(orderId as OrderId, f.companyId as CompanyId)).toMatchObject({ success: true,
         data: { id: orderId, deliveryStatus: "delivered", stockDeducted: true, payments: [{ id: persisted.payments[0].id,
           amount: { amount: 0.7, currency: "PEN" } }] } });

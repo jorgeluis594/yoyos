@@ -31,7 +31,9 @@ export default function OrderDetail() {
     <p className="text-right text-xl font-semibold">{t("orders.total")}: {amount(order.total)}</p>
     {order.deliveryCharge.amount > 0 && <p className="text-right">{t("orders.deliveryCharge", { amount: amount(order.deliveryCharge) })}</p>}
     {order.overpaidAmount.amount > 0 && <p className="text-right">{t("orders.overpaid", { amount: amount(order.overpaidAmount) })}</p>}
-    {order.payments.length > 0 && <section><h2 className="font-semibold">{t("orders.payments")}</h2><ul>{order.payments.map((payment) => <li key={payment.id}>{amount(payment.amount)} · {date(payment.recordedAt)}</li>)}</ul></section>}
+    {order.payments.length > 0 && <section><h2 className="font-semibold">{t("orders.payments")}</h2><ul>{order.payments.map((payment) => <li key={payment.id}>{payment.status === "reported"
+      ? `${t("orders.paymentReported")} · ${date(payment.data.reportedAt)}`
+      : `${payment.status === "voided" ? `${t("orders.paymentVoided")} · ` : ""}${amount(payment.amount)} · ${date(payment.data.confirmedAt)}`}</li>)}</ul></section>}
   </section>;
 }
 

@@ -2,10 +2,12 @@ import { ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { createOrderInTransaction, type CreateOrderDependencies, type CreateOrderError, type CreateOrderInput, type OrderAccess } from "@core/src/features/orders/application/create-order";
 import { orderStateMachine, type OrderAggregate, type OrderDomainError, type Payment } from "@core/src/features/orders/domain/order-state-machine";
+import { confirmPayment } from "@core/src/features/orders/domain/payment";
+import type { PaymentError } from "@core/src/features/orders/domain/payment";
 import type { CompanyId, OrderId, PaymentId, PositiveInteger } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
-export type RegisterImmediateSaleError = CreateOrderError | OrderDomainError | Readonly<{ code: "INSUFFICIENT_STOCK"; message: string; variantId?: string }>;
+export type RegisterImmediateSaleError = CreateOrderError | OrderDomainError | PaymentError | Readonly<{ code: "INSUFFICIENT_STOCK"; message: string; variantId?: string }>;
 export type RegisterImmediateSaleDependencies = Omit<CreateOrderDependencies, "transaction"> & Readonly<{
   transaction: <T>(companyId: CompanyId, work: () => Promise<Result<T, RegisterImmediateSaleError>>) => Promise<Result<T, RegisterImmediateSaleError>>;
   savePayment: (payment: Payment, companyId: CompanyId) => Promise<Result<null, RegisterImmediateSaleError>>;
@@ -19,8 +21,10 @@ export async function registerImmediateSale(input: CreateOrderInput, context: Or
   return deps.transaction(context.companyId, async () => {
     const created = await createOrderInTransaction(input, context, deps);
     if (!created.success) return created;
-    const payment: Payment = { id: deps.newPaymentId(), orderId: input.id, amount: created.data.total,
-      method: "digital_wallet", recordedAt: deps.clock() };
+    const confirmed = confirmPayment({ id: deps.newPaymentId(), orderId: input.id, source: "manual", amount: created.data.total,
+      method: "digital_wallet", confirmedBy: context.userId, confirmedAt: deps.clock() }, null);
+    if (!confirmed.success) return confirmed;
+    const payment = confirmed.data;
     const paid = orderStateMachine.registerPayment(created.data, payment);
     if (!paid.success) return paid;
     const savedPayment = await deps.savePayment(payment, context.companyId);

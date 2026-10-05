@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { buildPendingOrder, orderStateMachine, type OrderAggregate, type Payment, type DeliveryDetails } from "@core/src/features/orders/domain/order-state-machine";
+import { buildPendingOrder, orderStateMachine, type OrderAggregate, type DeliveryDetails } from "@core/src/features/orders/domain/order-state-machine";
+import type { ConfirmedPayment } from "@core/src/features/orders/domain/payment";
 import type { CompanyId, OrderId, OrderItemId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
@@ -15,8 +16,9 @@ const order = (): OrderAggregate => ({
   payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false,
   itemsTotal: money(10), deliveryCost: money(0), deliveryCharge: money(0), total: money(10),
 });
-const payment = (n: number, amount: number): Payment => ({ id: id(n) as PaymentId, orderId: id(1) as OrderId,
-  amount: money(amount), method: "digital_wallet", recordedAt: paymentAt });
+const payment = (n: number, amount: number): ConfirmedPayment => ({ id: id(n) as PaymentId, orderId: id(1) as OrderId,
+  status: "confirmed", amount: money(amount), method: "digital_wallet",
+  data: { confirmedAt: paymentAt, confirmedBy: { kind: "seller", userId: "seller" as UserId }, evidence: { kind: "manual" } } });
 const home: DeliveryDetails = { method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
   destination: { address: "Av. Lima 123" } };
 
@@ -74,7 +76,7 @@ describe("order payment and lifecycle", () => {
   test("recognizes the same payment ID and rejects different data or invalid amounts", () => {
     const paid = orderStateMachine.registerPayment(order(), payment(5, 4));
     if (!paid.success) throw new Error("Expected payment");
-    expect(orderStateMachine.registerPayment(paid.data, { ...payment(5, 4), recordedAt: new Date("2026-10-01") }))
+    expect(orderStateMachine.registerPayment(paid.data, { ...payment(5, 4), data: { ...payment(5, 4).data, confirmedAt: new Date("2026-10-01") } }))
       .toEqual({ success: true, data: paid.data });
     expect(orderStateMachine.registerPayment(paid.data, payment(5, 5))).toMatchObject({ success: false, error: { code: "PAYMENT_CONFLICT" } });
     expect(orderStateMachine.registerPayment(order(), payment(5, 0.001))).toMatchObject({ success: false, error: { code: "INVALID_PAYMENT" } });

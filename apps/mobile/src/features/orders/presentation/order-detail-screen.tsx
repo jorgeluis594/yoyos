@@ -96,7 +96,9 @@ export default function OrderDetailScreen() {
         </View>)}
       </View>
       {order.payments.length ? <View style={styles.section}><ThemedText type="subtitle" accessibilityRole="header">{t('payments')}</ThemedText>
-        {order.payments.map((payment) => <ThemedText key={payment.id}>{money(payment.amount.amount, payment.amount.currency, locale)} · {date(payment.recordedAt, locale)}</ThemedText>)}
+        {order.payments.map((payment) => <ThemedText key={payment.id}>{payment.status === "reported"
+          ? `${t('paymentReported')} · ${date(payment.data.reportedAt, locale)}`
+          : `${payment.status === "voided" ? `${t('paymentVoided')} · ` : ""}${money(payment.amount.amount, payment.amount.currency, locale)} · ${date(payment.data.confirmedAt, locale)}`}</ThemedText>)}
       </View> : null}
     </ScrollView>
   </SafeAreaView></ThemedView>;
