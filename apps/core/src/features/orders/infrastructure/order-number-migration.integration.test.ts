@@ -60,6 +60,25 @@ test("backfills historical numbers and buyer snapshots without changing order da
     expect(migrated.every((row) => row.checkoutEnabledAt === null && row.checkoutConfirmedAt === null)).toBe(true);
     await expect(db.query('UPDATE "Order" SET "checkoutConfirmedAt" = now() WHERE id = $1', [before[0].id])).rejects.toThrow();
     await expect(db.query('UPDATE "Order" SET number = 1001 WHERE "companyId" = $1', [companies[0]])).rejects.toThrow();
+    execFileSync("psql", [url.toString(), "-v", "ON_ERROR_STOP=1", "-v", "app_password=core_app_local", "-v", `dbname=${database}`, "-f", "scripts/provision-role.sql"], { stdio: "pipe" });
+    const restrictedUrl = new URL(process.env.DATABASE_URL!);
+    restrictedUrl.pathname = `/${database}`;
+    const restricted = new pg.Client({ connectionString: restrictedUrl.toString() });
+    await restricted.connect();
+    try {
+      await restricted.query("BEGIN");
+      await restricted.query("SELECT set_config('app.company_id', $1, true)", [companies[0]]);
+      const number = (await restricted.query('UPDATE "Company" SET "nextOrderNumber" = "nextOrderNumber" + 1 WHERE id=$1 RETURNING "nextOrderNumber" - 1 AS number', [companies[0]])).rows[0].number;
+      expect(number).toBe("1004");
+      const id = randomUUID();
+      await restricted.query('INSERT INTO "Order" (id, "sellerId", number, currency, total, "itemsTotal", "createdAt") VALUES ($1,$2,$3,$4,$5,$6,now())', [id, companies[0], number, "PEN", "10.00", "10.00"]);
+      await restricted.query('INSERT INTO "OrderBuyer" ("orderId", name, phone) VALUES ($1,$2,$3)', [id, "Ana", "+51987654321"]);
+      expect((await restricted.query('SELECT o.number, b.name, b."contactId" FROM "Order" o JOIN "OrderBuyer" b ON b."companyId"=o."companyId" AND b."orderId"=o.id WHERE o.id=$1', [id])).rows)
+        .toEqual([{ number: "1004", name: "Ana", contactId: null }]);
+      await restricted.query("SELECT set_config('app.company_id', $1, true)", [companies[1]]);
+      expect((await restricted.query('SELECT * FROM "OrderBuyer" WHERE "orderId"=$1', [id])).rows).toEqual([]);
+      await restricted.query("COMMIT");
+    } finally { await restricted.end(); }
   } finally {
     await db.end();
     await admin.query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`);

@@ -15,7 +15,9 @@ test("mobile seller copies checkout and sees the anonymous buyer confirmation in
     const product = await withTenantIsolation(tenant, () => products.create({ name: "Producto móvil", currency: "PEN", variants: [{ attributes: {}, salePrice: 10, initialStock: 3 }] }));
     if (!product.success) throw new Error("Fixture product failed");
     const variantId = await withTenantIsolation(tenant, async () => (await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } })).id);
-    await withTenantIsolation(tenant, async () => { await prisma.company.update({ where: { id: tenant }, data: { nextOrderNumber: 10000n } }); });
+    await withTenantIsolation(tenant, async () => { await prisma.company.update({ where: { id: tenant }, data: { nextOrderNumber: 9999n } }); });
+    const historical = randomUUID();
+    expect((await page.request.post("/api/orders", { data: { id: historical, contactId: null, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
     const id = randomUUID();
     expect((await page.request.post("/api/orders", { data: { id, contactId: null, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
     await page.setViewportSize({ width: 390, height: 844 });
@@ -40,8 +42,23 @@ test("mobile seller copies checkout and sees the anonymous buyer confirmation in
     await browserExpect(page.getByText("Confirmado por el comprador", { exact: true })).toBeVisible();
     await browserExpect(page.getByText("Ana", { exact: true })).toBeVisible();
     await browserExpect(page.getByText(/Saldo pendiente:/)).toBeVisible();
+    const pending = randomUUID();
+    const cancelled = randomUUID();
+    for (const other of [pending, cancelled]) {
+      expect((await page.request.post("http://127.0.0.1:4173/api/orders", { data: { id: other, contactId: null, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
+      expect((await page.request.post(`http://127.0.0.1:4173/api/orders/${other}/checkout-link`)).status()).toBe(200);
+    }
+    expect((await page.request.post(`http://127.0.0.1:4173/api/orders/${cancelled}/cancel`)).status()).toBe(200);
     await page.goto(`${mobile.origin}/orders`);
     await browserExpect(page.getByText(/Pedido #10000 · Confirmado por el comprador/)).toBeVisible();
+    await browserExpect(page.getByText(/Pedido #9999 ·/)).toBeVisible();
+    await browserExpect(page.getByText(/Pedido #10001 · Pendiente de confirmación/)).toBeVisible();
+    await browserExpect(page.getByText(/Pedido #10002 · Pedido cancelado/)).toBeVisible();
+    await page.goto(`${mobile.origin}/orders/${historical}`);
+    await browserExpect(page.getByText("Enlace aún no habilitado", { exact: true })).toBeVisible();
+    await page.goto(`${mobile.origin}/orders/${cancelled}`);
+    await browserExpect(page.getByText("Pedido cancelado", { exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("button", { name: "Obtener enlace", exact: true })).toHaveCount(0);
   } finally {
     await page.screenshot({ path: "/tmp/checkout-mobile-final.png" });
     await buyerContext.close();
