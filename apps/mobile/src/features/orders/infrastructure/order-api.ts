@@ -3,6 +3,7 @@ import { createOrderSchema, listOrderAggregatesResponseSchema, listOrderAggregat
   orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type CreateOrderRequest, type ListOrderAggregatesRequest, type ListOrdersRequest, type RegisterPaymentRequest,
   type OrderAggregateResponse, type OrderApiError, type OrderApiIssue } from "@shared/contracts/orders";
 import { err, ok } from "@shared/functional";
+import { imageResponseSchema } from "@shared/contracts/images";
 import type { Result } from "@shared/result";
 import type { TransportError } from "@mobile/shared/application/transport-error";
 
@@ -13,7 +14,7 @@ export type OrderRequestError = Readonly<{
 }>;
 
 type Request = (path: string, init?: RequestInit) => Promise<Result<unknown, TransportError>>;
-type Operation = "list" | "mixed" | "get" | "aggregate" | "create" | "payment" | "deduct" | "catalog" | "contacts";
+type Operation = "list" | "mixed" | "get" | "aggregate" | "create" | "payment" | "void" | "deduct" | "catalog" | "contacts";
 
 const statusByCode: Record<OrderApiError["code"], number> = {
   INVALID_INPUT: 400, UNSUPPORTED_MEDIA_TYPE: 415, PAYLOAD_TOO_LARGE: 413,
@@ -25,7 +26,7 @@ const statusByCode: Record<OrderApiError["code"], number> = {
 const createCodes = new Set<OrderApiError["code"]>(["INVALID_ORDER", "CURRENCY_MISMATCH", "CONTACT_NOT_FOUND",
   "VARIANT_NOT_FOUND", "INSUFFICIENT_STOCK", "ORDER_ALREADY_EXISTS", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]);
 const paymentCodes = new Set<OrderApiError["code"]>(["ORDER_NOT_FOUND", "INVALID_ORDER", "INVALID_PAYMENT", "CURRENCY_MISMATCH",
-  "PAYMENT_CONFLICT", "ORDER_CANCELLED", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]);
+  "PAYMENT_CONFLICT", "PAYMENT_NOT_FOUND", "INVALID_TRANSITION", "ORDER_CANCELLED", "INSUFFICIENT_STOCK", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]);
 
 function requestError(error: TransportError, operation: Operation): OrderRequestError {
   if (error.http) {
@@ -35,6 +36,7 @@ function requestError(error: TransportError, operation: Operation): OrderRequest
       const allowed = ["INVALID_INPUT", "SERVICE_UNAVAILABLE"].includes(code)
         || operation === "create" && createCodes.has(code)
         || operation === "payment" && paymentCodes.has(code)
+        || operation === "void" && ["ORDER_NOT_FOUND", "PAYMENT_NOT_FOUND", "PAYMENT_CONFLICT", "INVALID_TRANSITION", "INVALID_ORDER"].includes(code)
         || operation === "deduct" && ["ORDER_NOT_FOUND", "INSUFFICIENT_STOCK", "ORDER_CANCELLED", "INVALID_ORDER"].includes(code)
         || (operation === "get" || operation === "aggregate") && code === "ORDER_NOT_FOUND";
       if (statusByCode[code] === error.http.status && allowed) return { code, message: parsed.data.error, ...(issues ? { issues } : {}) };
@@ -53,6 +55,18 @@ function response<T extends z.ZodType>(raw: Result<unknown, TransportError>, sch
 
 export function createOrderApi(request: Request) {
   return {
+    receiptUrl: async (imageId: string): Promise<Result<string, OrderRequestError>> => {
+      if (!z.uuid().safeParse(imageId).success) return err({ code: "INVALID_INPUT", message: "Invalid receipt ID" });
+      const raw = await request(`/api/images/${imageId}`);
+      if (!raw.success) return raw;
+      const parsed = imageResponseSchema.safeParse(raw.data);
+      return parsed.success ? ok(parsed.data.url) : err({ code: "INVALID_RESPONSE", message: "Invalid receipt URL" });
+    },
+    voidPayment: async (orderId: string, paymentId: string): Promise<Result<OrderAggregateResponse, OrderRequestError>> => {
+      if (!z.uuid().safeParse(orderId).success || !z.uuid().safeParse(paymentId).success)
+        return err({ code: "INVALID_INPUT", message: "Invalid payment ID" });
+      return response(await request(`/api/orders/${orderId}/payments/${paymentId}/void`, { method: "POST" }), orderAggregateSchema, "void");
+    },
     registerPayment: async (orderId: string, input: RegisterPaymentRequest): Promise<Result<z.infer<typeof registerPaymentResponseSchema>, OrderRequestError>> => {
       const parsed = registerPaymentSchema.safeParse(input);
       if (!z.uuid().safeParse(orderId).success || !parsed.success) return err({ code: "INVALID_INPUT", message: "Invalid payment request" });
