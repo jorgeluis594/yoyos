@@ -29,8 +29,10 @@ async function orderTransaction<T, E extends AppError>(callback: () => Promise<R
   } catch (cause) {
     if (!(cause instanceof Prisma.PrismaClientKnownRequestError
       || cause instanceof Prisma.PrismaClientUnknownRequestError
-      || cause instanceof Prisma.PrismaClientInitializationError)) throw cause;
-    log.error({ event: "unable_to_complete_order_transaction", err: cause }, "unable_to_complete_order_transaction");
+      || cause instanceof Prisma.PrismaClientInitializationError
+      // Prisma's driver adapter can reject COMMIT before wrapping its error.
+      || (cause instanceof Error && cause.name === "DriverAdapterError" && cause.cause !== null && typeof cause.cause === "object"))) throw cause;
+    log.error({ event: "unable_to_complete_order_transaction", errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "unable_to_complete_order_transaction");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to complete order transaction" });
   }
 }

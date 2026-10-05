@@ -3,6 +3,7 @@ import { parseBuyer, type CheckoutAccess } from "@core/src/features/orders/domai
 import { confirmOrderCheckout } from "@core/src/features/orders/application/checkout";
 import { findCheckoutOrderForUpdate, saveCheckoutBuyer, saveCheckoutConfirmed } from "@core/src/features/orders/infrastructure/checkout-repository";
 import { randomUUID } from "node:crypto";
+import pg from "pg";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { expect, test, vi } from "vitest";
@@ -563,6 +564,7 @@ test("database constraints reject invalid completed sale writes", async () => {
 test("allocates permanent company numbers atomically across concurrent orders and rollbacks", async () => {
   const a = await fixture();
   const b = await fixture();
+  const errorLog = vi.spyOn(log, "error").mockImplementation(() => undefined);
   const create = (f: typeof a) => withTenantIsolation(f.companyId, () => orders.create({ id: randomUUID() as OrderId, contactId: null,
     items: [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }] },
   { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId }));
@@ -579,6 +581,8 @@ test("allocates permanent company numbers atomically across concurrent orders an
       expect(await create(a)).toMatchObject({ data: { number: 1007 } });
       await prisma.company.update({ where: { id: a.companyId }, data: { nextOrderNumber: 1001n } });
       expect(await create(a)).toMatchObject({ error: { code: "PERSISTENCE_UNAVAILABLE" } });
+      expect(errorLog.mock.calls).toHaveLength(1);
+      expect(errorLog.mock.calls[0][0]).toMatchObject({ event: "unable_to_save_pending_order", errorCode: "ORDER_NUMBER_CONFLICT" });
       await prisma.company.update({ where: { id: a.companyId }, data: { nextOrderNumber: 9999n } });
       expect(await create(a)).toMatchObject({ data: { number: 9999 } });
       expect(await create(a)).toMatchObject({ data: { number: 10000 } });
@@ -598,7 +602,7 @@ test("allocates permanent company numbers atomically across concurrent orders an
       expect(await create(a)).toMatchObject({ error: { code: "PERSISTENCE_UNAVAILABLE" } });
       expect((await prisma.company.findUniqueOrThrow({ where: { id: a.companyId } })).nextOrderNumber).toBe(9007199254740992n);
     });
-  } finally { await a.cleanup(); await b.cleanup(); }
+  } finally { errorLog.mockRestore(); await a.cleanup(); await b.cleanup(); }
 });
 
 test("buyer snapshots stay independent of contacts and preserve guest buyers in reads and filters", async () => {
@@ -839,4 +843,35 @@ test("interleaved public reads and confirmations retain their own company and bu
       expect(await orders.getCheckout({ ...access, companyId: other.access.companyId })).toMatchObject({ error: { code: "CHECKOUT_UNAVAILABLE" } });
     }
   } finally { await Promise.all(fixtures.map((f) => f.cleanup())); }
+});
+
+
+test("a real deferred commit failure rolls back checkout and emits no successful transition", async () => {
+  const f = await fixture();
+  const admin = new pg.Client({ connectionString: process.env.MIGRATION_TEST_DATABASE_URL });
+  const trigger = `checkout_commit_${randomUUID().replaceAll("-", "")}`;
+  const info = vi.spyOn(log, "info").mockImplementation(() => undefined);
+  const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  await admin.connect();
+  try {
+    const { access, context } = await pendingCheckout(f);
+    await withTenantIsolation(f.companyId, () => orders.enableCheckout(access.orderId, context));
+    info.mockClear();
+    // This tenant's writes succeed, then PostgreSQL rejects COMMIT itself.
+    await admin.query(`CREATE FUNCTION "${trigger}"() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'Injected deferred checkout failure' USING ERRCODE = '23514'; END $$;
+      CREATE CONSTRAINT TRIGGER "${trigger}" AFTER UPDATE ON "Order" DEFERRABLE INITIALLY DEFERRED
+      FOR EACH ROW WHEN (NEW."companyId" = '${f.companyId}'::uuid) EXECUTE FUNCTION "${trigger}"()`);
+    expect(await orders.confirmCheckout(checkoutInput(), access)).toMatchObject({ error: { code: "PERSISTENCE_UNAVAILABLE" } });
+    expect(info).not.toHaveBeenCalled();
+    expect(error.mock.calls).toHaveLength(1);
+    expect(error.mock.calls[0][0]).toMatchObject({ event: "unable_to_complete_order_transaction" });
+    expect(await orders.getCheckout(access)).toMatchObject({ data: { buyer: null, state: { kind: "pending" } } });
+    await admin.query(`DROP TRIGGER "${trigger}" ON "Order"; DROP FUNCTION "${trigger}"()`);
+    expect(await orders.confirmCheckout(checkoutInput(), access)).toMatchObject({ data: { state: { kind: "confirmed" } } });
+  } finally {
+    await admin.query(`DROP TRIGGER IF EXISTS "${trigger}" ON "Order"; DROP FUNCTION IF EXISTS "${trigger}"()`);
+    await admin.end();
+    info.mockRestore(); error.mockRestore(); await f.cleanup();
+  }
 });
