@@ -29,6 +29,8 @@ test("returns a recoverable conflict without silently retrying a stale version",
 
 test("reports unexpected failures safely", async () => {
   vi.spyOn(deliverySettings, "save").mockRejectedValue(new Error("Private detail"));
-  vi.spyOn(log, "error").mockImplementation(() => {});
+  const failure = vi.spyOn(log, "error").mockImplementation(() => {});
   expect(await save(input)).toEqual({ error: "saveError" });
+  expect(failure).toHaveBeenCalledOnce();
+  expect(failure.mock.calls[0][0]).toMatchObject({ event: "delivery_settings_request_failed", entryPoint: "web_action", operation: "save_delivery_settings", userId: access.user.id, errorCode: "INTERNAL_ERROR" });
 });

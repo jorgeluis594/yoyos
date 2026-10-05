@@ -36,7 +36,7 @@ export async function action({ context, request }: ActionFunctionArgs) {
     return { error: result.error.code === "DELIVERY_SETTINGS_CONFLICT" ? "conflict" as const
       : result.error.code === "INVALID_DELIVERY_SETTINGS" ? "invalid" as const : "saveError" as const };
   } catch (cause) {
-    log.error({ event: "delivery_settings_request_failed", operation: "save_delivery_settings", entryPoint: "web", userId: access.user.id,
+    log.error({ event: "delivery_settings_request_failed", operation: "save_delivery_settings", entryPoint: "web_action", userId: access.user.id,
       errorCode: "INTERNAL_ERROR", err: cause }, "Unable to handle delivery settings request");
     return { error: "saveError" as const };
   }

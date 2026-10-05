@@ -1,3 +1,4 @@
+import { log } from "@core/src/shared/infrastructure/logger";
 import { afterEach, expect, test, vi } from "vitest";
 import { action } from "@core/app/routes/order-detail";
 import * as composition from "@core/src/features/orders/composition";
@@ -37,4 +38,13 @@ test("uses session access and the default unresolved cost capability", async () 
 test.each([["DELIVERY_LOCKED", "locked"], ["ORDER_CANCELLED", "locked"], ["DELIVERY_METHOD_DISABLED", "disabled"], ["INSUFFICIENT_STOCK", "stockError"], ["COURIER_UNAVAILABLE", "courierUnavailable"]] as const)("maps %s to a recoverable message", async (code, message) => {
   vi.spyOn(composition, "setConfiguredOrderDelivery").mockResolvedValue({ success: false, error: { code, message: "Internal detail" } });
   expect(await save(input)).toEqual({ error: message });
+});
+
+
+test("unexpected action failures have one safe bounded server context and no success reply", async () => {
+  vi.spyOn(composition, "setConfiguredOrderDelivery").mockRejectedValue(new Error("Private detail"));
+  const failure = vi.spyOn(log, "error").mockImplementation(() => {});
+  expect(await save(input)).toEqual({ error: "saveError" });
+  expect(failure).toHaveBeenCalledOnce();
+  expect(failure.mock.calls[0][0]).toMatchObject({ event: "order_delivery_request_failed", entryPoint: "web_action", operation: "set_order_delivery", orderId, userId: access.user.id, errorCode: "INTERNAL_ERROR" });
 });

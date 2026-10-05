@@ -49,7 +49,7 @@ export async function action({ params, request, context }: ActionFunctionArgs) {
       : result.error.code === "INSUFFICIENT_STOCK" ? "stockError" as const
       : result.error.code === "INVALID_ORDER" ? "invalid" as const : "saveError" as const };
   } catch (cause) {
-    log.error({ event: "order_delivery_request_failed", operation: "set_order_delivery", entryPoint: "web", orderId: id.data,
+    log.error({ event: "order_delivery_request_failed", operation: "set_order_delivery", entryPoint: "web_action", orderId: id.data,
       userId: access.user.id, errorCode: "INTERNAL_ERROR", err: cause }, "Unable to handle order delivery request");
     return { error: "saveError" as const };
   }
