@@ -85,10 +85,41 @@ test("store assignment preserves unavailable delivery, freezes its point and ato
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
     await page.screenshot({ path: "../../.impeccable/review/store-order-mobile.png", fullPage: true });
+    expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 2, home: { enabled: true },
+      store: { enabled: true, pickupPoint: { name: "Tienda nueva", address: "Av. Nueva 456", instructions: null } } } })).ok()).toBe(true);
+    await page.reload();
+    await page.getByLabel("Modalidad de entrega").selectOption("home");
+    await page.getByLabel("Dirección de entrega", { exact: true }).fill("Calle Destino 789");
+    await page.getByRole("button", { name: "Guardar entrega" }).click();
+    expect(await page.getByLabel("Distrito", { exact: true }).evaluate(element => (element as HTMLInputElement).validity.valueMissing)).toBe(true);
+    expect((await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json()).delivery.method).toBe("store");
+    await page.getByLabel("Distrito", { exact: true }).fill("Miraflores");
+    await page.getByLabel("Nombre del destinatario").fill("Unavailable");
+    await saveDelivery();
+    await browserExpect(page.getByRole("alert")).toContainText("No se pudo confirmar");
+    await browserExpect(page.getByLabel("Dirección de entrega", { exact: true })).toHaveValue("Calle Destino 789");
+    await page.getByLabel("Nombre del destinatario").fill("Ana");
+    await page.getByLabel("Indicaciones de entrega (opcional)").fill("Puerta verde");
+    await saveDelivery();
+    const home = await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json();
+    expect(home).toMatchObject({ delivery: { method: "home", destination: { address: "Calle Destino 789", district: "Miraflores", instructions: "Puerta verde" },
+      recordedBy: { kind: "seller", userId: editor.id } }, total: { amount: 20 }, deliveryCost: { amount: 3 }, deliveryCharge: { amount: 0 }, stockDeducted: true });
+    expect(home.delivery).not.toHaveProperty("pickupPoint");
+    await page.reload();
+    await browserExpect(page.getByText("Calle Destino 789", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Miraflores", { exact: true })).toBeVisible();
+    await page.goto(`/pt-BR/orders/${orderId}`);
+    await browserExpect(page.getByLabel("Endereço de entrega", { exact: true })).toHaveValue("Calle Destino 789");
+    await page.goto(`/es-PE/orders/${orderId}`);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.screenshot({ path: "../../.impeccable/review/home-order-desktop.png", fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: "../../.impeccable/review/home-order-mobile.png", fullPage: true });
     expect((await page.request.post(`/api/orders/${orderId}/ship`)).ok()).toBe(true);
     await page.reload();
     await browserExpect(page.getByRole("button", { name: "Guardar entrega" })).toHaveCount(0);
-    await browserExpect(page.getByText("Av. Nueva 456", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Calle Destino 789", { exact: true })).toBeVisible();
     await browserExpect(page.getByText(/La entrega no se puede cambiar/)).toBeVisible();
   } finally {
     if (companyId) await withTenantIsolation(companyId, async () => {

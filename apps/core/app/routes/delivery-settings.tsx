@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useClientReady } from "@core/app/use-client-ready";
 import { useTranslation } from "react-i18next";
 import { useActionData, useLoaderData, useNavigation, useSubmit, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
 import { deliverySettingsSchema, saveDeliverySettingsSchema, type DeliverySettingsResponse } from "@shared/contracts/delivery-settings";
@@ -41,6 +42,7 @@ export async function action({ context, request }: ActionFunctionArgs) {
 function SettingsForm({ settings }: { settings: DeliverySettingsResponse }) {
   const { t } = useTranslation();
   const submit = useSubmit();
+  const ready = useClientReady();
   const navigation = useNavigation();
   const result = useActionData<typeof action>();
   const [version, setVersion] = useState(settings.version);
@@ -64,10 +66,11 @@ function SettingsForm({ settings }: { settings: DeliverySettingsResponse }) {
   const configured = enabled || [name, address, instructions].some(value => value.trim() !== "");
   return <form className="flex flex-col gap-6" onSubmit={event => {
     event.preventDefault();
+    if (!ready) return;
     submit({ expectedVersion: version, home: { enabled: homeEnabled }, store: { enabled, pickupPoint: configured
       ? { name, address, instructions: instructions.trim() || null } : null } }, { method: "post", encType: "application/json" });
   }}>
-    <fieldset className="flex min-w-0 flex-col gap-4" disabled={pending}>
+    <fieldset className="flex min-w-0 flex-col gap-4" disabled={pending || !ready}>
       <legend className="mb-3 text-lg font-semibold">{t("deliverySettings.store")}</legend>
       <label className="flex min-h-touch items-center gap-3"><input type="checkbox" checked={enabled} onChange={event => setEnabled(event.target.checked)} />{t("deliverySettings.enabled")}</label>
       <p className="text-sm text-muted-foreground">{t("deliverySettings.storeHint")}</p>
@@ -75,13 +78,13 @@ function SettingsForm({ settings }: { settings: DeliverySettingsResponse }) {
       <Field><FieldLabel htmlFor="pickup-address">{t("deliverySettings.address")}</FieldLabel><Input id="pickup-address" value={address} maxLength={500} required={configured} onChange={event => setAddress(event.target.value)} /></Field>
       <Field><FieldLabel htmlFor="pickup-instructions">{t("deliverySettings.instructions")}</FieldLabel><Input id="pickup-instructions" value={instructions} maxLength={1000} onChange={event => setInstructions(event.target.value)} /></Field>
     </fieldset>
-    <fieldset className="flex min-w-0 flex-col gap-4" disabled={pending}>
+    <fieldset className="flex min-w-0 flex-col gap-4" disabled={pending || !ready}>
       <legend className="mb-3 text-lg font-semibold">{t("deliverySettings.home")}</legend>
       <label className="flex min-h-touch items-center gap-3"><input type="checkbox" checked={homeEnabled} onChange={event => setHomeEnabled(event.target.checked)} />{t("deliverySettings.homeEnabled")}</label>
     </fieldset>
     {result?.error && <p role="alert" className="text-sm text-destructive">{t(`deliverySettings.${result.error}`)}</p>}
     {result?.saved && <p role="status">{t("deliverySettings.saved")}</p>}
-    <div className="flex flex-wrap gap-3"><Button type="submit" disabled={pending || Boolean(conflict)}>{t(pending ? "deliverySettings.saving" : "deliverySettings.save")}</Button>
+    <div className="flex flex-wrap gap-3"><Button type="submit" disabled={pending || !ready || Boolean(conflict)}>{t(pending ? "deliverySettings.saving" : "deliverySettings.save")}</Button>
       {conflict && <Button asChild variant="outline"><a href="">{t("deliverySettings.reload")}</a></Button>}</div>
   </form>;
 }
