@@ -48,7 +48,7 @@ export default function OrderDetailScreen() {
 
   if (state.status !== "ready") return null;
   if (loading) return <ScreenState status="loading" title={t('loadingOrder')} />;
-  if (!order) return <ScreenState status="error" title={t('openOrderError')} description={error} onRetry={() => void reload()} />;
+  if (!order || error) return <ScreenState status="error" title={t('openOrderError')} description={error} onRetry={() => void reload()} />;
 
   const original = notice?.id === order.id ? notice.shownTotal : null;
   const difference = original?.currency === order.total.currency ? subtract(original)(order.total) : null;
@@ -86,7 +86,15 @@ export default function OrderDetailScreen() {
         {order.delivery.recipient.identity.kind === "document" ? <ThemedText>
           {documentTypeLabel(order.delivery.recipient.identity.documentType, language)}: {order.delivery.recipient.identity.document}
         </ThemedText> : null}
-      </View> : null}
+        {order.delivery.method === "store" ? <>
+          <ThemedText>{order.delivery.pickupPoint.name}</ThemedText><ThemedText>{order.delivery.pickupPoint.address}</ThemedText>
+          {order.delivery.pickupPoint.instructions ? <ThemedText themeColor="textSecondary">{order.delivery.pickupPoint.instructions}</ThemedText> : null}
+        </> : null}
+        <ThemedText>{t("orderDeliveryCost", { amount: money(order.deliveryCost.amount, order.deliveryCost.currency, locale) })}</ThemedText>
+        <ThemedText>{t("orderDeliveryCharge", { amount: money(order.deliveryCharge.amount, order.deliveryCharge.currency, locale) })}</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary">{order.delivery.recordedBy.kind === "seller" ? t("orderDeliverySeller", { id: order.delivery.recordedBy.userId }) : t("orderDeliveryBuyer")}</ThemedText>
+      </View> : order.status === "active" && order.deliveryStatus === "pending" && !order.cancelled ? <ThemedText>{t("orderDeliveryUndefined")}</ThemedText> : null}
+      {order.status === "active" && order.deliveryStatus === "pending" && !order.cancelled ? <Button variant="secondary" onPress={() => router.push({ pathname: "/orders/delivery", params: { id: order.id } })}>{t(order.delivery ? "replaceOrderDelivery" : "assignOrderDelivery")}</Button> : null}
       <View style={styles.section}><ThemedText type="subtitle" accessibilityRole="header">{t('items')}</ThemedText>
         {order.items.map((item) => <View key={item.id} style={styles.item}>
           <ThemedText type="smallBold">{item.productName}</ThemedText>

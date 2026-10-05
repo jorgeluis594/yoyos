@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react-native";
+import { act, fireEvent, render } from "@testing-library/react-native";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import OrderDetailScreen from "@mobile/features/orders/presentation/order-detail-screen";
 import i18n from "@mobile/i18n";
@@ -7,6 +7,9 @@ const mockId = "00000000-0000-4000-8000-000000000003";
 let mockNotice: { id: string; shownTotal: { amount: number; currency: string } } | null = null;
 let mockCountry = "PE";
 const mockClear = jest.fn();
+const mockPush = jest.fn();
+let mockFocus: () => void;
+let mockLoadFailed = false;
 const initialOrder: OrderAggregateResponse = { id: mockId, companyId: "00000000-0000-4000-8000-000000000001", sellerId: "seller",
   customer: { kind: "general_public" }, createdAt: "2026-09-29T11:00:00.000Z", completedAt: "2026-09-29T12:00:00.000Z",
   status: "completed", paymentStatus: "paid", paidAmount: { amount: 12, currency: "PEN" },
@@ -19,13 +22,13 @@ const initialOrder: OrderAggregateResponse = { id: mockId, companyId: "00000000-
     productName: "Camisa", variantAttributes: { Talla: "M" }, sku: null, quantity: 1,
     unitPrice: { amount: 12, currency: "PEN" }, subtotal: { amount: 12, currency: "PEN" } }] };
 let mockOrder = initialOrder;
-beforeEach(() => { mockOrder = initialOrder; mockNotice = null; mockCountry = "PE"; });
+beforeEach(() => { mockOrder = initialOrder; mockNotice = null; mockCountry = "PE"; mockPush.mockReset(); mockLoadFailed = false; });
 
-jest.mock("expo-router", () => ({ useRouter: () => ({ back: jest.fn() }),
+jest.mock("expo-router", () => ({ useRouter: () => ({ back: jest.fn(), push: mockPush }),
   useLocalSearchParams: () => ({ id: mockId }),
-  useFocusEffect: (callback: () => void) => jest.requireActual("react").useEffect(callback, [callback]) }));
+  useFocusEffect: (callback: () => void) => { mockFocus = callback; jest.requireActual("react").useEffect(callback, [callback]); } }));
 jest.mock("@mobile/features/orders/composition", () => ({ orders: {
-  loadOrderAggregate: async () => ({ success: true, data: mockOrder }),
+  loadOrderAggregate: async () => mockLoadFailed ? ({ success: false, error: { code: "NETWORK_ERROR" } }) : ({ success: true, data: mockOrder }),
   clearPendingOrderConfirmation: async () => ({ success: true, data: undefined }),
 } }));
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAccess: () => ({ state: {
@@ -77,4 +80,45 @@ test('order detail translates amounts and labels to Portuguese', async () => {
   } finally {
     await i18n.changeLanguage('es');
   }
+});
+
+ test("pending details open assignment, while immediate sales keep null delivery presentation", async () => {
+  mockOrder = { ...initialOrder, status: "active", completedAt: null, deliveryStatus: "pending" };
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Entrega por definir");
+  fireEvent.press(screen.getByText("Asignar entrega"));
+  expect(mockPush).toHaveBeenCalledWith({ pathname: "/orders/delivery", params: { id: mockId } });
+  screen.unmount(); mockOrder = initialOrder;
+  const completed = render(<OrderDetailScreen />);
+  await completed.findByText("Venta completada");
+  expect(completed.queryByText("Entrega por definir")).toBeNull();
+  expect(completed.queryByText("Asignar entrega")).toBeNull();
+ });
+ test("saved pickup detail shows historic destination, author and absorbed delivery cost", async () => {
+  mockOrder = { ...initialOrder, status: "active", completedAt: null, deliveryStatus: "pending", deliveryCost: { amount: 3, currency: "PEN" },
+    delivery: { method: "store", recipient: { name: "Recipient", phone: "555", identity: { kind: "absent" } }, pickupPoint: { name: "Historic store", address: "Historic address", instructions: "Historic instructions" }, recordedBy: { kind: "seller", userId: "second-seller" } } };
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Historic address");
+  expect(screen.getByText("Historic instructions")).toBeTruthy();
+  expect(screen.getByText(/Registrada por vendedor: second-seller/)).toBeTruthy();
+  expect(screen.getByText(/Costo de entrega:/)).toBeTruthy();
+  expect(screen.getByText(/Cargo al cliente:/)).toBeTruthy();
+  expect(screen.getByText("Editar entrega")).toBeTruthy();
+ });
+ test.each(["shipped", "delivered"] as const)("%s details hide assignment", async deliveryStatus => {
+   mockOrder = { ...initialOrder, status: "active", deliveryStatus };
+   const screen = render(<OrderDetailScreen />); await screen.findByText("Orden activa");
+   expect(screen.queryByText("Asignar entrega")).toBeNull();
+ });
+
+test("a failed refetch after returning hides obsolete details and offers retry", async () => {
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Venta completada");
+  mockLoadFailed = true;
+  await act(async () => { mockFocus(); });
+  await screen.findByText("No se pudo abrir la venta");
+  expect(screen.queryByText("Venta completada")).toBeNull();
+  mockLoadFailed = false;
+  fireEvent.press(screen.getByText("Reintentar"));
+  await screen.findByText("Venta completada");
 });
