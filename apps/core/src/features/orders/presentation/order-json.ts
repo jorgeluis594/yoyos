@@ -16,7 +16,7 @@ export function toOrderAggregateJson(order: OrderAggregate) {
   const lifecycle = orderStateMachine.getLifecycle(order);
   const payment = orderStateMachine.getPaymentSummary(order);
   if (!lifecycle.success || !payment.success) throw new Error("Invalid order aggregate response");
-  return orderAggregateSchema.parse({ ...order, createdAt: order.createdAt.toISOString(),
+  return orderAggregateSchema.parse({ ...order, createdAt: order.createdAt.toISOString(), deliveredAt: order.deliveredAt?.toISOString() ?? null,
     completedAt: order.completedAt?.toISOString() ?? null, status: lifecycle.data.status,
     paymentStatus: payment.data.status, paidAmount: payment.data.paidAmount,
     balanceDue: payment.data.balanceDue, overpaidAmount: payment.data.overpaidAmount,
@@ -25,8 +25,8 @@ export function toOrderAggregateJson(order: OrderAggregate) {
 
 export function toOrderAggregateListJson(page: AggregatePage) {
   return listOrderAggregatesResponseSchema.parse({ ...page, items: page.items.map((item) => {
-    const { id, createdAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, customer, sellerId, total } = toOrderAggregateJson(item);
-    return orderAggregateSummarySchema.parse({ id, createdAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, customer, sellerId, total });
+    const { id, createdAt, deliveredAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, customer, sellerId, total } = toOrderAggregateJson(item);
+    return orderAggregateSummarySchema.parse({ id, createdAt, deliveredAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, customer, sellerId, total });
   }) });
 }
 

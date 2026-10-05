@@ -277,6 +277,7 @@ model Order {
   stockDeducted Boolean @default(false)
   cancelled Boolean @default(false)
   createdAt DateTime
+  deliveredAt DateTime?
   completedAt DateTime?
   items OrderItem[]
   payments Payment[]

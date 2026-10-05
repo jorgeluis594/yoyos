@@ -40,7 +40,7 @@ function mapAggregate(row: DbAggregate): OrderAggregate {
   });
   const order: OrderAggregate = { id: row.id as OrderId, companyId: row.companyId as CompanyId, sellerId: row.sellerId as UserId,
     customer: row.contactId ? { kind: "contact", contactId: row.contactId as ContactId, name: row.contactName, phone: row.contactPhone! } : { kind: "general_public" },
-    createdAt: row.createdAt, completedAt: row.completedAt, cancelled: row.cancelled, items, payments,
+    createdAt: row.createdAt, deliveredAt: row.deliveredAt, completedAt: row.completedAt, cancelled: row.cancelled, items, payments,
     delivery: delivery === null ? null : delivery.data, deliveryStatus: row.deliveryStatus, stockDeducted: row.stockDeducted,
     itemsTotal: { amount: row.itemsTotal.toNumber(), currency: row.currency },
     deliveryCost: { amount: row.deliveryCost.toNumber(), currency: row.currency },
@@ -67,7 +67,7 @@ export async function savePendingOrder(order: OrderAggregate) {
       deliveryCharge: new Prisma.Decimal(order.deliveryCharge.amount.toString()),
       delivery: Prisma.JsonNull,
       deliveryStatus: order.deliveryStatus, stockDeducted: order.stockDeducted, cancelled: order.cancelled,
-      createdAt: order.createdAt, completedAt: order.completedAt,
+      createdAt: order.createdAt, deliveredAt: order.deliveredAt, completedAt: order.completedAt,
       items: { create: order.items.map((item) => ({ id: item.id, variantId: item.variantId, productName: item.productName,
         variantAttributes: item.variantAttributes as Prisma.InputJsonObject, sku: item.sku, quantity: BigInt(item.quantity),
         unitPrice: new Prisma.Decimal(item.unitPrice.amount.toString()), subtotal: new Prisma.Decimal(item.subtotal.amount.toString()) })) },
@@ -146,12 +146,12 @@ export async function savePayment(payment: Payment, companyId: CompanyId) {
   }
 }
 
-export async function saveFulfillment(id: OrderId, companyId: CompanyId, change: Pick<OrderAggregate, "deliveryStatus" | "completedAt">) {
+export async function saveFulfillment(id: OrderId, companyId: CompanyId, change: Pick<OrderAggregate, "deliveryStatus" | "deliveredAt" | "completedAt">) {
   requireActiveTransaction(companyId);
   try {
     const updated = await prisma.order.updateMany({ where: { id, companyId, cancelled: false, stockDeducted: true,
       deliveryStatus: change.deliveryStatus === "shipped" ? "pending" : { in: ["pending", "shipped"] } },
-    data: { deliveryStatus: change.deliveryStatus, completedAt: change.completedAt } });
+    data: { deliveryStatus: change.deliveryStatus, deliveredAt: change.deliveredAt, completedAt: change.completedAt } });
     if (updated.count !== 1) throw new Error("Locked order was not available for fulfillment");
     return ok<null>(null);
   } catch (cause) {

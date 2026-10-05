@@ -285,7 +285,7 @@ test("ships and completes only a paid order with deducted stock", async () => {
       expect(await orders.deliver(orderId, context)).toMatchObject({ success: true,
         data: { deliveryStatus: "delivered", completedAt: expect.any(Date) } });
       const saved = await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { payments: true } });
-      expect(saved).toMatchObject({ deliveryStatus: "delivered", completedAt: expect.any(Date), payments: [{ orderId }] });
+      expect(saved).toMatchObject({ deliveryStatus: "delivered", deliveredAt: expect.any(Date), completedAt: expect.any(Date), payments: [{ orderId }] });
       expect(await orders.deliver(orderId, context)).toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
     });
   } finally { await f.cleanup(); }

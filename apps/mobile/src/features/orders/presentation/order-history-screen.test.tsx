@@ -62,7 +62,7 @@ test("history translates empty state and filters to Portuguese", async () => {
 
 test("history moves between pages and opens the selected detail", async () => {
   const summary = (number: number) => ({ id: `00000000-0000-4000-8000-${String(number).padStart(12, "0")}`,
-    customer: { kind: "general_public" }, createdAt: "2026-09-28T12:00:00.000Z", completedAt: null,
+    customer: { kind: "general_public" }, createdAt: "2026-09-28T12:00:00.000Z", deliveredAt: null, completedAt: null,
     status: "active", paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false,
     total: { amount: number, currency: "PEN" } });
   mockLoadOrders.mockImplementation(async ({ page }: { page: number }) => ok({
@@ -97,7 +97,7 @@ test.each(["success", "error"])("history ignores a replaced request's %s before 
   fireEvent.press(screen.getByRole("button", { name: "Aplicar filtros" }));
   const stale: ListResult = outcome === "error" ? err({ code: "NETWORK_ERROR", message: "Offline" }) : ok({
     items: [{ id: "old", sellerId: "seller", customer: { kind: "contact", contactId: "contact", name: "Venta anterior", phone: "999999999" },
-      createdAt: "2026-09-28T12:00:00.000Z", completedAt: null, status: "active", paymentStatus: "pending",
+      createdAt: "2026-09-28T12:00:00.000Z", deliveredAt: null, completedAt: null, status: "active", paymentStatus: "pending",
       deliveryStatus: "pending", stockDeducted: false, total: { amount: 10, currency: "PEN" } }], page: 1, pageSize: 20, total: 80,
   });
   await act(async () => { requests[0](stale); });
@@ -106,7 +106,7 @@ test.each(["success", "error"])("history ignores a replaced request's %s before 
   fireEvent.press(screen.getByRole("button", { name: "Aplicar filtros" }));
   await act(async () => { requests[2](ok({
     items: [{ id: "latest", sellerId: "seller", customer: { kind: "general_public" }, createdAt: "2026-09-29T12:00:00.000Z",
-      completedAt: null, status: "active", paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false,
+      deliveredAt: null, completedAt: null, status: "active", paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false,
       total: { amount: 20, currency: "PEN" } }],
     page: 1, pageSize: 20, total: 1,
   })); });

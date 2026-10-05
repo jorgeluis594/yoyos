@@ -22,6 +22,7 @@ export type OrderAggregate = Readonly<{
   sellerId: UserId;
   customer: OrderCustomer;
   createdAt: Date;
+  deliveredAt: Date | null;
   completedAt: Date | null;
   cancelled: boolean;
   items: readonly [OrderItem, ...OrderItem[]];
@@ -55,7 +56,7 @@ export function buildPendingOrder(input: BuildPendingOrderInput): Result<OrderAg
   const zero: Money = { amount: 0, currency: snapshot.total.currency };
   return ok({ id: snapshot.id, companyId: snapshot.companyId, sellerId: snapshot.sellerId,
     customer: snapshot.customer, items: snapshot.items, total: snapshot.total,
-    createdAt: new Date(input.createdAt), completedAt: null, cancelled: false,
+    createdAt: new Date(input.createdAt), deliveredAt: null, completedAt: null, cancelled: false,
     payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false,
     itemsTotal: snapshot.total, deliveryCost: zero, deliveryCharge: zero });
 }
@@ -117,8 +118,10 @@ function paymentSummary(order: OrderAggregate): Result<PaymentSummary, OrderDoma
 function lifecycle(order: OrderAggregate): Result<OrderLifecycle, OrderDomainError> {
   const summary = paymentSummary(order);
   if (!summary.success) return summary;
-  if (!validDate(order.createdAt) || (order.completedAt !== null && !validDate(order.completedAt)) ||
+  if (!validDate(order.createdAt) || (order.deliveredAt !== null && !validDate(order.deliveredAt)) ||
+    (order.completedAt !== null && !validDate(order.completedAt)) ||
     (order.deliveryStatus !== "pending" && order.deliveryStatus !== "shipped" && order.deliveryStatus !== "delivered") ||
+    ((order.deliveryStatus === "delivered") !== (order.deliveredAt !== null)) ||
     ((order.deliveryStatus === "shipped" || order.deliveryStatus === "delivered") && (!order.stockDeducted || summary.data.status !== "paid"))) return failure("INVALID_ORDER", "Invalid order state");
   if (order.cancelled) return order.completedAt === null ? ok({ status: "cancelled", completedAt: null }) : failure("INVALID_ORDER", "Cancelled order has completion date");
   if (order.deliveryStatus === "delivered") return order.completedAt ? ok({ status: "completed", completedAt: order.completedAt }) : failure("INVALID_ORDER", "Completed order lacks date");
@@ -189,7 +192,7 @@ function registerDelivery(order: OrderAggregate, completedAt: Date): Result<Orde
   if (!allowed.success) return allowed;
   if (!validDate(completedAt)) return failure("INVALID_TRANSITION", "Invalid completion date");
   return order.deliveryStatus === "pending" || order.deliveryStatus === "shipped"
-    ? ok({ ...order, deliveryStatus: "delivered", completedAt: new Date(completedAt) })
+    ? ok({ ...order, deliveryStatus: "delivered", deliveredAt: new Date(completedAt), completedAt: new Date(completedAt) })
     : failure("INVALID_TRANSITION", "Delivery is already completed");
 }
 

@@ -77,6 +77,8 @@ test("migrates historical sales to paid delivered orders without changing stock"
     expect((await isolated.query('SELECT "quantity" FROM "ProductStock" WHERE "variantId" = $1', [variant])).rows[0].quantity).toBe("7");
 
     await isolated.query(await readFile(`${migrations}20261005060015_company_payment_settings/migration.sql`, "utf8"));
+    await isolated.query(await readFile(`${migrations}20261005060921_order_delivery_timestamp/migration.sql`, "utf8"));
+    expect((await isolated.query('SELECT "deliveredAt" FROM "Order" WHERE "id" = $1', [order])).rows[0].deliveredAt).toEqual(completedAt);
 
     execFileSync("psql", [isolatedAdminUrl.toString(), "-v", "ON_ERROR_STOP=1", "-v", "app_password=core_app_local", "-v", `dbname=${database}`, "-f", provision]);
     app = new pg.Client({ connectionString: isolatedAppUrl.toString() });

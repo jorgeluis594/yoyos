@@ -11,7 +11,7 @@ export type RegisterImmediateSaleDependencies = Omit<CreateOrderDependencies, "t
   savePayment: (payment: Payment, companyId: CompanyId) => Promise<Result<null, RegisterImmediateSaleError>>;
   deductProductStock: (variantId: VariantId, quantity: PositiveInteger) => Promise<Result<null, RegisterImmediateSaleError>>;
   saveStockDeduction: (id: OrderId, companyId: CompanyId) => Promise<Result<null, RegisterImmediateSaleError>>;
-  saveFulfillment: (id: OrderId, companyId: CompanyId, change: Pick<OrderAggregate, "deliveryStatus" | "completedAt">) => Promise<Result<null, RegisterImmediateSaleError>>;
+  saveFulfillment: (id: OrderId, companyId: CompanyId, change: Pick<OrderAggregate, "deliveryStatus" | "deliveredAt" | "completedAt">) => Promise<Result<null, RegisterImmediateSaleError>>;
   newPaymentId: () => PaymentId;
 }>;
 

@@ -34,7 +34,7 @@ test("order API reads mixed summaries and validates complete aggregate states", 
   const total = { amount: 10, currency: "PEN" as const };
   const zero = { amount: 0, currency: "PEN" as const };
   const summary = { id: id(1), customer: { kind: "general_public" }, sellerId: "seller",
-    createdAt: "2026-09-29T12:00:00.000Z", completedAt: null, status: "active", paymentStatus: "pending",
+    createdAt: "2026-09-29T12:00:00.000Z", deliveredAt: null, completedAt: null, status: "active", paymentStatus: "pending",
     deliveryStatus: "pending", stockDeducted: false, total };
   const order = { ...summary, companyId: id(2), paidAmount: zero, balanceDue: total, overpaidAmount: zero,
     cancelled: false, delivery: null, payments: [], itemsTotal: total, deliveryCost: zero, deliveryCharge: zero,

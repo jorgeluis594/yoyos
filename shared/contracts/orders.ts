@@ -39,7 +39,7 @@ export const deliveryDetailsSchema = z.discriminatedUnion("method", [
 ]);
 export const paymentSchema = z.strictObject({ id: z.uuid(), orderId: z.uuid(), amount: moneySchema, method: z.literal("digital_wallet"), recordedAt: z.iso.datetime() });
 export const orderAggregateSchema = z.strictObject({ id: z.uuid(), companyId: z.uuid(), sellerId: z.string(), customer: orderCustomerSchema,
-  createdAt: z.iso.datetime(), completedAt: z.iso.datetime().nullable(), status: z.enum(["active", "cancelled", "completed"]),
+  createdAt: z.iso.datetime(), deliveredAt: z.iso.datetime().nullable(), completedAt: z.iso.datetime().nullable(), status: z.enum(["active", "cancelled", "completed"]),
   paymentStatus: z.enum(["pending", "paid"]), paidAmount: moneySchema, balanceDue: moneySchema, overpaidAmount: moneySchema,
   cancelled: z.boolean(), delivery: deliveryDetailsSchema.nullable(), deliveryStatus: z.enum(["pending", "shipped", "delivered"]),
   stockDeducted: z.boolean(), items: z.array(z.strictObject({ id: z.uuid(), variantId: z.uuid(), productName: z.string(),
@@ -59,7 +59,7 @@ export const listOrderAggregatesSchema = z.strictObject({
     new Date(value.createdFrom).getTime() < new Date(value.createdBefore).getTime(),
     { message: "Invalid date interval", path: ["createdBefore"] });
 export type ListOrderAggregatesRequest = z.infer<typeof listOrderAggregatesSchema>;
-export const orderAggregateSummarySchema = orderAggregateSchema.pick({ id: true, createdAt: true, completedAt: true, status: true,
+export const orderAggregateSummarySchema = orderAggregateSchema.pick({ id: true, createdAt: true, deliveredAt: true, completedAt: true, status: true,
   paymentStatus: true, deliveryStatus: true, stockDeducted: true, customer: true, sellerId: true, total: true });
 export const listOrderAggregatesResponseSchema = z.strictObject({ items: z.array(orderAggregateSummarySchema),
   page: z.number().int().positive(), pageSize: z.literal(20), total: z.number().int().nonnegative() });
