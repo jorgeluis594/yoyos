@@ -46,6 +46,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@babel/plugin-transform-react-jsx": "7.29.7",
     "@storybook/react-native-web-vite": "^10.6.0",
     "@testing-library/react-native": "^13.3.3",
     "@types/jest": "^29.5.14",
