@@ -1,6 +1,6 @@
 # Modalidades de entrega: evidencia de implementación
 
-Revisión del 5 de octubre de 2026. Los tres incrementos están implementados en servidor, web y móvil. La aceptación completa sigue pendiente de ejecutar los recorridos nativos y revisar sus capturas. Las pruebas de pantalla y del adaptador móvil no se cuentan como E2E nativos.
+Revisión del 6 de octubre de 2026. Los tres incrementos están implementados en servidor, web y móvil. La aceptación completa sigue pendiente de ejecutar los recorridos nativos y revisar sus capturas. Las pruebas de pantalla y del adaptador móvil no se cuentan como E2E nativos.
 
 La configuración funciona sin tarifas. La composición normal rechaza la asignación con `DELIVERY_UNAVAILABLE`; los recorridos de asignación que confirman una entrega sustituyen exclusivamente la capacidad de costo. No se habilita esa sustitución mediante una petición pública.
 
@@ -99,7 +99,7 @@ Los [contratos estáticos](../apps/core/src/features/orders/domain/type-contract
 
 | ID | Web | Móvil nativo |
 | --- | --- | --- |
-| E01 | Web Config: guardar/reabrir tienda y retener punto deshabilitado sin tarifas. | Pendiente. |
+| E01 | Web Config: guardar/reabrir tienda y retener punto deshabilitado sin tarifas. | Android: navegación real, habilitar/guardar/reabrir y deshabilitar/guardar/reabrir comprobados. Base real confirmó versiones 1/2 y punto retenido. Falta comprobar exclusión en selector de pedido y repetir con composición normal; iOS pendiente. |
 | E02 | Web Tienda y Web Ventas: pedido pendiente, destinatario diferente, guardar/reabrir con costo controlado. | Pendiente. |
 | E03 | Web Tienda: punto histórico, edición explícita y segundo vendedor. | Pendiente. |
 | E04 | Web Agencia: enviado/entregado/cancelado; Web Ventas: venta inmediata nula sin pendiente ni editor. | Pendiente. |
@@ -124,6 +124,8 @@ Las capturas web revisadas están en [.impeccable/review](../.impeccable/review/
 
 Se ejecutaron los comandos configurados de core (`lint`, `typecheck`, `test:unit`, `test:integration`, `test:e2e`) y móvil (`lint`, `typecheck`, `test --runInBand`). Cada commit de implementación se creó después de sus checks afectados. La suite web completa pasó con 21 tests; las ampliaciones posteriores de estados cerrados pasaron en la suite focalizada. La suite móvil completa pasó tras incorporar agencia y sus pruebas de pantalla. Lint móvil conserva tres warnings previos y cero errores.
 
-El entorno observado es macOS ARM64. Se instalaron Java 21 mediante mise y las herramientas de línea de comandos Android en `~/Library/Android/sdk/cmdline-tools/latest`, sin modificar la configuración del repositorio. La instalación del emulador/imagen Android está detenida en la solicitud de aceptación de las licencias de Google, cuya autorización se pidió al usuario. No hay dispositivo conectado ni AVD preparado; `xcrun simctl` no está disponible con las Command Line Tools actuales. No se ejecutó ningún E2E nativo.
+El entorno observado es macOS ARM64. El 6/10/2026 se conectó un Samsung SM-A566E autorizado por ADB, Android API 36, con Expo Go 57.0.9. Metro ejecuta la app SDK 57; el dispositivo accede al backend aislado en puerto 4173 mediante `adb reverse`. El backend usa la composición E2E de costo controlado y `NODE_ENV=development`, que habilita el origen de Expo Go según la configuración existente. No se cambió código para permitir el acceso.
 
-Para continuar, hace falta la autorización de licencia y completar el emulador Android; la verificación iOS necesita Xcode/simulador o dispositivo compatible. Los recorridos E05/E11 requieren ambos clientes autenticados contra el mismo negocio. Preparar esos entornos, ejecutar E01–E12 por plataforma y recapturar las superficies sigue siendo trabajo pendiente, no una aprobación implícita ni una sustitución por viewport móvil de Chromium.
+Se inició sesión desde los controles reales con una cuenta de prueba verificada y se creó `NativeDeliveryReview` desde el formulario nativo. Desde la pestaña Configuración se guardó `NativeStore` / `Av. Prueba 123`, se volvió desde Inicio y se verificaron los campos persistidos. Tras deshabilitar y guardar, una consulta a la base aislada confirmó versión 2, `storeEnabled=false` y ambos datos retenidos; al volver a Configuración, el interruptor permaneció desactivado. Las capturas [tienda activa](../.impeccable/review/android-store-settings-dark.png) y [tienda desactivada](../.impeccable/review/android-store-disabled-dark.png) provienen de `adb screencap` y se inspeccionaron. Solo acreditan esos estados Android en apariencia oscura; no constituyen aprobación visual completa ni prueban los recorridos de pedidos.
+
+La instalación del emulador/imagen Android sigue sin completar por las licencias de Google; el celular permite continuar sin esa instalación. La verificación iOS necesita Xcode/simulador o dispositivo compatible: `xcrun simctl` no está disponible con las Command Line Tools actuales. Continúan pendientes los recorridos de pedidos Android, E05/E11 contra el mismo negocio, E12 con composición normal, las variantes visuales y los recorridos iOS. Las pruebas de pantalla y del adaptador no sustituyen esas ejecuciones.
