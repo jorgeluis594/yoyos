@@ -5,7 +5,7 @@ import { useState } from "react";
 import { cn } from "cn";
 import { z } from "zod";
 import { Form, isRouteErrorResponse, Link, useLoaderData, useLocation, type LoaderFunctionArgs } from "react-router";
-import { ArrowRight, Check, Clock, Coins, SlidersHorizontal, Truck } from "lucide-react";
+import { BadgeDollarSign, Check, CircleCheck, CircleX, Coins, PackageCheck, Send, SlidersHorizontal, Truck } from "lucide-react";
 import { listOrderAggregatesSchema, orderListLoaderSchema, orderContactsSchema } from "@shared/contracts/orders";
 import { limaMidnightUtc } from "@shared/orders-date";
 import { privateUserContext } from "@core/app/private-user-context";
@@ -61,21 +61,20 @@ export default function OrderList() {
   const { list, filters, contacts, base } = useLoaderData<typeof loader>();
   const { search } = useLocation();
   type Sale = (typeof list.items)[number];
-  const badge = "inline-flex items-center gap-1 rounded-[var(--radius-badge)] px-2 py-1 text-xs font-medium";
   const columns: TableColumn<Sale>[] = [
-    { id: "customer", header: t("orders.customer"), mobile: "title", cell: (item) => <div className="flex flex-col gap-1">
-      <div className="flex flex-wrap items-center gap-2">
+    { id: "customer", header: t("orders.customer"), mobile: "title", cell: (item) => <div className="flex items-start justify-between gap-4">
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
         <Link to={`${base}/${item.id}`} className="font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">{item.buyer !== null ? item.buyer.name ?? item.buyer.phone : t("orders.generalPublic")}</Link>
-        {item.status !== "active" && <span className={cn(badge, item.status === "completed" ? "bg-[var(--success-surface)] text-[var(--success)]" : "bg-muted text-muted-foreground")}>{t(`orders.listStatus.${item.status}`)}</span>}
+        <span className="text-xs font-normal text-muted-foreground">{t("orders.orderNumber", { number: item.number })}</span>
+        {item.buyer?.name && <span className="text-xs font-normal text-muted-foreground">{item.buyer.phone}</span>}
+        {item.checkoutEnabledAt && <span className="text-xs font-normal text-muted-foreground">{t(item.status === "cancelled" ? "orders.checkoutCancelled" : item.checkoutConfirmedAt ? "orders.checkoutConfirmed" : "orders.checkoutPending")}</span>}
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-normal text-muted-foreground">{t("orders.orderNumber", { number: item.number })}{item.buyer?.name ? ` · ${item.buyer.phone}` : ""}</span>
-        {item.status === "active" && <div className="flex items-start gap-1">
+      <div className="flex shrink-0 items-start gap-1">
+        {item.status === "active" ? <>
           <OrderStateIndicator kind="payment" state={item.paymentStatus} label={item.paymentStatus === "paid" ? t("orders.listStatus.paid") : t("orders.listBalance", { amount: formatCurrency(item.balanceDue.amount, item.balanceDue.currency, i18n.language) })} />
           <OrderStateIndicator kind="delivery" state={item.deliveryStatus} label={`${t("orders.delivery")}: ${t(`orders.deliveryStatus.${item.deliveryStatus}`)}`} />
-        </div>}
+        </> : <OrderStateIndicator kind="order" state={item.status} label={t(`orders.listStatus.${item.status}`)} />}
       </div>
-      {item.checkoutEnabledAt && <span className="text-xs text-muted-foreground">{t(item.status === "cancelled" ? "orders.checkoutCancelled" : item.checkoutConfirmedAt ? "orders.checkoutConfirmed" : "orders.checkoutPending")}</span>}
     </div> },
     { id: "createdAt", header: t("orders.listDate"), mobile: "description", cell: (item) => <time dateTime={item.createdAt} className="flex flex-col gap-1">
       <span>{new Date(item.createdAt).toLocaleDateString(i18n.language === "pt" ? "pt-BR" : "es-PE", { dateStyle: "medium", timeZone: salesTimeZone })}</span>
@@ -114,15 +113,15 @@ export default function OrderList() {
   </section>;
 }
 
-function OrderStateIndicator({ kind, state, label }: { kind: "payment" | "delivery"; state: "pending" | "paid" | "shipped" | "delivered"; label: string }) {
-  const Icon = kind === "payment" ? Coins : Truck;
-  const Mark = state === "pending" ? Clock : state === "shipped" ? ArrowRight : Check;
-  return <details className="order-state-indicator">
-    <summary aria-label={label} title={label} className={cn("relative flex cursor-pointer list-none items-center justify-center rounded-[var(--radius-control)] focus-visible:outline-2 focus-visible:outline-ring", state === "pending" ? "bg-[var(--warning-surface)] text-[var(--warning)]" : state === "shipped" ? "bg-[var(--info-surface)] text-[var(--info)]" : "bg-[var(--success-surface)] text-[var(--success)]")}>
+function OrderStateIndicator({ kind, state, label }: { kind: "payment" | "delivery" | "order"; state: "pending" | "paid" | "shipped" | "delivered" | "completed" | "cancelled"; label: string }) {
+  const Icon = state === "completed" ? CircleCheck : state === "cancelled" ? CircleX
+    : kind === "payment" ? (state === "paid" ? BadgeDollarSign : Coins)
+    : state === "delivered" ? PackageCheck : state === "shipped" ? Send : Truck;
+  return <details className="order-state-indicator max-w-32">
+    <summary aria-label={label} title={label} className={cn("flex cursor-pointer list-none items-center justify-center rounded-[var(--radius-control)] transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring", state === "pending" ? "text-[var(--warning)]" : state === "shipped" ? "text-[var(--info)]" : state === "cancelled" ? "text-muted-foreground" : "text-[var(--success)]")}>
       <Icon className="size-5" aria-hidden="true" />
-      <Mark className="absolute bottom-1 right-1 size-3 rounded-full bg-card" aria-hidden="true" />
     </summary>
-    <span className="block max-w-40 pt-1 text-xs font-normal text-muted-foreground">{label}</span>
+    <span className="block pt-1 text-xs font-normal text-muted-foreground">{label}</span>
   </details>;
 }
 

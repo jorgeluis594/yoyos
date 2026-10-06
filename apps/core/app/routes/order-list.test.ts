@@ -74,7 +74,7 @@ test.each([
       expect(cell("customer")).toContain(delivery);
       if (paymentStatus === "pending") expect(cell("customer")).toContain(language === "es" ? "Por cobrar:" : "A receber:");
     } else {
-      expect(cell("customer")).toContain(expected);
+      expect(html).toContain(`aria-label="${expected}"`);
       expect(cell("paymentStatus")).toBeUndefined();
       expect(cell("deliveryStatus")).toBeUndefined();
     }

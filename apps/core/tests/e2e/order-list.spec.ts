@@ -53,8 +53,8 @@ test("seller scans units and independent states, searches orders and combines wo
     await row("partial").locator("summary").first().click();
     await browserExpect(row("shipped").locator("summary").last()).toHaveAttribute("aria-label", "Entrega: Despachada");
     for (const kind of ["completed", "historical", "cancelled"]) {
-      await browserExpect(row(kind).locator('[data-column="customer"]')).toContainText(kind === "cancelled" ? "Cancelado" : "Completado");
-      await browserExpect(row(kind).locator("summary")).toHaveCount(0);
+      await browserExpect(row(kind).locator("summary")).toHaveCount(1);
+      await browserExpect(row(kind).locator("summary")).toHaveAttribute("aria-label", kind === "cancelled" ? "Cancelado" : "Completado");
     }
     await page.getByRole("link", { name: "Por cobrar", exact: true }).click();
     await browserExpect(rows).toHaveCount(1);
@@ -99,7 +99,7 @@ test("seller scans units and independent states, searches orders and combines wo
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto("/pt-BR/orders");
     await browserExpect(page.getByRole("columnheader")).toHaveText(["Cliente", "Data", "Unidades", "Total"]);
-    await browserExpect(page.getByText("Concluído", { exact: true })).toHaveCount(2);
+    await browserExpect(page.locator('summary[aria-label="Concluído"]')).toHaveCount(2);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: "test-results/order-list-desktop-pt.png", fullPage: true, animations: "disabled" });
   } finally {
