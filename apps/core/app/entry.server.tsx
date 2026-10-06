@@ -7,6 +7,14 @@ import type { RenderToPipeableStreamOptions } from "react-dom/server";
 import { renderToPipeableStream } from "react-dom/server";
 import { I18nextProvider } from "react-i18next";
 import { getInstance } from "@/middleware/i18next";
+import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
+
+export function handleError(error: unknown, { request }: { request: Request }) {
+  if (request.signal.aborted) return;
+  const checkout = new URL(request.url).pathname.startsWith("/checkout/");
+  if (checkout) bindRequestOperation({ outcome: "technical_failure" });
+  log.error({ event: checkout ? "order_checkout_request_failed" : "web_request_failed", err: error }, "Web request failed");
+}
 
 export const streamTimeout = 5_000;
 
@@ -55,7 +63,7 @@ export default function handleRequest(
         },
         onError(error: unknown) {
           responseStatusCode = 500;
-          if (shellRendered) console.error(error);
+          if (shellRendered) handleError(error, { request });
         },
       },
     );

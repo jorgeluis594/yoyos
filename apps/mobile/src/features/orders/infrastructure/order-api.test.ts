@@ -33,7 +33,7 @@ test("order API preserves matching business errors and rejects mismatched status
 test("order API reads mixed summaries and validates complete aggregate states", async () => {
   const total = { amount: 10, currency: "PEN" as const };
   const zero = { amount: 0, currency: "PEN" as const };
-  const summary = { id: id(1), customer: { kind: "general_public" }, sellerId: "seller",
+  const summary = { number: 1001, id: id(1), buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, sellerId: "seller",
     createdAt: "2026-09-29T12:00:00.000Z", deliveredAt: null, completedAt: null, status: "active", paymentStatus: "pending",
     deliveryStatus: "pending", stockDeducted: false, total };
   const order = { ...summary, companyId: id(2), paidAmount: zero, balanceDue: total, overpaidAmount: zero,
@@ -59,4 +59,19 @@ test("order API reads mixed summaries and validates complete aggregate states", 
   expect(paths).toHaveLength(5);
   const bad = createOrderApi(async () => ok({ ...order, stockDeducted: "yes" }));
   expect(await bad.getAggregate(id(1))).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+});
+
+test("checkout link adapter validates IDs, responses and operation-specific failures", async () => {
+  const calls: string[] = [];
+  const url = `https://shop.example/checkout/${id(2)}/${id(1)}`;
+  const api = createOrderApi(async (path) => { calls.push(path); return ok({ url }); });
+  expect(await api.enableCheckout("1001")).toMatchObject({ error: { code: "INVALID_INPUT" } });
+  expect(calls).toEqual([]);
+  expect(await api.enableCheckout(id(1))).toEqual(ok({ url }));
+  expect(calls).toEqual([`/api/orders/${id(1)}/checkout-link`]);
+  expect(await createOrderApi(async () => ok({ url: "bad" })).enableCheckout(id(1))).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+  for (const [code, status] of [["ORDER_CANCELLED", 409], ["ORDER_NOT_FOUND", 404], ["INVALID_INPUT", 422]] as const) {
+    const failed = createOrderApi(async () => err({ code: "API_ERROR", message: "failure", http: { status, body: { code, error: "Rejected" } } }));
+    expect(await failed.enableCheckout(id(1))).toMatchObject({ error: { code } });
+  }
 });

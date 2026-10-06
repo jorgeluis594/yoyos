@@ -1,8 +1,9 @@
+import { parseOrderNumber, type OrderNumber, type OrderBuyer } from "@core/src/features/orders/domain/checkout";
 import { add, compare, isCurrency, subtract, type Money } from "@shared/money";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { z } from "zod";
-import { buildOrder, type BuildOrderInput, type BuildOrderError, type CompanyId, type OrderCustomer, type OrderId, type OrderItem, type UserId } from "@core/src/features/orders/domain/order";
+import { buildOrder, type BuildOrderInput, type BuildOrderError, type CompanyId, type OrderId, type OrderItem, type UserId } from "@core/src/features/orders/domain/order";
 import { parsePayment, voidPayment, type ConfirmedPayment, type Payment, type ReportedPayment } from "@core/src/features/orders/domain/payment";
 
 export type OrderStatus = "active" | "cancelled" | "completed";
@@ -17,10 +18,13 @@ export type DeliveryDetails =
   | Readonly<{ method: "agency"; recipient: AgencyRecipient; destination: { agencyId: string } }>
   | Readonly<{ method: "store"; recipient: Recipient; destination: { storeId: string } }>;
 export type OrderAggregate = Readonly<{
+  number: OrderNumber;
   id: OrderId;
   companyId: CompanyId;
   sellerId: UserId;
-  customer: OrderCustomer;
+  buyer: OrderBuyer | null;
+  checkoutEnabledAt: Date | null;
+  checkoutConfirmedAt: Date | null;
   createdAt: Date;
   deliveredAt: Date | null;
   completedAt: Date | null;
@@ -47,15 +51,17 @@ export type StockDeductionPlan =
   | Readonly<{ kind: "none"; reason: "already_deducted" | "not_requested"; nextOrder: OrderAggregate }>
   | Readonly<{ kind: "deduct"; nextOrder: OrderAggregate }>;
 export type CancellationPlan = Readonly<{ nextOrder: OrderAggregate; restoreStock: boolean }>;
-export type BuildPendingOrderInput = BuildOrderInput;
+export type BuildPendingOrderInput = BuildOrderInput & Readonly<{ number: OrderNumber }>;
 
 export function buildPendingOrder(input: BuildPendingOrderInput): Result<OrderAggregate, BuildOrderError> {
+  if (!parseOrderNumber(input.number).success) return err({ code: "INVALID_ORDER", message: "Invalid order number" });
   const built = buildOrder(input);
   if (!built.success) return built;
   const snapshot = built.data;
   const zero: Money = { amount: 0, currency: snapshot.total.currency };
-  return ok({ id: snapshot.id, companyId: snapshot.companyId, sellerId: snapshot.sellerId,
-    customer: snapshot.customer, items: snapshot.items, total: snapshot.total,
+  return ok({ number: input.number, id: snapshot.id, companyId: snapshot.companyId, sellerId: snapshot.sellerId,
+    buyer: snapshot.customer.kind === "contact" ? { contactId: snapshot.customer.contactId, name: snapshot.customer.name, phone: snapshot.customer.phone } : null,
+    checkoutEnabledAt: null, checkoutConfirmedAt: null, items: snapshot.items, total: snapshot.total,
     createdAt: new Date(input.createdAt), deliveredAt: null, completedAt: null, cancelled: false,
     payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false,
     itemsTotal: snapshot.total, deliveryCost: zero, deliveryCharge: zero });

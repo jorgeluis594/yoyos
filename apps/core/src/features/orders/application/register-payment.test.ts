@@ -1,3 +1,4 @@
+import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import { expect, test } from "vitest";
 import { err, ok } from "@shared/functional";
 import { registerPayment, type RegisterPaymentDependencies } from "@core/src/features/orders/application/register-payment";
@@ -13,7 +14,7 @@ const input = { orderId, paymentId: id(3) as PaymentId, amount: { amount: 10, cu
   method: "digital_wallet" as const, deductStockIfPartial: false };
 
 function pendingOrder() {
-  const built = buildPendingOrder({ id: orderId, companyId, sellerId: context.userId, customer: { kind: "general_public" },
+  const built = buildPendingOrder({ number: 1001 as OrderNumber, id: orderId, companyId, sellerId: context.userId, customer: { kind: "general_public" },
     createdAt: new Date("2026-09-29T12:00:00Z"), items: [{ id: id(4) as OrderItemId, variantId: id(5) as VariantId,
       productName: "Item", variantAttributes: {}, sku: null, quantity: 1, unitPrice: { amount: 10, currency: "PEN" } }] });
   if (!built.success) throw new Error("Invalid test order");

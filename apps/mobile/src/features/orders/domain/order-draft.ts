@@ -1,4 +1,4 @@
-import { orderSelectionSchema, type OrderSelectionRequest, type OrderAggregateResponse } from "@shared/contracts/orders";
+import { orderSelectionSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
 import { add, multiply, type Money } from "@shared/money";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
@@ -13,9 +13,11 @@ export type OrderDraftItem = Readonly<{
   quantity: number;
 }>;
 
+type DraftCustomer = Readonly<{ kind: "general_public" }> | Readonly<{ kind: "contact"; contactId: string; name: string | null; phone: string }>;
+
 export type OrderDraft =
-  | Readonly<{ kind: "empty"; customer: OrderAggregateResponse["customer"]; items: readonly [] }>
-  | Readonly<{ kind: "items"; id: OrderSelectionRequest["id"]; customer: OrderAggregateResponse["customer"];
+  | Readonly<{ kind: "empty"; customer: DraftCustomer; items: readonly [] }>
+  | Readonly<{ kind: "items"; id: OrderSelectionRequest["id"]; customer: DraftCustomer;
       items: readonly [OrderDraftItem, ...OrderDraftItem[]] }>;
 
 export type CartError = Readonly<{ code: "INVALID_CART"; message: string }>;

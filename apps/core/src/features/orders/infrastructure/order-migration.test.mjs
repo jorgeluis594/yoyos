@@ -80,12 +80,9 @@ test("migrates historical sales to paid delivered orders without changing stock"
       .toEqual([{ productName: "Old product", variantAttributes: { Size: "M" }, quantity: "2", unitPrice: "7.50", subtotal: "15.00" }]);
     expect((await isolated.query('SELECT "quantity" FROM "ProductStock" WHERE "variantId" = $1', [variant])).rows[0].quantity).toBe("7");
 
-    await isolated.query(await readFile(`${migrations}20261005060015_company_payment_settings/migration.sql`, "utf8"));
-    await isolated.query(await readFile(`${migrations}20261005060921_order_delivery_timestamp/migration.sql`, "utf8"));
+    for (const name of (await readdir(migrations)).filter((name) => name > finalMigration && /^\d/.test(name)).sort())
+      execFileSync("psql", [isolatedAdminUrl.toString(), "-v", "ON_ERROR_STOP=1", "-f", `${migrations}${name}/migration.sql`], { stdio: "pipe" });
     expect((await isolated.query('SELECT "deliveredAt" FROM "Order" WHERE "id" = $1', [order])).rows[0].deliveredAt).toEqual(completedAt);
-    await isolated.query(await readFile(`${migrations}20261005061907_payment_states/migration.sql`, "utf8"));
-    await isolated.query(await readFile(`${migrations}20261005064010_allow_bank_transfer_payments/migration.sql`, "utf8"));
-    await isolated.query(await readFile(`${migrations}20261005064406_resolve_buyer_order_access/migration.sql`, "utf8"));
     const migrated = (await isolated.query('SELECT "id", "amount", "currency", "method", "status", "data" FROM "Payment" WHERE "orderId" = $1', [order])).rows[0];
     expect(migrated).toMatchObject({ id: saved.rows[0].paymentId, amount: "15.00", currency: "PEN", method: "digital_wallet", status: "confirmed",
       data: { confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" } } });

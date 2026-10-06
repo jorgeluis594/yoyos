@@ -1,3 +1,4 @@
+import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import { expect, test, vi } from "vitest";
 import { err, ok } from "@shared/functional";
 import { createOrder, type CreateOrderDependencies, type CreateOrderInput, type OrderAccess } from "@core/src/features/orders/application/create-order";
@@ -17,7 +18,7 @@ function dependencies() {
     variantAttributes: { Size: "M" }, sku: null, unitPrice: { amount: 0.29, currency: "PEN" as const } }));
   const scopedCompanies: CompanyId[] = [];
   const transaction: CreateOrderDependencies["transaction"] = async (id, work) => { scopedCompanies.push(id); return work(); };
-  const deps: CreateOrderDependencies = { transaction, orderExists: async () => ok(false), findContact,
+  const deps: CreateOrderDependencies = { allocateNumber: async () => ok(1001 as OrderNumber), transaction, orderExists: async () => ok(false), findContact,
     findVariant, saveOrder, newItemId: () => id(4) as OrderItemId, clock: () => new Date("2026-09-29T12:00:00Z") };
   return { deps, saveOrder, findContact, findVariant, scopedCompanies };
 }

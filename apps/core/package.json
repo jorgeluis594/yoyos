@@ -5,7 +5,7 @@
   "scripts": {
     "build": "react-router build",
     "dev": "pnpm build && tsx watch src/server.ts",
-    "start": "NEW_RELIC_ENABLED=${NEW_RELIC_ENABLED:-false} NEW_RELIC_LOG=${NEW_RELIC_LOG:-/dev/null} NEW_RELIC_NO_CONFIG_FILE=true NEW_RELIC_APP_NAME=${NEW_RELIC_APP_NAME:-yoyos-core} node --import tsx --import newrelic/esm-loader.mjs --require newrelic src/server.ts",
+    "start": "NEW_RELIC_ENABLED=${NEW_RELIC_ENABLED:-false} NEW_RELIC_LOG=${NEW_RELIC_LOG:-/dev/null} NEW_RELIC_NO_CONFIG_FILE=false NEW_RELIC_APP_NAME=${NEW_RELIC_APP_NAME:-yoyos-core} node --import tsx --import newrelic/esm-loader.mjs --require newrelic src/server.ts",
     "worker": "tsx src/worker.ts",
     "seed": "tsx scripts/seed.ts",
     "storybook": "storybook dev -p 6006",

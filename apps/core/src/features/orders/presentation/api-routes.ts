@@ -1,4 +1,5 @@
-import { log } from "@core/src/shared/infrastructure/logger";
+import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
+import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import express, { type Request, type Response } from "express";
 import { z } from "zod";
 import { createOrderSchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
@@ -239,4 +240,25 @@ orderRoutes.post("/", async (request, response: Response<unknown, PrivateLocals>
       ? await orders.registerImmediateSale(input, context) : await orders.create(input, context);
     return result.success ? response.status(201).json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
+});
+
+orderRoutes.post("/:orderId/checkout-link", async (request, response: Response<unknown, PrivateLocals>) => {
+  bindRequestOperation({ operation: "enable_checkout" });
+  const id = orderId(request.params.orderId);
+  if (!id.success || !z.strictObject({}).safeParse(request.body ?? {}).success) {
+    bindRequestOperation({ outcome: "invalid_input" });
+    return apiError(response, 422, "INVALID_INPUT", "Invalid checkout request");
+  }
+  try {
+    const result = await orders.enableCheckout(id.data as OrderId, orderContext(response));
+    if (!result.success) {
+      if (result.error.code === "CHECKOUT_UNAVAILABLE") return apiError(response, 404, "ORDER_NOT_FOUND", "Order not found");
+      if (result.error.code === "ORDER_CANCELLED") return apiError(response, 409, "ORDER_CANCELLED", "Order is cancelled");
+      return apiError(response, 503, "SERVICE_UNAVAILABLE", "Checkout is unavailable");
+    }
+    return response.json(checkoutLinkSchema.parse(result.data));
+  } catch (cause) {
+    bindRequestOperation({ outcome: "technical_failure" });
+    return unexpected(response, cause);
+  }
 });

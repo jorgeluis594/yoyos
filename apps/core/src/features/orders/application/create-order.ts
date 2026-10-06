@@ -1,3 +1,4 @@
+import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import { z } from "zod";
 import { err } from "@shared/functional";
 import type { Result } from "@shared/result";
@@ -17,6 +18,7 @@ export type CreateOrderDependencies = Readonly<{
   orderExists: (id: OrderId, companyId: CompanyId) => Promise<Result<boolean, PersistenceError>>;
   findContact: (id: ContactId, companyId: CompanyId) => Promise<Result<ContactSnapshot | null, PersistenceError>>;
   findVariant: (id: VariantId, companyId: CompanyId) => Promise<Result<CatalogItem | null, PersistenceError>>;
+  allocateNumber: (companyId: CompanyId) => Promise<Result<OrderNumber, PersistenceError>>;
   saveOrder: (order: OrderAggregate) => Promise<Result<null, PersistenceError | Readonly<{ code: "ORDER_ALREADY_EXISTS"; message: string }>>>;
   newItemId: () => OrderItemId;
   clock: () => Date;
@@ -49,7 +51,9 @@ export async function createOrderInTransaction(input: CreateOrderInput, context:
     if (!variant.data) return err({ code: "VARIANT_NOT_FOUND", message: "Variant is not available", variantId: item.variantId });
     items.push({ ...variant.data, id: deps.newItemId(), quantity: item.quantity });
   }
-  const built = buildPendingOrder({ id: input.id, companyId: context.companyId, sellerId: context.userId,
+  const number = await deps.allocateNumber(context.companyId);
+  if (!number.success) return number;
+  const built = buildPendingOrder({ number: number.data, id: input.id, companyId: context.companyId, sellerId: context.userId,
     customer: contact && contact.success && contact.data ? { kind: "contact", contactId: contact.data.id as ContactId,
       name: contact.data.name, phone: contact.data.phone } : { kind: "general_public" },
     createdAt: deps.clock(), items });

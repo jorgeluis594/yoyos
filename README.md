@@ -35,7 +35,7 @@ From the repository root, start the web application and PostgreSQL:
 docker compose up --build
 ```
 
-The `migrate` service creates the restricted `core_app` role before applying migrations, then provisions permissions. Existing application tables receive DML access, and default privileges grant the same access to future `public` tables created by the migration role. Prisma migration history stays private. Functions require explicit grants. The web application starts with the restricted role. Open [http://localhost:3000](http://localhost:3000). To stop the services, press `Ctrl+C` or run:
+The `migrate` service creates the restricted `core_app` role before applying migrations through `scripts/migrate.ts` (Prisma deploy plus safe aggregate logs), then provisions permissions. Existing application tables receive DML access, and default privileges grant the same access to future `public` tables created by the migration role. Prisma migration history stays private. Functions require explicit grants. The web application starts with the restricted role. Open [http://localhost:3000](http://localhost:3000). To stop the services, press `Ctrl+C` or run:
 
 ```sh
 docker compose down
@@ -96,5 +96,7 @@ Do not use `docker compose down -v` during an update: it deletes the data.
 - [Persistence](docs/persistence.md) and [company data isolation](docs/rls-with-prisma.md).
 - [Image API](docs/images-api.md).
 - [Event bus quick start](docs/event-bus-quick-start.md).
+
+Migration output records start/end, duration, each attempted migration identifier and aggregate order/buyer counts. Raw Prisma output is withheld because database errors can contain row values. On failure, inspect `_prisma_migrations` through administrative access, resolve the recorded cause and retry; do not expose its `logs` column to application logging. Keep order writes stopped through migration and deployment of the matching application.
 
 For database changes, use the [database migrations skill](.agents/skills/database-migrations/SKILL.md).

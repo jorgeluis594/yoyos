@@ -8,6 +8,8 @@ export default [
   route("account-verified", "routes/account-verified.tsx"),
   route("forgot-password", "routes/forgot-password.tsx"),
   route("reset-password", "routes/reset-password.tsx"),
+  route("checkout/:companyId/:orderId", "routes/checkout.tsx"),
+  route("checkout/*", "routes/checkout.tsx", { id: "unavailable-checkout" }),
   route("pago/:orderId", "routes/buyer-payment.tsx"),
   layout("routes/private-layout.tsx", { id: "public-private-layout" }, [
     route("dashboard", "routes/dashboard.tsx", { id: "public-dashboard" }),
