@@ -51,7 +51,7 @@ test("seller scans units and independent states, searches orders and combines wo
     await page.keyboard.press("Enter");
     await browserExpect(row("partial").locator("details[open]")).toContainText("Por cobrar: S/ 50.00");
     await row("partial").locator("summary").first().click();
-    await browserExpect(row("shipped").locator("summary").last()).toHaveAttribute("aria-label", "Entrega: Despachada");
+    await browserExpect(row("shipped").locator("summary").last()).toHaveAttribute("aria-label", /Entrega: Despachada/);
     for (const kind of ["completed", "historical", "cancelled"]) {
       await browserExpect(row(kind).locator("summary")).toHaveCount(1);
       await browserExpect(row(kind).locator("summary")).toHaveAttribute("aria-label", kind === "cancelled" ? "Cancelado" : "Completado");

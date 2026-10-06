@@ -67,7 +67,7 @@
 .data-table-container > div:not([data-mobile-table]) [data-slot="table"] { min-width: max-content; }
 
 .order-list-table [data-slot="table-cell"] { vertical-align: top; }
-.order-state-indicator summary { width: var(--control-min-height); min-width: 2rem; height: var(--control-min-height); min-height: 2rem; }
+.order-state-indicator summary { width: 2.5rem; height: 1.5rem; }
 .order-state-indicator summary::-webkit-details-marker { display: none; }
 @media (max-width: 48rem) {
   .order-state-indicator summary { width: var(--touch-target-min-size); height: var(--touch-target-min-size); }

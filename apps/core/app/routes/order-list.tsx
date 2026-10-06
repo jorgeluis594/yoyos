@@ -64,12 +64,10 @@ export default function OrderList() {
   const columns: TableColumn<Sale>[] = [
     { id: "number", header: t("orders.listOrder"), mobile: "title", cell: (item) => <div className="flex flex-col items-start gap-1">
       <Link to={`${base}/${item.id}`} aria-label={t("orders.orderNumber", { number: item.number })} className="font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">#{item.number}</Link>
-      <div className="flex items-start gap-1">
-        {item.status === "active" ? <>
-          <OrderStateIndicator kind="payment" state={item.paymentStatus} label={item.paymentStatus === "paid" ? t("orders.listStatus.paid") : t("orders.listBalance", { amount: formatCurrency(item.balanceDue.amount, item.balanceDue.currency, i18n.language) })} />
-          <OrderStateIndicator kind="delivery" state={item.deliveryStatus} label={`${t("orders.delivery")}: ${t(`orders.deliveryStatus.${item.deliveryStatus}`)}`} />
-        </> : <OrderStateIndicator kind="order" state={item.status} label={t(`orders.listStatus.${item.status}`)} />}
-      </div>
+      <OrderStateIndicators states={item.status === "active" ? [
+        { kind: "payment", state: item.paymentStatus, label: item.paymentStatus === "paid" ? t("orders.listStatus.paid") : t("orders.listBalance", { amount: formatCurrency(item.balanceDue.amount, item.balanceDue.currency, i18n.language) }) },
+        { kind: "delivery", state: item.deliveryStatus, label: `${t("orders.delivery")}: ${t(`orders.deliveryStatus.${item.deliveryStatus}`)}` },
+      ] : [{ kind: "order", state: item.status, label: t(`orders.listStatus.${item.status}`) }]} />
       {item.checkoutEnabledAt && <span className="text-xs font-normal text-muted-foreground">{t(item.status === "cancelled" ? "orders.checkoutCancelled" : item.checkoutConfirmedAt ? "orders.checkoutConfirmed" : "orders.checkoutPending")}</span>}
     </div> },
     { id: "customer", header: t("orders.customer"), mobile: "description", cell: (item) => <div className="flex flex-col gap-1">
@@ -113,13 +111,16 @@ export default function OrderList() {
   </section>;
 }
 
-function OrderStateIndicator({ kind, state, label }: { kind: "payment" | "delivery" | "order"; state: "pending" | "paid" | "shipped" | "delivered" | "completed" | "cancelled"; label: string }) {
-  const Icon = state === "completed" ? CircleCheck : state === "cancelled" ? CircleX
-    : kind === "payment" ? (state === "paid" ? BadgeDollarSign : Coins)
-    : state === "delivered" ? PackageCheck : state === "shipped" ? Send : Truck;
+function OrderStateIndicators({ states }: { states: { kind: "payment" | "delivery" | "order"; state: "pending" | "paid" | "shipped" | "delivered" | "completed" | "cancelled"; label: string }[] }) {
+  const label = states.map((item) => item.label).join(" · ");
   return <details className="order-state-indicator max-w-32">
-    <summary aria-label={label} title={label} className={cn("flex cursor-pointer list-none items-center justify-center rounded-[var(--radius-control)] transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring", state === "pending" ? "text-[var(--warning)]" : state === "shipped" ? "text-[var(--info)]" : state === "cancelled" ? "text-muted-foreground" : "text-[var(--success)]")}>
-      <Icon className="size-5" aria-hidden="true" />
+    <summary aria-label={label} title={label} className="flex cursor-pointer list-none items-center justify-center gap-1 rounded-[var(--radius-control)] transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring">
+      {states.map(({ kind, state }) => {
+        const Icon = state === "completed" ? CircleCheck : state === "cancelled" ? CircleX
+          : kind === "payment" ? (state === "paid" ? BadgeDollarSign : Coins)
+          : state === "delivered" ? PackageCheck : state === "shipped" ? Send : Truck;
+        return <Icon key={kind} className={cn("size-4", state === "pending" ? "text-[var(--warning)]" : state === "shipped" ? "text-[var(--info)]" : state === "cancelled" ? "text-muted-foreground" : "text-[var(--success)]")} aria-hidden="true" />;
+      })}
     </summary>
     <span className="block pt-1 text-xs font-normal text-muted-foreground">{label}</span>
   </details>;
