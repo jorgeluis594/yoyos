@@ -31,7 +31,7 @@ async function open(): Promise<SQLite.SQLiteDatabase> {
     if (!cipher?.cipher_version) throw new Error("WhatsApp database requires SQLCipher");
 
     const version = await database.getFirstAsync<{ user_version: number }>("PRAGMA user_version");
-    if (!version || version.user_version > 1) throw new Error("Unsupported WhatsApp database schema");
+    if (!version || ![0, 1].includes(version.user_version)) throw new Error("Unsupported WhatsApp database schema");
     if (version.user_version === 0) {
       await database.execAsync(`BEGIN IMMEDIATE;
         CREATE TABLE whatsapp_auth_entries (
