@@ -439,3 +439,26 @@ test("checkout-link HTTP requires the seller company and returns a stable UUID U
   await withTenantIsolation(owner.companyId, async () => await prisma.order.update({ where: { id }, data: { cancelled: true } }));
   expect((await call(path, owner.cookie, {})).status).toBe(409);
 });
+
+test("complete creation HTTP preserves optional payment IDs and supports pending and paid orders", async () => {
+  const f = await fixture("PE");
+  for (const amount of [null, 5, 10]) {
+    const id = randomUUID();
+    const paymentId = randomUUID();
+    const input = { id, contactId: f.contactId, items: [{ variantId: f.variantId, quantity: 1 }],
+      payments: amount === null ? [] : [{ paymentId, amount: { amount, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false }],
+      deliverImmediately: false };
+    const response = await call("/api/orders", f.cookie, input);
+    expect(response.status).toBe(201);
+    const order = orderAggregateSchema.parse(await response.json());
+    expect(order).toMatchObject({ id, status: "active", deliveryStatus: "pending", completedAt: null,
+      paymentStatus: amount === 10 ? "paid" : "pending", stockDeducted: amount === 10,
+      balanceDue: { amount: 10 - (amount ?? 0), currency: "PEN" } });
+    expect(order.payments).toHaveLength(amount === null ? 0 : 1);
+    if (amount !== null) expect(order.payments[0].id).toBe(paymentId);
+    const duplicate = await call("/api/orders", f.cookie, input);
+    expect(duplicate.status).toBe(409);
+    expect(await duplicate.json()).toMatchObject({ code: "ORDER_ALREADY_EXISTS" });
+    expect(orderAggregateSchema.parse(await (await call(`/api/orders/${id}/aggregate`, f.cookie)).json())).toEqual(order);
+  }
+});

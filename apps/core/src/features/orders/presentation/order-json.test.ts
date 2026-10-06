@@ -30,3 +30,17 @@ test("parses all customer filters and validates date and pagination", () => {
     expect(listOrdersSchema.safeParse(invalid).success).toBe(false);
   }
 });
+
+test("complete creation accepts optional payments and delivery without client-calculated states", () => {
+  const input = { id: id(1), contactId: null, items: [{ variantId: id(2), quantity: 1 }],
+    payments: [{ paymentId: id(3), amount: { amount: 12, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false }],
+    delivery: { delivery: { method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
+      destination: { address: "Av. Lima 1", district: "Lima", instructions: null } }, chargeDeliveryToCustomer: true },
+    deliverImmediately: false };
+  expect(createOrderSchema.parse(input)).toEqual(input);
+  for (const invalid of [{ ...input, status: "completed" }, { ...input, total: 12 },
+    { ...input, payments: [{ ...input.payments[0], paymentId: "invalid" }] },
+    { ...input, delivery: { ...input.delivery, cost: 0 } }, { ...input, deliverImmediately: "yes" }]) {
+    expect(createOrderSchema.safeParse(invalid).success).toBe(false);
+  }
+});

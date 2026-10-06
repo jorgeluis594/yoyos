@@ -8,14 +8,6 @@ export const orderSelectionSchema = z.strictObject({
   items: z.array(z.strictObject({ variantId: z.uuid(), quantity: z.number().int().positive().safe() })).min(1),
 });
 export type OrderSelectionRequest = z.infer<typeof orderSelectionSchema>;
-export const createOrderSchema = z.union([
-  orderSelectionSchema,
-  orderSelectionSchema.extend({
-    payment: z.strictObject({ method: z.literal("digital_wallet") }),
-    delivery: z.strictObject({ method: z.literal("handover") }),
-  }),
-]);
-export type CreateOrderRequest = z.infer<typeof createOrderSchema>;
 
 export const orderCustomerSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("general_public") }),
@@ -47,6 +39,22 @@ export const deliverySelectionSchema = z.discriminatedUnion("method", [
 export type DeliverySelectionRequest = z.infer<typeof deliverySelectionSchema>;
 export const setOrderDeliverySchema = z.strictObject({ delivery: deliverySelectionSchema, chargeDeliveryToCustomer: z.boolean() });
 export type SetOrderDeliveryRequest = z.infer<typeof setOrderDeliverySchema>;
+
+export const completeOrderSchema = orderSelectionSchema.extend({
+  payments: z.array(z.strictObject({ paymentId: z.uuid(), amount: moneySchema,
+    method: z.enum(["digital_wallet", "bank_transfer"]), deductStockIfPartial: z.boolean() })).optional(),
+  delivery: setOrderDeliverySchema.optional(),
+  deliverImmediately: z.boolean().optional(),
+});
+export type CompleteOrderRequest = z.infer<typeof completeOrderSchema>;
+export const createOrderSchema = z.union([
+  completeOrderSchema,
+  orderSelectionSchema.extend({
+    payment: z.strictObject({ method: z.literal("digital_wallet") }),
+    delivery: z.strictObject({ method: z.literal("handover") }),
+  }),
+]);
+export type CreateOrderRequest = z.infer<typeof createOrderSchema>;
 export const deliverySnapshotSchema = z.discriminatedUnion("method", [
   z.strictObject({ method: z.literal("home"), recipient: recipientSchema, destination: homeDestinationSchema, recordedBy: deliveryAuthorSchema }),
   z.strictObject({ method: z.literal("agency"), recipient: agencyRecipientSchema,

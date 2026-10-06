@@ -1,6 +1,7 @@
 import express from "express";
 import { afterEach, expect, test, vi } from "vitest";
 import { hasDuplicateJsonKeys, orderRoutes } from "@core/src/features/orders/presentation/api-routes";
+import * as orderComposition from "@core/src/features/orders/composition";
 import { orders } from "@core/src/features/orders/composition";
 import { app as fullApp } from "@core/src/app";
 
@@ -48,7 +49,7 @@ test("order API maps a validated contact and UTC interval to the existing list o
 test("order API takes company and seller from access and identifies rejected stock", async () => {
   const create = vi.spyOn(orders, "registerImmediateSale").mockResolvedValue({ success: false,
     error: { code: "INSUFFICIENT_STOCK", message: "No stock", variantId: contactId } });
-  const pending = vi.spyOn(orders, "create").mockResolvedValue({ success: false,
+  const pending = vi.spyOn(orderComposition, "createConfiguredOrder").mockResolvedValue({ success: false,
     error: { code: "ORDER_ALREADY_EXISTS", message: "Exists" } });
   const input = { id: "00000000-0000-4000-8000-000000000003", contactId: null,
     items: [{ variantId: contactId, quantity: 2 }] };
@@ -63,7 +64,7 @@ test("order API takes company and seller from access and identifies rejected sto
   expect(pending).not.toHaveBeenCalled();
   expect(await request("/", "PE", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) }))
     .toMatchObject({ status: 409, body: { code: "ORDER_ALREADY_EXISTS" } });
-  expect(pending).toHaveBeenCalledWith(input, { companyId, userId: "seller" });
+  expect(pending).toHaveBeenCalledWith({ ...input, payments: undefined, delivery: undefined, deliverImmediately: undefined }, { companyId, userId: "seller" });
   expect(create).toHaveBeenCalledOnce();
   expect(await request("/", "PE", { method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ ...input, payment: { method: "digital_wallet" } }) }))
