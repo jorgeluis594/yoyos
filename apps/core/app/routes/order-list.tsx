@@ -77,11 +77,11 @@ export default function OrderList() {
     </time> },
     { id: "itemCount", header: t("orders.listUnits"), mobile: "description", align: "right", cell: (item) => <span className="tabular-nums">{item.itemCount}</span> },
     { id: "total", header: t("orders.total"), mobile: "value", align: "right", cell: (item) => <strong className="font-semibold tabular-nums">{formatCurrency(item.total.amount, item.total.currency, i18n.language)}</strong> },
-    { id: "paymentStatus", header: t("orders.payment"), mobile: "description", cell: (item) => item.status === "active" ? <div className="flex w-fit flex-col items-start justify-self-end gap-1">
-      <span className={cn(badge, item.paymentStatus === "paid" ? "bg-[var(--info-surface)] text-[var(--info)]" : "bg-[var(--warning-surface)] text-[var(--warning)]")}>{t(item.paymentStatus === "paid" ? "orders.listStatus.paid" : "orderDetail.pendingPayment")}</span>
+    { id: "paymentStatus", header: t("orders.payment"), mobile: "description", cell: (item) => item.status === "active" ? <div className="flex flex-col items-start gap-1">
+      <span className={cn(badge, item.paymentStatus === "paid" ? "bg-[var(--success-surface)] text-[var(--success)]" : "bg-[var(--warning-surface)] text-[var(--warning)]")}>{t(item.paymentStatus === "paid" ? "orders.listStatus.paid" : "orderDetail.pendingPayment")}</span>
       {item.paymentStatus === "pending" && <span className="text-xs text-muted-foreground">{t("orders.listBalance", { amount: formatCurrency(item.balanceDue.amount, item.balanceDue.currency, i18n.language) })}</span>}
     </div> : <span aria-label={t("orders.listNotApplicable")}>—</span> },
-    { id: "deliveryStatus", header: t("orders.delivery"), mobile: "description", cell: (item) => item.status === "active" ? <span className={cn(badge, "justify-self-end", item.deliveryStatus === "pending" ? "bg-[var(--warning-surface)] text-[var(--warning)]" : item.deliveryStatus === "shipped" ? "bg-[var(--info-surface)] text-[var(--info)]" : "bg-[var(--success-surface)] text-[var(--success)]")}>{t(`orders.deliveryStatus.${item.deliveryStatus}`)}</span> : <span aria-label={t("orders.listNotApplicable")}>—</span> },
+    { id: "deliveryStatus", header: t("orders.delivery"), mobile: "description", cell: (item) => item.status === "active" ? <span className={cn(badge, item.deliveryStatus === "pending" ? "bg-[var(--warning-surface)] text-[var(--warning)]" : item.deliveryStatus === "shipped" ? "bg-[var(--info-surface)] text-[var(--info)]" : "bg-[var(--success-surface)] text-[var(--success)]")}>{t(`orders.deliveryStatus.${item.deliveryStatus}`)}</span> : <span aria-label={t("orders.listNotApplicable")}>—</span> },
   ];
   const activeFilterInputs = [
     { name: "customer", value: filters.customer },
@@ -108,7 +108,7 @@ export default function OrderList() {
       </Button>)}
     </nav>
     <FilterBar key={search} searchName="search" searchValue={filters.search ?? ""} searchLabel={t("orders.listSearch")} submitLabel={t("orders.listSearchSubmit")} hiddenFields={activeFilterInputs} action={<OrderFilterSheet key={search} filters={filters} contacts={contacts} base={base} />} />
-    <DataTable className="mt-6" columns={columns} caption={t("orders.allOrders")} data={list.items} getRowId={(item) => item.id} emptyMessage={<div className="flex flex-col items-center gap-2"><p>{t(filtered ? "orders.emptyFiltered" : "orders.listEmpty")}</p>{filtered && <Button asChild variant="link"><Link to={base}>{t("orders.clear")}</Link></Button>}</div>} />
+    <DataTable className="order-list-table mt-6" columns={columns} caption={t("orders.allOrders")} data={list.items} getRowId={(item) => item.id} emptyMessage={<div className="flex flex-col items-center gap-2"><p>{t(filtered ? "orders.emptyFiltered" : "orders.listEmpty")}</p>{filtered && <Button asChild variant="link"><Link to={base}>{t("orders.clear")}</Link></Button>}</div>} />
     <nav aria-label={t("orders.pages")} className="mt-6 flex items-center justify-end gap-2"><span className="mr-auto text-sm text-muted-foreground">{t("orders.page", { page: list.page })}</span>{list.page > 1 && <Button asChild variant="outline"><Link to={listUrl(list.page - 1)}>{t("orders.previous")}</Link></Button>}{list.page * list.pageSize < list.total && <Button asChild variant="outline"><Link to={listUrl(list.page + 1)}>{t("orders.next")}</Link></Button>}</nav>
   </section>;
 }
