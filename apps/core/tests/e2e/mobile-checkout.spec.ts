@@ -25,6 +25,7 @@ test("mobile seller copies checkout and sees the anonymous buyer confirmation in
     await page.goto(`${mobile.origin}/orders/${id}`, { timeout: 90_000 });
     await browserExpect(page.getByText("Pedido #10000", { exact: true })).toBeVisible({ timeout: 90000 });
     await browserExpect(page.getByText("Enlace aún no habilitado", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Confirmación del comprador", exact: true }).click();
     await page.getByRole("button", { name: "Obtener enlace", exact: true }).click();
     await browserExpect(page.getByText("Pendiente de confirmación", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Copiar enlace", exact: true }).click();
@@ -40,7 +41,7 @@ test("mobile seller copies checkout and sees the anonymous buyer confirmation in
     await page.reload();
     await browserExpect(page.getByText("Confirmado por el comprador", { exact: true })).toBeVisible();
     await browserExpect(page.getByText("Ana", { exact: true })).toBeVisible();
-    await browserExpect(page.getByText(/Saldo pendiente:/)).toBeVisible();
+    await browserExpect(page.getByText("Saldo pendiente", { exact: true })).toBeVisible();
     const pending = randomUUID();
     const cancelled = randomUUID();
     for (const other of [pending, cancelled]) {
@@ -49,10 +50,10 @@ test("mobile seller copies checkout and sees the anonymous buyer confirmation in
     }
     expect((await page.request.post(`http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}/api/orders/${cancelled}/cancel`)).status()).toBe(200);
     await page.goto(`${mobile.origin}/orders`);
-    await browserExpect(page.getByText(/Pedido #10000 · Confirmado por el comprador/)).toBeVisible();
-    await browserExpect(page.getByText(/Pedido #9999 ·/)).toBeVisible();
-    await browserExpect(page.getByText(/Pedido #10001 · Pendiente de confirmación/)).toBeVisible();
-    await browserExpect(page.getByText(/Pedido #10002 · Pedido cancelado/)).toBeVisible();
+    await browserExpect(page.getByRole("button").filter({ hasText: /#10000 ·/ }).getByText("Confirmado por el comprador", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText(/#9999 ·/)).toBeVisible();
+    await browserExpect(page.getByRole("button").filter({ hasText: /#10001 ·/ }).getByText("Pendiente de confirmación", { exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("button").filter({ hasText: /#10002 ·/ }).getByText("Pedido cancelado", { exact: true })).toBeVisible();
     await page.goto(`${mobile.origin}/orders/${historical}`);
     await browserExpect(page.getByText("Enlace aún no habilitado", { exact: true })).toBeVisible();
     await page.goto(`${mobile.origin}/orders/${cancelled}`);
