@@ -19,6 +19,11 @@ const es = {
     greeting: "Hola, {{name}}", ready: "Tu espacio de trabajo está listo.",
   },
   deliverySettings: {
+    tabs: { store: "Tienda", home: "Domicilio", agency: "Agencia" }, active: "Activada", inactive: "Desactivada",
+    storeScope: "Un punto de recojo por negocio. Sus datos se conservan al desactivar la modalidad.",
+    homeScope: "La dirección del cliente se indica en cada venta. Esta modalidad no necesita más configuración aquí.",
+    agencyScope: "Habilita al menos un courier. La agencia de destino se indica en cada venta.",
+    saveScope: "Se guardan los cambios de las tres modalidades.", unsaved: "Tienes cambios sin guardar. Se guardarán las tres modalidades.",
     title: "Modalidades de entrega", description: "Configura las opciones que ofreces a tus clientes.", home: "Entrega a domicilio", homeEnabled: "Ofrecer entrega a domicilio", agency: "Envío a agencia", agencyEnabled: "Ofrecer envío a agencia", courierHint: "Para ofrecer envío a agencia, habilita al menos un courier. Al desactivarlo, conservamos sus datos.", noCouriers: "Todavía no hay couriers configurados.", courierName: "Nombre del courier {{number}}", courierEnabled: "Habilitar courier {{number}}", addCourier: "Agregar courier", removeCourier: "Quitar alta sin guardar", removeCourierLabel: "Quitar courier {{number}} sin guardar", store: "Recojo en tienda", enabled: "Ofrecer recojo en tienda", storeHint: "Al desactivar el recojo, conservamos los datos del punto para volver a activarlo.", name: "Nombre del punto de recojo", address: "Dirección", instructions: "Indicaciones (opcional)", save: "Guardar configuración", saving: "Guardando…", saved: "Configuración guardada.", reload: "Recargar configuración", invalid: "Completa los campos obligatorios y habilita al menos un courier si ofreces envío a agencia.", conflict: "Otra persona cambió la configuración. Recarga para revisar los cambios antes de guardar.", saveError: "No se pudo guardar. Conservamos tus cambios para que puedas reintentar.", loadError: "No se pudo cargar la configuración",
   },
   orderDelivery: {
@@ -99,6 +104,11 @@ const pt = {
     greeting: "Olá, {{name}}", ready: "Seu espaço de trabalho está pronto.",
   },
   deliverySettings: {
+    tabs: { store: "Loja", home: "Domicílio", agency: "Agência" }, active: "Ativada", inactive: "Desativada",
+    storeScope: "Um ponto de retirada por empresa. Seus dados são mantidos ao desativar a modalidade.",
+    homeScope: "O endereço do cliente é informado em cada venda. Esta modalidade não precisa de mais configuração aqui.",
+    agencyScope: "Habilite pelo menos uma transportadora. A agência de destino é informada em cada venda.",
+    saveScope: "As alterações das três modalidades são salvas juntas.", unsaved: "Há alterações não salvas. As três modalidades serão salvas juntas.",
     title: "Modalidades de entrega", description: "Configure as opções que você oferece aos seus clientes.", home: "Entrega em domicílio", homeEnabled: "Oferecer entrega em domicílio", agency: "Envio para agência", agencyEnabled: "Oferecer envio para agência", courierHint: "Para oferecer envio para agência, habilite pelo menos uma transportadora. Ao desativá-la, mantemos seus dados.", noCouriers: "Ainda não há transportadoras configuradas.", courierName: "Nome da transportadora {{number}}", courierEnabled: "Habilitar transportadora {{number}}", addCourier: "Adicionar transportadora", removeCourier: "Remover cadastro não salvo", removeCourierLabel: "Remover transportadora {{number}} não salva", store: "Retirada na loja", enabled: "Oferecer retirada na loja", storeHint: "Ao desativar a retirada, mantemos os dados do ponto para ativá-lo novamente.", name: "Nome do ponto de retirada", address: "Endereço", instructions: "Instruções (opcional)", save: "Salvar configuração", saving: "Salvando…", saved: "Configuração salva.", reload: "Recarregar configuração", invalid: "Preencha os campos obrigatórios e habilite pelo menos uma transportadora se oferecer envio para agência.", conflict: "Outra pessoa alterou a configuração. Recarregue para revisar as alterações antes de salvar.", saveError: "Não foi possível salvar. Mantemos suas alterações para tentar novamente.", loadError: "Não foi possível carregar a configuração",
   },
   orderDelivery: {

@@ -26,6 +26,7 @@ test("agency assignment requires a document, preserves historical courier names 
     });
     await page.goto(`/es-PE/orders/${orderId}`);
     await page.getByRole("link", { name: "Configurar modalidades de entrega" }).click();
+    await page.getByRole("tab", { name: "Agencia", exact: false }).click();
     await page.getByLabel("Ofrecer envío a agencia").check();
     for (const [index, name] of ["Courier original", "Courier alternativo", "Courier inactivo"].entries()) {
       await page.getByRole("button", { name: "Agregar courier" }).click();

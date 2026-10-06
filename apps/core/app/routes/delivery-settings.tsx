@@ -1,5 +1,8 @@
 import { parseCourierInputs } from "@core/src/features/delivery-settings/domain/delivery-settings";
 import { useRef, useState } from "react";
+import { flushSync } from "react-dom";
+import { Tabs } from "radix-ui";
+import { Store, Truck, Package } from "lucide-react";
 import { useClientReady } from "@core/app/use-client-ready";
 import { useTranslation } from "react-i18next";
 import { useActionData, useLoaderData, useNavigation, useSubmit, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
@@ -51,6 +54,8 @@ function SettingsForm({ settings }: { settings: DeliverySettingsResponse }) {
   const ready = useClientReady();
   const navigation = useNavigation();
   const result = useActionData<typeof action>();
+  const [tab, setTab] = useState("store");
+  const [dirty, setDirty] = useState(false);
   const [version, setVersion] = useState(settings.version);
   const [agency, setAgency] = useState(settings.agency);
   const [couriers, setCouriers] = useState<CourierDraft[]>(settings.couriers.map(courier => ({ ...courier, kind: "existing" })));
@@ -63,6 +68,7 @@ function SettingsForm({ settings }: { settings: DeliverySettingsResponse }) {
   const saved = result?.saved;
   // Only a confirmed save replaces the draft; loader revalidation preserves it.
   if (saved && saved.version !== version) {
+    setDirty(false);
     setVersion(saved.version);
     setAgency(saved.agency);
     setCouriers(saved.couriers.map(courier => ({ ...courier, kind: "existing" })));
@@ -75,46 +81,75 @@ function SettingsForm({ settings }: { settings: DeliverySettingsResponse }) {
   const pending = navigation.state !== "idle";
   const conflict = result?.error === "conflict";
   const configured = enabled || [name, address, instructions].some(value => value.trim() !== "");
-  return <form className="flex flex-col gap-6" onSubmit={event => {
+  return <form className="flex flex-col gap-6" onChangeCapture={() => setDirty(true)} onInvalidCapture={event => {
+    // Reveal the first invalid field before the browser tries to focus it.
+    if (event.target !== event.currentTarget.querySelector("input:invalid")) return;
+    const method = (event.target as HTMLElement).closest<HTMLElement>("[data-delivery-method]")?.dataset.deliveryMethod;
+    if (method) flushSync(() => setTab(method));
+  }} onSubmit={event => {
     event.preventDefault();
     if (!ready) return;
+    if (agency.enabled && !couriers.some(courier => courier.enabled)) setTab("agency");
     submit({ expectedVersion: version, agency, couriers: couriers.map(courier => courier.kind === "new" ? { kind: courier.kind, name: courier.name, enabled: courier.enabled } : courier), home: { enabled: homeEnabled }, store: { enabled, pickupPoint: configured
       ? { name, address, instructions: instructions.trim() || null } : null } }, { method: "post", encType: "application/json" });
   }}>
-    <fieldset className="flex min-w-0 flex-col gap-4" disabled={pending || !ready}>
-      <legend className="mb-3 text-lg font-semibold">{t("deliverySettings.store")}</legend>
-      <label className="flex min-h-touch items-center gap-3"><input type="checkbox" checked={enabled} onChange={event => setEnabled(event.target.checked)} />{t("deliverySettings.enabled")}</label>
-      <p className="text-sm text-muted-foreground">{t("deliverySettings.storeHint")}</p>
-      <Field><FieldLabel htmlFor="pickup-name">{t("deliverySettings.name")}</FieldLabel><Input id="pickup-name" value={name} maxLength={120} required={configured} onChange={event => setName(event.target.value)} /></Field>
-      <Field><FieldLabel htmlFor="pickup-address">{t("deliverySettings.address")}</FieldLabel><Input id="pickup-address" value={address} maxLength={500} required={configured} onChange={event => setAddress(event.target.value)} /></Field>
-      <Field><FieldLabel htmlFor="pickup-instructions">{t("deliverySettings.instructions")}</FieldLabel><Input id="pickup-instructions" value={instructions} maxLength={1000} onChange={event => setInstructions(event.target.value)} /></Field>
-    </fieldset>
-    <fieldset className="flex min-w-0 flex-col gap-4" disabled={pending || !ready}>
-      <legend className="mb-3 text-lg font-semibold">{t("deliverySettings.home")}</legend>
-      <label className="flex min-h-touch items-center gap-3"><input type="checkbox" checked={homeEnabled} onChange={event => setHomeEnabled(event.target.checked)} />{t("deliverySettings.homeEnabled")}</label>
-    </fieldset>
-    <fieldset className="flex min-w-0 flex-col gap-4" disabled={pending || !ready}>
-      <legend className="mb-3 text-lg font-semibold">{t("deliverySettings.agency")}</legend>
-      <label className="flex min-h-touch items-center gap-3"><input type="checkbox" checked={agency.enabled} onChange={event => setAgency({ enabled: event.target.checked })} />{t("deliverySettings.agencyEnabled")}</label>
-      <p className="text-sm text-muted-foreground">{t("deliverySettings.courierHint")}</p>
-      {couriers.length === 0 && <p className="text-sm text-muted-foreground">{t("deliverySettings.noCouriers")}</p>}
-      {couriers.map((courier, index) => {
-        const key = courier.kind === "existing" ? courier.id : `new-${courier.localKey}`;
-        const label = t("deliverySettings.courierName", { number: index + 1 });
-        const update = (change: Partial<Pick<CourierDraft, "name" | "enabled">>) => setCouriers(rows => rows.map((row, rowIndex) => rowIndex === index ? { ...row, ...change } : row));
-        return <div key={key} className="flex min-w-0 flex-col gap-3 border-t border-border pt-4">
-          <Field><FieldLabel htmlFor={`courier-${key}`}>{label}</FieldLabel><Input id={`courier-${key}`} value={courier.name} maxLength={120} required onChange={event => update({ name: event.target.value })} /></Field>
-          <label className="flex min-h-touch items-center gap-3"><input type="checkbox" checked={courier.enabled} onChange={event => update({ enabled: event.target.checked })} />{t("deliverySettings.courierEnabled", { number: index + 1 })}</label>
-          {courier.kind === "new" && <Button type="button" variant="ghost" className="self-start max-md:min-h-touch" aria-label={t("deliverySettings.removeCourierLabel", { number: index + 1 })}
-            onClick={() => setCouriers(rows => rows.filter(row => row !== courier))}>{t("deliverySettings.removeCourier")}</Button>}
-        </div>;
-      })}
-      <Button type="button" variant="outline" className="self-start max-md:min-h-touch" onClick={() => { const localKey = ++nextCourierKey.current; setCouriers(rows => [...rows, { kind: "new", localKey, name: "", enabled: true }]); }}>{t("deliverySettings.addCourier")}</Button>
-    </fieldset>
-    {result?.error && <p role="alert" className="text-sm text-destructive">{t(`deliverySettings.${result.error}`)}</p>}
-    {result?.saved && <p role="status">{t("deliverySettings.saved")}</p>}
-    <div className="flex flex-wrap gap-3"><Button type="submit" disabled={pending || !ready || Boolean(conflict)}>{t(pending ? "deliverySettings.saving" : "deliverySettings.save")}</Button>
-      {conflict && <Button asChild variant="outline"><a href="">{t("deliverySettings.reload")}</a></Button>}</div>
+    <Tabs.Root value={tab} onValueChange={setTab} className="flex min-w-0 flex-col gap-6">
+      <Tabs.List aria-label={t("deliverySettings.title")} className="grid grid-cols-3 border-b border-border">
+        {([
+          { value: "store", icon: Store, enabled },
+          { value: "home", icon: Truck, enabled: homeEnabled },
+          { value: "agency", icon: Package, enabled: agency.enabled },
+        ] as const).map(method => <Tabs.Trigger key={method.value} value={method.value}
+          className="flex min-h-touch min-w-0 flex-col items-center gap-1 border-b-2 border-transparent px-2 pb-3 pt-2 text-sm text-muted-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset data-[state=active]:border-primary data-[state=active]:text-primary">
+          <span className="flex items-center gap-2 font-semibold"><method.icon aria-hidden="true" className="size-4" />{t(`deliverySettings.tabs.${method.value}`)}</span>
+          <span className="text-xs">{t(method.enabled ? "deliverySettings.active" : "deliverySettings.inactive")}</span>
+        </Tabs.Trigger>)}
+      </Tabs.List>
+      <Tabs.Content value="store" forceMount data-delivery-method="store" className="outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=inactive]:hidden">
+        <fieldset className="flex min-w-0 flex-col gap-4" disabled={pending || !ready}>
+          <legend className="mb-3 text-lg font-semibold">{t("deliverySettings.store")}</legend>
+          <label className="flex min-h-touch cursor-pointer items-center gap-3 text-sm font-medium"><input type="checkbox" className="size-4 shrink-0 accent-primary" checked={enabled} onChange={event => setEnabled(event.target.checked)} />{t("deliverySettings.enabled")}</label>
+          <p className="text-sm text-muted-foreground">{t("deliverySettings.storeScope")}</p>
+          <Field><FieldLabel htmlFor="pickup-name">{t("deliverySettings.name")}</FieldLabel><Input id="pickup-name" value={name} maxLength={120} required={configured} onChange={event => setName(event.target.value)} /></Field>
+          <Field><FieldLabel htmlFor="pickup-address">{t("deliverySettings.address")}</FieldLabel><Input id="pickup-address" value={address} maxLength={500} required={configured} onChange={event => setAddress(event.target.value)} /></Field>
+          <Field><FieldLabel htmlFor="pickup-instructions">{t("deliverySettings.instructions")}</FieldLabel><Input id="pickup-instructions" value={instructions} maxLength={1000} onChange={event => setInstructions(event.target.value)} /></Field>
+        </fieldset>
+      </Tabs.Content>
+      <Tabs.Content value="home" forceMount data-delivery-method="home" className="outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=inactive]:hidden">
+        <fieldset className="flex min-w-0 flex-col gap-4" disabled={pending || !ready}>
+          <legend className="mb-3 text-lg font-semibold">{t("deliverySettings.home")}</legend>
+          <label className="flex min-h-touch cursor-pointer items-center gap-3 text-sm font-medium"><input type="checkbox" className="size-4 shrink-0 accent-primary" checked={homeEnabled} onChange={event => setHomeEnabled(event.target.checked)} />{t("deliverySettings.homeEnabled")}</label>
+          <p className="text-sm text-muted-foreground">{t("deliverySettings.homeScope")}</p>
+        </fieldset>
+      </Tabs.Content>
+      <Tabs.Content value="agency" forceMount data-delivery-method="agency" className="outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=inactive]:hidden">
+        <fieldset className="flex min-w-0 flex-col gap-4" disabled={pending || !ready}>
+          <legend className="mb-3 text-lg font-semibold">{t("deliverySettings.agency")}</legend>
+          <label className="flex min-h-touch cursor-pointer items-center gap-3 text-sm font-medium"><input type="checkbox" className="size-4 shrink-0 accent-primary" checked={agency.enabled} onChange={event => setAgency({ enabled: event.target.checked })} />{t("deliverySettings.agencyEnabled")}</label>
+          <p className="text-sm text-muted-foreground">{t("deliverySettings.agencyScope")}</p>
+          {couriers.length === 0 && <p className="text-sm text-muted-foreground">{t("deliverySettings.noCouriers")}</p>}
+          {couriers.map((courier, index) => {
+            const key = courier.kind === "existing" ? courier.id : `new-${courier.localKey}`;
+            const label = t("deliverySettings.courierName", { number: index + 1 });
+            const update = (change: Partial<Pick<CourierDraft, "name" | "enabled">>) => setCouriers(rows => rows.map((row, rowIndex) => rowIndex === index ? { ...row, ...change } : row));
+            return <div key={key} className="flex min-w-0 flex-col gap-3 border-t border-border pt-4">
+              <Field><FieldLabel htmlFor={`courier-${key}`}>{label}</FieldLabel><Input id={`courier-${key}`} value={courier.name} maxLength={120} required onChange={event => update({ name: event.target.value })} /></Field>
+              <label className="flex min-h-touch cursor-pointer items-center gap-3 text-sm font-medium"><input type="checkbox" className="size-4 shrink-0 accent-primary" checked={courier.enabled} onChange={event => update({ enabled: event.target.checked })} />{t("deliverySettings.courierEnabled", { number: index + 1 })}</label>
+              {courier.kind === "new" && <Button type="button" variant="ghost" className="self-start max-md:min-h-touch" aria-label={t("deliverySettings.removeCourierLabel", { number: index + 1 })}
+                onClick={() => { setDirty(true); setCouriers(rows => rows.filter(row => row !== courier)); }}>{t("deliverySettings.removeCourier")}</Button>}
+            </div>;
+          })}
+          <Button type="button" variant="outline" className="self-start max-md:min-h-touch" onClick={() => { setDirty(true); const localKey = ++nextCourierKey.current; setCouriers(rows => [...rows, { kind: "new", localKey, name: "", enabled: true }]); }}>{t("deliverySettings.addCourier")}</Button>
+        </fieldset>
+      </Tabs.Content>
+    </Tabs.Root>
+    <div className="flex flex-col gap-3 border-t border-border pt-4">
+      {result?.error && <p role="alert" className="text-sm text-destructive">{t(`deliverySettings.${result.error}`)}</p>}
+      {result?.saved && !dirty && <p role="status">{t("deliverySettings.saved")}</p>}
+      <p className="text-sm text-muted-foreground">{t(dirty ? "deliverySettings.unsaved" : "deliverySettings.saveScope")}</p>
+      <div className="flex flex-wrap gap-3"><Button type="submit" className="max-sm:w-full max-md:min-h-touch" disabled={pending || !ready || Boolean(conflict)}>{t(pending ? "deliverySettings.saving" : "deliverySettings.save")}</Button>
+        {conflict && <Button asChild variant="outline"><a href="">{t("deliverySettings.reload")}</a></Button>}</div>
+    </div>
   </form>;
 }
 

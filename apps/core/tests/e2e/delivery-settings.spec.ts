@@ -14,17 +14,38 @@ test("seller configures store pickup, preserves a conflicting draft and explicit
     await page.getByRole("complementary").getByRole("link", { name: "Modalidades de entrega" }).click();
     await browserExpect(page.getByLabel("Ofrecer recojo en tienda")).not.toBeChecked();
     expect(await withTenantIsolation(companyId, async () => await prisma.companyDeliverySettings.count())).toBe(0);
+    await browserExpect(page.getByRole("tabpanel")).toHaveCount(1);
+    await browserExpect(page.getByLabel("Ofrecer entrega a domicilio")).not.toBeVisible();
+    await page.getByRole("tab", { name: "Tienda", exact: false }).focus();
+    await page.keyboard.press("ArrowRight");
+    await browserExpect(page.getByRole("tab", { name: "Domicilio", exact: false })).toHaveAttribute("aria-selected", "true");
     await browserExpect(page.getByLabel("Ofrecer entrega a domicilio")).not.toBeChecked();
     await page.getByLabel("Ofrecer entrega a domicilio").check();
+    await page.getByRole("tab", { name: "Tienda", exact: false }).click();
     await page.getByLabel("Ofrecer recojo en tienda").check();
+    await page.getByRole("tab", { name: "Domicilio", exact: false }).click();
+    await page.getByRole("button", { name: "Guardar configuración" }).click();
+    await browserExpect(page.getByRole("tab", { name: "Tienda", exact: false })).toHaveAttribute("aria-selected", "true");
+    await browserExpect(page.getByLabel("Nombre del punto de recojo")).toBeFocused();
     await page.getByLabel("Nombre del punto de recojo").fill("Tienda principal");
     await page.getByLabel("Dirección", { exact: true }).fill("Av. Lima 123");
     await page.getByLabel("Indicaciones (opcional)").fill("Puerta lateral");
     await page.getByRole("button", { name: "Guardar configuración" }).click();
     await browserExpect(page.getByRole("status")).toHaveText("Configuración guardada.");
+    await mkdir("../../.impeccable/review", { recursive: true });
+    for (const [width, height, device] of [[1280, 900, "desktop"], [390, 844, "mobile"]] as const) {
+      await page.setViewportSize({ width, height });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await page.screenshot({ path: `../../.impeccable/review/delivery-tabs-store-${device}.png`, fullPage: true, animations: "disabled" });
+    }
+    await page.setViewportSize({ width: 1280, height: 900 });
     const saved = await page.request.get("/api/delivery-settings");
     expect(await saved.json()).toMatchObject({ version: 1, agency: { enabled: false }, couriers: [], home: { enabled: true }, store: { enabled: true, pickupPoint: { address: "Av. Lima 123" } } });
     await page.getByLabel("Dirección", { exact: true }).fill("Mi borrador");
+    await browserExpect(page.getByRole("status")).toHaveCount(0);
+    await page.getByRole("tab", { name: "Agencia", exact: false }).click();
+    await page.getByRole("tab", { name: "Tienda", exact: false }).click();
+    await browserExpect(page.getByLabel("Dirección", { exact: true })).toHaveValue("Mi borrador");
     const concurrent = await page.request.put("/api/delivery-settings", { data: { expectedVersion: 1,
       agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Otra tienda", address: "Dirección concurrente", instructions: null } } } });
     expect(concurrent.ok()).toBe(true);
@@ -41,6 +62,7 @@ test("seller configures store pickup, preserves a conflicting draft and explicit
     await browserExpect(page.getByRole("status")).toHaveText("Configuración guardada.");
     expect(await (await page.request.get("/api/delivery-settings")).json()).toMatchObject({ version: 3,
       agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: false, pickupPoint: { address: "Dirección concurrente" } } });
+    await page.getByRole("tab", { name: "Domicilio", exact: false }).click();
     await page.getByLabel("Ofrecer entrega a domicilio").check();
     const homeSaved = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname.includes("/settings/delivery"));
     await page.getByRole("button", { name: "Guardar configuración" }).click();
@@ -50,18 +72,22 @@ test("seller configures store pickup, preserves a conflicting draft and explicit
     expect(await (await page.request.get("/api/delivery-settings")).json()).toMatchObject({ version: 4, agency: { enabled: false }, couriers: [], home: { enabled: true }, store: { enabled: false, pickupPoint: { address: "Dirección concurrente" } } });
     await mkdir("../../.impeccable/review", { recursive: true });
     await page.evaluate(() => window.scrollTo(0, 0));
-    await page.screenshot({ path: "../../.impeccable/review/delivery-settings-desktop.png", fullPage: true });
+    await page.screenshot({ path: "../../.impeccable/review/delivery-tabs-home-desktop.png", fullPage: true, animations: "disabled" });
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.evaluate(() => window.scrollTo(0, 0));
-    await page.screenshot({ path: "../../.impeccable/review/delivery-settings-mobile.png", fullPage: true });
+    await page.screenshot({ path: "../../.impeccable/review/delivery-tabs-home-mobile.png", fullPage: true, animations: "disabled" });
     await page.goto("/pt-BR/settings/delivery");
     await browserExpect(page.getByLabel("Oferecer retirada na loja")).not.toBeChecked();
     await browserExpect(page.getByLabel("Oferecer entrega em domicílio")).toBeChecked();
     await browserExpect(page.getByLabel("Endereço", { exact: true })).toHaveValue("Dirección concurrente");
 
+    await page.getByRole("tab", { name: "Agência", exact: false }).click();
     await page.getByLabel("Oferecer envio para agência").check();
     await page.getByRole("button", { name: "Adicionar transportadora" }).click();
+    await page.getByRole("tab", { name: "Loja", exact: false }).click();
+    await page.getByRole("button", { name: "Salvar configuração" }).click();
+    await browserExpect(page.getByLabel("Nome da transportadora 1")).toBeFocused();
     await page.getByLabel("Nome da transportadora 1").fill("Discard");
     await page.getByRole("button", { name: "Adicionar transportadora" }).click();
     await page.getByLabel("Nome da transportadora 2").fill("Active courier");
@@ -78,12 +104,15 @@ test("seller configures store pickup, preserves a conflicting draft and explicit
     expect(agencySettings).toMatchObject({ version: 5, agency: { enabled: true }, couriers: expect.arrayContaining([expect.objectContaining({ name: "Active courier", enabled: true }), expect.objectContaining({ name: "Inactive courier", enabled: false })]) });
     expect(agencySettings.couriers).toHaveLength(2);
     await browserExpect(page.getByText("Remover cadastro não salvo")).toHaveCount(0);
+    await page.getByRole("tab", { name: "Domicílio", exact: false }).click();
     await page.getByLabel("Oferecer entrega em domicílio").uncheck();
     const preserved = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname.includes("/settings/delivery"));
     await page.getByRole("button", { name: "Salvar configuração" }).click();
     await preserved;
     expect(await (await page.request.get("/api/delivery-settings")).json()).toEqual({ ...agencySettings, version: 6, home: { enabled: false }, couriers: expect.arrayContaining(agencySettings.couriers) });
+    await page.getByRole("tab", { name: "Agência", exact: false }).click();
     await page.getByLabel("Habilitar transportadora 1").uncheck();
+    await page.getByRole("tab", { name: "Domicílio", exact: false }).click();
     await page.getByRole("button", { name: "Salvar configuração" }).click();
     await browserExpect(page.getByRole("alert")).toContainText("habilite pelo menos uma transportadora");
     expect(await (await page.request.get("/api/delivery-settings")).json()).toMatchObject({ version: 6, agency: { enabled: true } });
@@ -110,15 +139,20 @@ test("seller configures store pickup, preserves a conflicting draft and explicit
     await browserExpect(page.getByLabel("Nome da transportadora 3")).toHaveValue("My new courier");
     await browserExpect(page.getByRole("button", { name: "Salvar configuração" })).toBeDisabled();
     await page.getByRole("link", { name: "Recarregar configuração" }).click();
+    await page.getByRole("tab", { name: "Agência", exact: false }).click();
     await browserExpect(page.getByLabel("Nome da transportadora 3")).toHaveCount(0);
     await browserExpect(page.getByLabel("Nome da transportadora 1")).toHaveValue(/^Concurrent /);
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.evaluate(() => window.scrollTo(0, 0));
-    await page.screenshot({ path: "../../.impeccable/review/agency-settings-desktop.png", fullPage: true });
+    await page.screenshot({ path: "../../.impeccable/review/delivery-tabs-agency-desktop.png", fullPage: true, animations: "disabled" });
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.evaluate(() => window.scrollTo(0, 0));
-    await page.screenshot({ path: "../../.impeccable/review/agency-settings-mobile.png", fullPage: true });
+    await page.screenshot({ path: "../../.impeccable/review/delivery-tabs-agency-mobile.png", fullPage: true, animations: "disabled" });
+    await page.evaluate(() => { localStorage.setItem("yoyos-theme", "dark"); document.documentElement.classList.add("dark"); });
+    await page.screenshot({ path: "../../.impeccable/review/delivery-tabs-agency-mobile-dark.png", fullPage: true, animations: "disabled" });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.screenshot({ path: "../../.impeccable/review/delivery-tabs-agency-desktop-dark.png", fullPage: true, animations: "disabled" });
   } finally {
     if (companyId) await withTenantIsolation(companyId, async () => {
       await prisma.companyCourier.deleteMany();
