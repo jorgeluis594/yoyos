@@ -91,9 +91,9 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     await page.getByLabel("Contacto", { exact: true }).selectOption(contactId);
     await page.getByRole("button", { name: "Aplicar filtros" }).click();
     await browserExpect(page.getByRole("heading", { name: /Ventas/ }).locator('[data-slot="page-header-count"]')).toHaveText("1");
-    await page.getByRole("searchbox", { name: "Buscar contacto para filtrar" }).fill("912345678");
-    await page.getByRole("button", { name: "Buscar contacto" }).click();
-    await browserExpect(page).toHaveURL(/customerSearch=912345678/);
+    await page.getByRole("searchbox", { name: "Buscar por nombre, teléfono o número de pedido" }).fill("912345678");
+    await page.getByRole("button", { name: "Buscar pedidos" }).click();
+    await browserExpect(page).toHaveURL(/search=912345678/);
     await browserExpect(page).toHaveURL(new RegExp(`customer=contact.*contactId=${contactId}`));
     const tampered = await page.request.post("/es-PE/orders/new", { form: { order: JSON.stringify({ id: crypto.randomUUID(),
       companyId: crypto.randomUUID(), sellerId: crypto.randomUUID(), total: 0.01, contactId: null,
@@ -148,7 +148,7 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     await browserExpect(page.getByRole("table", { name: "Órdenes" }).getByRole("row")).toHaveCount(5);
     await page.setViewportSize({ width: 390, height: 780 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    await browserExpect(page.getByRole("searchbox", { name: "Buscar contacto para filtrar" })).toBeVisible();
+    await browserExpect(page.getByRole("searchbox", { name: "Buscar por nombre, teléfono o número de pedido" })).toBeVisible();
     await page.getByRole("button", { name: "Filtros" }).click();
     await page.getByLabel("Desde").fill("2020-01-01");
     await page.getByLabel("Antes de").fill("2020-01-02");
@@ -203,7 +203,7 @@ test("pending order remains active when paid before delivery", async ({ page }) 
     await browserExpect(page).toHaveURL(/\/orders\/[0-9a-f-]+$/);
     const orderId = page.url().split("/").at(-1)!;
     await page.goto("/es-PE/orders");
-    await browserExpect(page.getByRole("table", { name: "Órdenes" }).getByText("Activa")).toBeVisible();
+    await browserExpect(page.getByRole("table", { name: "Órdenes" }).locator('[data-column="paymentStatus"]').getByText("Pendiente", { exact: true })).toBeVisible();
     await page.getByRole("table", { name: "Órdenes" }).getByRole("link", { name: "Público general" }).click();
     await browserExpect(page).toHaveURL(new RegExp(`/orders/${orderId}$`));
     await browserExpect(page.getByText("Orden activa", { exact: true })).toBeVisible();
