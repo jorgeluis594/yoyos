@@ -102,7 +102,33 @@ model Company {
   orderBuyers OrderBuyer[]
   orderItems OrderItem[]
   payments Payment[]
+  deliverySettings CompanyDeliverySettings?
   paymentSettings CompanyPaymentSettings?
+  couriers CompanyCourier[]
+}
+
+model CompanyDeliverySettings {
+  companyId          String  @id @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company            Company @relation(fields: [companyId], references: [id])
+  homeEnabled        Boolean @default(false)
+  agencyEnabled      Boolean @default(false)
+  storeEnabled       Boolean
+  pickupName         String?
+  pickupAddress      String?
+  pickupInstructions String?
+  version            Int
+  couriers           CompanyCourier[]
+}
+
+model CompanyCourier {
+  id        String @id @db.Uuid
+  companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company   Company @relation(fields: [companyId], references: [id])
+  settings  CompanyDeliverySettings @relation(fields: [companyId], references: [companyId], map: "CompanyCourier_settings_fkey")
+  name      String
+  enabled   Boolean
+
+  @@index([companyId])
 }
 
 model CompanyPaymentSettings {

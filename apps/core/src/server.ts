@@ -1,24 +1,25 @@
 import { createRequestHandler } from "@react-router/express";
 import express from "express";
-import { app } from "./app.js";
+import { pathToFileURL } from "node:url";
+import { app } from "@core/src/app";
+import type { ResolveDeliveryDependencies } from "@core/src/features/orders/application/resolve-delivery-selection";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { createEventBusRuntime } from "@core/src/composition/event-bus";
 
-const port = Number(process.env.PORT ?? 3000);
-const build = await import(new URL("../build/server/index.js", import.meta.url).href);
-const { provider } = createEventBusRuntime();
-await provider.start();
-
-app.use(express.static("build/client", { index: false }));
-app.all(
-  "/{*splat}",
-  createRequestHandler({ build, mode: process.env.NODE_ENV }),
-);
-
-const server = app.listen(port, () => log.info({ event: "server_started", port }, "Core listening"));
-for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => {
-  server.close(async () => {
-    await provider.stop();
-    process.exit(0);
+export async function startServer(resolveDeliveryCost?: ResolveDeliveryDependencies["resolveCost"]) {
+  const port = Number(process.env.PORT ?? 3000);
+  const build = await import(new URL("../build/server/index.js", import.meta.url).href);
+  const { provider } = createEventBusRuntime();
+  await provider.start();
+  app.use(express.static("build/client", { index: false }));
+  app.all("/{*splat}", createRequestHandler({ build, mode: process.env.NODE_ENV,
+    getLoadContext: () => build.entry.module.createDeliveryRequestContext(resolveDeliveryCost),
+  }));
+  const server = app.listen(port, () => log.info({ event: "server_started", port }, "Core listening"));
+  for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => {
+    server.close(async () => { await provider.stop(); process.exit(0); });
   });
-});
+  return server;
+}
+
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) await startServer();

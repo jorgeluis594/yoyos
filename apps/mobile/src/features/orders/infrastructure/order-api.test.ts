@@ -1,5 +1,6 @@
 import { err, ok } from "@shared/functional";
 import { createOrderApi } from "@mobile/features/orders/infrastructure/order-api";
+import type { TransportError } from "@mobile/shared/application/transport-error";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 
@@ -28,6 +29,29 @@ test("order API preserves matching business errors and rejects mismatched status
   const wrongStatus = createOrderApi(async () => err({ code: "API_ERROR", message: "API error", http: { status: 404, body: stock } }));
   expect(await wrongStatus.create({ id: id(1), contactId: null, items: [{ variantId: id(2), quantity: 1 }] }))
     .toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+});
+
+test("order error schemas preserve transport failures and the checkout status exception", async () => {
+  const failures: { error: TransportError; getCode: string; checkoutCode: string }[] = [
+    { error: { code: "NETWORK_ERROR", message: "Offline" }, getCode: "NETWORK_ERROR", checkoutCode: "NETWORK_ERROR" },
+    { error: { code: "SERVER_ERROR", message: "Unavailable", http: { status: 502, body: "Bad gateway" } },
+      getCode: "SERVER_ERROR", checkoutCode: "SERVER_ERROR" },
+    { error: { code: "API_ERROR", message: "Unknown", http: { status: 400, body: { code: "UNKNOWN", error: "Unknown" } } },
+      getCode: "INVALID_RESPONSE", checkoutCode: "INVALID_RESPONSE" },
+    { error: { code: "API_ERROR", message: "Invalid", http: { status: 400, body: { code: "INVALID_INPUT", error: "Invalid" } } },
+      getCode: "INVALID_INPUT", checkoutCode: "INVALID_RESPONSE" },
+    { error: { code: "API_ERROR", message: "Invalid", http: { status: 422, body: { code: "INVALID_INPUT", error: "Invalid" } } },
+      getCode: "INVALID_RESPONSE", checkoutCode: "INVALID_INPUT" },
+    { error: { code: "SERVER_ERROR", message: "Failed", http: { status: 502, body: { code: "INTERNAL_ERROR", error: "Failed" } } },
+      getCode: "INVALID_RESPONSE", checkoutCode: "INVALID_RESPONSE" },
+    { error: { code: "API_ERROR", message: "Invalid", http: { status: 404, body: { code: "ORDER_NOT_FOUND", error: "Missing", issues: "bad" } } },
+      getCode: "INVALID_RESPONSE", checkoutCode: "INVALID_RESPONSE" },
+  ];
+  for (const { error, getCode, checkoutCode } of failures) {
+    const api = createOrderApi(async () => err(error));
+    expect(await api.get(id(1))).toMatchObject({ success: false, error: { code: getCode } });
+    expect(await api.enableCheckout(id(1))).toMatchObject({ success: false, error: { code: checkoutCode } });
+  }
 });
 
 test("order API reads mixed summaries and validates complete aggregate states", async () => {
@@ -59,6 +83,36 @@ test("order API reads mixed summaries and validates complete aggregate states", 
   expect(paths).toHaveLength(5);
   const bad = createOrderApi(async () => ok({ ...order, stockDeducted: "yes" }));
   expect(await bad.getAggregate(id(1))).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+});
+
+test("delivery API rejects forged snapshots and preserves applicable errors with no retries", async () => {
+  const input = { delivery: { method: "store" as const, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } } }, chargeDeliveryToCustomer: false };
+  const request = jest.fn(async () => err({ code: "API_ERROR" as const, message: "Failed", http: { status: 422, body: { code: "DELIVERY_METHOD_DISABLED", error: "Disabled" } } }));
+  const api = createOrderApi(request);
+  expect(await api.setDelivery(id(1), { ...input, delivery: { ...input.delivery, recordedBy: { kind: "buyer" } } } as typeof input))
+    .toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
+  expect(request).not.toHaveBeenCalled();
+  expect(await api.setDelivery(id(1), input)).toMatchObject({ success: false, error: { code: "DELIVERY_METHOD_DISABLED" } });
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(request).toHaveBeenCalledWith(`/api/orders/${id(1)}/delivery`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
+  const mismatch = createOrderApi(async () => err({ code: "API_ERROR", message: "Failed", http: { status: 409, body: { code: "DELIVERY_METHOD_DISABLED", error: "Disabled" } } }));
+  expect(await mismatch.setDelivery(id(1), input)).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+});
+
+test("delivery API validates the complete authored snapshot and updated aggregate identity", async () => {
+  const total = { amount: 10, currency: "PEN" as const };
+  const zero = { amount: 0, currency: "PEN" as const };
+  const delivery = { method: "store" as const, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } },
+    pickupPoint: { name: "Store", address: "Lima", instructions: null }, recordedBy: { kind: "seller" as const, userId: "current-editor" } };
+  const input = { delivery: { method: "store" as const, recipient: delivery.recipient }, chargeDeliveryToCustomer: false };
+  const order = { id: id(1), companyId: id(2), sellerId: "original-seller", number: 1001, buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, deliveredAt: null, createdAt: "2026-10-05T12:00:00.000Z", completedAt: null,
+    status: "active", paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false, total, paidAmount: zero, balanceDue: total, overpaidAmount: zero,
+    cancelled: false, delivery, payments: [], itemsTotal: total, deliveryCost: { amount: 3, currency: "PEN" }, deliveryCharge: zero,
+    items: [{ id: id(3), variantId: id(4), productName: "Item", variantAttributes: {}, sku: null, quantity: 1, unitPrice: total, subtotal: total }] };
+  expect(await createOrderApi(async () => ok(order)).setDelivery(id(1), input)).toMatchObject({ success: true, data: { delivery, total } });
+  for (const invalid of [{ ...order, id: id(5) }, { ...order, delivery: null }, { ...order, delivery: { ...delivery, recordedBy: undefined } }, { ...order, delivery: { ...delivery, pickupPoint: undefined } }]) {
+    expect(await createOrderApi(async () => ok(invalid)).setDelivery(id(1), input)).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+  }
 });
 
 test("checkout link adapter validates IDs, responses and operation-specific failures", async () => {

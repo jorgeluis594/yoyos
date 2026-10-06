@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
+import { interStyle } from '@mobile/constants/typography';
 import tokens from '../../../../../docs/design-tokens.json';
 import { useTheme } from '@/hooks/use-theme';
 import { Button } from '@/components/ui/button';
@@ -38,6 +39,6 @@ const styles = StyleSheet.create({
   root: { flex: 1, minHeight: 320, justifyContent: 'center', alignItems: 'center', padding: tokens.spacing['6'] },
   content: { width: '100%', maxWidth: 320, alignItems: 'center', gap: tokens.spacing['6'] },
   copy: { alignItems: 'center', gap: tokens.spacing['2'] },
-  title: { fontFamily: tokens.typography.family, fontSize: tokens.typography.roles['section-title'].size, lineHeight: tokens.typography.roles['section-title'].lineHeight, fontWeight: '600', textAlign: 'center' },
+  title: { ...interStyle('600'), fontSize: tokens.typography.roles['section-title'].size, lineHeight: tokens.typography.roles['section-title'].lineHeight, textAlign: 'center' },
   description: { fontFamily: tokens.typography.family, fontSize: tokens.typography.roles['body-compact'].size, lineHeight: tokens.typography.roles['body-compact'].lineHeight, textAlign: 'center' },
 });

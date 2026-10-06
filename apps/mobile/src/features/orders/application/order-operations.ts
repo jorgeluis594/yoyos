@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { listOrderAggregatesResponseSchema, listOrderAggregatesSchema, listOrdersResponseSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema,
-  type CreateOrderRequest, type ListOrderAggregatesRequest, type ListOrdersRequest, type OrderAggregateResponse, type OrderApiError, type OrderApiIssue } from "@shared/contracts/orders";
+  type SetOrderDeliveryRequest, type CreateOrderRequest, type ListOrderAggregatesRequest, type ListOrdersRequest, type OrderAggregateResponse, type OrderApiError, type OrderApiIssue } from "@shared/contracts/orders";
 import { err, ok } from "@shared/functional";
 import type { Money } from "@shared/money";
 import { limaMidnightUtc, nextCalendarDay } from "@shared/orders-date";
@@ -30,11 +30,14 @@ export type ConfirmOrderOutcome =
 export type OrderListCriteria = Readonly<{
   page: number;
   customer: { kind: "all" } | { kind: "general_public" } | { kind: "contact"; contactId: string };
+  search?: string;
+  view?: "all" | "unpaid" | "undelivered";
   fromDay?: string;
   throughDay?: string;
 }>;
 
 type Api = Readonly<{
+  setDelivery: (orderId: string, input: SetOrderDeliveryRequest) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
   enableCheckout: (orderId: string) => Promise<Result<Readonly<{ url: string }>, OrderRequestError>>;
   listAggregates: (input: ListOrderAggregatesRequest) => Promise<Result<z.infer<typeof listOrderAggregatesResponseSchema>, OrderRequestError>>;
   getAggregate: (id: string) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
@@ -69,6 +72,7 @@ function mixedListRequest(criteria: OrderListCriteria): Result<ListOrderAggregat
       (criteria.fromDay && criteria.throughDay && criteria.fromDay > criteria.throughDay))
     return err({ code: "INVALID_INPUT", message: "Invalid order days" });
   const parsed = listOrderAggregatesSchema.safeParse({ page: criteria.page, customer: criteria.customer.kind,
+    ...(criteria.search ? { search: criteria.search.trim() } : {}), ...(criteria.view ? { view: criteria.view } : {}),
     ...(criteria.customer.kind === "contact" ? { contactId: criteria.customer.contactId } : {}),
     ...(criteria.fromDay ? { createdFrom: limaMidnightUtc(criteria.fromDay) } : {}),
     ...(criteria.throughDay ? { createdBefore: limaMidnightUtc(nextCalendarDay(criteria.throughDay)) } : {}),
@@ -131,6 +135,7 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
     return ok({ kind: "uncertain", pending: saved.data });
   };
   return {
+    setDelivery: api.setDelivery,
     loadMixedOrders: async (criteria: OrderListCriteria) => {
       const input = mixedListRequest(criteria);
       return input.success ? api.listAggregates(input.data) : input;

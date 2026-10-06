@@ -14,6 +14,7 @@ import { loadWhatsAppConnections } from "@core/src/features/chats/infrastructure
 import { whatsappWebhook } from "@core/src/features/chats/presentation/whatsapp-webhook";
 import { productRoutes } from "@core/src/features/products/presentation/api-routes";
 import { hasDuplicateJsonKeys, orderRoutes } from "@core/src/features/orders/presentation/api-routes";
+import { deliverySettingsRoutes } from "@core/src/features/delivery-settings/presentation/api-routes";
 import { buyerPaymentRoutes } from "@core/src/features/orders/presentation/buyer-payment-routes";
 import { log, requestLogging } from "@core/src/shared/infrastructure/logger";
 
@@ -35,6 +36,10 @@ app.use("/api/products", (_request, response, next) => {
   next();
 });
 app.use("/api/orders", (_request, response, next) => {
+  response.set("Cache-Control", "no-store");
+  next();
+});
+app.use("/api/delivery-settings", (_request, response, next) => {
   response.set("Cache-Control", "no-store");
   next();
 });
@@ -79,6 +84,7 @@ app.use("/api", requireApiCompany);
 app.use("/api/company/payment-settings", paymentSettingsRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);
+app.use("/api/delivery-settings", deliverySettingsRoutes);
 app.use("/api/images", images);
 
 app.use("/api", (_request, response: Response<unknown, PrivateLocals>) => {
@@ -88,7 +94,7 @@ app.use("/api", (_request, response: Response<unknown, PrivateLocals>) => {
 app.use("/api", (error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
   void _next;
   const pathname = _request.originalUrl.split("?", 1)[0];
-  const isFeatureRequest = ["/api/products", "/api/orders"].some((base) => pathname === base || pathname.startsWith(`${base}/`));
+  const isFeatureRequest = ["/api/products", "/api/orders", "/api/delivery-settings"].some((base) => pathname === base || pathname.startsWith(`${base}/`));
   if (pathname.startsWith("/api/orders") && typeof error === "object" && error !== null && "type" in error && error.type === "entity.verify.failed")
     return apiError(response, 400, "INVALID_INPUT", "Duplicate JSON key");
   if (error instanceof SyntaxError && "body" in error) return apiError(response, 400, isFeatureRequest ? "INVALID_INPUT" : "INVALID_COMPANY", "Invalid JSON", isFeatureRequest ? [{ field: "body", reason: "INVALID_JSON" }] : undefined);

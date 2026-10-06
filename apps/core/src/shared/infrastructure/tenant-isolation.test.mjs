@@ -42,7 +42,7 @@ test("company context enforces RLS and transaction boundaries", async () => {
     await admin.$executeRawUnsafe(`GRANT USAGE ON SCHEMA ${schema} TO "${role}"`);
     await admin.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE, DELETE ON ${schema}.rls_probe TO "${role}"`);
 
-    const { prisma, withTenantIsolation, getCompanyId, withinTransaction, withLockedForUpdate, systemPrisma } = await import("./persistance.ts");
+    const { prisma, withTenantIsolation, getCompanyId, withinTransaction, afterTransactionCommit, withLockedForUpdate, systemPrisma } = await import("./persistance.ts");
     const { createCompanyForUser } = await import("../../features/companies/application/create-company-for-user.ts");
     const { companyRepository } = await import("../../features/companies/infrastructure/company-repository.ts");
     const rows = () => prisma.$queryRaw(Prisma.sql`SELECT id FROM ${probe} ORDER BY id`);
@@ -128,6 +128,39 @@ test("company context enforces RLS and transaction boundaries", async () => {
         expect(concurrent[0].status).toBe("fulfilled");
         expect(concurrent[1].status).toBe("rejected");
         expect((await rows()).some(({ id }) => id === "parallel-ok")).toBeTruthy();
+      });
+    });
+
+    await step("observes success only after the outer commit, never after rollback or commit failure", async () => {
+      await withTenantIsolation(companyA, async () => {
+        const observed = [];
+        await withinTransaction(async () => {
+          await withinTransaction(async () => {
+            afterTransactionCommit(() => observed.push("committed"));
+            return success();
+          });
+          expect(observed).toEqual([]);
+          return success();
+        });
+        expect(observed).toEqual(["committed"]);
+        expect(await withinTransaction(async () => {
+          afterTransactionCommit(() => observed.push("rolled_back"));
+          return failure;
+        })).toEqual(failure);
+        await expect(withinTransaction(async () => {
+          await insert("observed-commit-fails", 999);
+          afterTransactionCommit(() => observed.push("commit_failed"));
+          return success();
+        })).rejects.toThrow(/ForeignKeyConstraintViolation/);
+        expect(observed).toEqual(["committed"]);
+        afterTransactionCommit(() => observed.push("already_committed"));
+        expect(observed).toEqual(["committed", "already_committed"]);
+        await expect(withinTransaction(async () => {
+          await insert("observation-fails-after-commit");
+          afterTransactionCommit(() => { throw new Error("Observation failed after commit"); });
+          return success();
+        })).rejects.toThrow("Observation failed after commit");
+        expect((await rows()).some(({ id }) => id === "observation-fails-after-commit")).toBe(true);
       });
     });
 

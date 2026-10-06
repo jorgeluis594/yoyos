@@ -1,5 +1,5 @@
 import * as Clipboard from "expo-clipboard";
-import { fireEvent, render, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import OrderDetailScreen from "@mobile/features/orders/presentation/order-detail-screen";
 import i18n from "@mobile/i18n";
@@ -8,6 +8,9 @@ const mockId = "00000000-0000-4000-8000-000000000003";
 let mockNotice: { id: string; shownTotal: { amount: number; currency: string } } | null = null;
 let mockCountry = "PE";
 const mockClear = jest.fn();
+const mockPush = jest.fn();
+let mockFocus: () => void;
+let mockLoadFailed = false;
 const mockRegisterPayment = jest.fn();
 const mockVoidPayment = jest.fn();
 const mockEnableCheckout = jest.fn();
@@ -24,14 +27,14 @@ const initialOrder: OrderAggregateResponse = { number: 1001, id: mockId, company
     productName: "Camisa", variantAttributes: { Talla: "M" }, sku: null, quantity: 1,
     unitPrice: { amount: 12, currency: "PEN" }, subtotal: { amount: 12, currency: "PEN" } }] };
 let mockOrder = initialOrder;
-beforeEach(() => { mockOrder = initialOrder; mockNotice = null; mockCountry = "PE"; mockEnableCheckout.mockReset(); mockRegisterPayment.mockReset(); mockVoidPayment.mockReset(); jest.mocked(Clipboard.setStringAsync).mockResolvedValue(true); });
+beforeEach(() => { mockOrder = initialOrder; mockNotice = null; mockCountry = "PE"; mockPush.mockReset(); mockLoadFailed = false; mockEnableCheckout.mockReset(); mockRegisterPayment.mockReset(); mockVoidPayment.mockReset(); jest.mocked(Clipboard.setStringAsync).mockResolvedValue(true); });
 
-jest.mock("expo-router", () => ({ useRouter: () => ({ back: jest.fn() }),
+jest.mock("expo-router", () => ({ useRouter: () => ({ back: jest.fn(), push: mockPush }),
   useLocalSearchParams: () => ({ id: mockId }),
-  useFocusEffect: (callback: () => void) => jest.requireActual("react").useEffect(callback, [callback]) }));
+  useFocusEffect: (callback: () => void) => { mockFocus = callback; jest.requireActual("react").useEffect(callback, [callback]); } }));
 jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   enableOrderCheckout: (...args: unknown[]) => mockEnableCheckout(...args),
-  loadOrderAggregate: async () => ({ success: true, data: mockOrder }),
+  loadOrderAggregate: async () => mockLoadFailed ? ({ success: false, error: { code: "NETWORK_ERROR" } }) : ({ success: true, data: mockOrder }),
   clearPendingOrderConfirmation: async () => ({ success: true, data: undefined }),
   registerPayment: (...args: unknown[]) => mockRegisterPayment(...args),
   voidPayment: (...args: unknown[]) => mockVoidPayment(...args),
@@ -62,7 +65,8 @@ test("pending detail shows the actual balance, stock and creation date", async (
   mockNotice = null;
   const screen = render(<OrderDetailScreen />);
   await screen.findByText("Orden activa");
-  expect(screen.getByText(/Saldo pendiente:/)).toBeTruthy();
+  expect(screen.getByText("Saldo pendiente")).toBeTruthy();
+  fireEvent.press(screen.getByRole("button", { name: "Detalles internos" }));
   expect(screen.getByText("Stock pendiente")).toBeTruthy();
   expect(screen.queryByText(/Completada el/)).toBeNull();
 });
@@ -76,7 +80,10 @@ test("seller confirms a reported partial amount from the mobile order", async ()
       data: { receiptImageId: "00000000-0000-4000-8000-000000000098", reportedAt: "2026-09-29T11:30:00.000Z" } }] };
   mockRegisterPayment.mockResolvedValue({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
   const screen = render(<OrderDetailScreen />);
-  await screen.findByText(/Pago reportado, pendiente de revisión/);
+  await screen.findByText("1 comprobante por revisar");
+  expect(screen.queryByLabelText(/Importe recibido/)).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: "1 comprobante por revisar" }));
+  fireEvent.press(screen.getByRole("button", { name: "Revisar comprobante" }));
   const inputs = screen.getAllByLabelText(/Importe recibido/);
   fireEvent.changeText(inputs[0], "4.50");
   fireEvent.press(screen.getAllByRole("button", { name: "Confirmar pago" })[0]);
@@ -91,8 +98,49 @@ test("seller can void a confirmed payment from mobile", async () => {
   mockVoidPayment.mockResolvedValue({ success: true, data: { ...initialOrder, payments: [] } });
   const screen = render(<OrderDetailScreen />);
   await screen.findByText("Venta completada");
+  fireEvent.press(screen.getByRole("button", { name: "Ver pagos" }));
   fireEvent.press(screen.getByRole("button", { name: "Anular pago" }));
   await waitFor(() => expect(mockVoidPayment).toHaveBeenCalledWith(mockId, initialOrder.payments[0].id));
+});
+
+test("manual payment opens on demand, validates input and updates the summary after confirmation", async () => {
+  mockOrder = { ...initialOrder, status: "active", completedAt: null, paymentStatus: "pending", payments: [],
+    paidAmount: { amount: 0, currency: "PEN" }, balanceDue: { amount: 12, currency: "PEN" } };
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Saldo pendiente");
+  expect(screen.queryByLabelText(/Importe recibido/)).toBeNull();
+  expect(screen.queryByText("Stock descontado")).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: "Registrar pago" }));
+  expect(screen.getByLabelText(/Importe recibido/).props.value).toBe("12.00");
+  fireEvent.changeText(screen.getByLabelText(/Importe recibido/), "0");
+  fireEvent.press(screen.getByRole("button", { name: "Confirmar pago" }));
+  await screen.findByText("Ingresa un importe positivo con hasta dos decimales.");
+  expect(mockRegisterPayment).not.toHaveBeenCalled();
+  mockRegisterPayment.mockResolvedValue({ success: true, data: { order: initialOrder } });
+  fireEvent.changeText(screen.getByLabelText(/Importe recibido/), "12.00");
+  fireEvent.press(screen.getByRole("button", { name: "Confirmar pago" }));
+  await screen.findByText("Pago cubierto");
+  expect(screen.queryByLabelText(/Importe recibido/)).toBeNull();
+  expect(screen.queryByRole("button", { name: "Registrar pago" })).toBeNull();
+  expect(screen.getByText("Pago confirmado")).toBeTruthy();
+  expect(mockRegisterPayment).toHaveBeenCalledWith(mockId, expect.objectContaining({
+    source: "manual", amount: { amount: 12, currency: "PEN" },
+  }));
+});
+
+test("closing the payment form does not register a payment and cancelled orders cannot open it", async () => {
+  mockOrder = { ...initialOrder, status: "active", paymentStatus: "pending", balanceDue: { amount: 12, currency: "PEN" } };
+  const screen = render(<OrderDetailScreen />);
+  fireEvent.press(await screen.findByRole("button", { name: "Registrar pago" }));
+  fireEvent.changeText(screen.getByLabelText(/Importe recibido/), "4");
+  fireEvent.press(screen.getByRole("button", { name: "Cerrar" }));
+  expect(screen.queryByLabelText(/Importe recibido/)).toBeNull();
+  expect(mockRegisterPayment).not.toHaveBeenCalled();
+  screen.unmount();
+  mockOrder = { ...mockOrder, cancelled: true, status: "cancelled" };
+  const cancelled = render(<OrderDetailScreen />);
+  await cancelled.findByText("Orden cancelada");
+  expect(cancelled.queryByRole("button", { name: "Registrar pago" })).toBeNull();
 });
 
 test('order detail translates amounts and labels to Portuguese', async () => {
@@ -106,13 +154,84 @@ test('order detail translates amounts and labels to Portuguese', async () => {
     expect(detail.getByText(/Diferença:/)).toBeTruthy();
     expect(detail.getByText('Público geral')).toBeTruthy();
     expect(detail.getByText('Pedido ativo')).toBeTruthy();
-    expect(detail.getByText(/Saldo pendente:/)).toBeTruthy();
+    expect(detail.getByText('Saldo pendente')).toBeTruthy();
+    fireEvent.press(detail.getByRole('button', { name: 'Detalhes internos' }));
     expect(detail.getByText('Estoque pendente')).toBeTruthy();
     expect(detail.queryByText(/Concluído em/)).toBeNull();
     detail.unmount();
   } finally {
     await i18n.changeLanguage('es');
   }
+});
+
+ test("pending details open assignment, while immediate sales keep null delivery presentation", async () => {
+  mockOrder = { ...initialOrder, status: "active", completedAt: null, deliveryStatus: "pending" };
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Entrega por definir");
+  fireEvent.press(screen.getByText("Asignar entrega"));
+  expect(mockPush).toHaveBeenCalledWith({ pathname: "/orders/delivery", params: { id: mockId } });
+  screen.unmount(); mockOrder = initialOrder;
+  const completed = render(<OrderDetailScreen />);
+  await completed.findByText("Venta completada");
+  expect(completed.queryByText("Entrega por definir")).toBeNull();
+  expect(completed.queryByText("Asignar entrega")).toBeNull();
+ });
+ test("saved pickup detail shows historic destination, author and absorbed delivery cost", async () => {
+  mockOrder = { ...initialOrder, status: "active", completedAt: null, deliveryStatus: "pending", deliveryCost: { amount: 3, currency: "PEN" },
+    delivery: { method: "store", recipient: { name: "Recipient", phone: "555", identity: { kind: "absent" } }, pickupPoint: { name: "Historic store", address: "Historic address", instructions: "Historic instructions" }, recordedBy: { kind: "seller", userId: "second-seller" } } };
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByRole("button", { name: "Tienda" });
+  fireEvent.press(screen.getByRole("button", { name: "Tienda" }));
+  fireEvent.press(screen.getByRole("button", { name: "Detalles internos" }));
+  expect(screen.getByText("Historic instructions")).toBeTruthy();
+  expect(screen.getByText(/Registrada por vendedor: second-seller/)).toBeTruthy();
+  expect(screen.getByText(/Costo de entrega:/)).toBeTruthy();
+  expect(screen.getByText(/Cargo al cliente:/)).toBeTruthy();
+  expect(screen.getByText("Editar entrega")).toBeTruthy();
+ });
+ test.each(["shipped", "delivered"] as const)("%s details hide assignment", async deliveryStatus => {
+   mockOrder = { ...initialOrder, status: "active", deliveryStatus };
+   const screen = render(<OrderDetailScreen />); await screen.findByText("Orden activa");
+   expect(screen.queryByText("Asignar entrega")).toBeNull();
+ });
+
+test("a failed refetch after returning hides obsolete details and offers retry", async () => {
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Venta completada");
+  mockLoadFailed = true;
+  await act(async () => { mockFocus(); });
+  await screen.findByText("No se pudo abrir la venta");
+  expect(screen.queryByText("Venta completada")).toBeNull();
+  mockLoadFailed = false;
+  fireEvent.press(screen.getByText("Reintentar"));
+  await screen.findByText("Venta completada");
+});
+
+test("home details show historical address, district, instructions and seller alongside cost and charge", async () => {
+  mockOrder = { ...initialOrder, status: "active", completedAt: null, deliveryStatus: "pending", deliveryCost: { amount: 3, currency: "PEN" },
+    delivery: { method: "home", recipient: { name: "Recipient", phone: "555", identity: { kind: "absent" } }, destination: { address: "Historic destination", district: "Historic district", instructions: "Historic instructions" }, recordedBy: { kind: "seller", userId: "second-seller" } } };
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByRole("button", { name: "Domicilio" });
+  fireEvent.press(screen.getByRole("button", { name: "Domicilio" }));
+  fireEvent.press(screen.getByRole("button", { name: "Detalles internos" }));
+  expect(screen.getByText("Historic district")).toBeTruthy();
+  expect(screen.getByText("Historic instructions")).toBeTruthy();
+  expect(screen.getByText(/Registrada por vendedor: second-seller/)).toBeTruthy();
+  expect(screen.getByText(/Costo de entrega:/)).toBeTruthy();
+  expect(screen.getByText(/Cargo al cliente:/)).toBeTruthy();
+});
+
+test("agency history shows the saved courier and document after shipment", async () => {
+  mockOrder = { ...initialOrder, status: "active", completedAt: null, deliveryStatus: "shipped",
+    delivery: { method: "agency", recipient: { name: "Recipient", phone: "00123", identity: { kind: "document", documentType: "passport", document: "00-A001" } },
+      courier: { id: "00000000-0000-4000-8000-000000000011", name: "Historic courier" }, agency: "Historic agency", recordedBy: { kind: "seller", userId: "second-seller" } } };
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByRole("button", { name: "Agencia" });
+  fireEvent.press(screen.getByRole("button", { name: "Agencia" }));
+  expect(screen.getByText("Historic courier")).toBeTruthy();
+  expect(screen.getByText("Historic agency")).toBeTruthy();
+  expect(screen.getByText(/00-A001/)).toBeTruthy();
+  expect(screen.queryByText("Editar entrega")).toBeNull();
 });
 
 test("seller obtains and copies checkout link without changing the payment display", async () => {
@@ -123,6 +242,7 @@ test("seller obtains and copies checkout link without changing the payment displ
   });
   const screen = render(<OrderDetailScreen />);
   await screen.findByText("Enlace aún no habilitado");
+  fireEvent.press(screen.getByRole("button", { name: "Confirmación del comprador" }));
   fireEvent.press(screen.getByText("Obtener enlace"));
   await screen.findByText("Pendiente de confirmación");
   expect(mockEnableCheckout).toHaveBeenCalledWith(mockId);
@@ -142,6 +262,7 @@ test("confirmed and cancelled checkouts display persisted state while link failu
   await confirmed.findByText("Confirmado por el comprador");
   expect(confirmed.getByText("Pedido #10000")).toBeTruthy();
   mockEnableCheckout.mockResolvedValue({ success: false, error: { code: "SERVICE_UNAVAILABLE" } });
+  fireEvent.press(confirmed.getByRole("button", { name: "Confirmación del comprador" }));
   fireEvent.press(confirmed.getByText("Obtener enlace"));
   await confirmed.findByText("No se pudo obtener el enlace. Inténtalo de nuevo.");
   expect(confirmed.queryByText("Copiar enlace")).toBeNull();

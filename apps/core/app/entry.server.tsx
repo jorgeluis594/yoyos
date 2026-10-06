@@ -16,6 +16,8 @@ export function handleError(error: unknown, { request }: { request: Request }) {
   log.error({ event: checkout ? "order_checkout_request_failed" : "web_request_failed", err: error }, "Web request failed");
 }
 
+export { createDeliveryRequestContext } from "@core/app/delivery-cost-context";
+
 export const streamTimeout = 5_000;
 
 export default function handleRequest(
@@ -34,10 +36,7 @@ export default function handleRequest(
     const userAgent = request.headers.get("user-agent");
     const readyOption: keyof RenderToPipeableStreamOptions =
       (userAgent && isbot(userAgent)) || entryContext.isSpaMode ? "onAllReady" : "onShellReady";
-    let timeoutId: ReturnType<typeof setTimeout> | undefined = setTimeout(
-      () => abort(),
-      streamTimeout + 1000,
-    );
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
     const { pipe, abort } = renderToPipeableStream(
       <I18nextProvider i18n={getInstance(routerContext)}>
@@ -59,6 +58,8 @@ export default function handleRequest(
           resolve(new Response(stream, { headers: responseHeaders, status: responseStatusCode }));
         },
         onShellError(error: unknown) {
+          clearTimeout(timeoutId);
+          timeoutId = undefined;
           reject(error);
         },
         onError(error: unknown) {
@@ -67,5 +68,6 @@ export default function handleRequest(
         },
       },
     );
+    timeoutId = setTimeout(abort, streamTimeout + 1000);
   });
 }

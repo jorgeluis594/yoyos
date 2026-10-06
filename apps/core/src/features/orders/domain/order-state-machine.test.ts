@@ -1,6 +1,6 @@
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import { describe, expect, test } from "vitest";
-import { buildPendingOrder, orderStateMachine, type OrderAggregate, type DeliveryDetails } from "@core/src/features/orders/domain/order-state-machine";
+import { buildPendingOrder, orderStateMachine, type OrderAggregate, type DeliverySnapshot, type CourierId } from "@core/src/features/orders/domain/order-state-machine";
 import type { ConfirmedPayment } from "@core/src/features/orders/domain/payment";
 import type { CompanyId, OrderId, OrderItemId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
@@ -20,8 +20,8 @@ const order = (): OrderAggregate => ({
 const payment = (n: number, amount: number): ConfirmedPayment => ({ id: id(n) as PaymentId, orderId: id(1) as OrderId,
   status: "confirmed", amount: money(amount), method: "digital_wallet",
   data: { confirmedAt: paymentAt, confirmedBy: { kind: "seller", userId: "seller" as UserId }, evidence: { kind: "manual" } } });
-const home: DeliveryDetails = { method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
-  destination: { address: "Av. Lima 123" } };
+const home: DeliverySnapshot = { method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
+  destination: { address: "Av. Lima 123", district: "Lima", instructions: null }, recordedBy: { kind: "seller", userId: "seller" as UserId } };
 
 describe("pending order construction", () => {
   test("preserves identity and snapshots while leaving payment, delivery and stock pending", () => {
@@ -117,11 +117,11 @@ describe("delivery and stock transitions", () => {
   });
 
   test("requires documented agency recipient and validates identity at runtime", () => {
-    const invalid = { method: "agency", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, destination: { agencyId: "a" } };
-    expect(orderStateMachine.setDelivery(order(), { resolved: { delivery: invalid as DeliveryDetails, cost: money(1) }, chargeDeliveryToCustomer: true }))
+    const invalid = { method: "agency", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, courier: { id: id(8) as CourierId, name: "Courier" }, agency: "Lima", recordedBy: { kind: "seller", userId: "seller" as UserId } };
+    expect(orderStateMachine.setDelivery(order(), { resolved: { delivery: invalid as DeliverySnapshot, cost: money(1) }, chargeDeliveryToCustomer: true }))
       .toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
-    const agency: DeliveryDetails = { method: "agency", recipient: { name: "Ana", phone: "999", identity: {
-      kind: "document", documentType: "passport", document: "A-001" } }, destination: { agencyId: "a" } };
+    const agency: DeliverySnapshot = { method: "agency", recipient: { name: "Ana", phone: "999", identity: {
+      kind: "document", documentType: "passport", document: "A-001" } }, courier: { id: id(8) as CourierId, name: "Courier" }, agency: "Lima", recordedBy: { kind: "seller", userId: "seller" as UserId } };
     expect(orderStateMachine.setDelivery(order(), { resolved: { delivery: agency, cost: money(0) }, chargeDeliveryToCustomer: false }))
       .toMatchObject({ success: true, data: { delivery: agency } });
   });

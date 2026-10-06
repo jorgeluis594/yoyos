@@ -99,7 +99,7 @@ test("changed total preserves buyer input and needs an explicit new confirmation
     await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
     await withTenantIsolation(f.companyId, async () => {
       await prisma.order.update({ where: { id: f.orderId }, data: { total: 12, deliveryCost: 2, deliveryCharge: 2,
-        delivery: { method: "home", recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } }, destination: { address: "Address" } } } });
+        delivery: { method: "home", recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } }, destination: { address: "Address", district: "Lima", instructions: null }, recordedBy: { kind: "seller", userId: f.userId } } } });
     });
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
     await browserExpect(page.getByRole("alert")).toContainText("El total cambió");
@@ -218,7 +218,7 @@ test("seller copies a stable link and sees buyer confirmation separately from pa
     await page.reload();
     await browserExpect(page.getByText("Confirmado por el comprador", { exact: true })).toBeVisible();
     await browserExpect(page.getByText("Ana", { exact: true })).toBeVisible();
-    await browserExpect(page.getByText("Pendiente: S/ 10.00", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Saldo pendiente", { exact: true }).locator("..").getByText("S/ 10.00", { exact: true })).toBeVisible();
     await page.goto("/es-PE/orders");
     const table = page.getByRole("table", { name: "Órdenes" });
     await browserExpect(table.getByText("Pedido #10000", { exact: true })).toBeVisible();
