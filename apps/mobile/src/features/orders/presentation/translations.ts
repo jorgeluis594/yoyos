@@ -1,5 +1,12 @@
 export const translations = {
   es: {
+    initialPaid: "Pagos ingresados", estimatedBalance: "Saldo referencial de productos", deliveryChargePending: "El cargo de entrega se calculará y añadirá al guardar.",
+    saveOrder: "Guardar pedido", noInitialPayments: "Sin pagos. El pedido quedará pendiente de pago.", addInitialPayment: "Agregar pago", initialPayment: "Pago {{number}}",
+    configureInitialDelivery: "Configurar datos de entrega", deliverImmediately: "Marcar como entregado al guardar",
+    immediateRequirements: "Para marcar entregado, los pagos deben cubrir el total y debe haber stock suficiente.",
+    creationSummary: "Resumen", creationPriceHint: "El servidor calculará precios, cargo de entrega y saldo al guardar.",
+    creationStockWarning: "La cantidad supera la disponibilidad. Se exigirá stock cuando corresponda descontarlo.",
+    legacyAttemptHint: "Este intento antiguo no conserva la solicitud original. Verifica su resultado; no se puede reconstruir de forma segura.",
     orderDeliveryMethod: "Modalidad de entrega", orderDeliveryAddress: "Dirección de entrega", orderDeliveryDistrict: "Distrito", orderDeliveryInstructions: "Indicaciones de entrega (opcional)", invalidHomeDestination: "Completa la dirección y el distrito de entrega.",
     assignOrderDelivery: "Asignar entrega",
     replaceOrderDelivery: "Editar entrega",
@@ -146,6 +153,13 @@ export const translations = {
     offlineEditing: 'Sin conexión. Puedes seguir editando.',
   },
   'pt-BR': {
+    initialPaid: "Pagamentos informados", estimatedBalance: "Saldo estimado dos produtos", deliveryChargePending: "O valor da entrega será calculado e adicionado ao salvar.",
+    saveOrder: "Salvar pedido", noInitialPayments: "Sem pagamentos. O pedido ficará pendente de pagamento.", addInitialPayment: "Adicionar pagamento", initialPayment: "Pagamento {{number}}",
+    configureInitialDelivery: "Configurar dados de entrega", deliverImmediately: "Marcar como entregue ao salvar",
+    immediateRequirements: "Para marcar entregue, os pagamentos devem cobrir o total e deve haver estoque suficiente.",
+    creationSummary: "Resumo", creationPriceHint: "O servidor calculará preços, valor da entrega e saldo ao salvar.",
+    creationStockWarning: "A quantidade supera a disponibilidade. O estoque será exigido quando for necessário descontá-lo.",
+    legacyAttemptHint: "Esta tentativa antiga não mantém a solicitação original. Verifique o resultado; não é possível reconstruí-la com segurança.",
     orderDeliveryMethod: "Modalidade de entrega", orderDeliveryAddress: "Endereço de entrega", orderDeliveryDistrict: "Distrito", orderDeliveryInstructions: "Instruções de entrega (opcional)", invalidHomeDestination: "Preencha o endereço e o distrito da entrega.",
     assignOrderDelivery: "Definir entrega",
     replaceOrderDelivery: "Editar entrega",

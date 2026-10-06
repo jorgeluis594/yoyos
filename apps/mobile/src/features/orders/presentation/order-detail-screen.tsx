@@ -1,6 +1,7 @@
+import { PaymentFields, type PaymentFieldsValue } from "@mobile/features/orders/presentation/payment-fields";
 import * as Clipboard from "expo-clipboard";
 import { useCallback, useRef, useState } from "react";
-import { Linking, ScrollView, StyleSheet, Switch, View } from "react-native";
+import { Linking, ScrollView, StyleSheet, View } from "react-native";
 import * as Crypto from "expo-crypto";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
@@ -11,9 +12,6 @@ import { orders } from "@mobile/features/orders/composition";
 import { ThemedText } from "@mobile/components/themed-text";
 import { ThemedView } from "@mobile/components/themed-view";
 import { Button } from "@mobile/components/ui/button";
-import { Field, FieldLabel } from "@mobile/components/ui/field";
-import { Input } from "@mobile/components/ui/input";
-import { OptionSelector } from "@mobile/components/ui/option-selector";
 import { ScreenState } from "@mobile/components/ui/screen-state";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
@@ -211,16 +209,8 @@ const styles = StyleSheet.create({ page: { flex: 1 }, content: { gap: 24, paddin
 function PaymentEditor({ currency, balance, busy, onConfirm }: { currency: string; balance: number; busy: boolean;
   onConfirm: (amount: string, method: "digital_wallet" | "bank_transfer", deductStockIfPartial: boolean) => void }) {
   const { t } = useTranslation();
-  const [amount, setAmount] = useState(balance > 0 ? balance.toFixed(2) : "");
-  const [method, setMethod] = useState<"digital_wallet" | "bank_transfer">("digital_wallet");
-  const [deduct, setDeduct] = useState(false);
-  return <View style={styles.section}><Field required><FieldLabel>{t('paymentAmount')} ({currency})</FieldLabel>
-      <Input value={amount} onChangeText={setAmount} keyboardType="decimal-pad" /></Field>
-    <Field required><FieldLabel>{t('paymentMethod')}</FieldLabel><OptionSelector options={[
-      { value: "digital_wallet", label: t('wallet') }, { value: "bank_transfer", label: t('bankTransfer') }]}
-      value={method} onValueChange={(value) => { if (value === "digital_wallet" || value === "bank_transfer") setMethod(value); }} /></Field>
-    <View style={styles.item}><ThemedText>{t('deductStockIfPartial')}</ThemedText>
-      <Switch value={deduct} onValueChange={setDeduct} accessibilityLabel={t('deductStockIfPartial')} /></View>
-    <Button disabled={busy} loading={busy} onPress={() => onConfirm(amount, method, deduct)}>{t('confirmPayment')}</Button>
+  const [value, setValue] = useState<PaymentFieldsValue>({ amount: balance > 0 ? balance.toFixed(2) : "", method: "digital_wallet", deductStockIfPartial: false });
+  return <View style={styles.section}><PaymentFields value={value} onChange={setValue} currency={currency} busy={busy} />
+    <Button disabled={busy} loading={busy} onPress={() => onConfirm(value.amount, value.method, value.deductStockIfPartial)}>{t('confirmPayment')}</Button>
   </View>;
 }
