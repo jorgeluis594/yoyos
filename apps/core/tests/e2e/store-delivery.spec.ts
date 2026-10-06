@@ -47,6 +47,12 @@ test("store assignment preserves unavailable delivery, freezes its point and ato
     await browserExpect(page.getByLabel("Nombre del destinatario")).toHaveValue("Unavailable");
     const unchanged = await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json();
     expect(unchanged).toMatchObject({ delivery: null, total: { amount: 20 }, stockDeducted: false });
+    const apiUnavailable = await page.request.put(`/api/orders/${orderId}/delivery`, { data: {
+      delivery: { method: "store", recipient: { name: "Unavailable", phone: "999123456", identity: { kind: "absent" } } },
+      chargeDeliveryToCustomer: true,
+    } });
+    expect(apiUnavailable.status()).toBe(422);
+    expect(await apiUnavailable.json()).toMatchObject({ code: "DELIVERY_UNAVAILABLE" });
     await page.getByLabel("Nombre del destinatario").fill("Ana");
     await page.getByLabel("Cobrar la entrega al cliente").check();
     await saveDelivery();
@@ -54,6 +60,12 @@ test("store assignment preserves unavailable delivery, freezes its point and ato
     await browserExpect(page.getByText(`Total: ${formatCurrency(23, "PEN", "es")}`, { exact: true })).toBeVisible();
     const assigned = await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json();
     expect(assigned).toMatchObject({ delivery: { method: "store", pickupPoint: { address: "Av. Original 123" }, recordedBy: { kind: "seller", userId: sellerId } }, deliveryCost: { amount: 3 }, deliveryCharge: { amount: 3 }, stockDeducted: false });
+    const apiAssigned = await page.request.put(`/api/orders/${orderId}/delivery`, { data: {
+      delivery: { method: "store", recipient: { name: "Ana", phone: "999123456", identity: { kind: "absent" } } },
+      chargeDeliveryToCustomer: true,
+    } });
+    expect(apiAssigned.ok()).toBe(true);
+    expect(await apiAssigned.json()).toEqual(assigned);
     const changed = await page.request.put("/api/delivery-settings", { data: { expectedVersion: 1,
       agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Tienda nueva", address: "Av. Nueva 456", instructions: null } } } });
     expect(changed.ok()).toBe(true);
