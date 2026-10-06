@@ -31,7 +31,6 @@ test("mobile seller copies checkout and sees the anonymous buyer confirmation in
     await browserExpect(page.getByText("Enlace copiado", { exact: true })).toBeVisible();
     const url = await page.evaluate(() => navigator.clipboard.readText());
     expect(url).toBe(`http://127.0.0.1:4173/checkout/${tenant}/${id}`);
-    await page.screenshot({ path: "/tmp/checkout-mobile-seller.png" });
     const buyer = await buyerContext.newPage();
     await buyer.goto(url);
     await buyer.getByLabel("Nombre", { exact: true }).fill("Ana");
@@ -60,7 +59,6 @@ test("mobile seller copies checkout and sees the anonymous buyer confirmation in
     await browserExpect(page.getByText("Pedido cancelado", { exact: true })).toBeVisible();
     await browserExpect(page.getByRole("button", { name: "Obtener enlace", exact: true })).toHaveCount(0);
   } finally {
-    await page.screenshot({ path: "/tmp/checkout-mobile-final.png" });
     await buyerContext.close();
     await mobile.close();
     if (companyId) await withTenantIsolation(companyId, async () => {
