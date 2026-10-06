@@ -63,6 +63,8 @@ This convention targets a contrast ratio of at least 4.5:1 for all functional te
 
 Typography in operating-system dialogs, pickers, or navigation may remain native. System fonts are the loading fallback, not a deliberate second identity.
 
+The native implementation resolves Inter weights through `apps/mobile/src/constants/typography.ts` and shared text/form components. SDK 57 Android did not render distinct weights from the variable font, so medium (500), semibold (600), and bold (700) use static cuts extracted at optical size 14 from the bundled OFL Inter font; regular retains the bundled Inter face. Native weights select the corresponding font family, while web retains CSS font weights. This preserves the typeface identity; verify visible weight differences on-device rather than relying on a `fontWeight` declaration alone.
+
 | Role | Use |
 | --- | --- |
 | `page-title` | Main screen title; no oversized hero headings in management views. |
@@ -150,6 +152,14 @@ The implemented `apps/mobile/src/features/orders/presentation/order-history-scre
 Keep customer and tabular amount prominent, order number/time secondary, and independent status words below. Allow headings, amounts and badges to wrap as text grows. Search and quick filters stay above the list; customer and creation-date fields live in a native modal with separate headings. Preserve 48dp minimum controls, safe areas, native symbols, tabs and back behavior. Rounded pills belong to this list's action/filter/status recipe, not a replacement for the standard control shape.
 
 Android light/dark and enlarged-text evidence is recorded in the [native orders surface brief](.impeccable/surfaces/apps-mobile-src-features-orders-presentation-order-history-screen-tsx.md), including exact surface measurements and review limits. iOS and tablet visual acceptance remain open. This recipe records the orders implementation only.
+
+### Native order detail
+
+The implemented `apps/mobile/src/features/orders/presentation/order-detail-screen.tsx` uses the approved commercial-summary composition: identify the order and its independent states, inspect buyer/products and money, then consult delivery and secondary details. Flat token surfaces group coherent sections; semibold headings, product subtotals, total and balance establish hierarchy. Comparable amounts retain currency and tabular figures, with wrapping when space is limited.
+
+Keep payment registration beside the balance and open its form only on explicit action. The receipt notice opens payment history; reported receipts remain distinct from confirmed received amounts. History, saved delivery details, buyer confirmation and internal data use named disclosures with expanded semantics. Payment entry uses a native modal that respects the keyboard and safe areas. Buyer and recipient, customer delivery charge and internal delivery cost, and buyer confirmation and payment remain separate concepts.
+
+This is a surface recipe, not a new global layout or token scale. Its approved comp, implementation details, Android light/dark and enlarged-text evidence, and verification limits live in the [native order detail surface brief](.impeccable/surfaces/atures-orders-presentation-order-detail-screen-tsx.md). iOS/tablet acceptance and receipt-image viewing are not claimed by that evidence.
 
 ### States and interaction
 
