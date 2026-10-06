@@ -6,4 +6,4 @@ import { request } from "@mobile/composition/auth";
 
 const api = createOrderApi(request);
 export const orders = { ...createOrderOperations(api, createPendingOrderConfirmationStore(SecureStore)),
-  registerPayment: api.registerPayment, voidPayment: api.voidPayment, receiptUrl: api.receiptUrl };
+  ship: api.ship, deliver: api.deliver, registerPayment: api.registerPayment, voidPayment: api.voidPayment, receiptUrl: api.receiptUrl };

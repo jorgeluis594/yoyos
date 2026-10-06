@@ -86,6 +86,16 @@ test("delivery API validates the complete authored snapshot and updated aggregat
     cancelled: false, delivery, payments: [], itemsTotal: total, deliveryCost: { amount: 3, currency: "PEN" }, deliveryCharge: zero,
     items: [{ id: id(3), variantId: id(4), productName: "Item", variantAttributes: {}, sku: null, quantity: 1, unitPrice: total, subtotal: total }] };
   expect(await createOrderApi(async () => ok(order)).setDelivery(id(1), input)).toMatchObject({ success: true, data: { delivery, total } });
+  for (const operation of ["ship", "deliver"] as const) {
+    const fulfilled = { ...order, paymentStatus: "paid", paidAmount: total, balanceDue: zero, stockDeducted: true,
+      deliveryStatus: operation === "ship" ? "shipped" : "delivered",
+      deliveredAt: operation === "ship" ? null : order.createdAt, completedAt: operation === "ship" ? null : order.createdAt,
+      status: operation === "ship" ? "active" : "completed" };
+    expect(await createOrderApi(async () => ok(fulfilled))[operation](id(1))).toEqual(ok(fulfilled));
+    for (const invalid of [{ ...fulfilled, id: id(5) }, { ...fulfilled, deliveryStatus: "pending" }]) {
+      expect(await createOrderApi(async () => ok(invalid))[operation](id(1))).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+    }
+  }
   for (const invalid of [{ ...order, id: id(5) }, { ...order, delivery: null }, { ...order, delivery: { ...delivery, recordedBy: undefined } }, { ...order, delivery: { ...delivery, pickupPoint: undefined } }]) {
     expect(await createOrderApi(async () => ok(invalid)).setDelivery(id(1), input)).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
   }
@@ -103,5 +113,20 @@ test("checkout link adapter validates IDs, responses and operation-specific fail
   for (const [code, status] of [["ORDER_CANCELLED", 409], ["ORDER_NOT_FOUND", 404], ["INVALID_INPUT", 422]] as const) {
     const failed = createOrderApi(async () => err({ code: "API_ERROR", message: "failure", http: { status, body: { code, error: "Rejected" } } }));
     expect(await failed.enableCheckout(id(1))).toMatchObject({ error: { code } });
+  }
+});
+
+test.each(["ship", "deliver"] as const)("%s validates IDs, sends no payment data and preserves fulfillment failures", async operation => {
+  const request = jest.fn(async () => ok({ unexpected: true }));
+  const api = createOrderApi(request);
+  expect(await api[operation]("bad")).toMatchObject({ error: { code: "INVALID_INPUT" } });
+  expect(request).not.toHaveBeenCalled();
+  expect(await api[operation](id(1))).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+  expect(request).toHaveBeenCalledWith(`/api/orders/${id(1)}/${operation}`, { method: "POST" });
+  for (const code of ["PAYMENT_REQUIRED", "STOCK_NOT_DEDUCTED", "ORDER_CANCELLED", "INVALID_TRANSITION"] as const) {
+    const failed = createOrderApi(async () => err({ code: "API_ERROR", message: "Failed", http: { status: 409, body: { code, error: "Rejected" } } }));
+    expect(await failed[operation](id(1))).toMatchObject({ error: { code } });
+    const wrongStatus = createOrderApi(async () => err({ code: "API_ERROR", message: "Failed", http: { status: 422, body: { code, error: "Rejected" } } }));
+    expect(await wrongStatus[operation](id(1))).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
   }
 });
