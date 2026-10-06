@@ -1201,3 +1201,56 @@ test("a real deferred commit failure rolls back checkout and emits no successful
     info.mockRestore(); error.mockRestore(); await f.cleanup();
   }
 });
+
+
+test("filters mixed orders before pagination with literal buyer search and independent pending states", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+      await prisma.contact.update({ where: { id: f.contactId }, data: { name: "Ana_100%" } });
+      const ids: OrderId[] = [];
+      for (let index = 0; index < 22; index++) {
+        const id = randomUUID() as OrderId;
+        const result = await orders.create({ id, contactId: f.contactId as ContactId,
+          items: [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }] }, context);
+        expect(result.success).toBe(true);
+        ids.push(id);
+      }
+      const completed = await immediateSale({ id: randomUUID(), contactId: null,
+        items: [{ variantId: f.variantIds[0], quantity: 1 }] }, f);
+      expect(completed.success).toBe(true);
+      await prisma.order.update({ where: { id: ids[0] }, data: { cancelled: true } });
+      const criteria = { page: 1, customer: { kind: "all" as const } };
+      const unpaid = await orders.listAggregates({ ...criteria, view: "unpaid" }, context);
+      expect(unpaid).toMatchObject({ success: true, data: { total: 21 } });
+      if (unpaid.success) expect(unpaid.data.items).toHaveLength(20);
+      expect(await orders.listAggregates({ ...criteria, page: 2, view: "unpaid" }, context))
+        .toMatchObject({ success: true, data: { total: 21, items: [expect.objectContaining({ cancelled: false })] } });
+      expect(await orders.listAggregates({ ...criteria, view: "undelivered" }, context))
+        .toMatchObject({ success: true, data: { total: 21 } });
+      expect(await orders.listAggregates({ ...criteria, search: "  ana_100%  " }, context))
+        .toMatchObject({ success: true, data: { total: 22 } });
+      expect(await orders.listAggregates({ ...criteria, search: "anaX100" }, context))
+        .toMatchObject({ success: true, data: { total: 0 } });
+      expect(await orders.listAggregates({ ...criteria, search: "999999999" }, context))
+        .toMatchObject({ success: true, data: { total: 22 } });
+      const paymentId = randomUUID() as PaymentId;
+      expect(await orders.registerPayment({ orderId: ids[1], paymentId, amount: { amount: 0.05, currency: "PEN" },
+        method: "digital_wallet", deductStockIfPartial: false }, context)).toMatchObject({ success: true });
+      expect(await orders.listAggregates({ ...criteria, view: "unpaid" }, context)).toMatchObject({ success: true, data: { total: 21 } });
+      expect(await orders.registerPayment({ orderId: ids[1], paymentId: randomUUID() as PaymentId,
+        amount: { amount: 0.05, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context)).toMatchObject({ success: true });
+      expect(await orders.listAggregates({ ...criteria, view: "unpaid" }, context)).toMatchObject({ success: true, data: { total: 20 } });
+      expect(await orders.listAggregates({ ...criteria, view: "undelivered" }, context)).toMatchObject({ success: true, data: { total: 21 } });
+      expect(await orders.voidPayment({ orderId: ids[1], paymentId }, context)).toMatchObject({ success: true });
+      expect(await orders.listAggregates({ ...criteria, view: "unpaid" }, context)).toMatchObject({ success: true, data: { total: 21 } });
+      if (completed.success) {
+        expect(await orders.listAggregates({ ...criteria, search: `#${completed.data.number}` }, context))
+          .toMatchObject({ success: true, data: { total: 1, items: [{ id: completed.data.id }] } });
+        expect(await orders.listAggregates({ ...criteria, search: `#${completed.data.number}`, view: "unpaid" }, context))
+          .toMatchObject({ success: true, data: { total: 0 } });
+      }
+    });
+  } finally { await f.cleanup(); }
+});

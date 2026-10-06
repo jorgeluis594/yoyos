@@ -76,6 +76,8 @@ export const orderAggregateSchema = z.strictObject({ checkoutEnabledAt: z.iso.da
   itemsTotal: moneySchema, deliveryCost: moneySchema, deliveryCharge: moneySchema, total: moneySchema });
 export type OrderAggregateResponse = z.infer<typeof orderAggregateSchema>;
 export const listOrderAggregatesSchema = z.strictObject({
+  search: z.string().max(120).optional(),
+  view: z.enum(["all", "unpaid", "undelivered"]).optional(),
   page: z.coerce.number().int().positive().safe().default(1),
   customer: z.enum(["all", "general_public", "contact"]).default("all"),
   contactId: z.uuid().optional(), createdFrom: z.iso.datetime().optional(), createdBefore: z.iso.datetime().optional(),

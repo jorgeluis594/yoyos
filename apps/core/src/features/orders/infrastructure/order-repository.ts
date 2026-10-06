@@ -337,18 +337,32 @@ export async function findOrders(criteria: OrderCriteria) {
 
 export async function findOrderAggregates(criteria: AggregateCriteria, companyId: CompanyId) {
   if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
-  const where: Prisma.OrderWhereInput = { companyId,
-    ...(criteria.customer.kind === "general_public" ? { buyer: { is: null } } : criteria.customer.kind === "contact" ? { buyer: { is: { contactId: criteria.customer.contactId } } } : {}),
-    ...(criteria.createdFrom || criteria.createdBefore ? { createdAt: {
-      ...(criteria.createdFrom ? { gte: criteria.createdFrom } : {}), ...(criteria.createdBefore ? { lt: criteria.createdBefore } : {}),
-    } } : {}),
-  };
+  const predicates = [Prisma.sql`o."companyId" = ${companyId}::uuid`];
+  if (criteria.customer.kind === "general_public") predicates.push(Prisma.sql`b."orderId" IS NULL`);
+  if (criteria.customer.kind === "contact") predicates.push(Prisma.sql`b."contactId" = ${criteria.customer.contactId}::uuid`);
+  if (criteria.createdFrom) predicates.push(Prisma.sql`o."createdAt" >= ${criteria.createdFrom}`);
+  if (criteria.createdBefore) predicates.push(Prisma.sql`o."createdAt" < ${criteria.createdBefore}`);
+  if (criteria.search) {
+    const number = /^#?\d+$/.test(criteria.search) ? Number(criteria.search.replace(/^#/, "")) : NaN;
+    predicates.push(Prisma.sql`(strpos(lower(coalesce(b.name, '')), lower(${criteria.search})) > 0
+      OR strpos(b.phone, ${criteria.search}) > 0
+      ${Number.isSafeInteger(number) ? Prisma.sql`OR o.number = ${BigInt(number)}` : Prisma.empty})`);
+  }
+  if (criteria.view === "unpaid") predicates.push(Prisma.sql`o.cancelled = false AND
+    coalesce((SELECT sum(p.amount) FROM "Payment" p WHERE p."orderId" = o.id
+      AND p."companyId" = o."companyId" AND p.status = 'confirmed'), 0) < o.total`);
+  if (criteria.view === "undelivered") predicates.push(Prisma.sql`o.cancelled = false AND o."deliveryStatus" IN ('pending', 'shipped')`);
   try {
-    const [rows, total] = await Promise.all([
-      prisma.order.findMany({ where, include: aggregateInclude, orderBy: [{ createdAt: "desc" }, { id: "asc" }],
-        skip: (criteria.page - 1) * 20, take: 20 }),
-      prisma.order.count({ where }),
-    ]);
+    const [page] = await prisma.$queryRaw<{ ids: string[]; total: number }[]>(Prisma.sql`
+      WITH matching AS (SELECT o.id, o."createdAt" FROM "Order" o
+        LEFT JOIN "OrderBuyer" b ON b."orderId" = o.id AND b."companyId" = o."companyId"
+        WHERE ${Prisma.join(predicates, " AND ")})
+      SELECT ARRAY(SELECT id FROM matching ORDER BY "createdAt" DESC, id ASC
+        LIMIT 20 OFFSET ${(criteria.page - 1) * 20}) AS ids,
+        (SELECT count(*)::int FROM matching) AS total`);
+    const rows = await prisma.order.findMany({ where: { companyId, id: { in: page.ids } },
+      include: aggregateInclude, orderBy: [{ createdAt: "desc" }, { id: "asc" }] });
+    const total = page.total;
     return ok<AggregatePage>({ items: rows.map((row) => mapAggregate(row, "list_order_aggregates")), page: criteria.page, pageSize: 20, total });
   } catch (cause) {
     if (cause instanceof InvalidStoredOrderError) {

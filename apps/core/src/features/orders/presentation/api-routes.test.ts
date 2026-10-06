@@ -108,3 +108,14 @@ test("order JSON errors preserve no-store before authentication", async () => {
     expect((await response.json()).code).toBe(status === 413 ? "PAYLOAD_TOO_LARGE" : "INVALID_INPUT");
   }
 });
+
+
+test("mixed order API validates and forwards search and work filters", async () => {
+  const list = vi.spyOn(orders, "listAggregates").mockResolvedValue({ success: true, data: { items: [], page: 1, pageSize: 20, total: 0 } });
+  expect(await request("/mixed?view=invalid")).toMatchObject({ status: 400 });
+  expect(await request(`/mixed?search=${"a".repeat(121)}`)).toMatchObject({ status: 400 });
+  expect(list).not.toHaveBeenCalled();
+  expect(await request("/mixed?search=%231005&view=unpaid")).toMatchObject({ status: 200 });
+  expect(list).toHaveBeenCalledWith(expect.objectContaining({ search: "#1005", view: "unpaid" }),
+    expect.objectContaining({ companyId }));
+});

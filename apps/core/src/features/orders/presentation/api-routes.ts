@@ -124,9 +124,9 @@ orderRoutes.get("/mixed", async (request, response: Response<unknown, PrivateLoc
   if (!query) return;
   const parsed = listOrderAggregatesSchema.safeParse(query);
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order filters");
-  const { page, customer, contactId, createdFrom, createdBefore } = parsed.data;
+  const { page, customer, contactId, createdFrom, createdBefore, search, view } = parsed.data;
   try {
-    const result = await orders.listAggregates({ page,
+    const result = await orders.listAggregates({ page, search, view,
       customer: customer === "contact" ? { kind: "contact", contactId: contactId as ContactId } : { kind: customer },
       ...(createdFrom ? { createdFrom: new Date(createdFrom) } : {}),
       ...(createdBefore ? { createdBefore: new Date(createdBefore) } : {}),
