@@ -39,3 +39,19 @@ test.each(["confirm", "void"])("seller %s action dispatches payment operations w
   expect(operation === "confirm" ? voidPayment : confirm).not.toHaveBeenCalled();
   expect(enable).not.toHaveBeenCalled();
 });
+
+test.each(["ship", "deliver"] as const)("seller %s action uses fulfillment and never changes payments", async operation => {
+  const fulfillment = vi.spyOn(orders, operation).mockResolvedValue(err({ code: "PAYMENT_REQUIRED", message: "Unpaid" }));
+  const confirm = vi.spyOn(orders, "registerPayment");
+  const voidPayment = vi.spyOn(orders, "voidPayment");
+  const enable = vi.spyOn(orders, "enableCheckout");
+  expect(await action(args({ operation }))).toEqual({ operation, url: null, success: false, error: "PAYMENT_REQUIRED" });
+  expect(fulfillment).toHaveBeenCalledWith(orderId, { companyId, userId: "authenticated-seller" });
+  expect(confirm).not.toHaveBeenCalled();
+  expect(voidPayment).not.toHaveBeenCalled();
+  expect(enable).not.toHaveBeenCalled();
+  fulfillment.mockResolvedValue(err({ code: "STOCK_NOT_DEDUCTED", message: "Stock pending" }));
+  expect(await action(args({ operation }))).toMatchObject({ error: "STOCK_NOT_DEDUCTED" });
+  fulfillment.mockRejectedValue(new Error("Unavailable"));
+  expect(await action(args({ operation }))).toMatchObject({ operation, success: false, error: "INTERNAL_ERROR" });
+});

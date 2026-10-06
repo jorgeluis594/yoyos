@@ -14,6 +14,8 @@ let mockLoadFailed = false;
 const mockRegisterPayment = jest.fn();
 const mockVoidPayment = jest.fn();
 const mockEnableCheckout = jest.fn();
+const mockShip = jest.fn();
+const mockDeliver = jest.fn();
 jest.mock("expo-clipboard", () => ({ setStringAsync: jest.fn(async () => true) }));
 const initialOrder: OrderAggregateResponse = { number: 1001, id: mockId, companyId: "00000000-0000-4000-8000-000000000001", sellerId: "seller",
   buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, createdAt: "2026-09-29T11:00:00.000Z", deliveredAt: "2026-09-29T12:00:00.000Z", completedAt: "2026-09-29T12:00:00.000Z",
@@ -27,12 +29,14 @@ const initialOrder: OrderAggregateResponse = { number: 1001, id: mockId, company
     productName: "Camisa", variantAttributes: { Talla: "M" }, sku: null, quantity: 1,
     unitPrice: { amount: 12, currency: "PEN" }, subtotal: { amount: 12, currency: "PEN" } }] };
 let mockOrder = initialOrder;
-beforeEach(() => { mockOrder = initialOrder; mockNotice = null; mockCountry = "PE"; mockPush.mockReset(); mockLoadFailed = false; mockEnableCheckout.mockReset(); mockRegisterPayment.mockReset(); mockVoidPayment.mockReset(); jest.mocked(Clipboard.setStringAsync).mockResolvedValue(true); });
+beforeEach(() => { mockOrder = initialOrder; mockNotice = null; mockCountry = "PE"; mockPush.mockReset(); mockLoadFailed = false; mockEnableCheckout.mockReset(); mockShip.mockReset(); mockDeliver.mockReset(); mockRegisterPayment.mockReset(); mockVoidPayment.mockReset(); jest.mocked(Clipboard.setStringAsync).mockResolvedValue(true); });
 
 jest.mock("expo-router", () => ({ useRouter: () => ({ back: jest.fn(), push: mockPush }),
   useLocalSearchParams: () => ({ id: mockId }),
   useFocusEffect: (callback: () => void) => { mockFocus = callback; jest.requireActual("react").useEffect(callback, [callback]); } }));
 jest.mock("@mobile/features/orders/composition", () => ({ orders: {
+  ship: (...args: unknown[]) => mockShip(...args),
+  deliver: (...args: unknown[]) => mockDeliver(...args),
   enableOrderCheckout: (...args: unknown[]) => mockEnableCheckout(...args),
   loadOrderAggregate: async () => mockLoadFailed ? ({ success: false, error: { code: "NETWORK_ERROR" } }) : ({ success: true, data: mockOrder }),
   clearPendingOrderConfirmation: async () => ({ success: true, data: undefined }),
@@ -217,4 +221,80 @@ test("confirmed and cancelled checkouts display persisted state while link failu
   const cancelled = render(<OrderDetailScreen />);
   await cancelled.findByText("Pedido cancelado");
   expect(cancelled.queryByText("Obtener enlace")).toBeNull();
+});
+
+
+test.each([null, "store"] as const)("seller delivers directly from pending with %s delivery and keeps payments", async method => {
+  mockOrder = { ...initialOrder, status: "active", deliveryStatus: "pending", deliveredAt: null, completedAt: null,
+    delivery: method === "store" ? { method, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
+      pickupPoint: { name: "Tienda", address: "Lima", instructions: null }, recordedBy: { kind: "seller", userId: "seller" } } : null };
+  mockDeliver.mockResolvedValue({ success: true, data: { ...mockOrder, status: "completed", deliveryStatus: "delivered", completedAt: initialOrder.completedAt, deliveredAt: initialOrder.deliveredAt } });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Orden activa");
+  fireEvent.press(screen.getByRole("button", { name: "Marcar entregado" }));
+  await screen.findByText("Pedido marcado como entregado.");
+  expect(screen.getByText("Venta completada")).toBeTruthy();
+  expect(screen.getByText(/Completada el/)).toBeTruthy();
+  expect(screen.getByText(/Pago cubierto/)).toBeTruthy();
+  expect(mockDeliver).toHaveBeenCalledWith(mockId);
+  expect(mockShip).not.toHaveBeenCalled();
+  expect(mockRegisterPayment).not.toHaveBeenCalled();
+  expect(mockVoidPayment).not.toHaveBeenCalled();
+});
+
+test("seller ships then delivers and sees an updated state after each operation", async () => {
+  mockOrder = { ...initialOrder, status: "active", deliveryStatus: "pending", deliveredAt: null, completedAt: null };
+  mockShip.mockResolvedValue({ success: true, data: { ...mockOrder, deliveryStatus: "shipped" } });
+  mockDeliver.mockResolvedValue({ success: true, data: initialOrder });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Orden activa");
+  fireEvent.press(screen.getByRole("button", { name: "Marcar enviado" }));
+  await screen.findByText("Pedido marcado como enviado.");
+  expect(screen.getByText(/Pago cubierto.*Despachado/)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Marcar enviado" })).toBeDisabled();
+  fireEvent.press(screen.getByRole("button", { name: "Marcar entregado" }));
+  await screen.findByText("Pedido marcado como entregado.");
+  expect(screen.getByText("Venta completada")).toBeTruthy();
+  expect(mockShip).toHaveBeenCalledWith(mockId);
+  expect(mockRegisterPayment).not.toHaveBeenCalled();
+  expect(mockVoidPayment).not.toHaveBeenCalled();
+});
+
+test.each([
+  { paymentStatus: "pending", stockDeducted: true, cancelled: false, deliveryStatus: "pending", reason: "Se requiere el pago completo antes de enviar o entregar." },
+  { paymentStatus: "paid", stockDeducted: false, cancelled: false, deliveryStatus: "pending", reason: "Se requiere descontar el stock antes de enviar o entregar." },
+  { paymentStatus: "paid", stockDeducted: true, cancelled: true, deliveryStatus: "pending", reason: "El pedido está cancelado; no se puede enviar ni entregar." },
+  { paymentStatus: "paid", stockDeducted: true, cancelled: false, deliveryStatus: "delivered", reason: "Solo se puede enviar desde pendiente y entregar desde pendiente o enviado." },
+] as const)("fulfillment is blocked and explained: $reason", async ({ reason, ...state }) => {
+  mockOrder = { ...initialOrder, ...state };
+  const screen = render(<OrderDetailScreen />);
+  await screen.findAllByText(reason);
+  for (const name of ["Marcar enviado", "Marcar entregado"]) {
+    const button = screen.getByRole("button", { name });
+    expect(button).toBeDisabled();
+    fireEvent.press(button);
+  }
+  expect(mockShip).not.toHaveBeenCalled();
+  expect(mockDeliver).not.toHaveBeenCalled();
+});
+
+test("fulfillment errors remain visible and requests can be retried without changing payments", async () => {
+  mockOrder = { ...initialOrder, status: "active", deliveryStatus: "pending", deliveredAt: null, completedAt: null };
+  let resolve: (result: unknown) => void = () => {};
+  mockShip.mockImplementationOnce(() => new Promise(result => { resolve = result; }));
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Orden activa");
+  fireEvent.press(screen.getByRole("button", { name: "Marcar enviado" }));
+  expect(screen.getByRole("button", { name: "Marcar entregado" })).toBeDisabled();
+  await act(async () => resolve({ success: false, error: { code: "PAYMENT_REQUIRED" } }));
+  await screen.findByText("Se requiere el pago completo antes de enviar o entregar.");
+  expect(screen.getByText("Orden activa")).toBeTruthy();
+  mockShip.mockRejectedValueOnce(new Error("Network failure"));
+  fireEvent.press(screen.getByRole("button", { name: "Marcar enviado" }));
+  await screen.findByText("No se pudo actualizar el pedido. Inténtalo de nuevo.");
+  mockShip.mockResolvedValue({ success: true, data: { ...mockOrder, deliveryStatus: "shipped" } });
+  fireEvent.press(screen.getByRole("button", { name: "Marcar enviado" }));
+  await screen.findByText("Pedido marcado como enviado.");
+  expect(mockRegisterPayment).not.toHaveBeenCalled();
+  expect(mockVoidPayment).not.toHaveBeenCalled();
 });

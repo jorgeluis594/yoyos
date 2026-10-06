@@ -1,5 +1,12 @@
 export const translations = {
   es: {
+  orderFulfillment: {
+    ship: "Marcar enviado", deliver: "Marcar entregado", shipSaved: "Pedido marcado como enviado.", deliverSaved: "Pedido marcado como entregado.",
+    PAYMENT_REQUIRED: "Se requiere el pago completo antes de enviar o entregar.", STOCK_NOT_DEDUCTED: "Se requiere descontar el stock antes de enviar o entregar.",
+    ORDER_CANCELLED: "El pedido está cancelado; no se puede enviar ni entregar.", INVALID_TRANSITION: "Solo se puede enviar desde pendiente y entregar desde pendiente o enviado.",
+    saveError: "No se pudo actualizar el pedido. Inténtalo de nuevo.",
+  },
+
     initialPaid: "Pagos ingresados", estimatedBalance: "Saldo referencial de productos", deliveryChargePending: "El cargo de entrega se calculará y añadirá al guardar.",
     saveOrder: "Guardar pedido", noInitialPayments: "Sin pagos. El pedido quedará pendiente de pago.", addInitialPayment: "Agregar pago", initialPayment: "Pago {{number}}",
     configureInitialDelivery: "Configurar datos de entrega", deliverImmediately: "Marcar como entregado al guardar",
@@ -153,6 +160,13 @@ export const translations = {
     offlineEditing: 'Sin conexión. Puedes seguir editando.',
   },
   'pt-BR': {
+  orderFulfillment: {
+    ship: "Marcar como enviado", deliver: "Marcar como entregue", shipSaved: "Pedido marcado como enviado.", deliverSaved: "Pedido marcado como entregue.",
+    PAYMENT_REQUIRED: "É necessário o pagamento completo antes de enviar ou entregar.", STOCK_NOT_DEDUCTED: "É necessário descontar o estoque antes de enviar ou entregar.",
+    ORDER_CANCELLED: "O pedido está cancelado; não pode ser enviado nem entregue.", INVALID_TRANSITION: "Só é possível enviar pedidos pendentes e entregar pedidos pendentes ou enviados.",
+    saveError: "Não foi possível atualizar o pedido. Tente novamente.",
+  },
+
     initialPaid: "Pagamentos informados", estimatedBalance: "Saldo estimado dos produtos", deliveryChargePending: "O valor da entrega será calculado e adicionado ao salvar.",
     saveOrder: "Salvar pedido", noInitialPayments: "Sem pagamentos. O pedido ficará pendente de pagamento.", addInitialPayment: "Adicionar pagamento", initialPayment: "Pagamento {{number}}",
     configureInitialDelivery: "Configurar dados de entrega", deliverImmediately: "Marcar como entregue ao salvar",
