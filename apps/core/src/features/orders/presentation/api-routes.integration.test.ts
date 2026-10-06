@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, expect, test } from "vitest";
+import { afterAll, expect, test, vi } from "vitest";
 import { app } from "@core/src/app";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { log } from "@core/src/shared/infrastructure/logger";
 
 const server = app.listen(0, "127.0.0.1");
 await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -53,6 +54,7 @@ async function fixture(country: "PE" | "CL") {
       await prisma.productStock.deleteMany();
       await prisma.productVariant.deleteMany();
       await prisma.product.deleteMany();
+      await prisma.image.deleteMany();
       await systemPrisma.user.delete({ where: { id: userId } });
       await prisma.company.delete({ where: { id: companyId } });
     });
@@ -71,6 +73,46 @@ test("orders HTTP requires authentication", async () => {
   const anonymous = await call("/api/orders");
   expect(anonymous.status).toBe(401);
   expect(anonymous.headers.get("cache-control")).toBe("no-store");
+});
+
+test("buyer order link resolves one company and reports only its receipt", async () => {
+  const seller = await fixture("PE");
+  const other = await fixture("CL");
+  const orderId = randomUUID();
+  const paymentId = randomUUID();
+  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, contactId: null,
+    items: [{ variantId: seller.variantId, quantity: 1 }] }, "POST")).status).toBe(201);
+  const path = `/api/buyer/orders/${orderId}`;
+  const view = await call(`${path}/payment`);
+  expect(view.status).toBe(200);
+  expect(await view.json()).toMatchObject({ orderId, total: { amount: 10, currency: "PEN" }, balanceDue: { amount: 10 }, payments: [] });
+  expect((await call("/api/buyer/orders/not-a-uuid/payment")).status).toBe(400);
+  expect((await call(`/api/buyer/orders/${randomUUID()}/payment`)).status).toBe(404);
+  expect((await call(`${path}/reports`, undefined, { paymentId, receiptImageId: randomUUID() }, "POST")).status).toBe(422);
+  const foreignImageId = randomUUID();
+  await withTenantIsolation(other.companyId, async () => {
+    await prisma.image.create({ data: { id: foreignImageId, storageKey: `test/${foreignImageId}` } });
+  });
+  expect((await call(`${path}/reports`, undefined, { paymentId, receiptImageId: foreignImageId }, "POST")).status).toBe(422);
+  const imageId = randomUUID();
+  await withTenantIsolation(seller.companyId, async () => {
+    await prisma.image.create({ data: { id: imageId, storageKey: `test/${imageId}` } });
+  });
+  const info = vi.spyOn(log, "info");
+  const debug = vi.spyOn(log, "debug");
+  expect((await call(`${path}/reports`, undefined, { paymentId, receiptImageId: imageId }, "POST")).status).toBe(201);
+  expect((await call(`${path}/reports`, undefined, { paymentId, receiptImageId: imageId }, "POST")).status).toBe(201);
+  await withTenantIsolation(seller.companyId, async () => expect(await prisma.payment.count()).toBe(1));
+  expect((await call(`${path}/reports`, undefined, { paymentId, receiptImageId: foreignImageId }, "POST")).status).toBe(409);
+  const paymentEvents = info.mock.calls.map(([entry]) => entry).filter((entry) => typeof entry === "object" && entry !== null && "event" in entry && entry.event === "payment_reported");
+  expect(paymentEvents).toEqual([{ event: "payment_reported", paymentId, imageId, actorKind: "buyer", outcome: "applied" }]);
+  expect(debug.mock.calls.map(([entry]) => entry)).toEqual(expect.arrayContaining([
+    { event: "payment_operation_replayed", operation: "report", paymentId },
+    { event: "payment_operation_conflict", operation: "report", paymentId, errorCode: "PAYMENT_CONFLICT" },
+  ]));
+  info.mockRestore(); debug.mockRestore();
+  expect((await call(`${path}/images/${imageId}`)).status).toBe(404);
+  expect((await call(`/api/orders/${orderId}/aggregate`)).status).toBe(401);
 });
 
 test("orders HTTP lets a Chile company complete sales, returns historical data, and isolates other companies", async () => {
@@ -138,7 +180,7 @@ test("orders HTTP rejects invalid input and stock without partial sale", async (
     (await prisma.productStock.findUniqueOrThrow({ where: { variantId: seller.variantId } })).quantity)).toBe(3n);
 });
 
-test("orders HTTP exposes pending payment, stock retry and completion with company isolation", async () => {
+test("orders HTTP rejects payment without stock and allows retry with company isolation", async () => {
   const seller = await fixture("PE");
   const other = await fixture("CL");
   const id = randomUUID();
@@ -152,21 +194,20 @@ test("orders HTTP exposes pending payment, stock retry and completion with compa
   expect((await call(`/api/orders/${id}/aggregate`, other.cookie)).status).toBe(404);
   const payment = { paymentId, amount: { amount: 40, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false };
   const recorded = await call(`/api/orders/${id}/payments`, seller.cookie, payment, "POST");
-  expect(recorded.status).toBe(200);
-  expect(await recorded.json()).toMatchObject({ stock: { kind: "pending", reason: "INSUFFICIENT_STOCK" },
-    order: { paymentStatus: "paid", payments: [{ id: paymentId }] } });
+  expect(recorded.status).toBe(409);
+  expect(await recorded.json()).toMatchObject({ code: "INSUFFICIENT_STOCK" });
   expect((await call(`/api/orders/${id}/ship`, seller.cookie, undefined, "POST")).status).toBe(409);
   await withTenantIsolation(seller.companyId, async () => {
     await prisma.productStock.update({ where: { variantId: seller.variantId }, data: { quantity: { increment: 1n } } });
   });
-  const deducted = await call(`/api/orders/${id}/deduct-stock`, seller.cookie, undefined, "POST");
-  expect(deducted.status).toBe(200);
-  expect(await deducted.json()).toMatchObject({ stockDeducted: true, payments: [{ id: paymentId }] });
+  const retried = await call(`/api/orders/${id}/payments`, seller.cookie, payment, "POST");
+  expect(retried.status).toBe(200);
+  expect(await retried.json()).toMatchObject({ stock: { kind: "deducted" }, order: { stockDeducted: true, payments: [{ id: paymentId }] } });
   expect((await call(`/api/orders/${id}/ship`, seller.cookie, undefined, "POST")).status).toBe(200);
   const delivered = await call(`/api/orders/${id}/deliver`, seller.cookie, undefined, "POST");
   expect(delivered.status).toBe(200);
   expect(await delivered.json()).toMatchObject({ status: "completed", paymentStatus: "paid",
-    deliveryStatus: "delivered", completedAt: expect.any(String) });
+    deliveryStatus: "delivered", deliveredAt: expect.any(String), completedAt: expect.any(String) });
   expect((await call(`/api/orders/${id}/aggregate`, seller.cookie)).status).toBe(200);
   expect((await call(`/api/orders/${id}/cancel`, seller.cookie, undefined, "POST")).status).toBe(409);
 });

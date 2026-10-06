@@ -33,5 +33,5 @@ test("payment and delivery contracts reject invented fields and incomplete agenc
   expect(deliveryDetailsSchema.safeParse(agency).success).toBe(false);
   expect(deliveryDetailsSchema.safeParse({ ...agency, recipient: { ...agency.recipient,
     identity: { kind: "document", documentType: "passport", document: "A-001" } } }).success).toBe(true);
-  expect(stockOutcomeSchema.safeParse({ kind: "pending", reason: "INSUFFICIENT_STOCK" }).success).toBe(true);
+  expect(stockOutcomeSchema.safeParse({ kind: "pending", reason: "INSUFFICIENT_STOCK" }).success).toBe(false);
 });

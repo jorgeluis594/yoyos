@@ -3,6 +3,7 @@ import { toNodeHandler } from "better-auth/node";
 import { createCompanyRequestSchema, createCompanyResponseSchema, currentAccessDtoSchema } from "@shared/contracts/registration";
 import { createCompanyForUser } from "@core/src/features/companies";
 import { companyRepository } from "@core/src/features/companies/infrastructure/company-repository";
+import { paymentSettingsRoutes } from "@core/src/features/companies/presentation/payment-settings-routes";
 import { auth } from "@core/src/shared/infrastructure/auth";
 import { apiError, loadApiAccess, requireApiCompany, type AuthenticatedLocals, type PrivateLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
 import type { Response } from "express";
@@ -13,9 +14,18 @@ import { loadWhatsAppConnections } from "@core/src/features/chats/infrastructure
 import { whatsappWebhook } from "@core/src/features/chats/presentation/whatsapp-webhook";
 import { productRoutes } from "@core/src/features/products/presentation/api-routes";
 import { hasDuplicateJsonKeys, orderRoutes } from "@core/src/features/orders/presentation/api-routes";
+import { buyerPaymentRoutes } from "@core/src/features/orders/presentation/buyer-payment-routes";
 import { log, requestLogging } from "@core/src/shared/infrastructure/logger";
 
 export const app = express();
+const images = imageRoutes(createR2ImageStorage({
+  endpoint: process.env.R2_ENDPOINT ?? "",
+  bucket: process.env.R2_BUCKET ?? "",
+  privateBucket: process.env.R2_PRIVATE_BUCKET ?? "",
+  accessKeyId: process.env.R2_ACCESS_KEY_ID ?? "",
+  secretAccessKey: process.env.R2_SECRET_ACCESS_KEY ?? "",
+  publicBaseUrl: process.env.R2_PUBLIC_BASE_URL ?? "",
+}), imageRepository);
 app.use(requestLogging);
 
 app.all("/api/auth/{*splat}", toNodeHandler(auth));
@@ -32,6 +42,7 @@ app.use("/api/orders", express.json({ limit: "100kb", verify: (_request, _respon
   if (hasDuplicateJsonKeys(body.toString("utf8"))) throw new Error("Duplicate JSON key");
 } }));
 app.use("/api", express.json({ limit: "100kb" }));
+app.use("/api/buyer/orders", buyerPaymentRoutes(images));
 app.use("/api", loadApiAccess);
 
 app.get("/api/me", (_request, response: Response<unknown, AuthenticatedLocals>) => {
@@ -65,16 +76,10 @@ app.post("/api/company", async (request, response: Response<unknown, Authenticat
 });
 
 app.use("/api", requireApiCompany);
+app.use("/api/company/payment-settings", paymentSettingsRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);
-app.use("/api/images", imageRoutes(createR2ImageStorage({
-  endpoint: process.env.R2_ENDPOINT ?? "",
-  bucket: process.env.R2_BUCKET ?? "",
-  privateBucket: process.env.R2_PRIVATE_BUCKET ?? "",
-  accessKeyId: process.env.R2_ACCESS_KEY_ID ?? "",
-  secretAccessKey: process.env.R2_SECRET_ACCESS_KEY ?? "",
-  publicBaseUrl: process.env.R2_PUBLIC_BASE_URL ?? "",
-}), imageRepository));
+app.use("/api/images", images);
 
 app.use("/api", (_request, response: Response<unknown, PrivateLocals>) => {
   apiError(response, 404, "NOT_FOUND", "Not found");

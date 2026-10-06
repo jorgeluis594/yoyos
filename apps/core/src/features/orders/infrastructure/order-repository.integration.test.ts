@@ -9,6 +9,7 @@ import { setOrderDelivery, type SetDeliveryDependencies } from "@core/src/featur
 import { findOrderAggregate, findOrderForUpdate, saveDelivery, saveStockDeduction } from "@core/src/features/orders/infrastructure/order-repository";
 import { deductProductStock } from "@core/src/features/products";
 import type { CompanyId, ContactId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
+import type { ImageId } from "@core/src/features/orders/domain/payment";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
 async function fixture() {
@@ -36,6 +37,7 @@ async function fixture() {
       await prisma.productStock.deleteMany();
       await prisma.productVariant.deleteMany();
       await prisma.product.deleteMany();
+      await prisma.image.deleteMany();
       await systemPrisma.user.delete({ where: { id: sellerId } });
       await prisma.company.delete({ where: { id: companyId } });
     });
@@ -54,6 +56,68 @@ function immediateSale(input: { id: string; contactId: string | null; items: rea
 function orderDetail(id: string, owner: { companyId: string; sellerId: string }) {
   return orders.getAggregate(id as OrderId, { companyId: owner.companyId as CompanyId, userId: owner.sellerId as UserId });
 }
+
+test("reports a company receipt once without changing coverage or stock", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const orderId = randomUUID() as OrderId;
+      const paymentId = randomUUID() as PaymentId;
+      const receiptImageId = randomUUID() as ImageId;
+      const access = { kind: "buyer" as const, companyId: f.companyId as CompanyId, orderId };
+      await orders.create({ id: orderId, contactId: null,
+        items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] },
+      { companyId: access.companyId, userId: f.sellerId as UserId });
+      const input = { paymentId, receiptImageId };
+      expect(await orders.reportPayment(input, access)).toMatchObject({ success: false, error: { code: "RECEIPT_NOT_FOUND" } });
+      await prisma.image.create({ data: { id: receiptImageId, storageKey: `test/${receiptImageId}` } });
+      const reported = await orders.reportPayment(input, access);
+      expect(reported).toMatchObject({ success: true, data: { stockDeducted: false,
+        payments: [{ id: paymentId, status: "reported", amount: null, method: null, data: { receiptImageId } }] } });
+      expect(await orders.reportPayment(input, access)).toEqual(reported);
+      expect(await orders.reportPayment({ ...input, receiptImageId: randomUUID() as ImageId }, access))
+        .toMatchObject({ success: false, error: { code: "PAYMENT_CONFLICT" } });
+      expect(await prisma.payment.count()).toBe(1);
+      expect((await prisma.payment.findUniqueOrThrow({ where: { id: paymentId } })).status).toBe("reported");
+      expect(await orderDetail(orderId, f)).toMatchObject({ success: true, data: { payments: [{ status: "reported" }] } });
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("confirms a report and voids a delivered payment without changing stock or delivery", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const orderId = randomUUID() as OrderId;
+      const paymentId = randomUUID() as PaymentId;
+      const receiptImageId = randomUUID() as ImageId;
+      const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+      await orders.create({ id: orderId, contactId: null,
+        items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] }, context);
+      await prisma.image.create({ data: { id: receiptImageId, storageKey: `test/${receiptImageId}` } });
+      const access = { kind: "buyer" as const, companyId: context.companyId, orderId };
+      expect(await orders.reportPayment({ paymentId, receiptImageId }, access)).toMatchObject({ success: true });
+      const confirmation = { orderId, paymentId, source: "buyer_report" as const, amount: { amount: 0.2, currency: "PEN" as const },
+        method: "bank_transfer" as const, deductStockIfPartial: false };
+      expect(await orders.registerPayment(confirmation, context)).toMatchObject({ success: true,
+        data: { order: { payments: [{ status: "confirmed", method: "bank_transfer", data: { evidence: { kind: "buyer_report", report: { receiptImageId } } } }] } } });
+      expect(await orders.registerPayment(confirmation, context)).toMatchObject({ success: true });
+      expect(await orders.deliver(orderId, context)).toMatchObject({ success: true, data: { completedAt: expect.any(Date) } });
+      const deliveredAt = (await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).deliveredAt;
+      const voided = await orders.voidPayment({ orderId, paymentId }, context);
+      expect(voided).toMatchObject({ success: true, data: { completedAt: null, deliveredAt,
+        payments: [{ status: "voided", amount: { amount: 0.2 }, data: { evidence: { kind: "buyer_report" }, voidedBy: context.userId } }] } });
+      expect(await orders.voidPayment({ orderId, paymentId }, context)).toEqual(voided);
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
+      const correction = await orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId, amount: confirmation.amount,
+        method: "digital_wallet", deductStockIfPartial: false }, context);
+      expect(correction).toMatchObject({ success: true, data: { order: { deliveredAt, completedAt: expect.any(Date), payments: expect.arrayContaining([
+        expect.objectContaining({ status: "voided" }), expect.objectContaining({ status: "confirmed" })]) } } });
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
+    });
+  } finally { await f.cleanup(); }
+});
 
 test("persists a pending order without payment or stock effects", async () => {
   const f = await fixture();
@@ -81,7 +145,7 @@ test("persists a pending order without payment or stock effects", async () => {
       await expect(findOrderForUpdate(input.id, context.companyId)).rejects.toThrow("active transaction");
       expect(await orders.deductStock(input.id, context)).toMatchObject({ success: true, data: { stockDeducted: false } });
       await prisma.payment.create({ data: { id: randomUUID(), orderId, companyId: f.companyId,
-        amount: 0.2, currency: "PEN", method: "digital_wallet", recordedAt: new Date() } });
+        amount: 0.2, currency: "PEN", method: "digital_wallet", status: "confirmed", data: { confirmedAt: new Date().toISOString(), confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" } } } });
       expect(await orders.deductStock(input.id, context)).toMatchObject({ success: true, data: { stockDeducted: true } });
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
       expect(await orders.deductStock(input.id, context)).toMatchObject({ success: true, data: { stockDeducted: true } });
@@ -99,7 +163,7 @@ test("reports incompatible stored payments instead of returning an invalid aggre
       expect(await orders.create({ id: orderId, contactId: null,
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }] }, context)).toMatchObject({ success: true });
       await prisma.payment.create({ data: { id: randomUUID(), orderId, companyId: f.companyId,
-        amount: 0.1, currency: "USD", method: "digital_wallet", recordedAt: new Date() } });
+        amount: 0.1, currency: "USD", method: "digital_wallet", status: "confirmed", data: { confirmedAt: new Date().toISOString(), confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" } } } });
       expect(await orders.getAggregate(orderId, context)).toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
       expect(await orders.listAggregates({ page: 1, customer: { kind: "all" } }, context))
         .toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
@@ -118,7 +182,7 @@ test("keeps all stock when a pending order cannot deduct every item", async () =
         { variantId: f.variantIds[1] as VariantId, quantity: 4 as PositiveInteger },
       ] }, context)).toMatchObject({ success: true });
       await prisma.payment.create({ data: { id: randomUUID(), orderId, companyId: f.companyId,
-        amount: 1, currency: "PEN", method: "digital_wallet", recordedAt: new Date() } });
+        amount: 1, currency: "PEN", method: "digital_wallet", status: "confirmed", data: { confirmedAt: new Date().toISOString(), confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" } } } });
       expect(await orders.deductStock(orderId, context)).toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
       expect((await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).stockDeducted).toBe(false);
       expect((await prisma.productStock.findMany({ orderBy: { variantId: "asc" } })).map((stock) => stock.quantity)).toEqual([3n, 3n]);
@@ -126,7 +190,7 @@ test("keeps all stock when a pending order cannot deduct every item", async () =
   } finally { await f.cleanup(); }
 });
 
-test("preserves a recorded payment when stock is short and retries its ID after replenishment", async () => {
+test("rolls back payment when stock is short and retries its ID after replenishment", async () => {
   const f = await fixture();
   try {
     await withTenantIsolation(f.companyId, async () => {
@@ -136,9 +200,8 @@ test("preserves a recorded payment when stock is short and retries its ID after 
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: 4 as PositiveInteger }] }, context)).toMatchObject({ success: true });
       const input = { orderId, paymentId: randomUUID() as PaymentId, amount: { amount: 0.4, currency: "PEN" as const },
         method: "digital_wallet" as const, deductStockIfPartial: false };
-      expect(await orders.registerPayment(input, context)).toMatchObject({ success: true,
-        data: { stock: { kind: "pending", reason: "INSUFFICIENT_STOCK" }, order: { payments: [{ id: input.paymentId }] } } });
-      expect(await prisma.payment.count({ where: { orderId } })).toBe(1);
+      expect(await orders.registerPayment(input, context)).toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
+      expect(await prisma.payment.count({ where: { orderId } })).toBe(0);
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
       await prisma.productStock.update({ where: { variantId: f.variantIds[0] }, data: { quantity: { increment: 1n } } });
       expect(await orders.registerPayment(input, context)).toMatchObject({ success: true,
@@ -286,7 +349,7 @@ test("ships and completes only a paid order with deducted stock", async () => {
       expect(await orders.deliver(orderId, context)).toMatchObject({ success: true,
         data: { deliveryStatus: "delivered", completedAt: expect.any(Date) } });
       const saved = await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { payments: true } });
-      expect(saved).toMatchObject({ deliveryStatus: "delivered", completedAt: expect.any(Date), payments: [{ orderId }] });
+      expect(saved).toMatchObject({ deliveryStatus: "delivered", deliveredAt: expect.any(Date), completedAt: expect.any(Date), payments: [{ orderId }] });
       expect(await orders.deliver(orderId, context)).toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
     });
   } finally { await f.cleanup(); }
@@ -371,8 +434,8 @@ test("persists completed sale, historical snapshots, listing and duplicate rejec
       expect(persisted.createdAt.getTime()).toBeLessThanOrEqual(persisted.completedAt!.getTime());
       expect(persisted.payments).toHaveLength(1);
       expect(persisted.payments[0]).toMatchObject({ orderId, currency: "PEN", method: "digital_wallet" });
-      expect(persisted.payments[0].recordedAt.getTime()).toBeLessThanOrEqual(persisted.completedAt!.getTime());
-      expect(persisted.payments[0].amount.toNumber()).toBe(0.7);
+      expect(new Date((persisted.payments[0].data as { confirmedAt: string }).confirmedAt).getTime()).toBeLessThanOrEqual(persisted.completedAt!.getTime());
+      expect(persisted.payments[0].amount?.toNumber()).toBe(0.7);
       expect(await findOrderAggregate(orderId as OrderId, f.companyId as CompanyId)).toMatchObject({ success: true,
         data: { id: orderId, deliveryStatus: "delivered", stockDeducted: true, payments: [{ id: persisted.payments[0].id,
           amount: { amount: 0.7, currency: "PEN" } }] } });

@@ -40,7 +40,7 @@ services:
     build:
       context: .
       dockerfile: apps/core/Dockerfile
-    command: sh -c 'pnpm exec prisma migrate deploy && psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -v app_password="$$APP_DB_PASSWORD" -v dbname=core -f scripts/provision-role.sql'
+    command: sh -c 'psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -v app_password="$$APP_DB_PASSWORD" -f scripts/create-role.sql && pnpm exec prisma migrate deploy && psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -v app_password="$$APP_DB_PASSWORD" -v dbname=core -f scripts/provision-role.sql'
     environment:
       DATABASE_URL: postgresql://core:core@db:5432/core
       APP_DB_PASSWORD: core_app_local

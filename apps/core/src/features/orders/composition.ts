@@ -2,21 +2,28 @@ import { log } from "@core/src/shared/infrastructure/logger";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { err } from "@shared/functional";
+import { z } from "zod";
 import type { AppError, Result } from "@shared/result";
-import { getCompanyId, requireNoActiveTransaction, withinTransaction } from "@core/src/shared/infrastructure/persistance";
+import { getCompanyId, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { createOrder, type CreateOrderDependencies } from "@core/src/features/orders/application/create-order";
 import { deductStock, type DeductStockDependencies } from "@core/src/features/orders/application/deduct-stock";
 import { registerPayment, type RegisterPaymentDependencies } from "@core/src/features/orders/application/register-payment";
+import { reportPayment, type ReportPaymentDependencies } from "@core/src/features/orders/application/report-payment";
+import { voidPayment, type VoidPaymentDependencies } from "@core/src/features/orders/application/void-payment";
 import { registerImmediateSale, type RegisterImmediateSaleDependencies } from "@core/src/features/orders/application/register-immediate-sale";
 import { cancelOrder, type CancelOrderDependencies } from "@core/src/features/orders/application/cancel-order";
 import { registerShipment, registerDelivery, type FulfillOrderDependencies } from "@core/src/features/orders/application/fulfill-order";
 import { getOrderAggregate } from "@core/src/features/orders/application/read-order-aggregate";
 import { listOrderAggregates } from "@core/src/features/orders/application/list-order-aggregates";
 import { listOrders } from "@core/src/features/orders/application/read-orders";
-import { savePendingOrder, savePayment, saveStockDeduction, saveFulfillment, saveCancellation, findOrderAggregate, findOrderAggregates, findOrderForUpdate, findOrders, orderExists } from "@core/src/features/orders/infrastructure/order-repository";
+import { savePendingOrder, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveCancellation, findOrderAggregate, findOrderAggregates, findOrderForUpdate, findOrders, orderExists, resolveBuyerOrderCompany } from "@core/src/features/orders/infrastructure/order-repository";
 import { findSellableVariant, deductProductStock, restoreProductStock, searchSaleCatalog } from "@core/src/features/products";
 import { findContactById, searchSaleContacts } from "@core/src/features/contacts";
-import type { OrderItemId, PaymentId } from "@core/src/features/orders/domain/order";
+import { findAvailablePublicImage, resolvePublicImage } from "@core/src/shared/images";
+import { companyPaymentSettings } from "@core/src/features/companies";
+import { orderStateMachine } from "@core/src/features/orders/domain/order-state-machine";
+import type { BuyerPaymentView } from "@shared/contracts/orders";
+import type { CompanyId, OrderId, OrderItemId, PaymentId } from "@core/src/features/orders/domain/order";
 
 async function orderTransaction<T, E extends AppError>(callback: () => Promise<Result<T, E>>): Promise<Result<T, E | Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>>> {
   try {
@@ -37,13 +44,59 @@ function scopedOrderTransaction<T, E extends AppError>(companyId: string, callba
 const pendingTransaction: CreateOrderDependencies["transaction"] = scopedOrderTransaction;
 const stockTransaction: DeductStockDependencies["transaction"] = scopedOrderTransaction;
 const paymentTransaction: RegisterPaymentDependencies["transaction"] = scopedOrderTransaction;
+const reportTransaction: ReportPaymentDependencies["transaction"] = scopedOrderTransaction;
+const voidTransaction: VoidPaymentDependencies["transaction"] = scopedOrderTransaction;
 const immediateTransaction: RegisterImmediateSaleDependencies["transaction"] = scopedOrderTransaction;
 const cancellationTransaction: CancelOrderDependencies["transaction"] = scopedOrderTransaction;
 const fulfillmentTransaction: FulfillOrderDependencies["transaction"] = scopedOrderTransaction;
 const fulfillmentDependencies: FulfillOrderDependencies = { transaction: fulfillmentTransaction, findOrderForUpdate,
   saveFulfillment, clock: () => new Date() };
 
+export async function resolveBuyerAccess(id: string) {
+  if (!z.uuid().safeParse(id).success) return err({ code: "INVALID_ORDER" as const, message: "Invalid order ID" });
+  const resolved = await resolveBuyerOrderCompany(id as OrderId);
+  return resolved.success ? resolved.data ? { success: true as const, data: { kind: "buyer" as const,
+    companyId: resolved.data as CompanyId, orderId: id as OrderId } }
+    : err({ code: "ORDER_NOT_FOUND" as const, message: "Order not found" }) : resolved;
+}
+
+export async function getBuyerPaymentView(id: string) {
+  const access = await resolveBuyerAccess(id);
+  if (!access.success) return access;
+  return withTenantIsolation(access.data.companyId, async () => {
+    const [found, settings] = await Promise.all([
+      findOrderAggregate(access.data.orderId, access.data.companyId), companyPaymentSettings.get(access.data.companyId),
+    ]);
+    if (!found.success) return found;
+    if (!found.data) return err({ code: "ORDER_NOT_FOUND" as const, message: "Order not found" });
+    if (!settings.success) return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Payment settings unavailable" });
+    const summary = orderStateMachine.getPaymentSummary(found.data);
+    if (!summary.success) return summary;
+    const imageIds = [...settings.data.map((item) => item.imageId), ...found.data.payments.map((payment) =>
+      payment.status === "reported" ? payment.data.receiptImageId : payment.data.evidence.kind === "buyer_report"
+        ? payment.data.evidence.report.receiptImageId : null)].filter((value): value is NonNullable<typeof value> => value !== null);
+    const images = new Map<string, string | null>();
+    for (const imageId of new Set(imageIds)) {
+      const resolved = await resolvePublicImage(imageId);
+      if (!resolved.success) return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Image unavailable" });
+      images.set(imageId, resolved.data?.url ?? null);
+    }
+    const view: BuyerPaymentView = { orderId: found.data.id, total: found.data.total, deliveryCharge: found.data.deliveryCharge,
+      paidAmount: summary.data.paidAmount, balanceDue: summary.data.balanceDue, paymentStatus: summary.data.status,
+      settings: settings.data.map((item) => { const imageUrl = item.imageId ? images.get(item.imageId) ?? null : null;
+        return item.method === "digital_wallet" ? { method: item.method, provider: item.provider, holder: item.holder, imageUrl }
+          : { method: item.method, bank: item.bank, holder: item.holder, accountNumber: item.accountNumber, cci: item.cci, imageUrl }; }),
+      payments: found.data.payments.map((payment) => { const imageId = payment.status === "reported" ? payment.data.receiptImageId
+        : payment.data.evidence.kind === "buyer_report" ? payment.data.evidence.report.receiptImageId : null;
+      return { id: payment.id, status: payment.status, amount: payment.amount, method: payment.method,
+        receiptImageUrl: imageId ? images.get(imageId) ?? null : null }; }) };
+    return { success: true as const, data: view };
+  });
+}
+
 export const orders = {
+  resolveBuyerAccess,
+  getBuyerPaymentView,
   listAggregates: (criteria: Parameters<typeof listOrderAggregates>[0], context: Parameters<typeof listOrderAggregates>[1]) =>
     listOrderAggregates(criteria, context, findOrderAggregates),
   getAggregate: (id: Parameters<typeof getOrderAggregate>[0], context: Parameters<typeof getOrderAggregate>[1]) =>
@@ -59,10 +112,47 @@ export const orders = {
       findContact: findContactById, findVariant: findSellableVariant, saveOrder: savePendingOrder,
       savePayment, deductProductStock, saveStockDeduction, saveFulfillment,
       newItemId: () => randomUUID() as OrderItemId, newPaymentId: () => randomUUID() as PaymentId, clock: () => new Date() }),
-  registerPayment: (input: Parameters<typeof registerPayment>[0], context: Parameters<typeof registerPayment>[1]) => {
-    requireNoActiveTransaction();
-    return registerPayment(input, context, { transaction: paymentTransaction, findOrderForUpdate, savePayment,
-      deductProductStock, saveStockDeduction, clock: () => new Date() });
+  registerPayment: async (input: Parameters<typeof registerPayment>[0], context: Parameters<typeof registerPayment>[1]) => {
+    let applied = false;
+    const markSaved: typeof savePayment = async (...args) => { const result = await savePayment(...args); if (result.success) applied = true; return result; };
+    const markUpdated: typeof updatePayment = async (...args) => { const result = await updatePayment(...args); if (result.success) applied = true; return result; };
+    const result = await registerPayment(input, context, { transaction: paymentTransaction, findOrderForUpdate,
+      savePayment: markSaved, updatePayment: markUpdated, saveCompletion, deductProductStock, saveStockDeduction, clock: () => new Date() });
+    if (result.success) {
+      if (applied) log.info({ event: "payment_confirmed", paymentId: input.paymentId, actorKind: "seller", userId: context.userId,
+        source: input.source ?? "manual", stockOutcome: result.data.stock.kind, transactionOutcome: "committed" }, "payment_confirmed");
+      else log.debug({ event: "payment_operation_replayed", operation: "confirm", paymentId: input.paymentId }, "payment_operation_replayed");
+    } else if (result.error.code === "INSUFFICIENT_STOCK") log.warn({ event: "payment_confirmation_stock_rejected", paymentId: input.paymentId,
+      variantId: "variantId" in result.error ? result.error.variantId : undefined,
+      errorCode: result.error.code, transactionOutcome: "rolled_back" }, "payment_confirmation_stock_rejected");
+    else if (result.error.code === "PAYMENT_CONFLICT") log.debug({ event: "payment_operation_conflict", operation: "confirm",
+      paymentId: input.paymentId, errorCode: result.error.code }, "payment_operation_conflict");
+    return result;
+  },
+  reportPayment: async (input: Parameters<typeof reportPayment>[0], access: Parameters<typeof reportPayment>[1]) => {
+    let applied = false;
+    const markSaved: typeof savePayment = async (...args) => { const result = await savePayment(...args); if (result.success) applied = true; return result; };
+    const result = await reportPayment(input, access, { transaction: reportTransaction, findOrderForUpdate, findReceipt: findAvailablePublicImage,
+      savePayment: markSaved, clock: () => new Date() });
+    if (result.success) {
+      if (applied) log.info({ event: "payment_reported", paymentId: input.paymentId, imageId: input.receiptImageId,
+        actorKind: "buyer", outcome: "applied" }, "payment_reported");
+      else log.debug({ event: "payment_operation_replayed", operation: "report", paymentId: input.paymentId }, "payment_operation_replayed");
+    } else if (result.error.code === "PAYMENT_CONFLICT") log.debug({ event: "payment_operation_conflict", operation: "report",
+      paymentId: input.paymentId, errorCode: result.error.code }, "payment_operation_conflict");
+    return result;
+  },
+  voidPayment: async (input: Parameters<typeof voidPayment>[0], context: Parameters<typeof voidPayment>[1]) => {
+    let applied = false;
+    const markUpdated: typeof updatePayment = async (...args) => { const result = await updatePayment(...args); if (result.success) applied = true; return result; };
+    const result = await voidPayment(input, context, { transaction: voidTransaction, findOrderForUpdate,
+      updatePayment: markUpdated, saveCompletion, clock: () => new Date() });
+    if (result.success) {
+      if (applied) log.info({ event: "payment_voided", paymentId: input.paymentId, actorKind: "seller", userId: context.userId,
+        outcome: "applied", transactionOutcome: "committed" }, "payment_voided");
+      else log.debug({ event: "payment_operation_replayed", operation: "void", paymentId: input.paymentId }, "payment_operation_replayed");
+    }
+    return result;
   },
   deductStock: (id: Parameters<typeof deductStock>[0], context: Parameters<typeof deductStock>[1]) =>
     deductStock(id, context, { transaction: stockTransaction, findOrderForUpdate, deductProductStock, saveStockDeduction }),
