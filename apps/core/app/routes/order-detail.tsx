@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { ArrowLeft, ChevronDown, CircleCheck, CircleX, CreditCard, ExternalLink, Truck } from "lucide-react";
+import { Card } from "@core/app/components/ui/card";
 import { z } from "zod";
 import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
@@ -118,6 +120,7 @@ export default function OrderDetail() {
   const result = actionData && "operation" in actionData ? actionData : undefined;
   const navigation = useNavigation();
   const editable = !order.cancelled && order.deliveryStatus === "pending" && order.completedAt === null;
+  const [editingDelivery, setEditingDelivery] = useState(false);
   const checkout = useFetcher<typeof action>();
   const [copyMessage, setCopyMessage] = useState<"copied" | "copyManually" | null>(null);
   async function copyLink() {
@@ -126,50 +129,118 @@ export default function OrderDetail() {
     catch { setCopyMessage("copyManually"); }
   }
   const amount = (money: typeof order.total) => formatCurrency(money.amount, money.currency, i18n.language);
-  const status = t(`orders.status.${order.status}`);
   const date = (value: string) => new Date(value).toLocaleString(i18n.language === "pt" ? "pt-BR" : "es-PE", { timeZone: "America/Lima" });
-  return <section className="space-y-6"><header className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-semibold">{t("orders.orderNumber", { number: order.number })}</h1><p>{status}</p><p className="text-muted-foreground">{t("orders.createdOn", { date: date(order.createdAt) })}</p>{order.completedAt && <p className="text-muted-foreground">{t("orders.completedOn", { date: date(order.completedAt) })}</p>}</div><div className="flex gap-2"><Button asChild variant="outline"><a href={`/pago/${order.id}`} target="_blank" rel="noreferrer">{t("orders.buyerPaymentLink")}</a></Button><Button asChild variant="outline"><Link to={base}>{t("orders.view")}</Link></Button></div></header>
-    <section className="flex flex-col gap-3" aria-label={t("orders.checkout")}>
-      <h2 className="font-semibold">{t("orders.checkout")}</h2>
-      <p>{t(order.cancelled ? "orders.checkoutCancelled" : order.checkoutConfirmedAt ? "orders.checkoutConfirmed" : order.checkoutEnabledAt ? "orders.checkoutPending" : "orders.checkoutDisabled")}</p>
-      {!order.cancelled && <><checkout.Form method="post"><Button type="submit" disabled={checkout.state !== "idle"}>{t("orders.getCheckoutLink")}</Button></checkout.Form>
-        {checkout.data?.error && <p role="alert">{t("orders.checkoutLinkError")}</p>}
-        {checkout.data?.url && <><Field><FieldLabel htmlFor="checkout-link">{t("orders.checkoutLink")}</FieldLabel><Input id="checkout-link" readOnly value={checkout.data.url} onFocus={(event) => event.target.select()} /></Field><Button type="button" variant="outline" onClick={copyLink}>{t("orders.copyCheckoutLink")}</Button>{copyMessage && <p role="status">{t(`orders.${copyMessage}`)}</p>}</>}
-      </>}
-    </section>
-    <dl className="grid gap-3 rounded-md border p-5 sm:grid-cols-2"><div><dt className="text-sm text-muted-foreground">{t("orders.customer")}</dt><dd>{order.buyer !== null ? order.buyer.name ?? order.buyer.phone : t("orders.generalPublic")}</dd></div><div><dt className="text-sm text-muted-foreground">{t("orders.payment")}</dt><dd>{order.paymentStatus === "paid" ? t("orders.paid") : t("orders.balanceDue", { amount: amount(order.balanceDue) })}</dd></div>{order.buyer !== null && <div><dt className="text-sm text-muted-foreground">{t("orders.phoneAtSale")}</dt><dd>{order.buyer.phone}</dd></div>}<div><dt className="text-sm text-muted-foreground">{t("orders.delivery")}</dt><dd>{t(`orders.deliveryStatus.${order.deliveryStatus}`)}</dd></div><div><dt className="text-sm text-muted-foreground">{t("orders.stock")}</dt><dd>{order.stockDeducted ? t("orders.stockDeducted") : t("orders.stockPending")}</dd></div><div><dt className="text-sm text-muted-foreground">{t("orders.seller")}</dt><dd>{order.sellerId}</dd></div></dl>
-    {editable && !order.delivery && <p>{t("orderDelivery.undefined")}</p>}
-    {order.delivery && <div className="break-words rounded-md border p-5"><h2 className="font-semibold">{t("orders.recipient")}</h2><p>{order.delivery.recipient.name} · {order.delivery.recipient.phone}</p>{order.delivery.recipient.identity.kind === "document" && <p>{t(`orders.documentType.${order.delivery.recipient.identity.documentType}`)}: {order.delivery.recipient.identity.document}</p>}</div>}
-    {order.delivery?.method === "store" && <section className="flex flex-col gap-2"><h2 className="font-semibold">{t("deliverySettings.store")}</h2><p className="break-words">{order.delivery.pickupPoint.name}</p><p className="whitespace-pre-wrap break-words">{order.delivery.pickupPoint.address}</p>{order.delivery.pickupPoint.instructions && <p className="whitespace-pre-wrap break-words">{order.delivery.pickupPoint.instructions}</p>}<p className="break-words text-sm text-muted-foreground">{t("orderDelivery.recordedBy")}: {order.delivery.recordedBy.kind === "seller" ? order.delivery.recordedBy.userId : t("orderDelivery.buyer")}</p></section>}
-    {order.delivery?.method === "home" && <section className="flex flex-col gap-2"><h2 className="font-semibold">{t("deliverySettings.home")}</h2><p className="whitespace-pre-wrap break-words">{order.delivery.destination.address}</p><p className="break-words">{order.delivery.destination.district}</p>{order.delivery.destination.instructions && <p className="whitespace-pre-wrap break-words">{order.delivery.destination.instructions}</p>}<p className="break-words text-sm text-muted-foreground">{t("orderDelivery.recordedBy")}: {order.delivery.recordedBy.kind === "seller" ? order.delivery.recordedBy.userId : t("orderDelivery.buyer")}</p></section>}
-    {order.delivery?.method === "agency" && <section className="flex flex-col gap-2"><h2 className="font-semibold">{t("deliverySettings.agency")}</h2><p className="break-words">{order.delivery.courier.name}</p><p className="whitespace-pre-wrap break-words">{order.delivery.agency}</p><p className="break-words text-sm text-muted-foreground">{t("orderDelivery.recordedBy")}: {order.delivery.recordedBy.kind === "seller" ? order.delivery.recordedBy.userId : t("orderDelivery.buyer")}</p></section>}
-    {result && result.operation === "delivery" && typeof result.error === "string" && <p role="alert" className="text-sm text-destructive">{t(`orderDelivery.${result.error}`)}</p>}
-    {result && "order" in result && result.order && <p role="status">{t("orderDelivery.saved")}</p>}
-    {editable ? settings && (settings.store.enabled || settings.home.enabled || settings.agency.enabled) ? <DeliveryForm key={JSON.stringify(order.delivery)} order={order} settings={settings} pending={navigation.state !== "idle"} />
-      : <section className="flex flex-col gap-2"><p>{t(settings ? "orderDelivery.disabled" : "deliverySettings.loadError")}</p><Link className="text-primary underline underline-offset-4" to={settingsPath}>{t("orderDelivery.configure")}</Link></section>
-      : <p className="text-sm text-muted-foreground">{t("orderDelivery.locked")}</p>}
-    <ul className="divide-y rounded-md border">{order.items.map((item) => <li key={item.id} className="flex justify-between gap-3 p-4"><div><p className="font-medium">{item.productName}</p><p className="text-sm text-muted-foreground">{Object.values(item.variantAttributes).join(" · ") || item.sku || t("orders.uniqueVariant")} · {item.quantity} × {amount(item.unitPrice)}</p></div><strong>{amount(item.subtotal)}</strong></li>)}</ul>
-    <p className="text-right text-xl font-semibold">{t("orders.total")}: {amount(order.total)}</p>
-    {order.delivery && <div className="flex flex-col gap-2 text-right"><p>{t("orderDelivery.cost", { amount: amount(order.deliveryCost) })}</p><p>{t("orders.deliveryCharge", { amount: amount(order.deliveryCharge) })}</p></div>}
-    {order.overpaidAmount.amount > 0 && <p className="text-right">{t("orders.overpaid", { amount: amount(order.overpaidAmount) })}</p>}
-    {actionData?.error && !("operation" in actionData) && <p role="alert" className="text-sm text-destructive">{actionData.error === "INSUFFICIENT_STOCK" ? t("orders.paymentStockError") : t("orders.paymentSaveError")}</p>}
-    {actionData?.success && <p role="status" className="text-sm text-muted-foreground">{t("orders.paymentSaved")}</p>}
-    {order.payments.length > 0 && <section className="flex flex-col gap-3"><h2 className="font-semibold">{t("orders.payments")}</h2><ul className="divide-y rounded-md border bg-card">{order.payments.map((payment) => <li key={payment.id} className="flex flex-col gap-3 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><span>{payment.status === "reported"
-      ? `${t("orders.paymentReported")} · ${date(payment.data.reportedAt)}`
-      : `${payment.status === "voided" ? `${t("orders.paymentVoided")} · ` : ""}${amount(payment.amount)} · ${date(payment.data.confirmedAt)}`}</span>
-      {receiptUrls[payment.id] && <a className="text-sm text-primary underline underline-offset-4" href={receiptUrls[payment.id]} target="_blank" rel="noreferrer">{t("orders.viewReceipt")}</a>}</div>
-      {payment.status === "reported" && !order.cancelled && <PaymentForm paymentId={payment.id} source="buyer_report" currency={order.total.currency}
-        balance={order.balanceDue.amount} />}
-      {payment.status === "confirmed" && <Form method="post"><input type="hidden" name="operation" value="void" /><input type="hidden" name="paymentId" value={payment.id} />
-        <Button type="submit" size="sm" variant="outline">{t("orders.voidPayment")}</Button></Form>}
-    </li>)}</ul></section>}
-    {!order.cancelled && order.balanceDue.amount > 0 && <section className="flex flex-col gap-3 rounded-md border bg-card p-5"><h2 className="font-semibold">{t("orders.manualPayment")}</h2>
-      <PaymentForm paymentId={manualPaymentId} source="manual" currency={order.total.currency} balance={order.balanceDue.amount} /></section>}
+  const badge = "inline-flex items-center gap-2 rounded-[var(--radius-badge)] px-3 py-2 text-sm font-medium";
+  return <section className="flex min-w-0 flex-col gap-6" aria-labelledby="order-title">
+    <header className="flex flex-col gap-4">
+      <Link to={base} className="inline-flex min-h-control w-fit items-center gap-2 text-sm text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring max-md:min-h-touch"><ArrowLeft className="size-icon-inline" aria-hidden="true" />{t("orders.view")}</Link>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <h1 id="order-title" className="text-2xl font-semibold">{t("orders.orderNumber", { number: order.number })}</h1>
+          <p className="text-sm text-muted-foreground">{t("orders.createdOn", { date: date(order.createdAt) })}</p>
+          {order.completedAt && <p className="text-sm text-muted-foreground">{t("orders.completedOn", { date: date(order.completedAt) })}</p>}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <span className={`${badge} ${order.cancelled ? "bg-[var(--error-surface)] text-[var(--error)]" : "bg-[var(--success-surface)] text-[var(--success)]"}`}><span aria-hidden="true">{order.cancelled ? <CircleX className="size-icon-inline" /> : <CircleCheck className="size-icon-inline" />}</span>{t(`orders.status.${order.status}`)}</span>
+          <span className={`${badge} ${order.paymentStatus === "paid" ? "bg-[var(--info-surface)] text-[var(--info)]" : "bg-[var(--warning-surface)] text-[var(--warning)]"}`}><CreditCard className="size-icon-inline" aria-hidden="true" />{t("orders.payment")}: {order.paymentStatus === "paid" ? t("orders.paid") : t("orderDetail.pendingPayment")}</span>
+          <span className={`${badge} ${order.deliveryStatus === "pending" ? "bg-[var(--warning-surface)] text-[var(--warning)]" : "bg-[var(--success-surface)] text-[var(--success)]"}`}><Truck className="size-icon-inline" aria-hidden="true" />{t("orders.delivery")}: {t(`orders.deliveryStatus.${order.deliveryStatus}`)}</span>
+        </div>
+      </div>
+    </header>
+
+    <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+      <div className="contents xl:flex xl:min-w-0 xl:flex-col xl:gap-4">
+        <Card role="region" aria-labelledby="order-products-title" className="min-w-0 max-xl:order-1">
+          <div className="flex items-center justify-between gap-3 p-4"><h2 id="order-products-title" className="text-lg font-semibold">{t("products.title")}</h2><span className="text-sm text-muted-foreground">{t("orders.itemCount", { count: order.items.length })}</span></div>
+          <div className="px-4 pb-4">
+            <table className="w-full table-fixed text-sm max-sm:block">
+              <thead className="bg-background text-muted-foreground max-sm:sr-only"><tr><th scope="col" className="w-1/2 rounded-l-sm px-3 py-3 text-left font-medium">{t("nav.product")}</th><th scope="col" className="px-2 py-3 text-center font-medium">{t("orders.quantity")}</th><th scope="col" className="rounded-r-sm px-3 py-3 text-right font-medium">{t("orderDetail.amount")}</th></tr></thead>
+              <tbody className="divide-y max-sm:block">{order.items.map(item => <tr key={item.id} className="max-sm:grid max-sm:grid-cols-[minmax(0,1fr)_auto] max-sm:gap-x-3 max-sm:py-3">
+                <td className="break-words px-3 py-4 align-top max-sm:min-w-0 max-sm:p-0"><p className="font-medium">{item.productName}</p><p className="mt-1 text-muted-foreground">{Object.values(item.variantAttributes).join(" · ") || item.sku || t("orders.uniqueVariant")} · <span className="tabular-nums">{amount(item.unitPrice)}</span></p></td>
+                <td className="px-2 py-4 text-center align-top tabular-nums max-sm:col-start-1 max-sm:row-start-2 max-sm:p-0 max-sm:pt-2 max-sm:text-left max-sm:text-muted-foreground"><span className="sm:sr-only">{t("orders.quantity")}: </span>{item.quantity}</td><td className="break-words px-3 py-4 text-right align-top font-semibold tabular-nums max-sm:col-start-2 max-sm:row-start-1 max-sm:p-0 max-sm:whitespace-nowrap">{amount(item.subtotal)}</td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+        </Card>
+
+        <Card role="region" aria-labelledby="order-payments-title" className="min-w-0 max-xl:order-2">
+          <h2 id="order-payments-title" className="p-4 text-lg font-semibold">{t("orders.payments")}</h2>
+          <div className="flex flex-col gap-6 px-4 pb-4">
+            <dl className="flex flex-col gap-3 text-sm tabular-nums sm:ml-auto sm:w-2/3">
+              <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("orderDetail.subtotal")}</dt><dd>{amount(order.itemsTotal)}</dd></div>
+              <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("orderDetail.deliveryCharge")}</dt><dd>{amount(order.deliveryCharge)}</dd></div>
+              <div className="flex justify-between gap-4 border-t pt-3 text-lg font-semibold"><dt>{t("orders.total")}:</dt>{" "}<dd>{amount(order.total)}</dd></div>
+              <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("orderDetail.received")}</dt><dd>{amount(order.paidAmount)}</dd></div>
+              <div className="flex justify-between gap-4 font-medium"><dt>{t("orderDetail.balance")}</dt><dd>{amount(order.balanceDue)}</dd></div>
+              {order.overpaidAmount.amount > 0 && <div className="rounded-sm bg-[var(--warning-surface)] p-3 text-[var(--warning)]">{t("orders.overpaid", { amount: amount(order.overpaidAmount) })}</div>}
+            </dl>
+            {actionData?.error && !("operation" in actionData) && <p role="alert" className="text-sm text-destructive">{actionData.error === "INSUFFICIENT_STOCK" ? t("orders.paymentStockError") : t("orders.paymentSaveError")}</p>}
+            {actionData?.success && <p role="status" className="text-sm text-[var(--success)]">{t("orders.paymentSaved")}</p>}
+            <section className="flex flex-col gap-3 border-t pt-4" aria-labelledby="payment-history-title">
+              <h3 id="payment-history-title" className="text-sm font-semibold">{t("orderDetail.paymentHistory")}</h3>
+              {order.payments.length === 0 ? <p className="text-sm text-muted-foreground">{t("orderDetail.noPayments")}</p> : <ul className="divide-y">{order.payments.map(payment => <li key={payment.id} className="grid gap-3 py-3 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto]">
+                <div className="flex flex-wrap items-start justify-between gap-3 text-sm">
+                  <div className="flex min-w-0 flex-col gap-1"><p className="font-medium">{t(payment.status === "reported" ? "orders.paymentReported" : payment.status === "voided" ? "orders.paymentVoided" : "orderDetail.confirmedPayment")}</p><p className="text-muted-foreground">{date(payment.status === "reported" ? payment.data.reportedAt : payment.data.confirmedAt)}</p>{payment.method && <p className="text-muted-foreground">{t(payment.method === "digital_wallet" ? "orders.wallet" : "orders.bankTransfer")}</p>}</div>
+                  {payment.status !== "reported" && <strong className="tabular-nums">{amount(payment.amount)}</strong>}
+                </div>
+                <div className="flex flex-wrap items-center gap-3 sm:justify-end">
+                  {receiptUrls[payment.id] && <a className="inline-flex min-h-control items-center text-sm text-primary underline underline-offset-4 max-md:min-h-touch" href={receiptUrls[payment.id]} target="_blank" rel="noreferrer">{t("orders.viewReceipt")}</a>}
+                  {payment.status === "confirmed" && <Form method="post"><input type="hidden" name="operation" value="void" /><input type="hidden" name="paymentId" value={payment.id} /><Button type="submit" variant="outline" disabled={navigation.state !== "idle"}>{t("orders.voidPayment")}</Button></Form>}
+                </div>
+                {payment.status === "reported" && !order.cancelled && <div className="sm:col-span-2"><PaymentForm paymentId={payment.id} source="buyer_report" currency={order.total.currency} balance={order.balanceDue.amount} /></div>}
+              </li>)}</ul>}
+            </section>
+            {!order.cancelled && order.balanceDue.amount > 0 && <section className="flex flex-col gap-3 border-t pt-4"><h3 className="text-sm font-semibold">{t("orders.manualPayment")}</h3><PaymentForm paymentId={manualPaymentId} source="manual" currency={order.total.currency} balance={order.balanceDue.amount} /></section>}
+          </div>
+        </Card>
+
+        <Card role="region" aria-labelledby="checkout-title" className="min-w-0 max-xl:order-5">
+          <div className="flex flex-wrap items-center justify-between gap-3 p-4"><h2 id="checkout-title" className="text-lg font-semibold">{t("orders.checkout")}</h2>{!order.cancelled && <checkout.Form method="post"><Button type="submit" variant="outline" disabled={checkout.state !== "idle"}>{t("orders.getCheckoutLink")}</Button></checkout.Form>}</div>
+          <div className="flex flex-col gap-3 px-4 pb-4">
+            <p className="text-sm text-muted-foreground">{t(order.cancelled ? "orders.checkoutCancelled" : order.checkoutConfirmedAt ? "orders.checkoutConfirmed" : order.checkoutEnabledAt ? "orders.checkoutPending" : "orders.checkoutDisabled")}</p>
+            {checkout.data?.error && <p role="alert" className="text-sm text-destructive">{t("orders.checkoutLinkError")}</p>}
+            {checkout.data?.url && <><Field><FieldLabel htmlFor="checkout-link">{t("orders.checkoutLink")}</FieldLabel><Input id="checkout-link" readOnly value={checkout.data.url} onFocus={event => event.target.select()} /></Field><Button type="button" variant="outline" className="self-start" onClick={copyLink}>{t("orders.copyCheckoutLink")}</Button>{copyMessage && <p role="status" className="text-sm">{t(`orders.${copyMessage}`)}</p>}</>}
+            <a href={`/pago/${order.id}`} target="_blank" rel="noreferrer" className="flex min-h-control items-center justify-between gap-3 border-t pt-3 text-sm text-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring max-md:min-h-touch">{t("orders.buyerPaymentLink")}<ExternalLink className="size-icon-inline shrink-0" aria-hidden="true" /></a>
+          </div>
+        </Card>
+      </div>
+
+      <div className="contents xl:flex xl:min-w-0 xl:flex-col xl:gap-4">
+        <Card role="region" aria-labelledby="order-customer-title" className="min-w-0 max-xl:order-3">
+          <h2 id="order-customer-title" className="p-4 text-lg font-semibold">{t("orders.customer")}</h2>
+          <div className="flex flex-col gap-2 px-4 pb-4"><p className="break-words font-medium">{order.buyer !== null ? order.buyer.name ?? order.buyer.phone : t("orders.generalPublic")}</p>{order.buyer !== null && <dl className="text-sm"><dt className="text-muted-foreground">{t("orders.phoneAtSale")}</dt><dd className="mt-1 break-words">{order.buyer.phone}</dd></dl>}</div>
+        </Card>
+
+        <Card role="region" aria-labelledby="order-delivery-title" className="min-w-0 max-xl:order-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 p-4"><h2 id="order-delivery-title" className="text-lg font-semibold">{t("orders.delivery")}</h2>{editable && settings && (settings.store.enabled || settings.home.enabled || settings.agency.enabled) && <Button type="button" aria-expanded={editingDelivery} aria-controls="delivery-editor" onClick={() => setEditingDelivery(!editingDelivery)}>{t(editingDelivery ? "orderDetail.closeEditor" : order.delivery ? "orderDetail.editDelivery" : "orderDelivery.assign")}</Button>}</div>
+          <div className="flex flex-col gap-4 px-4 pb-4">
+            {order.delivery ? <>
+              <section className="flex flex-col gap-2 text-sm">
+                <h3 className="font-semibold">{t(`deliverySettings.${order.delivery.method}`)}</h3>
+                {order.delivery.method === "store" && <><p className="break-words">{order.delivery.pickupPoint.name}</p><p className="whitespace-pre-wrap break-words">{order.delivery.pickupPoint.address}</p>{order.delivery.pickupPoint.instructions && <p className="whitespace-pre-wrap break-words text-muted-foreground">{order.delivery.pickupPoint.instructions}</p>}</>}
+                {order.delivery.method === "home" && <><p className="whitespace-pre-wrap break-words">{order.delivery.destination.address}</p><p className="break-words">{order.delivery.destination.district}</p>{order.delivery.destination.instructions && <p className="whitespace-pre-wrap break-words text-muted-foreground">{order.delivery.destination.instructions}</p>}</>}
+                {order.delivery.method === "agency" && <dl className="grid grid-cols-2 gap-x-3 gap-y-2"><dt className="text-muted-foreground">{t("orderDelivery.courier")}</dt><dd className="break-words">{order.delivery.courier.name}</dd><dt className="text-muted-foreground">{t("orderDelivery.agency")}</dt><dd className="whitespace-pre-wrap break-words">{order.delivery.agency}</dd></dl>}
+              </section>
+              <section className="flex flex-col gap-2 border-t pt-4 text-sm"><h3 className="font-semibold">{t("orders.recipient")}</h3><p className="break-words">{order.delivery.recipient.name}</p><p className="break-words text-muted-foreground">{order.delivery.recipient.phone}</p>{order.delivery.recipient.identity.kind === "document" && <p className="break-words text-muted-foreground">{t(`orders.documentType.${order.delivery.recipient.identity.documentType}`)}: {order.delivery.recipient.identity.document}</p>}</section>
+              <dl className="border-t pt-4 text-sm"><div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("orderDetail.internalDeliveryCost")}</dt><dd className="shrink-0 tabular-nums">{amount(order.deliveryCost)}</dd></div></dl>
+            </> : editable && <p className="text-sm text-muted-foreground">{t("orderDelivery.undefined")}</p>}
+            {result && typeof result.error === "string" && <p role="alert" className="text-sm text-destructive">{t(`orderDelivery.${result.error}`)}</p>}
+            {result && "order" in result && result.order && <p role="status" className="text-sm text-[var(--success)]">{t("orderDelivery.saved")}</p>}
+            {editable ? settings && (settings.store.enabled || settings.home.enabled || settings.agency.enabled) ? <div id="delivery-editor" hidden={!editingDelivery} className="border-t pt-4"><DeliveryForm key={JSON.stringify(order.delivery)} order={order} settings={settings} pending={navigation.state !== "idle"} /></div>
+              : <div className="flex flex-col gap-2 text-sm"><p className="text-muted-foreground">{t(settings ? "orderDelivery.disabled" : "deliverySettings.loadError")}</p><Link className="text-primary underline underline-offset-4" to={settingsPath}>{t("orderDelivery.configure")}</Link></div>
+              : <p className="text-sm text-muted-foreground">{t("orderDelivery.locked")}</p>}
+          </div>
+        </Card>
+
+        <Card className="min-w-0 max-xl:order-6"><details className="group p-4"><summary className="flex min-h-control cursor-pointer list-none items-center justify-between gap-3 rounded-sm text-sm font-semibold focus-visible:outline-2 focus-visible:outline-ring max-md:min-h-touch [&::-webkit-details-marker]:hidden">{t("orderDetail.internalDetails")}<ChevronDown className="size-icon-inline shrink-0 group-open:rotate-180" aria-hidden="true" /></summary><dl className="mt-3 flex flex-col gap-3 border-t pt-4 text-sm"><div><dt className="text-muted-foreground">{t("orders.stock")}</dt><dd>{t(order.stockDeducted ? "orders.stockDeducted" : "orders.stockPending")}</dd></div><div><dt className="text-muted-foreground">{t("orders.seller")}</dt><dd className="break-all">{order.sellerId}</dd></div>{order.delivery && <div><dt className="text-muted-foreground">{t("orderDelivery.recordedBy")}</dt><dd className="break-all">{order.delivery.recordedBy.kind === "seller" ? order.delivery.recordedBy.userId : t("orderDelivery.buyer")}</dd></div>}</dl></details></Card>
+      </div>
+    </div>
   </section>;
 }
 
 function PaymentForm({ paymentId, source, currency, balance }: { paymentId: string; source: "manual" | "buyer_report"; currency: string; balance: number }) {
   const { t } = useTranslation();
+  const navigation = useNavigation();
   return <Form method="post" className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
     <input type="hidden" name="operation" value="confirm" /><input type="hidden" name="source" value={source} />
     <input type="hidden" name="paymentId" value={paymentId} /><input type="hidden" name="currency" value={currency} />
@@ -177,7 +248,7 @@ function PaymentForm({ paymentId, source, currency, balance }: { paymentId: stri
     <label className="flex flex-col gap-1 text-sm">{t("orders.paymentMethod")}<select name="method" className="h-10 rounded-md border bg-background px-3" defaultValue="digital_wallet">
       <option value="digital_wallet">{t("orders.wallet")}</option><option value="bank_transfer">{t("orders.bankTransfer")}</option></select></label>
     <label className="flex items-center gap-2 text-sm sm:col-span-2"><input type="checkbox" name="deductStockIfPartial" />{t("orders.deductStockIfPartial")}</label>
-    <Button type="submit" className="sm:col-start-3 sm:row-start-1">{t("orders.confirmPayment")}</Button>
+    <Button type="submit" disabled={navigation.state !== "idle"} className="sm:col-start-3 sm:row-start-1">{t("orders.confirmPayment")}</Button>
   </Form>;
 }
 

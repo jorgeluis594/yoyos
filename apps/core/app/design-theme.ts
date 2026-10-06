@@ -8,6 +8,7 @@ const rem = (value: number) => `${value / 16}rem`;
 export const themeCss = `:root{${cssVariables({
   ...tokens.colors.light,
   "radius-control": rem(tokens.radius.control),
+  "radius-badge": rem(tokens.radius.badge),
   "radius-card": rem(tokens.radius.card),
   "radius-overlay": rem(tokens.radius.overlay),
   "content-max-width": rem(tokens.layout.contentMaxWidth),

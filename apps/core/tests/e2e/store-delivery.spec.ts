@@ -40,6 +40,7 @@ test("store assignment preserves unavailable delivery, freezes its point and ato
     await page.getByRole("button", { name: "Guardar configuración" }).click();
     await browserExpect(page.getByRole("status")).toHaveText("Configuración guardada.");
     await page.goto(`/es-PE/orders/${orderId}`);
+    await page.getByRole("button", { name: "Asignar entrega", exact: true }).click();
     await page.getByLabel("Nombre del destinatario").fill("Unavailable");
     await page.getByLabel("Teléfono del destinatario").fill("999123456");
     await saveDelivery();
@@ -78,6 +79,7 @@ test("store assignment preserves unavailable delivery, freezes its point and ato
     const editor = await systemPrisma.user.update({ where: { email: otherEmail }, data: { emailVerified: true, companyId: tenantId } });
     expect((await page.request.post("/api/auth/sign-in/email", { data: { email: otherEmail, password: "test-password-123" } })).ok()).toBe(true);
     await page.goto(`/es-PE/orders/${orderId}`);
+    await page.getByRole("button", { name: "Editar entrega", exact: true }).click();
     await page.getByLabel("Cobrar la entrega al cliente").uncheck();
     await saveDelivery();
     await browserExpect(page.getByRole("status")).toHaveText("Entrega guardada.");
@@ -92,14 +94,15 @@ test("store assignment preserves unavailable delivery, freezes its point and ato
     await mkdir("../../.impeccable/review", { recursive: true });
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
-    await page.screenshot({ path: "../../.impeccable/review/store-order-desktop.png", fullPage: true });
+    await page.screenshot({ path: "../../.impeccable/review/order-redesign-store-desktop.png", fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
-    await page.screenshot({ path: "../../.impeccable/review/store-order-mobile.png", fullPage: true });
+    await page.screenshot({ path: "../../.impeccable/review/order-redesign-store-mobile.png", fullPage: true });
     expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 2, agency: { enabled: false }, couriers: [], home: { enabled: true },
       store: { enabled: true, pickupPoint: { name: "Tienda nueva", address: "Av. Nueva 456", instructions: null } } } })).ok()).toBe(true);
     await page.reload();
+    await page.getByRole("button", { name: "Editar entrega", exact: true }).click();
     await page.getByLabel("Modalidad de entrega").selectOption("home");
     await page.getByLabel("Dirección de entrega", { exact: true }).fill("Calle Destino 789");
     await page.getByRole("button", { name: "Guardar entrega" }).click();
@@ -121,13 +124,14 @@ test("store assignment preserves unavailable delivery, freezes its point and ato
     await browserExpect(page.getByText("Calle Destino 789", { exact: true })).toBeVisible();
     await browserExpect(page.getByText("Miraflores", { exact: true })).toBeVisible();
     await page.goto(`/pt-BR/orders/${orderId}`);
+    await page.getByRole("button", { name: "Editar entrega", exact: true }).click();
     await browserExpect(page.getByLabel("Endereço de entrega", { exact: true })).toHaveValue("Calle Destino 789");
     await page.goto(`/es-PE/orders/${orderId}`);
     await page.setViewportSize({ width: 1280, height: 900 });
-    await page.screenshot({ path: "../../.impeccable/review/home-order-desktop.png", fullPage: true });
+    await page.screenshot({ path: "../../.impeccable/review/order-redesign-home-desktop.png", fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    await page.screenshot({ path: "../../.impeccable/review/home-order-mobile.png", fullPage: true });
+    await page.screenshot({ path: "../../.impeccable/review/order-redesign-home-mobile.png", fullPage: true });
     expect((await page.request.post(`/api/orders/${orderId}/ship`)).ok()).toBe(true);
     await page.reload();
     await browserExpect(page.getByRole("button", { name: "Guardar entrega" })).toHaveCount(0);

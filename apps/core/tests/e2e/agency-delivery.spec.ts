@@ -40,6 +40,10 @@ test("agency assignment requires a document, preserves historical courier names 
     const alternate = config.couriers.find(courier => courier.name === "Courier alternativo");
     if (!courier || !alternate) throw new Error("Expected configured couriers");
     await page.goto(`/es-PE/orders/${orderId}`);
+    await browserExpect(page.getByLabel("Modalidad de entrega")).toBeHidden();
+    await page.getByRole("button", { name: "Asignar entrega", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    await browserExpect(page.getByRole("button", { name: "Cerrar edición" })).toHaveAttribute("aria-expanded", "true");
     await browserExpect(page.getByLabel("Modalidad de entrega")).toHaveValue("agency");
     expect(await page.getByLabel("Courier", { exact: true }).locator("option").allTextContents()).toEqual(expect.arrayContaining(["Selecciona un courier", "Courier original", "Courier alternativo"]));
     await browserExpect(page.getByLabel("Courier", { exact: true }).locator("option")).toHaveCount(3);
@@ -47,6 +51,10 @@ test("agency assignment requires a document, preserves historical courier names 
     await page.getByLabel("Agencia de destino").fill("Agencia Lima");
     await page.getByLabel("Nombre del destinatario").fill("Unavailable");
     await page.getByLabel("Teléfono del destinatario").fill("00123");
+    await page.getByRole("button", { name: "Cerrar edición" }).click();
+    await browserExpect(page.getByLabel("Agencia de destino")).toBeHidden();
+    await page.getByRole("button", { name: "Asignar entrega", exact: true }).click();
+    await browserExpect(page.getByLabel("Agencia de destino")).toHaveValue("Agencia Lima");
     await page.getByRole("button", { name: "Guardar entrega" }).click();
     expect(await page.getByLabel("Documento de identidad (obligatorio)").evaluate(element => (element as HTMLSelectElement).validity.valueMissing)).toBe(true);
     expect(orderAggregateSchema.parse(await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json()).delivery).toBeNull();
@@ -84,6 +92,7 @@ test("agency assignment requires a document, preserves historical courier names 
     expect(await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json()).toEqual(assigned);
     await page.reload();
     await browserExpect(page.getByRole("heading", { name: "Envío a agencia", exact: true }).locator("..").getByText("Courier original", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Editar entrega", exact: true }).click();
     await browserExpect(page.getByLabel("Agencia de destino")).toHaveValue("Agencia Lima");
     await browserExpect(page.getByRole("button", { name: "Guardar entrega" })).toBeDisabled();
     expect((await page.request.post(`/api/orders/${orderId}/payments`, { data: { paymentId: crypto.randomUUID(), amount: { amount: 10, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false } })).ok()).toBe(true);
@@ -98,19 +107,29 @@ test("agency assignment requires a document, preserves historical courier names 
     await page.reload();
     await browserExpect(page.getByLabel("Número de documento")).toHaveValue("00-A-001");
     await page.goto(`/pt-BR/orders/${orderId}`);
+    await page.getByRole("button", { name: "Editar entrega", exact: true }).click();
     await browserExpect(page.getByLabel("Agência de destino")).toHaveValue("Agencia Arequipa");
     await browserExpect(page.getByLabel("Documento de identidade (obrigatório)")).toHaveValue("passport");
     await page.goto(`/es-PE/orders/${orderId}`);
     await mkdir("../../.impeccable/review", { recursive: true });
-    for (const [width, height, name] of [[1280, 900, "desktop"], [390, 844, "mobile"]] as const) {
-      await page.setViewportSize({ width, height });
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-      await page.evaluate(() => window.scrollTo(0, 0));
-      await page.screenshot({ path: `../../.impeccable/review/agency-order-${name}.png`, fullPage: true });
+    for (const theme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme: theme });
+      await browserExpect(page.locator("html")).toHaveClass(theme === "dark" ? /dark/ : /^$/);
+      for (const [width, height, name] of [[1504, 1045, "wide"], [1280, 900, "desktop"], [390, 844, "mobile"]] as const) {
+        await page.setViewportSize({ width, height });
+        await browserExpect(page.getByRole("region", { name: "Productos", exact: true })).toBeVisible();
+        await browserExpect(page.getByLabel("Nombre del destinatario")).toBeHidden();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await page.screenshot({ path: `../../.impeccable/review/order-redesign-${name}-${theme}.png`, fullPage: true, animations: "disabled" });
+      }
     }
+    await page.getByRole("button", { name: "Editar entrega", exact: true }).click();
     await page.getByLabel("Nombre del destinatario").fill("n".repeat(150));
     await page.getByLabel("Número de documento").fill("00-" + "A".repeat(140));
     await save();
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.screenshot({ path: "../../.impeccable/review/order-redesign-editor-mobile.png", fullPage: true, animations: "disabled" });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(2n);
     expect((await page.request.post(`/api/orders/${orderId}/ship`)).ok()).toBe(true);

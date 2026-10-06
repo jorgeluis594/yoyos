@@ -42,6 +42,7 @@ test("normal composition saves configuration but never assigns an invented deliv
       return variant.id;
     });
     await page.goto(`/es-PE/orders/${orderId}`);
+    await page.getByRole("button", { name: "Asignar entrega", exact: true }).click();
     await page.getByLabel("Nombre del destinatario").fill("Recipient");
     await page.getByLabel("Teléfono del destinatario").fill("00123");
     await page.getByRole("button", { name: "Guardar entrega" }).click();
@@ -55,7 +56,7 @@ test("normal composition saves configuration but never assigns an invented deliv
       await page.setViewportSize({ width, height });
       await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-      await page.screenshot({ path: `../../.impeccable/review/undefined-delivery-${label}.png`, fullPage: true });
+      await page.screenshot({ path: `../../.impeccable/review/order-redesign-undefined-${label}.png`, fullPage: true });
     }
     expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(3n);
   } finally {

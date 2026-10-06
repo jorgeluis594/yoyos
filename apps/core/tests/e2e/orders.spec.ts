@@ -196,7 +196,7 @@ test("pending order remains active when paid before delivery", async ({ page }) 
     await page.getByRole("table", { name: "Órdenes" }).getByRole("link", { name: "Público general" }).click();
     await browserExpect(page).toHaveURL(new RegExp(`/orders/${orderId}$`));
     await browserExpect(page.getByText("Orden activa", { exact: true })).toBeVisible();
-    await browserExpect(page.getByText(`Pendiente: ${formatCurrency(10, "PEN", "es")}`)).toBeVisible();
+    await browserExpect(page.getByText("Saldo pendiente", { exact: true }).locator("..").getByText(formatCurrency(10, "PEN", "es"), { exact: true })).toBeVisible();
     expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(2n);
     const paymentId = crypto.randomUUID();
     const paid = await page.request.post(`/api/orders/${orderId}/payments`, { data: { paymentId,
@@ -205,7 +205,7 @@ test("pending order remains active when paid before delivery", async ({ page }) 
     await page.reload();
     await browserExpect(page.getByText("Orden activa", { exact: true })).toBeVisible();
     await browserExpect(page.getByText("Cubierto")).toBeVisible();
-    await browserExpect(page.getByText("Pendiente", { exact: true }).first()).toBeVisible();
+    await browserExpect(page.getByText("Entrega: Pendiente", { exact: true })).toBeVisible();
     expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(1n);
     expect(await withTenantIsolation(tenantId, async () => await prisma.payment.count({ where: { orderId } }))).toBe(1);
   } finally {

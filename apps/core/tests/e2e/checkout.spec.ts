@@ -218,7 +218,7 @@ test("seller copies a stable link and sees buyer confirmation separately from pa
     await page.reload();
     await browserExpect(page.getByText("Confirmado por el comprador", { exact: true })).toBeVisible();
     await browserExpect(page.getByText("Ana", { exact: true })).toBeVisible();
-    await browserExpect(page.getByText("Pendiente: S/ 10.00", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Saldo pendiente", { exact: true }).locator("..").getByText("S/ 10.00", { exact: true })).toBeVisible();
     await page.goto("/es-PE/orders");
     const table = page.getByRole("table", { name: "Órdenes" });
     await browserExpect(table.getByText("Pedido #10000", { exact: true })).toBeVisible();
