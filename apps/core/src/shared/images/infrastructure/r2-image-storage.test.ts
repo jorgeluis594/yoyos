@@ -31,10 +31,12 @@ it("stores private objects in the private bucket and reads their original bytes"
 });
 
 it("does not fall back to the public bucket for private objects", async () => {
+  const logged = vi.spyOn(log, "error").mockImplementation(() => {});
   const storage = createR2ImageStorage(config);
   expect(await storage.uploadPrivate("key", { bytes: new Uint8Array([1]), contentType: "image/png" })).toMatchObject({ success: false, error: { code: "IMAGE_STORAGE_CONFIG_ERROR" } });
   expect(await storage.readPrivate("key")).toMatchObject({ success: false, error: { code: "IMAGE_STORAGE_CONFIG_ERROR" } });
   expect(send).not.toHaveBeenCalled();
+  expect(logged).toHaveBeenCalledWith({ event: "image_storage_configuration_invalid", errorCode: "IMAGE_STORAGE_CONFIG_ERROR" }, "image_storage_configuration_invalid");
 });
 
 it("rejects using the public bucket as private storage", async () => {

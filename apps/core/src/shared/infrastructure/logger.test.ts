@@ -63,15 +63,18 @@ it("adds request and company context only to logs in that request", () => {
     import { bindCompanyToRequest, log, requestLogging } from "./src/shared/infrastructure/logger.ts";
     const app = express();
     app.use(requestLogging);
-    app.get("/company/:id", (request, response) => {
+    app.get("/company/:id", async (request, response) => {
       if (request.params.id === "first") bindCompanyToRequest("company-one");
+      await new Promise((resolve) => setImmediate(resolve));
       log.info({ event: "company_loaded" }, "Company loaded");
       response.sendStatus(200);
     });
     const server = app.listen(0);
     const address = server.address();
-    await fetch("http://127.0.0.1:" + address.port + "/company/first", { headers: { "x-request-id": "first-request" } });
-    await fetch("http://127.0.0.1:" + address.port + "/company/second", { headers: { "x-request-id": "second-request" } });
+    await Promise.all([
+      fetch("http://127.0.0.1:" + address.port + "/company/first", { headers: { "x-request-id": "first-request" } }),
+      fetch("http://127.0.0.1:" + address.port + "/company/second", { headers: { "x-request-id": "second-request" } }),
+    ]);
     log.info({ event: "outside_request" }, "Outside request");
     server.close();
   `], { cwd: process.cwd(), encoding: "utf8" });
@@ -86,4 +89,50 @@ it("adds request and company context only to logs in that request", () => {
   ]);
   expect(entries.filter((entry) => entry.requestId === "second-request").every((entry) => !("companyId" in entry))).toBe(true);
   expect(entries.find((entry) => entry.event === "outside_request")).not.toHaveProperty("requestId");
+});
+
+it("normalizes checkout URLs and redacts the UUID credential even in separate fields", () => {
+  const output = execFileSync(process.execPath, ["--import", "tsx", "-e", `
+    import express from "express";
+    import { log, requestLogging, bindRequestOperation, bindCompanyToRequest } from "./src/shared/infrastructure/logger.ts";
+    const app = express();
+    app.use(requestLogging);
+    app.get("/{*splat}", (_req, res) => {
+      bindCompanyToRequest("verified-company");
+      bindRequestOperation({ outcome: "pending", orderNumber: 1001 });
+      const error = new Error("secret-link"); error.name = "secret-link";
+      log.error({ event: "privacy_probe", orderId: "secret-order-uuid", nested: { url: "secret-link" }, buyer: { name: "Private buyer", phone: "Private phone" }, err: error }, "Privacy probe");
+      res.sendStatus(200);
+    });
+    const server = app.listen(0);
+    await fetch("http://127.0.0.1:" + server.address().port + "/checkout/claimed-company/secret-order-uuid?secret-link");
+    server.close();
+  `], { cwd: process.cwd(), encoding: "utf8" });
+  for (const value of ["secret-order-uuid", "secret-link", "Private buyer", "Private phone", "claimed-company"]) expect(output).not.toContain(value);
+  const entries = output.trim().split("\n").map((line) => JSON.parse(line));
+  expect(entries.filter((entry) => entry.event === "http_request_completed")).toEqual([
+    expect.objectContaining({ route: "/checkout/:companyId/:orderId", operation: "get_checkout", outcome: "pending", orderNumber: 1001, companyId: "verified-company" }),
+  ]);
+});
+
+it("shares context between independently loaded source and server-bundled modules", () => {
+  const output = execFileSync(process.execPath, ["--import", "tsx", "-e", `
+    import express from 'express';
+    import { requestLogging } from './src/shared/infrastructure/logger.ts';
+    const separate = await import('./src/shared/infrastructure/logger.ts?server-build');
+    const app = express();
+    app.use(requestLogging);
+    app.get('/checkout/:companyId/:orderId', (_req, res) => {
+      separate.bindRequestOperation({ operation: 'get_checkout', outcome: 'pending', orderNumber: 1001 });
+      separate.bindCompanyToRequest('verified-company');
+      separate.log.info({ event: 'shared_context_probe' }, 'Shared context probe');
+      res.sendStatus(200);
+    });
+    const server = app.listen(0);
+    await fetch('http://127.0.0.1:' + server.address().port + '/checkout/company/order', { headers: { 'x-request-id': 'bundled-request' } });
+    server.close();
+  `], { cwd: process.cwd(), encoding: "utf8" });
+  const events = output.trim().split("\n").map((line) => JSON.parse(line));
+  expect(events).toHaveLength(2);
+  for (const event of events) expect(event).toMatchObject({ requestId: "bundled-request", companyId: "verified-company", outcome: "pending", orderNumber: 1001 });
 });

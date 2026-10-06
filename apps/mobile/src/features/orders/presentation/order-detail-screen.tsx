@@ -1,5 +1,7 @@
+import * as Clipboard from "expo-clipboard";
 import { useCallback, useRef, useState } from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { Linking, ScrollView, StyleSheet, Switch, View } from "react-native";
+import * as Crypto from "expo-crypto";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
@@ -9,6 +11,9 @@ import { orders } from "@mobile/features/orders/composition";
 import { ThemedText } from "@mobile/components/themed-text";
 import { ThemedView } from "@mobile/components/themed-view";
 import { Button } from "@mobile/components/ui/button";
+import { Field, FieldLabel } from "@mobile/components/ui/field";
+import { Input } from "@mobile/components/ui/input";
+import { OptionSelector } from "@mobile/components/ui/option-selector";
 import { ScreenState } from "@mobile/components/ui/screen-state";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
@@ -30,6 +35,13 @@ export default function OrderDetailScreen() {
   const [order, setOrder] = useState<OrderAggregateResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [checkoutUrl, setCheckoutUrl] = useState("");
+  const [checkoutBusy, setCheckoutBusy] = useState(false);
+  const [checkoutMessage, setCheckoutMessage] = useState("");
+  const checkoutGeneration = useRef(0);
+  const [paymentError, setPaymentError] = useState("");
+  const [savingPayment, setSavingPayment] = useState<string | null>(null);
+  const manualPaymentId = useRef<string | null>(null);
   const loaded = useRef(false);
   const companyId = state.status === "ready" ? state.company.id : "";
   const reload = useCallback(async () => {
@@ -39,12 +51,60 @@ export default function OrderDetailScreen() {
     else setError(result.error.code === "ORDER_NOT_FOUND" ? translations.t('orderNotFound') : translations.t('loadOrderError'));
     setLoading(false);
   }, [id]);
+  async function confirmPayment(paymentId: string, source: "manual" | "buyer_report", amountText: string,
+    method: "digital_wallet" | "bank_transfer", deductStockIfPartial: boolean) {
+    if (!order || savingPayment) return;
+    const amount = Number(amountText.replace(",", "."));
+    if (!Number.isFinite(amount) || amount <= 0 || !/^\d+(?:[.,]\d{1,2})?$/.test(amountText.trim())) {
+      setPaymentError(t("invalidPaymentAmount")); return;
+    }
+    setSavingPayment(paymentId); setPaymentError("");
+    const result = await orders.registerPayment(order.id, { paymentId, source, amount: { amount, currency: order.total.currency },
+      method, deductStockIfPartial });
+    if (result.success) { setOrder(result.data.order); if (source === "manual") manualPaymentId.current = null; }
+    else setPaymentError(result.error.code === "INSUFFICIENT_STOCK" ? t("paymentStockError") : t("paymentSaveError"));
+    setSavingPayment(null);
+  }
+  async function voidPayment(paymentId: string) {
+    if (!order || savingPayment) return;
+    setSavingPayment(paymentId); setPaymentError("");
+    const result = await orders.voidPayment(order.id, paymentId);
+    if (result.success) setOrder(result.data);
+    else setPaymentError(t("paymentSaveError"));
+    setSavingPayment(null);
+  }
+  async function viewReceipt(imageId: string) {
+    const result = await orders.receiptUrl(imageId);
+    if (!result.success) { setPaymentError(t("receiptUnavailable")); return; }
+    try { await Linking.openURL(result.data); }
+    catch { setPaymentError(t("receiptUnavailable")); }
+  }
   useFocusEffect(useCallback(() => {
+    checkoutGeneration.current += 1;
+    setCheckoutUrl(""); setCheckoutMessage("");
     if (companyId) void reload();
     return () => {
+      checkoutGeneration.current += 1;
       if (notice?.id === id && loaded.current) { void orders.clearPendingOrderConfirmation(companyId ?? "", id); clear(); }
     };
   }, [companyId, id, notice, clear, reload]));
+
+  async function obtainCheckoutLink() {
+    if (checkoutBusy) return;
+    const generation = checkoutGeneration.current;
+    setCheckoutBusy(true); setCheckoutMessage("");
+    try {
+      const result = await orders.enableOrderCheckout(id);
+      if (generation !== checkoutGeneration.current) return;
+      if (result.success) { await reload(); if (generation === checkoutGeneration.current) setCheckoutUrl(result.data.url); }
+      else setCheckoutMessage(t("checkoutLinkError"));
+    } catch { if (generation === checkoutGeneration.current) setCheckoutMessage(t("checkoutLinkError")); }
+    finally { setCheckoutBusy(false); }
+  }
+  async function copyCheckoutLink() {
+    try { setCheckoutMessage(t(await Clipboard.setStringAsync(checkoutUrl) ? "checkoutCopied" : "checkoutCopyManually")); }
+    catch { setCheckoutMessage(t("checkoutCopyManually")); }
+  }
 
   if (state.status !== "ready") return null;
   if (loading) return <ScreenState status="loading" title={t('loadingOrder')} />;
@@ -59,9 +119,18 @@ export default function OrderDetailScreen() {
   return <ThemedView style={styles.page}><SafeAreaView style={styles.page} edges={["top", "left", "right"]}>
     <ScrollView contentContainerStyle={styles.content}>
       <Button variant="ghost" onPress={() => router.back()}>{t('backToOrders')}</Button>
-      <View style={styles.heading}><ThemedText type="title" accessibilityRole="header">{title}</ThemedText>
+      <View style={styles.heading}><ThemedText type="title" accessibilityRole="header">{t("orderNumber", { number: order.number })}</ThemedText><ThemedText>{title}</ThemedText>
         <ThemedText themeColor="textSecondary">{t('createdOn', { date: date(order.createdAt, locale) })}</ThemedText>
         {order.completedAt ? <ThemedText themeColor="textSecondary">{t('completedOn', { date: date(order.completedAt, locale) })}</ThemedText> : null}</View>
+      <View style={styles.section}>
+        <ThemedText type="subtitle" accessibilityRole="header">{t("checkoutTitle")}</ThemedText>
+        <ThemedText>{t(order.cancelled ? "checkoutCancelled" : order.checkoutConfirmedAt ? "checkoutConfirmed" : order.checkoutEnabledAt ? "checkoutPending" : "checkoutDisabled")}</ThemedText>
+        {!order.cancelled ? <>
+          <Button disabled={checkoutBusy} onPress={() => void obtainCheckoutLink()}>{t("getCheckoutLink")}</Button>
+          {checkoutUrl ? <><ThemedText selectable>{checkoutUrl}</ThemedText><Button variant="secondary" onPress={() => void copyCheckoutLink()}>{t("copyCheckoutLink")}</Button></> : null}
+          {checkoutMessage ? <ThemedText accessibilityRole="alert">{checkoutMessage}</ThemedText> : null}
+        </> : null}
+      </View>
       <View style={[styles.summary, { backgroundColor: theme.backgroundElement }]}>
         <ThemedText type="small" themeColor="textSecondary">{t('recordedTotal')}</ThemedText>
         <ThemedText type="title">{money(order.total.amount, order.total.currency, locale)}</ThemedText>
@@ -77,8 +146,8 @@ export default function OrderDetailScreen() {
         <ThemedText type="small">{t('adjustCharge')}</ThemedText>
       </View> : null}
       <View style={styles.section}><ThemedText type="subtitle" accessibilityRole="header">{t('customer')}</ThemedText>
-        <ThemedText>{order.customer.kind === "contact" ? order.customer.name ?? order.customer.phone : t('generalPublic')}</ThemedText>
-        {order.customer.kind === "contact" && order.customer.name ? <ThemedText themeColor="textSecondary">{order.customer.phone}</ThemedText> : null}
+        <ThemedText>{order.buyer !== null ? order.buyer.name ?? order.buyer.phone : t('generalPublic')}</ThemedText>
+        {order.buyer !== null && order.buyer.name ? <ThemedText themeColor="textSecondary">{order.buyer.phone}</ThemedText> : null}
       </View>
       {order.delivery ? <View style={styles.section}><ThemedText type="subtitle" accessibilityRole="header">{t('delivery')}</ThemedText>
         <ThemedText>{deliveryMethodLabel(order.delivery.method, language)}</ThemedText>
@@ -110,12 +179,48 @@ export default function OrderDetailScreen() {
           <ThemedText>{item.quantity} × {money(item.unitPrice.amount, item.unitPrice.currency, locale)} = {money(item.subtotal.amount, item.subtotal.currency, locale)}</ThemedText>
         </View>)}
       </View>
+      {paymentError ? <ThemedText style={{ color: theme.error }} accessibilityRole="alert">{paymentError}</ThemedText> : null}
       {order.payments.length ? <View style={styles.section}><ThemedText type="subtitle" accessibilityRole="header">{t('payments')}</ThemedText>
-        {order.payments.map((payment) => <ThemedText key={payment.id}>{money(payment.amount.amount, payment.amount.currency, locale)} · {date(payment.recordedAt, locale)}</ThemedText>)}
+        {order.payments.map((payment) => { const receiptImageId = payment.status === "reported" ? payment.data.receiptImageId
+          : payment.data.evidence.kind === "buyer_report" ? payment.data.evidence.report.receiptImageId : null;
+          return <View key={payment.id} style={styles.payment}><ThemedText>{payment.status === "reported"
+            ? `${t('paymentReported')} · ${date(payment.data.reportedAt, locale)}`
+            : `${payment.status === "voided" ? `${t('paymentVoided')} · ` : ""}${money(payment.amount.amount, payment.amount.currency, locale)} · ${date(payment.data.confirmedAt, locale)}`}</ThemedText>
+            {receiptImageId ? <Button variant="ghost" onPress={() => void viewReceipt(receiptImageId)}>{t('viewReceipt')}</Button> : null}
+            {payment.status === "reported" && !order.cancelled ? <PaymentEditor key={`${payment.id}-${order.balanceDue.amount}`} currency={order.total.currency}
+              balance={order.balanceDue.amount} busy={!!savingPayment} onConfirm={(amount, method, deduct) =>
+                void confirmPayment(payment.id, "buyer_report", amount, method, deduct)} /> : null}
+            {payment.status === "confirmed" ? <Button variant="secondary" disabled={!!savingPayment}
+              onPress={() => void voidPayment(payment.id)}>{t('voidPayment')}</Button> : null}
+          </View>; })}
+      </View> : null}
+      {!order.cancelled && order.balanceDue.amount > 0 ? <View style={styles.section}><ThemedText type="subtitle" accessibilityRole="header">{t('manualPayment')}</ThemedText>
+        <PaymentEditor key={order.balanceDue.amount} currency={order.total.currency} balance={order.balanceDue.amount} busy={!!savingPayment} onConfirm={(amount, method, deduct) => {
+          manualPaymentId.current ??= Crypto.randomUUID();
+          void confirmPayment(manualPaymentId.current, "manual", amount, method, deduct);
+        }} />
       </View> : null}
     </ScrollView>
   </SafeAreaView></ThemedView>;
 }
 
 const styles = StyleSheet.create({ page: { flex: 1 }, content: { gap: 24, padding: 16, paddingBottom: 32, maxWidth: 640, width: "100%", alignSelf: "center" },
-  heading: { gap: 4 }, summary: { gap: 8, padding: 16 }, notice: { gap: 8, padding: 16 }, section: { gap: 12 }, item: { gap: 4, paddingVertical: 12 } });
+  heading: { gap: 4 }, summary: { gap: 8, padding: 16 }, notice: { gap: 8, padding: 16 }, section: { gap: 12 }, item: { gap: 4, paddingVertical: 12 },
+  payment: { gap: 10, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth } });
+
+function PaymentEditor({ currency, balance, busy, onConfirm }: { currency: string; balance: number; busy: boolean;
+  onConfirm: (amount: string, method: "digital_wallet" | "bank_transfer", deductStockIfPartial: boolean) => void }) {
+  const { t } = useTranslation();
+  const [amount, setAmount] = useState(balance > 0 ? balance.toFixed(2) : "");
+  const [method, setMethod] = useState<"digital_wallet" | "bank_transfer">("digital_wallet");
+  const [deduct, setDeduct] = useState(false);
+  return <View style={styles.section}><Field required><FieldLabel>{t('paymentAmount')} ({currency})</FieldLabel>
+      <Input value={amount} onChangeText={setAmount} keyboardType="decimal-pad" /></Field>
+    <Field required><FieldLabel>{t('paymentMethod')}</FieldLabel><OptionSelector options={[
+      { value: "digital_wallet", label: t('wallet') }, { value: "bank_transfer", label: t('bankTransfer') }]}
+      value={method} onValueChange={(value) => { if (value === "digital_wallet" || value === "bank_transfer") setMethod(value); }} /></Field>
+    <View style={styles.item}><ThemedText>{t('deductStockIfPartial')}</ThemedText>
+      <Switch value={deduct} onValueChange={setDeduct} accessibilityLabel={t('deductStockIfPartial')} /></View>
+    <Button disabled={busy} loading={busy} onPress={() => onConfirm(amount, method, deduct)}>{t('confirmPayment')}</Button>
+  </View>;
+}

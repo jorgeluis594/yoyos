@@ -14,8 +14,8 @@ export function DeliveryForm({ order, settings, pending }: { order: OrderAggrega
   const submit = useSubmit();
   const ready = useClientReady();
   const recipient = order.delivery?.recipient;
-  const [name, setName] = useState(recipient?.name ?? (order.customer.kind === "contact" ? order.customer.name ?? "" : ""));
-  const [phone, setPhone] = useState(recipient?.phone ?? (order.customer.kind === "contact" ? order.customer.phone : ""));
+  const [name, setName] = useState(recipient?.name ?? (order.buyer?.name ?? ""));
+  const [phone, setPhone] = useState(recipient?.phone ?? (order.buyer?.phone ?? ""));
   const [documentType, setDocumentType] = useState<"absent" | "national_id" | "passport" | "foreign_id">(recipient?.identity.kind === "document" ? recipient.identity.documentType : "absent");
   const [document, setDocument] = useState(recipient?.identity.kind === "document" ? recipient.identity.document : "");
   const [charge, setCharge] = useState(order.delivery ? order.deliveryCharge.amount > 0 : false);

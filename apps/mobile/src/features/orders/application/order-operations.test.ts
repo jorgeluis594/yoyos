@@ -83,12 +83,12 @@ test("known stock rejection clears the marker and leaves the cart available", as
 test("recovery keeps the amount first shown and returns the core total", async () => {
   const amount = { amount: 12, currency: "PEN" as const };
   const zero = { amount: 0, currency: "PEN" as const };
-  const order: OrderAggregateResponse = { id: id(3), companyId, sellerId: "seller", customer: { kind: "general_public" },
-    createdAt: "2026-09-29T12:00:00.000Z", completedAt: "2026-09-29T12:00:00.000Z",
+  const order: OrderAggregateResponse = { number: 1001, id: id(3), companyId, sellerId: "seller", buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null,
+    createdAt: "2026-09-29T12:00:00.000Z", deliveredAt: "2026-09-29T12:00:00.000Z", completedAt: "2026-09-29T12:00:00.000Z",
     status: "completed", paymentStatus: "paid", paidAmount: amount, balanceDue: zero, overpaidAmount: zero,
     cancelled: false, delivery: null, deliveryStatus: "delivered", stockDeducted: true,
     itemsTotal: amount, deliveryCost: zero, deliveryCharge: zero, total: amount,
-    payments: [{ id: id(6), orderId: id(3), amount, method: "digital_wallet", recordedAt: "2026-09-29T12:00:00.000Z" }],
+    payments: [{ id: id(6), orderId: id(3), amount, method: "digital_wallet", status: "confirmed", data: { confirmedAt: "2026-09-29T12:00:00.000Z", confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" } } }],
     items: [{ id: id(5), variantId: id(2), productName: "Sample", variantAttributes: {}, sku: null,
       quantity: 1, unitPrice: amount, subtotal: amount }] };
   let lookups = 0;
@@ -107,7 +107,7 @@ test("recovery keeps the amount first shown and returns the core total", async (
   expect(await operations.clearPendingOrderConfirmation(companyId, id(3))).toEqual(ok(undefined));
 
   const pending = { ...order, status: "active" as const, paymentStatus: "pending" as const,
-    completedAt: null, deliveryStatus: "pending" as const, stockDeducted: false, payments: [], paidAmount: zero, balanceDue: amount };
+    completedAt: null, deliveredAt: null, deliveryStatus: "pending" as const, stockDeducted: false, payments: [], paidAmount: zero, balanceDue: amount };
   const pendingStore = storage();
   await pendingStore.save({ companyId, id: id(3), shownTotal: { amount: 10, currency: "PEN" } });
   const pendingOperations = createOrderOperations(createOrderApi(async () => ok(pending)), pendingStore);

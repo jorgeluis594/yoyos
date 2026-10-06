@@ -2,7 +2,7 @@ import { browserExpect, expect, prepareVerifiedCompany, test } from "./fixtures"
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==", "base64");
-const publicBase = "http://127.0.0.1:4173/test-images";
+const publicBase = `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}/test-images`;
 const file = (name: string) => ({ name, mimeType: "image/png", buffer: png });
 
 test("create, replace, keep, and remove a product photo", async ({ page }) => {

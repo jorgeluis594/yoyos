@@ -33,8 +33,8 @@ test("order API preserves matching business errors and rejects mismatched status
 test("order API reads mixed summaries and validates complete aggregate states", async () => {
   const total = { amount: 10, currency: "PEN" as const };
   const zero = { amount: 0, currency: "PEN" as const };
-  const summary = { id: id(1), customer: { kind: "general_public" }, sellerId: "seller",
-    createdAt: "2026-09-29T12:00:00.000Z", completedAt: null, status: "active", paymentStatus: "pending",
+  const summary = { number: 1001, id: id(1), buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, sellerId: "seller",
+    createdAt: "2026-09-29T12:00:00.000Z", deliveredAt: null, completedAt: null, status: "active", paymentStatus: "pending",
     deliveryStatus: "pending", stockDeducted: false, total };
   const order = { ...summary, companyId: id(2), paidAmount: zero, balanceDue: total, overpaidAmount: zero,
     cancelled: false, delivery: null, payments: [], itemsTotal: total, deliveryCost: zero, deliveryCharge: zero,
@@ -43,14 +43,14 @@ test("order API reads mixed summaries and validates complete aggregate states", 
   const paths: string[] = [];
   const api = createOrderApi(async (path) => { paths.push(path); return ok(path.includes("/mixed?")
     ? { items: [summary], page: 1, pageSize: 20, total: 1 }
-    : path.endsWith("/payments") ? { order, stock: { kind: "pending", reason: "INSUFFICIENT_STOCK" } } : order); });
+    : path.endsWith("/payments") ? { order, stock: { kind: "not_requested" } } : order); });
   expect(await api.listAggregates({ page: 1, customer: "all" })).toMatchObject({ success: true,
     data: { items: [{ id: id(1), status: "active" }] } });
   expect(await api.getAggregate(id(1))).toMatchObject({ success: true, data: { id: id(1), payments: [] } });
   expect(await api.create({ id: id(1), contactId: null, items: [{ variantId: id(4), quantity: 1 }] }))
     .toMatchObject({ success: true, data: { status: "active" } });
   expect(await api.registerPayment(id(1), { paymentId: id(5), amount: total, method: "digital_wallet", deductStockIfPartial: false }))
-    .toMatchObject({ success: true, data: { stock: { kind: "pending", reason: "INSUFFICIENT_STOCK" } } });
+    .toMatchObject({ success: true, data: { stock: { kind: "not_requested" } } });
   expect(await api.deductStock(id(1))).toMatchObject({ success: true, data: { id: id(1) } });
   expect(paths).toEqual(["/api/orders/mixed?page=1&customer=all", `/api/orders/${id(1)}/aggregate`,
     "/api/orders", `/api/orders/${id(1)}/payments`, `/api/orders/${id(1)}/deduct-stock`]);
@@ -81,12 +81,27 @@ test("delivery API validates the complete authored snapshot and updated aggregat
   const delivery = { method: "store" as const, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } },
     pickupPoint: { name: "Store", address: "Lima", instructions: null }, recordedBy: { kind: "seller" as const, userId: "current-editor" } };
   const input = { delivery: { method: "store" as const, recipient: delivery.recipient }, chargeDeliveryToCustomer: false };
-  const order = { id: id(1), companyId: id(2), sellerId: "original-seller", customer: { kind: "general_public" }, createdAt: "2026-10-05T12:00:00.000Z", completedAt: null,
+  const order = { id: id(1), companyId: id(2), sellerId: "original-seller", number: 1001, buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, deliveredAt: null, createdAt: "2026-10-05T12:00:00.000Z", completedAt: null,
     status: "active", paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false, total, paidAmount: zero, balanceDue: total, overpaidAmount: zero,
     cancelled: false, delivery, payments: [], itemsTotal: total, deliveryCost: { amount: 3, currency: "PEN" }, deliveryCharge: zero,
     items: [{ id: id(3), variantId: id(4), productName: "Item", variantAttributes: {}, sku: null, quantity: 1, unitPrice: total, subtotal: total }] };
   expect(await createOrderApi(async () => ok(order)).setDelivery(id(1), input)).toMatchObject({ success: true, data: { delivery, total } });
   for (const invalid of [{ ...order, id: id(5) }, { ...order, delivery: null }, { ...order, delivery: { ...delivery, recordedBy: undefined } }, { ...order, delivery: { ...delivery, pickupPoint: undefined } }]) {
     expect(await createOrderApi(async () => ok(invalid)).setDelivery(id(1), input)).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+  }
+});
+
+test("checkout link adapter validates IDs, responses and operation-specific failures", async () => {
+  const calls: string[] = [];
+  const url = `https://shop.example/checkout/${id(2)}/${id(1)}`;
+  const api = createOrderApi(async (path) => { calls.push(path); return ok({ url }); });
+  expect(await api.enableCheckout("1001")).toMatchObject({ error: { code: "INVALID_INPUT" } });
+  expect(calls).toEqual([]);
+  expect(await api.enableCheckout(id(1))).toEqual(ok({ url }));
+  expect(calls).toEqual([`/api/orders/${id(1)}/checkout-link`]);
+  expect(await createOrderApi(async () => ok({ url: "bad" })).enableCheckout(id(1))).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+  for (const [code, status] of [["ORDER_CANCELLED", 409], ["ORDER_NOT_FOUND", 404], ["INVALID_INPUT", 422]] as const) {
+    const failed = createOrderApi(async () => err({ code: "API_ERROR", message: "failure", http: { status, body: { code, error: "Rejected" } } }));
+    expect(await failed.enableCheckout(id(1))).toMatchObject({ error: { code } });
   }
 });

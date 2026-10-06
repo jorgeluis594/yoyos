@@ -1,4 +1,5 @@
-import { log } from "@core/src/shared/infrastructure/logger";
+import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
+import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import express, { type Request, type Response } from "express";
 import { z } from "zod";
 import { createOrderSchema, setOrderDeliverySchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
@@ -67,6 +68,8 @@ function operationError(response: Response, error: { code: string; variantId?: s
     case "ORDER_NOT_FOUND": return apiError(response, 404, "ORDER_NOT_FOUND", "Order not found");
     case "INVALID_PAYMENT": return apiError(response, 422, "INVALID_PAYMENT", "Invalid payment");
     case "PAYMENT_CONFLICT": return apiError(response, 409, "PAYMENT_CONFLICT", "Payment ID conflict");
+    case "PAYMENT_NOT_FOUND": return apiError(response, 404, "PAYMENT_NOT_FOUND", "Payment not found");
+    case "RECEIPT_NOT_FOUND": return apiError(response, 422, "RECEIPT_NOT_FOUND", "Receipt not found");
     case "INVALID_TRANSITION": return apiError(response, 409, "INVALID_TRANSITION", "Invalid order transition");
     case "DELIVERY_LOCKED": return apiError(response, 409, "DELIVERY_LOCKED", "Delivery is locked");
     case "PAYMENT_REQUIRED": return apiError(response, 409, "PAYMENT_REQUIRED", "Payment is required");
@@ -222,6 +225,16 @@ orderRoutes.put("/:id/delivery", async (request, response: Response<unknown, Pri
   } catch (cause) { return unexpected(response, cause, { operation: "set_order_delivery", orderId: parsedId.data, userId: context.userId }); }
 });
 
+orderRoutes.post("/:id/payments/:paymentId/void", async (request, response: Response<unknown, PrivateLocals>) => {
+  const parsedId = orderId(request.params.id);
+  const parsedPaymentId = z.uuid().safeParse(request.params.paymentId);
+  if (!parsedId.success || !parsedPaymentId.success) return apiError(response, 400, "INVALID_INPUT", "Invalid payment ID");
+  try {
+    const result = await orders.voidPayment({ orderId: parsedId.data as OrderId, paymentId: parsedPaymentId.data as PaymentId }, orderContext(response));
+    return result.success ? response.json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
+  } catch (error) { return unexpected(response, error); }
+});
+
 for (const [path, operation] of [
   ["deduct-stock", orders.deductStock], ["cancel", orders.cancel], ["ship", orders.ship], ["deliver", orders.deliver],
 ] as const) {
@@ -246,4 +259,25 @@ orderRoutes.post("/", async (request, response: Response<unknown, PrivateLocals>
       ? await orders.registerImmediateSale(input, context) : await orders.create(input, context);
     return result.success ? response.status(201).json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
+});
+
+orderRoutes.post("/:orderId/checkout-link", async (request, response: Response<unknown, PrivateLocals>) => {
+  bindRequestOperation({ operation: "enable_checkout" });
+  const id = orderId(request.params.orderId);
+  if (!id.success || !z.strictObject({}).safeParse(request.body ?? {}).success) {
+    bindRequestOperation({ outcome: "invalid_input" });
+    return apiError(response, 422, "INVALID_INPUT", "Invalid checkout request");
+  }
+  try {
+    const result = await orders.enableCheckout(id.data as OrderId, orderContext(response));
+    if (!result.success) {
+      if (result.error.code === "CHECKOUT_UNAVAILABLE") return apiError(response, 404, "ORDER_NOT_FOUND", "Order not found");
+      if (result.error.code === "ORDER_CANCELLED") return apiError(response, 409, "ORDER_CANCELLED", "Order is cancelled");
+      return apiError(response, 503, "SERVICE_UNAVAILABLE", "Checkout is unavailable");
+    }
+    return response.json(checkoutLinkSchema.parse(result.data));
+  } catch (cause) {
+    bindRequestOperation({ outcome: "technical_failure" });
+    return unexpected(response, cause);
+  }
 });

@@ -47,7 +47,7 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     await browserExpect(page.locator("#resumen strong")).toHaveText(formatCurrency(0.58, "PEN", "es"));
     await page.getByRole("button", { name: "Confirmar cobro y completar venta" }).click();
     await browserExpect(page).toHaveURL(/\/es-PE\/orders\/[0-9a-f-]+$/);
-    await browserExpect(page.getByRole("heading", { name: "Venta completada" })).toBeVisible();
+    await browserExpect(page.getByText("Venta completada", { exact: true })).toBeVisible();
     await browserExpect(page.getByText("Entrega por definir", { exact: true })).toHaveCount(0);
     await browserExpect(page.getByRole("button", { name: "Guardar entrega" })).toHaveCount(0);
     await browserExpect(page.getByText("Público general")).toBeVisible();
@@ -195,7 +195,7 @@ test("pending order remains active when paid before delivery", async ({ page }) 
     await browserExpect(page.getByRole("table", { name: "Órdenes" }).getByText("Activa")).toBeVisible();
     await page.getByRole("table", { name: "Órdenes" }).getByRole("link", { name: "Público general" }).click();
     await browserExpect(page).toHaveURL(new RegExp(`/orders/${orderId}$`));
-    await browserExpect(page.getByRole("heading", { name: "Orden activa" })).toBeVisible();
+    await browserExpect(page.getByText("Orden activa", { exact: true })).toBeVisible();
     await browserExpect(page.getByText(`Pendiente: ${formatCurrency(10, "PEN", "es")}`)).toBeVisible();
     expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(2n);
     const paymentId = crypto.randomUUID();
@@ -203,7 +203,7 @@ test("pending order remains active when paid before delivery", async ({ page }) 
       amount: { amount: 10, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false } });
     expect(paid.status()).toBe(200);
     await page.reload();
-    await browserExpect(page.getByRole("heading", { name: "Orden activa" })).toBeVisible();
+    await browserExpect(page.getByText("Orden activa", { exact: true })).toBeVisible();
     await browserExpect(page.getByText("Cubierto")).toBeVisible();
     await browserExpect(page.getByText("Pendiente", { exact: true }).first()).toBeVisible();
     expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(1n);

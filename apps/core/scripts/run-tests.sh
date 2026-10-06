@@ -48,13 +48,14 @@ export SMTP_HOST=localhost
 export SMTP_PORT=${MAILPIT_SMTP_PORT:-1025}
 export MAILPIT_URL=http://127.0.0.1:${MAILPIT_UI_PORT:-8025}
 if [ "$1" = e2e ]; then
-  export BETTER_AUTH_URL=http://127.0.0.1:4173
+  export BETTER_AUTH_URL=http://127.0.0.1:${CORE_E2E_PORT:-4173}
 else
   export BETTER_AUTH_URL=http://localhost:3000
 fi
 
 quiet docker compose -f ../../compose.yaml up -d --wait db_test mailpit
-DATABASE_URL="$admin_database_url" quiet pnpm exec prisma migrate deploy
+quiet psql "$admin_database_url" -v ON_ERROR_STOP=1 -v app_password=core_app_local -f scripts/create-role.sql
+DATABASE_URL="$admin_database_url" quiet pnpm exec tsx scripts/migrate.ts
 quiet psql "$admin_database_url" -v ON_ERROR_STOP=1 -c 'TRUNCATE TABLE public."jwks"'
 quiet psql "$admin_database_url" -v ON_ERROR_STOP=1 -v app_password=core_app_local -v dbname=core_test -f scripts/provision-role.sql
 export DATABASE_URL=$app_database_url

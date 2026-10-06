@@ -1,5 +1,7 @@
+import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import { describe, expect, test } from "vitest";
-import { buildPendingOrder, orderStateMachine, type OrderAggregate, type Payment, type DeliverySnapshot, type CourierId } from "@core/src/features/orders/domain/order-state-machine";
+import { buildPendingOrder, orderStateMachine, type OrderAggregate, type DeliverySnapshot, type CourierId } from "@core/src/features/orders/domain/order-state-machine";
+import type { ConfirmedPayment } from "@core/src/features/orders/domain/payment";
 import type { CompanyId, OrderId, OrderItemId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
@@ -8,26 +10,27 @@ const createdAt = new Date("2026-09-29T12:00:00Z");
 const paymentAt = new Date("2026-09-30T12:00:00Z");
 const money = (amount: number) => ({ amount, currency: "PEN" as const });
 const order = (): OrderAggregate => ({
-  id: id(1) as OrderId, companyId: id(2) as CompanyId, sellerId: "seller" as UserId,
-  customer: { kind: "general_public" }, createdAt, completedAt: null, cancelled: false,
+  number: 1001 as OrderNumber, id: id(1) as OrderId, companyId: id(2) as CompanyId, sellerId: "seller" as UserId,
+  buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, createdAt, deliveredAt: null, completedAt: null, cancelled: false,
   items: [{ id: id(3) as OrderItemId, variantId: id(4) as VariantId, productName: "Item", variantAttributes: {}, sku: null,
     quantity: 1 as PositiveInteger, unitPrice: money(10), subtotal: money(10) }],
   payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false,
   itemsTotal: money(10), deliveryCost: money(0), deliveryCharge: money(0), total: money(10),
 });
-const payment = (n: number, amount: number): Payment => ({ id: id(n) as PaymentId, orderId: id(1) as OrderId,
-  amount: money(amount), method: "digital_wallet", recordedAt: paymentAt });
+const payment = (n: number, amount: number): ConfirmedPayment => ({ id: id(n) as PaymentId, orderId: id(1) as OrderId,
+  status: "confirmed", amount: money(amount), method: "digital_wallet",
+  data: { confirmedAt: paymentAt, confirmedBy: { kind: "seller", userId: "seller" as UserId }, evidence: { kind: "manual" } } });
 const home: DeliverySnapshot = { method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
   destination: { address: "Av. Lima 123", district: "Lima", instructions: null }, recordedBy: { kind: "seller", userId: "seller" as UserId } };
 
 describe("pending order construction", () => {
   test("preserves identity and snapshots while leaving payment, delivery and stock pending", () => {
-    const input = { id: id(1) as OrderId, companyId: id(2) as CompanyId, sellerId: "seller" as UserId,
+    const input = { number: 1001 as OrderNumber, id: id(1) as OrderId, companyId: id(2) as CompanyId, sellerId: "seller" as UserId,
       customer: { kind: "general_public" as const }, createdAt,
       items: [{ id: id(3) as OrderItemId, variantId: id(4) as VariantId, productName: "Item", variantAttributes: { Size: "M" },
         sku: null, quantity: 3, unitPrice: money(0.1) }] };
     const built = buildPendingOrder(input);
-    expect(built).toMatchObject({ success: true, data: { id: id(1), createdAt, completedAt: null, cancelled: false,
+    expect(built).toMatchObject({ success: true, data: { id: id(1), createdAt, deliveredAt: null, completedAt: null, cancelled: false,
       payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false,
       itemsTotal: money(0.3), deliveryCost: money(0), deliveryCharge: money(0), total: money(0.3),
       items: [{ subtotal: money(0.3), variantAttributes: { Size: "M" } }] } });
@@ -38,7 +41,7 @@ describe("pending order construction", () => {
   });
 
   test("rejects empty, repeated, invalidly priced and mixed currency items", () => {
-    const input = { id: id(1) as OrderId, companyId: id(2) as CompanyId, sellerId: "seller" as UserId,
+    const input = { number: 1001 as OrderNumber, id: id(1) as OrderId, companyId: id(2) as CompanyId, sellerId: "seller" as UserId,
       customer: { kind: "general_public" as const }, createdAt,
       items: [{ id: id(3) as OrderItemId, variantId: id(4) as VariantId, productName: "Item", variantAttributes: {},
         sku: null, quantity: 1, unitPrice: money(10) }] };
@@ -74,7 +77,7 @@ describe("order payment and lifecycle", () => {
   test("recognizes the same payment ID and rejects different data or invalid amounts", () => {
     const paid = orderStateMachine.registerPayment(order(), payment(5, 4));
     if (!paid.success) throw new Error("Expected payment");
-    expect(orderStateMachine.registerPayment(paid.data, { ...payment(5, 4), recordedAt: new Date("2026-10-01") }))
+    expect(orderStateMachine.registerPayment(paid.data, { ...payment(5, 4), data: { ...payment(5, 4).data, confirmedAt: new Date("2026-10-01") } }))
       .toEqual({ success: true, data: paid.data });
     expect(orderStateMachine.registerPayment(paid.data, payment(5, 5))).toMatchObject({ success: false, error: { code: "PAYMENT_CONFLICT" } });
     expect(orderStateMachine.registerPayment(order(), payment(5, 0.001))).toMatchObject({ success: false, error: { code: "INVALID_PAYMENT" } });
@@ -84,7 +87,7 @@ describe("order payment and lifecycle", () => {
 
   test("preserves an existing completion date when another payment is recorded", () => {
     const completed = { ...order(), payments: [payment(5, 10)], stockDeducted: true,
-      deliveryStatus: "delivered" as const, completedAt: createdAt };
+      deliveryStatus: "delivered" as const, deliveredAt: createdAt, completedAt: createdAt };
     expect(orderStateMachine.registerPayment(completed, payment(6, 1))).toMatchObject({ success: true,
       data: { completedAt: createdAt, payments: [{ id: id(5) }, { id: id(6) }] } });
   });
@@ -150,9 +153,11 @@ describe("delivery and stock transitions", () => {
     expect(orderStateMachine.setDelivery(shipped.data, { resolved: { delivery: home, cost: money(1) }, chargeDeliveryToCustomer: true }))
       .toMatchObject({ success: false, error: { code: "DELIVERY_LOCKED" } });
     const delivered = orderStateMachine.registerDelivery(shipped.data, paymentAt);
-    expect(delivered).toMatchObject({ success: true, data: { deliveryStatus: "delivered", completedAt: paymentAt } });
+    expect(delivered).toMatchObject({ success: true, data: { deliveryStatus: "delivered", deliveredAt: paymentAt, completedAt: paymentAt } });
     if (!delivered.success) return;
     expect(orderStateMachine.getLifecycle(delivered.data)).toEqual({ success: true, data: { status: "completed", completedAt: paymentAt } });
+    expect(orderStateMachine.getLifecycle({ ...delivered.data, deliveredAt: null }))
+      .toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
     expect(orderStateMachine.registerShipment(delivered.data)).toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
   });
 

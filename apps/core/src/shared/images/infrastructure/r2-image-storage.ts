@@ -13,6 +13,10 @@ type Config = {
   publicBaseUrl: string;
 };
 const failed = <T>(code: "IMAGE_STORAGE_UNAVAILABLE" | "IMAGE_STORAGE_CONFIG_ERROR", message: string): Result<T> => ({ success: false, error: { code, message } });
+const configurationFailed = <T>(message: string): Result<T> => {
+  log.error({ event: "image_storage_configuration_invalid", errorCode: "IMAGE_STORAGE_CONFIG_ERROR" }, "image_storage_configuration_invalid");
+  return failed("IMAGE_STORAGE_CONFIG_ERROR", message);
+};
 
 function storageUrl(value: string, allowPath: boolean): URL | null {
   try {
@@ -41,7 +45,7 @@ export function createR2ImageStorage(config: Config): ImageStorage {
 
   return {
     async upload({ bytes, contentType }) {
-      if (!client) return failed("IMAGE_STORAGE_CONFIG_ERROR", "Image storage is not configured");
+      if (!client) return configurationFailed("Image storage is not configured");
       const key = randomUUID();
       try {
         await client.send(new PutObjectCommand({ Bucket: config.bucket, Key: key, Body: bytes, ContentType: contentType }));
@@ -52,7 +56,7 @@ export function createR2ImageStorage(config: Config): ImageStorage {
       }
     },
     async uploadPrivate(key, { bytes, contentType }) {
-      if (!client || !config.privateBucket?.trim() || config.privateBucket === config.bucket) return failed("IMAGE_STORAGE_CONFIG_ERROR", "Private image storage is not configured");
+      if (!client || !config.privateBucket?.trim() || config.privateBucket === config.bucket) return configurationFailed("Private image storage is not configured");
       try {
         await client.send(new PutObjectCommand({ Bucket: config.privateBucket, Key: key, Body: bytes, ContentType: contentType }));
         return { success: true, data: undefined };
@@ -62,7 +66,7 @@ export function createR2ImageStorage(config: Config): ImageStorage {
       }
     },
     async readPrivate(key) {
-      if (!client || !config.privateBucket?.trim() || config.privateBucket === config.bucket) return failed("IMAGE_STORAGE_CONFIG_ERROR", "Private image storage is not configured");
+      if (!client || !config.privateBucket?.trim() || config.privateBucket === config.bucket) return configurationFailed("Private image storage is not configured");
       try {
         const object = await client.send(new GetObjectCommand({ Bucket: config.privateBucket, Key: key }));
         if (!object.Body) return failed("IMAGE_STORAGE_UNAVAILABLE", "Private image is unavailable");
@@ -73,11 +77,11 @@ export function createR2ImageStorage(config: Config): ImageStorage {
       }
     },
     async getUrl(key) {
-      if (!publicUrl) return failed("IMAGE_STORAGE_CONFIG_ERROR", "Image storage is not configured");
+      if (!publicUrl) return configurationFailed("Image storage is not configured");
       return { success: true, data: `${publicUrl.href.replace(/\/+$/, "")}/${encodeURIComponent(key)}` };
     },
     async delete(key) {
-      if (!client) return failed("IMAGE_STORAGE_CONFIG_ERROR", "Image storage is not configured");
+      if (!client) return configurationFailed("Image storage is not configured");
       try {
         await client.send(new DeleteObjectCommand({ Bucket: config.bucket, Key: key }));
         return { success: true, data: undefined };

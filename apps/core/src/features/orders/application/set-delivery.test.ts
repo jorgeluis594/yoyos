@@ -2,6 +2,7 @@ import { expect, test, vi } from "vitest";
 import { err, ok } from "@shared/functional";
 import { buildPendingOrder, type DeliverySelection, type OrderAggregate, type Payment } from "@core/src/features/orders/domain/order-state-machine";
 import type { CompanyId, OrderId, OrderItemId, PaymentId, UserId } from "@core/src/features/orders/domain/order";
+import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import { setOrderDelivery, type SetDeliveryDependencies } from "@core/src/features/orders/application/set-delivery";
 import { resolveDeliverySelection } from "@core/src/features/orders/application/resolve-delivery-selection";
@@ -12,14 +13,14 @@ const delivery = { method: "store" as const, recipient: { name: "Recipient", pho
 const point = { name: "Tienda", address: "Av. Lima 123", instructions: null };
 const money = (amount: number) => ({ amount, currency: "PEN" as const });
 function order(): OrderAggregate {
-  const result = buildPendingOrder({ id: id(2) as OrderId, companyId: context.companyId, sellerId: "creator" as UserId,
+  const result = buildPendingOrder({ number: 1001 as OrderNumber, id: id(2) as OrderId, companyId: context.companyId, sellerId: "creator" as UserId,
     customer: { kind: "general_public" }, createdAt: new Date("2026-10-01"), items: [{ id: id(3) as OrderItemId,
       variantId: id(4) as VariantId, productName: "Item", variantAttributes: {}, sku: null, quantity: 1, unitPrice: money(10) }] });
   if (!result.success) throw new Error("Invalid fixture");
   return result.data;
 }
 const payment = (amount: number): Payment => ({ id: id(5) as PaymentId, orderId: id(2) as OrderId,
-  amount: money(amount), method: "digital_wallet", recordedAt: new Date("2026-10-02") });
+  amount: money(amount), status: "confirmed", method: "digital_wallet", data: { confirmedAt: new Date("2026-10-02"), confirmedBy: { kind: "seller", userId: context.userId }, evidence: { kind: "manual" } } });
 function dependencies(current: OrderAggregate | null, amount = 3) {
   const saveDelivery = vi.fn<SetDeliveryDependencies["saveDelivery"]>(async () => ok(null));
   const deductProductStock = vi.fn<SetDeliveryDependencies["deductProductStock"]>(async () => ok(null));
@@ -51,7 +52,7 @@ test("rejects missing, cancelled and fulfilled orders before resolving delivery"
   for (const [current, code] of [
     [null, "ORDER_NOT_FOUND"], [{ ...order(), cancelled: true }, "ORDER_CANCELLED"],
     [{ ...order(), payments: [payment(10)], stockDeducted: true, deliveryStatus: "shipped" as const }, "DELIVERY_LOCKED"],
-    [{ ...order(), payments: [payment(10)], stockDeducted: true, deliveryStatus: "delivered" as const, completedAt: new Date("2026-10-03") }, "DELIVERY_LOCKED"],
+    [{ ...order(), payments: [payment(10)], stockDeducted: true, deliveredAt: new Date("2026-10-02"), deliveryStatus: "delivered" as const, completedAt: new Date("2026-10-03") }, "DELIVERY_LOCKED"],
   ] as const) {
     const f = dependencies(current);
     expect(await setOrderDelivery(input, context, f.deps)).toMatchObject({ success: false, error: { code } });

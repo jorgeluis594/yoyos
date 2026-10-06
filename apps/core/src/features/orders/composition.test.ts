@@ -1,3 +1,4 @@
+import { parseBuyer, type OrderNumber } from "@core/src/features/orders/domain/checkout";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { Prisma } from "@prisma/client";
 import { expect, test, vi } from "vitest";
@@ -7,9 +8,16 @@ import type { VariantId } from "@core/src/features/products/domain/product";
 
 const { withinTransaction } = vi.hoisted(() => ({ withinTransaction: vi.fn() }));
 vi.mock("@core/src/shared/infrastructure/persistance", () => ({ withinTransaction,
+  requireNoActiveTransaction: () => undefined,
+  withTenantIsolation: (_company: string, work: () => unknown) => work(),
   getCompanyId: () => "00000000-0000-4000-8000-000000000003" }));
+const { findCheckoutOrderForUpdate } = vi.hoisted(() => ({ findCheckoutOrderForUpdate: vi.fn() }));
+vi.mock("@core/src/features/orders/infrastructure/checkout-repository", () => ({
+  findCheckoutOrderForUpdate, findCheckoutOrder: vi.fn(), saveCheckoutEnabled: async () => ok(null),
+  saveCheckoutBuyer: async () => ok(null), saveCheckoutConfirmed: async () => ok(null),
+}));
 vi.mock("@core/src/features/orders/infrastructure/order-repository", () => ({
-  orderExists: async () => ok(false), savePendingOrder: async () => ok(null), savePayment: async () => ok(null),
+  allocateOrderNumber: async () => ok(1001 as OrderNumber), orderExists: async () => ok(false), savePendingOrder: async () => ok(null), savePayment: async () => ok(null),
   saveStockDeduction: async () => ok(null), findOrders: vi.fn(), findOrderForUpdate: vi.fn(), saveFulfillment: async () => ok(null),
 }));
 vi.mock("@core/src/features/products", () => ({
@@ -44,5 +52,35 @@ test("returns a recoverable failure when transaction acquisition or commit fails
   } finally {
     errorLog.mockRestore();
     withinTransaction.mockReset();
+  }
+});
+
+test("checkout does not announce transitions before the outer commit succeeds", async () => {
+  const info = vi.spyOn(log, "info").mockImplementation(() => undefined);
+  const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  const buyer = parseBuyer({ name: "Ana", phone: "+51987654321" });
+  if (!buyer.success) throw new Error("Invalid fixture");
+  const total = { amount: 1, currency: "PEN" as const };
+  const order = { id: input.id, companyId: context.companyId, companyName: "Store", number: 1001,
+    buyer: null, items: [], itemsTotal: total, total, cancelled: false,
+    checkoutEnabledAt: null, checkoutConfirmedAt: null };
+  try {
+    for (const operation of ["enable", "confirm"] as const) {
+      findCheckoutOrderForUpdate.mockResolvedValueOnce(ok({ ...order,
+        checkoutEnabledAt: operation === "confirm" ? new Date() : null }));
+      withinTransaction.mockImplementationOnce(async (work) => {
+        expect(await work()).toMatchObject({ success: true });
+        expect(info).not.toHaveBeenCalled();
+        throw new Prisma.PrismaClientUnknownRequestError("commit failed", { clientVersion: "7.10.0" });
+      });
+      const result = operation === "enable" ? await orders.enableCheckout(input.id, context)
+        : await orders.confirmCheckout({ buyer: buyer.data, expectedTotal: total }, { companyId: context.companyId, orderId: input.id });
+      expect(result).toMatchObject({ error: { code: "PERSISTENCE_UNAVAILABLE" } });
+      expect(info).not.toHaveBeenCalled();
+    }
+    expect(error).toHaveBeenCalledTimes(2);
+    expect(error.mock.calls.every(([fields]) => (fields as { event: string }).event === "unable_to_complete_order_transaction")).toBe(true);
+  } finally {
+    info.mockRestore(); error.mockRestore(); withinTransaction.mockReset(); findCheckoutOrderForUpdate.mockReset();
   }
 });

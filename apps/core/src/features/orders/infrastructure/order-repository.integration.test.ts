@@ -1,9 +1,13 @@
 import { log, safeError } from "@core/src/shared/infrastructure/logger";
+import { parseBuyer, type CheckoutAccess } from "@core/src/features/orders/domain/checkout";
+import { confirmOrderCheckout } from "@core/src/features/orders/application/checkout";
+import { findCheckoutOrderForUpdate, saveCheckoutBuyer, saveCheckoutConfirmed } from "@core/src/features/orders/infrastructure/checkout-repository";
 import { randomUUID } from "node:crypto";
-import { PrismaClient } from "@prisma/client";
+import pg from "pg";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { expect, test, vi } from "vitest";
-import { ok } from "@shared/functional";
+import { ok, err } from "@shared/functional";
 import type { Currency } from "@shared/money";
 import { orders, setConfiguredOrderDelivery } from "@core/src/features/orders/composition";
 import { prisma, systemPrisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
@@ -13,6 +17,7 @@ import { deliverySettings } from "@core/src/features/delivery-settings/compositi
 import type { CourierId } from "@core/src/features/delivery-settings/domain/delivery-settings";
 import { deductProductStock } from "@core/src/features/products";
 import type { CompanyId, ContactId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
+import type { ImageId } from "@core/src/features/orders/domain/payment";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
 async function fixture() {
@@ -40,6 +45,7 @@ async function fixture() {
       await prisma.productStock.deleteMany();
       await prisma.productVariant.deleteMany();
       await prisma.product.deleteMany();
+      await prisma.image.deleteMany();
       await systemPrisma.user.delete({ where: { id: sellerId } });
       await prisma.companyCourier.deleteMany();
       await prisma.companyDeliverySettings.deleteMany();
@@ -60,6 +66,68 @@ function immediateSale(input: { id: string; contactId: string | null; items: rea
 function orderDetail(id: string, owner: { companyId: string; sellerId: string }) {
   return orders.getAggregate(id as OrderId, { companyId: owner.companyId as CompanyId, userId: owner.sellerId as UserId });
 }
+
+test("reports a company receipt once without changing coverage or stock", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const orderId = randomUUID() as OrderId;
+      const paymentId = randomUUID() as PaymentId;
+      const receiptImageId = randomUUID() as ImageId;
+      const access = { kind: "buyer" as const, companyId: f.companyId as CompanyId, orderId };
+      await orders.create({ id: orderId, contactId: null,
+        items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] },
+      { companyId: access.companyId, userId: f.sellerId as UserId });
+      const input = { paymentId, receiptImageId };
+      expect(await orders.reportPayment(input, access)).toMatchObject({ success: false, error: { code: "RECEIPT_NOT_FOUND" } });
+      await prisma.image.create({ data: { id: receiptImageId, storageKey: `test/${receiptImageId}` } });
+      const reported = await orders.reportPayment(input, access);
+      expect(reported).toMatchObject({ success: true, data: { stockDeducted: false,
+        payments: [{ id: paymentId, status: "reported", amount: null, method: null, data: { receiptImageId } }] } });
+      expect(await orders.reportPayment(input, access)).toEqual(reported);
+      expect(await orders.reportPayment({ ...input, receiptImageId: randomUUID() as ImageId }, access))
+        .toMatchObject({ success: false, error: { code: "PAYMENT_CONFLICT" } });
+      expect(await prisma.payment.count()).toBe(1);
+      expect((await prisma.payment.findUniqueOrThrow({ where: { id: paymentId } })).status).toBe("reported");
+      expect(await orderDetail(orderId, f)).toMatchObject({ success: true, data: { payments: [{ status: "reported" }] } });
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("confirms a report and voids a delivered payment without changing stock or delivery", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const orderId = randomUUID() as OrderId;
+      const paymentId = randomUUID() as PaymentId;
+      const receiptImageId = randomUUID() as ImageId;
+      const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+      await orders.create({ id: orderId, contactId: null,
+        items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] }, context);
+      await prisma.image.create({ data: { id: receiptImageId, storageKey: `test/${receiptImageId}` } });
+      const access = { kind: "buyer" as const, companyId: context.companyId, orderId };
+      expect(await orders.reportPayment({ paymentId, receiptImageId }, access)).toMatchObject({ success: true });
+      const confirmation = { orderId, paymentId, source: "buyer_report" as const, amount: { amount: 0.2, currency: "PEN" as const },
+        method: "bank_transfer" as const, deductStockIfPartial: false };
+      expect(await orders.registerPayment(confirmation, context)).toMatchObject({ success: true,
+        data: { order: { payments: [{ status: "confirmed", method: "bank_transfer", data: { evidence: { kind: "buyer_report", report: { receiptImageId } } } }] } } });
+      expect(await orders.registerPayment(confirmation, context)).toMatchObject({ success: true });
+      expect(await orders.deliver(orderId, context)).toMatchObject({ success: true, data: { completedAt: expect.any(Date) } });
+      const deliveredAt = (await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).deliveredAt;
+      const voided = await orders.voidPayment({ orderId, paymentId }, context);
+      expect(voided).toMatchObject({ success: true, data: { completedAt: null, deliveredAt,
+        payments: [{ status: "voided", amount: { amount: 0.2 }, data: { evidence: { kind: "buyer_report" }, voidedBy: context.userId } }] } });
+      expect(await orders.voidPayment({ orderId, paymentId }, context)).toEqual(voided);
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
+      const correction = await orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId, amount: confirmation.amount,
+        method: "digital_wallet", deductStockIfPartial: false }, context);
+      expect(correction).toMatchObject({ success: true, data: { order: { deliveredAt, completedAt: expect.any(Date), payments: expect.arrayContaining([
+        expect.objectContaining({ status: "voided" }), expect.objectContaining({ status: "confirmed" })]) } } });
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
+    });
+  } finally { await f.cleanup(); }
+});
 
 test("persists a pending order without payment or stock effects", async () => {
   const f = await fixture();
@@ -87,7 +155,7 @@ test("persists a pending order without payment or stock effects", async () => {
       await expect(findOrderForUpdate(input.id, context.companyId)).rejects.toThrow("active transaction");
       expect(await orders.deductStock(input.id, context)).toMatchObject({ success: true, data: { stockDeducted: false } });
       await prisma.payment.create({ data: { id: randomUUID(), orderId, companyId: f.companyId,
-        amount: 0.2, currency: "PEN", method: "digital_wallet", recordedAt: new Date() } });
+        amount: 0.2, currency: "PEN", method: "digital_wallet", status: "confirmed", data: { confirmedAt: new Date().toISOString(), confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" } } } });
       expect(await orders.deductStock(input.id, context)).toMatchObject({ success: true, data: { stockDeducted: true } });
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
       expect(await orders.deductStock(input.id, context)).toMatchObject({ success: true, data: { stockDeducted: true } });
@@ -105,7 +173,7 @@ test("reports incompatible stored payments instead of returning an invalid aggre
       expect(await orders.create({ id: orderId, contactId: null,
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }] }, context)).toMatchObject({ success: true });
       await prisma.payment.create({ data: { id: randomUUID(), orderId, companyId: f.companyId,
-        amount: 0.1, currency: "USD", method: "digital_wallet", recordedAt: new Date() } });
+        amount: 0.1, currency: "USD", method: "digital_wallet", status: "confirmed", data: { confirmedAt: new Date().toISOString(), confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" } } } });
       expect(await orders.getAggregate(orderId, context)).toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
       expect(await orders.listAggregates({ page: 1, customer: { kind: "all" } }, context))
         .toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
@@ -124,7 +192,7 @@ test("keeps all stock when a pending order cannot deduct every item", async () =
         { variantId: f.variantIds[1] as VariantId, quantity: 4 as PositiveInteger },
       ] }, context)).toMatchObject({ success: true });
       await prisma.payment.create({ data: { id: randomUUID(), orderId, companyId: f.companyId,
-        amount: 1, currency: "PEN", method: "digital_wallet", recordedAt: new Date() } });
+        amount: 1, currency: "PEN", method: "digital_wallet", status: "confirmed", data: { confirmedAt: new Date().toISOString(), confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" } } } });
       expect(await orders.deductStock(orderId, context)).toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
       expect((await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).stockDeducted).toBe(false);
       expect((await prisma.productStock.findMany({ orderBy: { variantId: "asc" } })).map((stock) => stock.quantity)).toEqual([3n, 3n]);
@@ -132,7 +200,7 @@ test("keeps all stock when a pending order cannot deduct every item", async () =
   } finally { await f.cleanup(); }
 });
 
-test("preserves a recorded payment when stock is short and retries its ID after replenishment", async () => {
+test("rolls back payment when stock is short and retries its ID after replenishment", async () => {
   const f = await fixture();
   try {
     await withTenantIsolation(f.companyId, async () => {
@@ -142,9 +210,8 @@ test("preserves a recorded payment when stock is short and retries its ID after 
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: 4 as PositiveInteger }] }, context)).toMatchObject({ success: true });
       const input = { orderId, paymentId: randomUUID() as PaymentId, amount: { amount: 0.4, currency: "PEN" as const },
         method: "digital_wallet" as const, deductStockIfPartial: false };
-      expect(await orders.registerPayment(input, context)).toMatchObject({ success: true,
-        data: { stock: { kind: "pending", reason: "INSUFFICIENT_STOCK" }, order: { payments: [{ id: input.paymentId }] } } });
-      expect(await prisma.payment.count({ where: { orderId } })).toBe(1);
+      expect(await orders.registerPayment(input, context)).toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
+      expect(await prisma.payment.count({ where: { orderId } })).toBe(0);
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
       await prisma.productStock.update({ where: { variantId: f.variantIds[0] }, data: { quantity: { increment: 1n } } });
       expect(await orders.registerPayment(input, context)).toMatchObject({ success: true,
@@ -292,7 +359,7 @@ test("ships and completes only a paid order with deducted stock", async () => {
       expect(await orders.deliver(orderId, context)).toMatchObject({ success: true,
         data: { deliveryStatus: "delivered", completedAt: expect.any(Date) } });
       const saved = await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { payments: true } });
-      expect(saved).toMatchObject({ deliveryStatus: "delivered", completedAt: expect.any(Date), payments: [{ orderId }] });
+      expect(saved).toMatchObject({ deliveryStatus: "delivered", deliveredAt: expect.any(Date), completedAt: expect.any(Date), payments: [{ orderId }] });
       expect(await orders.deliver(orderId, context)).toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
     });
   } finally { await f.cleanup(); }
@@ -375,7 +442,7 @@ test("persists completed sale, historical snapshots, listing and duplicate rejec
         { variantId: f.variantIds[0], quantity: 3 }, { variantId: f.variantIds[1], quantity: 2 },
       ] }, { companyId: f.companyId, sellerId: f.sellerId });
       expect(created).toMatchObject({ success: true, data: { total: { amount: 0.7, currency: "PEN" },
-        customer: { kind: "contact", name: null, phone: "+51999999999" } } });
+        buyer: { name: null, phone: "+51999999999" } } });
       const persisted = await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { payments: true } });
       expect(persisted).toMatchObject({ itemsTotal: expect.anything(), deliveryStatus: "delivered", stockDeducted: true,
         cancelled: false, delivery: null });
@@ -383,8 +450,8 @@ test("persists completed sale, historical snapshots, listing and duplicate rejec
       expect(persisted.createdAt.getTime()).toBeLessThanOrEqual(persisted.completedAt!.getTime());
       expect(persisted.payments).toHaveLength(1);
       expect(persisted.payments[0]).toMatchObject({ orderId, currency: "PEN", method: "digital_wallet" });
-      expect(persisted.payments[0].recordedAt.getTime()).toBeLessThanOrEqual(persisted.completedAt!.getTime());
-      expect(persisted.payments[0].amount.toNumber()).toBe(0.7);
+      expect(new Date((persisted.payments[0].data as { confirmedAt: string }).confirmedAt).getTime()).toBeLessThanOrEqual(persisted.completedAt!.getTime());
+      expect(persisted.payments[0].amount?.toNumber()).toBe(0.7);
       expect(await findOrderAggregate(orderId as OrderId, f.companyId as CompanyId)).toMatchObject({ success: true,
         data: { id: orderId, deliveryStatus: "delivered", stockDeducted: true, payments: [{ id: persisted.payments[0].id,
           amount: { amount: 0.7, currency: "PEN" } }] } });
@@ -397,7 +464,7 @@ test("persists completed sale, historical snapshots, listing and duplicate rejec
       await prisma.product.update({ where: { id: f.productId }, data: { name: "Changed product" } });
       await prisma.productVariant.update({ where: { id: f.variantIds[0] }, data: { attributes: { Size: "XL" }, sku: `CHANGED-${f.variantIds[0]}`, salePrice: 3.5 } });
       const detail = await orderDetail(orderId, f);
-      expect(detail).toMatchObject({ success: true, data: { customer: { name: null, phone: "+51999999999" },
+      expect(detail).toMatchObject({ success: true, data: { buyer: { name: null, phone: "+51999999999" },
         items: expect.arrayContaining([expect.objectContaining({ productName: "Sample product", variantAttributes: { Size: "M" },
           sku: `SKU-${f.variantIds[0]}`, unitPrice: { amount: 0.1, currency: "PEN" }, subtotal: { amount: 0.3, currency: "PEN" } })]) } });
       const list = await orders.list({ page: 1, customer: { kind: "contact", contactId: f.contactId as ContactId } });
@@ -483,8 +550,8 @@ test("separates companies and blocks cross-company references", async () => {
         { companyId: a.companyId, sellerId: a.sellerId })).toMatchObject({ success: false, error: { code: "ORDER_ALREADY_EXISTS" } });
       expect(await prisma.order.count()).toBe(0);
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: a.variantIds[0] } })).quantity).toBe(3n);
-      await expect(prisma.order.create({ data: { id: randomUUID(), companyId: a.companyId, sellerId: a.sellerId,
-        contactId: b.contactId, contactPhone: "+51999999999", currency: "PEN", total: 1, itemsTotal: 1,
+      await expect(prisma.order.create({ data: { number: 1001n, id: randomUUID(), companyId: a.companyId, sellerId: a.sellerId,
+        buyer: { create: { contactId: b.contactId, phone: "+51999999999" } }, currency: "PEN", total: 1, itemsTotal: 1,
         completedAt: new Date(), createdAt: new Date() } })).rejects.toThrow();
       await expect(prisma.orderItem.create({ data: { orderId: foreignOrderId, variantId: a.variantIds[0], productName: "Foreign order",
         variantAttributes: {}, quantity: 1n, unitPrice: 1, subtotal: 1 } })).rejects.toThrow();
@@ -698,6 +765,150 @@ test.each(["ship", "cancel"] as const)("delivery editing and %s serialize withou
       expect(await first).toMatchObject({ success: true });
       expect(await second).toMatchObject(assignmentFirst ? { success: true } : { success: false, error: { code: close === "ship" ? "DELIVERY_LOCKED" : "ORDER_CANCELLED" } });
       expect(await run(() => orderDetail(orderId, f))).toMatchObject({ success: true, data: { cancelled: close === "cancel", deliveryStatus: close === "ship" ? "shipped" : "pending", delivery: assignmentFirst ? { destination: { address: "Confirmed address" }, recordedBy: { userId: f.sellerId } } : null } });
+
+    }
+  } finally { await f.cleanup(); }
+});
+
+test("allocates permanent company numbers atomically across concurrent orders and rollbacks", async () => {
+  const a = await fixture();
+  const b = await fixture();
+  const errorLog = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  const create = (f: typeof a) => withTenantIsolation(f.companyId, () => orders.create({ id: randomUUID() as OrderId, contactId: null,
+    items: [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }] },
+  { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId }));
+  try {
+    const results = await Promise.all(Array.from({ length: 6 }, () => create(a)));
+    expect(results.every((result) => result.success)).toBe(true);
+    const numbers = results.flatMap((result) => result.success ? [result.data.number] : []).sort((x, y) => x - y);
+    expect(numbers).toEqual([1001, 1002, 1003, 1004, 1005, 1006]);
+    expect(await create(b)).toMatchObject({ data: { number: 1001 } });
+    await withTenantIsolation(a.companyId, async () => {
+      const cancelled = results[0];
+      if (!cancelled.success) throw new Error("Creation failed");
+      expect(await orders.cancel(cancelled.data.id, { companyId: a.companyId as CompanyId, userId: a.sellerId as UserId })).toMatchObject({ success: true });
+      expect(await create(a)).toMatchObject({ data: { number: 1007 } });
+      await prisma.company.update({ where: { id: a.companyId }, data: { nextOrderNumber: 1001n } });
+      expect(await create(a)).toMatchObject({ error: { code: "PERSISTENCE_UNAVAILABLE" } });
+      expect(errorLog.mock.calls).toHaveLength(1);
+      expect(errorLog.mock.calls[0][0]).toMatchObject({ event: "unable_to_save_pending_order", errorCode: "ORDER_NUMBER_CONFLICT" });
+      await prisma.company.update({ where: { id: a.companyId }, data: { nextOrderNumber: 9999n } });
+      expect(await create(a)).toMatchObject({ data: { number: 9999 } });
+      expect(await create(a)).toMatchObject({ data: { number: 10000 } });
+      const before = await prisma.company.findUniqueOrThrow({ where: { id: a.companyId } });
+      const count = await prisma.order.count();
+      // Stock failure occurs after allocating and saving the immediate sale.
+      expect(await immediateSale({ id: randomUUID(), contactId: null, items: [{ variantId: a.variantIds[0], quantity: 100 }] },
+        { companyId: a.companyId, sellerId: a.sellerId })).toMatchObject({ error: { code: "INSUFFICIENT_STOCK" } });
+      expect((await prisma.company.findUniqueOrThrow({ where: { id: a.companyId } })).nextOrderNumber).toBe(before.nextOrderNumber);
+      expect(await prisma.order.count()).toBe(count);
+      const existing = await prisma.order.findFirstOrThrow();
+      await expect(prisma.order.update({ where: { id: existing.id }, data: { number: 0n } })).rejects.toThrow();
+      const another = await prisma.order.findFirstOrThrow({ where: { id: { not: existing.id } } });
+      await expect(prisma.order.update({ where: { id: another.id }, data: { number: existing.number } })).rejects.toThrow();
+      await prisma.company.update({ where: { id: a.companyId }, data: { nextOrderNumber: 9007199254740991n } });
+      expect(await create(a)).toMatchObject({ data: { number: Number.MAX_SAFE_INTEGER } });
+      expect(await create(a)).toMatchObject({ error: { code: "PERSISTENCE_UNAVAILABLE" } });
+      expect((await prisma.company.findUniqueOrThrow({ where: { id: a.companyId } })).nextOrderNumber).toBe(9007199254740992n);
+    });
+  } finally { errorLog.mockRestore(); await a.cleanup(); await b.cleanup(); }
+});
+
+test("buyer snapshots stay independent of contacts and preserve guest buyers in reads and filters", async () => {
+  const a = await fixture();
+  const b = await fixture();
+  const create = (f: typeof a, contactId: string | null) => withTenantIsolation(f.companyId, () => orders.create({ id: randomUUID() as OrderId, contactId: contactId as ContactId | null,
+    items: [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }] }, { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId }));
+  try {
+    const contactOrder = await create(a, a.contactId);
+    const guestOrder = await create(a, null);
+    const anonymousOrder = await create(a, null);
+    const foreignOrder = await create(b, b.contactId);
+    if (!contactOrder.success || !guestOrder.success || !anonymousOrder.success || !foreignOrder.success) throw new Error("Fixture creation failed");
+    expect(contactOrder.data).toMatchObject({ buyer: { contactId: a.contactId, name: null, phone: "+51999999999" }, checkoutEnabledAt: null, checkoutConfirmedAt: null });
+    await withTenantIsolation(a.companyId, async () => {
+      await prisma.contact.update({ where: { id: a.contactId }, data: { name: "New global name", phone: "+51988888888" } });
+      expect(await orderDetail(contactOrder.data.id, a)).toMatchObject({ data: { buyer: { name: null, phone: "+51999999999" } } });
+      await prisma.orderBuyer.create({ data: { orderId: guestOrder.data.id, name: "Guest", phone: "+14155552671" } });
+      expect(await orderDetail(guestOrder.data.id, a)).toMatchObject({ data: { buyer: { contactId: null, name: "Guest" } } });
+      const context = { companyId: a.companyId as CompanyId, userId: a.sellerId as UserId };
+      expect(await orders.listAggregates({ page: 1, customer: { kind: "general_public" } }, context))
+        .toMatchObject({ data: { total: 1, items: [{ id: anonymousOrder.data.id, buyer: null }] } });
+      expect(await orders.listAggregates({ page: 1, customer: { kind: "contact", contactId: a.contactId as ContactId } }, context))
+        .toMatchObject({ data: { total: 1, items: [{ id: contactOrder.data.id }] } });
+      expect(await prisma.orderBuyer.findUnique({ where: { orderId: foreignOrder.data.id } })).toBeNull();
+      expect(await prisma.orderBuyer.updateMany({ where: { orderId: foreignOrder.data.id }, data: { name: "Forbidden" } })).toEqual({ count: 0 });
+      await expect(prisma.orderBuyer.create({ data: { companyId: b.companyId, orderId: anonymousOrder.data.id, phone: "+14155552671" } })).rejects.toThrow();
+      await expect(prisma.orderBuyer.create({ data: { orderId: anonymousOrder.data.id, contactId: b.contactId, phone: "+14155552671" } })).rejects.toThrow();
+      await expect(prisma.orderBuyer.create({ data: { orderId: guestOrder.data.id, phone: "+14155552671" } })).rejects.toThrow();
+      await expect(prisma.order.update({ where: { id: guestOrder.data.id }, data: { checkoutConfirmedAt: new Date() } })).rejects.toThrow();
+    });
+    expect(await systemPrisma.orderBuyer.findMany()).toEqual([]);
+  } finally { await a.cleanup(); await b.cleanup(); }
+});
+
+function checkoutInput(name = "Ana") {
+  const buyer = parseBuyer({ name, phone: "+14155552671" });
+  if (!buyer.success) throw new Error("Invalid test buyer");
+  return { buyer: buyer.data, expectedTotal: { amount: 0.1, currency: "PEN" as const } };
+}
+
+async function pendingCheckout(f: Awaited<ReturnType<typeof fixture>>, contactId: string | null = null) {
+  return withTenantIsolation(f.companyId, async () => {
+    const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+    const created = await orders.create({ id: randomUUID() as OrderId, contactId: contactId as ContactId | null,
+      items: [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }] }, context);
+    if (!created.success) throw new Error("Fixture creation failed");
+    return { access: { companyId: context.companyId, orderId: created.data.id }, context, order: created.data };
+  });
+}
+
+test("checkout enable and confirmation are idempotent under real concurrent transactions", async () => {
+  const f = await fixture();
+  const info = vi.spyOn(log, "info").mockImplementation(() => undefined);
+  try {
+    const { access, context, order } = await pendingCheckout(f, f.contactId);
+    expect(await orders.getCheckout(access)).toMatchObject({ error: { code: "CHECKOUT_UNAVAILABLE" } });
+    const links = await Promise.all(Array.from({ length: 3 }, () => withTenantIsolation(f.companyId, () => orders.enableCheckout(access.orderId, context))));
+    expect(links.every((link) => link.success)).toBe(true);
+    expect(new Set(links.flatMap((link) => link.success ? [link.data.url] : [])).size).toBe(1);
+    expect(links[0]).toMatchObject({ data: { url: `${process.env.BETTER_AUTH_URL}/checkout/${access.companyId}/${access.orderId}` } });
+    expect(info.mock.calls.filter(([fields]) => typeof fields === "object" && fields && "event" in fields && fields.event === "order_checkout_enabled")).toHaveLength(1);
+    const confirmations = await Promise.all(["Ana", "Other"].map((name) => orders.confirmCheckout(checkoutInput(name), access)));
+    expect(confirmations.every((result) => result.success)).toBe(true);
+    expect(confirmations[0]).toEqual(confirmations[1]);
+    const original = confirmations[0];
+    expect(await orders.confirmCheckout({ ...checkoutInput("Replacement"), expectedTotal: { amount: 1, currency: "USD" } }, access)).toEqual(original);
+    expect(info.mock.calls.filter(([fields]) => typeof fields === "object" && fields && "event" in fields && fields.event === "order_checkout_confirmed")).toHaveLength(1);
+    const stored = await withTenantIsolation(f.companyId, () => orderDetail(access.orderId, f));
+    if (!stored.success) throw new Error("Unable to read confirmed order");
+    expect({ ...stored.data, buyer: order.buyer, checkoutEnabledAt: null, checkoutConfirmedAt: null }).toEqual(order);
+    expect(stored.data.buyer?.contactId).toBe(f.contactId);
+    await withTenantIsolation(f.companyId, async () => {
+      expect(await prisma.contact.findUnique({ where: { id: f.contactId } })).toMatchObject({ name: null, phone: "+51999999999" });
+      expect(await prisma.orderBuyer.count({ where: { orderId: access.orderId } })).toBe(1);
+      expect(await prisma.payment.count()).toBe(0);
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
+    });
+  } finally { info.mockRestore(); await f.cleanup(); }
+});
+
+test("checkout rejects changed totals and rolls back buyer writes when confirmation cannot be saved", async () => {
+  const f = await fixture();
+  try {
+    for (const contactId of [null, f.contactId]) {
+      const { access, context, order } = await pendingCheckout(f, contactId);
+      await withTenantIsolation(f.companyId, () => orders.enableCheckout(access.orderId, context));
+      expect(await orders.confirmCheckout({ ...checkoutInput(), expectedTotal: { amount: 10, currency: "PEN" } }, access)).toMatchObject({ error: { code: "TOTAL_CHANGED" } });
+      expect(await orders.confirmCheckout({ ...checkoutInput(), expectedTotal: { amount: 0.1, currency: "USD" } }, access)).toMatchObject({ error: { code: "TOTAL_CHANGED" } });
+      const failed = await withTenantIsolation(f.companyId, () => confirmOrderCheckout(checkoutInput(), access, new Date(), {
+        transaction: (_company, work) => withinTransaction(work), findOrderForUpdate: findCheckoutOrderForUpdate, saveBuyer: saveCheckoutBuyer,
+        saveConfirmed: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "Injected failure after buyer write" }),
+      }));
+      expect(failed).toMatchObject({ error: { code: "PERSISTENCE_UNAVAILABLE" } });
+      const stored = await withTenantIsolation(f.companyId, () => orderDetail(access.orderId, f));
+      expect(stored).toMatchObject({ data: { buyer: order.buyer, checkoutConfirmedAt: null } });
+      expect(await orders.confirmCheckout(checkoutInput(), access)).toMatchObject({ data: { state: { kind: "confirmed" } } });
     }
   } finally { await f.cleanup(); }
 });
@@ -715,7 +926,7 @@ test("concurrent delivery assignment and stock deduction consume stock once", as
     await run(async () => {
       expect(await deliverySettings.save({ expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: true }, store: { enabled: false, pickupPoint: null } }, context)).toMatchObject({ success: true });
       expect(await orders.create({ id: orderId, contactId: null, items: [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }] }, context)).toMatchObject({ success: true });
-      await prisma.payment.create({ data: { id: randomUUID(), orderId, amount: 0.1, currency: "PEN", method: "digital_wallet", recordedAt: new Date() } });
+      await prisma.payment.create({ data: { id: randomUUID(), orderId, amount: 0.1, currency: "PEN", method: "digital_wallet", status: "confirmed", data: { confirmedAt: new Date().toISOString(), confirmedBy: { kind: "seller", userId: f.sellerId }, evidence: { kind: "manual" } } } });
     });
     const assign = run(() => setConfiguredOrderDelivery({ orderId, delivery: { method: "home", recipient: { name: "Recipient", phone: "00123", identity: { kind: "absent" } }, destination: { address: "Address", district: "Lima", instructions: null } }, chargeDeliveryToCustomer: false }, context,
       async (_snapshot, _access, currency) => { arrived(); await hold; return ok({ amount: 3, currency }); }));
@@ -817,4 +1028,176 @@ test("a corrupt persisted delivery snapshot fails explicitly without inventing l
       expect((await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).delivery).not.toHaveProperty("recordedBy");
     });
   } finally { failure.mockRestore(); await f.cleanup(); }
+});
+
+test("public checkout checks company, live cancellation, enablement and complete stored data", async () => {
+  const f = await fixture();
+  const other = await fixture();
+  try {
+    const { access, context } = await pendingCheckout(f);
+    const swapped: CheckoutAccess = { ...access, companyId: other.companyId as CompanyId };
+    expect(await orders.getCheckout(swapped)).toMatchObject({ error: { code: "CHECKOUT_UNAVAILABLE" } });
+    expect(await orders.confirmCheckout(checkoutInput(), access)).toMatchObject({ error: { code: "CHECKOUT_UNAVAILABLE" } });
+    await withTenantIsolation(f.companyId, () => orders.enableCheckout(access.orderId, context));
+    expect(await orders.confirmCheckout(checkoutInput(), swapped)).toMatchObject({ error: { code: "CHECKOUT_UNAVAILABLE" } });
+    await withTenantIsolation(f.companyId, async () => {
+      await prisma.order.update({ where: { id: access.orderId }, data: { checkoutEnabledAt: new Date("2000-01-01") } });
+      expect(await orders.cancel(access.orderId, context)).toMatchObject({ success: true });
+    });
+    expect(await orders.getCheckout(access)).toMatchObject({ data: { state: { kind: "cancelled" } } });
+    expect(await orders.confirmCheckout(checkoutInput(), access)).toMatchObject({ error: { code: "ORDER_CANCELLED" } });
+    const completed = await withTenantIsolation(f.companyId, () => immediateSale({ id: randomUUID(), contactId: null, items: [{ variantId: f.variantIds[0], quantity: 1 }] }, { companyId: f.companyId, sellerId: f.sellerId }));
+    if (!completed.success) throw new Error("Immediate sale failed");
+    const delivered = { companyId: access.companyId, orderId: completed.data.id };
+    await withTenantIsolation(f.companyId, () => orders.enableCheckout(delivered.orderId, context));
+    expect(await orders.confirmCheckout(checkoutInput(), delivered)).toMatchObject({ data: { state: { kind: "confirmed" } } });
+    await withTenantIsolation(f.companyId, async () => await prisma.orderBuyer.update({ where: { orderId: delivered.orderId }, data: { name: null } }));
+    expect(await orders.getCheckout(delivered)).toMatchObject({ error: { code: "INVALID_CHECKOUT" } });
+  } finally { await f.cleanup(); await other.cleanup(); }
+});
+
+test("confirmation observes total changes and cancellation committed by a concurrent lock holder", async () => {
+  const f = await fixture();
+  try {
+    for (const change of ["total", "cancel"] as const) {
+      const { access, context } = await pendingCheckout(f);
+      await withTenantIsolation(f.companyId, () => orders.enableCheckout(access.orderId, context));
+      const locked = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const mutation = withTenantIsolation(f.companyId, () => withinTransaction(async () => {
+        const found = await findOrderForUpdate(access.orderId, access.companyId);
+        if (!found.success) throw new Error("Could not lock fixture");
+        locked.resolve();
+        await release.promise;
+        await prisma.order.update({ where: { id: access.orderId }, data: change === "total" ? { total: 1, deliveryCost: 0.9, deliveryCharge: 0.9,
+          delivery: { method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, destination: { address: "Av. Lima 123", district: "Lima", instructions: null }, recordedBy: { kind: "seller", userId: f.sellerId } } } : { cancelled: true } });
+        return ok(null);
+      }));
+      await locked.promise;
+      const confirmation = orders.confirmCheckout(checkoutInput(), access);
+      release.resolve();
+      await mutation;
+      expect(await confirmation).toMatchObject({ error: { code: change === "total" ? "TOTAL_CHANGED" : "ORDER_CANCELLED" } });
+      await withTenantIsolation(f.companyId, async () => {
+        expect(await prisma.order.findUniqueOrThrow({ where: { id: access.orderId } })).toMatchObject({ checkoutConfirmedAt: null });
+        expect(await prisma.orderBuyer.count({ where: { orderId: access.orderId } })).toBe(0);
+      });
+    }
+  } finally { await f.cleanup(); }
+});
+
+test("checkout persistence failure produces one technical log and no confirmation hito", async () => {
+  const f = await fixture();
+  const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  const info = vi.spyOn(log, "info").mockImplementation(() => undefined);
+  let write: ReturnType<typeof vi.spyOn> | undefined;
+  try {
+    const { access, context } = await pendingCheckout(f);
+    await withTenantIsolation(f.companyId, () => orders.enableCheckout(access.orderId, context));
+    info.mockClear();
+    write = vi.spyOn(prisma.orderBuyer, "upsert").mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError("private database detail", { code: "P2003", clientVersion: "7.10.0" }));
+    expect(await orders.confirmCheckout(checkoutInput(), access)).toMatchObject({ error: { code: "PERSISTENCE_UNAVAILABLE" } });
+    expect(error).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ event: "unable_to_save_order_buyer", errorCode: "PERSISTENCE_UNAVAILABLE" }), "Checkout persistence failed");
+    expect(info).not.toHaveBeenCalled();
+    write.mockRestore();
+    expect(await orders.getCheckout(access)).toMatchObject({ data: { buyer: null, state: { kind: "pending" } } });
+  } finally { write?.mockRestore(); error.mockRestore(); info.mockRestore(); await f.cleanup(); }
+});
+
+
+test("confirmation committed first survives a concurrent total update or cancellation", async () => {
+  const f = await fixture();
+  try {
+    for (const change of ["total", "cancel"] as const) {
+      const { access, context } = await pendingCheckout(f);
+      await withTenantIsolation(f.companyId, () => orders.enableCheckout(access.orderId, context));
+      const locked = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const confirmation = withTenantIsolation(f.companyId, () => confirmOrderCheckout(checkoutInput(), access, new Date(), {
+        transaction: (_company, work) => withinTransaction(work),
+        findOrderForUpdate: async (scope) => {
+          const found = await findCheckoutOrderForUpdate(scope);
+          locked.resolve();
+          await release.promise;
+          return found;
+        },
+        saveBuyer: saveCheckoutBuyer, saveConfirmed: saveCheckoutConfirmed,
+      }));
+      await locked.promise;
+      const mutation = withTenantIsolation(f.companyId, () => withinTransaction(async () => {
+        const found = await findOrderForUpdate(access.orderId, access.companyId);
+        if (!found.success) return found;
+        await prisma.order.update({ where: { id: access.orderId }, data: change === "cancel" ? { cancelled: true } : {
+          total: 1, deliveryCost: 0.9, deliveryCharge: 0.9,
+          delivery: { method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, destination: { address: "Av. Lima 123", district: "Lima", instructions: null }, recordedBy: { kind: "seller", userId: f.sellerId } },
+        } });
+        return ok(null);
+      }));
+      release.resolve();
+      expect(await confirmation).toMatchObject({ success: true });
+      expect(await mutation).toMatchObject({ success: true });
+      expect(await orders.getCheckout(access)).toMatchObject({ data: {
+        state: { kind: change === "cancel" ? "cancelled" : "confirmed" }, buyer: checkoutInput().buyer,
+      } });
+      await withTenantIsolation(f.companyId, async () => {
+        expect((await prisma.order.findUniqueOrThrow({ where: { id: access.orderId } })).checkoutConfirmedAt).toBeInstanceOf(Date);
+        expect(await prisma.orderBuyer.count({ where: { orderId: access.orderId } })).toBe(1);
+      });
+    }
+  } finally { await f.cleanup(); }
+});
+
+test("interleaved public reads and confirmations retain their own company and buyer", async () => {
+  const fixtures = await Promise.all([fixture(), fixture()]);
+  try {
+    const cases = await Promise.all(fixtures.map(async (f) => {
+      const checkout = await pendingCheckout(f);
+      await withTenantIsolation(f.companyId, () => orders.enableCheckout(checkout.access.orderId, checkout.context));
+      return checkout;
+    }));
+    const results = await Promise.all(cases.map(async ({ access }, index) => {
+      expect(await orders.getCheckout(access)).toMatchObject({ data: { buyer: null } });
+      const input = checkoutInput(index ? "Bruno" : "Ana");
+      expect(await orders.confirmCheckout(input, access)).toMatchObject({ data: { buyer: input.buyer } });
+      return orders.getCheckout(access);
+    }));
+    expect(results[0]).toMatchObject({ data: { buyer: { name: "Ana" } } });
+    expect(results[1]).toMatchObject({ data: { buyer: { name: "Bruno" } } });
+    for (const [index, { access }] of cases.entries()) {
+      const other = cases[1 - index];
+      expect(await orders.getCheckout({ ...access, companyId: other.access.companyId })).toMatchObject({ error: { code: "CHECKOUT_UNAVAILABLE" } });
+    }
+  } finally { await Promise.all(fixtures.map((f) => f.cleanup())); }
+});
+
+
+test("a real deferred commit failure rolls back checkout and emits no successful transition", async () => {
+  const f = await fixture();
+  const admin = new pg.Client({ connectionString: process.env.MIGRATION_TEST_DATABASE_URL });
+  const trigger = `checkout_commit_${randomUUID().replaceAll("-", "")}`;
+  const info = vi.spyOn(log, "info").mockImplementation(() => undefined);
+  const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  await admin.connect();
+  try {
+    const { access, context } = await pendingCheckout(f);
+    await withTenantIsolation(f.companyId, () => orders.enableCheckout(access.orderId, context));
+    info.mockClear();
+    // This tenant's writes succeed, then PostgreSQL rejects COMMIT itself.
+    await admin.query(`CREATE FUNCTION "${trigger}"() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'Injected deferred checkout failure' USING ERRCODE = '23514'; END $$;
+      CREATE CONSTRAINT TRIGGER "${trigger}" AFTER UPDATE ON "Order" DEFERRABLE INITIALLY DEFERRED
+      FOR EACH ROW WHEN (NEW."companyId" = '${f.companyId}'::uuid) EXECUTE FUNCTION "${trigger}"()`);
+    expect(await orders.confirmCheckout(checkoutInput(), access)).toMatchObject({ error: { code: "PERSISTENCE_UNAVAILABLE" } });
+    expect(info).not.toHaveBeenCalled();
+    expect(error.mock.calls).toHaveLength(1);
+    expect(error.mock.calls[0][0]).toMatchObject({ event: "unable_to_complete_order_transaction" });
+    expect(await orders.getCheckout(access)).toMatchObject({ data: { buyer: null, state: { kind: "pending" } } });
+    await admin.query(`DROP TRIGGER "${trigger}" ON "Order"; DROP FUNCTION "${trigger}"()`);
+    expect(await orders.confirmCheckout(checkoutInput(), access)).toMatchObject({ data: { state: { kind: "confirmed" } } });
+  } finally {
+    await admin.query(`DROP TRIGGER IF EXISTS "${trigger}" ON "Order"; DROP FUNCTION IF EXISTS "${trigger}"()`);
+    await admin.end();
+    info.mockRestore(); error.mockRestore(); await f.cleanup();
+  }
 });

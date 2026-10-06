@@ -49,7 +49,9 @@ export function imageRoutes(storage: ImageStorage, repository: ImageRepository) 
       ? apiError(response, 413, "IMAGE_TOO_LARGE", "Image exceeds 24 MP or 8000 pixels per side")
       : apiError(response, 400, "INVALID_IMAGE", "Invalid image data");
     const result = await uploadImage({ bytes, filename: file.name, contentType: file.type }, storage, repository);
-    return result.success ? sendResult(response, result.data, 201) : sendFailure(response, result.error.code);
+    if (!result.success) return sendFailure(response, result.error.code);
+    log.info({ event: "image_upload_completed", imageId: result.data.id }, "image_upload_completed");
+    return sendResult(response, result.data, 201);
   });
   router.get("/:id", async (request, response) => {
     const id = request.params.id;

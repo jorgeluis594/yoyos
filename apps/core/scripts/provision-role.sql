@@ -1,13 +1,11 @@
+\ir create-role.sql
 BEGIN;
-SELECT format('CREATE ROLE core_app LOGIN PASSWORD %L', :'app_password')
-WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'core_app') \gexec
-ALTER ROLE core_app WITH LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD :'app_password';
 DO $$
 BEGIN
   IF pg_has_role('core_app', current_user, 'member') THEN
     RAISE EXCEPTION 'core_app must not belong to the migration role';
   END IF;
-  IF EXISTS (SELECT 1 FROM pg_class WHERE relname IN ('Company', 'CompanyDeliverySettings', 'CompanyCourier', 'Image', 'Contact', 'Chat', 'ChatMessage', 'Product', 'ProductVariant', 'ProductStock', 'Order', 'OrderItem', 'Payment', 'user', 'session', 'account', 'verification', 'jwks') AND relowner = 'core_app'::regrole) THEN
+  IF EXISTS (SELECT 1 FROM pg_class WHERE relnamespace IN ('public'::regnamespace, 'pgboss'::regnamespace) AND relowner = 'core_app'::regrole) THEN
     RAISE EXCEPTION 'core_app must not own application tables';
   END IF;
 END $$;
@@ -16,8 +14,13 @@ REVOKE ALL ON SCHEMA public FROM core_app;
 REVOKE ALL ON DATABASE :"dbname" FROM core_app;
 GRANT CONNECT ON DATABASE :"dbname" TO core_app;
 GRANT USAGE ON SCHEMA public TO core_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."Company", public."Image", public."Contact", public."Chat", public."ChatMessage", public."Product", public."ProductVariant", public."ProductStock", public."Order", public."OrderItem", public."Payment", public."user", public."session", public."account", public."verification", public."jwks" TO core_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public."CompanyDeliverySettings", public."CompanyCourier" TO core_app;
+-- Application tables share DML permissions; Prisma's migration history stays private.
+SELECT format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I.%I TO core_app', schemaname, tablename)
+FROM pg_tables WHERE schemaname = 'public' AND tablename <> '_prisma_migrations' \gexec
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO core_app;
+-- Functions require explicit grants, especially those using SECURITY DEFINER.
+ALTER DEFAULT PRIVILEGES REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 GRANT USAGE ON SCHEMA pgboss TO core_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA pgboss TO core_app;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA pgboss TO core_app;

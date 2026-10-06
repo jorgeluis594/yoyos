@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { listOrderAggregatesResponseSchema, listOrderAggregatesSchema, listOrdersResponseSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema,
-  type SetOrderDeliveryRequest, type CreateOrderRequest, type ListOrderAggregatesRequest, type ListOrdersRequest, type OrderAggregateResponse, type OrderApiIssue } from "@shared/contracts/orders";
+  type SetOrderDeliveryRequest, type CreateOrderRequest, type ListOrderAggregatesRequest, type ListOrdersRequest, type OrderAggregateResponse, type OrderApiError, type OrderApiIssue } from "@shared/contracts/orders";
 import { err, ok } from "@shared/functional";
 import type { Money } from "@shared/money";
 import { limaMidnightUtc, nextCalendarDay } from "@shared/orders-date";
@@ -18,12 +18,7 @@ export type PendingOrderStoreError = Readonly<{
   message: string;
 }>;
 export type OrderRequestError = Readonly<{
-  code: TransportError["code"] | "INVALID_INPUT" | "INVALID_ORDER" | "CURRENCY_MISMATCH"
-    | "CONTACT_NOT_FOUND" | "VARIANT_NOT_FOUND" | "INSUFFICIENT_STOCK" | "ORDER_ALREADY_EXISTS"
-    | "ORDER_NOT_FOUND" | "PAYLOAD_TOO_LARGE"
-    | "INVALID_PAYMENT" | "PAYMENT_CONFLICT" | "INVALID_TRANSITION" | "DELIVERY_LOCKED"
-    | "PAYMENT_REQUIRED" | "STOCK_NOT_DEDUCTED" | "ORDER_CANCELLED" | "DELIVERY_UNAVAILABLE"
-    | "INTERNAL_ERROR" | "DELIVERY_METHOD_DISABLED" | "COURIER_UNAVAILABLE";
+  code: TransportError["code"] | OrderApiError["code"];
   message: string;
   issues?: readonly OrderApiIssue[];
 }>;
@@ -41,6 +36,7 @@ export type OrderListCriteria = Readonly<{
 
 type Api = Readonly<{
   setDelivery: (orderId: string, input: SetOrderDeliveryRequest) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
+  enableCheckout: (orderId: string) => Promise<Result<Readonly<{ url: string }>, OrderRequestError>>;
   listAggregates: (input: ListOrderAggregatesRequest) => Promise<Result<z.infer<typeof listOrderAggregatesResponseSchema>, OrderRequestError>>;
   getAggregate: (id: string) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
   list: (input: ListOrdersRequest) => Promise<Result<z.infer<typeof listOrdersResponseSchema>, OrderRequestError>>;
@@ -142,6 +138,7 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
       return input.success ? api.listAggregates(input.data) : input;
     },
     loadOrderAggregate: api.getAggregate,
+    enableOrderCheckout: api.enableCheckout,
     loadOrders: async (criteria: OrderListCriteria) => {
       const input = listRequest(criteria);
       return input.success ? api.list(input.data) : input;

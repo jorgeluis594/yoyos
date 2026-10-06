@@ -22,13 +22,13 @@ jest.mock("@expo/ui", () => {
   return { Host: View, Picker };
 });
 const initialOrder: OrderAggregateResponse = { id: mockId, companyId: "00000000-0000-4000-8000-000000000001", sellerId: "seller",
-  customer: { kind: "general_public" }, createdAt: "2026-09-29T11:00:00.000Z", completedAt: "2026-09-29T12:00:00.000Z",
+  number: 1001, buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, deliveredAt: "2026-09-29T12:00:00.000Z", createdAt: "2026-09-29T11:00:00.000Z", completedAt: "2026-09-29T12:00:00.000Z",
   status: "completed", paymentStatus: "paid", paidAmount: { amount: 12, currency: "PEN" },
   balanceDue: { amount: 0, currency: "PEN" }, overpaidAmount: { amount: 0, currency: "PEN" }, cancelled: false,
   delivery: null, deliveryStatus: "delivered", stockDeducted: true, itemsTotal: { amount: 12, currency: "PEN" },
   deliveryCost: { amount: 0, currency: "PEN" }, deliveryCharge: { amount: 0, currency: "PEN" }, total: { amount: 12, currency: "PEN" },
   payments: [{ id: "00000000-0000-4000-8000-000000000006", orderId: mockId, amount: { amount: 12, currency: "PEN" },
-    method: "digital_wallet", recordedAt: "2026-09-29T12:00:00.000Z" }],
+    status: "confirmed", method: "digital_wallet", data: { confirmedAt: "2026-09-29T12:00:00.000Z", confirmedBy: { kind: "seller", userId: "seller" }, evidence: { kind: "manual" } } }],
   items: [{ id: "00000000-0000-4000-8000-000000000005", variantId: "00000000-0000-4000-8000-000000000002",
     productName: "Camisa", variantAttributes: { Talla: "M" }, sku: null, quantity: 1,
     unitPrice: { amount: 12, currency: "PEN" }, subtotal: { amount: 12, currency: "PEN" } }] };
@@ -38,7 +38,7 @@ const save = jest.mocked(orders.setDelivery);
 const getSettings = jest.mocked(deliverySettings.get);
 const point = { name: "Pickup", address: "Current address", instructions: "Ask for Ana" };
 const pending: OrderAggregateResponse = { ...initialOrder, status: "active", deliveryStatus: "pending", completedAt: null,
-  customer: { kind: "contact", contactId: "00000000-0000-4000-8000-000000000004", name: "Customer", phone: "555001" } };
+  buyer: { contactId: "00000000-0000-4000-8000-000000000004", name: "Customer", phone: "555001" } };
 beforeEach(() => {
   load.mockReset(); save.mockReset(); getSettings.mockReset(); mockBack.mockReset(); mockPush.mockReset();
   load.mockResolvedValue(ok(pending)); getSettings.mockResolvedValue(ok({ version: 1, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: true, pickupPoint: point } }));

@@ -25,7 +25,7 @@ All paths below are relative to the repository root.
    ```
 
    Review the result with existing data and version the changes. Do not accept resets when data must be preserved.
-6. For a requested deployment, use `pnpm exec prisma migrate deploy`. The `migrate` service in `compose.yaml` already runs it and provisions permissions. Follow the procedure in `README.md`; on failure, inspect the state before retrying.
+6. For a requested deployment, use `pnpm exec prisma migrate deploy`. The `migrate` service in `compose.yaml` creates `core_app` with `scripts/create-role.sql` before running migrations, then applies `scripts/provision-role.sql`. Use the same order for manual setup. Follow the procedure in `README.md`; on failure, inspect the state before retrying.
 
 ## Tables with Tenant Isolation
 
@@ -43,5 +43,5 @@ All paths below are relative to the repository root.
   ```
 
 - Include the company in uniqueness constraints scoped to a tenant and in relationships between tenant entities. Filter backfills explicitly by company; the administrative role can bypass RLS. Do not disable policies.
-- Update DML permissions and ownership checks in `apps/core/scripts/provision-role.sql`; keep `core_app` without table ownership or `BYPASSRLS`.
+- `apps/core/scripts/provision-role.sql` grants DML on existing `public` application tables (excluding `_prisma_migrations`) and sets default DML privileges for future tables created by the migration role. No per-table permission list is needed. Create tenant tables and configure RLS in the same transaction because default access is immediate. Functions require explicit grants; revoke `PUBLIC` execution when creating `SECURITY DEFINER` functions. Keep `core_app` without table ownership or `BYPASSRLS`.
 - Reuse the mechanism described in `docs/rls-with-prisma.md`. **Do not add table-specific logic to the isolation module or require isolation tests for each new table.**

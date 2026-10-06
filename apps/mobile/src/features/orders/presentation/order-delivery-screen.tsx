@@ -55,8 +55,8 @@ export default function OrderDeliveryScreen() {
       setOrder(current); setSettings(config.data); setError("");
       setLocked(current.status !== "active" || current.cancelled || current.deliveryStatus !== "pending");
       const recipient = current.delivery?.recipient;
-      setName(recipient?.name ?? (current.customer.kind === "contact" ? current.customer.name ?? "" : ""));
-      setPhone(recipient?.phone ?? (current.customer.kind === "contact" ? current.customer.phone : ""));
+      setName(recipient?.name ?? (current.buyer?.name ?? ""));
+      setPhone(recipient?.phone ?? (current.buyer?.phone ?? ""));
       setDocumentType(recipient?.identity.kind === "document" ? recipient.identity.documentType : "absent");
       setDocument(recipient?.identity.kind === "document" ? recipient.identity.document : "");
       setCharge(current.deliveryCharge.amount > 0);

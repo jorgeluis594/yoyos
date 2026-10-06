@@ -118,14 +118,14 @@ test("agency assignment requires a document, preserves historical courier names 
     await browserExpect(page.getByText("Agencia Arequipa", { exact: true })).toBeVisible();
     expect((await page.request.post(`/api/orders/${orderId}/deliver`)).ok()).toBe(true);
     await page.reload();
-    await browserExpect(page.getByRole("heading", { name: "Venta completada" })).toBeVisible();
+    await browserExpect(page.getByText("Venta completada", { exact: true })).toBeVisible();
     await browserExpect(page.getByRole("button", { name: "Guardar entrega" })).toHaveCount(0);
     await browserExpect(page.getByText("Agencia Arequipa", { exact: true })).toBeVisible();
     const cancelledId = crypto.randomUUID();
     expect((await page.request.post("/api/orders/pending", { data: { id: cancelledId, contactId: null, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
     expect((await page.request.post(`/api/orders/${cancelledId}/cancel`)).ok()).toBe(true);
     await page.goto(`/es-PE/orders/${cancelledId}`);
-    await browserExpect(page.getByRole("heading", { name: "Orden cancelada" })).toBeVisible();
+    await browserExpect(page.getByText("Orden cancelada", { exact: true })).toBeVisible();
     await browserExpect(page.getByRole("button", { name: "Guardar entrega" })).toHaveCount(0);
     await browserExpect(page.getByText("Entrega por definir", { exact: true })).toHaveCount(0);
   } finally {
