@@ -62,19 +62,19 @@ export default function OrderList() {
   const { search } = useLocation();
   type Sale = (typeof list.items)[number];
   const columns: TableColumn<Sale>[] = [
-    { id: "customer", header: t("orders.customer"), mobile: "title", cell: (item) => <div className="flex items-start justify-between gap-4">
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <Link to={`${base}/${item.id}`} className="font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">{item.buyer !== null ? item.buyer.name ?? item.buyer.phone : t("orders.generalPublic")}</Link>
-        <span className="text-xs font-normal text-muted-foreground">{t("orders.orderNumber", { number: item.number })}</span>
-        {item.buyer?.name && <span className="text-xs font-normal text-muted-foreground">{item.buyer.phone}</span>}
-        {item.checkoutEnabledAt && <span className="text-xs font-normal text-muted-foreground">{t(item.status === "cancelled" ? "orders.checkoutCancelled" : item.checkoutConfirmedAt ? "orders.checkoutConfirmed" : "orders.checkoutPending")}</span>}
-      </div>
-      <div className="flex shrink-0 items-start gap-1">
+    { id: "number", header: t("orders.listOrder"), mobile: "title", cell: (item) => <div className="flex flex-col items-start gap-1">
+      <Link to={`${base}/${item.id}`} aria-label={t("orders.orderNumber", { number: item.number })} className="font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">#{item.number}</Link>
+      <div className="flex items-start gap-1">
         {item.status === "active" ? <>
           <OrderStateIndicator kind="payment" state={item.paymentStatus} label={item.paymentStatus === "paid" ? t("orders.listStatus.paid") : t("orders.listBalance", { amount: formatCurrency(item.balanceDue.amount, item.balanceDue.currency, i18n.language) })} />
           <OrderStateIndicator kind="delivery" state={item.deliveryStatus} label={`${t("orders.delivery")}: ${t(`orders.deliveryStatus.${item.deliveryStatus}`)}`} />
         </> : <OrderStateIndicator kind="order" state={item.status} label={t(`orders.listStatus.${item.status}`)} />}
       </div>
+      {item.checkoutEnabledAt && <span className="text-xs font-normal text-muted-foreground">{t(item.status === "cancelled" ? "orders.checkoutCancelled" : item.checkoutConfirmedAt ? "orders.checkoutConfirmed" : "orders.checkoutPending")}</span>}
+    </div> },
+    { id: "customer", header: t("orders.customer"), mobile: "description", cell: (item) => <div className="flex flex-col gap-1">
+      <Link to={`${base}/${item.id}`} className="font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">{item.buyer !== null ? item.buyer.name ?? item.buyer.phone : t("orders.generalPublic")}</Link>
+      {item.buyer?.name && <span className="text-xs font-normal text-muted-foreground">{item.buyer.phone}</span>}
     </div> },
     { id: "createdAt", header: t("orders.listDate"), mobile: "description", cell: (item) => <time dateTime={item.createdAt} className="flex flex-col gap-1">
       <span>{new Date(item.createdAt).toLocaleDateString(i18n.language === "pt" ? "pt-BR" : "es-PE", { dateStyle: "medium", timeZone: salesTimeZone })}</span>

@@ -71,7 +71,7 @@ test("seller ships or delivers directly, refreshes details and list, and preserv
       expect(stockAfter.quantity).toBe(stockBefore.quantity);
       await page.setViewportSize({ width: 1280, height: 900 });
       await page.getByRole("link", { name: "Ver ventas", exact: true }).click();
-      await browserExpect(page.getByRole("row").filter({ has: page.getByText(`Pedido #${after.number}`, { exact: true }) }).locator("summary")).toHaveAttribute("aria-label", "Completado");
+      await browserExpect(page.getByRole("row").filter({ has: page.getByRole("link", { name: `Pedido #${after.number}`, exact: true }) }).locator("summary")).toHaveAttribute("aria-label", "Completado");
     }
   } finally {
     if (companyId) await withTenantIsolation(companyId, async () => {

@@ -70,9 +70,9 @@ test.each([
     expect(cell("itemCount")).toBe("5");
     if (status === "active") {
       const [payment, delivery] = expected.split(" · Entrega: ");
-      expect(cell("customer")).toContain(payment.replace("Pago pendiente", "Por cobrar:").replace("Pagamento pendente", "A receber:"));
-      expect(cell("customer")).toContain(delivery);
-      if (paymentStatus === "pending") expect(cell("customer")).toContain(language === "es" ? "Por cobrar:" : "A receber:");
+      expect(cell("number")).toContain(payment.replace("Pago pendiente", "Por cobrar:").replace("Pagamento pendente", "A receber:"));
+      expect(cell("number")).toContain(delivery);
+      if (paymentStatus === "pending") expect(cell("number")).toContain(language === "es" ? "Por cobrar:" : "A receber:");
     } else {
       expect(html).toContain(`aria-label="${expected}"`);
       expect(cell("paymentStatus")).toBeUndefined();

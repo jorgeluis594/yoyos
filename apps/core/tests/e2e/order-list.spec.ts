@@ -42,10 +42,10 @@ test("seller scans units and independent states, searches orders and combines wo
     await page.goto("/es-PE/orders");
     const table = page.getByRole("table", { name: "Órdenes" });
     const rows = table.locator("tbody tr");
-    const row = (kind: string) => rows.filter({ hasText: `Pedido #${summaries.find((summary) => summary.kind === kind)!.number}` });
+    const row = (kind: string) => rows.filter({ hasText: `#${summaries.find((summary) => summary.kind === kind)!.number}` });
     await browserExpect(page.getByRole("navigation", { name: "Vistas de pedidos" }).getByRole("link", { name: "Todos", exact: true })).toHaveAttribute("aria-current", "page");
     await browserExpect(rows).toHaveCount(6);
-    await browserExpect(table.getByRole("columnheader")).toHaveText(["Cliente", "Fecha", "Unidades", "Total"]);
+    await browserExpect(table.getByRole("columnheader")).toHaveText(["Pedido", "Cliente", "Fecha", "Unidades", "Total"]);
     await browserExpect(row("partial").locator('[data-column="itemCount"]')).toHaveText("5");
     await row("partial").locator("summary").first().focus();
     await page.keyboard.press("Enter");
@@ -98,7 +98,7 @@ test("seller scans units and independent states, searches orders and combines wo
     await row("partial").locator("summary").first().click();
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto("/pt-BR/orders");
-    await browserExpect(page.getByRole("columnheader")).toHaveText(["Cliente", "Data", "Unidades", "Total"]);
+    await browserExpect(page.getByRole("columnheader")).toHaveText(["Pedido", "Cliente", "Data", "Unidades", "Total"]);
     await browserExpect(page.locator('summary[aria-label="Concluído"]')).toHaveCount(2);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: "test-results/order-list-desktop-pt.png", fullPage: true, animations: "disabled" });
