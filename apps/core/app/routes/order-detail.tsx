@@ -1,3 +1,4 @@
+import { PaymentFields, type PaymentDraft } from "@core/src/features/orders/presentation/payment-fields";
 import { useState } from "react";
 import { ArrowLeft, ChevronDown, CircleCheck, CircleX, CreditCard, ExternalLink, Truck } from "lucide-react";
 import { Card } from "@core/app/components/ui/card";
@@ -241,13 +242,11 @@ export default function OrderDetail() {
 function PaymentForm({ paymentId, source, currency, balance }: { paymentId: string; source: "manual" | "buyer_report"; currency: string; balance: number }) {
   const { t } = useTranslation();
   const navigation = useNavigation();
+  const [value, setValue] = useState<PaymentDraft>({ amount: balance.toFixed(2), method: "digital_wallet", deductStockIfPartial: false });
   return <Form method="post" className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
     <input type="hidden" name="operation" value="confirm" /><input type="hidden" name="source" value={source} />
     <input type="hidden" name="paymentId" value={paymentId} /><input type="hidden" name="currency" value={currency} />
-    <label className="flex flex-col gap-1 text-sm">{t("orders.paymentAmount")}<Input name="amount" type="number" min="0.01" step="0.01" defaultValue={balance.toFixed(2)} required /></label>
-    <label className="flex flex-col gap-1 text-sm">{t("orders.paymentMethod")}<select name="method" className="h-10 rounded-md border bg-background px-3" defaultValue="digital_wallet">
-      <option value="digital_wallet">{t("orders.wallet")}</option><option value="bank_transfer">{t("orders.bankTransfer")}</option></select></label>
-    <label className="flex items-center gap-2 text-sm sm:col-span-2"><input type="checkbox" name="deductStockIfPartial" />{t("orders.deductStockIfPartial")}</label>
+    <PaymentFields value={value} onChange={setValue} />
     <Button type="submit" disabled={navigation.state !== "idle"} className="sm:col-start-3 sm:row-start-1">{t("orders.confirmPayment")}</Button>
   </Form>;
 }
