@@ -283,7 +283,7 @@ test("new order saves partial payments, paid pending delivery and configured del
         paymentStatus: scenario === "paid" || scenario === "delivery" ? "paid" : "pending",
         balanceDue: { amount: scenario === "partial" ? 5 : scenario === "no-stock" ? 10 : 0 } });
       if (scenario === "delivery") expect(order).toMatchObject({ total: { amount: 13 }, deliveryCharge: { amount: 3 },
-        payments: [{ amount: { amount: 10 } }, { amount: { amount: 3 } }],
+        payments: expect.arrayContaining([expect.objectContaining({ amount: { amount: 10, currency: "PEN" } }), expect.objectContaining({ amount: { amount: 3, currency: "PEN" } })]),
         delivery: { recipient: { name: "Ana", phone: "999001" }, destination: { address: "Av. Lima 123", district: "Lima", instructions: "Puerta 2" } } });
       if (scenario === "no-stock") expect(await withTenantIsolation(companyId, async () => await prisma.productStock.findFirst())).toMatchObject({ quantity: 0n });
     }

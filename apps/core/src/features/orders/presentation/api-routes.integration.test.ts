@@ -1,3 +1,6 @@
+import { createOrderOperations } from "@mobile/features/orders/application/order-operations";
+import { addDraftItem, emptyOrderDraft } from "@mobile/features/orders/domain/order-draft";
+import { createPendingOrderConfirmationStore } from "@mobile/features/orders/infrastructure/pending-order-confirmation";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { createDeliverySettingsApi } from "@mobile/features/delivery-settings/infrastructure/delivery-settings-api";
 import { randomUUID } from "node:crypto";
@@ -461,4 +464,41 @@ test("complete creation HTTP preserves optional payment IDs and supports pending
     expect(await duplicate.json()).toMatchObject({ code: "ORDER_ALREADY_EXISTS" });
     expect(orderAggregateSchema.parse(await (await call(`/api/orders/${id}/aggregate`, f.cookie)).json())).toEqual(order);
   }
+});
+
+
+test.each([false, true])("mobile restart recovers a committed order after losing its response (paid=%s)", async (paid) => {
+  const f = await fixture("PE");
+  const values = new Map<string, string>();
+  const storage = { getItemAsync: async (key: string) => values.get(key) ?? null,
+    setItemAsync: async (key: string, value: string) => { values.set(key, value); }, deleteItemAsync: async (key: string) => { values.delete(key); } };
+  let lost = true;
+  let sends = 0;
+  const api = createOrderApi(async (path, init) => {
+    if (lost && init?.method !== "POST") return err({ code: "NETWORK_ERROR", message: "Offline during recovery" });
+    const response = await fetch(`${base}${path}`, { ...init, headers: { ...Object.fromEntries(new Headers(init?.headers)), origin, cookie: f.cookie } });
+    const body: unknown = await response.json();
+    if (init?.method === "POST") { sends++; expect(response.status).toBe(201); return err({ code: "NETWORK_ERROR", message: "Response lost after commit" }); }
+    return response.ok ? ok(body) : err({ code: "API_ERROR", message: "HTTP failure", http: { status: response.status, body } });
+  });
+  const selected = addDraftItem(emptyOrderDraft(), { variantId: f.variantId, productName: "Camisa", variantAttributes: {}, sku: null,
+    shownUnitPrice: { amount: 10, currency: "PEN" }, shownStock: 3, quantity: 1 }, randomUUID);
+  if (!selected.success) throw new Error("Invalid mobile fixture");
+  const paymentId = randomUUID();
+  const draft = { ...selected.data, payments: paid ? [{ paymentId, amount: "10", method: "bank_transfer" as const, deductStockIfPartial: false }] : [], deliverImmediately: false };
+  const first = createOrderOperations(api, createPendingOrderConfirmationStore(storage));
+  expect(await first.completeOrder(draft, f.companyId)).toMatchObject({ success: true, data: { kind: "uncertain" } });
+  lost = false;
+  const restarted = createOrderOperations(api, createPendingOrderConfirmationStore(storage));
+  expect(await restarted.readPendingOrderConfirmation(randomUUID())).toEqual(ok(null));
+  const recovered = await restarted.resendPendingOrder(f.companyId);
+  expect(recovered).toMatchObject({ success: true, data: { kind: "completed", order: { status: "active", deliveryStatus: "pending",
+    paymentStatus: paid ? "paid" : "pending", stockDeducted: paid } } });
+  expect(sends).toBe(1);
+  await withTenantIsolation(f.companyId, async () => {
+    expect(await prisma.order.count()).toBe(1);
+    expect(await prisma.payment.count()).toBe(paid ? 1 : 0);
+    if (paid) expect(await prisma.payment.findFirst()).toMatchObject({ id: paymentId });
+    expect(await prisma.productStock.findUnique({ where: { variantId: f.variantId } })).toMatchObject({ quantity: paid ? 2n : 3n });
+  });
 });
