@@ -42,7 +42,7 @@ test("company context enforces RLS and transaction boundaries", async () => {
     await admin.$executeRawUnsafe(`GRANT USAGE ON SCHEMA ${schema} TO "${role}"`);
     await admin.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE, DELETE ON ${schema}.rls_probe TO "${role}"`);
 
-    const { prisma, withTenantIsolation, getCompanyId, withinTransaction, systemPrisma } = await import("./persistance.ts");
+    const { prisma, withTenantIsolation, getCompanyId, withinTransaction, withLockedForUpdate, systemPrisma } = await import("./persistance.ts");
     const { createCompanyForUser } = await import("../../features/companies/application/create-company-for-user.ts");
     const { companyRepository } = await import("../../features/companies/infrastructure/company-repository.ts");
     const rows = () => prisma.$queryRaw(Prisma.sql`SELECT id FROM ${probe} ORDER BY id`);
@@ -128,6 +128,54 @@ test("company context enforces RLS and transaction boundaries", async () => {
         expect(concurrent[0].status).toBe("fulfilled");
         expect(concurrent[1].status).toBe("rejected");
         expect((await rows()).some(({ id }) => id === "parallel-ok")).toBeTruthy();
+      });
+    });
+
+    await step("row locking serializes updates and keeps tenant and rollback boundaries", async () => {
+      const query = Prisma.sql`SELECT name FROM "Company" WHERE id = ${companyA}::uuid`;
+      await withTenantIsolation(companyA, async () => {
+        await expect(withLockedForUpdate(companyA, query, success)).rejects.toThrow(/active transaction/);
+        expect(await withinTransaction(() => withLockedForUpdate(companyA,
+          Prisma.sql`SELECT name FROM "Company" WHERE id = ${companyB}::uuid`, success))).toStrictEqual(success(null));
+        expect(await withinTransaction(() => withLockedForUpdate(companyA, query, async () => {
+          await prisma.company.update({ where: { id: companyA }, data: { name: "rolled back" } });
+          return failure;
+        }))).toStrictEqual(failure);
+        expect((await prisma.company.findUniqueOrThrow({ where: { id: companyA } })).name).toBe("A");
+      });
+
+      const locked = Promise.withResolvers();
+      const release = Promise.withResolvers();
+      const waitingPid = Promise.withResolvers();
+      const first = withTenantIsolation(companyA, () => withinTransaction(() =>
+        withLockedForUpdate(companyA, query, async (row) => {
+          locked.resolve();
+          await release.promise;
+          await prisma.company.update({ where: { id: companyA }, data: { name: `${row.name}1` } });
+          return success();
+        })));
+      let second;
+      try {
+        await locked.promise;
+        second = withTenantIsolation(companyA, () => withinTransaction(async () => {
+          const [{ pid }] = await prisma.$queryRaw`SELECT pg_backend_pid() AS pid`;
+          waitingPid.resolve(pid);
+          return withLockedForUpdate(companyA, query, async (row) => {
+            await prisma.company.update({ where: { id: companyA }, data: { name: `${row.name}2` } });
+            return success();
+          });
+        }));
+        const pid = await waitingPid.promise;
+        await expect.poll(async () => {
+          const [{ blocked }] = await admin.$queryRaw`SELECT cardinality(pg_blocking_pids(${pid}::int)) > 0 AS blocked`;
+          return blocked;
+        }).toBe(true);
+      } finally {
+        release.resolve();
+        await Promise.all([first, second]);
+      }
+      await withTenantIsolation(companyA, async () => {
+        expect((await prisma.company.findUniqueOrThrow({ where: { id: companyA } })).name).toBe("A12");
       });
     });
 

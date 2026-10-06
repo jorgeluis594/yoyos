@@ -30,7 +30,7 @@ test("mobile seller copies checkout and sees the anonymous buyer confirmation in
     await page.getByRole("button", { name: "Copiar enlace", exact: true }).click();
     await browserExpect(page.getByText("Enlace copiado", { exact: true })).toBeVisible();
     const url = await page.evaluate(() => navigator.clipboard.readText());
-    expect(url).toBe(`http://127.0.0.1:4173/checkout/${tenant}/${id}`);
+    expect(url).toBe(`http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}/checkout/${tenant}/${id}`);
     const buyer = await buyerContext.newPage();
     await buyer.goto(url);
     await buyer.getByLabel("Nombre", { exact: true }).fill("Ana");
@@ -44,10 +44,10 @@ test("mobile seller copies checkout and sees the anonymous buyer confirmation in
     const pending = randomUUID();
     const cancelled = randomUUID();
     for (const other of [pending, cancelled]) {
-      expect((await page.request.post("http://127.0.0.1:4173/api/orders", { data: { id: other, contactId: null, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
-      expect((await page.request.post(`http://127.0.0.1:4173/api/orders/${other}/checkout-link`)).status()).toBe(200);
+      expect((await page.request.post(`http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}/api/orders`, { data: { id: other, contactId: null, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
+      expect((await page.request.post(`http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}/api/orders/${other}/checkout-link`)).status()).toBe(200);
     }
-    expect((await page.request.post(`http://127.0.0.1:4173/api/orders/${cancelled}/cancel`)).status()).toBe(200);
+    expect((await page.request.post(`http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}/api/orders/${cancelled}/cancel`)).status()).toBe(200);
     await page.goto(`${mobile.origin}/orders`);
     await browserExpect(page.getByText(/Pedido #10000 · Confirmado por el comprador/)).toBeVisible();
     await browserExpect(page.getByText(/Pedido #9999 ·/)).toBeVisible();

@@ -34,7 +34,7 @@ test("order API reads mixed summaries and validates complete aggregate states", 
   const total = { amount: 10, currency: "PEN" as const };
   const zero = { amount: 0, currency: "PEN" as const };
   const summary = { number: 1001, id: id(1), buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, sellerId: "seller",
-    createdAt: "2026-09-29T12:00:00.000Z", completedAt: null, status: "active", paymentStatus: "pending",
+    createdAt: "2026-09-29T12:00:00.000Z", deliveredAt: null, completedAt: null, status: "active", paymentStatus: "pending",
     deliveryStatus: "pending", stockDeducted: false, total };
   const order = { ...summary, companyId: id(2), paidAmount: zero, balanceDue: total, overpaidAmount: zero,
     cancelled: false, delivery: null, payments: [], itemsTotal: total, deliveryCost: zero, deliveryCharge: zero,
@@ -43,14 +43,14 @@ test("order API reads mixed summaries and validates complete aggregate states", 
   const paths: string[] = [];
   const api = createOrderApi(async (path) => { paths.push(path); return ok(path.includes("/mixed?")
     ? { items: [summary], page: 1, pageSize: 20, total: 1 }
-    : path.endsWith("/payments") ? { order, stock: { kind: "pending", reason: "INSUFFICIENT_STOCK" } } : order); });
+    : path.endsWith("/payments") ? { order, stock: { kind: "not_requested" } } : order); });
   expect(await api.listAggregates({ page: 1, customer: "all" })).toMatchObject({ success: true,
     data: { items: [{ id: id(1), status: "active" }] } });
   expect(await api.getAggregate(id(1))).toMatchObject({ success: true, data: { id: id(1), payments: [] } });
   expect(await api.create({ id: id(1), contactId: null, items: [{ variantId: id(4), quantity: 1 }] }))
     .toMatchObject({ success: true, data: { status: "active" } });
   expect(await api.registerPayment(id(1), { paymentId: id(5), amount: total, method: "digital_wallet", deductStockIfPartial: false }))
-    .toMatchObject({ success: true, data: { stock: { kind: "pending", reason: "INSUFFICIENT_STOCK" } } });
+    .toMatchObject({ success: true, data: { stock: { kind: "not_requested" } } });
   expect(await api.deductStock(id(1))).toMatchObject({ success: true, data: { id: id(1) } });
   expect(paths).toEqual(["/api/orders/mixed?page=1&customer=all", `/api/orders/${id(1)}/aggregate`,
     "/api/orders", `/api/orders/${id(1)}/payments`, `/api/orders/${id(1)}/deduct-stock`]);

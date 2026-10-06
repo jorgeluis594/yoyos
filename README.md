@@ -35,7 +35,7 @@ From the repository root, start the web application and PostgreSQL:
 docker compose up --build
 ```
 
-The `migrate` service runs `scripts/migrate.ts` (Prisma deploy plus safe aggregate logs) and creates the `core_app` role; the web application starts with that restricted role. Open [http://localhost:3000](http://localhost:3000). To stop the services, press `Ctrl+C` or run:
+The `migrate` service creates the restricted `core_app` role before applying migrations through `scripts/migrate.ts` (Prisma deploy plus safe aggregate logs), then provisions permissions. Existing application tables receive DML access, and default privileges grant the same access to future `public` tables created by the migration role. Prisma migration history stays private. Functions require explicit grants. The web application starts with the restricted role. Open [http://localhost:3000](http://localhost:3000). To stop the services, press `Ctrl+C` or run:
 
 ```sh
 docker compose down

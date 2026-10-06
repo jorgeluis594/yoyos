@@ -177,7 +177,7 @@ test("failed network requests recover pending orders and lost responses recover 
 test("seller copies a stable link and sees buyer confirmation separately from payment", async ({ page }) => {
   const email = `checkout-seller-${randomUUID()}@example.test`;
   const companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "Seller checkout", country: "PE" });
-  const buyer = await page.context().browser()!.newContext({ baseURL: "http://127.0.0.1:4173", viewport: { width: 390, height: 844 } });
+  const buyer = await page.context().browser()!.newContext({ baseURL: `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}`, viewport: { width: 390, height: 844 } });
   try {
     const product = await withTenantIsolation(companyId, () => products.create({ name: "Producto compartido", currency: "PEN", variants: [{ attributes: {}, salePrice: 10, initialStock: 3 }] }));
     if (!product.success) throw new Error("Product fixture failed");
@@ -192,7 +192,7 @@ test("seller copies a stable link and sees buyer confirmation separately from pa
     await browserExpect(page.getByText("Enlace aún no habilitado", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Obtener enlace", exact: true }).click();
     const link = page.getByLabel("Enlace del pedido", { exact: true });
-    await browserExpect(link).toHaveValue(`http://127.0.0.1:4173/checkout/${companyId}/${orderId}`);
+    await browserExpect(link).toHaveValue(`http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}/checkout/${companyId}/${orderId}`);
     await browserExpect(page.getByText("Pendiente de confirmación", { exact: true })).toBeVisible();
     await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
     await page.getByRole("button", { name: "Copiar enlace", exact: true }).click();
@@ -246,7 +246,7 @@ test("old links remain usable for paid, shipped and delivered orders", async ({ 
         if (state !== "paid") expect(await orders.ship(f.orderId, context)).toMatchObject({ success: true });
         if (state === "delivered") expect(await orders.deliver(f.orderId, context)).toMatchObject({ success: true });
         await prisma.order.update({ where: { id: f.orderId }, data: { checkoutEnabledAt: new Date("2000-01-01") } });
-        expect(await orders.enableCheckout(f.orderId, context)).toMatchObject({ data: { url: `http://127.0.0.1:4173${f.path}` } });
+        expect(await orders.enableCheckout(f.orderId, context)).toMatchObject({ data: { url: `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}${f.path}` } });
       });
       const before = await f.read();
       await page.goto(f.path);

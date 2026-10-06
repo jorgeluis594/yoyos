@@ -8,7 +8,7 @@ export type FulfillOrderError = OrderDomainError | Readonly<{ code: "ORDER_NOT_F
 export type FulfillOrderDependencies = Readonly<{
   transaction: <T>(companyId: CompanyId, work: () => Promise<Result<T, FulfillOrderError>>) => Promise<Result<T, FulfillOrderError>>;
   findOrderForUpdate: (id: OrderId, companyId: CompanyId) => Promise<Result<OrderAggregate | null, FulfillOrderError>>;
-  saveFulfillment: (id: OrderId, companyId: CompanyId, change: Pick<OrderAggregate, "deliveryStatus" | "completedAt">) => Promise<Result<null, FulfillOrderError>>;
+  saveFulfillment: (id: OrderId, companyId: CompanyId, change: Pick<OrderAggregate, "deliveryStatus" | "deliveredAt" | "completedAt">) => Promise<Result<null, FulfillOrderError>>;
   clock: () => Date;
 }>;
 

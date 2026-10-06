@@ -26,3 +26,16 @@ test("seller action cannot expose a link for cancelled or unavailable orders", a
   enable.mockResolvedValue(err({ code: "CHECKOUT_UNAVAILABLE", message: "Unavailable" }));
   expect(await action(args())).toMatchObject({ data: { url: null, error: true }, init: { status: 404 } });
 });
+
+test.each(["confirm", "void"])("seller %s action dispatches payment operations without enabling checkout", async (operation) => {
+  const enable = vi.spyOn(orders, "enableCheckout");
+  const confirm = vi.spyOn(orders, "registerPayment").mockResolvedValue(err({ code: "ORDER_NOT_FOUND", message: "Unavailable" }));
+  const voidPayment = vi.spyOn(orders, "voidPayment").mockResolvedValue(err({ code: "ORDER_NOT_FOUND", message: "Unavailable" }));
+  const paymentId = "00000000-0000-4000-8000-000000000003";
+  expect(await action(args({ operation, paymentId, source: "manual", amount: "12.50", currency: "PEN", method: "bank_transfer" })))
+    .toMatchObject({ url: null, success: false, error: "ORDER_NOT_FOUND" });
+  expect(operation === "confirm" ? confirm : voidPayment).toHaveBeenCalledWith(
+    expect.objectContaining({ orderId, paymentId }), { companyId, userId: "authenticated-seller" });
+  expect(operation === "confirm" ? voidPayment : confirm).not.toHaveBeenCalled();
+  expect(enable).not.toHaveBeenCalled();
+});

@@ -16,17 +16,22 @@ export function toOrderAggregateJson(order: OrderAggregate) {
   const lifecycle = orderStateMachine.getLifecycle(order);
   const payment = orderStateMachine.getPaymentSummary(order);
   if (!lifecycle.success || !payment.success) throw new Error("Invalid order aggregate response");
-  return orderAggregateSchema.parse({ ...order, checkoutEnabledAt: order.checkoutEnabledAt?.toISOString() ?? null, checkoutConfirmedAt: order.checkoutConfirmedAt?.toISOString() ?? null, createdAt: order.createdAt.toISOString(),
+  return orderAggregateSchema.parse({ ...order, checkoutEnabledAt: order.checkoutEnabledAt?.toISOString() ?? null, checkoutConfirmedAt: order.checkoutConfirmedAt?.toISOString() ?? null, createdAt: order.createdAt.toISOString(), deliveredAt: order.deliveredAt?.toISOString() ?? null,
     completedAt: order.completedAt?.toISOString() ?? null, status: lifecycle.data.status,
     paymentStatus: payment.data.status, paidAmount: payment.data.paidAmount,
     balanceDue: payment.data.balanceDue, overpaidAmount: payment.data.overpaidAmount,
-    payments: order.payments.map((item) => ({ ...item, recordedAt: item.recordedAt.toISOString() })) });
+    payments: order.payments.map((item) => item.status === "reported" ? { ...item,
+      data: { ...item.data, reportedAt: item.data.reportedAt.toISOString() } } : { ...item,
+      data: { ...item.data, confirmedAt: item.data.confirmedAt.toISOString(),
+        evidence: item.data.evidence.kind === "manual" ? item.data.evidence : { kind: "buyer_report",
+          report: { ...item.data.evidence.report, reportedAt: item.data.evidence.report.reportedAt.toISOString() } },
+        ...(item.status === "voided" ? { voidedAt: item.data.voidedAt.toISOString() } : {}) } }) });
 }
 
 export function toOrderAggregateListJson(page: AggregatePage) {
   return listOrderAggregatesResponseSchema.parse({ ...page, items: page.items.map((item) => {
-    const { number, id, createdAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, buyer, checkoutEnabledAt, checkoutConfirmedAt, sellerId, total } = toOrderAggregateJson(item);
-    return orderAggregateSummarySchema.parse({ number, id, createdAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, buyer, checkoutEnabledAt, checkoutConfirmedAt, sellerId, total });
+    const { number, id, createdAt, deliveredAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, buyer, checkoutEnabledAt, checkoutConfirmedAt, sellerId, total } = toOrderAggregateJson(item);
+    return orderAggregateSummarySchema.parse({ number, id, createdAt, deliveredAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, buyer, checkoutEnabledAt, checkoutConfirmedAt, sellerId, total });
   }) });
 }
 

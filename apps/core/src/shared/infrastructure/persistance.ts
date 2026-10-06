@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { PrismaClient, type Prisma } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import type { AppError, Result } from "@shared/result";
 
@@ -42,7 +42,7 @@ export function requireActiveTransaction(companyId: string): void {
 }
 
 export function requireNoActiveTransaction(): void {
-  if (transactions.getStore()?.active) throw new Error("Payment recording requires independent transactions");
+  if (transactions.getStore()?.active) throw new Error("Operation requires an independent transaction");
 }
 
 async function execute<T>(callback: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
@@ -78,6 +78,18 @@ export const prisma = base.$extends({
 });
 
 type OperationResult = Result<unknown, AppError>;
+
+/** Lock the row selected by a parameterized query until the enclosing transaction ends. */
+export async function withLockedForUpdate<Row, R extends OperationResult>(
+  companyId: string,
+  query: Prisma.Sql,
+  callback: (row: Row | null) => Promise<R> | R,
+): Promise<R> {
+  requireActiveTransaction(companyId);
+  const rows = await prisma.$queryRaw<Row[]>(Prisma.sql`${query} FOR UPDATE`);
+  return callback(rows[0] ?? null);
+}
+
 export async function withinTransaction<R extends OperationResult>(callback: () => Promise<R> | R): Promise<R> {
   const companyId = getCompanyId();
   const scope = transactions.getStore();

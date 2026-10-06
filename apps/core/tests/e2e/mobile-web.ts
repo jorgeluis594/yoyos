@@ -6,12 +6,12 @@ import { resolve } from "node:path";
 // browser requests the same HTTP access to core that native fetch has.
 export async function startMobileWeb() {
   const metroPort = 18082;
-  const coreOrigin = "http://127.0.0.1:4173";
+  const coreOrigin = `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}`;
   const proxy = createServer((incoming, outgoing) => {
     const api = incoming.url?.startsWith("/api/");
     const upstream = proxyRequest(new URL(incoming.url ?? "/", api ? coreOrigin : `http://127.0.0.1:${metroPort}`), {
       method: incoming.method,
-      headers: { ...incoming.headers, host: api ? "127.0.0.1:4173" : `127.0.0.1:${metroPort}`,
+      headers: { ...incoming.headers, host: api ? new URL(coreOrigin).host : `127.0.0.1:${metroPort}`,
         ...(api && incoming.headers.origin ? { origin: coreOrigin } : {}) },
     }, (response) => { outgoing.writeHead(response.statusCode ?? 502, response.headers); response.pipe(outgoing); });
     upstream.on("error", () => { if (!outgoing.headersSent) outgoing.writeHead(502); outgoing.end("Mobile test service unavailable"); });

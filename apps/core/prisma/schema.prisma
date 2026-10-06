@@ -102,6 +102,13 @@ model Company {
   orderBuyers OrderBuyer[]
   orderItems OrderItem[]
   payments Payment[]
+  paymentSettings CompanyPaymentSettings?
+}
+
+model CompanyPaymentSettings {
+  companyId String @id @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  settings Json
 }
 
 enum ImageVisibility {
@@ -272,6 +279,7 @@ model Order {
   stockDeducted Boolean @default(false)
   cancelled Boolean @default(false)
   createdAt DateTime
+  deliveredAt DateTime?
   completedAt DateTime?
   items OrderItem[]
   payments Payment[]
@@ -287,13 +295,14 @@ model Payment {
   company Company @relation(fields: [companyId], references: [id])
   orderId String @db.Uuid
   order Order @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
-  amount Decimal @db.Decimal(15, 2)
+  status String
+  amount Decimal? @db.Decimal(15, 2)
   currency String
-  method String
-  recordedAt DateTime
+  method String?
+  data Json
 
   @@unique([companyId, id])
-  @@index([companyId, orderId, recordedAt, id])
+  @@index([companyId, orderId, id])
 }
 
 model OrderItem {
