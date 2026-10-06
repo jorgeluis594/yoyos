@@ -62,7 +62,7 @@ export default function OrderList() {
   const { search } = useLocation();
   type Sale = (typeof list.items)[number];
   const columns: TableColumn<Sale>[] = [
-    { id: "number", header: t("orders.listOrder"), mobile: "title", cell: (item) => <div className="flex flex-col items-start gap-1">
+    { id: "number", header: t("orders.listOrder"), mobile: "title", cell: (item) => <div className="flex flex-col items-start">
       <Link to={`${base}/${item.id}`} aria-label={t("orders.orderNumber", { number: item.number })} className="font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">#{item.number}</Link>
       <OrderStateIndicators states={item.status === "active" ? [
         { kind: "payment", state: item.paymentStatus, label: item.paymentStatus === "paid" ? t("orders.listStatus.paid") : t("orders.listBalance", { amount: formatCurrency(item.balanceDue.amount, item.balanceDue.currency, i18n.language) }) },
