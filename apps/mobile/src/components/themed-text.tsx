@@ -1,8 +1,9 @@
-import { Platform, StyleSheet, Text, type TextProps } from 'react-native';
+import { Platform, StyleSheet, Text, type TextProps, type TextStyle } from 'react-native';
 
 import tokens from '../../../../docs/design-tokens.json';
 
 import { Fonts, ThemeColor } from '@mobile/constants/theme';
+import { interStyle } from '@mobile/constants/typography';
 import { useTheme } from '@mobile/hooks/use-theme';
 
 export type ThemedTextProps = TextProps & {
@@ -12,6 +13,10 @@ export type ThemedTextProps = TextProps & {
 
 export function ThemedText({ style, type = 'default', themeColor, ...rest }: ThemedTextProps) {
   const theme = useTheme();
+
+  const resolved: TextStyle = StyleSheet.flatten([styles[type], style]);
+  const font = type !== 'code' && (!resolved?.fontFamily || resolved.fontFamily === tokens.typography.family)
+    ? interStyle(resolved?.fontWeight) : undefined;
 
   return (
     <Text
@@ -26,6 +31,7 @@ export function ThemedText({ style, type = 'default', themeColor, ...rest }: The
         type === 'linkPrimary' && styles.linkPrimary,
         type === 'code' && styles.code,
         style,
+        font,
       ]}
       {...rest}
     />
