@@ -203,7 +203,7 @@ test("pending order remains active when paid before delivery", async ({ page }) 
     await browserExpect(page).toHaveURL(/\/orders\/[0-9a-f-]+$/);
     const orderId = page.url().split("/").at(-1)!;
     await page.goto("/es-PE/orders");
-    await browserExpect(page.getByRole("table", { name: "Órdenes" }).locator('[data-column="paymentStatus"]').getByText("Pendiente", { exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("table", { name: "Órdenes" }).locator('summary[aria-label^="Por cobrar:"]')).toBeVisible();
     await page.getByRole("table", { name: "Órdenes" }).getByRole("link", { name: "Público general" }).click();
     await browserExpect(page).toHaveURL(new RegExp(`/orders/${orderId}$`));
     await browserExpect(page.getByText("Orden activa", { exact: true })).toBeVisible();

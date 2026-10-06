@@ -5,7 +5,7 @@ import { useState } from "react";
 import { cn } from "cn";
 import { z } from "zod";
 import { Form, isRouteErrorResponse, Link, useLoaderData, useLocation, type LoaderFunctionArgs } from "react-router";
-import { Check, SlidersHorizontal } from "lucide-react";
+import { ArrowRight, Check, Clock, Coins, SlidersHorizontal, Truck } from "lucide-react";
 import { listOrderAggregatesSchema, orderListLoaderSchema, orderContactsSchema } from "@shared/contracts/orders";
 import { limaMidnightUtc } from "@shared/orders-date";
 import { privateUserContext } from "@core/app/private-user-context";
@@ -68,7 +68,13 @@ export default function OrderList() {
         <Link to={`${base}/${item.id}`} className="font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">{item.buyer !== null ? item.buyer.name ?? item.buyer.phone : t("orders.generalPublic")}</Link>
         {item.status !== "active" && <span className={cn(badge, item.status === "completed" ? "bg-[var(--success-surface)] text-[var(--success)]" : "bg-muted text-muted-foreground")}>{t(`orders.listStatus.${item.status}`)}</span>}
       </div>
-      <span className="text-xs text-muted-foreground">{t("orders.orderNumber", { number: item.number })}{item.buyer?.name ? ` · ${item.buyer.phone}` : ""}</span>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-normal text-muted-foreground">{t("orders.orderNumber", { number: item.number })}{item.buyer?.name ? ` · ${item.buyer.phone}` : ""}</span>
+        {item.status === "active" && <div className="flex items-start gap-1">
+          <OrderStateIndicator kind="payment" state={item.paymentStatus} label={item.paymentStatus === "paid" ? t("orders.listStatus.paid") : t("orders.listBalance", { amount: formatCurrency(item.balanceDue.amount, item.balanceDue.currency, i18n.language) })} />
+          <OrderStateIndicator kind="delivery" state={item.deliveryStatus} label={`${t("orders.delivery")}: ${t(`orders.deliveryStatus.${item.deliveryStatus}`)}`} />
+        </div>}
+      </div>
       {item.checkoutEnabledAt && <span className="text-xs text-muted-foreground">{t(item.status === "cancelled" ? "orders.checkoutCancelled" : item.checkoutConfirmedAt ? "orders.checkoutConfirmed" : "orders.checkoutPending")}</span>}
     </div> },
     { id: "createdAt", header: t("orders.listDate"), mobile: "description", cell: (item) => <time dateTime={item.createdAt} className="flex flex-col gap-1">
@@ -77,11 +83,6 @@ export default function OrderList() {
     </time> },
     { id: "itemCount", header: t("orders.listUnits"), mobile: "description", align: "right", cell: (item) => <span className="tabular-nums">{item.itemCount}</span> },
     { id: "total", header: t("orders.total"), mobile: "value", align: "right", cell: (item) => <strong className="font-semibold tabular-nums">{formatCurrency(item.total.amount, item.total.currency, i18n.language)}</strong> },
-    { id: "paymentStatus", header: t("orders.payment"), mobile: "description", cell: (item) => item.status === "active" ? <div className="flex flex-col items-start gap-1">
-      <span className={cn(badge, item.paymentStatus === "paid" ? "bg-[var(--success-surface)] text-[var(--success)]" : "bg-[var(--warning-surface)] text-[var(--warning)]")}>{t(item.paymentStatus === "paid" ? "orders.listStatus.paid" : "orderDetail.pendingPayment")}</span>
-      {item.paymentStatus === "pending" && <span className="text-xs text-muted-foreground">{t("orders.listBalance", { amount: formatCurrency(item.balanceDue.amount, item.balanceDue.currency, i18n.language) })}</span>}
-    </div> : <span aria-label={t("orders.listNotApplicable")}>—</span> },
-    { id: "deliveryStatus", header: t("orders.delivery"), mobile: "description", cell: (item) => item.status === "active" ? <span className={cn(badge, item.deliveryStatus === "pending" ? "bg-[var(--warning-surface)] text-[var(--warning)]" : item.deliveryStatus === "shipped" ? "bg-[var(--info-surface)] text-[var(--info)]" : "bg-[var(--success-surface)] text-[var(--success)]")}>{t(`orders.deliveryStatus.${item.deliveryStatus}`)}</span> : <span aria-label={t("orders.listNotApplicable")}>—</span> },
   ];
   const activeFilterInputs = [
     { name: "customer", value: filters.customer },
@@ -111,6 +112,18 @@ export default function OrderList() {
     <DataTable className="order-list-table mt-6" columns={columns} caption={t("orders.allOrders")} data={list.items} getRowId={(item) => item.id} emptyMessage={<div className="flex flex-col items-center gap-2"><p>{t(filtered ? "orders.emptyFiltered" : "orders.listEmpty")}</p>{filtered && <Button asChild variant="link"><Link to={base}>{t("orders.clear")}</Link></Button>}</div>} />
     <nav aria-label={t("orders.pages")} className="mt-6 flex items-center justify-end gap-2"><span className="mr-auto text-sm text-muted-foreground">{t("orders.page", { page: list.page })}</span>{list.page > 1 && <Button asChild variant="outline"><Link to={listUrl(list.page - 1)}>{t("orders.previous")}</Link></Button>}{list.page * list.pageSize < list.total && <Button asChild variant="outline"><Link to={listUrl(list.page + 1)}>{t("orders.next")}</Link></Button>}</nav>
   </section>;
+}
+
+function OrderStateIndicator({ kind, state, label }: { kind: "payment" | "delivery"; state: "pending" | "paid" | "shipped" | "delivered"; label: string }) {
+  const Icon = kind === "payment" ? Coins : Truck;
+  const Mark = state === "pending" ? Clock : state === "shipped" ? ArrowRight : Check;
+  return <details className="order-state-indicator">
+    <summary aria-label={label} title={label} className={cn("relative flex cursor-pointer list-none items-center justify-center rounded-[var(--radius-control)] focus-visible:outline-2 focus-visible:outline-ring", state === "pending" ? "bg-[var(--warning-surface)] text-[var(--warning)]" : state === "shipped" ? "bg-[var(--info-surface)] text-[var(--info)]" : "bg-[var(--success-surface)] text-[var(--success)]")}>
+      <Icon className="size-5" aria-hidden="true" />
+      <Mark className="absolute bottom-1 right-1 size-3 rounded-full bg-card" aria-hidden="true" />
+    </summary>
+    <span className="block max-w-40 pt-1 text-xs font-normal text-muted-foreground">{label}</span>
+  </details>;
 }
 
 function OrderFilterSheet({ filters, contacts, base }: Pick<Awaited<ReturnType<typeof loader>>, "filters" | "contacts" | "base">) {

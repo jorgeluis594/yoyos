@@ -45,14 +45,16 @@ test("seller scans units and independent states, searches orders and combines wo
     const row = (kind: string) => rows.filter({ hasText: `Pedido #${summaries.find((summary) => summary.kind === kind)!.number}` });
     await browserExpect(page.getByRole("navigation", { name: "Vistas de pedidos" }).getByRole("link", { name: "Todos", exact: true })).toHaveAttribute("aria-current", "page");
     await browserExpect(rows).toHaveCount(6);
-    await browserExpect(table.getByRole("columnheader")).toHaveText(["Cliente", "Fecha", "Unidades", "Total", "Pago", "Entrega"]);
+    await browserExpect(table.getByRole("columnheader")).toHaveText(["Cliente", "Fecha", "Unidades", "Total"]);
     await browserExpect(row("partial").locator('[data-column="itemCount"]')).toHaveText("5");
-    await browserExpect(row("partial").locator('[data-column="paymentStatus"]')).toContainText("Por cobrar: S/ 50.00");
-    await browserExpect(row("shipped").locator('[data-column="deliveryStatus"]')).toHaveText("Despachada");
+    await row("partial").locator("summary").first().focus();
+    await page.keyboard.press("Enter");
+    await browserExpect(row("partial").locator("details[open]")).toContainText("Por cobrar: S/ 50.00");
+    await row("partial").locator("summary").first().click();
+    await browserExpect(row("shipped").locator("summary").last()).toHaveAttribute("aria-label", "Entrega: Despachada");
     for (const kind of ["completed", "historical", "cancelled"]) {
       await browserExpect(row(kind).locator('[data-column="customer"]')).toContainText(kind === "cancelled" ? "Cancelado" : "Completado");
-      await browserExpect(row(kind).locator('[data-column="paymentStatus"]')).toHaveText("—");
-      await browserExpect(row(kind).locator('[data-column="deliveryStatus"]')).toHaveText("—");
+      await browserExpect(row(kind).locator("summary")).toHaveCount(0);
     }
     await page.getByRole("link", { name: "Por cobrar", exact: true }).click();
     await browserExpect(rows).toHaveCount(1);
@@ -91,9 +93,12 @@ test("seller scans units and independent states, searches orders and combines wo
         await page.screenshot({ path: `test-results/order-list-${name}-${theme}.png`, fullPage: true, animations: "disabled" });
       }
     }
+    await row("partial").locator("summary").first().click();
+    await browserExpect(row("partial").locator("details[open]")).toContainText("Por cobrar:");
+    await row("partial").locator("summary").first().click();
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto("/pt-BR/orders");
-    await browserExpect(page.getByRole("columnheader")).toHaveText(["Cliente", "Data", "Unidades", "Total", "Pagamento", "Entrega"]);
+    await browserExpect(page.getByRole("columnheader")).toHaveText(["Cliente", "Data", "Unidades", "Total"]);
     await browserExpect(page.getByText("Concluído", { exact: true })).toHaveCount(2);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: "test-results/order-list-desktop-pt.png", fullPage: true, animations: "disabled" });

@@ -70,13 +70,13 @@ test.each([
     expect(cell("itemCount")).toBe("5");
     if (status === "active") {
       const [payment, delivery] = expected.split(" · Entrega: ");
-      expect(cell("paymentStatus")).toContain(payment.replace("Pago pendiente", "Pendiente").replace("Pagamento pendente", "Pendente"));
-      expect(cell("deliveryStatus")).toBe(delivery);
-      if (paymentStatus === "pending") expect(cell("paymentStatus")).toContain(language === "es" ? "Por cobrar:" : "A receber:");
+      expect(cell("customer")).toContain(payment.replace("Pago pendiente", "Por cobrar:").replace("Pagamento pendente", "A receber:"));
+      expect(cell("customer")).toContain(delivery);
+      if (paymentStatus === "pending") expect(cell("customer")).toContain(language === "es" ? "Por cobrar:" : "A receber:");
     } else {
       expect(cell("customer")).toContain(expected);
-      expect(cell("paymentStatus")).toBe("—");
-      expect(cell("deliveryStatus")).toBe("—");
+      expect(cell("paymentStatus")).toBeUndefined();
+      expect(cell("deliveryStatus")).toBeUndefined();
     }
   } finally {
     router.dispose();
