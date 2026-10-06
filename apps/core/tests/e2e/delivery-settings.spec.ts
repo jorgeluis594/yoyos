@@ -27,6 +27,7 @@ test("seller configures store pickup, preserves a conflicting draft and explicit
     await page.getByRole("button", { name: "Guardar configuración" }).click();
     await browserExpect(page.getByRole("tab", { name: "Tienda", exact: false })).toHaveAttribute("aria-selected", "true");
     await browserExpect(page.getByLabel("Nombre del punto de recojo")).toBeFocused();
+    await browserExpect(page.getByLabel("Nombre del punto de recojo")).toHaveAttribute("aria-invalid", "true");
     await page.getByLabel("Nombre del punto de recojo").fill("Tienda principal");
     await page.getByLabel("Dirección", { exact: true }).fill("Av. Lima 123");
     await page.getByLabel("Indicaciones (opcional)").fill("Puerta lateral");
@@ -88,6 +89,7 @@ test("seller configures store pickup, preserves a conflicting draft and explicit
     await page.getByRole("tab", { name: "Loja", exact: false }).click();
     await page.getByRole("button", { name: "Salvar configuração" }).click();
     await browserExpect(page.getByLabel("Nome da transportadora 1")).toBeFocused();
+    await browserExpect(page.getByLabel("Nome da transportadora 1")).toHaveAttribute("aria-invalid", "true");
     await page.getByLabel("Nome da transportadora 1").fill("Discard");
     await page.getByRole("button", { name: "Adicionar transportadora" }).click();
     await page.getByLabel("Nome da transportadora 2").fill("Active courier");

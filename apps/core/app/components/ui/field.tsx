@@ -10,6 +10,10 @@ function Field({ className, ...props }: React.ComponentProps<typeof FieldPrimiti
   return <FieldPrimitive.Root data-slot="field" className={cn("flex min-w-0 flex-col gap-2", className)} {...props} />;
 }
 
+function FieldGroup({ className, ...props }: React.ComponentProps<"div">) {
+  return <div data-slot="field-group" className={cn("flex min-w-0 flex-col gap-4", className)} {...props} />;
+}
+
 function FieldLabel({ className, ...props }: React.ComponentProps<typeof FieldPrimitive.Label>) {
   return <FieldPrimitive.Label data-slot="field-label" className={cn("text-sm font-medium", className)} {...props} />;
 }
@@ -18,4 +22,4 @@ function FieldError({ className, ...props }: React.ComponentProps<"div">) {
   return <div data-slot="field-error" role="alert" className={cn("text-sm text-destructive", className)} {...props} />;
 }
 
-export { Field, FieldLabel, FieldError };
+export { Field, FieldGroup, FieldLabel, FieldError };
