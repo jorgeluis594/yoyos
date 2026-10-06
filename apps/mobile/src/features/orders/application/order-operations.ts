@@ -30,6 +30,8 @@ export type ConfirmOrderOutcome =
 export type OrderListCriteria = Readonly<{
   page: number;
   customer: { kind: "all" } | { kind: "general_public" } | { kind: "contact"; contactId: string };
+  search?: string;
+  view?: "all" | "unpaid" | "undelivered";
   fromDay?: string;
   throughDay?: string;
 }>;
@@ -70,6 +72,7 @@ function mixedListRequest(criteria: OrderListCriteria): Result<ListOrderAggregat
       (criteria.fromDay && criteria.throughDay && criteria.fromDay > criteria.throughDay))
     return err({ code: "INVALID_INPUT", message: "Invalid order days" });
   const parsed = listOrderAggregatesSchema.safeParse({ page: criteria.page, customer: criteria.customer.kind,
+    ...(criteria.search ? { search: criteria.search.trim() } : {}), ...(criteria.view ? { view: criteria.view } : {}),
     ...(criteria.customer.kind === "contact" ? { contactId: criteria.customer.contactId } : {}),
     ...(criteria.fromDay ? { createdFrom: limaMidnightUtc(criteria.fromDay) } : {}),
     ...(criteria.throughDay ? { createdBefore: limaMidnightUtc(nextCalendarDay(criteria.throughDay)) } : {}),

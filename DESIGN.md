@@ -143,6 +143,14 @@ The web catalog lives in `apps/core/app/components/ui/` (page layout, form primi
 | Active filter | `accent` background, `accent-foreground` text, selection marker, and visible removal mechanism. |
 | Dialog/panel | Clear title, organized content and actions; restores focus on close on the web and respects back/keyboard behavior on mobile. |
 
+### Native orders list
+
+The implemented `apps/mobile/src/features/orders/presentation/order-history-screen.tsx` applies the shared light/dark palette through the native theme adapter. Its compact list recipe uses a neutral canvas, flat rows and subtle separators; caramel identifies the creation action and selected filters. Payment badges pair semantic text with matching surfaces, while delivery stays neutral and explicit. Completed/cancelled orders use a terminal label.
+
+Keep customer and tabular amount prominent, order number/time secondary, and independent status words below. Allow headings, amounts and badges to wrap as text grows. Search and quick filters stay above the list; customer and creation-date fields live in a native modal with separate headings. Preserve 48dp minimum controls, safe areas, native symbols, tabs and back behavior. Rounded pills belong to this list's action/filter/status recipe, not a replacement for the standard control shape.
+
+Android light/dark and enlarged-text evidence is recorded in the [native orders surface brief](.impeccable/surfaces/apps-mobile-src-features-orders-presentation-order-history-screen-tsx.md), including exact surface measurements and review limits. iOS and tablet visual acceptance remain open. This recipe records the orders implementation only.
+
 ### States and interaction
 
 - **Hover:** pointer only; primary/destructive have dedicated tokens. Secondary and ghost use the accent pair. Component size stays unchanged.
