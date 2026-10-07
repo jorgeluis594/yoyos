@@ -11,10 +11,11 @@ vi.mock("@core/src/shared/infrastructure/persistance", () => ({ withinTransactio
   requireNoActiveTransaction: () => undefined,
   withTenantIsolation: (_company: string, work: () => unknown) => work(),
   getCompanyId: () => "00000000-0000-4000-8000-000000000003" }));
+vi.mock("@core/src/features/delivery-settings", () => ({ deliverySettings: { get: async () => ok({ version: 0, home: { enabled: false }, agency: { enabled: false }, couriers: [], store: { enabled: false, pickupPoint: null } }) } }));
 const { findCheckoutOrderForUpdate } = vi.hoisted(() => ({ findCheckoutOrderForUpdate: vi.fn() }));
 vi.mock("@core/src/features/orders/infrastructure/checkout-repository", () => ({
   findCheckoutOrderForUpdate, findCheckoutOrder: vi.fn(), saveCheckoutEnabled: async () => ok(null),
-  saveCheckoutBuyer: async () => ok(null), saveCheckoutConfirmed: async () => ok(null),
+  saveCheckoutDeliveryRequest: async () => ok(null), saveCheckoutBuyer: async () => ok(null), saveCheckoutConfirmed: async () => ok(null),
 }));
 vi.mock("@core/src/features/orders/infrastructure/order-repository", () => ({
   allocateOrderNumber: async () => ok(1001 as OrderNumber), orderExists: async () => ok(false), savePendingOrder: async () => ok(null), savePayment: async () => ok(null),
@@ -62,7 +63,7 @@ test("checkout does not announce transitions before the outer commit succeeds", 
   if (!buyer.success) throw new Error("Invalid fixture");
   const total = { amount: 1, currency: "PEN" as const };
   const order = { id: input.id, companyId: context.companyId, companyName: "Store", number: 1001,
-    buyer: null, items: [], itemsTotal: total, total, cancelled: false,
+    delivery: null, checkoutDeliveryRequest: null, deliveryStatus: "pending", deliveryCharge: total, buyer: null, items: [], itemsTotal: total, total, cancelled: false,
     checkoutEnabledAt: null, checkoutConfirmedAt: null };
   try {
     for (const operation of ["enable", "confirm"] as const) {

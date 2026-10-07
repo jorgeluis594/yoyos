@@ -11,7 +11,7 @@ const paymentAt = new Date("2026-09-30T12:00:00Z");
 const money = (amount: number) => ({ amount, currency: "PEN" as const });
 const order = (): OrderAggregate => ({
   number: 1001 as OrderNumber, id: id(1) as OrderId, companyId: id(2) as CompanyId, sellerId: "seller" as UserId,
-  buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, createdAt, deliveredAt: null, completedAt: null, cancelled: false,
+  buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, checkoutDeliveryRequest: null, createdAt, deliveredAt: null, completedAt: null, cancelled: false,
   items: [{ id: id(3) as OrderItemId, variantId: id(4) as VariantId, productName: "Item", variantAttributes: {}, sku: null,
     quantity: 1 as PositiveInteger, unitPrice: money(10), subtotal: money(10) }],
   payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false,

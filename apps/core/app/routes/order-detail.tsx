@@ -1,10 +1,11 @@
+import { CheckoutDeliveryQuote } from "@core/src/features/orders/presentation/checkout-delivery-quote";
 import { fulfillmentBlock } from "@shared/orders-fulfillment";
 import { PaymentFields, type PaymentDraft } from "@core/src/features/orders/presentation/payment-fields";
 import { useState } from "react";
 import { ArrowLeft, ChevronDown, CircleCheck, CircleX, CreditCard, ExternalLink, Truck } from "lucide-react";
 import { Card } from "@core/app/components/ui/card";
 import { z } from "zod";
-import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
+import { checkoutLinkSchema, quoteCheckoutDeliverySchema } from "@shared/contracts/order-checkout";
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import { Input } from "@core/app/components/ui/input";
 import { Field, FieldLabel } from "@core/app/components/ui/field";
@@ -82,9 +83,18 @@ export async function action({ params, context, request }: ActionFunctionArgs) {
   const id = z.uuid().safeParse(params.orderId);
   const fields = await request.formData();
   const operation = fields.get("operation");
-  if (!id.success || ([...fields].length !== 0 && operation !== "confirm" && operation !== "void" && operation !== "ship" && operation !== "deliver")) {
+  if (!id.success || ([...fields].length !== 0 && operation !== "confirm" && operation !== "void" && operation !== "ship" && operation !== "deliver" && operation !== "quote-delivery")) {
     bindRequestOperation({ outcome: "invalid_input" });
     return data({ url: null, success: false, error: true }, { status: 422, headers: headers() });
+  }
+  if (operation === "quote-delivery") {
+    const current = await orders.getAggregate(id.data as OrderId, { companyId: access.company.id, userId: access.user.id });
+    if (!current.success) return { operation, url: null, success: false, error: "saveError" } as const;
+    const rawCost = fields.get("cost");
+    const parsed = quoteCheckoutDeliverySchema.safeParse({ cost: { amount: typeof rawCost === "string" && rawCost.trim() ? Number(rawCost) : NaN, currency: current.data.total.currency }, chargeDeliveryToCustomer: fields.get("charge") === "on" });
+    if (!parsed.success) return { operation, url: null, success: false, error: "invalid" } as const;
+    const result = await orders.quoteCheckoutDelivery({ ...parsed.data, orderId: id.data as OrderId }, { companyId: access.company.id, userId: access.user.id });
+    return { operation, url: null, success: result.success, error: result.success ? false : "saveError" } as const;
   }
   if (operation === "ship" || operation === "deliver") {
     try {
@@ -131,7 +141,7 @@ export default function OrderDetail() {
   const result = actionData && "operation" in actionData && actionData.operation === "delivery" ? actionData : undefined;
   const fulfillment = actionData && "operation" in actionData && (actionData.operation === "ship" || actionData.operation === "deliver") ? actionData : undefined;
   const navigation = useNavigation();
-  const editable = !order.cancelled && order.deliveryStatus === "pending" && order.completedAt === null;
+  const editable = !order.checkoutDeliveryRequest && !order.cancelled && order.deliveryStatus === "pending" && order.completedAt === null;
   const [editingDelivery, setEditingDelivery] = useState(false);
   const checkout = useFetcher<typeof action>();
   const [copyMessage, setCopyMessage] = useState<"copied" | "copyManually" | null>(null);
@@ -159,6 +169,8 @@ export default function OrderDetail() {
         </div>
       </div>
     </header>
+
+    {order.checkoutDeliveryRequest && !order.cancelled && <CheckoutDeliveryQuote delivery={order.checkoutDeliveryRequest} currency={order.total.currency} />}
 
     <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
       <div className="contents xl:flex xl:min-w-0 xl:flex-col xl:gap-4">
@@ -270,7 +282,7 @@ function PaymentForm({ paymentId, source, currency, balance }: { paymentId: stri
     <input type="hidden" name="operation" value="confirm" /><input type="hidden" name="source" value={source} />
     <input type="hidden" name="paymentId" value={paymentId} /><input type="hidden" name="currency" value={currency} />
     <PaymentFields value={value} onChange={setValue} />
-    <Button type="submit" disabled={navigation.state !== "idle"} className="sm:col-start-3 sm:row-start-1">{t("orders.confirmPayment")}</Button>
+    <Button type="submit" disabled={navigation.state !== "idle"} className="h-control sm:col-start-3 sm:row-start-1">{t("orders.confirmPayment")}</Button>
   </Form>;
 }
 

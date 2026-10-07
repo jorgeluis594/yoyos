@@ -1,8 +1,9 @@
+import { initialDeliverySettings } from "@core/src/features/delivery-settings/domain/delivery-settings";
 import type { CreateCompleteOrderInput } from "@core/src/features/orders/application/create-complete-order";
 import { log, safeError } from "@core/src/shared/infrastructure/logger";
 import { parseBuyer, type CheckoutAccess } from "@core/src/features/orders/domain/checkout";
 import { confirmOrderCheckout } from "@core/src/features/orders/application/checkout";
-import { findCheckoutOrderForUpdate, saveCheckoutBuyer, saveCheckoutConfirmed } from "@core/src/features/orders/infrastructure/checkout-repository";
+import { findCheckoutOrderForUpdate, saveCheckoutBuyer, saveCheckoutConfirmed, saveCheckoutDeliveryRequest } from "@core/src/features/orders/infrastructure/checkout-repository";
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { Prisma, PrismaClient } from "@prisma/client";
@@ -917,6 +918,7 @@ test("checkout rejects changed totals and rolls back buyer writes when confirmat
       expect(await orders.confirmCheckout({ ...checkoutInput(), expectedTotal: { amount: 10, currency: "PEN" } }, access)).toMatchObject({ error: { code: "TOTAL_CHANGED" } });
       expect(await orders.confirmCheckout({ ...checkoutInput(), expectedTotal: { amount: 0.1, currency: "USD" } }, access)).toMatchObject({ error: { code: "TOTAL_CHANGED" } });
       const failed = await withTenantIsolation(f.companyId, () => confirmOrderCheckout(checkoutInput(), access, new Date(), {
+        getDeliverySettings: async () => ok(initialDeliverySettings()), saveDeliveryRequest: saveCheckoutDeliveryRequest,
         transaction: (_company, work) => withinTransaction(work), findOrderForUpdate: findCheckoutOrderForUpdate, saveBuyer: saveCheckoutBuyer,
         saveConfirmed: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "Injected failure after buyer write" }),
       }));
@@ -1137,6 +1139,7 @@ test("confirmation committed first survives a concurrent total update or cancell
           await release.promise;
           return found;
         },
+        getDeliverySettings: async () => ok(initialDeliverySettings()), saveDeliveryRequest: saveCheckoutDeliveryRequest,
         saveBuyer: saveCheckoutBuyer, saveConfirmed: saveCheckoutConfirmed,
       }));
       await locked.promise;
@@ -1360,5 +1363,34 @@ test("concurrent complete creations with the same IDs save and deduct only once"
       expect(await prisma.payment.count()).toBe(1);
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
     });
+  } finally { await f.cleanup(); }
+});
+
+test("buyer delivery waits for an isolated seller quote before payment and preserves amounts on invalid quotes", async () => {
+  const f = await fixture();
+  try {
+    const { access, context } = await pendingCheckout(f);
+    const run = <T>(work: () => Promise<T>) => withTenantIsolation(f.companyId, async () => await work());
+    await run(() => deliverySettings.save({ expectedVersion: 0, home: { enabled: true }, agency: { enabled: false }, couriers: [], store: { enabled: false, pickupPoint: null } }, context));
+    await run(() => orders.enableCheckout(access.orderId, context));
+    const paymentAccess = { ...access, kind: "buyer" as const };
+    const report = { paymentId: randomUUID() as PaymentId, receiptImageId: randomUUID() as ImageId };
+    expect(await run(() => orders.reportPayment(report, paymentAccess))).toMatchObject({ error: { code: "INVALID_TRANSITION" } });
+    const delivery = { method: "home" as const, recipient: { name: "Ana", phone: "+51987654321", identity: { kind: "absent" as const } }, destination: { address: "Av. Lima 123", district: "Lima", instructions: null } };
+    expect(await orders.confirmCheckout({ ...checkoutInput(), delivery }, access)).toMatchObject({ data: { deliveryQuotePending: true, total: { amount: 0.1 } } });
+    expect(await run(() => orders.reportPayment(report, paymentAccess))).toMatchObject({ error: { code: "INVALID_TRANSITION" } });
+    const before = await run(() => orderDetail(access.orderId, f));
+    const quote = { orderId: access.orderId, cost: { amount: 10, currency: "PEN" as const }, chargeDeliveryToCustomer: true };
+    for (const cost of [{ amount: -1, currency: "PEN" as const }, { amount: 10, currency: "USD" as const }]) {
+      expect(await run(() => orders.quoteCheckoutDelivery({ ...quote, cost }, context))).toMatchObject({ success: false });
+      expect(await run(() => orderDetail(access.orderId, f))).toEqual(before);
+    }
+    const otherCompanyId = randomUUID() as CompanyId;
+    expect(await withTenantIsolation(otherCompanyId, () => orders.quoteCheckoutDelivery(quote, { ...context, companyId: otherCompanyId })))
+      .toMatchObject({ error: { code: "ORDER_NOT_FOUND" } });
+    expect(await run(() => orders.quoteCheckoutDelivery(quote, context))).toMatchObject({ data: { checkoutDeliveryRequest: null, delivery, deliveryCharge: { amount: 10 }, total: { amount: 10.1 } } });
+    expect(await orders.getCheckout(access)).toMatchObject({ data: { deliveryQuotePending: false, total: { amount: 10.1 } } });
+    await run(() => prisma.image.create({ data: { id: report.receiptImageId, storageKey: `test/${report.receiptImageId}` } }));
+    expect(await run(() => orders.reportPayment(report, paymentAccess))).toMatchObject({ data: { payments: [{ status: "reported", amount: null }] } });
   } finally { await f.cleanup(); }
 });

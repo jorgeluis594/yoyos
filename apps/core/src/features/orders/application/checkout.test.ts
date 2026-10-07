@@ -1,3 +1,4 @@
+import { initialDeliverySettings } from "@core/src/features/delivery-settings/domain/delivery-settings";
 import { expect, test } from "vitest";
 import { err, ok } from "@shared/functional";
 import { confirmOrderCheckout, enableOrderCheckout, getOrderCheckout, type CheckoutDependencies } from "@core/src/features/orders/application/checkout";
@@ -14,7 +15,7 @@ const number = parseOrderNumber(1001);
 if (!parsedBuyer.success || !number.success) throw new Error("Invalid test data");
 const buyer = parsedBuyer.data;
 const total = { amount: 120, currency: "PEN" as const };
-const base: CheckoutOrder = {
+const base: CheckoutOrder = { delivery: null, checkoutDeliveryRequest: null, deliveryStatus: "pending", deliveryCharge: { amount: 2, currency: "PEN" },
   ...access, id: access.orderId, companyName: "Store", number: number.data, buyer: null,
   items: [{ id: uuid(3) as OrderItemId, variantId: uuid(4) as VariantId, productName: "Product", variantAttributes: {}, sku: null,
     quantity: 2 as PositiveInteger, unitPrice: { amount: 50, currency: "PEN" }, subtotal: { amount: 100, currency: "PEN" } }],
@@ -26,6 +27,8 @@ function fixture(initial: CheckoutOrder | null = base) {
   let order = initial ? { ...initial } : null;
   const writes: string[] = [];
   const deps: CheckoutDependencies = {
+    getDeliverySettings: async () => ok(initialDeliverySettings()),
+    saveDeliveryRequest: async (_access, delivery) => { order = { ...order!, checkoutDeliveryRequest: delivery }; return ok(null); },
     transaction: async (_companyId, work) => work(),
     findOrder: async () => ok(order),
     findOrderForUpdate: async () => ok(order),
@@ -49,7 +52,7 @@ test("public view exposes only checkout data and uses the order total, not a rec
   const result = await getOrderCheckout(access, f.deps);
   expect(result).toEqual({ success: true, data: { companyName: "Store", number: 1001, buyer: { name: null, phone: buyer.phone },
     items: [{ productName: "Product", variantAttributes: {}, sku: null, quantity: 2, unitPrice: { amount: 50, currency: "PEN" }, subtotal: base.itemsTotal }],
-    itemsTotal: base.itemsTotal, total, state: { kind: "pending" } } });
+    itemsTotal: base.itemsTotal, total, delivery: null, deliveryQuotePending: false, deliveryCharge: base.deliveryCharge, state: { kind: "pending" } } });
   expect(f.writes).toEqual([]);
 });
 
@@ -111,4 +114,22 @@ test("technical failures propagate without a false success or subsequent writes"
   expect(await confirmOrderCheckout({ buyer, expectedTotal: total }, access, now, { ...f.deps, saveBuyer: async () => failure })).toEqual(failure);
   expect(f.writes).toEqual([]);
   expect(await confirmOrderCheckout({ buyer, expectedTotal: total }, access, now, { ...f.deps, transaction: async () => failure })).toEqual(failure);
+});
+
+test("delivery selection requests a quote without changing amounts and validates enabled methods", async () => {
+  const f = fixture();
+  const deps = { ...f.deps, getDeliverySettings: async () => ok({ ...initialDeliverySettings(), home: { enabled: true } }) };
+  const delivery = { method: "home" as const, recipient: { name: "Ana", phone: "+51987654321", identity: { kind: "absent" as const } },
+    destination: { address: "Av. Lima 123", district: "Miraflores", instructions: null } };
+  expect(await confirmOrderCheckout({ buyer, expectedTotal: total }, access, now, deps)).toMatchObject({ error: { code: "INVALID_DELIVERY" } });
+  expect(await confirmOrderCheckout({ buyer, expectedTotal: total, delivery: { method: "store", recipient: delivery.recipient } }, access, now, deps))
+    .toMatchObject({ error: { code: "DELIVERY_METHOD_DISABLED" } });
+  expect(f.writes).toEqual([]);
+  expect(await confirmOrderCheckout({ buyer, expectedTotal: total, delivery }, access, now, deps))
+    .toMatchObject({ data: { checkout: { deliveryQuotePending: true, delivery, total } } });
+  expect(f.stored()).toMatchObject({ total, delivery: null, deliveryCharge: base.deliveryCharge,
+    checkoutDeliveryRequest: { ...delivery, recordedBy: { kind: "buyer" } } });
+  const unchanged = fixture({ ...base, delivery: { ...delivery, recordedBy: { kind: "buyer" } } });
+  expect(await confirmOrderCheckout({ buyer, expectedTotal: total, delivery }, access, now, { ...unchanged.deps, getDeliverySettings: deps.getDeliverySettings }))
+    .toMatchObject({ data: { checkout: { deliveryQuotePending: false } } });
 });
