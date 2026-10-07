@@ -3,11 +3,11 @@ import { err, ok } from "@shared/functional";
 import { initialDeliverySettings } from "@core/src/features/delivery-settings/domain/delivery-settings";
 import { parseDeliveryZone } from "@core/src/features/delivery-settings/domain/delivery-zone";
 import type { QuotationWithRates } from "@core/src/features/delivery-settings/domain/quotation";
-import { createQuotation, type CreateQuotationDependencies, type QuotationConfiguration } from "@core/src/features/delivery-settings/application/create-quotation";
+import { createQuotation, type CreateQuotationDependencies, type DeliveryConfiguration } from "@core/src/features/delivery-settings/application/create-quotation";
 
 const id = (value: number) => `00000000-0000-4000-8000-${String(value).padStart(12, "0")}`;
 const input = { companyId: id(1), country: "PE", districtCode: "150122", address: null, instructions: null };
-const configuration = (): QuotationConfiguration => {
+const configuration = (): DeliveryConfiguration => {
   const zone = parseDeliveryZone({ id: id(2), name: "Zone", method: "home", enabled: true, districtCodes: ["150122"], price: { amount: 8, currency: "PEN" } }, "PEN");
   if (!zone.success) throw new Error(zone.error.message);
   return { country: "PE", currency: "PEN", settings: { ...initialDeliverySettings(), home: { enabled: true }, version: 7 }, zones: [zone.data] };

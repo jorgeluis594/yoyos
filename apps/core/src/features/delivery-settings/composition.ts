@@ -1,14 +1,16 @@
 import { isPersistenceFailure } from "@core/src/shared/infrastructure/persistence-error";
 import { randomUUID } from "node:crypto";
 import { err } from "@shared/functional";
-import type { Result } from "@shared/result";
+import type { AppError, Result } from "@shared/result";
 import { afterTransactionCommit, getCompanyId, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { getDeliverySettings, saveDeliverySettings, type DeliverySettingsAccess, type SaveDeliverySettingsInput } from "@core/src/features/delivery-settings/application/delivery-settings";
 import { readDeliverySettings, writeDeliverySettings } from "@core/src/features/delivery-settings/infrastructure/delivery-settings-repository";
-import type { CourierId, DeliverySettingsError, DeliverySettingsReadError } from "@core/src/features/delivery-settings/domain/delivery-settings";
+import type { CourierId, DeliverySettingsReadError } from "@core/src/features/delivery-settings/domain/delivery-settings";
+import { getDeliveryZones, saveDeliveryZones, type SaveDeliveryZonesInput } from "@core/src/features/delivery-settings/application/delivery-zones";
+import { readDeliveryConfiguration, writeDeliveryZones } from "@core/src/features/delivery-settings/infrastructure/delivery-zones-repository";
 
-async function settingsTransaction<T, E extends DeliverySettingsError>(context: DeliverySettingsAccess, operation: string, expectedVersion: number | undefined,
+async function settingsTransaction<T, E extends AppError>(context: DeliverySettingsAccess, operation: string, expectedVersion: number | undefined,
   work: () => Promise<Result<T, E>>): Promise<Result<T, E | DeliverySettingsReadError>> {
   if (getCompanyId() !== context.companyId) throw new Error("Settings company differs from tenant context");
   try { return await withinTransaction(work); }
@@ -21,6 +23,13 @@ async function settingsTransaction<T, E extends DeliverySettingsError>(context: 
 }
 
 export const deliverySettings = {
+  getZones: (context: DeliverySettingsAccess) => settingsTransaction(context, "get_delivery_zones", undefined,
+    () => getDeliveryZones(context, companyId => readDeliveryConfiguration(companyId, "shared"))),
+  saveZones: (input: SaveDeliveryZonesInput, context: DeliverySettingsAccess) => saveDeliveryZones(input, context, {
+    transaction: (_companyId, work) => settingsTransaction(context, "save_delivery_zones", input.expectedVersion, work),
+    readForUpdate: companyId => readDeliveryConfiguration(companyId, "exclusive"),
+    saveSettings: writeDeliverySettings, saveZones: writeDeliveryZones, generateZoneId: randomUUID,
+  }),
   get: (context: DeliverySettingsAccess, operation = "get_delivery_settings") => settingsTransaction(context, operation, undefined,
     () => getDeliverySettings(context, (companyId) => readDeliverySettings(companyId, "shared", undefined, operation))),
   async save(input: SaveDeliverySettingsInput, context: DeliverySettingsAccess) {

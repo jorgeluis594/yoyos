@@ -12,12 +12,12 @@ export type CreateQuotationInput = Readonly<{
 }>;
 export type QuotationStorageError = Readonly<{ code: "SERVICE_UNAVAILABLE" | "INTERNAL_ERROR"; message: string }>;
 export type CreateQuotationError = QuotationError | QuotationStorageError;
-export type QuotationConfiguration = Readonly<{
+export type DeliveryConfiguration = Readonly<{
   country: string; currency: Currency; settings: DeliverySettings; zones: readonly DeliveryZone[];
 }>;
 export type CreateQuotationDependencies = Readonly<{
   transaction: <T>(companyId: CompanyId, work: () => Promise<Result<T, CreateQuotationError>>) => Promise<Result<T, CreateQuotationError>>;
-  readConfigurationForShare: (companyId: CompanyId) => Promise<Result<QuotationConfiguration, QuotationStorageError>>;
+  readConfigurationForShare: (companyId: CompanyId) => Promise<Result<DeliveryConfiguration, QuotationStorageError>>;
   insertQuotationWithRates: (value: QuotationWithRates) => Promise<Result<null, QuotationStorageError>>;
   generateId: () => string;
   now: () => Date;
