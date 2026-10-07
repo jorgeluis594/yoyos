@@ -31,6 +31,12 @@ const optionalText = (max: number) => z.string().trim().max(max).nullable().opti
 const destinationSchema = z.strictObject({
   country: z.string(), districtCode: z.string(), address: optionalText(500), instructions: optionalText(1000),
 });
+const companyIdSchema = z.uuid().transform(value => value as CompanyId);
+
+export function parseQuotationCompanyId(value: string): Result<CompanyId, QuotationError> {
+  const parsed = companyIdSchema.safeParse(value);
+  return parsed.success ? ok(parsed.data) : err({ code: "INVALID_INPUT", message: "Invalid quotation company identity" });
+}
 
 export function parseQuotationDestination(value: unknown): Result<QuotationDestination, QuotationDestinationError> {
   const parsed = destinationSchema.safeParse(value);
@@ -60,7 +66,7 @@ export type BuildQuotationInput = Readonly<{
 export function buildQuotationWithRates(input: BuildQuotationInput, currency: Currency): Result<QuotationWithRates, QuotationError> {
   const destination = parseQuotationDestination(input.destination);
   if (!destination.success) return destination;
-  const header = z.strictObject({ id: z.uuid(), companyId: z.uuid(), createdAt: z.date(), rateIds: z.array(z.uuid()) }).safeParse({
+  const header = z.strictObject({ id: z.uuid(), companyId: companyIdSchema, createdAt: z.date(), rateIds: z.array(z.uuid()) }).safeParse({
     id: input.id, companyId: input.companyId, createdAt: input.createdAt, rateIds: input.rateIds,
   });
   if (!header.success) return err({ code: "INVALID_INPUT", message: "Quotation identities and timestamp must be valid" });
