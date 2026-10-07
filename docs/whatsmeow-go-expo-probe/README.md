@@ -89,7 +89,25 @@ Es una extensión candidata de la dependencia; no existe en la versión original
 
 `check-context-hook.sh` ejecuta también `TestRecoveryStorageFailure`. Se prueban las rutas de lectura del buffer, transacción, acceso Signal, error compuesto, limpieza y panic del hook/recepción/consumidor, con ACK síncrono y asíncrono. Un control de protocolo conserva su ACK, evento y contador de reintentos. Las pruebas usan un cliente desconectado: detectan intentos de ACK/receipt mediante los avisos de envío fallido y observan eventos y reintentos; no prueban paquetes en una conexión real. Para escritura/commit se comprueba aparte la propagación de la marca con plaintext sintético. Al retirar la guarda de fallos locales, el caso de lectura falla por intentar confirmar o reintentar.
 
-Esta política depende de que el adaptador marque los errores. No clasifica automáticamente errores de stores ajenos ni implementa rollback, pausa global o descarte del estado en memoria. Quedan por auditar las operaciones auxiliares que whatsmeow registra y absorbe, como migraciones PN/LID y procesamiento posterior al descifrado. La integración deberá propagar sus fallos y reportar también los panic al controlador para descartar estado y detener/reiniciar el cliente con seguridad.
+Esta política depende de que el adaptador marque los errores. No clasifica automáticamente errores de stores ajenos ni implementa rollback, pausa global o descarte del estado en memoria.
+
+## Propagación de fallos auxiliares y cierre de recepción
+
+El patch devuelve ahora los errores de lectura LID, migración PN/LID y escritura de secretos del mensaje. En la recepción v2, un fallo de secretos detiene el proceso antes del evento `Message`, conservando el contenido del buffer. La ausencia válida de LID conserva su comportamiento. Se adaptaron todos los callers de los helpers modificados, incluyendo envío, reintentos y `DangerousInternalClient`; algunas firmas de esa API interna cambian en el candidato. Esto mantiene consistente el cambio de dependencia y no añade un método público de envío a Expo.
+
+También propone un callback interno Go:
+
+```go
+MessageReceiveFinished func(context.Context, *types.MessageInfo, error)
+```
+
+Se invoca una vez al salir de `decryptMessages`, incluso cuando falla la preparación o se recupera un panic con el buffer activado. Recibe errores locales conservando la causa, `ErrMessageReceivePanic` para panic de recepción y `ErrMessageDeliveryFailed` para fallo del consumidor. El callback no deberá bloquear, lanzar panic ni conservar punteros prestados. Un error nulo indica que esa llamada terminó por una ruta normal; no demuestra entrega a Expo ni un ACK enviado, especialmente con ACK asíncrono.
+
+El controlador podrá usar `PreDecryptMessage` para admitir una operación y el callback final para cerrar esa admisión, reportar el fallo y despertar su proceso de parada. Liberará la admisión solo si fue adquirida. La desconexión, espera de operaciones y restauración se harán fuera de esos callbacks. La integración debe registrar también el fallo en el propio store, porque existen tareas y escrituras anteriores al hook o fuera de la recepción.
+
+Los tests comprueban notificación única en las rutas cubiertas, rechazo previo al descifrado tras errores PN/LID, causa y clasificación conservadas, y ausencia de entrega/limpieza/ACK ante fallo de secretos v2. Los errores auxiliares simulados son errores de store sin marca previa; el helper los clasifica. Estas comprobaciones usan stores controlados y no implementan el controlador ni prueban migración real, v3, persistencia, concurrencia entre clientes o recuperación tras caídas.
+
+La auditoría continúa pendiente para `StoreLIDPNMapping` previo al hook, grupos, tareas de sincronización y partes de protocolo/v3. El formato recuperable deberá permitir repetir el procesamiento necesario de secretos/protocolo antes de entregar el pendiente a Expo; el callback posterior no amplía la transacción de descifrado ni demuestra que todas las escrituras formen ya un único commit.
 
 El patch queda como propuesta reproducible; todavía no elegimos mantener un fork ni integrarlo en el módulo móvil. La enumeración de pendientes será del almacenamiento nativo propio. Siguen pendientes la serialización por hijo/ciphertext, la reconstrucción de eventos v2/v3, el almacenamiento cifrado y las pruebas de caída.
 

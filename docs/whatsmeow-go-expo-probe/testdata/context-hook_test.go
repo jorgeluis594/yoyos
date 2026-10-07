@@ -12,10 +12,12 @@ import (
 	"go.mau.fi/libsignal/protocol"
 	"go.mau.fi/libsignal/signalerror"
 	waBinary "go.mau.fi/whatsmeow/binary"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
+	"google.golang.org/protobuf/proto"
 )
 
 type recoveryContextKey struct{}
@@ -90,6 +92,12 @@ func TestRecoveryContextHook(t *testing.T) {
 			client := NewClient(&store.Device{EventBuffer: buffer, Sessions: sessions}, nil)
 			client.EnableDecryptedEventBuffer = true
 			calls := 0
+			finished := 0
+			var finishErr error
+			client.MessageReceiveFinished = func(_ context.Context, _ *types.MessageInfo, errorValue error) {
+				finished++
+				finishErr = errorValue
+			}
 			if outcome != "no-hook" {
 				client.PreDecryptMessage = func(ctx context.Context, got *types.MessageInfo, packet *waBinary.Node) (context.Context, error) {
 					calls++
@@ -104,8 +112,11 @@ func TestRecoveryContextHook(t *testing.T) {
 				}
 			}
 			client.decryptMessages(context.Background(), &info, &node)
+			if finished != 1 {
+				t.Fatal("receive completion must be reported once")
+			}
 			if outcome == "error" || outcome == "nil-context" {
-				if calls != 1 || buffer.lookup != nil || buffer.transaction != nil || sessions.seen != nil {
+				if calls != 1 || finishErr == nil || buffer.lookup != nil || buffer.transaction != nil || sessions.seen != nil {
 					t.Fatal("rejected hook must stop before buffer and session access")
 				}
 				return
@@ -139,11 +150,14 @@ func TestRecoveryContextHook(t *testing.T) {
 
 type receiveFailureStore struct {
 	store.NoopStore
-	phase   string
-	cleared bool
+	phase       string
+	cleared     bool
+	bufferReads int
+	cause       error
 }
 
 func (s *receiveFailureStore) GetBufferedEvent(context.Context, [32]byte) (*store.BufferedEvent, error) {
+	s.bufferReads++
 	switch s.phase {
 	case "lookup":
 		return nil, fmt.Errorf("lookup: %w", store.ErrLocalStorage)
@@ -152,8 +166,30 @@ func (s *receiveFailureStore) GetBufferedEvent(context.Context, [32]byte) (*stor
 	case "clear", "handler-panic":
 		// Conversation field containing "x", followed by one byte of padding.
 		return &store.BufferedEvent{Plaintext: []byte{0x0a, 0x01, 'x', 0x01}}, nil
+	case "message-secret":
+		payload, err := proto.Marshal(&waE2E.Message{Conversation: proto.String("x"),
+			MessageContextInfo: &waE2E.MessageContextInfo{MessageSecret: []byte{1}}})
+		if err != nil {
+			return nil, err
+		}
+		return &store.BufferedEvent{Plaintext: append(payload, 1)}, nil
 	}
 	return nil, nil
+}
+
+func (s *receiveFailureStore) GetLIDForPN(context.Context, types.JID) (types.JID, error) {
+	if s.phase == "lid-lookup" {
+		return types.EmptyJID, s.cause
+	}
+	return types.NewJID("sender", types.HiddenUserServer), nil
+}
+
+func (s *receiveFailureStore) MigratePNToLID(context.Context, types.JID, types.JID) error {
+	return s.cause
+}
+
+func (s *receiveFailureStore) PutMessageSecret(context.Context, types.JID, types.JID, types.MessageID, []byte) error {
+	return s.cause
 }
 
 func (s *receiveFailureStore) DoDecryptionTxn(ctx context.Context, fn func(context.Context) error) error {
@@ -215,16 +251,23 @@ func (l *receiveProbeLog) Errorf(format string, args ...any) {
 
 func TestRecoveryStorageFailure(t *testing.T) {
 	for _, synchronous := range []bool{true, false} {
-		for _, phase := range []string{"lookup", "transaction", "session", "mixed", "panic", "hook-panic", "clear", "handler-panic", "protocol"} {
+		for _, phase := range []string{"lookup", "transaction", "session", "mixed", "panic", "hook-panic", "clear", "handler-panic", "lid-lookup", "migration-alt", "migration-lookup", "message-secret", "protocol"} {
 			// The protocol control uses synchronous ACK so its attempt can be observed without waiting.
 			if phase == "protocol" && !synchronous {
 				continue
 			}
 			t.Run(fmt.Sprintf("%s/synchronous=%t", phase, synchronous), func(t *testing.T) {
 				info, node := recoveryProbeMessage()
-				storage := &receiveFailureStore{phase: phase}
+				cause := errors.New("auxiliary native storage failed")
+				storage := &receiveFailureStore{phase: phase, cause: cause}
 				log := &receiveProbeLog{Logger: waLog.Noop}
-				client := NewClient(&store.Device{EventBuffer: storage, Sessions: storage}, log)
+				client := NewClient(&store.Device{EventBuffer: storage, Sessions: storage, LIDs: storage, MsgSecrets: storage}, log)
+				if phase == "lid-lookup" || strings.HasPrefix(phase, "migration-") {
+					info.Sender = types.NewJID("sender", types.DefaultUserServer)
+					if phase == "migration-alt" {
+						info.SenderAlt = types.NewJID("sender", types.HiddenUserServer)
+					}
+				}
 				client.EnableDecryptedEventBuffer = true
 				client.SynchronousAck = synchronous
 				// Suppress retries in the protocol control; inspect that the counter stays unchanged on local failures.
@@ -235,6 +278,15 @@ func TestRecoveryStorageFailure(t *testing.T) {
 					}
 				}
 				var delivered, undecryptable int
+				finished := 0
+				var finishErr error
+				client.MessageReceiveFinished = func(_ context.Context, got *types.MessageInfo, err error) {
+					finished++
+					finishErr = err
+					if got.ID != info.ID {
+						t.Fatal("completion lost message identity")
+					}
+				}
 				client.AddEventHandler(func(evt any) {
 					switch evt.(type) {
 					case *events.Message:
@@ -247,11 +299,39 @@ func TestRecoveryStorageFailure(t *testing.T) {
 					}
 				})
 				client.decryptMessages(context.Background(), &info, &node)
+				if finished != 1 {
+					t.Fatal("receive completion must be reported once")
+				}
 				if phase == "protocol" {
-					if log.acks.Load() != 1 || undecryptable != 1 || client.messageRetries[info.ID] != 5 {
+					if finishErr != nil || log.acks.Load() != 1 || undecryptable != 1 || client.messageRetries[info.ID] != 5 {
 						t.Fatal("protocol error lost its existing retry/ACK handling")
 					}
 					return
+				}
+				if finishErr == nil {
+					t.Fatal("controller did not receive the failure")
+				}
+				if phase == "panic" || phase == "hook-panic" {
+					if !errors.Is(finishErr, ErrMessageReceivePanic) {
+						t.Fatal("panic was not classified")
+					}
+				} else if phase == "handler-panic" {
+					if !errors.Is(finishErr, ErrMessageDeliveryFailed) {
+						t.Fatal("consumer failure was not classified")
+					}
+				} else if !errors.Is(finishErr, store.ErrLocalStorage) {
+					t.Fatal("local storage classification was lost")
+				}
+				if phase == "lid-lookup" || strings.HasPrefix(phase, "migration-") || phase == "message-secret" {
+					if !errors.Is(finishErr, cause) {
+						t.Fatal("auxiliary storage cause was lost")
+					}
+					if phase != "message-secret" && storage.bufferReads != 0 {
+						t.Fatal("decryption continued after failed migration/lookup")
+					}
+					if storage.cleared {
+						t.Fatal("pending content was cleared after auxiliary failure")
+					}
 				}
 				if log.acks.Load() != 0 || log.receipts.Load() != 0 || undecryptable != 0 || client.messageRetries[info.ID] != 4 {
 					t.Fatal("local failure attempted a protocol acknowledgement or retry")
@@ -266,7 +346,7 @@ func TestRecoveryStorageFailure(t *testing.T) {
 				if phase == "handler-panic" && storage.cleared {
 					t.Fatal("panicking consumer caused pending content to be cleared")
 				}
-				if phase != "clear" && log.errors.Load() == 0 {
+				if phase != "clear" && phase != "lid-lookup" && !strings.HasPrefix(phase, "migration-") && phase != "message-secret" && log.errors.Load() == 0 {
 					t.Fatal("receive path was not exercised through its failure handler")
 				}
 			})

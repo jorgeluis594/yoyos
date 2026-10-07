@@ -1,17 +1,23 @@
 --- a/client.go
 +++ b/client.go
-@@ -85,6 +85,10 @@
+@@ -85,7 +85,15 @@
  	// If SynchronousAck is set, acks for messages will only be sent after all event handlers return.
  	SynchronousAck             bool
  	EnableDecryptedEventBuffer bool
+-	lastDecryptedBufferClear   time.Time
 +	// PreDecryptMessage prepares a context before message decryption. An error or nil
 +	// context stops processing without acknowledging the message. The hook must not
 +	// mutate info or node or retain their pointers. Configure before Connect.
 +	PreDecryptMessage func(context.Context, *types.MessageInfo, *waBinary.Node) (context.Context, error)
- 	lastDecryptedBufferClear   time.Time
++	// MessageReceiveFinished runs once after decryptMessages exits, including failed
++	// preparation and recovered panic. It must not block, panic or retain info.
++	// A nil error means processing finished, not that Expo persisted a message.
++	MessageReceiveFinished   func(context.Context, *types.MessageInfo, error)
++	lastDecryptedBufferClear time.Time
  
  	DisableLoginAutoReconnect bool
-@@ -983,6 +987,11 @@
+ 
+@@ -983,6 +991,11 @@
  		cli.eventHandlersLock.RUnlock()
  		err := recover()
  		if err != nil {
@@ -25,48 +31,207 @@
  	}()
 --- a/message.go
 +++ b/message.go
-@@ -317,10 +317,22 @@
- func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo, node *waBinary.Node) {
+@@ -292,7 +292,9 @@
+ 		cli.Log.Warnf("Error unmarshaling plaintext message from %s: %v", info.SourceString(), err)
+ 		return
+ 	}
+-	cli.storeMessageSecret(ctx, info, &msg)
++	if err := cli.storeMessageSecret(ctx, info, &msg); err != nil {
++		return true
++	}
+ 	evt := &events.Message{
+ 		Info:       *info,
+ 		RawMessage: &msg,
+@@ -307,20 +309,40 @@
+ 	return cli.dispatchEvent(evt.UnwrapRaw())
+ }
+ 
+-func (cli *Client) migrateSessionStore(ctx context.Context, pn, lid types.JID) {
++func (cli *Client) migrateSessionStore(ctx context.Context, pn, lid types.JID) error {
+ 	err := cli.Store.Sessions.MigratePNToLID(ctx, pn, lid)
+ 	if err != nil {
+-		cli.Log.Errorf("Failed to migrate signal store from %s to %s: %v", pn, lid, err)
+-	}
+-}
+-
+-func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo, node *waBinary.Node) {
++		return fmt.Errorf("session migration: %w: %w", store.ErrLocalStorage, err)
++	}
++	return nil
++}
++
++func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo, node *waBinary.Node) (receiveErr error) {
  	defer func() {
  		if err := recover(); err != nil {
+-			cli.Log.Errorf("Message decryption for %s panicked: %v\n%s", info.ID, err, debug.Stack())
+-			cli.sendAck(ctx, node, 0)
 +			if cli.EnableDecryptedEventBuffer {
 +				cli.Log.Errorf("Message receive panicked; acknowledgement withheld")
-+				return
++				receiveErr = ErrMessageReceivePanic
++			} else {
++				cli.Log.Errorf("Message decryption for %s panicked: %v\n%s", info.ID, err, debug.Stack())
++				cli.sendAck(ctx, node, 0)
 +			}
- 			cli.Log.Errorf("Message decryption for %s panicked: %v\n%s", info.ID, err, debug.Stack())
- 			cli.sendAck(ctx, node, 0)
++		}
++		if cli.MessageReceiveFinished != nil {
++			cli.MessageReceiveFinished(ctx, info, receiveErr)
  		}
  	}()
 +	if cli.PreDecryptMessage != nil {
 +		prepared, err := cli.PreDecryptMessage(ctx, info, node)
 +		if err != nil || prepared == nil {
 +			cli.Log.Errorf("Message context hook rejected processing")
-+			return
++			if err != nil {
++				return err
++			}
++			return errors.New("message context hook returned nil context")
 +		}
 +		ctx = prepared
 +	}
  	unavailableNode, ok := node.GetOptionalChildByTag("unavailable")
  	if ok && len(node.GetChildrenByTag("enc")) == 0 {
  		uType := events.UnavailableType(unavailableNode.AttrGetter().String("type"))
-@@ -405,6 +417,10 @@
+@@ -340,11 +362,15 @@
+ 	if info.Sender.Server == types.DefaultUserServer && !info.Sender.IsBot() {
+ 		if info.SenderAlt.Server == types.HiddenUserServer {
+ 			senderEncryptionJID = info.SenderAlt
+-			cli.migrateSessionStore(ctx, info.Sender, info.SenderAlt)
++			if err := cli.migrateSessionStore(ctx, info.Sender, info.SenderAlt); err != nil {
++				return err
++			}
+ 		} else if lid, err := cli.Store.LIDs.GetLIDForPN(ctx, info.Sender); err != nil {
+-			cli.Log.Errorf("Failed to get LID for %s: %v", info.Sender, err)
++			return fmt.Errorf("LID lookup: %w: %w", store.ErrLocalStorage, err)
+ 		} else if !lid.IsEmpty() {
+-			cli.migrateSessionStore(ctx, info.Sender, lid)
++			if err := cli.migrateSessionStore(ctx, info.Sender, lid); err != nil {
++				return err
++			}
+ 			senderEncryptionJID = lid
+ 			info.SenderAlt = lid
+ 		} else {
+@@ -405,6 +431,10 @@
  			continue
  		}
  
 +		if errors.Is(err, store.ErrLocalStorage) {
 +			cli.Log.Errorf("Local message storage failed; acknowledgement withheld")
-+			return
++			return err
 +		}
  		if errors.Is(err, ErrEventAlreadyProcessed) {
  			cli.Log.Debugf("Ignoring message %s from %s: %v", info.ID, info.SourceString(), err)
  			continue
-@@ -468,6 +484,7 @@
+@@ -450,7 +480,7 @@
+ 				continue
+ 			}
+ 			protobufFailed = false
+-			handlerFailed = cli.handleDecryptedMessage(ctx, info, &msg, retryCount)
++			handlerFailed, err = cli.handleDecryptedMessage(ctx, info, &msg, retryCount)
+ 		case 3:
+ 			handlerFailed, protobufFailed = cli.handleDecryptedArmadillo(ctx, info, decrypted, retryCount)
+ 		default:
+@@ -458,7 +488,10 @@
+ 		}
+ 		if handlerFailed {
+ 			cli.Log.Warnf("Handler for %s failed", info.ID)
+-			return
++			if err != nil {
++				return err
++			}
++			return ErrMessageDeliveryFailed
+ 		}
+ 		if ciphertextHash != nil && cli.EnableDecryptedEventBuffer {
+ 			// Use the context passed to decryptMessages
+@@ -468,6 +501,7 @@
  					Hex("ciphertext_hash", ciphertextHash[:]).
  					Str("message_id", info.ID).
  					Msg("Failed to clear buffered event plaintext")
-+				return
++				return errors.Join(store.ErrLocalStorage, err)
  			} else {
  				zerolog.Ctx(ctx).Debug().
  					Hex("ciphertext_hash", ciphertextHash[:]).
+@@ -495,6 +529,7 @@
+ 			cli.sendMessageReceipt(ctx, info, node)
+ 		}
+ 	})
++	return
+ }
+ 
+ func (cli *Client) clearUntrustedIdentity(ctx context.Context, target types.JID) error {
+@@ -511,6 +546,8 @@
+ }
+ 
+ var ErrEventAlreadyProcessed = errors.New("event was already processed")
++var ErrMessageReceivePanic = errors.New("message receive panicked")
++var ErrMessageDeliveryFailed = errors.New("message delivery failed")
+ 
+ // Deprecated: use ErrEventAlreadyProcessed
+ var EventAlreadyProcessed = ErrEventAlreadyProcessed
+@@ -935,9 +972,11 @@
+ 	return
+ }
+ 
+-func (cli *Client) processProtocolParts(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message) (ok bool) {
++func (cli *Client) processProtocolParts(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message) (ok bool, err error) {
++	if err = cli.storeMessageSecret(ctx, info, msg); err != nil {
++		return false, err
++	}
+ 	ok = true
+-	cli.storeMessageSecret(ctx, info, msg)
+ 	// Hopefully sender key distribution messages and protocol messages can't be inside ephemeral messages
+ 	if msg.GetDeviceSentMessage().GetMessage() != nil {
+ 		msg = msg.GetDeviceSentMessage().GetMessage()
+@@ -961,7 +1000,7 @@
+ 	return
+ }
+ 
+-func (cli *Client) storeMessageSecret(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message) {
++func (cli *Client) storeMessageSecret(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message) error {
+ 	if msgSecret := msg.GetMessageContextInfo().GetMessageSecret(); len(msgSecret) > 0 {
+ 		targetChat := info.Chat
+ 		dsm := msg
+@@ -972,17 +1011,17 @@
+ 			var err error
+ 			targetChat, err = types.ParseJID(targetChatJID)
+ 			if err != nil {
+-				cli.Log.Warnf("Failed to parse chat JID %s from root secret distribute message: %v", targetChatJID, err)
+-				return
++				return err
+ 			}
+ 		}
+ 		err := cli.Store.MsgSecrets.PutMessageSecret(ctx, targetChat, info.Sender, info.ID, msgSecret)
+ 		if err != nil {
+-			cli.Log.Errorf("Failed to store message secret key for %s: %v", info.ID, err)
++			return fmt.Errorf("message secret: %w: %w", store.ErrLocalStorage, err)
+ 		} else {
+ 			cli.Log.Debugf("Stored message secret key for %s/%s/%s", info.Chat, info.Sender, info.ID)
+ 		}
+ 	}
++	return nil
+ }
+ 
+ func (cli *Client) storeHistoricalMessageSecrets(ctx context.Context, conversations []*waHistorySync.Conversation) {
+@@ -1169,13 +1208,16 @@
+ 	}
+ }
+ 
+-func (cli *Client) handleDecryptedMessage(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message, retryCount int) (handlerFailed bool) {
+-	ok := cli.processProtocolParts(ctx, info, msg)
++func (cli *Client) handleDecryptedMessage(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message, retryCount int) (handlerFailed bool, err error) {
++	ok, err := cli.processProtocolParts(ctx, info, msg)
++	if err != nil {
++		return true, err
++	}
+ 	if !ok {
+-		return false
++		return false, nil
+ 	}
+ 	evt := &events.Message{Info: *info, RawMessage: msg, RetryCount: retryCount}
+-	return cli.dispatchEvent(evt.UnwrapRaw())
++	return cli.dispatchEvent(evt.UnwrapRaw()), nil
+ }
+ 
+ // SendProtocolMessageReceipt sends a receipt for a protocol message back to the phone.
 --- a/store/store.go
 +++ b/store/store.go
 @@ -19,6 +19,10 @@
@@ -80,3 +245,75 @@
  
  type IdentityStore interface {
  	PutIdentity(ctx context.Context, address string, key [32]byte) error
+--- a/send.go
++++ b/send.go
+@@ -1317,7 +1317,9 @@
+ 		if jid.Server == types.DefaultUserServer {
+ 			// TODO query LID from server for missing entries
+ 			if lidForPN, ok := lidMappings[jid]; ok && !lidForPN.IsEmpty() {
+-				cli.migrateSessionStore(ctx, jid, lidForPN)
++				if err := cli.migrateSessionStore(ctx, jid, lidForPN); err != nil {
++					return nil, false, err
++				}
+ 				encryptionIdentity = lidForPN
+ 			}
+ 		}
+--- a/retry.go
++++ b/retry.go
+@@ -346,7 +346,9 @@
+ 			if err != nil {
+ 				cli.Log.Warnf("Failed to get LID for %s: %v", receipt.Sender, err)
+ 			} else if !lidForPN.IsEmpty() {
+-				cli.migrateSessionStore(ctx, receipt.Sender, lidForPN)
++				if err := cli.migrateSessionStore(ctx, receipt.Sender, lidForPN); err != nil {
++					return err
++				}
+ 				encryptionIdentity = lidForPN
+ 			}
+ 		}
+--- a/internals.go
++++ b/internals.go
+@@ -343,12 +343,12 @@
+ 	return int.c.handlePlaintextMessage(ctx, info, node)
+ }
+ 
+-func (int *DangerousInternalClient) MigrateSessionStore(ctx context.Context, pn, lid types.JID) {
+-	int.c.migrateSessionStore(ctx, pn, lid)
+-}
+-
+-func (int *DangerousInternalClient) DecryptMessages(ctx context.Context, info *types.MessageInfo, node *waBinary.Node) {
+-	int.c.decryptMessages(ctx, info, node)
++func (int *DangerousInternalClient) MigrateSessionStore(ctx context.Context, pn, lid types.JID) error {
++	return int.c.migrateSessionStore(ctx, pn, lid)
++}
++
++func (int *DangerousInternalClient) DecryptMessages(ctx context.Context, info *types.MessageInfo, node *waBinary.Node) error {
++	return int.c.decryptMessages(ctx, info, node)
+ }
+ 
+ func (int *DangerousInternalClient) ClearUntrustedIdentity(ctx context.Context, target types.JID) error {
+@@ -387,12 +387,12 @@
+ 	return int.c.handleProtocolMessage(ctx, info, msg)
+ }
+ 
+-func (int *DangerousInternalClient) ProcessProtocolParts(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message) (ok bool) {
++func (int *DangerousInternalClient) ProcessProtocolParts(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message) (ok bool, err error) {
+ 	return int.c.processProtocolParts(ctx, info, msg)
+ }
+ 
+-func (int *DangerousInternalClient) StoreMessageSecret(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message) {
+-	int.c.storeMessageSecret(ctx, info, msg)
++func (int *DangerousInternalClient) StoreMessageSecret(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message) error {
++	return int.c.storeMessageSecret(ctx, info, msg)
+ }
+ 
+ func (int *DangerousInternalClient) StoreHistoricalMessageSecrets(ctx context.Context, conversations []*waHistorySync.Conversation) {
+@@ -415,7 +415,7 @@
+ 	int.c.storeHistoricalPNLIDMappings(ctx, mappings)
+ }
+ 
+-func (int *DangerousInternalClient) HandleDecryptedMessage(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message, retryCount int) (handlerFailed bool) {
++func (int *DangerousInternalClient) HandleDecryptedMessage(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message, retryCount int) (handlerFailed bool, err error) {
+ 	return int.c.handleDecryptedMessage(ctx, info, msg, retryCount)
+ }
+ 
