@@ -63,7 +63,7 @@ PreDecryptMessage func(context.Context, *types.MessageInfo, *waBinary.Node) (con
 
 Se ejecuta al entrar en `decryptMessages`, antes de la migración de sesión y del descifrado. El wrapper podrá copiar y serializar los metadatos del mensaje y de sus hijos `enc` en un contexto derivado. La cuenta provendrá del cliente activo. No deberá modificar ni conservar los punteros recibidos. Cada hijo puede tener un formato distinto: no se debe asumir que un formato del nodo padre identifica todos sus plaintexts. Este hook es interno a Go; no se expone mediante gobind ni a Expo.
 
-Un error o un contexto nulo detiene esa llamada sin descifrar ni enviar ACK. El hook debe comunicar el error al wrapper, gestionar la pausa/reanudación y no lanzar un panic. Devolver error no implementa por sí solo una cola ni garantiza una reentrega remota. Sin hook, se conserva la ruta existente.
+Un error o un contexto nulo detiene esa llamada sin descifrar ni enviar ACK. El hook debe comunicar el error al wrapper y gestionar la pausa/reanudación. Se ejecuta dentro de la protección de panic de recepción. Devolver error no implementa por sí solo una cola ni garantiza una reentrega remota. Sin hook, se conserva el transporte del contexto existente.
 
 Ejecutar desde esta carpeta:
 
@@ -75,7 +75,21 @@ El script aplica el patch a una copia temporal de la dependencia fijada, añade 
 
 La prueba recorre `decryptMessages` → `decryptDM` → `bufferedDecrypt` → `DoDecryptionTxn` → almacén Signal, y comprueba que cuenta, chat, ID, dirección, timestamp y formato llegan en el contexto. El almacén de prueba cancela antes de necesitar claves reales. Una llamada adicional a `bufferedDecrypt` con plaintext sintético verifica el contexto de `PutBufferedEvent` y la propagación de su error. También comprueba el rechazo del hook y la ruta sin hook. No prueba descifrado real, rollback, commit durable, ACK sobre una conexión ni reconstrucción de eventos.
 
-La [ruta de recepción de la versión fijada](https://github.com/tulir/whatsmeow/blob/9399289b022b/message.go) contiene rutas que envían ACK ante errores generales de descifrado, incluidos errores devueltos por el almacenamiento; también envía ACK en su recuperación de panic. Antes de producción habrá que distinguir fallos locales y detener esas rutas sin confirmar el mensaje. `SynchronousAck` y este hook no bastan para ello.
+## Prueba de fallos locales sin confirmación al protocolo
+
+La [ruta de recepción de la versión fijada](https://github.com/tulir/whatsmeow/blob/9399289b022b/message.go) envía ACK ante ciertos errores generales de descifrado y en su recuperación de panic. El mismo patch ahora incorpora `store.ErrLocalStorage`, una marca Go para fallos locales de persistencia o capacidad. El adaptador propio deberá devolver errores que la envuelvan desde todas sus operaciones fallidas, incluyendo lectura, escritura, inicio/commit/rollback de transacción y almacenes usados por Signal:
+
+```go
+return fmt.Errorf("native commit: %w: %w", store.ErrLocalStorage, cause)
+```
+
+Es una extensión candidata de la dependencia; no existe en la versión original ni en el probe de bindings `bridge/`. Una ausencia válida de sesión o un error del protocolo no deben marcarse como fallo de disco. La marca permite conservar la causa para `errors.Is` sin depender de comparar mensajes de texto. El wrapper comunicará códigos públicos sanitizados y no enviará esa causa a Expo.
+
+`decryptMessages` detiene los errores marcados antes de las rutas de ACK, reintento o `UndecryptableMessage`, con prioridad incluso si un error compuesto incluye un error de contador del protocolo. Un fallo al retirar plaintext del buffer también detiene la confirmación final. Con `EnableDecryptedEventBuffer`, la recuperación de panic no confirma y sus diagnósticos omiten el valor del panic. Un consumidor que hace panic devuelve fallo de entrega y no provoca que se limpie el pendiente; esto corrige la recuperación de `dispatchEvent` en su punto común.
+
+`check-context-hook.sh` ejecuta también `TestRecoveryStorageFailure`. Se prueban las rutas de lectura del buffer, transacción, acceso Signal, error compuesto, limpieza y panic del hook/recepción/consumidor, con ACK síncrono y asíncrono. Un control de protocolo conserva su ACK, evento y contador de reintentos. Las pruebas usan un cliente desconectado: detectan intentos de ACK/receipt mediante los avisos de envío fallido y observan eventos y reintentos; no prueban paquetes en una conexión real. Para escritura/commit se comprueba aparte la propagación de la marca con plaintext sintético. Al retirar la guarda de fallos locales, el caso de lectura falla por intentar confirmar o reintentar.
+
+Esta política depende de que el adaptador marque los errores. No clasifica automáticamente errores de stores ajenos ni implementa rollback, pausa global o descarte del estado en memoria. Quedan por auditar las operaciones auxiliares que whatsmeow registra y absorbe, como migraciones PN/LID y procesamiento posterior al descifrado. La integración deberá propagar sus fallos y reportar también los panic al controlador para descartar estado y detener/reiniciar el cliente con seguridad.
 
 El patch queda como propuesta reproducible; todavía no elegimos mantener un fork ni integrarlo en el módulo móvil. La enumeración de pendientes será del almacenamiento nativo propio. Siguen pendientes la serialización por hijo/ciphertext, la reconstrucción de eventos v2/v3, el almacenamiento cifrado y las pruebas de caída.
 

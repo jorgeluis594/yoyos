@@ -6,17 +6,37 @@
  	EnableDecryptedEventBuffer bool
 +	// PreDecryptMessage prepares a context before message decryption. An error or nil
 +	// context stops processing without acknowledging the message. The hook must not
-+	// mutate info or node, retain their pointers, or panic. Configure before Connect.
++	// mutate info or node or retain their pointers. Configure before Connect.
 +	PreDecryptMessage func(context.Context, *types.MessageInfo, *waBinary.Node) (context.Context, error)
  	lastDecryptedBufferClear   time.Time
  
  	DisableLoginAutoReconnect bool
+@@ -983,6 +987,11 @@
+ 		cli.eventHandlersLock.RUnlock()
+ 		err := recover()
+ 		if err != nil {
++			handlerFailed = true
++			if cli.EnableDecryptedEventBuffer {
++				cli.Log.Errorf("Event handler panicked; delivery failed")
++				return
++			}
+ 			cli.Log.Errorf("Event handler panicked while handling a %T: %v\n%s", evt, err, debug.Stack())
+ 		}
+ 	}()
 --- a/message.go
 +++ b/message.go
-@@ -315,6 +315,14 @@
- }
- 
+@@ -317,10 +317,22 @@
  func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo, node *waBinary.Node) {
+ 	defer func() {
+ 		if err := recover(); err != nil {
++			if cli.EnableDecryptedEventBuffer {
++				cli.Log.Errorf("Message receive panicked; acknowledgement withheld")
++				return
++			}
+ 			cli.Log.Errorf("Message decryption for %s panicked: %v\n%s", info.ID, err, debug.Stack())
+ 			cli.sendAck(ctx, node, 0)
+ 		}
+ 	}()
 +	if cli.PreDecryptMessage != nil {
 +		prepared, err := cli.PreDecryptMessage(ctx, info, node)
 +		if err != nil || prepared == nil {
@@ -25,6 +45,38 @@
 +		}
 +		ctx = prepared
 +	}
- 	defer func() {
- 		if err := recover(); err != nil {
- 			cli.Log.Errorf("Message decryption for %s panicked: %v\n%s", info.ID, err, debug.Stack())
+ 	unavailableNode, ok := node.GetOptionalChildByTag("unavailable")
+ 	if ok && len(node.GetChildrenByTag("enc")) == 0 {
+ 		uType := events.UnavailableType(unavailableNode.AttrGetter().String("type"))
+@@ -405,6 +417,10 @@
+ 			continue
+ 		}
+ 
++		if errors.Is(err, store.ErrLocalStorage) {
++			cli.Log.Errorf("Local message storage failed; acknowledgement withheld")
++			return
++		}
+ 		if errors.Is(err, ErrEventAlreadyProcessed) {
+ 			cli.Log.Debugf("Ignoring message %s from %s: %v", info.ID, info.SourceString(), err)
+ 			continue
+@@ -468,6 +484,7 @@
+ 					Hex("ciphertext_hash", ciphertextHash[:]).
+ 					Str("message_id", info.ID).
+ 					Msg("Failed to clear buffered event plaintext")
++				return
+ 			} else {
+ 				zerolog.Ctx(ctx).Debug().
+ 					Hex("ciphertext_hash", ciphertextHash[:]).
+--- a/store/store.go
++++ b/store/store.go
+@@ -19,6 +19,10 @@
+ 	"go.mau.fi/whatsmeow/util/keys"
+ 	waLog "go.mau.fi/whatsmeow/util/log"
+ )
++
++// ErrLocalStorage marks local persistence or capacity failures, not Signal protocol errors.
++// Custom stores must wrap it on failed reads, writes, transaction commits and rollbacks.
++var ErrLocalStorage = errors.New("local storage failure")
+ 
+ type IdentityStore interface {
+ 	PutIdentity(ctx context.Context, address string, key [32]byte) error

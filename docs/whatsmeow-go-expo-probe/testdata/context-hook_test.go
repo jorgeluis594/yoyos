@@ -3,13 +3,19 @@ package whatsmeow
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"go.mau.fi/libsignal/protocol"
+	"go.mau.fi/libsignal/signalerror"
 	waBinary "go.mau.fi/whatsmeow/binary"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
+	waLog "go.mau.fi/whatsmeow/util/log"
 )
 
 type recoveryContextKey struct{}
@@ -53,7 +59,7 @@ func (s *canceledSessions) HasSession(ctx context.Context, _ string) (bool, erro
 	return false, context.Canceled
 }
 
-func TestRecoveryContextHook(t *testing.T) {
+func recoveryProbeMessage() (types.MessageInfo, waBinary.Node) {
 	info := types.MessageInfo{
 		MessageSource: types.MessageSource{
 			Chat:     types.NewJID("chat", types.HiddenUserServer),
@@ -71,7 +77,12 @@ func TestRecoveryContextHook(t *testing.T) {
 	node := waBinary.Node{Tag: "message", Content: []waBinary.Node{
 		{Tag: "enc", Attrs: waBinary.Attrs{"type": "msg", "v": "2"}, Content: ciphertext},
 	}}
+	node.Attrs = waBinary.Attrs{"id": info.ID, "from": info.Sender}
+	return info, node
+}
 
+func TestRecoveryContextHook(t *testing.T) {
+	info, node := recoveryProbeMessage()
 	for _, outcome := range []string{"metadata", "error", "nil-context", "no-hook"} {
 		t.Run(outcome, func(t *testing.T) {
 			buffer := &contextBuffer{}
@@ -121,6 +132,155 @@ func TestRecoveryContextHook(t *testing.T) {
 				func(context.Context) ([]byte, error) { return []byte("plaintext"), nil })
 			if !errors.Is(err, failure) || buffer.write == nil || buffer.write.Value(recoveryContextKey{}) == nil {
 				t.Fatal("buffer must receive metadata and propagate its write failure")
+			}
+		})
+	}
+}
+
+type receiveFailureStore struct {
+	store.NoopStore
+	phase   string
+	cleared bool
+}
+
+func (s *receiveFailureStore) GetBufferedEvent(context.Context, [32]byte) (*store.BufferedEvent, error) {
+	switch s.phase {
+	case "lookup":
+		return nil, fmt.Errorf("lookup: %w", store.ErrLocalStorage)
+	case "panic":
+		panic("private payload")
+	case "clear", "handler-panic":
+		// Conversation field containing "x", followed by one byte of padding.
+		return &store.BufferedEvent{Plaintext: []byte{0x0a, 0x01, 'x', 0x01}}, nil
+	}
+	return nil, nil
+}
+
+func (s *receiveFailureStore) DoDecryptionTxn(ctx context.Context, fn func(context.Context) error) error {
+	if s.phase == "transaction" {
+		return fmt.Errorf("transaction: %w", store.ErrLocalStorage)
+	}
+	if err := fn(ctx); err != nil {
+		return err
+	}
+	if s.phase == "commit" {
+		return fmt.Errorf("commit: %w", store.ErrLocalStorage)
+	}
+	return nil
+}
+
+func (s *receiveFailureStore) HasSession(context.Context, string) (bool, error) {
+	if s.phase == "mixed" {
+		return false, errors.Join(store.ErrLocalStorage, signalerror.ErrOldCounter)
+	}
+	if s.phase == "protocol" {
+		return false, nil
+	}
+	return false, fmt.Errorf("session: %w", store.ErrLocalStorage)
+}
+
+func (s *receiveFailureStore) PutBufferedEvent(context.Context, [32]byte, []byte, time.Time) error {
+	if s.phase == "write" {
+		return fmt.Errorf("write: %w", store.ErrLocalStorage)
+	}
+	return nil
+}
+
+func (s *receiveFailureStore) ClearBufferedEventPlaintext(context.Context, [32]byte) error {
+	s.cleared = true
+	return fmt.Errorf("clear: %w", store.ErrLocalStorage)
+}
+
+// With no socket, any attempted ACK/receipt produces these upstream warnings.
+type receiveProbeLog struct {
+	waLog.Logger
+	acks, receipts, errors, leaked atomic.Int32
+}
+
+func (l *receiveProbeLog) Warnf(format string, args ...any) {
+	if strings.HasPrefix(format, "Failed to send acknowledgement") {
+		l.acks.Add(1)
+	}
+	if strings.HasPrefix(format, "Failed to send receipt") {
+		l.receipts.Add(1)
+	}
+}
+
+func (l *receiveProbeLog) Errorf(format string, args ...any) {
+	l.errors.Add(1)
+	if strings.Contains(fmt.Sprintf(format, args...), "private payload") {
+		l.leaked.Add(1)
+	}
+}
+
+func TestRecoveryStorageFailure(t *testing.T) {
+	for _, synchronous := range []bool{true, false} {
+		for _, phase := range []string{"lookup", "transaction", "session", "mixed", "panic", "hook-panic", "clear", "handler-panic", "protocol"} {
+			// The protocol control uses synchronous ACK so its attempt can be observed without waiting.
+			if phase == "protocol" && !synchronous {
+				continue
+			}
+			t.Run(fmt.Sprintf("%s/synchronous=%t", phase, synchronous), func(t *testing.T) {
+				info, node := recoveryProbeMessage()
+				storage := &receiveFailureStore{phase: phase}
+				log := &receiveProbeLog{Logger: waLog.Noop}
+				client := NewClient(&store.Device{EventBuffer: storage, Sessions: storage}, log)
+				client.EnableDecryptedEventBuffer = true
+				client.SynchronousAck = synchronous
+				// Suppress retries in the protocol control; inspect that the counter stays unchanged on local failures.
+				client.messageRetries[info.ID] = 4
+				if phase == "hook-panic" {
+					client.PreDecryptMessage = func(context.Context, *types.MessageInfo, *waBinary.Node) (context.Context, error) {
+						panic("private payload")
+					}
+				}
+				var delivered, undecryptable int
+				client.AddEventHandler(func(evt any) {
+					switch evt.(type) {
+					case *events.Message:
+						delivered++
+						if phase == "handler-panic" {
+							panic("private payload")
+						}
+					case *events.UndecryptableMessage:
+						undecryptable++
+					}
+				})
+				client.decryptMessages(context.Background(), &info, &node)
+				if phase == "protocol" {
+					if log.acks.Load() != 1 || undecryptable != 1 || client.messageRetries[info.ID] != 5 {
+						t.Fatal("protocol error lost its existing retry/ACK handling")
+					}
+					return
+				}
+				if log.acks.Load() != 0 || log.receipts.Load() != 0 || undecryptable != 0 || client.messageRetries[info.ID] != 4 {
+					t.Fatal("local failure attempted a protocol acknowledgement or retry")
+				}
+				wantDelivered := 0
+				if phase == "clear" || phase == "handler-panic" {
+					wantDelivered = 1
+				}
+				if delivered != wantDelivered || log.leaked.Load() != 0 {
+					t.Fatal("unexpected delivery or sensitive panic diagnostic")
+				}
+				if phase == "handler-panic" && storage.cleared {
+					t.Fatal("panicking consumer caused pending content to be cleared")
+				}
+				if phase != "clear" && log.errors.Load() == 0 {
+					t.Fatal("receive path was not exercised through its failure handler")
+				}
+			})
+		}
+	}
+	for _, phase := range []string{"write", "commit"} {
+		t.Run(phase+"-propagation", func(t *testing.T) {
+			storage := &receiveFailureStore{phase: phase}
+			client := NewClient(&store.Device{EventBuffer: storage}, nil)
+			client.EnableDecryptedEventBuffer = true
+			_, _, err := client.bufferedDecrypt(context.Background(), []byte("envelope"), time.Unix(123, 0),
+				func(context.Context) ([]byte, error) { return []byte("plaintext"), nil })
+			if !errors.Is(err, store.ErrLocalStorage) {
+				t.Fatal("local write/commit classification was lost")
 			}
 		})
 	}

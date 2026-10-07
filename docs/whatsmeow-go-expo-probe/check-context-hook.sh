@@ -12,7 +12,7 @@ cp pre-decrypt-context.patch testdata/context-hook_test.go "$probe_dir/"
 cd "$probe_dir"
 git apply --check pre-decrypt-context.patch
 git apply pre-decrypt-context.patch
-gofmt -w client.go message.go context-hook_test.go
+gofmt -w client.go message.go store/store.go context-hook_test.go
 # Use the selected Go version, not upstream's newer toolchain directive.
-GOTOOLCHAIN=local go test -race -run '^TestRecoveryContextHook$' .
+GOTOOLCHAIN=local go test -race -run '^TestRecovery(ContextHook|StorageFailure)$' .
 GOTOOLCHAIN=local go vet .
