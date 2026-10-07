@@ -286,6 +286,60 @@ La protección de las entregas pendientes tendrá un ciclo de vida separado de l
 
 Los archivos de sesión estarán en directorios privados, excluidos de backups y transferencia a otro dispositivo. No se utilizará caché para guardar la sesión. Se definirá la disponibilidad de la clave con el teléfono bloqueado de acuerdo con el comportamiento de ejecución que realmente validemos.
 
+### Formato propuesto: una revisión, dos claves
+
+La primera implementación utilizará un snapshot completo `state.bin` y un temporal `state.next` en el mismo directorio privado. Cada commit publicará una revisión completa que contiene sesión y recuperación. Las imágenes seguirán en su directorio independiente. Es una propuesta de formato v1 pendiente de implementación y pruebas nativas.
+
+```text
+whatsapp/                         # Privado, persistente y excluido de backups
+├── state.bin                    # Única revisión publicada
+├── state.next                   # Preparación de un commit; siempre cifrada
+└── images/                      # Adjuntos completos y temporales de descarga
+
+state.bin
+  header: magic, formatVersion, storeId, revision, recoveryKeyId, nonce
+  encryptedContainer: AES-256-GCM con K_recovery
+    session: null o {accountId, sessionKeyId, sessionRevision, nonce, ciphertext}
+      ciphertext: estado de protocolo cifrado con K_session
+    pending: entregas recuperables, con cuenta, IDs, metadatos y plaintext del protocolo
+    processed: marcas de entregas confirmadas
+    sessionKeysToDelete: IDs de claves retiradas cuya eliminación debe completarse
+```
+
+`K_recovery` protegerá el contenedor completo y sobrevivirá a `logout()`. `K_session` protegerá adicionalmente las credenciales y el estado criptográfico de la única cuenta activa; cada nueva vinculación tendrá una clave e identificador nuevos. Los registros de protocolo que actúan como credenciales pertenecerán al bloque `session`, no a `pending` ni a las marcas procesadas. Las dos claves permanecerán bajo custodia nativa; Go recibirá datos de protocolo descifrados, pero no estas claves de cifrado del almacenamiento.
+
+Usaremos AES-GCM de las APIs nativas, con tag de 16 bytes y nonce de 12 bytes generado de forma segura para cada cifrado, sin derivarlo de la revisión y respetando los límites de uso por clave. El header será autenticado como datos asociados; su codificación exacta y límites de lectura formarán parte del formato. La sesión autenticará también `storeId`, tipo de bloque, versión, cuenta, ID de clave y `sessionRevision`. Así, la sesión conservará su ciphertext cuando una confirmación cambie solamente la recuperación: `sessionRevision` podrá ser menor que `revision`, pero nunca mayor. Una revisión nueva no deberá volver a cifrar la sesión con un nonce anterior.
+
+Las revisiones se transportarán entre Go y nativo como cadenas decimales de enteros sin signo de 64 bits, validadas sin coerción ni overflow. La versión del formato de archivo y la del esquema de registros de protocolo se validarán antes de crear el cliente. Los campos binarios que crucen JSON usarán Base64 con límites de tamaño; nunca pasarán por la fachada TypeScript. La autenticación y una revisión monotónica permiten controlar integridad y orden de escrituras; no constituyen por sí solas protección contra un atacante que restaure un archivo antiguo válido.
+
+### Publicación de una revisión
+
+El writer nativo será único y serializará recepción, cambios de protocolo y confirmaciones locales. Recibirá la generación de cliente y revisión esperada; rechazará callbacks antiguos o una revisión distinta de la vigente antes de modificar el archivo.
+
+1. Preparar la revisión siguiente en memoria, aplicando juntos los cambios de sesión y del buffer de la transacción. Validar esquema y presupuestos antes de publicarla.
+2. Cifrar el contenedor y escribirlo íntegramente en `state.next`, sin temporales con plaintext.
+3. Sincronizar el archivo y cerrar comprobando errores.
+4. Reemplazar `state.bin` mediante una operación atómica dentro del mismo filesystem, y completar la sincronización de metadatos requerida por la plataforma.
+5. Actualizar la revisión confirmada en memoria y devolver éxito al store Go.
+
+La implementación deberá comprobar fallos de escritura, sincronización, cierre y reemplazo. Si falla después del reemplazo, la respuesta será fallida y el controlador volverá a leer la revisión publicada antes de intentar otra operación. Un error de respuesta no implicará restaurar la revisión anterior.
+
+La documentación de [AtomicFile](https://developer.android.com/reference/android/util/AtomicFile) describe reemplazo y sincronización, pero exige protección de concurrencia externa. Además, el [código de Android 16](https://android.googlesource.com/platform/frameworks/base/+/android-16.0.0_r1/core/java/android/util/AtomicFile.java) registra ciertos fallos de sincronización/cierre/rename sin propagarlos desde `finishWrite`. Por eso esa llamada aislada no satisfará nuestro contrato de éxito durable: el adaptador deberá usar operaciones nativas con errores verificables. En iOS también habrá que validar explícitamente la sincronización y el reemplazo; todavía no se ha elegido ni probado su implementación concreta.
+
+Reescribir el snapshot completo simplifica el primer writer, pero consume I/O, memoria y espacio temporal proporcionales al estado total, incluyendo pendientes. El presupuesto del buffer contabilizará su representación codificada y la sobrecarga atribuible del contenedor; sesión y marcas procesadas tendrán límites propios. Los límites de buffer e imágenes no garantizan disponer del espacio necesario para una segunda copia. Ante falta de espacio se conservará la revisión publicada y se detendrá el procesamiento. Un journal incremental solo se evaluará si las mediciones de esta versión justifican su complejidad.
+
+### Inicio y desvinculación con este formato
+
+Al iniciar se autenticará y validará `state.bin`, que será la única revisión publicada. `state.next` no se promoverá por tener una revisión mayor: una preparación no demuestra commit. Tras validar la revisión publicada se retirarán temporales incompletos. Un archivo corrupto, una clave ausente o una combinación incompleta de archivos y claves producirá error explícito; solo se creará almacenamiento vacío cuando no existan artefactos ni claves previas de esa instalación.
+
+Las entregas validadas del contenedor podrán recuperarse independientemente de restaurar credenciales. Si falla la restauración de `session`, la conexión quedará bloqueada con `SESSION_STATE_INVALID`, preservando los pendientes legibles bajo `K_recovery`.
+
+`logout()` detendrá la generación activa y solicitará la desvinculación remota conforme a su contrato. Para retirar el estado local, primero publicará durablemente `session: null`, manteniendo `pending` y `processed`, e incluirá el ID de `K_session` en `sessionKeysToDelete`. Después eliminará esa clave del almacenamiento seguro y publicará la retirada de su ID. La lista permitirá completar la eliminación al reiniciar después de una caída; el snapshot con `session: null` no volverá a utilizar una clave retirada que siga físicamente presente.
+
+El éxito local de `logout()` requerirá completar la retirada durable y la eliminación de la clave. Un fallo impedirá afirmar que terminó; mantendrá la conexión detenida y se resolverá leyendo el estado actual. La limpieza pendiente se completará antes de permitir otra vinculación. Solo podrá retirar IDs del namespace propio del módulo; se validará que no incluyan `K_recovery` ni la clave de una sesión activa. El resultado de desvinculación remota seguirá siendo independiente. `K_recovery` permanecerá disponible y una vinculación posterior no reutilizará `K_session`. Esto define el orden de dos sistemas de almacenamiento, sin prometer una transacción única entre filesystem y Keychain/Keystore.
+
+Antes de dar este diseño por implementado, habrá que inyectar fallos y cierres en cada paso de publicación y logout, verificar que no se mezcla sesión de una revisión con entregas de otra, y medir el coste de snapshots y espacio temporal en Android/iOS. También se probarán clave ausente, corrupción, respuesta de commit perdida y limpieza de claves retirada interrumpida. Las pruebas Go existentes no validan esas propiedades nativas.
+
 ### Riesgo validado y límites
 
 Una copia guardada después de procesar mensajes puede quedar desactualizada si la app termina antes de escribirla. Esto no implica necesariamente perder la vinculación por QR, pero puede perder estado criptográfico y provocar fallos de descifrado.
