@@ -197,6 +197,23 @@ test("one save retains editable payments and delivery on rejection and prevents 
   expect(mockCompleteOrder.mock.calls[1][0]).toEqual(mockCompleteOrder.mock.calls[0][0]);
 });
 
+test("decimal comma in an initial payment updates the summary and allows saving", async () => {
+  mockCompleteOrder.mockResolvedValue(err({ code: "INVALID_ORDER", message: "Rejected" }));
+  const screen = render(<NewOrderScreen />);
+  await screen.findByText("Camisa");
+  fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
+  fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
+  fireEvent.press(screen.getByRole("button", { name: "Revisar venta" }));
+  fireEvent.press(screen.getByRole("button", { name: "Agregar pago" }));
+  fireEvent.changeText(screen.getByLabelText(/Importe recibido/), "5,50");
+  expect(screen.getByText(/Pagos ingresados:.*5[.,]50/)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();
+  fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
+  await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledWith(expect.objectContaining({
+    payments: [expect.objectContaining({ amount: "5.50" })],
+  }), mockId(1)));
+});
+
 test("restart verifies and resends a saved request without rebuilding another order", async () => {
   const pending = { version: 2, companyId: mockId(1), id: mockId(3), shownTotal: { amount: 10, currency: "PEN" },
     request: { id: mockId(3), contactId: null, items: [{ variantId: mockId(2), quantity: 1 }], payments: [] } };

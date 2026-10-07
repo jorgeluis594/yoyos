@@ -42,6 +42,9 @@ test("complete draft validates payment identity and amount while preserving sepa
   const draft = { ...first.data, payments: [payment], deliverImmediately: false };
   expect(prepareOrder(draft)).toMatchObject({ success: true, data: { request: { payments: [{ paymentId: id(5),
     amount: { amount: 4.5, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false }], deliverImmediately: false } } });
+  expect(prepareOrder({ ...draft, payments: [{ ...payment, amount: "10,50" }] }))
+    .toMatchObject({ success: true, data: { request: { payments: [{ amount: { amount: 10.5, currency: "PEN" } }] } } });
+  expect(prepareOrder({ ...draft, payments: [{ ...payment, amount: "10,501" }] })).toMatchObject({ success: false });
   expect(prepareOrder({ ...draft, payments: [payment, payment] })).toMatchObject({ success: false });
   expect(prepareOrder({ ...draft, payments: [{ ...payment, amount: "-1" }] })).toMatchObject({ success: false });
   expect(changeDraftQuantity({ ...draft, payments: [{ ...payment, amount: "" }] }, id(1), 2)).toMatchObject({ success: true });

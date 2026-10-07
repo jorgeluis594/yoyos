@@ -27,6 +27,7 @@ import { useOrderResult } from "@mobile/features/orders/presentation/order-resul
 import { deliveryMethodLabel, deliveryStatusLabel, documentTypeLabel, orderLanguage, orderStatusLabel } from "@mobile/features/orders/presentation/order-labels";
 import { useTheme } from "@mobile/hooks/use-theme";
 import translations from "@mobile/i18n";
+import { normalizeDecimalInput } from "@mobile/shared/decimal-input";
 
 const money = (amount: number, currency: string, locale: string) => new Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
 const date = (value: string, locale: string) => new Intl.DateTimeFormat(locale, { dateStyle: "long", timeStyle: "short", timeZone: "America/Lima" }).format(new Date(value));
@@ -71,7 +72,7 @@ export default function OrderDetailScreen() {
   async function confirmPayment(paymentId: string, source: "manual" | "buyer_report", amountText: string,
     method: "digital_wallet" | "bank_transfer", deductStockIfPartial: boolean) {
     if (!order || savingPayment || fulfilling) return;
-    const amount = Number(amountText.replace(",", "."));
+    const amount = Number(normalizeDecimalInput(amountText));
     if (!Number.isFinite(amount) || amount <= 0 || !/^\d+(?:[.,]\d{1,2})?$/.test(amountText.trim())) {
       setPaymentError(t("invalidPaymentAmount")); return;
     }

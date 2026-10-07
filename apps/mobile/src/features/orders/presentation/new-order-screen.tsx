@@ -30,6 +30,7 @@ import { useOrderDraft } from "@mobile/features/orders/presentation/order-draft-
 import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
 import { useTheme } from "@mobile/hooks/use-theme";
 import translations from "@mobile/i18n";
+import { normalizeDecimalInput } from "@mobile/shared/decimal-input";
 
 type Catalog = z.infer<typeof orderCatalogSchema>;
 type Contacts = z.infer<typeof orderContactsSchema>;
@@ -81,7 +82,7 @@ function CompanyOrderScreen() {
   const offline = network.isConnected === false || network.isInternetReachable === false;
   const prepared = prepareOrder(draft);
   const productTotal = prepareOrder({ ...draft, payments: undefined, delivery: undefined });
-  const paidAmount = (draft.payments ?? []).reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
+  const paidAmount = (draft.payments ?? []).reduce((sum, payment) => sum + (Number(normalizeDecimalInput(payment.amount)) || 0), 0);
 
   useEffect(() => {
     activeCompany.current = companyId;

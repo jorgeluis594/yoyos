@@ -3,6 +3,7 @@ import { currencies } from "@shared/money";
 import { add, multiply, type Money } from "@shared/money";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
+import { normalizeDecimalInput } from "@mobile/shared/decimal-input";
 
 export type OrderDraftItem = Readonly<{
   variantId: string;
@@ -75,7 +76,7 @@ export function prepareOrder(draft: OrderDraft): Result<{ request: OrderSubmissi
   if (delivery && !delivery.success) return delivery;
   if (new Set(draft.payments?.map(payment => payment.paymentId)).size !== (draft.payments?.length ?? 0)) return invalid();
   const parsed = submissionSchema.safeParse({ id: draft.id,
-    ...(draft.payments ? { payments: draft.payments.map(payment => ({ ...payment, amount: { amount: Number(payment.amount), currency: total?.currency } })) } : {}),
+    ...(draft.payments ? { payments: draft.payments.map(payment => ({ ...payment, amount: { amount: Number(normalizeDecimalInput(payment.amount)), currency: total?.currency } })) } : {}),
     ...(delivery?.success ? { delivery: delivery.data } : {}),
     ...(draft.deliverImmediately !== undefined ? { deliverImmediately: draft.deliverImmediately } : {}),
     contactId: draft.customer.kind === "contact" ? draft.customer.contactId : null,
