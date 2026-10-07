@@ -9,6 +9,8 @@ import { readDeliverySettings, writeDeliverySettings } from "@core/src/features/
 import type { CourierId, DeliverySettingsReadError } from "@core/src/features/delivery-settings/domain/delivery-settings";
 import { getDeliveryZones, saveDeliveryZones, type SaveDeliveryZonesInput } from "@core/src/features/delivery-settings/application/delivery-zones";
 import { readDeliveryConfiguration, writeDeliveryZones } from "@core/src/features/delivery-settings/infrastructure/delivery-zones-repository";
+import { createQuotation, type CreateQuotationInput } from "@core/src/features/delivery-settings/application/create-quotation";
+import { insertQuotationWithRates } from "@core/src/features/delivery-settings/infrastructure/quotation-repository";
 
 async function settingsTransaction<T, E extends AppError>(context: DeliverySettingsAccess, operation: string, expectedVersion: number | undefined,
   work: () => Promise<Result<T, E>>): Promise<Result<T, E | DeliverySettingsReadError>> {
@@ -23,6 +25,19 @@ async function settingsTransaction<T, E extends AppError>(context: DeliverySetti
 }
 
 export const deliverySettings = {
+  createQuotation: (input: CreateQuotationInput) => createQuotation(input, {
+    generateId: randomUUID, now: () => new Date(), insertQuotationWithRates,
+    readConfigurationForShare: companyId => readDeliveryConfiguration(companyId, "shared"),
+    transaction: async (companyId, work) => {
+      if (getCompanyId() !== companyId) throw new Error("Quotation company differs from tenant context");
+      try { return await withinTransaction(work); }
+      catch (cause) {
+        if (!isPersistenceFailure(cause)) throw cause;
+        log.error({ event: "quotation_transaction_failed", companyId, err: cause }, "Unable to complete quotation transaction");
+        return err({ code: "SERVICE_UNAVAILABLE", message: "Unable to complete quotation transaction" });
+      }
+    },
+  }),
   getZones: (context: DeliverySettingsAccess) => settingsTransaction(context, "get_delivery_zones", undefined,
     () => getDeliveryZones(context, companyId => readDeliveryConfiguration(companyId, "shared"))),
   saveZones: (input: SaveDeliveryZonesInput, context: DeliverySettingsAccess) => saveDeliveryZones(input, context, {

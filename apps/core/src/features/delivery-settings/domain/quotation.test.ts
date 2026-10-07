@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { initialDeliverySettings, type DeliverySettings } from "@core/src/features/delivery-settings/domain/delivery-settings";
 import { parseDeliveryZone, type DeliveryZone } from "@core/src/features/delivery-settings/domain/delivery-zone";
-import { buildQuotationWithRates, parseQuotationDestination } from "@core/src/features/delivery-settings/domain/quotation";
+import { buildQuotationWithRates, parseQuotationDestination, parseRateWithQuotation } from "@core/src/features/delivery-settings/domain/quotation";
 
 const id = (value: number) => `00000000-0000-4000-8000-${String(value).padStart(12, "0")}`;
 const settings: DeliverySettings = { ...initialDeliverySettings(), version: 3, home: { enabled: true } };
@@ -68,4 +68,19 @@ test("invalid timestamps, IDs, repeated zones or rates and inconsistent generate
   expect(buildQuotationWithRates({ ...valid, settings: { ...settings, version: -1 } }, "PEN"))
     .toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_SETTINGS" } });
   expect(buildQuotationWithRates(valid, "USD")).toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_RATE" } });
+});
+
+test("stored rates validate the immutable destination and quotation relationship", () => {
+  const built = buildQuotationWithRates(input([zone(1, 8)], [id(30)]), "PEN");
+  if (!built.success) throw new Error(built.error.message);
+  const value = { quotation: built.data.quotation, rate: built.data.rates[0] };
+  expect(parseRateWithQuotation(value, "PEN")).toEqual({ success: true, data: value });
+  for (const change of [{ companyId: id(99) }, { quotationId: id(99) }, { districtCode: "040110" },
+    { price: { amount: 8.001, currency: "PEN" } }, { settingsVersion: -1 }, { createdAt: "2026-10-07" }]) {
+    expect(parseRateWithQuotation({ ...value, rate: { ...value.rate, ...change } }, "PEN").success).toBe(false);
+  }
+  for (const destination of [{ country: "PE", districtCode: "150122" },
+    { ...value.quotation.destination, districtCode: "999999" }, { ...value.quotation.destination, kind: "home" }]) {
+    expect(parseRateWithQuotation({ ...value, quotation: { ...value.quotation, destination } }, "PEN").success).toBe(false);
+  }
 });

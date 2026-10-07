@@ -6,6 +6,7 @@ import { parsePeruDistrictCode, type PeruDistrictCode } from "@shared/peru-geogr
 import type { Result } from "@shared/result";
 import { parseDeliverySettings, type DeliverySettings } from "@core/src/features/delivery-settings/domain/delivery-settings";
 import { parseDeliveryZone, type DeliveryZone, type DeliveryZoneId, type ZonedDeliveryMethod } from "@core/src/features/delivery-settings/domain/delivery-zone";
+import { parseDeliveryPrice } from "@core/src/features/delivery-settings/domain/delivery-price";
 
 export type QuotationId = string & { readonly __brand: "QuotationId" };
 export type DeliveryRateId = string & { readonly __brand: "DeliveryRateId" };
@@ -18,6 +19,7 @@ export type DeliveryRate = Readonly<{
   zoneId: DeliveryZoneId; districtCode: PeruDistrictCode;
 }>;
 export type QuotationWithRates = Readonly<{ quotation: Quotation; rates: readonly DeliveryRate[] }>;
+export type RateWithQuotation = Readonly<{ quotation: Quotation; rate: DeliveryRate }>;
 export type QuotationDestinationError =
   | Readonly<{ code: "INVALID_DESTINATION"; message: string; field: "destination" | "address" | "instructions" }>
   | Readonly<{ code: "INVALID_DISTRICT"; message: string; districtCode?: string }>
@@ -32,6 +34,35 @@ const destinationSchema = z.strictObject({
   country: z.string(), districtCode: z.string(), address: optionalText(500), instructions: optionalText(1000),
 });
 const companyIdSchema = z.uuid().transform(value => value as CompanyId);
+const districtCodeSchema = z.string().refine(value => parsePeruDistrictCode(value).success).transform(value => value as PeruDistrictCode);
+const storedDestinationSchema = z.strictObject({ country: z.literal("PE"), districtCode: districtCodeSchema,
+  address: z.string().min(1).max(500).nullable(), instructions: z.string().min(1).max(1000).nullable() });
+
+export function parseQuotation(value: unknown): Result<Quotation, QuotationError> {
+  const parsed = z.strictObject({ id: z.uuid().transform(value => value as QuotationId), companyId: companyIdSchema,
+    destination: storedDestinationSchema, createdAt: z.date() }).safeParse(value);
+  return parsed.success ? ok(parsed.data) : err({ code: "INVALID_DESTINATION", field: "destination", message: "Invalid persisted quotation" });
+}
+
+export function parseDeliveryRate(value: unknown, currency: Currency): Result<DeliveryRate, QuotationError> {
+  const parsed = z.strictObject({ id: z.uuid().transform(value => value as DeliveryRateId), companyId: companyIdSchema,
+    quotationId: z.uuid().transform(value => value as QuotationId), method: z.enum(["home", "agency"]),
+    zoneId: z.uuid().transform(value => value as DeliveryZoneId), districtCode: districtCodeSchema, price: z.unknown(),
+    settingsVersion: z.number().int().min(0).max(2147483647).transform(value => value as DeliverySettingsVersion), createdAt: z.date() }).safeParse(value);
+  if (!parsed.success) return err({ code: "INVALID_DELIVERY_RATE", message: "Invalid persisted delivery rate" });
+  const price = parseDeliveryPrice(parsed.data.price, currency);
+  return price.success ? ok({ ...parsed.data, price: price.data }) : price;
+}
+
+export function parseRateWithQuotation(value: Readonly<{ quotation: unknown; rate: unknown }>, currency: Currency): Result<RateWithQuotation, QuotationError> {
+  const quotation = parseQuotation(value.quotation);
+  if (!quotation.success) return quotation;
+  const rate = parseDeliveryRate(value.rate, currency);
+  if (!rate.success) return rate;
+  if (rate.data.companyId !== quotation.data.companyId || rate.data.quotationId !== quotation.data.id || rate.data.districtCode !== quotation.data.destination.districtCode)
+    return err({ code: "INVALID_DELIVERY_RATE", message: "Rate does not belong to the quotation tenant and destination" });
+  return ok({ quotation: quotation.data, rate: rate.data });
+}
 
 export function parseQuotationCompanyId(value: string): Result<CompanyId, QuotationError> {
   const parsed = companyIdSchema.safeParse(value);
