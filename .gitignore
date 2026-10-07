@@ -3,6 +3,7 @@ node_modules/
 
 .happy-memory/
 .pnpm-store/
+/.hermes_data/
 storybook-static/
 debug-storybook.log
 
