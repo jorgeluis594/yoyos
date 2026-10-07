@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { currencies } from "@shared/money";
+import { moneySchema } from "@shared/contracts/money";
 import { pickupPointSchema } from "@shared/contracts/delivery-settings";
 
 export const orderSelectionSchema = z.strictObject({
@@ -18,7 +19,7 @@ export const orderItemSchema = z.strictObject({ id: z.uuid(), variantId: z.uuid(
 export const orderSchema = z.strictObject({ number: z.number().int().safe().min(1001), id: z.uuid(), companyId: z.uuid(), sellerId: z.string(), buyer: orderBuyerSchema.nullable(), paymentMethod: z.literal("digital_wallet"), completedAt: z.iso.datetime(), currency: z.enum(currencies), items: z.array(orderItemSchema).min(1), total: z.number().positive() });
 export type OrderResponse = z.infer<typeof orderSchema>;
 
-export const moneySchema = z.strictObject({ amount: z.number().finite(), currency: z.enum(currencies) });
+export { moneySchema } from "@shared/contracts/money";
 const identitySchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("absent") }),
   z.strictObject({ kind: z.literal("document"), documentType: z.enum(["national_id", "passport", "foreign_id"]), document: z.string().trim().min(1) }),

@@ -1,6 +1,7 @@
 import { add, isCurrency, multiply, type Money } from "@shared/money";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
+export type { CompanyId, UserId } from "@shared/identity";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 
@@ -8,8 +9,6 @@ export type OrderId = string & { readonly __brand: "OrderId" };
 export type OrderItemId = string & { readonly __brand: "OrderItemId" };
 export type PaymentId = string & { readonly __brand: "PaymentId" };
 export type ContactId = string & { readonly __brand: "ContactId" };
-export type CompanyId = string & { readonly __brand: "CompanyId" };
-export type UserId = string & { readonly __brand: "UserId" };
 export type PositiveInteger = number & { readonly __brand: "PositiveInteger" };
 
 export type OrderCustomer = Readonly<{ kind: "general_public" }> | Readonly<{ kind: "contact"; contactId: ContactId; name: string | null; phone: string }>;

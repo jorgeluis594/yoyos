@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { internationalPhonePattern } from "@shared/phone";
-import { moneySchema } from "@shared/contracts/orders";
+import { moneySchema } from "@shared/contracts/money";
 
 export const checkoutPathSchema = z.strictObject({ companyId: z.uuid(), orderId: z.uuid() });
 export const checkoutBuyerSchema = z.strictObject({ name: z.string().trim().min(1), phone: z.string().regex(internationalPhonePattern) });
