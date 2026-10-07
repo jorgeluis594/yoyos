@@ -172,3 +172,56 @@ test("mobile fulfillment refreshes details and history through the real API", as
     });
   }
 }, 180000);
+
+test("seller confirms cancellation before dispatch, keeps payments and sees it in history", async ({ page }) => {
+  const email = `cancellation-${crypto.randomUUID()}@example.test`;
+  let companyId: string | undefined;
+  try {
+    companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "Cancellation", country: "PE" });
+    const tenantId = companyId;
+    const variantId = await withTenantIsolation(tenantId, async () => {
+      const product = await products.create({ name: "Cancellation product", currency: "PEN", variants: [{ attributes: {}, salePrice: 10, initialStock: 3 }] });
+      if (!product.success) throw new Error("Product setup failed");
+      return (await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } })).id;
+    });
+    for (const paid of [false, true]) {
+      const orderId = crypto.randomUUID();
+      expect((await page.request.post("/api/orders", { data: { id: orderId, contactId: null, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
+      if (paid) expect((await page.request.post(`/api/orders/${orderId}/payments`, { data: {
+        paymentId: crypto.randomUUID(), amount: { amount: 10, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false,
+      } })).ok()).toBe(true);
+      const before = await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json();
+      await page.goto(`/es-PE/orders/${orderId}`);
+      const cancel = page.getByRole("button", { name: "Cancelar pedido", exact: true });
+      await browserExpect(cancel).toBeEnabled();
+      page.once("dialog", async dialog => { expect(dialog.message()).toContain("cancelar no realiza un reembolso"); await dialog.dismiss(); });
+      await cancel.click();
+      expect(await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json()).toEqual(before);
+      if (paid) {
+        for (const width of [1280, 390]) {
+          await page.setViewportSize({ width, height: 900 });
+          expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+          await page.screenshot({ path: `/tmp/order-cancellation-${width}.png`, fullPage: true });
+        }
+      }
+      page.once("dialog", dialog => dialog.accept());
+      await cancel.click();
+      await browserExpect(page.getByRole("status")).toHaveText("Pedido cancelado. Los pagos registrados se conservan; no se ha realizado un reembolso.");
+      await browserExpect(cancel).toHaveCount(0);
+      await browserExpect(page.getByRole("button", { name: "Marcar enviado", exact: true })).toBeDisabled();
+      const after = await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json();
+      expect(after).toMatchObject({ cancelled: true, status: "cancelled", stockDeducted: false, paymentStatus: before.paymentStatus, payments: before.payments });
+      expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(3n);
+      await page.reload();
+      await browserExpect(page.getByText("Pedido cancelado. Los pagos registrados se conservan; no se ha realizado un reembolso.")).toBeVisible();
+      await page.getByRole("link", { name: "Ver ventas", exact: true }).click();
+      await browserExpect(page.getByRole("row").filter({ has: page.getByRole("link", { name: `Pedido #${after.number}`, exact: true }) }).locator("summary")).toHaveAttribute("aria-label", "Cancelado");
+    }
+  } finally {
+    if (companyId) await withTenantIsolation(companyId, async () => {
+      await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
+      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+      await systemPrisma.user.deleteMany({ where: { email } }); await prisma.company.delete({ where: { id: companyId } });
+    });
+  }
+});

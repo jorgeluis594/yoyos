@@ -55,3 +55,19 @@ test.each(["ship", "deliver"] as const)("seller %s action uses fulfillment and n
   fulfillment.mockRejectedValue(new Error("Unavailable"));
   expect(await action(args({ operation }))).toMatchObject({ operation, success: false, error: "INTERNAL_ERROR" });
 });
+
+test("seller cancellation uses authenticated scope, preserves payments and reports conflicts", async () => {
+  const cancel = vi.spyOn(orders, "cancel").mockResolvedValue(err({ code: "INVALID_TRANSITION", message: "Already shipped" }));
+  const confirm = vi.spyOn(orders, "registerPayment");
+  const voidPayment = vi.spyOn(orders, "voidPayment");
+  expect(await action(args({ operation: "cancel", companyId: "foreign" })))
+    .toEqual({ operation: "cancel", url: null, success: false, error: "INVALID_TRANSITION" });
+  expect(cancel).toHaveBeenCalledWith(orderId, { companyId, userId: "authenticated-seller" });
+  expect(confirm).not.toHaveBeenCalled();
+  expect(voidPayment).not.toHaveBeenCalled();
+  cancel.mockClear();
+  expect(await action({ ...args({ operation: "cancel" }), params: { orderId: "invalid" } })).toMatchObject({ init: { status: 422 } });
+  expect(cancel).not.toHaveBeenCalled();
+  cancel.mockRejectedValue(new Error("Unavailable"));
+  expect(await action(args({ operation: "cancel" }))).toMatchObject({ operation: "cancel", success: false, error: "INTERNAL_ERROR" });
+});

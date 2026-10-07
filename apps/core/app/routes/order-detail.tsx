@@ -82,11 +82,11 @@ export async function action({ params, context, request }: ActionFunctionArgs) {
   const id = z.uuid().safeParse(params.orderId);
   const fields = await request.formData();
   const operation = fields.get("operation");
-  if (!id.success || ([...fields].length !== 0 && operation !== "confirm" && operation !== "void" && operation !== "ship" && operation !== "deliver")) {
+  if (!id.success || ([...fields].length !== 0 && operation !== "confirm" && operation !== "void" && operation !== "ship" && operation !== "deliver" && operation !== "cancel")) {
     bindRequestOperation({ outcome: "invalid_input" });
     return data({ url: null, success: false, error: true }, { status: 422, headers: headers() });
   }
-  if (operation === "ship" || operation === "deliver") {
+  if (operation === "ship" || operation === "deliver" || operation === "cancel") {
     try {
       const result = await orders[operation](id.data as OrderId, { companyId: access.company.id, userId: access.user.id });
       return { operation, url: null, success: result.success, error: result.success ? false : result.error.code } as const;
@@ -130,6 +130,7 @@ export default function OrderDetail() {
   const actionData = useActionData<typeof action>();
   const result = actionData && "operation" in actionData && actionData.operation === "delivery" ? actionData : undefined;
   const fulfillment = actionData && "operation" in actionData && (actionData.operation === "ship" || actionData.operation === "deliver") ? actionData : undefined;
+  const cancellation = actionData && "operation" in actionData && actionData.operation === "cancel" ? actionData : undefined;
   const navigation = useNavigation();
   const editable = !order.cancelled && order.deliveryStatus === "pending" && order.completedAt === null;
   const [editingDelivery, setEditingDelivery] = useState(false);
@@ -158,6 +159,14 @@ export default function OrderDetail() {
           <span className={`${badge} ${order.deliveryStatus === "pending" ? "bg-[var(--warning-surface)] text-[var(--warning)]" : "bg-[var(--success-surface)] text-[var(--success)]"}`}><Truck className="size-icon-inline" aria-hidden="true" />{t("orders.delivery")}: {t(`orders.deliveryStatus.${order.deliveryStatus}`)}</span>
         </div>
       </div>
+      {editable && <Form method="post" className="self-start" onSubmit={event => {
+        if (!window.confirm(`${t("orderCancellation.confirm")}\n\n${t("orderCancellation.effects")}`)) event.preventDefault();
+      }}>
+        <input type="hidden" name="operation" value="cancel" />
+        <Button type="submit" variant="destructive" disabled={navigation.state !== "idle"}>{t("orderCancellation.cancel")}</Button>
+      </Form>}
+      {cancellation?.error && <p role="alert" className="text-sm text-destructive">{t(`orderCancellation.${cancellation.error}`, { defaultValue: t("orderCancellation.saveError") })}</p>}
+      {order.cancelled && <p role={cancellation?.success ? "status" : undefined} className="text-sm text-muted-foreground">{t("orderCancellation.saved")}</p>}
     </header>
 
     <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
@@ -236,7 +245,7 @@ export default function OrderDetail() {
                 </Form>;
               })}
               {fulfillment?.error && <p role="alert" className="text-sm text-destructive">{t(`orderFulfillment.${fulfillment.error}`, { defaultValue: t("orderFulfillment.saveError") })}</p>}
-              {fulfillment?.success && <p role="status" className="text-sm text-[var(--success)]">{t(`orderFulfillment.${fulfillment.operation}Saved`)}</p>}
+              {fulfillment?.success && <p role="status" className="text-sm text-[var(--success)]">{t(fulfillment.operation === "ship" ? "orderFulfillment.shipSaved" : "orderFulfillment.deliverSaved")}</p>}
             </div>
             {order.delivery ? <>
               <section className="flex flex-col gap-2 text-sm">
