@@ -13,5 +13,5 @@ export function showConfirmation({ title, description, confirmLabel, cancelLabel
   Alert.alert(title, description, [
     { text: cancelLabel, style: 'cancel' },
     { text: confirmLabel, style: destructive ? 'destructive' : 'default', onPress: onConfirm },
-  ]);
+  ], { cancelable: true });
 }
