@@ -1,0 +1,30 @@
+--- a/client.go
++++ b/client.go
+@@ -85,6 +85,10 @@
+ 	// If SynchronousAck is set, acks for messages will only be sent after all event handlers return.
+ 	SynchronousAck             bool
+ 	EnableDecryptedEventBuffer bool
++	// PreDecryptMessage prepares a context before message decryption. An error or nil
++	// context stops processing without acknowledging the message. The hook must not
++	// mutate info or node, retain their pointers, or panic. Configure before Connect.
++	PreDecryptMessage func(context.Context, *types.MessageInfo, *waBinary.Node) (context.Context, error)
+ 	lastDecryptedBufferClear   time.Time
+ 
+ 	DisableLoginAutoReconnect bool
+--- a/message.go
++++ b/message.go
+@@ -315,6 +315,14 @@
+ }
+ 
+ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo, node *waBinary.Node) {
++	if cli.PreDecryptMessage != nil {
++		prepared, err := cli.PreDecryptMessage(ctx, info, node)
++		if err != nil || prepared == nil {
++			cli.Log.Errorf("Message context hook rejected processing")
++			return
++		}
++		ctx = prepared
++	}
+ 	defer func() {
+ 		if err := recover(); err != nil {
+ 			cli.Log.Errorf("Message decryption for %s panicked: %v\n%s", info.ID, err, debug.Stack())
