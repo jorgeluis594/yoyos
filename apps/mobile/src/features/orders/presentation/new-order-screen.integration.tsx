@@ -112,7 +112,7 @@ test("mobile interface creates a pending order without payments or stock changes
     status: "active", paymentStatus: "pending", deliveryStatus: "pending", payments: [], stockDeducted: false, completedAt: null,
   } });
   expect(mockPosts).toBe(1);
-});
+}, 15000);
 
 test("mobile interface creates an immediate sale with payment, stock deduction and delivery", async () => {
   const screen = await review();

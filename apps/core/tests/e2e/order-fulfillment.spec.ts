@@ -124,12 +124,13 @@ test("mobile fulfillment refreshes details and history through the real API", as
       expect(created.status()).toBe(201);
       const pending = await created.json();
       await page.goto(`${mobile.origin}/orders`, { timeout: 90000 });
-      await browserExpect(page.getByText(new RegExp(`Pedido #${pending.number} ·`))).toBeVisible({ timeout: 90000 });
-      await page.getByText(new RegExp(`Pedido #${pending.number} ·`)).click();
+      await browserExpect(page.getByText(new RegExp(`#${pending.number} ·`))).toBeVisible({ timeout: 90000 });
+      await page.getByText(new RegExp(`#${pending.number} ·`)).click();
       await browserExpect(page.getByText("Orden activa", { exact: true })).toBeVisible();
       await browserExpect(page.getByRole("button", { name: "Marcar enviado", exact: true })).toBeDisabled();
       await browserExpect(page.getByRole("button", { name: "Marcar entregado", exact: true })).toBeDisabled();
       await browserExpect(page.getByText("Se requiere el pago completo antes de enviar o entregar.").first()).toBeVisible();
+      await page.getByRole("button", { name: "Registrar pago", exact: true }).click();
       await page.getByRole("textbox", { name: /Importe recibido/ }).fill("10");
       await page.getByRole("button", { name: "Confirmar pago", exact: true }).click();
       await browserExpect(page.getByRole("button", { name: "Marcar entregado", exact: true })).toBeEnabled();
@@ -143,10 +144,10 @@ test("mobile fulfillment refreshes details and history through the real API", as
         const shipped = await (await page.request.get(`${coreOrigin}/api/orders/${orderId}/aggregate`)).json();
         expect(shipped.deliveryStatus).toBe("shipped");
         expect(shipped.payments).toEqual(before.payments);
-        await browserExpect(page.getByText(/· Despachado$/)).toBeVisible();
-        await page.getByRole("button", { name: "Volver a ventas", exact: true }).click();
-        const row = page.getByRole("button").filter({ hasText: `Pedido #${before.number} ·` });
-        await browserExpect(row).toContainText("Orden activa");
+        await browserExpect(page.getByText("Despachado", { exact: true })).toBeVisible();
+        await page.getByRole("button", { name: "Volver a pedidos", exact: true }).click();
+        const row = page.getByRole("button").filter({ hasText: `#${before.number} ·` });
+        await browserExpect(row).toContainText("Despachado");
         await row.click();
       }
       await page.getByRole("button", { name: "Marcar entregado", exact: true }).click();
@@ -158,9 +159,9 @@ test("mobile fulfillment refreshes details and history through the real API", as
       await browserExpect(page.getByRole("button", { name: "Marcar enviado", exact: true })).toBeDisabled();
       await browserExpect(page.getByRole("button", { name: "Marcar entregado", exact: true })).toBeDisabled();
       expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(stockBefore);
-      await page.getByRole("button", { name: "Volver a ventas", exact: true }).click();
-      const row = page.getByRole("button").filter({ hasText: `Pedido #${before.number} ·` });
-      await browserExpect(row).toContainText("Venta completada");
+      await page.getByRole("button", { name: "Volver a pedidos", exact: true }).click();
+      const row = page.getByRole("button").filter({ hasText: `#${before.number} ·` });
+      await browserExpect(row).toContainText("Completado");
     }
   } finally {
     await mobile.close();

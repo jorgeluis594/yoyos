@@ -5,7 +5,12 @@ import { resolve } from "node:path";
 // Expo Web exercises the actual mobile screens. This local proxy gives its
 // browser requests the same HTTP access to core that native fetch has.
 export async function startMobileWeb() {
-  const metroPort = 18082;
+  const available = createServer();
+  await new Promise<void>((resolve) => available.listen(0, "127.0.0.1", resolve));
+  const metroAddress = available.address();
+  if (!metroAddress || typeof metroAddress === "string") throw new Error("Missing Metro port");
+  const metroPort = metroAddress.port;
+  await new Promise<void>((resolve) => available.close(() => resolve()));
   const coreOrigin = `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}`;
   const proxy = createServer((incoming, outgoing) => {
     const api = incoming.url?.startsWith("/api/");
