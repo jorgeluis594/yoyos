@@ -105,7 +105,7 @@ test("delivery API validates the complete authored snapshot and updated aggregat
   const delivery = { method: "store" as const, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } },
     pickupPoint: { name: "Store", address: "Lima", instructions: null }, recordedBy: { kind: "seller" as const, userId: "current-editor" } };
   const input = { delivery: { method: "store" as const, recipient: delivery.recipient }, chargeDeliveryToCustomer: false };
-  const order = { id: id(1), companyId: id(2), sellerId: "original-seller", number: 1001, buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, deliveredAt: null, createdAt: "2026-10-05T12:00:00.000Z", completedAt: null,
+  const order = { id: id(1), companyId: id(2), sellerId: "original-seller", number: 1001, buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, checkoutDeliveryRequest: null, deliveredAt: null, createdAt: "2026-10-05T12:00:00.000Z", completedAt: null,
     status: "active", paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false, total, paidAmount: zero, balanceDue: total, overpaidAmount: zero,
     cancelled: false, delivery, payments: [], itemsTotal: total, deliveryCost: { amount: 3, currency: "PEN" }, deliveryCharge: zero,
     items: [{ id: id(3), variantId: id(4), productName: "Item", variantAttributes: {}, sku: null, quantity: 1, unitPrice: total, subtotal: total }] };
@@ -152,5 +152,49 @@ test.each(["ship", "deliver"] as const)("%s validates IDs, sends no payment data
     expect(await failed[operation](id(1))).toMatchObject({ error: { code } });
     const wrongStatus = createOrderApi(async () => err({ code: "API_ERROR", message: "Failed", http: { status: 422, body: { code, error: "Rejected" } } }));
     expect(await wrongStatus[operation](id(1))).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+  }
+});
+
+function cancellationFixture() {
+  const total = { amount: 10, currency: "PEN" as const };
+  const zero = { amount: 0, currency: "PEN" as const };
+  return { id: id(1), companyId: id(2), sellerId: "seller", number: 1001, buyer: null,
+    checkoutEnabledAt: null, checkoutConfirmedAt: null, checkoutDeliveryRequest: null, deliveredAt: null, completedAt: null,
+    createdAt: "2026-10-05T12:00:00.000Z", status: "cancelled", paymentStatus: "pending",
+    deliveryStatus: "pending", cancelled: true, stockDeducted: true, delivery: null, payments: [],
+    total, paidAmount: zero, balanceDue: total, overpaidAmount: zero, itemsTotal: total, deliveryCost: zero, deliveryCharge: zero,
+    items: [{ id: id(3), variantId: id(4), productName: "Item", variantAttributes: {}, sku: null, quantity: 1, unitPrice: total, subtotal: total }] };
+}
+
+test("cancellation validates ID and complete state then exposes only the application projection", async () => {
+  const order = cancellationFixture();
+  const request = jest.fn(async () => ok(order));
+  const api = createOrderApi(request);
+  expect(await api.cancel("bad")).toMatchObject({ error: { code: "INVALID_INPUT" } });
+  expect(request).not.toHaveBeenCalled();
+  const projection = { id: id(1), status: "cancelled", cancelled: true, deliveryStatus: "pending", stockDeducted: true, deliveredAt: null, completedAt: null };
+  expect(await api.cancel(id(1))).toEqual(ok(projection));
+  expect(request).toHaveBeenCalledWith(`/api/orders/${id(1)}/cancel`, { method: "POST" });
+  expect(await api.readCancellationState(id(1))).toEqual(ok(projection));
+  for (const invalid of [{ ...order, id: id(5) }, { ...order, cancelled: false }, { ...order, status: "active" },
+    { ...order, deliveryStatus: "shipped" }, { ...order, deliveredAt: order.createdAt }, { ...order, completedAt: order.createdAt },
+    { ...order, stockDeducted: "yes" }, { ...order, payments: undefined }]) {
+    expect(await createOrderApi(async () => ok(invalid)).cancel(id(1))).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+  }
+  for (const invalid of [{ ...order, id: id(5) }, { ...order, status: "active" }, { ...order, deliveryStatus: "shipped" }]) {
+    expect(await createOrderApi(async () => ok(invalid)).readCancellationState(id(1))).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+  }
+});
+
+test("cancellation errors must match both HTTP status and the operation", async () => {
+  for (const [code, status] of [["INVALID_INPUT", 400], ["ORDER_NOT_FOUND", 404], ["INVALID_TRANSITION", 409],
+    ["INVALID_ORDER", 422], ["INVALID_PAYMENT", 422], ["CURRENCY_MISMATCH", 422], ["INTERNAL_ERROR", 500]] as const) {
+    const failure = (responseStatus: number) => createOrderApi(async () => err({ code: "API_ERROR", message: "Failed", http: { status: responseStatus, body: { code, error: "Rejected" } } }));
+    expect(await failure(status).cancel(id(1))).toMatchObject({ error: { code: code === "INTERNAL_ERROR" ? "SERVER_ERROR" : code } });
+    expect(await failure(status + 1).cancel(id(1))).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+  }
+  for (const code of ["INSUFFICIENT_STOCK", "ORDER_CANCELLED", "UNKNOWN"] as const) {
+    const api = createOrderApi(async () => err({ code: "API_ERROR", message: "Failed", http: { status: 409, body: { code, error: "Rejected" } } }));
+    expect(await api.cancel(id(1))).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
   }
 });

@@ -1,3 +1,5 @@
+import type { CancelledOrderState, CancellationOrderState, CancellationRequestError } from "@mobile/features/orders/application/cancel-order";
+import { cancelOrderParamsSchema, cancelOrderResponseSchema, cancelOrderErrorSchema } from "@shared/contracts/orders";
 import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
 import { z } from "zod";
 import { createOrderSchema, listOrderAggregatesResponseSchema, listOrderAggregatesSchema, listOrdersResponseSchema, listOrdersSchema, orderAggregateSchema, orderApiErrorSchema,
@@ -77,6 +79,36 @@ function response<T extends z.ZodType>(raw: Result<unknown, TransportError>, sch
   return parsed.success ? ok(parsed.data) : err({ code: "INVALID_RESPONSE", message: "Invalid order response" });
 }
 
+function cancellationError(error: TransportError): CancellationRequestError {
+  if (error.http) {
+    const parsed = cancelOrderErrorSchema.safeParse(error.http.body);
+    if (parsed.success && error.http.status === statusByCode[parsed.data.code]) {
+      return { code: parsed.data.code === "INTERNAL_ERROR" ? "SERVER_ERROR" : parsed.data.code, message: parsed.data.error };
+    }
+    if (error.code === "API_ERROR" || orderApiErrorSchema.safeParse(error.http.body).success)
+      return { code: "INVALID_RESPONSE", message: "Incompatible cancellation error" };
+  }
+  switch (error.code) {
+    case "UNAUTHENTICATED": case "COMPANY_REQUIRED": case "INVALID_COMPANY": case "OPERATION_CANCELLED": case "SECURE_STORAGE_ERROR":
+    case "NETWORK_ERROR": case "RATE_LIMITED": case "SERVICE_UNAVAILABLE": case "SERVER_ERROR": case "INVALID_RESPONSE":
+      return { code: error.code, message: error.message };
+    default: return { code: "INVALID_RESPONSE", message: "Unknown cancellation error" };
+  }
+}
+
+function cancellationProjection(order: OrderAggregateResponse): Result<CancellationOrderState, CancellationRequestError> {
+  if (order.cancelled || order.status === "cancelled") {
+    const parsed = cancelOrderResponseSchema.safeParse(order);
+    return parsed.success ? ok({ id: parsed.data.id, status: parsed.data.status, cancelled: parsed.data.cancelled,
+      deliveryStatus: parsed.data.deliveryStatus, stockDeducted: parsed.data.stockDeducted, deliveredAt: parsed.data.deliveredAt, completedAt: parsed.data.completedAt })
+      : err({ code: "INVALID_RESPONSE", message: "Invalid cancelled state" });
+  }
+  if (order.deliveryStatus === "pending") return order.status === "active"
+    ? ok({ id: order.id, status: "active", cancelled: false, deliveryStatus: "pending" })
+    : err({ code: "INVALID_RESPONSE", message: "Invalid pending order state" });
+  return ok({ id: order.id, status: order.status, cancelled: false, deliveryStatus: order.deliveryStatus });
+}
+
 export function createOrderApi(request: Request) {
   const fulfill = async (orderId: string, operation: "ship" | "deliver"): Promise<Result<OrderAggregateResponse, OrderRequestError>> => {
     if (!z.uuid().safeParse(orderId).success) return err({ code: "INVALID_INPUT", message: "Invalid order ID" });
@@ -85,6 +117,22 @@ export function createOrderApi(request: Request) {
       ? err({ code: "INVALID_RESPONSE", message: "Unexpected order fulfillment" }) : result;
   };
   return {
+    cancel: async (orderId: string): Promise<Result<CancelledOrderState, CancellationRequestError>> => {
+      if (!cancelOrderParamsSchema.safeParse({ id: orderId }).success) return err({ code: "INVALID_INPUT", message: "Invalid order ID" });
+      const raw = await request(`/api/orders/${orderId}/cancel`, { method: "POST" });
+      if (!raw.success) return err(cancellationError(raw.error));
+      const parsed = cancelOrderResponseSchema.safeParse(raw.data);
+      if (!parsed.success || parsed.data.id !== orderId) return err({ code: "INVALID_RESPONSE", message: "Invalid cancellation response" });
+      return ok({ id: parsed.data.id, status: parsed.data.status, cancelled: parsed.data.cancelled,
+        deliveryStatus: parsed.data.deliveryStatus, stockDeducted: parsed.data.stockDeducted, deliveredAt: parsed.data.deliveredAt, completedAt: parsed.data.completedAt });
+    },
+    readCancellationState: async (orderId: string): Promise<Result<CancellationOrderState, CancellationRequestError>> => {
+      if (!cancelOrderParamsSchema.safeParse({ id: orderId }).success) return err({ code: "INVALID_INPUT", message: "Invalid order ID" });
+      const raw = await request(`/api/orders/${orderId}/aggregate`);
+      if (!raw.success) return err(cancellationError(raw.error));
+      const parsed = orderAggregateSchema.safeParse(raw.data);
+      return parsed.success && parsed.data.id === orderId ? cancellationProjection(parsed.data) : err({ code: "INVALID_RESPONSE", message: "Invalid order state" });
+    },
     ship: (orderId: string) => fulfill(orderId, "ship"),
     deliver: (orderId: string) => fulfill(orderId, "deliver"),
     setDelivery: async (orderId: string, input: SetOrderDeliveryRequest): Promise<Result<OrderAggregateResponse, OrderRequestError>> => {

@@ -1,3 +1,4 @@
+import { createCancellationOperations } from "@mobile/features/orders/application/cancel-order";
 import { createOrderOperations } from "@mobile/features/orders/application/order-operations";
 import { addDraftItem, emptyOrderDraft } from "@mobile/features/orders/domain/order-draft";
 import { createPendingOrderConfirmationStore } from "@mobile/features/orders/infrastructure/pending-order-confirmation";
@@ -529,4 +530,38 @@ test("cancellation HTTP validates identity, isolation, repeated results and pres
   });
   expect((await call(`/api/orders/${id}/ship`, seller.cookie, undefined, "POST")).status).toBe(409);
   expect((await call(`/api/orders/${id}/payments`, seller.cookie, { paymentId: randomUUID(), amount: { amount: 1, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false })).status).toBe(409);
+});
+
+
+test("mobile cancellation adapter recovers the real committed result with one write and read", async () => {
+  const seller = await fixture("PE");
+  const id = randomUUID();
+  expect((await call("/api/orders/pending", seller.cookie, { id, contactId: null, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
+  const paths: string[] = [];
+  let offline = true;
+  const api = createOrderApi(async (path, init) => {
+    paths.push(path);
+    if (offline && init?.method !== "POST") return err({ code: "NETWORK_ERROR", message: "Offline" });
+    const response = await call(path, seller.cookie, undefined, init?.method);
+    const body: unknown = await response.json();
+    if (init?.method === "POST") {
+      expect(response.status).toBe(200);
+      expect(cancelOrderResponseSchema.parse(body).cancelled).toBe(true);
+      return err({ code: "NETWORK_ERROR", message: "Lost after commit" });
+    }
+    return response.ok ? ok(body) : err({ code: "API_ERROR", message: "Rejected", http: { status: response.status, body } });
+  });
+  const operations = createCancellationOperations({ cancel: api.cancel, readState: api.readCancellationState });
+  expect(await operations.cancelOrder(id)).toMatchObject({ success: true, data: { kind: "uncertain", orderId: id } });
+  expect(paths).toEqual([`/api/orders/${id}/cancel`, `/api/orders/${id}/aggregate`]);
+  offline = false;
+  expect(await operations.checkCancellation(id)).toMatchObject({ success: true, data: { kind: "cancelled", order: { id, cancelled: true, stockDeducted: false } } });
+  expect(paths).toEqual([`/api/orders/${id}/cancel`, `/api/orders/${id}/aggregate`, `/api/orders/${id}/aggregate`]);
+  const foreign = await fixture("PE");
+  const foreignApi = createOrderApi(async (path, init) => {
+    const response = await call(path, foreign.cookie, undefined, init?.method);
+    const body: unknown = await response.json();
+    return response.ok ? ok(body) : err({ code: "API_ERROR", message: "Rejected", http: { status: response.status, body } });
+  });
+  expect(await foreignApi.cancel(id)).toMatchObject({ error: { code: "ORDER_NOT_FOUND" } });
 });
