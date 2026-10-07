@@ -150,11 +150,13 @@ describe("delivery and stock transitions", () => {
     const shipped = orderStateMachine.registerShipment(deducted.data.nextOrder);
     expect(shipped).toMatchObject({ success: true, data: { deliveryStatus: "shipped", completedAt: null } });
     if (!shipped.success) return;
+    expect(shipped.data.payments).toEqual(deducted.data.nextOrder.payments);
     expect(orderStateMachine.setDelivery(shipped.data, { resolved: { delivery: home, cost: money(1) }, chargeDeliveryToCustomer: true }))
       .toMatchObject({ success: false, error: { code: "DELIVERY_LOCKED" } });
     const delivered = orderStateMachine.registerDelivery(shipped.data, paymentAt);
     expect(delivered).toMatchObject({ success: true, data: { deliveryStatus: "delivered", deliveredAt: paymentAt, completedAt: paymentAt } });
     if (!delivered.success) return;
+    expect(delivered.data.payments).toEqual(shipped.data.payments);
     expect(orderStateMachine.getLifecycle(delivered.data)).toEqual({ success: true, data: { status: "completed", completedAt: paymentAt } });
     expect(orderStateMachine.getLifecycle({ ...delivered.data, deliveredAt: null }))
       .toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
@@ -167,7 +169,7 @@ describe("delivery and stock transitions", () => {
     const deducted = orderStateMachine.planStockDeduction(paid.data, false);
     if (!deducted.success) throw new Error("Expected deduction plan");
     expect(orderStateMachine.registerDelivery(deducted.data.nextOrder, paymentAt)).toMatchObject({ success: true, data: {
-      delivery: null, deliveryStatus: "delivered", completedAt: paymentAt } });
+      delivery: null, deliveryStatus: "delivered", completedAt: paymentAt, payments: paid.data.payments } });
   });
 
   test("cancels before dispatch, requests one restoration and preserves payments", () => {

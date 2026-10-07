@@ -1,3 +1,5 @@
+import { fulfillmentBlock } from "@shared/orders-fulfillment";
+import { PaymentFields, type PaymentDraft } from "@core/src/features/orders/presentation/payment-fields";
 import { useState } from "react";
 import { ArrowLeft, ChevronDown, CircleCheck, CircleX, CreditCard, ExternalLink, Truck } from "lucide-react";
 import { Card } from "@core/app/components/ui/card";
@@ -80,9 +82,18 @@ export async function action({ params, context, request }: ActionFunctionArgs) {
   const id = z.uuid().safeParse(params.orderId);
   const fields = await request.formData();
   const operation = fields.get("operation");
-  if (!id.success || ([...fields].length !== 0 && operation !== "confirm" && operation !== "void")) {
+  if (!id.success || ([...fields].length !== 0 && operation !== "confirm" && operation !== "void" && operation !== "ship" && operation !== "deliver")) {
     bindRequestOperation({ outcome: "invalid_input" });
     return data({ url: null, success: false, error: true }, { status: 422, headers: headers() });
+  }
+  if (operation === "ship" || operation === "deliver") {
+    try {
+      const result = await orders[operation](id.data as OrderId, { companyId: access.company.id, userId: access.user.id });
+      return { operation, url: null, success: result.success, error: result.success ? false : result.error.code } as const;
+    } catch (cause) {
+      log.error({ event: "order_fulfillment_request_failed", operation, orderId: id.data, err: cause }, "Unable to fulfill order");
+      return { operation, url: null, success: false, error: "INTERNAL_ERROR" } as const;
+    }
   }
   if ([...fields].length !== 0) {
     const paymentId = z.uuid().safeParse(fields.get("paymentId"));
@@ -117,7 +128,8 @@ export default function OrderDetail() {
   const { t, i18n } = useTranslation();
   const { order, base, manualPaymentId, receiptUrls, settings, settingsPath } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
-  const result = actionData && "operation" in actionData ? actionData : undefined;
+  const result = actionData && "operation" in actionData && actionData.operation === "delivery" ? actionData : undefined;
+  const fulfillment = actionData && "operation" in actionData && (actionData.operation === "ship" || actionData.operation === "deliver") ? actionData : undefined;
   const navigation = useNavigation();
   const editable = !order.cancelled && order.deliveryStatus === "pending" && order.completedAt === null;
   const [editingDelivery, setEditingDelivery] = useState(false);
@@ -175,7 +187,7 @@ export default function OrderDetail() {
               {order.overpaidAmount.amount > 0 && <div className="rounded-sm bg-[var(--warning-surface)] p-3 text-[var(--warning)]">{t("orders.overpaid", { amount: amount(order.overpaidAmount) })}</div>}
             </dl>
             {actionData?.error && !("operation" in actionData) && <p role="alert" className="text-sm text-destructive">{actionData.error === "INSUFFICIENT_STOCK" ? t("orders.paymentStockError") : t("orders.paymentSaveError")}</p>}
-            {actionData?.success && <p role="status" className="text-sm text-[var(--success)]">{t("orders.paymentSaved")}</p>}
+            {actionData?.success && !("operation" in actionData) && <p role="status" className="text-sm text-[var(--success)]">{t("orders.paymentSaved")}</p>}
             <section className="flex flex-col gap-3 border-t pt-4" aria-labelledby="payment-history-title">
               <h3 id="payment-history-title" className="text-sm font-semibold">{t("orderDetail.paymentHistory")}</h3>
               {order.payments.length === 0 ? <p className="text-sm text-muted-foreground">{t("orderDetail.noPayments")}</p> : <ul className="divide-y">{order.payments.map(payment => <li key={payment.id} className="grid gap-3 py-3 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto]">
@@ -214,6 +226,18 @@ export default function OrderDetail() {
         <Card role="region" aria-labelledby="order-delivery-title" className="min-w-0 max-xl:order-4">
           <div className="flex flex-wrap items-center justify-between gap-3 p-4"><h2 id="order-delivery-title" className="text-lg font-semibold">{t("orders.delivery")}</h2>{editable && settings && (settings.store.enabled || settings.home.enabled || settings.agency.enabled) && <Button type="button" aria-expanded={editingDelivery} aria-controls="delivery-editor" onClick={() => setEditingDelivery(!editingDelivery)}>{t(editingDelivery ? "orderDetail.closeEditor" : order.delivery ? "orderDetail.editDelivery" : "orderDelivery.assign")}</Button>}</div>
           <div className="flex flex-col gap-4 px-4 pb-4">
+            <div className="flex flex-col gap-3">
+              {(["ship", "deliver"] as const).map(operation => {
+                const blocked = fulfillmentBlock(order, operation);
+                return <Form key={operation} method="post" className="flex flex-col gap-1">
+                  <input type="hidden" name="operation" value={operation} />
+                  <Button type="submit" variant="outline" disabled={!!blocked || navigation.state !== "idle"} aria-describedby={blocked ? `fulfillment-${operation}-reason` : undefined}>{t(`orderFulfillment.${operation}`)}</Button>
+                  {blocked && <p id={`fulfillment-${operation}-reason`} className="text-sm text-muted-foreground">{t(`orderFulfillment.${blocked}`)}</p>}
+                </Form>;
+              })}
+              {fulfillment?.error && <p role="alert" className="text-sm text-destructive">{t(`orderFulfillment.${fulfillment.error}`, { defaultValue: t("orderFulfillment.saveError") })}</p>}
+              {fulfillment?.success && <p role="status" className="text-sm text-[var(--success)]">{t(`orderFulfillment.${fulfillment.operation}Saved`)}</p>}
+            </div>
             {order.delivery ? <>
               <section className="flex flex-col gap-2 text-sm">
                 <h3 className="font-semibold">{t(`deliverySettings.${order.delivery.method}`)}</h3>
@@ -241,13 +265,11 @@ export default function OrderDetail() {
 function PaymentForm({ paymentId, source, currency, balance }: { paymentId: string; source: "manual" | "buyer_report"; currency: string; balance: number }) {
   const { t } = useTranslation();
   const navigation = useNavigation();
+  const [value, setValue] = useState<PaymentDraft>({ amount: balance.toFixed(2), method: "digital_wallet", deductStockIfPartial: false });
   return <Form method="post" className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
     <input type="hidden" name="operation" value="confirm" /><input type="hidden" name="source" value={source} />
     <input type="hidden" name="paymentId" value={paymentId} /><input type="hidden" name="currency" value={currency} />
-    <label className="flex flex-col gap-1 text-sm">{t("orders.paymentAmount")}<Input name="amount" type="number" min="0.01" step="0.01" defaultValue={balance.toFixed(2)} required /></label>
-    <label className="flex flex-col gap-1 text-sm">{t("orders.paymentMethod")}<select name="method" className="h-10 rounded-md border bg-background px-3" defaultValue="digital_wallet">
-      <option value="digital_wallet">{t("orders.wallet")}</option><option value="bank_transfer">{t("orders.bankTransfer")}</option></select></label>
-    <label className="flex items-center gap-2 text-sm sm:col-span-2"><input type="checkbox" name="deductStockIfPartial" />{t("orders.deductStockIfPartial")}</label>
+    <PaymentFields value={value} onChange={setValue} />
     <Button type="submit" disabled={navigation.state !== "idle"} className="sm:col-start-3 sm:row-start-1">{t("orders.confirmPayment")}</Button>
   </Form>;
 }

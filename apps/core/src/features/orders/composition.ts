@@ -1,3 +1,4 @@
+import { createCompleteOrder, type CreateCompleteOrderInput, type CreateCompleteOrderError } from "@core/src/features/orders/application/create-complete-order";
 import { enableOrderCheckout, getOrderCheckout, confirmOrderCheckout, type CheckoutDependencies, type ConfirmOrderCheckoutInput } from "@core/src/features/orders/application/checkout";
 import { findCheckoutOrder, findCheckoutOrderForUpdate, saveCheckoutEnabled, saveCheckoutBuyer, saveCheckoutConfirmed } from "@core/src/features/orders/infrastructure/checkout-repository";
 import type { CheckoutAccess, CheckoutError } from "@core/src/features/orders/domain/checkout";
@@ -120,6 +121,18 @@ export async function setConfiguredOrderDelivery(input: SetDeliveryInput, contex
       ...(result.error.code === "INSUFFICIENT_STOCK" ? { variantId: result.error.variantId } : {}) }, "Order delivery rejected");
   }
   return result;
+}
+
+export function createConfiguredOrder(input: CreateCompleteOrderInput, context: OrderAccess,
+  resolveCost?: ResolveDeliveryDependencies["resolveCost"]): Promise<Result<OrderAggregate, CreateCompleteOrderError>> {
+  return createCompleteOrder(input, context, {
+    transaction: scopedOrderTransaction,
+    create: orders.create,
+    setDelivery: (delivery, access) => setConfiguredOrderDelivery(delivery, access, resolveCost),
+    registerPayment: (payment, access) => registerPayment(payment, access, { transaction: paymentTransaction,
+      findOrderForUpdate, savePayment, updatePayment, saveCompletion, deductProductStock, saveStockDeduction, clock: () => new Date() }),
+    deliver: orders.deliver,
+  });
 }
 
 const checkoutDependencies: CheckoutDependencies = { transaction: scopedOrderTransaction,

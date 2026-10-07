@@ -1,5 +1,11 @@
+import { PaymentFields } from "@mobile/features/orders/presentation/payment-fields";
+import { DeliveryFields, deliveryDraftFromOrder } from "@mobile/features/orders/presentation/delivery-fields";
+import { deliverySettings } from "@mobile/features/delivery-settings/composition";
+import type { DeliverySettingsResponse } from "@shared/contracts/delivery-settings";
+import { orderLanguage } from "@mobile/features/orders/presentation/order-labels";
+import type { Result } from "@shared/result";
 import { useEffect, useRef, useState } from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { ScrollView, StyleSheet, Switch, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
@@ -19,11 +25,12 @@ import { showConfirmation } from "@mobile/components/ui/show-confirmation";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { addDraftItem, changeDraftQuantity, emptyOrderDraft, prepareOrder, removeDraftItem, setDraftCustomer,
   type OrderDraft } from "@mobile/features/orders/domain/order-draft";
-import type { PendingOrderConfirmation, ConfirmOrderOutcome } from "@mobile/features/orders/application/order-operations";
+import type { PendingOrderConfirmation, ConfirmOrderOutcome, ConfirmOrderError } from "@mobile/features/orders/application/order-operations";
 import { useOrderDraft } from "@mobile/features/orders/presentation/order-draft-guard";
 import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
 import { useTheme } from "@mobile/hooks/use-theme";
 import translations from "@mobile/i18n";
+import { normalizeDecimalInput } from "@mobile/shared/decimal-input";
 
 type Catalog = z.infer<typeof orderCatalogSchema>;
 type Contacts = z.infer<typeof orderContactsSchema>;
@@ -31,11 +38,17 @@ const money = (amount: number, currency: string, locale: string) => new Intl.Num
 const errorKeys: Record<string, string> = {
   INSUFFICIENT_STOCK: 'insufficientStock', VARIANT_NOT_FOUND: 'variantNotFound',
   CONTACT_NOT_FOUND: 'contactNotFound', CURRENCY_MISMATCH: 'currencyMismatch',
-  INVALID_ORDER: 'invalidOrder', PENDING_STORAGE_UNAVAILABLE: 'pendingStorageUnavailable',
+  INVALID_ORDER: 'invalidOrder', INVALID_PAYMENT: 'invalidOrder', PAYMENT_REQUIRED: 'immediateRequirements',
+  DELIVERY_UNAVAILABLE: 'orderDeliveryUnavailable', DELIVERY_METHOD_DISABLED: 'orderDeliveryDisabled', COURIER_UNAVAILABLE: 'orderCourierUnavailable', PENDING_STORAGE_UNAVAILABLE: 'pendingStorageUnavailable',
   INVALID_PENDING_DATA: 'invalidPendingData', PENDING_CONFIRMATION: 'pendingConfirmation',
 };
 
 export default function NewOrderScreen() {
+  const { state } = useAccess();
+  return state.status === "ready" ? <CompanyOrderScreen key={state.company.id} /> : null;
+}
+
+function CompanyOrderScreen() {
   const router = useRouter();
   const theme = useTheme();
   const { t, i18n } = useTranslation();
@@ -58,17 +71,25 @@ export default function NewOrderScreen() {
   const [checks, setChecks] = useState(0);
   const [checking, setChecking] = useState(false);
   const [sending, setSending] = useState(false);
-  const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [settings, setSettings] = useState<DeliverySettingsResponse | null>(null);
+  const saving = useRef(false);
   const [error, setError] = useState("");
   const [problemVariantId, setProblemVariantId] = useState<string | null>(null);
-  const [rebuildId, setRebuildId] = useState<string | null>(null);
-  const submitted = useRef<OrderDraft | null>(null);
   const leaveAllowed = useRef(false);
   const version = useRef(discardVersion);
   const companyId = state.status === "ready" ? state.company.id : "";
+  const activeCompany = useRef(companyId);
   const offline = network.isConnected === false || network.isInternetReachable === false;
   const prepared = prepareOrder(draft);
+  const productTotal = prepareOrder({ ...draft, payments: undefined, delivery: undefined });
+  const paidAmount = (draft.payments ?? []).reduce((sum, payment) => sum + (Number(normalizeDecimalInput(payment.amount)) || 0), 0);
 
+  useEffect(() => {
+    activeCompany.current = companyId;
+    let active = true;
+    if (companyId) void deliverySettings.get().then(result => { if (active) setSettings(result.success ? result.data : null); });
+    return () => { active = false; activeCompany.current = ""; };
+  }, [companyId]);
   useEffect(() => {
     if (draft.kind === "empty") leaveAllowed.current = false;
     setDirty(draft.kind === "items" && !leaveAllowed.current);
@@ -137,36 +158,32 @@ export default function NewOrderScreen() {
     setChecks((current) => current + 1);
     setError(t('orderMissingHistory'));
   };
-  const complete = async (selectedDraft: OrderDraft) => {
-    if (sending) return;
-    const connection = await Network.getNetworkStateAsync().catch(() => null);
-    if (connection?.isConnected === false || connection?.isInternetReachable === false) {
-      setError(t('offlineDraftSaved')); return;
-    }
+  const performSave = async (work: () => Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>>) => {
+    if (saving.current) return;
+    saving.current = true;
     setSending(true);
-    submitted.current = selectedDraft;
-    setHasSubmitted(true);
-    const result = await orders.completeOrder(selectedDraft, companyId);
-    setSending(false);
-    if (!result.success) {
-      setError(translations.t(errorKeys[result.error.code] ?? 'confirmOrderError'));
-      setProblemVariantId("issues" in result.error ? result.error.issues?.find((issue) => issue.variantId)?.variantId ?? null : null);
-      const current = await orders.readPendingOrderConfirmation(companyId);
-      if (!current.success) setPendingStatus("error");
-      else if (!current.data) { setPending(null); setPendingStatus("none"); submitted.current = null; }
-      else { setPending(current.data); setPendingStatus("uncertain"); }
-      return;
-    }
-    if (result.data.kind === "completed") { openCompleted(result.data); return; }
-    setPending(result.data.pending);
-    setPendingStatus("uncertain");
-    setChecks(0);
-    setError(t('uncertainOrder'));
+    try {
+      const connection = await Network.getNetworkStateAsync().catch(() => null);
+      if (connection?.isConnected === false || connection?.isInternetReachable === false) { setError(t('offlineDraftSaved')); return; }
+      const result = await work();
+      if (activeCompany.current !== companyId) return;
+      if (!result.success) {
+        setError(translations.t(errorKeys[result.error.code] ?? 'confirmOrderError'));
+        setProblemVariantId("issues" in result.error ? result.error.issues?.find(issue => issue.variantId)?.variantId ?? null : null);
+        const current = await orders.readPendingOrderConfirmation(companyId);
+        if (!current.success) setPendingStatus("error");
+        else { setPending(current.data); setPendingStatus(current.data ? "uncertain" : "none"); }
+        return;
+      }
+      if (result.data.kind === "completed") { openCompleted(result.data); return; }
+      setPending(result.data.pending); setPendingStatus("uncertain"); setChecks(0); setError(t('uncertainOrder'));
+    } finally { saving.current = false; setSending(false); }
   };
+  const complete = () => performSave(() => orders.completeOrder(draft, companyId));
   const addVariant = (product: Catalog[number], variant: Catalog[number]["variants"][number]) => {
     const result = addDraftItem(draft, { variantId: variant.id, productName: product.name, variantAttributes: variant.attributes,
       sku: variant.sku, shownUnitPrice: { amount: variant.price, currency: product.currency }, shownStock: variant.stock, quantity: 1 },
-      () => rebuildId ?? Crypto.randomUUID());
+      () => Crypto.randomUUID());
     if (result.success) { setDraft(result.data); setSelected(null); setError(""); }
     else setError(variant.stock === 0 ? t('outOfStock') : t('variantAlreadyAdded'));
   };
@@ -192,10 +209,8 @@ export default function NewOrderScreen() {
             <ThemedText type="subtitle" accessibilityRole="header">{t('pendingSale')}</ThemedText>
             <ThemedText>{t('verifyPendingId', { id: pending?.id })}</ThemedText>
             <Button loading={checking} onPress={() => void verify()}>{t('verifyOrder')}</Button>
-            {checks >= 2 && pending ? <Button variant="secondary" onPress={() => {
-              if (submitted.current) { void complete(submitted.current); return; }
-              setRebuildId(pending.id); setDraft(emptyOrderDraft()); setPendingStatus("none"); setError("");
-            }}>{hasSubmitted ? t('resendAttempt') : t('rebuildOrder')}</Button> : null}
+            {checks >= 2 && pending?.request ? <Button variant="secondary" loading={sending} onPress={() => void performSave(() => orders.resendPendingOrder(companyId))}>{t('resendAttempt')}</Button> : null}
+            {pending && !pending.request ? <ThemedText>{t('legacyAttemptHint')}</ThemedText> : null}
           </View>
         : stage === "products" ? <View style={styles.section}>
             <Input value={search} onChangeText={(value) => { setCatalogLoading(true); setSearch(value); }} accessibilityLabel={t('searchProductsByName')} placeholder={t('searchProductsByName')} />
@@ -205,7 +220,7 @@ export default function NewOrderScreen() {
               {selected.variants.map((variant) => <View key={variant.id} style={styles.item}>
                 <ThemedText type="smallBold">{Object.entries(variant.attributes).map(([key, value]) => `${key}: ${value}`).join(" · ") || variant.sku || t('variant')}</ThemedText>
                 <ThemedText>{money(variant.price, selected.currency, locale)} · {t('stockCount', { count: variant.stock })}</ThemedText>
-                <Button variant="secondary" disabled={variant.stock === 0 || draft.items.some((item) => item.variantId === variant.id)} onPress={() => addVariant(selected, variant)}>{t('add')}</Button>
+                <Button variant="secondary" disabled={draft.items.some((item) => item.variantId === variant.id)} onPress={() => addVariant(selected, variant)}>{t('add')}</Button>
               </View>)}
             </View> : catalog.length ? catalog.map((product) => <ListRow key={product.id} title={product.name}
               description={t('variantCount', { count: product.variants.length })} onPress={() => setSelected(product)} />)
@@ -216,9 +231,10 @@ export default function NewOrderScreen() {
               <ThemedText type="smallBold">{item.productName}</ThemedText>
               <ThemedText type="small" themeColor="textSecondary">{Object.entries(item.variantAttributes).map(([key, value]) => `${key}: ${value}`).join(" · ")} · {t('stockCount', { count: item.shownStock })}</ThemedText>
               <ThemedText>{money(item.shownUnitPrice.amount, item.shownUnitPrice.currency, locale)} × {item.quantity}</ThemedText>
+              {item.quantity > item.shownStock ? <ThemedText themeColor="textSecondary">{t('creationStockWarning')}</ThemedText> : null}
               {problemVariantId === item.variantId ? <ThemedText accessibilityRole="alert">{t('reviewVariant')}</ThemedText> : null}
               <View style={styles.row}><Button variant="secondary" disabled={item.quantity <= 1} onPress={() => changeQuantity(item.variantId, item.quantity - 1)}>−</Button>
-                <Button variant="secondary" disabled={item.quantity >= item.shownStock} onPress={() => changeQuantity(item.variantId, item.quantity + 1)}>+</Button>
+                <Button variant="secondary" onPress={() => changeQuantity(item.variantId, item.quantity + 1)}>+</Button>
                 <Button variant="ghost" onPress={() => setDraft(removeDraftItem(draft, item.variantId))}>{t('remove')}</Button></View>
             </View>)}
             <ThemedText type="subtitle" accessibilityRole="header">{t('customer')}</ThemedText>
@@ -227,14 +243,37 @@ export default function NewOrderScreen() {
             <Input value={contactSearch} onChangeText={setContactSearch} accessibilityLabel={t('searchContact')} placeholder={t('searchContactByNameOrPhone')} />
             {contacts.map((contact) => <ListRow key={contact.id} title={contact.name ?? contact.phone} description={contact.name ? contact.phone : undefined}
               onPress={() => { setDraft(setDraftCustomer(draft, { kind: "contact", contactId: contact.id, name: contact.name, phone: contact.phone })); setContactSearch(""); setContacts([]); }} />)}
-            <ThemedText>{t('confirmPaymentHint')}</ThemedText>
+            <ThemedText type="subtitle" accessibilityRole="header">{t('payments')}</ThemedText>
+            {(draft.payments ?? []).map((payment, index) => <View key={payment.paymentId} style={styles.section}>
+              <ThemedText type="smallBold">{t('initialPayment', { number: index + 1 })}</ThemedText>
+              <PaymentFields value={payment} currency={productTotal.success ? productTotal.data.shownTotal.currency : ""} busy={sending}
+                onChange={value => setDraft(current => ({ ...current, payments: current.payments?.map(row => row.paymentId === payment.paymentId ? { ...value, paymentId: row.paymentId } : row) }))} />
+              <Button variant="ghost" disabled={sending} onPress={() => setDraft(current => ({ ...current, payments: current.payments?.filter(row => row.paymentId !== payment.paymentId) }))}>{t('remove')}</Button>
+            </View>)}
+            {!draft.payments?.length ? <ThemedText themeColor="textSecondary">{t('noInitialPayments')}</ThemedText> : null}
+            <Button variant="secondary" disabled={sending} onPress={() => setDraft(current => ({ ...current, payments: [...current.payments ?? [], { paymentId: Crypto.randomUUID(), amount: "", method: "digital_wallet", deductStockIfPartial: false }] }))}>{t('addInitialPayment')}</Button>
+            <ThemedText type="subtitle" accessibilityRole="header">{t('delivery')}</ThemedText>
+            {settings && (settings.home.enabled || settings.store.enabled || settings.agency.enabled) ? <>
+              <View style={styles.toggle}><ThemedText style={styles.toggleLabel}>{t('configureInitialDelivery')}</ThemedText><Switch disabled={sending} value={!!draft.delivery} accessibilityLabel={t('configureInitialDelivery')} onValueChange={enabled => setDraft(current => ({ ...current,
+                delivery: enabled ? deliveryDraftFromOrder({ delivery: null, buyer: current.customer.kind === "contact" ? { contactId: current.customer.contactId, name: current.customer.name, phone: current.customer.phone } : null, deliveryCharge: { amount: 0, currency: "PEN" } }, settings) : undefined }))} /></View>
+              {draft.delivery ? <DeliveryFields value={draft.delivery} onChange={delivery => setDraft(current => ({ ...current, delivery }))} settings={settings} busy={sending} language={orderLanguage(state.company.country, i18n.language)} /> : null}
+            </> : <ThemedText themeColor="textSecondary">{t(settings ? 'orderDeliveryDisabled' : 'loadOrderDeliveryError')}</ThemedText>}
+            <View style={styles.toggle}><ThemedText style={styles.toggleLabel}>{t('deliverImmediately')}</ThemedText><Switch disabled={sending} value={draft.deliverImmediately ?? false} accessibilityLabel={t('deliverImmediately')} onValueChange={deliverImmediately => setDraft(current => ({ ...current, deliverImmediately }))} /></View>
+            <ThemedText type="small" themeColor="textSecondary">{t('immediateRequirements')}</ThemedText>
+            <ThemedText type="subtitle" accessibilityRole="header">{t('creationSummary')}</ThemedText>
+            {productTotal.success ? <>
+              <ThemedText>{t('initialPaid')}: {money(paidAmount, productTotal.data.shownTotal.currency, locale)}</ThemedText>
+              <ThemedText>{t('estimatedBalance')}: {money(Math.max(0, productTotal.data.shownTotal.amount - paidAmount), productTotal.data.shownTotal.currency, locale)}</ThemedText>
+            </> : null}
+            {draft.delivery?.charge ? <ThemedText themeColor="textSecondary">{t('deliveryChargePending')}</ThemedText> : null}
+            <ThemedText themeColor="textSecondary">{t('creationPriceHint')}</ThemedText>
           </View>}
       {error ? <ThemedText accessibilityRole="alert" style={[styles.error, { color: theme.error }]}>{error}</ThemedText> : null}
       {pendingStatus === "none" ? <View style={styles.bottom}>
-        {prepared.success ? <ThemedText type="subtitle">{t('itemCount', { count: draft.items.length })} · {money(prepared.data.shownTotal.amount, prepared.data.shownTotal.currency, locale)}</ThemedText> : null}
+        {productTotal.success ? <ThemedText type="subtitle">{t('itemCount', { count: draft.items.length })} · {money(productTotal.data.shownTotal.amount, productTotal.data.shownTotal.currency, locale)}</ThemedText> : null}
         {stage === "products" ? <Button disabled={draft.kind === "empty"} onPress={() => { setStage("review"); setError(""); }}>{t('reviewOrder')}</Button>
           : <View style={styles.section}><Button variant="secondary" onPress={() => { setCatalogLoading(true); setStage("products"); }}>{t('editProducts')}</Button>
-            <Button disabled={!prepared.success || offline} loading={sending} onPress={() => void complete(draft)}>{t('confirmPaymentAndDelivery')}</Button>
+            <Button disabled={!prepared.success || offline} loading={sending} onPress={() => void complete()}>{t('saveOrder')}</Button>
             {offline ? <ThemedText type="small" accessibilityRole="alert">{t('offlineEditing')}</ThemedText> : null}
           </View>}
       </View> : null}
@@ -243,5 +282,6 @@ export default function NewOrderScreen() {
 }
 
 const styles = StyleSheet.create({ page: { flex: 1 }, content: { gap: 20, padding: 16, paddingBottom: 40, maxWidth: 640, width: "100%", alignSelf: "center" },
+  toggle: { flexDirection: "row", alignItems: "center", gap: 16, minHeight: 48 }, toggleLabel: { flex: 1 },
   heading: { gap: 4 }, section: { gap: 12 }, item: { gap: 8, paddingVertical: 12 }, row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   bottom: { gap: 12, paddingTop: 16 }, error: { padding: 12 } });

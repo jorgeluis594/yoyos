@@ -25,12 +25,27 @@ test("cart keeps its ID while quantities and customer change, and sends only ref
   expect(removeDraftItem(withCustomer, id(1))).toMatchObject({ kind: "empty", customer: { kind: "contact" } });
 });
 
-test("cart rejects unavailable stock, invalid quantities, and mixed currencies", () => {
-  expect(addDraftItem(emptyOrderDraft(), item(1, 1, "PEN", 0), () => id(9)).success).toBe(false);
+test("cart allows pending orders beyond stock but rejects invalid quantities and mixed currencies", () => {
+  expect(addDraftItem(emptyOrderDraft(), item(1, 1, "PEN", 0), () => id(9)).success).toBe(true);
   const first = addDraftItem(emptyOrderDraft(), item(1, 1), () => id(9));
   expect(first.success).toBe(true);
   if (!first.success) return;
-  expect(changeDraftQuantity(first.data, id(1), 4).success).toBe(false);
+  expect(changeDraftQuantity(first.data, id(1), 4).success).toBe(true);
   expect(changeDraftQuantity(first.data, id(1), 0).success).toBe(false);
   expect(addDraftItem(first.data, item(2, 1, "USD"), () => id(8)).success).toBe(false);
+});
+
+test("complete draft validates payment identity and amount while preserving separate delivery intent", () => {
+  const first = addDraftItem(emptyOrderDraft(), item(1, 10), () => id(9));
+  if (!first.success) throw new Error("Invalid fixture");
+  const payment = { paymentId: id(5), amount: "4.50", method: "bank_transfer" as const, deductStockIfPartial: false };
+  const draft = { ...first.data, payments: [payment], deliverImmediately: false };
+  expect(prepareOrder(draft)).toMatchObject({ success: true, data: { request: { payments: [{ paymentId: id(5),
+    amount: { amount: 4.5, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false }], deliverImmediately: false } } });
+  expect(prepareOrder({ ...draft, payments: [{ ...payment, amount: "10,50" }] }))
+    .toMatchObject({ success: true, data: { request: { payments: [{ amount: { amount: 10.5, currency: "PEN" } }] } } });
+  expect(prepareOrder({ ...draft, payments: [{ ...payment, amount: "10,501" }] })).toMatchObject({ success: false });
+  expect(prepareOrder({ ...draft, payments: [payment, payment] })).toMatchObject({ success: false });
+  expect(prepareOrder({ ...draft, payments: [{ ...payment, amount: "-1" }] })).toMatchObject({ success: false });
+  expect(changeDraftQuantity({ ...draft, payments: [{ ...payment, amount: "" }] }, id(1), 2)).toMatchObject({ success: true });
 });

@@ -1,18 +1,18 @@
 import { z } from "zod";
 import { listOrderAggregatesResponseSchema, listOrderAggregatesSchema, listOrdersResponseSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema,
-  type SetOrderDeliveryRequest, type CreateOrderRequest, type ListOrderAggregatesRequest, type ListOrdersRequest, type OrderAggregateResponse, type OrderApiError, type OrderApiIssue } from "@shared/contracts/orders";
+  type SetOrderDeliveryRequest, type ListOrderAggregatesRequest, type ListOrdersRequest, type OrderAggregateResponse, type OrderApiError, type OrderApiIssue } from "@shared/contracts/orders";
 import { err, ok } from "@shared/functional";
 import type { Money } from "@shared/money";
 import { limaMidnightUtc, nextCalendarDay } from "@shared/orders-date";
 import type { Result } from "@shared/result";
-import { prepareOrder, type CartError, type OrderDraft } from "@mobile/features/orders/domain/order-draft";
+import { prepareOrder, type CartError, type OrderDraft, type OrderSubmission } from "@mobile/features/orders/domain/order-draft";
 import type { TransportError } from "@mobile/shared/application/transport-error";
 
 export type PendingOrderConfirmation = Readonly<{
   companyId: OrderAggregateResponse["companyId"];
-  id: CreateOrderRequest["id"];
+  id: string;
   shownTotal: Money;
-}>;
+}> & ({ version?: never; request?: never } | { version: 2; request: OrderSubmission });
 export type PendingOrderStoreError = Readonly<{
   code: "PENDING_CONFIRMATION" | "PENDING_STORAGE_UNAVAILABLE" | "INVALID_PENDING_DATA";
   message: string;
@@ -43,7 +43,7 @@ type Api = Readonly<{
   getAggregate: (id: string) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
   list: (input: ListOrdersRequest) => Promise<Result<z.infer<typeof listOrdersResponseSchema>, OrderRequestError>>;
   get: (id: string) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
-  create: (input: CreateOrderRequest) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
+  create: (input: OrderSubmission) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
   searchCatalog: (search: string) => Promise<Result<z.infer<typeof orderCatalogSchema>, OrderRequestError>>;
   searchContacts: (search: string) => Promise<Result<z.infer<typeof orderContactsSchema>, OrderRequestError>>;
 }>;
@@ -81,14 +81,17 @@ function mixedListRequest(criteria: OrderListCriteria): Result<ListOrderAggregat
 }
 
 const definitive = new Set<OrderRequestError["code"]>(["INVALID_INPUT", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE",
-  "INVALID_ORDER", "CURRENCY_MISMATCH", "CONTACT_NOT_FOUND", "VARIANT_NOT_FOUND", "INSUFFICIENT_STOCK"]);
-const completedImmediateSale = (order: OrderAggregateResponse) => order.status === "completed" &&
-  order.paymentStatus === "paid" && order.balanceDue.amount === 0 &&
-  order.paidAmount.currency === order.total.currency && order.paidAmount.amount >= order.total.amount &&
-  order.deliveryStatus === "delivered" && order.stockDeducted && order.delivery === null;
-
+  "INVALID_ORDER", "CURRENCY_MISMATCH", "CONTACT_NOT_FOUND", "VARIANT_NOT_FOUND", "INSUFFICIENT_STOCK",
+  "INVALID_PAYMENT", "PAYMENT_CONFLICT", "PAYMENT_REQUIRED", "INVALID_TRANSITION", "STOCK_NOT_DEDUCTED",
+  "DELIVERY_UNAVAILABLE", "DELIVERY_METHOD_DISABLED", "COURIER_UNAVAILABLE"]);
 export function createOrderOperations(api: Api, pendingStore: PendingStore) {
-  let inFlight: Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>> | null = null;
+  const inFlight = new Map<string, { id?: string; promise: Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>> }>();
+  const confirmed = (order: OrderAggregateResponse, pending: PendingOrderConfirmation): Result<ConfirmOrderOutcome, ConfirmOrderError> => {
+    if (order.companyId !== pending.companyId || order.id !== pending.id ||
+      (order.status === "completed" && (order.paymentStatus !== "paid" || order.balanceDue.amount !== 0 || order.deliveryStatus !== "delivered" || !order.stockDeducted)))
+      return err({ code: "INVALID_RESPONSE", message: "Order identity or state mismatch" });
+    return ok({ kind: "completed", order, shownTotal: pending.shownTotal });
+  };
   const resolvePendingOrderConfirmation = async (companyId: string): Promise<Result<ConfirmOrderOutcome | null, ConfirmOrderError>> => {
     const pending = await pendingStore.read(companyId);
     if (!pending.success) return pending;
@@ -96,43 +99,45 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
     const found = await api.get(pending.data.id);
     if (!found.success) return found.error.code === "ORDER_NOT_FOUND"
       ? ok({ kind: "uncertain", pending: pending.data }) : found;
-    if (found.data.companyId !== companyId || found.data.id !== pending.data.id)
-      return err({ code: "INVALID_RESPONSE", message: "Order identity mismatch" });
-    return completedImmediateSale(found.data)
-      ? ok({ kind: "completed", order: found.data, shownTotal: pending.data.shownTotal })
-      : err({ code: "INVALID_RESPONSE", message: "Order is not a completed immediate sale" });
+    return confirmed(found.data, pending.data);
   };
-  const send = async (draft: OrderDraft, companyId: string): Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>> => {
-    const prepared = prepareOrder(draft);
-    if (!prepared.success) return prepared;
-    const current = await pendingStore.read(companyId);
-    if (!current.success) return current;
-    if (current.data && current.data.id !== prepared.data.request.id)
-      return err({ code: "PENDING_CONFIRMATION", message: "Another order needs verification" });
-    const saved = await pendingStore.save({ companyId, id: prepared.data.request.id, shownTotal: prepared.data.shownTotal });
-    if (!saved.success) return saved;
-    const request: CreateOrderRequest = { ...prepared.data.request,
-      payment: { method: "digital_wallet" }, delivery: { method: "handover" } };
-    const result = await api.create(request);
-    if (result.success) {
-      if (result.data.companyId !== companyId || result.data.id !== saved.data.id)
-        return err({ code: "INVALID_RESPONSE", message: "Order identity mismatch" });
-      return completedImmediateSale(result.data)
-        ? ok({ kind: "completed", order: result.data, shownTotal: saved.data.shownTotal })
-        : err({ code: "INVALID_RESPONSE", message: "Order is not a completed immediate sale" });
-    }
+  const post = async (pending: PendingOrderConfirmation): Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>> => {
+    if (!pending.request) return err({ code: "PENDING_CONFIRMATION", message: "Legacy attempt can only be verified; original request is unavailable" });
+    const result = await api.create(pending.request);
+    if (result.success) return confirmed(result.data, pending);
     if (definitive.has(result.error.code)) {
-      const cleared = await pendingStore.clear(companyId, saved.data.id);
+      const cleared = await pendingStore.clear(pending.companyId, pending.id);
       return cleared.success ? result : cleared;
     }
-    const found = await api.get(saved.data.id);
-    if (found.success) {
-      if (found.data.companyId !== companyId || found.data.id !== saved.data.id)
-        return err({ code: "INVALID_RESPONSE", message: "Order identity mismatch" });
-      if (completedImmediateSale(found.data))
-        return ok({ kind: "completed", order: found.data, shownTotal: saved.data.shownTotal });
+    const found = await api.get(pending.id);
+    return found.success ? confirmed(found.data, pending) : ok({ kind: "uncertain", pending });
+  };
+  const retry = async (pending: PendingOrderConfirmation): Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>> => {
+    const found = await api.get(pending.id);
+    if (found.success) return confirmed(found.data, pending);
+    if (found.error.code !== "ORDER_NOT_FOUND") return found;
+    return post(pending);
+  };
+  const send = async (draft: OrderDraft, companyId: string): Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>> => {
+    const current = await pendingStore.read(companyId);
+    if (!current.success) return current;
+    if (current.data) {
+      if (draft.kind !== "items" || current.data.id !== draft.id)
+        return err({ code: "PENDING_CONFIRMATION", message: "Another order needs verification" });
+      return retry(current.data);
     }
-    return ok({ kind: "uncertain", pending: saved.data });
+    const prepared = prepareOrder(draft);
+    if (!prepared.success) return prepared;
+    const saved = await pendingStore.save({ version: 2, companyId, id: prepared.data.request.id,
+      shownTotal: prepared.data.shownTotal, request: prepared.data.request });
+    return saved.success ? post(saved.data) : saved;
+  };
+  const run = (companyId: string, id: string | undefined, work: () => Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>>) => {
+    const current = inFlight.get(companyId);
+    if (current) return current.id === id ? current.promise : Promise.resolve(err({ code: "PENDING_CONFIRMATION" as const, message: "Another order needs verification" }));
+    const promise = work().finally(() => { inFlight.delete(companyId); });
+    inFlight.set(companyId, { id, promise });
+    return promise;
   };
   return {
     setDelivery: api.setDelivery,
@@ -152,10 +157,11 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
     readPendingOrderConfirmation: pendingStore.read,
     resolvePendingOrderConfirmation,
     clearPendingOrderConfirmation: pendingStore.clear,
-    completeOrder: (draft: OrderDraft, companyId: string): Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>> => {
-      if (inFlight) return inFlight;
-      inFlight = send(draft, companyId).finally(() => { inFlight = null; });
-      return inFlight;
-    },
+    completeOrder: (draft: OrderDraft, companyId: string) => run(companyId, draft.kind === "items" ? draft.id : undefined, () => send(draft, companyId)),
+    resendPendingOrder: (companyId: string) => run(companyId, undefined, async () => {
+      const pending = await pendingStore.read(companyId);
+      if (!pending.success) return pending;
+      return pending.data ? retry(pending.data) : err({ code: "PENDING_CONFIRMATION", message: "No pending attempt to resend" });
+    }),
   };
 }

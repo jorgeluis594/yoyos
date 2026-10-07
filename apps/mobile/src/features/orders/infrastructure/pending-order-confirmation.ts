@@ -1,13 +1,17 @@
+import { completeOrderSchema } from "@shared/contracts/orders";
 import { z } from "zod";
 import { currencies } from "@shared/money";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { PendingOrderConfirmation, PendingOrderStoreError } from "@mobile/features/orders/application/order-operations";
 
-const pendingSchema = z.strictObject({
+const legacyPendingSchema = z.strictObject({
   companyId: z.uuid(), id: z.uuid(),
   shownTotal: z.strictObject({ amount: z.number().positive().finite(), currency: z.enum(currencies) }),
 });
+
+const pendingSchema = z.union([legacyPendingSchema.extend({ version: z.literal(2), request: completeOrderSchema })
+  .refine(value => value.request.id === value.id, { message: "Pending order identity mismatch" }), legacyPendingSchema]);
 
 type Storage = Readonly<{
   getItemAsync: (key: string) => Promise<string | null>;

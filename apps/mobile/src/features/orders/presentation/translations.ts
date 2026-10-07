@@ -1,5 +1,19 @@
 export const translations = {
   es: {
+  orderFulfillment: {
+    ship: "Marcar enviado", deliver: "Marcar entregado", shipSaved: "Pedido marcado como enviado.", deliverSaved: "Pedido marcado como entregado.",
+    PAYMENT_REQUIRED: "Se requiere el pago completo antes de enviar o entregar.", STOCK_NOT_DEDUCTED: "Se requiere descontar el stock antes de enviar o entregar.",
+    ORDER_CANCELLED: "El pedido está cancelado; no se puede enviar ni entregar.", INVALID_TRANSITION: "Solo se puede enviar desde pendiente y entregar desde pendiente o enviado.",
+    saveError: "No se pudo actualizar el pedido. Inténtalo de nuevo.",
+  },
+
+    initialPaid: "Pagos ingresados", estimatedBalance: "Saldo referencial de productos", deliveryChargePending: "El cargo de entrega se calculará y añadirá al guardar.",
+    saveOrder: "Guardar pedido", noInitialPayments: "Sin pagos. El pedido quedará pendiente de pago.", addInitialPayment: "Agregar pago", initialPayment: "Pago {{number}}",
+    configureInitialDelivery: "Configurar datos de entrega", deliverImmediately: "Marcar como entregado al guardar",
+    immediateRequirements: "Para marcar entregado, los pagos deben cubrir el total y debe haber stock suficiente.",
+    creationSummary: "Resumen", creationPriceHint: "El servidor calculará precios, cargo de entrega y saldo al guardar.",
+    creationStockWarning: "La cantidad supera la disponibilidad. Se exigirá stock cuando corresponda descontarlo.",
+    legacyAttemptHint: "Este intento antiguo no conserva la solicitud original. Verifica su resultado; no se puede reconstruir de forma segura.",
     orderListCustomer: "Cliente", orderListCreated: "Fecha de creación",
     orderListNew: "Nuevo", orderListSearch: "Buscar cliente o pedido", orderListFilters: "Filtros",
     orderListUnpaid: "Por cobrar", orderListUndelivered: "Por entregar", orderListClear: "Limpiar filtros",
@@ -154,6 +168,20 @@ export const translations = {
     offlineEditing: 'Sin conexión. Puedes seguir editando.',
   },
   'pt-BR': {
+  orderFulfillment: {
+    ship: "Marcar como enviado", deliver: "Marcar como entregue", shipSaved: "Pedido marcado como enviado.", deliverSaved: "Pedido marcado como entregue.",
+    PAYMENT_REQUIRED: "É necessário o pagamento completo antes de enviar ou entregar.", STOCK_NOT_DEDUCTED: "É necessário descontar o estoque antes de enviar ou entregar.",
+    ORDER_CANCELLED: "O pedido está cancelado; não pode ser enviado nem entregue.", INVALID_TRANSITION: "Só é possível enviar pedidos pendentes e entregar pedidos pendentes ou enviados.",
+    saveError: "Não foi possível atualizar o pedido. Tente novamente.",
+  },
+
+    initialPaid: "Pagamentos informados", estimatedBalance: "Saldo estimado dos produtos", deliveryChargePending: "O valor da entrega será calculado e adicionado ao salvar.",
+    saveOrder: "Salvar pedido", noInitialPayments: "Sem pagamentos. O pedido ficará pendente de pagamento.", addInitialPayment: "Adicionar pagamento", initialPayment: "Pagamento {{number}}",
+    configureInitialDelivery: "Configurar dados de entrega", deliverImmediately: "Marcar como entregue ao salvar",
+    immediateRequirements: "Para marcar entregue, os pagamentos devem cobrir o total e deve haver estoque suficiente.",
+    creationSummary: "Resumo", creationPriceHint: "O servidor calculará preços, valor da entrega e saldo ao salvar.",
+    creationStockWarning: "A quantidade supera a disponibilidade. O estoque será exigido quando for necessário descontá-lo.",
+    legacyAttemptHint: "Esta tentativa antiga não mantém a solicitação original. Verifique o resultado; não é possível reconstruí-la com segurança.",
     orderListCustomer: "Cliente", orderListCreated: "Data de criação",
     orderListNew: "Novo", orderListSearch: "Buscar cliente ou pedido", orderListFilters: "Filtros",
     orderListUnpaid: "A receber", orderListUndelivered: "A entregar", orderListClear: "Limpar filtros",

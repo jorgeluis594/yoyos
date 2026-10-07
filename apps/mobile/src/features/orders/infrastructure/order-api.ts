@@ -11,7 +11,7 @@ import type { TransportError } from "@mobile/shared/application/transport-error"
 import type { OrderRequestError } from "@mobile/features/orders/application/order-operations";
 
 type Request = (path: string, init?: RequestInit) => Promise<Result<unknown, TransportError>>;
-type Operation = "delivery" | "checkout" | "list" | "mixed" | "get" | "aggregate" | "create" | "payment" | "void" | "deduct" | "catalog" | "contacts";
+type Operation = "fulfillment" | "delivery" | "checkout" | "list" | "mixed" | "get" | "aggregate" | "create" | "payment" | "void" | "deduct" | "catalog" | "contacts";
 
 const statusByCode: Record<OrderApiError["code"], number> = {
   INVALID_INPUT: 400, UNSUPPORTED_MEDIA_TYPE: 415, PAYLOAD_TOO_LARGE: 413,
@@ -37,7 +37,9 @@ const getErrorSchema = httpErrorSchema(["ORDER_NOT_FOUND"]);
 const errorSchemas = {
   checkout: httpErrorSchema(["ORDER_NOT_FOUND", "ORDER_CANCELLED"], 422),
   create: httpErrorSchema(["INVALID_ORDER", "CURRENCY_MISMATCH", "CONTACT_NOT_FOUND", "VARIANT_NOT_FOUND",
-    "INSUFFICIENT_STOCK", "ORDER_ALREADY_EXISTS", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]),
+    "INSUFFICIENT_STOCK", "ORDER_ALREADY_EXISTS", "INVALID_PAYMENT", "PAYMENT_CONFLICT", "PAYMENT_REQUIRED",
+    "INVALID_TRANSITION", "STOCK_NOT_DEDUCTED", "DELIVERY_UNAVAILABLE", "DELIVERY_METHOD_DISABLED",
+    "COURIER_UNAVAILABLE", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]),
   payment: httpErrorSchema(["ORDER_NOT_FOUND", "INVALID_ORDER", "INVALID_PAYMENT", "CURRENCY_MISMATCH",
     "PAYMENT_CONFLICT", "PAYMENT_NOT_FOUND", "INVALID_TRANSITION", "ORDER_CANCELLED", "INSUFFICIENT_STOCK",
     "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]),
@@ -45,6 +47,7 @@ const errorSchemas = {
   delivery: httpErrorSchema(["ORDER_NOT_FOUND", "INVALID_ORDER", "CURRENCY_MISMATCH", "ORDER_CANCELLED", "DELIVERY_LOCKED",
     "DELIVERY_METHOD_DISABLED", "COURIER_UNAVAILABLE", "DELIVERY_UNAVAILABLE", "INSUFFICIENT_STOCK",
     "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]),
+  fulfillment: httpErrorSchema(["ORDER_NOT_FOUND", "INVALID_ORDER", "INVALID_TRANSITION", "PAYMENT_REQUIRED", "STOCK_NOT_DEDUCTED", "ORDER_CANCELLED", "CURRENCY_MISMATCH"]),
   deduct: httpErrorSchema(["ORDER_NOT_FOUND", "INSUFFICIENT_STOCK", "ORDER_CANCELLED", "INVALID_ORDER"]),
   get: getErrorSchema,
   aggregate: getErrorSchema,
@@ -75,7 +78,15 @@ function response<T extends z.ZodType>(raw: Result<unknown, TransportError>, sch
 }
 
 export function createOrderApi(request: Request) {
+  const fulfill = async (orderId: string, operation: "ship" | "deliver"): Promise<Result<OrderAggregateResponse, OrderRequestError>> => {
+    if (!z.uuid().safeParse(orderId).success) return err({ code: "INVALID_INPUT", message: "Invalid order ID" });
+    const result = response(await request(`/api/orders/${orderId}/${operation}`, { method: "POST" }), orderAggregateSchema, "fulfillment");
+    return result.success && (result.data.id !== orderId || result.data.deliveryStatus !== (operation === "ship" ? "shipped" : "delivered"))
+      ? err({ code: "INVALID_RESPONSE", message: "Unexpected order fulfillment" }) : result;
+  };
   return {
+    ship: (orderId: string) => fulfill(orderId, "ship"),
+    deliver: (orderId: string) => fulfill(orderId, "deliver"),
     setDelivery: async (orderId: string, input: SetOrderDeliveryRequest): Promise<Result<OrderAggregateResponse, OrderRequestError>> => {
       const parsed = setOrderDeliverySchema.safeParse(input);
       if (!z.uuid().safeParse(orderId).success || !parsed.success) return err({ code: "INVALID_INPUT", message: "Invalid delivery request" });

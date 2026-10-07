@@ -1,3 +1,4 @@
+import { deliveryDraftFromOrder } from "@mobile/features/orders/presentation/delivery-fields";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ScrollView, StyleSheet, Switch, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -52,19 +53,7 @@ export default function OrderDeliveryScreen() {
       const current = aggregate.data;
       setOrder(current); setSettings(config.data); setError("");
       setLocked(current.status !== "active" || current.cancelled || current.deliveryStatus !== "pending");
-      const recipient = current.delivery?.recipient;
-      const destination = current.delivery?.method === "home" ? current.delivery.destination : null;
-      reset({
-        name: recipient?.name ?? current.buyer?.name ?? "",
-        phone: recipient?.phone ?? current.buyer?.phone ?? "",
-        documentType: recipient?.identity.kind === "document" ? recipient.identity.documentType : "absent",
-        document: recipient?.identity.kind === "document" ? recipient.identity.document : "",
-        charge: current.deliveryCharge.amount > 0,
-        method: current.delivery?.method ?? (config.data.store.enabled ? "store" : config.data.home.enabled ? "home" : config.data.agency.enabled ? "agency" : "store"),
-        courierId: current.delivery?.method === "agency" ? current.delivery.courier.id : "",
-        agency: current.delivery?.method === "agency" ? current.delivery.agency : "",
-        address: destination?.address ?? "", district: destination?.district ?? "", instructions: destination?.instructions ?? "",
-      });
+      reset(deliveryDraftFromOrder(current, config.data));
     } else setError(!aggregate.success && aggregate.error.code === "ORDER_NOT_FOUND" ? "orderNotFound" : "loadOrderDeliveryError");
     inFlight.current = false; setLoading(false);
   }, [companyId, id, reset]);
@@ -109,8 +98,8 @@ export default function OrderDeliveryScreen() {
   if (state.status !== "ready") return null;
   if (!order || !settings) return busy ? <ScreenState status="loading" title={t("loadingOrderDelivery")} />
     : <ScreenState status="error" title={t("loadOrderDeliveryError")} description={error === "loadOrderDeliveryError" ? undefined : t(error)} onRetry={() => void load()} />;
-  const language = orderLanguage(state.company.country, i18n.language);
   const point = settings.store.pickupPoint;
+  const language = orderLanguage(state.company.country, i18n.language);
   return <ThemedView style={styles.page}><SafeAreaView style={styles.page} edges={["top", "left", "right"]}>
     <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
       <Button variant="ghost" onPress={() => router.back()} disabled={busy}>{t("backToOrder")}</Button>

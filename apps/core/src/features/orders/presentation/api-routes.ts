@@ -5,7 +5,7 @@ import { z } from "zod";
 import { createOrderSchema, setOrderDeliverySchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
 import { parseDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { apiError, type PrivateLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
-import { orders } from "@core/src/features/orders/composition";
+import { orders, createConfiguredOrder } from "@core/src/features/orders/composition";
 import { toLegacyOrderJson, toOrderAggregateJson, toOrderAggregateListJson, toOrderListJson } from "@core/src/features/orders/presentation/order-json";
 import type { CreateOrderInput, OrderAccess } from "@core/src/features/orders/application/create-order";
 import type { ContactId, CompanyId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
@@ -255,8 +255,17 @@ orderRoutes.post("/", async (request, response: Response<unknown, PrivateLocals>
   try {
     const input = toCreateOrderInput(parsed.data);
     const context = orderContext(response);
-    const result = "payment" in parsed.data
-      ? await orders.registerImmediateSale(input, context) : await orders.create(input, context);
+    if ("payment" in parsed.data) {
+      const result = await orders.registerImmediateSale(input, context);
+      return result.success ? response.status(201).json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
+    }
+    const selection = parsed.data.delivery ? parseDeliverySelection(parsed.data.delivery.delivery) : null;
+    if (selection && !selection.success) return operationError(response, selection.error);
+    const result = await createConfiguredOrder({ ...input,
+      payments: parsed.data.payments?.map(payment => ({ ...payment, paymentId: payment.paymentId as PaymentId })),
+      delivery: selection?.success && parsed.data.delivery ? { delivery: selection.data,
+        chargeDeliveryToCustomer: parsed.data.delivery.chargeDeliveryToCustomer } : undefined,
+      deliverImmediately: parsed.data.deliverImmediately }, context);
     return result.success ? response.status(201).json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });

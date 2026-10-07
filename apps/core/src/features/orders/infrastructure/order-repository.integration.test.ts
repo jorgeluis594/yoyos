@@ -1,3 +1,4 @@
+import type { CreateCompleteOrderInput } from "@core/src/features/orders/application/create-complete-order";
 import { log, safeError } from "@core/src/shared/infrastructure/logger";
 import { parseBuyer, type CheckoutAccess } from "@core/src/features/orders/domain/checkout";
 import { confirmOrderCheckout } from "@core/src/features/orders/application/checkout";
@@ -9,7 +10,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { expect, test, vi } from "vitest";
 import { ok, err } from "@shared/functional";
 import type { Currency } from "@shared/money";
-import { orders, setConfiguredOrderDelivery } from "@core/src/features/orders/composition";
+import { orders, setConfiguredOrderDelivery, createConfiguredOrder } from "@core/src/features/orders/composition";
 import { prisma, systemPrisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { setOrderDelivery, type SetDeliveryDependencies } from "@core/src/features/orders/application/set-delivery";
 import { findOrderAggregate, findOrderForUpdate, saveDelivery, saveStockDeduction } from "@core/src/features/orders/infrastructure/order-repository";
@@ -331,12 +332,20 @@ test("restores deducted stock once when cancelling before dispatch and preserves
         amount: { amount: 0.2, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context))
         .toMatchObject({ success: true, data: { stock: { kind: "deducted" } } });
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
-      expect(await orders.cancel(orderId, context)).toMatchObject({ success: true,
+      const before = await findOrderAggregate(orderId, context.companyId);
+      expect(before.success).toBe(true);
+      const cancellations = await Promise.all([orders.cancel(orderId, context), orders.cancel(orderId, context)]);
+      for (const result of cancellations) expect(result).toMatchObject({ success: true,
         data: { cancelled: true, stockDeducted: false, payments: [{ amount: { amount: 0.2 } }] } });
+      if (before.success && before.data) {
+        expect(await findOrderAggregate(orderId, context.companyId)).toMatchObject({ data: { payments: before.data.payments } });
+      }
       expect(await orders.cancel(orderId, context)).toMatchObject({ success: true, data: { cancelled: true } });
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
       expect(await prisma.payment.count({ where: { orderId } })).toBe(1);
       expect(await orders.deductStock(orderId, context)).toMatchObject({ success: false, error: { code: "ORDER_CANCELLED" } });
+      for (const operation of [orders.ship, orders.deliver])
+        expect(await operation(orderId, context)).toMatchObject({ success: false, error: { code: "ORDER_CANCELLED" } });
     });
   } finally { await f.cleanup(); }
 });
@@ -350,17 +359,23 @@ test("ships and completes only a paid order with deducted stock", async () => {
       expect(await orders.create({ id: orderId, contactId: null,
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] }, context)).toMatchObject({ success: true });
       expect(await orders.ship(orderId, context)).toMatchObject({ success: false, error: { code: "PAYMENT_REQUIRED" } });
+      expect(await orders.deliver(orderId, context)).toMatchObject({ success: false, error: { code: "PAYMENT_REQUIRED" } });
       expect(await orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId,
         amount: { amount: 0.2, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context))
         .toMatchObject({ success: true, data: { stock: { kind: "deducted" } } });
       expect(await orders.ship(orderId, context)).toMatchObject({ success: true,
         data: { deliveryStatus: "shipped", completedAt: null } });
+      expect(await orders.ship(orderId, context)).toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
       expect(await orders.cancel(orderId, context)).toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
       expect(await orders.deliver(orderId, context)).toMatchObject({ success: true,
         data: { deliveryStatus: "delivered", completedAt: expect.any(Date) } });
       const saved = await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { payments: true } });
       expect(saved).toMatchObject({ deliveryStatus: "delivered", deliveredAt: expect.any(Date), completedAt: expect.any(Date), payments: [{ orderId }] });
       expect(await orders.deliver(orderId, context)).toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
+      expect(await orders.ship(orderId, context)).toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
+      expect(await orders.cancel(orderId, context)).toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
+      expect(await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { payments: true } })).toEqual(saved);
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
     });
   } finally { await f.cleanup(); }
 });
@@ -1251,6 +1266,99 @@ test("filters mixed orders before pagination with literal buyer search and indep
         expect(await orders.listAggregates({ ...criteria, search: `#${completed.data.number}`, view: "unpaid" }, context))
           .toMatchObject({ success: true, data: { total: 0 } });
       }
+    });
+  } finally { await f.cleanup(); }
+});
+
+
+test.each([
+  { amount: null, partial: false, immediate: false, deducted: false },
+  { amount: 0.1, partial: false, immediate: false, deducted: false },
+  { amount: 0.1, partial: true, immediate: false, deducted: true },
+  { amount: 0.2, partial: false, immediate: false, deducted: true },
+  { amount: 0.2, partial: false, immediate: true, deducted: true },
+])("complete creation preserves payment and delivery choices: %j", async ({ amount, partial, immediate, deducted }) => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const id = randomUUID() as OrderId;
+      const paymentId = randomUUID() as PaymentId;
+      const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+      const result = await createConfiguredOrder({ id, contactId: f.contactId as ContactId,
+        items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }],
+        payments: amount === null ? [] : [{ paymentId, amount: { amount, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: partial }],
+        deliverImmediately: immediate }, context);
+      expect(result).toMatchObject({ success: true, data: { stockDeducted: deducted,
+        deliveryStatus: immediate ? "delivered" : "pending", completedAt: immediate ? expect.any(Date) : null } });
+      const saved = await findOrderAggregate(id, context.companyId);
+      expect(saved).toEqual(result);
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(deducted ? 1n : 3n);
+      expect(await prisma.payment.count()).toBe(amount === null ? 0 : 1);
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("complete creation resolves delivery charge before coverage and retains its snapshot", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+      expect(await deliverySettings.save({ expectedVersion: 0, agency: { enabled: false }, couriers: [],
+        home: { enabled: true }, store: { enabled: false, pickupPoint: null } }, context)).toMatchObject({ success: true });
+      const id = randomUUID() as OrderId;
+      const delivery = { method: "home" as const, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } },
+        destination: { address: "Av. Lima 123", district: "Lima", instructions: "Door 2" } };
+      const result = await createConfiguredOrder({ id, contactId: null,
+        items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }],
+        delivery: { delivery, chargeDeliveryToCustomer: true },
+        payments: [{ paymentId: randomUUID() as PaymentId, amount: { amount: 0.2, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }] },
+      context, async (_delivery, _context, currency) => ok({ amount: 0.1, currency }));
+      expect(result).toMatchObject({ success: true, data: { delivery, deliveryCost: { amount: 0.1 }, deliveryCharge: { amount: 0.1 },
+        total: { amount: 0.3 }, stockDeducted: false, completedAt: null } });
+      expect(await findOrderAggregate(id, context.companyId)).toEqual(result);
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
+    });
+  } finally { await f.cleanup(); }
+});
+
+test.each(["payment", "stock", "delivery", "fulfillment"] as const)("complete creation rolls back every write after %s failure", async (failure) => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+      const input: CreateCompleteOrderInput = { id: randomUUID() as OrderId, contactId: null,
+        items: [{ variantId: f.variantIds[0] as VariantId, quantity: (failure === "stock" ? 4 : 2) as PositiveInteger }],
+        payments: [{ paymentId: randomUUID() as PaymentId, amount: { amount: 0.1, currency: "PEN" as const },
+          method: "digital_wallet" as const, deductStockIfPartial: true },
+        ...(failure === "payment" ? [{ paymentId: randomUUID() as PaymentId, amount: { amount: -1, currency: "PEN" as const },
+          method: "bank_transfer" as const, deductStockIfPartial: false }] : [])],
+        deliverImmediately: failure === "fulfillment",
+        ...(failure === "delivery" ? { delivery: { delivery: { method: "store" as const,
+          recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } } }, chargeDeliveryToCustomer: true } } : {}) };
+      expect(await createConfiguredOrder(input, context)).toMatchObject({ success: false });
+      expect(await prisma.order.count()).toBe(0);
+      expect(await prisma.orderItem.count()).toBe(0);
+      expect(await prisma.payment.count()).toBe(0);
+      expect((await prisma.productStock.findMany()).map(item => item.quantity)).toEqual([3n, 3n]);
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("concurrent complete creations with the same IDs save and deduct only once", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+      const input: CreateCompleteOrderInput = { id: randomUUID() as OrderId, contactId: null,
+        items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }],
+        payments: [{ paymentId: randomUUID() as PaymentId, amount: { amount: 0.2, currency: "PEN" as const },
+          method: "digital_wallet" as const, deductStockIfPartial: false }], deliverImmediately: true };
+      const results = await Promise.all([createConfiguredOrder(input, context), createConfiguredOrder(input, context)]);
+      expect(results.filter(result => result.success)).toHaveLength(1);
+      expect(results.find(result => !result.success)).toMatchObject({ error: { code: "ORDER_ALREADY_EXISTS" } });
+      expect(await prisma.order.count()).toBe(1);
+      expect(await prisma.payment.count()).toBe(1);
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
     });
   } finally { await f.cleanup(); }
 });
