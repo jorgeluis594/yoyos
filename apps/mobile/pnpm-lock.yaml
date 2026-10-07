@@ -13,6 +13,7 @@ overrides:
 
 patchedDependencies:
   node-forge@1.4.0: 1aab60915163ab15d399c697f10267ae62b52a5713c9505a6dfc574099dafaed
+  sprintf-js@1.0.3: 373feeb67818075047e10cf4d143b514aeb6338b9b103638f0fd218bec14bddb
 
 importers:
 
@@ -9130,7 +9131,7 @@ snapshots:
 
   argparse@1.0.10:
     dependencies:
-      sprintf-js: 1.0.3
+      sprintf-js: 1.0.3(patch_hash=373feeb67818075047e10cf4d143b514aeb6338b9b103638f0fd218bec14bddb)
 
   argparse@2.0.1: {}
 
@@ -13331,7 +13332,7 @@ snapshots:
 
   split-on-first@1.1.0: {}
 
-  sprintf-js@1.0.3: {}
+  sprintf-js@1.0.3(patch_hash=373feeb67818075047e10cf4d143b514aeb6338b9b103638f0fd218bec14bddb): {}
 
   stable-hash@0.0.5: {}
 
