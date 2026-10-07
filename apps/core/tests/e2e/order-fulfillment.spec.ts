@@ -28,6 +28,11 @@ test("seller ships or delivers directly, refreshes details and list, and preserv
       await browserExpect(page.getByRole("button", { name: "Marcar enviado", exact: true })).toBeDisabled();
       await browserExpect(page.getByRole("button", { name: "Marcar entregado", exact: true })).toBeDisabled();
       await browserExpect(page.getByText("Se requiere el pago completo antes de enviar o entregar.").first()).toBeVisible();
+      for (const operation of ["ship", "deliver"] as const) {
+        const blocked = await page.request.post(`/api/orders/${orderId}/${operation}`);
+        expect(blocked.status()).toBe(409);
+        expect(await blocked.json()).toMatchObject({ code: "PAYMENT_REQUIRED" });
+      }
       const pay = async () => {
         const response = await page.request.post(`/api/orders/${orderId}/payments`, { data: {
           paymentId: crypto.randomUUID(), amount: { amount: 10, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false,
@@ -54,6 +59,15 @@ test("seller ships or delivers directly, refreshes details and list, and preserv
         await browserExpect(page.getByText("Entrega: Despachada", { exact: true })).toBeVisible();
         await browserExpect(page.getByRole("button", { name: "Marcar enviado", exact: true })).toBeDisabled();
         expect((await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json()).payments).toEqual(before.payments);
+        for (const operation of ["ship", "cancel"] as const) {
+          const blocked = await page.request.post(`/api/orders/${orderId}/${operation}`);
+          expect(blocked.status()).toBe(409);
+          expect(await blocked.json()).toMatchObject({ code: "INVALID_TRANSITION" });
+        }
+        await page.getByRole("link", { name: "Ver ventas", exact: true }).click();
+        const shippedRow = page.getByRole("row").filter({ has: page.getByRole("link", { name: `Pedido #${before.number}`, exact: true }) });
+        await browserExpect(shippedRow.locator("summary").last()).toHaveAttribute("aria-label", /Entrega: Despachada/);
+        await page.getByRole("link", { name: `Pedido #${before.number}`, exact: true }).click();
         await page.setViewportSize({ width: 1280, height: 900 });
         await page.screenshot({ path: "/tmp/order-fulfillment-desktop.png", fullPage: true });
         await page.setViewportSize({ width: 390, height: 844 });
@@ -67,6 +81,12 @@ test("seller ships or delivers directly, refreshes details and list, and preserv
       const after = await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json();
       expect(after.payments).toEqual(before.payments);
       expect(after).toMatchObject({ status: "completed", paymentStatus: "paid", deliveryStatus: "delivered", completedAt: expect.any(String) });
+      for (const operation of ["ship", "deliver", "cancel"] as const) {
+        const blocked = await page.request.post(`/api/orders/${orderId}/${operation}`);
+        expect(blocked.status()).toBe(409);
+        expect(await blocked.json()).toMatchObject({ code: "INVALID_TRANSITION" });
+      }
+      expect(await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json()).toEqual(after);
       const stockAfter = await withTenantIsolation(tenantId, async () => await prisma.productStock.findUniqueOrThrow({ where: { variantId } }));
       expect(stockAfter.quantity).toBe(stockBefore.quantity);
       await page.setViewportSize({ width: 1280, height: 900 });
@@ -100,14 +120,22 @@ test("mobile fulfillment refreshes details and history through the real API", as
     await page.setViewportSize({ width: 390, height: 844 });
     for (const shipFirst of [true, false]) {
       const orderId = crypto.randomUUID();
-      const created = await page.request.post(`${coreOrigin}/api/orders`, { data: { id: orderId, contactId: null, items: [{ variantId, quantity: 1 }],
-        payments: [{ paymentId: crypto.randomUUID(), amount: { amount: 10, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }] } });
+      const created = await page.request.post(`${coreOrigin}/api/orders`, { data: { id: orderId, contactId: null, items: [{ variantId, quantity: 1 }] } });
       expect(created.status()).toBe(201);
-      const before = await created.json();
+      const pending = await created.json();
       await page.goto(`${mobile.origin}/orders`, { timeout: 90000 });
-      await browserExpect(page.getByText(new RegExp(`Pedido #${before.number} ·`))).toBeVisible({ timeout: 90000 });
-      await page.getByText(new RegExp(`Pedido #${before.number} ·`)).click();
+      await browserExpect(page.getByText(new RegExp(`Pedido #${pending.number} ·`))).toBeVisible({ timeout: 90000 });
+      await page.getByText(new RegExp(`Pedido #${pending.number} ·`)).click();
       await browserExpect(page.getByText("Orden activa", { exact: true })).toBeVisible();
+      await browserExpect(page.getByRole("button", { name: "Marcar enviado", exact: true })).toBeDisabled();
+      await browserExpect(page.getByRole("button", { name: "Marcar entregado", exact: true })).toBeDisabled();
+      await browserExpect(page.getByText("Se requiere el pago completo antes de enviar o entregar.").first()).toBeVisible();
+      await page.getByRole("textbox", { name: /Importe recibido/ }).fill("10");
+      await page.getByRole("button", { name: "Confirmar pago", exact: true }).click();
+      await browserExpect(page.getByRole("button", { name: "Marcar entregado", exact: true })).toBeEnabled();
+      const before = await (await page.request.get(`${coreOrigin}/api/orders/${orderId}/aggregate`)).json();
+      expect(before.payments).toHaveLength(1);
+      const stockBefore = await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity);
       if (shipFirst) {
         await page.getByRole("button", { name: "Marcar enviado", exact: true }).click();
         await browserExpect(page.getByText("Pedido marcado como enviado.", { exact: true })).toBeVisible();
@@ -115,6 +143,11 @@ test("mobile fulfillment refreshes details and history through the real API", as
         const shipped = await (await page.request.get(`${coreOrigin}/api/orders/${orderId}/aggregate`)).json();
         expect(shipped.deliveryStatus).toBe("shipped");
         expect(shipped.payments).toEqual(before.payments);
+        await browserExpect(page.getByText(/· Despachado$/)).toBeVisible();
+        await page.getByRole("button", { name: "Volver a ventas", exact: true }).click();
+        const row = page.getByRole("button").filter({ hasText: `Pedido #${before.number} ·` });
+        await browserExpect(row).toContainText("Orden activa");
+        await row.click();
       }
       await page.getByRole("button", { name: "Marcar entregado", exact: true }).click();
       await browserExpect(page.getByText("Pedido marcado como entregado.", { exact: true })).toBeVisible();
@@ -122,6 +155,9 @@ test("mobile fulfillment refreshes details and history through the real API", as
       const after = await (await page.request.get(`${coreOrigin}/api/orders/${orderId}/aggregate`)).json();
       expect(after.payments).toEqual(before.payments);
       expect(after).toMatchObject({ status: "completed", deliveryStatus: "delivered", stockDeducted: true });
+      await browserExpect(page.getByRole("button", { name: "Marcar enviado", exact: true })).toBeDisabled();
+      await browserExpect(page.getByRole("button", { name: "Marcar entregado", exact: true })).toBeDisabled();
+      expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(stockBefore);
       await page.getByRole("button", { name: "Volver a ventas", exact: true }).click();
       const row = page.getByRole("button").filter({ hasText: `Pedido #${before.number} ·` });
       await browserExpect(row).toContainText("Venta completada");

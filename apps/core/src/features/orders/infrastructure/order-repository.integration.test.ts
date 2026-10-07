@@ -332,12 +332,20 @@ test("restores deducted stock once when cancelling before dispatch and preserves
         amount: { amount: 0.2, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context))
         .toMatchObject({ success: true, data: { stock: { kind: "deducted" } } });
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
-      expect(await orders.cancel(orderId, context)).toMatchObject({ success: true,
+      const before = await findOrderAggregate(orderId, context.companyId);
+      expect(before.success).toBe(true);
+      const cancellations = await Promise.all([orders.cancel(orderId, context), orders.cancel(orderId, context)]);
+      for (const result of cancellations) expect(result).toMatchObject({ success: true,
         data: { cancelled: true, stockDeducted: false, payments: [{ amount: { amount: 0.2 } }] } });
+      if (before.success && before.data) {
+        expect(await findOrderAggregate(orderId, context.companyId)).toMatchObject({ data: { payments: before.data.payments } });
+      }
       expect(await orders.cancel(orderId, context)).toMatchObject({ success: true, data: { cancelled: true } });
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
       expect(await prisma.payment.count({ where: { orderId } })).toBe(1);
       expect(await orders.deductStock(orderId, context)).toMatchObject({ success: false, error: { code: "ORDER_CANCELLED" } });
+      for (const operation of [orders.ship, orders.deliver])
+        expect(await operation(orderId, context)).toMatchObject({ success: false, error: { code: "ORDER_CANCELLED" } });
     });
   } finally { await f.cleanup(); }
 });
@@ -351,17 +359,23 @@ test("ships and completes only a paid order with deducted stock", async () => {
       expect(await orders.create({ id: orderId, contactId: null,
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] }, context)).toMatchObject({ success: true });
       expect(await orders.ship(orderId, context)).toMatchObject({ success: false, error: { code: "PAYMENT_REQUIRED" } });
+      expect(await orders.deliver(orderId, context)).toMatchObject({ success: false, error: { code: "PAYMENT_REQUIRED" } });
       expect(await orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId,
         amount: { amount: 0.2, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context))
         .toMatchObject({ success: true, data: { stock: { kind: "deducted" } } });
       expect(await orders.ship(orderId, context)).toMatchObject({ success: true,
         data: { deliveryStatus: "shipped", completedAt: null } });
+      expect(await orders.ship(orderId, context)).toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
       expect(await orders.cancel(orderId, context)).toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
       expect(await orders.deliver(orderId, context)).toMatchObject({ success: true,
         data: { deliveryStatus: "delivered", completedAt: expect.any(Date) } });
       const saved = await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { payments: true } });
       expect(saved).toMatchObject({ deliveryStatus: "delivered", deliveredAt: expect.any(Date), completedAt: expect.any(Date), payments: [{ orderId }] });
       expect(await orders.deliver(orderId, context)).toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
+      expect(await orders.ship(orderId, context)).toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
+      expect(await orders.cancel(orderId, context)).toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
+      expect(await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { payments: true } })).toEqual(saved);
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
     });
   } finally { await f.cleanup(); }
 });

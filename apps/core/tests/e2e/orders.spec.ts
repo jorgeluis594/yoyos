@@ -55,6 +55,12 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     await browserExpect(page.getByRole("button", { name: "Guardar entrega" })).toHaveCount(0);
     await browserExpect(page.getByText("Público general")).toBeVisible();
     await browserExpect(page.getByText(`Total: ${formatCurrency(0.58, "PEN", "es")}`)).toBeVisible();
+    const immediateId = page.url().split("/").at(-1)!;
+    expect(await (await page.request.get(`/api/orders/${immediateId}/aggregate`)).json()).toMatchObject({
+      status: "completed", paymentStatus: "paid", deliveryStatus: "delivered", stockDeducted: true,
+      completedAt: expect.any(String), deliveredAt: expect.any(String),
+      payments: [expect.objectContaining({ status: "confirmed", method: "digital_wallet", amount: { amount: 0.58, currency: "PEN" } })],
+    });
     await page.getByRole("link", { name: "Ver ventas" }).click();
     await browserExpect(page.getByRole("heading", { name: /Ventas/ }).locator('[data-slot="page-header-count"]')).toHaveText("1");
     const stock = await withTenantIsolation(tenantId, async () => await prisma.productStock.findFirstOrThrow());
@@ -202,6 +208,10 @@ test("pending order remains active when paid before delivery", async ({ page }) 
     await page.getByRole("button", { name: "Guardar pedido" }).click();
     await browserExpect(page).toHaveURL(/\/orders\/[0-9a-f-]+$/);
     const orderId = page.url().split("/").at(-1)!;
+    const pending = await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json();
+    expect(pending).toMatchObject({ status: "active", paymentStatus: "pending", deliveryStatus: "pending",
+      payments: [], stockDeducted: false, deliveredAt: null, completedAt: null });
+    expect(await withTenantIsolation(tenantId, async () => await prisma.payment.count({ where: { orderId } }))).toBe(0);
     await page.goto("/es-PE/orders");
     await browserExpect(page.getByRole("table", { name: "Órdenes" }).locator('summary[aria-label^="Por cobrar:"]')).toBeVisible();
     await page.getByRole("table", { name: "Órdenes" }).getByRole("link", { name: "Público general" }).click();
