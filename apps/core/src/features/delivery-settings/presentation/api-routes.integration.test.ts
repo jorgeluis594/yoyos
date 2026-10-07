@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, expect, test } from "vitest";
 import { err, ok } from "@shared/functional";
 import { createDeliverySettingsApi } from "@mobile/features/delivery-settings/infrastructure/delivery-settings-api";
-import { deliverySettingsSchema } from "@shared/contracts/delivery-settings";
+import { deliverySettingsSchema, deliveryZonesSchema } from "@shared/contracts/delivery-settings";
 import { app } from "@core/src/app";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
@@ -20,12 +20,12 @@ async function request(path: string, cookie?: string, body?: unknown, method?: s
     ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 }
 
-async function fixture(withCompany = true) {
+async function fixture(withCompany = true, country = "PE") {
   const companyId = withCompany ? randomUUID() : null;
   const email = `delivery-${randomUUID()}@example.test`;
   const password = "test-password-123";
   if (companyId) await withTenantIsolation(companyId, async () => {
-    await prisma.company.create({ data: { id: companyId, name: "Delivery API", country: "PE" } });
+    await prisma.company.create({ data: { id: companyId, name: "Delivery API", country } });
   });
   const signup = await request("/api/auth/sign-up/email", undefined, { name: "Seller", email, password });
   expect(signup.status).toBe(200);
@@ -38,6 +38,10 @@ async function fixture(withCompany = true) {
   const f = { companyId, cookie, async cleanup() {
     await systemPrisma.user.delete({ where: { id: userId } });
     if (companyId) await withTenantIsolation(companyId, async () => {
+      await prisma.deliveryRate.deleteMany();
+      await prisma.quotation.deleteMany();
+      await prisma.deliveryZoneDistrict.deleteMany();
+      await prisma.deliveryZone.deleteMany();
       await prisma.companyCourier.deleteMany();
       await prisma.companyDeliverySettings.deleteMany();
       await prisma.company.delete({ where: { id: companyId } });
@@ -55,11 +59,13 @@ afterAll(async () => {
 
 test("configuration endpoints require authenticated company access and disable caching", async () => {
   const noCompany = await fixture(false);
-  for (const method of ["GET", "PUT"]) {
-    const anonymous = await request("/api/delivery-settings", undefined, undefined, method);
-    expect(anonymous.status).toBe(401);
-    expect(anonymous.headers.get("cache-control")).toBe("no-store");
-    expect((await request("/api/delivery-settings", noCompany.cookie, undefined, method)).status).toBe(409);
+  for (const path of ["/api/delivery-settings", "/api/delivery-settings/zones"]) {
+    for (const method of ["GET", "PUT"]) {
+      const anonymous = await request(path, undefined, undefined, method);
+      expect(anonymous.status).toBe(401);
+      expect(anonymous.headers.get("cache-control")).toBe("no-store");
+      expect((await request(path, noCompany.cookie, undefined, method)).status).toBe(409);
+    }
   }
 });
 
@@ -148,4 +154,58 @@ test("a lost settings response after commit recovers persisted courier IDs witho
   expect(await mobile.save(input)).toMatchObject({ success: false, error: { code: "DELIVERY_SETTINGS_CONFLICT" } });
   expect(await mobile.get()).toEqual(confirmed);
   expect(await withTenantIsolation(seller.companyId ?? "", async () => await prisma.companyCourier.count())).toBe(1);
+});
+
+test("zone HTTP persists all overlapping options, retains the other method and returns meaningful validation and version conflicts", async () => {
+  const [seller, other] = await Promise.all([fixture(), fixture()]);
+  const path = "/api/delivery-settings/zones";
+  const first = await request(path, seller.cookie);
+  expect(first.status).toBe(200);
+  expect(first.headers.get("cache-control")).toBe("no-store");
+  expect(await first.json()).toEqual({ home: { enabled: false }, agency: { enabled: false }, version: 0, currency: "PEN", zones: [] });
+  const fields = { kind: "new", name: " Nearby ", enabled: true, districtCodes: ["150122"], price: { amount: 8, currency: "PEN" } };
+  const input = { method: "home", expectedVersion: 0, zones: [fields, { ...fields, name: "Free", price: { amount: 0, currency: "PEN" } }] };
+  for (const body of [{ ...input, companyId: other.companyId }, { ...input, zones: [{ ...fields, id: randomUUID() }] },
+    { ...input, zones: [{ ...fields, price: undefined }] }, { ...input, zones: [{ ...fields, rateId: randomUUID() }] }]) {
+    expect((await request(path, seller.cookie, body, "PUT")).status).toBe(400);
+  }
+  for (const invalid of [{ ...fields, districtCodes: [] }, { ...fields, districtCodes: ["999999"] },
+    { ...fields, districtCodes: ["150122", "150122"] }, { ...fields, price: { amount: -1, currency: "PEN" } },
+    { ...fields, price: { amount: 8.001, currency: "PEN" } }]) {
+    const response = await request(path, seller.cookie, { ...input, zones: [invalid] }, "PUT");
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({ code: "INVALID_DELIVERY_ZONE", index: 0 });
+  }
+  const saved = await request(path, seller.cookie, input, "PUT");
+  expect(saved.status).toBe(200);
+  const home = deliveryZonesSchema.parse(await saved.json());
+  expect(home).toMatchObject({ version: 1, home: { enabled: false }, zones: [{ name: "Nearby", price: { amount: 8 } }, { name: "Free", price: { amount: 0 } }] });
+  expect((await request("/api/delivery-settings", seller.cookie, { expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [], store: { enabled: false, pickupPoint: null } }, "PUT")).status).toBe(200);
+  const agencyResponse = await request(path, seller.cookie, { method: "agency", expectedVersion: 2, zones: [{ ...fields, name: "Agency", price: { amount: 5, currency: "PEN" } }] }, "PUT");
+  expect(agencyResponse.status).toBe(200);
+  const both = deliveryZonesSchema.parse(await agencyResponse.json());
+  expect(both).toMatchObject({ version: 3, home: { enabled: true }, agency: { enabled: false } });
+  expect(both.zones.filter(zone => zone.method === "home")).toEqual(expect.arrayContaining(home.zones));
+  expect(both.zones.filter(zone => zone.method === "agency")).toHaveLength(1);
+  const conflict = await request(path, seller.cookie, input, "PUT");
+  expect(conflict.status).toBe(409);
+  expect(await conflict.json()).toMatchObject({ code: "DELIVERY_SETTINGS_CONFLICT", currentVersion: 3, reason: "stale_version" });
+  expect(deliveryZonesSchema.parse(await (await request(path, seller.cookie)).json()).zones).toEqual(expect.arrayContaining(both.zones));
+  expect(await (await request(path, other.cookie)).json()).toMatchObject({ version: 0, zones: [] });
+  const zone = home.zones[0];
+  expect((await request(path, other.cookie, { method: "home", expectedVersion: 0, zones: [{ kind: "existing", id: zone.id, name: zone.name,
+    enabled: zone.enabled, districtCodes: zone.districtCodes, price: zone.price }] }, "PUT")).status).toBe(422);
+  await withTenantIsolation(seller.companyId ?? "", async () => {
+    expect(await prisma.quotation.count()).toBe(0);
+    expect(await prisma.deliveryRate.count()).toBe(0);
+  });
+});
+
+test("zone administration rejects businesses outside the Peru pilot", async () => {
+  const seller = await fixture(true, "US");
+  for (const response of [await request("/api/delivery-settings/zones", seller.cookie),
+    await request("/api/delivery-settings/zones", seller.cookie, { method: "home", expectedVersion: 0, zones: [] }, "PUT")]) {
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({ code: "UNSUPPORTED_COUNTRY" });
+  }
 });
