@@ -282,7 +282,7 @@ function PaymentForm({ paymentId, source, currency, balance }: { paymentId: stri
     <input type="hidden" name="operation" value="confirm" /><input type="hidden" name="source" value={source} />
     <input type="hidden" name="paymentId" value={paymentId} /><input type="hidden" name="currency" value={currency} />
     <PaymentFields value={value} onChange={setValue} />
-    <Button type="submit" disabled={navigation.state !== "idle"} className="sm:col-start-3 sm:row-start-1">{t("orders.confirmPayment")}</Button>
+    <Button type="submit" disabled={navigation.state !== "idle"} className="h-control sm:col-start-3 sm:row-start-1">{t("orders.confirmPayment")}</Button>
   </Form>;
 }
 
