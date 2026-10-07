@@ -11,7 +11,7 @@ export default defineConfig({
   test: {
     reporters: ["minimal"],
     projects: [
-      { extends: true, test: { name: "unit", include: ["src/**/*.{test,spec}.{ts,tsx}", "app/**/*.{test,spec}.{ts,tsx}"], exclude: ["src/**/*.integration.test.ts"] } },
+      { extends: true, test: { name: "unit", include: ["src/**/*.{test,spec}.{ts,tsx}", "app/**/*.{test,spec}.{ts,tsx}", "../../shared/peru-geography.spec.mjs"], exclude: ["src/**/*.integration.test.ts"] } },
       { extends: true, test: { name: "integration", include: ["src/**/*.test.mjs", "src/**/*.integration.test.ts", "scripts/**/*.test.ts"], testTimeout: 60_000 } },
       { extends: true, test: { name: "e2e", include: ["tests/e2e/**/*.spec.ts"], testTimeout: 60_000, globalSetup: ["./tests/e2e/server-setup.ts"] } },
     ],
