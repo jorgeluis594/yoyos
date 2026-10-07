@@ -1,3 +1,4 @@
+import { mkdir } from "node:fs/promises";
 import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
 import { products } from "@core/src/features/products/composition";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
@@ -38,14 +39,50 @@ test("buyer reports a receipt and sees the seller confirmed balance", async ({ p
     expect((await page.request.post("/api/orders/pending", { data: { id: orderId, contactId: null,
       items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
     expect((await request.get(`/pago/${crypto.randomUUID()}`)).status()).toBe(404);
-    const opened = await page.goto(`/pago/${orderId}`);
+    expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 0, home: { enabled: true }, agency: { enabled: false }, couriers: [], store: { enabled: true, pickupPoint: { name: "Tienda", address: "Av. Arequipa 123, Lima", instructions: null } } } })).ok()).toBe(true);
+    await withTenantIsolation(tenantId, async () => { await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: new Date() } }); });
+    const checkoutPath = `/checkout/${tenantId}/${orderId}`;
+    await page.goto(checkoutPath);
+    await page.getByLabel("Nombre", { exact: true }).fill("Ana Torres");
+    await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
+    await page.getByRole("radio", { name: "A domicilio" }).check();
+    await page.getByLabel("Dirección", { exact: true }).fill("Av. Arequipa 123, dpto. 402");
+    await page.getByLabel("Distrito / ciudad", { exact: true }).fill("Miraflores, Lima");
+    await browserExpect(page.getByText("Total a pagar", { exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "Confirmar y solicitar costo de entrega" }).click();
+    await browserExpect(page.getByRole("heading", { name: "Esperando costo de entrega" })).toBeVisible();
+    expect((await request.post(`/api/buyer/orders/${orderId}/reports`, { data: { paymentId: crypto.randomUUID(), receiptImageId: crypto.randomUUID() } })).status()).toBe(409);
+    await page.goto(`/es-PE/orders/${orderId}`);
+    await browserExpect(page.getByRole("heading", { name: "Entrega por cotizar" })).toBeVisible();
+    await page.getByLabel("Costo de entrega (PEN)").fill("10");
+    await page.getByRole("button", { name: "Confirmar costo y habilitar pago" }).click();
+    await browserExpect(page.getByRole("heading", { name: "Entrega por cotizar" })).toHaveCount(0);
+    const opened = await page.goto(checkoutPath);
     expect(opened?.status()).toBe(200);
-    await browserExpect(page.getByRole("heading", { name: "Pago del pedido" })).toBeVisible();
-    await browserExpect(page.getByText("Yape")).toBeVisible();
-    await browserExpect(page.getByText("BCP")).toBeVisible();
+    await browserExpect(page.getByRole("heading", { name: "Pedido confirmado" })).toBeVisible();
+    await browserExpect(page.getByRole("radio", { name: "Yape" })).toBeVisible();
     await browserExpect(page.getByRole("img", { name: "Instrucciones de billetera digital" })).toBeVisible();
-    await browserExpect(page.getByText(formatCurrency(12.5, "PEN", "es")).first()).toBeVisible();
+    await page.getByRole("radio", { name: "Transferencia", exact: true }).check();
+    await browserExpect(page.getByText("BCP")).toBeVisible();
+    await browserExpect(page.getByText(formatCurrency(22.5, "PEN", "es")).first()).toBeVisible();
     await browserExpect(page.getByRole("button", { name: "Ya pagué" })).toBeDisabled();
+    await mkdir("../../.impeccable/review", { recursive: true });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.screenshot({ animations: "disabled", path: "../../.impeccable/review/desktop.png", fullPage: true });
+    await page.setViewportSize({ width: 390, height: 938 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ animations: "disabled", path: "../../.impeccable/review/mobile.png", fullPage: true });
+    await page.evaluate(() => document.documentElement.classList.add("dark"));
+    await page.screenshot({ animations: "disabled", path: "../../.impeccable/review/mobile-dark.png", fullPage: true });
+    await expect.poll(() => page.getByRole("button", { name: "Copiar CCI" }).evaluate(element => {
+      const luminance = (color: string) => {
+        const channels = color.match(/[\d.]+/g)!.slice(0, 3).map(value => { const channel = Number(value) / 255; return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4; });
+        return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+      };
+      const text = luminance(getComputedStyle(element).color), background = luminance(getComputedStyle(document.body).backgroundColor);
+      return (Math.max(text, background) + 0.05) / (Math.min(text, background) + 0.05);
+    })).toBeGreaterThanOrEqual(4.5);
+    await page.evaluate(() => document.documentElement.classList.remove("dark"));
     const imageId = crypto.randomUUID();
     await withTenantIsolation(tenantId, async () => await prisma.image.create({ data: { id: imageId, storageKey: `test/${imageId}` } }));
     let uploadFailed = false;
@@ -111,6 +148,7 @@ test("buyer reports a receipt and sees the seller confirmed balance", async ({ p
       await prisma.product.deleteMany();
       await prisma.image.deleteMany();
       await prisma.companyPaymentSettings.deleteMany();
+      await prisma.companyDeliverySettings.deleteMany();
       await systemPrisma.user.deleteMany({ where: { email } });
       await prisma.company.delete({ where: { id: user.companyId! } });
     });

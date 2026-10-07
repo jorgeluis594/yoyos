@@ -18,6 +18,7 @@ const args = (payload: unknown, path = params) => ({ params: path, request: new 
 afterEach(() => vi.restoreAllMocks());
 
 test("public loader preserves wire amounts and privacy headers without requiring an authenticated context", async () => {
+  vi.spyOn(orders, "getCheckoutDeliverySettings").mockResolvedValue(ok({ version: 0, home: { enabled: false }, agency: { enabled: false }, couriers: [], store: { enabled: false, pickupPoint: null } }));
   vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(view));
   expect(await loader({ params } as unknown as LoaderFunctionArgs)).toMatchObject({ data: { checkout: view }, init: { headers: headers() } });
   await expect(loader({ params: { companyId: "bad", orderId: "1001" } } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 404 });

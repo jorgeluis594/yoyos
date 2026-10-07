@@ -1,6 +1,7 @@
 import type { Resource } from "i18next";
 
 const es = {
+  checkoutQuote: { title: "Entrega por cotizar", hint: "El comprador confirmó sus datos. Confirma el costo para habilitar el pago en su checkout.", cost: "Costo de entrega", invalid: "Ingresa un importe válido, incluso 0 si no hay costo.", charge: "Cobrar la entrega al comprador", error: "No se pudo confirmar el costo. Actualiza el pedido y vuelve a intentarlo.", save: "Confirmar costo y habilitar pago", saving: "Confirmando…" },
   common: { email: "Correo electrónico", password: "Contraseña", name: "Nombre", login: "Iniciar sesión", forgotPassword: "Recuperar contraseña", sending: "Enviando…", retry: "Inténtalo de nuevo.", loading: "Cargando {{caption}}…", noResults: "Sin resultados.", close: "Cerrar" },
   auth: {
     createAccount: "Crear cuenta", createCompany: "Crear empresa", companyTitle: "Crea tu empresa",
@@ -102,6 +103,7 @@ const es = {
 } as const;
 
 const pt = {
+  checkoutQuote: { title: "Entrega para cotação", hint: "O comprador confirmou os dados. Confirme o custo para liberar o pagamento no checkout.", cost: "Custo de entrega", invalid: "Informe um valor válido, inclusive 0 se não houver custo.", charge: "Cobrar a entrega do comprador", error: "Não foi possível confirmar o custo. Atualize o pedido e tente novamente.", save: "Confirmar custo e liberar pagamento", saving: "Confirmando…" },
   common: { email: "E-mail", password: "Senha", name: "Nome", login: "Entrar", forgotPassword: "Recuperar senha", sending: "Enviando…", retry: "Tente novamente.", loading: "Carregando {{caption}}…", noResults: "Nenhum resultado.", close: "Fechar" },
   auth: {
     createAccount: "Criar conta", createCompany: "Criar empresa", companyTitle: "Crie sua empresa",
