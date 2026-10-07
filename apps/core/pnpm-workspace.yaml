@@ -5,3 +5,10 @@ allowBuilds:
   esbuild: true
   prisma: true
   protobufjs: false
+overrides:
+  '@modelcontextprotocol/sdk': ^1.31.0
+  deepmerge-ts: ^8.0.0
+  mysql2: ^3.23.1
+  source-map-js: ^1.2.2
+patchedDependencies:
+  braces@3.0.3: ../../patches/braces@3.0.3.patch
