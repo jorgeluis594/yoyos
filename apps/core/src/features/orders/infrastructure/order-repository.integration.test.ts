@@ -1416,7 +1416,10 @@ test("buyer delivery waits for an isolated seller quote before payment and prese
 });
 
 
-test("queues first cancellation with worker offline and restores once on durable delivery", async () => {
+test.each([
+  { paid: 0, deducted: false }, { paid: 0, deducted: true },
+  { paid: 0.1, deducted: false }, { paid: 0.1, deducted: true }, { paid: 0.2, deducted: true },
+])("queues first cancellation offline and restores once (paid=$paid, deducted=$deducted)", async ({ paid, deducted }) => {
   const f = await fixture();
   const subscription = { ...restoreCancelledStock, id: `cancellation-test-${randomUUID().slice(0, 8)}` };
   const producer = createPgBossProvider<AppEvents>({ connectionString: process.env.DATABASE_URL!, subscriptions: [subscription] });
@@ -1429,14 +1432,19 @@ test("queues first cancellation with worker offline and restores once on durable
       const orderId = randomUUID() as OrderId;
       const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
       expect(await orders.create({ id: orderId, contactId: null, items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] }, context)).toMatchObject({ success: true });
-      expect(await orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId, amount: { amount: 0.2, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context)).toMatchObject({ success: true });
+      if (paid) expect(await orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId, amount: { amount: paid, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: deducted }, context)).toMatchObject({ success: true });
+      else if (deducted) {
+        const paymentId = randomUUID() as PaymentId;
+        expect(await orders.registerPayment({ orderId, paymentId, amount: { amount: 0.1, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: true }, context)).toMatchObject({ success: true });
+        expect(await orders.voidPayment({ orderId, paymentId }, context)).toMatchObject({ success: true });
+      }
       const before = await findOrderAggregate(orderId, context.companyId);
       const cancel = () => cancelOrder(orderId, context, { transaction: (_company, work) => withinTransaction(work), findOrderForUpdate, saveCancellation,
         publishOrderCancelled: payload => publish("order_cancelled", payload) });
-      for (const result of await Promise.all([cancel(), cancel()])) expect(result).toMatchObject({ success: true, data: { cancelled: true, stockDeducted: true } });
+      for (const result of await Promise.all([cancel(), cancel()])) expect(result).toMatchObject({ success: true, data: { cancelled: true, stockDeducted: deducted } });
       expect(await cancel()).toMatchObject({ success: true });
       expect((await pool.query("SELECT id FROM pgboss.job WHERE name = $1", [subscription.id])).rowCount).toBe(1);
-      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(deducted ? 1n : 3n);
       await worker.start();
       expect(await worker.subscribe(subscription)).toMatchObject({ success: true });
       await vi.waitFor(async () => {

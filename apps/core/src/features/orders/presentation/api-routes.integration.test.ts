@@ -1,3 +1,4 @@
+import { applicationEventBus } from "@core/src/composition/event-bus";
 import { createCancellationOperations } from "@mobile/features/orders/application/cancel-order";
 import { createOrderOperations } from "@mobile/features/orders/application/order-operations";
 import { addDraftItem, emptyOrderDraft } from "@mobile/features/orders/domain/order-draft";
@@ -564,4 +565,67 @@ test("mobile cancellation adapter recovers the real committed result with one wr
     return response.ok ? ok(body) : err({ code: "API_ERROR", message: "Rejected", http: { status: response.status, body } });
   });
   expect(await foreignApi.cancel(id)).toMatchObject({ error: { code: "ORDER_NOT_FOUND" } });
+});
+
+
+test("mobile adapter accepts real cancellation and rejects dispatched orders without changing payments", async () => {
+  const seller = await fixture("PE");
+  const api = createOrderApi(async (path, init) => {
+    const response = await call(path, seller.cookie, undefined, init?.method);
+    const body: unknown = await response.json();
+    return response.ok ? ok(body) : err({ code: "API_ERROR", message: "Rejected", http: { status: response.status, body } });
+  });
+  const pending = randomUUID();
+  expect((await call("/api/orders/pending", seller.cookie, { id: pending, contactId: null, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
+  expect(await api.cancel(pending)).toEqual(ok({ id: pending, status: "cancelled", cancelled: true, deliveryStatus: "pending", stockDeducted: false, deliveredAt: null, completedAt: null }));
+  const dispatched = randomUUID();
+  expect((await call("/api/orders/pending", seller.cookie, { id: dispatched, contactId: null, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
+  expect((await call(`/api/orders/${dispatched}/payments`, seller.cookie, { paymentId: randomUUID(), amount: { amount: 10, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false })).status).toBe(200);
+  for (const operation of ["ship", "deliver"] as const) {
+    expect((await call(`/api/orders/${dispatched}/${operation}`, seller.cookie, undefined, "POST")).status).toBe(200);
+    const before = await api.getAggregate(dispatched);
+    const beforeStock = await withTenantIsolation(seller.companyId, async () => prisma.productStock.findUniqueOrThrow({ where: { variantId: seller.variantId } }));
+    expect(await api.cancel(dispatched)).toMatchObject({ error: { code: "INVALID_TRANSITION" } });
+    expect(await api.getAggregate(dispatched)).toEqual(before);
+    expect(await withTenantIsolation(seller.companyId, async () => prisma.productStock.findUniqueOrThrow({ where: { variantId: seller.variantId } }))).toEqual(beforeStock);
+  }
+});
+
+test("HTTP cancellation commits and logs a failed publication without restoring or republishing", async () => {
+  const seller = await fixture("PE");
+  const id = randomUUID();
+  expect((await call("/api/orders/pending", seller.cookie, { id, contactId: null, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
+  expect((await call(`/api/orders/${id}/payments`, seller.cookie, { paymentId: randomUUID(), amount: { amount: 10, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false })).status).toBe(200);
+  const publish = vi.spyOn(applicationEventBus().provider, "publish").mockResolvedValue(err({ code: "EVENT_BUS_UNAVAILABLE", message: "Test publication failure" }));
+  const logging = vi.spyOn(log, "error").mockImplementation(() => {});
+  const before = await withTenantIsolation(seller.companyId, async () => prisma.payment.findMany({ where: { orderId: id } }));
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const response = await call(`/api/orders/${id}/cancel`, seller.cookie, undefined, "POST");
+    expect(response.status).toBe(200);
+    expect(cancelOrderResponseSchema.parse(await response.json())).toMatchObject({ id, cancelled: true, stockDeducted: true });
+  }
+  expect(publish).toHaveBeenCalledTimes(1);
+  expect(logging).toHaveBeenCalledWith(expect.objectContaining({ event: "event_publication_failed", name: "order_cancelled", companyId: seller.companyId, orderId: id, eventId: expect.any(String), errorCode: "EVENT_BUS_UNAVAILABLE" }), "Event publication failed");
+  await withTenantIsolation(seller.companyId, async () => {
+    expect(await prisma.order.findUniqueOrThrow({ where: { id } })).toMatchObject({ cancelled: true, stockDeducted: true });
+    expect(await prisma.payment.findMany({ where: { orderId: id } })).toEqual(before);
+    expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: seller.variantId } })).quantity).toBe(2n);
+  });
+});
+
+
+test("cancellation rejects a session without a company or without verification before loading the order", async () => {
+  const seller = await fixture("PE");
+  const session = await fixture("PE");
+  const id = randomUUID();
+  expect((await call("/api/orders/pending", seller.cookie, { id, contactId: null, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
+  const before = await (await call(`/api/orders/${id}/aggregate`, seller.cookie)).json();
+  await systemPrisma.user.update({ where: { id: session.userId }, data: { companyId: null } });
+  const noCompany = await call(`/api/orders/${id}/cancel`, session.cookie, undefined, "POST");
+  expect(noCompany.status).toBe(409); expect(await noCompany.json()).toMatchObject({ code: "COMPANY_REQUIRED" });
+  await systemPrisma.user.update({ where: { id: session.userId }, data: { companyId: session.companyId, emailVerified: false } });
+  const unverified = await call(`/api/orders/${id}/cancel`, session.cookie, undefined, "POST");
+  expect(unverified.status).toBe(403); expect(await unverified.json()).toMatchObject({ code: "EMAIL_VERIFICATION_REQUIRED" });
+  await systemPrisma.user.update({ where: { id: session.userId }, data: { emailVerified: true } });
+  expect(await (await call(`/api/orders/${id}/aggregate`, seller.cookie)).json()).toEqual(before);
 });
