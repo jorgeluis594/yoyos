@@ -5,6 +5,16 @@ import { prisma, requireActiveTransaction } from "@core/src/shared/infrastructur
 import { bindCompanyToRequest, bindRequestOperation, log } from "@core/src/shared/infrastructure/logger";
 import { findOrderAggregate, findOrderForUpdate } from "@core/src/features/orders/infrastructure/order-repository";
 import type { CheckoutAccess, CheckoutError, CheckoutOrder, OrderBuyer } from "@core/src/features/orders/domain/checkout";
+import type { DeliverySnapshot } from "@core/src/features/orders/domain/order-state-machine";
+
+export async function saveCheckoutDeliveryRequest(access: CheckoutAccess, delivery: DeliverySnapshot | null): Promise<Result<null, CheckoutError>> {
+  requireActiveTransaction(access.companyId);
+  try {
+    await prisma.order.update({ where: { companyId_id: { companyId: access.companyId, id: access.orderId } },
+      data: { checkoutDeliveryRequest: delivery === null ? Prisma.DbNull : delivery as Prisma.InputJsonObject } });
+    return ok(null);
+  } catch (cause) { return failure(cause, "unable_to_save_checkout_delivery_request"); }
+}
 
 const failure = (cause: unknown, event: string): Result<never, CheckoutError> => {
   if (!(cause instanceof Prisma.PrismaClientKnownRequestError || cause instanceof Prisma.PrismaClientUnknownRequestError || cause instanceof Prisma.PrismaClientInitializationError)) throw cause;

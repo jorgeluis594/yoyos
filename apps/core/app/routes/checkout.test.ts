@@ -9,7 +9,7 @@ import type { PositiveInteger } from "@core/src/features/orders/domain/order";
 
 const params = { companyId: "00000000-0000-4000-8000-000000000001", orderId: "00000000-0000-4000-8000-000000000002" };
 const total = { amount: 10, currency: "PEN" as const };
-const view: CheckoutView = { companyName: "Store", number: 1001 as OrderNumber, buyer: null, itemsTotal: total, total,
+const view: CheckoutView = { delivery: null, deliveryQuotePending: false, deliveryCharge: { amount: 0, currency: "PEN" }, companyName: "Store", number: 1001 as OrderNumber, buyer: null, itemsTotal: total, total,
   items: [{ productName: "Product", sku: null, variantAttributes: {}, quantity: 1 as PositiveInteger, unitPrice: total, subtotal: total }], state: { kind: "pending" } };
 const body = { buyer: { name: "Ana", phone: "+51987654321" }, expectedTotal: total };
 const args = (payload: unknown, path = params) => ({ params: path, request: new Request("http://localhost/checkout/company/order", {

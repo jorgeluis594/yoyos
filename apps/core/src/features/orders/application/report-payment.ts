@@ -3,6 +3,7 @@ import type { Result } from "@shared/result";
 import { orderStateMachine, type OrderAggregate, type OrderDomainError } from "@core/src/features/orders/domain/order-state-machine";
 import { reportPayment as createReport, type ImageId, type Payment, type PaymentError } from "@core/src/features/orders/domain/payment";
 import type { CompanyId, OrderId, PaymentId } from "@core/src/features/orders/domain/order";
+import { buyerPaymentAvailability } from "@core/src/features/orders/domain/checkout";
 
 export type BuyerPaymentAccess = Readonly<{ kind: "buyer"; companyId: CompanyId; orderId: OrderId }>;
 export type ReportPaymentInput = Readonly<{ paymentId: PaymentId; receiptImageId: ImageId }>;
@@ -26,6 +27,7 @@ export async function reportPayment(input: ReportPaymentInput, access: BuyerPaym
       receiptImageId: input.receiptImageId, reportedAt: deps.clock() }, existing);
     if (!reported.success) return reported;
     if (existing) return ok(found.data);
+    if (buyerPaymentAvailability(found.data) !== "available") return err({ code: "INVALID_TRANSITION", message: "Payment is not available yet" });
     if (reported.data.status !== "reported") return err({ code: "INVALID_TRANSITION", message: "Payment is not a report" });
     const receipt = await deps.findReceipt(input.receiptImageId);
     if (!receipt.success) return receipt;

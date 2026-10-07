@@ -18,7 +18,7 @@ const mockShip = jest.fn();
 const mockDeliver = jest.fn();
 jest.mock("expo-clipboard", () => ({ setStringAsync: jest.fn(async () => true) }));
 const initialOrder: OrderAggregateResponse = { number: 1001, id: mockId, companyId: "00000000-0000-4000-8000-000000000001", sellerId: "seller",
-  buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, createdAt: "2026-09-29T11:00:00.000Z", deliveredAt: "2026-09-29T12:00:00.000Z", completedAt: "2026-09-29T12:00:00.000Z",
+  buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, checkoutDeliveryRequest: null, createdAt: "2026-09-29T11:00:00.000Z", deliveredAt: "2026-09-29T12:00:00.000Z", completedAt: "2026-09-29T12:00:00.000Z",
   status: "completed", paymentStatus: "paid", paidAmount: { amount: 12, currency: "PEN" },
   balanceDue: { amount: 0, currency: "PEN" }, overpaidAmount: { amount: 0, currency: "PEN" }, cancelled: false,
   delivery: null, deliveryStatus: "delivered", stockDeducted: true, itemsTotal: { amount: 12, currency: "PEN" },

@@ -34,6 +34,7 @@ export type OrderAggregate = Readonly<{
   buyer: OrderBuyer | null;
   checkoutEnabledAt: Date | null;
   checkoutConfirmedAt: Date | null;
+  checkoutDeliveryRequest: DeliverySnapshot | null;
   createdAt: Date;
   deliveredAt: Date | null;
   completedAt: Date | null;
@@ -70,7 +71,7 @@ export function buildPendingOrder(input: BuildPendingOrderInput): Result<OrderAg
   const zero: Money = { amount: 0, currency: snapshot.total.currency };
   return ok({ number: input.number, id: snapshot.id, companyId: snapshot.companyId, sellerId: snapshot.sellerId,
     buyer: snapshot.customer.kind === "contact" ? { contactId: snapshot.customer.contactId, name: snapshot.customer.name, phone: snapshot.customer.phone } : null,
-    checkoutEnabledAt: null, checkoutConfirmedAt: null, items: snapshot.items, total: snapshot.total,
+    checkoutEnabledAt: null, checkoutConfirmedAt: null, checkoutDeliveryRequest: null, items: snapshot.items, total: snapshot.total,
     createdAt: new Date(input.createdAt), deliveredAt: null, completedAt: null, cancelled: false,
     payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false,
     itemsTotal: snapshot.total, deliveryCost: zero, deliveryCharge: zero });

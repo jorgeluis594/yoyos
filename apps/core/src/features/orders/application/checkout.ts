@@ -4,11 +4,14 @@ import type { Result } from "@shared/result";
 import type { Money } from "@shared/money";
 import type { CompanyId, OrderId } from "@core/src/features/orders/domain/order";
 import type { OrderAccess } from "@core/src/features/orders/application/create-order";
+import type { DeliverySettings } from "@core/src/features/delivery-settings";
+import type { DeliverySelection, DeliverySnapshot } from "@core/src/features/orders/domain/order-state-machine";
+import { checkoutDelivery, sameDelivery } from "@core/src/features/orders/domain/checkout-delivery";
 import { checkoutState, checkoutView, checkExpectedTotal, parseBuyer,
   type BuyerData, type CheckoutAccess, type CheckoutError, type CheckoutOrder, type CheckoutView, type OrderBuyer, type OrderNumber,
 } from "@core/src/features/orders/domain/checkout";
 
-export type ConfirmOrderCheckoutInput = Readonly<{ buyer: BuyerData; expectedTotal: Money }>;
+export type ConfirmOrderCheckoutInput = Readonly<{ buyer: BuyerData; expectedTotal: Money; delivery?: DeliverySelection }>;
 export type CheckoutMutation = Readonly<{ checkout: CheckoutView; changed: boolean }>;
 export type CheckoutDependencies = Readonly<{
   transaction: <T>(companyId: CompanyId, work: () => Promise<Result<T, CheckoutError>>) => Promise<Result<T, CheckoutError>>;
@@ -17,6 +20,8 @@ export type CheckoutDependencies = Readonly<{
   saveEnabled: (access: CheckoutAccess, at: Date) => Promise<Result<null, CheckoutError>>;
   saveBuyer: (access: CheckoutAccess, buyer: OrderBuyer) => Promise<Result<null, CheckoutError>>;
   saveConfirmed: (access: CheckoutAccess, at: Date) => Promise<Result<null, CheckoutError>>;
+  getDeliverySettings: (access: CheckoutAccess) => Promise<Result<DeliverySettings, CheckoutError>>;
+  saveDeliveryRequest: (access: CheckoutAccess, delivery: DeliverySnapshot | null) => Promise<Result<null, CheckoutError>>;
 }>;
 
 const accessSchema = z.strictObject({ companyId: z.uuid(), orderId: z.uuid() });
@@ -64,12 +69,29 @@ export async function confirmOrderCheckout(input: ConfirmOrderCheckoutInput, acc
     if (!buyer.success) return buyer;
     const total = checkExpectedTotal(input.expectedTotal, order.total);
     if (!total.success) return total;
+    let requested = order.checkoutDeliveryRequest;
+    const settings = await deps.getDeliverySettings(access);
+    if (!settings.success) return settings;
+    if (!input.delivery && !order.delivery && (settings.data.home.enabled || settings.data.agency.enabled || settings.data.store.enabled))
+      return err({ code: "INVALID_DELIVERY", message: "Choose a delivery method" });
+    if (input.delivery) {
+      const resolved = checkoutDelivery(input.delivery, settings.data);
+      if (!resolved.success) return resolved;
+      if (!order.delivery || !sameDelivery(order.delivery, resolved.data)) {
+        if (order.deliveryStatus !== "pending") return err({ code: "DELIVERY_LOCKED", message: "Delivery has progressed" });
+        requested = resolved.data;
+      }
+    }
+    if (requested !== order.checkoutDeliveryRequest) {
+      const saved = await deps.saveDeliveryRequest(access, requested);
+      if (!saved.success) return saved;
+    }
     const snapshot = { ...buyer.data, contactId: order.buyer?.contactId ?? null };
     const savedBuyer = await deps.saveBuyer(access, snapshot);
     if (!savedBuyer.success) return savedBuyer;
     const savedConfirmation = await deps.saveConfirmed(access, now);
     if (!savedConfirmation.success) return savedConfirmation;
-    const confirmed = checkoutView({ ...order, buyer: snapshot, checkoutConfirmedAt: now });
+    const confirmed = checkoutView({ ...order, buyer: snapshot, checkoutConfirmedAt: now, checkoutDeliveryRequest: requested });
     return confirmed.success ? ok({ checkout: confirmed.data, changed: true }) : confirmed;
   });
 }

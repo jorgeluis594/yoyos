@@ -6,6 +6,7 @@ import { Input } from "@core/app/components/ui/input";
 import { Field, FieldError, FieldLabel } from "@core/app/components/ui/field";
 import { formatCurrency } from "@core/app/format-currency";
 import { orders } from "@core/src/features/orders/composition";
+import { parseDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { parseBuyer, type CheckoutAccess, type CheckoutView } from "@core/src/features/orders/domain/checkout";
 import { bindRequestOperation, log } from "@core/src/shared/infrastructure/logger";
 import { checkoutPathSchema, confirmCheckoutSchema, publicCheckoutSchema, type PublicCheckoutResponse } from "@shared/contracts/order-checkout";
@@ -77,8 +78,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const buyer = parseBuyer(parsed.data.buyer);
   if (!buyer.success) return response({ checkout: null, message: "Revisa los datos del comprador." }, 422);
   const access = path.data as CheckoutAccess;
+  const delivery = parsed.data.delivery ? parseDeliverySelection(parsed.data.delivery) : null;
+  if (delivery && !delivery.success) return response({ checkout: null, message: "Revisa los datos de entrega." }, 422);
   try {
-    const result = await orders.confirmCheckout({ buyer: buyer.data, expectedTotal: parsed.data.expectedTotal }, access);
+    const result = await orders.confirmCheckout({ buyer: buyer.data, expectedTotal: parsed.data.expectedTotal,
+      ...(delivery?.success ? { delivery: delivery.data } : {}) }, access);
     if (result.success) return response({ checkout: serialize(result.data), message: null });
     if (result.error.code === "CHECKOUT_UNAVAILABLE") return response({ checkout: null, message: unavailable, unavailable: true }, 404);
     if (result.error.code === "TOTAL_CHANGED" || result.error.code === "ORDER_CANCELLED") {
@@ -92,6 +96,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
       return response({ checkout: serialize(latest.data), message: result.error.code === "TOTAL_CHANGED"
         ? "El total cambió. Revisa el nuevo importe y vuelve a confirmar." : null }, 409);
     }
+    if (["INVALID_DELIVERY", "DELIVERY_METHOD_DISABLED", "COURIER_UNAVAILABLE", "DELIVERY_LOCKED"].includes(result.error.code))
+      return response({ checkout: null, message: "La entrega no está disponible. Revisa los datos o contacta a la tienda." }, 422);
     return response({ checkout: null, message: retry }, 503);
   } catch (cause) {
     if (cause instanceof Response) return response({ checkout: null, message: retry }, cause.status);
