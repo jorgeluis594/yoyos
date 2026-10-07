@@ -164,3 +164,13 @@ export const newOrderLoaderSchema = z.strictObject({ products: orderCatalogSchem
 export const orderListLoaderSchema = z.strictObject({ list: listOrderAggregatesResponseSchema.extend({ items: z.array(orderAggregateSummarySchema.extend({ itemCount: z.number().int().positive().safe(), balanceDue: moneySchema })) }), filters: listOrderAggregatesSchema, contacts: orderContactsSchema, customerSearch: z.string(), base: z.string() });
 export const orderDetailLoaderSchema = z.strictObject({ order: orderAggregateSchema, base: z.string(), manualPaymentId: z.uuid(),
   receiptUrls: z.record(z.string(), z.url()) });
+
+export const cancelOrderParamsSchema = z.strictObject({ id: z.uuid() });
+export const cancelOrderResponseSchema = orderAggregateSchema.extend({ status: z.literal("cancelled"), cancelled: z.literal(true),
+  deliveryStatus: z.literal("pending"), deliveredAt: z.null(), completedAt: z.null() });
+export const cancelOrderErrorSchema = orderApiErrorSchema.extend({ code: z.enum([
+  "INVALID_INPUT", "ORDER_NOT_FOUND", "INVALID_TRANSITION", "INVALID_ORDER", "INVALID_PAYMENT", "CURRENCY_MISMATCH", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR",
+]) });
+export type CancelOrderResponse = z.infer<typeof cancelOrderResponseSchema>;
+export type CancelOrderParams = z.infer<typeof cancelOrderParamsSchema>;
+export type CancelOrderHttpError = z.infer<typeof cancelOrderErrorSchema>;

@@ -2,7 +2,7 @@ import { checkoutLinkSchema, quoteCheckoutDeliverySchema } from "@shared/contrac
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import express, { type Request, type Response } from "express";
 import { z } from "zod";
-import { createOrderSchema, setOrderDeliverySchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
+import { cancelOrderResponseSchema, createOrderSchema, setOrderDeliverySchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
 import { parseDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { apiError, type PrivateLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { orders, createConfiguredOrder } from "@core/src/features/orders/composition";
@@ -253,7 +253,7 @@ for (const [path, operation] of [
     if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order ID");
     try {
       const result = await operation(parsed.data as OrderId, orderContext(response));
-      return result.success ? response.json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
+      return result.success ? response.json(path === "cancel" ? cancelOrderResponseSchema.parse(toOrderAggregateJson(result.data)) : toOrderAggregateJson(result.data)) : operationError(response, result.error);
     } catch (error) { return unexpected(response, error); }
   });
 }

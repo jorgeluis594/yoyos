@@ -1,3 +1,4 @@
+import { log } from "@core/src/shared/infrastructure/logger";
 import { randomUUID } from "node:crypto";
 import { err } from "@shared/functional";
 import type { Result } from "@shared/result";
@@ -27,5 +28,22 @@ export function createEventBusRuntime(consume = false) {
     subscriptions: eventHandlers,
     consume,
   });
-  return { provider, publishEvent: createPublishEvent<AppEvents>(provider) };
+  const publishEvent = createPublishEvent<AppEvents>({ publish: async (name, payload, metadata) => {
+    try {
+      const result = await provider.publish(name, payload, metadata);
+      if (!result.success) log.error({ event: "event_publication_failed", name, companyId: payload.companyId,
+        ...metadata, ...(name === "order_cancelled" ? { orderId: payload.orderId } : {}), errorCode: result.error.code }, "Event publication failed");
+      return result;
+    } catch (cause) {
+      log.error({ event: "event_publication_failed", name, companyId: payload.companyId, orderId: payload.orderId, ...metadata, err: cause }, "Event publication failed");
+      return err({ code: "EVENT_BUS_UNAVAILABLE", message: "Event publication failed" });
+    }
+  } });
+  return { provider, publishEvent };
+}
+
+// The server entry and React Router build share the same process runtime.
+const globalEvents = globalThis as typeof globalThis & { __yoyosEvents?: ReturnType<typeof createEventBusRuntime> };
+export function applicationEventBus() {
+  return globalEvents.__yoyosEvents ??= createEventBusRuntime();
 }

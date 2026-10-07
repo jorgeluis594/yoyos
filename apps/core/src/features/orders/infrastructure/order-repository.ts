@@ -280,17 +280,30 @@ export async function saveFulfillment(id: OrderId, companyId: CompanyId, change:
   }
 }
 
-export async function saveCancellation(id: OrderId, companyId: CompanyId, stockDeducted: false) {
+export async function saveCancellation(id: OrderId, companyId: CompanyId) {
   requireActiveTransaction(companyId);
   try {
     const updated = await prisma.order.updateMany({ where: { id, companyId, deliveryStatus: "pending", cancelled: false, completedAt: null },
-      data: { cancelled: true, stockDeducted } });
+      data: { cancelled: true } });
     if (updated.count !== 1) throw new Error("Locked order was not available for cancellation");
     return ok<null>(null);
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
     log.error({ event: "unable_to_save_order_cancellation", err: cause }, "unable_to_save_order_cancellation");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save order cancellation" });
+  }
+}
+
+export async function saveStockRestoration(id: OrderId, companyId: CompanyId) {
+  requireActiveTransaction(companyId);
+  try {
+    const updated = await prisma.order.updateMany({ where: { id, companyId, cancelled: true, stockDeducted: true }, data: { stockDeducted: false } });
+    if (updated.count !== 1) throw new Error("Locked cancelled order was not available for restoration");
+    return ok<null>(null);
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_save_stock_restoration", err: cause }, "Unable to save stock restoration");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save stock restoration" });
   }
 }
 

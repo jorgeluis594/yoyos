@@ -1,3 +1,4 @@
+import { applicationEventBus } from "@core/src/composition/event-bus";
 import { createCompleteOrder, type CreateCompleteOrderInput, type CreateCompleteOrderError } from "@core/src/features/orders/application/create-complete-order";
 import { enableOrderCheckout, getOrderCheckout, confirmOrderCheckout, type CheckoutDependencies, type ConfirmOrderCheckoutInput } from "@core/src/features/orders/application/checkout";
 import { findCheckoutOrder, findCheckoutOrderForUpdate, saveCheckoutEnabled, saveCheckoutBuyer, saveCheckoutConfirmed, saveCheckoutDeliveryRequest } from "@core/src/features/orders/infrastructure/checkout-repository";
@@ -28,7 +29,7 @@ import { getOrderAggregate } from "@core/src/features/orders/application/read-or
 import { listOrderAggregates } from "@core/src/features/orders/application/list-order-aggregates";
 import { listOrders } from "@core/src/features/orders/application/read-orders";
 import { allocateOrderNumber, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveCancellation, findOrderAggregate, findOrderAggregates, findOrderForUpdate, findOrders, orderExists, resolveBuyerOrderCompany } from "@core/src/features/orders/infrastructure/order-repository";
-import { findSellableVariant, deductProductStock, restoreProductStock, searchSaleCatalog } from "@core/src/features/products";
+import { findSellableVariant, deductProductStock, searchSaleCatalog } from "@core/src/features/products";
 import { findContactById, searchSaleContacts } from "@core/src/features/contacts";
 import { findAvailablePublicImage, resolvePublicImage } from "@core/src/shared/images";
 import { companyPaymentSettings } from "@core/src/features/companies";
@@ -244,8 +245,11 @@ export const orders = {
     registerShipment(id, context, fulfillmentDependencies),
   deliver: (id: Parameters<typeof registerDelivery>[0], context: Parameters<typeof registerDelivery>[1]) =>
     registerDelivery(id, context, fulfillmentDependencies),
-  cancel: (id: Parameters<typeof cancelOrder>[0], context: Parameters<typeof cancelOrder>[1]) =>
-    cancelOrder(id, context, { transaction: cancellationTransaction, findOrderForUpdate, restoreProductStock, saveCancellation }),
+  cancel: (id: Parameters<typeof cancelOrder>[0], context: Parameters<typeof cancelOrder>[1]) => {
+    requireNoActiveTransaction();
+    return cancelOrder(id, context, { transaction: cancellationTransaction, findOrderForUpdate, saveCancellation,
+      publishOrderCancelled: (payload) => applicationEventBus().publishEvent("order_cancelled", payload) });
+  },
   registerImmediateSale: (input: Parameters<typeof registerImmediateSale>[0], context: Parameters<typeof registerImmediateSale>[1]) =>
     registerImmediateSale(input, context, { transaction: immediateTransaction, orderExists,
       findContact: findContactById, findVariant: findSellableVariant, saveOrder: savePendingOrder, allocateNumber: allocateOrderNumber,

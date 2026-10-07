@@ -178,15 +178,33 @@ describe("delivery and stock transitions", () => {
     const deducted = orderStateMachine.planStockDeduction(paid.data, false);
     if (!deducted.success) throw new Error("Expected deduction plan");
     const cancelled = orderStateMachine.cancel(deducted.data.nextOrder);
-    expect(cancelled).toMatchObject({ success: true, data: { restoreStock: true, nextOrder: { cancelled: true, stockDeducted: false } } });
+    expect(cancelled).toMatchObject({ success: true, data: { emitOrderCancelled: true, nextOrder: { cancelled: true, stockDeducted: true } } });
     if (!cancelled.success) return;
     expect(cancelled.data.nextOrder.payments).toEqual(paid.data.payments);
     expect(orderStateMachine.getLifecycle(cancelled.data.nextOrder)).toEqual({ success: true, data: { status: "cancelled", completedAt: null } });
-    expect(orderStateMachine.cancel(cancelled.data.nextOrder)).toMatchObject({ success: true, data: { restoreStock: false } });
+    expect(orderStateMachine.cancel(cancelled.data.nextOrder)).toMatchObject({ success: true, data: { emitOrderCancelled: false } });
     expect(orderStateMachine.registerPayment(cancelled.data.nextOrder, payment(6, 1))).toMatchObject({ success: false, error: { code: "ORDER_CANCELLED" } });
     expect(orderStateMachine.planStockDeduction(cancelled.data.nextOrder, true)).toMatchObject({ success: false, error: { code: "ORDER_CANCELLED" } });
     const shipped = orderStateMachine.registerShipment(deducted.data.nextOrder);
     if (!shipped.success) throw new Error("Expected shipment");
     expect(orderStateMachine.cancel(shipped.data)).toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
   });
+  test.each([0, 3, 10])("cancellation preserves payment amount %s and all order values", amount => {
+    const base = order();
+    const paid = amount ? orderStateMachine.registerPayment(base, payment(5, amount)) : { success: true as const, data: base };
+    if (!paid.success) throw new Error("Expected payment");
+    for (const stockDeducted of [false, true]) {
+      const before = { ...paid.data, stockDeducted };
+      expect(orderStateMachine.cancel(before)).toEqual({ success: true, data: {
+        nextOrder: { ...before, cancelled: true }, emitOrderCancelled: true,
+      } });
+    }
+  });
+  test("cancellation propagates aggregate and payment validation errors", () => {
+    expect(orderStateMachine.cancel({ ...order(), total: money(-1) })).toMatchObject({ error: { code: "INVALID_ORDER" } });
+    expect(orderStateMachine.cancel({ ...order(), payments: [{ ...payment(5, 1), amount: money(-1) }] })).toMatchObject({ error: { code: "INVALID_PAYMENT" } });
+    expect(orderStateMachine.cancel({ ...order(), payments: [{ ...payment(5, 1), amount: { amount: 1, currency: "USD" } }] })).toMatchObject({ error: { code: "CURRENCY_MISMATCH" } });
+    expect(orderStateMachine.cancel({ ...order(), cancelled: true, deliveryStatus: "shipped", stockDeducted: true })).toMatchObject({ error: { code: "INVALID_TRANSITION" } });
+  });
+
 });

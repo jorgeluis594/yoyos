@@ -1,3 +1,10 @@
+import { cancelOrder } from "@core/src/features/orders/application/cancel-order";
+import { createPublishEvent } from "@core/src/composition/event-bus";
+import { createPgBossProvider } from "@core/src/shared/events/infrastructure/pg-boss-provider";
+import type { AppEvents } from "@core/src/shared/events/application/app-events";
+import { restoreCancelledOrderStock, restoreProductStock } from "@core/src/features/products";
+import { saveCancellation, saveStockRestoration } from "@core/src/features/orders/infrastructure/order-repository";
+import { restoreCancelledStock } from "@core/src/composition/event-handlers";
 import { initialDeliverySettings } from "@core/src/features/delivery-settings/domain/delivery-settings";
 import type { CreateCompleteOrderInput } from "@core/src/features/orders/application/create-complete-order";
 import { log, safeError } from "@core/src/shared/infrastructure/logger";
@@ -337,11 +344,20 @@ test("restores deducted stock once when cancelling before dispatch and preserves
       expect(before.success).toBe(true);
       const cancellations = await Promise.all([orders.cancel(orderId, context), orders.cancel(orderId, context)]);
       for (const result of cancellations) expect(result).toMatchObject({ success: true,
-        data: { cancelled: true, stockDeducted: false, payments: [{ amount: { amount: 0.2 } }] } });
+        data: { cancelled: true, stockDeducted: true, payments: [{ amount: { amount: 0.2 } }] } });
       if (before.success && before.data) {
         expect(await findOrderAggregate(orderId, context.companyId)).toMatchObject({ data: { payments: before.data.payments } });
       }
       expect(await orders.cancel(orderId, context)).toMatchObject({ success: true, data: { cancelled: true } });
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
+      const payload = { orderId, companyId: context.companyId };
+      const metadata = { eventId: randomUUID(), occurredAt: new Date().toISOString() };
+      const handlerContext = { signal: new AbortController().signal, attempt: 1 };
+      expect(await Promise.all([restoreCancelledStock.handler(payload, metadata, handlerContext),
+        restoreCancelledStock.handler(payload, { ...metadata, eventId: randomUUID() }, handlerContext)]))
+        .toEqual([ok(undefined), ok(undefined)]);
+      expect(await restoreCancelledStock.handler(payload, metadata, handlerContext)).toEqual(ok(undefined));
+      expect((await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).stockDeducted).toBe(false);
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
       expect(await prisma.payment.count({ where: { orderId } })).toBe(1);
       expect(await orders.deductStock(orderId, context)).toMatchObject({ success: false, error: { code: "ORDER_CANCELLED" } });
@@ -771,10 +787,14 @@ test.each(["ship", "cancel"] as const)("delivery editing and %s serialize withou
       let arrived!: () => void;
       const hold = new Promise<void>(resolve => { release = resolve; });
       const locked = new Promise<void>(resolve => { arrived = resolve; });
-      const first = run(() => withinTransaction(async () => {
-        const result = await (assignmentFirst ? assign() : finish());
-        arrived(); await hold; return result;
-      }));
+      const first = !assignmentFirst && close === "cancel"
+        ? run(() => cancelOrder(orderId, context, { findOrderForUpdate, saveCancellation, publishOrderCancelled: async () => ok(undefined),
+          transaction: (_company, work) => withinTransaction(async () => { const result = await work(); arrived(); await hold; return result; }),
+        }))
+        : run(() => withinTransaction(async () => {
+          const result = await (assignmentFirst ? assign() : finish());
+          arrived(); await hold; return result;
+        }));
       await locked;
       const second = run(assignmentFirst ? finish : assign);
       try { await waitForDeliveryLock(); } finally { release(); }
@@ -806,8 +826,8 @@ test("allocates permanent company numbers atomically across concurrent orders an
       expect(await create(a)).toMatchObject({ data: { number: 1007 } });
       await prisma.company.update({ where: { id: a.companyId }, data: { nextOrderNumber: 1001n } });
       expect(await create(a)).toMatchObject({ error: { code: "PERSISTENCE_UNAVAILABLE" } });
-      expect(errorLog.mock.calls).toHaveLength(1);
-      expect(errorLog.mock.calls[0][0]).toMatchObject({ event: "unable_to_save_pending_order", errorCode: "ORDER_NUMBER_CONFLICT" });
+      expect(errorLog.mock.calls.filter(([entry]) => typeof entry === "object" && entry !== null && "event" in entry && entry.event !== "event_publication_failed")).toHaveLength(1);
+      expect(errorLog.mock.calls.find(([entry]) => typeof entry === "object" && entry !== null && "event" in entry && entry.event === "unable_to_save_pending_order")?.[0]).toMatchObject({ event: "unable_to_save_pending_order", errorCode: "ORDER_NUMBER_CONFLICT" });
       await prisma.company.update({ where: { id: a.companyId }, data: { nextOrderNumber: 9999n } });
       expect(await create(a)).toMatchObject({ data: { number: 9999 } });
       expect(await create(a)).toMatchObject({ data: { number: 10000 } });
@@ -1393,4 +1413,126 @@ test("buyer delivery waits for an isolated seller quote before payment and prese
     await run(() => prisma.image.create({ data: { id: report.receiptImageId, storageKey: `test/${report.receiptImageId}` } }));
     expect(await run(() => orders.reportPayment(report, paymentAccess))).toMatchObject({ data: { payments: [{ status: "reported", amount: null }] } });
   } finally { await f.cleanup(); }
+});
+
+
+test("queues first cancellation with worker offline and restores once on durable delivery", async () => {
+  const f = await fixture();
+  const subscription = { ...restoreCancelledStock, id: `cancellation-test-${randomUUID().slice(0, 8)}` };
+  const producer = createPgBossProvider<AppEvents>({ connectionString: process.env.DATABASE_URL!, subscriptions: [subscription] });
+  const worker = createPgBossProvider<AppEvents>({ connectionString: process.env.DATABASE_URL!, subscriptions: [subscription], consume: true });
+  const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+  const publish = createPublishEvent<AppEvents>(producer);
+  try {
+    await producer.start();
+    await withTenantIsolation(f.companyId, async () => {
+      const orderId = randomUUID() as OrderId;
+      const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+      expect(await orders.create({ id: orderId, contactId: null, items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] }, context)).toMatchObject({ success: true });
+      expect(await orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId, amount: { amount: 0.2, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context)).toMatchObject({ success: true });
+      const before = await findOrderAggregate(orderId, context.companyId);
+      const cancel = () => cancelOrder(orderId, context, { transaction: (_company, work) => withinTransaction(work), findOrderForUpdate, saveCancellation,
+        publishOrderCancelled: payload => publish("order_cancelled", payload) });
+      for (const result of await Promise.all([cancel(), cancel()])) expect(result).toMatchObject({ success: true, data: { cancelled: true, stockDeducted: true } });
+      expect(await cancel()).toMatchObject({ success: true });
+      expect((await pool.query("SELECT id FROM pgboss.job WHERE name = $1", [subscription.id])).rowCount).toBe(1);
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
+      await worker.start();
+      expect(await worker.subscribe(subscription)).toMatchObject({ success: true });
+      await vi.waitFor(async () => {
+        expect((await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).stockDeducted).toBe(false);
+        expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
+      }, { timeout: 15000, interval: 100 });
+      // Different event IDs and concurrent deliveries must retain the same business effect.
+      expect(await publish("order_cancelled", { orderId, companyId: context.companyId })).toEqual(ok(undefined));
+      expect(await publish("order_cancelled", { orderId, companyId: context.companyId })).toEqual(ok(undefined));
+      await vi.waitFor(async () => {
+        expect((await pool.query("SELECT state FROM pgboss.job WHERE name = $1", [subscription.id])).rows).toEqual([
+          { state: "completed" }, { state: "completed" }, { state: "completed" },
+        ]);
+      }, { timeout: 15000, interval: 100 });
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
+      if (!before.success || !before.data) throw new Error("Missing original order");
+      expect(await findOrderAggregate(orderId, context.companyId)).toMatchObject({ data: { payments: before.data.payments } });
+    });
+  } finally {
+    await worker.stop(); await producer.stop();
+    await pool.query("DELETE FROM pgboss.job WHERE name = $1", [subscription.id]);
+    await pool.query("DELETE FROM pgboss.queue WHERE name = $1", [subscription.id]);
+    await pool.end(); await f.cleanup();
+  }
+});
+
+test("rolls back every restored item and flag after a partial listener failure", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const orderId = randomUUID() as OrderId;
+      const companyId = f.companyId as CompanyId;
+      const context = { companyId, userId: f.sellerId as UserId };
+      expect(await orders.create({ id: orderId, contactId: null, items: f.variantIds.map(variantId => ({ variantId: variantId as VariantId, quantity: 1 as PositiveInteger })) as [ { variantId: VariantId; quantity: PositiveInteger }, { variantId: VariantId; quantity: PositiveInteger } ] }, context)).toMatchObject({ success: true });
+      expect(await orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId, amount: { amount: 0.3, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context)).toMatchObject({ success: true });
+      expect(await orders.cancel(orderId, context)).toMatchObject({ success: true });
+      let restored = 0;
+      const result = await restoreCancelledOrderStock({ orderId, companyId }, {
+        transaction: (_company, work) => withinTransaction(work), findOrderForUpdate, saveStockRestoration,
+        restoreProductStock: async (variantId, quantity) => ++restored === 2 ? err({ code: "PERSISTENCE_UNAVAILABLE", message: "Injected isolated failure" }) : restoreProductStock(variantId, quantity),
+      });
+      expect(result).toMatchObject({ success: false, error: { retryable: true } });
+      expect(restored).toBe(2);
+      expect((await prisma.productStock.findMany()).map(stock => stock.quantity)).toEqual([2n, 2n]);
+      expect(await findOrderAggregate(orderId, companyId)).toMatchObject({ data: { cancelled: true, stockDeducted: true, payments: [{ status: "confirmed" }] } });
+      expect(await restoreCancelledStock.handler({ orderId, companyId }, { eventId: randomUUID(), occurredAt: new Date().toISOString() }, { attempt: 2, signal: new AbortController().signal })).toEqual(ok(undefined));
+      expect((await prisma.productStock.findMany()).map(stock => stock.quantity)).toEqual([3n, 3n]);
+      expect(await findOrderAggregate(orderId, companyId)).toMatchObject({ data: { cancelled: true, stockDeducted: false } });
+    });
+  } finally { await f.cleanup(); }
+});
+
+
+test.each(["ship", "cancel"] as const)("%s winning the row lock prevents the incompatible transition", async winner => {
+  const f = await fixture();
+  const companyId = f.companyId as CompanyId;
+  const context = { companyId, userId: f.sellerId as UserId };
+  const run = <T>(work: () => Promise<T>) => withTenantIsolation(companyId, work);
+  try {
+    const orderId = randomUUID() as OrderId;
+    expect(await run(() => orders.create({ id: orderId, contactId: null, items: [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }] }, context))).toMatchObject({ success: true });
+    expect(await run(() => orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId, amount: { amount: 0.1, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context))).toMatchObject({ success: true });
+    let release!: () => void;
+    let acquired!: () => void;
+    const hold = new Promise<void>(resolve => { release = resolve; });
+    const locked = new Promise<void>(resolve => { acquired = resolve; });
+    const first = winner === "ship" ? run(() => withinTransaction(async () => {
+      const result = await orders.ship(orderId, context); acquired(); await hold; return result;
+    })) : run(() => cancelOrder(orderId, context, { findOrderForUpdate, saveCancellation, publishOrderCancelled: async () => ok(undefined),
+      transaction: (_company, work) => withinTransaction(async () => { const result = await work(); acquired(); await hold; return result; }),
+    }));
+    await locked;
+    const second = run(() => orders[winner === "ship" ? "cancel" : "ship"](orderId, context));
+    try { await waitForDeliveryLock(); } finally { release(); }
+    expect(await first).toMatchObject({ success: true });
+    expect(await second).toMatchObject({ success: false, error: { code: winner === "ship" ? "INVALID_TRANSITION" : "ORDER_CANCELLED" } });
+    expect(await run(() => orderDetail(orderId, f))).toMatchObject({ data: { cancelled: winner === "cancel", deliveryStatus: winner === "ship" ? "shipped" : "pending", stockDeducted: true } });
+    expect(await run(async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity)).toBe(2n);
+  } finally { await f.cleanup(); }
+});
+
+test("a cancellation event for another company fails without touching stock", async () => {
+  const owner = await fixture();
+  const foreign = await fixture();
+  try {
+    const orderId = randomUUID() as OrderId;
+    await withTenantIsolation(owner.companyId, async () => {
+      const context = { companyId: owner.companyId as CompanyId, userId: owner.sellerId as UserId };
+      expect(await orders.create({ id: orderId, contactId: null, items: [{ variantId: owner.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }] }, context)).toMatchObject({ success: true });
+      expect(await orders.cancel(orderId, context)).toMatchObject({ success: true });
+    });
+    expect(await restoreCancelledStock.handler({ orderId, companyId: foreign.companyId as CompanyId },
+      { eventId: randomUUID(), occurredAt: new Date().toISOString() }, { attempt: 1, signal: new AbortController().signal }))
+      .toMatchObject({ success: false, error: { code: "INVALID_ORDER", retryable: false } });
+    await withTenantIsolation(owner.companyId, async () => {
+      expect((await prisma.productStock.findMany()).map(stock => stock.quantity)).toEqual([3n, 3n]);
+    });
+  } finally { await foreign.cleanup(); await owner.cleanup(); }
 });

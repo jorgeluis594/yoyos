@@ -4,12 +4,12 @@ import { pathToFileURL } from "node:url";
 import { app } from "@core/src/app";
 import type { ResolveDeliveryDependencies } from "@core/src/features/orders/application/resolve-delivery-selection";
 import { log } from "@core/src/shared/infrastructure/logger";
-import { createEventBusRuntime } from "@core/src/composition/event-bus";
+import { applicationEventBus } from "@core/src/composition/event-bus";
 
 export async function startServer(resolveDeliveryCost?: ResolveDeliveryDependencies["resolveCost"]) {
   const port = Number(process.env.PORT ?? 3000);
   const build = await import(new URL("../build/server/index.js", import.meta.url).href);
-  const { provider } = createEventBusRuntime();
+  const { provider } = applicationEventBus();
   await provider.start();
   app.use(express.static("build/client", { index: false }));
   app.all("/{*splat}", createRequestHandler({ build, mode: process.env.NODE_ENV,

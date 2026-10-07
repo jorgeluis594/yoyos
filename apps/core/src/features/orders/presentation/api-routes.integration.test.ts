@@ -8,7 +8,7 @@ import { afterAll, afterEach, expect, test, vi } from "vitest";
 import { err, ok } from "@shared/functional";
 import { createOrderApi } from "@mobile/features/orders/infrastructure/order-api";
 import { orders, setConfiguredOrderDelivery } from "@core/src/features/orders/composition";
-import { orderAggregateSchema } from "@shared/contracts/orders";
+import { cancelOrderResponseSchema, cancelOrderErrorSchema, orderAggregateSchema } from "@shared/contracts/orders";
 import { app } from "@core/src/app";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
@@ -501,4 +501,32 @@ test.each([false, true])("mobile restart recovers a committed order after losing
     if (paid) expect(await prisma.payment.findFirst()).toMatchObject({ id: paymentId });
     expect(await prisma.productStock.findUnique({ where: { variantId: f.variantId } })).toMatchObject({ quantity: paid ? 2n : 3n });
   });
+});
+
+
+test("cancellation HTTP validates identity, isolation, repeated results and preserves payments", async () => {
+  const seller = await fixture("PE");
+  const other = await fixture("PE");
+  const id = randomUUID();
+  expect((await call("/api/orders/pending", seller.cookie, { id, contactId: null, items: [{ variantId: seller.variantId, quantity: 2 }] })).status).toBe(201);
+  const paymentId = randomUUID();
+  expect((await call(`/api/orders/${id}/payments`, seller.cookie, { paymentId, amount: { amount: 20, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false })).status).toBe(200);
+  expect((await call(`/api/orders/${id}/cancel`, undefined, undefined, "POST")).status).toBe(401);
+  const foreign = await call(`/api/orders/${id}/cancel`, other.cookie, undefined, "POST");
+  expect(foreign.status).toBe(404);
+  expect(cancelOrderErrorSchema.parse(await foreign.json()).code).toBe("ORDER_NOT_FOUND");
+  expect((await call("/api/orders/invalid/cancel", seller.cookie, undefined, "POST")).status).toBe(400);
+  expect((await call(`/api/orders/${randomUUID()}/cancel`, seller.cookie, undefined, "POST")).status).toBe(404);
+  const payments = await withTenantIsolation(seller.companyId, async () => await prisma.payment.findMany({ where: { orderId: id } }));
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const response = await call(`/api/orders/${id}/cancel`, seller.cookie, { companyId: other.companyId, sellerId: other.userId }, "POST");
+    expect(response.status).toBe(200);
+    expect(cancelOrderResponseSchema.parse(await response.json())).toMatchObject({ id, companyId: seller.companyId, cancelled: true, stockDeducted: true, paymentStatus: "paid" });
+  }
+  await withTenantIsolation(seller.companyId, async () => {
+    expect(await prisma.payment.findMany({ where: { orderId: id } })).toEqual(payments);
+    expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: seller.variantId } })).quantity).toBe(1n);
+  });
+  expect((await call(`/api/orders/${id}/ship`, seller.cookie, undefined, "POST")).status).toBe(409);
+  expect((await call(`/api/orders/${id}/payments`, seller.cookie, { paymentId: randomUUID(), amount: { amount: 1, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false })).status).toBe(409);
 });
