@@ -3,6 +3,7 @@ import { createCancellationOperations, type CancelledOrderState, type Cancellati
 
 const cancelled: CancelledOrderState = { id: "order", status: "cancelled", cancelled: true, deliveryStatus: "pending", stockDeducted: true, deliveredAt: null, completedAt: null };
 const active: CancellationOrderState = { id: "order", status: "active", cancelled: false, deliveryStatus: "pending" };
+const delivered: CancellationOrderState = { id: "order", status: "completed", cancelled: false, deliveryStatus: "delivered" };
 const shipped: CancellationOrderState = { id: "order", status: "active", cancelled: false, deliveryStatus: "shipped" };
 
 test("confirmed cancellation uses one write and manual verification uses only one read", async () => {
@@ -18,7 +19,7 @@ test("confirmed cancellation uses one write and manual verification uses only on
 });
 
 test.each(["NETWORK_ERROR", "SERVER_ERROR", "SERVICE_UNAVAILABLE", "INVALID_RESPONSE", "INVALID_TRANSITION"] as const)("%s checks once without repeating the write", async code => {
-  for (const [order, kind] of [[cancelled, "cancelled"], [active, "still_active"], [shipped, "dispatched"]] as const) {
+  for (const [order, kind] of [[cancelled, "cancelled"], [active, "still_active"], [shipped, "dispatched"], [delivered, "dispatched"]] as const) {
     const cancel = jest.fn(async () => err({ code, message: "Failed" }));
     const readState = jest.fn(async () => ok(order));
     expect(await createCancellationOperations({ cancel, readState }).cancelOrder("order")).toEqual(ok({ kind, order }));
@@ -44,3 +45,7 @@ test("failed verification remains uncertain while absence, auth and obsolete ses
 // @ts-expect-error A cancelled result cannot represent a dispatched order.
 const invalidCancelled: CancelledOrderState = { ...cancelled, deliveryStatus: "shipped" };
 void invalidCancelled;
+
+// @ts-expect-error Stock failures are not cancellation-operation errors.
+const unrelatedError: CancellationRequestError = { code: "INSUFFICIENT_STOCK", message: "Invalid contract" };
+void unrelatedError;

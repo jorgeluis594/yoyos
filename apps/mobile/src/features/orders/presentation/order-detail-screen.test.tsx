@@ -503,3 +503,20 @@ test("Portuguese cancellation explains preservation and offers a safe exit", asy
 // @ts-expect-error An in-flight cancellation requires an order identity.
 const missingCancellationId: import("@mobile/features/orders/presentation/order-detail-screen").CancellationUiState = { kind: "submitting" };
 void missingCancellationId;
+
+
+test("a known cancellation failure restores the permitted interaction and translates the error", async () => {
+  await i18n.changeLanguage("pt-BR");
+  try {
+    pendingCancellationOrder();
+    mockCancel.mockResolvedValue({ success: false, error: { code: "UNAUTHENTICATED", message: "Expired" } });
+    const screen = render(<OrderDetailScreen />);
+    await screen.findByText("Pedido ativo");
+    acceptCancellation(screen);
+    await screen.findByText("Entre na sua conta para continuar.");
+    expect(screen.getByRole("button", { name: "Cancelar pedido" })).not.toBeDisabled();
+    expect(mockCheckCancellation).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Os pagamentos são mantidos/)).toBeNull();
+    screen.unmount();
+  } finally { await i18n.changeLanguage("es"); }
+});

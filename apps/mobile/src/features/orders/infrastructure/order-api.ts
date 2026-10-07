@@ -80,6 +80,7 @@ function response<T extends z.ZodType>(raw: Result<unknown, TransportError>, sch
 }
 
 function cancellationError(error: TransportError): CancellationRequestError {
+  if (error.http?.status === 401 || error.http?.status === 403) return { code: "UNAUTHENTICATED", message: error.message };
   if (error.http) {
     const parsed = cancelOrderErrorSchema.safeParse(error.http.body);
     if (parsed.success && error.http.status === statusByCode[parsed.data.code]) {

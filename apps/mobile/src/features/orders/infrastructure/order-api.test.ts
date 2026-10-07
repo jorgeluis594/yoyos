@@ -176,6 +176,7 @@ test("cancellation validates ID and complete state then exposes only the applica
   expect(await api.cancel(id(1))).toEqual(ok(projection));
   expect(request).toHaveBeenCalledWith(`/api/orders/${id(1)}/cancel`, { method: "POST" });
   expect(await api.readCancellationState(id(1))).toEqual(ok(projection));
+  expect(await createOrderApi(async () => ok({ ...order, stockDeducted: false })).cancel(id(1))).toEqual(ok({ ...projection, stockDeducted: false }));
   for (const invalid of [{ ...order, id: id(5) }, { ...order, cancelled: false }, { ...order, status: "active" },
     { ...order, deliveryStatus: "shipped" }, { ...order, deliveredAt: order.createdAt }, { ...order, completedAt: order.createdAt },
     { ...order, stockDeducted: "yes" }, { ...order, payments: undefined }]) {
@@ -191,10 +192,27 @@ test("cancellation errors must match both HTTP status and the operation", async 
     ["INVALID_ORDER", 422], ["INVALID_PAYMENT", 422], ["CURRENCY_MISMATCH", 422], ["INTERNAL_ERROR", 500]] as const) {
     const failure = (responseStatus: number) => createOrderApi(async () => err({ code: "API_ERROR", message: "Failed", http: { status: responseStatus, body: { code, error: "Rejected" } } }));
     expect(await failure(status).cancel(id(1))).toMatchObject({ error: { code: code === "INTERNAL_ERROR" ? "SERVER_ERROR" : code } });
-    expect(await failure(status + 1).cancel(id(1))).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+    expect(await failure(status + 10).cancel(id(1))).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
   }
   for (const code of ["INSUFFICIENT_STOCK", "ORDER_CANCELLED", "UNKNOWN"] as const) {
     const api = createOrderApi(async () => err({ code: "API_ERROR", message: "Failed", http: { status: 409, body: { code, error: "Rejected" } } }));
     expect(await api.cancel(id(1))).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
   }
+});
+
+
+test("cancellation adapter retains transport failures and session boundaries", async () => {
+  for (const code of ["NETWORK_ERROR", "SERVER_ERROR", "SERVICE_UNAVAILABLE", "RATE_LIMITED", "UNAUTHENTICATED", "COMPANY_REQUIRED", "INVALID_COMPANY", "OPERATION_CANCELLED", "SECURE_STORAGE_ERROR"] as const) {
+    const failure = { code, message: "Unavailable" };
+    const api = createOrderApi(async () => err(failure));
+    expect(await api.cancel(id(1))).toEqual(err(failure));
+    expect(await api.readCancellationState(id(1))).toEqual(err(failure));
+  }
+});
+
+
+test.each([401, 403])("cancellation treats HTTP %s as an authorization failure even with an unknown body", async status => {
+  const api = createOrderApi(async () => err({ code: "API_ERROR", message: "Access rejected", http: { status, body: { code: "EMAIL_VERIFICATION_REQUIRED", error: "Access rejected" } } }));
+  expect(await api.cancel(id(1))).toEqual(err({ code: "UNAUTHENTICATED", message: "Access rejected" }));
+  expect(await api.readCancellationState(id(1))).toEqual(err({ code: "UNAUTHENTICATED", message: "Access rejected" }));
 });
