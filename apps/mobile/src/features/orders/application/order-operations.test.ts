@@ -81,6 +81,34 @@ test("known stock rejection clears the marker and leaves the cart available", as
   expect(selected.kind).toBe("items");
 });
 
+test.each([
+  ["INVALID_PAYMENT", 422], ["PAYMENT_CONFLICT", 409], ["PAYMENT_REQUIRED", 409],
+  ["INVALID_TRANSITION", 409], ["STOCK_NOT_DEDUCTED", 409],
+  ["DELIVERY_UNAVAILABLE", 422], ["DELIVERY_METHOD_DISABLED", 422], ["COURIER_UNAVAILABLE", 422],
+] as const)("recovery clears a definitively rejected creation (%s)", async (code, status) => {
+  const store = storage();
+  let posts = 0;
+  let rejectCreation = false;
+  const api = createOrderApi(async (path) => {
+    if (path === "/api/orders") {
+      posts++;
+      return rejectCreation
+        ? err({ code: "API_ERROR", message: "Rejected", http: { status, body: { code, error: "Rejected" } } })
+        : err({ code: "NETWORK_ERROR", message: "Lost response" });
+    }
+    return err({ code: "API_ERROR", message: "Missing", http: { status: 404,
+      body: { code: "ORDER_NOT_FOUND", error: "Missing" } } });
+  });
+  const selected = { ...draft(), deliverImmediately: true };
+  expect(await createOrderOperations(api, store).completeOrder(selected, companyId))
+    .toMatchObject({ success: true, data: { kind: "uncertain" } });
+  rejectCreation = true;
+  const restarted = createOrderOperations(api, store);
+  expect(await restarted.resendPendingOrder(companyId)).toMatchObject({ success: false, error: { code } });
+  expect(await store.read(companyId)).toEqual(ok(null));
+  expect(posts).toBe(2);
+});
+
 test("recovery keeps the amount first shown and returns the core total", async () => {
   const amount = { amount: 12, currency: "PEN" as const };
   const zero = { amount: 0, currency: "PEN" as const };
