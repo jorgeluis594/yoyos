@@ -1,5 +1,6 @@
 import { err, ok } from "@shared/functional";
 import { createOrderApi } from "@mobile/features/orders/infrastructure/order-api";
+import type { TransportError } from "@mobile/shared/application/transport-error";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 
@@ -28,6 +29,29 @@ test("order API preserves matching business errors and rejects mismatched status
   const wrongStatus = createOrderApi(async () => err({ code: "API_ERROR", message: "API error", http: { status: 404, body: stock } }));
   expect(await wrongStatus.create({ id: id(1), contactId: null, items: [{ variantId: id(2), quantity: 1 }] }))
     .toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+});
+
+test("order error schemas preserve transport failures and the checkout status exception", async () => {
+  const failures: { error: TransportError; getCode: string; checkoutCode: string }[] = [
+    { error: { code: "NETWORK_ERROR", message: "Offline" }, getCode: "NETWORK_ERROR", checkoutCode: "NETWORK_ERROR" },
+    { error: { code: "SERVER_ERROR", message: "Unavailable", http: { status: 502, body: "Bad gateway" } },
+      getCode: "SERVER_ERROR", checkoutCode: "SERVER_ERROR" },
+    { error: { code: "API_ERROR", message: "Unknown", http: { status: 400, body: { code: "UNKNOWN", error: "Unknown" } } },
+      getCode: "INVALID_RESPONSE", checkoutCode: "INVALID_RESPONSE" },
+    { error: { code: "API_ERROR", message: "Invalid", http: { status: 400, body: { code: "INVALID_INPUT", error: "Invalid" } } },
+      getCode: "INVALID_INPUT", checkoutCode: "INVALID_RESPONSE" },
+    { error: { code: "API_ERROR", message: "Invalid", http: { status: 422, body: { code: "INVALID_INPUT", error: "Invalid" } } },
+      getCode: "INVALID_RESPONSE", checkoutCode: "INVALID_INPUT" },
+    { error: { code: "SERVER_ERROR", message: "Failed", http: { status: 502, body: { code: "INTERNAL_ERROR", error: "Failed" } } },
+      getCode: "INVALID_RESPONSE", checkoutCode: "INVALID_RESPONSE" },
+    { error: { code: "API_ERROR", message: "Invalid", http: { status: 404, body: { code: "ORDER_NOT_FOUND", error: "Missing", issues: "bad" } } },
+      getCode: "INVALID_RESPONSE", checkoutCode: "INVALID_RESPONSE" },
+  ];
+  for (const { error, getCode, checkoutCode } of failures) {
+    const api = createOrderApi(async () => err(error));
+    expect(await api.get(id(1))).toMatchObject({ success: false, error: { code: getCode } });
+    expect(await api.enableCheckout(id(1))).toMatchObject({ success: false, error: { code: checkoutCode } });
+  }
 });
 
 test("order API reads mixed summaries and validates complete aggregate states", async () => {

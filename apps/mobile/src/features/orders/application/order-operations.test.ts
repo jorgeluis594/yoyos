@@ -30,9 +30,11 @@ test("Lima day filters include the whole through day and reject inverted days", 
   const query = new URL(`http://localhost${paths[0]}`).searchParams;
   expect(query.get("completedFrom")).toBe("1989-12-31T05:00:00.000Z");
   expect(query.get("completedBefore")).toBe("1990-01-01T04:00:00.000Z");
-  expect(await operations.loadMixedOrders({ page: 1, customer: { kind: "all" }, fromDay: "1989-12-31", throughDay: "1989-12-31" }))
+  expect(await operations.loadMixedOrders({ page: 1, search: " #1005 ", view: "unpaid", customer: { kind: "all" }, fromDay: "1989-12-31", throughDay: "1989-12-31" }))
     .toMatchObject({ success: true, data: { total: 0 } });
   const mixed = new URL(`http://localhost${paths[1]}`).searchParams;
+  expect(mixed.get("search")).toBe("#1005");
+  expect(mixed.get("view")).toBe("unpaid");
   expect(mixed.get("createdFrom")).toBe("1989-12-31T05:00:00.000Z");
   expect(mixed.get("createdBefore")).toBe("1990-01-01T04:00:00.000Z");
   expect(await operations.loadOrders({ page: 1, customer: { kind: "all" }, fromDay: "2026-09-29", throughDay: "2026-09-28" }))

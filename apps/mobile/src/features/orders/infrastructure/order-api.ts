@@ -21,29 +21,50 @@ const statusByCode: Record<OrderApiError["code"], number> = {
   PAYMENT_REQUIRED: 409, STOCK_NOT_DEDUCTED: 409, ORDER_CANCELLED: 409, DELIVERY_UNAVAILABLE: 422,
   INTERNAL_ERROR: 500, DELIVERY_METHOD_DISABLED: 422, COURIER_UNAVAILABLE: 422,
 };
-const createCodes = new Set<OrderApiError["code"]>(["INVALID_ORDER", "CURRENCY_MISMATCH", "CONTACT_NOT_FOUND",
-  "VARIANT_NOT_FOUND", "INSUFFICIENT_STOCK", "ORDER_ALREADY_EXISTS", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]);
-const paymentCodes = new Set<OrderApiError["code"]>(["ORDER_NOT_FOUND", "INVALID_ORDER", "INVALID_PAYMENT", "CURRENCY_MISMATCH",
-  "PAYMENT_CONFLICT", "PAYMENT_NOT_FOUND", "INVALID_TRANSITION", "ORDER_CANCELLED", "INSUFFICIENT_STOCK", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]);
+function httpErrorSchema(codes: readonly OrderApiError["code"][], invalidInputStatus = 400) {
+  return z.object({
+    status: z.number(),
+    body: orderApiErrorSchema.extend({
+      code: z.enum(["INVALID_INPUT", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR", ...codes]),
+    }),
+  }).refine(({ status, body }) => status === (
+    body.code === "INVALID_INPUT" ? invalidInputStatus : statusByCode[body.code]
+  ));
+}
+
+const commonErrorSchema = httpErrorSchema([]);
+const getErrorSchema = httpErrorSchema(["ORDER_NOT_FOUND"]);
+const errorSchemas = {
+  checkout: httpErrorSchema(["ORDER_NOT_FOUND", "ORDER_CANCELLED"], 422),
+  create: httpErrorSchema(["INVALID_ORDER", "CURRENCY_MISMATCH", "CONTACT_NOT_FOUND", "VARIANT_NOT_FOUND",
+    "INSUFFICIENT_STOCK", "ORDER_ALREADY_EXISTS", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]),
+  payment: httpErrorSchema(["ORDER_NOT_FOUND", "INVALID_ORDER", "INVALID_PAYMENT", "CURRENCY_MISMATCH",
+    "PAYMENT_CONFLICT", "PAYMENT_NOT_FOUND", "INVALID_TRANSITION", "ORDER_CANCELLED", "INSUFFICIENT_STOCK",
+    "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]),
+  void: httpErrorSchema(["ORDER_NOT_FOUND", "PAYMENT_NOT_FOUND", "PAYMENT_CONFLICT", "INVALID_TRANSITION", "INVALID_ORDER"]),
+  delivery: httpErrorSchema(["ORDER_NOT_FOUND", "INVALID_ORDER", "CURRENCY_MISMATCH", "ORDER_CANCELLED", "DELIVERY_LOCKED",
+    "DELIVERY_METHOD_DISABLED", "COURIER_UNAVAILABLE", "DELIVERY_UNAVAILABLE", "INSUFFICIENT_STOCK",
+    "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]),
+  fulfillment: httpErrorSchema(["ORDER_NOT_FOUND", "INVALID_ORDER", "INVALID_TRANSITION", "PAYMENT_REQUIRED", "STOCK_NOT_DEDUCTED", "ORDER_CANCELLED", "CURRENCY_MISMATCH"]),
+  deduct: httpErrorSchema(["ORDER_NOT_FOUND", "INSUFFICIENT_STOCK", "ORDER_CANCELLED", "INVALID_ORDER"]),
+  get: getErrorSchema,
+  aggregate: getErrorSchema,
+  list: commonErrorSchema,
+  mixed: commonErrorSchema,
+  catalog: commonErrorSchema,
+  contacts: commonErrorSchema,
+} satisfies Record<Operation, z.ZodType>;
 
 function requestError(error: TransportError, operation: Operation): OrderRequestError {
   if (error.http) {
-    const parsed = orderApiErrorSchema.safeParse(error.http.body);
+    const parsed = errorSchemas[operation].safeParse(error.http);
     if (parsed.success) {
-      const { code, issues } = parsed.data;
-      const allowed = ["INVALID_INPUT", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR"].includes(code)
-        || operation === "checkout" && ["ORDER_NOT_FOUND", "ORDER_CANCELLED"].includes(code)
-        || operation === "create" && createCodes.has(code)
-        || operation === "payment" && paymentCodes.has(code)
-        || operation === "void" && ["ORDER_NOT_FOUND", "PAYMENT_NOT_FOUND", "PAYMENT_CONFLICT", "INVALID_TRANSITION", "INVALID_ORDER"].includes(code)
-        || operation === "delivery" && ["ORDER_NOT_FOUND", "INVALID_ORDER", "CURRENCY_MISMATCH", "ORDER_CANCELLED", "DELIVERY_LOCKED", "DELIVERY_METHOD_DISABLED", "COURIER_UNAVAILABLE", "DELIVERY_UNAVAILABLE", "INSUFFICIENT_STOCK", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"].includes(code)
-        || operation === "fulfillment" && ["ORDER_NOT_FOUND", "INVALID_ORDER", "INVALID_TRANSITION", "PAYMENT_REQUIRED", "STOCK_NOT_DEDUCTED", "ORDER_CANCELLED", "CURRENCY_MISMATCH"].includes(code)
-        || operation === "deduct" && ["ORDER_NOT_FOUND", "INSUFFICIENT_STOCK", "ORDER_CANCELLED", "INVALID_ORDER"].includes(code)
-        || (operation === "get" || operation === "aggregate") && code === "ORDER_NOT_FOUND";
-      if ((operation === "checkout" && code === "INVALID_INPUT" ? 422 : statusByCode[code]) === error.http.status && allowed) return { code, message: parsed.data.error, ...(issues ? { issues } : {}) };
+      const { code, error: message, issues } = parsed.data.body;
+      return { code, message, ...(issues ? { issues } : {}) };
+    }
+    if (error.code === "API_ERROR" || orderApiErrorSchema.safeParse(error.http.body).success) {
       return { code: "INVALID_RESPONSE", message: "Unexpected order error" };
     }
-    if (error.code === "API_ERROR") return { code: "INVALID_RESPONSE", message: "Unexpected order error" };
   }
   return { code: error.code, message: error.message };
 }

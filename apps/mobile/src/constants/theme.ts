@@ -8,6 +8,11 @@ import tokens from '../../../../docs/design-tokens.json';
 
 export const Colors = {
   light: {
+    border: tokens.colors.light.border,
+    success: tokens.colors.light.success,
+    successSurface: tokens.colors.light['success-surface'],
+    warning: tokens.colors.light.warning,
+    warningSurface: tokens.colors.light['warning-surface'],
     text: tokens.colors.light.foreground,
     background: tokens.colors.light.background,
     backgroundElement: tokens.colors.light.card,
@@ -27,6 +32,11 @@ export const Colors = {
     destructivePressed: tokens.colors.light['destructive-pressed'],
   },
   dark: {
+    border: tokens.colors.dark.border,
+    success: tokens.colors.dark.success,
+    successSurface: tokens.colors.dark['success-surface'],
+    warning: tokens.colors.dark.warning,
+    warningSurface: tokens.colors.dark['warning-surface'],
     text: tokens.colors.dark.foreground,
     background: tokens.colors.dark.background,
     backgroundElement: tokens.colors.dark.card,

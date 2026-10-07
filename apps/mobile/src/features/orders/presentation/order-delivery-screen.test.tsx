@@ -69,14 +69,18 @@ test("validation requires recipient and selected document; values preserve leadi
   fireEvent.changeText(screen.getByLabelText("Nombre del destinatario *"), " ");
   fireEvent.press(screen.getByText("Guardar entrega"));
   await screen.findByText(/Completa el nombre/);
+  expect(screen.getByLabelText("Nombre del destinatario *").props.accessibilityHint).toMatch(/Completa el nombre/);
   expect(save).not.toHaveBeenCalled();
   fireEvent.changeText(screen.getByLabelText("Nombre del destinatario *"), "Recipient");
   fireEvent(screen.getByTestId("delivery-document-type"), "valueChange", 2);
   fireEvent.press(screen.getByText("Guardar entrega"));
+  await waitFor(() => expect(screen.getByLabelText("Número de documento *").props.accessibilityHint).toMatch(/Completa el nombre/));
   expect(save).not.toHaveBeenCalled();
   fireEvent.changeText(screen.getByLabelText("Número de documento *"), "00-A123");
   fireEvent.press(screen.getByText("Guardar entrega"));
   await screen.findByText(/No se pudo guardar la entrega/);
+  expect(screen.getByLabelText("Nombre del destinatario *").props.accessibilityHint).toBeUndefined();
+  expect(screen.getByLabelText("Número de documento *").props.accessibilityHint).toBeUndefined();
   expect(save).toHaveBeenCalledWith(mockId, expect.objectContaining({ delivery: expect.objectContaining({ recipient: expect.objectContaining({ identity: { kind: "document", documentType: "passport", document: "00-A123" } }) }) }));
   await act(async () => { await i18n.changeLanguage("pt-BR"); });
   try {
@@ -91,7 +95,8 @@ test("pending save guards duplicate taps, and a state race locks edits without n
   const screen = render(<OrderDeliveryScreen />);
   await screen.findByText("Current address");
   fireEvent.press(screen.getByText("Guardar entrega")); fireEvent.press(screen.getByText("Guardar entrega"));
-  expect(save).toHaveBeenCalledTimes(1);
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+  expect(screen.getByRole("button", { name: "Guardar entrega" }).props.accessibilityState.disabled).toBe(true);
   await act(async () => { finish?.(err({ code: "DELIVERY_LOCKED", message: "already shipped" })); });
   expect(screen.queryByText("Guardar entrega")).toBeNull();
   expect(screen.getAllByText(/ya no se puede editar/).length).toBeGreaterThan(0);

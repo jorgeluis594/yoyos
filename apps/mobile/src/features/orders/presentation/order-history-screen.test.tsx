@@ -27,7 +27,8 @@ beforeEach(() => { jest.clearAllMocks(); mockCountry = "PE"; mockReadPending.moc
 
 test("history distinguishes empty sales from filtered results and sends full Lima days", async () => {
   const screen = render(<OrderHistoryScreen />);
-  await screen.findByText("Aún no hay ventas");
+  await screen.findByText("Aún no hay pedidos");
+  fireEvent.press(screen.getByRole("button", { name: "Filtros" }));
   fireEvent.press(screen.getByRole("button", { name: "Desde: Elegir día" }));
   fireEvent(screen.getByTestId("order-desde-picker"), "onValueChange", {}, new Date(2026, 8, 28, 12));
   fireEvent.press(screen.getByRole("button", { name: "Hasta: Elegir día" }));
@@ -36,14 +37,14 @@ test("history distinguishes empty sales from filtered results and sends full Lim
   await screen.findByText("Sin resultados");
   await waitFor(() => expect(mockLoadOrders).toHaveBeenLastCalledWith({ page: 1, customer: { kind: "all" },
     fromDay: "2026-09-28", throughDay: "2026-09-28" }));
-  fireEvent.press(screen.getByRole("button", { name: "Nueva venta" }));
+  fireEvent.press(screen.getByRole("button", { name: "Nuevo pedido" }));
   expect(mockPush).toHaveBeenCalledWith("/orders/new");
 });
 
 test("a Chile company can open order history", async () => {
   mockCountry = "CL";
   const screen = render(<OrderHistoryScreen />);
-  await screen.findByText("Aún no hay ventas");
+  await screen.findByText("Aún no hay pedidos");
   expect(mockLoadOrders).toHaveBeenCalledWith({ page: 1, customer: { kind: "all" } });
 });
 
@@ -51,8 +52,9 @@ test("history translates empty state and filters to Portuguese", async () => {
   await i18n.changeLanguage('pt-BR');
   try {
     const screen = render(<OrderHistoryScreen />);
-    await screen.findByText('Ainda não há vendas');
-    expect(screen.getByRole('button', { name: 'Nova venda' })).toBeTruthy();
+    await screen.findByText('Ainda não há pedidos');
+    expect(screen.getByRole('button', { name: 'Novo pedido' })).toBeTruthy();
+    fireEvent.press(screen.getByRole('button', { name: 'Filtros' }));
     expect(screen.getByRole('button', { name: 'Público geral' })).toBeTruthy();
   } finally {
     cleanup();
@@ -82,9 +84,9 @@ test("history offers retry after a load error", async () => {
   mockLoadOrders.mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "Offline" }))
     .mockResolvedValueOnce(ok({ items: [], page: 1, pageSize: 20, total: 0 }));
   const screen = render(<OrderHistoryScreen />);
-  await screen.findByText("No se pudieron cargar las ventas");
+  await screen.findByText("No se pudieron cargar los pedidos");
   fireEvent.press(screen.getByRole("button", { name: "Reintentar" }));
-  await screen.findByText("Aún no hay ventas");
+  await screen.findByText("Aún no hay pedidos");
 });
 
 test.each(["success", "error"])("history ignores a replaced request's %s before and after the latest load", async (outcome) => {
@@ -93,6 +95,7 @@ test.each(["success", "error"])("history ignores a replaced request's %s before 
   mockLoadOrders.mockImplementation(() => new Promise<ListResult>((resolve) => requests.push(resolve)));
   mockReadPending.mockResolvedValueOnce(err({ code: "PENDING_STORAGE_UNAVAILABLE", message: "Unavailable" }));
   const screen = render(<OrderHistoryScreen />);
+  fireEvent.press(screen.getByRole("button", { name: "Filtros" }));
   fireEvent.press(screen.getByRole("button", { name: "Público general" }));
   fireEvent.press(screen.getByRole("button", { name: "Aplicar filtros" }));
   const stale: ListResult = outcome === "error" ? err({ code: "NETWORK_ERROR", message: "Offline" }) : ok({
@@ -101,8 +104,9 @@ test.each(["success", "error"])("history ignores a replaced request's %s before 
       deliveryStatus: "pending", stockDeducted: false, total: { amount: 10, currency: "PEN" } }], page: 1, pageSize: 20, total: 80,
   });
   await act(async () => { requests[0](stale); });
-  expect(screen.getByText("Cargando ventas")).toBeTruthy();
+  expect(screen.getByText("Cargando pedidos")).toBeTruthy();
   expect(screen.queryByText("No se pudo leer la venta pendiente")).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: "Filtros" }));
   fireEvent.press(screen.getByRole("button", { name: "Aplicar filtros" }));
   await act(async () => { requests[2](ok({
     items: [{ number: 1002, id: "latest", sellerId: "seller", buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, createdAt: "2026-09-29T12:00:00.000Z",
@@ -111,9 +115,9 @@ test.each(["success", "error"])("history ignores a replaced request's %s before 
     page: 1, pageSize: 20, total: 1,
   })); });
   await act(async () => { requests[1](stale); });
-  expect(screen.getByText("1 venta")).toBeTruthy();
+  expect(screen.getByText("1 pedido")).toBeTruthy();
   expect(screen.queryByText("Venta anterior")).toBeNull();
-  expect(screen.queryByText("No se pudieron cargar las ventas")).toBeNull();
+  expect(screen.queryByText("No se pudieron cargar los pedidos")).toBeNull();
   expect(screen.queryByRole("button", { name: "Siguiente" })).toBeNull();
   fireEvent.press(screen.getByText(/20[.,]00/));
   expect(mockPush).toHaveBeenCalledWith("/orders/latest");
@@ -132,8 +136,28 @@ test("history distinguishes checkout states and preserves numbers beyond 9999", 
     paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false, total: { amount: 10, currency: "PEN" },
   })) }));
   const screen = render(<OrderHistoryScreen />);
-  await screen.findByText(/Pedido #10000 · Confirmado por el comprador/);
-  expect(screen.getByText(/Pedido #9999 · Pendiente de confirmación/)).toBeTruthy();
-  expect(screen.getByText(/Pedido #10001 · Pedido cancelado/)).toBeTruthy();
-  expect(screen.getByText(/Pedido #1001 · Orden activa/)).toBeTruthy();
+  await screen.findByText(/#10000 ·/);
+  expect(screen.getByText("Confirmado por el comprador")).toBeTruthy();
+  expect(screen.getByText("Pendiente de confirmación")).toBeTruthy();
+  expect(screen.getByText("Pedido cancelado")).toBeTruthy();
+  expect(screen.getByText(/#1001 ·/)).toBeTruthy();
+});
+
+
+test("search and task filters query all orders and remain selected after clearing advanced filters", async () => {
+  const screen = render(<OrderHistoryScreen />);
+  await screen.findByText("Aún no hay pedidos");
+  fireEvent.changeText(screen.getByLabelText("Buscar cliente o pedido"), "#1005");
+  await waitFor(() => expect(mockLoadOrders).toHaveBeenLastCalledWith({ page: 1, customer: { kind: "all" }, search: "#1005" }));
+  fireEvent.press(screen.getByRole("button", { name: "Por cobrar" }));
+  await waitFor(() => expect(mockLoadOrders).toHaveBeenLastCalledWith({ page: 1, customer: { kind: "all" }, search: "#1005", view: "unpaid" }));
+  expect(screen.getByRole("button", { name: "Por cobrar" }).props.accessibilityState.selected).toBe(true);
+  fireEvent.press(screen.getByRole("button", { name: "Filtros" }));
+  fireEvent.press(screen.getByRole("button", { name: "Público general" }));
+  fireEvent.press(screen.getByRole("button", { name: "Aplicar filtros" }));
+  await waitFor(() => expect(mockLoadOrders).toHaveBeenLastCalledWith({ page: 1, customer: { kind: "general_public" }, search: "#1005", view: "unpaid" }));
+  fireEvent.press(screen.getByRole("button", { name: "Limpiar filtros" }));
+  await waitFor(() => expect(mockLoadOrders).toHaveBeenLastCalledWith({ page: 1, customer: { kind: "all" }, search: "#1005", view: "unpaid" }));
+  fireEvent.press(screen.getByRole("button", { name: "Borrar búsqueda" }));
+  await waitFor(() => expect(mockLoadOrders).toHaveBeenLastCalledWith({ page: 1, customer: { kind: "all" }, search: "", view: "unpaid" }));
 });

@@ -32,6 +32,7 @@ Paths below are relative to this skill. The documents remain the source of truth
 | --- | --- |
 | Feature ownership, folder structure, layer responsibilities, dependency direction, public exports, shared code, or composition | [Application Architecture](../../../docs/architecture.md) |
 | Writing or changing code: functional programming, Result contracts, composition, and available helpers | [Programming Style](../../../docs/programming-style.md) |
+| Core web frontend changes, including forms, form state, and client-side validation | [Frontend Development](../../../docs/frontend-development.md) |
 | Business types, calculations, normalization, invariants, state transitions, authorization policy, use cases, or search defaults | [Domain Conventions](../../../docs/domain.md) |
 | Repositories, database queries, mobile API or local-storage adapters, technical mapping, ownership scoping, pagination, transactions, concurrency, or technical failure translation | [Persistence Conventions](../../../docs/persistence.md) |
 | Choosing test placement, scope, assertions, fakes, isolation, integration boundaries, or end-to-end verification | [Testing Conventions](../../../docs/testing-conventions.md) |
