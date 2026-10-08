@@ -463,6 +463,10 @@ final class StateStoreTests: XCTestCase {
       next["pending"] = [pending]
       return next
     }
+    let preflight = try makeStore(root).open()
+    guard (preflight["pending"] as? [[String: Any]])?.count == 1 else {
+      XCTFail("Mounted volume could not reopen the published state"); return
+    }
     let published = root.appendingPathComponent("whatsapp/state.bin")
     let publishedSize = try XCTUnwrap(manager.attributesOfItem(atPath: published.path)[.size] as? NSNumber).intValue
     let protection = try published.resourceValues(forKeys: [.fileProtectionKey]).fileProtection
@@ -499,8 +503,8 @@ final class StateStoreTests: XCTestCase {
     let headerLength = bytes[8..<12].reduce(0) { ($0 << 8) | Int($1) }
     let header = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes[12..<12+headerLength]) as? [String: Any])
     XCTAssertEqual(header["revision"] as? String, "1")
-    try probeHandle.close()
-    try fillHandle.close()
+    try? probeHandle.close()
+    try? fillHandle.close()
     try manager.removeItem(at: probe)
     try manager.removeItem(at: filler)
     XCTAssertEqual((try makeStore(root).open()["pending"] as? [[String: Any]])?.count, 1)
@@ -509,7 +513,7 @@ final class StateStoreTests: XCTestCase {
   private func isNoSpace(_ error: Error) -> Bool {
     let value = error as NSError
     if value.domain == NSPOSIXErrorDomain && value.code == Int(ENOSPC) { return true }
-    if value.domain == NSCocoaErrorDomain && value.code == NSFileWriteOutOfSpaceError { return true }
+    if value.domain == NSCocoaErrorDomain && value.code == CocoaError.fileWriteOutOfSpace.rawValue { return true }
     if let underlying = value.userInfo[NSUnderlyingErrorKey] as? Error { return isNoSpace(underlying) }
     return false
   }
