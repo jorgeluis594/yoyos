@@ -348,6 +348,14 @@ func (c *Controller) run(ctx context.Context, generation uint64, transport Trans
 				c.paired = true
 				c.retries = 0
 				c.setState(Connected)
+			case "loginReconnect":
+				if reconnect, ok := transport.(interface{ Reconnect() }); ok {
+					reconnect.Reconnect()
+				} else {
+					c.mu.Unlock()
+					c.finish(generation, ConnectionFailed, false)
+					return
+				}
 			case "revoked":
 				c.retireLocked()
 				c.expired = true

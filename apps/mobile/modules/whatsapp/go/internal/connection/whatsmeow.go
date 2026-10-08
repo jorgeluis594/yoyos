@@ -21,12 +21,14 @@ func NewWhatsmeowTransport(device *store.Device, localFailure func() Code) Trans
 	client.InitialAutoReconnect = false
 	client.DisableLoginAutoReconnect = true
 	client.UseRetryMessageStore = false
-	return &whatsmeowTransport{client: client, localFailure: localFailure}
+	return &whatsmeowTransport{client: client, dial: client.ConnectContext, loginReconnect: make(chan struct{}, 1), localFailure: localFailure}
 }
 
 type whatsmeowTransport struct {
-	client       *whatsmeow.Client
-	localFailure func() Code
+	client         *whatsmeow.Client
+	dial           func(context.Context) error
+	loginReconnect chan struct{}
+	localFailure   func() Code
 }
 
 func (t *whatsmeowTransport) stopped() Code {
@@ -37,6 +39,12 @@ func (t *whatsmeowTransport) stopped() Code {
 }
 
 func (t *whatsmeowTransport) Stop() { t.client.Disconnect() }
+func (t *whatsmeowTransport) Reconnect() {
+	select {
+	case t.loginReconnect <- struct{}{}:
+	default:
+	}
+}
 func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent) error {
 	client := t.client
 	handler := client.AddEventHandler(func(event any) {
@@ -66,11 +74,30 @@ func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent)
 		qr = channel
 	}
 	connectDone := make(chan error, 1)
-	go func() { connectDone <- client.ConnectContext(ctx) }()
+	go func() { connectDone <- t.dial(ctx) }()
+	reconnecting, reconnectPending := false, false
+	startReconnect := func() {
+		connectDone = make(chan error, 1)
+		reconnecting = true
+		go func(done chan<- error) {
+			client.Disconnect()
+			if err := ctx.Err(); err != nil {
+				done <- err
+				return
+			}
+			done <- t.dial(ctx)
+		}(connectDone)
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-t.loginReconnect:
+			if connectDone == nil {
+				startReconnect()
+			} else if !reconnecting {
+				reconnectPending = true
+			}
 		case err := <-connectDone:
 			if err != nil {
 				if code := t.stopped(); code != "" {
@@ -84,6 +111,10 @@ func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent)
 			}
 			// ConnectContext establishes the socket; authentication and QR continue via events.
 			connectDone = nil
+			if reconnectPending {
+				reconnectPending = false
+				startReconnect()
+			}
 		case item, open := <-qr:
 			if !open {
 				qr = nil
@@ -144,7 +175,7 @@ func classify(event any) string {
 	case *events.PairSuccess:
 		return "authenticating"
 	case *events.ManualLoginReconnect:
-		return "networkFailure"
+		return "loginReconnect"
 	case *events.Disconnected:
 		return "networkFailure"
 	case *events.LoggedOut:

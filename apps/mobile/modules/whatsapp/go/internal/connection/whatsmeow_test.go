@@ -19,7 +19,7 @@ func TestPinnedClientEventsAreClassifiedWithoutRetryingRevocation(t *testing.T) 
 	}{
 		{&events.Connected{}, "connected"},
 		{&events.PairSuccess{}, "authenticating"},
-		{&events.ManualLoginReconnect{}, "networkFailure"},
+		{&events.ManualLoginReconnect{}, "loginReconnect"},
 		{&events.Disconnected{}, "networkFailure"},
 		{&events.LoggedOut{}, "revoked"},
 		{&events.ConnectFailure{Reason: events.ConnectFailureLoggedOut}, "revoked"},
@@ -54,68 +54,72 @@ func TestDelayedQRConsumptionKeepsProducerExpiry(t *testing.T) {
 	}
 }
 
-func TestPinned515AfterPairSuccessRetriesFirstLink(t *testing.T) {
-	clock := &testClock{now: time.Unix(0, 0), created: make(chan struct{}, 8)}
-	first, second := newTransport(), newTransport()
-	upstream := NewWhatsmeowTransport(&store.Device{}, nil).(*whatsmeowTransport).client
-	if !upstream.DisableLoginAutoReconnect || upstream.EnableAutoReconnect {
-		t.Fatal("upstream reconnect must be owned by the controller")
-	}
-	created := 0
-	published := make(chan Event, 16)
-	c := New(func() (Transport, error) {
-		created++
-		if created == 1 {
-			return first, nil
-		}
-		return second, nil
-	}, func(event Event) { published <- event }, clock)
-	defer c.Close()
-	c.Prepare(false)
-	if code := c.Connect(); code != "" {
-		t.Fatal(code)
-	}
-	out := started(t, first)
-	if receive(t, published).State != Connecting {
-		t.Fatal("first attempt did not start")
-	}
-	clock.WaitTimer(t)
-	out <- TransportEvent{Kind: "qr", QR: "code", ExpiresAt: clock.Now().Add(time.Minute)}
-	if receive(t, published).State != AwaitingQR || receive(t, published).QR != "code" {
-		t.Fatal("first link QR missing")
-	}
-	upstream.AddEventHandler(func(event any) {
-		if kind := classify(event); kind != "" {
-			out <- TransportEvent{Kind: kind}
-		}
-	})
-	upstream.DangerousInternals().DispatchEvent(&events.PairSuccess{})
-	upstream.DangerousInternals().HandleStreamError(context.Background(), &binary.Node{Tag: "stream:error", Attrs: binary.Attrs{"code": "515"}})
-	select {
-	case <-first.stopped:
-	case <-time.After(time.Second):
-		t.Fatal("515 did not retire the first client")
-	}
-	if receive(t, published).State != Connecting || receive(t, published).Error != ConnectionFailed || receive(t, published).State != Reconnecting {
-		t.Fatal("pairing did not enter a single controlled retry")
-	}
-	if c.State() != Reconnecting {
-		t.Fatalf("first link was not retried: %s", c.State())
-	}
-	clock.WaitTimer(t)
-	clock.Advance(time.Second)
-	replacementEvents := started(t, second)
-	if created != 2 || c.State() != Reconnecting {
-		t.Fatal("reconnect did not create exactly one new attempt")
-	}
-	replacement := NewWhatsmeowTransport(upstream.Store, nil).(*whatsmeowTransport).client
-	replacement.AddEventHandler(func(event any) {
-		if kind := classify(event); kind != "" {
-			replacementEvents <- TransportEvent{Kind: kind}
-		}
-	})
-	replacement.DangerousInternals().DispatchEvent(&events.Connected{})
-	if receive(t, published).State != Connected {
-		t.Fatal("reconnected upstream event did not complete the first link")
+func TestPinned515ContinuesAuthenticationWithinOriginalDeadline(t *testing.T) {
+	for _, mode := range []string{"within deadline", "late connected", "late 515"} {
+		t.Run(mode, func(t *testing.T) {
+			clock := &testClock{now: time.Unix(0, 0), created: make(chan struct{}, 8)}
+			transport := NewWhatsmeowTransport(&store.Device{}, nil).(*whatsmeowTransport)
+			if !transport.client.DisableLoginAutoReconnect || transport.client.EnableAutoReconnect {
+				t.Fatal("upstream reconnect must be owned by the transport")
+			}
+			dials := make(chan struct{}, 2)
+			transport.dial = func(context.Context) error { dials <- struct{}{}; return nil }
+			created := 0
+			published := make(chan Event, 16)
+			c := New(func() (Transport, error) { created++; return transport, nil }, func(event Event) { published <- event }, clock)
+			defer c.Close()
+			c.Prepare(false)
+			if code := c.Connect(); code != "" {
+				t.Fatal(code)
+			}
+			select {
+			case <-dials:
+			case <-time.After(time.Second):
+				t.Fatal("initial dial did not start")
+			}
+			if receive(t, published).State != Connecting {
+				t.Fatal("initial state missing")
+			}
+			clock.WaitTimer(t)
+			transport.client.DangerousInternals().DispatchEvent(&events.PairSuccess{})
+			clock.WaitTimer(t)
+			if mode == "late 515" {
+				clock.Advance(31 * time.Second)
+			} else {
+				clock.Advance(29 * time.Second)
+			}
+			transport.client.DangerousInternals().HandleStreamError(context.Background(), &binary.Node{Tag: "stream:error", Attrs: binary.Attrs{"code": "515"}})
+			if mode == "late 515" {
+				if receive(t, published).Error != ConnectionFailed || receive(t, published).State != Reconnecting {
+					t.Fatal("expired 515 was accepted")
+				}
+				select {
+				case <-dials:
+					t.Fatal("expired 515 started another dial")
+				case <-time.After(20 * time.Millisecond):
+				}
+				return
+			}
+			select {
+			case <-dials:
+			case <-time.After(time.Second):
+				t.Fatal("515 did not reconnect")
+			}
+			if created != 1 || c.State() != Connecting {
+				t.Fatal("515 created another client or reset state")
+			}
+			if mode == "late connected" {
+				clock.Advance(2 * time.Second)
+				transport.client.DangerousInternals().DispatchEvent(&events.Connected{})
+				if receive(t, published).Error != ConnectionFailed || receive(t, published).State != Reconnecting {
+					t.Fatal("expired authentication was accepted or not stopped")
+				}
+			} else {
+				transport.client.DangerousInternals().DispatchEvent(&events.Connected{})
+				if receive(t, published).State != Connected {
+					t.Fatal("515 handoff did not authenticate")
+				}
+			}
+		})
 	}
 }
