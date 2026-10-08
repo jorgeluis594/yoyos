@@ -4,9 +4,10 @@ const development = process.env.NODE_ENV === 'development';
 module.exports = {
   ...expo,
   scheme: 'yoyos',
-  android: { ...expo.android, package: 'com.yoyos.mobile' },
+  android: { ...expo.android, package: 'com.yoyos.mobile', minSdkVersion: 24 },
   ios: {
     ...expo.ios,
+    deploymentTarget: '16.4',
     infoPlist: development ? {
       NSAppTransportSecurity: {
         NSExceptionDomains: {

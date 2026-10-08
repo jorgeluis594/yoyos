@@ -1,0 +1,26 @@
+package expo.modules.whatsapp
+
+import expo.modules.kotlin.modules.Module
+import expo.modules.kotlin.modules.ModuleDefinition
+import expo.modules.whatsapp.go.bridge.Bridge
+import expo.modules.whatsapp.go.bridge.Storage
+
+class WhatsAppModule : Module() {
+  override fun definition() = ModuleDefinition {
+    Name("WhatsApp")
+
+    AsyncFunction("probe") { value: String, failCallback: Boolean ->
+      try {
+        val result = Bridge.probe(object : Storage {
+          override fun commit(value: String): String {
+            if (failCallback) throw Exception("probe callback failed")
+            return value
+          }
+        }, value)
+        mapOf("status" to "ok", "value" to result)
+      } catch (_: Exception) {
+        mapOf("status" to "error", "code" to "NATIVE_CALL_FAILED")
+      }
+    }
+  }
+}
