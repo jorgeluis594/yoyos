@@ -1,13 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { expect, test } from "vitest";
+import type { CompanyId } from "@shared/identity";
 import { ok } from "@shared/functional";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
 import { findRateWithQuotation, insertQuotationWithRates } from "@core/src/features/delivery-settings/infrastructure/quotation-repository";
 import { prisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 
 test("quotations persist all overlapping rates, remain immutable, isolate tenants and roll back failed writes", async () => {
-  const companyId = randomUUID();
-  const otherId = randomUUID();
+  const companyId = randomUUID() as CompanyId;
+  const otherId = randomUUID() as CompanyId;
   const context = { companyId, userId: "seller" };
   const run = <T>(work: () => Promise<T>) => withTenantIsolation(companyId, async () => await work());
   try {
@@ -27,14 +28,21 @@ test("quotations persist all overlapping rates, remain immutable, isolate tenant
       expect(second.data.quotation.id).not.toBe(first.data.quotation.id);
       const rate = first.data.rates[0];
       expect(await withinTransaction(() => findRateWithQuotation(companyId, rate.id))).toEqual(ok({ quotation: first.data.quotation, rate }));
-      await prisma.deliveryZone.update({ where: { id: rate.zoneId }, data: { enabled: false, priceAmount: 99 } });
+      const selection = { companyId, rateId: rate.id, method: rate.method, districtCode: rate.districtCode };
+      expect(await deliverySettings.resolveSelectedDeliveryRate(selection)).toMatchObject({ success: true, data: { price: rate.price, settingsVersion: 2 } });
+      await prisma.companyDeliverySettings.update({ where: { companyId }, data: { version: 3 } });
+      expect(await deliverySettings.resolveSelectedDeliveryRate(selection)).toMatchObject({ success: true, data: { settingsVersion: 2 } });
+      await prisma.deliveryZone.update({ where: { id: rate.zoneId }, data: { priceAmount: 99 } });
+      expect(await deliverySettings.resolveSelectedDeliveryRate(selection)).toMatchObject({ success: false, error: { code: "TOTAL_CHANGED", currentPrice: { amount: 99, currency: "PEN" } } });
+      await prisma.deliveryZone.update({ where: { id: rate.zoneId }, data: { enabled: false } });
+      expect(await deliverySettings.resolveSelectedDeliveryRate(selection)).toMatchObject({ success: false, error: { code: "RATE_UNAVAILABLE" } });
       expect(await withinTransaction(() => findRateWithQuotation(companyId, rate.id))).toEqual(ok({ quotation: first.data.quotation, rate }));
       expect(await withTenantIsolation(otherId, async () => await withinTransaction(() => findRateWithQuotation(otherId, rate.id)))).toEqual(ok(null));
       const empty = await deliverySettings.createQuotation({ ...request, districtCode: "040110" });
       expect(empty).toMatchObject({ success: true, data: { rates: [] } });
       expect(await prisma.quotation.count()).toBe(3);
       expect(await prisma.deliveryRate.count()).toBe(6);
-      expect((await deliverySettings.get(context))).toMatchObject({ success: true, data: { version: 2 } });
+      expect((await deliverySettings.get(context))).toMatchObject({ success: true, data: { version: 3 } });
       const failedId = randomUUID() as typeof first.data.quotation.id;
       const failed = await withinTransaction(() => insertQuotationWithRates({ quotation: { ...first.data.quotation, id: failedId },
         rates: first.data.rates.map(value => ({ ...value, quotationId: failedId })) }));

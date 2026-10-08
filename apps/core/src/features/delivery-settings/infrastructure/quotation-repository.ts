@@ -1,4 +1,5 @@
 import { err, ok } from "@shared/functional";
+import type { CompanyId } from "@shared/identity";
 import { isCurrency } from "@shared/money";
 import type { Result } from "@shared/result";
 import { parseRateWithQuotation, type DeliveryRateId, type QuotationWithRates, type RateWithQuotation } from "@core/src/features/delivery-settings/domain/quotation";
@@ -23,7 +24,7 @@ export async function insertQuotationWithRates(value: QuotationWithRates): Promi
   }
 }
 
-export async function findRateWithQuotation(companyId: string, rateId: DeliveryRateId): Promise<Result<RateWithQuotation | null, QuotationStorageError>> {
+export async function findRateWithQuotation(companyId: CompanyId, rateId: DeliveryRateId): Promise<Result<RateWithQuotation | null, QuotationStorageError>> {
   requireActiveTransaction(companyId);
   try {
     const row = await prisma.deliveryRate.findFirst({ where: { companyId, id: rateId }, include: { quotation: true } });
