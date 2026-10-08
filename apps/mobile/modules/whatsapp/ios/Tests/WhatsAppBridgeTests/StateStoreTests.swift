@@ -975,4 +975,16 @@ final class StateStoreTests: XCTestCase {
     writer.retireGeneration()
     XCTAssertEqual(try response(writer.applyProtocolChanges(request("generation", "2")))["success"] as? Bool, false)
   }
+
+  func testOptionsUpdateUsesCurrentWriterRevisionWithoutSession() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let writer = try makeStore(root)
+    _ = try writer.open()
+    XCTAssertEqual(try writer.updateOptions(maxRecoveryBufferBytes: 12 * 1024 * 1024, maxImageStorageBytes: 60 * 1024 * 1024), "1")
+    XCTAssertEqual(try writer.updateOptions(maxRecoveryBufferBytes: 12 * 1024 * 1024, maxImageStorageBytes: 60 * 1024 * 1024), "1")
+    let reopened = try makeStore(root).open()
+    let options = try XCTUnwrap(reopened["options"] as? [String: Any])
+    XCTAssertEqual(options["maxRecoveryBufferBytes"] as? Int, 12 * 1024 * 1024)
+  }
 }

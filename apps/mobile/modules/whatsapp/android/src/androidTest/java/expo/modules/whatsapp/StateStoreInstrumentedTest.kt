@@ -879,4 +879,13 @@ class StateStoreInstrumentedTest {
     writer.retireGeneration()
     assertFalse(org.json.JSONObject(writer.applyProtocolChanges(request("generation", "2"))).getBoolean("success"))
   }
+
+  @Test fun optionsUpdateUsesCurrentWriterRevisionWithoutSession() {
+    val root = freshRoot
+    val writer = makeStore(root)
+    writer.open()
+    assertEquals("1", writer.updateOptions(12L * 1024 * 1024, 60L * 1024 * 1024))
+    assertEquals("1", writer.updateOptions(12L * 1024 * 1024, 60L * 1024 * 1024))
+    assertEquals(12L * 1024 * 1024, makeStore(root).open().getJSONObject("options").getLong("maxRecoveryBufferBytes"))
+  }
 }
