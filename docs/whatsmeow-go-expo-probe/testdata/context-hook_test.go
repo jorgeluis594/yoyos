@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -233,6 +234,9 @@ type receiveProbeLog struct {
 	acks, receipts, errors, leaked atomic.Int32
 }
 
+// The temporary test-only patch observes scheduling and drains async sends.
+var probeAsyncSendsScheduled = func(int) func() { return func() {} }
+
 func (l *receiveProbeLog) Warnf(format string, args ...any) {
 	if strings.HasPrefix(format, "Failed to send acknowledgement") {
 		l.acks.Add(1)
@@ -252,11 +256,15 @@ func (l *receiveProbeLog) Errorf(format string, args ...any) {
 func TestRecoveryStorageFailure(t *testing.T) {
 	for _, synchronous := range []bool{true, false} {
 		for _, phase := range []string{"lookup", "transaction", "session", "mixed", "panic", "hook-panic", "clear", "handler-panic", "lid-lookup", "migration-alt", "migration-lookup", "message-secret", "protocol"} {
-			// The protocol control uses synchronous ACK so its attempt can be observed without waiting.
-			if phase == "protocol" && !synchronous {
-				continue
-			}
 			t.Run(fmt.Sprintf("%s/synchronous=%t", phase, synchronous), func(t *testing.T) {
+				var asyncScheduled int
+				var asyncSends sync.WaitGroup
+				probeAsyncSendsScheduled = func(jobs int) func() {
+					asyncScheduled++
+					asyncSends.Add(jobs)
+					return asyncSends.Done
+				}
+				defer func() { probeAsyncSendsScheduled = func(int) func() { return func() {} } }()
 				info, node := recoveryProbeMessage()
 				cause := errors.New("auxiliary native storage failed")
 				storage := &receiveFailureStore{phase: phase, cause: cause}
@@ -299,12 +307,14 @@ func TestRecoveryStorageFailure(t *testing.T) {
 					}
 				})
 				client.decryptMessages(context.Background(), &info, &node)
+				asyncSends.Wait()
 				if finished != 1 {
 					t.Fatal("receive completion must be reported once")
 				}
 				if phase == "protocol" {
-					if finishErr != nil || log.acks.Load() != 1 || undecryptable != 1 || client.messageRetries[info.ID] != 5 {
-						t.Fatal("protocol error lost its existing retry/ACK handling")
+					observed := synchronous && log.acks.Load() == 1 || !synchronous && asyncScheduled == 1 && log.acks.Load() == 1
+					if finishErr != nil || !observed || undecryptable != 1 || client.messageRetries[info.ID] != 5 {
+						t.Fatalf("protocol error lost its existing retry/ACK handling: synchronous=%t scheduled=%d acks=%d receipts=%d retries=%d", synchronous, asyncScheduled, log.acks.Load(), log.receipts.Load(), client.messageRetries[info.ID])
 					}
 					return
 				}
@@ -333,8 +343,8 @@ func TestRecoveryStorageFailure(t *testing.T) {
 						t.Fatal("pending content was cleared after auxiliary failure")
 					}
 				}
-				if log.acks.Load() != 0 || log.receipts.Load() != 0 || undecryptable != 0 || client.messageRetries[info.ID] != 4 {
-					t.Fatal("local failure attempted a protocol acknowledgement or retry")
+				if log.acks.Load() != 0 || log.receipts.Load() != 0 || asyncScheduled != 0 || undecryptable != 0 || client.messageRetries[info.ID] != 4 {
+					t.Fatalf("local failure attempted a protocol acknowledgement or retry: scheduled=%d acks=%d receipts=%d undecryptable=%d retries=%d", asyncScheduled, log.acks.Load(), log.receipts.Load(), undecryptable, client.messageRetries[info.ID])
 				}
 				wantDelivered := 0
 				if phase == "clear" || phase == "handler-panic" {
@@ -352,6 +362,24 @@ func TestRecoveryStorageFailure(t *testing.T) {
 			})
 		}
 	}
+	t.Run("async-helper-control", func(t *testing.T) {
+		var scheduled int
+		var sends sync.WaitGroup
+		probeAsyncSendsScheduled = func(jobs int) func() {
+			scheduled += jobs
+			sends.Add(jobs)
+			return sends.Done
+		}
+		defer func() { probeAsyncSendsScheduled = func(int) func() { return func() {} } }()
+		_, node := recoveryProbeMessage()
+		log := &receiveProbeLog{Logger: waLog.Noop}
+		client := NewClient(&store.Device{}, log)
+		client.backgroundIfAsyncAck(func() { client.sendAck(context.Background(), &node, 0) })
+		sends.Wait()
+		if scheduled != 1 || log.acks.Load() != 1 {
+			t.Fatalf("async helper did not schedule and attempt its ACK: scheduled=%d acks=%d", scheduled, log.acks.Load())
+		}
+	})
 	for _, phase := range []string{"write", "commit"} {
 		t.Run(phase+"-propagation", func(t *testing.T) {
 			storage := &receiveFailureStore{phase: phase}

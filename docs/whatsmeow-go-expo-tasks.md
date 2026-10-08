@@ -61,11 +61,11 @@ Las dependencias indican capacidades necesarias para cerrar una tarea, no obliga
 
 **Resultado:** guardar sesión y pendientes juntos, cerrar el proceso y recuperar una revisión coherente sin exponer claves ni perder datos previamente publicados.
 
-**Implementación:** writer único en Kotlin/Swift, formato `YOYOWA01`, `state.bin`/`state.next`, dos claves y registros seguros de creación. Concretar las operaciones de sincronización, cierre, reemplazo y metadatos verificables en cada plataforma. Cerrar la persistencia de la cota confiable de lectura antes de admitir snapshots; no dejar ese requisito para cuando se reduzcan límites.
+**Implementación:** writer único en Kotlin/Swift, formato `YOYOWA01`, `state.bin`/`state.next`, dos claves y registros seguros de creación. El contenedor cifrado incluirá `options` obligatorias en iOS y Android; `androidService` conservará solo intención y cuenta. Concretar las operaciones de sincronización, cierre, reemplazo y metadatos verificables en cada plataforma. Persistir la cota confiable de lectura junto con la revisión publicada antes de admitir snapshots; no dejar ese requisito para cuando se reduzcan límites.
 
 **Aceptación y verificación:**
 
-- Round-trip del contenedor, sesión, pendientes, revisiones, limpieza de claves y control Android. Validar AAD exacto, AES-256-GCM, nonces nuevos, versiones, uint64 decimal, IDs, JSON/UTF-8/Base64, campos duplicados o desconocidos, longitudes y overflow antes de reservar memoria. Respetar header de 4 KiB y fórmula máxima `S + B + 8244` del archivo.
+- Round-trip del contenedor, sesión, pendientes, revisiones, limpieza de claves, `options` efectivas en iOS/Android y control Android. Validar AAD exacto, AES-256-GCM, nonces nuevos, versiones, uint64 decimal, IDs, JSON/UTF-8/Base64, campos duplicados o desconocidos, longitudes y overflow antes de reservar memoria. Respetar header de 4 KiB, control de 4 KiB incluyendo `options` y fórmula máxima `S + B + 8244` del archivo.
 - Usar `K_recovery` para el contenedor y `K_session` para credenciales; conservar ciphertext de sesión cuando solo cambia recuperación. Impedir alias arbitrario, confusión de claves o `sessionRevision > revision`.
 - Registrar creación antes de generar claves. Recuperar cada interrupción de instalación inicial y creación provisional de sesión; distinguir instalación vacía de una establecida incompleta. Ante respuestas inciertas, releer el registro y lo publicado.
 - Inyectar fallos de cifrado, escritura, sync, cierre, reemplazo, respuesta y falta de espacio. No promover `state.next`, restaurar revisiones antiguas ni interpretar fallo como ausencia. Tras reemplazo incierto, releer antes de otra mutación.
@@ -226,12 +226,12 @@ Las dependencias indican capacidades necesarias para cerrar una tarea, no obliga
 
 **Resultado:** Yoyos configura límites desde el bundle y puede reducirlos o aumentarlos tras desconectar, conservándolos después de reiniciar.
 
-**Implementación:** composición fuera de `src/app/` y del módulo reutilizable, lectura estática de `EXPO_PUBLIC_WHATSAPP_RECOVERY_BUFFER_MIB`, validación y conversión a `maxRecoveryBufferBytes`; configuración nativa durable y serializada.
+**Implementación:** composición fuera de `src/app/` y del módulo reutilizable, lectura estática de `EXPO_PUBLIC_WHATSAPP_RECOVERY_BUFFER_MIB`, validación y conversión a `maxRecoveryBufferBytes`; publicación durable de `options` en el contenedor cifrado compartido por iOS y Android.
 
 **Aceptación y verificación:**
 
 - Aplicar 10 MiB de recuperación y 50 MiB de imágenes por defecto; variable ausente usa default, definida inválida falla sin fallback. Validar entero positivo y conversión segura a bytes; Go/nativo no leen `.env`.
-- `disconnect()` exitoso → `initialize(newOptions)` → `connect()` aplica valores nuevos. Opciones equivalentes son idempotentes; distintas con intención activa, QR, reconexión o pausa se rechazan.
+- `disconnect()` exitoso → `initialize(newOptions)` → `connect()` aplica valores nuevos. Tras reiniciar ambas plataformas restauran `options` de la revisión publicada, incluso sin sesión; `state.next` no aporta valores y una respuesta incierta exige relectura. Opciones equivalentes son idempotentes; distintas con intención activa, QR, reconexión o pausa se rechazan.
 - Esperar limpieza de descarga cancelada antes del cambio de límite de imágenes, sin bloquear writer. Publicar opciones antes del éxito; resolver resultado incierto releyendo estado.
 - Reducir debajo de lo ocupado conserva datos legibles, confirmables, reutilizables y borrables después del reinicio. Mantener cota confiable de lectura y permitir escrituras para drenar exceso sin aceptar longitudes arbitrarias.
 - Presupuestos son globales por instalación e independientes de sesión/historial; cambiar cuenta no los multiplica. Recreación nativa conserva opciones sin JavaScript; cambiar `.env` requiere nuevo bundle, no recompilar Go por sí solo.
