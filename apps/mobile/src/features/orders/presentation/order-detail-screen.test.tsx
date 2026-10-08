@@ -423,9 +423,9 @@ test("confirmation survives detail refresh failure and keeps recorded payments v
   expect(mockCheckCancellation).toHaveBeenCalledWith(mockId);
 });
 
-test("uncertainty blocks writes and manual consultation resolves the dispatched conflict", async () => {
+test.each(["NETWORK_ERROR", "RATE_LIMITED"])("%s uncertainty blocks writes and manual consultation resolves the dispatched conflict", async code => {
   pendingCancellationOrder();
-  mockCancel.mockResolvedValue({ success: true, data: { kind: "uncertain", orderId: mockId, cause: { code: "NETWORK_ERROR", message: "Offline" } } });
+  mockCancel.mockResolvedValue({ success: true, data: { kind: "uncertain", orderId: mockId, cause: { code, message: "Unable to verify" } } });
   const screen = render(<OrderDetailScreen />);
   await screen.findByText("Orden activa");
   fireEvent.press(screen.getByRole("button", { name: "Ver pagos" }));

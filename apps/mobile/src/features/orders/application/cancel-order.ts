@@ -14,7 +14,7 @@ export type CancellationRequestError = Readonly<{ code:
   | "NETWORK_ERROR" | "RATE_LIMITED" | "SERVICE_UNAVAILABLE" | "SERVER_ERROR" | "INVALID_RESPONSE";
   message: string;
 }>;
-export type CancellationRecoveryError = CancellationRequestError & Readonly<{ code: "NETWORK_ERROR" | "SERVICE_UNAVAILABLE" | "SERVER_ERROR" | "INVALID_RESPONSE" }>;
+export type CancellationRecoveryError = CancellationRequestError & Readonly<{ code: "RATE_LIMITED" | "NETWORK_ERROR" | "SERVICE_UNAVAILABLE" | "SERVER_ERROR" | "INVALID_RESPONSE" }>;
 export type CancelOrderOutcome =
   | Readonly<{ kind: "cancelled"; order: CancelledOrderState }>
   | Readonly<{ kind: "still_active"; order: Extract<CancellationOrderState, { deliveryStatus: "pending"; cancelled: false }> }>
@@ -27,13 +27,13 @@ export type CancellationDependencies = Readonly<{
 export type CancelOrderOperation = (orderId: string) => Promise<Result<CancelOrderOutcome, CancellationRequestError>>;
 export type CancellationOperations = Readonly<{ cancelOrder: CancelOrderOperation; checkCancellation: CancelOrderOperation }>;
 
-function needsVerification(error: CancellationRequestError): error is CancellationRecoveryError {
-  return error.code === "NETWORK_ERROR" || error.code === "SERVICE_UNAVAILABLE" || error.code === "SERVER_ERROR" || error.code === "INVALID_RESPONSE";
+function isRecoveryError(error: CancellationRequestError): error is CancellationRecoveryError {
+  return error.code === "RATE_LIMITED" || error.code === "NETWORK_ERROR" || error.code === "SERVICE_UNAVAILABLE" || error.code === "SERVER_ERROR" || error.code === "INVALID_RESPONSE";
 }
 export function createCancellationOperations(deps: CancellationDependencies): CancellationOperations {
   const checkCancellation: CancelOrderOperation = async id => {
     const found = await deps.readState(id);
-    if (!found.success) return needsVerification(found.error) ? ok({ kind: "uncertain", orderId: id, cause: found.error }) : found;
+    if (!found.success) return isRecoveryError(found.error) ? ok({ kind: "uncertain", orderId: id, cause: found.error }) : found;
     if (found.data.cancelled) return ok({ kind: "cancelled", order: found.data });
     if (found.data.deliveryStatus === "pending") return ok({ kind: "still_active", order: found.data });
     return ok({ kind: "dispatched", order: found.data });
@@ -43,7 +43,7 @@ export function createCancellationOperations(deps: CancellationDependencies): Ca
     cancelOrder: async id => {
       const result = await deps.cancel(id);
       if (result.success) return ok({ kind: "cancelled", order: result.data });
-      return needsVerification(result.error) || result.error.code === "INVALID_TRANSITION" ? checkCancellation(id) : result;
+      return (isRecoveryError(result.error) && result.error.code !== "RATE_LIMITED") || result.error.code === "INVALID_TRANSITION" ? checkCancellation(id) : result;
     },
   };
 }

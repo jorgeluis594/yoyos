@@ -49,3 +49,26 @@ void invalidCancelled;
 // @ts-expect-error Stock failures are not cancellation-operation errors.
 const unrelatedError: CancellationRequestError = { code: "INSUFFICIENT_STOCK", message: "Invalid contract" };
 void unrelatedError;
+
+
+test("rate-limited recovery and manual checks remain uncertain until the state is known", async () => {
+  const limited = { code: "RATE_LIMITED", message: "Try later" } as const;
+  const cancel = jest.fn(async () => err({ code: "NETWORK_ERROR", message: "Lost response" } as const));
+  const readState = jest.fn<Promise<import("@shared/result").Result<CancellationOrderState, CancellationRequestError>>, [string]>()
+    .mockResolvedValueOnce(err(limited))
+    .mockResolvedValueOnce(err(limited))
+    .mockResolvedValueOnce(ok(cancelled));
+  const operations = createCancellationOperations({ cancel, readState });
+  expect(await operations.cancelOrder("order")).toEqual(ok({ kind: "uncertain", orderId: "order", cause: limited }));
+  expect(await operations.checkCancellation("order")).toEqual(ok({ kind: "uncertain", orderId: "order", cause: limited }));
+  expect(await operations.checkCancellation("order")).toEqual(ok({ kind: "cancelled", order: cancelled }));
+  expect(cancel).toHaveBeenCalledTimes(1);
+  expect(readState).toHaveBeenCalledTimes(3);
+});
+
+test("a rate-limited cancellation write remains a known rejection", async () => {
+  const failure = err({ code: "RATE_LIMITED", message: "Try later" } as const);
+  const readState = jest.fn(async () => ok(cancelled));
+  expect(await createCancellationOperations({ cancel: async () => failure, readState }).cancelOrder("order")).toEqual(failure);
+  expect(readState).not.toHaveBeenCalled();
+});
