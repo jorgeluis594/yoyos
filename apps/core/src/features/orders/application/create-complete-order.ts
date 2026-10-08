@@ -23,6 +23,8 @@ export type CreateCompleteOrderDependencies = Readonly<{
 
 export async function createCompleteOrder(input: CreateCompleteOrderInput, context: OrderAccess,
   deps: CreateCompleteOrderDependencies): Promise<Result<OrderAggregate, CreateCompleteOrderError>> {
+  if (input.delivery && ("chargeDeliveryToCustomer" in input.delivery || !("expectedPrice" in input.delivery)))
+    return err({ code: "INVALID_ORDER", message: "Initial delivery requires a reviewed configured rate" });
   if ((input.deliverImmediately !== undefined && typeof input.deliverImmediately !== "boolean") ||
     new Set(input.payments?.map(payment => payment.paymentId)).size !== (input.payments?.length ?? 0))
     return err({ code: "INVALID_ORDER", message: "Invalid creation options or duplicate payment identifiers" });

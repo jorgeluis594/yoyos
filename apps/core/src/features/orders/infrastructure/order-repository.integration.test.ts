@@ -1303,6 +1303,23 @@ test.each([
   } finally { await f.cleanup(); }
 });
 
+test.each([true, false])("complete creation rejects legacy delivery without persisting order or payments (charge: %s)", async (chargeDeliveryToCustomer) => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+      const input = { id: randomUUID(), contactId: null, items: [{ variantId: f.variantIds[0], quantity: 2 }],
+        payments: [{ paymentId: randomUUID(), amount: { amount: 0.2, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }],
+        delivery: { delivery: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } }, chargeDeliveryToCustomer } };
+      expect(await createConfiguredOrder(input as unknown as CreateCompleteOrderInput, context)).toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
+      expect(await prisma.order.count()).toBe(0);
+      expect(await prisma.orderItem.count()).toBe(0);
+      expect(await prisma.payment.count()).toBe(0);
+      expect((await prisma.productStock.findMany()).map(stock => stock.quantity)).toEqual([3n, 3n]);
+    });
+  } finally { await f.cleanup(); }
+});
+
 test("complete creation resolves delivery charge before coverage and retains its snapshot", async () => {
   const f = await fixture();
   try {
@@ -1310,15 +1327,23 @@ test("complete creation resolves delivery charge before coverage and retains its
       const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
       expect(await deliverySettings.save({ expectedVersion: 0, agency: { enabled: false }, couriers: [],
         home: { enabled: true }, store: { enabled: false, pickupPoint: null } }, context)).toMatchObject({ success: true });
+      expect(await deliverySettings.saveZones({ method: "home", expectedVersion: 1, zones: [{ kind: "new", name: "Creation zone", enabled: true,
+        districtCodes: ["150122"], price: { amount: 0.1, currency: "PEN" } }] }, context)).toMatchObject({ success: true });
+      const quote = await deliverySettings.createQuotation({ companyId: f.companyId, country: "PE", districtCode: "150122", address: null, instructions: null });
+      if (!quote.success || !quote.data.rates[0]) throw new Error("Missing creation rate");
       const id = randomUUID() as OrderId;
-      const delivery = { method: "home" as const, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } },
-        destination: { address: "Av. Lima 123", district: "Lima", instructions: "Door 2" } };
+      const parsed = parseRatedDeliverySelection({ method: "home", rateId: quote.data.rates[0].id,
+        recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
+        destination: { address: "Av. Lima 123", districtCode: "150122", instructions: "Door 2" } });
+      if (!parsed.success) throw new Error(parsed.error.message);
+      const delivery = parsed.data;
       const result = await createConfiguredOrder({ id, contactId: null,
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }],
-        delivery: { delivery, chargeDeliveryToCustomer: true },
+        delivery: { delivery, expectedPrice: { amount: 0.1, currency: "PEN" } },
         payments: [{ paymentId: randomUUID() as PaymentId, amount: { amount: 0.2, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }] },
-      context, async (_delivery, _context, currency) => ok({ amount: 0.1, currency }));
-      expect(result).toMatchObject({ success: true, data: { delivery, deliveryCost: { amount: 0.1 }, deliveryCharge: { amount: 0.1 },
+      context);
+      expect(result).toMatchObject({ success: true, data: { delivery: { method: "home", destination: { districtCode: "150122", address: "Av. Lima 123" },
+        pricing: { rateId: quote.data.rates[0].id, quotationId: quote.data.quotation.id } }, deliveryCost: { amount: 0.1 }, deliveryCharge: { amount: 0.1 },
         total: { amount: 0.3 }, stockDeducted: false, completedAt: null } });
       expect(await findOrderAggregate(id, context.companyId)).toEqual(result);
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
@@ -1339,7 +1364,7 @@ test.each(["payment", "stock", "delivery", "fulfillment"] as const)("complete cr
           method: "bank_transfer" as const, deductStockIfPartial: false }] : [])],
         deliverImmediately: failure === "fulfillment",
         ...(failure === "delivery" ? { delivery: { delivery: { method: "store" as const,
-          recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } } }, chargeDeliveryToCustomer: true } } : {}) };
+          recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } } }, expectedPrice: { amount: 0, currency: "PEN" as const } } } : {}) };
       expect(await createConfiguredOrder(input, context)).toMatchObject({ success: false });
       expect(await prisma.order.count()).toBe(0);
       expect(await prisma.orderItem.count()).toBe(0);

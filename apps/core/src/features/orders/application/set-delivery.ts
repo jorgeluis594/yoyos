@@ -11,7 +11,7 @@ import type { VariantId } from "@core/src/features/products/domain/product";
 export type LegacySetDeliveryInput = Readonly<{ orderId: OrderId; delivery: DeliverySelection; chargeDeliveryToCustomer: boolean }>;
 export type RatedSetDeliveryInput = Readonly<{ orderId: OrderId; delivery: RatedDeliverySelection; expectedPrice: Money }>;
 export type SetDeliveryInput = LegacySetDeliveryInput | RatedSetDeliveryInput;
-export type InitialOrderDeliveryInput = Omit<LegacySetDeliveryInput, "orderId"> | Omit<RatedSetDeliveryInput, "orderId">;
+export type InitialOrderDeliveryInput = Omit<RatedSetDeliveryInput, "orderId">;
 export type SetDeliveryError = OrderDomainError | ResolveRateError | PeruDistrictError | Readonly<{ code: "ORDER_NOT_FOUND" | "INSUFFICIENT_STOCK" | "PERSISTENCE_UNAVAILABLE" | "DELIVERY_UNAVAILABLE" | "DELIVERY_METHOD_DISABLED" | "COURIER_UNAVAILABLE" | "INVALID_STORED_DATA"; message: string; variantId?: string; reason?: "resolver_not_integrated" | "availability_unconfirmed" }>;
 export type SetDeliveryDependencies = Readonly<{
   transaction: <T>(companyId: CompanyId, work: () => Promise<Result<T, SetDeliveryError>>) => Promise<Result<T, SetDeliveryError>>;

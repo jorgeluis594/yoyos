@@ -130,12 +130,11 @@ export async function setConfiguredOrderDelivery(input: SetDeliveryInput, contex
   return result;
 }
 
-export function createConfiguredOrder(input: CreateCompleteOrderInput, context: OrderAccess,
-  resolveShippingCost?: ResolveDeliveryDependencies["resolveShippingCost"]): Promise<Result<OrderAggregate, CreateCompleteOrderError>> {
+export function createConfiguredOrder(input: CreateCompleteOrderInput, context: OrderAccess): Promise<Result<OrderAggregate, CreateCompleteOrderError>> {
   return createCompleteOrder(input, context, {
     transaction: scopedOrderTransaction,
     create: orders.create,
-    setDelivery: (delivery, access) => setConfiguredOrderDelivery(delivery, access, resolveShippingCost),
+    setDelivery: (delivery, access) => setConfiguredOrderDelivery(delivery, access),
     registerPayment: (payment, access) => registerPayment(payment, access, { transaction: paymentTransaction,
       findOrderForUpdate, savePayment, updatePayment, saveCompletion, deductProductStock, saveStockDeduction, clock: () => new Date() }),
     deliver: orders.deliver,
