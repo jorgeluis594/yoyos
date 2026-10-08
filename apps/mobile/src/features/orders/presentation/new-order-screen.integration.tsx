@@ -1,6 +1,7 @@
 // Run by core/tests/e2e/mobile-order-creation.spec.ts against its isolated API/database.
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, unlinkSync } from "node:fs";
 import { request as httpRequest } from "node:http";
+import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fireEvent, render, waitFor } from "@testing-library/react-native";
@@ -35,6 +36,7 @@ jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   searchOrderContacts: (...args: Parameters<typeof mockOrders.searchOrderContacts>) => mockOrders.searchOrderContacts(...args),
   completeOrder: (...args: Parameters<typeof mockOrders.completeOrder>) => mockOrders.completeOrder(...args),
   resendPendingOrder: (...args: Parameters<typeof mockOrders.resendPendingOrder>) => mockOrders.resendPendingOrder(...args),
+  reviewLegacyPendingDelivery: (...args: Parameters<typeof mockOrders.reviewLegacyPendingDelivery>) => mockOrders.reviewLegacyPendingDelivery(...args),
 } }));
 jest.mock("@mobile/features/delivery-settings/composition", () => {
   const { createDeliverySettingsApi } = jest.requireActual<typeof import("@mobile/features/delivery-settings/infrastructure/delivery-settings-api")>("@mobile/features/delivery-settings/infrastructure/delivery-settings-api");
@@ -260,3 +262,52 @@ test("rated mobile creation recovers the same charge after a lost response and r
   } });
   expect(mockPosts).toBe(1);
 });
+
+test("legacy recovery reviews a current rate and resends the same order and payments through the real API", async () => {
+  const catalog = await mockOrders.searchOrderCatalog("Journey product");
+  if (!catalog.success || !catalog.data[0]?.variants[0]) throw new Error("Missing recovery product");
+  const orderId = randomUUID();
+  const paymentId = randomUUID();
+  const companyId = process.env.ORDER_JOURNEY_COMPANY!;
+  const pending = { version: 2, companyId, id: orderId, shownTotal: { amount: 10, currency: "PEN" },
+    request: { id: orderId, contactId: null, items: [{ variantId: catalog.data[0].variants[0].id, quantity: 1 }],
+      payments: [{ paymentId, amount: { amount: 4.5, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false }],
+      delivery: { chargeDeliveryToCustomer: false, delivery: { method: "home",
+        recipient: { name: "Recovery recipient", phone: "999123456", identity: { kind: "absent" } },
+        destination: { address: "Recovery street", district: "Miraflores", instructions: "Door 2" } } } } };
+  writeFileSync(join(directory, `yoyos_pending_order_${companyId}`), JSON.stringify(pending));
+  restartOperations();
+  const screen = render(<NewOrderScreen />);
+  fireEvent.press(await screen.findByRole("button", { name: "Revisar entrega guardada" }));
+  await screen.findByLabelText(/Dirección de entrega/);
+  expect(screen.getByLabelText(/Dirección de entrega/)).toHaveProp("value", "Recovery street");
+  const district = getPeruDistrict("150122")!;
+  fireEvent(screen.getByTestId("delivery-department"), "valueChange", peruDepartments.findIndex(value => value.code === district.departmentCode));
+  fireEvent(screen.getByTestId("delivery-province"), "valueChange", getPeruProvinces(district.departmentCode).findIndex(value => value.code === district.provinceCode));
+  fireEvent.changeText(screen.getByLabelText("Buscar distrito"), district.code);
+  fireEvent(screen.getByTestId("delivery-district"), "valueChange", 0);
+  await screen.findByTestId("delivery-rate");
+  fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 1);
+  expect(screen.getByText(/Total:\sS\/\s22\.00/)).toBeTruthy();
+  fireEvent.press(screen.getByRole("button", { name: "Guardar entrega revisada" }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Guardar entrega revisada" })).toBeNull(), { timeout: 10000 });
+  expect(mockPosts).toBe(0);
+  expect(await mockOrders.readPendingOrderConfirmation(companyId)).toMatchObject({ success: true, data: {
+    id: orderId, request: { id: orderId, payments: pending.request.payments,
+      delivery: { expectedPrice: { amount: 12, currency: "PEN" }, delivery: { method: "home", destination: { address: "Recovery street", districtCode: "150122" } } } },
+  } });
+  screen.unmount(); restartOperations();
+  const reopened = render(<NewOrderScreen />);
+  await reopened.findByText("Venta pendiente de confirmar");
+  for (let index = 0; index < 2; index++) {
+    fireEvent.press(reopened.getByRole("button", { name: "Verificar venta" }));
+    await waitFor(() => expect(reopened.getByRole("button", { name: "Verificar venta" })).toBeEnabled());
+  }
+  fireEvent.press(await reopened.findByRole("button", { name: "Reenviar mismo intento" }));
+  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(`/orders/${orderId}`));
+  expect(await mockOrders.loadOrder(orderId)).toMatchObject({ success: true, data: {
+    total: { amount: 22, currency: "PEN" }, deliveryCharge: { amount: 12, currency: "PEN" }, stockDeducted: false,
+    payments: [expect.objectContaining({ id: paymentId, amount: { amount: 4.5, currency: "PEN" } })],
+  } });
+  expect(mockPosts).toBe(1);
+}, 20000);

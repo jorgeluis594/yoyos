@@ -39,8 +39,8 @@ test("mobile creation screen integrates with real order API, database and persis
     }
     await withTenantIsolation(tenantId, async () => {
       const saved = await prisma.order.findMany({ include: { payments: true } });
-      expect(saved).toHaveLength(7);
-      expect(saved.filter(order => order.completedAt === null)).toHaveLength(6);
+      expect(saved).toHaveLength(8);
+      expect(saved.filter(order => order.completedAt === null)).toHaveLength(7);
       for (const pending of saved.filter(order => order.completedAt === null && order.payments.length === 0))
         expect(pending).toMatchObject({ payments: [], stockDeducted: false, deliveryStatus: "pending", cancelled: false });
       expect(saved.find(order => order.completedAt !== null)).toMatchObject({ stockDeducted: true, deliveryStatus: "delivered", payments: [expect.any(Object)] });
@@ -48,9 +48,9 @@ test("mobile creation screen integrates with real order API, database and persis
         itemsTotal: expect.any(Object), stockDeducted: true, deliveryStatus: "pending", payments: [expect.any(Object)],
       });
       const rated = saved.filter(order => order.delivery !== null);
-      expect(rated).toHaveLength(4);
-      expect(rated.map(order => String(order.deliveryCharge)).sort()).toEqual(["0", "10", "12", "8"]);
-      expect(await prisma.payment.count()).toBe(2);
+      expect(rated).toHaveLength(5);
+      expect(rated.map(order => String(order.deliveryCharge)).sort()).toEqual(["0", "10", "12", "12", "8"]);
+      expect(await prisma.payment.count()).toBe(3);
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity).toBe(3n);
     });
   } finally {

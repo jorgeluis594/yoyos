@@ -72,6 +72,7 @@ function CompanyOrderScreen() {
   const [contactSearch, setContactSearch] = useState("");
   const [contacts, setContacts] = useState<Contacts>([]);
   const [pending, setPending] = useState<PendingOrderConfirmation | null>(null);
+  const [reviewingLegacy, setReviewingLegacy] = useState(false);
   const [pendingStatus, setPendingStatus] = useState<"loading" | "none" | "uncertain" | "error">("loading");
   const [checks, setChecks] = useState(0);
   const [checking, setChecking] = useState(false);
@@ -88,11 +89,13 @@ function CompanyOrderScreen() {
   const companyId = state.status === "ready" ? state.company.id : "";
   const activeCompany = useRef(companyId);
   const offline = network.isConnected === false || network.isInternetReachable === false;
-  const productTotal = prepareOrder({ ...draft, payments: undefined, delivery: undefined, ratedDelivery: undefined });
+  const legacyDelivery = pending?.request?.delivery && "chargeDeliveryToCustomer" in pending.request.delivery ? pending.request.delivery.delivery : null;
+  const productTotal = reviewingLegacy && pending ? ok({ shownTotal: pending.shownTotal })
+    : prepareOrder({ ...draft, payments: undefined, delivery: undefined, ratedDelivery: undefined });
   const method = initialDelivery?.method;
   const districtCode = initialDelivery?.districtCode ?? "";
   const deliveryEnabled = !!method && !!settings?.[method].enabled;
-  const canQuote = !!initialDelivery && deliveryEnabled && (method === "home" || method === "agency") && !!districtCode && pendingStatus === "none";
+  const canQuote = !!initialDelivery && deliveryEnabled && (method === "home" || method === "agency") && !!districtCode && (pendingStatus === "none" || reviewingLegacy);
   const requestKey = `${companyId}/${method}/${districtCode}/${quoteAttempt}/${settings?.version}`;
   const quotation = canQuote && quoteResult?.key === requestKey ? quoteResult.quotation : null;
   const quoting = canQuote && quoteResult?.key !== requestKey;
@@ -134,8 +137,8 @@ function CompanyOrderScreen() {
   }, [companyId]);
   useEffect(() => {
     if (draft.kind === "empty") leaveAllowed.current = false;
-    setDirty(draft.kind === "items" && !leaveAllowed.current);
-  }, [draft, setDirty]);
+    setDirty((draft.kind === "items" || reviewingLegacy) && !leaveAllowed.current);
+  }, [draft, reviewingLegacy, setDirty]);
   useEffect(() => () => setDirty(false), [setDirty]);
   useEffect(() => {
     if (version.current === discardVersion) return;
@@ -143,6 +146,7 @@ function CompanyOrderScreen() {
     leaveAllowed.current = true;
     setDraft(emptyOrderDraft());
     setInitialDelivery(null);
+    setReviewingLegacy(false);
     setQuoteAttempt(value => value + 1);
   }, [discardVersion]);
   usePreventRemove(dirty, ({ data }) => {
@@ -196,7 +200,7 @@ function CompanyOrderScreen() {
     const result = await orders.resolvePendingOrderConfirmation(companyId);
     setChecking(false);
     if (!result.success) { setError(t('verifyOrderOffline')); return; }
-    if (!result.data) { setPending(null); setPendingStatus("none"); setChecks(0); return; }
+    if (!result.data) { setPending(null); setPendingStatus("none"); setReviewingLegacy(false); setChecks(0); return; }
     if (result.data.kind === "completed") { openCompleted(result.data); return; }
     setPending(result.data.pending);
     setChecks((current) => current + 1);
@@ -226,7 +230,9 @@ function CompanyOrderScreen() {
         return;
       }
       if (result.data.kind === "completed") { openCompleted(result.data); return; }
-      setPending(result.data.pending); setPendingStatus("uncertain"); setChecks(0); setError(t('uncertainOrder'));
+      setPending(result.data.pending); setPendingStatus("uncertain");
+      if (reviewingLegacy) { setReviewingLegacy(false); setInitialDelivery(null); }
+      setChecks(0); setError(t('uncertainOrder'));
     } finally { saving.current = false; setSending(false); }
   };
   const complete = () => { if (deliveryReady && prepared.success) return performSave(() => orders.completeOrder(saveDraft, companyId)); };
@@ -258,8 +264,37 @@ function CompanyOrderScreen() {
         : pendingStatus === "uncertain" ? <View style={[styles.section, { backgroundColor: theme.backgroundElement, padding: 16, borderRadius: 8 }]}>
             <ThemedText type="subtitle" accessibilityRole="header">{t('pendingSale')}</ThemedText>
             <ThemedText>{t('verifyPendingId', { id: pending?.id })}</ThemedText>
-            <Button loading={checking} onPress={() => void verify()}>{t('verifyOrder')}</Button>
-            {checks >= 2 && pending?.request ? <Button variant="secondary" loading={sending} onPress={() => void performSave(() => orders.resendPendingOrder(companyId))}>{t('resendAttempt')}</Button> : null}
+            <Button disabled={sending} loading={checking} onPress={() => void verify()}>{t('verifyOrder')}</Button>
+            {legacyDelivery && pending && !reviewingLegacy ? <Button variant="secondary" disabled={checking || sending} onPress={() => {
+              const recipient = legacyDelivery.recipient;
+              setInitialDelivery({ method: legacyDelivery.method, name: recipient.name, phone: recipient.phone,
+                documentType: recipient.identity.kind === "document" ? recipient.identity.documentType : "absent",
+                document: recipient.identity.kind === "document" ? recipient.identity.document : "",
+                address: legacyDelivery.method === "home" ? legacyDelivery.destination.address : "",
+                instructions: legacyDelivery.method === "home" ? legacyDelivery.destination.instructions ?? "" : "",
+                districtCode: "", rateId: "", price: null, currency: pending.shownTotal.currency });
+              setReviewingLegacy(true); setQuoteAttempt(value => value + 1); setError("");
+            }}>{t('reviewLegacyDelivery')}</Button> : null}
+            {reviewingLegacy && initialDelivery && pending ? <>
+              <ThemedText>{t('legacyDeliveryReviewHint')}</ThemedText>
+              <ThemedText>{t('itemCount', { count: pending.request?.items.reduce((count, item) => count + item.quantity, 0) ?? 0 })}</ThemedText>
+              {pending?.request?.payments?.map(payment => <ThemedText key={payment.paymentId}>{t('initialPaid')}: {money(payment.amount.amount, payment.amount.currency, locale)}</ThemedText>)}
+              {settings ? <DeliveryFields value={initialDelivery} onChange={next => {
+                if (next.method !== initialDelivery.method || next.districtCode !== initialDelivery.districtCode) setQuoteAttempt(value => value + 1);
+                setInitialDelivery(next);
+              }} settings={settings} busy={sending || checking} language={orderLanguage(state.company.country, i18n.language)}
+                rates={rates} quoting={quoting} quoteError={quoteError} onRetry={retryQuotation} /> : <ThemedText>{t('loadOrderDeliveryError')}</ThemedText>}
+              <ThemedText>{t('orderDeliveryProductsAmount', { amount: money(pending.shownTotal.amount, pending.shownTotal.currency, locale) })}</ThemedText>
+              {reviewedPrice && reviewedTotal?.success ? <>
+                <ThemedText>{t('orderDeliveryAmount', { amount: money(reviewedPrice.amount, reviewedPrice.currency, locale) })}</ThemedText>
+                <ThemedText>{t('orderDeliveryTotalAmount', { amount: money(reviewedTotal.data.amount, reviewedTotal.data.currency, locale) })}</ThemedText>
+              </> : null}
+              <ThemedText themeColor="textSecondary">{t('creationPriceHint')}</ThemedText>
+              <Button disabled={!ratedDelivery || offline || checking} loading={sending} onPress={() => {
+                if (ratedDelivery) void performSave(() => orders.reviewLegacyPendingDelivery(companyId, ratedDelivery));
+              }}>{t('saveReviewedDelivery')}</Button>
+            </> : null}
+            {checks >= 2 && pending?.request && !legacyDelivery ? <Button variant="secondary" loading={sending} onPress={() => void performSave(() => orders.resendPendingOrder(companyId))}>{t('resendAttempt')}</Button> : null}
             {pending && !pending.request ? <ThemedText>{t('legacyAttemptHint')}</ThemedText> : null}
           </View>
         : stage === "products" ? <View style={styles.section}>

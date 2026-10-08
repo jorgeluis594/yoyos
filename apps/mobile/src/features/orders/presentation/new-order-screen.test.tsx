@@ -13,6 +13,7 @@ const mockSettingsGet = jest.fn();
 const mockReadPending = jest.fn();
 const mockResolvePending = jest.fn();
 const mockResendPending = jest.fn();
+const mockReviewPending = jest.fn();
 let mockDirty = false;
 let mockCountry = "PE";
 let mockNextId = 3;
@@ -33,6 +34,7 @@ jest.mock("expo-network", () => ({ useNetworkState: () => ({ isConnected: !mockO
 jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   readPendingOrderConfirmation: (...args: unknown[]) => mockReadPending(...args),
   resendPendingOrder: (...args: unknown[]) => mockResendPending(...args),
+  reviewLegacyPendingDelivery: (...args: unknown[]) => mockReviewPending(...args),
   resolvePendingOrderConfirmation: (...args: unknown[]) => mockResolvePending(...args),
   searchOrderCatalog: async () => ({ success: true, data: [{ id: mockId(4), name: "Camisa", currency: "PEN",
     variants: [{ id: mockId(2), attributes: { Talla: "M" }, sku: "CAM-M", price: 10, stock: 3 }] }] }),
@@ -263,6 +265,49 @@ test("restart verifies and resends a saved request without rebuilding another or
   await waitFor(() => expect(mockResendPending).toHaveBeenCalledWith(mockId(1)));
   await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(`/orders/${mockId(3)}`));
   expect(mockCompleteOrder).not.toHaveBeenCalled();
+});
+
+test("legacy recovery reviews an explicit rate while retaining recipient and original payment identities", async () => {
+  const pending = { version: 2, companyId: mockId(1), id: mockId(3), shownTotal: { amount: 10, currency: "PEN" },
+    request: { id: mockId(3), contactId: null, items: [{ variantId: mockId(2), quantity: 1 }],
+      payments: [{ paymentId: mockId(8), amount: { amount: 4.5, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false }],
+      delivery: { chargeDeliveryToCustomer: false, delivery: { method: "home", recipient: { name: "Ana", phone: "999001", identity: { kind: "absent" } },
+        destination: { address: "Original street", district: "Miraflores", instructions: "Door 2" } } } } };
+  mockReadPending.mockResolvedValue(ok(pending));
+  const screen = render(<NewOrderScreen />);
+  fireEvent.press(await screen.findByRole("button", { name: "Revisar entrega guardada" }));
+  await screen.findByLabelText(/Dirección de entrega/);
+  expect(screen.getByLabelText(/Dirección de entrega/)).toHaveProp("value", "Original street");
+  expect(screen.getByLabelText(/Nombre del destinatario/)).toHaveProp("value", "Ana");
+  expect(screen.getByText(/Pagos ingresados:.*4[.,]50/)).toBeTruthy();
+  expect(mockQuotation).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "Guardar entrega revisada" })).toBeDisabled();
+  selectDistrict(screen);
+  await screen.findByTestId("delivery-rate");
+  expect(screen.getByRole("button", { name: "Guardar entrega revisada" })).toBeDisabled();
+  fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 1);
+  expect(screen.getByText(/Total:\sS\/\s22\.00/)).toBeTruthy();
+  const delivery = { expectedPrice: secondRate.price, delivery: { method: "home", rateId: secondRate.id,
+    recipient: pending.request.delivery.delivery.recipient, destination: { districtCode: "150122", address: "Original street", instructions: "Door 2" } } };
+  const revised = { ...pending, shownTotal: { amount: 22, currency: "PEN" }, request: { ...pending.request, delivery } };
+  mockReviewPending.mockResolvedValueOnce(err({ code: "PENDING_STORAGE_UNAVAILABLE", message: "Cannot save" }));
+  fireEvent.press(screen.getByRole("button", { name: "Guardar entrega revisada" }));
+  await waitFor(() => expect(mockReviewPending).toHaveBeenCalledWith(mockId(1), delivery));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Guardar entrega revisada" })).toBeEnabled());
+  expect(screen.getByLabelText(/Dirección de entrega/)).toHaveProp("value", "Original street");
+  mockReviewPending.mockResolvedValueOnce(ok({ kind: "uncertain", pending: revised }));
+  fireEvent.press(screen.getByRole("button", { name: "Guardar entrega revisada" }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Guardar entrega revisada" })).toBeNull());
+  expect(mockCompleteOrder).not.toHaveBeenCalled();
+  expect(mockResendPending).not.toHaveBeenCalled();
+  mockResolvePending.mockResolvedValue(ok({ kind: "uncertain", pending: revised }));
+  for (let index = 0; index < 2; index++) {
+    fireEvent.press(screen.getByRole("button", { name: "Verificar venta" }));
+    await waitFor(() => expect(mockResolvePending).toHaveBeenCalledTimes(index + 1));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Verificar venta" })).toBeEnabled());
+  }
+  expect(screen.getByRole("button", { name: "Reenviar mismo intento" })).toBeEnabled();
+  expect(mockQuotation).toHaveBeenCalledTimes(1);
 });
 
 test("new order selects one overlapping home rate and reviews the full charge without manual pricing", async () => {
