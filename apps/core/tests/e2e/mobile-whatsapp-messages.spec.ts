@@ -92,12 +92,31 @@ test("E04 isolates identical identities between companies", async ({ page }) => 
   const a = await seller(page);
   const input = message();
   const first = registerWhatsAppMessageResponseSchema.parse(await checked(await page.request.post("/api/whatsapp/messages", { data: input }), 201));
+  const aUser = await systemPrisma.user.findUniqueOrThrow({ where: { email: a.email } });
+  const aRow = (await rows(a.companyId))[0];
+  expect(aRow).toMatchObject({ id: first.messageId, eventDispatchedAt: expect.any(Date) });
   await page.request.post("/api/auth/sign-out");
   const b = await seller(page);
-  const second = registerWhatsAppMessageResponseSchema.parse(await checked(await page.request.post("/api/whatsapp/messages", { data: input }), 201));
+  const bUser = await systemPrisma.user.findUniqueOrThrow({ where: { email: b.email } });
+  const second = registerWhatsAppMessageResponseSchema.parse(await checked(await page.request.post(
+    `/api/whatsapp/messages?companyId=${a.companyId}&userId=${aUser.id}`,
+    { data: { ...input, message: { ...input.message, content: { type: "text", text: "Only B" } } },
+      headers: { "x-company-id": a.companyId, "x-user-id": aUser.id } },
+  ), 201));
   expect(second.messageId).not.toBe(first.messageId);
-  expect(await rows(a.companyId)).toHaveLength(1);
-  expect(await rows(b.companyId)).toHaveLength(1);
+  expect(await rows(a.companyId)).toEqual([aRow]);
+  expect(await rows(b.companyId)).toMatchObject([{ id: second.messageId, companyId: b.companyId, uploadedByUserId: bUser.id, text: "Only B", source: "contact" }]);
+
+  const state = async (companyId: string) => withTenantIsolation(companyId, async () => ({
+    contacts: await prisma.contact.findMany({ where: { companyId } }),
+    chats: await prisma.chat.findMany({ where: { companyId } }),
+    messages: await prisma.chatMessage.findMany({ where: { companyId } }),
+  }));
+  const before = await Promise.all([state(a.companyId), state(b.companyId)]);
+  expect(apiErrorResponseSchema.parse(await checked(await page.request.post("/api/whatsapp/messages", {
+    data: { ...input, companyId: a.companyId, userId: aUser.id, source: "seller" },
+  }), 400)).code).toBe("INVALID_INPUT");
+  expect(await Promise.all([state(a.companyId), state(b.companyId)])).toEqual(before);
 });
 
 test("E06 recovers the same committed row after a real provider fails to start", async ({ page }) => {
