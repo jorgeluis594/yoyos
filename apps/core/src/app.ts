@@ -12,7 +12,8 @@ import { imageRepository } from "@core/src/shared/images/infrastructure/image-re
 import { createR2ImageStorage } from "@core/src/shared/images/infrastructure/r2-image-storage";
 import { loadWhatsAppConnections } from "@core/src/features/chats/infrastructure/whatsapp-connections";
 import { whatsappWebhook } from "@core/src/features/chats/presentation/whatsapp-webhook";
-import { mobileMessageParser } from "@core/src/features/chats/presentation/mobile-message-routes";
+import { mobileMessageParser, mobileMessageRoutes } from "@core/src/features/chats/presentation/mobile-message-routes";
+import { registerMobileMessage } from "@core/src/features/chats";
 import { productRoutes } from "@core/src/features/products/presentation/api-routes";
 import { orderRoutes } from "@core/src/features/orders/presentation/api-routes";
 import { hasDuplicateJsonKeys } from "@core/src/shared/presentation/json-keys";
@@ -84,6 +85,7 @@ app.post("/api/company", async (request, response: Response<unknown, Authenticat
 });
 
 app.use("/api", requireApiCompany);
+app.use("/api/whatsapp/messages", mobileMessageRoutes(registerMobileMessage));
 app.use("/api/company/payment-settings", paymentSettingsRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);

@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { ensureContact } from "@core/src/features/contacts/application/ensure-contact";
-import { normalizePhone, type Contact } from "@core/src/features/contacts/domain/contact";
+import { normalizePhone, type Contact, type PhoneContact } from "@core/src/features/contacts/domain/contact";
+
+// @ts-expect-error A contact cannot have only one half of its WhatsApp identity.
+const incompleteIdentity: PhoneContact = { id: "2e98e108-1821-4fd1-a507-21e3e00b76f1", phone: "+14155552671", name: null, createdAt: new Date(0), updatedAt: new Date(0), whatsappAccountId: "123@lid", whatsappLid: null };
+void incompleteIdentity;
 
 const contact: Contact = { id: "2e98e108-1821-4fd1-a507-21e3e00b76f1", phone: "+14155552671", name: null, createdAt: new Date(0), updatedAt: new Date(0) };
 
