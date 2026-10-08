@@ -1,6 +1,6 @@
 # WhatsApp native module (WA-01)
 
-This local Expo module links Go/whatsmeow into Android and iOS. Its current `probe` method is a build diagnostic: it constructs an unconnected whatsmeow client, calls a native callback, and returns the callback value or a sanitized error. Session, QR, and message reception belong to later WA tasks. The WA-02 storage draft below is internal and is not yet connected to the public API.
+This local Expo module links Go/whatsmeow into Android and iOS. Its current `probe` method is a build diagnostic: it constructs an unconnected whatsmeow client, calls a native callback, and returns the callback value or a sanitized error. Session, QR, and message reception belong to later WA tasks. The WA-02 storage writers below are internal and are not yet connected to the public API.
 
 ## Pinned inputs
 
@@ -39,8 +39,8 @@ Android binds `arm64-v8a` and `x86_64` with Java package prefix `expo.modules.wh
 
 `go test` exercises callback values, errors, and invalid input inside Go. `index.test.ts` exercises missing module and boundary responses. The Android instrumented test calls the actual AAR on an emulator; native CI also builds the iOS app and its XCFramework on arm64 and amd64 simulator hosts. Generated bindings and a successful compile alone do not prove callback execution. Physical Android arm64 and iOS device runtime checks remain unexecuted without hardware.
 
-## WA-02 storage draft
+## WA-02 encrypted storage
 
 `android/src/main/java/expo/modules/whatsapp/NativeStateStore.kt` and `ios/Storage/NativeStateStore.swift` contain the internal encrypted snapshot writers. They publish `state.bin` through a synced `state.next`, persist a trusted read bound before a larger revision, and keep session keys separate from the recovery key. Android uses nonexportable Android Keystore AES keys and a secure creation marker; iOS keeps the creation record and AES keys in device-only Keychain items. The storage directory is private and excluded from backup. The writers are internal to the native module; WA-03 will connect them to Go protocol stores.
 
-The Android instrumented storage suite runs through the existing `connectedDebugAndroidTest` CI step. The Swift storage suite is included in the `WhatsAppBridgeTests` package target, and the podspec compiles the storage sources. The local machine does not have the required Android SDK or full Xcode, so no native storage test or build result is claimed here. The preparatory handoff report records the assigned-case matrix and outstanding validation.
+The Android instrumented storage suite runs through `connectedDebugAndroidTest`; `scripts/check-android-probe.sh` separately kills and restarts the process at each publication phase and induces actual `ENOSPC` before a second-copy write. The Swift storage suite is in the `WhatsAppBridgeTests` package target; the workflow runs its process-kill case separately across eight invocations. These tests require native CI because the local machine lacks Android SDK and full Xcode. Passing a build or generating bindings alone does not prove storage runtime behavior; the WA-02 evidence report lists each assigned case and its native result.
