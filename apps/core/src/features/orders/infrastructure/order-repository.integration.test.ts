@@ -939,16 +939,20 @@ test("concurrent delivery assignment and stock deduction consume stock once", as
   try {
     const orderId = randomUUID() as OrderId;
     await run(async () => {
-      expect(await deliverySettings.save({ expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: true }, store: { enabled: false, pickupPoint: null } }, context)).toMatchObject({ success: true });
+      expect(await deliverySettings.save({ expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Store", address: "Address", instructions: null } } }, context)).toMatchObject({ success: true });
       expect(await orders.create({ id: orderId, contactId: null, items: [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }] }, context)).toMatchObject({ success: true });
       await prisma.payment.create({ data: { id: randomUUID(), orderId, amount: 0.1, currency: "PEN", method: "digital_wallet", status: "confirmed", data: { confirmedAt: new Date().toISOString(), confirmedBy: { kind: "seller", userId: f.sellerId }, evidence: { kind: "manual" } } } });
     });
-    const assign = run(() => setConfiguredOrderDelivery({ orderId, delivery: { method: "home", recipient: { name: "Recipient", phone: "00123", identity: { kind: "absent" } }, destination: { address: "Address", district: "Lima", instructions: null } }, chargeDeliveryToCustomer: false }, context,
-      async (_snapshot, _access, currency) => { arrived(); await hold; return ok({ amount: 3, currency }); }));
+    const store = parseRatedDeliverySelection({ method: "store", recipient: { name: "Recipient", phone: "00123", identity: { kind: "absent" } } });
+    if (!store.success) throw new Error(store.error.message);
+    const assign = run(() => withinTransaction(async () => {
+      const result = await orders.setDelivery({ orderId, delivery: store.data, expectedPrice: { amount: 0, currency: "PEN" } }, context);
+      arrived(); await hold; return result;
+    }));
     await protectedOrder;
     const deduct = run(() => orders.deductStock(orderId, context));
     try { await waitForDeliveryLock(); } finally { release(); }
-    expect(await assign).toMatchObject({ success: true, data: { stockDeducted: true } });
+    expect(await assign).toMatchObject({ success: true, data: { delivery: { method: "store", pickupPoint: { address: "Address" } }, deliveryCost: { amount: 0 }, deliveryCharge: { amount: 0 }, stockDeducted: true } });
     expect(await deduct).toMatchObject({ success: true, data: { stockDeducted: true } });
     await run(async () => {
       expect(await orderDetail(orderId, f)).toMatchObject({ success: true, data: { total: { amount: 0.1 }, payments: [{ amount: { amount: 0.1 } }], stockDeducted: true } });
