@@ -1,7 +1,7 @@
 import type { OrderSubmission } from "@mobile/features/orders/domain/order-draft";
 import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
 import { z } from "zod";
-import { completeOrderSchema, createRatedOrderSchema, createOrderSchema, listOrderAggregatesResponseSchema, listOrderAggregatesSchema, listOrdersResponseSchema, listOrdersSchema, orderAggregateSchema, orderApiErrorSchema,
+import { createOrderSchema, listOrderAggregatesResponseSchema, listOrderAggregatesSchema, listOrdersResponseSchema, listOrdersSchema, orderAggregateSchema, orderApiErrorSchema,
   orderCatalogSchema, orderContactsSchema, setRatedOrderDeliverySchema, type SetRatedOrderDeliveryRequest, registerPaymentResponseSchema, registerPaymentSchema, type CreateRatedOrderRequest, type CreateOrderRequest, type ListOrderAggregatesRequest, type ListOrdersRequest, type RegisterPaymentRequest,
   type OrderAggregateResponse, type OrderApiError } from "@shared/contracts/orders";
 import { err, ok } from "@shared/functional";
@@ -158,7 +158,7 @@ export function createOrderApi(request: Request) {
       return response(await request(`/api/orders/${id}/aggregate`), orderAggregateSchema, "get");
     },
     create: async (input: OrderSubmission | CreateOrderRequest | CreateRatedOrderRequest): Promise<Result<OrderAggregateResponse, OrderRequestError>> => {
-      const parsed = z.union([createRatedOrderSchema, completeOrderSchema.omit({ delivery: true }), createOrderSchema.options[1]]).safeParse(input);
+      const parsed = createOrderSchema.safeParse(input);
       if (!parsed.success) return err({ code: "INVALID_INPUT", message: "Invalid order request" });
       return response(await request("/api/orders", { method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify(parsed.data) }), orderAggregateSchema, "create");

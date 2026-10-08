@@ -2,7 +2,7 @@ import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import express, { type Request, type Response } from "express";
 import { z } from "zod";
-import { createOrderSchema, createRatedOrderSchema, completeOrderSchema, setRatedOrderDeliverySchema, orderApiErrorSchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
+import { createOrderSchema, setRatedOrderDeliverySchema, orderApiErrorSchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
 import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { apiError, type PrivateLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { orders, createConfiguredOrder } from "@core/src/features/orders/composition";
@@ -257,7 +257,7 @@ for (const [path, operation] of [
 
 orderRoutes.post("/", async (request, response: Response<unknown, PrivateLocals>) => {
   if (!request.is("application/json")) return apiError(response, 415, "UNSUPPORTED_MEDIA_TYPE", "JSON body required");
-  const parsed = z.union([createRatedOrderSchema, completeOrderSchema.omit({ delivery: true }), createOrderSchema.options[1]]).safeParse(request.body);
+  const parsed = createOrderSchema.safeParse(request.body);
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order input");
   try {
     const input = toCreateOrderInput(parsed.data);
@@ -267,7 +267,7 @@ orderRoutes.post("/", async (request, response: Response<unknown, PrivateLocals>
       return result.success ? response.status(201).json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
     }
     let delivery: Omit<RatedSetDeliveryInput, "orderId"> | undefined;
-    if ("delivery" in parsed.data) {
+    if (parsed.data.delivery) {
       const change = parsed.data.delivery;
       const selection = parseRatedDeliverySelection(change.delivery);
       if (!selection.success) return operationError(response, selection.error);

@@ -1,4 +1,3 @@
-import { z } from "zod";
 import type { RatedSetDeliveryInput } from "@core/src/features/orders/application/set-delivery";
 import { PaymentFields, type PaymentDraft } from "@core/src/features/orders/presentation/payment-fields";
 import { RatedDeliveryForm, type RatedDeliveryReview } from "@core/src/features/orders/presentation/rated-delivery-form";
@@ -14,7 +13,7 @@ import { formatCurrency } from "@core/app/format-currency";
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Plus, Search, ShoppingBag } from "lucide-react";
 import { Form, Link, useActionData, useFetcher, useLoaderData, useNavigation, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
-import { createRatedOrderSchema, completeOrderSchema, newOrderLoaderSchema, orderActionErrorSchema } from "@shared/contracts/orders";
+import { completeOrderSchema, newOrderLoaderSchema, orderActionErrorSchema } from "@shared/contracts/orders";
 import { privateUserContext } from "@core/app/private-user-context";
 import { orders, createConfiguredOrder } from "@core/src/features/orders/composition";
 import type { ContactId, OrderId, PaymentId, PositiveInteger } from "@core/src/features/orders/domain/order";
@@ -41,13 +40,13 @@ export async function action({ request, context }: ActionFunctionArgs) {
   let raw: unknown;
   try { raw = JSON.parse(String((await request.formData()).get("order"))); }
   catch { return orderActionErrorSchema.parse({ code: "INVALID_ORDER", error: "Revisa los datos de la venta." }); }
-  const parsed = z.union([createRatedOrderSchema, completeOrderSchema.omit({ delivery: true })]).safeParse(raw);
+  const parsed = completeOrderSchema.safeParse(raw);
   if (!parsed.success) return orderActionErrorSchema.parse({ code: "INVALID_ORDER", error: "Revisa los datos de la venta." });
   const [first, ...rest] = parsed.data.items;
   if (!first) return orderActionErrorSchema.parse({ code: "INVALID_ORDER", error: "Revisa los datos de la venta." });
   const item = (selection: typeof first) => ({ variantId: selection.variantId as VariantId, quantity: selection.quantity as PositiveInteger });
   let delivery: Omit<RatedSetDeliveryInput, "orderId"> | undefined;
-  if ("delivery" in parsed.data) {
+  if (parsed.data.delivery) {
     const input = parsed.data.delivery;
     const selected = parseRatedDeliverySelection(input.delivery);
     if (!selected.success) return orderActionErrorSchema.parse({ code: "INVALID_ORDER", error: "Revisa la entrega." });
