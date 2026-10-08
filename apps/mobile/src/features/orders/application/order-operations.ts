@@ -108,6 +108,9 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
     if (!pending.request) return err({ code: "PENDING_CONFIRMATION", message: "Legacy attempt can only be verified; original request is unavailable" });
     const result = await api.create(pending.request);
     if (result.success) return confirmed(result.data, pending);
+    // The saved legacy delivery is needed to review a current rate after an upgrade.
+    if (result.error.code === "INVALID_INPUT" && pending.request.delivery && "chargeDeliveryToCustomer" in pending.request.delivery)
+      return result;
     if (definitive.has(result.error.code)) {
       const cleared = await pendingStore.clear(pending.companyId, pending.id);
       return cleared.success ? result : cleared;

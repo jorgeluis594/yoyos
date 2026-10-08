@@ -82,6 +82,7 @@ test("known stock rejection clears the marker and leaves the cart available", as
 });
 
 test.each([
+  ["INVALID_INPUT", 400],
   ["INVALID_PAYMENT", 422], ["PAYMENT_CONFLICT", 409], ["PAYMENT_REQUIRED", 409],
   ["INVALID_TRANSITION", 409], ["STOCK_NOT_DEDUCTED", 409],
   ["DELIVERY_UNAVAILABLE", 422], ["DELIVERY_METHOD_DISABLED", 422], ["COURIER_UNAVAILABLE", 422],
@@ -224,6 +225,36 @@ test("legacy attempt without a saved request remains blocked instead of reconstr
   expect(await operations.completeOrder(draft(), companyId)).toMatchObject({ success: false, error: { code: "PENDING_CONFIRMATION" } });
   expect(sends).toBe(0);
   expect(await store.read(companyId)).toMatchObject({ success: true, data: { id: id(3) } });
+});
+
+test.each([true, false])("rejected legacy delivery retains the original recovery request (customer charge: %s)", async (chargeDeliveryToCustomer) => {
+  const store = storage();
+  const pending = { version: 2 as const, companyId, id: id(3), shownTotal: { amount: 10, currency: "PEN" as const },
+    request: { id: id(3), contactId: id(7), items: [{ variantId: id(2), quantity: 1 }],
+      payments: [{ paymentId: id(8), amount: { amount: 4.5, currency: "PEN" as const }, method: "bank_transfer" as const, deductStockIfPartial: false }],
+      delivery: { chargeDeliveryToCustomer, delivery: { method: "home" as const,
+        recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } },
+        destination: { address: "Original address", district: "Lima", instructions: "Door 2" } } } } };
+  expect(await store.save(pending)).toEqual(ok(pending));
+  const paths: string[] = [];
+  const api = createOrderApi(async (path, init) => {
+    paths.push(path);
+    if (init?.method === "POST") {
+      expect(JSON.parse(String(init.body))).toEqual(pending.request);
+      return err({ code: "API_ERROR", message: "Unsupported delivery format", http: { status: 400,
+        body: { code: "INVALID_INPUT", error: "Unsupported delivery format" } } });
+    }
+    return err({ code: "API_ERROR", message: "Missing", http: { status: 404, body: { code: "ORDER_NOT_FOUND", error: "Missing" } } });
+  });
+  const restarted = createOrderOperations(api, store);
+  expect(await restarted.resendPendingOrder(companyId)).toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
+  expect(paths).toEqual([`/api/orders/${id(3)}/aggregate`, "/api/orders"]);
+  expect(await store.read(companyId)).toEqual(ok(pending));
+  expect(await restarted.resolvePendingOrderConfirmation(companyId)).toEqual(ok({ kind: "uncertain", pending }));
+  const other = addDraftItem(emptyOrderDraft(), item, () => id(9));
+  if (!other.success) throw new Error("Invalid second cart");
+  expect(await restarted.completeOrder(other.data, companyId)).toMatchObject({ success: false, error: { code: "PENDING_CONFIRMATION" } });
+  expect(paths).toHaveLength(3);
 });
 
 test("in-flight outcomes never cross company boundaries", async () => {
