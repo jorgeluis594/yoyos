@@ -61,7 +61,7 @@ final class StateStoreTests: XCTestCase {
   }
 
   func testInterruptedCreationResumes() throws {
-    for phase in ["creationRecord", "recoveryKey", "initialPublication"] {
+    for phase in ["recordResponse", "creationRecord", "recoveryKey", "initialPublication"] {
       let root = try temporaryDirectory()
       defer { try? FileManager.default.removeItem(at: root) }
       XCTAssertThrowsError(try makeStore(root) { if $0 == phase { throw StateStoreError.storage } }.open())
@@ -169,6 +169,28 @@ final class StateStoreTests: XCTestCase {
     XCTAssertNoThrow(try makeStore(root).open())
   }
 
+  func testConcurrentStoreInstancesCannotOverwriteAnOlderSnapshot() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let first = try makeStore(root)
+    let second = try makeStore(root)
+    _ = try first.open(); _ = try second.open()
+    _ = try first.commit(expectedRevision: "0") { state in
+      var next = state
+      next["options"] = ["maxRecoveryBufferBytes": 10 * 1024 * 1024, "maxImageStorageBytes": 123]
+      return next
+    }
+    XCTAssertThrowsError(try second.commit(expectedRevision: "0") { $0 })
+    _ = try second.commit(expectedRevision: "1") { state in
+      var next = state
+      next["options"] = ["maxRecoveryBufferBytes": 456, "maxImageStorageBytes": 123]
+      return next
+    }
+    let options = try XCTUnwrap(makeStore(root).open()["options"] as? [String: Int])
+    XCTAssertEqual(options["maxImageStorageBytes"], 123)
+    XCTAssertEqual(options["maxRecoveryBufferBytes"], 456)
+  }
+
   func testCorruptionNeverBecomesEmptyInstall() throws {
     let root = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: root) }
@@ -178,6 +200,24 @@ final class StateStoreTests: XCTestCase {
     data[data.count - 1] ^= 1
     try data.write(to: file)
     XCTAssertThrowsError(try makeStore(root).open())
+  }
+
+  func testEstablishedStateNeverRegeneratesMissingFileOrKeychainRecord() throws {
+    let missingFile = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: missingFile) }
+    _ = try makeStore(missingFile).open()
+    try FileManager.default.removeItem(at: missingFile.appendingPathComponent("whatsapp/state.bin"))
+    XCTAssertThrowsError(try makeStore(missingFile).open())
+
+    let missingRecord = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: missingRecord) }
+    _ = try makeStore(missingRecord).open()
+    let service = "com.yoyos.whatsapp.state.test." + missingRecord.lastPathComponent.replacingOccurrences(of: "-", with: "").lowercased()
+    let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
+                                kSecAttrAccount as String: "record", kSecUseDataProtectionKeychain as String: true]
+    XCTAssertEqual(SecItemDelete(query as CFDictionary), errSecSuccess)
+    try FileManager.default.removeItem(at: missingRecord.appendingPathComponent("whatsapp/state.bin"))
+    XCTAssertThrowsError(try makeStore(missingRecord).open())
   }
 
   func testMalformedEnvelopeDoesNotBecomeEmptyInstall() throws {

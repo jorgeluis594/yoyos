@@ -14,6 +14,7 @@ public enum StateStoreError: Error {
 /** Native-only writer. Every mutation starts from the last authenticated published revision. */
 public final class NativeStateStore {
   private static let writerLock = NSRecursiveLock()
+  nonisolated(unsafe) private static var publication: UInt64 = 0
   private static let maxSession = 16 * 1024 * 1024
   private static let defaultBuffer = 10 * 1024 * 1024
   private static let maxRevision = UInt64.max
@@ -29,6 +30,7 @@ public final class NativeStateStore {
   private var state: [String: Any]?
   private var uncertain = false
   private var sessionUsable = true
+  private var observedPublication: UInt64?
   private let lock = NativeStateStore.writerLock
 
   public init(directory: URL? = nil, serviceSuffix: String = "", fault: ((String) throws -> Void)? = nil) throws {
@@ -44,7 +46,8 @@ public final class NativeStateStore {
   public func open() throws -> [String: Any] {
     lock.lock(); defer { lock.unlock() }
     if uncertain { state = nil; uncertain = false }
-    if let state { return state }
+    if observedPublication == Self.publication, let state { return state }
+    state = nil
     let existed = try existsChecked(directory)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     try protect(directory)
@@ -69,6 +72,7 @@ public final class NativeStateStore {
       try removeIfPresent(temporary)
       try ensureImagesDirectory()
       state = loaded
+      observedPublication = Self.publication
       try cleanupProvisional(&record, publishedState: loaded)
       if let retired = loaded["sessionKeysToDelete"] as? [String], !retired.isEmpty { try endSession() }
       return state ?? loaded
@@ -82,6 +86,7 @@ public final class NativeStateStore {
     record["status"] = "ready"; try writeRecord(record)
     try ensureImagesDirectory()
     state = initial
+    observedPublication = Self.publication
     return initial
   }
 
@@ -101,6 +106,7 @@ public final class NativeStateStore {
     readBudget = nextBound
     try publish(next, revision: revision + 1)
     state = next
+    observedPublication = Self.publication
     return next
   }
 
@@ -172,6 +178,7 @@ public final class NativeStateStore {
     record["status"] = "ready"; try writeRecord(record)
     try ensureImagesDirectory()
     state = initial
+    observedPublication = Self.publication
     return initial
   }
 
@@ -196,6 +203,7 @@ public final class NativeStateStore {
     let bytes = prefix + sealed.ciphertext + sealed.tag
     uncertain = true
     try durableWrite(bytes, to: temporary, replacing: published)
+    Self.publication &+= 1
     try fault?("directorySync")
     try syncDirectory()
     revision = newRevision
@@ -304,6 +312,7 @@ public final class NativeStateStore {
         try Self.exact(child, expected)
         guard let format = child["format"] as? String, ["v2", "v3", "history"].contains(format),
               let body = child["plaintextBase64"] as? String, Self.decode(body, max: bound) != nil else { throw StateStoreError.invalid }
+        guard (source == "history") == (format == "history") else { throw StateStoreError.invalid }
         if format == "history" && child["ciphertextHashBase64"] != nil { throw StateStoreError.invalid }
         if format != "history" {
           guard let hash = child["ciphertextHashBase64"] as? String, Self.decode(hash, max: 32)?.count == 32 else { throw StateStoreError.invalid }
@@ -366,6 +375,7 @@ public final class NativeStateStore {
     let data = try Self.json(record)
     guard data.count <= 4096 else { throw StateStoreError.invalid }
     try keychain.put("record", data: data)
+    try fault?("recordResponse")
   }
 
   private func durableWrite(_ bytes: Data, to next: URL, replacing target: URL) throws {

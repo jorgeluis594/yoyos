@@ -60,7 +60,7 @@ class StateStoreInstrumentedTest {
   }
 
   @Test fun interruptedCreationResumesWithoutPromotingPreparation() {
-    for (phase in listOf("creationRecord", "recoveryKey", "initialPublication")) {
+    for (phase in listOf("recordResponse", "creationRecord", "recoveryKey", "initialPublication")) {
       val root = freshRoot
       assertThrows(StateFailure::class.java) {
         makeStore(root) { if (it == phase) throw StateFailure("STORAGE_FAILED") }.open()
@@ -160,12 +160,42 @@ class StateStoreInstrumentedTest {
     makeStore(root).open()
   }
 
+  @Test fun concurrentStoreInstancesCannotOverwriteAnOlderSnapshot() {
+    val root = freshRoot
+    val first = makeStore(root)
+    val second = makeStore(root)
+    first.open(); second.open()
+    first.commit("0") { it.getJSONObject("options").put("maxImageStorageBytes", 123); it }
+    assertThrows(StateFailure::class.java) { second.commit("0") { it } }
+    second.commit("1") { it.getJSONObject("options").put("maxRecoveryBufferBytes", 456); it }
+    val recovered = makeStore(root).open().getJSONObject("options")
+    assertEquals(123L, recovered.getLong("maxImageStorageBytes"))
+    assertEquals(456L, recovered.getLong("maxRecoveryBufferBytes"))
+  }
+
   @Test fun corruptedPublicationDoesNotBecomeEmptyInstallation() {
     val root = freshRoot
     makeStore(root).open()
     val file = File(directory(root), "state.bin")
     val bytes = file.readBytes(); bytes[bytes.lastIndex] = (bytes.last().toInt() xor 1).toByte(); file.writeBytes(bytes)
     assertThrows(Exception::class.java) { makeStore(root).open() }
+  }
+
+  @Test fun establishedStateNeverRegeneratesMissingFileOrKeys() {
+    val missingFile = freshRoot
+    makeStore(missingFile).open()
+    File(directory(missingFile), "state.bin").delete()
+    assertThrows(StateFailure::class.java) { makeStore(missingFile).open() }
+
+    val missingRecoveryKey = freshRoot
+    makeStore(missingRecoveryKey).open()
+    val headerBytes = File(directory(missingRecoveryKey), "state.bin").readBytes()
+    val headerSize = java.nio.ByteBuffer.wrap(headerBytes, 8, 4).int
+    val id = org.json.JSONObject(String(headerBytes, 12, headerSize, Charsets.UTF_8)).getString("recoveryKeyId")
+    val namespace = missingRecoveryKey.name.removePrefix("state-test-").replace("-", "")
+    java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+      .deleteEntry("yoyos.whatsapp.test.$namespace.key.$id")
+    assertThrows(Exception::class.java) { makeStore(missingRecoveryKey).open() }
   }
 
   @Test fun malformedEnvelopeNeverPromotesTemporaryOrCreatesEmptyState() {

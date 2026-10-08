@@ -47,6 +47,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
   private var readBudget = DEFAULT_BUFFER
   private var uncertain = false
   private var sessionUsable = true
+  private var observedPublication = -1L
 
   // The secure creation record is a Keystore-backed encrypted file. Its key is created before
   // the first state key; a partial record cannot be mistaken for an empty installation.
@@ -63,7 +64,8 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     try {
       if (Build.VERSION.SDK_INT >= 24 && !context.getSystemService(UserManager::class.java).isUserUnlocked) throw StateFailure("STORAGE_FAILED")
       if (uncertain) { current = null; uncertain = false }
-      current?.let { return JSONObject(it.toString()) }
+      if (observedPublication == publication) current?.let { return JSONObject(it.toString()) }
+      current = null
       val hasDirectory = existsChecked(directory)
       if (!hasDirectory && !directory.mkdirs()) throw StateFailure("STORAGE_FAILED")
       val record = readRecord()
@@ -108,6 +110,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
         removeTemp(recordNext)
         ensureImagesDirectory()
         current = state
+        observedPublication = publication
         cleanupProvisional(record, state)
         if (state.getJSONArray("sessionKeysToDelete").length() > 0) endSession()
         return JSONObject((current ?: state).toString())
@@ -122,6 +125,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
       ensureNamedKey(readyPrefix + storeId)
       ensureImagesDirectory()
       current = state
+      observedPublication = publication
       return JSONObject(state.toString())
     } finally { GLOBAL_LOCK.unlock() }
   }
@@ -141,6 +145,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
       readBudget = nextBound
       publish(next, revision + BigInteger.ONE)
       current = next
+      observedPublication = publication
       return JSONObject(next.toString())
     } finally { GLOBAL_LOCK.unlock() }
   }
@@ -218,6 +223,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     ensureNamedKey(readyPrefix + storeId)
     ensureImagesDirectory()
     current = state
+    observedPublication = publication
     return JSONObject(state.toString())
   }
 
@@ -260,6 +266,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
       uncertain = true
       fault?.invoke("replace")
       Os.rename(temporary.path, published.path)
+      publication++
       fault?.invoke("directorySync")
       syncDirectory()
       revision = nextRevision
@@ -374,6 +381,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
         exact(child, "format", "plaintextBase64", *(if (child.has("ciphertextHashBase64")) arrayOf("ciphertextHashBase64") else emptyArray()))
         val format = child.getString("format")
         if (format !in listOf("v2", "v3", "history")) throw StateFailure("SESSION_STATE_INVALID")
+        if ((item.getString("source") == "history") != (format == "history")) throw StateFailure("SESSION_STATE_INVALID")
         decode(child.getString("plaintextBase64"), minOf(bound, Int.MAX_VALUE.toLong()).toInt())
         if (format == "history" && child.has("ciphertextHashBase64")) throw StateFailure("SESSION_STATE_INVALID")
         if (format != "history" && (!child.has("ciphertextHashBase64") || decode(child.getString("ciphertextHashBase64"), 32).size != 32)) throw StateFailure("SESSION_STATE_INVALID")
@@ -442,6 +450,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     uncertain = true
     Os.rename(recordNext.path, recordFile.path)
     syncDirectory()
+    fault?.invoke("recordResponse")
     uncertain = false
   }
 
@@ -492,6 +501,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
 
   companion object {
     private val GLOBAL_LOCK = ReentrantLock()
+    private var publication = 0L
     private const val SESSION_LIMIT = 16 * 1024 * 1024
     private const val DEFAULT_BUFFER = 10L * 1024 * 1024
     private val MAX_REVISION = BigInteger.ONE.shiftLeft(64) - BigInteger.ONE
