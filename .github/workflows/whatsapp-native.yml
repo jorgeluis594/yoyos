@@ -166,6 +166,14 @@ jobs:
           scheme=$(xcodebuild -list -json | python3 -c 'import json,sys; data=json.load(sys.stdin); schemes=next(v["schemes"] for v in data.values() if isinstance(v,dict) and "schemes" in v); print(next(s for s in schemes if "WhatsAppBridgeTests" in s))')
           xcodebuild -scheme "$scheme" -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -skip-testing:WhatsAppBridgeTests/StateStoreTests/testProcessCrashMatrix test
+          for attempt in 1 2 3 4 5 6 7 8; do
+            if xcodebuild -scheme "$scheme" -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+              -parallel-testing-enabled NO \
+              -only-testing:WhatsAppBridgeTests/StateStoreTests/testProcessCrashMatrix test; then
+              exit 0
+            fi
+          done
+          exit 1
         working-directory: apps/mobile/modules/whatsapp/ios
       - name: Build Expo app with the vendored framework
         run: |

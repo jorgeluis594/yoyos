@@ -241,7 +241,15 @@ final class StateStoreTests: XCTestCase {
       defer { try? FileManager.default.removeItem(at: root) }
       var active = false
       let store = try makeStore(root) { reached in
-        if active && reached == phase { throw StateStoreError.storage }
+        if active && reached == phase {
+          if reached == "write" {
+            let temporary = root.appendingPathComponent("whatsapp/state.next")
+            let attributes = try temporary.resourceValues(forKeys: [.fileProtectionKey, .isExcludedFromBackupKey])
+            XCTAssertEqual(attributes.fileProtection, .completeUntilFirstUserAuthentication)
+            XCTAssertTrue(attributes.isExcludedFromBackup == true)
+          }
+          throw StateStoreError.storage
+        }
       }
       _ = try store.open()
       active = true
@@ -669,7 +677,7 @@ final class StateStoreTests: XCTestCase {
     _ = try makeStore(oversized).open()
     let file = oversized.appendingPathComponent("whatsapp/state.bin")
     let handle = try FileHandle(forWritingTo: file)
-    try handle.truncate(atOffset: UInt64(16 * 1024 * 1024 + 10 * 1024 * 1024 + 8245))
+    try handle.truncate(atOffset: 27_271_221)
     try handle.close()
     XCTAssertThrowsError(try makeStore(oversized).open())
   }
