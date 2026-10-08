@@ -625,7 +625,7 @@ func (s *Store) commit(t *txn) error {
 	sr, e2 := decimal(result.SessionRevision)
 	expectedSR := s.sessionRevision
 	if len(t.changes) > 0 {
-		expectedSR++
+		expectedSR = rev
 	}
 	if e1 != nil || e2 != nil || rev <= s.revision || sr != expectedSR {
 		s.stopped = failure(UncertainCommit, "incoherent ApplyChanges revisions; readback required")

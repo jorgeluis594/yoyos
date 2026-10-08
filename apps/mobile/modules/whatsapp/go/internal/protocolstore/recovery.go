@@ -167,7 +167,25 @@ func (s *Store) GetBufferedEvent(ctx context.Context, hash [32]byte) (*store.Buf
 		return nil, err
 	}
 	marker := v.(*protocolstate.RetryHash)
-	return &store.BufferedEvent{InsertTime: time.UnixMilli(marker.InsertTimeMS), ServerTime: time.Unix(marker.ServerTimeSeconds, 0)}, nil
+	result := &store.BufferedEvent{InsertTime: time.UnixMilli(marker.InsertTimeMS), ServerTime: time.Unix(marker.ServerTimeSeconds, 0)}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.read(); err != nil {
+		return nil, err
+	}
+	encoded := base64.StdEncoding.EncodeToString(hash[:])
+	for _, pending := range s.pending {
+		if pending.AccountID != s.accountID {
+			continue
+		}
+		for _, item := range pending.Recovery.Items {
+			if item.CiphertextHashBase64 == encoded {
+				result.Pending = true
+				return result, nil
+			}
+		}
+	}
+	return result, nil
 }
 func (s *Store) ClearBufferedEventPlaintext(ctx context.Context, hash [32]byte) error {
 	// The only plaintext copy is in native pending; this verifies its durable marker.

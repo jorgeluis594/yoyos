@@ -1,8 +1,231 @@
+diff --git a/appstate.go b/appstate.go
+index 2444046..1acb77b 100644
+--- a/appstate.go
++++ b/appstate.go
+@@ -100,10 +100,10 @@ func (cli *Client) handleAppStateRecovery(
+ 	ctx context.Context,
+ 	reqID types.MessageID,
+ 	result []*waE2E.PeerDataOperationRequestResponseMessage_PeerDataOperationResult,
+-) bool {
++) (bool, error) {
+ 	if len(result) == 0 || result[0].GetSyncdSnapshotFatalRecoveryResponse() == nil {
+ 		cli.Log.Warnf("No app state recovery data received for %s", reqID)
+-		return true
++		return true, nil
+ 	} else if len(result) > 1 {
+ 		cli.Log.Warnf("Unexpected number of app state recovery results for %s: %d", reqID, len(result))
+ 	}
+@@ -115,38 +115,39 @@ func (cli *Client) handleAppStateRecovery(
+ 	snapshot, err := appstate.ParseRecovery(result[0].GetSyncdSnapshotFatalRecoveryResponse())
+ 	if err != nil {
+ 		cli.Log.Warnf("Failed to parse app state recovery blob for %s: %v", reqID, err)
+-		return true
++		return true, nil
+ 	}
+ 	name := appstate.WAPatchName(snapshot.GetCollectionName())
+ 	version := snapshot.GetVersion().GetVersion()
+ 	currentVersion, _, err := cli.Store.AppState.GetAppStateVersion(ctx, string(name))
+ 	if err != nil {
+ 		cli.Log.Errorf("Failed to get current app state %s version for %s: %v", name, reqID, err)
+-		return true
++		return false, errors.Join(store.ErrLocalStorage, err)
+ 	} else if currentVersion >= version {
+ 		cli.Log.Infof("Ignoring app state recovery response for %s as current version %d is newer than or equal to recovery version %d", reqID, currentVersion, snapshot.GetVersion().GetVersion())
+-		return true
++		return true, nil
+ 	}
+ 	cli.Log.Debugf("Handling app state recovery response for %s", reqID)
+ 	mutations, err := cli.appStateProc.ProcessRecovery(ctx, snapshot)
+ 	if err != nil {
+ 		cli.Log.Warnf("Failed to parse app state recovery blob for %s: %v", reqID, err)
+-		return true
++		if errors.Is(err, store.ErrLocalStorage) { return false, err }
++		return true, nil
+ 	}
+ 	err = cli.collectEventsToDispatch(ctx, name, mutations, true, eventsToDispatchPtr)
+ 	if err != nil {
+ 		cli.Log.Warnf("Failed to collect app state events for %s: %v", reqID, err)
+-		return true
++		return false, err
+ 	}
+ 	eventsToDispatch = append(eventsToDispatch, &events.AppStateSyncComplete{Name: name, Version: version, Recovery: true})
+ 	for _, evt := range eventsToDispatch {
+ 		handlerFailed := cli.dispatchEvent(evt)
+ 		if handlerFailed {
+-			return false
++			return false, nil
+ 		}
+ 	}
+ 	cli.Log.Debugf("Finished handling app state recovery response for %s (%s to v%d)", reqID, name, version)
+-	return true
++	return true, nil
+ }
+ 
+ func (cli *Client) applyAppStatePatches(
+@@ -183,14 +184,17 @@ func (cli *Client) collectEventsToDispatch(
+ 		err := cli.Store.Contacts.PutAllContactNames(ctx, contacts)
+ 		if err != nil {
+ 			// This is a fairly serious failure, so just abort the whole thing
+-			return fmt.Errorf("failed to update contact store with data from snapshot: %v", err)
++			return fmt.Errorf("failed to update contact store with data from snapshot: %w: %w", store.ErrLocalStorage, err)
+ 		}
+ 	}
+ 	for _, mutation := range mutations {
+ 		if eventsToDispatch != nil && mutation.Operation == waServerSync.SyncdMutation_SET {
+ 			*eventsToDispatch = append(*eventsToDispatch, &events.AppState{Index: mutation.Index, SyncActionValue: mutation.Action})
+ 		}
+-		evt := cli.dispatchAppState(ctx, name, mutation, fullSync)
++		evt, err := cli.dispatchAppState(ctx, name, mutation, fullSync)
++		if err != nil {
++			return err
++		}
+ 		if eventsToDispatch != nil && evt != nil {
+ 			*eventsToDispatch = append(*eventsToDispatch, evt)
+ 		}
+@@ -217,7 +221,7 @@ func (cli *Client) filterContacts(mutations []appstate.Mutation) ([]appstate.Mut
+ 	return filteredMutations, contacts
+ }
+ 
+-func (cli *Client) dispatchAppState(ctx context.Context, name appstate.WAPatchName, mutation appstate.Mutation, fullSync bool) (eventToDispatch any) {
++func (cli *Client) dispatchAppState(ctx context.Context, name appstate.WAPatchName, mutation appstate.Mutation, fullSync bool) (eventToDispatch any, storageErr error) {
+ 	logLevel := zerolog.TraceLevel
+ 	log := zerolog.Ctx(ctx)
+ 	if cli.AppStateDebugLogs && log.GetLevel() != zerolog.TraceLevel {
+@@ -369,6 +373,7 @@ func (cli *Client) dispatchAppState(ctx context.Context, name appstate.WAPatchNa
+ 		err := cli.Store.Save(ctx)
+ 		if err != nil {
+ 			cli.Log.Errorf("Failed to save device store after updating push name: %v", err)
++			storeUpdateError = err
+ 		}
+ 	case appstate.IndexSettingUnarchiveChats:
+ 		eventToDispatch = &events.UnarchiveChatsSetting{
+@@ -453,8 +458,9 @@ func (cli *Client) dispatchAppState(ctx context.Context, name appstate.WAPatchNa
+ 	}
+ 	if storeUpdateError != nil {
+ 		cli.Log.Errorf("Failed to update device store after app state mutation: %v", storeUpdateError)
++		return eventToDispatch, errors.Join(store.ErrLocalStorage, storeUpdateError)
+ 	}
+-	return
++	return eventToDispatch, nil
+ }
+ 
+ func (cli *Client) downloadExternalAppStateBlob(ctx context.Context, ref *waServerSync.ExternalBlobReference) ([]byte, error) {
+diff --git a/appstate/decode.go b/appstate/decode.go
+index 41dc2be..5539b8e 100644
+--- a/appstate/decode.go
++++ b/appstate/decode.go
+@@ -227,19 +227,18 @@ func (proc *Processor) decodeMutations(
+ }
+ 
+ func (proc *Processor) storeMACs(ctx context.Context, name WAPatchName, currentState HashState, out *patchOutput) error {
+-	err := proc.Store.AppState.PutAppStateVersion(ctx, string(name), currentState.Version, currentState.Hash)
+-	if err != nil {
+-		return fmt.Errorf("failed to update app state version in the database: %w", err)
+-	}
+-	err = proc.Store.AppState.DeleteAppStateMutationMACs(ctx, string(name), out.RemovedMACs)
+-	if err != nil {
+-		return fmt.Errorf("failed to remove deleted mutation MACs from the database: %w", err)
+-	}
+-	err = proc.Store.AppState.PutAppStateMutationMACs(ctx, string(name), currentState.Version, out.AddedMACs)
+-	if err != nil {
+-		return fmt.Errorf("failed to insert added mutation MACs to the database: %w", err)
+-	}
+-	return nil
++	return proc.Store.EventBuffer.DoDecryptionTxn(ctx, func(tx context.Context) error {
++		if err := proc.Store.AppState.PutAppStateVersion(tx, string(name), currentState.Version, currentState.Hash); err != nil {
++			return fmt.Errorf("failed to update app state version in the database: %w", err)
++		}
++		if err := proc.Store.AppState.DeleteAppStateMutationMACs(tx, string(name), out.RemovedMACs); err != nil {
++			return fmt.Errorf("failed to remove deleted mutation MACs from the database: %w", err)
++		}
++		if err := proc.Store.AppState.PutAppStateMutationMACs(tx, string(name), currentState.Version, out.AddedMACs); err != nil {
++			return fmt.Errorf("failed to insert added mutation MACs to the database: %w", err)
++		}
++		return nil
++	})
+ }
+ 
+ func (proc *Processor) validateSnapshotMAC(ctx context.Context, name WAPatchName, currentState HashState, keyID, expectedSnapshotMAC []byte) (keys ExpandedAppStateKeys, err error) {
+diff --git a/appstate/wa03_atomic_test.go b/appstate/wa03_atomic_test.go
+new file mode 100644
+index 0000000..acc508c
+--- /dev/null
++++ b/appstate/wa03_atomic_test.go
+@@ -0,0 +1,64 @@
++package appstate
++
++import (
++	"context"
++	"errors"
++	"testing"
++
++	"go.mau.fi/whatsmeow/store"
++)
++
++type wa03TxnKey struct{}
++type wa03TxnBuffer struct {
++	store.EventBuffer
++	calls, commits int
++}
++
++func (b *wa03TxnBuffer) DoDecryptionTxn(ctx context.Context, fn func(context.Context) error) error {
++	b.calls++
++	err := fn(context.WithValue(ctx, wa03TxnKey{}, true))
++	if err == nil {
++		b.commits++
++	}
++	return err
++}
++
++type wa03MACStore struct {
++	store.AppStateStore
++	steps []string
++	fail  bool
++}
++
++func (s *wa03MACStore) record(ctx context.Context, step string) error {
++	if ctx.Value(wa03TxnKey{}) != true {
++		return errors.New("write escaped transaction")
++	}
++	s.steps = append(s.steps, step)
++	if s.fail && step == "add" {
++		return store.ErrLocalStorage
++	}
++	return nil
++}
++func (s *wa03MACStore) PutAppStateVersion(ctx context.Context, _ string, _ uint64, _ [128]byte) error {
++	return s.record(ctx, "version")
++}
++func (s *wa03MACStore) DeleteAppStateMutationMACs(ctx context.Context, _ string, _ [][]byte) error {
++	return s.record(ctx, "remove")
++}
++func (s *wa03MACStore) PutAppStateMutationMACs(ctx context.Context, _ string, _ uint64, _ []store.AppStateMutationMAC) error {
++	return s.record(ctx, "add")
++}
++
++func TestWA03AppStateMACPublicationUsesOneTransaction(t *testing.T) {
++	buffer := &wa03TxnBuffer{}
++	macs := &wa03MACStore{fail: true}
++	processor := &Processor{Store: &store.Device{EventBuffer: buffer, AppState: macs}}
++	err := processor.storeMACs(context.Background(), "regular", HashState{Version: 2}, &patchOutput{})
++	if !errors.Is(err, store.ErrLocalStorage) || buffer.calls != 1 || buffer.commits != 0 || len(macs.steps) != 3 {
++		t.Fatal("partial app-state publication", err, buffer, macs.steps)
++	}
++	macs.fail = false
++	if err := processor.storeMACs(context.Background(), "regular", HashState{Version: 2}, &patchOutput{}); err != nil || buffer.calls != 2 || buffer.commits != 1 {
++		t.Fatal("app-state update did not commit as one unit", err)
++	}
++}
 diff --git a/armadillomessage.go b/armadillomessage.go
-index aea3518..0d99a98 100644
+index aea3518..da30f0b 100644
 --- a/armadillomessage.go
 +++ b/armadillomessage.go
-@@ -22,7 +22,7 @@ import (
+@@ -18,11 +18,12 @@ import (
+ 	"go.mau.fi/whatsmeow/proto/waCommon"
+ 	"go.mau.fi/whatsmeow/proto/waMsgApplication"
+ 	"go.mau.fi/whatsmeow/proto/waMsgTransport"
++	"go.mau.fi/whatsmeow/store"
+ 	"go.mau.fi/whatsmeow/types"
  	"go.mau.fi/whatsmeow/types/events"
  )
  
@@ -11,7 +234,13 @@ index aea3518..0d99a98 100644
  	dec, err := decodeArmadillo(decrypted)
  	if err != nil {
  		cli.Log.Warnf("Failed to decode armadillo message from %s: %v", info.SourceString(), err)
-@@ -36,7 +36,9 @@ func (cli *Client) handleDecryptedArmadillo(ctx context.Context, info *types.Mes
+@@ -31,12 +32,14 @@ func (cli *Client) handleDecryptedArmadillo(ctx context.Context, info *types.Mes
+ 	}
+ 	dec.Info = *info
+ 	dec.RetryCount = retryCount
+-	if dec.Transport.GetProtocol().GetAncillary().GetSkdm() != nil {
++	if dec.Transport.GetProtocol().GetAncillary().GetSkdm() != nil && !store.ProtocolPrecommitted(ctx) {
+ 		if !info.IsGroup {
  			cli.Log.Warnf("Got sender key distribution message in non-group chat from %s", info.Sender)
  		} else {
  			skdm := dec.Transport.GetProtocol().GetAncillary().GetSkdm()
@@ -107,9 +336,27 @@ index 54fc0a4..9f97d14 100644
  
  const unifiedOffset = 3 * 24 * time.Hour
 diff --git a/internals.go b/internals.go
-index d9ce814..cd15758 100644
+index d9ce814..bc33354 100644
 --- a/internals.go
 +++ b/internals.go
+@@ -47,7 +47,7 @@ func (int *DangerousInternalClient) FetchAppState(ctx context.Context, name apps
+ 	return int.c.fetchAppState(ctx, name, fullSync, onlyIfNotSynced)
+ }
+ 
+-func (int *DangerousInternalClient) HandleAppStateRecovery(ctx context.Context, reqID types.MessageID, result []*waE2E.PeerDataOperationRequestResponseMessage_PeerDataOperationResult) bool {
++func (int *DangerousInternalClient) HandleAppStateRecovery(ctx context.Context, reqID types.MessageID, result []*waE2E.PeerDataOperationRequestResponseMessage_PeerDataOperationResult) (bool, error) {
+ 	return int.c.handleAppStateRecovery(ctx, reqID, result)
+ }
+ 
+@@ -63,7 +63,7 @@ func (int *DangerousInternalClient) FilterContacts(mutations []appstate.Mutation
+ 	return int.c.filterContacts(mutations)
+ }
+ 
+-func (int *DangerousInternalClient) DispatchAppState(ctx context.Context, name appstate.WAPatchName, mutation appstate.Mutation, fullSync bool) (eventToDispatch any) {
++func (int *DangerousInternalClient) DispatchAppState(ctx context.Context, name appstate.WAPatchName, mutation appstate.Mutation, fullSync bool) (any, error) {
+ 	return int.c.dispatchAppState(ctx, name, mutation, fullSync)
+ }
+ 
 @@ -87,7 +87,7 @@ func (int *DangerousInternalClient) SendAppState(ctx context.Context, patch apps
  	return int.c.sendAppState(ctx, patch, allowRetry)
  }
@@ -136,7 +383,22 @@ index d9ce814..cd15758 100644
  }
  
  func (int *DangerousInternalClient) ClearUntrustedIdentity(ctx context.Context, target types.JID) error {
-@@ -387,12 +387,12 @@ func (int *DangerousInternalClient) HandleProtocolMessage(ctx context.Context, i
+@@ -375,47 +375,47 @@ func (int *DangerousInternalClient) HandleHistorySyncNotificationLoop() {
+ 	int.c.handleHistorySyncNotificationLoop()
+ }
+ 
+-func (int *DangerousInternalClient) HandleAppStateSyncKeyShare(ctx context.Context, keys *waE2E.AppStateSyncKeyShare) {
+-	int.c.handleAppStateSyncKeyShare(ctx, keys)
++func (int *DangerousInternalClient) HandleAppStateSyncKeyShare(ctx context.Context, keys *waE2E.AppStateSyncKeyShare) error {
++	return int.c.handleAppStateSyncKeyShare(ctx, keys)
+ }
+ 
+ func (int *DangerousInternalClient) HandlePlaceholderResendResponse(msg *waE2E.PeerDataOperationRequestResponseMessage) (ok bool) {
+ 	return int.c.handlePlaceholderResendResponse(msg)
+ }
+ 
+-func (int *DangerousInternalClient) HandleProtocolMessage(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message) (ok bool) {
++func (int *DangerousInternalClient) HandleProtocolMessage(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message) (bool, error) {
  	return int.c.handleProtocolMessage(ctx, info, msg)
  }
  
@@ -151,9 +413,34 @@ index d9ce814..cd15758 100644
 +	return int.c.storeMessageSecret(ctx, info, msg)
  }
  
- func (int *DangerousInternalClient) StoreHistoricalMessageSecrets(ctx context.Context, conversations []*waHistorySync.Conversation) {
-@@ -415,7 +415,7 @@ func (int *DangerousInternalClient) StoreHistoricalPNLIDMappings(ctx context.Con
- 	int.c.storeHistoricalPNLIDMappings(ctx, mappings)
+-func (int *DangerousInternalClient) StoreHistoricalMessageSecrets(ctx context.Context, conversations []*waHistorySync.Conversation) {
+-	int.c.storeHistoricalMessageSecrets(ctx, conversations)
++func (int *DangerousInternalClient) StoreHistoricalMessageSecrets(ctx context.Context, conversations []*waHistorySync.Conversation) error {
++	return int.c.storeHistoricalMessageSecrets(ctx, conversations)
+ }
+ 
+-func (int *DangerousInternalClient) StoreLIDSyncMessage(ctx context.Context, msg []byte) {
+-	int.c.storeLIDSyncMessage(ctx, msg)
++func (int *DangerousInternalClient) StoreLIDSyncMessage(ctx context.Context, msg []byte) error {
++	return int.c.storeLIDSyncMessage(ctx, msg)
+ }
+ 
+-func (int *DangerousInternalClient) StoreGlobalSettings(ctx context.Context, settings *waHistorySync.GlobalSettings) {
+-	int.c.storeGlobalSettings(ctx, settings)
++func (int *DangerousInternalClient) StoreGlobalSettings(ctx context.Context, settings *waHistorySync.GlobalSettings) error {
++	return int.c.storeGlobalSettings(ctx, settings)
+ }
+ 
+-func (int *DangerousInternalClient) StoreCompanionMetaNonce(ctx context.Context, nonce string) {
+-	int.c.storeCompanionMetaNonce(ctx, nonce)
++func (int *DangerousInternalClient) StoreCompanionMetaNonce(ctx context.Context, nonce string) error {
++	return int.c.storeCompanionMetaNonce(ctx, nonce)
+ }
+ 
+-func (int *DangerousInternalClient) StoreHistoricalPNLIDMappings(ctx context.Context, mappings []*waHistorySync.PhoneNumberToLIDMapping) {
+-	int.c.storeHistoricalPNLIDMappings(ctx, mappings)
++func (int *DangerousInternalClient) StoreHistoricalPNLIDMappings(ctx context.Context, mappings []*waHistorySync.PhoneNumberToLIDMapping) error {
++	return int.c.storeHistoricalPNLIDMappings(ctx, mappings)
  }
  
 -func (int *DangerousInternalClient) HandleDecryptedMessage(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message, retryCount int) (handlerFailed bool) {
@@ -161,8 +448,41 @@ index d9ce814..cd15758 100644
  	return int.c.handleDecryptedMessage(ctx, info, msg, retryCount)
  }
  
+@@ -455,8 +455,8 @@ func (int *DangerousInternalClient) HandlePictureNotification(ctx context.Contex
+ 	int.c.handlePictureNotification(ctx, node)
+ }
+ 
+-func (int *DangerousInternalClient) HandleDeviceNotification(ctx context.Context, node *waBinary.Node) {
+-	int.c.handleDeviceNotification(ctx, node)
++func (int *DangerousInternalClient) HandleDeviceNotification(ctx context.Context, node *waBinary.Node) error {
++	return int.c.handleDeviceNotification(ctx, node)
+ }
+ 
+ func (int *DangerousInternalClient) HandleFBDeviceNotification(ctx context.Context, node *waBinary.Node) {
+@@ -563,8 +563,8 @@ func (int *DangerousInternalClient) GetServerPreKeyCount(ctx context.Context) (i
+ 	return int.c.getServerPreKeyCount(ctx)
+ }
+ 
+-func (int *DangerousInternalClient) UploadPreKeys(ctx context.Context, initialUpload bool) {
+-	int.c.uploadPreKeys(ctx, initialUpload)
++func (int *DangerousInternalClient) UploadPreKeys(ctx context.Context, initialUpload bool) error {
++	return int.c.uploadPreKeys(ctx, initialUpload)
+ }
+ 
+ func (int *DangerousInternalClient) FetchPreKeysNoError(ctx context.Context, retryDevices []types.JID) map[types.JID]*prekey.Bundle {
+@@ -819,8 +819,8 @@ func (int *DangerousInternalClient) ParseBusinessProfile(node *waBinary.Node) (*
+ 	return int.c.parseBusinessProfile(node)
+ }
+ 
+-func (int *DangerousInternalClient) HandleHistoricalPushNames(ctx context.Context, names []*waHistorySync.Pushname) {
+-	int.c.handleHistoricalPushNames(ctx, names)
++func (int *DangerousInternalClient) HandleHistoricalPushNames(ctx context.Context, names []*waHistorySync.Pushname) error {
++	return int.c.handleHistoricalPushNames(ctx, names)
+ }
+ 
+ func (int *DangerousInternalClient) UpdatePushName(ctx context.Context, user, userAlt types.JID, messageInfo *types.MessageInfo, name string) {
 diff --git a/message.go b/message.go
-index 98e97f6..40f2c4f 100644
+index 98e97f6..727148f 100644
 --- a/message.go
 +++ b/message.go
 @@ -48,17 +48,6 @@ func (cli *Client) handleEncryptedMessage(ctx context.Context, node *waBinary.No
@@ -291,11 +611,20 @@ index 98e97f6..40f2c4f 100644
  		recognizedStanza = true
  		ag := child.AttrGetter()
  		encType, ok := ag.GetString("type", false)
+@@ -386,7 +421,7 @@ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo,
+ 			var msMsg waE2E.MessageSecretMessage
+ 			var messageSecret []byte
+ 			if messageSecret, _, err = cli.Store.MsgSecrets.GetMessageSecret(ctx, info.Chat, targetSenderJID, info.MsgMetaInfo.TargetID); err != nil {
+-				err = fmt.Errorf("failed to get message secret for %s: %v", info.MsgMetaInfo.TargetID, err)
++				err = fmt.Errorf("failed to get message secret for %s: %w: %w", info.MsgMetaInfo.TargetID, store.ErrLocalStorage, err)
+ 			} else if messageSecret == nil {
+ 				err = fmt.Errorf("message secret for %s not found", info.MsgMetaInfo.TargetID)
+ 			} else if err = proto.Unmarshal(child.Content.([]byte), &msMsg); err != nil {
 @@ -405,6 +440,10 @@ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo,
  			continue
  		}
  
-+		if errors.Is(err, store.ErrLocalStorage) {
++		if errors.Is(err, store.ErrLocalStorage) || errors.Is(err, store.ErrPendingConfirmation) {
 +			cli.Log.Errorf("Local message storage failed; acknowledgement withheld")
 +			return err
 +		}
@@ -349,7 +678,18 @@ index 98e97f6..40f2c4f 100644
  
  // Deprecated: use ErrEventAlreadyProcessed
  var EventAlreadyProcessed = ErrEventAlreadyProcessed
-@@ -612,7 +658,10 @@ func (cli *Client) decryptDM(ctx context.Context, child *waBinary.Node, from typ
+@@ -541,6 +587,10 @@ func (cli *Client) bufferedDecrypt(
+ 		return
+ 	} else if buf != nil {
+ 		if buf.Plaintext == nil {
++			if buf.Pending {
++				err = store.ErrPendingConfirmation
++				return
++			}
+ 			zerolog.Ctx(ctx).Debug().
+ 				Hex("ciphertext_hash", ciphertextHash[:]).
+ 				Time("insertion_time", buf.InsertTime).
+@@ -612,7 +662,10 @@ func (cli *Client) decryptDM(ctx context.Context, child *waBinary.Node, from typ
  				}
  				pt, innerErr = cipher.DecryptMessage(decryptCtx, preKeyMsg)
  			}
@@ -361,7 +701,7 @@ index 98e97f6..40f2c4f 100644
  		}, "prekey", from.String())
  		if err != nil {
  			return nil, nil, fmt.Errorf("failed to decrypt prekey message: %w", err)
-@@ -623,17 +672,16 @@ func (cli *Client) decryptDM(ctx context.Context, child *waBinary.Node, from typ
+@@ -623,17 +676,16 @@ func (cli *Client) decryptDM(ctx context.Context, child *waBinary.Node, from typ
  			return nil, nil, fmt.Errorf("failed to parse normal message: %w", err)
  		}
  		plaintext, ciphertextHash, err = cli.bufferedDecrypt(ctx, content, serverTS, func(decryptCtx context.Context) ([]byte, error) {
@@ -384,7 +724,7 @@ index 98e97f6..40f2c4f 100644
  	return plaintext, &ciphertextHash, nil
  }
  
-@@ -651,15 +699,15 @@ func (cli *Client) decryptGroupMsg(ctx context.Context, child *waBinary.Node, fr
+@@ -651,15 +703,15 @@ func (cli *Client) decryptGroupMsg(ctx context.Context, child *waBinary.Node, fr
  		return nil, nil, fmt.Errorf("failed to parse group message: %w", err)
  	}
  	plaintext, ciphertextHash, err := cli.bufferedDecrypt(ctx, content, serverTS, func(decryptCtx context.Context) ([]byte, error) {
@@ -405,7 +745,7 @@ index 98e97f6..40f2c4f 100644
  	return plaintext, &ciphertextHash, nil
  }
  
-@@ -693,20 +741,24 @@ func padMessage(plaintext []byte) []byte {
+@@ -693,20 +745,24 @@ func padMessage(plaintext []byte) []byte {
  	return plaintext
  }
  
@@ -423,7 +763,7 @@ index 98e97f6..40f2c4f 100644
  	if err != nil {
  		cli.Log.Errorf("Failed to process sender key distribution message from %s for %s: %v", from, chat, err)
 -		return
-+		if errors.Is(err, store.ErrLocalStorage) {
++		if errors.Is(err, store.ErrLocalStorage) || errors.Is(err, store.ErrPendingConfirmation) {
 +			return err
 +		}
 +		return nil
@@ -433,21 +773,196 @@ index 98e97f6..40f2c4f 100644
  }
  
  func (cli *Client) handleHistorySyncNotificationLoop() {
-@@ -935,9 +987,11 @@ func (cli *Client) handleProtocolMessage(ctx context.Context, info *types.Messag
+@@ -728,7 +784,7 @@ func (cli *Client) handleHistorySyncNotificationLoop() {
+ 	for {
+ 		select {
+ 		case notif := <-cli.historySyncNotifications:
+-			blob, err := cli.DownloadHistorySync(ctx, notif, false)
++			blob, err := cli.DownloadHistorySync(ctx, notif, true)
+ 			if err != nil {
+ 				cli.Log.Errorf("Failed to download history sync: %v", err)
+ 			} else {
+@@ -797,34 +853,51 @@ func (cli *Client) DownloadHistorySync(ctx context.Context, notif *waE2E.History
+ 		return nil, fmt.Errorf("failed to unmarshal: %w", err)
+ 	}
+ 	cli.Log.Debugf("Received history sync (type %s, chunk %d, progress %d)", historySync.GetSyncType(), historySync.GetChunkOrder(), historySync.GetProgress())
+-	doStorage := func(ctx context.Context) {
++	doStorage := func(ctx context.Context) error {
+ 		if err := cli.storeNCTSalt(ctx, historySync.GetNctSalt()); err != nil {
+-			cli.Log.Warnf("Failed to store NCT salt from history sync: %v", err)
++			return errors.Join(store.ErrLocalStorage, err)
+ 		}
+ 		if len(historySync.GetPhoneNumberToLidMappings()) > 0 {
+-			cli.storeHistoricalPNLIDMappings(ctx, historySync.GetPhoneNumberToLidMappings())
++			if err := cli.storeHistoricalPNLIDMappings(ctx, historySync.GetPhoneNumberToLidMappings()); err != nil {
++				return err
++			}
+ 		}
+ 		if historySync.GetSyncType() == waHistorySync.HistorySync_PUSH_NAME {
+-			cli.handleHistoricalPushNames(ctx, historySync.GetPushnames())
++			if err := cli.handleHistoricalPushNames(ctx, historySync.GetPushnames()); err != nil {
++				return err
++			}
+ 		} else if len(historySync.GetConversations()) > 0 {
+-			cli.storeHistoricalMessageSecrets(ctx, historySync.GetConversations())
++			if err := cli.storeHistoricalMessageSecrets(ctx, historySync.GetConversations()); err != nil {
++				return err
++			}
+ 		}
+ 		if historySync.GlobalSettings != nil {
+-			cli.storeGlobalSettings(ctx, historySync.GlobalSettings)
++			if err := cli.storeGlobalSettings(ctx, historySync.GlobalSettings); err != nil {
++				return err
++			}
+ 		}
+ 		if historySync.CompanionMetaNonce != nil {
+-			cli.storeCompanionMetaNonce(ctx, historySync.GetCompanionMetaNonce())
++			if err := cli.storeCompanionMetaNonce(ctx, historySync.GetCompanionMetaNonce()); err != nil {
++				return err
++			}
+ 		}
++		return nil
+ 	}
+ 	if synchronousStorage {
+-		doStorage(ctx)
++		if err := doStorage(ctx); err != nil {
++			return nil, err
++		}
+ 	} else {
+-		go doStorage(context.WithoutCancel(ctx))
++		go func() {
++			if err := doStorage(context.WithoutCancel(ctx)); err != nil {
++				cli.Log.Errorf("Failed to store history sync metadata: %v", err)
++			}
++		}()
+ 	}
+ 	return &historySync, nil
+ }
+ 
+-func (cli *Client) handleAppStateSyncKeyShare(ctx context.Context, keys *waE2E.AppStateSyncKeyShare) {
++func (cli *Client) storeAppStateSyncKeys(ctx context.Context, keys *waE2E.AppStateSyncKeyShare) (bool, error) {
+ 	onlyResyncIfNotSynced := true
+ 
+ 	cli.Log.Debugf("Got %d new app state keys", len(keys.GetKeys()))
+@@ -846,18 +919,34 @@ func (cli *Client) handleAppStateSyncKeyShare(ctx context.Context, keys *waE2E.A
+ 		})
+ 		if err != nil {
+ 			cli.Log.Errorf("Failed to store app state sync key %X: %v", key.GetKeyID().GetKeyID(), err)
+-			continue
++			cli.appStateKeyRequestsLock.RUnlock()
++			return false, errors.Join(store.ErrLocalStorage, err)
+ 		}
+ 		cli.Log.Debugf("Received app state sync key %X (ts: %d)", key.GetKeyID().GetKeyID(), key.GetKeyData().GetTimestamp())
+ 	}
+ 	cli.appStateKeyRequestsLock.RUnlock()
++	return onlyResyncIfNotSynced, nil
++}
+ 
++func (cli *Client) handleAppStateSyncKeyShare(ctx context.Context, keys *waE2E.AppStateSyncKeyShare) error {
++	onlyResyncIfNotSynced, err := cli.storeAppStateSyncKeys(ctx, keys)
++	if err != nil {
++		return err
++	}
++	return cli.fetchAppStateAfterKeys(ctx, onlyResyncIfNotSynced)
++}
++
++func (cli *Client) fetchAppStateAfterKeys(ctx context.Context, onlyResyncIfNotSynced bool) error {
+ 	for _, name := range appstate.AllPatchNames {
+ 		err := cli.FetchAppState(ctx, name, false, onlyResyncIfNotSynced)
+ 		if err != nil {
+ 			cli.Log.Errorf("Failed to do initial fetch of app state %s: %v", name, err)
++			if errors.Is(err, store.ErrLocalStorage) {
++				return err
++			}
+ 		}
+ 	}
++	return nil
+ }
+ 
+ func (cli *Client) handlePlaceholderResendResponse(msg *waE2E.PeerDataOperationRequestResponseMessage) (ok bool) {
+@@ -881,12 +970,12 @@ func (cli *Client) handlePlaceholderResendResponse(msg *waE2E.PeerDataOperationR
  	return
+ }
+ 
+-func (cli *Client) handleProtocolMessage(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message) (ok bool) {
++func (cli *Client) handleProtocolMessage(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message) (ok bool, storageErr error) {
+ 	ok = true
+ 	protoMsg := msg.GetProtocolMessage()
+ 
+ 	if !info.IsFromMe {
+-		return
++		return true, nil
+ 	}
+ 
+ 	if protoMsg.GetHistorySyncNotification() != nil {
+@@ -906,8 +995,10 @@ func (cli *Client) handleProtocolMessage(ctx context.Context, info *types.Messag
+ 		}
+ 	}
+ 
+-	if protoMsg.GetLidMigrationMappingSyncMessage() != nil {
+-		cli.storeLIDSyncMessage(ctx, protoMsg.GetLidMigrationMappingSyncMessage().GetEncodedMappingPayload())
++	if protoMsg.GetLidMigrationMappingSyncMessage() != nil && !store.ProtocolPrecommitted(ctx) {
++		if err := cli.storeLIDSyncMessage(ctx, protoMsg.GetLidMigrationMappingSyncMessage().GetEncodedMappingPayload()); err != nil {
++			return false, err
++		}
+ 	}
+ 
+ 	if info.Sender.Device == 0 {
+@@ -916,12 +1007,24 @@ func (cli *Client) handleProtocolMessage(ctx context.Context, info *types.Messag
+ 		case waE2E.PeerDataOperationRequestType_PLACEHOLDER_MESSAGE_RESEND:
+ 			ok = cli.handlePlaceholderResendResponse(peerResp) && ok
+ 		case waE2E.PeerDataOperationRequestType_COMPANION_SYNCD_SNAPSHOT_FATAL_RECOVERY:
+-			ok = cli.handleAppStateRecovery(ctx, peerResp.GetStanzaID(), peerResp.GetPeerDataOperationResult()) && ok
++			recoveryOK, err := cli.handleAppStateRecovery(ctx, peerResp.GetStanzaID(), peerResp.GetPeerDataOperationResult())
++			if err != nil {
++				return false, err
++			}
++			ok = recoveryOK && ok
+ 		}
+ 	}
+ 
+ 	if protoMsg.GetAppStateSyncKeyShare() != nil {
+-		go cli.handleAppStateSyncKeyShare(context.WithoutCancel(ctx), protoMsg.AppStateSyncKeyShare)
++		var err error
++		if store.ProtocolPrecommitted(ctx) {
++			err = cli.fetchAppStateAfterKeys(ctx, false)
++		} else {
++			err = cli.handleAppStateSyncKeyShare(ctx, protoMsg.AppStateSyncKeyShare)
++		}
++		if err != nil {
++			return false, err
++		}
+ 	}
+ 
+ 	if info.Category == "peer" {
+@@ -932,17 +1035,22 @@ func (cli *Client) handleProtocolMessage(ctx context.Context, info *types.Messag
+ 			}
+ 		}()
+ 	}
+-	return
++	return ok, nil
  }
  
 -func (cli *Client) processProtocolParts(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message) (ok bool) {
 +func (cli *Client) processProtocolParts(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message) (ok bool, err error) {
-+	if err = cli.storeMessageSecret(ctx, info, msg); err != nil {
-+		return false, err
++	prepared := store.ProtocolPrecommitted(ctx)
++	if !prepared {
++		if err = cli.storeMessageSecret(ctx, info, msg); err != nil {
++			return false, err
++		}
 +	}
  	ok = true
 -	cli.storeMessageSecret(ctx, info, msg)
  	// Hopefully sender key distribution messages and protocol messages can't be inside ephemeral messages
  	if msg.GetDeviceSentMessage().GetMessage() != nil {
  		msg = msg.GetDeviceSentMessage().GetMessage()
-@@ -950,7 +1004,9 @@ func (cli *Client) processProtocolParts(ctx context.Context, info *types.Message
+ 	}
+-	if msg.GetSenderKeyDistributionMessage() != nil {
++	if msg.GetSenderKeyDistributionMessage() != nil && !prepared {
+ 		if !info.IsGroup {
+ 			cli.Log.Warnf("Got sender key distribution message in non-group chat from %s", info.Sender)
+ 		} else {
+@@ -950,18 +1058,24 @@ func (cli *Client) processProtocolParts(ctx context.Context, info *types.Message
  			if encryptionIdentity.Server == types.DefaultUserServer && info.SenderAlt.Server == types.HiddenUserServer {
  				encryptionIdentity = info.SenderAlt
  			}
@@ -458,7 +973,15 @@ index 98e97f6..40f2c4f 100644
  		}
  	}
  	// N.B. Edits are protocol messages, but they're also wrapped inside EditedMessage,
-@@ -961,7 +1017,7 @@ func (cli *Client) processProtocolParts(ctx context.Context, info *types.Message
+ 	// which is only unwrapped after processProtocolParts, so this won't trigger for edits.
+ 	if msg.GetProtocolMessage() != nil {
+-		ok = cli.handleProtocolMessage(ctx, info, msg) && ok
++		protocolOK, protocolErr := cli.handleProtocolMessage(ctx, info, msg)
++		if protocolErr != nil {
++			return false, protocolErr
++		}
++		ok = protocolOK && ok
+ 	}
  	return
  }
  
@@ -467,7 +990,7 @@ index 98e97f6..40f2c4f 100644
  	if msgSecret := msg.GetMessageContextInfo().GetMessageSecret(); len(msgSecret) > 0 {
  		targetChat := info.Chat
  		dsm := msg
-@@ -972,17 +1028,17 @@ func (cli *Client) storeMessageSecret(ctx context.Context, info *types.MessageIn
+@@ -972,25 +1086,25 @@ func (cli *Client) storeMessageSecret(ctx context.Context, info *types.MessageIn
  			var err error
  			targetChat, err = types.ParseJID(targetChatJID)
  			if err != nil {
@@ -487,9 +1010,134 @@ index 98e97f6..40f2c4f 100644
 +	return nil
  }
  
- func (cli *Client) storeHistoricalMessageSecrets(ctx context.Context, conversations []*waHistorySync.Conversation) {
-@@ -1169,13 +1225,44 @@ func (cli *Client) storeHistoricalPNLIDMappings(ctx context.Context, mappings []
+-func (cli *Client) storeHistoricalMessageSecrets(ctx context.Context, conversations []*waHistorySync.Conversation) {
++func (cli *Client) storeHistoricalMessageSecrets(ctx context.Context, conversations []*waHistorySync.Conversation) error {
+ 	var secrets []store.MessageSecretInsert
+ 	var privacyTokens []store.PrivacyToken
+ 	ownID := cli.getOwnID().ToNonAD()
+ 	if ownID.IsEmpty() {
+-		return
++		return ErrNotLoggedIn
  	}
+ 	for _, conv := range conversations {
+ 		chatJID, _ := types.ParseJID(conv.GetID())
+@@ -1001,7 +1115,11 @@ func (cli *Client) storeHistoricalMessageSecrets(ctx context.Context, conversati
+ 		if chatJID.Server == types.HiddenUserServer {
+ 			userJID = chatJID
+ 		} else if chatJID.Server == types.DefaultUserServer {
+-			userJID, _ = cli.Store.LIDs.GetLIDForPN(ctx, chatJID)
++			var lookupErr error
++			userJID, lookupErr = cli.Store.LIDs.GetLIDForPN(ctx, chatJID)
++			if lookupErr != nil {
++				return errors.Join(store.ErrLocalStorage, lookupErr)
++			}
+ 			if userJID.IsEmpty() {
+ 				// Privacy token queries will check both LIDs and phone numbers, so while we prefer storing with LIDs,
+ 				// it's still better to store with the phone number than not at all.
+@@ -1046,6 +1164,7 @@ func (cli *Client) storeHistoricalMessageSecrets(ctx context.Context, conversati
+ 		err := cli.Store.MsgSecrets.PutMessageSecrets(ctx, secrets)
+ 		if err != nil {
+ 			cli.Log.Errorf("Failed to store message secret keys in history sync: %v", err)
++			return errors.Join(store.ErrLocalStorage, err)
+ 		} else {
+ 			cli.Log.Infof("Stored %d message secret keys from history sync", len(secrets))
+ 		}
+@@ -1055,18 +1174,20 @@ func (cli *Client) storeHistoricalMessageSecrets(ctx context.Context, conversati
+ 		err := cli.Store.PrivacyTokens.PutPrivacyTokens(ctx, privacyTokens...)
+ 		if err != nil {
+ 			cli.Log.Errorf("Failed to store privacy tokens in history sync: %v", err)
++			return errors.Join(store.ErrLocalStorage, err)
+ 		} else {
+ 			cli.Log.Infof("Stored %d privacy tokens from history sync", len(privacyTokens))
+ 		}
+ 	}
++	return nil
+ }
+ 
+-func (cli *Client) storeLIDSyncMessage(ctx context.Context, msg []byte) {
++func (cli *Client) storeLIDSyncMessage(ctx context.Context, msg []byte) error {
+ 	var decoded waLidMigrationSyncPayload.LIDMigrationMappingSyncPayload
+ 	err := proto.Unmarshal(msg, &decoded)
+ 	if err != nil {
+ 		zerolog.Ctx(ctx).Err(err).Msg("Failed to unmarshal LID migration mapping sync payload")
+-		return
++		return nil
+ 	}
+ 	if cli.Store.LIDMigrationTimestamp == 0 && decoded.GetChatDbMigrationTimestamp() > 0 {
+ 		cli.Store.LIDMigrationTimestamp = int64(decoded.GetChatDbMigrationTimestamp())
+@@ -1075,6 +1196,7 @@ func (cli *Client) storeLIDSyncMessage(ctx context.Context, msg []byte) {
+ 			zerolog.Ctx(ctx).Err(err).
+ 				Int64("lid_migration_timestamp", cli.Store.LIDMigrationTimestamp).
+ 				Msg("Failed to save chat DB LID migration timestamp")
++			return errors.Join(store.ErrLocalStorage, err)
+ 		} else {
+ 			zerolog.Ctx(ctx).Debug().
+ 				Int64("lid_migration_timestamp", cli.Store.LIDMigrationTimestamp).
+@@ -1093,14 +1215,16 @@ func (cli *Client) storeLIDSyncMessage(ctx context.Context, msg []byte) {
+ 		zerolog.Ctx(ctx).Err(err).
+ 			Int("pair_count", len(lidPairs)).
+ 			Msg("Failed to store phone number to LID mappings from sync message")
++		return errors.Join(store.ErrLocalStorage, err)
+ 	} else {
+ 		zerolog.Ctx(ctx).Debug().
+ 			Int("pair_count", len(lidPairs)).
+ 			Msg("Stored PN-LID mappings from sync message")
+ 	}
++	return nil
+ }
+ 
+-func (cli *Client) storeGlobalSettings(ctx context.Context, settings *waHistorySync.GlobalSettings) {
++func (cli *Client) storeGlobalSettings(ctx context.Context, settings *waHistorySync.GlobalSettings) error {
+ 	if cli.Store.LIDMigrationTimestamp == 0 && settings.GetChatDbLidMigrationTimestamp() > 0 {
+ 		cli.Store.LIDMigrationTimestamp = settings.GetChatDbLidMigrationTimestamp()
+ 		err := cli.Store.Save(ctx)
+@@ -1108,29 +1232,33 @@ func (cli *Client) storeGlobalSettings(ctx context.Context, settings *waHistoryS
+ 			zerolog.Ctx(ctx).Err(err).
+ 				Int64("lid_migration_timestamp", cli.Store.LIDMigrationTimestamp).
+ 				Msg("Failed to save chat DB LID migration timestamp")
++			return errors.Join(store.ErrLocalStorage, err)
+ 		} else {
+ 			zerolog.Ctx(ctx).Debug().
+ 				Int64("lid_migration_timestamp", cli.Store.LIDMigrationTimestamp).
+ 				Msg("Saved chat DB LID migration timestamp")
+ 		}
+ 	}
++	return nil
+ }
+ 
+-func (cli *Client) storeCompanionMetaNonce(ctx context.Context, nonce string) {
++func (cli *Client) storeCompanionMetaNonce(ctx context.Context, nonce string) error {
+ 	if nonce != "" && nonce != cli.Store.CompanionMetaNonce {
+ 		cli.Store.CompanionMetaNonce = nonce
+ 		err := cli.Store.Save(ctx)
+ 		if err != nil {
+ 			zerolog.Ctx(ctx).Err(err).
+ 				Msg("Failed to save companion meta nonce")
++			return errors.Join(store.ErrLocalStorage, err)
+ 		} else {
+ 			zerolog.Ctx(ctx).Debug().
+ 				Msg("Saved companion meta nonce")
+ 		}
+ 	}
++	return nil
+ }
+ 
+-func (cli *Client) storeHistoricalPNLIDMappings(ctx context.Context, mappings []*waHistorySync.PhoneNumberToLIDMapping) {
++func (cli *Client) storeHistoricalPNLIDMappings(ctx context.Context, mappings []*waHistorySync.PhoneNumberToLIDMapping) error {
+ 	lidPairs := make([]store.LIDMapping, 0, len(mappings))
+ 	for _, mapping := range mappings {
+ 		pn, err := types.ParseJID(mapping.GetPnJID())
+@@ -1162,20 +1290,81 @@ func (cli *Client) storeHistoricalPNLIDMappings(ctx context.Context, mappings []
+ 		zerolog.Ctx(ctx).Err(err).
+ 			Int("pair_count", len(lidPairs)).
+ 			Msg("Failed to store phone number to LID mappings from history sync")
++		return errors.Join(store.ErrLocalStorage, err)
+ 	} else {
+ 		zerolog.Ctx(ctx).Debug().
+ 			Int("pair_count", len(lidPairs)).
+ 			Msg("Stored PN-LID mappings from history sync")
+ 	}
++	return nil
  }
  
 -func (cli *Client) handleDecryptedMessage(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message, retryCount int) (handlerFailed bool) {
@@ -520,8 +1168,36 @@ index 98e97f6..40f2c4f 100644
 +		if err := proto.Unmarshal(plaintext, &msg); err != nil {
 +			return err
 +		}
-+		_, err := cli.processProtocolParts(ctx, info, &msg)
-+		return err
++		if err := cli.storeMessageSecret(ctx, info, &msg); err != nil {
++			return err
++		}
++		inner := &msg
++		if nested := msg.GetDeviceSentMessage().GetMessage(); nested != nil {
++			inner = nested
++		}
++		if skdm := inner.GetSenderKeyDistributionMessage(); skdm != nil && info.IsGroup {
++			from := info.Sender
++			if from.Server == types.DefaultUserServer && info.SenderAlt.Server == types.HiddenUserServer {
++				from = info.SenderAlt
++			}
++			if err := cli.handleSenderKeyDistributionMessage(ctx, info.Chat, from, skdm.AxolotlSenderKeyDistributionMessage); err != nil {
++				return err
++			}
++		}
++		if info.IsFromMe && inner.GetProtocolMessage() != nil {
++			protocol := inner.GetProtocolMessage()
++			if mapping := protocol.GetLidMigrationMappingSyncMessage(); mapping != nil {
++				if err := cli.storeLIDSyncMessage(ctx, mapping.GetEncodedMappingPayload()); err != nil {
++					return err
++				}
++			}
++			if keys := protocol.GetAppStateSyncKeyShare(); keys != nil {
++				if _, err := cli.storeAppStateSyncKeys(ctx, keys); err != nil {
++					return err
++				}
++			}
++		}
++		return nil
 +	case "v3":
 +		decoded, err := decodeArmadillo(plaintext)
 +		if err != nil {
@@ -537,6 +1213,308 @@ index 98e97f6..40f2c4f 100644
  }
  
  // SendProtocolMessageReceipt sends a receipt for a protocol message back to the phone.
+diff --git a/notification.go b/notification.go
+index 22b6d10..fc0ba06 100644
+--- a/notification.go
++++ b/notification.go
+@@ -23,7 +23,7 @@ import (
+ 	"go.mau.fi/whatsmeow/types/events"
+ )
+ 
+-func (cli *Client) handleEncryptNotification(ctx context.Context, node *waBinary.Node) {
++func (cli *Client) handleEncryptNotification(ctx context.Context, node *waBinary.Node) error {
+ 	from := node.AttrGetter().JID("from")
+ 	if from == types.ServerJID {
+ 		count := node.GetChildByTag("count")
+@@ -31,27 +31,41 @@ func (cli *Client) handleEncryptNotification(ctx context.Context, node *waBinary
+ 		otksLeft := ag.Int("value")
+ 		if !ag.OK() {
+ 			cli.Log.Warnf("Didn't get number of OTKs left in encryption notification %s", node)
+-			return
++			return nil
+ 		}
+ 		cli.Log.Infof("Got prekey count from server: %s", node)
+ 		if otksLeft < MinPreKeyCount {
+-			cli.uploadPreKeys(ctx, false)
++			if err := cli.uploadPreKeys(ctx, false); err != nil {
++				return err
++			}
+ 		}
+ 	} else if _, ok := node.GetOptionalChildByTag("identity"); ok {
+ 		cli.Log.Debugf("Got identity change for %s: %s, deleting all identities/sessions for that number", from, node)
+ 		err := cli.Store.Identities.DeleteAllIdentities(ctx, from.User)
+ 		if err != nil {
+ 			cli.Log.Warnf("Failed to delete all identities of %s from store after identity change: %v", from, err)
++			return errors.Join(store.ErrLocalStorage, err)
+ 		}
+ 		err = cli.Store.Sessions.DeleteAllSessions(ctx, from.User)
+ 		if err != nil {
+ 			cli.Log.Warnf("Failed to delete all sessions of %s from store after identity change: %v", from, err)
++			return errors.Join(store.ErrLocalStorage, err)
+ 		}
+ 		ts := node.AttrGetter().UnixTime("t")
+-		storageLID := cli.resolveTCTokenStorageLID(ctx, from)
++		storageLID := from.ToNonAD()
++		if storageLID.Server == types.DefaultUserServer {
++			lid, lookupErr := cli.Store.LIDs.GetLIDForPN(ctx, storageLID)
++			if lookupErr != nil {
++				return errors.Join(store.ErrLocalStorage, lookupErr)
++			}
++			if !lid.IsEmpty() {
++				storageLID = lid.ToNonAD()
++			}
++		}
+ 		pt, err := cli.Store.PrivacyTokens.GetPrivacyToken(ctx, storageLID)
+ 		if err != nil {
+ 			cli.Log.Debugf("Failed to load tctoken for identity change re-issue %s: %v", storageLID, err)
++			return errors.Join(store.ErrLocalStorage, err)
+ 		}
+ 		storedSenderTS := time.Time{}
+ 		if pt != nil {
+@@ -68,9 +82,10 @@ func (cli *Client) handleEncryptNotification(ctx context.Context, node *waBinary
+ 	} else {
+ 		cli.Log.Debugf("Got unknown encryption notification from server: %s", node)
+ 	}
++	return nil
+ }
+ 
+-func (cli *Client) handleAppStateNotification(ctx context.Context, node *waBinary.Node) {
++func (cli *Client) handleAppStateNotification(ctx context.Context, node *waBinary.Node) error {
+ 	for _, collection := range node.GetChildrenByTag("collection") {
+ 		ag := collection.AttrGetter()
+ 		name := appstate.WAPatchName(ag.String("name"))
+@@ -80,11 +95,15 @@ func (cli *Client) handleAppStateNotification(ctx context.Context, node *waBinar
+ 		if errors.Is(err, ErrIQDisconnected) || errors.Is(err, ErrNotConnected) {
+ 			// There are some app state changes right before a remote logout, so stop syncing if we're disconnected.
+ 			cli.Log.Debugf("Failed to sync app state after notification: %v, not trying to sync other states", err)
+-			return
++			return nil
+ 		} else if err != nil {
+ 			cli.Log.Errorf("Failed to sync app state after notification: %v", err)
++			if errors.Is(err, store.ErrLocalStorage) {
++				return err
++			}
+ 		}
+ 	}
++	return nil
+ }
+ 
+ func (cli *Client) handlePictureNotification(ctx context.Context, node *waBinary.Node) {
+@@ -113,19 +132,21 @@ func (cli *Client) handlePictureNotification(ctx context.Context, node *waBinary
+ 	}
+ }
+ 
+-func (cli *Client) handleDeviceNotification(ctx context.Context, node *waBinary.Node) {
++func (cli *Client) handleDeviceNotification(ctx context.Context, node *waBinary.Node) error {
+ 	cli.userDevicesCacheLock.Lock()
+ 	defer cli.userDevicesCacheLock.Unlock()
+ 	ag := node.AttrGetter()
+ 	from := ag.JID("from")
+ 	fromLID := ag.OptionalJID("lid")
+ 	if fromLID != nil {
+-		cli.StoreLIDPNMapping(ctx, *fromLID, from)
++		if err := cli.StoreLIDPNMapping(ctx, *fromLID, from); err != nil {
++			return errors.Join(store.ErrLocalStorage, err)
++		}
+ 	}
+ 	cached, ok := cli.userDevicesCache[from]
+ 	if !ok {
+ 		cli.Log.Debugf("No device list cached for %s, ignoring device list notification", from)
+-		return
++		return nil
+ 	}
+ 	var cachedLID deviceCache
+ 	var cachedLIDHash string
+@@ -184,6 +205,7 @@ func (cli *Client) handleDeviceNotification(ctx context.Context, node *waBinary.
+ 			}
+ 		}
+ 	}
++	return nil
+ }
+ 
+ func (cli *Client) handleFBDeviceNotification(ctx context.Context, node *waBinary.Node) {
+@@ -283,25 +305,34 @@ func (cli *Client) handleAccountSyncNotification(ctx context.Context, node *waBi
+ 	}
+ }
+ 
+-func (cli *Client) handlePrivacyTokenNotification(ctx context.Context, node *waBinary.Node) {
++func (cli *Client) handlePrivacyTokenNotification(ctx context.Context, node *waBinary.Node) error {
+ 	if cli.getOwnID().IsEmpty() {
+ 		cli.Log.Debugf("Ignoring privacy token notification, session was deleted")
+-		return
++		return nil
+ 	}
+ 	tokens := node.GetChildByTag("tokens")
+ 	if tokens.Tag != "tokens" {
+ 		cli.Log.Warnf("privacy_token notification didn't contain <tokens> tag")
+-		return
++		return nil
+ 	}
+ 	parentAG := node.AttrGetter()
+ 	sender := parentAG.JID("from").ToNonAD()
+ 	senderLID := parentAG.OptionalJIDOrEmpty("sender_lid").ToNonAD()
+ 	if senderLID.IsEmpty() {
+-		senderLID = cli.resolveTCTokenStorageLID(ctx, sender)
++		senderLID = sender
++		if sender.Server == types.DefaultUserServer {
++			lid, err := cli.Store.LIDs.GetLIDForPN(ctx, sender)
++			if err != nil {
++				return errors.Join(store.ErrLocalStorage, err)
++			}
++			if !lid.IsEmpty() {
++				senderLID = lid.ToNonAD()
++			}
++		}
+ 	}
+ 	if !parentAG.OK() {
+ 		cli.Log.Warnf("privacy_token notification didn't have a sender (%v)", parentAG.Error())
+-		return
++		return nil
+ 	}
+ 	for _, child := range tokens.GetChildren() {
+ 		ag := child.AttrGetter()
+@@ -329,10 +360,12 @@ func (cli *Client) handlePrivacyTokenNotification(ctx context.Context, node *waB
+ 		})
+ 		if err != nil {
+ 			cli.Log.Errorf("Failed to save privacy token from %s: %v", senderLID, err)
++			return errors.Join(store.ErrLocalStorage, err)
+ 		} else {
+ 			cli.Log.Debugf("Received privacy token from %s (ts: %v)", senderLID, timestamp)
+ 		}
+ 	}
++	return nil
+ }
+ 
+ func (cli *Client) parseNewsletterMessages(node *waBinary.Node) []*types.NewsletterMessage {
+@@ -466,13 +499,19 @@ func (cli *Client) handleNotification(ctx context.Context, node *waBinary.Node)
+ 	}
+ 	switch notifType {
+ 	case "encrypt":
+-		go cli.handleEncryptNotification(ctx, node)
++		if err := cli.handleEncryptNotification(ctx, node); err != nil {
++			cancelled = errors.Is(err, store.ErrLocalStorage)
++		}
+ 	case "server_sync":
+-		go cli.handleAppStateNotification(ctx, node)
++		if err := cli.handleAppStateNotification(ctx, node); err != nil {
++			cancelled = errors.Is(err, store.ErrLocalStorage)
++		}
+ 	case "account_sync":
+ 		go cli.handleAccountSyncNotification(ctx, node)
+ 	case "devices":
+-		cli.handleDeviceNotification(ctx, node)
++		if err := cli.handleDeviceNotification(ctx, node); err != nil {
++			cancelled = errors.Is(err, store.ErrLocalStorage)
++		}
+ 	case "fbid:devices":
+ 		cli.handleFBDeviceNotification(ctx, node)
+ 	case "w:gp2":
+@@ -483,10 +522,14 @@ func (cli *Client) handleNotification(ctx context.Context, node *waBinary.Node)
+ 			err = cli.Store.LIDs.PutManyLIDMappings(ctx, lidPairs)
+ 			if err != nil {
+ 				cli.Log.Errorf("Failed to store LID mappings from group notification: %v", err)
++				cancelled = true
++				return
+ 			}
+ 			err = cli.Store.Contacts.PutManyRedactedPhones(ctx, redactedPhones)
+ 			if err != nil {
+ 				cli.Log.Warnf("Failed to store redacted phones from group notification: %v", err)
++				cancelled = true
++				return
+ 			}
+ 			cancelled = cli.dispatchEvent(evt)
+ 		}
+@@ -495,7 +538,9 @@ func (cli *Client) handleNotification(ctx context.Context, node *waBinary.Node)
+ 	case "mediaretry":
+ 		cli.handleMediaRetryNotification(ctx, node)
+ 	case "privacy_token":
+-		cli.handlePrivacyTokenNotification(ctx, node)
++		if err := cli.handlePrivacyTokenNotification(ctx, node); err != nil {
++			cancelled = errors.Is(err, store.ErrLocalStorage)
++		}
+ 	case "link_code_companion_reg":
+ 		go cli.tryHandleCodePairNotification(ctx, node)
+ 	case "newsletter":
+diff --git a/prekeys.go b/prekeys.go
+index 5ba89ba..69c9eac 100644
+--- a/prekeys.go
++++ b/prekeys.go
+@@ -18,6 +18,7 @@ import (
+ 	"go.mau.fi/libsignal/util/optional"
+ 
+ 	waBinary "go.mau.fi/whatsmeow/binary"
++	"go.mau.fi/whatsmeow/store"
+ 	"go.mau.fi/whatsmeow/types"
+ 	"go.mau.fi/whatsmeow/util/keys"
+ )
+@@ -47,14 +48,14 @@ func (cli *Client) getServerPreKeyCount(ctx context.Context) (int, error) {
+ 	return val, ag.Error()
+ }
+ 
+-func (cli *Client) uploadPreKeys(ctx context.Context, initialUpload bool) {
++func (cli *Client) uploadPreKeys(ctx context.Context, initialUpload bool) error {
+ 	cli.uploadPreKeysLock.Lock()
+ 	defer cli.uploadPreKeysLock.Unlock()
+ 	if cli.lastPreKeyUpload.Add(10 * time.Minute).After(time.Now()) {
+ 		sc, _ := cli.getServerPreKeyCount(ctx)
+ 		if sc >= WantedPreKeyCount {
+ 			cli.Log.Debugf("Canceling prekey upload request due to likely race condition")
+-			return
++			return nil
+ 		}
+ 	}
+ 	var registrationIDBytes [4]byte
+@@ -66,7 +67,7 @@ func (cli *Client) uploadPreKeys(ctx context.Context, initialUpload bool) {
+ 	preKeys, err := cli.Store.PreKeys.GetOrGenPreKeys(ctx, uint32(wantedCount))
+ 	if err != nil {
+ 		cli.Log.Errorf("Failed to get prekeys to upload: %v", err)
+-		return
++		return fmt.Errorf("prekey generation: %w: %w", store.ErrLocalStorage, err)
+ 	}
+ 	cli.Log.Infof("Uploading %d new prekeys to server", len(preKeys))
+ 	_, err = cli.sendIQ(ctx, infoQuery{
+@@ -83,16 +84,17 @@ func (cli *Client) uploadPreKeys(ctx context.Context, initialUpload bool) {
+ 	})
+ 	if err != nil {
+ 		cli.Log.Errorf("Failed to send request to upload prekeys: %v", err)
+-		return
++		return err
+ 	}
+ 	cli.Log.Debugf("Got response to uploading prekeys")
+ 	err = cli.Store.PreKeys.MarkPreKeysAsUploaded(ctx, preKeys[len(preKeys)-1].KeyID)
+ 	if err != nil {
+ 		cli.Log.Warnf("Failed to mark prekeys as uploaded: %v", err)
+-		return
++		return fmt.Errorf("prekey upload marker: %w: %w", store.ErrLocalStorage, err)
+ 	}
+ 	cli.lastPreKeyUpload = time.Now()
+ 	cli.PreKeysUploaded.Set()
++	return nil
+ }
+ 
+ func (cli *Client) fetchPreKeysNoError(ctx context.Context, retryDevices []types.JID) map[types.JID]*prekey.Bundle {
+diff --git a/receipt.go b/receipt.go
+index 8def76a..f517da6 100644
+--- a/receipt.go
++++ b/receipt.go
+@@ -105,7 +105,7 @@ func (cli *Client) parseReceipt(node *waBinary.Node) (*events.Receipt, []waBinar
+ }
+ 
+ func (cli *Client) backgroundIfAsyncAck(fn func()) {
+-	if cli.SynchronousAck {
++	if cli.SynchronousAck || cli.EnableDecryptedEventBuffer {
+ 		fn()
+ 	} else {
+ 		go fn()
+@@ -113,7 +113,7 @@ func (cli *Client) backgroundIfAsyncAck(fn func()) {
+ }
+ 
+ func (cli *Client) maybeDeferredAck(ctx context.Context, node *waBinary.Node) func(cancelled ...*bool) {
+-	if cli.SynchronousAck {
++	if cli.SynchronousAck || cli.EnableDecryptedEventBuffer {
+ 		return func(cancelled ...*bool) {
+ 			isCancelled := len(cancelled) > 0 && ptr.Val(cancelled[0])
+ 			if ctx.Err() != nil || isCancelled {
 diff --git a/retry.go b/retry.go
 index 9e9267b..c495274 100644
 --- a/retry.go
@@ -568,25 +1546,40 @@ index 9b53895..92be8cb 100644
  			}
  		}
 diff --git a/store/store.go b/store/store.go
-index d4ae51e..8b2f940 100644
+index d4ae51e..823f536 100644
 --- a/store/store.go
 +++ b/store/store.go
-@@ -20,6 +20,10 @@ import (
+@@ -20,6 +20,11 @@ import (
  	waLog "go.mau.fi/whatsmeow/util/log"
  )
  
 +// ErrLocalStorage marks local persistence or capacity failures, not Signal protocol errors.
 +// Custom stores must wrap it on failed reads, writes, transaction commits and rollbacks.
 +var ErrLocalStorage = errors.New("local storage failure")
++var ErrPendingConfirmation = errors.New("buffered event awaits local confirmation")
 +
  type IdentityStore interface {
  	PutIdentity(ctx context.Context, address string, key [32]byte) error
  	DeleteAllIdentities(ctx context.Context, phone string) error
-@@ -163,6 +167,18 @@ type BufferedEvent struct {
+@@ -161,6 +166,30 @@ type BufferedEvent struct {
+ 	Plaintext  []byte
+ 	InsertTime time.Time
  	ServerTime time.Time
- }
- 
++	Pending    bool
++}
++
 +type bufferedEventChildKey struct{}
++type precommittedProtocolKey struct{}
++
++// WithPrecommittedProtocol marks receive contexts whose durable buffer admission
++// already staged post-decryption protocol writes in the Signal transaction.
++func WithPrecommittedProtocol(ctx context.Context) context.Context {
++	return context.WithValue(ctx, precommittedProtocolKey{}, true)
++}
++
++func ProtocolPrecommitted(ctx context.Context) bool {
++	return ctx != nil && ctx.Value(precommittedProtocolKey{}) == true
++}
 +
 +// WithBufferedEventChild identifies the copied child whose Signal transaction is active.
 +func WithBufferedEventChild(ctx context.Context, index int) context.Context {
@@ -596,17 +1589,35 @@ index d4ae51e..8b2f940 100644
 +func BufferedEventChild(ctx context.Context) (int, bool) {
 +	index, ok := ctx.Value(bufferedEventChildKey{}).(int)
 +	return index, ok
-+}
-+
+ }
+ 
  type EventBuffer interface {
- 	GetBufferedEvent(ctx context.Context, ciphertextHash [32]byte) (*BufferedEvent, error)
- 	PutBufferedEvent(ctx context.Context, ciphertextHash [32]byte, plaintext []byte, serverTimestamp time.Time) error
 diff --git a/user.go b/user.go
-index 7075357..caa17f5 100644
+index 7075357..ba70a5c 100644
 --- a/user.go
 +++ b/user.go
-@@ -676,23 +676,28 @@ func (cli *Client) handleHistoricalPushNames(ctx context.Context, names []*waHis
+@@ -656,9 +656,9 @@ func (cli *Client) GetProfilePictureInfo(ctx context.Context, jid types.JID, par
+ 	return &info, nil
+ }
+ 
+-func (cli *Client) handleHistoricalPushNames(ctx context.Context, names []*waHistorySync.Pushname) {
++func (cli *Client) handleHistoricalPushNames(ctx context.Context, names []*waHistorySync.Pushname) error {
+ 	if cli.Store.Contacts == nil {
+-		return
++		return errors.Join(store.ErrLocalStorage, errors.New("contact store missing"))
  	}
+ 	cli.Log.Infof("Updating contact store with %d push names from history sync", len(names))
+ 	for _, user := range names {
+@@ -670,29 +670,36 @@ func (cli *Client) handleHistoricalPushNames(ctx context.Context, names []*waHis
+ 			cli.Log.Warnf("Failed to parse user ID '%s' in push name history sync: %v", user.GetID(), err)
+ 		} else if changed, _, err = cli.Store.Contacts.PutPushName(ctx, jid, user.GetPushname()); err != nil {
+ 			cli.Log.Warnf("Failed to store push name of %s from history sync: %v", jid, err)
++			return errors.Join(store.ErrLocalStorage, err)
+ 		} else if changed {
+ 			cli.Log.Debugf("Got push name %s for %s in history sync", user.GetPushname(), jid)
+ 		}
+ 	}
++	return nil
  }
  
 -func (cli *Client) updatePushName(ctx context.Context, user, userAlt types.JID, messageInfo *types.MessageInfo, name string) {
@@ -637,7 +1648,7 @@ index 7075357..caa17f5 100644
  			}
  		}
  		cli.Log.Debugf("Push name of %s changed from %s to %s, dispatching event", user, previousName, name)
-@@ -704,24 +709,30 @@ func (cli *Client) updatePushName(ctx context.Context, user, userAlt types.JID,
+@@ -704,24 +711,30 @@ func (cli *Client) updatePushName(ctx context.Context, user, userAlt types.JID,
  			NewPushName: name,
  		})
  	}
@@ -671,7 +1682,7 @@ index 7075357..caa17f5 100644
  			}
  		}
  		cli.Log.Debugf("Business name of %s changed from %s to %s, dispatching event", user, previousName, name)
-@@ -732,6 +743,7 @@ func (cli *Client) updateBusinessName(ctx context.Context, user, userAlt types.J
+@@ -732,6 +745,7 @@ func (cli *Client) updateBusinessName(ctx context.Context, user, userAlt types.J
  			NewBusinessName: name,
  		})
  	}
@@ -681,13 +1692,15 @@ index 7075357..caa17f5 100644
  func parseVerifiedName(businessNode waBinary.Node) (*types.VerifiedName, error) {
 diff --git a/wa03_receive_test.go b/wa03_receive_test.go
 new file mode 100644
-index 0000000..ac75e3a
+index 0000000..49a0153
 --- /dev/null
 +++ b/wa03_receive_test.go
-@@ -0,0 +1,402 @@
+@@ -0,0 +1,559 @@
 +package whatsmeow
 +
 +import (
++	"bytes"
++	"compress/zlib"
 +	"context"
 +	"errors"
 +	"fmt"
@@ -700,6 +1713,8 @@ index 0000000..ac75e3a
 +	"go.mau.fi/libsignal/signalerror"
 +	waBinary "go.mau.fi/whatsmeow/binary"
 +	"go.mau.fi/whatsmeow/proto/waE2E"
++	"go.mau.fi/whatsmeow/proto/waHistorySync"
++	"go.mau.fi/whatsmeow/proto/waMsgTransport"
 +	"go.mau.fi/whatsmeow/store"
 +	"go.mau.fi/whatsmeow/types"
 +	"go.mau.fi/whatsmeow/types/events"
@@ -846,6 +1861,8 @@ index 0000000..ac75e3a
 +func (s *receiveFailureStore) GetBufferedEvent(context.Context, [32]byte) (*store.BufferedEvent, error) {
 +	s.bufferReads++
 +	switch s.phase {
++	case "pending":
++		return &store.BufferedEvent{Pending: true}, nil
 +	case "lookup":
 +		return nil, fmt.Errorf("lookup: %w", store.ErrLocalStorage)
 +	case "panic":
@@ -863,6 +1880,24 @@ index 0000000..ac75e3a
 +	return nil, nil
 +}
 +
++func TestPendingMarkerWithholdsTransportUntilConfirmation(t *testing.T) {
++	for _, synchronous := range []bool{true, false} {
++		info, node := recoveryProbeMessage()
++		storage := &receiveFailureStore{phase: "pending"}
++		client := NewClient(&store.Device{EventBuffer: storage}, waLog.Noop)
++		client.EnableDecryptedEventBuffer = true
++		client.SynchronousAck = synchronous
++		var attempts atomic.Int32
++		client.transportAttempt = func([]byte) error { attempts.Add(1); return nil }
++		var finishErr error
++		client.MessageReceiveFinished = func(_ context.Context, _ *types.MessageInfo, err error) { finishErr = err }
++		client.decryptMessages(context.Background(), &info, &node)
++		if !errors.Is(finishErr, store.ErrPendingConfirmation) || attempts.Load() != 0 {
++			t.Fatalf("pending duplicate ACKed (sync=%t): %v, attempts=%d", synchronous, finishErr, attempts.Load())
++		}
++	}
++}
++
 +func (s *receiveFailureStore) GetLIDForPN(context.Context, types.JID) (types.JID, error) {
 +	if s.phase == "lid-lookup" {
 +		return types.EmptyJID, s.cause
@@ -876,6 +1911,10 @@ index 0000000..ac75e3a
 +
 +func (s *receiveFailureStore) PutMessageSecret(context.Context, types.JID, types.JID, types.MessageID, []byte) error {
 +	return s.cause
++}
++
++func (s *receiveFailureStore) GetMessageSecret(context.Context, types.JID, types.JID, types.MessageID) ([]byte, types.JID, error) {
++	return nil, types.EmptyJID, s.cause
 +}
 +
 +func (s *receiveFailureStore) DoDecryptionTxn(ctx context.Context, fn func(context.Context) error) error {
@@ -1068,6 +2107,135 @@ index 0000000..ac75e3a
 +				t.Fatal("local write/commit classification was lost")
 +			}
 +		})
++	}
++}
++
++func TestNotificationLocalStorageFailureWithholdsTransportAck(t *testing.T) {
++	for _, synchronous := range []bool{true, false} {
++		t.Run(fmt.Sprint("synchronous=", synchronous), func(t *testing.T) {
++			failed := &store.NoopStore{Error: store.ErrLocalStorage}
++			client := NewClient(&store.Device{Identities: failed, Sessions: failed}, waLog.Noop)
++			client.EnableDecryptedEventBuffer = true
++			client.SynchronousAck = synchronous
++			var attempts atomic.Int32
++			client.transportAttempt = func([]byte) error { attempts.Add(1); return nil }
++			node := waBinary.Node{Tag: "notification", Attrs: waBinary.Attrs{
++				"type": "encrypt", "from": types.NewJID("123", types.DefaultUserServer), "id": "notification-id",
++			}, Content: []waBinary.Node{{Tag: "identity"}}}
++			client.handleNotification(context.Background(), &node)
++			if attempts.Load() != 0 {
++				t.Fatal("identity store failure ACKed notification")
++			}
++			control := waBinary.Node{Tag: "notification", Attrs: waBinary.Attrs{"type": "unknown", "id": "control"}}
++			client.handleNotification(context.Background(), &control)
++			if attempts.Load() != 1 {
++				t.Fatal("protocol control did not attempt transport ACK")
++			}
++		})
++	}
++}
++
++func TestDeviceNotificationMappingFailureWithholdsTransportAck(t *testing.T) {
++	for _, synchronous := range []bool{true, false} {
++		failed := &store.NoopStore{Error: store.ErrLocalStorage}
++		client := NewClient(&store.Device{LIDs: failed}, waLog.Noop)
++		client.EnableDecryptedEventBuffer = true
++		client.SynchronousAck = synchronous
++		var attempts atomic.Int32
++		client.transportAttempt = func([]byte) error { attempts.Add(1); return nil }
++		node := waBinary.Node{Tag: "notification", Attrs: waBinary.Attrs{
++			"type": "devices", "from": types.NewJID("123", types.DefaultUserServer),
++			"lid": types.NewJID("456", types.HiddenUserServer), "id": "notification-id",
++		}}
++		client.handleNotification(context.Background(), &node)
++		if attempts.Load() != 0 {
++			t.Fatalf("device mapping failure ACKed notification (sync=%t)", synchronous)
++		}
++	}
++}
++
++func TestBotSecretLookupFailureWithholdsTransport(t *testing.T) {
++	for _, synchronous := range []bool{true, false} {
++		info, node := recoveryProbeMessage()
++		info.Sender = types.NewJID("bot", types.BotServer)
++		children := node.Content.([]waBinary.Node)
++		children[0].Attrs["type"] = "msmsg"
++		storage := &receiveFailureStore{cause: errors.New("native secret lookup failed")}
++		client := NewClient(&store.Device{MsgSecrets: storage}, waLog.Noop)
++		client.EnableDecryptedEventBuffer = true
++		client.SynchronousAck = synchronous
++		var attempts atomic.Int32
++		client.transportAttempt = func([]byte) error { attempts.Add(1); return nil }
++		var finishErr error
++		client.MessageReceiveFinished = func(_ context.Context, _ *types.MessageInfo, err error) { finishErr = err }
++		client.decryptMessages(context.Background(), &info, &node)
++		if !errors.Is(finishErr, store.ErrLocalStorage) || attempts.Load() != 0 {
++			t.Fatalf("bot secret failure ACKed/retried (sync=%t): %v, attempts=%d", synchronous, finishErr, attempts.Load())
++		}
++	}
++}
++
++func TestAuxiliarySyncStorageFailuresPropagate(t *testing.T) {
++	failed := &store.NoopStore{Error: errors.New("native writer failed")}
++	client := NewClient(&store.Device{AppStateKeys: failed, NCTSalt: failed}, waLog.Noop)
++	keys := &waE2E.AppStateSyncKeyShare{Keys: []*waE2E.AppStateSyncKey{{
++		KeyID:   &waE2E.AppStateSyncKeyId{KeyID: []byte{1}},
++		KeyData: &waE2E.AppStateSyncKeyData{Fingerprint: &waE2E.AppStateSyncKeyFingerprint{}},
++	}}}
++	if err := client.handleAppStateSyncKeyShare(context.Background(), keys); !errors.Is(err, store.ErrLocalStorage) {
++		t.Fatalf("app state write failure was not local: %v", err)
++	}
++	raw, err := proto.Marshal(&waHistorySync.HistorySync{SyncType: waHistorySync.HistorySync_INITIAL_BOOTSTRAP.Enum(), NctSalt: []byte{1}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	var compressed bytes.Buffer
++	writer := zlib.NewWriter(&compressed)
++	if _, err = writer.Write(raw); err != nil {
++		t.Fatal(err)
++	}
++	if err = writer.Close(); err != nil {
++		t.Fatal(err)
++	}
++	notif := &waE2E.HistorySyncNotification{InitialHistBootstrapInlinePayload: compressed.Bytes()}
++	result, err := client.DownloadHistorySync(context.Background(), notif, true)
++	if result != nil || !errors.Is(err, store.ErrLocalStorage) {
++		t.Fatalf("history auxiliary failure was not propagated: %v", err)
++	}
++}
++
++func TestRecoveredProtocolReplayDoesNotDecryptOrDispatch(t *testing.T) {
++	failed := &receiveFailureStore{cause: errors.New("native message secret write failed")}
++	client := NewClient(&store.Device{MsgSecrets: failed}, waLog.Noop)
++	info, _ := recoveryProbeMessage()
++	var dispatched int
++	client.AddEventHandler(func(any) { dispatched++ })
++	plaintext, err := proto.Marshal(&waE2E.Message{Conversation: proto.String("owned content"),
++		MessageContextInfo: &waE2E.MessageContextInfo{MessageSecret: []byte{1}}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	err = client.ReplayRecoveredProtocol(context.Background(), &info, "v2", plaintext)
++	if !errors.Is(err, store.ErrLocalStorage) || dispatched != 0 {
++		t.Fatalf("replay did not stop on durable secret write: %v", err)
++	}
++	v3, err := proto.Marshal(&waMsgTransport.MessageTransport{Protocol: &waMsgTransport.MessageTransport_Protocol{}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := client.ReplayRecoveredProtocol(context.Background(), &info, "v3", v3); err != nil || dispatched != 0 {
++		t.Fatalf("v3 replay did not preserve no-dispatch contract: %v", err)
++	}
++}
++
++func TestPrecommittedReceiveSkipsDuplicateSecretWrite(t *testing.T) {
++	failed := &receiveFailureStore{cause: errors.New("duplicate write must not occur")}
++	client := NewClient(&store.Device{MsgSecrets: failed}, waLog.Noop)
++	info, _ := recoveryProbeMessage()
++	message := &waE2E.Message{MessageContextInfo: &waE2E.MessageContextInfo{MessageSecret: []byte{1}}}
++	ok, err := client.processProtocolParts(store.WithPrecommittedProtocol(context.Background()), &info, message)
++	if err != nil || !ok {
++		t.Fatalf("precommitted write repeated: %v", err)
 +	}
 +}
 +

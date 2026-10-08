@@ -34,64 +34,64 @@ type ReceiveBuilder func(CapturedReceive, CapturedChild, []byte) (identityState 
 
 type receiveContextKey struct{}
 type receiveContext struct {
-	captured CapturedReceive
-	build    ReceiveBuilder
+	captured  CapturedReceive
+	build     ReceiveBuilder
+	processor RecoveryProcessor
 }
 
 type RecoveryProcessor interface {
 	ReplayRecoveredProtocol(context.Context, *types.MessageInfo, string, []byte) error
 }
 
-// ReplayRecovery finishes post-decryption protocol writes before an existing
-// pending delivery is emitted. The caller must keep the pending record until it succeeds.
-func ReplayRecovery(ctx context.Context, accountID string, pending PendingRecord, processor RecoveryProcessor) error {
-	if ctx == nil || processor == nil || pending.Source != "live" || pending.AccountID != accountID {
-		return malformed("wrong recovery account or source")
-	}
+func parseReceiveInfo(raw, accountID string) (*types.MessageInfo, error) {
 	var metadata struct {
-		Version int `json:"version"`
-		AccountID string `json:"accountId"`
-		ID string `json:"id"`
-		Chat string `json:"chat"`
-		Sender string `json:"sender"`
-		SenderAlt string `json:"senderAlt"`
-		RecipientAlt string `json:"recipientAlt"`
-		IsFromMe bool `json:"isFromMe"`
-		IsGroup bool `json:"isGroup"`
-		TimestampSeconds int64 `json:"timestampSeconds"`
-		Category string `json:"category"`
-		MessageType string `json:"messageType"`
+		Version          int    `json:"version"`
+		AccountID        string `json:"accountId"`
+		ID               string `json:"id"`
+		Chat             string `json:"chat"`
+		Sender           string `json:"sender"`
+		SenderAlt        string `json:"senderAlt"`
+		RecipientAlt     string `json:"recipientAlt"`
+		IsFromMe         bool   `json:"isFromMe"`
+		IsGroup          bool   `json:"isGroup"`
+		TimestampSeconds int64  `json:"timestampSeconds"`
+		Category         string `json:"category"`
+		MessageType      string `json:"messageType"`
 	}
-	if err := json.Unmarshal([]byte(pending.Recovery.MessageInfoJSON), &metadata); err != nil || metadata.Version != 1 || metadata.AccountID != accountID || metadata.ID == "" || metadata.TimestampSeconds <= 0 {
-		return failure(StateInvalid, "invalid replay metadata")
+	if err := json.Unmarshal([]byte(raw), &metadata); err != nil || metadata.Version != 1 || metadata.AccountID != accountID || metadata.ID == "" || metadata.TimestampSeconds <= 0 {
+		return nil, failure(StateInvalid, "invalid replay metadata")
 	}
 	chat, err := types.ParseJID(metadata.Chat)
-	if err != nil { return failure(StateInvalid, "invalid replay chat") }
+	if err != nil {
+		return nil, failure(StateInvalid, "invalid replay chat")
+	}
 	sender, err := types.ParseJID(metadata.Sender)
-	if err != nil { return failure(StateInvalid, "invalid replay sender") }
+	if err != nil {
+		return nil, failure(StateInvalid, "invalid replay sender")
+	}
 	parseOptional := func(value string) (types.JID, error) {
-		if value == "" { return types.EmptyJID, nil }
+		if value == "" {
+			return types.EmptyJID, nil
+		}
 		return types.ParseJID(value)
 	}
 	senderAlt, err := parseOptional(metadata.SenderAlt)
-	if err != nil { return failure(StateInvalid, "invalid replay sender alternate") }
+	if err != nil {
+		return nil, failure(StateInvalid, "invalid replay sender alternate")
+	}
 	recipientAlt, err := parseOptional(metadata.RecipientAlt)
-	if err != nil { return failure(StateInvalid, "invalid replay recipient alternate") }
+	if err != nil {
+		return nil, failure(StateInvalid, "invalid replay recipient alternate")
+	}
 	info := &types.MessageInfo{MessageSource: types.MessageSource{Chat: chat, Sender: sender, SenderAlt: senderAlt,
 		RecipientAlt: recipientAlt, IsFromMe: metadata.IsFromMe, IsGroup: metadata.IsGroup},
 		ID: types.MessageID(metadata.ID), Timestamp: time.Unix(metadata.TimestampSeconds, 0), Category: metadata.Category, Type: metadata.MessageType}
-	for _, item := range pending.Recovery.Items {
-		if item.Format != "v2" && item.Format != "v3" { return failure(StateInvalid, "invalid live recovery format") }
-		plaintext, err := base64.StdEncoding.DecodeString(item.PlaintextBase64)
-		if err != nil || len(plaintext) == 0 { return failure(StateInvalid, "invalid replay plaintext") }
-		if err := processor.ReplayRecoveredProtocol(ctx, info, item.Format, plaintext); err != nil { return storageError(err) }
-	}
-	return nil
+	return info, nil
 }
 
 // CaptureReceive copies every encrypted child and the replay metadata before Signal changes state.
-func CaptureReceive(ctx context.Context, accountID string, info *types.MessageInfo, node *waBinary.Node, build ReceiveBuilder) (context.Context, error) {
-	if ctx == nil || info == nil || node == nil || build == nil || accountID == "" {
+func CaptureReceive(ctx context.Context, accountID string, info *types.MessageInfo, node *waBinary.Node, build ReceiveBuilder, processor RecoveryProcessor) (context.Context, error) {
+	if ctx == nil || info == nil || node == nil || build == nil || processor == nil || accountID == "" {
 		return nil, malformed("receive context missing")
 	}
 	metadata := struct {
@@ -132,7 +132,7 @@ func CaptureReceive(ctx context.Context, accountID string, info *types.MessageIn
 		}
 		captured.Children = append(captured.Children, CapturedChild{index, format, child.AttrGetter().OptionalString("type"), append([]byte(nil), ciphertext...)})
 	}
-	return context.WithValue(ctx, receiveContextKey{}, receiveContext{captured, build}), nil
+	return store.WithPrecommittedProtocol(context.WithValue(ctx, receiveContextKey{}, receiveContext{captured, build, processor})), nil
 }
 
 func (s *Store) prepareBufferedEvent(ctx context.Context, hash [32]byte, plaintext []byte, serverTime time.Time) error {
@@ -156,6 +156,13 @@ func (s *Store) prepareBufferedEvent(ctx context.Context, hash [32]byte, plainte
 	}
 	if child == nil {
 		return unsupported("encrypted child not captured")
+	}
+	info, err := parseReceiveInfo(value.captured.MessageInfoJSON, s.accountID)
+	if err != nil {
+		return err
+	}
+	if err := value.processor.ReplayRecoveredProtocol(ctx, info, child.Format, plaintext); err != nil {
+		return err
 	}
 	identity, message, err := value.build(value.captured, *child, append([]byte(nil), plaintext...))
 	if err != nil {

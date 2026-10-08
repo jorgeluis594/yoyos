@@ -18,4 +18,5 @@ go mod edit -replace="go.mau.fi/whatsmeow=$work/whatsmeow"
 go test -race ./... -count=1
 go vet ./...
 cd "$work/whatsmeow"
-go test . -run 'TestRecoveryContextHook|TestRecoveryStorageFailure|TestControlledTransportAttempt' -count=1
+go test . -run 'TestRecoveryContextHook|TestRecoveryStorageFailure|TestControlledTransportAttempt|TestNotificationLocalStorageFailure|TestDeviceNotificationMappingFailure|TestBotSecretLookupFailure|TestPendingMarkerWithholdsTransport|TestAuxiliarySyncStorageFailuresPropagate|TestRecoveredProtocolReplay|TestPrecommittedReceive' -count=1
+go test ./appstate -run TestWA03AppStateMACPublicationUsesOneTransaction -count=1
