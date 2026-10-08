@@ -2,7 +2,7 @@ import { z } from "zod";
 import { listOrderAggregatesResponseSchema, listOrderAggregatesSchema, listOrdersResponseSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema,
   type LegacyCompleteOrderRequest, type ListOrderAggregatesRequest, type ListOrdersRequest, type OrderAggregateResponse, type OrderApiError, type OrderApiIssue } from "@shared/contracts/orders";
 import { err, ok } from "@shared/functional";
-import { add, type Money } from "@shared/money";
+import { add, subtract, type Money } from "@shared/money";
 import { limaMidnightUtc, nextCalendarDay } from "@shared/orders-date";
 import type { Result } from "@shared/result";
 import { prepareOrder, ratedDeliveryAssignmentSchema, type CartError, type OrderDraft, type OrderSubmission, type RatedDeliveryAssignment } from "@mobile/features/orders/domain/order-draft";
@@ -169,14 +169,17 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
     reviewLegacyPendingDelivery: (companyId: string, delivery: RatedDeliveryAssignment) => run(companyId, undefined, async () => {
       const pending = await pendingStore.read(companyId);
       if (!pending.success) return pending;
-      if (!pending.data?.request?.delivery || !("chargeDeliveryToCustomer" in pending.data.request.delivery))
-        return err({ code: "PENDING_CONFIRMATION", message: "No legacy delivery attempt to review" });
+      if (!pending.data?.request?.delivery)
+        return err({ code: "PENDING_CONFIRMATION", message: "No delivery attempt to review" });
       const found = await api.get(pending.data.id);
       if (found.success) return confirmed(found.data, pending.data);
       if (found.error.code !== "ORDER_NOT_FOUND") return found;
       const parsed = ratedDeliveryAssignmentSchema.safeParse(delivery);
       if (!parsed.success) return err({ code: "INVALID_CART", message: "Invalid reviewed delivery" });
-      const total = add(parsed.data.expectedPrice)(pending.data.shownTotal);
+      const previous = pending.data.request.delivery;
+      const products = "expectedPrice" in previous ? subtract(previous.expectedPrice)(pending.data.shownTotal) : ok(pending.data.shownTotal);
+      if (!products.success || products.data.amount <= 0) return err({ code: "INVALID_CART", message: "Invalid saved product total" });
+      const total = add(parsed.data.expectedPrice)(products.data);
       if (!total.success) return err({ code: "INVALID_CART", message: "Invalid reviewed total" });
       const next = { ...pending.data, shownTotal: total.data, request: { ...pending.data.request, delivery: parsed.data } };
       const saved = await pendingStore.replace(pending.data, next);

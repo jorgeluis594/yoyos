@@ -291,8 +291,13 @@ test("reviewing a legacy delivery keeps order and payment identities and saves b
   expect(await operations.reviewLegacyPendingDelivery(companyId, delivery)).toEqual(ok({ kind: "uncertain", pending: next }));
   expect(await store.read(companyId)).toEqual(ok(next));
   expect(calls).toEqual([`/api/orders/${id(3)}/aggregate`, `/api/orders/${id(3)}/aggregate`]);
-  expect(await operations.reviewLegacyPendingDelivery(companyId, delivery)).toMatchObject({ success: false, error: { code: "PENDING_CONFIRMATION" } });
-  expect(calls).toHaveLength(2);
+  const replacement = { ...delivery, expectedPrice: { amount: 12, currency: "PEN" as const }, delivery: { ...delivery.delivery, rateId: id(9) } };
+  const reviewed = { ...next, shownTotal: { amount: 22, currency: "PEN" }, request: { ...next.request, delivery: replacement } };
+  expect(await operations.reviewLegacyPendingDelivery(companyId, replacement)).toEqual(ok({ kind: "uncertain", pending: reviewed }));
+  expect(await store.read(companyId)).toEqual(ok(reviewed));
+  expect(reviewed.request.payments).toEqual(pending.request.payments);
+  expect(reviewed.request.items).toEqual(pending.request.items);
+  expect(calls).toHaveLength(3);
 });
 
 test("rated creation resends its exact reviewed selection after restart and clears a price rejection", async () => {
