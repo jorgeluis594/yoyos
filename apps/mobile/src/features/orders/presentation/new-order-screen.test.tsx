@@ -61,6 +61,7 @@ jest.mock("@mobile/features/orders/presentation/order-draft-guard", () => ({ use
   dirty: mockDirty, setDirty: mockSetDirty, discardVersion: mockDiscardVersion,
 }) }));
 jest.mock("@mobile/features/orders/presentation/order-result", () => ({ useOrderResult: () => ({ show: mockShow }) }));
+jest.mock("react-native-screens/experimental", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 
 const firstRate = { id: mockId(30), method: "home" as const, price: { amount: 8, currency: "PEN" as const } };
@@ -84,6 +85,27 @@ async function review() {
   fireEvent.press(screen.getByRole("button", { name: "Revisar venta" }));
   return screen;
 }
+
+test("review preserves payment and one save action when the available height changes", async () => {
+  mockCompleteOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: { amount: 10, currency: "PEN" },
+    order: { id: mockId(3) } }));
+  const screen = await review();
+  expect(screen.getByText("Productos (referencial)")).toBeTruthy();
+  expect(screen.getByLabelText("2. Revisar")).toHaveProp("accessibilityState", { selected: true });
+  fireEvent.press(screen.getByRole("button", { name: "Agregar pago" }));
+  fireEvent.changeText(screen.getByLabelText(/Importe recibido/), "5");
+  for (const height of [420, 900]) {
+    fireEvent(screen.getByTestId("new-order-viewport"), "layout", { nativeEvent: { layout: { height } } });
+    expect(screen.getByLabelText(/Importe recibido/)).toHaveProp("value", "5");
+    expect(screen.getAllByRole("button", { name: "Guardar pedido" })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();
+  }
+  fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
+  await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledTimes(1));
+  expect(mockCompleteOrder).toHaveBeenCalledWith(expect.objectContaining({
+    payments: [expect.objectContaining({ amount: "5" })],
+  }), mockId(1));
+});
 beforeEach(() => { jest.clearAllMocks(); mockQuotation.mockReset(); mockSettingsGet.mockReset();
   mockQuotation.mockResolvedValue(ok(quotation));
   mockSettingsGet.mockResolvedValue(ok({ version: 1, home: { enabled: true }, store: { enabled: false, pickupPoint: null }, agency: { enabled: false }, couriers: [] })); mockNextId = 3; mockCountry = "PE"; mockDirty = false; mockDiscardVersion = 0; mockOffline = false; mockReadPending.mockResolvedValue(ok(null)); });
@@ -195,6 +217,7 @@ test('new sale translates selection and review actions to Portuguese', async () 
     fireEvent.press(screen.getByRole('button', { name: 'Adicionar' }));
     fireEvent.press(screen.getByRole('button', { name: 'Revisar venda' }));
     expect(screen.getByRole('button', { name: 'Salvar pedido' })).toBeTruthy();
+    expect(screen.getByText('Produtos (estimativa)')).toBeTruthy();
     screen.unmount();
   } finally {
     await i18n.changeLanguage('es');

@@ -9,7 +9,8 @@ import type { Result } from "@shared/result";
 import { add, subtract, type Money, type MoneyError } from "@shared/money";
 import { andThen, ok } from "@shared/functional";
 import { useEffect, useRef, useState } from "react";
-import { ScrollView, StyleSheet, Switch, View } from "react-native";
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Switch, useWindowDimensions, View } from "react-native";
+import { SafeAreaView as NativeSafeAreaView } from "react-native-screens/experimental";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
@@ -55,6 +56,10 @@ export default function NewOrderScreen() {
 function CompanyOrderScreen() {
   const router = useRouter();
   const theme = useTheme();
+  const { height, fontScale } = useWindowDimensions();
+  const [availableHeight, setAvailableHeight] = useState(height);
+  const scroll = useRef<ScrollView>(null);
+  const docked = availableHeight / fontScale >= 600;
   const { t, i18n } = useTranslation();
   const locale = i18n.language === 'pt-BR' ? 'pt-BR' : 'es-PE';
   const navigation = useNavigation();
@@ -131,6 +136,9 @@ function CompanyOrderScreen() {
   ) : null;
   const balance = paidAmount?.success && reviewedTotal?.success ? subtract(paidAmount.data)(reviewedTotal.data) : null;
 
+  useEffect(() => {
+    if (error && stage === "review") scroll.current?.scrollToEnd({ animated: false });
+  }, [error, stage]);
   useEffect(() => {
     if (!canQuote) return;
     let active = true;
@@ -288,11 +296,36 @@ function CompanyOrderScreen() {
     else setError(t('quantityError'));
   };
 
+  const actions = pendingStatus === "none" || reviewingOrder ? <View style={[styles.bottom, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+    {productTotal.success ? <View style={styles.amountRow}>
+      <View style={styles.amountLabel}><ThemedText type="small" themeColor="textSecondary">{t('itemCount', { count: draft.items.length })}</ThemedText>
+        <ThemedText type="smallBold">{t('estimatedProductsLabel')}</ThemedText></View>
+      <ThemedText type="subtitle" style={styles.amount}>{money(productTotal.data.shownTotal.amount, productTotal.data.shownTotal.currency, locale)}</ThemedText>
+    </View> : null}
+    {stage === "products" ? <Button disabled={draft.kind === "empty"} onPress={() => { setStage("review"); setError(""); scroll.current?.scrollTo({ y: 0, animated: false }); }}>{t('reviewOrder')}</Button>
+      : <View style={styles.section}><Button disabled={!prepared.success || !deliveryReady || offline || !!unavailableVariants.length || contactUnavailable} loading={sending} onPress={() => void complete()}>{t(reviewingOrder ? 'saveReviewedOrder' : 'saveOrder')}</Button>
+        <Button variant="secondary" onPress={() => { setCatalogLoading(true); setStage("products"); scroll.current?.scrollTo({ y: 0, animated: false }); }}>{t('editProducts')}</Button>
+        {offline ? <ThemedText type="small" accessibilityRole="alert">{t('offlineEditing')}</ThemedText> : null}
+      </View>}
+  </View> : null;
+
   return <ThemedView style={styles.page}><SafeAreaView style={styles.page} edges={["top", "left", "right"]}>
-    <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <Button variant="ghost" onPress={() => router.back()}>{t('backToOrders')}</Button>
-      <View style={styles.heading}><ThemedText type="title" accessibilityRole="header">{t('newOrder')}</ThemedText>
-        <ThemedText themeColor="textSecondary">{stage === "products" ? t('products') : t('review')}</ThemedText></View>
+    <NativeSafeAreaView style={styles.page} edges={{ bottom: true }}>
+    <KeyboardAvoidingView style={styles.page} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+    <View testID="new-order-viewport" style={styles.page} onLayout={event => setAvailableHeight(event.nativeEvent.layout.height)}>
+    <ScrollView ref={scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag" stickyHeaderIndices={docked ? [1] : undefined} contentInsetAdjustmentBehavior="never">
+      <View style={styles.heading}><Button variant="ghost" onPress={() => router.back()}>{t('backToOrders')}</Button>
+        <ThemedText type="title" accessibilityRole="header">{t('newOrder')}</ThemedText></View>
+      <View style={[styles.steps, { backgroundColor: theme.background }]}>
+        {(["products", "review"] as const).map((step, index) => <View key={step} style={styles.step}
+          accessible accessibilityLabel={`${index + 1}. ${t(step)}`} accessibilityState={{ selected: stage === step }}>
+          <View style={[styles.stepNumber, { backgroundColor: stage === step ? theme.primary : theme.secondary }]}>
+            <ThemedText type="smallBold" style={{ color: stage === step ? theme.primaryForeground : theme.textSecondary }}>{index + 1}</ThemedText>
+          </View>
+          <ThemedText type="smallBold" style={[styles.stepLabel, { color: stage === step ? theme.primary : theme.textSecondary }]}>{t(step)}</ThemedText>
+        </View>)}
+      </View>
       {pendingStatus === "loading" ? <ScreenState status="loading" title={t('checkingPendingOrder')} />
         : pendingStatus === "error" ? <ScreenState status="error" title={t('pendingAttemptError')}
             description={t('pendingAttemptHint')}
@@ -360,14 +393,14 @@ function CompanyOrderScreen() {
                 <Button variant="secondary" onPress={() => changeQuantity(item.variantId, item.quantity + 1)}>+</Button>
                 <Button variant="ghost" onPress={() => setDraft(removeDraftItem(draft, item.variantId))}>{t('remove')}</Button></View>
             </View>)}
-            <ThemedText type="subtitle" accessibilityRole="header">{t('customer')}</ThemedText>
+            <ThemedText type="subtitle" accessibilityRole="header" style={[styles.sectionHeading, { borderColor: theme.border }]}>{t('customer')}</ThemedText>
             {contactUnavailable ? <ThemedText accessibilityRole="alert">{t('savedContactUnavailable')}</ThemedText> : null}
             <ThemedText>{draft.customer.kind === "contact" ? draft.customer.name ?? draft.customer.phone : t('generalPublic')}</ThemedText>
             {draft.customer.kind === "contact" ? <Button variant="ghost" onPress={() => { setDraft(setDraftCustomer(draft, { kind: "general_public" })); setContactUnavailable(false); }}>{t('removeContact')}</Button> : null}
             <Input value={contactSearch} onChangeText={setContactSearch} accessibilityLabel={t('searchContact')} placeholder={t('searchContactByNameOrPhone')} />
             {contacts.map((contact) => <ListRow key={contact.id} title={contact.name ?? contact.phone} description={contact.name ? contact.phone : undefined}
               onPress={() => { setContactUnavailable(false); setDraft(setDraftCustomer(draft, { kind: "contact", contactId: contact.id, name: contact.name, phone: contact.phone })); setContactSearch(""); setContacts([]); }} />)}
-            <ThemedText type="subtitle" accessibilityRole="header">{t('payments')}</ThemedText>
+            <ThemedText type="subtitle" accessibilityRole="header" style={[styles.sectionHeading, { borderColor: theme.border }]}>{t('payments')}</ThemedText>
             {(draft.payments ?? []).map((payment, index) => <View key={payment.paymentId} style={styles.section}>
               <ThemedText type="smallBold">{t('initialPayment', { number: index + 1 })}</ThemedText>
               <PaymentFields value={payment} currency={productTotal.success ? productTotal.data.shownTotal.currency : ""} busy={sending}
@@ -376,7 +409,7 @@ function CompanyOrderScreen() {
             </View>)}
             {!draft.payments?.length ? <ThemedText themeColor="textSecondary">{t('noInitialPayments')}</ThemedText> : null}
             <Button variant="secondary" disabled={sending} onPress={() => setDraft(current => ({ ...current, payments: [...current.payments ?? [], { paymentId: Crypto.randomUUID(), amount: "", method: "digital_wallet", deductStockIfPartial: false }] }))}>{t('addInitialPayment')}</Button>
-            <ThemedText type="subtitle" accessibilityRole="header">{t('delivery')}</ThemedText>
+            <ThemedText type="subtitle" accessibilityRole="header" style={[styles.sectionHeading, { borderColor: theme.border }]}>{t('delivery')}</ThemedText>
             {settings && (initialDelivery || settings.home.enabled || settings.store.enabled || settings.agency.enabled) ? <>
               <View style={styles.toggle}><ThemedText style={styles.toggleLabel}>{t('configureInitialDelivery')}</ThemedText><Switch disabled={sending} value={!!initialDelivery} accessibilityLabel={t('configureInitialDelivery')} onValueChange={enabled => {
                 if (!enabled) { setInitialDelivery(null); setQuoteAttempt(value => value + 1); return; }
@@ -395,7 +428,7 @@ function CompanyOrderScreen() {
             </> : <ThemedText themeColor="textSecondary">{t(settings ? 'orderDeliveryDisabled' : 'loadOrderDeliveryError')}</ThemedText>}
             <View style={styles.toggle}><ThemedText style={styles.toggleLabel}>{t('deliverImmediately')}</ThemedText><Switch disabled={sending} value={draft.deliverImmediately ?? false} accessibilityLabel={t('deliverImmediately')} onValueChange={deliverImmediately => setDraft(current => ({ ...current, deliverImmediately }))} /></View>
             <ThemedText type="small" themeColor="textSecondary">{t('immediateRequirements')}</ThemedText>
-            <ThemedText type="subtitle" accessibilityRole="header">{t('creationSummary')}</ThemedText>
+            <ThemedText type="subtitle" accessibilityRole="header" style={[styles.sectionHeading, { borderColor: theme.border }]}>{t('creationSummary')}</ThemedText>
             {paidAmount?.success ? <>
               <ThemedText>{t('initialPaid')}: {money(paidAmount.data.amount, paidAmount.data.currency, locale)}</ThemedText>
               {balance?.success ? <ThemedText>{t('estimatedBalance')}: {money(Math.max(0, balance.data.amount), balance.data.currency, locale)}</ThemedText> : null}
@@ -405,20 +438,21 @@ function CompanyOrderScreen() {
               <ThemedText>{t("orderDeliveryTotalAmount", { amount: money(reviewedTotal.data.amount, reviewedTotal.data.currency, locale) })}</ThemedText></> : null}
             <ThemedText themeColor="textSecondary">{t('creationPriceHint')}</ThemedText>
           </View>}
-      {error ? <ThemedText accessibilityRole="alert" style={[styles.error, { color: theme.error }]}>{error}</ThemedText> : null}
-      {pendingStatus === "none" || reviewingOrder ? <View style={styles.bottom}>
-        {productTotal.success ? <ThemedText type="subtitle">{t('itemCount', { count: draft.items.length })} · {money(productTotal.data.shownTotal.amount, productTotal.data.shownTotal.currency, locale)}</ThemedText> : null}
-        {stage === "products" ? <Button disabled={draft.kind === "empty"} onPress={() => { setStage("review"); setError(""); }}>{t('reviewOrder')}</Button>
-          : <View style={styles.section}><Button variant="secondary" onPress={() => { setCatalogLoading(true); setStage("products"); }}>{t('editProducts')}</Button>
-            <Button disabled={!prepared.success || !deliveryReady || offline || !!unavailableVariants.length || contactUnavailable} loading={sending} onPress={() => void complete()}>{t(reviewingOrder ? 'saveReviewedOrder' : 'saveOrder')}</Button>
-            {offline ? <ThemedText type="small" accessibilityRole="alert">{t('offlineEditing')}</ThemedText> : null}
-          </View>}
-      </View> : null}
+      {error ? <ThemedText accessibilityRole="alert" accessibilityLiveRegion="polite" style={[styles.error, { color: theme.error }]}>{error}</ThemedText> : null}
+      {!docked ? actions : null}
     </ScrollView>
+    {docked ? actions : null}
+    </View></KeyboardAvoidingView></NativeSafeAreaView>
   </SafeAreaView></ThemedView>;
 }
 
 const styles = StyleSheet.create({ page: { flex: 1 }, content: { gap: 20, padding: 16, paddingBottom: 40, maxWidth: 640, width: "100%", alignSelf: "center" },
   toggle: { flexDirection: "row", alignItems: "center", gap: 16, minHeight: 48 }, toggleLabel: { flex: 1 },
-  heading: { gap: 4 }, section: { gap: 12 }, item: { gap: 8, paddingVertical: 12 }, row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  bottom: { gap: 12, paddingTop: 16 }, error: { padding: 12 } });
+  heading: { gap: 8 }, sectionHeading: { borderTopWidth: 1, paddingTop: 16, marginTop: 8 },
+  steps: { flexDirection: "row", flexWrap: "wrap", gap: 16, paddingVertical: 8 },
+  step: { flexDirection: "row", alignItems: "center", flex: 1, gap: 8, minWidth: 120 },
+  stepNumber: { minWidth: 32, minHeight: 32, borderRadius: 32, padding: 4, alignItems: "center", justifyContent: "center" },
+  stepLabel: { flexShrink: 1 },
+  amountRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  amountLabel: { flexShrink: 1 }, amount: { fontVariant: ["tabular-nums"], textAlign: "right", flexShrink: 1 }, section: { gap: 12 }, item: { gap: 8, paddingVertical: 12 }, row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  bottom: { gap: 12, padding: 16, borderTopWidth: 1, maxWidth: 640, width: "100%", alignSelf: "center" }, error: { padding: 12 } });

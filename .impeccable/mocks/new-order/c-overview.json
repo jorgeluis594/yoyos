@@ -1,0 +1,10 @@
+{
+  "prompt": "Use case: ui-mockup. Create a high fidelity redesign of attached Yoyos Nueva venta Android app interface, ONE portrait 432x936 logical-proportion screen, no bezel. Option C: review overview with prominent total at top, compact flat groups and sticky save-only action footer. References define established visual world exactly: cream #F7F4EF, charcoal #242326, caramel #8C552D, Inter, muted warm-gray secondary controls, discreet separators, small 6px corners, actual Android switches, status bar, bottom four-tab navigation. Do not change identity. Structure: compact back 'Volver a pedidos', title 'Nueva venta', two-step progress row '1 Productos' subdued and '2 Revisar' selected caramel with number indicator. Below title a compact neutral summary band showing small '2 artículos' left and prominent bold 'S/ 129.90' right; secondary 'Editar productos' text action underneath. Main scroll content shows lower review groups: 'Pagos', 'Sin pagos. El pedido quedará pendiente de pago.', neutral full-width 'Agregar pago'. 'Entrega', off switches labeled 'Configurar datos de entrega' and 'Marcar como entregado al guardar', small full explanation 'Para marcar entregado, los pagos deben cubrir el total y debe haber stock suficiente.' Compact 'Resumen' rows 'Pagos ingresados' / 'S/ 0.00', 'Saldo referencial de productos' / 'S/ 129.90', small 'El servidor calculará precios, cargo de entrega y saldo al guardar.' Sticky footer has ONLY one full-width caramel 'Guardar pedido' above bottom tabs, separated by a thin top rule. The total band remains near header rather than in action footer. Existing tabs home, products, selected Pedidos, settings; Android bottom navigation. Comfortable 48dp control targets, all text and save fully visible, compact task UI for seller, no gradients, imagery, decorative cards, large empty space, marketing elements. Show one polished raster mock.",
+  "approved": false,
+  "tool": "image_gen",
+  "mode": "Operate",
+  "references": [
+    "artifacts/mobile-screenshots/15-pedido-nuevo-revision.png",
+    "artifacts/mobile-screenshots/15-pedido-nuevo-pago-entrega.png"
+  ]
+}

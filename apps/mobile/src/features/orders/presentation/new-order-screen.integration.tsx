@@ -59,6 +59,7 @@ jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAcc
 } }) }));
 jest.mock("@mobile/features/orders/presentation/order-draft-guard", () => ({ useOrderDraft: () => ({ dirty: false, setDirty: jest.fn(), discardVersion: 0 }) }));
 jest.mock("@mobile/features/orders/presentation/order-result", () => ({ useOrderResult: () => ({ show: jest.fn() }) }));
+jest.mock("react-native-screens/experimental", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 
 async function mockRequest(path: string, init: RequestInit = {}): Promise<Result<unknown, TransportError>> {
