@@ -4,6 +4,7 @@
     "slug": "whatsapp-native-probe",
     "version": "0.1.0",
     "android": { "package": "com.yoyos.whatsappnativeprobe", "minSdkVersion": 24 },
-    "ios": { "bundleIdentifier": "com.yoyos.whatsappnativeprobe", "deploymentTarget": "16.4" }
+    "ios": { "bundleIdentifier": "com.yoyos.whatsappnativeprobe", "deploymentTarget": "16.4" },
+    "plugins": [["expo-build-properties", { "android": { "buildArchs": ["arm64-v8a", "x86_64"] } }]]
   }
 }
