@@ -35,6 +35,7 @@ type NativeWhatsApp = {
   deleteDownloadedImage(id: string): Promise<unknown>;
   addListener(event: keyof WhatsAppEvents, listener: (payload: unknown) => void): { remove(): void };
 };
+type ListenerEntry<E extends keyof WhatsAppEvents> = { listener: (payload: WhatsAppEvents[E]) => void };
 
 const diagnostics: Record<WhatsAppErrorCode, string> = {
   MODULE_UNAVAILABLE: "WhatsApp native module is unavailable", NOT_INITIALIZED: "WhatsApp is not initialized",
@@ -61,15 +62,15 @@ export function createWhatsAppClient(resolveNative: () => NativeWhatsApp | null 
   let state: WhatsAppEvents["connectionChanged"] | null = null;
   let qr: WhatsAppEvents["qr"] | null = null;
   const listeners = {
-    qr: new Set<(payload: WhatsAppEvents["qr"]) => void>(),
-    connectionChanged: new Set<(payload: WhatsAppEvents["connectionChanged"]) => void>(),
-    messageReceived: new Set<(payload: WhatsAppEvents["messageReceived"]) => void>(),
-    error: new Set<(payload: WhatsAppEvents["error"]) => void>(),
+    qr: new Set<ListenerEntry<"qr">>(),
+    connectionChanged: new Set<ListenerEntry<"connectionChanged">>(),
+    messageReceived: new Set<ListenerEntry<"messageReceived">>(),
+    error: new Set<ListenerEntry<"error">>(),
   };
 
   function emit<E extends keyof WhatsAppEvents>(event: E, payload: WhatsAppEvents[E]) {
-    for (const listener of listeners[event] as Set<(payload: WhatsAppEvents[E]) => void>) {
-      try { listener(payload); } catch { /* A consumer callback cannot break the native event stream. */ }
+    for (const entry of listeners[event] as Set<ListenerEntry<E>>) {
+      try { entry.listener(payload); } catch { /* A consumer callback cannot break the native event stream. */ }
     }
   }
   function receive<E extends keyof WhatsAppEvents>(event: E, payload: unknown) {
@@ -134,6 +135,8 @@ export function createWhatsAppClient(resolveNative: () => NativeWhatsApp | null 
         if (result.data.qr) receive("qr", result.data.qr);
         return ok(undefined);
       }
+      prepared = false;
+      activeOptions = "";
       if (result.error.code === "SESSION_STATE_INVALID") { localReady = true; prepared = false; sessionInvalid = true; receive("connectionChanged", { state: "disconnected" }); }
       return result;
     })();
@@ -176,17 +179,18 @@ export function createWhatsAppClient(resolveNative: () => NativeWhatsApp | null 
       return call("deleteDownloadedImage", [id], empty);
     },
     addListener<E extends keyof WhatsAppEvents>(event: E, listener: (payload: WhatsAppEvents[E]) => void) {
-      const set = listeners[event] as Set<(payload: WhatsAppEvents[E]) => void>;
-      set.add(listener);
+      const set = listeners[event] as Set<ListenerEntry<E>>;
+      const entry = { listener };
+      set.add(entry);
       module();
       const current = event === "connectionChanged" ? state : event === "qr" ? qr : null;
       if (current) queueMicrotask(() => {
-        if (!set.has(listener)) return;
+        if (!set.has(entry)) return;
         if (event === "connectionChanged" && current !== state) return;
         if (event === "qr" && (current !== qr || state?.state !== "awaitingQr" || qr.expiresAt <= now())) return;
         try { listener(current as WhatsAppEvents[E]); } catch { /* Listener failure cannot affect another subscription. */ }
       });
-      return { remove: () => { set.delete(listener); } };
+      return { remove: () => { set.delete(entry); } };
     },
   };
 }

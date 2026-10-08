@@ -151,3 +151,28 @@ test("initialization adopts a valid native QR without requesting another connect
   expect(qr).toHaveBeenCalledWith({ value: "active", expiresAt: 300 });
   expect(native.connect).not.toHaveBeenCalled();
 });
+
+test("removing one registration keeps an identical callback registered elsewhere", async () => {
+  const native = fakeNative();
+  const client = createWhatsAppClient(() => native);
+  await client.initialize();
+  const listener = jest.fn();
+  const first = client.addListener("connectionChanged", listener);
+  client.addListener("connectionChanged", listener);
+  await Promise.resolve();
+  listener.mockClear();
+  first.remove();
+  native.handlers.get("connectionChanged")?.({ state: "connected" });
+  expect(listener).toHaveBeenCalledTimes(1);
+});
+
+test("failed option update requires a fresh native initialization", async () => {
+  const native = fakeNative();
+  const client = createWhatsAppClient(() => native);
+  await client.initialize();
+  native.initialize.mockResolvedValueOnce({ success: false, error: { code: "SESSION_STORAGE_FAILED" } });
+  expect(await client.initialize({ maxRecoveryBufferBytes: 1234 })).toMatchObject({ success: false });
+  expect(await client.connect()).toMatchObject({ success: false, error: { code: "NOT_INITIALIZED" } });
+  expect(await client.initialize()).toEqual({ success: true, data: undefined });
+  expect(native.initialize).toHaveBeenCalledTimes(3);
+});
