@@ -83,13 +83,26 @@ func TestPinned515AfterPairSuccessRetriesFirstLink(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("515 did not retire the first client")
 	}
+	if receive(t, published).State != Connecting || receive(t, published).Error != ConnectionFailed || receive(t, published).State != Reconnecting {
+		t.Fatal("pairing did not enter a single controlled retry")
+	}
 	if c.State() != Reconnecting {
 		t.Fatalf("first link was not retried: %s", c.State())
 	}
 	clock.WaitTimer(t)
 	clock.Advance(time.Second)
-	started(t, second)
+	replacementEvents := started(t, second)
 	if created != 2 || c.State() != Reconnecting {
 		t.Fatal("reconnect did not create exactly one new attempt")
+	}
+	replacement := NewWhatsmeowTransport(upstream.Store, nil).(*whatsmeowTransport).client
+	replacement.AddEventHandler(func(event any) {
+		if kind := classify(event); kind != "" {
+			replacementEvents <- TransportEvent{Kind: kind}
+		}
+	})
+	replacement.DangerousInternals().DispatchEvent(&events.Connected{})
+	if receive(t, published).State != Connected {
+		t.Fatal("reconnected upstream event did not complete the first link")
 	}
 }
