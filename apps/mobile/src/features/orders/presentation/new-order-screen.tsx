@@ -1,9 +1,13 @@
 import { PaymentFields } from "@mobile/features/orders/presentation/payment-fields";
 import { DeliveryFields, deliveryDraftFromOrder } from "@mobile/features/orders/presentation/delivery-fields";
-import { deliverySettings } from "@mobile/features/delivery-settings/composition";
+import { deliverySettings } from "@mobile/features/delivery-settings";
+import type { DeliveryQuotation } from "@mobile/features/delivery-settings";
+import { orderDeliveryFormSchema, type OrderDeliveryFormValues } from "@mobile/features/orders/presentation/order-delivery-form";
 import type { DeliverySettingsResponse } from "@shared/contracts/delivery-settings";
 import { orderLanguage } from "@mobile/features/orders/presentation/order-labels";
 import type { Result } from "@shared/result";
+import { add } from "@shared/money";
+import { ok } from "@shared/functional";
 import { useEffect, useRef, useState } from "react";
 import { ScrollView, StyleSheet, Switch, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -36,6 +40,7 @@ type Catalog = z.infer<typeof orderCatalogSchema>;
 type Contacts = z.infer<typeof orderContactsSchema>;
 const money = (amount: number, currency: string, locale: string) => new Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
 const errorKeys: Record<string, string> = {
+  TOTAL_CHANGED: 'orderDeliveryPriceChanged', RATE_UNAVAILABLE: 'orderDeliveryRateUnavailable', INVALID_DELIVERY_RATE: 'orderDeliveryRateUnavailable', INVALID_DISTRICT: 'invalidHomeDestination',
   INSUFFICIENT_STOCK: 'insufficientStock', VARIANT_NOT_FOUND: 'variantNotFound',
   CONTACT_NOT_FOUND: 'contactNotFound', CURRENCY_MISMATCH: 'currencyMismatch',
   INVALID_ORDER: 'invalidOrder', INVALID_PAYMENT: 'invalidOrder', PAYMENT_REQUIRED: 'immediateRequirements',
@@ -72,6 +77,9 @@ function CompanyOrderScreen() {
   const [checking, setChecking] = useState(false);
   const [sending, setSending] = useState(false);
   const [settings, setSettings] = useState<DeliverySettingsResponse | null>(null);
+  const [initialDelivery, setInitialDelivery] = useState<OrderDeliveryFormValues | null>(null);
+  const [quoteResult, setQuoteResult] = useState<{ key: string; quotation: DeliveryQuotation | null; error: boolean } | null>(null);
+  const [quoteAttempt, setQuoteAttempt] = useState(0);
   const saving = useRef(false);
   const [error, setError] = useState("");
   const [problemVariantId, setProblemVariantId] = useState<string | null>(null);
@@ -80,10 +88,44 @@ function CompanyOrderScreen() {
   const companyId = state.status === "ready" ? state.company.id : "";
   const activeCompany = useRef(companyId);
   const offline = network.isConnected === false || network.isInternetReachable === false;
-  const prepared = prepareOrder(draft);
-  const productTotal = prepareOrder({ ...draft, payments: undefined, delivery: undefined });
+  const productTotal = prepareOrder({ ...draft, payments: undefined, delivery: undefined, ratedDelivery: undefined });
+  const method = initialDelivery?.method;
+  const districtCode = initialDelivery?.districtCode ?? "";
+  const deliveryEnabled = !!method && !!settings?.[method].enabled;
+  const canQuote = !!initialDelivery && deliveryEnabled && (method === "home" || method === "agency") && !!districtCode && pendingStatus === "none";
+  const requestKey = `${companyId}/${method}/${districtCode}/${quoteAttempt}/${settings?.version}`;
+  const quotation = canQuote && quoteResult?.key === requestKey ? quoteResult.quotation : null;
+  const quoting = canQuote && quoteResult?.key !== requestKey;
+  const quoteError = canQuote && quoteResult?.key === requestKey && quoteResult.error;
+  const rates = quotation?.districtCode === districtCode ? quotation.rates.filter(rate => rate.method === method) : [];
+  const selectedRate = rates.find(rate => rate.id === initialDelivery?.rateId);
+  const deliverySelection = initialDelivery ? orderDeliveryFormSchema.safeParse({ ...initialDelivery,
+    currency: productTotal.success ? productTotal.data.shownTotal.currency : initialDelivery.currency,
+    price: selectedRate?.price ?? null,
+  }) : null;
+  const ratedDelivery = deliveryEnabled && !quoting && deliverySelection?.success && (method === "store" || selectedRate) ? deliverySelection.data : undefined;
+  const saveDraft = { ...draft, ratedDelivery };
+  const prepared = prepareOrder(saveDraft);
+  const deliveryReady = !initialDelivery || !!ratedDelivery;
+  const reviewedPrice = initialDelivery && deliveryEnabled && productTotal.success
+    ? method === "store" ? { amount: 0, currency: productTotal.data.shownTotal.currency } : selectedRate?.price
+    : undefined;
+  const reviewedTotal = productTotal.success && (!initialDelivery || reviewedPrice)
+    ? reviewedPrice ? add(reviewedPrice)(productTotal.data.shownTotal) : ok(productTotal.data.shownTotal) : null;
+  const retryQuotation = () => {
+    setInitialDelivery(current => current ? { ...current, rateId: "", price: null } : null);
+    setQuoteAttempt(value => value + 1);
+  };
   const paidAmount = (draft.payments ?? []).reduce((sum, payment) => sum + (Number(normalizeDecimalInput(payment.amount)) || 0), 0);
 
+  useEffect(() => {
+    if (!canQuote) return;
+    let active = true;
+    void deliverySettings.createQuotation(districtCode).then(result => {
+      if (active) setQuoteResult({ key: requestKey, quotation: result.success ? result.data : null, error: !result.success });
+    });
+    return () => { active = false; };
+  }, [canQuote, districtCode, requestKey]);
   useEffect(() => {
     activeCompany.current = companyId;
     let active = true;
@@ -100,6 +142,8 @@ function CompanyOrderScreen() {
     version.current = discardVersion;
     leaveAllowed.current = true;
     setDraft(emptyOrderDraft());
+    setInitialDelivery(null);
+    setQuoteAttempt(value => value + 1);
   }, [discardVersion]);
   usePreventRemove(dirty, ({ data }) => {
     if (leaveAllowed.current) { navigation.dispatch(data.action); return; }
@@ -169,6 +213,12 @@ function CompanyOrderScreen() {
       if (activeCompany.current !== companyId) return;
       if (!result.success) {
         setError(translations.t(errorKeys[result.error.code] ?? 'confirmOrderError'));
+        if (["TOTAL_CHANGED", "RATE_UNAVAILABLE", "INVALID_DELIVERY_RATE", "INVALID_DISTRICT", "COURIER_UNAVAILABLE", "DELIVERY_METHOD_DISABLED"].includes(result.error.code)) {
+          const latest = await deliverySettings.get();
+          if (activeCompany.current !== companyId) return;
+          if (latest.success) setSettings(latest.data);
+          retryQuotation();
+        }
         setProblemVariantId("issues" in result.error ? result.error.issues?.find(issue => issue.variantId)?.variantId ?? null : null);
         const current = await orders.readPendingOrderConfirmation(companyId);
         if (!current.success) setPendingStatus("error");
@@ -179,7 +229,7 @@ function CompanyOrderScreen() {
       setPending(result.data.pending); setPendingStatus("uncertain"); setChecks(0); setError(t('uncertainOrder'));
     } finally { saving.current = false; setSending(false); }
   };
-  const complete = () => performSave(() => orders.completeOrder(draft, companyId));
+  const complete = () => { if (deliveryReady && prepared.success) return performSave(() => orders.completeOrder(saveDraft, companyId)); };
   const addVariant = (product: Catalog[number], variant: Catalog[number]["variants"][number]) => {
     const result = addDraftItem(draft, { variantId: variant.id, productName: product.name, variantAttributes: variant.attributes,
       sku: variant.sku, shownUnitPrice: { amount: variant.price, currency: product.currency }, shownStock: variant.stock, quantity: 1 },
@@ -253,19 +303,32 @@ function CompanyOrderScreen() {
             {!draft.payments?.length ? <ThemedText themeColor="textSecondary">{t('noInitialPayments')}</ThemedText> : null}
             <Button variant="secondary" disabled={sending} onPress={() => setDraft(current => ({ ...current, payments: [...current.payments ?? [], { paymentId: Crypto.randomUUID(), amount: "", method: "digital_wallet", deductStockIfPartial: false }] }))}>{t('addInitialPayment')}</Button>
             <ThemedText type="subtitle" accessibilityRole="header">{t('delivery')}</ThemedText>
-            {settings && (settings.home.enabled || settings.store.enabled || settings.agency.enabled) ? <>
-              <View style={styles.toggle}><ThemedText style={styles.toggleLabel}>{t('configureInitialDelivery')}</ThemedText><Switch disabled={sending} value={!!draft.delivery} accessibilityLabel={t('configureInitialDelivery')} onValueChange={enabled => setDraft(current => ({ ...current,
-                delivery: enabled ? deliveryDraftFromOrder({ delivery: null, buyer: current.customer.kind === "contact" ? { contactId: current.customer.contactId, name: current.customer.name, phone: current.customer.phone } : null, deliveryCharge: { amount: 0, currency: "PEN" } }, settings) : undefined }))} /></View>
-              {draft.delivery ? <DeliveryFields value={draft.delivery} onChange={delivery => setDraft(current => ({ ...current, delivery }))} settings={settings} busy={sending} language={orderLanguage(state.company.country, i18n.language)} /> : null}
+            {settings && (initialDelivery || settings.home.enabled || settings.store.enabled || settings.agency.enabled) ? <>
+              <View style={styles.toggle}><ThemedText style={styles.toggleLabel}>{t('configureInitialDelivery')}</ThemedText><Switch disabled={sending} value={!!initialDelivery} accessibilityLabel={t('configureInitialDelivery')} onValueChange={enabled => {
+                if (!enabled) { setInitialDelivery(null); setQuoteAttempt(value => value + 1); return; }
+                const { name, phone, documentType, document, method, address, instructions } = deliveryDraftFromOrder({ delivery: null,
+                  buyer: draft.customer.kind === "contact" ? { contactId: draft.customer.contactId, name: draft.customer.name, phone: draft.customer.phone } : null,
+                  deliveryCharge: { amount: 0, currency: "PEN" } }, settings);
+                setInitialDelivery({ name, phone, documentType, document, method, address, instructions, rateId: "", price: null, districtCode: "",
+                  currency: productTotal.success ? productTotal.data.shownTotal.currency : "PEN" });
+                setQuoteAttempt(value => value + 1);
+              }} /></View>
+              {initialDelivery ? <DeliveryFields value={initialDelivery} onChange={next => {
+                if (next.method !== initialDelivery.method || next.districtCode !== initialDelivery.districtCode) setQuoteAttempt(value => value + 1);
+                setInitialDelivery(next);
+              }} settings={settings} busy={sending} language={orderLanguage(state.company.country, i18n.language)}
+                rates={rates} quoting={quoting} quoteError={quoteError} onRetry={retryQuotation} /> : null}
             </> : <ThemedText themeColor="textSecondary">{t(settings ? 'orderDeliveryDisabled' : 'loadOrderDeliveryError')}</ThemedText>}
             <View style={styles.toggle}><ThemedText style={styles.toggleLabel}>{t('deliverImmediately')}</ThemedText><Switch disabled={sending} value={draft.deliverImmediately ?? false} accessibilityLabel={t('deliverImmediately')} onValueChange={deliverImmediately => setDraft(current => ({ ...current, deliverImmediately }))} /></View>
             <ThemedText type="small" themeColor="textSecondary">{t('immediateRequirements')}</ThemedText>
             <ThemedText type="subtitle" accessibilityRole="header">{t('creationSummary')}</ThemedText>
             {productTotal.success ? <>
               <ThemedText>{t('initialPaid')}: {money(paidAmount, productTotal.data.shownTotal.currency, locale)}</ThemedText>
-              <ThemedText>{t('estimatedBalance')}: {money(Math.max(0, productTotal.data.shownTotal.amount - paidAmount), productTotal.data.shownTotal.currency, locale)}</ThemedText>
+              {reviewedTotal?.success ? <ThemedText>{t('estimatedBalance')}: {money(Math.max(0, reviewedTotal.data.amount - paidAmount), reviewedTotal.data.currency, locale)}</ThemedText> : null}
             </> : null}
-            {draft.delivery?.charge ? <ThemedText themeColor="textSecondary">{t('deliveryChargePending')}</ThemedText> : null}
+            {productTotal.success ? <ThemedText>{t("orderDeliveryProductsAmount", { amount: money(productTotal.data.shownTotal.amount, productTotal.data.shownTotal.currency, locale) })}</ThemedText> : null}
+            {reviewedPrice && reviewedTotal?.success ? <><ThemedText>{t("orderDeliveryAmount", { amount: money(reviewedPrice.amount, reviewedPrice.currency, locale) })}</ThemedText>
+              <ThemedText>{t("orderDeliveryTotalAmount", { amount: money(reviewedTotal.data.amount, reviewedTotal.data.currency, locale) })}</ThemedText></> : null}
             <ThemedText themeColor="textSecondary">{t('creationPriceHint')}</ThemedText>
           </View>}
       {error ? <ThemedText accessibilityRole="alert" style={[styles.error, { color: theme.error }]}>{error}</ThemedText> : null}
@@ -273,7 +336,7 @@ function CompanyOrderScreen() {
         {productTotal.success ? <ThemedText type="subtitle">{t('itemCount', { count: draft.items.length })} · {money(productTotal.data.shownTotal.amount, productTotal.data.shownTotal.currency, locale)}</ThemedText> : null}
         {stage === "products" ? <Button disabled={draft.kind === "empty"} onPress={() => { setStage("review"); setError(""); }}>{t('reviewOrder')}</Button>
           : <View style={styles.section}><Button variant="secondary" onPress={() => { setCatalogLoading(true); setStage("products"); }}>{t('editProducts')}</Button>
-            <Button disabled={!prepared.success || offline} loading={sending} onPress={() => void complete()}>{t('saveOrder')}</Button>
+            <Button disabled={!prepared.success || !deliveryReady || offline} loading={sending} onPress={() => void complete()}>{t('saveOrder')}</Button>
             {offline ? <ThemedText type="small" accessibilityRole="alert">{t('offlineEditing')}</ThemedText> : null}
           </View>}
       </View> : null}
