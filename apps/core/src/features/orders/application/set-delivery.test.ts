@@ -1,17 +1,20 @@
 import { expect, test, vi } from "vitest";
 import { err, ok } from "@shared/functional";
-import { buildPendingOrder, type DeliverySelection, type OrderAggregate, type Payment } from "@core/src/features/orders/domain/order-state-machine";
+import { buildPendingOrder, parseDeliverySnapshot, parseRatedDeliverySelection, type RatedDeliverySelection, type OrderAggregate, type Payment } from "@core/src/features/orders/domain/order-state-machine";
 import type { CompanyId, OrderId, OrderItemId, PaymentId, UserId } from "@core/src/features/orders/domain/order";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { DeliverySettingsVersion } from "@core/src/features/delivery-settings";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import { setOrderDelivery, type SetDeliveryDependencies } from "@core/src/features/orders/application/set-delivery";
-import { resolveDeliverySelection } from "@core/src/features/orders/application/resolve-delivery-selection";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const context = { companyId: id(1) as CompanyId, userId: "seller" as UserId };
 const delivery = { method: "store" as const, recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" as const } } };
 const point = { name: "Tienda", address: "Av. Lima 123", instructions: null };
+const parsedHome = parseRatedDeliverySelection({ method: "home", rateId: id(6), recipient: delivery.recipient,
+  destination: { districtCode: "150122", address: "Street", instructions: null } });
+if (!parsedHome.success) throw new Error("Invalid rated fixture");
+const home = parsedHome.data;
 const money = (amount: number) => ({ amount, currency: "PEN" as const });
 function order(): OrderAggregate {
   const result = buildPendingOrder({ number: 1001 as OrderNumber, id: id(2) as OrderId, companyId: context.companyId, sellerId: "creator" as UserId,
@@ -26,25 +29,35 @@ function dependencies(current: OrderAggregate | null, amount = 3) {
   const saveDelivery = vi.fn<SetDeliveryDependencies["saveDelivery"]>(async () => ok(null));
   const deductProductStock = vi.fn<SetDeliveryDependencies["deductProductStock"]>(async () => ok(null));
   const saveStockDeduction = vi.fn<SetDeliveryDependencies["saveStockDeduction"]>(async () => ok(null));
-  const resolveDelivery = vi.fn<SetDeliveryDependencies["resolveDelivery"]>((selection, access, currency) => resolveDeliverySelection(selection, access, currency, {
-    getSettings: async () => ok({ version: 1, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: true, pickupPoint: point } }), resolveShippingCost: async () => ok(money(amount)),
-  }));
-  const deps: SetDeliveryDependencies = { resolveRatedDelivery: async () => err({ code: "INTERNAL_ERROR", message: "Unexpected rated selection" }), transaction: async (_companyId, work) => work(),
+  const resolveDelivery = vi.fn<SetDeliveryDependencies["resolveDelivery"]>(async () => err({ code: "INTERNAL_ERROR", message: "Unexpected legacy selection" }));
+  const resolveRatedDelivery = vi.fn<SetDeliveryDependencies["resolveRatedDelivery"]>(async (selection, access) => {
+    if (selection.method !== "home") throw new Error("Expected home selection");
+    const { rateId, ...details } = selection;
+    const snapshot = parseDeliverySnapshot({ ...details,
+      destination: { ...selection.destination, country: "PE", district: "MIRAFLORES", province: "LIMA METROPOLITANA", department: "LIMA" },
+      pricing: { rateId, quotationId: id(7), zoneId: id(8), settingsVersion: 1 },
+      recordedBy: { kind: "seller", userId: access.userId } });
+    if (!snapshot.success) throw new Error(snapshot.error.message);
+    return ok({ delivery: snapshot.data, cost: money(amount) });
+  });
+  const deps: SetDeliveryDependencies = { resolveRatedDelivery, transaction: async (_companyId, work) => work(),
     findOrderForUpdate: async () => ok(current), resolveDelivery, saveDelivery, deductProductStock, saveStockDeduction };
-  return { deps, saveDelivery, deductProductStock, saveStockDeduction, resolveDelivery };
+  return { deps, saveDelivery, deductProductStock, saveStockDeduction, resolveDelivery, resolveRatedDelivery };
 }
-const input = { orderId: id(2) as OrderId, delivery, chargeDeliveryToCustomer: true };
+const input = { orderId: id(2) as OrderId, delivery: home, expectedPrice: money(3) };
 
 test("assigns and replaces the current snapshot with seller authorship and a complete aggregate", async () => {
   const initial = order();
   const first = await setOrderDelivery(input, context, dependencies(initial).deps);
-  expect(first).toMatchObject({ success: true, data: { delivery: { method: "store", pickupPoint: point,
+  expect(first).toMatchObject({ success: true, data: { delivery: { method: "home", pricing: { rateId: id(6) },
     recordedBy: { kind: "seller", userId: context.userId } }, deliveryCost: money(3), deliveryCharge: money(3), total: money(13),
     payments: [], stockDeducted: false } });
   if (!first.success) throw new Error("Expected assigned delivery");
-  const second = await setOrderDelivery({ ...input, chargeDeliveryToCustomer: false }, { ...context, userId: "second-seller" as UserId }, dependencies(first.data, 2).deps);
-  expect(second).toMatchObject({ success: true, data: { delivery: { recordedBy: { kind: "seller", userId: "second-seller" } },
-    deliveryCost: money(2), deliveryCharge: money(0), total: money(10) } });
+  const replacement = parseRatedDeliverySelection({ ...home, rateId: id(9) });
+  if (!replacement.success) throw new Error("Invalid replacement fixture");
+  const second = await setOrderDelivery({ ...input, delivery: replacement.data, expectedPrice: money(2) }, { ...context, userId: "second-seller" as UserId }, dependencies(first.data, 2).deps);
+  expect(second).toMatchObject({ success: true, data: { delivery: { pricing: { rateId: id(9) }, recordedBy: { kind: "seller", userId: "second-seller" } },
+    deliveryCost: money(2), deliveryCharge: money(2), total: money(12) } });
   expect(initial.delivery).toBeNull();
   expect(first.data.delivery?.recordedBy).toEqual({ kind: "seller", userId: "seller" });
 });
@@ -58,30 +71,31 @@ test("rejects missing, cancelled and fulfilled orders before resolving delivery"
     const f = dependencies(current);
     expect(await setOrderDelivery(input, context, f.deps)).toMatchObject({ success: false, error: { code } });
     expect(f.resolveDelivery).not.toHaveBeenCalled();
+    expect(f.resolveRatedDelivery).not.toHaveBeenCalled();
     expect(f.saveDelivery).not.toHaveBeenCalled();
     expect(f.deductProductStock).not.toHaveBeenCalled();
   }
 });
 
-test.each([9, 10, 12])("deducts missing stock only when the new total is covered by existing payment of %s", async (paid) => {
+test.each([12, 13, 15])("deducts missing stock only when the new total is covered by existing payment of %s", async (paid) => {
   const current = { ...order(), payments: [payment(paid)] };
   const f = dependencies(current);
-  const result = await setOrderDelivery({ ...input, chargeDeliveryToCustomer: false }, context, f.deps);
-  expect(result).toMatchObject({ success: true, data: { stockDeducted: paid >= 10, payments: current.payments } });
-  expect(f.deductProductStock).toHaveBeenCalledTimes(paid >= 10 ? 1 : 0);
-  expect(f.saveStockDeduction).toHaveBeenCalledTimes(paid >= 10 ? 1 : 0);
+  const result = await setOrderDelivery(input, context, f.deps);
+  expect(result).toMatchObject({ success: true, data: { stockDeducted: paid >= 13, payments: current.payments } });
+  expect(f.deductProductStock).toHaveBeenCalledTimes(paid >= 13 ? 1 : 0);
+  expect(f.saveStockDeduction).toHaveBeenCalledTimes(paid >= 13 ? 1 : 0);
   const deducted = dependencies({ ...current, stockDeducted: true });
-  expect((await setOrderDelivery({ ...input, chargeDeliveryToCustomer: false }, context, deducted.deps)).success).toBe(true);
+  expect((await setOrderDelivery(input, context, deducted.deps)).success).toBe(true);
   expect(deducted.deductProductStock).not.toHaveBeenCalled();
 });
 
 test("failed resolution and forged authority leave all writes untouched", async () => {
   const f = dependencies(order());
   const failure = err({ code: "DELIVERY_UNAVAILABLE" as const, message: "No resolver integrated" });
-  f.resolveDelivery.mockResolvedValue(failure);
+  f.resolveRatedDelivery.mockResolvedValue(failure);
   expect(await setOrderDelivery(input, context, f.deps)).toEqual(failure);
-  const forged = { ...delivery, recordedBy: { kind: "buyer" } };
-  expect(await setOrderDelivery({ ...input, delivery: forged as DeliverySelection }, context, f.deps))
+  const forged = { ...home, recordedBy: { kind: "buyer" } };
+  expect(await setOrderDelivery({ ...input, delivery: forged as RatedDeliverySelection }, context, f.deps))
     .toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
   expect(f.saveDelivery).not.toHaveBeenCalled();
   expect(f.deductProductStock).not.toHaveBeenCalled();
