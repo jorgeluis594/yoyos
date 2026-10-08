@@ -338,6 +338,46 @@ class StateStoreInstrumentedTest {
     makeStore(root).open()
   }
 
+  @Test fun enospcDuringSecondCopyKeepsPublishedState() {
+    if (InstrumentationRegistry.getArguments().getString("enospc") != "true") return
+    val root = freshRoot
+    var reachedWrite = false
+    val writer = makeStore(root) { if (it == "write") reachedWrite = true }
+    writer.open()
+    val pending = org.json.JSONObject().put("deliveryId", "wa-delivery:v1:" + "a".repeat(32))
+      .put("accountId", "123@lid").put("createdRevision", "1").put("createdOrdinal", 0)
+      .put("source", "live").put("identityState", "pendingLid")
+      .put("recovery", org.json.JSONObject().put("messageInfoJson", "{\"padding\":\"${"A".repeat(8 * 1024 * 1024)}\"}")
+        .put("items", org.json.JSONArray()))
+    writer.commit("0") { it.getJSONObject("options").put("maxRecoveryBufferBytes", 12 * 1024 * 1024)
+      it.put("pending", org.json.JSONArray().put(pending)) }
+    reachedWrite = false
+    val filler = File(base.noBackupFilesDir, "wa02-enospc-${java.util.UUID.randomUUID()}")
+    val probe = File(base.noBackupFilesDir, "wa02-enospc-probe-${java.util.UUID.randomUUID()}")
+    try {
+      java.io.RandomAccessFile(filler, "rw").use { file ->
+        val available = android.os.StatFs(base.noBackupFilesDir.path).availableBytes
+        assertEquals(true, available > 16L * 1024 * 1024)
+        android.system.Os.posix_fallocate(file.fd, 0, available - 4L * 1024 * 1024)
+        java.io.FileOutputStream(probe).use { output ->
+          val exhausted = assertThrows(android.system.ErrnoException::class.java) {
+            android.system.Os.posix_fallocate(output.fd, 0, File(directory(root), "state.bin").length())
+          }
+          assertEquals(android.system.OsConstants.ENOSPC, exhausted.errno)
+        }
+        probe.delete()
+        assertThrows(StateFailure::class.java) { writer.commit("1") { it } }
+        assertEquals(true, reachedWrite)
+        assertEquals("1", currentRevision(root))
+      }
+    } finally {
+      probe.delete()
+      filler.delete()
+    }
+    assertEquals(1, makeStore(root).open().getJSONArray("pending").length())
+    assertFalse(File(directory(root), "state.next").exists())
+  }
+
   @Test fun staleRevisionDoesNotReplacePublishedState() {
     val root = freshRoot
     val store = makeStore(root)
@@ -438,6 +478,46 @@ class StateStoreInstrumentedTest {
     }
     assertEquals("SESSION_STORAGE_LIMIT_REACHED", overFailure.code)
     assertEquals("0", currentRevision(root))
+  }
+
+  @Test fun exactlySixteenMiBValidSessionRestores() {
+    val root = freshRoot
+    val store = makeStore(root)
+    store.open()
+    val protocol = "{\"protocolSchemaVersion\":1,\"records\":[]}".toByteArray()
+    store.beginSession("1@lid", protocol)
+    val keyId = store.open().getJSONObject("session").getString("sessionKeyId")
+    val namespace = root.name.removePrefix("state-test-").replace("-", "")
+    val key = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+      .getKey("yoyos.whatsapp.test.$namespace.key.$keyId", null) as javax.crypto.SecretKey
+    val encodedLength = ((protocol.size + 16 + 2) / 3) * 4
+    val template = org.json.JSONObject().put("accountId", "1@lid").put("sessionKeyId", keyId)
+      .put("sessionRevision", "2").put("nonceBase64", "A".repeat(16))
+      .put("ciphertextBase64", "A".repeat(encodedLength))
+    val digits = 1 + 16 * 1024 * 1024 - template.toString().toByteArray().size
+    val account = "1".repeat(digits) + "@lid"
+    val stateBytes = File(directory(root), "state.bin").readBytes()
+    val headerLength = java.nio.ByteBuffer.wrap(stateBytes, 8, 4).int
+    val storeId = org.json.JSONObject(String(stateBytes, 12, headerLength, Charsets.UTF_8)).getString("storeId")
+    val sessionAad = org.json.JSONArray().put("yoyos-whatsapp-session").put(1)
+      .put(storeId).put(account).put(keyId).put("2").toString().toByteArray()
+    var session: org.json.JSONObject? = null
+    for (attempt in 0 until 40) {
+      val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+      cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, key)
+      cipher.updateAAD(sessionAad)
+      val nonce = android.util.Base64.encodeToString(cipher.iv, android.util.Base64.NO_WRAP)
+      val ciphertext = android.util.Base64.encodeToString(cipher.doFinal(protocol), android.util.Base64.NO_WRAP)
+      if ('/' !in nonce && '/' !in ciphertext) {
+        session = org.json.JSONObject().put("accountId", account).put("sessionKeyId", keyId)
+          .put("sessionRevision", "2").put("nonceBase64", nonce).put("ciphertextBase64", ciphertext)
+        break
+      }
+    }
+    val valid = session ?: throw AssertionError("Could not produce unescaped Base64 fixture")
+    assertEquals(16 * 1024 * 1024, valid.toString().toByteArray().size)
+    store.commit("1") { it.put("session", valid) }
+    assertEquals(true, makeStore(root).canRestoreSession())
   }
 
   @Test fun oversizedRestoredSessionStillAllowsPendingToDrain() {

@@ -2,9 +2,56 @@ import XCTest
 import Foundation
 import Security
 import CryptoKit
+import Darwin
 @testable import WhatsAppStateStore
 
 final class StateStoreTests: XCTestCase {
+  // Invoked separately by CI because each publication fault terminates the XCTest process.
+  func testProcessCrashMatrix() throws {
+    let phases = ["cipher", "write", "sync", "close", "replace", "directorySync", "response"]
+    let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
+                                               appropriateFor: nil, create: true)
+    let root = support.appendingPathComponent("wa02-crash-matrix", isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let stepFile = root.appendingPathComponent("step")
+    let step = Int((try? String(contentsOf: stepFile, encoding: .utf8)) ?? "0") ?? -1
+    guard step >= 0, step <= phases.count else { XCTFail("Invalid crash phase marker"); return }
+    var armed = false
+    let writer = try NativeStateStore(directory: root, serviceSuffix: String(repeating: "c", count: 32)) { reached in
+      if armed && reached == phases[step] {
+        try Data(String(step + 1).utf8).write(to: stepFile)
+        let marker = try FileHandle(forWritingTo: stepFile)
+        try marker.synchronize(); try marker.close()
+        _ = Darwin.kill(Darwin.getpid(), SIGKILL)
+        Darwin._exit(137)
+      }
+    }
+    let published = root.appendingPathComponent("whatsapp/state.bin")
+    func revision() throws -> String {
+      let bytes = try Data(contentsOf: published)
+      let length = bytes[8..<12].reduce(0) { ($0 << 8) | Int($1) }
+      let header = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes[12..<12+length]) as? [String: Any])
+      return try XCTUnwrap(header["revision"] as? String)
+    }
+    let state = try writer.open()
+    if step > 0 {
+      let expected = ["directorySync", "response"].contains(phases[step - 1]) ? 2000 + step - 1 : 1000 + step - 1
+      XCTAssertEqual((state["options"] as? [String: Int])?["maxImageStorageBytes"], expected)
+      XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("whatsapp/state.next").path))
+    }
+    if step == phases.count { return }
+    _ = try writer.commit(expectedRevision: revision()) { current in
+      var next = current; var options = current["options"] as! [String: Int]
+      options["maxImageStorageBytes"] = 1000 + step; next["options"] = options; return next
+    }
+    armed = true
+    _ = try writer.commit(expectedRevision: revision()) { current in
+      var next = current; var options = current["options"] as! [String: Int]
+      options["maxImageStorageBytes"] = 2000 + step; next["options"] = options; return next
+    }
+    XCTFail("Publication fault \(phases[step]) did not terminate the process")
+  }
+
   private func temporaryDirectory() throws -> URL {
     let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

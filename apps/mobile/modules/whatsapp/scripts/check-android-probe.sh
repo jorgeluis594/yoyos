@@ -21,6 +21,15 @@ for phase in cipher write sync close replace directorySync response; do
   rm -f "$crash_output" "$recovery_output"
 done
 
+enospc_output=$(mktemp)
+if ! timeout 10m adb shell am instrument -w -e class expo.modules.whatsapp.StateStoreInstrumentedTest\#enospcDuringSecondCopyKeepsPublishedState -e enospc true "$instrumentation" > "$enospc_output" 2>&1 ||
+   ! grep -q 'OK (1 test)' "$enospc_output"; then
+  cat "$enospc_output"
+  rm -f "$enospc_output"
+  exit 1
+fi
+rm -f "$enospc_output"
+
 adb install app/build/outputs/apk/release/app-release.apk
 adb shell am start -n com.yoyos.whatsappnativeprobe/.MainActivity
 for attempt in 1 2 3 4 5 6 7 8 9 10; do
