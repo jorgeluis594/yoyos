@@ -81,11 +81,17 @@ test("rejects incompatible stored identity, content, dates and image size", asyn
     const { mapMobileMessage } = await import("@core/src/features/chats/infrastructure/mobile-message-repository");
     for (const corrupt of [
       { ...row, externalId: nativeId("999@lid", remoteChatId, "mapper") },
+      { ...row, id: "12345678-1234-1234-1234-123456789abc" },
+      { ...row, companyId: "12345678-1234-1234-1234-123456789abc" },
+      { ...row, chatId: "12345678-1234-1234-1234-123456789abc" },
       { ...row, sentAt: new Date(Number.NaN) },
+      { ...row, receivedAt: new Date("+010000-01-01T00:00:00.000Z") },
+      { ...row, eventDispatchedAt: new Date(Number.NaN) },
       { ...row, imageSize: BigInt(Number.MAX_SAFE_INTEGER) + 1n },
       { ...row, imageStatus: "failed" as typeof row.imageStatus },
       { ...row, uploadedByUserId: null },
     ]) expect(mapMobileMessage(corrupt)).toMatchObject({ success: false, error: { code: "INVALID_STORED_DATA" } });
+    expect(mapMobileMessage({ ...row, eventDispatchedAt: new Date(row.receivedAt.getTime() - 1) }).success).toBe(true);
   } finally { await f.cleanup(); }
 });
 
@@ -130,29 +136,67 @@ test("a deferred commit failure rolls back contact, chat and message", async () 
   }
 });
 
-test("sequential and concurrent repeats preserve the first committed message", async () => {
+test("an unrelated message UUID collision fails and rolls back a new conversation", async () => {
+  const f = await fixture();
+  try {
+    const first = message(f.companyId, "original", { type: "text", text: "original" });
+    expect((await storeOnce(first)).success).toBe(true);
+    const parsed = parseMobileMessage({ version: 1, message: { id: nativeId("789@lid", "987@lid", "collision"),
+      accountId: "789@lid", chatId: "987@lid", whatsappMessageId: "collision", direction: "incoming",
+      timestamp: 1791417600123, content: { type: "text", text: "other" } } });
+    expect(parsed).not.toBeNull();
+    const failed = await storeOnce({ ...parsed!, id: first.id, companyId: first.companyId,
+      uploadedByUserId: "other-uploader", receivedAt: new Date("2026-10-08T12:00:01.456Z") });
+    expect(failed).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
+    await withTenantIsolation(f.companyId, async () => {
+      expect(await prisma.contact.count({ where: { companyId: f.companyId } })).toBe(1);
+      expect(await prisma.chat.count({ where: { companyId: f.companyId } })).toBe(1);
+      expect(await prisma.chatMessage.findMany({ where: { companyId: f.companyId } })).toMatchObject([
+        { id: first.id, externalId: first.externalId, text: "original" },
+      ]);
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("sequential repeats preserve the first committed message", async () => {
   const f = await fixture();
   try {
     const first = message(f.companyId, "repeat", { type: "image", caption: "first", mimeType: "image/png", size: 9 });
     const stored = await storeOnce(first);
     expect(stored).toMatchObject({ success: true, data: { created: true } });
-    const repeat = message(f.companyId, "repeat", { type: "text", text: "changed" }, "outgoing", "other-uploader");
+    const repeat = { ...message(f.companyId, "repeat", { type: "text", text: "changed" }, "outgoing", "other-uploader"),
+      sentAt: new Date(first.sentAt.getTime() + 1), receivedAt: new Date(first.receivedAt.getTime() + 1) };
     expect(await storeOnce(repeat)).toEqual({ success: true, data: { created: false, message: stored.success ? stored.data.message : undefined } });
     const escaped = `wa-message:v1:${Buffer.from('["123\\u0040lid","456@lid","repeat"]').toString("base64url")}`;
-    expect(await storeOnce(message(f.companyId, "repeat", { type: "text", text: "escaped" }, "incoming", "third", escaped)))
+    const escapedRepeat = message(f.companyId, "repeat", { type: "text", text: "escaped" }, "incoming", "third", escaped);
+    expect(await storeOnce({ ...escapedRepeat, receivedAt: new Date(first.receivedAt.getTime() + 2) }))
       .toEqual({ success: true, data: { created: false, message: stored.success ? stored.data.message : undefined } });
 
-    const race = await Promise.all(Array.from({ length: 12 }, (_, index) => storeOnce(message(f.companyId, "race", { type: "text", text: `value ${index}` }, "incoming", `uploader ${index}`))));
-    expect(race.every((result) => result.success)).toBe(true);
-    expect(race.filter((result) => result.success && result.data.created)).toHaveLength(1);
-    const ids = race.map((result) => result.success && result.data.message.id);
-    expect(new Set(ids).size).toBe(1);
-    const winners = race.filter((result) => result.success).map((result) => result.data.message);
-    expect(winners.every((winner) => JSON.stringify(winner) === JSON.stringify(winners[0]))).toBe(true);
     await withTenantIsolation(f.companyId, async () => {
       expect(await prisma.contact.count({ where: { companyId: f.companyId } })).toBe(1);
       expect(await prisma.chat.count({ where: { companyId: f.companyId } })).toBe(1);
-      expect(await prisma.chatMessage.count({ where: { companyId: f.companyId } })).toBe(2);
+      expect(await prisma.chatMessage.count({ where: { companyId: f.companyId } })).toBe(1);
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("12 simultaneous first registrations create one contact, chat and message with one winner", async () => {
+  const f = await fixture();
+  try {
+    const race = await Promise.all(Array.from({ length: 12 }, (_, index) => {
+      const input = message(f.companyId, "race", { type: "text", text: `value ${index}` }, "incoming", `uploader ${index}`);
+      return storeOnce({ ...input, sentAt: new Date(input.sentAt.getTime() + index),
+        receivedAt: new Date(input.receivedAt.getTime() + index) });
+    }));
+    expect(race.every((result) => result.success)).toBe(true);
+    expect(race.filter((result) => result.success && result.data.created)).toHaveLength(1);
+    const winners = race.filter((result) => result.success).map((result) => result.data.message);
+    expect(winners).toHaveLength(12);
+    for (const winner of winners) expect(winner).toEqual(winners[0]);
+    await withTenantIsolation(f.companyId, async () => {
+      expect(await prisma.contact.count({ where: { companyId: f.companyId } })).toBe(1);
+      expect(await prisma.chat.count({ where: { companyId: f.companyId } })).toBe(1);
+      expect(await prisma.chatMessage.count({ where: { companyId: f.companyId } })).toBe(1);
     });
   } finally { await f.cleanup(); }
 });
