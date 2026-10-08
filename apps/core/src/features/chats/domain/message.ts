@@ -6,7 +6,9 @@ export type RecordMessageOutcome = Readonly<{ status: "stored"; messageId: strin
 export type Chat = Readonly<{ id: string; contactId: string; createdAt: Date }>;
 export type MessageImage =
   | Readonly<{ status: "ready"; mediaId: string; imageId: string }>
-  | Readonly<{ status: "failed"; mediaId: string; failure: Readonly<{ code: "INVALID_IMAGE" | "MEDIA_UNAVAILABLE" | "IMAGE_STORAGE_UNAVAILABLE"; message: string }> }>;
+  | Readonly<{ status: "failed"; mediaId: string; failure: Readonly<{ code: "INVALID_IMAGE" | "MEDIA_UNAVAILABLE" | "IMAGE_STORAGE_UNAVAILABLE"; message: string }> }>
+  | Readonly<{ status: "metadata_only"; mimeType: string | null; size: number | null }>;
+export type CloudMessageImage = Extract<MessageImage, { status: "ready" | "failed" }>;
 export type StoredContent = Readonly<{ type: "text"; text: string }> | Readonly<{ type: "image"; caption: string | null; image: MessageImage }>;
 export type ChatMessage = Readonly<{ id: string; chatId: string; externalId: string; origin: MessageOrigin; sentAt: Date; receivedAt: Date; content: StoredContent }>;
 export function validRecordMessage(input: RecordMessageInput): boolean {
