@@ -29,30 +29,12 @@ func (t *whatsmeowTransport) Stop() { t.client.Disconnect() }
 func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent) error {
 	client := t.client
 	handler := client.AddEventHandler(func(event any) {
-		var item TransportEvent
-		switch event.(type) {
-		case *events.Connected:
-			item.Kind = "connected"
-		case *events.Disconnected:
-			item.Kind = "networkFailure"
-		case *events.LoggedOut:
-			item.Kind = "revoked"
-		case *events.ConnectFailure:
-			failure := event.(*events.ConnectFailure)
-			if failure.Reason.IsLoggedOut() {
-				item.Kind = "revoked"
-			} else if failure.Reason >= 500 {
-				item.Kind = "networkFailure"
-			} else {
-				item.Kind = "permanentFailure"
-			}
-		case *events.ClientOutdated, *events.StreamReplaced:
-			item.Kind = "permanentFailure"
-		default:
+		kind := classify(event)
+		if kind == "" {
 			return
 		}
 		select {
-		case out <- item:
+		case out <- TransportEvent{Kind: kind}:
 		case <-ctx.Done():
 		}
 	})
@@ -101,5 +83,28 @@ func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent)
 				return RunError{Retry: false}
 			}
 		}
+	}
+}
+
+func classify(event any) string {
+	switch value := event.(type) {
+	case *events.Connected:
+		return "connected"
+	case *events.Disconnected:
+		return "networkFailure"
+	case *events.LoggedOut:
+		return "revoked"
+	case *events.ConnectFailure:
+		if value.Reason.IsLoggedOut() {
+			return "revoked"
+		}
+		if value.Reason == events.ConnectFailureInternalServerError || value.Reason == events.ConnectFailureExperimental || value.Reason == events.ConnectFailureServiceUnavailable {
+			return "networkFailure"
+		}
+		return "permanentFailure"
+	case *events.ClientOutdated, *events.StreamReplaced:
+		return "permanentFailure"
+	default:
+		return ""
 	}
 }
