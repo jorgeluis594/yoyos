@@ -5,7 +5,7 @@ import { err, ok } from "@shared/functional";
 import { add, subtract, type Money } from "@shared/money";
 import { limaMidnightUtc, nextCalendarDay } from "@shared/orders-date";
 import type { Result } from "@shared/result";
-import { prepareOrder, ratedDeliveryAssignmentSchema, type CartError, type OrderDraft, type OrderSubmission, type RatedDeliveryAssignment } from "@mobile/features/orders/domain/order-draft";
+import { addDraftItem, emptyOrderDraft, prepareOrder, ratedDeliveryAssignmentSchema, setDraftCustomer, type CartError, type OrderDraft, type OrderSubmission, type RatedDeliveryAssignment } from "@mobile/features/orders/domain/order-draft";
 import type { TransportError } from "@mobile/shared/application/transport-error";
 
 export type PendingOrderConfirmation = Readonly<{
@@ -27,6 +27,11 @@ export type ConfirmOrderError = OrderRequestError | PendingOrderStoreError | Car
 export type ConfirmOrderOutcome =
   | Readonly<{ kind: "completed"; order: OrderAggregateResponse; shownTotal: Money }>
   | Readonly<{ kind: "uncertain"; pending: PendingOrderConfirmation }>;
+
+export type PendingOrderReview = Readonly<{
+  kind: "review"; pending: PendingOrderConfirmation; draft: OrderDraft;
+  unavailableVariantIds: readonly string[]; contactUnavailable: boolean;
+}>;
 
 export type OrderListCriteria = Readonly<{
   page: number;
@@ -171,6 +176,44 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
     resolvePendingOrderConfirmation,
     clearPendingOrderConfirmation: pendingStore.clear,
     completeOrder: (draft: OrderDraft, companyId: string) => run(companyId, draft.kind === "items" ? draft.id : undefined, () => send(draft, companyId)),
+    loadPendingOrderReview: async (companyId: string): Promise<Result<PendingOrderReview | ConfirmOrderOutcome, ConfirmOrderError>> => {
+      const pending = await pendingStore.read(companyId);
+      if (!pending.success) return pending;
+      if (!pending.data?.request) return err({ code: "PENDING_CONFIRMATION", message: "No saved request to review" });
+      const saved = pending.data;
+      const request = pending.data.request;
+      const found = await api.get(saved.id);
+      if (found.success) return confirmed(found.data, saved);
+      if (found.error.code !== "ORDER_NOT_FOUND") return found;
+      const catalog = await api.findCatalog(request.items.map(item => item.variantId));
+      if (!catalog.success) return catalog;
+      const contact = request.contactId ? await api.findContact(request.contactId) : ok(null);
+      if (!contact.success) return contact;
+      if (request.payments?.some(payment => payment.amount.currency !== saved.shownTotal.currency))
+        return err({ code: "CURRENCY_MISMATCH", message: "Saved payment currency differs" });
+      let draft: OrderDraft = { ...emptyOrderDraft(), id: saved.id,
+        payments: request.payments?.map(payment => ({ ...payment, amount: String(payment.amount.amount) })),
+        deliverImmediately: request.deliverImmediately };
+      draft = setDraftCustomer(draft, request.contactId ? { kind: "contact", contactId: request.contactId,
+        name: contact.data?.name ?? null, phone: contact.data?.phone ?? "" } : { kind: "general_public" });
+      const unavailableVariantIds: string[] = [];
+      for (const item of request.items) {
+        const product = catalog.data.find(product => product.variants.some(variant => variant.id === item.variantId));
+        const variant = product?.variants.find(variant => variant.id === item.variantId);
+        if (!product || !variant) { unavailableVariantIds.push(item.variantId); continue; }
+        if (product.currency !== saved.shownTotal.currency) return err({ code: "CURRENCY_MISMATCH", message: "Saved product currency differs" });
+        const added = addDraftItem(draft, { variantId: variant.id, quantity: item.quantity, productName: product.name,
+          variantAttributes: variant.attributes, sku: variant.sku, shownUnitPrice: { amount: variant.price, currency: product.currency }, shownStock: variant.stock }, () => saved.id);
+        if (!added.success) return added;
+        draft = added.data;
+      }
+      if (request.delivery && "expectedPrice" in request.delivery) {
+        const delivery = ratedDeliveryAssignmentSchema.safeParse(request.delivery);
+        if (!delivery.success) return err({ code: "INVALID_CART", message: "Invalid saved delivery" });
+        draft = { ...draft, ratedDelivery: delivery.data };
+      }
+      return ok({ kind: "review", pending: saved, draft, unavailableVariantIds, contactUnavailable: !!request.contactId && !contact.data });
+    },
     reviewPendingOrder: (companyId: string, draft: OrderDraft) => run(companyId, undefined, async () => {
       const pending = await pendingStore.read(companyId);
       if (!pending.success) return pending;

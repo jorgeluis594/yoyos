@@ -368,3 +368,37 @@ test("reviewing a saved order checks its identity and atomically saves correctio
   expect(await store.read(companyId)).toEqual(ok(next));
   expect(paths).toEqual(Array(3).fill(`/api/orders/${id(3)}/aggregate`));
 });
+
+
+test("saved review reconstructs current products while preserving missing references and original payments", async () => {
+  const store = storage();
+  const original = { version: 2 as const, companyId, id: id(3), shownTotal: { amount: 40, currency: "PEN" as const },
+    request: { id: id(3), contactId: id(7), items: [{ variantId: id(2), quantity: 2 }, { variantId: id(4), quantity: 1 }],
+      payments: [{ paymentId: id(8), amount: { amount: 4.5, currency: "PEN" as const }, method: "bank_transfer" as const, deductStockIfPartial: false }] } };
+  await store.save(original);
+  let unavailable = false;
+  let failed = false;
+  const paths: string[] = [];
+  const api = createOrderApi(async path => {
+    paths.push(path);
+    if (path.startsWith("/api/orders/catalog?")) return failed ? err({ code: "NETWORK_ERROR", message: "Offline" }) : ok(unavailable ? [] : [{ id: id(9), name: "Current product", currency: "PEN",
+      variants: [{ id: id(2), attributes: {}, sku: null, price: 12, stock: 0 }] }]);
+    if (path.startsWith("/api/orders/contacts?")) return ok([]);
+    return err({ code: "API_ERROR", message: "Missing", http: { status: 404, body: { code: "ORDER_NOT_FOUND", error: "Missing" } } });
+  });
+  const operations = createOrderOperations(api, store);
+  const review = await operations.loadPendingOrderReview(companyId);
+  expect(review).toMatchObject({ success: true, data: { kind: "review", pending: original, unavailableVariantIds: [id(4)], contactUnavailable: true,
+    draft: { id: id(3), customer: { kind: "contact", contactId: id(7), name: null, phone: "" },
+      payments: [{ paymentId: id(8), amount: "4.5", method: "bank_transfer" }],
+      items: [{ variantId: id(2), quantity: 2, productName: "Current product", shownUnitPrice: { amount: 12, currency: "PEN" }, shownStock: 0 }] } } });
+  expect(await store.read(companyId)).toEqual(ok(original));
+  expect(paths[0]).toBe(`/api/orders/${id(3)}/aggregate`);
+  expect(paths).toHaveLength(3);
+  unavailable = true;
+  expect(await operations.loadPendingOrderReview(companyId)).toMatchObject({ success: true, data: { kind: "review",
+    unavailableVariantIds: [id(2), id(4)], draft: { kind: "empty", id: id(3), items: [], payments: [{ paymentId: id(8) }] } } });
+  failed = true;
+  expect(await operations.loadPendingOrderReview(companyId)).toMatchObject({ success: false, error: { code: "NETWORK_ERROR" } });
+  expect(await store.read(companyId)).toEqual(ok(original));
+});
