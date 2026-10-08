@@ -35,9 +35,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
       - name: Install pinned Android SDK parts
-        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.1.12297006' 'emulator' 'system-images;android-35;google_apis;x86_64'
+        run: |
+          test -d "$ANDROID_HOME/cmdline-tools"
+          sdkmanager=$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' -type f | sort -V | tail -1)
+          test -n "$sdkmanager"
+          yes | "$sdkmanager" --licenses >/dev/null || true
+          "$sdkmanager" 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.1.12297006' 'emulator' 'system-images;android-35;google_apis;x86_64'
       - run: pnpm --dir apps/mobile install --frozen-lockfile
       - name: Prepare pinned Go dependencies
         run: go mod download all
