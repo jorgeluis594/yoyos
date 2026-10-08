@@ -116,6 +116,11 @@ func (s *ConnectionSession) Disconnect() {
 		s.controller.Disconnect()
 	}
 }
+func (s *ConnectionSession) Close() {
+	if s != nil && s.controller != nil {
+		s.controller.Close()
+	}
+}
 func (s *ConnectionSession) State() string {
 	if s == nil || s.controller == nil {
 		return string(connection.Disconnected)

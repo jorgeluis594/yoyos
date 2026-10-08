@@ -70,6 +70,7 @@ type Controller struct {
 	eventMu       sync.Mutex
 	eventReady    *sync.Cond
 	pendingEvents []Event
+	closed        bool
 	prepared      bool
 	paired        bool
 	requested     bool
@@ -97,15 +98,21 @@ func New(create func() (Transport, error), emit func(Event), clock Clock) *Contr
 }
 func (c *Controller) publish(event Event) {
 	c.eventMu.Lock()
-	c.pendingEvents = append(c.pendingEvents, event)
-	c.eventReady.Signal()
+	if !c.closed {
+		c.pendingEvents = append(c.pendingEvents, event)
+		c.eventReady.Signal()
+	}
 	c.eventMu.Unlock()
 }
 func (c *Controller) deliver() {
 	for {
 		c.eventMu.Lock()
-		for len(c.pendingEvents) == 0 {
+		for len(c.pendingEvents) == 0 && !c.closed {
 			c.eventReady.Wait()
+		}
+		if c.closed {
+			c.eventMu.Unlock()
+			return
 		}
 		event := c.pendingEvents[0]
 		c.pendingEvents[0] = Event{}
@@ -121,6 +128,14 @@ func (c *Controller) deliver() {
 		}
 		c.emit(event)
 	}
+}
+func (c *Controller) Close() {
+	c.Disconnect()
+	c.eventMu.Lock()
+	c.closed = true
+	c.pendingEvents = nil
+	c.eventReady.Broadcast()
+	c.eventMu.Unlock()
 }
 func (c *Controller) State() State { c.mu.Lock(); defer c.mu.Unlock(); return c.state }
 func (c *Controller) CurrentQR() (Event, bool) {

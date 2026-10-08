@@ -24,7 +24,7 @@ func TestOpenConnectionPreparesFirstLinkWithoutNetworkOrStorageMutation(t *testi
 	if result.Code != "" || result.Session == nil || result.Session.State() != "disconnected" || result.Session.CurrentQR() != "" {
 		t.Fatalf("unexpected first-link preparation: %+v", result)
 	}
-	result.Session.Disconnect()
+	result.Session.Close()
 }
 
 func TestOpenConnectionRejectsInvalidStorageAndSession(t *testing.T) {
