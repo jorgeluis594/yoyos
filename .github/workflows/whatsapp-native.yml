@@ -1,0 +1,149 @@
+name: WhatsApp native bridge
+
+on:
+  pull_request:
+    branches: [jorgeluis594/add-bailyes]
+    paths:
+      - 'apps/mobile/modules/whatsapp/**'
+      - 'apps/mobile/app.config.js'
+      - '.github/workflows/whatsapp-native.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GOTOOLCHAIN: local
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v6
+        with:
+          version: '12.5.1'
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.5'
+          check-latest: false
+          cache-dependency-path: apps/mobile/modules/whatsapp/go/go.sum
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install pinned Android SDK parts
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.1.12297006' 'emulator' 'system-images;android-35;google_apis;x86_64'
+      - run: pnpm --dir apps/mobile install --frozen-lockfile
+      - name: Prepare pinned Go dependencies
+        run: go mod download all
+        working-directory: apps/mobile/modules/whatsapp/go
+      - run: go test -race ./bridge
+        working-directory: apps/mobile/modules/whatsapp/go
+      - run: go vet ./bridge
+        working-directory: apps/mobile/modules/whatsapp/go
+      - run: sh scripts/build-go.sh android
+        working-directory: apps/mobile/modules/whatsapp
+      - name: Link WhatsApp into isolated Expo probe app
+        run: |
+          ln -s ../../node_modules tests/whatsapp-native-app/node_modules
+          mkdir -p tests/whatsapp-native-app/modules
+          ln -s ../../../modules/whatsapp tests/whatsapp-native-app/modules/whatsapp
+        working-directory: apps/mobile
+      - run: pnpm exec expo prebuild tests/whatsapp-native-app --platform android --no-install
+        working-directory: apps/mobile
+      - run: ./gradlew :app:assembleRelease
+        working-directory: apps/mobile/tests/whatsapp-native-app/android
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          working-directory: apps/mobile/tests/whatsapp-native-app/android
+          script: |
+            ./gradlew :yoyos-whatsapp:connectedDebugAndroidTest
+            adb install app/build/outputs/apk/release/app-release.apk
+            adb shell am start -n com.yoyos.whatsappnativeprobe/.MainActivity
+            for attempt in 1 2 3 4 5 6 7 8 9 10; do
+              if adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 && adb shell cat /sdcard/window.xml | grep -q 'bridge-ok'; then exit 0; fi
+              sleep 3
+            done
+            exit 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: whatsapp-android-build-info
+          path: apps/mobile/modules/whatsapp/.generated/build-info.txt
+
+  ios:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v6
+        with:
+          version: '12.5.1'
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.5'
+          check-latest: false
+          cache-dependency-path: apps/mobile/modules/whatsapp/go/go.sum
+      - name: Select full Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer
+          xcodebuild -version
+          pod --version
+      - run: pnpm --dir apps/mobile install --frozen-lockfile
+      - name: Prepare pinned Go dependencies
+        run: go mod download all
+        working-directory: apps/mobile/modules/whatsapp/go
+      - run: go test ./bridge
+        working-directory: apps/mobile/modules/whatsapp/go
+      - run: sh scripts/build-go.sh ios
+        working-directory: apps/mobile/modules/whatsapp
+      - name: Link WhatsApp into isolated Expo probe app
+        run: |
+          ln -s ../../node_modules tests/whatsapp-native-app/node_modules
+          mkdir -p tests/whatsapp-native-app/modules
+          ln -s ../../../modules/whatsapp tests/whatsapp-native-app/modules/whatsapp
+        working-directory: apps/mobile
+      - run: pnpm exec expo prebuild tests/whatsapp-native-app --platform ios --no-install
+        working-directory: apps/mobile
+      - run: pod install
+        working-directory: apps/mobile/tests/whatsapp-native-app/ios
+      - name: Boot available simulator
+        run: |
+          SIMULATOR_ID=$(xcrun simctl list -j devices available | python3 -c 'import json,sys; devices=json.load(sys.stdin)["devices"]; print(next(d["udid"] for group in devices.values() for d in group if "iPhone" in d["name"]))')
+          echo "SIMULATOR_ID=$SIMULATOR_ID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$SIMULATOR_ID"
+          xcrun simctl bootstatus "$SIMULATOR_ID" -b
+      - name: Test callback on simulator
+        run: xcodebuild -scheme WhatsAppBridgeTests -destination "platform=iOS Simulator,id=$SIMULATOR_ID" test
+        working-directory: apps/mobile/modules/whatsapp/ios/Tests
+      - name: Build Expo app with the vendored framework
+        run: |
+          workspace=$(find . -maxdepth 1 -name '*.xcworkspace' -print -quit)
+          xcodebuild -workspace "$workspace" -scheme WhatsAppNativeProbe -configuration Release -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -derivedDataPath "$RUNNER_TEMP/wa-app" CODE_SIGNING_ALLOWED=NO build
+          app=$(find "$RUNNER_TEMP/wa-app/Build/Products/Release-iphonesimulator" -maxdepth 1 -name '*.app' -print -quit)
+          xcrun simctl install "$SIMULATOR_ID" "$app"
+          xcrun simctl launch "$SIMULATOR_ID" com.yoyos.whatsappnativeprobe
+          sleep 15
+          xcrun simctl io "$SIMULATOR_ID" screenshot "$RUNNER_TEMP/whatsapp-probe.png"
+          swift ../../../modules/whatsapp/scripts/check-probe-screenshot.swift "$RUNNER_TEMP/whatsapp-probe.png"
+        working-directory: apps/mobile/tests/whatsapp-native-app/ios
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: whatsapp-ios-build-info-${{ matrix.runner }}
+          path: apps/mobile/modules/whatsapp/.generated/build-info.txt
