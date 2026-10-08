@@ -1,0 +1,8 @@
+{
+  "prompt": "High fidelity UI mockup: one portrait Android phone viewport, Yoyos Asignar entrega in Spanish. Composition A: compact continuous form with persistent bottom save region. Reference image contributes cream canvas, charcoal Inter text, caramel accent, subtle borders and bottom navigation; do not preserve excessive blank spacing or obsolete courier fields. Use #F7F4EF canvas, white fields with fine warm gray border, #242326 text, #8C552D primary. Small top back link Volver al pedido, 24px semibold Asignar entrega. A compact native selector Modalidad de entrega: Envío a agencia. Group Destino with native district selector Lima, Lima, Miraflores and Tarifa selector S/ 12.00, small Actualizar tarifas action. Thin divider then Destinatario, Nombre Ana Torres, Teléfono 999 888 777, Documento DNI selector and Número de documento 12345678. All fields visible labels 16px, controls min 48dp and restrained 6px radii, 16dp gutters. Persistent footer above native bottom tabs: Productos S/ 80.00 · Entrega S/ 12.00, Total S/ 92.00, full-width caramel Guardar entrega. Bottom tabs home, products, selected Pedidos, settings and Android safe bottom system bar. Faithful professional production native interface, flat no shadows, no device frame, no marketing or decorative artwork. Portrait 945x2048 aspect.",
+  "approved": true,
+  "reference": "artifacts/mobile-screenshots/33-pedido-entrega-agencia.png",
+  "generator": "image_gen",
+  "mode": "Operate",
+  "approval": "Coordinator explicitly approved A via Orca ask on 2026-10-08; preserve real controls and validations."
+}

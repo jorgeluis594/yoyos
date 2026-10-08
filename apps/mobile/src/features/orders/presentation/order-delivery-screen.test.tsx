@@ -15,6 +15,7 @@ jest.mock("expo-router", () => ({ useRouter: () => ({ back: mockBack, push: mock
 jest.mock("@mobile/features/orders/composition", () => ({ orders: { loadOrderAggregate: jest.fn(), setDelivery: jest.fn() } }));
 jest.mock("@mobile/features/delivery-settings/composition", () => ({ deliverySettings: { get: jest.fn(), createQuotation: jest.fn() } }));
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAccess: () => ({ state: { status: "ready", company: { id: "company", country: "PE" } } }) }));
+jest.mock("react-native-screens/experimental", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 jest.mock("@expo/ui/community/menu", () => {
   const { View } = jest.requireActual<typeof import("react-native")>("react-native");
@@ -157,6 +158,8 @@ test("returning from configuration refreshes availability and point without eras
 const allMethods = { version: 1, agency: { enabled: true }, couriers: [{ id: "00000000-0000-4000-8000-000000000011", name: "Courier", enabled: true }],
   home: { enabled: true }, store: { enabled: true as const, pickupPoint: point } };
 function selectDistrict(screen: ReturnType<typeof render>, code = "150122") {
+  const edit = screen.queryByRole("button", { name: /^Distrito:/ });
+  if (edit) fireEvent.press(edit);
   const district = getPeruDistrict(code)!;
   fireEvent(screen.getByTestId("delivery-department"), "valueChange", peruDepartments.findIndex(item => item.code === district.departmentCode));
   fireEvent(screen.getByTestId("delivery-province"), "valueChange", getPeruProvinces(district.departmentCode).findIndex(item => item.code === district.provinceCode));
@@ -285,7 +288,7 @@ test("a late quotation for the previous district cannot replace current options"
   fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 0);
   await act(async () => { finish?.(ok(quotation)); });
   expect(screen.getByText(/Entrega:\sS\/\s12\.00/)).toBeTruthy();
-  expect(screen.getByText("MIRAFLORES · AREQUIPA · AREQUIPA · 040110")).toBeTruthy();
+  expect(screen.getByText("MIRAFLORES · AREQUIPA · AREQUIPA")).toBeTruthy();
   expect(quote).toHaveBeenCalledTimes(2);
 });
 
@@ -328,4 +331,21 @@ test("reselecting the destination requires fresh rates instead of reviving an ol
   expect(screen.getByRole("button", { name: "Guardar entrega" })).toBeDisabled();
   fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 0);
   expect(screen.getByRole("button", { name: "Guardar entrega" })).toBeEnabled();
+});
+
+test("chosen district collapses to an editable summary without losing the selected rate or recipient", async () => {
+  getSettings.mockResolvedValue(ok(allMethods));
+  const screen = render(<OrderDeliveryScreen />);
+  await screen.findByText("Current address");
+  fireEvent(screen.getByTestId("delivery-method"), "valueChange", 2);
+  selectDistrict(screen);
+  await screen.findByTestId("delivery-rate");
+  fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 0);
+  expect(screen.queryByTestId("delivery-department")).toBeNull();
+  expect(screen.getByRole("button", { name: /^Distrito:/ })).toBeTruthy();
+  fireEvent.press(screen.getByRole("button", { name: /^Distrito:/ }));
+  expect(screen.getByTestId("delivery-department")).toBeTruthy();
+  expect(screen.getByLabelText("Nombre del destinatario *").props.value).toBe("Customer");
+  expect(screen.getByRole("button", { name: "Guardar entrega" })).toBeEnabled();
+  expect(quote).toHaveBeenCalledTimes(1);
 });

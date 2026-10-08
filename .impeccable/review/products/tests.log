@@ -1,0 +1,732 @@
+
+Summary of all failing tests
+FAIL src/features/orders/presentation/new-order-screen.test.tsx (357.81 s)
+  ● Chile seller selects a variant, reviews the amount, and opens the completed sale
+
+    thrown: "Exceeded timeout of 5000 ms for a test.
+    Add a timeout value to this test to increase the timeout, if this is a long-running test. See https://jestjs.io/docs/api#testname-fn-timeout."
+
+      89 |   mockSettingsGet.mockResolvedValue(ok({ version: 1, home: { enabled: true }, store: { enabled: false, pickupPoint: null }, agency: { enabled: false }, couriers: [] })); mockNextId = 3; mockCountry = "PE"; mockDirty = false; mockDiscardVersion = 0; mockOffline = false; mockReadPending.mockResolvedValue(ok(null)); });
+      90 |
+    > 91 | test("Chile seller selects a variant, reviews the amount, and opens the completed sale", async () => {
+         | ^
+      92 |   mockCountry = "CL";
+      93 |   mockCompleteOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: { amount: 10, currency: "PEN" },
+      94 |     order: { id: mockId(3), total: 12 } }));
+
+      at Object.test (src/features/orders/presentation/new-order-screen.test.tsx:91:1)
+
+  ● Chile seller selects a variant, reviews the amount, and opens the completed sale
+
+    thrown: "Exceeded timeout of 5000 ms for a hook.
+    Add a timeout value to this test to increase the timeout, if this is a long-running test. See https://jestjs.io/docs/api#testname-fn-timeout."
+
+    > 1 | import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
+        | ^
+      2 | import { err, ok } from "@shared/functional";
+      3 | import NewOrderScreen from "@mobile/features/orders/presentation/new-order-screen";
+      4 | import { getPeruDistrict, getPeruProvinces, peruDepartments } from "@shared/peru-geography";
+
+      at Object.afterEach (node_modules/.pnpm/@testing-library+react-native@13.3.3_jest@29.7.0_@types+node@26.6.2_supports-color@8.1._79b15077a0a3aecc5c6d372cc969144c/node_modules/@testing-library/react-native/src/index.ts:15:5)
+      at Object.require (src/features/orders/presentation/new-order-screen.test.tsx:1:1)
+
+  ● known stock rejection after uncertain resend returns to the editable cart
+
+    Unable to find node on an unmounted component.
+
+      113 |   mockResolvePending.mockResolvedValue(ok({ kind: "uncertain", pending }));
+      114 |   const screen = render(<NewOrderScreen />);
+    > 115 |   await screen.findByText("Camisa");
+          |                ^
+      116 |   fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
+      117 |   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
+      118 |   fireEvent.press(screen.getByRole("button", { name: "Revisar venta" }));
+
+      at Object.findByText (src/features/orders/presentation/new-order-screen.test.tsx:115:16)
+      at asyncGeneratorStep (node_modules/.pnpm/@babel+runtime@7.29.7/node_modules/@babel/runtime/helpers/asyncToGenerator.js:3:17)
+      at _next (node_modules/.pnpm/@babel+runtime@7.29.7/node_modules/@babel/runtime/helpers/asyncToGenerator.js:17:9)
+      at node_modules/.pnpm/@babel+runtime@7.29.7/node_modules/@babel/runtime/helpers/asyncToGenerator.js:22:7
+      at Object.<anonymous> (node_modules/.pnpm/@babel+runtime@7.29.7/node_modules/@babel/runtime/helpers/asyncToGenerator.js:14:12)
+
+  ● one save retains editable payments and delivery on rejection and prevents double taps
+
+    thrown: "Exceeded timeout of 5000 ms for a test.
+    Add a timeout value to this test to increase the timeout, if this is a long-running test. See https://jestjs.io/docs/api#testname-fn-timeout."
+
+      202 | });
+      203 |
+    > 204 | test("one save retains editable payments and delivery on rejection and prevents double taps", async () => {
+          | ^
+      205 |   mockCompleteOrder.mockResolvedValue(err({ code: "DELIVERY_UNAVAILABLE", message: "Unavailable" }));
+      206 |   const screen = render(<NewOrderScreen />);
+      207 |   await screen.findByText("Camisa");
+
+      at Object.test (src/features/orders/presentation/new-order-screen.test.tsx:204:1)
+
+  ● decimal comma in an initial payment updates the summary and allows saving
+
+    Unable to find an element with text: Camisa
+
+    [36m<View>[39m
+      [36m<View>[39m
+        [36m<RCTScrollView>[39m
+          [36m<View>[39m
+            [36m<View[39m
+              [33maccessibilityLabel[39m=[32m"Volver a pedidos"[39m
+              [33maccessibilityRole[39m=[32m"button"[39m
+              [33maccessibilityState[39m=[32m{
+                {
+                  "busy": false,
+                  "disabled": false,
+                }
+              }[39m
+              [33maccessible[39m=[32m{true}[39m
+            [36m>[39m
+              [36m<Text>[39m
+                [0mVolver a pedidos[0m
+              [36m</Text>[39m
+            [36m</View>[39m
+            [36m<View>[39m
+              [36m<Text[39m
+                [33maccessibilityRole[39m=[32m"header"[39m
+              [36m>[39m
+                [0mNueva venta[0m
+              [36m</Text>[39m
+              [36m<Text>[39m
+                [0mProductos[0m
+              [36m</Text>[39m
+            [36m</View>[39m
+            [36m<View>[39m
+              [36m<TextInput[39m
+                [33maccessibilityLabel[39m=[32m"Buscar productos por nombre"[39m
+                [33maccessibilityState[39m=[32m{
+                  {
+                    "disabled": false,
+                  }
+                }[39m
+                [33meditable[39m=[32m{true}[39m
+                [33mplaceholder[39m=[32m"Buscar productos por nombre"[39m
+                [33mvalue[39m=[32m""[39m
+              [36m/>[39m
+              [36m<View>[39m
+                [36m<View[39m
+                  [33maccessibilityLabel[39m=[32m"Buscando productos"[39m
+                  [33maccessibilityRole[39m=[32m"progressbar"[39m
+                  [33maccessibilityState[39m=[32m{
+                    {
+                      "busy": true,
+                    }
+                  }[39m
+                  [33maccessible[39m=[32m{true}[39m
+                [36m>[39m
+                  [36m<ActivityIndicator[39m
+                    [33maccessibilityElementsHidden[39m=[32m{true}[39m
+                    [33mimportantForAccessibility[39m=[32m"no"[39m
+                  [36m/>[39m
+                  [36m<View>[39m
+                    [36m<Text>[39m
+                      [0mBuscando productos[0m
+                    [36m</Text>[39m
+                  [36m</View>[39m
+                [36m</View>[39m
+              [36m</View>[39m
+            [36m</View>[39m
+            [36m<View>[39m
+              [36m<View[39m
+                [33maccessibilityLabel[39m=[32m"Revisar venta"[39m
+                [33maccessibilityRole[39m=[32m"button"[39m
+                [33maccessibilityState[39m=[32m{
+                  {
+                    "busy": false,
+                    "disabled": true,
+                  }
+                }[39m
+                [33maccessible[39m=[32m{true}[39m
+              [36m>[39m
+                [36m<Text>[39m
+                  [0mRevisar venta[0m
+                [36m</Text>[39m
+              [36m</View>[39m
+            [36m</View>[39m
+          [36m</View>[39m
+        [36m</RCTScrollView>[39m
+      [36m</View>[39m
+    [36m</View>[39m
+
+      239 |   mockCompleteOrder.mockResolvedValue(err({ code: "INVALID_ORDER", message: "Rejected" }));
+      240 |   const screen = render(<NewOrderScreen />);
+    > 241 |   await screen.findByText("Camisa");
+          |                ^
+      242 |   fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
+      243 |   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
+      244 |   fireEvent.press(screen.getByRole("button", { name: "Revisar venta" }));
+
+      at Object.findByText (src/features/orders/presentation/new-order-screen.test.tsx:241:16)
+      at asyncGeneratorStep (node_modules/.pnpm/@babel+runtime@7.29.7/node_modules/@babel/runtime/helpers/asyncToGenerator.js:3:17)
+      at _next (node_modules/.pnpm/@babel+runtime@7.29.7/node_modules/@babel/runtime/helpers/asyncToGenerator.js:17:9)
+      at node_modules/.pnpm/@babel+runtime@7.29.7/node_modules/@babel/runtime/helpers/asyncToGenerator.js:22:7
+      at Object.<anonymous> (node_modules/.pnpm/@babel+runtime@7.29.7/node_modules/@babel/runtime/helpers/asyncToGenerator.js:14:12)
+
+  ● restart verifies and resends a saved request without rebuilding another order
+
+    expect(jest.fn()).toHaveBeenCalledWith(...expected)
+
+    Expected: "/orders/00000000-0000-4000-8000-000000000003"
+
+    Number of calls: 0
+
+      272 |   fireEvent.press(await screen.findByRole("button", { name: "Reenviar mismo intento" }));
+      273 |   await waitFor(() => expect(mockResendPending).toHaveBeenCalledWith(mockId(1)));
+    > 274 |   await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(`/orders/${mockId(3)}`));
+          |                ^
+      275 |   expect(mockCompleteOrder).not.toHaveBeenCalled();
+      276 | });
+      277 |
+
+      at Object.<anonymous> (src/features/orders/presentation/new-order-screen.test.tsx:274:16)
+      at asyncGeneratorStep (node_modules/.pnpm/@babel+runtime@7.29.7/node_modules/@babel/runtime/helpers/asyncToGenerator.js:3:17)
+      at _next (node_modules/.pnpm/@babel+runtime@7.29.7/node_modules/@babel/runtime/helpers/asyncToGenerator.js:17:9)
+
+  ● new order selects one overlapping home rate and reviews the full charge without manual pricing
+
+    thrown: "Exceeded timeout of 5000 ms for a test.
+    Add a timeout value to this test to increase the timeout, if this is a long-running test. See https://jestjs.io/docs/api#testname-fn-timeout."
+
+      320 | });
+      321 |
+    > 322 | test("new order selects one overlapping home rate and reviews the full charge without manual pricing", async () => {
+          | ^
+      323 |   mockCompleteOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: { amount: 22, currency: "PEN" }, order: { id: mockId(3) } }));
+      324 |   const screen = await review();
+      325 |   fireEvent(screen.getByLabelText("Configurar datos de entrega"), "valueChange", true);
+
+      at Object.test (src/features/orders/presentation/new-order-screen.test.tsx:322:1)
+
+  ● price conflict preserves creation fields and requires explicit selection of refreshed rates
+
+    thrown: "Exceeded timeout of 5000 ms for a test.
+    Add a timeout value to this test to increase the timeout, if this is a long-running test. See https://jestjs.io/docs/api#testname-fn-timeout."
+
+      350 | });
+      351 |
+    > 352 | test("price conflict preserves creation fields and requires explicit selection of refreshed rates", async () => {
+          | ^
+      353 |   mockCompleteOrder.mockResolvedValue(err({ code: "TOTAL_CHANGED", message: "Private", currentPrice: { amount: 10, currency: "PEN" } }));
+      354 |   const screen = await review();
+      355 |   fireEvent(screen.getByLabelText("Configurar datos de entrega"), "valueChange", true);
+
+      at Object.test (src/features/orders/presentation/new-order-screen.test.tsx:352:1)
+
+  ● agency creation uses an explicit zero rate and requires identity without operational fields
+
+    Unable to find an element with testID: delivery-rate
+
+    [36m<View>[39m
+      [36m<View>[39m
+        [36m<RCTScrollView>[39m
+          [36m<View>[39m
+            [36m<View[39m
+              [33maccessibilityLabel[39m=[32m"Volver a pedidos"[39m
+              [33maccessibilityRole[39m=[32m"button"[39m
+              [33maccessibilityState[39m=[32m{
+                {
+                  "busy": false,
+                  "disabled": false,
+                }
+              }[39m
+              [33maccessible[39m=[32m{true}[39m
+            [36m>[39m
+              [36m<Text>[39m
+                [0mVolver a pedidos[0m
+              [36m</Text>[39m
+            [36m</View>[39m
+            [36m<View>[39m
+              [36m<Text[39m
+                [33maccessibilityRole[39m=[32m"header"[39m
+              [36m>[39m
+                [0mNueva venta[0m
+              [36m</Text>[39m
+              [36m<Text>[39m
+                [0mRevisar[0m
+              [36m</Text>[39m
+            [36m</View>[39m
+            [36m<View>[39m
+              [36m<Text[39m
+                [33maccessibilityRole[39m=[32m"header"[39m
+              [36m>[39m
+                [0mArtículos[0m
+              [36m</Text>[39m
+              [36m<View>[39m
+                [36m<Text>[39m
+                  [0mCamisa[0m
+                [36m</Text>[39m
+                [36m<Text>[39m
+                  [0mTalla: M[0m
+                  [0m · [0m
+                  [0mStock 3[0m
+                [36m</Text>[39m
+                [36m<Text>[39m
+                  [0mS/ 10.00[0m
+                  [0m × [0m
+                  [0m1[0m
+                [36m</Text>[39m
+                [36m<View>[39m
+                  [36m<View[39m
+                    [33maccessibilityLabel[39m=[32m"−"[39m
+                    [33maccessibilityRole[39m=[32m"button"[39m
+                    [33maccessibilityState[39m=[32m{
+                      {
+                        "busy": false,
+                        "disabled": true,
+                      }
+                    }[39m
+                    [33maccessible[39m=[32m{true}[39m
+                  [36m>[39m
+                    [36m<Text>[39m
+                      [0m−[0m
+                    [36m</Text>[39m
+                  [36m</View>[39m
+                  [36m<View[39m
+                    [33maccessibilityLabel[39m=[32m"+"[39m
+                    [33maccessibilityRole[39m=[32m"button"[39m
+                    [33maccessibilityState[39m=[32m{
+                      {
+                        "busy": false,
+                        "disabled": false,
+                      }
+                    }[39m
+                    [33maccessible[39m=[32m{true}[39m
+                  [36m>[39m
+                    [36m<Text>[39m
+                      [0m+[0m
+                    [36m</Text>[39m
+                  [36m</View>[39m
+                  [36m<View[39m
+                    [33maccessibilityLabel[39m=[32m"Quitar"[39m
+                    [33maccessibilityRole[39m=[32m"button"[39m
+                    [33maccessibilityState[39m=[32m{
+                      {
+                        "busy": false,
+                        "disabled": false,
+                      }
+                    }[39m
+                    [33maccessible[39m=[32m{true}[39m
+                  [36m>[39m
+                    [36m<Text>[39m
+                      [0mQuitar[0m
+                    [36m</Text>[39m
+                  [36m</View>[39m
+                [36m</View>[39m
+              [36m</View>[39m
+              [36m<Text[39m
+                [33maccessibilityRole[39m=[32m"header"[39m
+              [36m>[39m
+                [0mCliente[0m
+              [36m</Text>[39m
+              [36m<Text>[39m
+                [0mPúblico general[0m
+              [36m</Text>[39m
+              [36m<TextInput[39m
+                [33maccessibilityLabel[39m=[32m"Buscar contacto"[39m
+                [33maccessibilityState[39m=[32m{
+                  {
+                    "disabled": false,
+                  }
+                }[39m
+                [33meditable[39m=[32m{true}[39m
+                [33mplaceholder[39m=[32m"Buscar contacto por nombre o teléfono"[39m
+                [33mvalue[39m=[32m""[39m
+              [36m/>[39m
+              [36m<Text[39m
+                [33maccessibilityRole[39m=[32m"header"[39m
+              [36m>[39m
+                [0mPagos[0m
+              [36m</Text>[39m
+              [36m<Text>[39m
+                [0mSin pagos. El pedido quedará pendiente de pago.[0m
+              [36m</Text>[39m
+              [36m<View[39m
+                [33maccessibilityLabel[39m=[32m"Agregar pago"[39m
+                [33maccessibilityRole[39m=[32m"button"[39m
+                [33maccessibilityState[39m=[32m{
+                  {
+                    "busy": false,
+                    "disabled": false,
+                  }
+                }[39m
+                [33maccessible[39m=[32m{true}[39m
+              [36m>[39m
+                [36m<Text>[39m
+                  [0mAgregar pago[0m
+                [36m</Text>[39m
+              [36m</View>[39m
+              [36m<Text[39m
+                [33maccessibilityRole[39m=[32m"header"[39m
+              [36m>[39m
+                [0mEntrega[0m
+              [36m</Text>[39m
+              [36m<View>[39m
+                [36m<Text>[39m
+                  [0mConfigurar datos de entrega[0m
+                [36m</Text>[39m
+                [36m<RCTSwitch[39m
+                  [33maccessibilityLabel[39m=[32m"Configurar datos de entrega"[39m
+                  [33maccessibilityRole[39m=[32m"switch"[39m
+                  [33mvalue[39m=[32m{true}[39m
+                [36m/>[39m
+              [36m</View>[39m
+              [36m<View>[39m
+                [36m<Text[39m
+                  [33mnativeID[39m=[32m"_r_1r_-label"[39m
+                [36m>[39m
+                  [0mModalidad de entrega[0m
+                [36m</Text>[39m
+                [36m<View[39m
+                  [33maccessibilityLabel[39m=[32m"Modalidad de entrega"[39m
+                  [33maccessibilityLabelledBy[39m=[32m"_r_1r_-label"[39m
+                  [33maccessibilityRole[39m=[32m"radiogroup"[39m
+                  [33maccessibilityState[39m=[32m{
+                    {
+                      "disabled": false,
+                    }
+                  }[39m
+                [36m>[39m
+                  [36m<View>[39m
+                    [36m<View[39m
+                      [33maccessibilityRole[39m=[32m"adjustable"[39m
+                      [33maccessible[39m=[32m{true}[39m
+                      [33mtestID[39m=[32m"delivery-method"[39m
+                    [36m/>[39m
+                  [36m</View>[39m
+                [36m</View>[39m
+              [36m</View>[39m
+              [36m<View>[39m
+                [36m<View>[39m
+                  [36m<View>[39m
+                    [36m<Text[39m
+                      [33mnativeID[39m=[32m"_r_1v_-label"[39m
+                    [36m>[39m
+                      [0mDepartamento[0m
+                      [36m<Text>[39m
+                        [0m *[0m
+                      [36m</Text>[39m
+                    [36m</Text>[39m
+                    [36m<View[39m
+                      [33maccessibilityLabel[39m=[32m"Departamento"[39m
+                      [33maccessibilityLabelledBy[39m=[32m"_r_1v_-label"[39m
+                      [33maccessibilityRole[39m=[32m"radiogroup"[39m
+                      [33maccessibilityState[39m=[32m{
+                        {
+                          "disabled": false,
+                        }
+                      }[39m
+                    [36m>[39m
+                      [36m<View>[39m
+                        [36m<View[39m
+                          [33maccessibilityRole[39m=[32m"adjustable"[39m
+                          [33maccessible[39m=[32m{true}[39m
+                          [33mtestID[39m=[32m"delivery-department"[39m
+                        [36m/>[39m
+                      [36m</View>[39m
+                    [36m</View>[39m
+                  [36m</View>[39m
+                  [36m<View>[39m
+                    [36m<Text[39m
+                      [33mnativeID[39m=[32m"_r_20_-label"[39m
+                    [36m>[39m
+                      [0mProvincia[0m
+                      [36m<Text>[39m
+                        [0m *[0m
+                      [36m</Text>[39m
+                    [36m</Text>[39m
+                    [36m<View[39m
+                      [33maccessibilityLabel[39m=[32m"Provincia"[39m
+                      [33maccessibilityLabelledBy[39m=[32m"_r_20_-label"[39m
+                      [33maccessibilityRole[39m=[32m"radiogroup"[39m
+                      [33maccessibilityState[39m=[32m{
+                        {
+                          "disabled": false,
+                        }
+                      }[39m
+                    [36m>[39m
+                      [36m<View>[39m
+                        [36m<View[39m
+                          [33maccessibilityRole[39m=[32m"adjustable"[39m
+                          [33maccessible[39m=[32m{true}[39m
+                          [33mtestID[39m=[32m"delivery-province"[39m
+                        [36m/>[39m
+                      [36m</View>[39m
+                    [36m</View>[39m
+                  [36m</View>[39m
+                  [36m<View>[39m
+                    [36m<Text[39m
+                      [33mnativeID[39m=[32m"_r_21_-label"[39m
+                    [36m>[39m
+                      [0mBuscar distrito[0m
+                    [36m</Text>[39m
+                    [36m<TextInput[39m
+                      [33maccessibilityLabel[39m=[32m"Buscar distrito"[39m
+                      [33maccessibilityLabelledBy[39m=[32m"_r_21_-label"[39m
+                      [33maccessibilityState[39m=[32m{
+                        {
+                          "disabled": false,
+                        }
+                      }[39m
+                      [33meditable[39m=[32m{true}[39m
+                      [33mvalue[39m=[32m"150122"[39m
+                    [36m/>[39m
+                  [36m</View>[39m
+                  [36m<View>[39m
+                    [36m<Text[39m
+                      [33mnativeID[39m=[32m"_r_22_-label"[39m
+                    [36m>[39m
+                      [0mDistrito de destino[0m
+                      [36m<Text>[39m
+                        [0m *[0m
+                      [36m</Text>[39m
+                    [36m</Text>[39m
+                    [36m<View[39m
+                      [33maccessibilityLabel[39m=[32m"Distrito de destino"[39m
+                      [33maccessibilityLabelledBy[39m=[32m"_r_22_-label"[39m
+                      [33maccessibilityRole[39m=[32m"radiogroup"[39m
+                      [33maccessibilityState[39m=[32m{
+                        {
+                          "disabled": false,
+                        }
+                      }[39m
+                    [36m>[39m
+                      [36m<View>[39m
+                        [36m<View[39m
+                          [33maccessibilityRole[39m=[32m"adjustable"[39m
+                          [33maccessible[39m=[32m{true}[39m
+                          [33mtestID[39m=[32m"delivery-district"[39m
+                        [36m/>[39m
+                      [36m</View>[39m
+                    [36m</View>[39m
+                  [36m</View>[39m
+                  [36m<Text>[39m
+                    [0mMIRAFLORES[0m
+                    [0m · [0m
+                    [0mLIMA METROPOLITANA[0m
+                    [0m · [0m
+                    [0mLIMA[0m
+                    [0m · [0m
+                    [0m150122[0m
+                  [36m</Text>[39m
+                [36m</View>[39m
+                [36m<Text>[39m
+                  [0mBuscando tarifas…[0m
+                [36m</Text>[39m
+              [36m</View>[39m
+              [36m<View>[39m
+                [36m<View>[39m
+                  [36m<Text[39m
+                    [33mnativeID[39m=[32m"_r_1s_-label"[39m
+                  [36m>[39m
+                    [0mNombre del destinatario[0m
+                    [36m<Text>[39m
+                      [0m *[0m
+                    [36m</Text>[39m
+                  [36m</Text>[39m
+                  [36m<TextInput[39m
+                    [33maccessibilityLabel[39m=[32m"Nombre del destinatario *"[39m
+                    [33maccessibilityLabelledBy[39m=[32m"_r_1s_-label"[39m
+                    [33maccessibilityState[39m=[32m{
+                      {
+                        "disabled": false,
+                      }
+                    }[39m
+                    [33meditable[39m=[32m{true}[39m
+                    [33mvalue[39m=[32m""[39m
+                  [36m/>[39m
+                [36m</View>[39m
+                [36m<View>[39m
+                  [36m<Text[39m
+                    [33mnativeID[39m=[32m"_r_1t_-label"[39m
+                  [36m>[39m
+                    [0mTeléfono del destinatario[0m
+                    [36m<Text>[39m
+                      [0m *[0m
+                    [36m</Text>[39m
+                  [36m</Text>[39m
+                  [36m<TextInput[39m
+                    [33maccessibilityLabel[39m=[32m"Teléfono del destinatario *"[39m
+                    [33maccessibilityLabelledBy[39m=[32m"_r_1t_-label"[39m
+                    [33maccessibilityState[39m=[32m{
+                      {
+                        "disabled": false,
+                      }
+                    }[39m
+                    [33meditable[39m=[32m{true}[39m
+                    [33mvalue[39m=[32m""[39m
+                  [36m/>[39m
+                [36m</View>[39m
+                [36m<View>[39m
+                  [36m<Text[39m
+                    [33mnativeID[39m=[32m"_r_1u_-label"[39m
+                  [36m>[39m
+                    [0mDocumento del destinatario[0m
+                    [36m<Text>[39m
+                      [0m *[0m
+                    [36m</Text>[39m
+                  [36m</Text>[39m
+                  [36m<View[39m
+                    [33maccessibilityLabel[39m=[32m"Documento del destinatario"[39m
+                    [33maccessibilityLabelledBy[39m=[32m"_r_1u_-label"[39m
+                    [33maccessibilityRole[39m=[32m"radiogroup"[39m
+                    [33maccessibilityState[39m=[32m{
+                      {
+                        "disabled": false,
+                      }
+                    }[39m
+                  [36m>[39m
+                    [36m<View>[39m
+                      [36m<View[39m
+                        [33maccessibilityRole[39m=[32m"adjustable"[39m
+                        [33maccessible[39m=[32m{true}[39m
+                        [33mtestID[39m=[32m"delivery-document-type"[39m
+                      [36m/>[39m
+                    [36m</View>[39m
+                  [36m</View>[39m
+                [36m</View>[39m
+              [36m</View>[39m
+              [36m<Text>[39m
+                [0mEl cliente paga la tarifa completa. El recojo en tienda es gratis.[0m
+              [36m</Text>[39m
+              [36m<View>[39m
+                [36m<Text>[39m
+                  [0mMarcar como entregado al guardar[0m
+                [36m</Text>[39m
+                [36m<RCTSwitch[39m
+                  [33maccessibilityLabel[39m=[32m"Marcar como entregado al guardar"[39m
+                  [33maccessibilityRole[39m=[32m"switch"[39m
+                  [33mvalue[39m=[32m{false}[39m
+                [36m/>[39m
+              [36m</View>[39m
+              [36m<Text>[39m
+                [0mPara marcar entregado, los pagos deben cubrir el total y debe haber stock suficiente.[0m
+              [36m</Text>[39m
+              [36m<Text[39m
+                [33maccessibilityRole[39m=[32m"header"[39m
+              [36m>[39m
+                [0mResumen[0m
+              [36m</Text>[39m
+              [36m<Text>[39m
+                [0mPagos ingresados[0m
+                [0m: [0m
+                [0mS/ 0.00[0m
+              [36m</Text>[39m
+              [36m<Text>[39m
+                [0mProductos: S/ 10.00[0m
+              [36m</Text>[39m
+              [36m<Text>[39m
+                [0mEl servidor calculará precios, cargo de entrega y saldo al guardar.[0m
+              [36m</Text>[39m
+            [36m</View>[39m
+            [36m<View>[39m
+              [36m<Text>[39m
+                [0m1 artículo[0m
+                [0m · [0m
+                [0mS/ 10.00[0m
+              [36m</Text>[39m
+              [36m<View>[39m
+                [36m<View[39m
+                  [33maccessibilityLabel[39m=[32m"Editar productos"[39m
+                  [33maccessibilityRole[39m=[32m"button"[39m
+                  [33maccessibilityState[39m=[32m{
+                    {
+                      "busy": false,
+                      "disabled": false,
+                    }
+                  }[39m
+                  [33maccessible[39m=[32m{true}[39m
+                [36m>[39m
+                  [36m<Text>[39m
+                    [0mEditar productos[0m
+                  [36m</Text>[39m
+                [36m</View>[39m
+                [36m<View[39m
+                  [33maccessibilityLabel[39m=[32m"Guardar pedido"[39m
+                  [33maccessibilityRole[39m=[32m"button"[39m
+                  [33maccessibilityState[39m=[32m{
+                    {
+                      "busy": false,
+                      "disabled": true,
+                    }
+                  }[39m
+                  [33maccessible[39m=[32m{true}[39m
+                [36m>[39m
+                  [36m<Text>[39m
+                    [0mGuardar pedido[0m
+                  [36m</Text>[39m
+                [36m</View>[39m
+              [36m</View>[39m
+            [36m</View>[39m
+          [36m</View>[39m
+        [36m</RCTScrollView>[39m
+      [36m</View>[39m
+    [36m</View>[39m
+
+      385 |   fireEvent(screen.getByTestId("delivery-method"), "valueChange", 2);
+      386 |   selectDistrict(screen);
+    > 387 |   await screen.findByTestId("delivery-rate");
+          |                ^
+      388 |   fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 0);
+      389 |   fireEvent.changeText(screen.getByLabelText(/Nombre del destinatario/), "Ana");
+      390 |   fireEvent.changeText(screen.getByLabelText(/Teléfono del destinatario/), "999001");
+
+      at Object.findByTestId (src/features/orders/presentation/new-order-screen.test.tsx:387:16)
+      at asyncGeneratorStep (node_modules/.pnpm/@babel+runtime@7.29.7/node_modules/@babel/runtime/helpers/asyncToGenerator.js:3:17)
+      at _next (node_modules/.pnpm/@babel+runtime@7.29.7/node_modules/@babel/runtime/helpers/asyncToGenerator.js:17:9)
+
+  ● late destination quotations cannot restore another district or a shipping charge after pickup
+
+    thrown: "Exceeded timeout of 5000 ms for a test.
+    Add a timeout value to this test to increase the timeout, if this is a long-running test. See https://jestjs.io/docs/api#testname-fn-timeout."
+
+      430 | });
+      431 |
+    > 432 | test("late destination quotations cannot restore another district or a shipping charge after pickup", async () => {
+          | ^
+      433 |   mockSettingsGet.mockResolvedValue(ok(allMethods));
+      434 |   let finish: ((result: ReturnType<typeof ok<typeof quotation>>) => void) | undefined;
+      435 |   mockQuotation.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; })).mockResolvedValue(ok({ ...quotation, districtCode: "040110", rates: [secondRate] }));
+
+      at Object.test (src/features/orders/presentation/new-order-screen.test.tsx:432:1)
+
+  ● reselecting the same district generates new options and cannot revive an earlier selection
+
+    thrown: "Exceeded timeout of 5000 ms for a test.
+    Add a timeout value to this test to increase the timeout, if this is a long-running test. See https://jestjs.io/docs/api#testname-fn-timeout."
+
+      453 | });
+      454 |
+    > 455 | test("reselecting the same district generates new options and cannot revive an earlier selection", async () => {
+          | ^
+      456 |   const screen = await review();
+      457 |   fireEvent(screen.getByLabelText("Configurar datos de entrega"), "valueChange", true);
+      458 |   fireEvent.changeText(screen.getByLabelText(/Dirección de entrega/), "Street");
+
+      at Object.test (src/features/orders/presentation/new-order-screen.test.tsx:455:1)
+
+FAIL src/features/orders/presentation/order-detail-screen.test.tsx (164.118 s)
+  ● immediate result shows the amount difference; history detail shows only the recorded total
+
+    thrown: "Exceeded timeout of 5000 ms for a test.
+    Add a timeout value to this test to increase the timeout, if this is a long-running test. See https://jestjs.io/docs/api#testname-fn-timeout."
+
+      56 | jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
+      57 |
+    > 58 | test("immediate result shows the amount difference; history detail shows only the recorded total", async () => {
+         | ^
+      59 |   mockCountry = "CL";
+      60 |   mockNotice = { id: mockId, shownTotal: { amount: 10, currency: "PEN" } };
+      61 |   const immediate = render(<OrderDetailScreen />);
+
+      at Object.test (src/features/orders/presentation/order-detail-screen.test.tsx:58:1)
+
+
+Test Suites: 2 failed, 55 passed, 57 total
+Tests:       11 failed, 312 passed, 323 total
+Snapshots:   0 total
+Time:        770.163 s

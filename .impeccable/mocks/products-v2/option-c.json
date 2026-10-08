@@ -1,0 +1,6 @@
+{
+  "approved": false,
+  "imageGeneration": "built-in image_gen edit",
+  "reference": "option-c-first.png",
+  "prompt": "Edit target: the attached two-phone Option C UI proposal. Preserve the Caramelo colors, typography, grouped white panels, all content and two-phone composition. Change ONLY the right saved-product phone: make 'Imprimir' a small visibly FLOATING pill with printer icon and text, positioned at lower right in its own reserved blank space ABOVE the Products tab bar, with a subtle shadow and clear separation from the full-width 'Guardar' button. Ensure the pill covers no field, no button, and no tab. Keep left creation state without any Imprimir control. Preserve 'Descripción' field in both creation and edit, even if that makes the view show slightly less lower content. No combined action. This is a raster UI mockup, not a poster."
+}

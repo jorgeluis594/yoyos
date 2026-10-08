@@ -7,12 +7,12 @@ import { OptionSelector } from "@mobile/components/ui/option-selector";
 import { ThemedText } from "@mobile/components/themed-text";
 
 export type PaymentFieldsValue = Omit<DraftPayment, "paymentId">;
-export function PaymentFields({ value, onChange, currency, busy }: { value: PaymentFieldsValue; onChange: (value: PaymentFieldsValue) => void; currency: string; busy: boolean }) {
+export function PaymentFields({ value, onChange, currency, busy, compact = false }: { value: PaymentFieldsValue; onChange: (value: PaymentFieldsValue) => void; currency: string; busy: boolean; compact?: boolean }) {
   const { t } = useTranslation();
   return <View style={styles.fields}>
-    <Field required disabled={busy}><FieldLabel>{t('paymentAmount')} ({currency})</FieldLabel>
+    <Field required disabled={busy}><FieldLabel>{t(compact ? 'amountShort' : 'paymentAmount')} ({currency})</FieldLabel>
       <Input value={value.amount} onChangeText={amount => onChange({ ...value, amount })} keyboardType="decimal-pad" accessibilityLabel={t('paymentAmount')} /></Field>
-    <Field required disabled={busy}><FieldLabel>{t('paymentMethod')}</FieldLabel><OptionSelector options={[
+    <Field required disabled={busy}><FieldLabel>{t(compact ? 'methodShort' : 'paymentMethod')}</FieldLabel><OptionSelector options={[
       { value: "digital_wallet", label: t('wallet') }, { value: "bank_transfer", label: t('bankTransfer') }]}
       value={value.method} onValueChange={method => { if (method === "digital_wallet" || method === "bank_transfer") onChange({ ...value, method }); }} /></Field>
     <View style={styles.toggle}><ThemedText style={styles.label}>{t('deductStockIfPartial')}</ThemedText>

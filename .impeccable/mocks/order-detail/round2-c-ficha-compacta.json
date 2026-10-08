@@ -1,0 +1,34 @@
+{
+  "option": "C",
+  "name": "ficha-compacta",
+  "approved": false,
+  "createdAt": "2026-10-08",
+  "scope": "Whole order detail, proposal only",
+  "mode": "Operate",
+  "generator": "image_gen native tool",
+  "prompt": "Use case: ui-mockup. High fidelity raster design proposal for the EXISTING Yoyos native Android order detail, Operate mode. Create a tall portrait 1536x2304 comparison composition containing TWO portrait native screen panels side by side, each legible at 720px wide, including full content top to bottom (extended scroll capture, not a cropped viewport); small labels above panels. This is one proposal, not alternatives within it. References: images 1 and 2 are current detail ANTI-reference for redundant oversized controls, preserve their real data and navigation; images 3-5 provide REQUIRED visual grammar of the rest of app: calm cream #F7F4EF, white flat connected list groups, Inter, charcoal #242326, caramel #8C552D, thin warm separators, 8dp corners, 16dp gutters, native back and bottom four tabs Inicio/Catálogo/Pedidos/Ajustes with Pedidos selected. No shadows, gradients, phone frame, decorative illustrations, debug gear, tiny text. Preserve 48dp tappable rows, compact via grouping not shrinking. Main screen header back arrow 'Pedido #1001' and overflow menu. Date '8 oct. 2026 · 10:16 a. m.' and quiet 'Activa'. Buyer Público general, product Camisa QA Productos / SKU QA-CAM-001 / 1 × S/79.90. Products subtotal S/79.90, shipping S/0.00, total S/79.90, received S/0.00, balance S/79.90. Unpaid delivery cannot ship or deliver: show ONE plain reason, not disabled buttons. Paid with stock deducted can mark shipped OR directly delivered; show both valid choices compactly without changing rules. Edit/assign delivery remains distinct. Keep link, payment history, internal metadata and cancellation accessible through named rows. Link URL and seller technical ID not primary content. No invented tracking, dates, payment methods or domain features. Spanish UI text crisp.\nOPTION C 'Ficha compacta'. Biggest simplification of whole surface: one flat white content sheet, quiet section titles and hairline separators, no separate cards per section, NO product photos/thumbnails, NO overflow menu when all actions already labeled. Maintain same single-column native layout and bottom tabs as reference.\nLeft panel 'C · Vista completa': top native header back Pedido #1001; date small and Activa quiet green text, buyer Público general directly beneath. One continuous white sheet starts Productos · 1 unidad, then product name/SKU/quantity/unit amount and subtotal aligned right. Then section 'Pago' with inline quiet 'Pago pendiente' on right; compact money rows Productos S/79.90, Envío S/0.00, bold Total S/79.90, Recibido S/0.00 and bold Por cobrar S/79.90. One 48dp caramel Registrar pago button. 'Historial de pagos' as quiet disclosure row. Thin separator. Entrega heading with right Pendiente text; below 'Entrega por definir' with right 'Asignar' text action; only one helper 'Completa el pago para enviar o entregar.' This entire delivery section takes only ~120dp, no button stack. Separator. Confirmación del comprador with status Enlace aún no habilitado, chevron to expand. Separator. Detalles internos chevron. Quiet Cancelar pedido 48dp row outside sheet at bottom. All content visible. Bottom nav.\nRight panel 'Con pago cubierto · Detalles abiertos': same header and buyer. Compact one-line Productos · 1 unidad with chevron (item detail expandable); Payment summary shows Total S/79.90, Recibido S/79.90, Por cobrar S/0.00 and green Pago cubierto, 'Ver desglose' quiet row. 'Historial de pagos' chevron; do not invent empty history for a paid order. Separator. 'Entrega' with right Pendiente; Domicilio / Ana Torres · Miraflores with right Editar; expanded details 999 123 456, DNI 12345678, Av. Arequipa 120, Tocar el timbre, Cargo al cliente S/0.00. Under delivery details a SINGLE compact horizontal action row with two equal quiet outlined 48dp controls 'Marcar enviado' and 'Marcar entregado', both enabled because paid and stock deducted, with space between, no giant filled buttons. This pair wraps vertically with large fonts in implementation, never clips. Separator. Confirmación del comprador expanded, status Pendiente de confirmación, two text actions Copiar enlace / Ver enlace, no raw URL. Separator. Detalles internos expanded: Stock descontado, Costo interno S/0.00, Registrado por vendedor, secondary ID vendedor usr_8d3a. Quiet Cancelar pedido outside sheet, bottom native tabs. No stepper, no hidden action menu, compact transparent hierarchy. Use line icons only where navigation needs them, avoid decorative icon for every money row. Native operational app, whole screen readable, no tiny labels.",
+  "references": [
+    "/Users/jorgegonzalez/orca/projects/yoyos/artifacts/mobile-redesign/final/06-detalle-superior.png",
+    "/Users/jorgegonzalez/orca/projects/yoyos/artifacts/mobile-redesign/final/06-detalle-entrega.png",
+    "/Users/jorgegonzalez/orca/projects/yoyos/artifacts/mobile-redesign/final/01-inicio.png",
+    "/Users/jorgegonzalez/orca/projects/yoyos/artifacts/mobile-redesign/final/04-pedidos.png",
+    "/Users/jorgegonzalez/orca/projects/yoyos/artifacts/mobile-redesign/final/03-configuracion.png"
+  ],
+  "renderCaveats": [
+    "Generated paid panel shows breakdown already open while retaining Ver desglose; actual disclosure must use expanded state and avoid duplicate content.",
+    "Cancellation uses a quiet secondary treatment and existing confirmation; not a primary CTA."
+  ],
+  "functionalClarification": {
+    "source": "Explicit user clarification, 2026-10-08",
+    "manualDeliveryData": "Assigning or editing delivery data does not require payment. Keep the action available for active, non-cancelled orders with pending delivery, including unpaid and partially paid orders. Existing busy/recovery locks and data validation remain.",
+    "fulfillment": "Marking shipped or delivered is a separate operation. Preserve current full-payment, stock and state guards; do not infer rule changes from permission to edit data.",
+    "presentation": "Keep Asignar/Editar beside delivery data, separate from fulfillment actions and their payment explanation. All three existing raster proposals already show Asignar in the unpaid example; apply the same availability to Editar when data exists.",
+    "evidence": [
+      "apps/mobile/src/features/orders/presentation/order-detail-screen.tsx:219",
+      "apps/mobile/src/features/orders/presentation/order-delivery-screen.tsx:61",
+      "apps/core/src/features/orders/domain/order-state-machine.ts:251",
+      "apps/core/src/features/orders/application/set-delivery.ts:33"
+    ],
+    "verification": "Source inspection only; no tests or native QA performed for this clarification."
+  }
+}

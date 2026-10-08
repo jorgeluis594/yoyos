@@ -153,15 +153,16 @@ export default function OrderHistoryScreen() {
       </Pressable> : null}
     </View>
     <View style={styles.filterBar}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChips}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll} contentContainerStyle={styles.filterChips}>
         {(["all", "unpaid", "undelivered"] as const).map((view) => <Pressable key={view} accessibilityRole="button"
           accessibilityState={{ selected: (criteria.view ?? "all") === view }} onPress={() => setCriteria({ ...criteria, page: 1, view })}
-          style={({ pressed }) => [styles.chip, { borderColor: theme.border, backgroundColor: (criteria.view ?? "all") === view || pressed ? theme.backgroundSelected : theme.background }]}>
-          <ThemedText type="small" style={{ color: (criteria.view ?? "all") === view ? theme.primary : theme.textSecondary, fontWeight: (criteria.view ?? "all") === view ? "600" : "400" }}>{t(view === "all" ? 'all' : view === "unpaid" ? 'orderListUnpaid' : 'orderListUndelivered')}</ThemedText>
+          style={({ pressed }) => [styles.chip, { borderColor: theme.input, backgroundColor: (criteria.view ?? "all") === view || pressed ? theme.backgroundSelected : theme.background }]}>
+          {(criteria.view ?? "all") === view ? <SymbolView name={{ ios: "checkmark", android: "check" }} size={18} tintColor={theme.primary} /> : null}
+          <ThemedText type="small" style={{ flexShrink: 1, color: (criteria.view ?? "all") === view ? theme.primary : theme.textSecondary, fontWeight: (criteria.view ?? "all") === view ? "600" : "400" }}>{t(view === "all" ? 'all' : view === "unpaid" ? 'orderListUnpaid' : 'orderListUndelivered')}</ThemedText>
         </Pressable>)}
       </ScrollView>
       <Pressable accessibilityRole="button" accessibilityLabel={t('orderListFilters')} accessibilityState={{ selected: advanced }} onPress={openFilters}
-        style={[styles.filterButton, { borderColor: theme.border, backgroundColor: advanced ? theme.backgroundSelected : theme.background }]}>
+        style={[styles.filterAction, { backgroundColor: advanced ? theme.backgroundSelected : theme.background }]}>
         <SymbolView name={{ ios: "slider.horizontal.3", android: "tune" }} size={22} tintColor={advanced ? theme.primary : theme.textSecondary} />
       </Pressable>
     </View>
@@ -200,11 +201,11 @@ export default function OrderHistoryScreen() {
     </View>;
 
   return <ThemedView style={styles.page}><SafeAreaView style={styles.page} edges={["top", "left", "right"]}>
-    <View style={styles.container}>{header}
+    <View style={styles.container}>
       <SectionList sections={error ? [] : sections} keyExtractor={(item) => item.id} style={styles.page}
         keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" stickySectionHeadersEnabled={false}
         refreshing={loading && items.length > 0} onRefresh={() => void reload(companyId, criteria)}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={styles.content} ListHeaderComponent={header}
         renderSectionHeader={({ section }) => <ThemedText type="small" themeColor="textSecondary" accessibilityRole="header" style={styles.day}>{sectionTitle(section.title)}</ThemedText>}
         ListEmptyComponent={<ScreenState status={loading ? "loading" : error ? "error" : filtered ? "no-results" : "empty"}
           title={loading ? t('loadingOrders') : error ? t('loadOrdersTitle') : filtered ? t('noResults') : t('noOrders')}
@@ -218,8 +219,14 @@ export default function OrderHistoryScreen() {
             {item.status === "cancelled" || item.status === "completed" ? <View style={[styles.badge, { backgroundColor: item.status === "completed" ? theme.successSurface : theme.secondary }]}>
               <ThemedText type="small" style={{ color: item.status === "completed" ? theme.success : theme.textSecondary }}>{t(item.status === "completed" ? 'orderListCompleted' : 'orderListCancelled')}</ThemedText>
             </View> : <>
-              <View style={[styles.badge, { backgroundColor: item.paymentStatus === "paid" ? theme.successSurface : theme.warningSurface }]}><ThemedText type="small" style={{ color: item.paymentStatus === "paid" ? theme.success : theme.warning }}>{t(item.paymentStatus === "paid" ? 'orderListPaid' : 'orderListPaymentPending')}</ThemedText></View>
-              <View style={[styles.badge, { backgroundColor: theme.secondary }]}><ThemedText type="small" themeColor="textSecondary">{deliveryStatusLabel(item.deliveryStatus, language)}</ThemedText></View>
+              <View style={styles.statusLine}>
+                <SymbolView name={{ ios: item.paymentStatus === "paid" ? "checkmark.circle.fill" : "clock", android: item.paymentStatus === "paid" ? "check_circle" : "schedule" }} size={18} tintColor={item.paymentStatus === "paid" ? theme.success : theme.warning} />
+                <ThemedText type="small" style={{ flexShrink: 1, color: item.paymentStatus === "paid" ? theme.success : theme.warning }}>{t(item.paymentStatus === "paid" ? 'orderListPaid' : 'orderListPaymentPending')}</ThemedText>
+              </View>
+              <View style={styles.statusLine}>
+                <SymbolView name={{ ios: "shippingbox", android: "local_shipping" }} size={18} tintColor={theme.textSecondary} />
+                <ThemedText type="small" themeColor="textSecondary" style={styles.statusText}>{deliveryStatusLabel(item.deliveryStatus, language)}</ThemedText>
+              </View>
             </>}
           </View>
           {item.checkoutEnabledAt ? <ThemedText type="small" themeColor="textSecondary">{t(item.status === "cancelled" ? "checkoutCancelled" : item.checkoutConfirmedAt ? "checkoutConfirmed" : "checkoutPending")}</ThemedText> : null}
@@ -257,15 +264,19 @@ const styles = StyleSheet.create({
   search: { position: "relative" }, searchInput: { paddingLeft: 44, paddingRight: 44, borderRadius: 12 },
   searchIcon: { position: "absolute", left: 14, top: 0, bottom: 0, justifyContent: "center" },
   clearSearch: { position: "absolute", right: 0, top: 0, bottom: 0, width: 48, alignItems: "center", justifyContent: "center" },
-  filterBar: { flexDirection: "row", gap: 8, alignItems: "center" }, filterChips: { gap: 8 },
-  chip: { minHeight: 48, borderWidth: 1, borderRadius: 28, paddingHorizontal: 14, paddingVertical: 8, justifyContent: "center" },
+  filterBar: { flexDirection: "row", alignItems: "center", gap: 8 },
+  filterScroll: { flex: 1, minWidth: 0 },
+  filterAction: { minHeight: 48, width: 48, borderRadius: 6, alignItems: "center", justifyContent: "center" },
+  filterChips: { alignItems: "center", gap: 8 },
+  chip: { minHeight: 48, borderWidth: 1, borderRadius: 28, paddingHorizontal: 8, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0, justifyContent: "center" },
   filterButton: { minHeight: 48, minWidth: 48, borderRadius: 24, borderWidth: StyleSheet.hairlineWidth, alignItems: "center", justifyContent: "center" },
   applied: { minHeight: 48, justifyContent: "center" },
   day: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10 },
-  order: { paddingHorizontal: 16, paddingVertical: 8, gap: 4, borderBottomWidth: StyleSheet.hairlineWidth },
+  order: { paddingHorizontal: 16, paddingVertical: 12, gap: 4, borderBottomWidth: StyleSheet.hairlineWidth },
   orderHeading: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "baseline", columnGap: 12 },
   customerName: { fontWeight: "700", flexGrow: 1, flexShrink: 1, flexBasis: 160 }, amount: { fontWeight: "700", fontVariant: ["tabular-nums"] },
-  badges: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 2 }, badge: { borderRadius: 20, paddingHorizontal: 9, paddingVertical: 2 },
+  badges: { gap: 4, marginTop: 4, alignItems: "flex-start" }, badge: { borderRadius: 20, paddingHorizontal: 9, paddingVertical: 2 },
+  statusLine: { flexDirection: "row", alignItems: "center", gap: 8 }, statusText: { flexShrink: 1 },
   footer: { gap: 8, padding: 16 }, filters: { gap: 16 },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8, alignItems: "center" },
   field: { gap: 8 }, date: { flex: 1, minWidth: 130, gap: 4 }, notice: { gap: 8, padding: 16, borderRadius: 8 },
