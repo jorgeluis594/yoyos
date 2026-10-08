@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import type { CompanyId } from "@shared/identity";
 import { ok } from "@shared/functional";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
+import { readDeliveryConfiguration } from "@core/src/features/delivery-settings/infrastructure/delivery-zones-repository";
 import { findRateWithQuotation, insertQuotationWithRates } from "@core/src/features/delivery-settings/infrastructure/quotation-repository";
-import { prisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
+import { prisma, systemPrisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 
 test("quotations persist all overlapping rates, remain immutable, isolate tenants and roll back failed writes", async () => {
   const companyId = randomUUID() as CompanyId;
@@ -62,6 +63,64 @@ test("quotations persist all overlapping rates, remain immutable, isolate tenant
       await prisma.deliveryZone.deleteMany();
       await prisma.companyDeliverySettings.deleteMany();
       await prisma.company.deleteMany({ where: { id: companyId } });
+    });
+  }
+});
+
+
+test("quotation generation waits for a complete concurrent price and coverage update", async () => {
+  const companyId = randomUUID() as CompanyId;
+  const context = { companyId, userId: "seller" };
+  const run = <T>(work: () => Promise<T>) => withTenantIsolation(companyId, async () => await work());
+  let release!: () => void;
+  let written!: () => void;
+  const hold = new Promise<void>(resolve => { release = resolve; });
+  const partialWrite = new Promise<void>(resolve => { written = resolve; });
+  try {
+    const zones = await run(async () => {
+      await prisma.company.create({ data: { id: companyId, name: "Concurrent quotation", country: "PE" } });
+      const saved = await deliverySettings.saveZones({ method: "home", expectedVersion: 0, zones: [8, 12].map(amount => ({
+        kind: "new" as const, name: "Zone", enabled: true, districtCodes: ["150122"], price: { amount, currency: "PEN" as const },
+      })) }, context);
+      if (!saved.success) throw new Error("Expected zones");
+      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [],
+        store: { enabled: false, pickupPoint: null } }, context)).success).toBe(true);
+      return saved.data.zones;
+    });
+    const writer = run(() => withinTransaction(async () => {
+      expect((await readDeliveryConfiguration(companyId, "exclusive")).success).toBe(true);
+      await prisma.deliveryZone.update({ where: { id: zones[0].id }, data: { priceAmount: 10 } });
+      written();
+      await hold;
+      await prisma.deliveryZoneDistrict.updateMany({ where: { zoneId: zones[1].id }, data: { districtCode: "040110" } });
+      await prisma.companyDeliverySettings.update({ where: { companyId }, data: { version: 3 } });
+      return ok(null);
+    }));
+    await partialWrite;
+    const reader = run(() => deliverySettings.createQuotation({ companyId, country: "PE", districtCode: "150122", address: null, instructions: null }));
+    try {
+      await vi.waitFor(async () => {
+        const waiting = await systemPrisma.$queryRaw<{ count: bigint }[]>`SELECT count(*) AS count FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%CompanyDeliverySettings%'`;
+        expect(Number(waiting[0].count)).toBeGreaterThan(0);
+      });
+    } finally { release(); }
+    expect(await writer).toEqual(ok(null));
+    const quotation = await reader;
+    if (!quotation.success) throw new Error("Expected quotation");
+    expect(quotation.data.rates).toHaveLength(1);
+    expect(quotation.data.rates[0]).toMatchObject({ zoneId: zones[0].id, price: { amount: 10, currency: "PEN" }, settingsVersion: 3 });
+    await run(async () => {
+      expect(await withinTransaction(() => findRateWithQuotation(companyId, quotation.data.rates[0].id)))
+        .toEqual(ok({ quotation: quotation.data.quotation, rate: quotation.data.rates[0] }));
+      expect(await prisma.quotation.count()).toBe(1);
+      expect(await prisma.deliveryRate.count()).toBe(1);
+    });
+  } finally {
+    release();
+    await run(async () => {
+      await prisma.deliveryRate.deleteMany(); await prisma.quotation.deleteMany();
+      await prisma.deliveryZoneDistrict.deleteMany(); await prisma.deliveryZone.deleteMany();
+      await prisma.companyDeliverySettings.deleteMany(); await prisma.company.deleteMany({ where: { id: companyId } });
     });
   }
 });
