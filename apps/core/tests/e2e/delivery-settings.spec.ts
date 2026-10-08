@@ -2,6 +2,7 @@ import { deliverySettingsSchema } from "@shared/contracts/delivery-settings";
 import { mkdir } from "node:fs/promises";
 import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { products } from "@core/src/features/products/composition";
 
 test("seller configures store pickup, preserves a conflicting draft and explicitly reloads", async ({ page, request }) => {
   const email = `delivery-settings-${crypto.randomUUID()}@example.test`;
@@ -169,6 +170,7 @@ test("seller manages overlapping home zones and preserves an edit on a shared-ve
   const email = `delivery-zones-${crypto.randomUUID()}@example.test`;
   let companyId: string | undefined;
   const panel = page.getByRole("tabpanel");
+  const buyer = await page.context().browser()!.newContext({ baseURL: `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}` });
   try {
     companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "Zones store", country: "PE" });
     await page.goto("/es-PE/settings/delivery");
@@ -207,13 +209,31 @@ test("seller manages overlapping home zones and preserves an edit on a shared-ve
       await browserExpect(page.getByRole("button", { name: `Editar ${name}`, exact: true })).toBeVisible();
       await browserExpect(panel.getByLabel("Nombre de la zona", { exact: true })).toHaveCount(0);
     }
-    const quote = await page.request.post("/api/quotations", { data: { destination: { country: "PE", districtCode: "150122" } } });
-    expect(quote.status()).toBe(201);
-    expect((await quote.json()).rates.map((rate: { price: { amount: number } }) => rate.price.amount)).toEqual([8, 12]);
+    const variantId = await withTenantIsolation(companyId, async () => {
+      const created = await products.create({ name: "Coverage product", currency: "PEN", variants: [{ attributes: {}, salePrice: 10, initialStock: 3 }] });
+      if (!created.success) throw new Error(created.error.message);
+      return (await prisma.productVariant.findFirstOrThrow({ where: { productId: created.data } })).id;
+    });
+    const orderId = crypto.randomUUID();
+    expect((await page.request.post("/api/orders", { data: { id: orderId, contactId: null, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
+    const enabled = await page.request.post(`/api/orders/${orderId}/checkout-link`);
+    expect(enabled.ok()).toBe(true);
+    const buyerPage = await buyer.newPage();
+    await buyerPage.goto((await enabled.json()).url);
+    await buyerPage.getByLabel("Departamento", { exact: true }).selectOption("15");
+    await buyerPage.getByLabel("Provincia", { exact: true }).selectOption("1501");
+    await buyerPage.getByLabel("Distrito", { exact: true }).selectOption("150122");
+    const buyerRates = buyerPage.getByLabel("Tarifa de envío");
+    await browserExpect(buyerRates.locator("option")).toHaveCount(3);
+    await browserExpect(buyerRates).toContainText(/8[.,]00/);
+    await browserExpect(buyerRates).toContainText(/12[.,]00/);
     await page.getByRole("button", { name: "Desactivar Cercana", exact: true }).click();
     await browserExpect(page.getByRole("button", { name: "Reactivar Cercana", exact: true })).toBeVisible();
-    const remaining = await page.request.post("/api/quotations", { data: { destination: { country: "PE", districtCode: "150122" } } });
-    expect((await remaining.json()).rates.map((rate: { price: { amount: number } }) => rate.price.amount)).toEqual([12]);
+    await buyerPage.getByLabel("Distrito", { exact: true }).selectOption("");
+    await buyerPage.getByLabel("Distrito", { exact: true }).selectOption("150122");
+    await browserExpect(buyerRates.locator("option")).toHaveCount(2);
+    await browserExpect(buyerRates).toContainText(/12[.,]00/);
+    await browserExpect(buyerRates).not.toContainText(/8[.,]00/);
     const current = await (await page.request.get("/api/delivery-settings")).json();
     const concurrent = await page.request.put("/api/delivery-settings", { data: {
       expectedVersion: current.version, home: current.home, agency: current.agency, store: current.store, couriers: [],
@@ -281,7 +301,10 @@ test("seller manages overlapping home zones and preserves an edit on a shared-ve
     await browserExpect(panel.getByLabel("Tarifa por pedido (S/)", { exact: true })).toHaveValue("12");
     await page.getByRole("button", { name: "Cancelar edición", exact: true }).click();
   } finally {
+    await buyer.close();
     if (companyId) await withTenantIsolation(companyId, async () => {
+      await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
+      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
       await prisma.deliveryRate.deleteMany();
       await prisma.quotation.deleteMany();
       await prisma.deliveryZoneDistrict.deleteMany();
