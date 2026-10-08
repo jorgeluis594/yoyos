@@ -110,6 +110,23 @@ test("delivery API validates the complete authored snapshot and updated aggregat
     cancelled: false, delivery, payments: [], itemsTotal: total, deliveryCost: { amount: 3, currency: "PEN" }, deliveryCharge: zero,
     items: [{ id: id(3), variantId: id(4), productName: "Item", variantAttributes: {}, sku: null, quantity: 1, unitPrice: total, subtotal: total }] };
   expect(await createOrderApi(async () => ok(order)).setDelivery(id(1), input)).toMatchObject({ success: true, data: { delivery, total } });
+  const ratedPickup = { delivery: input.delivery, expectedPrice: zero };
+  expect(await createOrderApi(async () => ok(order)).setDelivery(id(1), ratedPickup)).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+  expect(await createOrderApi(async () => ok({ ...order, delivery: { ...delivery, settingsVersion: 2 } })).setDelivery(id(1), ratedPickup))
+    .toMatchObject({ success: true });
+  const ratedHome = { delivery: { method: "home" as const, recipient: delivery.recipient, rateId: id(5),
+    destination: { districtCode: "150122", address: "Street", instructions: null } }, expectedPrice: { amount: 8, currency: "PEN" as const } };
+  const homeSnapshot = { method: "home", recipient: delivery.recipient, recordedBy: delivery.recordedBy,
+    pricing: { rateId: id(5), quotationId: id(6), zoneId: id(7), settingsVersion: 2 },
+    destination: { country: "PE", districtCode: "150122", district: "MIRAFLORES", province: "LIMA METROPOLITANA", department: "LIMA", address: "Street", instructions: null } };
+  const homeOrder = { ...order, delivery: homeSnapshot, deliveryCost: ratedHome.expectedPrice, deliveryCharge: ratedHome.expectedPrice,
+    total: { amount: 18, currency: "PEN" }, balanceDue: { amount: 18, currency: "PEN" } };
+  expect(await createOrderApi(async () => ok(homeOrder)).setDelivery(id(1), ratedHome)).toMatchObject({ success: true });
+  for (const wrong of [{ ...homeSnapshot, pricing: { ...homeSnapshot.pricing, rateId: id(8) } },
+    { ...homeSnapshot, destination: { ...homeSnapshot.destination, districtCode: "040110" } }]) {
+    expect(await createOrderApi(async () => ok({ ...homeOrder, delivery: wrong })).setDelivery(id(1), ratedHome))
+      .toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+  }
   for (const operation of ["ship", "deliver"] as const) {
     const fulfilled = { ...order, paymentStatus: "paid", paidAmount: total, balanceDue: zero, stockDeducted: true,
       deliveryStatus: operation === "ship" ? "shipped" : "delivered",
@@ -153,4 +170,26 @@ test.each(["ship", "deliver"] as const)("%s validates IDs, sends no payment data
     const wrongStatus = createOrderApi(async () => err({ code: "API_ERROR", message: "Failed", http: { status: 422, body: { code, error: "Rejected" } } }));
     expect(await wrongStatus[operation](id(1))).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
   }
+});
+
+test("rated assignment sends the rate and reviewed price and preserves typed price conflicts", async () => {
+  const input = { delivery: { method: "home", rateId: id(5), recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
+    destination: { districtCode: "150122", address: "Street", instructions: null } }, expectedPrice: { amount: 8, currency: "PEN" } } as const;
+  const calls: [string, RequestInit | undefined][] = [];
+  const currentPrice = { amount: 10, currency: "PEN" };
+  const api = createOrderApi(async (path, init) => { calls.push([path, init]); return err({ code: "API_ERROR", message: "API error",
+    http: { status: 409, body: { code: "TOTAL_CHANGED", error: "Review price", currentPrice } } }); });
+  expect(await api.setDelivery(id(1), input)).toEqual(err({ code: "TOTAL_CHANGED", message: "Review price", currentPrice }));
+  expect(calls[0][0]).toBe(`/api/orders/${id(1)}/delivery`);
+  expect(JSON.parse(String(calls[0][1]?.body))).toEqual(input);
+  const wrong = createOrderApi(async () => err({ code: "API_ERROR", message: "Error", http: { status: 422,
+    body: { code: "TOTAL_CHANGED", error: "Review price", currentPrice } } }));
+  expect(await wrong.setDelivery(id(1), input)).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+  expect(await api.get(id(1))).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+  const incomplete = createOrderApi(async () => err({ code: "API_ERROR", message: "Error", http: { status: 409,
+    body: { code: "TOTAL_CHANGED", error: "Review price" } } }));
+  expect(await incomplete.setDelivery(id(1), input)).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+  const creation = { id: id(1), contactId: null, items: [{ variantId: id(2), quantity: 1 }], delivery: input };
+  expect(await api.create(creation)).toMatchObject({ success: false, error: { code: "TOTAL_CHANGED", currentPrice } });
+  expect(JSON.parse(String(calls[2][1]?.body))).toEqual(creation);
 });

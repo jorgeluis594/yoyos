@@ -2,13 +2,15 @@ import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import express, { type Request, type Response } from "express";
 import { z } from "zod";
-import { createOrderSchema, setOrderDeliverySchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
-import { parseDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
+import { createOrderSchema, createRatedOrderSchema, setRatedOrderDeliverySchema, orderApiErrorSchema, setOrderDeliverySchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
+import { parseRatedDeliverySelection, parseDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { apiError, type PrivateLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { orders, createConfiguredOrder } from "@core/src/features/orders/composition";
 import { toLegacyOrderJson, toOrderAggregateJson, toOrderAggregateListJson, toOrderListJson } from "@core/src/features/orders/presentation/order-json";
 import type { CreateOrderInput, OrderAccess } from "@core/src/features/orders/application/create-order";
 import type { ContactId, CompanyId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
+import type { Money } from "@shared/money";
+import type { InitialOrderDeliveryInput } from "@core/src/features/orders/application/set-delivery";
 import type { RegisterPaymentInput } from "@core/src/features/orders/application/register-payment";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
@@ -55,7 +57,7 @@ function queryFrom(request: Request, response: Response): Record<string, string>
   return query;
 }
 
-function operationError(response: Response, error: { code: string; variantId?: string; item?: number }) {
+function operationError(response: Response, error: { code: string; variantId?: string; item?: number; currentPrice?: Money }) {
   const issues = error.variantId || error.item !== undefined ? [{ field: "items", reason: error.code,
     ...(error.variantId ? { variantId: error.variantId } : {}), ...(error.item !== undefined ? { index: error.item } : {}) }] : undefined;
   switch (error.code) {
@@ -78,6 +80,12 @@ function operationError(response: Response, error: { code: string; variantId?: s
     case "DELIVERY_UNAVAILABLE": return apiError(response, 422, "DELIVERY_UNAVAILABLE", "Delivery is unavailable");
     case "DELIVERY_METHOD_DISABLED": return apiError(response, 422, "DELIVERY_METHOD_DISABLED", "Delivery method is disabled");
     case "COURIER_UNAVAILABLE": return apiError(response, 422, "COURIER_UNAVAILABLE", "Courier is unavailable");
+    case "RATE_UNAVAILABLE": return apiError(response, 422, "RATE_UNAVAILABLE", "Selected delivery rate is unavailable");
+    case "INVALID_DISTRICT": return apiError(response, 422, "INVALID_DISTRICT", "Select a valid district");
+    case "INVALID_DELIVERY_RATE": return apiError(response, 422, "INVALID_DELIVERY_RATE", "Invalid delivery rate");
+    case "TOTAL_CHANGED": return response.status(409).json(orderApiErrorSchema.parse({ code: "TOTAL_CHANGED", error: "Review delivery price", currentPrice: error.currentPrice }));
+    case "SERVICE_UNAVAILABLE": return apiError(response, 503, "SERVICE_UNAVAILABLE", "Service unavailable");
+    case "INTERNAL_ERROR": return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
     case "INVALID_STORED_DATA": return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
     case "PERSISTENCE_UNAVAILABLE": return apiError(response, 503, "SERVICE_UNAVAILABLE", "Service unavailable");
     default:
@@ -213,12 +221,18 @@ orderRoutes.post("/:id/payments", async (request, response: Response<unknown, Pr
 orderRoutes.put("/:id/delivery", async (request, response: Response<unknown, PrivateLocals>) => {
   if (!request.is("application/json")) return apiError(response, 415, "UNSUPPORTED_MEDIA_TYPE", "JSON body required");
   const parsedId = orderId(request.params.id);
-  const parsed = setOrderDeliverySchema.safeParse(request.body);
+  const parsed = z.union([setRatedOrderDeliverySchema, setOrderDeliverySchema]).safeParse(request.body);
   if (!parsedId.success || !parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid delivery input");
-  const selection = parseDeliverySelection(parsed.data.delivery);
-  if (!selection.success) return operationError(response, selection.error);
   const context = orderContext(response);
   try {
+    if ("expectedPrice" in parsed.data) {
+      const selection = parseRatedDeliverySelection(parsed.data.delivery);
+      if (!selection.success) return operationError(response, selection.error);
+      const result = await orders.setDelivery({ orderId: parsedId.data as OrderId, delivery: selection.data, expectedPrice: parsed.data.expectedPrice }, context);
+      return result.success ? response.json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
+    }
+    const selection = parseDeliverySelection(parsed.data.delivery);
+    if (!selection.success) return operationError(response, selection.error);
     const result = await orders.setDelivery({ orderId: parsedId.data as OrderId, delivery: selection.data,
       chargeDeliveryToCustomer: parsed.data.chargeDeliveryToCustomer }, context);
     return result.success ? response.json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
@@ -250,7 +264,7 @@ for (const [path, operation] of [
 
 orderRoutes.post("/", async (request, response: Response<unknown, PrivateLocals>) => {
   if (!request.is("application/json")) return apiError(response, 415, "UNSUPPORTED_MEDIA_TYPE", "JSON body required");
-  const parsed = createOrderSchema.safeParse(request.body);
+  const parsed = z.union([createRatedOrderSchema, createOrderSchema]).safeParse(request.body);
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order input");
   try {
     const input = toCreateOrderInput(parsed.data);
@@ -259,12 +273,21 @@ orderRoutes.post("/", async (request, response: Response<unknown, PrivateLocals>
       const result = await orders.registerImmediateSale(input, context);
       return result.success ? response.status(201).json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
     }
-    const selection = parsed.data.delivery ? parseDeliverySelection(parsed.data.delivery.delivery) : null;
-    if (selection && !selection.success) return operationError(response, selection.error);
+    let delivery: InitialOrderDeliveryInput | undefined;
+    if (parsed.data.delivery) {
+      const change = parsed.data.delivery;
+      if ("expectedPrice" in change) {
+        const selection = parseRatedDeliverySelection(change.delivery);
+        if (!selection.success) return operationError(response, selection.error);
+        delivery = { delivery: selection.data, expectedPrice: change.expectedPrice };
+      } else {
+        const selection = parseDeliverySelection(change.delivery);
+        if (!selection.success) return operationError(response, selection.error);
+        delivery = { delivery: selection.data, chargeDeliveryToCustomer: change.chargeDeliveryToCustomer };
+      }
+    }
     const result = await createConfiguredOrder({ ...input,
-      payments: parsed.data.payments?.map(payment => ({ ...payment, paymentId: payment.paymentId as PaymentId })),
-      delivery: selection?.success && parsed.data.delivery ? { delivery: selection.data,
-        chargeDeliveryToCustomer: parsed.data.delivery.chargeDeliveryToCustomer } : undefined,
+      payments: parsed.data.payments?.map(payment => ({ ...payment, paymentId: payment.paymentId as PaymentId })), delivery,
       deliverImmediately: parsed.data.deliverImmediately }, context);
     return result.success ? response.status(201).json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }

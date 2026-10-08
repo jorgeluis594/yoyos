@@ -582,3 +582,66 @@ test("aggregate reads preserve rated and historical delivery snapshots without c
   }
   await withTenantIsolation(seller.companyId, async () => expect(await prisma.companyDeliverySettings.count()).toBe(0));
 });
+
+test("rated delivery HTTP assigns the selected option, reports price conflicts and isolates rate ownership", async () => {
+  const seller = await fixture("PE");
+  const foreign = await fixture("PE");
+  const recipient = { name: "Ana", phone: "999", identity: { kind: "document", documentType: "national_id", document: "12345678" } };
+  const destination = { country: "PE", districtCode: "150122", address: null, instructions: null };
+  async function configure(owner: typeof seller, amounts: number[]) {
+    expect((await call("/api/delivery-settings/zones", owner.cookie, { method: "home", expectedVersion: 0,
+      zones: amounts.map(amount => ({ kind: "new", name: "Zone", enabled: true, districtCodes: ["150122"], price: { amount, currency: "PEN" } })) }, "PUT")).status).toBe(200);
+    expect((await call("/api/delivery-settings", owner.cookie, { expectedVersion: 1, home: { enabled: true }, agency: { enabled: true },
+      couriers: [{ kind: "new", name: "Courier", enabled: true }], store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } }, "PUT")).status).toBe(200);
+  }
+  await configure(seller, [0, 8]);
+  await configure(foreign, [10]);
+  expect((await call("/api/delivery-settings/zones", seller.cookie, { method: "agency", expectedVersion: 2,
+    zones: [{ kind: "new", name: "Agency", enabled: true, districtCodes: ["150122"], price: { amount: 5, currency: "PEN" } }] }, "PUT")).status).toBe(200);
+  const quoteResponse = await call("/api/quotations", seller.cookie, { destination });
+  expect(quoteResponse.status).toBe(201);
+  const quote = quotationResponseSchema.parse(await quoteResponse.json());
+  const foreignQuote = quotationResponseSchema.parse(await (await call("/api/quotations", foreign.cookie, { destination })).json());
+  const home = quote.rates.find(rate => rate.method === "home" && rate.price.amount === 8)!;
+  const free = quote.rates.find(rate => rate.method === "home" && rate.price.amount === 0)!;
+  const agency = quote.rates.find(rate => rate.method === "agency")!;
+  const orderId = randomUUID();
+  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, contactId: null, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
+  const path = `/api/orders/${orderId}/delivery`;
+  const input = { delivery: { method: "home", rateId: home.id, recipient, destination: { districtCode: "150122", address: "Final street", instructions: null } }, expectedPrice: home.price };
+  const saved = await call(path, seller.cookie, input, "PUT");
+  expect(saved.status).toBe(200);
+  const before = orderAggregateSchema.parse(await saved.json());
+  expect(before).toMatchObject({ deliveryCost: home.price, deliveryCharge: home.price, total: { amount: 18 },
+    delivery: { destination: { district: "MIRAFLORES", province: "LIMA METROPOLITANA", address: "Final street" },
+      pricing: { rateId: home.id, quotationId: quote.id, settingsVersion: 3 }, recordedBy: { kind: "seller", userId: seller.userId } } });
+  const otherRate = await call(path, seller.cookie, { ...input, delivery: { ...input.delivery, rateId: foreignQuote.rates[0].id } }, "PUT");
+  expect(otherRate.status).toBe(422);
+  expect(await otherRate.json()).toMatchObject({ code: "RATE_UNAVAILABLE" });
+  expect((await call(path, foreign.cookie, input, "PUT")).status).toBe(404);
+  for (const body of [{ ...input, chargeDeliveryToCustomer: false }, { ...input, price: home.price },
+    { ...input, delivery: { ...input.delivery, quotationId: quote.id } }, { ...input, delivery: { ...input.delivery, rateId: undefined } }]) {
+    expect((await call(path, seller.cookie, body, "PUT")).status).toBe(400);
+  }
+  const invalidDistrict = await call(path, seller.cookie, { ...input, delivery: { ...input.delivery, destination: { ...input.delivery.destination, districtCode: "999999" } } }, "PUT");
+  expect(invalidDistrict.status).toBe(422);
+  expect(await invalidDistrict.json()).toMatchObject({ code: "INVALID_DISTRICT" });
+  const reviewedPrice = await call(path, seller.cookie, { ...input, expectedPrice: { amount: 7, currency: "PEN" } }, "PUT");
+  expect(reviewedPrice.status).toBe(409);
+  expect(await reviewedPrice.json()).toEqual({ code: "TOTAL_CHANGED", error: "Review delivery price", currentPrice: home.price });
+  expect(orderAggregateSchema.parse(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json())).toEqual(before);
+  const store = await call(path, seller.cookie, { delivery: { method: "store", recipient }, expectedPrice: { amount: 0, currency: "PEN" } }, "PUT");
+  expect(store.status).toBe(200);
+  expect(await store.json()).toMatchObject({ total: { amount: 10 }, deliveryCost: { amount: 0 }, deliveryCharge: { amount: 0 },
+    delivery: { method: "store", settingsVersion: 3, pickupPoint: { name: "Shop" } } });
+  const agencySaved = await call(path, seller.cookie, { delivery: { method: "agency", recipient, rateId: agency.id, districtCode: "150122" }, expectedPrice: agency.price }, "PUT");
+  expect(agencySaved.status).toBe(200);
+  expect(await agencySaved.json()).toMatchObject({ total: { amount: 15 }, delivery: { method: "agency", courier: null, agency: null, pricing: { rateId: agency.id } } });
+  const initialId = randomUUID();
+  const created = await call("/api/orders", seller.cookie, { id: initialId, contactId: null, items: [{ variantId: seller.variantId, quantity: 1 }],
+    delivery: { ...input, delivery: { ...input.delivery, rateId: free.id }, expectedPrice: free.price },
+    payments: [{ paymentId: randomUUID(), amount: { amount: 10, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }] });
+  expect(created.status).toBe(201);
+  expect(await created.json()).toMatchObject({ stockDeducted: true, total: { amount: 10 }, delivery: { pricing: { rateId: free.id } } });
+  await withTenantIsolation(seller.companyId, async () => expect((await prisma.productStock.findUnique({ where: { variantId: seller.variantId } }))?.quantity).toBe(2n));
+});

@@ -93,3 +93,23 @@ test("rated snapshots require complete pricing and geographic references while h
   }
   expect(parseDeliverySnapshot({ ...home, destination: { ...home.destination, districtCode: "999999" } }).success).toBe(false);
 });
+
+test("rated requests require a rate for shipping, reject manual charge decisions and forbid rates for pickup", async () => {
+  const { setRatedOrderDeliverySchema } = await import("@shared/contracts/orders");
+  const recipient = { name: "Ana", phone: "999", identity: { kind: "absent" } };
+  const id = "00000000-0000-4000-8000-000000000001";
+  const home = { delivery: { method: "home", rateId: id, recipient, destination: { districtCode: "150122", address: "Street", instructions: null } }, expectedPrice: { amount: 8, currency: "PEN" } };
+  expect(setRatedOrderDeliverySchema.safeParse(home).success).toBe(true);
+  expect(setRatedOrderDeliverySchema.safeParse({ delivery: { method: "store", recipient }, expectedPrice: { amount: 0, currency: "PEN" } }).success).toBe(true);
+  for (const value of [{ ...home, chargeDeliveryToCustomer: false }, { ...home, price: home.expectedPrice }, { ...home, expectedPrice: undefined },
+    { ...home, delivery: { ...home.delivery, rateId: undefined } }, { ...home, delivery: { method: "store", recipient, rateId: id } }]) {
+    expect(setRatedOrderDeliverySchema.safeParse(value).success).toBe(false);
+  }
+});
+
+
+test("price conflict metadata validates a nonnegative current price, including explicit zero", () => {
+  const base = { code: "TOTAL_CHANGED", error: "Review" };
+  for (const amount of [-1, 8.001, Infinity]) expect(orderApiErrorSchema.safeParse({ ...base, currentPrice: { amount, currency: "PEN" } }).success).toBe(false);
+  expect(orderApiErrorSchema.safeParse({ ...base, currentPrice: { amount: 0, currency: "PEN" } }).success).toBe(true);
+});

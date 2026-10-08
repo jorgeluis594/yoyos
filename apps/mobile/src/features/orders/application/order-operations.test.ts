@@ -85,6 +85,7 @@ test.each([
   ["INVALID_PAYMENT", 422], ["PAYMENT_CONFLICT", 409], ["PAYMENT_REQUIRED", 409],
   ["INVALID_TRANSITION", 409], ["STOCK_NOT_DEDUCTED", 409],
   ["DELIVERY_UNAVAILABLE", 422], ["DELIVERY_METHOD_DISABLED", 422], ["COURIER_UNAVAILABLE", 422],
+  ["RATE_UNAVAILABLE", 422], ["TOTAL_CHANGED", 409], ["INVALID_DISTRICT", 422], ["INVALID_DELIVERY_RATE", 422],
 ] as const)("recovery clears a definitively rejected creation (%s)", async (code, status) => {
   const store = storage();
   let posts = 0;
@@ -93,7 +94,7 @@ test.each([
     if (path === "/api/orders") {
       posts++;
       return rejectCreation
-        ? err({ code: "API_ERROR", message: "Rejected", http: { status, body: { code, error: "Rejected" } } })
+        ? err({ code: "API_ERROR", message: "Rejected", http: { status, body: { code, error: "Rejected", ...(code === "TOTAL_CHANGED" ? { currentPrice: { amount: 8, currency: "PEN" } } : {}) } } })
         : err({ code: "NETWORK_ERROR", message: "Lost response" });
     }
     return err({ code: "API_ERROR", message: "Missing", http: { status: 404,

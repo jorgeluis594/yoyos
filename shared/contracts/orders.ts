@@ -37,6 +37,16 @@ export const deliverySelectionSchema = z.discriminatedUnion("method", [
   z.strictObject({ method: z.literal("agency"), recipient: agencyRecipientSchema, courierId: z.uuid(), agency: z.string().trim().min(1).max(500) }),
   z.strictObject({ method: z.literal("store"), recipient: recipientSchema }),
 ]);
+export const ratedDeliverySelectionSchema = z.discriminatedUnion("method", [
+  z.strictObject({ method: z.literal("home"), recipient: recipientSchema, rateId: z.uuid(), destination: z.strictObject({
+    districtCode: z.string().regex(/^\d{6}$/), address: z.string().trim().min(1).max(500), instructions: z.string().trim().max(1000).nullable(),
+  }) }),
+  z.strictObject({ method: z.literal("agency"), recipient: agencyRecipientSchema, rateId: z.uuid(), districtCode: z.string().regex(/^\d{6}$/) }),
+  z.strictObject({ method: z.literal("store"), recipient: recipientSchema }),
+]);
+export const setRatedOrderDeliverySchema = z.strictObject({ delivery: ratedDeliverySelectionSchema, expectedPrice: moneySchema });
+export type RatedDeliverySelectionRequest = z.infer<typeof ratedDeliverySelectionSchema>;
+export type SetRatedOrderDeliveryRequest = z.infer<typeof setRatedOrderDeliverySchema>;
 export type DeliverySelectionRequest = z.infer<typeof deliverySelectionSchema>;
 export const setOrderDeliverySchema = z.strictObject({ delivery: deliverySelectionSchema, chargeDeliveryToCustomer: z.boolean() });
 export type SetOrderDeliveryRequest = z.infer<typeof setOrderDeliverySchema>;
@@ -47,6 +57,8 @@ export const completeOrderSchema = orderSelectionSchema.extend({
   delivery: setOrderDeliverySchema.optional(),
   deliverImmediately: z.boolean().optional(),
 });
+export const createRatedOrderSchema = completeOrderSchema.extend({ delivery: setRatedOrderDeliverySchema });
+export type CreateRatedOrderRequest = z.infer<typeof createRatedOrderSchema>;
 export type CompleteOrderRequest = z.infer<typeof completeOrderSchema>;
 export const createOrderSchema = z.union([
   completeOrderSchema,
@@ -166,10 +178,11 @@ export const orderApiErrorSchema = z.strictObject({
     "INSUFFICIENT_STOCK", "ORDER_ALREADY_EXISTS", "ORDER_NOT_FOUND", "SERVICE_UNAVAILABLE",
     "INVALID_PAYMENT", "PAYMENT_CONFLICT", "PAYMENT_NOT_FOUND", "RECEIPT_NOT_FOUND", "INVALID_TRANSITION", "DELIVERY_LOCKED", "PAYMENT_REQUIRED",
     "STOCK_NOT_DEDUCTED", "ORDER_CANCELLED", "DELIVERY_UNAVAILABLE",
-    "DELIVERY_METHOD_DISABLED", "COURIER_UNAVAILABLE", "INTERNAL_ERROR",
+    "DELIVERY_METHOD_DISABLED", "COURIER_UNAVAILABLE", "INTERNAL_ERROR", "RATE_UNAVAILABLE", "TOTAL_CHANGED", "INVALID_DISTRICT", "INVALID_DELIVERY_RATE",
   ]),
   error: z.string(),
   issues: z.array(orderApiIssueSchema).optional(),
+  currentPrice: moneySchema.extend({ amount: z.number().finite().nonnegative().max(9999999999999.99).multipleOf(0.01) }).optional(),
 });
 export type OrderApiError = z.infer<typeof orderApiErrorSchema>;
 export const orderActionErrorSchema = z.strictObject({ code: z.string(), error: z.string() });

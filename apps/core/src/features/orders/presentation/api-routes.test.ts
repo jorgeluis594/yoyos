@@ -120,3 +120,20 @@ test("mixed order API validates and forwards search and work filters", async () 
   expect(list).toHaveBeenCalledWith(expect.objectContaining({ search: "#1005", view: "unpaid" }),
     expect.objectContaining({ companyId }));
 });
+
+test("rated assignment errors preserve public price metadata and distinguish storage failures", async () => {
+  const id = "00000000-0000-4000-8000-000000000003";
+  const input = { delivery: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } },
+    expectedPrice: { amount: 0, currency: "PEN" } };
+  const set = vi.spyOn(orders, "setDelivery");
+  for (const [error, status] of [[{ code: "TOTAL_CHANGED", currentPrice: { amount: 8, currency: "PEN" }, message: "private price" }, 409],
+    [{ code: "RATE_UNAVAILABLE", message: "private tenant detail" }, 422], [{ code: "SERVICE_UNAVAILABLE", message: "private SQL detail" }, 503],
+    [{ code: "INTERNAL_ERROR", message: "private stored data" }, 500], [{ code: "INVALID_DISTRICT", message: "private district" }, 422]] as const) {
+    set.mockResolvedValueOnce({ success: false, error });
+    const response = await request(`/${id}/delivery`, "PE", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
+    expect(response.status).toBe(status);
+    expect(response.body.code).toBe(error.code);
+    expect(JSON.stringify(response.body)).not.toContain("private");
+    if (error.code === "TOTAL_CHANGED") expect(response.body.currentPrice).toEqual(error.currentPrice);
+  }
+});
