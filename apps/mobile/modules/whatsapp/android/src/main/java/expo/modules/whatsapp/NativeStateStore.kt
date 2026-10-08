@@ -346,6 +346,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
       if (service.get("receiveRequested") !is Boolean || (service.opt("accountId") != JSONObject.NULL && !ACCOUNT.matches(service.getString("accountId")))) throw StateFailure("SESSION_STATE_INVALID")
     } else if (state.get("androidService") != JSONObject.NULL) throw StateFailure("SESSION_STATE_INVALID")
     val session = state.optJSONObject("session")
+    val sessionSize = session?.toString()?.toByteArray(Charsets.UTF_8)?.size ?: 0
     if (session != null) {
       exact(session, "accountId", "sessionKeyId", "sessionRevision", "nonceBase64", "ciphertextBase64")
       strings(session, "accountId", "sessionKeyId", "sessionRevision", "nonceBase64", "ciphertextBase64")
@@ -353,20 +354,25 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
       if (session.get("sessionRevision") !is String) throw StateFailure("SESSION_STATE_INVALID")
       val sessionRevision = parseRevision(session.getString("sessionRevision"))
       if (!ACCOUNT.matches(session.getString("accountId")) || !ID.matches(id) || id == recoveryId || sessionRevision > atRevision) throw StateFailure("SESSION_STATE_INVALID")
-      val nonce = decode(session.getString("nonceBase64"), 12)
-      val ciphertext = decode(session.getString("ciphertextBase64"), SESSION_LIMIT)
-      if (nonce.size != 12 || ciphertext.size < 16) throw StateFailure("SESSION_STATE_INVALID")
-      try {
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, getKey(id), GCMParameterSpec(128, nonce))
-        cipher.updateAAD(sessionAad(storeId, session.getString("accountId"), id, sessionRevision.toString()))
-        val protocol = parseObject(cipher.doFinal(ciphertext))
-        exact(protocol, "protocolSchemaVersion", "records")
-        if (protocol.get("protocolSchemaVersion") !is Number || protocol.get("protocolSchemaVersion").toString() != "1" || protocol.get("records") !is JSONArray) throw StateFailure("SESSION_STATE_INVALID")
-        sessionUsable = true
-      } catch (e: Exception) {
+      if (sessionSize > SESSION_LIMIT) {
+        if (!allowSessionFailure) throw StateFailure("SESSION_STORAGE_LIMIT_REACHED")
         sessionUsable = false
-        if (!allowSessionFailure) throw StateFailure("SESSION_STATE_INVALID")
+      } else {
+        val nonce = decode(session.getString("nonceBase64"), 12)
+        val ciphertext = decode(session.getString("ciphertextBase64"), SESSION_LIMIT)
+        if (nonce.size != 12 || ciphertext.size < 16) throw StateFailure("SESSION_STATE_INVALID")
+        try {
+          val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+          cipher.init(Cipher.DECRYPT_MODE, getKey(id), GCMParameterSpec(128, nonce))
+          cipher.updateAAD(sessionAad(storeId, session.getString("accountId"), id, sessionRevision.toString()))
+          val protocol = parseObject(cipher.doFinal(ciphertext))
+          exact(protocol, "protocolSchemaVersion", "records")
+          if (protocol.get("protocolSchemaVersion") !is Number || protocol.get("protocolSchemaVersion").toString() != "1" || protocol.get("records") !is JSONArray) throw StateFailure("SESSION_STATE_INVALID")
+          sessionUsable = true
+        } catch (e: Exception) {
+          sessionUsable = false
+          if (!allowSessionFailure) throw StateFailure("SESSION_STATE_INVALID")
+        }
       }
     } else if (state.get("session") != JSONObject.NULL) throw StateFailure("SESSION_STATE_INVALID")
     else sessionUsable = true
@@ -412,7 +418,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
       }
     }
     val control = state.toString().toByteArray(Charsets.UTF_8).size - (session?.toString()?.toByteArray(Charsets.UTF_8)?.size ?: 4) - pending.toString().toByteArray(Charsets.UTF_8).size
-    if (control > 4096 || (session?.toString()?.toByteArray(Charsets.UTF_8)?.size ?: 0) > SESSION_LIMIT) throw StateFailure("SESSION_STATE_INVALID")
+    if (control > 4096) throw StateFailure("SESSION_STATE_INVALID")
   }
 
   private fun validateMessage(message: JSONObject, account: String) {

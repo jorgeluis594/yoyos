@@ -309,6 +309,58 @@ class StateStoreInstrumentedTest {
     assertEquals("0", currentRevision(root))
   }
 
+  @Test fun exhaustedRevisionCannotCreateAProvisionalKey() {
+    val root = freshRoot
+    val initial = makeStore(root).open()
+    val directory = directory(root)
+    val original = File(directory, "state.bin").readBytes()
+    val headerLength = java.nio.ByteBuffer.wrap(original, 8, 4).int
+    val header = org.json.JSONObject(String(original, 12, headerLength, Charsets.UTF_8))
+    val maximum = "18446744073709551615"
+    header.put("revision", maximum)
+    val namespace = root.name.removePrefix("state-test-").replace("-", "")
+    val keys = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+    val recordKey = keys.getKey("yoyos.whatsapp.test.$namespace.creation-key", null) as javax.crypto.SecretKey
+    val recordFile = File(directory, "creation.bin")
+    val recordBytes = recordFile.readBytes()
+    val opener = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+    opener.init(javax.crypto.Cipher.DECRYPT_MODE, recordKey, javax.crypto.spec.GCMParameterSpec(128, recordBytes.copyOfRange(0, 12)))
+    val record = org.json.JSONObject(String(opener.doFinal(recordBytes, 12, recordBytes.size - 12), Charsets.UTF_8))
+      .put("preparedRevision", maximum)
+    val recordSealer = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+    recordSealer.init(javax.crypto.Cipher.ENCRYPT_MODE, recordKey)
+    java.io.FileOutputStream(recordFile).use {
+      it.write(recordSealer.iv); it.write(recordSealer.doFinal(record.toString().toByteArray())); it.fd.sync()
+    }
+    val recoveryKey = keys.getKey("yoyos.whatsapp.test.$namespace.key.${header.getString("recoveryKeyId")}", null) as javax.crypto.SecretKey
+    val headerBytes = header.toString().toByteArray()
+    val plaintext = initial.toString().toByteArray()
+    val sealer = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+    sealer.init(javax.crypto.Cipher.ENCRYPT_MODE, recoveryKey)
+    val prefix = java.nio.ByteBuffer.allocate(8 + 4 + headerBytes.size + 12 + 8)
+      .put("YOYOWA01".toByteArray()).putInt(headerBytes.size).put(headerBytes).put(sealer.iv)
+      .putLong(plaintext.size.toLong() + 16).array()
+    sealer.updateAAD(prefix)
+    java.io.FileOutputStream(File(directory, "state.bin")).use {
+      it.write(prefix); it.write(sealer.doFinal(plaintext)); it.fd.sync()
+    }
+    fun aliases(): Set<String> {
+      val result = mutableSetOf<String>()
+      val values = keys.aliases()
+      while (values.hasMoreElements()) result.add(values.nextElement())
+      return result
+    }
+    val before = aliases()
+    val restored = makeStore(root)
+    assertEquals(0, restored.open().getJSONArray("pending").length())
+    val failure = assertThrows(StateFailure::class.java) {
+      restored.beginSession("123@lid", "{\"protocolSchemaVersion\":1,\"records\":[]}".toByteArray())
+    }
+    assertEquals("STATE_INVALID", failure.code)
+    assertEquals(before, aliases())
+    assertEquals(maximum, currentRevision(root))
+  }
+
   @Test fun oversizedSessionCannotPublishOrPruneState() {
     val root = freshRoot
     val store = makeStore(root)
@@ -316,6 +368,59 @@ class StateStoreInstrumentedTest {
     assertThrows(StateFailure::class.java) { store.beginSession("123@lid", ByteArray(16 * 1024 * 1024 + 1)) }
     assertEquals("0", currentRevision(root))
     assertEquals(org.json.JSONObject.NULL, makeStore(root).open().get("session"))
+    fun session(ciphertextSize: Int) = org.json.JSONObject().put("accountId", "1@lid")
+      .put("sessionKeyId", "a".repeat(32)).put("sessionRevision", "1")
+      .put("nonceBase64", "AAAAAAAAAAAAAAAA").put("ciphertextBase64", "A".repeat(ciphertextSize))
+    val overhead = session(0).toString().toByteArray().size
+    val exactSize = 16 * 1024 * 1024 - overhead
+    assertEquals(0, exactSize % 4)
+    assertEquals(16 * 1024 * 1024, session(exactSize).toString().toByteArray().size)
+    val exactFailure = assertThrows(StateFailure::class.java) {
+      store.commit("0") { it.put("session", session(exactSize)) }
+    }
+    assertEquals("SESSION_STATE_INVALID", exactFailure.code)
+    val overFailure = assertThrows(StateFailure::class.java) {
+      store.commit("0") { it.put("session", session(exactSize + 4)) }
+    }
+    assertEquals("SESSION_STORAGE_LIMIT_REACHED", overFailure.code)
+    assertEquals("0", currentRevision(root))
+  }
+
+  @Test fun oversizedRestoredSessionStillAllowsPendingToDrain() {
+    val root = freshRoot
+    makeStore(root).open()
+    val file = File(directory(root), "state.bin")
+    val original = file.readBytes()
+    val headerLength = java.nio.ByteBuffer.wrap(original, 8, 4).int
+    val header = original.copyOfRange(12, 12 + headerLength)
+    val recoveryId = org.json.JSONObject(String(header, Charsets.UTF_8)).getString("recoveryKeyId")
+    val namespace = root.name.removePrefix("state-test-").replace("-", "")
+    val key = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+      .getKey("yoyos.whatsapp.test.$namespace.key.$recoveryId", null) as javax.crypto.SecretKey
+    val session = org.json.JSONObject().put("accountId", "123@lid").put("sessionKeyId", "a".repeat(32))
+      .put("sessionRevision", "0").put("nonceBase64", "AAAAAAAAAAAAAAAA")
+      .put("ciphertextBase64", "A".repeat(16 * 1024 * 1024))
+    val pending = org.json.JSONObject().put("deliveryId", "wa-delivery:v1:" + "c".repeat(32))
+      .put("accountId", "123@lid").put("createdRevision", "0").put("createdOrdinal", 0)
+      .put("source", "live").put("identityState", "pendingLid")
+      .put("recovery", org.json.JSONObject().put("messageInfoJson", "{}").put("items", org.json.JSONArray()))
+    val state = org.json.JSONObject().put("session", session).put("pending", org.json.JSONArray().put(pending))
+      .put("sessionKeysToDelete", org.json.JSONArray())
+      .put("options", org.json.JSONObject().put("maxRecoveryBufferBytes", 10 * 1024 * 1024).put("maxImageStorageBytes", 50 * 1024 * 1024))
+      .put("androidService", org.json.JSONObject.NULL)
+    val plaintext = state.toString().toByteArray(Charsets.UTF_8)
+    val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+    cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, key)
+    val prefix = java.nio.ByteBuffer.allocate(8 + 4 + headerLength + 12 + 8)
+      .put("YOYOWA01".toByteArray()).putInt(headerLength).put(header).put(cipher.iv)
+      .putLong(plaintext.size.toLong() + 16).array()
+    cipher.updateAAD(prefix)
+    java.io.FileOutputStream(file).use { it.write(prefix); it.write(cipher.doFinal(plaintext)); it.fd.sync() }
+    val restored = makeStore(root)
+    assertEquals(1, restored.open().getJSONArray("pending").length())
+    assertFalse(restored.canRestoreSession())
+    restored.commit("0") { it.put("pending", org.json.JSONArray()) }
+    assertEquals(0, makeStore(root).open().getJSONArray("pending").length())
   }
 
   @Test fun concurrentStoreInstancesCannotOverwriteAnOlderSnapshot() {

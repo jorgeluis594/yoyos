@@ -275,26 +275,32 @@ public final class NativeStateStore {
     }
     guard snapshot["androidService"] is NSNull else { throw StateStoreError.invalid }
     let sessionData = try Self.json(snapshot["session"] ?? NSNull())
-    guard sessionData.count <= Self.maxSession else { throw StateStoreError.sessionLimit }
+    let oversizedSession = sessionData.count > Self.maxSession
+    if oversizedSession && !allowSessionFailure { throw StateStoreError.sessionLimit }
     if let session = snapshot["session"] as? [String: Any] {
       try Self.exact(session, ["accountId", "sessionKeyId", "sessionRevision", "nonceBase64", "ciphertextBase64"])
       guard let account = session["accountId"] as? String, Self.validAccount(account),
             let id = session["sessionKeyId"] as? String, Self.validId(id), id != recoveryId,
             let number = session["sessionRevision"] as? String, let sessionRevision = Self.parseRevision(number), sessionRevision <= revision,
-            let nonceText = session["nonceBase64"] as? String, let nonceData = Self.decode(nonceText, max: 12), nonceData.count == 12,
-            let ciphertextText = session["ciphertextBase64"] as? String,
-            let ciphertext = Self.decode(ciphertextText, max: Self.maxSession), ciphertext.count >= 16 else { throw StateStoreError.invalid }
-      do {
-        let nonce = try AES.GCM.Nonce(data: nonceData)
-        let box = try AES.GCM.SealedBox(nonce: nonce, ciphertext: ciphertext.dropLast(16), tag: ciphertext.suffix(16))
-        let plain = try AES.GCM.open(box, using: try keychain.key(id), authenticating: Self.sessionAAD(storeId, account, id, number))
-        let protocolState = try Self.parseObject(plain)
-        try Self.exact(protocolState, ["protocolSchemaVersion", "records"])
-        guard Self.safeInt(protocolState["protocolSchemaVersion"]) == 1, protocolState["records"] is [Any] else { throw StateStoreError.invalid }
-        sessionUsable = true
-      } catch {
+            session["nonceBase64"] is String, session["ciphertextBase64"] is String else { throw StateStoreError.invalid }
+      if oversizedSession {
         sessionUsable = false
-        if !allowSessionFailure { throw StateStoreError.invalid }
+      } else {
+        guard let nonceText = session["nonceBase64"] as? String, let nonceData = Self.decode(nonceText, max: 12), nonceData.count == 12,
+              let ciphertextText = session["ciphertextBase64"] as? String,
+              let ciphertext = Self.decode(ciphertextText, max: Self.maxSession), ciphertext.count >= 16 else { throw StateStoreError.invalid }
+        do {
+          let nonce = try AES.GCM.Nonce(data: nonceData)
+          let box = try AES.GCM.SealedBox(nonce: nonce, ciphertext: ciphertext.dropLast(16), tag: ciphertext.suffix(16))
+          let plain = try AES.GCM.open(box, using: try keychain.key(id), authenticating: Self.sessionAAD(storeId, account, id, number))
+          let protocolState = try Self.parseObject(plain)
+          try Self.exact(protocolState, ["protocolSchemaVersion", "records"])
+          guard Self.safeInt(protocolState["protocolSchemaVersion"]) == 1, protocolState["records"] is [Any] else { throw StateStoreError.invalid }
+          sessionUsable = true
+        } catch {
+          sessionUsable = false
+          if !allowSessionFailure { throw StateStoreError.invalid }
+        }
       }
     } else if !(snapshot["session"] is NSNull) { throw StateStoreError.invalid }
     else { sessionUsable = true }
