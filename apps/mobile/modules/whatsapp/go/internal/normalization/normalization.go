@@ -22,6 +22,7 @@ import (
 
 var ErrInvalidTimestamp = errors.New("invalid WhatsApp timestamp")
 var ErrInvalidIdentity = errors.New("invalid WhatsApp identity")
+var ErrRawEditInspectionExhausted = errors.New("WhatsApp raw edit inspection exhausted")
 
 // VerifiedLIDs contains only protocol/store-verified PN-to-LID correspondences.
 type VerifiedLIDs map[types.JID]types.JID
@@ -77,7 +78,14 @@ func Normalize(evt *events.Message, own, ownAlt types.JID, mappings VerifiedLIDs
 		return Result{}, nil
 	}
 	msg := evt.Message
-	if msg.GetProtocolMessage() != nil || evt.RawMessage.GetProtocolMessage() != nil || rawEdit(evt.RawMessage) || msg.GetReactionMessage() != nil || msg.GetEncReactionMessage() != nil || msg.GetEditedMessage() != nil || msg.GetViewOnceMessage() != nil || msg.GetViewOnceMessageV2() != nil || msg.GetViewOnceMessageV2Extension() != nil {
+	if msg.GetProtocolMessage() != nil || evt.RawMessage.GetProtocolMessage() != nil {
+		return Result{}, nil
+	}
+	edit, err := rawEdit(evt.RawMessage)
+	if err != nil {
+		return Result{}, err
+	}
+	if edit || msg.GetReactionMessage() != nil || msg.GetEncReactionMessage() != nil || msg.GetEditedMessage() != nil || msg.GetViewOnceMessage() != nil || msg.GetViewOnceMessageV2() != nil || msg.GetViewOnceMessageV2Extension() != nil {
 		return Result{}, nil
 	}
 	contentFields := 0
@@ -177,13 +185,14 @@ func Normalize(evt *events.Message, own, ownAlt types.JID, mappings VerifiedLIDs
 }
 
 // ParseWebMessage replaces an unwrapped edit protocol message with its content.
-func rawEdit(raw *waE2E.Message) bool {
+func rawEdit(raw *waE2E.Message) (bool, error) {
+	// ponytail: Eight inspections bound raw wrapper checks; deeper chains need a validated parser contract.
 	for range 8 {
 		if raw == nil {
-			return false
+			return false, nil
 		}
 		if raw.GetProtocolMessage().GetType() == waE2E.ProtocolMessage_MESSAGE_EDIT {
-			return true
+			return true, nil
 		}
 		switch {
 		case raw.GetDeviceSentMessage().GetMessage() != nil:
@@ -193,10 +202,10 @@ func rawEdit(raw *waE2E.Message) bool {
 		case raw.GetEphemeralMessage().GetMessage() != nil:
 			raw = raw.GetEphemeralMessage().GetMessage()
 		default:
-			return false
+			return false, nil
 		}
 	}
-	return true // A deeper wrapper chain cannot be classified safely.
+	return false, ErrRawEditInspectionExhausted
 }
 
 func canonicalLID(jid, alternate types.JID, mappings VerifiedLIDs) (string, error) {

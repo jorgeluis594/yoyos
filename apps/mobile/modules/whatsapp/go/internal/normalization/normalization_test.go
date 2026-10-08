@@ -106,6 +106,50 @@ func TestParsedWrappedHistoricalEditExcluded(t *testing.T) {
 	}
 }
 
+func TestRawEditInspectionBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		wrappers int
+		edit     bool
+	}{{7, false}, {8, false}, {9, false}, {7, true}} {
+		t.Run(fmt.Sprintf("wrappers=%d/edit=%t", tc.wrappers, tc.edit), func(t *testing.T) {
+			leaf := &waE2E.Message{Conversation: proto.String("ordinary")}
+			if tc.edit {
+				leaf = &waE2E.Message{ProtocolMessage: &waE2E.ProtocolMessage{Type: waE2E.ProtocolMessage_MESSAGE_EDIT.Enum()}}
+			}
+			raw := leaf
+			for range tc.wrappers {
+				raw = &waE2E.Message{EphemeralMessage: &waE2E.FutureProofMessage{Message: raw}}
+			}
+			evt := fixture(&waE2E.Message{Conversation: proto.String("ordinary")}, false)
+			evt.RawMessage = raw
+			before, err := proto.Marshal(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			message := evt.Message
+			got, err := Normalize(evt, own, types.JID{}, nil)
+			after, marshalErr := proto.Marshal(raw)
+			if marshalErr != nil || !bytes.Equal(before, after) || evt.Message != message || evt.RawMessage != raw {
+				t.Fatalf("source changed: %v", marshalErr)
+			}
+			switch {
+			case tc.wrappers >= 8:
+				if !errors.Is(err, ErrRawEditInspectionExhausted) || got.Message != nil || got.Unresolved != nil {
+					t.Fatalf("exhaustion: %#v %v", got, err)
+				}
+			case tc.edit:
+				if err != nil || got.Message != nil || got.Unresolved != nil {
+					t.Fatalf("edit: %#v %v", got, err)
+				}
+			default:
+				if err != nil || got.Message == nil || got.Message.Text == nil || *got.Message.Text != "ordinary" {
+					t.Fatalf("ordinary content: %#v %v", got, err)
+				}
+			}
+		})
+	}
+}
+
 func TestImageFixtureAndDescriptor(t *testing.T) {
 	image := &waE2E.ImageMessage{Caption: proto.String(" caption "), Mimetype: proto.String("image/jpeg"), FileLength: proto.Uint64(12), DirectPath: proto.String("/mms/image/file"), MediaKey: bytes.Repeat([]byte{1}, 32), FileSHA256: bytes.Repeat([]byte{2}, 32), FileEncSHA256: bytes.Repeat([]byte{3}, 32), URL: proto.String("https://untrusted.example/image"), JPEGThumbnail: []byte{9, 8, 7}}
 	got := normalize(t, fixture(&waE2E.Message{ImageMessage: image}, false)).Message
