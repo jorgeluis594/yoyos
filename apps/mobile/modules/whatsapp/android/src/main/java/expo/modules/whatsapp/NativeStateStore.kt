@@ -497,7 +497,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
   }
 
   private fun syncDirectory() {
-    val fd = Os.open(directory.path, OsConstants.O_RDONLY or OsConstants.O_DIRECTORY, 0)
+    val fd = Os.open(directory.path, OsConstants.O_RDONLY, 0)
     try { Os.fsync(fd) } finally { Os.close(fd) }
   }
 
@@ -527,7 +527,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     private fun exact(obj: JSONObject, vararg fields: String) {
       if (obj.length() != fields.size || obj.keys().asSequence().any { it !in fields }) throw StateFailure("SESSION_STATE_INVALID")
     }
-    private fun parseObject(bytes: ByteArray): JSONObject {
+    internal fun parseObject(bytes: ByteArray): JSONObject {
       val decoded = StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
         .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString()
       StrictJson.check(decoded)

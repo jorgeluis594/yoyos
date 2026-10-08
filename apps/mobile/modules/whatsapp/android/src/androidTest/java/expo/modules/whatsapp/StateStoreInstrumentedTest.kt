@@ -22,10 +22,11 @@ class StateStoreInstrumentedTest {
     NativeStateStore(contextFor(root), root.name.removePrefix("state-test-").replace("-", ""), fault)
 
   @Test fun strictJsonRejectsDuplicateKeysAndMalformedNumbers() {
-    for (value in listOf("{\"a\":1,\"a\":2}", "{\"a\":1,\"\\u0061\":2}", "{\"a\":01}", "{\"a\":1,}")) {
+    for (value in listOf("{\"a\":1,\"a\":2}", "{\"a\":1,\"\\u0061\":2}", "{\"a\":01}", "{\"a\":1,}", "{\"a\":+1}", "{\"a\":NaN}", "{\"a\":\"\\ud800\"}")) {
       assertThrows(StateFailure::class.java) { StrictJson.check(value) }
     }
     StrictJson.check("{\"a\":[true,null,3]}")
+    assertThrows(Exception::class.java) { NativeStateStore.parseObject(byteArrayOf(0x7b, 0x22, 0xc3.toByte(), 0x28, 0x22, 0x7d)) }
   }
 
   @Test fun publishedStateSurvivesRestartAndIgnoresPreparation() {
@@ -196,6 +197,19 @@ class StateStoreInstrumentedTest {
     makeStore(root).open()
   }
 
+  @Test fun revisionsAndAccountIdsRequireCanonicalForms() {
+    val root = freshRoot
+    val store = makeStore(root)
+    store.open()
+    for (revision in listOf("", "00", "01", "-1", "+1", "1.0", "18446744073709551616", "999999999999999999999999")) {
+      assertThrows(StateFailure::class.java) { store.commit(revision) { it } }
+    }
+    for (account in listOf("", "123@s.whatsapp.net", "123:1@lid", "abc@lid", "123@lid/other")) {
+      assertThrows(StateFailure::class.java) { store.beginSession(account, "{}".toByteArray()) }
+    }
+    assertEquals("0", currentRevision(root))
+  }
+
   @Test fun concurrentStoreInstancesCannotOverwriteAnOlderSnapshot() {
     val root = freshRoot
     val first = makeStore(root)
@@ -276,7 +290,6 @@ class StateStoreInstrumentedTest {
     )
     for (mutate in invalid) {
       assertThrows(Exception::class.java) { store.commit("0") { next -> mutate(next); next } }
-      assertEquals("0", currentRevision(root))
       assertEquals("0", currentRevision(root))
       makeStore(root).open()
     }

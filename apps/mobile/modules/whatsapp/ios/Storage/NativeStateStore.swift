@@ -473,7 +473,7 @@ public final class NativeStateStore {
   private static func json(_ object: Any) throws -> Data {
     try JSONSerialization.data(withJSONObject: object, options: [.fragmentsAllowed, .sortedKeys])
   }
-  private static func parseObject(_ bytes: Data) throws -> [String: Any] {
+  static func parseObject(_ bytes: Data) throws -> [String: Any] {
     guard let string = String(data: bytes, encoding: .utf8), Data(string.utf8) == bytes else { throw StateStoreError.invalid }
     try StrictStateJSON.check(string)
     guard let result = try JSONSerialization.jsonObject(with: bytes) as? [String: Any] else { throw StateStoreError.invalid }

@@ -15,10 +15,11 @@ final class StateStoreTests: XCTestCase {
   }
 
   func testStrictJsonRejectsDuplicateKeysAndMalformedNumbers() {
-    for text in ["{\"a\":1,\"a\":2}", #"{"a":1,"\u0061":2}"#, "{\"a\":01}", "{\"a\":1,}"] {
+    for text in ["{\"a\":1,\"a\":2}", #"{"a":1,"\u0061":2}"#, "{\"a\":01}", "{\"a\":1,}", "{\"a\":+1}", "{\"a\":NaN}", #"{"a":"\ud800"}"#] {
       XCTAssertThrowsError(try StrictStateJSON.check(text))
     }
     XCTAssertNoThrow(try StrictStateJSON.check("{\"a\":[true,null,3]}"))
+    XCTAssertThrowsError(try NativeStateStore.parseObject(Data([0x7b, 0x22, 0xc3, 0x28, 0x22, 0x7d])))
   }
 
   func testPublishedStateSurvivesReopenAndIgnoresNextFile() throws {
@@ -206,6 +207,19 @@ final class StateStoreTests: XCTestCase {
     _ = try store.commit(expectedRevision: "0") { $0 }
     XCTAssertThrowsError(try store.commit(expectedRevision: "0") { $0 })
     XCTAssertNoThrow(try makeStore(root).open())
+  }
+
+  func testRevisionsAndAccountIdsRequireCanonicalForms() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = try makeStore(root)
+    _ = try store.open()
+    for revision in ["", "00", "01", "-1", "+1", "1.0", "18446744073709551616", "999999999999999999999999"] {
+      XCTAssertThrowsError(try store.commit(expectedRevision: revision) { $0 })
+    }
+    for account in ["", "123@s.whatsapp.net", "123:1@lid", "abc@lid", "123@lid/other"] {
+      XCTAssertThrowsError(try store.beginSession(accountId: account, protocolBytes: Data("{}".utf8)))
+    }
   }
 
   func testConcurrentStoreInstancesCannotOverwriteAnOlderSnapshot() throws {
