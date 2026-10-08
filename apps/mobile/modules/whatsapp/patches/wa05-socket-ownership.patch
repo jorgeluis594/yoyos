@@ -1,0 +1,125 @@
+diff --git a/client.go b/client.go
+index 9f97d14..ddf4b7f 100644
+--- a/client.go
++++ b/client.go
+@@ -69,6 +69,7 @@ type Client struct {
+ 	socket           *socket.NoiseSocket
+ 	transportAttempt func([]byte) error // controlled send boundary for package transport tests
+ 	socketLock       sync.RWMutex
++	socketID         uint64
+ 	socketWait       chan struct{}
+ 	handlerQueueWait chan struct{}
+ 
+@@ -599,16 +600,27 @@ func (cli *Client) IsLoggedIn() bool {
+ 	return cli != nil && cli.isLoggedIn.Load()
+ }
+ 
++// CurrentSocketID identifies the current websocket, or zero after it closes.
++func (cli *Client) CurrentSocketID() uint64 {
++	cli.socketLock.RLock()
++	defer cli.socketLock.RUnlock()
++	if cli.socket == nil || !cli.socket.IsConnected() {
++		return 0
++	}
++	return cli.socketID
++}
++
+ func (cli *Client) onDisconnect(ctx context.Context, ns *socket.NoiseSocket, remote bool) {
+ 	ns.Stop(false, false)
+ 	cli.socketLock.Lock()
+ 	defer cli.socketLock.Unlock()
+ 	if cli.socket == ns {
++		closedSocketID := cli.socketID
+ 		cli.socket = nil
+ 		cli.clearResponseWaiters(xmlStreamEndNode)
+ 		if !cli.isExpectedDisconnect() && (cli.forceAutoReconnect.Swap(false) || remote) {
+ 			cli.Log.Debugf("Emitting Disconnected event")
+-			go cli.dispatchEvent(&events.Disconnected{})
++			go cli.dispatchEvent(&events.Disconnected{SocketID: closedSocketID})
+ 			go cli.autoReconnect(ctx)
+ 		} else if remote {
+ 			cli.Log.Debugf("OnDisconnect() called, but it was expected, so not emitting event")
+diff --git a/connectionevents.go b/connectionevents.go
+index 47ab0fb..22628d2 100644
+--- a/connectionevents.go
++++ b/connectionevents.go
+@@ -156,6 +156,7 @@ func (cli *Client) handleConnectFailure(ctx context.Context, node *waBinary.Node
+ }
+ 
+ func (cli *Client) handleConnectSuccess(ctx context.Context, node *waBinary.Node) {
++	socketID := cli.CurrentSocketID()
+ 	if !cli.paired.Load() {
+ 		cli.Log.Warnf("Received connect success without pairing, ignoring")
+ 		return
+@@ -201,7 +202,7 @@ func (cli *Client) handleConnectSuccess(ctx context.Context, node *waBinary.Node
+ 		if err != nil {
+ 			cli.Log.Warnf("Failed to send post-connect passive IQ: %v", err)
+ 		}
+-		cli.dispatchEvent(&events.Connected{})
++		cli.dispatchEvent(&events.Connected{SocketID: socketID})
+ 		cli.closeSocketWaitChan()
+ 	}()
+ }
+diff --git a/handshake.go b/handshake.go
+index bdc959b..155f88f 100644
+--- a/handshake.go
++++ b/handshake.go
+@@ -128,6 +128,7 @@ func (cli *Client) doHandshake(fs *socket.FrameSocket, ephemeralKP keys.KeyPair)
+ 	}
+ 
+ 	cli.socket = ns
++	cli.socketID++
+ 
+ 	return queue, nil
+ }
+diff --git a/pair.go b/pair.go
+index e64d3f1..1391c3d 100644
+--- a/pair.go
++++ b/pair.go
+@@ -130,6 +130,7 @@ func (cli *Client) makeQRData(ref []byte, clientType PairClientType) string {
+ }
+ 
+ func (cli *Client) handlePairSuccess(ctx context.Context, node *waBinary.Node) {
++	socketID := cli.CurrentSocketID()
+ 	cli.serverTimeOffset.Store(int64(node.AttrGetter().UnixTime("t").Sub(time.Now().Round(time.Second))))
+ 	id := node.Attrs["id"].(string)
+ 	pairSuccess := node.GetChildByTag("pair-success")
+@@ -154,7 +155,7 @@ func (cli *Client) handlePairSuccess(ctx context.Context, node *waBinary.Node) {
+ 		} else {
+ 			cli.Log.Infof("Successfully paired %s", cli.Store.ID)
+ 			go cli.sendUnifiedSession()
+-			cli.dispatchEvent(&events.PairSuccess{ID: jid, LID: lid, BusinessName: businessName, Platform: platform, Props: &props})
++			cli.dispatchEvent(&events.PairSuccess{ID: jid, LID: lid, BusinessName: businessName, Platform: platform, Props: &props, SocketID: socketID})
+ 		}
+ 	}()
+ }
+diff --git a/types/events/events.go b/types/events/events.go
+index 98bd242..2c62777 100644
+--- a/types/events/events.go
++++ b/types/events/events.go
+@@ -50,6 +50,7 @@ type RotateADVSecret struct {
+ // been completed. Note that this is generally followed by a websocket reconnection, so you should
+ // wait for the Connected before trying to send anything.
+ type PairSuccess struct {
++	SocketID     uint64
+ 	ID           types.JID
+ 	LID          types.JID
+ 	BusinessName string
+@@ -94,7 +95,7 @@ type QRScannedWithoutMultidevice struct{}
+ // Connected is emitted when the client has successfully connected to the WhatsApp servers
+ // and is authenticated. The user who the client is authenticated as will be in the device store
+ // at this point, which is why this event doesn't contain any data.
+-type Connected struct{}
++type Connected struct{ SocketID uint64 }
+ 
+ // KeepAliveTimeout is emitted when the keepalive ping request to WhatsApp web servers times out.
+ //
+@@ -269,7 +270,7 @@ type StreamError struct {
+ }
+ 
+ // Disconnected is emitted when the websocket is closed by the server.
+-type Disconnected struct{}
++type Disconnected struct{ SocketID uint64 }
+ 
+ // HistorySync is emitted when the phone has sent a blob of historical messages.
+ type HistorySync struct {

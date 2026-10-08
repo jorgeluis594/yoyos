@@ -64,6 +64,8 @@ chmod -R u+w "$build_dir/whatsmeow"
 cd "$build_dir/whatsmeow"
 git apply --check "$module_dir/patches/pre-decrypt-context.patch" || fail 'patch does not match pinned revision'
 git apply "$module_dir/patches/pre-decrypt-context.patch"
+git apply --check "$module_dir/patches/wa05-socket-ownership.patch" || fail 'socket ownership patch does not match pinned revision'
+git apply "$module_dir/patches/wa05-socket-ownership.patch"
 cd "$module_dir/go"
 cp -R . "$build_dir/go"
 cd "$build_dir/go"

@@ -22,16 +22,17 @@ func NewWhatsmeowTransport(device *store.Device, localFailure func() Code) Trans
 	client.InitialAutoReconnect = false
 	client.DisableLoginAutoReconnect = true
 	client.UseRetryMessageStore = false
-	return &whatsmeowTransport{client: client, dial: client.ConnectContext, socketConnected: client.IsConnected, loginReconnect: make(chan struct{}, 1), localFailure: localFailure}
+	return &whatsmeowTransport{client: client, dial: client.ConnectContext, socketConnected: client.IsConnected, socketID: client.CurrentSocketID, loginReconnect: make(chan struct{}, 1), localFailure: localFailure}
 }
 
 type whatsmeowTransport struct {
 	client          *whatsmeow.Client
 	dial            func(context.Context) error
 	socketConnected func() bool
+	socketID        func() uint64
 	loginReconnect  chan struct{}
 	localFailure    func() Code
-	handoff         atomic.Bool
+	pairedSocketID  atomic.Uint64
 }
 
 func (t *whatsmeowTransport) stopped() Code {
@@ -55,8 +56,15 @@ func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent)
 		if kind == "" {
 			return
 		}
-		if _, disconnected := event.(*events.Disconnected); disconnected && (t.handoff.Load() || t.socketConnected()) {
-			return
+		switch value := event.(type) {
+		case *events.Disconnected:
+			if value.SocketID != 0 && value.SocketID == t.pairedSocketID.Load() {
+				return
+			}
+		case *events.Connected:
+			if value.SocketID == 0 || value.SocketID == t.pairedSocketID.Load() || value.SocketID != t.socketID() || !t.socketConnected() {
+				return
+			}
 		}
 		if code := t.stopped(); code != "" {
 			select {
@@ -65,10 +73,8 @@ func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent)
 			}
 			return
 		}
-		if kind == "authenticating" || kind == "loginReconnect" {
-			t.handoff.Store(true)
-		} else if kind == "connected" {
-			t.handoff.Store(false)
+		if paired, ok := event.(*events.PairSuccess); ok {
+			t.pairedSocketID.Store(paired.SocketID)
 		}
 		select {
 		case out <- TransportEvent{Kind: kind}:
