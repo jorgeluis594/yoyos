@@ -22,7 +22,7 @@ export const quotationResponseSchema = z.strictObject({
 });
 export const quotationApiErrorSchema = z.strictObject({
   code: z.enum(["INVALID_INPUT", "INVALID_DELIVERY_SETTINGS", "INVALID_DELIVERY_RATE", "INVALID_DESTINATION", "INVALID_DISTRICT",
-    "UNSUPPORTED_COUNTRY", "CHECKOUT_UNAVAILABLE", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR"]),
+    "UNSUPPORTED_COUNTRY", "CHECKOUT_UNAVAILABLE", "ORDER_CANCELLED", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR"]),
   error: z.string(), field: z.enum(["destination", "address", "instructions"]).optional(), districtCode: z.string().optional(),
 });
 export type CreateQuotationRequest = z.infer<typeof createQuotationRequestSchema>;

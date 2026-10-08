@@ -1,3 +1,4 @@
+import { requestDeliveryQuotation } from "@core/src/features/delivery-settings/infrastructure/quotation-api";
 import { loader as checkoutLoader, action as confirmCheckoutAction } from "@core/app/routes/checkout";
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
 import { createOrderOperations } from "@mobile/features/orders/application/order-operations";
@@ -563,12 +564,16 @@ test("quotation HTTP uses the checkout order tenant even with a foreign seller s
   expect((await call("/api/delivery-settings/zones", seller.cookie, { method: "agency", expectedVersion: 2,
     zones: [{ kind: "new", name: "Agency zone", enabled: true, districtCodes: ["150122"], price: { amount: 5, currency: "PEN" } }] }, "PUT")).status).toBe(200);
   const orderBefore = await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json();
-  const a = await call("/api/quotations", undefined, input);
+  const browserFetch: typeof fetch = (url, init) => fetch(new URL(String(url), base), {
+    ...init, headers: { ...Object.fromEntries(new Headers(init?.headers)), origin },
+  });
+  const a = await requestDeliveryQuotation({ orderId, districtCode: destination.districtCode }, undefined, browserFetch);
   const b = await call("/api/quotations", foreign.cookie, input);
-  expect(a.status).toBe(201);
+  expect(a.success).toBe(true);
   expect(b.status).toBe(201);
   expect(b.headers.get("cache-control")).toBe("no-store");
-  const first = quotationResponseSchema.parse(await a.json());
+  if (!a.success) throw new Error("Browser quotation failed");
+  const first = a.data;
   const second = quotationResponseSchema.parse(await b.json());
   expect(first.id).not.toBe(second.id);
   expect(first.rates.map(rate => [rate.method, rate.price.amount])).toEqual([["home", 0], ["home", 8], ["home", 8], ["agency", 5]]);
@@ -589,6 +594,8 @@ test("quotation HTTP uses the checkout order tenant even with a foreign seller s
   const cancelled = await call("/api/quotations", foreign.cookie, input);
   expect(cancelled.status).toBe(422);
   expect(await cancelled.json()).toMatchObject({ code: "ORDER_CANCELLED" });
+  expect(await requestDeliveryQuotation({ orderId, districtCode: destination.districtCode }, undefined, browserFetch))
+    .toMatchObject({ success: false, error: { code: "ORDER_CANCELLED" } });
   await withTenantIsolation(seller.companyId, async () => expect(await prisma.quotation.count()).toBe(2));
 });
 
