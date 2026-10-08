@@ -170,6 +170,13 @@ export function createOrderApi(request: Request) {
     },
     searchCatalog: async (search: string): Promise<Result<z.infer<typeof orderCatalogSchema>, OrderRequestError>> =>
       response(await request(`/api/orders/catalog?${new URLSearchParams({ search })}`), orderCatalogSchema, "catalog"),
+    findContact: async (contactId: string): Promise<Result<z.infer<typeof orderContactsSchema>[number] | null, OrderRequestError>> => {
+      if (!z.uuid().safeParse(contactId).success) return err({ code: "INVALID_INPUT", message: "Invalid contact ID" });
+      const found = response(await request(`/api/orders/contacts?${new URLSearchParams({ contactId })}`), orderContactsSchema, "contacts");
+      if (!found.success) return found;
+      return found.data.length <= 1 && found.data.every(contact => contact.id === contactId) ? ok(found.data[0] ?? null)
+        : err({ code: "INVALID_RESPONSE", message: "Unexpected contact identity" });
+    },
     searchContacts: async (search: string): Promise<Result<z.infer<typeof orderContactsSchema>, OrderRequestError>> =>
       response(await request(`/api/orders/contacts?${new URLSearchParams({ search })}`), orderContactsSchema, "contacts"),
   };

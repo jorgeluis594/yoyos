@@ -228,3 +228,16 @@ test("catalog recovery loads explicit variant IDs and rejects malformed or dupli
     expect(await api.findCatalog(ids)).toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
   expect(paths).toHaveLength(1);
 });
+
+
+test("saved contact lookup validates identity and represents a deleted contact as absence", async () => {
+  const contact = { id: id(1), name: "Ana", phone: "999" };
+  const request = jest.fn(async () => ok([contact]));
+  const api = createOrderApi(request);
+  expect(await api.findContact(id(1))).toEqual(ok(contact));
+  expect(request).toHaveBeenCalledWith(`/api/orders/contacts?contactId=${id(1)}`);
+  expect(await api.findContact("invalid")).toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(await createOrderApi(async () => ok([])).findContact(id(1))).toEqual(ok(null));
+  expect(await api.findContact(id(2))).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+});

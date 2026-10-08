@@ -759,3 +759,24 @@ test("catalog lookup by variant IDs bypasses search pagination and excludes unav
   for (const query of ["variantIds=bad", `variantIds=${seller.variantId},${seller.variantId}`, `variantIds=${seller.variantId}&search=Camisa`])
     expect((await call(`/api/orders/catalog?${query}`, seller.cookie)).status).toBe(400);
 });
+
+
+test("saved order contacts load by ID outside search pagination and remain tenant isolated", async () => {
+  const seller = await fixture("PE");
+  const other = await fixture("PE");
+  await withTenantIsolation(seller.companyId, async () => {
+    for (let index = 0; index < 21; index++)
+      await prisma.contact.create({ data: { name: `Later ${index}`, phone: `999${index}`, createdAt: new Date(Date.now() + index + 1000) } });
+  });
+  const searched = await (await call("/api/orders/contacts?search=", seller.cookie)).json();
+  expect(searched).toHaveLength(20);
+  expect(searched.some((contact: { id: string }) => contact.id === seller.contactId)).toBe(false);
+  const found = await call(`/api/orders/contacts?contactId=${seller.contactId}`, seller.cookie);
+  expect(found.status).toBe(200);
+  expect(await found.json()).toEqual([{ id: seller.contactId, name: "Ana", phone: "+51999999999" }]);
+  expect(await (await call(`/api/orders/contacts?contactId=${seller.contactId}`, other.cookie)).json()).toEqual([]);
+  await withTenantIsolation(seller.companyId, async () => { await prisma.contact.delete({ where: { id: seller.contactId } }); });
+  expect(await (await call(`/api/orders/contacts?contactId=${seller.contactId}`, seller.cookie)).json()).toEqual([]);
+  for (const query of ["contactId=bad", `contactId=${other.contactId}&search=Ana`])
+    expect((await call(`/api/orders/contacts?${query}`, seller.cookie)).status).toBe(400);
+});
