@@ -323,7 +323,7 @@ class StateStoreInstrumentedTest {
       assertThrows(StateFailure::class.java) { store.commit(revision) { it } }
     }
     for (account in listOf("", "123@s.whatsapp.net", "123:1@lid", "abc@lid", "123@lid/other")) {
-      assertThrows(StateFailure::class.java) { store.beginSession(account, "{}".toByteArray()) }
+      assertThrows(StateFailure::class.java) { store.beginSession(account, "{\"protocolSchemaVersion\":1,\"records\":[]}".toByteArray()) }
     }
     assertEquals("0", currentRevision(root))
   }

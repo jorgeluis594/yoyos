@@ -6,6 +6,21 @@ if ! timeout 15m ./gradlew :yoyos-whatsapp:connectedDebugAndroidTest; then
   exit 1
 fi
 
+instrumentation=$(adb shell pm list instrumentation | sed -n '/AndroidJUnitRunner/ s/^instrumentation:\([^ ]*\).*/\1/p' | head -1 | tr -d '\r')
+test -n "$instrumentation"
+for phase in cipher write sync close replace directorySync response; do
+  crash_output=$(mktemp)
+  recovery_output=$(mktemp)
+  timeout 45s adb shell am instrument -w -e class expo.modules.whatsapp.StateStoreCrashInstrumentedTest\#crashAtPublicationBoundary -e phase "$phase" "$instrumentation" > "$crash_output" 2>&1 || true
+  if ! timeout 90s adb shell am instrument -w -e class expo.modules.whatsapp.StateStoreCrashInstrumentedTest\#recoverAfterPublicationCrash -e phase "$phase" "$instrumentation" > "$recovery_output" 2>&1 ||
+     ! grep -q 'OK (1 test)' "$recovery_output"; then
+    cat "$crash_output" "$recovery_output"
+    rm -f "$crash_output" "$recovery_output"
+    exit 1
+  fi
+  rm -f "$crash_output" "$recovery_output"
+done
+
 adb install app/build/outputs/apk/release/app-release.apk
 adb shell am start -n com.yoyos.whatsappnativeprobe/.MainActivity
 for attempt in 1 2 3 4 5 6 7 8 9 10; do

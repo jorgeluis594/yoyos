@@ -433,6 +433,7 @@ public final class NativeStateStore {
     let fd = Darwin.open(directory.path, O_RDONLY)
     guard fd >= 0 else { throw StateStoreError.storage }
     if fsync(fd) != 0 {
+      NSLog("WhatsApp state directory sync failed: %d", errno)
       _ = Darwin.close(fd)
       throw StateStoreError.storage
     }
@@ -530,7 +531,7 @@ private final class StateKeychain {
     var result: CFTypeRef?
     let status = SecItemCopyMatching(request as CFDictionary, &result)
     if status == errSecItemNotFound { return nil }
-    guard status == errSecSuccess else { throw StateStoreError.storage }
+    guard status == errSecSuccess else { NSLog("WhatsApp state keychain read failed: %d", status); throw StateStoreError.storage }
     guard let data = result as? Data else { throw StateStoreError.invalid }
     return data
   }
@@ -543,7 +544,7 @@ private final class StateKeychain {
     var result: CFTypeRef?
     let status = SecItemCopyMatching(request as CFDictionary, &result)
     if status == errSecItemNotFound { return false }
-    guard status == errSecSuccess else { throw StateStoreError.storage }
+    guard status == errSecSuccess else { NSLog("WhatsApp state keychain enumeration failed: %d", status); throw StateStoreError.storage }
     return true
   }
   func put(_ id: String, data: Data) throws {
@@ -559,6 +560,7 @@ private final class StateKeychain {
       status = SecItemUpdate(try query(id) as CFDictionary, [kSecValueData as String: data] as CFDictionary)
     }
     if status == errSecSuccess { return }
+    NSLog("WhatsApp state keychain write failed: %d", status)
     // The Keychain operation may have completed despite a lost response; inspect its durable value.
     guard try self.data(id) == data else { throw StateStoreError.storage }
   }

@@ -331,7 +331,7 @@ final class StateStoreTests: XCTestCase {
       XCTAssertThrowsError(try store.commit(expectedRevision: revision) { $0 })
     }
     for account in ["", "123@s.whatsapp.net", "123:1@lid", "abc@lid", "123@lid/other", "123@lid\n", "123@lid\r\n"] {
-      XCTAssertThrowsError(try store.beginSession(accountId: account, protocolBytes: Data("{}".utf8)))
+      XCTAssertThrowsError(try store.beginSession(accountId: account, protocolBytes: Data("{\"protocolSchemaVersion\":1,\"records\":[]}".utf8)))
     }
     XCTAssertThrowsError(try NativeStateStore(directory: root, serviceSuffix: String(repeating: "a", count: 32) + "\n"))
   }

@@ -18,6 +18,8 @@ EOF
 cat > "$test_dir/bin/adb" <<'EOF'
 #!/bin/sh
 case "$*" in
+  'shell pm list instrumentation') echo 'instrumentation:expo.modules.whatsapp.test/androidx.test.runner.AndroidJUnitRunner (target=expo.modules.whatsapp)' ;;
+  shell\ am\ instrument*) echo 'OK (1 test)' ;;
   'shell cat /sdcard/window.xml')
     if test "${MOCK_MARKER:-1}" = 1; then echo 'bridge-ok'; else echo 'pending'; fi ;;
   'logcat -d -t 500') echo 'diagnostic log' ;;
