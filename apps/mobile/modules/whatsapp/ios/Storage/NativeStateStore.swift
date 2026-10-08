@@ -192,6 +192,22 @@ public final class NativeStateStore {
     registeredAccount = nil
   }
 
+  @discardableResult public func updateOptions(maxRecoveryBufferBytes: Int64, maxImageStorageBytes: Int64) throws -> String {
+    lock.lock(); defer { lock.unlock() }
+    guard maxRecoveryBufferBytes > 0, maxImageStorageBytes > 0,
+          maxRecoveryBufferBytes <= 9_007_199_254_740_991, maxImageStorageBytes <= 9_007_199_254_740_991 else { throw StateStoreError.invalidRequest }
+    let snapshot = try open()
+    guard let options = snapshot["options"] as? [String: Any] else { throw StateStoreError.invalid }
+    if Self.safeInt(options["maxRecoveryBufferBytes"]) == Int(maxRecoveryBufferBytes) &&
+       Self.safeInt(options["maxImageStorageBytes"]) == Int(maxImageStorageBytes) { return String(revision) }
+    _ = try commit(expectedRevision: String(revision)) { old in
+      var next = old
+      next["options"] = ["maxRecoveryBufferBytes": maxRecoveryBufferBytes, "maxImageStorageBytes": maxImageStorageBytes]
+      return next
+    }
+    return String(revision)
+  }
+
   public func beginFreshProtocolSession(_ request: String) -> String {
     protocolResponse {
       guard request.utf8.count <= Self.maxSession + 1024 else { throw StateStoreError.invalidRequest }

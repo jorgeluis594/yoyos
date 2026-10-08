@@ -232,6 +232,20 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     try { registeredGeneration = null; registeredAccount = null } finally { GLOBAL_LOCK.unlock() }
   }
 
+  fun updateOptions(maxRecoveryBufferBytes: Long, maxImageStorageBytes: Long): String {
+    GLOBAL_LOCK.lock()
+    try {
+      if (maxRecoveryBufferBytes !in 1L..9007199254740991L || maxImageStorageBytes !in 1L..9007199254740991L) throw StateFailure("INVALID_REQUEST")
+      val snapshot = open()
+      val old = snapshot.getJSONObject("options")
+      if (old.getLong("maxRecoveryBufferBytes") == maxRecoveryBufferBytes && old.getLong("maxImageStorageBytes") == maxImageStorageBytes) return revision.toString()
+      commit(revision.toString()) { state ->
+        state.put("options", JSONObject().put("maxRecoveryBufferBytes", maxRecoveryBufferBytes).put("maxImageStorageBytes", maxImageStorageBytes))
+      }
+      return revision.toString()
+    } finally { GLOBAL_LOCK.unlock() }
+  }
+
   fun beginFreshProtocolSession(request: String): String = protocolResponse {
     if (request.toByteArray(Charsets.UTF_8).size > SESSION_LIMIT + 1024) throw StateFailure("INVALID_REQUEST")
     val input = parseProtocolRequest(request)
