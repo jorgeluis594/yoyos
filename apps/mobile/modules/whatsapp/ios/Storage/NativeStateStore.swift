@@ -502,9 +502,23 @@ public final class NativeStateStore {
     return decoded
   }
   private static func canonicalBase64(_ text: String) -> Bool {
-    guard text.range(of: "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?\\z", options: .regularExpression) != nil else { return false }
-    let tail = String(text.suffix(4))
-    return tail.isEmpty || Data(base64Encoded: tail)?.base64EncodedString() == tail
+    guard text.utf8.count % 4 == 0 else { return false }
+    var padding = 0
+    var last = 0
+    for byte in text.utf8 {
+      if byte == 61 { padding += 1; continue }
+      guard padding == 0 else { return false }
+      switch byte {
+      case 65...90: last = Int(byte - 65)
+      case 97...122: last = Int(byte - 97) + 26
+      case 48...57: last = Int(byte - 48) + 52
+      case 43: last = 62
+      case 47: last = 63
+      default: return false
+      }
+    }
+    return padding <= 2 && (padding == 0 || text.utf8.count >= 4) &&
+      (padding == 0 || (last & ((1 << (2 * padding)) - 1)) == 0)
   }
   private static func exact(_ object: [String: Any], _ fields: Set<String>) throws {
     guard Set(object.keys) == fields else { throw StateStoreError.invalid }

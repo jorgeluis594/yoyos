@@ -571,8 +571,24 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     }
     private fun b64(bytes: ByteArray) = Base64.encodeToString(bytes, Base64.NO_WRAP)
     private fun canonicalBase64(value: String) {
-      if (value.length % 4 != 0 || !Regex("(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?").matches(value) ||
-        (value.isNotEmpty() && b64(Base64.decode(value.takeLast(4), Base64.DEFAULT)) != value.takeLast(4))) throw StateFailure("SESSION_STATE_INVALID")
+      if (value.length % 4 != 0) throw StateFailure("SESSION_STATE_INVALID")
+      var padding = 0
+      var last = 0
+      for (char in value) {
+        if (char == '=') { padding++; continue }
+        if (padding != 0) throw StateFailure("SESSION_STATE_INVALID")
+        last = when (char) {
+          in 'A'..'Z' -> char - 'A'
+          in 'a'..'z' -> char - 'a' + 26
+          in '0'..'9' -> char - '0' + 52
+          '+' -> 62
+          '/' -> 63
+          else -> -1
+        }
+        if (last < 0) throw StateFailure("SESSION_STATE_INVALID")
+      }
+      if (padding > 2 || (padding != 0 && value.length < 4) ||
+        (padding != 0 && (last and ((1 shl (2 * padding)) - 1)) != 0)) throw StateFailure("SESSION_STATE_INVALID")
     }
     private fun decode(value: String, max: Int): ByteArray {
       if (value.length > ((max + 2L) / 3 * 4)) throw StateFailure("SESSION_STATE_INVALID")
