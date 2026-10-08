@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { checkoutPathSchema, publicCheckoutDeliverySchema, confirmCheckoutSchema, publicCheckoutSchema } from "@shared/contracts/order-checkout";
+import { checkoutPathSchema, publicCheckoutDeliverySchema, confirmCheckoutDeliverySchema, confirmCheckoutSchema, publicCheckoutSchema } from "@shared/contracts/order-checkout";
 
 const valid = { buyer: { name: "Ana", phone: "+51987654321" }, expectedTotal: { amount: 10.5, currency: "PEN" } };
 
@@ -38,4 +38,16 @@ test("public delivery keeps historical and pending agency snapshots and excludes
   expect(publicCheckoutDeliverySchema.safeParse(store).success).toBe(true);
   expect(publicCheckoutDeliverySchema.safeParse({ ...store, settingsVersion: 2 }).success).toBe(true);
   expect(publicCheckoutDeliverySchema.safeParse({ ...agency, courier: { id: agency.pricing.zoneId, name: "Courier" } }).success).toBe(false);
+});
+
+test("delivery confirmation requires explicit change, rate identity and independently valid expected price", () => {
+  expect(confirmCheckoutDeliverySchema.safeParse({ ...valid, delivery: { kind: "keep" } }).success).toBe(true);
+  const recipient = { name: "Ana", phone: "999", identity: { kind: "absent" } };
+  const delivery = { kind: "replace", selection: { method: "store", recipient }, expectedPrice: { amount: 0, currency: "PEN" } };
+  expect(confirmCheckoutDeliverySchema.safeParse({ ...valid, delivery }).success).toBe(true);
+  for (const change of [null, { kind: "keep", expectedPrice: delivery.expectedPrice }, { ...delivery, expectedPrice: { amount: 0.001, currency: "PEN" } },
+    { ...delivery, selection: { ...delivery.selection, rateId: "fake" } }, { ...delivery, chargeDeliveryToCustomer: false },
+    { ...delivery, selection: { method: "home", recipient, destination: { districtCode: "150122", address: "Street", instructions: null } } }])
+    expect(confirmCheckoutDeliverySchema.safeParse({ ...valid, delivery: change }).success).toBe(false);
+  expect(confirmCheckoutDeliverySchema.safeParse(valid).success).toBe(false);
 });

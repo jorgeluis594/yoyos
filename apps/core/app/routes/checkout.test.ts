@@ -61,3 +61,41 @@ test("cancelled, unavailable and technical failures never return false confirmat
   expect(await action(args(body))).toMatchObject({ data: { checkout: null }, init: { status: 503 } });
   expect(error).toHaveBeenCalledTimes(1);
 });
+
+test("delivery confirmation constructs domain selection and redirects to payment only on success", async () => {
+  const confirm = vi.spyOn(orders, "confirmCheckoutDelivery").mockResolvedValue(ok(view));
+  const delivery = { kind: "replace", selection: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } }, expectedPrice: { amount: 0, currency: "PEN" } };
+  const result = await action(args({ ...body, delivery }));
+  expect(result).toBeInstanceOf(Response);
+  expect((result as Response).headers.get("Location")).toBe(`/pago/${params.orderId}`);
+  expect((result as Response).headers.get("Cache-Control")).toBe("no-store");
+  expect(confirm).toHaveBeenCalledWith({ ...body, delivery }, params);
+});
+
+test("delivery price conflict preserves current checkout and returns the price for explicit reconfirmation", async () => {
+  vi.spyOn(orders, "confirmCheckoutDelivery").mockResolvedValue(err({ code: "TOTAL_CHANGED", message: "Private reason", currentPrice: { amount: 12, currency: "PEN" } }));
+  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(view));
+  expect(await action(args({ ...body, delivery: { kind: "keep" } }))).toMatchObject({ init: { status: 409 },
+    data: { checkout: view, code: "TOTAL_CHANGED", currentPrice: { amount: 12, currency: "PEN" }, message: expect.stringContaining("vuelve a confirmar") } });
+});
+
+test("delivery business failures do not redirect or falsely confirm", async () => {
+  const confirm = vi.spyOn(orders, "confirmCheckoutDelivery");
+  for (const error of [{ code: "RATE_UNAVAILABLE", message: "Private reason" }, { code: "INVALID_DISTRICT", message: "Private reason" },
+    { code: "DELIVERY_METHOD_DISABLED", message: "Private reason" }] as const) {
+    const code = error.code;
+    confirm.mockResolvedValue(err(error));
+    expect(await action(args({ ...body, delivery: { kind: "keep" } }))).toMatchObject({ init: { status: 422 }, data: { checkout: null, code } });
+  }
+  confirm.mockResolvedValue(err({ code: "INSUFFICIENT_STOCK", message: "Private reason" }));
+  expect(await action(args({ ...body, delivery: { kind: "keep" } }))).toMatchObject({ init: { status: 409 }, data: { checkout: null } });
+});
+
+test("delivery form accepts exactly four fields and rejects repeated delivery values", async () => {
+  vi.spyOn(orders, "confirmCheckoutDelivery").mockResolvedValue(ok(view));
+  const fields = new URLSearchParams({ ...body.buyer, expectedTotal: JSON.stringify(total), delivery: JSON.stringify({ kind: "keep" }) });
+  const request = () => new Request("http://localhost/checkout/company/order", { method: "POST", body: fields });
+  expect(await action({ params, request: request() } as unknown as ActionFunctionArgs)).toBeInstanceOf(Response);
+  fields.append("delivery", JSON.stringify({ kind: "keep" }));
+  expect(await action({ params, request: request() } as unknown as ActionFunctionArgs)).toMatchObject({ init: { status: 422 } });
+});

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { internationalPhonePattern } from "@shared/phone";
-import { deliverySnapshotSchemas } from "@shared/contracts/orders";
+import { deliverySnapshotSchemas, ratedDeliverySelectionSchema } from "@shared/contracts/orders";
 import { moneySchema } from "@shared/contracts/money";
 
 export const checkoutPathSchema = z.strictObject({ companyId: z.uuid(), orderId: z.uuid() });
@@ -8,6 +8,12 @@ export const checkoutBuyerSchema = z.strictObject({ name: z.string().trim().min(
 const checkoutMoneySchema = moneySchema.extend({ amount: z.number().finite().nonnegative().refine((value) => /^\d+(?:\.\d{1,2})?$/.test(String(value))) });
 export const confirmCheckoutSchema = z.strictObject({ buyer: checkoutBuyerSchema, expectedTotal: checkoutMoneySchema });
 export type ConfirmCheckoutRequest = z.infer<typeof confirmCheckoutSchema>;
+export const checkoutDeliveryChangeSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("keep") }),
+  z.strictObject({ kind: z.literal("replace"), selection: ratedDeliverySelectionSchema, expectedPrice: checkoutMoneySchema }),
+]);
+export const confirmCheckoutDeliverySchema = confirmCheckoutSchema.extend({ delivery: checkoutDeliveryChangeSchema });
+export type ConfirmCheckoutDeliveryRequest = z.infer<typeof confirmCheckoutDeliverySchema>;
 export const checkoutLinkSchema = z.strictObject({ url: z.url() });
 export const publicCheckoutDeliverySchema = z.union([
   deliverySnapshotSchemas[0].omit({ recordedBy: true }),

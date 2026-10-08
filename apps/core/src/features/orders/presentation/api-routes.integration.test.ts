@@ -1,3 +1,5 @@
+import { action as confirmCheckoutAction } from "@core/app/routes/checkout";
+import type { ActionFunctionArgs } from "react-router";
 import { createOrderOperations } from "@mobile/features/orders/application/order-operations";
 import { addDraftItem, emptyOrderDraft } from "@mobile/features/orders/domain/order-draft";
 import { createPendingOrderConfirmationStore } from "@mobile/features/orders/infrastructure/pending-order-confirmation";
@@ -676,4 +678,31 @@ test("rated delivery HTTP assigns the selected option, reports price conflicts a
   expect(created.status).toBe(201);
   expect(await created.json()).toMatchObject({ stockDeducted: true, total: { amount: 10 }, delivery: { pricing: { rateId: free.id } } });
   await withTenantIsolation(seller.companyId, async () => expect((await prisma.productStock.findUnique({ where: { variantId: seller.variantId } }))?.quantity).toBe(2n));
+});
+
+
+test("public checkout delivery action persists buyer pickup and redirects to existing payment", async () => {
+  const seller = await fixture("PE");
+  const orderId = randomUUID();
+  expect((await call("/api/delivery-settings", seller.cookie, { expectedVersion: 0, agency: { enabled: false }, home: { enabled: false }, couriers: [],
+    store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } }, "PUT")).status).toBe(200);
+  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, contactId: null, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
+  await withTenantIsolation(seller.companyId, async () => {
+    await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: new Date() } });
+  });
+  const input = { buyer: { name: "Ana", phone: "+51987654321" }, expectedTotal: { amount: 10, currency: "PEN" }, delivery: { kind: "replace",
+    selection: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } }, expectedPrice: { amount: 0, currency: "PEN" } } };
+  const result = await confirmCheckoutAction({ params: { companyId: seller.companyId, orderId }, request: new Request(`${base}/checkout/${seller.companyId}/${orderId}`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input),
+  }) } as unknown as ActionFunctionArgs);
+  expect(result).toBeInstanceOf(Response);
+  expect((result as Response).headers.get("Location")).toBe(`/pago/${orderId}`);
+  expect((await call(`/api/buyer/orders/${orderId}/payment`)).status).toBe(200);
+  await withTenantIsolation(seller.companyId, async () => {
+    expect(await prisma.order.findUnique({ where: { id: orderId } })).toMatchObject({ stockDeducted: false,
+      delivery: { method: "store", recordedBy: { kind: "buyer" }, settingsVersion: 1 } });
+    expect(await prisma.orderBuyer.findUnique({ where: { orderId } })).toMatchObject({ name: "Ana", phone: "+51987654321" });
+    expect(await prisma.payment.count()).toBe(0);
+    expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: seller.variantId } })).quantity).toBe(3n);
+  });
 });

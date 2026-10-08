@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { data, isRouteErrorResponse, useFetcher, useLoaderData, type ActionFunctionArgs, type LoaderFunctionArgs, type ShouldRevalidateFunctionArgs } from "react-router";
+import { redirect, data, isRouteErrorResponse, useFetcher, useLoaderData, type ActionFunctionArgs, type LoaderFunctionArgs, type ShouldRevalidateFunctionArgs } from "react-router";
 import { z } from "zod";
 import { Button } from "@core/app/components/ui/button";
 import { Input } from "@core/app/components/ui/input";
@@ -7,8 +7,11 @@ import { Field, FieldError, FieldLabel } from "@core/app/components/ui/field";
 import { formatCurrency } from "@core/app/format-currency";
 import { orders } from "@core/src/features/orders/composition";
 import { parseBuyer, type CheckoutAccess, type CheckoutView } from "@core/src/features/orders/domain/checkout";
+import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
+import type { CheckoutDeliveryChange } from "@core/src/features/orders/application/checkout";
+import type { Money } from "@shared/money";
 import { bindRequestOperation, log } from "@core/src/shared/infrastructure/logger";
-import { checkoutPathSchema, confirmCheckoutSchema, publicCheckoutSchema, type PublicCheckoutResponse } from "@shared/contracts/order-checkout";
+import { checkoutPathSchema, confirmCheckoutDeliverySchema, confirmCheckoutSchema, publicCheckoutSchema, type PublicCheckoutResponse } from "@shared/contracts/order-checkout";
 
 const privacyHeaders = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
 export const headers = () => privacyHeaders;
@@ -17,7 +20,7 @@ export const shouldRevalidate = ({ formMethod, defaultShouldRevalidate }: Should
 export const meta = () => [{ title: "Revisa tu pedido" }, { name: "robots", content: "noindex, nofollow" }];
 const unavailable = "Enlace no disponible";
 const retry = "No se pudo completar la solicitud. Inténtalo de nuevo.";
-type PageData = { checkout: PublicCheckoutResponse | null; message: string | null; fieldErrors?: { name?: string; phone?: string }; unavailable?: boolean };
+type PageData = { checkout: PublicCheckoutResponse | null; message: string | null; fieldErrors?: { name?: string; phone?: string }; unavailable?: boolean; code?: string; currentPrice?: Money };
 const response = (value: PageData, status = 200) => data(value, { status, headers: privacyHeaders });
 
 function serialize(checkout: CheckoutView): PublicCheckoutResponse {
@@ -44,7 +47,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
   return response({ checkout: serialize(result.data), message: null });
 }
 
-const formSchema = z.strictObject({ name: z.string(), phone: z.string(), expectedTotal: z.string() });
+const formSchema = z.strictObject({ name: z.string(), phone: z.string(), expectedTotal: z.string(), delivery: z.string().optional() });
 export async function action({ request, params }: ActionFunctionArgs) {
   bindRequestOperation({ operation: "confirm_checkout" });
   const path = checkoutPathSchema.safeParse(params);
@@ -58,13 +61,16 @@ export async function action({ request, params }: ActionFunctionArgs) {
     else {
       const fields = await request.formData();
       const parsed = formSchema.safeParse(Object.fromEntries(fields));
-      if (!parsed.success || [...fields.keys()].length !== 3) body = null;
-      else body = { buyer: { name: parsed.data.name, phone: parsed.data.phone }, expectedTotal: JSON.parse(parsed.data.expectedTotal) };
+      if (!parsed.success || [...fields.keys()].length !== (parsed.data.delivery === undefined ? 3 : 4)) body = null;
+      else body = { buyer: { name: parsed.data.name, phone: parsed.data.phone }, expectedTotal: JSON.parse(parsed.data.expectedTotal),
+        ...(parsed.data.delivery === undefined ? {} : { delivery: JSON.parse(parsed.data.delivery) }) };
     }
   } catch {
     body = null;
   }
-  const parsed = confirmCheckoutSchema.safeParse(body);
+  const deliveryRequest = confirmCheckoutDeliverySchema.safeParse(body);
+  const parsed = typeof body === "object" && body !== null && "delivery" in body
+    ? deliveryRequest : confirmCheckoutSchema.safeParse(body);
   if (!parsed.success) {
     bindRequestOperation({ outcome: "invalid_input" });
     const fieldErrors: NonNullable<PageData["fieldErrors"]> = {};
@@ -78,8 +84,20 @@ export async function action({ request, params }: ActionFunctionArgs) {
   if (!buyer.success) return response({ checkout: null, message: "Revisa los datos del comprador." }, 422);
   const access = path.data as CheckoutAccess;
   try {
-    const result = await orders.confirmCheckout({ buyer: buyer.data, expectedTotal: parsed.data.expectedTotal }, access);
-    if (result.success) return response({ checkout: serialize(result.data), message: null });
+    let delivery: CheckoutDeliveryChange | undefined;
+    if (deliveryRequest.success) {
+      if (deliveryRequest.data.delivery.kind === "keep") delivery = { kind: "keep" };
+      else {
+        const selection = parseRatedDeliverySelection(deliveryRequest.data.delivery.selection);
+        if (!selection.success) return response({ checkout: null, message: "Revisa el destino y los datos de entrega.", code: selection.error.code }, 422);
+        delivery = { kind: "replace", selection: selection.data, expectedPrice: deliveryRequest.data.delivery.expectedPrice };
+      }
+    }
+    const result = delivery
+      ? await orders.confirmCheckoutDelivery({ buyer: buyer.data, expectedTotal: parsed.data.expectedTotal, delivery }, access)
+      : await orders.confirmCheckout({ buyer: buyer.data, expectedTotal: parsed.data.expectedTotal }, access);
+    if (result.success) return delivery ? redirect(`/pago/${access.orderId}`, { headers: privacyHeaders })
+      : response({ checkout: serialize(result.data), message: null });
     if (result.error.code === "CHECKOUT_UNAVAILABLE") return response({ checkout: null, message: unavailable, unavailable: true }, 404);
     if (result.error.code === "TOTAL_CHANGED" || result.error.code === "ORDER_CANCELLED") {
       const latest = await orders.getCheckout(access);
@@ -89,9 +107,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
         return response({ checkout: null, message: missing ? unavailable : retry, unavailable: missing }, missing ? 404 : 503);
       }
       bindRequestOperation({ operation: "confirm_checkout", outcome: result.error.code === "TOTAL_CHANGED" ? "total_changed" : "cancelled" });
-      return response({ checkout: serialize(latest.data), message: result.error.code === "TOTAL_CHANGED"
+      return response({ checkout: serialize(latest.data), code: result.error.code,
+        ...("currentPrice" in result.error ? { currentPrice: result.error.currentPrice } : {}), message: result.error.code === "TOTAL_CHANGED"
         ? "El total cambió. Revisa el nuevo importe y vuelve a confirmar." : null }, 409);
     }
+    if (["RATE_UNAVAILABLE", "INVALID_DELIVERY_RATE", "INVALID_DISTRICT", "DELIVERY_METHOD_DISABLED", "INVALID_CHECKOUT", "INVALID_ORDER", "DELIVERY_LOCKED"].includes(result.error.code))
+      return response({ checkout: null, code: result.error.code, message: "Revisa la entrega y vuelve a confirmar." }, 422);
+    if (result.error.code === "INSUFFICIENT_STOCK") return response({ checkout: null, code: result.error.code, message: "No hay stock suficiente. Contacta al vendedor." }, 409);
     return response({ checkout: null, message: retry }, 503);
   } catch (cause) {
     if (cause instanceof Response) return response({ checkout: null, message: retry }, cause.status);
