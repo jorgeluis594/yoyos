@@ -32,10 +32,11 @@ export function createEventBusRuntime(consume = false) {
     try {
       const result = await provider.publish(name, payload, metadata);
       if (!result.success) log.error({ event: "event_publication_failed", name, companyId: payload.companyId,
-        ...metadata, ...(name === "order_cancelled" ? { orderId: payload.orderId } : {}), errorCode: result.error.code }, "Event publication failed");
+        ...metadata, ...("orderId" in payload ? { orderId: payload.orderId } : {}), errorCode: result.error.code }, "Event publication failed");
       return result;
     } catch (cause) {
-      log.error({ event: "event_publication_failed", name, companyId: payload.companyId, orderId: payload.orderId, ...metadata, err: cause }, "Event publication failed");
+      log.error({ event: "event_publication_failed", name, companyId: payload.companyId,
+        ...metadata, ...("orderId" in payload ? { orderId: payload.orderId } : {}), err: cause }, "Event publication failed");
       return err({ code: "EVENT_BUS_UNAVAILABLE", message: "Event publication failed" });
     }
   } });
