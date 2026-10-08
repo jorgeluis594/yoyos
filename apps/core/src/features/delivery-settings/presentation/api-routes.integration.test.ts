@@ -1,3 +1,4 @@
+import { quotationResponseSchema } from "@shared/contracts/quotations";
 import { randomUUID } from "node:crypto";
 import { afterAll, expect, test } from "vitest";
 import { err, ok } from "@shared/functional";
@@ -208,4 +209,42 @@ test("zone administration rejects businesses outside the Peru pilot", async () =
     expect(response.status).toBe(422);
     expect(await response.json()).toMatchObject({ code: "UNSUPPORTED_COUNTRY" });
   }
+});
+
+
+test("seller quotations require company access, validate destinations and persist empty responses with fresh identities", async () => {
+  const [seller, noCompany] = await Promise.all([fixture(), fixture(false)]);
+  const path = "/api/quotations";
+  const destination = { country: "PE", districtCode: "150122", address: null, instructions: null };
+  expect((await request(path, undefined, { destination })).status).toBe(401);
+  expect((await request(path, noCompany.cookie, { destination })).status).toBe(409);
+  for (const body of [{}, { destination: null }, { destination, companyId: seller.companyId }, { destination, price: { amount: 0, currency: "PEN" } },
+    { destination: { ...destination, kind: "home" } }, { destination, orderId: "bad" }]) {
+    expect((await request(path, seller.cookie, body)).status).toBe(400);
+  }
+  for (const [change, code] of [[{ districtCode: "999999" }, "INVALID_DISTRICT"], [{ country: "US" }, "UNSUPPORTED_COUNTRY"],
+    [{ address: "x".repeat(501) }, "INVALID_DESTINATION"]] as const) {
+    const response = await request(path, seller.cookie, { destination: { ...destination, ...change } });
+    expect(response.status).toBe(422);
+    expect(await response.json()).toMatchObject({ code });
+  }
+  const text = await fetch(`${base}${path}`, { method: "POST", headers: { cookie: seller.cookie, "content-type": "text/plain" }, body: "body" });
+  expect(text.status).toBe(415);
+  const invalidJson = await fetch(`${base}${path}`, { method: "POST", headers: { cookie: seller.cookie, "content-type": "application/json" }, body: "{" });
+  expect(invalidJson.status).toBe(400);
+  expect(await invalidJson.json()).toMatchObject({ code: "INVALID_INPUT" });
+  const responses = [];
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const response = await request(path, seller.cookie, { destination: { ...destination, address: "  Street  ", instructions: " " } });
+    expect(response.status).toBe(201);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    responses.push(quotationResponseSchema.parse(await response.json()));
+  }
+  expect(responses[0]).toMatchObject({ destination: { ...destination, address: "Street" }, rates: [] });
+  expect(responses[0].id).not.toBe(responses[1].id);
+  await withTenantIsolation(seller.companyId ?? "", async () => {
+    expect(await prisma.quotation.count()).toBe(2);
+    expect(await prisma.deliveryRate.count()).toBe(0);
+    expect(await prisma.companyDeliverySettings.count()).toBe(0);
+  });
 });

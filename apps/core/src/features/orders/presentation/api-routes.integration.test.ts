@@ -8,6 +8,7 @@ import { afterAll, afterEach, expect, test, vi } from "vitest";
 import { err, ok } from "@shared/functional";
 import { createOrderApi } from "@mobile/features/orders/infrastructure/order-api";
 import { orders, setConfiguredOrderDelivery } from "@core/src/features/orders/composition";
+import { quotationResponseSchema } from "@shared/contracts/quotations";
 import { orderAggregateSchema } from "@shared/contracts/orders";
 import { app } from "@core/src/app";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
@@ -62,6 +63,10 @@ async function fixture(country: "PE" | "CL") {
       await prisma.productStock.deleteMany();
       await prisma.productVariant.deleteMany();
       await prisma.product.deleteMany();
+      await prisma.deliveryRate.deleteMany();
+      await prisma.quotation.deleteMany();
+      await prisma.deliveryZoneDistrict.deleteMany();
+      await prisma.deliveryZone.deleteMany();
       await prisma.companyCourier.deleteMany();
       await prisma.companyDeliverySettings.deleteMany();
       await prisma.image.deleteMany();
@@ -501,4 +506,54 @@ test.each([false, true])("mobile restart recovers a committed order after losing
     if (paid) expect(await prisma.payment.findFirst()).toMatchObject({ id: paymentId });
     expect(await prisma.productStock.findUnique({ where: { variantId: f.variantId } })).toMatchObject({ quantity: paid ? 2n : 3n });
   });
+});
+
+
+test("quotation HTTP uses the checkout order tenant even with a foreign seller session and never mutates orders or stock", async () => {
+  const seller = await fixture("PE");
+  const foreign = await fixture("PE");
+  const orderId = randomUUID();
+  const destination = { country: "PE", districtCode: "150122", address: null, instructions: null };
+  const input = { orderId, destination };
+  const before = await call("/api/quotations", foreign.cookie, input);
+  expect(before.status).toBe(404);
+  expect(await before.json()).toMatchObject({ code: "CHECKOUT_UNAVAILABLE" });
+  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, contactId: null,
+    items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
+  expect((await call("/api/quotations", foreign.cookie, input)).status).toBe(404);
+  expect((await call(`/api/orders/${orderId}/checkout-link`, seller.cookie, {})).status).toBe(200);
+  expect((await call("/api/delivery-settings/zones", seller.cookie, { method: "home", expectedVersion: 0,
+    zones: [0, 8, 8].map(amount => ({ kind: "new", name: "Private zone", enabled: true, districtCodes: ["150122"], price: { amount, currency: "PEN" } })) }, "PUT")).status).toBe(200);
+  expect((await call("/api/delivery-settings", seller.cookie, { expectedVersion: 1, home: { enabled: true }, agency: { enabled: true },
+    couriers: [{ kind: "new", name: "Courier", enabled: true }], store: { enabled: false, pickupPoint: null } }, "PUT")).status).toBe(200);
+  expect((await call("/api/delivery-settings/zones", seller.cookie, { method: "agency", expectedVersion: 2,
+    zones: [{ kind: "new", name: "Agency zone", enabled: true, districtCodes: ["150122"], price: { amount: 5, currency: "PEN" } }] }, "PUT")).status).toBe(200);
+  const orderBefore = await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json();
+  const a = await call("/api/quotations", undefined, input);
+  const b = await call("/api/quotations", foreign.cookie, input);
+  expect(a.status).toBe(201);
+  expect(b.status).toBe(201);
+  expect(b.headers.get("cache-control")).toBe("no-store");
+  const first = quotationResponseSchema.parse(await a.json());
+  const second = quotationResponseSchema.parse(await b.json());
+  expect(first.id).not.toBe(second.id);
+  expect(first.rates.map(rate => [rate.method, rate.price.amount])).toEqual([["home", 0], ["home", 8], ["home", 8], ["agency", 5]]);
+  expect(second.rates.map(rate => [rate.method, rate.price.amount])).toEqual(first.rates.map(rate => [rate.method, rate.price.amount]));
+  expect(new Set([...first.rates, ...second.rates].map(rate => rate.id)).size).toBe(8);
+  await withTenantIsolation(seller.companyId, async () => {
+    expect(await prisma.quotation.count()).toBe(2);
+    expect(await prisma.deliveryRate.count()).toBe(8);
+    expect(await prisma.productStock.findUnique({ where: { variantId: seller.variantId } })).toMatchObject({ quantity: 3n });
+    expect(await prisma.companyDeliverySettings.findUnique({ where: { companyId: seller.companyId } })).toMatchObject({ version: 3 });
+  });
+  await withTenantIsolation(foreign.companyId, async () => {
+    expect(await prisma.quotation.count()).toBe(0);
+    expect(await prisma.deliveryRate.count()).toBe(0);
+  });
+  expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toEqual(orderBefore);
+  await withTenantIsolation(seller.companyId, async () => await prisma.order.update({ where: { id: orderId }, data: { cancelled: true } }));
+  const cancelled = await call("/api/quotations", foreign.cookie, input);
+  expect(cancelled.status).toBe(422);
+  expect(await cancelled.json()).toMatchObject({ code: "ORDER_CANCELLED" });
+  await withTenantIsolation(seller.companyId, async () => expect(await prisma.quotation.count()).toBe(2));
 });
