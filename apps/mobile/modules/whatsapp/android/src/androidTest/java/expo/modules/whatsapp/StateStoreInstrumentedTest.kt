@@ -384,6 +384,7 @@ class StateStoreInstrumentedTest {
     java.io.FileOutputStream(recordFile).use {
       it.write(recordSealer.iv); it.write(recordSealer.doFinal(record.toString().toByteArray())); it.fd.sync()
     }
+    val preparedRecordBytes = recordFile.readBytes()
     val recoveryKey = keys.getKey("yoyos.whatsapp.test.$namespace.key.${header.getString("recoveryKeyId")}", null) as javax.crypto.SecretKey
     val headerBytes = header.toString().toByteArray()
     val plaintext = initial.toString().toByteArray()
@@ -410,6 +411,7 @@ class StateStoreInstrumentedTest {
     }
     assertEquals("STATE_INVALID", failure.code)
     assertEquals(before, aliases())
+    assertEquals(true, preparedRecordBytes.contentEquals(recordFile.readBytes()))
     assertEquals(maximum, currentRevision(root))
   }
 

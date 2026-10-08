@@ -412,6 +412,7 @@ final class StateStoreTests: XCTestCase {
       if case StateStoreError.invalid = error {} else { XCTFail("Expected revision exhaustion") }
     }
     XCTAssertEqual(try accounts(), before)
+    XCTAssertEqual(try data("record"), recordBytes)
   }
 
   func testExactlySixteenMiBSerializedSessionRestores() throws {
