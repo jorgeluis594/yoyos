@@ -18,6 +18,26 @@ function fakeNative() {
   };
 }
 
+test("reports unavailable module without simulating capability", async () => {
+  const client = createWhatsAppClient(() => null);
+  const subscription = client.addListener("connectionChanged", jest.fn());
+  expect(await client.initialize()).toMatchObject({ success:false, error:{code:"MODULE_UNAVAILABLE"} });
+  expect(await client.connect()).toMatchObject({ success:false, error:{code:"MODULE_UNAVAILABLE"} });
+  expect(await client.disconnect()).toMatchObject({ success:false, error:{code:"MODULE_UNAVAILABLE"} });
+  subscription.remove();
+});
+
+test("requires initialization for every available local operation", async () => {
+  const native = fakeNative();
+  const client = createWhatsAppClient(() => native);
+  const id = `wa-delivery:v1:${"a".repeat(32)}`;
+  const reference = {messageId:"wa-message:v1:YWJj",downloadReference:"wa-image:v1:YWJj"};
+  for (const operation of [client.connect,client.disconnect,client.logout,()=>client.confirmMessageStored(id),()=>client.downloadImage(reference),()=>client.deleteDownloadedImage(reference.messageId)]) {
+    expect(await operation()).toMatchObject({success:false,error:{code:"NOT_INITIALIZED"}});
+  }
+  expect(native.connect).not.toHaveBeenCalled();
+});
+
 test("coalesces preparation, accepts connect before QR, and retries failed preparation", async () => {
   const native = fakeNative();
   let resolve!: (value: unknown) => void;
