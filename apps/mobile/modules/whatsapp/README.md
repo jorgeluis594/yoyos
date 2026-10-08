@@ -16,8 +16,9 @@ This local Expo module links Go/whatsmeow into Android and iOS. Its current `pro
 Run an explicit dependency setup before building; the build script uses `GOTOOLCHAIN=local` and `GOPROXY=off` and never installs an SDK or upgrades dependencies:
 
 ```sh
-cd apps/mobile/modules/whatsapp/go
-GOTOOLCHAIN=local go mod download all
+cd apps/mobile/modules/whatsapp
+./scripts/prepare-go-dependencies.sh
+cd go
 GOTOOLCHAIN=local go test ./bridge
 GOTOOLCHAIN=local go vet ./bridge
 cd ..

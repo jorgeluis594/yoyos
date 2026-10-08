@@ -44,14 +44,8 @@ jobs:
           "$sdkmanager" 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.1.12297006' 'emulator' 'system-images;android-35;google_apis;x86_64'
       - run: pnpm --dir apps/mobile install --frozen-lockfile
       - name: Prepare pinned Go dependencies
-        run: |
-          go mod download all
-          upstream=$(go list -m -f '{{.Dir}}' go.mau.fi/whatsmeow)
-          cp -R "$upstream" "$RUNNER_TEMP/whatsmeow-dependencies"
-          chmod -R u+w "$RUNNER_TEMP/whatsmeow-dependencies"
-          (cd "$RUNNER_TEMP/whatsmeow-dependencies" && go mod download all)
-          (cd "$RUNNER_TEMP/whatsmeow-dependencies" && go mod download github.com/kisielk/sqlstruct@v0.0.0-20201105191214-5f3e10d3ab46)
-        working-directory: apps/mobile/modules/whatsapp/go
+        run: sh scripts/prepare-go-dependencies.sh
+        working-directory: apps/mobile/modules/whatsapp
       - run: go test -race ./bridge
         working-directory: apps/mobile/modules/whatsapp/go
       - run: go vet ./bridge
@@ -116,14 +110,8 @@ jobs:
           pod --version
       - run: pnpm --dir apps/mobile install --frozen-lockfile
       - name: Prepare pinned Go dependencies
-        run: |
-          go mod download all
-          upstream=$(go list -m -f '{{.Dir}}' go.mau.fi/whatsmeow)
-          cp -R "$upstream" "$RUNNER_TEMP/whatsmeow-dependencies"
-          chmod -R u+w "$RUNNER_TEMP/whatsmeow-dependencies"
-          (cd "$RUNNER_TEMP/whatsmeow-dependencies" && go mod download all)
-          (cd "$RUNNER_TEMP/whatsmeow-dependencies" && go mod download github.com/kisielk/sqlstruct@v0.0.0-20201105191214-5f3e10d3ab46)
-        working-directory: apps/mobile/modules/whatsapp/go
+        run: sh scripts/prepare-go-dependencies.sh
+        working-directory: apps/mobile/modules/whatsapp
       - run: go test ./bridge
         working-directory: apps/mobile/modules/whatsapp/go
       - run: sh scripts/build-go.sh ios
