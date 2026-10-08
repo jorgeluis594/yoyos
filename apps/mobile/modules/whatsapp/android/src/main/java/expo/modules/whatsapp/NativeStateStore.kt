@@ -184,7 +184,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
       fault?.invoke("sessionPublished")
       val committedRecord = readRecord() ?: throw StateFailure("SESSION_STATE_INVALID")
       writeRecord(committedRecord.put("provisionalSessionKeyId", JSONObject.NULL))
-    } finally { GLOBAL_LOCK.unlock() }
+    } finally { current = null; GLOBAL_LOCK.unlock() }
   }
 
   @Synchronized fun canRestoreSession(): Boolean {
@@ -218,7 +218,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
         fault?.invoke("keyDeleted")
         commit(revision.toString()) { it.put("sessionKeysToDelete", JSONArray()) }
       }
-    } finally { GLOBAL_LOCK.unlock() }
+    } finally { current = null; GLOBAL_LOCK.unlock() }
   }
 
   private fun create(): JSONObject {
@@ -494,7 +494,6 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
   }
 
   private fun writeRecord(record: JSONObject) {
-    current = null
     val cipher = Cipher.getInstance("AES/GCM/NoPadding")
     cipher.init(Cipher.ENCRYPT_MODE, getKey(recordAlias))
     val nonce = cipher.iv.also { if (it.size != 12) throw StateFailure("STORAGE_FAILED") }

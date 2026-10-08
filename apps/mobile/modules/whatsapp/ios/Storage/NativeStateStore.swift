@@ -121,7 +121,7 @@ public final class NativeStateStore {
   }
 
   public func beginSession(accountId: String, protocolBytes: Data) throws {
-    lock.lock(); defer { lock.unlock() }
+    lock.lock(); defer { state = nil; lock.unlock() }
     state = nil
     let existing = try open()
     guard Self.validAccount(accountId), existing["session"] is NSNull,
@@ -160,7 +160,7 @@ public final class NativeStateStore {
   }
 
   public func endSession() throws {
-    lock.lock(); defer { lock.unlock() }
+    lock.lock(); defer { state = nil; lock.unlock() }
     var old = try open()
     if let session = old["session"] as? [String: Any], let id = session["sessionKeyId"] as? String {
       old = try commit(expectedRevision: String(revision)) { current in
@@ -399,11 +399,15 @@ public final class NativeStateStore {
   }
 
   private func writeRecord(_ record: [String: Any]) throws {
-    state = nil
     let data = try Self.json(record)
     guard data.count <= 4096 else { throw StateStoreError.invalid }
-    try keychain.put("record", data: data)
-    try fault?("recordResponse")
+    do {
+      try keychain.put("record", data: data)
+      try fault?("recordResponse")
+    } catch {
+      state = nil
+      throw error
+    }
   }
 
   private func durableWrite(_ bytes: Data, to next: URL, replacing target: URL) throws {
