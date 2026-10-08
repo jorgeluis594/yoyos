@@ -130,13 +130,18 @@ func (c *Controller) deliver() {
 		c.emit(event)
 	}
 }
-func (c *Controller) Close() {
-	c.Disconnect()
+func (c *Controller) Close() bool {
+	c.mu.Lock()
+	revoked := c.expired
+	c.retireLocked()
+	c.setState(Disconnected)
+	c.mu.Unlock()
 	c.eventMu.Lock()
 	c.closed = true
 	c.pendingEvents = nil
 	c.eventReady.Broadcast()
 	c.eventMu.Unlock()
+	return revoked
 }
 func (c *Controller) State() State { c.mu.Lock(); defer c.mu.Unlock(); return c.state }
 func (c *Controller) CanUpdateOptions() bool {

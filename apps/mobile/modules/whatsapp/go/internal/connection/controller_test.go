@@ -165,6 +165,31 @@ func TestStopRejectsLateEventsAndRevocationBlocksRelink(t *testing.T) {
 	}
 }
 
+func TestCloseReturnsRevocationAcceptedAfterNativeSinkRetires(t *testing.T) {
+	transport := newTransport()
+	c := New(func() (Transport, error) { return transport, nil }, func(Event) {}, nil)
+	c.Prepare(true)
+	if code := c.Connect(); code != "" {
+		t.Fatal(code)
+	}
+	channel := started(t, transport)
+	// Native has retired its sink; Go may still accept a revocation before Close.
+	channel <- TransportEvent{Kind: "revoked"}
+	deadline := time.Now().Add(time.Second)
+	for c.State() != SessionExpired && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if c.State() != SessionExpired {
+		t.Fatal("revocation was not accepted")
+	}
+	if !c.Close() {
+		t.Fatal("close lost a revocation accepted after sink retirement")
+	}
+	if c.State() != Disconnected {
+		t.Fatal("close did not retire the session")
+	}
+}
+
 func TestNetworkDeadlineRetriesAndLocalFaultWins(t *testing.T) {
 	clock := &testClock{now: time.Unix(0, 0), created: make(chan struct{}, 8)}
 	first, second := newTransport(), newTransport()

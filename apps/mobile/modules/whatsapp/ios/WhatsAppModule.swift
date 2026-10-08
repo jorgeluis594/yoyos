@@ -103,11 +103,10 @@ private final class ConnectionRuntime {
   }
 
   func stop() {
-    let sessionRevoked = session?.state() == "sessionExpired"
-    if eventSink?.retire() == true || sessionRevoked { revoked = true }
+    if eventSink?.retire() == true { revoked = true }
     eventSink = nil
     let hadSession = session != nil
-    session?.close()
+    if session?.close() == true { revoked = true }
     writer?.retireGeneration()
     session = nil
     if hadSession { emit?("connectionChanged", ["state": "disconnected"]) }

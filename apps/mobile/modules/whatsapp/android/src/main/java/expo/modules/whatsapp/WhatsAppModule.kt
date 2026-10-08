@@ -90,11 +90,10 @@ private object ConnectionRuntime {
   }
 
   fun stop() {
-    val sessionRevoked = session?.state() == "sessionExpired"
-    if (eventSink?.retire() == true || sessionRevoked) revoked = true
+    if (eventSink?.retire() == true) revoked = true
     eventSink = null
     val hadSession = session != null
-    session?.close()
+    if (session?.close() == true) revoked = true
     writer?.retireGeneration()
     session = null
     if (hadSession) emit?.invoke("connectionChanged", mapOf("state" to "disconnected"))
