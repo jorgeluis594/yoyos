@@ -47,6 +47,7 @@ final class StateStoreTests: XCTestCase {
     XCTAssertEqual(SecItemCopyMatching(query as CFDictionary, &result), errSecSuccess)
     let attributes = try XCTUnwrap(result as? [String: Any])
     XCTAssertEqual(attributes[kSecAttrAccessible as String] as? String, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String)
+    XCTAssertFalse((attributes[kSecAttrSynchronizable as String] as? Bool) ?? false)
     XCTAssertEqual((initial["options"] as? [String: Int])?["maxRecoveryBufferBytes"], 10 * 1024 * 1024)
     _ = try store.commit(expectedRevision: "0") { state in
       var next = state
@@ -67,8 +68,15 @@ final class StateStoreTests: XCTestCase {
     _ = try store.open()
     try store.beginSession(accountId: "123@lid", protocolBytes: Data("{\"protocolSchemaVersion\":1,\"records\":[]}".utf8))
     let original = try XCTUnwrap((store.open()["session"] as? [String: Any])?["ciphertextBase64"] as? String)
+    func containerNonce() throws -> Data {
+      let bytes = try Data(contentsOf: root.appendingPathComponent("whatsapp/state.bin"))
+      let length = bytes[8..<12].reduce(0) { ($0 << 8) | Int($1) }
+      return bytes[12+length..<24+length]
+    }
+    let outerNonce = try containerNonce()
     let next = try store.commit(expectedRevision: "1") { $0 }
     XCTAssertEqual((next["session"] as? [String: Any])?["ciphertextBase64"] as? String, original)
+    XCTAssertNotEqual(outerNonce, try containerNonce())
     XCTAssertTrue(try makeStore(root).canRestoreSession())
     let first = try XCTUnwrap(store.open()["session"] as? [String: Any])
     try store.endSession()
@@ -299,6 +307,7 @@ final class StateStoreTests: XCTestCase {
     let next = root.appendingPathComponent("whatsapp/state.next")
     try FileManager.default.createDirectory(at: next, withIntermediateDirectories: false)
     XCTAssertThrowsError(try writer.commit(expectedRevision: "0") { $0 })
+    XCTAssertThrowsError(try makeStore(root).open())
     try FileManager.default.removeItem(at: next)
     XCTAssertNoThrow(try makeStore(root).open())
   }

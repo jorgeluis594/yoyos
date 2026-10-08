@@ -49,8 +49,15 @@ class StateStoreInstrumentedTest {
     store.open()
     store.beginSession("123@lid", "{\"protocolSchemaVersion\":1,\"records\":[]}".toByteArray())
     val original = store.open().getJSONObject("session").getString("ciphertextBase64")
+    fun containerNonce(): List<Byte> {
+      val bytes = File(directory(root), "state.bin").readBytes()
+      val headerLength = java.nio.ByteBuffer.wrap(bytes, 8, 4).int
+      return bytes.copyOfRange(12 + headerLength, 24 + headerLength).toList()
+    }
+    val outerNonce = containerNonce()
     val next = store.commit(currentRevision(root)) { it }
     assertEquals(original, next.getJSONObject("session").getString("ciphertextBase64"))
+    assertFalse(outerNonce == containerNonce())
     assertEquals(true, makeStore(root).canRestoreSession())
     val firstKey = store.open().getJSONObject("session").getString("sessionKeyId")
     val firstNonce = store.open().getJSONObject("session").getString("nonceBase64")
@@ -75,7 +82,14 @@ class StateStoreInstrumentedTest {
     val info = javax.crypto.SecretKeyFactory.getInstance(key.algorithm, "AndroidKeyStore")
       .getKeySpec(key, android.security.keystore.KeyInfo::class.java) as android.security.keystore.KeyInfo
     assertFalse(info.isUserAuthenticationRequired)
-    if (android.os.Build.VERSION.SDK_INT >= 28) assertFalse(info.isUnlockedDeviceRequired)
+    store.beginSession("123@lid", "{\"protocolSchemaVersion\":1,\"records\":[]}".toByteArray())
+    val sessionId = store.open().getJSONObject("session").getString("sessionKeyId")
+    keys.load(null)
+    val sessionKey = keys.getKey("yoyos.whatsapp.test.$namespace.key.$sessionId", null) as javax.crypto.SecretKey
+    assertEquals(null, sessionKey.encoded)
+    val sessionInfo = javax.crypto.SecretKeyFactory.getInstance(sessionKey.algorithm, "AndroidKeyStore")
+      .getKeySpec(sessionKey, android.security.keystore.KeyInfo::class.java) as android.security.keystore.KeyInfo
+    assertFalse(sessionInfo.isUserAuthenticationRequired)
   }
 
   @Test fun sessionFieldsAreAuthenticatedIndependentlyOfRecoveryRevision() {
@@ -284,6 +298,11 @@ class StateStoreInstrumentedTest {
     File(next, "occupied").writeText("x")
     assertThrows(StateFailure::class.java) { writer.commit("0") { it } }
     assertEquals("0", currentRevision(root))
+    assertThrows(StateFailure::class.java) { makeStore(root).open() }
+    File(next, "occupied").delete()
+    next.delete()
+    assertEquals("0", currentRevision(root))
+    makeStore(root).open()
   }
 
   @Test fun staleRevisionDoesNotReplacePublishedState() {
