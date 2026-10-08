@@ -617,3 +617,79 @@ test("buyer keeps the selected district rate when an earlier real quotation arri
     expect(stored.total.toNumber()).toBe(22);
   } finally { release(); await page.unrouteAll({ behavior: "wait" }); await f.cleanup(); }
 });
+
+
+test("buyer pickup removes the shipping rate and ignores a quotation still in flight", async ({ page }) => {
+  const f = await fixture("none", true, false);
+  let attempts = 0;
+  let release!: () => void;
+  let received!: () => void;
+  let delivered!: () => void;
+  const hold = new Promise<void>(resolve => { release = resolve; });
+  const heldResponse = new Promise<void>(resolve => { received = resolve; });
+  const releasedResponse = new Promise<void>(resolve => { delivered = resolve; });
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const access = { companyId: f.companyId, userId: f.userId };
+      expect((await deliverySettings.saveZones({ method: "home", expectedVersion: 0,
+        zones: [{ kind: "new", name: "Home", enabled: true, districtCodes: ["150122"], price: { amount: 8, currency: "PEN" } }] }, access)).success).toBe(true);
+      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [],
+        store: { enabled: true, pickupPoint: { name: "Shop", address: "Pickup address", instructions: "Door 2" } } }, access)).success).toBe(true);
+    });
+    await page.route("**/api/quotations", async route => {
+      attempts++;
+      if (attempts !== 2) return route.continue();
+      const response = await route.fetch();
+      expect(response.status()).toBe(201);
+      received();
+      await hold;
+      await route.fulfill({ response });
+      delivered();
+    });
+    await page.goto(f.path);
+    await page.getByLabel("Nombre", { exact: true }).fill("Ana");
+    await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
+    await page.getByLabel("Nombre del destinatario").fill("Recipient");
+    await page.getByLabel("Teléfono del destinatario").fill("999");
+    await page.getByLabel("Departamento", { exact: true }).selectOption("15");
+    await page.getByLabel("Provincia", { exact: true }).selectOption("1501");
+    await page.getByLabel("Distrito", { exact: true }).selectOption("150122");
+    const rate = page.getByLabel("Tarifa de envío");
+    await browserExpect(rate.locator("option")).toHaveCount(2);
+    await rate.selectOption({ index: 1 });
+    const originalRate = await rate.inputValue();
+    await page.getByLabel("Dirección de entrega").fill("Original street");
+    await browserExpect(page.getByText("Total a pagar", { exact: true }).locator("..")).toContainText(/18[.,]00/);
+    const mode = page.getByLabel("Forma de entrega");
+    await mode.selectOption("store");
+    await browserExpect(page.getByText("Total a pagar", { exact: true }).locator("..")).toContainText(/10[.,]00/);
+    await browserExpect(rate).toHaveCount(0);
+    expect(attempts).toBe(1);
+    await mode.selectOption("ship");
+    await heldResponse;
+    await browserExpect(page.getByRole("button", { name: "Confirmar pedido", exact: true })).toBeDisabled();
+    await mode.selectOption("store");
+    release();
+    await releasedResponse;
+    await browserExpect(mode).toHaveValue("store");
+    await browserExpect(rate).toHaveCount(0);
+    await browserExpect(page.getByText("Gratis", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Total a pagar", { exact: true }).locator("..")).toContainText(/10[.,]00/);
+    await mode.selectOption("ship");
+    await browserExpect(rate.locator("option")).toHaveCount(2);
+    await browserExpect(rate).toHaveValue("");
+    expect(attempts).toBe(3);
+    await rate.selectOption({ index: 1 });
+    expect(await rate.inputValue()).not.toBe(originalRate);
+    await browserExpect(page.getByLabel("Dirección de entrega")).toHaveValue("Original street");
+    await mode.selectOption("store");
+    await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
+    await browserExpect(page.getByRole("heading", { name: "Pago del pedido", exact: true })).toBeVisible();
+    const stored = await f.read();
+    expect(stored.delivery).toMatchObject({ method: "store", pickupPoint: { address: "Pickup address" } });
+    expect(stored.delivery).not.toHaveProperty("pricing");
+    expect(stored.deliveryCharge.toNumber()).toBe(0);
+    expect(stored.total.toNumber()).toBe(10);
+    expect(attempts).toBe(3);
+  } finally { release(); await page.unrouteAll({ behavior: "wait" }); await f.cleanup(); }
+});
