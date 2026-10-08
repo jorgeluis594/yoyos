@@ -1,5 +1,6 @@
 export const translations = {
   es: {
+    orderDeliveryDestinationTitle: "Destino", orderDeliveryRecipientTitle: "Destinatario",
     invalidRatedAgencyRecipient: "Completa el nombre, el teléfono y el documento del destinatario.",
     orderDeliveryRate: "Tarifa de entrega", orderQuotationLoading: "Buscando tarifas…",
     orderQuotationError: "No se pudieron consultar las tarifas. Conservamos tus datos para reintentar.",
@@ -184,6 +185,7 @@ export const translations = {
     offlineEditing: 'Sin conexión. Puedes seguir editando.',
   },
   'pt-BR': {
+    orderDeliveryDestinationTitle: "Destino", orderDeliveryRecipientTitle: "Destinatário",
     invalidRatedAgencyRecipient: "Preencha o nome, o telefone e o documento do destinatário.",
     orderDeliveryRate: "Tarifa de entrega", orderQuotationLoading: "Buscando tarifas…",
     orderQuotationError: "Não foi possível consultar as tarifas. Mantemos seus dados para tentar novamente.",
