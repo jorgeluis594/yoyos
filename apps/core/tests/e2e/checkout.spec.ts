@@ -496,3 +496,53 @@ test("buyer waits for a district and recovers a failed quotation without losing 
     expect(stored.payments).toEqual([]);
   } finally { release(); await page.unrouteAll({ behavior: "wait" }); await f.cleanup(); }
 });
+
+
+test("buyer distinguishes uncovered shipping from an explicit free home rate", async ({ page }) => {
+  const f = await fixture("none", true, false);
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const access = { companyId: f.companyId, userId: f.userId };
+      expect((await deliverySettings.saveZones({ method: "home", expectedVersion: 0,
+        zones: [{ kind: "new", name: "Free home", enabled: true, districtCodes: ["150122"], price: { amount: 0, currency: "PEN" } }] }, access)).success).toBe(true);
+      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [],
+        store: { enabled: true, pickupPoint: { name: "Shop", address: "Pickup address", instructions: "Door 2" } } }, access)).success).toBe(true);
+    });
+    await page.goto(f.path);
+    await page.getByLabel("Nombre", { exact: true }).fill("Ana");
+    await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
+    await page.getByLabel("Nombre del destinatario").fill("Recipient");
+    await page.getByLabel("Teléfono del destinatario").fill("999");
+    await page.getByLabel("Departamento", { exact: true }).selectOption("04");
+    await page.getByLabel("Provincia", { exact: true }).selectOption("0401");
+    await page.getByLabel("Distrito", { exact: true }).selectOption("040110");
+    const confirm = page.getByRole("button", { name: "Confirmar pedido", exact: true });
+    await browserExpect(page.getByText("No hay opciones de envío para este distrito. Elige otro distrito o recojo en tienda.", { exact: true })).toBeVisible();
+    await browserExpect(confirm).toBeDisabled();
+    await browserExpect(page.getByLabel("Tarifa de envío")).toHaveCount(0);
+    await browserExpect(page.getByText("Gratis", { exact: true })).toHaveCount(0);
+    await page.getByLabel("Forma de entrega").selectOption("store");
+    await browserExpect(confirm).toBeEnabled();
+    await browserExpect(page.getByText("Pickup address", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Door 2", { exact: true })).toBeVisible();
+    await page.getByLabel("Forma de entrega").selectOption("ship");
+    await page.getByLabel("Departamento", { exact: true }).selectOption("15");
+    await page.getByLabel("Provincia", { exact: true }).selectOption("1501");
+    await page.getByLabel("Distrito", { exact: true }).selectOption("150122");
+    const rates = page.getByLabel("Tarifa de envío");
+    await browserExpect(rates.locator("option")).toHaveCount(2);
+    await browserExpect(rates.locator("option").nth(1)).toContainText("Gratis");
+    await rates.selectOption({ index: 1 });
+    await page.getByLabel("Dirección de entrega").fill("Street 123");
+    await browserExpect(page.getByText("Gratis", { exact: true })).toBeVisible();
+    await browserExpect(confirm).toBeEnabled();
+    await confirm.click();
+    await browserExpect(page.getByRole("heading", { name: "Pago del pedido", exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Saldo pendiente", { exact: true }).locator("..")).toContainText(/10[.,]00/);
+    const stored = await f.read();
+    expect(stored.delivery).toMatchObject({ method: "home", destination: { districtCode: "150122" }, pricing: { settingsVersion: 2 } });
+    expect(stored.total.toNumber()).toBe(10);
+    expect(stored.deliveryCharge.toNumber()).toBe(0);
+    expect(stored.payments).toEqual([]);
+  } finally { await f.cleanup(); }
+});
