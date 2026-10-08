@@ -93,7 +93,7 @@ func (n *controlledStorage) ApplyChanges(request string) (string, error) {
 	n.records = next
 	n.revision++
 	if len(a.ProtocolChanges) > 0 {
-		n.sessionRevision++
+		n.sessionRevision = n.revision
 	}
 	for i, p := range a.PendingInserts {
 		ordinal := uint32(i)
@@ -153,6 +153,22 @@ func TestEmptyReadAndReadFailure(t *testing.T) {
 	codeIs(t, e, StorageFailed)
 	_, e = Open(&badRead{}, "gen", "123@lid", 1, 1)
 	codeIs(t, e, StateInvalid)
+}
+
+func TestProtocolWriteAfterIndependentPendingConfirmation(t *testing.T) {
+	native := &controlledStorage{revision: 5, sessionRevision: 5}
+	protocol := openTest(t, native)
+	// Native-only pending confirmation advances the global revision, not sessionRevision.
+	native.revision = 6
+	if err := protocol.PutNCTSalt(context.Background(), []byte{1}); err != nil {
+		t.Fatal(err)
+	}
+	if native.revision != 7 || native.sessionRevision != 7 || protocol.StopReason() != nil {
+		t.Fatal("confirmation caused false uncertain commit")
+	}
+	if native.calls[0].ExpectedSessionRevision != "5" {
+		t.Fatal("wrong concurrency token")
+	}
 }
 
 type readFailure struct{}
@@ -453,6 +469,51 @@ func TestLIDDeviceMappingUsesAccountScopedKey(t *testing.T) {
 	}
 	if len(n.records) != 1 {
 		t.Fatalf("mapping records: %d", len(n.records))
+	}
+}
+
+func TestAppStateVersionAndMACsCommitAsOneTransaction(t *testing.T) {
+	native := &controlledStorage{}
+	s := openTest(t, native)
+	ctx := context.Background()
+	var oldIndex, newIndex [32]byte
+	oldIndex[0], newIndex[0] = 1, 2
+	if err := s.PutAppStateVersion(ctx, "regular", 1, [128]byte{1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutAppStateMutationMACs(ctx, "regular", 1, []store.AppStateMutationMAC{{IndexMAC: oldIndex[:], ValueMAC: make([]byte, 32)}}); err != nil {
+		t.Fatal(err)
+	}
+	before := len(native.calls)
+	err := s.DoDecryptionTxn(ctx, func(tx context.Context) error {
+		if err := s.PutAppStateVersion(tx, "regular", 2, [128]byte{2}); err != nil {
+			return err
+		}
+		if err := s.DeleteAppStateMutationMACs(tx, "regular", [][]byte{oldIndex[:]}); err != nil {
+			return err
+		}
+		if err := s.PutAppStateMutationMACs(tx, "regular", 2, []store.AppStateMutationMAC{{IndexMAC: newIndex[:], ValueMAC: make([]byte, 32)}}); err != nil {
+			return err
+		}
+		version, hash, err := s.GetAppStateVersion(tx, "regular")
+		if err != nil || version != 2 || hash[0] != 2 {
+			t.Fatal("transaction did not read staged version", err)
+		}
+		return nil
+	})
+	if err != nil || len(native.calls) != before+1 || len(native.calls[before].ProtocolChanges) != 3 {
+		t.Fatal("app-state update split into multiple publications", err)
+	}
+	reopened := openTest(t, native)
+	version, hash, err := reopened.GetAppStateVersion(ctx, "regular")
+	if err != nil || version != 2 || hash[0] != 2 {
+		t.Fatal("version absent on readback", err)
+	}
+	if mac, err := reopened.GetAppStateMutationMAC(ctx, "regular", newIndex[:]); err != nil || mac == nil {
+		t.Fatal("new MAC absent on readback", err)
+	}
+	if mac, err := reopened.GetAppStateMutationMAC(ctx, "regular", oldIndex[:]); err != nil || mac != nil {
+		t.Fatal("old MAC survived readback", err)
 	}
 }
 
