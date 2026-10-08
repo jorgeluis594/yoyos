@@ -52,12 +52,14 @@ export const setOrderDeliverySchema = setRatedOrderDeliverySchema;
 const legacySetOrderDeliverySchema = z.strictObject({ delivery: deliverySelectionSchema, chargeDeliveryToCustomer: z.boolean() });
 export type SetOrderDeliveryRequest = z.infer<typeof setOrderDeliverySchema>;
 
-export const completeOrderSchema = orderSelectionSchema.extend({
+export const legacyCompleteOrderSchema = orderSelectionSchema.extend({
   payments: z.array(z.strictObject({ paymentId: z.uuid(), amount: moneySchema,
     method: z.enum(["digital_wallet", "bank_transfer"]), deductStockIfPartial: z.boolean() })).optional(),
   delivery: legacySetOrderDeliverySchema.optional(),
   deliverImmediately: z.boolean().optional(),
 });
+export type LegacyCompleteOrderRequest = z.infer<typeof legacyCompleteOrderSchema>;
+export const completeOrderSchema = legacyCompleteOrderSchema.extend({ delivery: setOrderDeliverySchema.optional() });
 export const createRatedOrderSchema = completeOrderSchema.extend({ delivery: setRatedOrderDeliverySchema });
 export type CreateRatedOrderRequest = z.infer<typeof createRatedOrderSchema>;
 export type CompleteOrderRequest = z.infer<typeof completeOrderSchema>;

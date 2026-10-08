@@ -1,4 +1,4 @@
-import { completeOrderSchema, createRatedOrderSchema } from "@shared/contracts/orders";
+import { legacyCompleteOrderSchema, createRatedOrderSchema } from "@shared/contracts/orders";
 import { z } from "zod";
 import { currencies } from "@shared/money";
 import { err, ok } from "@shared/functional";
@@ -10,7 +10,7 @@ const legacyPendingSchema = z.strictObject({
   shownTotal: z.strictObject({ amount: z.number().positive().finite(), currency: z.enum(currencies) }),
 });
 
-const pendingSchema = z.union([legacyPendingSchema.extend({ version: z.literal(2), request: z.union([createRatedOrderSchema, completeOrderSchema]) })
+const pendingSchema = z.union([legacyPendingSchema.extend({ version: z.literal(2), request: z.union([createRatedOrderSchema, legacyCompleteOrderSchema]) })
   .refine(value => value.request.id === value.id, { message: "Pending order identity mismatch" }), legacyPendingSchema]);
 
 type Storage = Readonly<{

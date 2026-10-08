@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { listOrderAggregatesResponseSchema, listOrderAggregatesSchema, listOrdersResponseSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema,
-  type CompleteOrderRequest, type ListOrderAggregatesRequest, type ListOrdersRequest, type OrderAggregateResponse, type OrderApiError, type OrderApiIssue } from "@shared/contracts/orders";
+  type LegacyCompleteOrderRequest, type ListOrderAggregatesRequest, type ListOrdersRequest, type OrderAggregateResponse, type OrderApiError, type OrderApiIssue } from "@shared/contracts/orders";
 import { err, ok } from "@shared/functional";
 import { add, type Money } from "@shared/money";
 import { limaMidnightUtc, nextCalendarDay } from "@shared/orders-date";
@@ -12,7 +12,7 @@ export type PendingOrderConfirmation = Readonly<{
   companyId: OrderAggregateResponse["companyId"];
   id: string;
   shownTotal: Money;
-}> & ({ version?: never; request?: never } | { version: 2; request: OrderSubmission | CompleteOrderRequest });
+}> & ({ version?: never; request?: never } | { version: 2; request: OrderSubmission | LegacyCompleteOrderRequest });
 export type PendingOrderStoreError = Readonly<{
   code: "PENDING_CONFIRMATION" | "PENDING_STORAGE_UNAVAILABLE" | "INVALID_PENDING_DATA";
   message: string;

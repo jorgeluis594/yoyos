@@ -34,8 +34,8 @@ test("parses all customer filters and validates date and pagination", () => {
 test("complete creation accepts optional payments and delivery without client-calculated states", () => {
   const input = { id: id(1), contactId: null, items: [{ variantId: id(2), quantity: 1 }],
     payments: [{ paymentId: id(3), amount: { amount: 12, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false }],
-    delivery: { delivery: { method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
-      destination: { address: "Av. Lima 1", district: "Lima", instructions: null } }, chargeDeliveryToCustomer: true },
+    delivery: { delivery: { method: "home", rateId: id(4), recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
+      destination: { address: "Av. Lima 1", districtCode: "150122", instructions: null } }, expectedPrice: { amount: 2, currency: "PEN" } },
     deliverImmediately: false };
   expect(createOrderSchema.parse(input)).toEqual(input);
   for (const invalid of [{ ...input, status: "completed" }, { ...input, total: 12 },

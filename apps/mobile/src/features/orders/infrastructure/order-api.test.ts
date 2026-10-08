@@ -28,7 +28,7 @@ test.each(["home", "agency", "store"] as const)("creation refuses legacy %s deli
     : method === "agency" ? { method, recipient, courierId: id(4), agency: "Old agency" } : { method, recipient };
   for (const chargeDeliveryToCustomer of [true, false]) {
     expect(await api.create({ id: id(1), contactId: null, items: [{ variantId: id(2), quantity: 1 }],
-      delivery: { delivery, chargeDeliveryToCustomer } })).toMatchObject({ error: { code: "INVALID_INPUT" } });
+      delivery: { delivery, chargeDeliveryToCustomer } } as unknown as Parameters<typeof api.create>[0])).toMatchObject({ error: { code: "INVALID_INPUT" } });
   }
   expect(request).not.toHaveBeenCalled();
 });

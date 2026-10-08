@@ -1,6 +1,6 @@
 import { parseDeliverySelection, parseDeliverySnapshot } from "@core/src/features/orders/domain/order-state-machine";
 import { expect, test } from "vitest";
-import { deliverySnapshotSchema, deliverySelectionSchema, setOrderDeliverySchema, listOrdersSchema, orderApiErrorSchema, registerPaymentSchema, stockOutcomeSchema } from "@shared/contracts/orders";
+import { completeOrderSchema, legacyCompleteOrderSchema, deliverySnapshotSchema, deliverySelectionSchema, setOrderDeliverySchema, listOrdersSchema, orderApiErrorSchema, registerPaymentSchema, stockOutcomeSchema } from "@shared/contracts/orders";
 import { limaMidnightUtc, nextCalendarDay } from "@shared/orders-date";
 
 test("a Lima calendar day has its own UTC bounds across an offset change", () => {
@@ -122,5 +122,18 @@ test("the canonical assignment contract requires a reviewed price and rejects le
   for (const chargeDeliveryToCustomer of [true, false]) {
     expect(setOrderDeliverySchema.safeParse({ delivery, chargeDeliveryToCustomer }).success).toBe(false);
     expect(setOrderDeliverySchema.safeParse({ ...current, chargeDeliveryToCustomer }).success).toBe(false);
+  }
+});
+
+test("current creation rejects old deliveries while archived requests remain readable", () => {
+  const id = "00000000-0000-4000-8000-000000000001";
+  const base = { id, contactId: null, items: [{ variantId: id, quantity: 1 }] };
+  const delivery = { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } };
+  expect(completeOrderSchema.safeParse(base).success).toBe(true);
+  expect(completeOrderSchema.safeParse({ ...base, delivery: { delivery, expectedPrice: { amount: 0, currency: "PEN" } } }).success).toBe(true);
+  for (const chargeDeliveryToCustomer of [true, false]) {
+    const archived = { ...base, delivery: { delivery, chargeDeliveryToCustomer } };
+    expect(completeOrderSchema.safeParse(archived).success).toBe(false);
+    expect(legacyCompleteOrderSchema.safeParse(archived).success).toBe(true);
   }
 });
