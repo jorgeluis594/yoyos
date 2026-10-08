@@ -41,18 +41,6 @@ func openProtocolSession(writer: NativeStateStore, generationId: String, account
   return session
 }
 
-func openFreshProtocolSession(writer: NativeStateStore, generationId: String,
-                              readRecoveryBytes: Int64, newRecoveryBytes: Int64) throws -> YYWhatsAppGoBridgeFirstLinkSession {
-  try writer.registerFreshGeneration(generationId)
-  guard let result = YYWhatsAppGoBridgeNewFirstLinkProtocolStore(NativeProtocolStorage(writer: writer),
-                                                                  generationId, readRecoveryBytes, newRecoveryBytes),
-        result.code.isEmpty, let session = result.session else {
-    writer.retireGeneration()
-    throw StateStoreError.storage
-  }
-  return session
-}
-
 public class WhatsAppModule: Module {
   public func definition() -> ModuleDefinition {
     Name("WhatsApp")
