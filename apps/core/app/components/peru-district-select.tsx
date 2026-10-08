@@ -1,13 +1,9 @@
 import { useId, useState } from "react";
 import { Input } from "@core/app/components/ui/input";
 import { controlClass } from "@core/app/components/ui/field";
-import { getPeruDistrict, getPeruDistricts, getPeruProvinces, peruDepartments, type PeruDistrict, type PeruDistrictCode } from "@shared/peru-geography";
+import { filterPeruDistricts, getPeruDistrict, getPeruDistricts, getPeruProvinces, peruDepartments, type PeruDistrictCode } from "@shared/peru-geography";
 
-export function filterPeruDistricts(districts: readonly PeruDistrict[], query: string): readonly PeruDistrict[] {
-  const normalize = (value: string) => value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLocaleLowerCase("es").trim();
-  const term = normalize(query);
-  return districts.filter(district => normalize(district.name).includes(term) || district.code.includes(term));
-}
+export { filterPeruDistricts } from "@shared/peru-geography";
 
 export function PeruDistrictSelect({ value, onChange, disabled = false }: Readonly<{
   value: PeruDistrictCode | null; onChange: (value: PeruDistrictCode | null) => void; disabled?: boolean;

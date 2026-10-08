@@ -38,3 +38,9 @@ export function parsePeruDistrictCode(value: unknown): Result<PeruDistrictCode, 
   const district = typeof value === "string" ? getPeruDistrict(value) : null;
   return district ? ok(district.code) : err({ code: "INVALID_DISTRICT", message: "Select a district from the Peru catalog" });
 }
+
+export function filterPeruDistricts(districts: readonly PeruDistrict[], query: string): readonly PeruDistrict[] {
+  const normalize = (value: string) => value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLocaleLowerCase("es").trim();
+  const term = normalize(query);
+  return districts.filter(district => normalize(district.name).includes(term) || district.code.includes(term));
+}
