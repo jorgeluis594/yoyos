@@ -295,13 +295,13 @@ test("legacy recovery reviews an explicit rate while retaining recipient and ori
     recipient: pending.request.delivery.delivery.recipient, destination: { districtCode: "150122", address: "Original street", instructions: "Door 2" } } };
   const revised = { ...pending, shownTotal: { amount: 22, currency: "PEN" }, request: { ...pending.request, delivery } };
   mockReviewPending.mockResolvedValueOnce(err({ code: "PENDING_STORAGE_UNAVAILABLE", message: "Cannot save" }));
-  fireEvent.press(screen.getByRole("button", { name: "Guardar entrega revisada" }));
+  await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar entrega revisada" })); });
   await waitFor(() => expect(mockReviewPending).toHaveBeenCalledWith(mockId(1), delivery));
   await screen.findByText("No se pudo guardar la confirmación pendiente. Reintenta sin salir.");
   await waitFor(() => expect(screen.getByRole("button", { name: "Guardar entrega revisada" })).toBeEnabled());
   expect(screen.getByLabelText(/Dirección de entrega/)).toHaveProp("value", "Original street");
   mockReviewPending.mockResolvedValueOnce(ok({ kind: "uncertain", pending: revised }));
-  fireEvent.press(screen.getByRole("button", { name: "Guardar entrega revisada" }));
+  await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar entrega revisada" })); });
   await waitFor(() => expect(screen.queryByRole("button", { name: "Guardar entrega revisada" })).toBeNull());
   expect(mockCompleteOrder).not.toHaveBeenCalled();
   expect(mockResendPending).not.toHaveBeenCalled();
