@@ -1,3 +1,4 @@
+import type { OrderSubmission } from "@mobile/features/orders/domain/order-draft";
 import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
 import { z } from "zod";
 import { createRatedOrderSchema, createOrderSchema, listOrderAggregatesResponseSchema, listOrderAggregatesSchema, listOrdersResponseSchema, listOrdersSchema, orderAggregateSchema, orderApiErrorSchema,
@@ -156,7 +157,7 @@ export function createOrderApi(request: Request) {
       if (!z.uuid().safeParse(id).success) return err({ code: "INVALID_INPUT", message: "Invalid order ID" });
       return response(await request(`/api/orders/${id}/aggregate`), orderAggregateSchema, "get");
     },
-    create: async (input: CreateOrderRequest | CreateRatedOrderRequest): Promise<Result<OrderAggregateResponse, OrderRequestError>> => {
+    create: async (input: OrderSubmission | CreateOrderRequest | CreateRatedOrderRequest): Promise<Result<OrderAggregateResponse, OrderRequestError>> => {
       const parsed = z.union([createRatedOrderSchema, createOrderSchema]).safeParse(input);
       if (!parsed.success) return err({ code: "INVALID_INPUT", message: "Invalid order request" });
       return response(await request("/api/orders", { method: "POST", headers: { "content-type": "application/json" },

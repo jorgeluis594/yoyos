@@ -47,3 +47,24 @@ test("versioned pending requests survive restart unchanged and reject mismatched
   values.set(`yoyos_pending_order_${id(1)}`, JSON.stringify({ ...pending, request: { ...pending.request, id: id(9) } }));
   expect(await restarted.read(id(1))).toMatchObject({ success: false, error: { code: "INVALID_PENDING_DATA" } });
 });
+
+test("rated pending creation survives restart without losing the reviewed price or selected rate", async () => {
+  const values = new Map<string, string>();
+  const storage = { getItemAsync: async (key: string) => values.get(key) ?? null,
+    setItemAsync: async (key: string, value: string) => { values.set(key, value); }, deleteItemAsync: async (key: string) => { values.delete(key); } };
+  const pending = { version: 2 as const, companyId: id(1), id: id(2), shownTotal: { amount: 58, currency: "PEN" as const },
+    request: { id: id(2), contactId: null, items: [{ variantId: id(3), quantity: 1 }], delivery: {
+      expectedPrice: { amount: 8, currency: "PEN" as const }, delivery: {
+        method: "home" as const, rateId: id(6), recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } },
+        destination: { districtCode: "150122", address: "Calle 123", instructions: null },
+      },
+    } } };
+  expect(await createPendingOrderConfirmationStore(storage).save(pending)).toEqual({ success: true, data: pending });
+  const restarted = createPendingOrderConfirmationStore(storage);
+  expect(await restarted.read(id(1))).toEqual({ success: true, data: pending });
+  expect(await restarted.save({ ...pending, request: { ...pending.request, delivery: { ...pending.request.delivery,
+    expectedPrice: { amount: 10, currency: "PEN" as const } } } })).toEqual({ success: true, data: pending });
+  values.set(`yoyos_pending_order_${id(1)}`, JSON.stringify({ ...pending, request: { ...pending.request,
+    delivery: { ...pending.request.delivery, chargeDeliveryToCustomer: false } } }));
+  expect(await restarted.read(id(1))).toMatchObject({ success: false, error: { code: "INVALID_PENDING_DATA" } });
+});

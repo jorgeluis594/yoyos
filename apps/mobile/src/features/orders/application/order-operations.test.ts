@@ -233,3 +233,30 @@ test("in-flight outcomes never cross company boundaries", async () => {
   expect(first).toMatchObject({ success: true, data: { kind: "uncertain", pending: { companyId } } });
   expect(second).toMatchObject({ success: true, data: { kind: "uncertain", pending: { companyId: id(9) } } });
 });
+
+test("rated creation resends its exact reviewed selection after restart and clears a price rejection", async () => {
+  const bodies: unknown[] = [];
+  let reject = false;
+  const api = createOrderApi(async (path, init) => {
+    if (path === "/api/orders") {
+      bodies.push(JSON.parse(String(init?.body)));
+      return reject ? err({ code: "API_ERROR", message: "Price changed", http: { status: 409,
+        body: { code: "TOTAL_CHANGED", error: "Price changed", currentPrice: { amount: 10, currency: "PEN" } } } })
+        : err({ code: "NETWORK_ERROR", message: "Lost response" });
+    }
+    return err({ code: "API_ERROR", message: "Missing", http: { status: 404, body: { code: "ORDER_NOT_FOUND", error: "Missing" } } });
+  });
+  const selected = { ...draft(), ratedDelivery: { expectedPrice: { amount: 8, currency: "PEN" as const }, delivery: {
+    method: "home" as const, rateId: id(6), recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } },
+    destination: { districtCode: "150122", address: "Calle 123", instructions: null },
+  } } };
+  const store = storage();
+  expect(await createOrderOperations(api, store).completeOrder(selected, companyId)).toMatchObject({ success: true,
+    data: { kind: "uncertain", pending: { shownTotal: { amount: 18, currency: "PEN" }, request: { delivery: selected.ratedDelivery } } } });
+  reject = true;
+  expect(await createOrderOperations(api, store).resendPendingOrder(companyId)).toMatchObject({ success: false,
+    error: { code: "TOTAL_CHANGED", currentPrice: { amount: 10, currency: "PEN" } } });
+  expect(bodies).toEqual([expect.objectContaining({ delivery: selected.ratedDelivery }), bodies[0]]);
+  expect(await store.read(companyId)).toEqual(ok(null));
+  expect(selected.ratedDelivery.expectedPrice.amount).toBe(8);
+});

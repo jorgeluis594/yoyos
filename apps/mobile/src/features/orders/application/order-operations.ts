@@ -5,7 +5,7 @@ import { err, ok } from "@shared/functional";
 import type { Money } from "@shared/money";
 import { limaMidnightUtc, nextCalendarDay } from "@shared/orders-date";
 import type { Result } from "@shared/result";
-import { prepareOrder, type CartError, type OrderDraft, type OrderSubmission } from "@mobile/features/orders/domain/order-draft";
+import { prepareOrder, type CartError, type OrderDraft, type OrderSubmission, type RatedDeliveryAssignment } from "@mobile/features/orders/domain/order-draft";
 import type { TransportError } from "@mobile/shared/application/transport-error";
 
 export type PendingOrderConfirmation = Readonly<{
@@ -37,17 +37,7 @@ export type OrderListCriteria = Readonly<{
   throughDay?: string;
 }>;
 
-type DeliveryIdentity = Readonly<{ kind: "absent" }>
-  | Readonly<{ kind: "document"; documentType: "national_id" | "passport" | "foreign_id"; document: string }>;
-type DeliveryRecipient = Readonly<{ name: string; phone: string; identity: DeliveryIdentity }>;
-export type RatedDeliveryAssignment = Readonly<{
-  expectedPrice: Money;
-  delivery: Readonly<{ method: "store"; recipient: DeliveryRecipient }>
-    | Readonly<{ method: "home"; recipient: DeliveryRecipient; rateId: string;
-        destination: Readonly<{ districtCode: string; address: string; instructions: string | null }> }>
-    | Readonly<{ method: "agency"; recipient: DeliveryRecipient & { identity: Extract<DeliveryIdentity, { kind: "document" }> };
-        rateId: string; districtCode: string }>;
-}>;
+export type { RatedDeliveryAssignment } from "@mobile/features/orders/domain/order-draft";
 
 type Api = Readonly<{
   setDelivery: (orderId: string, input: SetOrderDeliveryRequest | RatedDeliveryAssignment) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
