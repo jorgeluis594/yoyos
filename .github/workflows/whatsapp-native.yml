@@ -230,7 +230,7 @@ jobs:
             -skip-testing:WhatsAppStateStoreHostTests/StateStoreTests/testResetCrashMatrix \
             -skip-testing:WhatsAppStateStoreHostTests/StateStoreTests/testActualENOSPCOnBoundedVolume test-without-building \
             | tee "$RUNNER_TEMP/wa02-storage-tests.log"
-          grep -Eq 'Executed 25 tests, with 0 failures' "$RUNNER_TEMP/wa02-storage-tests.log"
+          grep -Eq 'Executed 27 tests, with 0 failures' "$RUNNER_TEMP/wa02-storage-tests.log"
           xcodebuild -workspace WhatsAppNativeProbe.xcworkspace -scheme WhatsAppStateStoreHostTests \
             -configuration Release -derivedDataPath "$RUNNER_TEMP/wa-host" \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \

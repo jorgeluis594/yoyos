@@ -154,7 +154,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
       writeRecord(record.put("readBudget", nextBound).put("preparedRevision", (revision + BigInteger.ONE).toString()))
       readBudget = nextBound
       publish(next, revision + BigInteger.ONE)
-      current = next
+      current = JSONObject(next.toString())
       observedPublication = publication
       return JSONObject(next.toString())
     } catch (e: Exception) {
