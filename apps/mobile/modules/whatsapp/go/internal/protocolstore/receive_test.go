@@ -16,6 +16,43 @@ type stagingProcessor struct {
 	fail  bool
 }
 
+type resolvedSenderProcessor struct{ senderAlt string }
+
+func (p *resolvedSenderProcessor) ReplayRecoveredProtocol(_ context.Context, info *types.MessageInfo, _ string, _ []byte) error {
+	p.senderAlt = info.SenderAlt.String()
+	return nil
+}
+
+func TestCapturedReceiveResolvesSenderBeforeProtocolStage(t *testing.T) {
+	native := &controlledStorage{}
+	protocol := openTest(t, native)
+	pn := types.NewJID("456", types.DefaultUserServer)
+	lid := types.NewJID("789", types.HiddenUserServer)
+	if err := protocol.PutLIDMapping(context.Background(), lid, pn); err != nil {
+		t.Fatal(err)
+	}
+	info := &types.MessageInfo{MessageSource: types.MessageSource{Chat: types.NewJID("999", types.GroupServer), Sender: pn, IsGroup: true}, ID: "message", Timestamp: time.Unix(123, 0)}
+	node := &waBinary.Node{Content: []waBinary.Node{{Tag: "enc", Attrs: waBinary.Attrs{"v": "2", "type": "msg"}, Content: []byte{1}}}}
+	processor := &resolvedSenderProcessor{}
+	ctx, err := CaptureReceive(context.Background(), "123@lid", info, node,
+		func(c CapturedReceive, _ CapturedChild, _ []byte) (string, json.RawMessage, error) {
+			var metadata map[string]any
+			if err := json.Unmarshal([]byte(c.MessageInfoJSON), &metadata); err != nil || metadata["senderAlt"] != lid.String() {
+				t.Fatal("pending metadata kept stale sender", err)
+			}
+			return "pendingLid", nil, nil
+		}, processor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = protocol.DoDecryptionTxn(store.WithBufferedEventChild(ctx, 0), func(tx context.Context) error {
+		return protocol.PutBufferedEvent(tx, [32]byte{1}, []byte("plain"), time.Unix(123, 0))
+	})
+	if err != nil || processor.senderAlt != lid.String() || len(native.pending) != 1 {
+		t.Fatal("effective sender was not staged", err)
+	}
+}
+
 func (p stagingProcessor) ReplayRecoveredProtocol(ctx context.Context, info *types.MessageInfo, _ string, plaintext []byte) error {
 	if p.fail {
 		return failure(StorageFailed, "post-decryption storage failed")

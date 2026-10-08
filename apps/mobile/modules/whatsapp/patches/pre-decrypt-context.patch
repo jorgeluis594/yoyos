@@ -146,12 +146,54 @@ index 41dc2be..5539b8e 100644
  }
  
  func (proc *Processor) validateSnapshotMAC(ctx context.Context, name WAPatchName, currentState HashState, keyID, expectedSnapshotMAC []byte) (keys ExpandedAppStateKeys, err error) {
+diff --git a/appstate/recovery.go b/appstate/recovery.go
+index 40946c3..484ff6e 100644
+--- a/appstate/recovery.go
++++ b/appstate/recovery.go
+@@ -49,6 +49,17 @@ func ParseRecovery(
+ }
+ 
+ func (proc *Processor) ProcessRecovery(ctx context.Context, recovery *waSyncdSnapshotRecovery.SyncdSnapshotRecovery) ([]Mutation, error) {
++	var mutations []Mutation
++	err := proc.Store.EventBuffer.DoDecryptionTxn(ctx, func(tx context.Context) error {
++		var err error
++		mutations, err = proc.StageRecovery(tx, recovery)
++		return err
++	})
++	return mutations, err
++}
++
++// StageRecovery is called only inside the receive transaction, before pending admission.
++func (proc *Processor) StageRecovery(ctx context.Context, recovery *waSyncdSnapshotRecovery.SyncdSnapshotRecovery) ([]Mutation, error) {
+ 	if len(recovery.GetCollectionLthash()) != 128 {
+ 		return nil, fmt.Errorf("invalid lthash length: %d", len(recovery.GetCollectionLthash()))
+ 	}
+@@ -81,16 +92,13 @@ func (proc *Processor) ProcessRecovery(ctx context.Context, recovery *waSyncdSna
+ 			PatchVersion: version,
+ 		}
+ 	}
+-	err := proc.Store.AppState.DeleteAppStateVersion(ctx, name)
+-	if err != nil {
++	if err := proc.Store.AppState.DeleteAppStateVersion(ctx, name); err != nil {
+ 		return mutations, fmt.Errorf("failed to reset app state version in database: %w", err)
+ 	}
+-	err = proc.Store.AppState.PutAppStateVersion(ctx, name, version, *(*[128]byte)(recovery.GetCollectionLthash()))
+-	if err != nil {
++	if err := proc.Store.AppState.PutAppStateVersion(ctx, name, version, *(*[128]byte)(recovery.GetCollectionLthash())); err != nil {
+ 		return mutations, fmt.Errorf("failed to update app state version in the database: %w", err)
+ 	}
+-	err = proc.Store.AppState.PutAppStateMutationMACs(ctx, name, version, macs)
+-	if err != nil {
++	if err := proc.Store.AppState.PutAppStateMutationMACs(ctx, name, version, macs); err != nil {
+ 		return mutations, fmt.Errorf("failed to insert added mutation MACs to the database: %w", err)
+ 	}
+ 	return mutations, nil
 diff --git a/appstate/wa03_atomic_test.go b/appstate/wa03_atomic_test.go
 new file mode 100644
-index 0000000..acc508c
+index 0000000..ef1f3bc
 --- /dev/null
 +++ b/appstate/wa03_atomic_test.go
-@@ -0,0 +1,64 @@
+@@ -0,0 +1,87 @@
 +package appstate
 +
 +import (
@@ -159,7 +201,9 @@ index 0000000..acc508c
 +	"errors"
 +	"testing"
 +
++	"go.mau.fi/whatsmeow/proto/waSyncdSnapshotRecovery"
 +	"go.mau.fi/whatsmeow/store"
++	"google.golang.org/protobuf/proto"
 +)
 +
 +type wa03TxnKey struct{}
@@ -196,6 +240,9 @@ index 0000000..acc508c
 +func (s *wa03MACStore) PutAppStateVersion(ctx context.Context, _ string, _ uint64, _ [128]byte) error {
 +	return s.record(ctx, "version")
 +}
++func (s *wa03MACStore) DeleteAppStateVersion(ctx context.Context, _ string) error {
++	return s.record(ctx, "reset")
++}
 +func (s *wa03MACStore) DeleteAppStateMutationMACs(ctx context.Context, _ string, _ [][]byte) error {
 +	return s.record(ctx, "remove")
 +}
@@ -214,6 +261,24 @@ index 0000000..acc508c
 +	macs.fail = false
 +	if err := processor.storeMACs(context.Background(), "regular", HashState{Version: 2}, &patchOutput{}); err != nil || buffer.calls != 2 || buffer.commits != 1 {
 +		t.Fatal("app-state update did not commit as one unit", err)
++	}
++}
++
++func TestWA03FatalRecoveryResetIsAtomic(t *testing.T) {
++	buffer := &wa03TxnBuffer{}
++	macs := &wa03MACStore{fail: true}
++	processor := &Processor{Store: &store.Device{EventBuffer: buffer, AppState: macs}}
++	recovery := &waSyncdSnapshotRecovery.SyncdSnapshotRecovery{
++		Version:        &waSyncdSnapshotRecovery.SyncdVersion{Version: proto.Uint64(2)},
++		CollectionName: proto.String("regular"), CollectionLthash: make([]byte, 128),
++	}
++	_, err := processor.ProcessRecovery(context.Background(), recovery)
++	if !errors.Is(err, store.ErrLocalStorage) || buffer.calls != 1 || buffer.commits != 0 || len(macs.steps) != 3 {
++		t.Fatal("fatal recovery published partial reset", err, buffer, macs.steps)
++	}
++	macs.fail = false
++	if _, err := processor.ProcessRecovery(context.Background(), recovery); err != nil || buffer.calls != 2 || buffer.commits != 1 {
++		t.Fatal("fatal recovery did not commit one reset/version/MAC operation", err)
 +	}
 +}
 diff --git a/armadillomessage.go b/armadillomessage.go
@@ -335,6 +400,56 @@ index 54fc0a4..9f97d14 100644
  }
  
  const unifiedOffset = 3 * 24 * time.Hour
+diff --git a/history_recovery.go b/history_recovery.go
+new file mode 100644
+index 0000000..d26f5e4
+--- /dev/null
++++ b/history_recovery.go
+@@ -0,0 +1,44 @@
++package whatsmeow
++
++import (
++	"errors"
++
++	"go.mau.fi/whatsmeow/proto/waHistorySync"
++	"go.mau.fi/whatsmeow/proto/waWeb"
++	"go.mau.fi/whatsmeow/types"
++	"go.mau.fi/whatsmeow/types/events"
++	"google.golang.org/protobuf/proto"
++)
++
++// CapturedHistoryMessage owns one historical message, never the compressed batch.
++type CapturedHistoryMessage struct {
++	ChatJID    string
++	OrderID    uint64
++	WebMessage []byte
++}
++
++func CaptureHistoryMessage(chat types.JID, item *waHistorySync.HistorySyncMsg) (CapturedHistoryMessage, error) {
++	if chat.IsEmpty() || item == nil || item.GetMessage() == nil || item.GetMessage().GetKey().GetID() == "" {
++		return CapturedHistoryMessage{}, errors.New("historical message context missing")
++	}
++	raw, err := proto.Marshal(item.GetMessage())
++	if err != nil {
++		return CapturedHistoryMessage{}, err
++	}
++	return CapturedHistoryMessage{ChatJID: chat.String(), OrderID: item.GetMsgOrderID(), WebMessage: raw}, nil
++}
++
++func (captured CapturedHistoryMessage) Reconstruct(client *Client) (*events.Message, error) {
++	if client == nil || len(captured.WebMessage) == 0 {
++		return nil, errors.New("historical replay context missing")
++	}
++	chat, err := types.ParseJID(captured.ChatJID)
++	if err != nil {
++		return nil, err
++	}
++	var web waWeb.WebMessageInfo
++	if err := proto.Unmarshal(captured.WebMessage, &web); err != nil {
++		return nil, err
++	}
++	return client.ParseWebMessage(chat, &web)
++}
 diff --git a/internals.go b/internals.go
 index d9ce814..bc33354 100644
 --- a/internals.go
@@ -482,7 +597,7 @@ index d9ce814..bc33354 100644
  
  func (int *DangerousInternalClient) UpdatePushName(ctx context.Context, user, userAlt types.JID, messageInfo *types.MessageInfo, name string) {
 diff --git a/message.go b/message.go
-index 98e97f6..727148f 100644
+index 98e97f6..0c7e3ed 100644
 --- a/message.go
 +++ b/message.go
 @@ -48,17 +48,6 @@ func (cli *Client) handleEncryptedMessage(ctx context.Context, node *waBinary.No
@@ -514,7 +629,7 @@ index 98e97f6..727148f 100644
  	evt := &events.Message{
  		Info:       *info,
  		RawMessage: &msg,
-@@ -307,20 +298,59 @@ func (cli *Client) handlePlaintextMessage(ctx context.Context, info *types.Messa
+@@ -307,20 +298,48 @@ func (cli *Client) handlePlaintextMessage(ctx context.Context, info *types.Messa
  	return cli.dispatchEvent(evt.UnwrapRaw())
  }
  
@@ -546,17 +661,6 @@ index 98e97f6..727148f 100644
 +			cli.MessageReceiveFinished(ctx, info, receiveErr)
  		}
  	}()
-+	if cli.PreDecryptMessage != nil {
-+		prepared, err := cli.PreDecryptMessage(ctx, info, node)
-+		if err != nil || prepared == nil {
-+			cli.Log.Errorf("Message context hook rejected processing")
-+			if err != nil {
-+				return err
-+			}
-+			return errors.New("message context hook returned nil context")
-+		}
-+		ctx = prepared
-+	}
 +	if !info.SenderAlt.IsEmpty() {
 +		if err := cli.StoreLIDPNMapping(ctx, info.SenderAlt, info.Sender); err != nil {
 +			return errors.Join(store.ErrLocalStorage, err)
@@ -579,7 +683,7 @@ index 98e97f6..727148f 100644
  	unavailableNode, ok := node.GetOptionalChildByTag("unavailable")
  	if ok && len(node.GetChildrenByTag("enc")) == 0 {
  		uType := events.UnavailableType(unavailableNode.AttrGetter().String("type"))
-@@ -340,11 +370,15 @@ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo,
+@@ -340,22 +359,38 @@ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo,
  	if info.Sender.Server == types.DefaultUserServer && !info.Sender.IsBot() {
  		if info.SenderAlt.Server == types.HiddenUserServer {
  			senderEncryptionJID = info.SenderAlt
@@ -598,9 +702,20 @@ index 98e97f6..727148f 100644
  			senderEncryptionJID = lid
  			info.SenderAlt = lid
  		} else {
-@@ -352,10 +386,11 @@ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo,
+ 			cli.Log.Warnf("No LID found for %s", info.Sender)
  		}
  	}
++	if cli.PreDecryptMessage != nil {
++		prepared, err := cli.PreDecryptMessage(ctx, info, node)
++		if err != nil || prepared == nil {
++			cli.Log.Errorf("Message context hook rejected processing")
++			if err != nil {
++				return err
++			}
++			return errors.New("message context hook returned nil context")
++		}
++		ctx = prepared
++	}
  	var recognizedStanza, protobufFailed bool
 -	for _, child := range children {
 +	for childIndex, child := range children {
@@ -857,7 +972,7 @@ index 98e97f6..727148f 100644
  	cli.appStateKeyRequestsLock.RUnlock()
 +	return onlyResyncIfNotSynced, nil
 +}
- 
++
 +func (cli *Client) handleAppStateSyncKeyShare(ctx context.Context, keys *waE2E.AppStateSyncKeyShare) error {
 +	onlyResyncIfNotSynced, err := cli.storeAppStateSyncKeys(ctx, keys)
 +	if err != nil {
@@ -865,7 +980,7 @@ index 98e97f6..727148f 100644
 +	}
 +	return cli.fetchAppStateAfterKeys(ctx, onlyResyncIfNotSynced)
 +}
-+
+ 
 +func (cli *Client) fetchAppStateAfterKeys(ctx context.Context, onlyResyncIfNotSynced bool) error {
  	for _, name := range appstate.AllPatchNames {
  		err := cli.FetchAppState(ctx, name, false, onlyResyncIfNotSynced)
@@ -1127,7 +1242,7 @@ index 98e97f6..727148f 100644
  	lidPairs := make([]store.LIDMapping, 0, len(mappings))
  	for _, mapping := range mappings {
  		pn, err := types.ParseJID(mapping.GetPnJID())
-@@ -1162,20 +1290,81 @@ func (cli *Client) storeHistoricalPNLIDMappings(ctx context.Context, mappings []
+@@ -1162,20 +1290,99 @@ func (cli *Client) storeHistoricalPNLIDMappings(ctx context.Context, mappings []
  		zerolog.Ctx(ctx).Err(err).
  			Int("pair_count", len(lidPairs)).
  			Msg("Failed to store phone number to LID mappings from history sync")
@@ -1194,6 +1309,24 @@ index 98e97f6..727148f 100644
 +			if keys := protocol.GetAppStateSyncKeyShare(); keys != nil {
 +				if _, err := cli.storeAppStateSyncKeys(ctx, keys); err != nil {
 +					return err
++				}
++			}
++			if peer := protocol.GetPeerDataOperationRequestResponseMessage(); peer != nil && info.Sender.Device == 0 &&
++				peer.GetPeerDataOperationRequestType() == waE2E.PeerDataOperationRequestType_COMPANION_SYNCD_SNAPSHOT_FATAL_RECOVERY {
++				results := peer.GetPeerDataOperationResult()
++				if len(results) > 0 && results[0].GetSyncdSnapshotFatalRecoveryResponse() != nil {
++					snapshot, err := appstate.ParseRecovery(results[0].GetSyncdSnapshotFatalRecoveryResponse())
++					if err == nil {
++						current, _, err := cli.Store.AppState.GetAppStateVersion(ctx, snapshot.GetCollectionName())
++						if err != nil {
++							return errors.Join(store.ErrLocalStorage, err)
++						}
++						if current < snapshot.GetVersion().GetVersion() {
++							if _, err := cli.appStateProc.StageRecovery(ctx, snapshot); err != nil {
++								return err
++							}
++						}
++					}
 +				}
 +			}
 +		}
@@ -1751,10 +1884,10 @@ index 7075357..ba70a5c 100644
  func parseVerifiedName(businessNode waBinary.Node) (*types.VerifiedName, error) {
 diff --git a/wa03_receive_test.go b/wa03_receive_test.go
 new file mode 100644
-index 0000000..eca81bf
+index 0000000..a0f1fdc
 --- /dev/null
 +++ b/wa03_receive_test.go
-@@ -0,0 +1,575 @@
+@@ -0,0 +1,654 @@
 +package whatsmeow
 +
 +import (
@@ -1771,9 +1904,12 @@ index 0000000..eca81bf
 +	"go.mau.fi/libsignal/protocol"
 +	"go.mau.fi/libsignal/signalerror"
 +	waBinary "go.mau.fi/whatsmeow/binary"
++	"go.mau.fi/whatsmeow/proto/waCommon"
 +	"go.mau.fi/whatsmeow/proto/waE2E"
 +	"go.mau.fi/whatsmeow/proto/waHistorySync"
 +	"go.mau.fi/whatsmeow/proto/waMsgTransport"
++	"go.mau.fi/whatsmeow/proto/waSyncdSnapshotRecovery"
++	"go.mau.fi/whatsmeow/proto/waWeb"
 +	"go.mau.fi/whatsmeow/store"
 +	"go.mau.fi/whatsmeow/types"
 +	"go.mau.fi/whatsmeow/types/events"
@@ -2287,6 +2423,57 @@ index 0000000..eca81bf
 +	}
 +}
 +
++type failingRecoveryStore struct {
++	store.AppStateStore
++	writes []string
++}
++
++func (*failingRecoveryStore) GetAppStateVersion(context.Context, string) (uint64, [128]byte, error) {
++	return 0, [128]byte{}, nil
++}
++func (s *failingRecoveryStore) DeleteAppStateVersion(context.Context, string) error {
++	s.writes = append(s.writes, "reset")
++	return nil
++}
++func (s *failingRecoveryStore) PutAppStateVersion(context.Context, string, uint64, [128]byte) error {
++	s.writes = append(s.writes, "version")
++	return nil
++}
++func (s *failingRecoveryStore) PutAppStateMutationMACs(context.Context, string, uint64, []store.AppStateMutationMAC) error {
++	s.writes = append(s.writes, "mac")
++	return store.ErrLocalStorage
++}
++
++func TestRecoveredFatalAppStateResponseStagesBeforePending(t *testing.T) {
++	snapshot, err := proto.Marshal(&waSyncdSnapshotRecovery.SyncdSnapshotRecovery{
++		Version:        &waSyncdSnapshotRecovery.SyncdVersion{Version: proto.Uint64(2)},
++		CollectionName: proto.String("regular"), CollectionLthash: make([]byte, 128),
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++	requestType := waE2E.PeerDataOperationRequestType_COMPANION_SYNCD_SNAPSHOT_FATAL_RECOVERY
++	msg := &waE2E.Message{ProtocolMessage: &waE2E.ProtocolMessage{
++		PeerDataOperationRequestResponseMessage: &waE2E.PeerDataOperationRequestResponseMessage{
++			PeerDataOperationRequestType: &requestType,
++			PeerDataOperationResult: []*waE2E.PeerDataOperationRequestResponseMessage_PeerDataOperationResult{{
++				SyncdSnapshotFatalRecoveryResponse: &waE2E.PeerDataOperationRequestResponseMessage_PeerDataOperationResult_SyncDSnapshotFatalRecoveryResponse{CollectionSnapshot: snapshot},
++			}},
++		},
++	}}
++	plaintext, err := proto.Marshal(msg)
++	if err != nil {
++		t.Fatal(err)
++	}
++	storage := &failingRecoveryStore{}
++	client := NewClient(&store.Device{AppState: storage}, waLog.Noop)
++	info, _ := recoveryProbeMessage()
++	err = client.ReplayRecoveredProtocol(context.Background(), &info, "v2", plaintext)
++	if !errors.Is(err, store.ErrLocalStorage) || len(storage.writes) != 3 {
++		t.Fatal("fatal recovery write escaped precommit staging", err, storage.writes)
++	}
++}
++
 +func TestPrecommittedReceiveSkipsDuplicateSecretWrite(t *testing.T) {
 +	failed := &receiveFailureStore{cause: errors.New("duplicate write must not occur")}
 +	client := NewClient(&store.Device{MsgSecrets: failed}, waLog.Noop)
@@ -2295,6 +2482,31 @@ index 0000000..eca81bf
 +	ok, err := client.processProtocolParts(store.WithPrecommittedProtocol(context.Background()), &info, message)
 +	if err != nil || !ok {
 +		t.Fatalf("precommitted write repeated: %v", err)
++	}
++}
++
++func TestHistoricalIndividualProtobufReconstructsOwnedIdentity(t *testing.T) {
++	chat := types.NewJID("123", types.HiddenUserServer)
++	web := &waWeb.WebMessageInfo{
++		Key:     &waCommon.MessageKey{RemoteJID: proto.String(chat.String()), FromMe: proto.Bool(true), ID: proto.String("historical-id")},
++		Message: &waE2E.Message{Conversation: proto.String("owned history")}, MessageTimestamp: proto.Uint64(123),
++		OriginalSelfAuthorUserJIDString: proto.String("123:2@lid"),
++	}
++	captured, err := CaptureHistoryMessage(chat, &waHistorySync.HistorySyncMsg{Message: web, MsgOrderID: proto.Uint64(7)})
++	if err != nil {
++		t.Fatal(err)
++	}
++	web.Key.ID = proto.String("mutated")
++	web.Message.Conversation = proto.String("mutated")
++	client := NewClient(&store.Device{}, waLog.Noop)
++	event, err := captured.Reconstruct(client)
++	if err != nil || event.Info.ID != "historical-id" || event.Info.Chat != chat ||
++		event.Info.Sender.String() != "123:2@lid" || !event.Info.IsFromMe || captured.OrderID != 7 ||
++		event.Info.Timestamp.Unix() != 123 || event.Message.GetConversation() != "owned history" {
++		t.Fatal("historical replay lost chat, sender, direction, order or content", err)
++	}
++	if len(captured.WebMessage) == 0 {
++		t.Fatal("individual historical protobuf absent")
 +	}
 +}
 +

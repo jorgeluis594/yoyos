@@ -161,6 +161,25 @@ func (s *Store) prepareBufferedEvent(ctx context.Context, hash [32]byte, plainte
 	if err != nil {
 		return err
 	}
+	if info.Sender.Server == types.DefaultUserServer && info.SenderAlt.IsEmpty() {
+		lid, err := s.GetLIDForPN(ctx, info.Sender)
+		if err != nil {
+			return err
+		}
+		if !lid.IsEmpty() {
+			info.SenderAlt = lid
+			var metadata map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(value.captured.MessageInfoJSON), &metadata); err != nil {
+				return failure(StateInvalid, "invalid captured metadata")
+			}
+			metadata["senderAlt"], _ = json.Marshal(lid.String())
+			updated, err := json.Marshal(metadata)
+			if err != nil {
+				return failure(StateInvalid, "invalid resolved metadata")
+			}
+			value.captured.MessageInfoJSON = string(updated)
+		}
+	}
 	if err := value.processor.ReplayRecoveredProtocol(ctx, info, child.Format, plaintext); err != nil {
 		return err
 	}
