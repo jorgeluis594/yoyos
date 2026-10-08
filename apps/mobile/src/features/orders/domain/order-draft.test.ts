@@ -86,3 +86,21 @@ test.each([true, false])("new drafts reject legacy manual delivery instead of si
   expect(prepareOrder({ ...legacy, ratedDelivery: { expectedPrice: { amount: 0, currency: "PEN" },
     delivery: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } } } })).toMatchObject({ success: false });
 });
+
+
+test("replacing the last cart item preserves the order, customer and payment identities", () => {
+  const first = addDraftItem(emptyOrderDraft(), item(1, 10), () => id(9));
+  if (!first.success) throw new Error("Invalid fixture");
+  const customer = { kind: "contact" as const, contactId: id(7), name: "Ana", phone: "999" };
+  const payments = [{ paymentId: id(5), amount: "4.50", method: "bank_transfer" as const, deductStockIfPartial: false }];
+  const emptied = removeDraftItem({ ...first.data, customer, payments }, id(1));
+  expect(emptied).toMatchObject({ kind: "empty", id: id(9), customer, payments });
+  const newId = jest.fn(() => id(8));
+  const replaced = addDraftItem(emptied, item(2, 12), newId);
+  expect(newId).not.toHaveBeenCalled();
+  if (!replaced.success) throw new Error("Expected replacement");
+  expect(prepareOrder(replaced.data)).toMatchObject({ success: true, data: {
+    request: { id: id(9), contactId: id(7), items: [{ variantId: id(2), quantity: 1 }], payments: [{ paymentId: id(5) }] },
+    shownTotal: { amount: 12, currency: "PEN" },
+  } });
+});

@@ -45,7 +45,7 @@ const submissionSchema = z.strictObject({ id: z.uuid(), contactId: z.uuid().null
 export type OrderSubmission = z.infer<typeof submissionSchema>;
 
 export type OrderDraft = DraftOptions & (
-  | Readonly<{ kind: "empty"; customer: DraftCustomer; items: readonly [] }>
+  | Readonly<{ kind: "empty"; id?: string; customer: DraftCustomer; items: readonly [] }>
   | Readonly<{ kind: "items"; id: string; customer: DraftCustomer;
       items: readonly [OrderDraftItem, ...OrderDraftItem[]] }>);
 
@@ -89,7 +89,7 @@ export function prepareOrder(draft: OrderDraft): Result<{ request: OrderSubmissi
 export function addDraftItem(draft: OrderDraft, item: OrderDraftItem, newId: () => string): Result<OrderDraft, CartError> {
   if (draft.items.some((current) => current.variantId === item.variantId)) return invalid();
   const next: OrderDraft = draft.kind === "empty"
-    ? { ...draft, kind: "items", id: newId(), items: [item] }
+    ? { ...draft, kind: "items", id: draft.id ?? newId(), items: [item] }
     : { ...draft, items: [...draft.items, item] };
   return prepareOrder({ ...next, payments: undefined, ratedDelivery: undefined, deliverImmediately: undefined }).success ? ok(next) : invalid();
 }
