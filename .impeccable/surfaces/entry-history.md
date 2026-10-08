@@ -39,3 +39,7 @@ Checks completed on 2026-10-08: configured mobile lint exit 0 (three pre-existin
 ## Final scope and review
 
 Implementation follows approved B: native grouped rows on Inicio, one primary access action with recovery beside password, and separate payment/delivery lines with wrapping filters. Existing shared theme/controls support dark mode and text scaling in code; this is not a claim of native visual verification. The user explicitly requested closure without further phone QA, exhaustive checks, new reviewers or subagents. Consequently no native captures, iOS/tablet checks, hero-repro screenshot, or independent finish-review verdict were produced. No new tests ran after that instruction. Metro8086 was stopped; the phone and its settings were never touched by this worker. No push or merge.
+
+## User correction: inline order filters (2026-10-08)
+
+The user explicitly replaced the separated Filtros row: quick filters now scroll horizontally beside a fixed right-hand filter icon, vertically centered in one row. Chips retain readable text, 48dp minimum height and compact 8dp horizontal padding; accessibilityLabel, active selection and all filter operations are unchanged. Real Samsung R5CY32G04RW capture inspected: `.impeccable/review/entry-history/orders-inline-filters-android.png`. Only this screen was copied into the combined native preview; no device size/density/font/theme/stayon settings were changed. No tests, new mocks or reviewers ran for this layout-only correction, as instructed.

@@ -152,18 +152,19 @@ export default function OrderHistoryScreen() {
         <SymbolView name={{ ios: "xmark.circle.fill", android: "cancel" }} size={20} tintColor={theme.textSecondary} />
       </Pressable> : null}
     </View>
-    <Pressable accessibilityRole="button" accessibilityLabel={t('orderListFilters')} accessibilityState={{ selected: advanced }} onPress={openFilters}
-      style={[styles.filterAction, { backgroundColor: advanced ? theme.backgroundSelected : theme.background }]}>
-      <SymbolView name={{ ios: "slider.horizontal.3", android: "tune" }} size={22} tintColor={advanced ? theme.primary : theme.textSecondary} />
-      <ThemedText type="small">{t('orderListFilters')}</ThemedText>
-    </Pressable>
-    <View style={styles.filterChips}>
-      {(["all", "unpaid", "undelivered"] as const).map((view) => <Pressable key={view} accessibilityRole="button"
-        accessibilityState={{ selected: (criteria.view ?? "all") === view }} onPress={() => setCriteria({ ...criteria, page: 1, view })}
-        style={({ pressed }) => [styles.chip, { borderColor: theme.input, backgroundColor: (criteria.view ?? "all") === view || pressed ? theme.backgroundSelected : theme.background }]}>
-        {(criteria.view ?? "all") === view ? <SymbolView name={{ ios: "checkmark", android: "check" }} size={18} tintColor={theme.primary} /> : null}
-        <ThemedText type="small" style={{ flexShrink: 1, color: (criteria.view ?? "all") === view ? theme.primary : theme.textSecondary, fontWeight: (criteria.view ?? "all") === view ? "600" : "400" }}>{t(view === "all" ? 'all' : view === "unpaid" ? 'orderListUnpaid' : 'orderListUndelivered')}</ThemedText>
-      </Pressable>)}
+    <View style={styles.filterBar}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll} contentContainerStyle={styles.filterChips}>
+        {(["all", "unpaid", "undelivered"] as const).map((view) => <Pressable key={view} accessibilityRole="button"
+          accessibilityState={{ selected: (criteria.view ?? "all") === view }} onPress={() => setCriteria({ ...criteria, page: 1, view })}
+          style={({ pressed }) => [styles.chip, { borderColor: theme.input, backgroundColor: (criteria.view ?? "all") === view || pressed ? theme.backgroundSelected : theme.background }]}>
+          {(criteria.view ?? "all") === view ? <SymbolView name={{ ios: "checkmark", android: "check" }} size={18} tintColor={theme.primary} /> : null}
+          <ThemedText type="small" style={{ flexShrink: 1, color: (criteria.view ?? "all") === view ? theme.primary : theme.textSecondary, fontWeight: (criteria.view ?? "all") === view ? "600" : "400" }}>{t(view === "all" ? 'all' : view === "unpaid" ? 'orderListUnpaid' : 'orderListUndelivered')}</ThemedText>
+        </Pressable>)}
+      </ScrollView>
+      <Pressable accessibilityRole="button" accessibilityLabel={t('orderListFilters')} accessibilityState={{ selected: advanced }} onPress={openFilters}
+        style={[styles.filterAction, { backgroundColor: advanced ? theme.backgroundSelected : theme.background }]}>
+        <SymbolView name={{ ios: "slider.horizontal.3", android: "tune" }} size={22} tintColor={advanced ? theme.primary : theme.textSecondary} />
+      </Pressable>
     </View>
     {advanced ? <Pressable accessibilityRole="button" accessibilityLabel={t('orderListClear')} onPress={() => setCriteria({ page: 1, customer: { kind: "all" }, search: criteria.search, view: criteria.view })} style={styles.applied}>
       <ThemedText type="small" style={{ color: theme.primary }}>{t('orderListFiltered')} · {t('orderListClear')}</ThemedText>
@@ -263,9 +264,11 @@ const styles = StyleSheet.create({
   search: { position: "relative" }, searchInput: { paddingLeft: 44, paddingRight: 44, borderRadius: 12 },
   searchIcon: { position: "absolute", left: 14, top: 0, bottom: 0, justifyContent: "center" },
   clearSearch: { position: "absolute", right: 0, top: 0, bottom: 0, width: 48, alignItems: "center", justifyContent: "center" },
-  filterAction: { minHeight: 48, paddingHorizontal: 12, borderRadius: 6, flexDirection: "row", gap: 8, alignItems: "center", alignSelf: "flex-end" },
-  filterChips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  chip: { minHeight: 48, borderWidth: 1, borderRadius: 28, paddingHorizontal: 12, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 6, maxWidth: "100%", justifyContent: "center" },
+  filterBar: { flexDirection: "row", alignItems: "center", gap: 8 },
+  filterScroll: { flex: 1, minWidth: 0 },
+  filterAction: { minHeight: 48, width: 48, borderRadius: 6, alignItems: "center", justifyContent: "center" },
+  filterChips: { alignItems: "center", gap: 8 },
+  chip: { minHeight: 48, borderWidth: 1, borderRadius: 28, paddingHorizontal: 8, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0, justifyContent: "center" },
   filterButton: { minHeight: 48, minWidth: 48, borderRadius: 24, borderWidth: StyleSheet.hairlineWidth, alignItems: "center", justifyContent: "center" },
   applied: { minHeight: 48, justifyContent: "center" },
   day: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10 },
