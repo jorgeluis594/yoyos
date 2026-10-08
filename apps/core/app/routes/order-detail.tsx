@@ -16,13 +16,12 @@ import { Form, useActionData, data, isRouteErrorResponse, Link, useFetcher, useN
 import { privateUserContext } from "@core/app/private-user-context";
 import { deliverySettingsSchema } from "@shared/contracts/delivery-settings";
 import { deliverySettings } from "@core/src/features/delivery-settings";
-import { deliveryCostContext } from "@core/app/delivery-cost-context";
 import { RatedDeliveryForm } from "@core/src/features/orders/presentation/rated-delivery-form";
-import { parseDeliverySelection, parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
+import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { setConfiguredOrderDelivery } from "@core/src/features/orders/composition";
 import { orders } from "@core/src/features/orders/composition";
 import { toOrderAggregateJson } from "@core/src/features/orders/presentation/order-json";
-import { orderDetailLoaderSchema, orderAggregateSchema, setOrderDeliverySchema, setRatedOrderDeliverySchema, registerPaymentSchema } from "@shared/contracts/orders";
+import { orderDetailLoaderSchema, orderAggregateSchema, setRatedOrderDeliverySchema, registerPaymentSchema } from "@shared/contracts/orders";
 import type { OrderId, PaymentId, CompanyId, UserId } from "@core/src/features/orders/domain/order";
 import { resolvePublicImage } from "@core/src/shared/images";
 import { Button } from "@core/app/components/ui/button";
@@ -52,22 +51,14 @@ async function deliveryAction({ params, request, context }: ActionFunctionArgs) 
   const id = z.uuid().safeParse(params.orderId);
   let raw: unknown;
   try { raw = await request.json(); } catch { return { operation: "delivery" as const, url: null, success: false, error: "invalid" as const }; }
-  const parsed = z.union([setRatedOrderDeliverySchema, setOrderDeliverySchema]).safeParse(raw);
+  const parsed = setRatedOrderDeliverySchema.safeParse(raw);
   if (!id.success || !parsed.success) return { operation: "delivery" as const, url: null, success: false, error: "invalid" as const };
   const access = context.get(privateUserContext);
   try {
     const seller = { companyId: access.company.id as CompanyId, userId: access.user.id as UserId };
-    let result: Awaited<ReturnType<typeof setConfiguredOrderDelivery>>;
-    if ("expectedPrice" in parsed.data) {
-      const selection = parseRatedDeliverySelection(parsed.data.delivery);
-      if (!selection.success) return { operation: "delivery" as const, url: null, success: false, error: "invalid" as const };
-      result = await setConfiguredOrderDelivery({ orderId: id.data as OrderId, delivery: selection.data, expectedPrice: parsed.data.expectedPrice }, seller);
-    } else {
-      const selection = parseDeliverySelection(parsed.data.delivery);
-      if (!selection.success) return { operation: "delivery" as const, url: null, success: false, error: "invalid" as const };
-      result = await setConfiguredOrderDelivery({ orderId: id.data as OrderId, delivery: selection.data,
-        chargeDeliveryToCustomer: parsed.data.chargeDeliveryToCustomer }, seller, context.get(deliveryCostContext) ?? undefined);
-    }
+    const selection = parseRatedDeliverySelection(parsed.data.delivery);
+    if (!selection.success) return { operation: "delivery" as const, url: null, success: false, error: "invalid" as const };
+    const result = await setConfiguredOrderDelivery({ orderId: id.data as OrderId, delivery: selection.data, expectedPrice: parsed.data.expectedPrice }, seller);
     if (result.success) return { operation: "delivery" as const, url: null, success: false, error: false, order: orderAggregateSchema.parse(toOrderAggregateJson(result.data)) };
     if (result.error.code === "TOTAL_CHANGED") return { operation: "delivery" as const, url: null, success: false, error: "priceChanged" as const, currentPrice: result.error.currentPrice };
     return { operation: "delivery" as const, url: null, success: false, error: result.error.code === "RATE_UNAVAILABLE" ? "rateUnavailable" as const

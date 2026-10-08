@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { InitialOrderDeliveryInput } from "@core/src/features/orders/application/set-delivery";
+import type { RatedSetDeliveryInput } from "@core/src/features/orders/application/set-delivery";
 import { PaymentFields, type PaymentDraft } from "@core/src/features/orders/presentation/payment-fields";
 import { RatedDeliveryForm, type RatedDeliveryReview } from "@core/src/features/orders/presentation/rated-delivery-form";
 import { add as addMoney, multiply, subtract, isCurrency, type Money, type MoneyError } from "@shared/money";
@@ -7,8 +7,7 @@ import { andThen, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { deliverySettings } from "@core/src/features/delivery-settings";
 import { deliverySettingsSchema } from "@shared/contracts/delivery-settings";
-import { deliveryCostContext } from "@core/app/delivery-cost-context";
-import { parseDeliverySelection, parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
+import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { useTranslation } from "react-i18next";
 import { companyPath } from "@core/app/locale";
 import { formatCurrency } from "@core/app/format-currency";
@@ -42,30 +41,24 @@ export async function action({ request, context }: ActionFunctionArgs) {
   let raw: unknown;
   try { raw = JSON.parse(String((await request.formData()).get("order"))); }
   catch { return orderActionErrorSchema.parse({ code: "INVALID_ORDER", error: "Revisa los datos de la venta." }); }
-  const parsed = z.union([createRatedOrderSchema, completeOrderSchema]).safeParse(raw);
+  const parsed = z.union([createRatedOrderSchema, completeOrderSchema.omit({ delivery: true })]).safeParse(raw);
   if (!parsed.success) return orderActionErrorSchema.parse({ code: "INVALID_ORDER", error: "Revisa los datos de la venta." });
   const [first, ...rest] = parsed.data.items;
   if (!first) return orderActionErrorSchema.parse({ code: "INVALID_ORDER", error: "Revisa los datos de la venta." });
   const item = (selection: typeof first) => ({ variantId: selection.variantId as VariantId, quantity: selection.quantity as PositiveInteger });
-  let delivery: InitialOrderDeliveryInput | undefined;
-  if (parsed.data.delivery) {
+  let delivery: Omit<RatedSetDeliveryInput, "orderId"> | undefined;
+  if ("delivery" in parsed.data) {
     const input = parsed.data.delivery;
-    if ("expectedPrice" in input) {
-      const selected = parseRatedDeliverySelection(input.delivery);
-      if (!selected.success) return orderActionErrorSchema.parse({ code: "INVALID_ORDER", error: "Revisa la entrega." });
-      delivery = { delivery: selected.data, expectedPrice: input.expectedPrice };
-    } else {
-      const selected = parseDeliverySelection(input.delivery);
-      if (!selected.success) return orderActionErrorSchema.parse({ code: "INVALID_ORDER", error: "Revisa la entrega." });
-      delivery = { delivery: selected.data, chargeDeliveryToCustomer: input.chargeDeliveryToCustomer };
-    }
+    const selected = parseRatedDeliverySelection(input.delivery);
+    if (!selected.success) return orderActionErrorSchema.parse({ code: "INVALID_ORDER", error: "Revisa la entrega." });
+    delivery = { delivery: selected.data, expectedPrice: input.expectedPrice };
   }
   const result = await createConfiguredOrder({ id: parsed.data.id as OrderId,
     contactId: parsed.data.contactId as ContactId | null, items: [item(first), ...rest.map(item)],
     payments: parsed.data.payments?.map(payment => ({ ...payment, paymentId: payment.paymentId as PaymentId })),
     delivery,
     deliverImmediately: parsed.data.deliverImmediately },
-  { companyId: access.company.id, userId: access.user.id }, context.get(deliveryCostContext) ?? undefined);
+  { companyId: access.company.id, userId: access.user.id });
   if (!result.success) return orderActionErrorSchema.parse({ code: result.error.code,
     ...(result.error.code === "TOTAL_CHANGED" ? { currentPrice: result.error.currentPrice } : {}), error: result.error.code === "INSUFFICIENT_STOCK" ? "No hay stock suficiente para uno de los productos." :
     result.error.code === "ORDER_ALREADY_EXISTS" ? "Esta venta ya se registró. Revisa el historial antes de intentar otra." :

@@ -24,6 +24,9 @@ test("private web rated pickup rejects an obsolete price without writes and retu
       store: { enabled: true, pickupPoint: { name: "Pickup", address: "Street", instructions: null } } } })).ok()).toBe(true);
     const url = `/es-PE/orders/${orderId}`;
     const delivery = { method: "store", recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } } };
+    const legacy = await page.request.post(`${url}.data`, { data: { delivery, chargeDeliveryToCustomer: false } });
+    expect(legacy.ok()).toBe(true);
+    expect(await legacy.text()).toContain("invalid");
     const stale = await page.request.post(`${url}.data`, { data: { delivery, expectedPrice: { amount: 3, currency: "PEN" } } });
     expect(stale.ok()).toBe(true);
     expect(await stale.text()).toContain("priceChanged");

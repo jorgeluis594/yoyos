@@ -29,6 +29,10 @@ test("web creation rejects a stale rate atomically and retries the same order wi
       payments: [{ paymentId, amount: { amount: 18, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }],
       delivery: { delivery: { method: "home", rateId: rate.id, recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } },
         destination: { districtCode: "040110", address: "Preserved street", instructions: null } }, expectedPrice: rate.price } };
+    const legacy = await page.request.post("/es-PE/orders/new.data", { form: { order: JSON.stringify({ ...request,
+      delivery: { delivery: { method: "store", recipient: request.delivery.delivery.recipient }, chargeDeliveryToCustomer: false } }) } });
+    expect(legacy.ok()).toBe(true);
+    expect(await legacy.text()).toContain("INVALID_ORDER");
     const rejected = await page.request.post("/es-PE/orders/new.data", { form: { order: JSON.stringify(request) } });
     expect(rejected.ok()).toBe(true);
     expect(await rejected.text()).toContain("TOTAL_CHANGED");

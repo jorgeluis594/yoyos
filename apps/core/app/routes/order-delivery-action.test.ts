@@ -8,7 +8,7 @@ import type { ReadyAccess } from "@core/src/features/users";
 
 const orderId = "00000000-0000-4000-8000-000000000003";
 const access = { company: { id: "00000000-0000-4000-8000-000000000001" }, user: { id: "current-seller" } };
-const input = { delivery: { method: "store", recipient: { name: " Ana ", phone: " 999 ", identity: { kind: "absent" } } }, chargeDeliveryToCustomer: false };
+const input = { delivery: { method: "store", recipient: { name: " Ana ", phone: " 999 ", identity: { kind: "absent" } } }, expectedPrice: { amount: 0, currency: "PEN" } };
 async function save(body: unknown) {
   const context = createDeliveryRequestContext();
   context.set(privateUserContext, access as unknown as ReadyAccess);
@@ -27,12 +27,12 @@ test("rejects price, snapshot and authorship claims before calling the use case"
   expect(assign).not.toHaveBeenCalled();
 });
 
-test("uses session access and the default unresolved cost capability", async () => {
+test("uses session access and an explicit reviewed pickup price", async () => {
   const assign = vi.spyOn(composition, "setConfiguredOrderDelivery").mockResolvedValue({ success: false,
     error: { code: "DELIVERY_UNAVAILABLE", message: "Unavailable" } });
   expect(await save(input)).toMatchObject({ error: "unavailable" });
-  expect(assign).toHaveBeenCalledWith({ orderId, delivery: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } }, chargeDeliveryToCustomer: false },
-    { companyId: access.company.id, userId: access.user.id }, undefined);
+  expect(assign).toHaveBeenCalledWith({ orderId, delivery: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } }, expectedPrice: input.expectedPrice },
+    { companyId: access.company.id, userId: access.user.id });
 });
 
 test.each([["DELIVERY_LOCKED", "locked"], ["ORDER_CANCELLED", "locked"], ["DELIVERY_METHOD_DISABLED", "disabled"], ["INSUFFICIENT_STOCK", "stockError"], ["COURIER_UNAVAILABLE", "courierUnavailable"]] as const)("maps %s to a recoverable message", async (code, message) => {
@@ -75,5 +75,15 @@ test("rejects rated charge decisions, snapshot claims and unofficial districts",
     { ...ratedInput, delivery: { ...ratedInput.delivery, destination: { ...ratedInput.delivery.destination, districtCode: "999999" } } }]) {
     expect(await save(body)).toMatchObject({ error: "invalid" });
   }
+  expect(assign).not.toHaveBeenCalled();
+});
+
+
+test("rejects both legacy charge choices and missing reviewed prices before assignment", async () => {
+  const assign = vi.spyOn(composition, "setConfiguredOrderDelivery");
+  for (const chargeDeliveryToCustomer of [true, false]) {
+    expect(await save({ delivery: input.delivery, chargeDeliveryToCustomer })).toMatchObject({ error: "invalid" });
+  }
+  expect(await save({ delivery: input.delivery })).toMatchObject({ error: "invalid" });
   expect(assign).not.toHaveBeenCalled();
 });

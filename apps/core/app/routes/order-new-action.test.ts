@@ -23,7 +23,7 @@ test("creates with reviewed delivery and trusted seller access", async () => {
   expect(await save(input)).toMatchObject({ code: "RATE_UNAVAILABLE" });
   expect(create).toHaveBeenCalledWith(expect.objectContaining({ id: orderId, delivery: { delivery: { ...input.delivery.delivery,
     recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, destination: { ...input.delivery.delivery.destination, address: "Street" } }, expectedPrice: input.delivery.expectedPrice } }),
-    { companyId, userId: "seller" }, undefined);
+    { companyId, userId: "seller" });
 });
 
 test("returns the current price without turning a rejected creation into success", async () => {
@@ -37,6 +37,15 @@ test("rejects manual charge and forged snapshot claims on rated creation", async
     { ...input, delivery: { ...input.delivery, delivery: { ...input.delivery.delivery, recordedBy: { kind: "buyer" } } } },
     { ...input, delivery: { ...input.delivery, delivery: { ...input.delivery.delivery, destination: { ...input.delivery.delivery.destination, districtCode: "999999" } } } }]) {
     expect(await save(body)).toMatchObject({ code: "INVALID_ORDER" });
+  }
+  expect(create).not.toHaveBeenCalled();
+});
+
+
+test("rejects legacy initial delivery with either charge choice", async () => {
+  const create = vi.spyOn(composition, "createConfiguredOrder");
+  for (const chargeDeliveryToCustomer of [true, false]) {
+    expect(await save({ ...input, delivery: { delivery: { method: "store", recipient: input.delivery.delivery.recipient }, chargeDeliveryToCustomer } })).toMatchObject({ code: "INVALID_ORDER" });
   }
   expect(create).not.toHaveBeenCalled();
 });
