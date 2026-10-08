@@ -443,8 +443,8 @@ final class StateStoreTests: XCTestCase {
   func testActualENOSPCOnBoundedVolume() throws {
     let volume = URL(fileURLWithPath: "/Volumes/wa02-whatsapp-enospc", isDirectory: true)
     let manager = FileManager.default
-    let volumeDevice = try XCTUnwrap(manager.attributesOfItem(atPath: volume.path)[.deviceIdentifier] as? NSNumber)
-    let hostDevice = try XCTUnwrap(manager.attributesOfItem(atPath: manager.temporaryDirectory.path)[.deviceIdentifier] as? NSNumber)
+    let volumeDevice = try XCTUnwrap(manager.attributesOfFileSystem(forPath: volume.path)[.systemNumber] as? NSNumber)
+    let hostDevice = try XCTUnwrap(manager.attributesOfFileSystem(forPath: manager.temporaryDirectory.path)[.systemNumber] as? NSNumber)
     let capacity = try XCTUnwrap(manager.attributesOfFileSystem(forPath: volume.path)[.systemSize] as? NSNumber).int64Value
     guard volumeDevice != hostDevice, capacity > 32 * 1024 * 1024,
           capacity <= 300 * 1024 * 1024 else { XCTFail("Test requires a separate bounded filesystem"); return }

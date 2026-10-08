@@ -179,11 +179,20 @@ jobs:
             -configuration Release -derivedDataPath "$RUNNER_TEMP/wa-host" \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" CODE_SIGN_IDENTITY=- build-for-testing
           app="$RUNNER_TEMP/wa-host/Build/Products/Release-iphonesimulator/WhatsAppNativeProbe.app"
-          codesign -d --entitlements :- "$app" > "$RUNNER_TEMP/wa-host-entitlements.plist"
-          app_id=$(/usr/libexec/PlistBuddy -c 'Print :application-identifier' "$RUNNER_TEMP/wa-host-entitlements.plist")
-          keychain_group=$(/usr/libexec/PlistBuddy -c 'Print :keychain-access-groups:0' "$RUNNER_TEMP/wa-host-entitlements.plist")
-          test -n "$app_id" && test "$app_id" = "$keychain_group"
-          echo "Storage test host application identifier: $app_id"
+          xcrun otool -arch arm64 -s __TEXT __entitlements "$app/WhatsAppNativeProbe" > "$RUNNER_TEMP/wa-host-simulated-entitlements.txt"
+          python3 - "$RUNNER_TEMP/wa-host-simulated-entitlements.txt" <<'PY'
+          import plistlib, re, sys
+          words = []
+          for line in open(sys.argv[1]):
+              parts = line.split()
+              if parts and re.fullmatch(r'[0-9a-fA-F]{8,16}', parts[0]):
+                  words.extend(bytes.fromhex(part)[::-1] for part in parts[1:])
+          entitlements = plistlib.loads(b''.join(words))
+          app_id = entitlements['application-identifier']
+          assert app_id.endswith('com.yoyos.whatsappnativeprobe')
+          assert app_id in entitlements['keychain-access-groups']
+          print(f'Storage test host simulated application identifier: {app_id}')
+          PY
           xcodebuild -workspace WhatsAppNativeProbe.xcworkspace -scheme WhatsAppStateStoreHostTests \
             -configuration Release -derivedDataPath "$RUNNER_TEMP/wa-host" \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
