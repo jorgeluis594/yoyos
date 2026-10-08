@@ -76,3 +76,13 @@ test("rated creation reviews one full delivery price and keeps only its selected
   expect(prepareOrder({ ...draft, ratedDelivery: pickup })).toMatchObject({ success: true, data: { shownTotal: { amount: 50, currency: "PEN" } } });
   expect(prepareOrder({ ...draft, ratedDelivery: { ...pickup, expectedPrice: { amount: 1, currency: "PEN" } } })).toMatchObject({ success: false });
 });
+
+test.each([true, false])("new drafts reject legacy manual delivery instead of silently omitting it (charge: %s)", (charge) => {
+  const first = addDraftItem(emptyOrderDraft(), item(1, 10), () => id(9));
+  if (!first.success) throw new Error("Invalid fixture");
+  const legacy = { ...first.data, delivery: { method: "store", name: "Ana", phone: "999", documentType: "absent", document: "",
+    courierId: "", agency: "", address: "", district: "", instructions: "", charge } };
+  expect(prepareOrder(legacy)).toMatchObject({ success: false, error: { code: "INVALID_CART" } });
+  expect(prepareOrder({ ...legacy, ratedDelivery: { expectedPrice: { amount: 0, currency: "PEN" },
+    delivery: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } } } })).toMatchObject({ success: false });
+});

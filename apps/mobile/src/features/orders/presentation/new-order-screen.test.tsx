@@ -350,10 +350,14 @@ test("price conflict preserves creation fields and requires explicit selection o
   selectDistrict(screen);
   await screen.findByTestId("delivery-rate");
   fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 0);
-  mockSettingsGet.mockResolvedValue(ok({ ...allMethods, store: { enabled: false, pickupPoint: null }, version: 2 }));
+  let finishSettings: ((result: ReturnType<typeof ok<DeliverySettingsResponse>>) => void) | undefined;
+  mockSettingsGet.mockImplementationOnce(() => new Promise(resolve => { finishSettings = resolve; }));
   mockQuotation.mockResolvedValue(ok({ ...quotation, rates: [{ ...firstRate, id: mockId(35), price: { amount: 10, currency: "PEN" } }] }));
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   await screen.findByText(/La tarifa cambió/);
+  expect(screen.queryByTestId("delivery-rate")).toBeNull();
+  expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
+  await act(async () => { finishSettings?.(ok({ ...allMethods, store: { enabled: false, pickupPoint: null }, version: 2 })); });
   await waitFor(() => expect(mockQuotation).toHaveBeenCalledTimes(2));
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
   expect(screen.getByLabelText(/Dirección de entrega/)).toHaveProp("value", "Preserved street");

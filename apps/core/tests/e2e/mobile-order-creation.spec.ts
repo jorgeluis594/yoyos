@@ -44,9 +44,10 @@ test("mobile creation screen integrates with real order API, database and persis
       for (const pending of saved.filter(order => order.completedAt === null && order.payments.length === 0))
         expect(pending).toMatchObject({ payments: [], stockDeducted: false, deliveryStatus: "pending", cancelled: false });
       expect(saved.find(order => order.completedAt !== null)).toMatchObject({ stockDeducted: true, deliveryStatus: "delivered", payments: [expect.any(Object)] });
-      expect(saved.find(order => order.completedAt === null && order.payments.length > 0)).toMatchObject({
+      expect(saved.find(order => order.completedAt === null && order.payments.some(payment => String(payment.amount) === "18"))).toMatchObject({
         itemsTotal: expect.any(Object), stockDeducted: true, deliveryStatus: "pending", payments: [expect.any(Object)],
       });
+      expect(saved.find(order => order.payments.some(payment => String(payment.amount) === "4.5"))).toMatchObject({ stockDeducted: false });
       const rated = saved.filter(order => order.delivery !== null);
       expect(rated).toHaveLength(5);
       expect(rated.map(order => String(order.deliveryCharge)).sort()).toEqual(["0", "10", "12", "12", "8"]);

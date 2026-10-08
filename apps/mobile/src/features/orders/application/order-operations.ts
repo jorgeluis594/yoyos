@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { listOrderAggregatesResponseSchema, listOrderAggregatesSchema, listOrdersResponseSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema,
-  type ListOrderAggregatesRequest, type ListOrdersRequest, type OrderAggregateResponse, type OrderApiError, type OrderApiIssue } from "@shared/contracts/orders";
+  type CompleteOrderRequest, type ListOrderAggregatesRequest, type ListOrdersRequest, type OrderAggregateResponse, type OrderApiError, type OrderApiIssue } from "@shared/contracts/orders";
 import { err, ok } from "@shared/functional";
 import { add, type Money } from "@shared/money";
 import { limaMidnightUtc, nextCalendarDay } from "@shared/orders-date";
@@ -12,7 +12,7 @@ export type PendingOrderConfirmation = Readonly<{
   companyId: OrderAggregateResponse["companyId"];
   id: string;
   shownTotal: Money;
-}> & ({ version?: never; request?: never } | { version: 2; request: OrderSubmission });
+}> & ({ version?: never; request?: never } | { version: 2; request: OrderSubmission | CompleteOrderRequest });
 export type PendingOrderStoreError = Readonly<{
   code: "PENDING_CONFIRMATION" | "PENDING_STORAGE_UNAVAILABLE" | "INVALID_PENDING_DATA";
   message: string;
@@ -107,11 +107,12 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
   };
   const post = async (pending: PendingOrderConfirmation): Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>> => {
     if (!pending.request) return err({ code: "PENDING_CONFIRMATION", message: "Legacy attempt can only be verified; original request is unavailable" });
-    const result = await api.create(pending.request);
+    const { delivery, ...selection } = pending.request;
+    if (delivery && "chargeDeliveryToCustomer" in delivery)
+      return err({ code: "INVALID_INPUT", message: "Legacy delivery requires review of a current rate" });
+    const request: OrderSubmission = delivery ? { ...selection, delivery } : selection;
+    const result = await api.create(request);
     if (result.success) return confirmed(result.data, pending);
-    // The saved legacy delivery is needed to review a current rate after an upgrade.
-    if (result.error.code === "INVALID_INPUT" && pending.request.delivery && "chargeDeliveryToCustomer" in pending.request.delivery)
-      return result;
     if (definitive.has(result.error.code)) {
       const cleared = await pendingStore.clear(pending.companyId, pending.id);
       return cleared.success ? result : cleared;

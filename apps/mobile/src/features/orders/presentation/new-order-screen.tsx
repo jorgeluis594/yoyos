@@ -91,7 +91,7 @@ function CompanyOrderScreen() {
   const offline = network.isConnected === false || network.isInternetReachable === false;
   const legacyDelivery = pending?.request?.delivery && "chargeDeliveryToCustomer" in pending.request.delivery ? pending.request.delivery.delivery : null;
   const productTotal = reviewingLegacy && pending ? ok({ shownTotal: pending.shownTotal })
-    : prepareOrder({ ...draft, payments: undefined, delivery: undefined, ratedDelivery: undefined });
+    : prepareOrder({ ...draft, payments: undefined, ratedDelivery: undefined });
   const method = initialDelivery?.method;
   const districtCode = initialDelivery?.districtCode ?? "";
   const deliveryEnabled = !!method && !!settings?.[method].enabled;
@@ -218,6 +218,7 @@ function CompanyOrderScreen() {
       if (!result.success) {
         setError(translations.t(errorKeys[result.error.code] ?? 'confirmOrderError'));
         if (["TOTAL_CHANGED", "RATE_UNAVAILABLE", "INVALID_DELIVERY_RATE", "INVALID_DISTRICT", "COURIER_UNAVAILABLE", "DELIVERY_METHOD_DISABLED"].includes(result.error.code)) {
+          setQuoteResult(null);
           const latest = await deliverySettings.get();
           if (activeCompany.current !== companyId) return;
           if (latest.success) setSettings(latest.data);
