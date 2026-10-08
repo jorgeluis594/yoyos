@@ -22,6 +22,7 @@ target.build_configurations.each do |configuration|
   settings['BUNDLE_LOADER'] = '$(TEST_HOST)'
   settings['TEST_HOST'] = '$(BUILT_PRODUCTS_DIR)/WhatsAppNativeProbe.app/WhatsAppNativeProbe'
   settings['PRODUCT_BUNDLE_IDENTIFIER'] = 'com.yoyos.whatsappnativeprobe.storagetests'
+  settings['PRODUCT_NAME'] = '$(TARGET_NAME)'
   settings['GENERATE_INFOPLIST_FILE'] = 'YES'
   settings['SWIFT_ACTIVE_COMPILATION_CONDITIONS'] = '$(inherited) WA02_APP_HOSTED'
   settings['SWIFT_VERSION'] = '6.0'
