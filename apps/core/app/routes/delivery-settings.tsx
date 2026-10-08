@@ -9,7 +9,7 @@ import { Store, Truck, Package } from "lucide-react";
 import { useClientReady } from "@core/app/use-client-ready";
 import { useTranslation } from "react-i18next";
 import { useActionData, useLoaderData, useNavigation, useSubmit, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
-import { courierInputSchema, deliverySettingsSchema, saveDeliverySettingsSchema, type DeliverySettingsResponse, type SaveDeliverySettingsRequest } from "@shared/contracts/delivery-settings";
+import { courierInputSchema, deliverySettingsSchema, saveDeliverySettingsSchema, deliveryZonesSchema, saveDeliveryZonesSchema, type DeliverySettingsResponse, type SaveDeliverySettingsRequest } from "@shared/contracts/delivery-settings";
 import { privateUserContext } from "@core/app/private-user-context";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
 import { log } from "@core/src/shared/infrastructure/logger";
@@ -31,6 +31,24 @@ export async function action({ context, request }: ActionFunctionArgs) {
   let raw: unknown;
   try { raw = await request.json(); }
   catch { return { error: "invalid" as const }; }
+  if (typeof raw === "object" && raw !== null && "intent" in raw) {
+    const zones = saveDeliveryZonesSchema.extend({ intent: z.literal("zones") }).safeParse(raw);
+    if (!zones.success) return { zonesError: { code: "INVALID_INPUT" as const } };
+    const access = context.get(privateUserContext);
+    const input = { method: zones.data.method, expectedVersion: zones.data.expectedVersion, zones: zones.data.zones };
+    try {
+      const result = await deliverySettings.saveZones(input, { companyId: access.company.id, userId: access.user.id });
+      if (result.success) return { zonesSaved: deliveryZonesSchema.parse(result.data) };
+      const error = result.error;
+      return { zonesError: { code: error.code,
+        ...(error.code === "DELIVERY_SETTINGS_CONFLICT" ? { currentVersion: error.currentVersion, reason: error.reason } : {}),
+        ...(error.code === "INVALID_DELIVERY_ZONE" ? { field: error.field, index: error.index } : {}) } };
+    } catch (cause) {
+      log.error({ event: "delivery_zones_request_failed", operation: "save_delivery_zones", entryPoint: "web_action", userId: access.user.id,
+        errorCode: "INTERNAL_ERROR", err: cause }, "Unable to handle delivery zones request");
+      return { zonesError: { code: "INTERNAL_ERROR" as const } };
+    }
+  }
   const parsed = saveDeliverySettingsSchema.safeParse(raw);
   if (!parsed.success) return { error: "invalid" as const };
   const access = context.get(privateUserContext);
