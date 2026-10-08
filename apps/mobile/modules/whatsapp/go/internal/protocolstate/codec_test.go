@@ -11,6 +11,9 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"go.mau.fi/libsignal/keys/chain"
+	"go.mau.fi/libsignal/keys/message"
+	"go.mau.fi/libsignal/state/record"
 	"go.mau.fi/whatsmeow/proto/waAdv"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
@@ -182,7 +185,79 @@ func TestRejectValueAndKeyBoundaries(t *testing.T) {
 	if _, err := EncodeValue("prekey-state", PreKeyState{1, 0, 0}); err == nil {
 		t.Fatal("zero next ID accepted")
 	}
-	if _, err := EncodeValue("signal-session", Binary{1, filled(MaxRecordBytes)}); err == nil {
-		t.Fatal("oversized record accepted")
+}
+
+func TestAppStateIndexMACLength(t *testing.T) {
+	value, err := EncodeValue("app-state-mac", AppStateMAC{1, 1, filled(32)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []int{31, 32, 33} {
+		key := base64.RawURLEncoding.EncodeToString([]byte("[\"regular\",\"" + base64.StdEncoding.EncodeToString(filled(n)) + "\"]"))
+		_, err := Encode([]Record{{"app-state-mac", key, base64.StdEncoding.EncodeToString(value)}})
+		if (err == nil) != (n == 32) {
+			t.Errorf("%d-byte index MAC: %v", n, err)
+		}
+	}
+}
+
+func TestSignalRecordValueBoundary(t *testing.T) {
+	// The canonical Binary JSON is 23 bytes plus four Base64 bytes per three raw bytes.
+	rawSize := 3 * ((MaxRecordBytes - 23) / 4)
+	atLimit := Binary{1, filled(rawSize)}
+	value, err := EncodeValue("signal-session", atLimit)
+	if err != nil || len(value) != MaxRecordBytes {
+		t.Fatalf("exact value limit: size=%d, err=%v", len(value), err)
+	}
+	if err := ValidateValue("signal-session", append(value, '\n')); err == nil || err.Error() != "invalid value size" {
+		t.Fatalf("one byte over value limit: %v", err)
+	}
+	if _, err := EncodeValue("signal-session", Binary{1, filled(rawSize + 1)}); err == nil {
+		t.Fatal("over-limit Signal value accepted")
+	}
+}
+
+func TestPinnedSignalSerializerWithinBudget(t *testing.T) {
+	kp := keys.NewKeyPair()
+	public := append([]byte{5}, kp.Pub[:]...)
+	state := &record.StateStructure{
+		LocalIdentityPublic: public, RemoteIdentityPublic: public, RootKey: filled(32),
+		SenderBaseKey: public, SessionVersion: 3,
+		SenderChain: &record.ChainStructure{SenderRatchetKeyPublic: public, SenderRatchetKeyPrivate: kp.Priv[:], ChainKey: &chain.KeyStructure{Key: filled(32), Index: 2000}},
+	}
+	for c := 0; c < 5; c++ {
+		receiver := keys.NewKeyPair()
+		ch := &record.ChainStructure{SenderRatchetKeyPublic: append([]byte{5}, receiver.Pub[:]...), ChainKey: &chain.KeyStructure{Key: filled(32), Index: 2000}}
+		for i := 0; i < 2000; i++ {
+			ch.MessageKeys = append(ch.MessageKeys, &message.KeysStructure{CipherKey: filled(32), MacKey: filled(32), IV: filled(16), Index: uint32(i)})
+		}
+		state.ReceiverChains = append(state.ReceiverChains, ch)
+	}
+	serializer := store.SignalProtobufSerializer
+	session, err := record.NewSessionFromStructure(&record.SessionStructure{SessionState: state}, serializer.Session, serializer.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := session.Serialize()
+	if _, err := record.NewSessionFromBytes(raw, serializer.Session, serializer.State); err != nil {
+		t.Fatal(err)
+	}
+	value, err := EncodeValue("signal-session", Binary{1, raw})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := EncodeKey("signal-session", "123:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := Encode([]Record{{"signal-session", key, base64.StdEncoding.EncodeToString(value)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Decode(envelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(raw) <= 1<<20 || len(envelope) >= MaxSessionBytes {
+		t.Fatalf("unexpected serializer sizes: raw=%d envelope=%d", len(raw), len(envelope))
 	}
 }

@@ -15,7 +15,9 @@ import (
 )
 
 const MaxSessionBytes = 16 << 20
-const MaxRecordBytes = 1 << 20
+
+// Value JSON gains another Base64 layer; the envelope limit remains authoritative.
+const MaxRecordBytes = 3*(MaxSessionBytes/4) - 1
 const MaxKeyBytes = 2048
 
 type Record struct {
@@ -167,7 +169,7 @@ func DecodeKey(recordType, key string) ([]string, error) {
 			}
 		case "app-state-mac":
 			if i == 1 {
-				if _, err := binaryComponent(p, 1, 128); err != nil {
+				if _, err := binaryComponent(p, 32, 32); err != nil {
 					return nil, err
 				}
 			}
