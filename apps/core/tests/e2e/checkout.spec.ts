@@ -394,3 +394,49 @@ test("buyer pickup confirms explicit zero without district or quotation", async 
     expect(quotations).toBe(0);
   } finally { await f.cleanup(); }
 });
+
+
+test("buyer chooses an agency rate and reaches payment without choosing an operational courier", async ({ page }) => {
+  const f = await fixture("none", true, false);
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const access = { companyId: f.companyId, userId: f.userId };
+      expect((await deliverySettings.saveZones({ method: "agency", expectedVersion: 0,
+        zones: [{ kind: "new", name: "Agency zone", enabled: true, districtCodes: ["150122"], price: { amount: 8, currency: "PEN" } }] }, access)).success).toBe(true);
+      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: false }, agency: { enabled: true },
+        couriers: [{ kind: "new", name: "Operational courier", enabled: true }], store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
+    });
+    await page.goto(f.path);
+    await page.getByLabel("Departamento", { exact: true }).selectOption("15");
+    await page.getByLabel("Provincia", { exact: true }).selectOption("1501");
+    await page.getByLabel("Distrito", { exact: true }).selectOption("150122");
+    const rates = page.getByLabel("Tarifa de envío");
+    await browserExpect(rates.locator("option")).toHaveCount(2);
+    await browserExpect(rates.locator("option").nth(1)).toContainText("Retiro en agencia");
+    await rates.selectOption({ index: 1 });
+    await page.getByLabel("Nombre", { exact: true }).fill("Ana");
+    await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
+    await page.getByLabel("Nombre del destinatario").fill("Recipient");
+    await page.getByLabel("Teléfono del destinatario").fill("999");
+    await browserExpect(page.getByRole("button", { name: "Confirmar pedido", exact: true })).toBeDisabled();
+    await page.getByLabel("Documento del destinatario").fill("12345678");
+    await browserExpect(page.getByText("La agencia y el courier se asignarán después. No necesitas elegirlos para confirmar.", { exact: true })).toBeVisible();
+    await browserExpect(page.getByLabel("Dirección de entrega", { exact: true })).toHaveCount(0);
+    await browserExpect(page.getByRole("combobox").filter({ hasText: "Operational courier" })).toHaveCount(0);
+    const total = page.locator("dl > div").filter({ has: page.getByText("Total a pagar", { exact: true }) });
+    await browserExpect(total).toContainText(/18[.,]00/);
+    await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
+    await browserExpect(page.getByRole("heading", { name: "Pago del pedido", exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Total del pedido", { exact: true }).locator("..")).toContainText(/18[.,]00/);
+    await browserExpect(page.getByText("Saldo pendiente", { exact: true }).locator("..")).toContainText(/18[.,]00/);
+    const stored = await f.read();
+    expect(stored.total.toNumber()).toBe(18);
+    expect(stored.deliveryCharge.toNumber()).toBe(8);
+    expect(stored.delivery).toMatchObject({ method: "agency", agency: null, courier: null,
+      recipient: { identity: { kind: "document", documentType: "national_id", document: "12345678" } },
+      destination: { districtCode: "150122" }, recordedBy: { kind: "buyer" } });
+    expect(stored.checkoutConfirmedAt).not.toBeNull();
+    expect(stored.payments).toEqual([]);
+    expect(stored.stockDeducted).toBe(false);
+  } finally { await f.cleanup(); }
+});
