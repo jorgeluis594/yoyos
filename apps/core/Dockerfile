@@ -10,11 +10,13 @@ COPY shared/package.json shared/pnpm-lock.yaml /workspace/shared/
 RUN pnpm --dir /workspace/shared install --frozen-lockfile
 
 COPY apps/core/package.json apps/core/pnpm-lock.yaml apps/core/pnpm-workspace.yaml ./
+COPY patches /workspace/patches
 COPY apps/core/prisma ./prisma
 COPY apps/core/prisma.config.ts ./
 RUN pnpm install --frozen-lockfile
 
 COPY apps/core/. .
 COPY shared /workspace/shared
+COPY docs/design-tokens.json /workspace/docs/design-tokens.json
 
 EXPOSE 3000
