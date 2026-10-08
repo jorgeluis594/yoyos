@@ -194,17 +194,20 @@ test("restart resends the exact stored payments and delivery only after querying
   });
   const store = storage();
   const selected = { ...draft(), payments: [{ paymentId: id(8), amount: "4.50", method: "bank_transfer" as const, deductStockIfPartial: false }],
-    delivery: { method: "home" as const, name: "Ana", phone: "999", documentType: "absent" as const, document: "",
-      address: "Original address", district: "Lima", instructions: "Door 2", courierId: "", agency: "", charge: true }, deliverImmediately: false };
+    ratedDelivery: { expectedPrice: { amount: 8, currency: "PEN" as const }, delivery: {
+      method: "home" as const, rateId: id(6), recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } },
+      destination: { districtCode: "150122", address: "Original address", instructions: "Door 2" },
+    } }, deliverImmediately: false };
   await createOrderOperations(api, store).completeOrder(selected, companyId);
   expect(calls).toEqual(["post", "get"]);
   const restarted = createOrderOperations(api, store);
   await restarted.completeOrder({ ...selected, payments: [{ ...selected.payments[0], amount: "99" }],
-    delivery: { ...selected.delivery, address: "Changed address" } }, companyId);
+    ratedDelivery: { ...selected.ratedDelivery, delivery: { ...selected.ratedDelivery.delivery,
+      destination: { ...selected.ratedDelivery.delivery.destination, address: "Changed address" } } } }, companyId);
   expect(calls).toEqual(["post", "get", "get", "post", "get"]);
   expect(bodies[1]).toEqual(bodies[0]);
   expect(bodies[1]).toMatchObject({ payments: [{ paymentId: id(8), amount: { amount: 4.5, currency: "PEN" } }],
-    delivery: { delivery: { destination: { address: "Original address", instructions: "Door 2" } }, chargeDeliveryToCustomer: true }, deliverImmediately: false });
+    delivery: { expectedPrice: { amount: 8, currency: "PEN" }, delivery: { rateId: id(6), destination: { districtCode: "150122", address: "Original address", instructions: "Door 2" } } }, deliverImmediately: false });
   await restarted.resendPendingOrder(companyId);
   expect(bodies[2]).toEqual(bodies[0]);
   const offlineLookup = createOrderOperations(createOrderApi(async () => err({ code: "NETWORK_ERROR", message: "Offline" })), store);
@@ -239,22 +242,18 @@ test.each([true, false])("rejected legacy delivery retains the original recovery
   const paths: string[] = [];
   const api = createOrderApi(async (path, init) => {
     paths.push(path);
-    if (init?.method === "POST") {
-      expect(JSON.parse(String(init.body))).toEqual(pending.request);
-      return err({ code: "API_ERROR", message: "Unsupported delivery format", http: { status: 400,
-        body: { code: "INVALID_INPUT", error: "Unsupported delivery format" } } });
-    }
+    if (init?.method === "POST") throw new Error("Legacy request must not reach HTTP");
     return err({ code: "API_ERROR", message: "Missing", http: { status: 404, body: { code: "ORDER_NOT_FOUND", error: "Missing" } } });
   });
   const restarted = createOrderOperations(api, store);
   expect(await restarted.resendPendingOrder(companyId)).toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
-  expect(paths).toEqual([`/api/orders/${id(3)}/aggregate`, "/api/orders"]);
+  expect(paths).toEqual([`/api/orders/${id(3)}/aggregate`]);
   expect(await store.read(companyId)).toEqual(ok(pending));
   expect(await restarted.resolvePendingOrderConfirmation(companyId)).toEqual(ok({ kind: "uncertain", pending }));
   const other = addDraftItem(emptyOrderDraft(), item, () => id(9));
   if (!other.success) throw new Error("Invalid second cart");
   expect(await restarted.completeOrder(other.data, companyId)).toMatchObject({ success: false, error: { code: "PENDING_CONFIRMATION" } });
-  expect(paths).toHaveLength(3);
+  expect(paths).toHaveLength(2);
 });
 
 test("in-flight outcomes never cross company boundaries", async () => {

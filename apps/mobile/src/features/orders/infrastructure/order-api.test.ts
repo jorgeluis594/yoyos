@@ -20,6 +20,19 @@ test("order API sends only validated creation fields and validates the reply", a
   expect(JSON.parse(String(calls[1][1]?.body))).toEqual(complete);
 });
 
+test.each(["home", "agency", "store"] as const)("creation refuses legacy %s delivery before HTTP", async (method) => {
+  const request = jest.fn(async () => ok({ unexpected: true }));
+  const api = createOrderApi(request);
+  const recipient = { name: "Ana", phone: "999", identity: { kind: "document" as const, documentType: "national_id" as const, document: "00123456" } };
+  const delivery = method === "home" ? { method, recipient, destination: { address: "Street", district: "Lima", instructions: null } }
+    : method === "agency" ? { method, recipient, courierId: id(4), agency: "Old agency" } : { method, recipient };
+  for (const chargeDeliveryToCustomer of [true, false]) {
+    expect(await api.create({ id: id(1), contactId: null, items: [{ variantId: id(2), quantity: 1 }],
+      delivery: { delivery, chargeDeliveryToCustomer } })).toMatchObject({ error: { code: "INVALID_INPUT" } });
+  }
+  expect(request).not.toHaveBeenCalled();
+});
+
 test("order API preserves matching business errors and rejects mismatched status or operation", async () => {
   const stock = { code: "INSUFFICIENT_STOCK", error: "No stock", issues: [{ field: "items", reason: "STOCK", variantId: id(2) }] };
   const api = createOrderApi(async () => err({ code: "API_ERROR", message: "API error", http: { status: 409, body: stock } }));
