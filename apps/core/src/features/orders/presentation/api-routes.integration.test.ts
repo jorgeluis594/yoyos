@@ -142,6 +142,38 @@ test("orders HTTP requires authentication", async () => {
   expect(anonymous.headers.get("cache-control")).toBe("no-store");
 });
 
+test("buyer payment cannot bypass pending checkout and resumes after confirmation without changing stock", async () => {
+  const seller = await fixture("PE");
+  const orderId = randomUUID();
+  const imageId = randomUUID();
+  const paymentId = randomUUID();
+  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, contactId: null,
+    items: [{ variantId: seller.variantId, quantity: 1 }] }, "POST")).status).toBe(201);
+  await withTenantIsolation(seller.companyId, async () => {
+    await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: new Date() } });
+    await prisma.image.create({ data: { id: imageId, storageKey: `test/${imageId}` } });
+  });
+  const path = `/api/buyer/orders/${orderId}`;
+  const view = await call(`${path}/payment`);
+  expect(view.status).toBe(409);
+  expect(await view.json()).toMatchObject({ code: "CHECKOUT_UNAVAILABLE" });
+  const report = await call(`${path}/reports`, undefined, { paymentId, receiptImageId: imageId }, "POST");
+  expect(report.status).toBe(409);
+  expect(await report.json()).toMatchObject({ code: "CHECKOUT_UNAVAILABLE" });
+  await withTenantIsolation(seller.companyId, async () => {
+    expect(await prisma.payment.count()).toBe(0);
+    expect(await prisma.productStock.findUnique({ where: { variantId: seller.variantId } })).toMatchObject({ quantity: 3n });
+    await prisma.order.update({ where: { id: orderId }, data: { checkoutConfirmedAt: new Date(),
+      buyer: { create: { name: "Ana", phone: "+51987654321" } } } });
+  });
+  expect((await call(`${path}/payment`)).status).toBe(200);
+  expect((await call(`${path}/reports`, undefined, { paymentId, receiptImageId: imageId }, "POST")).status).toBe(201);
+  await withTenantIsolation(seller.companyId, async () => {
+    expect(await prisma.payment.count()).toBe(1);
+    expect(await prisma.productStock.findUnique({ where: { variantId: seller.variantId } })).toMatchObject({ quantity: 3n });
+  });
+});
+
 test("buyer order link resolves one company and reports only its receipt", async () => {
   const seller = await fixture("PE");
   const other = await fixture("CL");

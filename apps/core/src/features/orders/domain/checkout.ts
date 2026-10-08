@@ -78,6 +78,14 @@ export function checkoutView(order: CheckoutOrder): Result<CheckoutView, Checkou
     itemsTotal: order.itemsTotal, total: order.total, state: state.data });
 }
 
+export function canAccessBuyerPayment(order: Pick<CheckoutOrder, "checkoutEnabledAt" | "checkoutConfirmedAt" | "cancelled" | "buyer">): Result<null, CheckoutError> {
+  const state = checkoutState(order);
+  if (!state.success) return state;
+  if (state.data.kind === "cancelled") return err({ code: "ORDER_CANCELLED", message: "Order is cancelled" });
+  if (state.data.kind === "pending") return err({ code: "CHECKOUT_UNAVAILABLE", message: "Confirm checkout before paying" });
+  return ok(null);
+}
+
 export function checkExpectedTotal(expected: Money, current: Money): Result<null, CheckoutError> {
   if (!amounts.safeParse(expected).success || !amounts.safeParse(current).success)
     return err({ code: "INVALID_CHECKOUT", message: "Invalid checkout amount" });

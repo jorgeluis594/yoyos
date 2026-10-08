@@ -1,7 +1,7 @@
 import { createCompleteOrder, type CreateCompleteOrderInput, type CreateCompleteOrderError } from "@core/src/features/orders/application/create-complete-order";
 import { enableOrderCheckout, getOrderCheckout, confirmOrderCheckout, type CheckoutDependencies, type ConfirmOrderCheckoutInput } from "@core/src/features/orders/application/checkout";
 import { findCheckoutOrder, findCheckoutOrderForUpdate, saveCheckoutEnabled, saveCheckoutBuyer, saveCheckoutConfirmed } from "@core/src/features/orders/infrastructure/checkout-repository";
-import type { CheckoutAccess, CheckoutError } from "@core/src/features/orders/domain/checkout";
+import { canAccessBuyerPayment, type CheckoutAccess, type CheckoutError } from "@core/src/features/orders/domain/checkout";
 import type { OrderAccess } from "@core/src/features/orders/application/create-order";
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import { randomUUID } from "node:crypto";
@@ -168,6 +168,8 @@ export async function getBuyerPaymentView(id: string) {
     ]);
     if (!found.success) return found;
     if (!found.data) return err({ code: "ORDER_NOT_FOUND" as const, message: "Order not found" });
+    const allowed = canAccessBuyerPayment(found.data);
+    if (!allowed.success) return allowed;
     if (!settings.success) return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Payment settings unavailable" });
     const summary = orderStateMachine.getPaymentSummary(found.data);
     if (!summary.success) return summary;
