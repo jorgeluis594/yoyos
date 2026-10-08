@@ -34,6 +34,7 @@ const es = {
     saveError: "No se pudo actualizar el pedido. Inténtalo de nuevo.",
   },
   orderDelivery: {
+    quoting: "Consultando tarifas…", quoteError: "No se pudieron cargar las tarifas. Conservamos tus datos.", retryRates: "Reintentar tarifas", noRates: "No hay tarifas para esta modalidad y distrito.", rate: "Tarifa de entrega", chooseRate: "Selecciona una tarifa",
     priceChanged: "La tarifa cambió. Selecciona nuevamente la entrega para confirmar el precio actual.", rateUnavailable: "La tarifa ya no está disponible. Selecciona otra entrega.",
     assignmentPending: "Courier y agencia pendientes de asignación",
     method: "Modalidad de entrega", chooseMethod: "Selecciona una modalidad", courier: "Courier", chooseCourier: "Selecciona un courier", agency: "Agencia de destino", identityRequired: "Documento de identidad (obligatorio)", chooseDocument: "Selecciona un documento", courierUnavailable: "El courier ya no está disponible. Selecciona uno habilitado; conservamos la entrega anterior.", address: "Dirección de entrega", district: "Distrito", instructions: "Indicaciones de entrega (opcional)",
@@ -138,6 +139,7 @@ const pt = {
     saveError: "Não foi possível atualizar o pedido. Tente novamente.",
   },
   orderDelivery: {
+    quoting: "Consultando tarifas…", quoteError: "Não foi possível carregar as tarifas. Seus dados foram mantidos.", retryRates: "Tentar tarifas novamente", noRates: "Não há tarifas para esta modalidade e distrito.", rate: "Tarifa de entrega", chooseRate: "Selecione uma tarifa",
     priceChanged: "A tarifa mudou. Selecione novamente a entrega para confirmar o preço atual.", rateUnavailable: "A tarifa não está mais disponível. Selecione outra entrega.",
     assignmentPending: "Transportadora e agência pendentes de atribuição",
     method: "Modalidade de entrega", chooseMethod: "Selecione uma modalidade", courier: "Transportadora", chooseCourier: "Selecione uma transportadora", agency: "Agência de destino", identityRequired: "Documento de identidade (obrigatório)", chooseDocument: "Selecione um documento", courierUnavailable: "A transportadora não está mais disponível. Selecione uma habilitada; mantemos a entrega anterior.", address: "Endereço de entrega", district: "Distrito", instructions: "Instruções de entrega (opcional)",

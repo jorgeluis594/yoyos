@@ -1,10 +1,6 @@
-import { useState } from "react";
-import { useClientReady } from "@core/app/use-client-ready";
 import { useTranslation } from "react-i18next";
-import { useSubmit } from "react-router";
 import { setOrderDeliverySchema, type OrderAggregateResponse } from "@shared/contracts/orders";
 import type { DeliverySettingsResponse } from "@shared/contracts/delivery-settings";
-import { Button } from "@core/app/components/ui/button";
 import { Field, FieldLabel, controlClass } from "@core/app/components/ui/field";
 import { Input } from "@core/app/components/ui/input";
 
@@ -70,21 +66,4 @@ export function DeliveryFields({ value, onChange, settings, pending }: { value: 
       <p className="text-sm text-muted-foreground">{t("orderDelivery.priceHint")}</p>
     </fieldset>
   );
-}
-
-export function DeliveryForm({ order, settings, pending }: { order: OrderAggregateResponse; settings: DeliverySettingsResponse; pending: boolean }) {
-  const { t } = useTranslation();
-  const submit = useSubmit();
-  const ready = useClientReady();
-  const [value, setValue] = useState(() => deliveryDraft(order, settings));
-  const enabled = settings[value.method].enabled;
-  const validCourier = value.method !== "agency" || settings.couriers.some(courier => courier.id === value.courierId && courier.enabled);
-  return <form className="flex max-w-form flex-col gap-4" onSubmit={event => {
-    event.preventDefault();
-    const parsed = deliveryRequest(value);
-    if (ready && parsed.success) submit(parsed.data, { method: "post", encType: "application/json" });
-  }}>
-    <DeliveryFields value={value} onChange={setValue} settings={settings} pending={pending || !ready} />
-    <Button type="submit" disabled={pending || !ready || !enabled || !validCourier}>{t(pending ? "deliverySettings.saving" : "orderDelivery.save")}</Button>
-  </form>;
 }

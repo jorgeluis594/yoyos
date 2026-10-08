@@ -17,7 +17,7 @@ import { privateUserContext } from "@core/app/private-user-context";
 import { deliverySettingsSchema } from "@shared/contracts/delivery-settings";
 import { deliverySettings } from "@core/src/features/delivery-settings";
 import { deliveryCostContext } from "@core/app/delivery-cost-context";
-import { DeliveryForm } from "@core/src/features/orders/presentation/delivery-form";
+import { RatedDeliveryForm } from "@core/src/features/orders/presentation/rated-delivery-form";
 import { parseDeliverySelection, parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { setConfiguredOrderDelivery } from "@core/src/features/orders/composition";
 import { orders } from "@core/src/features/orders/composition";
@@ -260,7 +260,7 @@ export default function OrderDetail() {
             </> : editable && <p className="text-sm text-muted-foreground">{t("orderDelivery.undefined")}</p>}
             {result && typeof result.error === "string" && <p role="alert" className="text-sm text-destructive">{t(`orderDelivery.${result.error}`)}</p>}
             {result && "order" in result && result.order && <p role="status" className="text-sm text-[var(--success)]">{t("orderDelivery.saved")}</p>}
-            {editable ? settings && (settings.store.enabled || settings.home.enabled || settings.agency.enabled) ? <div id="delivery-editor" hidden={!editingDelivery} className="border-t pt-4"><DeliveryForm key={JSON.stringify(order.delivery)} order={order} settings={settings} pending={navigation.state !== "idle"} /></div>
+            {editable ? settings && (settings.store.enabled || settings.home.enabled || settings.agency.enabled || editingDelivery) ? <div id="delivery-editor" hidden={!editingDelivery} className="border-t pt-4"><RatedDeliveryForm active={editingDelivery} recovery={result?.error ? result : undefined} key={JSON.stringify(order.delivery)} order={order} settings={settings} pending={navigation.state !== "idle"} /></div>
               : <div className="flex flex-col gap-2 text-sm"><p className="text-muted-foreground">{t(settings ? "orderDelivery.disabled" : "deliverySettings.loadError")}</p><Link className="text-primary underline underline-offset-4" to={settingsPath}>{t("orderDelivery.configure")}</Link></div>
               : <p className="text-sm text-muted-foreground">{t("orderDelivery.locked")}</p>}
           </div>
