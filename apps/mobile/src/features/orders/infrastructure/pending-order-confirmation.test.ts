@@ -2,6 +2,28 @@ import { createPendingOrderConfirmationStore } from "@mobile/features/orders/inf
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 
+test.each([true, false])("legacy delivery attempts remain intact after restart (customer charge: %s)", async (chargeDeliveryToCustomer) => {
+  const pending = { version: 2 as const, companyId: id(1), id: id(2), shownTotal: { amount: 10, currency: "PEN" as const },
+    request: { id: id(2), contactId: id(5), items: [{ variantId: id(3), quantity: 2 }],
+      payments: [{ paymentId: id(4), amount: { amount: 3, currency: "PEN" as const }, method: "bank_transfer" as const, deductStockIfPartial: false }],
+      delivery: { chargeDeliveryToCustomer, delivery: { method: "home" as const,
+        recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } },
+        destination: { address: "Calle original", district: "Lima", instructions: "Puerta lateral" } } }, deliverImmediately: false } };
+  const raw = JSON.stringify(pending);
+  const key = `yoyos_pending_order_${id(1)}`;
+  const values = new Map([[key, raw]]);
+  const setItemAsync = jest.fn(async (storageKey: string, value: string) => { values.set(storageKey, value); });
+  const deleteItemAsync = jest.fn(async (storageKey: string) => { values.delete(storageKey); });
+  const store = createPendingOrderConfirmationStore({ getItemAsync: async (storageKey) => values.get(storageKey) ?? null,
+    setItemAsync, deleteItemAsync });
+  expect(await store.read(id(1))).toEqual({ success: true, data: pending });
+  expect(await store.save({ ...pending, request: { ...pending.request, delivery: undefined, payments: [] } }))
+    .toEqual({ success: true, data: pending });
+  expect(values.get(key)).toBe(raw);
+  expect(setItemAsync).not.toHaveBeenCalled();
+  expect(deleteItemAsync).not.toHaveBeenCalled();
+});
+
 test("pending confirmation is company scoped, keeps its first amount, and refuses a different ID", async () => {
   const values = new Map<string, string>();
   const store = createPendingOrderConfirmationStore({
