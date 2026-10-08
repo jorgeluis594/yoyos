@@ -300,14 +300,14 @@ test("reviewing a legacy delivery keeps order and payment identities and saves b
   expect(calls).toHaveLength(3);
 });
 
-test("rated creation retains a price rejection after restart for delivery review", async () => {
+test.each(["TOTAL_CHANGED", "RATE_UNAVAILABLE", "DELIVERY_METHOD_DISABLED"] as const)("rated creation retains %s after restart for delivery review", async code => {
   const bodies: unknown[] = [];
   let reject = false;
   const api = createOrderApi(async (path, init) => {
     if (path === "/api/orders") {
       bodies.push(JSON.parse(String(init?.body)));
-      return reject ? err({ code: "API_ERROR", message: "Price changed", http: { status: 409,
-        body: { code: "TOTAL_CHANGED", error: "Price changed", currentPrice: { amount: 10, currency: "PEN" } } } })
+      return reject ? err({ code: "API_ERROR", message: "Price changed", http: { status: code === "TOTAL_CHANGED" ? 409 : 422,
+        body: { code, error: "Delivery changed", ...(code === "TOTAL_CHANGED" ? { currentPrice: { amount: 10, currency: "PEN" } } : {}) } } })
         : err({ code: "NETWORK_ERROR", message: "Lost response" });
     }
     return err({ code: "API_ERROR", message: "Missing", http: { status: 404, body: { code: "ORDER_NOT_FOUND", error: "Missing" } } });
@@ -322,8 +322,12 @@ test("rated creation retains a price rejection after restart for delivery review
   const saved = await store.read(companyId);
   reject = true;
   expect(await createOrderOperations(api, store).resendPendingOrder(companyId)).toMatchObject({ success: false,
-    error: { code: "TOTAL_CHANGED", currentPrice: { amount: 10, currency: "PEN" } } });
+    error: { code } });
   expect(bodies).toEqual([expect.objectContaining({ delivery: selected.ratedDelivery }), bodies[0]]);
   expect(await store.read(companyId)).toEqual(saved);
   expect(selected.ratedDelivery.expectedPrice.amount).toBe(8);
+  const pickup = { expectedPrice: { amount: 0, currency: "PEN" as const }, delivery: { method: "store" as const, recipient: selected.ratedDelivery.delivery.recipient } };
+  expect(await createOrderOperations(api, store).reviewLegacyPendingDelivery(companyId, pickup)).toMatchObject({ success: true,
+    data: { kind: "uncertain", pending: { id: id(3), shownTotal: { amount: 10, currency: "PEN" }, request: { delivery: pickup } } } });
+  expect(bodies).toHaveLength(2);
 });
