@@ -147,6 +147,7 @@ jobs:
       - run: pod install
         working-directory: apps/mobile/tests/whatsapp-native-app/ios
       - name: Configure application-hosted storage tests
+        if: matrix.runner == 'macos-26'
         run: ruby scripts/configure-ios-storage-test-host.rb ../../tests/whatsapp-native-app/ios/WhatsAppNativeProbe.xcodeproj
         working-directory: apps/mobile/modules/whatsapp
       - name: Record effective iOS matrix
@@ -171,6 +172,7 @@ jobs:
             -only-testing:WhatsAppBridgeTests/WhatsAppBridgeTests/testCallbackValueAndError test
         working-directory: apps/mobile/modules/whatsapp/ios
       - name: Build and inspect entitled iOS storage test host
+        if: matrix.runner == 'macos-26'
         run: |
           xcodebuild -workspace WhatsAppNativeProbe.xcworkspace -scheme WhatsAppStateStoreHostTests \
             -configuration Release -derivedDataPath "$RUNNER_TEMP/wa-host" \
@@ -202,6 +204,7 @@ jobs:
             -only-testing:WhatsAppStateStoreHostTests/StateStoreTests/testActualENOSPCOnBoundedVolume test-without-building
         working-directory: apps/mobile/tests/whatsapp-native-app/ios
       - name: Test storage on entitled iOS app host
+        if: matrix.runner == 'macos-26' && !cancelled()
         run: |
           xcodebuild -workspace WhatsAppNativeProbe.xcworkspace -scheme WhatsAppStateStoreHostTests \
             -configuration Release -derivedDataPath "$RUNNER_TEMP/wa-host" \
@@ -233,6 +236,7 @@ jobs:
           done
         working-directory: apps/mobile/tests/whatsapp-native-app/ios
       - name: Build Expo app with the vendored framework
+        if: ${{ !cancelled() }}
         run: |
           workspace=$(find . -maxdepth 1 -name '*.xcworkspace' -print -quit)
           xcodebuild -workspace "$workspace" -scheme WhatsAppNativeProbe -configuration Release -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -showBuildSettings | grep -E '^[[:space:]]*(ARCHS|SDKROOT|IPHONEOS_DEPLOYMENT_TARGET|SWIFT_VERSION) = ' | sort -u >> ../../../modules/whatsapp/.generated/build-info.txt

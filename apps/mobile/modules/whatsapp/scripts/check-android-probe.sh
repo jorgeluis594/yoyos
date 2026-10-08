@@ -7,11 +7,11 @@ if ! timeout 15m ./gradlew :yoyos-whatsapp:connectedDebugAndroidTest; then
   exit 1
 fi
 
-test_apk=$(find "$module_dir/android/build/outputs/apk/androidTest" -type f -name '*.apk' -print -quit)
-test -n "$test_apk"
+test_apk=$(find "$module_dir/android/build/outputs/apk/androidTest" -type f -name '*.apk' -print -quit 2>/dev/null || true)
+test -n "$test_apk" || { echo 'Android instrumentation APK is missing' >&2; exit 1; }
 adb install -r "$test_apk"
 instrumentation=$(adb shell pm list instrumentation | sed -n '/AndroidJUnitRunner/ s/^instrumentation:\([^ ]*\).*/\1/p' | head -1 | tr -d '\r')
-test -n "$instrumentation"
+test -n "$instrumentation" || { adb shell pm list instrumentation; exit 1; }
 run_id="$(date +%s)-$$"
 for phase in cipher write sync close replace directorySync response; do
   crash_output=$(mktemp)
