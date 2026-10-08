@@ -64,8 +64,11 @@ jobs:
           cat > "$RUNNER_TEMP/whatsapp-matrix.gradle" <<'GRADLE'
           gradle.projectsEvaluated {
             [':app', ':yoyos-whatsapp'].each { name ->
-              def android = gradle.rootProject.project(name).extensions.getByName('android')
-              println("${name}: compileSdk=${android.compileSdkVersion}, buildTools=${android.buildToolsVersion}, ndk=${android.ndkVersion}, minSdk=${android.defaultConfig.minSdkVersion?.apiLevel}, targetSdk=${android.defaultConfig.targetSdkVersion?.apiLevel}, abiFilters=${android.defaultConfig.ndk.abiFilters}")
+              def project = gradle.rootProject.findProject(name)
+              if (project != null) {
+                def android = project.extensions.getByName('android')
+                println("${name}: compileSdk=${android.compileSdkVersion}, buildTools=${android.buildToolsVersion}, ndk=${android.ndkVersion}, minSdk=${android.defaultConfig.minSdkVersion?.apiLevel}, targetSdk=${android.defaultConfig.targetSdkVersion?.apiLevel}, abiFilters=${android.defaultConfig.ndk.abiFilters}")
+              }
             }
           }
           GRADLE
