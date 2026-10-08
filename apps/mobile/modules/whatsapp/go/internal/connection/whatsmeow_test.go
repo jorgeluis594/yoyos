@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/binary"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types/events"
@@ -38,6 +39,18 @@ func TestPinnedClientEventsAreClassifiedWithoutRetryingRevocation(t *testing.T) 
 func TestFirstLinkStorageErrorIsNotTreatedAsQRFailure(t *testing.T) {
 	if got := storageCode(&protocolstore.Error{Code: protocolstore.SessionFull}); got != SessionStorageLimitReached {
 		t.Fatalf("session capacity classified as %q", got)
+	}
+}
+
+func TestDelayedQRConsumptionKeepsProducerExpiry(t *testing.T) {
+	producedAt := time.Now().Add(-25 * time.Second)
+	item := whatsmeow.QRChannelItem{Event: whatsmeow.QRChannelEventCode, Code: "stale", Timeout: 20 * time.Second, ExpiresAt: producedAt.Add(20 * time.Second)}
+	if _, valid := codeEvent(item, time.Now()); valid {
+		t.Fatal("expired buffered QR was advertised")
+	}
+	item.ExpiresAt = time.Now().Add(20 * time.Second)
+	if event, valid := codeEvent(item, time.Now()); !valid || !event.ExpiresAt.Equal(item.ExpiresAt) {
+		t.Fatal("producer deadline was replaced at consumption")
 	}
 }
 

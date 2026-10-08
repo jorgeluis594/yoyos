@@ -91,8 +91,12 @@ func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent)
 			}
 			switch item.Event {
 			case whatsmeow.QRChannelEventCode:
+				qrEvent, valid := codeEvent(item, time.Now())
+				if !valid {
+					continue
+				}
 				select {
-				case out <- TransportEvent{Kind: "qr", QR: item.Code, ExpiresAt: time.Now().Add(item.Timeout)}:
+				case out <- qrEvent:
 				case <-ctx.Done():
 					return ctx.Err()
 				}
@@ -109,6 +113,13 @@ func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent)
 			}
 		}
 	}
+}
+
+func codeEvent(item whatsmeow.QRChannelItem, now time.Time) (TransportEvent, bool) {
+	if item.Code == "" || !now.Before(item.ExpiresAt) {
+		return TransportEvent{}, false
+	}
+	return TransportEvent{Kind: "qr", QR: item.Code, ExpiresAt: item.ExpiresAt}, true
 }
 
 func storageCode(err error) Code {
