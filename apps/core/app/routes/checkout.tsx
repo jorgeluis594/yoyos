@@ -17,7 +17,7 @@ import type { Money } from "@shared/money";
 import { deliverySettings } from "@core/src/features/delivery-settings";
 import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { bindRequestOperation, log } from "@core/src/shared/infrastructure/logger";
-import { checkoutBuyerSchema, checkoutPathSchema, checkoutDeliveryOptionsSchema, confirmCheckoutDeliverySchema, confirmCheckoutSchema, publicCheckoutSchema, type CheckoutDeliveryOptions, type PublicCheckoutResponse } from "@shared/contracts/order-checkout";
+import { checkoutBuyerSchema, checkoutPathSchema, checkoutDeliveryOptionsSchema, confirmCheckoutDeliverySchema, publicCheckoutSchema, type CheckoutDeliveryOptions, type PublicCheckoutResponse } from "@shared/contracts/order-checkout";
 
 const privacyHeaders = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
 export const headers = () => privacyHeaders;
@@ -64,7 +64,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
   return response({ checkout: serialize(result.data), deliveryOptions: options.data, message: null });
 }
 
-const formSchema = z.strictObject({ name: z.string(), phone: z.string(), expectedTotal: z.string(), delivery: z.string().optional() });
+const formSchema = z.strictObject({ name: z.string(), phone: z.string(), expectedTotal: z.string(), delivery: z.string() });
 export async function action({ request, params }: ActionFunctionArgs) {
   bindRequestOperation({ operation: "confirm_checkout" });
   const path = checkoutPathSchema.safeParse(params);
@@ -78,16 +78,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
     else {
       const fields = await request.formData();
       const parsed = formSchema.safeParse(Object.fromEntries(fields));
-      if (!parsed.success || [...fields.keys()].length !== (parsed.data.delivery === undefined ? 3 : 4)) body = null;
+      if (!parsed.success || [...fields.keys()].length !== 4) body = null;
       else body = { buyer: { name: parsed.data.name, phone: parsed.data.phone }, expectedTotal: JSON.parse(parsed.data.expectedTotal),
-        ...(parsed.data.delivery === undefined ? {} : { delivery: JSON.parse(parsed.data.delivery) }) };
+        delivery: JSON.parse(parsed.data.delivery) };
     }
   } catch {
     body = null;
   }
-  const deliveryRequest = confirmCheckoutDeliverySchema.safeParse(body);
-  const parsed = typeof body === "object" && body !== null && "delivery" in body
-    ? deliveryRequest : confirmCheckoutSchema.safeParse(body);
+  const parsed = confirmCheckoutDeliverySchema.safeParse(body);
   if (!parsed.success) {
     bindRequestOperation({ outcome: "invalid_input" });
     const fieldErrors: NonNullable<PageData["fieldErrors"]> = {};
@@ -101,20 +99,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
   if (!buyer.success) return response({ checkout: null, message: "Revisa los datos del comprador." }, 422);
   const access = path.data as CheckoutAccess;
   try {
-    let delivery: CheckoutDeliveryChange | undefined;
-    if (deliveryRequest.success) {
-      if (deliveryRequest.data.delivery.kind === "keep") delivery = { kind: "keep" };
-      else {
-        const selection = parseRatedDeliverySelection(deliveryRequest.data.delivery.selection);
-        if (!selection.success) return response({ checkout: null, message: "Revisa el destino y los datos de entrega.", code: selection.error.code }, 422);
-        delivery = { kind: "replace", selection: selection.data, expectedPrice: deliveryRequest.data.delivery.expectedPrice };
-      }
+    let delivery: CheckoutDeliveryChange;
+    if (parsed.data.delivery.kind === "keep") delivery = { kind: "keep" };
+    else {
+      const selection = parseRatedDeliverySelection(parsed.data.delivery.selection);
+      if (!selection.success) return response({ checkout: null, message: "Revisa el destino y los datos de entrega.", code: selection.error.code }, 422);
+      delivery = { kind: "replace", selection: selection.data, expectedPrice: parsed.data.delivery.expectedPrice };
     }
-    const result = delivery
-      ? await orders.confirmCheckoutDelivery({ buyer: buyer.data, expectedTotal: parsed.data.expectedTotal, delivery }, access)
-      : await orders.confirmCheckout({ buyer: buyer.data, expectedTotal: parsed.data.expectedTotal }, access);
-    if (result.success) return delivery ? redirect(`/pago/${access.orderId}`, { headers: privacyHeaders })
-      : response({ checkout: serialize(result.data), message: null });
+    const result = await orders.confirmCheckoutDelivery({ buyer: buyer.data, expectedTotal: parsed.data.expectedTotal, delivery }, access);
+    if (result.success) return redirect(`/pago/${access.orderId}`, { headers: privacyHeaders });
     if (result.error.code === "CHECKOUT_UNAVAILABLE") return response({ checkout: null, message: unavailable, unavailable: true }, 404);
     if (result.error.code === "TOTAL_CHANGED" || result.error.code === "ORDER_CANCELLED") {
       const latest = await orders.getCheckout(access);

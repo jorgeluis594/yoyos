@@ -85,8 +85,9 @@ test("anonymous mobile buyer reviews fixed products, corrects prefilled data and
     expect(stored.stockDeducted).toBe(false);
     await page.goto(f.path);
     await browserExpect(page.getByRole("heading", { name: "Pedido confirmado", exact: true })).toBeVisible();
-    const replay = await page.request.post(f.path, { data: { buyer: { name: "Replacement", phone: "+51999999999" }, expectedTotal: { amount: 1, currency: "USD" } } });
-    expect(replay.status()).toBe(200);
+    const replay = await page.request.post(f.path, { maxRedirects: 0, data: { delivery: { kind: "keep" }, buyer: { name: "Replacement", phone: "+51999999999" }, expectedTotal: { amount: 1, currency: "USD" } } });
+    expect(replay.status()).toBe(302);
+    expect(replay.headers().location).toBe(`/pago/${f.orderId}`);
     expect(await f.read()).toEqual(stored);
     expect(await withTenantIsolation(f.companyId, async () => (await prisma.contact.findFirstOrThrow()).name)).toBeNull();
     await f.cancel();
@@ -377,6 +378,12 @@ test("buyer pickup confirms explicit zero without district or quotation", async 
     await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
     await page.getByLabel("Nombre del destinatario").fill("Recipient");
     await page.getByLabel("Teléfono del destinatario").fill("999");
+    const before = await f.read();
+    const missingDelivery = await page.request.post(f.path, { data: {
+      buyer: { name: "Bypass", phone: "+51987654321" }, expectedTotal: { amount: 10, currency: "PEN" },
+    } });
+    expect(missingDelivery.status()).toBe(422);
+    expect(await f.read()).toEqual(before);
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
     await browserExpect(page.getByRole("heading", { name: "Pago del pedido", exact: true })).toBeVisible();
     const stored = await f.read();

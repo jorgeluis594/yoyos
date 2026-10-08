@@ -12,7 +12,7 @@ const params = { companyId: "00000000-0000-4000-8000-000000000001", orderId: "00
 const total = { amount: 10, currency: "PEN" as const };
 const view: CheckoutView = { companyName: "Store", number: 1001 as OrderNumber, buyer: null, itemsTotal: total, total, delivery: null, deliveryCharge: { amount: 0, currency: "PEN" },
   items: [{ productName: "Product", sku: null, variantAttributes: {}, quantity: 1 as PositiveInteger, unitPrice: total, subtotal: total }], state: { kind: "pending" } };
-const body = { buyer: { name: "Ana", phone: "+51987654321" }, expectedTotal: total };
+const body = { buyer: { name: "Ana", phone: "+51987654321" }, expectedTotal: total, delivery: { kind: "keep" as const } };
 const args = (payload: unknown, path = params) => ({ params: path, request: new Request("http://localhost/checkout/company/order", {
   method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
 }) } as unknown as ActionFunctionArgs);
@@ -29,7 +29,7 @@ test("public loader preserves wire amounts and privacy headers without requiring
 });
 
 test("public action rejects tampering and attaches field errors before calling the use case", async () => {
-  const confirm = vi.spyOn(orders, "confirmCheckout");
+  const confirm = vi.spyOn(orders, "confirmCheckoutDelivery");
   expect(await action(args({ ...body, companyId: params.companyId }))).toMatchObject({ init: { status: 422 } });
   expect(await action(args({ ...body, buyer: { name: " ", phone: "invalid" } }))).toMatchObject({
     data: { fieldErrors: { name: expect.any(String), phone: expect.any(String) } }, init: { status: 422 },
@@ -39,21 +39,24 @@ test("public action rejects tampering and attaches field errors before calling t
 });
 
 test("total conflict returns the current checkout and requires another explicit confirmation", async () => {
-  const confirm = vi.spyOn(orders, "confirmCheckout").mockResolvedValue(err({ code: "TOTAL_CHANGED", message: "changed" }));
+  const confirm = vi.spyOn(orders, "confirmCheckoutDelivery").mockResolvedValue(err({ code: "TOTAL_CHANGED", message: "changed" }));
   vi.spyOn(orders, "getCheckout").mockResolvedValue(ok({ ...view, total: { ...total, amount: 12 } }));
   expect(await action(args(body))).toMatchObject({ data: { checkout: { total: { amount: 12 } }, message: expect.stringContaining("vuelve a confirmar") }, init: { status: 409 } });
   expect(confirm).toHaveBeenCalledTimes(1);
 });
 
-test("form submission serializes confirmation dates and does not expose private buyer fields", async () => {
-  const confirmed = { ...view, buyer: body.buyer, state: { kind: "confirmed" as const, confirmedAt: new Date("2026-10-05T00:00:00Z") } };
-  vi.spyOn(orders, "confirmCheckout").mockResolvedValue(ok(confirmed));
-  const request = new Request("http://localhost/checkout/company/order", { method: "POST", body: new URLSearchParams({ ...body.buyer, expectedTotal: JSON.stringify(total) }) });
-  expect(await action({ params, request } as unknown as ActionFunctionArgs)).toMatchObject({ data: { checkout: { buyer: body.buyer, state: { kind: "confirmed", confirmedAt: "2026-10-05T00:00:00.000Z" } } }, init: { status: 200 } });
+test("confirmation requires an explicit delivery choice for JSON and form requests", async () => {
+  const confirm = vi.spyOn(orders, "confirmCheckoutDelivery");
+  const withoutDelivery = { buyer: body.buyer, expectedTotal: body.expectedTotal };
+  expect(await action(args(withoutDelivery))).toMatchObject({ init: { status: 422 } });
+  const fields = new URLSearchParams({ ...body.buyer, expectedTotal: JSON.stringify(total) });
+  const request = new Request("http://localhost/checkout/company/order", { method: "POST", body: fields });
+  expect(await action({ params, request } as unknown as ActionFunctionArgs)).toMatchObject({ init: { status: 422 } });
+  expect(confirm).not.toHaveBeenCalled();
 });
 
 test("cancelled, unavailable and technical failures never return false confirmation", async () => {
-  const confirm = vi.spyOn(orders, "confirmCheckout").mockResolvedValue(err({ code: "ORDER_CANCELLED", message: "cancelled" }));
+  const confirm = vi.spyOn(orders, "confirmCheckoutDelivery").mockResolvedValue(err({ code: "ORDER_CANCELLED", message: "cancelled" }));
   vi.spyOn(orders, "getCheckout").mockResolvedValue(ok({ ...view, state: { kind: "cancelled" } }));
   expect(await action(args(body))).toMatchObject({ data: { checkout: { state: { kind: "cancelled" } } }, init: { status: 409 } });
   confirm.mockResolvedValue(err({ code: "PERSISTENCE_UNAVAILABLE", message: "private cause" }));
