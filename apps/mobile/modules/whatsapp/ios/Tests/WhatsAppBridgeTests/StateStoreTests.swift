@@ -20,6 +20,7 @@ final class StateStoreTests: XCTestCase {
       XCTAssertThrowsError(try StrictStateJSON.check(text))
     }
     XCTAssertNoThrow(try StrictStateJSON.check("{\"a\":[true,null,3]}"))
+    XCTAssertNoThrow(try StrictStateJSON.check(String(repeating: "[", count: 63) + "0" + String(repeating: "]", count: 63)))
     XCTAssertThrowsError(try StrictStateJSON.check(String(repeating: "[", count: 65) + "0" + String(repeating: "]", count: 65)))
     XCTAssertThrowsError(try NativeStateStore.parseObject(Data([0x7b, 0x22, 0xc3, 0x28, 0x22, 0x7d])))
   }
@@ -168,6 +169,22 @@ final class StateStoreTests: XCTestCase {
     let after = try accounts()
     XCTAssertTrue(orphan.isDisjoint(with: after))
     XCTAssertEqual(after.count, before.count + 1)
+  }
+
+  func testLostProvisionalRecordResponseForcesSameWriterReadback() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    var active = false
+    let writer = try makeStore(root) { phase in
+      if active && phase == "recordResponse" { active = false; throw StateStoreError.storage }
+    }
+    _ = try writer.open()
+    active = true
+    let valid = Data("{\"protocolSchemaVersion\":1,\"records\":[]}".utf8)
+    XCTAssertThrowsError(try writer.beginSession(accountId: "123@lid", protocolBytes: valid))
+    XCTAssertTrue(try writer.open()["session"] is NSNull)
+    try writer.beginSession(accountId: "123@lid", protocolBytes: valid)
+    XCTAssertTrue(try makeStore(root).canRestoreSession())
   }
 
   func testInjectedPublicationFailuresPreserveAReadableRevision() throws {

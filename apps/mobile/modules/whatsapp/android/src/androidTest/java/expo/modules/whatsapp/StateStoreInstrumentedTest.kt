@@ -26,6 +26,7 @@ class StateStoreInstrumentedTest {
       assertThrows(StateFailure::class.java) { StrictJson.check(value) }
     }
     StrictJson.check("{\"a\":[true,null,3]}")
+    StrictJson.check("[".repeat(63) + "0" + "]".repeat(63))
     assertThrows(StateFailure::class.java) { StrictJson.check("[".repeat(65) + "0" + "]".repeat(65)) }
     assertThrows(Exception::class.java) { NativeStateStore.parseObject(byteArrayOf(0x7b, 0x22, 0xc3.toByte(), 0x28, 0x22, 0x7d)) }
   }
@@ -186,6 +187,22 @@ class StateStoreInstrumentedTest {
     writer.beginSession("123@lid", "{\"protocolSchemaVersion\":1,\"records\":[]}".toByteArray())
     assertFalse(keys().contains(orphan.single()))
     assertEquals(before.size + 1, keys().size)
+  }
+
+  @Test fun lostProvisionalRecordResponseForcesSameWriterReadback() {
+    val root = freshRoot
+    var active = false
+    val writer = makeStore(root) { if (active && it == "recordResponse") {
+      active = false; throw StateFailure("STORAGE_FAILED")
+    } }
+    writer.open()
+    active = true
+    assertThrows(StateFailure::class.java) {
+      writer.beginSession("123@lid", "{\"protocolSchemaVersion\":1,\"records\":[]}".toByteArray())
+    }
+    assertEquals(org.json.JSONObject.NULL, writer.open().get("session"))
+    writer.beginSession("123@lid", "{\"protocolSchemaVersion\":1,\"records\":[]}".toByteArray())
+    assertEquals(true, makeStore(root).canRestoreSession())
   }
 
   @Test fun injectedPublicationFailuresPreserveAReadableRevision() {
