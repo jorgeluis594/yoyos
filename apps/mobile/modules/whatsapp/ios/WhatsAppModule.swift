@@ -15,6 +15,32 @@ private final class ProbeStorage: NSObject, YYWhatsAppGoBridgeStorageProtocol {
   }
 }
 
+private final class NativeProtocolStorage: NSObject, YYWhatsAppGoBridgeProtocolStorageProtocol {
+  let writer: NativeStateStore
+  init(writer: NativeStateStore) { self.writer = writer }
+  func readState(_ request: String?, error: NSErrorPointer) -> String {
+    writer.readProtocolState(request ?? "")
+  }
+  func applyChanges(_ request: String?, error: NSErrorPointer) -> String {
+    writer.applyProtocolChanges(request ?? "")
+  }
+  func beginFreshSession(_ request: String?, error: NSErrorPointer) -> String {
+    writer.beginFreshProtocolSession(request ?? "")
+  }
+}
+
+func openProtocolSession(writer: NativeStateStore, generationId: String, accountId: String,
+                         readRecoveryBytes: Int64, newRecoveryBytes: Int64) throws -> YYWhatsAppGoBridgeProtocolSession {
+  try writer.registerGeneration(generationId, accountId: accountId)
+  guard let result = YYWhatsAppGoBridgeOpenProtocolStore(NativeProtocolStorage(writer: writer), generationId,
+                                                          accountId, readRecoveryBytes, newRecoveryBytes),
+        result.code.isEmpty, let session = result.session else {
+    writer.retireGeneration()
+    throw StateStoreError.storage
+  }
+  return session
+}
+
 public class WhatsAppModule: Module {
   public func definition() -> ModuleDefinition {
     Name("WhatsApp")

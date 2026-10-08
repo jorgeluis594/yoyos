@@ -209,6 +209,7 @@ func (s *Store) PutLIDMapping(ctx context.Context, lid, pn types.JID) error {
 	return s.stage(ctx, func(t *txn) error { return putLID(t, lid, pn) })
 }
 func putLID(t *txn, lid, pn types.JID) error {
+	lid, pn = lid.ToNonAD(), pn.ToNonAD()
 	key, e := protocolstate.EncodeKey("lid-mapping", pn.String())
 	if e != nil {
 		return e
@@ -233,11 +234,13 @@ func putLID(t *txn, lid, pn types.JID) error {
 	return t.put("lid-mapping", v, pn.String())
 }
 func (s *Store) GetLIDForPN(ctx context.Context, pn types.JID) (types.JID, error) {
-	v, _, e := s.get(ctx, "lid-mapping", pn.String())
+	v, _, e := s.get(ctx, "lid-mapping", pn.ToNonAD().String())
 	if e != nil || v == nil {
 		return types.EmptyJID, e
 	}
-	return types.ParseJID(v.(*protocolstate.LIDMapping).LID)
+	lid, e := types.ParseJID(v.(*protocolstate.LIDMapping).LID)
+	lid.Device = pn.Device
+	return lid, e
 }
 func (s *Store) GetPNForLID(ctx context.Context, lid types.JID) (types.JID, error) {
 	records, e := s.scan(ctx, "lid-mapping")
@@ -250,12 +253,14 @@ func (s *Store) GetPNForLID(ctx context.Context, lid types.JID) (types.JID, erro
 		if e != nil {
 			return types.EmptyJID, e
 		}
-		if v.(*protocolstate.LIDMapping).LID == lid.String() {
+		if v.(*protocolstate.LIDMapping).LID == lid.ToNonAD().String() {
 			p, e := protocolstate.DecodeKey("lid-mapping", r.RecordKey)
 			if e != nil {
 				return types.EmptyJID, e
 			}
-			return types.ParseJID(p[0])
+			pn, e := types.ParseJID(p[0])
+			pn.Device = lid.Device
+			return pn, e
 		}
 	}
 	return types.EmptyJID, nil

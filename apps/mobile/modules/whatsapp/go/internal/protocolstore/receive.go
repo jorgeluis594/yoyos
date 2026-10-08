@@ -1,0 +1,209 @@
+package protocolstore
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"time"
+
+	waBinary "go.mau.fi/whatsmeow/binary"
+	"go.mau.fi/whatsmeow/store"
+	"go.mau.fi/whatsmeow/types"
+	"yoyos-whatsapp/internal/protocolstate"
+)
+
+// CapturedChild owns its bytes; it never points into whatsmeow's receive node.
+type CapturedChild struct {
+	Index          int
+	Format         string
+	EncryptionType string
+	Ciphertext     []byte
+}
+
+type CapturedReceive struct {
+	AccountID       string
+	MessageInfoJSON string
+	Children        []CapturedChild
+}
+
+// ReceiveBuilder performs the pure message/identity decision after decryption.
+// It must not call back into Store while its decryption transaction is active.
+type ReceiveBuilder func(CapturedReceive, CapturedChild, []byte) (identityState string, message json.RawMessage, err error)
+
+type receiveContextKey struct{}
+type receiveContext struct {
+	captured  CapturedReceive
+	build     ReceiveBuilder
+	processor RecoveryProcessor
+}
+
+type RecoveryProcessor interface {
+	ReplayRecoveredProtocol(context.Context, *types.MessageInfo, string, []byte) error
+}
+
+func parseReceiveInfo(raw, accountID string) (*types.MessageInfo, error) {
+	var metadata struct {
+		Version          int    `json:"version"`
+		AccountID        string `json:"accountId"`
+		ID               string `json:"id"`
+		Chat             string `json:"chat"`
+		Sender           string `json:"sender"`
+		SenderAlt        string `json:"senderAlt"`
+		RecipientAlt     string `json:"recipientAlt"`
+		IsFromMe         bool   `json:"isFromMe"`
+		IsGroup          bool   `json:"isGroup"`
+		TimestampSeconds int64  `json:"timestampSeconds"`
+		Category         string `json:"category"`
+		MessageType      string `json:"messageType"`
+	}
+	if err := json.Unmarshal([]byte(raw), &metadata); err != nil || metadata.Version != 1 || metadata.AccountID != accountID || metadata.ID == "" || metadata.TimestampSeconds <= 0 {
+		return nil, failure(StateInvalid, "invalid replay metadata")
+	}
+	chat, err := types.ParseJID(metadata.Chat)
+	if err != nil {
+		return nil, failure(StateInvalid, "invalid replay chat")
+	}
+	sender, err := types.ParseJID(metadata.Sender)
+	if err != nil {
+		return nil, failure(StateInvalid, "invalid replay sender")
+	}
+	parseOptional := func(value string) (types.JID, error) {
+		if value == "" {
+			return types.EmptyJID, nil
+		}
+		return types.ParseJID(value)
+	}
+	senderAlt, err := parseOptional(metadata.SenderAlt)
+	if err != nil {
+		return nil, failure(StateInvalid, "invalid replay sender alternate")
+	}
+	recipientAlt, err := parseOptional(metadata.RecipientAlt)
+	if err != nil {
+		return nil, failure(StateInvalid, "invalid replay recipient alternate")
+	}
+	info := &types.MessageInfo{MessageSource: types.MessageSource{Chat: chat, Sender: sender, SenderAlt: senderAlt,
+		RecipientAlt: recipientAlt, IsFromMe: metadata.IsFromMe, IsGroup: metadata.IsGroup},
+		ID: types.MessageID(metadata.ID), Timestamp: time.Unix(metadata.TimestampSeconds, 0), Category: metadata.Category, Type: metadata.MessageType}
+	return info, nil
+}
+
+// CaptureReceive copies every encrypted child and the replay metadata before Signal changes state.
+func CaptureReceive(ctx context.Context, accountID string, info *types.MessageInfo, node *waBinary.Node, build ReceiveBuilder, processor RecoveryProcessor) (context.Context, error) {
+	if ctx == nil || info == nil || node == nil || build == nil || processor == nil || accountID == "" {
+		return nil, malformed("receive context missing")
+	}
+	metadata := struct {
+		Version          int    `json:"version"`
+		AccountID        string `json:"accountId"`
+		ID               string `json:"id"`
+		Chat             string `json:"chat"`
+		Sender           string `json:"sender"`
+		SenderAlt        string `json:"senderAlt"`
+		RecipientAlt     string `json:"recipientAlt"`
+		IsFromMe         bool   `json:"isFromMe"`
+		IsGroup          bool   `json:"isGroup"`
+		TimestampSeconds int64  `json:"timestampSeconds"`
+		Category         string `json:"category"`
+		MessageType      string `json:"messageType"`
+	}{1, accountID, string(info.ID), info.Chat.String(), info.Sender.String(), info.SenderAlt.String(), info.RecipientAlt.String(), info.IsFromMe, info.IsGroup, info.Timestamp.Unix(), info.Category, info.Type}
+	infoJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, malformed("invalid receive metadata")
+	}
+	captured := CapturedReceive{AccountID: accountID, MessageInfoJSON: string(infoJSON)}
+	for index, child := range node.GetChildren() {
+		if child.Tag != "enc" {
+			continue
+		}
+		ciphertext, ok := child.Content.([]byte)
+		if !ok || len(ciphertext) == 0 {
+			return nil, malformed("invalid encrypted child")
+		}
+		version := child.AttrGetter().Int("v")
+		format := ""
+		if version == 2 {
+			format = "v2"
+		} else if version == 3 {
+			format = "v3"
+		} else {
+			return nil, malformed("unsupported encrypted child version")
+		}
+		captured.Children = append(captured.Children, CapturedChild{index, format, child.AttrGetter().OptionalString("type"), append([]byte(nil), ciphertext...)})
+	}
+	return store.WithPrecommittedProtocol(context.WithValue(ctx, receiveContextKey{}, receiveContext{captured, build, processor})), nil
+}
+
+func (s *Store) prepareBufferedEvent(ctx context.Context, hash [32]byte, plaintext []byte, serverTime time.Time) error {
+	value, ok := ctx.Value(receiveContextKey{}).(receiveContext)
+	if !ok {
+		return unsupported("receive context absent")
+	}
+	if value.captured.AccountID != s.accountID {
+		return malformed("receive account mismatch")
+	}
+	index, ok := store.BufferedEventChild(ctx)
+	if !ok {
+		return unsupported("encrypted child index absent")
+	}
+	var child *CapturedChild
+	for i := range value.captured.Children {
+		if value.captured.Children[i].Index == index {
+			child = &value.captured.Children[i]
+			break
+		}
+	}
+	if child == nil {
+		return unsupported("encrypted child not captured")
+	}
+	info, err := parseReceiveInfo(value.captured.MessageInfoJSON, s.accountID)
+	if err != nil {
+		return err
+	}
+	if info.Sender.Server == types.DefaultUserServer && info.SenderAlt.IsEmpty() {
+		lid, err := s.GetLIDForPN(ctx, info.Sender)
+		if err != nil {
+			return err
+		}
+		if !lid.IsEmpty() {
+			info.SenderAlt = lid
+			var metadata map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(value.captured.MessageInfoJSON), &metadata); err != nil {
+				return failure(StateInvalid, "invalid captured metadata")
+			}
+			metadata["senderAlt"], _ = json.Marshal(lid.String())
+			updated, err := json.Marshal(metadata)
+			if err != nil {
+				return failure(StateInvalid, "invalid resolved metadata")
+			}
+			value.captured.MessageInfoJSON = string(updated)
+		}
+	}
+	if err := value.processor.ReplayRecoveredProtocol(ctx, info, child.Format, plaintext); err != nil {
+		return err
+	}
+	identity, message, err := value.build(value.captured, *child, append([]byte(nil), plaintext...))
+	if err != nil {
+		return storageError(err)
+	}
+	if identity != "resolved" && identity != "pendingLid" {
+		return malformed("invalid receive identity state")
+	}
+	var random [16]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return failure(StorageFailed, "delivery ID generation failed")
+	}
+	p := PendingInsert{
+		DeliveryID: "wa-delivery:v1:" + hex.EncodeToString(random[:]), AccountID: s.accountID,
+		Source: "live", IdentityState: identity, Message: message,
+		Recovery: Recovery{MessageInfoJSON: value.captured.MessageInfoJSON, Items: []RecoveryItem{{
+			Format: child.Format, PlaintextBase64: base64.StdEncoding.EncodeToString(plaintext),
+			CiphertextHashBase64: base64.StdEncoding.EncodeToString(hash[:]),
+		}}},
+	}
+	if err := s.PreparePendingInsert(ctx, p); err != nil {
+		return err
+	}
+	return s.put(ctx, "retry-hash", protocolstate.RetryHash{Version: 1, InsertTimeMS: time.Now().UnixMilli(), ServerTimeSeconds: serverTime.Unix()}, base64.StdEncoding.EncodeToString(hash[:]))
+}

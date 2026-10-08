@@ -4,6 +4,25 @@ import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.whatsapp.go.bridge.Bridge
 import expo.modules.whatsapp.go.bridge.Storage
+import expo.modules.whatsapp.go.bridge.ProtocolStorage
+import expo.modules.whatsapp.go.bridge.ProtocolSession
+
+internal fun openProtocolSession(
+  writer: NativeStateStore, generationId: String, accountId: String,
+  readRecoveryBytes: Long, newRecoveryBytes: Long,
+): ProtocolSession {
+  writer.registerGeneration(generationId, accountId)
+  val result = Bridge.openProtocolStore(object : ProtocolStorage {
+    override fun readState(request: String): String = writer.readProtocolState(request)
+    override fun applyChanges(request: String): String = writer.applyProtocolChanges(request)
+    override fun beginFreshSession(request: String): String = writer.beginFreshProtocolSession(request)
+  }, generationId, accountId, readRecoveryBytes, newRecoveryBytes)
+  if (result?.session == null) {
+    writer.retireGeneration()
+    throw StateFailure(result?.code ?: "STORAGE_FAILED")
+  }
+  return result.session
+}
 
 class WhatsAppModule : Module() {
   override fun definition() = ModuleDefinition {

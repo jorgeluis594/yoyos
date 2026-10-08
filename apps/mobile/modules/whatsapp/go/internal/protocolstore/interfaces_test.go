@@ -297,11 +297,12 @@ func TestPrivacyPrecedenceAndDeviceBoundary(t *testing.T) {
 	otherID := types.NewJID("999", types.DefaultUserServer)
 	changed.ID = &otherID
 	codeIs(t, s.PutDevice(ctx, &changed), InvalidRequest)
-	v, _, e := s.get(ctx, "device")
+	codeIs(t, s.StopReason(), InvalidRequest)
+	other := openTest(t, n)
+	v, _, e := other.get(ctx, "device")
 	if e != nil || v == nil {
 		t.Fatal("saved device missing", e)
 	}
-	other := openTest(t, n)
 	recovered, e := other.RestoreDevice(ctx)
 	if e != nil || recovered == nil || !recovered.Initialized || recovered.Container != other || recovered.Sessions != other {
 		t.Fatal("device restore failed", e)

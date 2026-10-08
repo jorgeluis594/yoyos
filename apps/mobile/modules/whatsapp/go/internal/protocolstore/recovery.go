@@ -155,18 +155,95 @@ func (s *Store) GetNCTSalt(ctx context.Context) ([]byte, error) {
 }
 func (s *Store) DeleteNCTSalt(ctx context.Context) error { return s.del(ctx, "nct-salt") }
 
-// The pinned receive hook does not yet supply validated pending metadata to this store.
-func (s *Store) PutBufferedEvent(context.Context, [32]byte, []byte, time.Time) error {
-	return unsupported("pending recovery metadata and native preparation required")
+func (s *Store) PutBufferedEvent(ctx context.Context, hash [32]byte, plaintext []byte, serverTime time.Time) error {
+	if txn, ok := ctx.Value(txnKey{}).(*txn); !ok || txn.owner != s || !txn.active {
+		return unsupported("buffered event requires decryption transaction")
+	}
+	return s.prepareBufferedEvent(ctx, hash, plaintext, serverTime)
 }
-func (s *Store) GetBufferedEvent(context.Context, [32]byte) (*store.BufferedEvent, error) {
-	return nil, unsupported("pending recovery lookup requires receive context")
+func (s *Store) GetBufferedEvent(ctx context.Context, hash [32]byte) (*store.BufferedEvent, error) {
+	v, _, err := s.get(ctx, "retry-hash", base64.StdEncoding.EncodeToString(hash[:]))
+	if err != nil || v == nil {
+		return nil, err
+	}
+	marker := v.(*protocolstate.RetryHash)
+	result := &store.BufferedEvent{InsertTime: time.UnixMilli(marker.InsertTimeMS), ServerTime: time.Unix(marker.ServerTimeSeconds, 0)}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.read(); err != nil {
+		return nil, err
+	}
+	encoded := base64.StdEncoding.EncodeToString(hash[:])
+	for _, pending := range s.pending {
+		if pending.AccountID != s.accountID {
+			continue
+		}
+		for _, item := range pending.Recovery.Items {
+			if item.CiphertextHashBase64 == encoded {
+				result.Pending = true
+				return result, nil
+			}
+		}
+	}
+	return result, nil
 }
-func (s *Store) ClearBufferedEventPlaintext(context.Context, [32]byte) error {
-	return unsupported("native pending confirmation owns recovery content")
+func (s *Store) ClearBufferedEventPlaintext(ctx context.Context, hash [32]byte) error {
+	// The only plaintext copy is in native pending; this verifies its durable marker.
+	v, err := s.GetBufferedEvent(ctx, hash)
+	if err != nil {
+		return err
+	}
+	if v == nil {
+		return failure(StateInvalid, "missing buffered event marker")
+	}
+	return nil
 }
-func (s *Store) DeleteOldBufferedHashes(context.Context) error {
-	return unsupported("pending-aware retry hash cleanup requires native recovery state")
+func (s *Store) DeleteOldBufferedHashes(ctx context.Context) error {
+	if ctx.Value(txnKey{}) != nil {
+		return malformed("retry hash cleanup inside transaction")
+	}
+	s.mu.Lock()
+	if s.stopped != nil {
+		defer s.mu.Unlock()
+		return s.stopped
+	}
+	if err := s.read(); err != nil {
+		s.stopped = err
+		s.mu.Unlock()
+		return err
+	}
+	protected := map[string]bool{}
+	for _, pending := range s.pending {
+		for _, item := range pending.Recovery.Items {
+			if item.CiphertextHashBase64 != "" {
+				protected[item.CiphertextHashBase64] = true
+			}
+		}
+	}
+	s.mu.Unlock()
+	cutoff := time.Now().Add(-14 * 24 * time.Hour).UnixMilli()
+	return s.stage(ctx, func(t *txn) error {
+		for _, record := range scanMap(t.records, "retry-hash") {
+			key, err := protocolstate.DecodeKey("retry-hash", record.RecordKey)
+			if err != nil {
+				return err
+			}
+			if protected[key[0]] {
+				continue
+			}
+			data, _ := base64.StdEncoding.DecodeString(record.ValueBase64)
+			value, err := protocolstate.DecodeValue("retry-hash", data)
+			if err != nil {
+				return err
+			}
+			if value.(*protocolstate.RetryHash).InsertTimeMS < cutoff {
+				if err := t.del("retry-hash", key...); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
 }
 func (*Store) GetOutgoingEvent(context.Context, types.JID, types.JID, types.MessageID) (string, []byte, error) {
 	return "", nil, failure(OutgoingUnsupported, "UseRetryMessageStore must remain false")
