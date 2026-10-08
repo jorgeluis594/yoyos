@@ -1,3 +1,4 @@
+import { deliverySettings } from "@mobile/features/delivery-settings";
 // Run by core/tests/e2e/mobile-order-creation.spec.ts against its isolated API/database.
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, unlinkSync } from "node:fs";
 import { request as httpRequest } from "node:http";
@@ -310,4 +311,42 @@ test("legacy recovery reviews a current rate and resends the same order and paym
     payments: [expect.objectContaining({ id: paymentId, amount: { amount: 4.5, currency: "PEN" } })],
   } });
   expect(mockPosts).toBe(1);
+}, 20000);
+
+test("a restarted rated attempt retains a real HTTP price conflict and saves a fresh review", async () => {
+  const companyId = process.env.ORDER_JOURNEY_COMPANY!;
+  const catalog = await mockOrders.searchOrderCatalog("Journey product");
+  const quote = await deliverySettings.createQuotation("150122");
+  if (!catalog.success || !catalog.data[0]?.variants[0] || !quote.success) throw new Error("Missing recovery fixtures");
+  const rate = quote.data.rates.find(value => value.method === "home" && value.price.amount === 10);
+  if (!rate) throw new Error("Missing changed price rate");
+  const orderId = randomUUID();
+  const pending = { version: 2, companyId, id: orderId, shownTotal: { amount: 18, currency: "PEN" },
+    request: { id: orderId, contactId: null, items: [{ variantId: catalog.data[0].variants[0].id, quantity: 1 }],
+      delivery: { expectedPrice: { amount: 8, currency: "PEN" }, delivery: { method: "home", rateId: rate.id,
+        recipient: { name: "Restart recipient", phone: "999123456", identity: { kind: "absent" } },
+        destination: { address: "Restart street", districtCode: "150122", instructions: null } } } } };
+  writeFileSync(join(directory, `yoyos_pending_order_${companyId}`), JSON.stringify(pending));
+  restartOperations();
+  expect(await mockOrders.resendPendingOrder(companyId)).toMatchObject({ success: false,
+    error: { code: "TOTAL_CHANGED", currentPrice: { amount: 10, currency: "PEN" } } });
+  expect(await mockOrders.readPendingOrderConfirmation(companyId)).toEqual(ok(pending));
+  const screen = render(<NewOrderScreen />);
+  fireEvent.press(await screen.findByRole("button", { name: "Revisar entrega guardada" }));
+  expect(await screen.findByLabelText(/Dirección de entrega/)).toHaveProp("value", "Restart street");
+  const district = getPeruDistrict("150122")!;
+  fireEvent(screen.getByTestId("delivery-department"), "valueChange", peruDepartments.findIndex(value => value.code === district.departmentCode));
+  fireEvent(screen.getByTestId("delivery-province"), "valueChange", getPeruProvinces(district.departmentCode).findIndex(value => value.code === district.provinceCode));
+  fireEvent.changeText(screen.getByLabelText("Buscar distrito"), district.code);
+  fireEvent(screen.getByTestId("delivery-district"), "valueChange", 0);
+  await screen.findByTestId("delivery-rate");
+  fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 1);
+  expect(screen.getByText(/Total:\sS\/\s22\.00/)).toBeTruthy();
+  fireEvent.press(screen.getByRole("button", { name: "Guardar entrega revisada" }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Guardar entrega revisada" })).toBeNull(), { timeout: 10000 });
+  expect(await mockOrders.readPendingOrderConfirmation(companyId)).toMatchObject({ success: true,
+    data: { id: orderId, shownTotal: { amount: 22, currency: "PEN" }, request: { items: pending.request.items,
+      delivery: { expectedPrice: { amount: 12, currency: "PEN" } } } } });
+  expect(mockPosts).toBe(1);
+  expect(mockReplace).not.toHaveBeenCalled();
 }, 20000);
