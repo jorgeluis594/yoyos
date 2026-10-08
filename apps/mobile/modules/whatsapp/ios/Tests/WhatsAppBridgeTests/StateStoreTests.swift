@@ -84,7 +84,7 @@ final class StateStoreTests: XCTestCase {
   }
 
   func testInjectedPublicationFailuresPreserveAReadableRevision() throws {
-    for phase in ["cipher", "write", "sync", "close", "replace", "directorySync", "response"] {
+    for phase in ["recordResponse", "cipher", "write", "sync", "close", "replace", "directorySync", "response"] {
       let root = try temporaryDirectory()
       defer { try? FileManager.default.removeItem(at: root) }
       var active = false
@@ -127,6 +127,45 @@ final class StateStoreTests: XCTestCase {
     let recovered = try makeStore(root)
     XCTAssertEqual((try recovered.open()["pending"] as? [[String: Any]])?.count, 1)
     XCTAssertFalse(try recovered.canRestoreSession())
+  }
+
+  func testPendingFormatAndIdentitySurviveRestartAndRejectIncoherence() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = try makeStore(root)
+    _ = try store.open()
+    let encoded = Data("[\"123@lid\",\"456@lid\",\"ABC\"]".utf8).base64EncodedString()
+      .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+      .replacingOccurrences(of: "=", with: "")
+    let id = "wa-message:v1:" + encoded
+    let message: [String: Any] = ["id": id, "accountId": "123@lid", "whatsappMessageId": "ABC",
+                                  "chatId": "456@lid", "direction": "incoming", "timestamp": 123456789,
+                                  "image": ["reference": ["messageId": id, "downloadReference": "opaque"]]]
+    func pending() -> [String: Any] {
+      ["deliveryId": "wa-delivery:v1:" + String(repeating: "a", count: 32), "accountId": "123@lid",
+       "createdRevision": "1", "createdOrdinal": 0, "source": "live", "identityState": "resolved",
+       "message": message, "recovery": ["messageInfoJson": "{}", "items": [["format": "v2",
+           "plaintextBase64": "AQ==", "ciphertextHashBase64": Data(repeating: 0, count: 32).base64EncodedString()]]]]
+    }
+    _ = try store.commit(expectedRevision: "0") { current in
+      var next = current; next["pending"] = [pending()]; return next
+    }
+    let recovered = try makeStore(root).open()
+    let items = try XCTUnwrap(recovered["pending"] as? [[String: Any]])
+    XCTAssertEqual((items[0]["message"] as? [String: Any])?["id"] as? String, id)
+    let bad: [([String: Any]) -> [String: Any]] = [
+      { var item = $0; var message = item["message"] as! [String: Any]; message["chatId"] = "789@lid"; item["message"] = message; return item },
+      { var item = $0; item["identityState"] = "pendingLid"; return item },
+      { var item = $0; item["createdOrdinal"] = 4_294_967_296; return item },
+      { var item = $0; item["createdRevision"] = "01"; return item },
+      { var item = $0; var recovery = item["recovery"] as! [String: Any]; recovery["items"] = [["format": "v2", "plaintextBase64": "AQ==", "ciphertextHashBase64": "AQ=="]]; item["recovery"] = recovery; return item },
+      { var item = $0; var recovery = item["recovery"] as! [String: Any]; recovery["items"] = [["format": "history", "plaintextBase64": "AQ=="]]; item["recovery"] = recovery; return item },
+    ]
+    for mutate in bad {
+      XCTAssertThrowsError(try store.commit(expectedRevision: "1") { current in
+        var next = current; next["pending"] = [mutate(pending())]; return next
+      })
+    }
   }
 
   func testInterruptedRetirementCompletesBeforeAnotherSession() throws {
@@ -218,6 +257,19 @@ final class StateStoreTests: XCTestCase {
     XCTAssertEqual(SecItemDelete(query as CFDictionary), errSecSuccess)
     try FileManager.default.removeItem(at: missingRecord.appendingPathComponent("whatsapp/state.bin"))
     XCTAssertThrowsError(try makeStore(missingRecord).open())
+
+    let missingKey = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: missingKey) }
+    _ = try makeStore(missingKey).open()
+    let bytes = try Data(contentsOf: missingKey.appendingPathComponent("whatsapp/state.bin"))
+    let length = bytes[8..<12].reduce(0) { ($0 << 8) | Int($1) }
+    let header = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes[12..<12+length]) as? [String: Any])
+    let recoveryId = try XCTUnwrap(header["recoveryKeyId"] as? String)
+    let keyService = "com.yoyos.whatsapp.state.test." + missingKey.lastPathComponent.replacingOccurrences(of: "-", with: "").lowercased()
+    let keyQuery: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: keyService,
+                                   kSecAttrAccount as String: recoveryId, kSecUseDataProtectionKeychain as String: true]
+    XCTAssertEqual(SecItemDelete(keyQuery as CFDictionary), errSecSuccess)
+    XCTAssertThrowsError(try makeStore(missingKey).open())
   }
 
   func testMalformedEnvelopeDoesNotBecomeEmptyInstall() throws {

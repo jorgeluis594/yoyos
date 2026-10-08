@@ -86,7 +86,7 @@ class StateStoreInstrumentedTest {
   }
 
   @Test fun injectedPublicationFailuresPreserveAReadableRevision() {
-    for (phase in listOf("cipher", "write", "sync", "close", "replace", "directorySync", "response")) {
+    for (phase in listOf("recordResponse", "cipher", "write", "sync", "close", "replace", "directorySync", "response")) {
       val root = freshRoot
       var active = false
       val store = makeStore(root) { reached ->
@@ -120,6 +120,42 @@ class StateStoreInstrumentedTest {
     val recovered = makeStore(root)
     assertEquals(1, recovered.open().getJSONArray("pending").length())
     assertEquals(false, recovered.canRestoreSession())
+  }
+
+  @Test fun pendingFormatAndIdentitySurviveRestartAndRejectIncoherence() {
+    val root = freshRoot
+    val store = makeStore(root)
+    store.open()
+    val id = "wa-message:v1:" + android.util.Base64.encodeToString(
+      "[\"123@lid\",\"456@lid\",\"ABC\"]".toByteArray(),
+      android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
+    val message = org.json.JSONObject().put("id", id).put("accountId", "123@lid")
+      .put("whatsappMessageId", "ABC").put("chatId", "456@lid")
+      .put("direction", "incoming").put("timestamp", 123456789L)
+      .put("image", org.json.JSONObject().put("reference", org.json.JSONObject()
+        .put("messageId", id).put("downloadReference", "opaque")))
+    fun pending() = org.json.JSONObject().put("deliveryId", "wa-delivery:v1:" + "a".repeat(32))
+      .put("accountId", "123@lid").put("createdRevision", "1").put("createdOrdinal", 0)
+      .put("source", "live").put("identityState", "resolved").put("message", org.json.JSONObject(message.toString()))
+      .put("recovery", org.json.JSONObject().put("messageInfoJson", "{}")
+        .put("items", org.json.JSONArray().put(org.json.JSONObject().put("format", "v2")
+          .put("plaintextBase64", "AQ==").put("ciphertextHashBase64", android.util.Base64.encodeToString(ByteArray(32), android.util.Base64.NO_WRAP)))))
+    store.commit("0") { it.put("pending", org.json.JSONArray().put(pending()))
+      .put("androidService", org.json.JSONObject().put("receiveRequested", false).put("accountId", "123@lid")) }
+    val recovered = makeStore(root).open()
+    assertEquals(id, recovered.getJSONArray("pending").getJSONObject(0).getJSONObject("message").getString("id"))
+    assertEquals("123@lid", recovered.getJSONObject("androidService").getString("accountId"))
+    for (bad in listOf<(org.json.JSONObject) -> Unit>(
+      { it.getJSONObject("message").put("chatId", "789@lid") },
+      { it.put("identityState", "pendingLid") },
+      { it.put("createdOrdinal", 4294967296L) },
+      { it.put("createdRevision", "01") },
+      { it.getJSONObject("recovery").getJSONArray("items").getJSONObject(0).put("ciphertextHashBase64", "AQ==") },
+      { it.getJSONObject("recovery").getJSONArray("items").getJSONObject(0).put("format", "history") },
+    )) {
+      assertThrows(Exception::class.java) { store.commit("1") { it.put("pending", org.json.JSONArray().put(pending().also(bad))) } }
+      assertEquals("1", currentRevision(root))
+    }
   }
 
   @Test fun interruptedRetirementCompletesBeforeAnotherSession() {
@@ -196,6 +232,16 @@ class StateStoreInstrumentedTest {
     java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
       .deleteEntry("yoyos.whatsapp.test.$namespace.key.$id")
     assertThrows(Exception::class.java) { makeStore(missingRecoveryKey).open() }
+
+    val missingReadyMarker = freshRoot
+    makeStore(missingReadyMarker).open()
+    val bytes = File(directory(missingReadyMarker), "state.bin").readBytes()
+    val size = java.nio.ByteBuffer.wrap(bytes, 8, 4).int
+    val storeId = org.json.JSONObject(String(bytes, 12, size, Charsets.UTF_8)).getString("storeId")
+    val markerNamespace = missingReadyMarker.name.removePrefix("state-test-").replace("-", "")
+    java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+      .deleteEntry("yoyos.whatsapp.test.$markerNamespace.ready.$storeId")
+    assertThrows(StateFailure::class.java) { makeStore(missingReadyMarker).open() }
   }
 
   @Test fun malformedEnvelopeNeverPromotesTemporaryOrCreatesEmptyState() {

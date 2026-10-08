@@ -104,8 +104,10 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
       if (existsChecked(published)) {
         val state = readSnapshot(published, readBudget)
         if (revision > preparedRevision) throw StateFailure("SESSION_STATE_INVALID")
-        if (record.getString("status") == "creating") writeRecord(record.put("status", "ready"))
-        ensureNamedKey(readyPrefix + storeId)
+        if (record.getString("status") == "creating") {
+          ensureNamedKey(readyPrefix + storeId)
+          writeRecord(record.put("status", "ready"))
+        } else if (!keys.containsAlias(readyPrefix + storeId)) throw StateFailure("SESSION_STATE_INVALID")
         removeTemp(temporary)
         removeTemp(recordNext)
         ensureImagesDirectory()
@@ -121,8 +123,8 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
       val state = emptyState()
       publish(state, BigInteger.ZERO)
       fault?.invoke("initialPublication")
-      writeRecord(record.put("status", "ready"))
       ensureNamedKey(readyPrefix + storeId)
+      writeRecord(record.put("status", "ready"))
       ensureImagesDirectory()
       current = state
       observedPublication = publication
@@ -219,8 +221,8 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     val state = emptyState()
     publish(state, BigInteger.ZERO)
     fault?.invoke("initialPublication")
-    writeRecord(record.put("status", "ready"))
     ensureNamedKey(readyPrefix + storeId)
+    writeRecord(record.put("status", "ready"))
     ensureImagesDirectory()
     current = state
     observedPublication = publication
