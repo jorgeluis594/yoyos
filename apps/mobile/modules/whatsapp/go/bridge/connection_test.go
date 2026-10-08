@@ -1,9 +1,14 @@
 package bridge
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"testing"
 
+	"go.mau.fi/whatsmeow/proto/waAdv"
+	"go.mau.fi/whatsmeow/types"
+	"google.golang.org/protobuf/proto"
 	"yoyos-whatsapp/internal/connection"
 )
 
@@ -67,5 +72,31 @@ func TestConnectionEventsUseVersionedSanitizedEnvelope(t *testing.T) {
 		if decoded.Payload.Message == "private" {
 			t.Fatal("diagnostic leaked QR")
 		}
+	}
+}
+
+type rejectedFirstLink struct{ connectionStorage }
+
+func (rejectedFirstLink) BeginFreshSession(string) (string, error) {
+	return `{"contractVersion":1,"success":false,"error":{"code":"SESSION_FULL","message":"full"}}`, nil
+}
+
+func TestFailedFirstLinkExposesStorageHealth(t *testing.T) {
+	opened := OpenConnection(rejectedFirstLink{}, connectionSink{}, "g", "", 10<<20, 10<<20)
+	if opened.Code != "" {
+		t.Fatal(opened.Code)
+	}
+	defer opened.Session.Close()
+	device := opened.Session.device
+	id := types.NewJID("123", types.DefaultUserServer)
+	device.ID = &id
+	device.LID = types.NewJID("123", types.HiddenUserServer)
+	details, _ := proto.Marshal(&waAdv.ADVDeviceIdentity{RawID: proto.Uint32(1)})
+	device.Account = &waAdv.ADVSignedDeviceIdentity{Details: details, AccountSignatureKey: bytes.Repeat([]byte{1}, 32), AccountSignature: bytes.Repeat([]byte{1}, 64), DeviceSignature: bytes.Repeat([]byte{1}, 64)}
+	if err := device.Save(context.Background()); publicCode(err) != "SESSION_STORAGE_LIMIT_REACHED" {
+		t.Fatalf("unexpected first-link error: %v", err)
+	}
+	if got := opened.Session.StopReason(); got != "SESSION_STORAGE_LIMIT_REACHED" {
+		t.Fatalf("first-link failure disappeared: %s", got)
 	}
 }
