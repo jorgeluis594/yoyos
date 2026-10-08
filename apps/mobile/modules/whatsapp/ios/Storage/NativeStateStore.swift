@@ -77,8 +77,13 @@ public final class NativeStateStore {
       try ensureImagesDirectory()
       state = loaded
       observedPublication = Self.publication
-      try cleanupProvisional(&record, publishedState: loaded)
-      if let retired = loaded["sessionKeysToDelete"] as? [String], !retired.isEmpty { try endSession() }
+      do {
+        try cleanupProvisional(&record, publishedState: loaded)
+        if let retired = loaded["sessionKeysToDelete"] as? [String], !retired.isEmpty { try endSession() }
+      } catch {
+        state = nil
+        throw error
+      }
       return state ?? loaded
     }
     guard record["status"] as? String == "creating" else { throw StateStoreError.invalid }
@@ -116,10 +121,16 @@ public final class NativeStateStore {
 
   public func beginSession(accountId: String, protocolBytes: Data) throws {
     lock.lock(); defer { lock.unlock() }
+    state = nil
     let existing = try open()
     guard Self.validAccount(accountId), existing["session"] is NSNull,
           let retired = existing["sessionKeysToDelete"] as? [String], retired.isEmpty else { throw StateStoreError.invalid }
     guard protocolBytes.count <= Self.maxSession else { throw StateStoreError.sessionLimit }
+    guard revision < UInt64.max else { throw StateStoreError.invalid }
+    let protocolState = try Self.parseObject(protocolBytes)
+    try Self.exact(protocolState, ["protocolSchemaVersion", "records"])
+    guard Self.safeInt(protocolState["protocolSchemaVersion"]) == 1,
+          protocolState["records"] is [Any] else { throw StateStoreError.invalid }
     guard var record = try readRecord() else { throw StateStoreError.invalid }
     let id = try Self.randomId()
     record["provisionalSessionKeyId"] = id; try writeRecord(record)
@@ -190,7 +201,10 @@ public final class NativeStateStore {
     guard let id = record["provisionalSessionKeyId"] as? String else { return }
     guard Self.validId(id), id != recoveryId else { throw StateStoreError.invalid }
     let session = publishedState["session"] as? [String: Any]
-    if session?["sessionKeyId"] as? String != id { try keychain.delete(id) }
+    if session?["sessionKeyId"] as? String != id {
+      try fault?("cleanupProvisional")
+      try keychain.delete(id)
+    }
     record["provisionalSessionKeyId"] = NSNull(); try writeRecord(record)
   }
 
@@ -293,7 +307,7 @@ public final class NativeStateStore {
       var fields: Set<String> = ["deliveryId", "accountId", "createdRevision", "createdOrdinal", "source", "identityState", "recovery"]
       if item["message"] != nil { fields.insert("message") }
       try Self.exact(item, fields)
-      guard let delivery = item["deliveryId"] as? String, delivery.range(of: "^wa-delivery:v1:[0-9a-f]{32}$", options: .regularExpression) != nil,
+      guard let delivery = item["deliveryId"] as? String, delivery.range(of: "^wa-delivery:v1:[0-9a-f]{32}\\z", options: .regularExpression) != nil,
             let account = item["accountId"] as? String, Self.validAccount(account),
             let createdText = item["createdRevision"] as? String, let created = Self.parseRevision(createdText), created <= revision,
             let ordinal = Self.safeInt(item["createdOrdinal"]), ordinal >= 0, ordinal <= Int(UInt32.max),
@@ -340,7 +354,7 @@ public final class NativeStateStore {
     if message["text"] != nil && !(message["text"] is String) { throw StateStoreError.invalid }
     guard let id = message["id"] as? String, id.hasPrefix("wa-message:v1:") else { throw StateStoreError.invalid }
     let encoded = String(id.dropFirst("wa-message:v1:".count))
-    guard encoded.count <= 8192, encoded.range(of: "^[A-Za-z0-9_-]+$", options: .regularExpression) != nil else { throw StateStoreError.invalid }
+    guard encoded.count <= 8192, encoded.range(of: "^[A-Za-z0-9_-]+\\z", options: .regularExpression) != nil else { throw StateStoreError.invalid }
     let standard = encoded.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
     let padded = standard + String(repeating: "=", count: (4 - standard.count % 4) % 4)
     guard let decoded = Data(base64Encoded: padded),
@@ -455,10 +469,10 @@ public final class NativeStateStore {
     guard status == errSecSuccess else { throw StateStoreError.storage }
     return bytes.map { String(format: "%02x", $0) }.joined()
   }
-  private static func validId(_ value: String) -> Bool { value.range(of: "^[0-9a-f]{32}$", options: .regularExpression) != nil }
-  private static func validAccount(_ value: String) -> Bool { value.range(of: "^[0-9]+@lid$", options: .regularExpression) != nil }
+  private static func validId(_ value: String) -> Bool { value.range(of: "^[0-9a-f]{32}\\z", options: .regularExpression) != nil }
+  private static func validAccount(_ value: String) -> Bool { value.range(of: "^[0-9]+@lid\\z", options: .regularExpression) != nil }
   private static func parseRevision(_ value: String) -> UInt64? {
-    guard value.range(of: "^(0|[1-9][0-9]*)$", options: .regularExpression) != nil else { return nil }
+    guard value.range(of: "^(0|[1-9][0-9]*)\\z", options: .regularExpression) != nil else { return nil }
     return UInt64(value)
   }
   private static func safeInt(_ value: Any?) -> Int? {
@@ -467,7 +481,7 @@ public final class NativeStateStore {
     return integer
   }
   private static func decode(_ text: String, max: Int) -> Data? {
-    guard text.count <= ((max + 2) / 3) * 4, text.range(of: "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$", options: .regularExpression) != nil,
+    guard text.count <= ((max + 2) / 3) * 4, text.range(of: "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?\\z", options: .regularExpression) != nil,
           let decoded = Data(base64Encoded: text), decoded.count <= max, decoded.base64EncodedString() == text else { return nil }
     return decoded
   }
@@ -495,11 +509,11 @@ public final class NativeStateStore {
 private final class StateKeychain {
   private let service: String
   init(serviceSuffix: String) throws {
-    guard serviceSuffix.isEmpty || serviceSuffix.range(of: "^[0-9a-f]{32}$", options: .regularExpression) != nil else { throw StateStoreError.invalid }
+    guard serviceSuffix.isEmpty || serviceSuffix.range(of: "^[0-9a-f]{32}\\z", options: .regularExpression) != nil else { throw StateStoreError.invalid }
     service = "com.yoyos.whatsapp.state" + (serviceSuffix.isEmpty ? "" : ".test." + serviceSuffix)
   }
   private func query(_ id: String) throws -> [String: Any] {
-    guard id == "record" || id.range(of: "^[0-9a-f]{32}$", options: .regularExpression) != nil else { throw StateStoreError.invalid }
+    guard id == "record" || id.range(of: "^[0-9a-f]{32}\\z", options: .regularExpression) != nil else { throw StateStoreError.invalid }
     return [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: id,
             kSecUseDataProtectionKeychain as String: true]
   }

@@ -10,21 +10,25 @@ internal object StrictJson {
 
   private class Parser(private val source: String) {
     var position = 0
+    private var depth = 0
     fun space() { while (position < source.length && source[position] in " \n\r\t") position++ }
     private fun take(character: Char) {
       if (position >= source.length || source[position++] != character) throw StateFailure("SESSION_STATE_INVALID")
     }
     fun value() {
-      if (position >= source.length) throw StateFailure("SESSION_STATE_INVALID")
-      when (source[position]) {
-        '{' -> objectValue()
-        '[' -> arrayValue()
-        '"' -> string()
-        't' -> literal("true")
-        'f' -> literal("false")
-        'n' -> literal("null")
-        else -> number()
-      }
+      if (++depth > 64) throw StateFailure("SESSION_STATE_INVALID")
+      try {
+        if (position >= source.length) throw StateFailure("SESSION_STATE_INVALID")
+        when (source[position]) {
+          '{' -> objectValue()
+          '[' -> arrayValue()
+          '"' -> string()
+          't' -> literal("true")
+          'f' -> literal("false")
+          'n' -> literal("null")
+          else -> number()
+        }
+      } finally { depth-- }
     }
     private fun objectValue() {
       take('{'); space()

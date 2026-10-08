@@ -19,6 +19,7 @@ final class StateStoreTests: XCTestCase {
       XCTAssertThrowsError(try StrictStateJSON.check(text))
     }
     XCTAssertNoThrow(try StrictStateJSON.check("{\"a\":[true,null,3]}"))
+    XCTAssertThrowsError(try StrictStateJSON.check(String(repeating: "[", count: 65) + "0" + String(repeating: "]", count: 65)))
     XCTAssertThrowsError(try NativeStateStore.parseObject(Data([0x7b, 0x22, 0xc3, 0x28, 0x22, 0x7d])))
   }
 
@@ -77,6 +78,27 @@ final class StateStoreTests: XCTestCase {
     XCTAssertNotEqual(first["nonceBase64"] as? String, second["nonceBase64"] as? String)
   }
 
+  func testSessionFieldsAreAuthenticatedIndependentlyOfRecoveryRevision() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = try makeStore(root)
+    _ = try store.open()
+    try store.beginSession(accountId: "123@lid", protocolBytes: Data("{\"protocolSchemaVersion\":1,\"records\":[]}".utf8))
+    let original = try XCTUnwrap(store.open()["session"] as? [String: Any])
+    let bad: [([String: Any]) -> [String: Any]] = [
+      { var session = $0; session["accountId"] = "456@lid"; return session },
+      { var session = $0; session["sessionRevision"] = "0"; return session },
+      { var session = $0; let value = session["sessionKeyId"] as! String; session["sessionKeyId"] = (value.first == "0" ? "1" : "0") + String(value.dropFirst()); return session },
+      { var session = $0; let value = session["nonceBase64"] as! String; session["nonceBase64"] = (value.first == "A" ? "B" : "A") + String(value.dropFirst()); return session },
+      { var session = $0; let value = session["ciphertextBase64"] as! String; session["ciphertextBase64"] = (value.first == "A" ? "B" : "A") + String(value.dropFirst()); return session },
+    ]
+    for mutate in bad {
+      XCTAssertThrowsError(try store.commit(expectedRevision: "1") { current in
+        var next = current; next["session"] = mutate(original); return next
+      })
+    }
+  }
+
   func testInterruptedCreationResumes() throws {
     for phase in ["recordResponse", "creationRecord", "recoveryKey", "initialPublication"] {
       let root = try temporaryDirectory()
@@ -98,6 +120,42 @@ final class StateStoreTests: XCTestCase {
       let recovered = try makeStore(root).open()
       XCTAssertEqual(recovered["session"] is NSNull, phase != "sessionPublished")
     }
+  }
+
+  func testSameWriterRetryRemovesOnlyItsUnpublishedSessionKey() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    var fail = true
+    var cleanupFail = false
+    let writer = try makeStore(root) { phase in
+      if phase == "sessionKey" && fail { fail = false; throw StateStoreError.storage }
+      if phase == "cleanupProvisional" && cleanupFail { cleanupFail = false; throw StateStoreError.storage }
+    }
+    _ = try writer.open()
+    let service = "com.yoyos.whatsapp.state.test." + root.lastPathComponent.replacingOccurrences(of: "-", with: "").lowercased()
+    func accounts() throws -> Set<String> {
+      let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
+                                  kSecReturnAttributes as String: true, kSecMatchLimit as String: kSecMatchLimitAll,
+                                  kSecUseDataProtectionKeychain as String: true]
+      var result: CFTypeRef?
+      guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+            let items = result as? [[String: Any]] else { throw StateStoreError.storage }
+      return Set(items.compactMap { $0[kSecAttrAccount as String] as? String }.filter { $0 != "record" })
+    }
+    let before = try accounts()
+    XCTAssertThrowsError(try writer.beginSession(accountId: "123@lid", protocolBytes: Data("{}".utf8)))
+    XCTAssertEqual(try accounts(), before)
+    let valid = Data("{\"protocolSchemaVersion\":1,\"records\":[]}".utf8)
+    XCTAssertThrowsError(try writer.beginSession(accountId: "123@lid", protocolBytes: valid))
+    let orphan = try accounts().subtracting(before)
+    XCTAssertEqual(orphan.count, 1)
+    cleanupFail = true
+    XCTAssertThrowsError(try writer.beginSession(accountId: "123@lid", protocolBytes: valid))
+    XCTAssertEqual(try accounts().subtracting(before), orphan)
+    try writer.beginSession(accountId: "123@lid", protocolBytes: valid)
+    let after = try accounts()
+    XCTAssertTrue(orphan.isDisjoint(with: after))
+    XCTAssertEqual(after.count, before.count + 1)
   }
 
   func testInjectedPublicationFailuresPreserveAReadableRevision() throws {
@@ -193,9 +251,12 @@ final class StateStoreTests: XCTestCase {
     let bad: [([String: Any]) -> [String: Any]] = [
       { var item = $0; var message = item["message"] as! [String: Any]; message["chatId"] = "789@lid"; item["message"] = message; return item },
       { var item = $0; item["identityState"] = "pendingLid"; return item },
+      { var item = $0; item["deliveryId"] = (item["deliveryId"] as! String) + "\n"; return item },
       { var item = $0; item["createdOrdinal"] = 4_294_967_296; return item },
       { var item = $0; item["createdRevision"] = "01"; return item },
       { var item = $0; var recovery = item["recovery"] as! [String: Any]; recovery["items"] = [["format": "v2", "plaintextBase64": "AQ==", "ciphertextHashBase64": "AQ=="]]; item["recovery"] = recovery; return item },
+      { var item = $0; var recovery = item["recovery"] as! [String: Any]; recovery["items"] = [["format": "v2", "plaintextBase64": "AQ", "ciphertextHashBase64": Data(repeating: 0, count: 32).base64EncodedString()]]; item["recovery"] = recovery; return item },
+      { var item = $0; var recovery = item["recovery"] as! [String: Any]; recovery["items"] = [["format": "v2", "plaintextBase64": "AR==", "ciphertextHashBase64": Data(repeating: 0, count: 32).base64EncodedString()]]; item["recovery"] = recovery; return item },
       { var item = $0; var recovery = item["recovery"] as! [String: Any]; recovery["items"] = [["format": "history", "plaintextBase64": "AQ=="]]; item["recovery"] = recovery; return item },
     ]
     for mutate in bad {
@@ -256,12 +317,13 @@ final class StateStoreTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: root) }
     let store = try makeStore(root)
     _ = try store.open()
-    for revision in ["", "00", "01", "-1", "+1", "1.0", "18446744073709551616", "999999999999999999999999"] {
+    for revision in ["", "00", "01", "-1", "+1", "1.0", "0\n", "18446744073709551616", "999999999999999999999999"] {
       XCTAssertThrowsError(try store.commit(expectedRevision: revision) { $0 })
     }
-    for account in ["", "123@s.whatsapp.net", "123:1@lid", "abc@lid", "123@lid/other"] {
+    for account in ["", "123@s.whatsapp.net", "123:1@lid", "abc@lid", "123@lid/other", "123@lid\n", "123@lid\r\n"] {
       XCTAssertThrowsError(try store.beginSession(accountId: account, protocolBytes: Data("{}".utf8)))
     }
+    XCTAssertThrowsError(try NativeStateStore(directory: root, serviceSuffix: String(repeating: "a", count: 32) + "\n"))
   }
 
   func testOversizedSessionCannotPublishOrPruneState() throws {
@@ -342,6 +404,25 @@ final class StateStoreTests: XCTestCase {
       { $0[0] = 0 },
       { $0.replaceSubrange(8..<12, with: [0, 0, 16, 1]) },
       { $0.replaceSubrange(8..<12, with: [127, 255, 255, 255]) },
+      { bytes in
+        let length = bytes[8..<12].reduce(0) { ($0 << 8) | Int($1) }
+        let header = String(decoding: bytes[12..<12+length], as: UTF8.self)
+        let marker = "\"revision\":\"0\""
+        let index = header.range(of: marker)!.lowerBound.utf16Offset(in: header) + "\"revision\":\"".count
+        bytes[12 + index] = 0x31
+      },
+      { bytes in
+        let length = bytes[8..<12].reduce(0) { ($0 << 8) | Int($1) }
+        bytes[12 + length] ^= 1
+      },
+      { bytes in
+        let length = bytes[8..<12].reduce(0) { ($0 << 8) | Int($1) }
+        bytes.replaceSubrange(12+length+12..<12+length+20, with: [0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff])
+      },
+      { bytes in
+        let length = bytes[8..<12].reduce(0) { ($0 << 8) | Int($1) }
+        bytes.replaceSubrange(12+length+12..<12+length+20, with: [0, 0, 0, 0, 0, 0, 0, 15])
+      },
       { $0.removeLast() },
       { $0.append(0) },
       { $0[$0.count - 1] ^= 1 },
@@ -357,6 +438,14 @@ final class StateStoreTests: XCTestCase {
       XCTAssertThrowsError(try makeStore(root).open())
       XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
     }
+    let oversized = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: oversized) }
+    _ = try makeStore(oversized).open()
+    let file = oversized.appendingPathComponent("whatsapp/state.bin")
+    let handle = try FileHandle(forWritingTo: file)
+    try handle.truncate(atOffset: UInt64(16 * 1024 * 1024 + 10 * 1024 * 1024 + 8245))
+    try handle.close()
+    XCTAssertThrowsError(try makeStore(oversized).open())
   }
 
   func testInvalidStateDoesNotAdvancePublishedRevision() throws {

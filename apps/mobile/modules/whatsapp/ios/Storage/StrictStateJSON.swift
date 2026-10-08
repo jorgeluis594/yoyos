@@ -12,6 +12,7 @@ enum StrictStateJSON {
   private struct Parser {
     let characters: [Unicode.Scalar]
     var position = 0
+    private var depth = 0
     init(_ characters: [Unicode.Scalar]) { self.characters = characters }
     mutating func space() {
       while let c = peek(), c == " " || c == "\n" || c == "\r" || c == "\t" { position += 1 }
@@ -21,6 +22,9 @@ enum StrictStateJSON {
       guard peek() == c else { throw StateStoreError.invalid }; position += 1
     }
     mutating func value() throws {
+      depth += 1
+      guard depth <= 64 else { throw StateStoreError.invalid }
+      defer { depth -= 1 }
       space()
       guard let c = peek() else { throw StateStoreError.invalid }
       switch c {

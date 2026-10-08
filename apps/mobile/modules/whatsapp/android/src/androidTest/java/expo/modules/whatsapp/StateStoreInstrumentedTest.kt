@@ -26,6 +26,7 @@ class StateStoreInstrumentedTest {
       assertThrows(StateFailure::class.java) { StrictJson.check(value) }
     }
     StrictJson.check("{\"a\":[true,null,3]}")
+    assertThrows(StateFailure::class.java) { StrictJson.check("[".repeat(65) + "0" + "]".repeat(65)) }
     assertThrows(Exception::class.java) { NativeStateStore.parseObject(byteArrayOf(0x7b, 0x22, 0xc3.toByte(), 0x28, 0x22, 0x7d)) }
   }
 
@@ -77,6 +78,26 @@ class StateStoreInstrumentedTest {
     if (android.os.Build.VERSION.SDK_INT >= 28) assertFalse(info.isUnlockedDeviceRequired)
   }
 
+  @Test fun sessionFieldsAreAuthenticatedIndependentlyOfRecoveryRevision() {
+    val root = freshRoot
+    val store = makeStore(root)
+    store.open()
+    store.beginSession("123@lid", "{\"protocolSchemaVersion\":1,\"records\":[]}".toByteArray())
+    val original = store.open().getJSONObject("session")
+    for (change in listOf<(org.json.JSONObject) -> Unit>(
+      { it.put("accountId", "456@lid") },
+      { it.put("sessionRevision", "0") },
+      { it.put("sessionKeyId", (if (it.getString("sessionKeyId")[0] == '0') "1" else "0") + it.getString("sessionKeyId").drop(1)) },
+      { it.put("nonceBase64", (if (it.getString("nonceBase64")[0] == 'A') "B" else "A") + it.getString("nonceBase64").drop(1)) },
+      { it.put("ciphertextBase64", (if (it.getString("ciphertextBase64")[0] == 'A') "B" else "A") + it.getString("ciphertextBase64").drop(1)) },
+    )) {
+      assertThrows(Exception::class.java) {
+        store.commit("1") { it.put("session", org.json.JSONObject(original.toString()).also(change)) }
+      }
+      assertEquals("1", currentRevision(root))
+    }
+  }
+
   @Test fun interruptedCreationResumesWithoutPromotingPreparation() {
     for (phase in listOf("recordResponse", "creationRecord", "recoveryKey", "initialPublication")) {
       val root = freshRoot
@@ -101,6 +122,41 @@ class StateStoreInstrumentedTest {
       val recovered = makeStore(root).open()
       assertEquals(phase == "sessionPublished", recovered.get("session") != org.json.JSONObject.NULL)
     }
+  }
+
+  @Test fun sameWriterRetryRemovesOnlyItsUnpublishedSessionKey() {
+    val root = freshRoot
+    var fail = true
+    var cleanupFail = false
+    val writer = makeStore(root) {
+      if (it == "sessionKey" && fail) { fail = false; throw StateFailure("STORAGE_FAILED") }
+      if (it == "cleanupProvisional" && cleanupFail) { cleanupFail = false; throw StateFailure("STORAGE_FAILED") }
+    }
+    writer.open()
+    val prefix = "yoyos.whatsapp.test.${root.name.removePrefix("state-test-").replace("-", "")}.key."
+    fun keys(): Set<String> {
+      val store = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+      val result = mutableSetOf<String>()
+      val aliases = store.aliases()
+      while (aliases.hasMoreElements()) aliases.nextElement().let { if (it.startsWith(prefix)) result.add(it) }
+      return result
+    }
+    val before = keys()
+    assertThrows(StateFailure::class.java) { writer.beginSession("123@lid", "{}".toByteArray()) }
+    assertEquals(before, keys())
+    assertThrows(StateFailure::class.java) {
+      writer.beginSession("123@lid", "{\"protocolSchemaVersion\":1,\"records\":[]}".toByteArray())
+    }
+    val orphan = keys() - before
+    assertEquals(1, orphan.size)
+    cleanupFail = true
+    assertThrows(StateFailure::class.java) {
+      writer.beginSession("123@lid", "{\"protocolSchemaVersion\":1,\"records\":[]}".toByteArray())
+    }
+    assertEquals(orphan, keys() - before)
+    writer.beginSession("123@lid", "{\"protocolSchemaVersion\":1,\"records\":[]}".toByteArray())
+    assertFalse(keys().contains(orphan.single()))
+    assertEquals(before.size + 1, keys().size)
   }
 
   @Test fun injectedPublicationFailuresPreserveAReadableRevision() {
@@ -181,10 +237,16 @@ class StateStoreInstrumentedTest {
     assertEquals("123@lid", recovered.getJSONObject("androidService").getString("accountId"))
     for (bad in listOf<(org.json.JSONObject) -> Unit>(
       { it.getJSONObject("message").put("chatId", "789@lid") },
+      { it.getJSONObject("message").put("chatId", 456) },
+      { it.getJSONObject("message").getJSONObject("image").getJSONObject("reference").put("downloadReference", 123) },
       { it.put("identityState", "pendingLid") },
       { it.put("createdOrdinal", 4294967296L) },
       { it.put("createdRevision", "01") },
       { it.getJSONObject("recovery").getJSONArray("items").getJSONObject(0).put("ciphertextHashBase64", "AQ==") },
+      { it.getJSONObject("recovery").put("messageInfoJson", org.json.JSONObject()) },
+      { it.getJSONObject("recovery").getJSONArray("items").getJSONObject(0).put("plaintextBase64", 1234) },
+      { it.getJSONObject("recovery").getJSONArray("items").getJSONObject(0).put("plaintextBase64", "AQ") },
+      { it.getJSONObject("recovery").getJSONArray("items").getJSONObject(0).put("plaintextBase64", "AR==") },
       { it.getJSONObject("recovery").getJSONArray("items").getJSONObject(0).put("format", "history") },
     )) {
       assertThrows(Exception::class.java) { store.commit("1") { it.put("pending", org.json.JSONArray().put(pending().also(bad))) } }
@@ -346,6 +408,24 @@ class StateStoreInstrumentedTest {
       { it.copyOf().also { bytes -> bytes[0] = 0 } },
       { it.copyOf().also { bytes -> java.nio.ByteBuffer.wrap(bytes, 8, 4).putInt(4097) } },
       { it.copyOf().also { bytes -> java.nio.ByteBuffer.wrap(bytes, 8, 4).putInt(Int.MAX_VALUE) } },
+      { it.copyOf().also { bytes ->
+        val headerLength = java.nio.ByteBuffer.wrap(bytes, 8, 4).int
+        val header = String(bytes, 12, headerLength, Charsets.UTF_8)
+        val position = header.indexOf("\"revision\":\"0\"") + "\"revision\":\"".length
+        bytes[12 + position] = '1'.code.toByte()
+      } },
+      { it.copyOf().also { bytes ->
+        val headerLength = java.nio.ByteBuffer.wrap(bytes, 8, 4).int
+        bytes[12 + headerLength] = (bytes[12 + headerLength].toInt() xor 1).toByte()
+      } },
+      { it.copyOf().also { bytes ->
+        val headerLength = java.nio.ByteBuffer.wrap(bytes, 8, 4).int
+        java.nio.ByteBuffer.wrap(bytes, 12 + headerLength + 12, 8).putLong(Long.MAX_VALUE)
+      } },
+      { it.copyOf().also { bytes ->
+        val headerLength = java.nio.ByteBuffer.wrap(bytes, 8, 4).int
+        java.nio.ByteBuffer.wrap(bytes, 12 + headerLength + 12, 8).putLong(15)
+      } },
       { it.copyOfRange(0, it.size - 1) },
       { it + 0.toByte() },
       { it.copyOf().also { bytes -> bytes[bytes.lastIndex] = (bytes.last().toInt() xor 1).toByte() } },
@@ -357,6 +437,12 @@ class StateStoreInstrumentedTest {
       assertThrows(Exception::class.java) { makeStore(root).open() }
       assertEquals(true, file.exists())
     }
+    val oversized = freshRoot
+    makeStore(oversized).open()
+    java.io.RandomAccessFile(File(directory(oversized), "state.bin"), "rw").use {
+      it.setLength(16L * 1024 * 1024 + 10L * 1024 * 1024 + 8245)
+    }
+    assertThrows(StateFailure::class.java) { makeStore(oversized).open() }
   }
 
   @Test fun invalidStateDoesNotAdvancePublishedRevision() {

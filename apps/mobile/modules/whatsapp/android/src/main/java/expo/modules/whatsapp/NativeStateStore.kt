@@ -39,7 +39,6 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
   private val published = File(directory, "state.bin")
   private val temporary = File(directory, "state.next")
   private val keys = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-  private val random = SecureRandom()
   private var current: JSONObject? = null
   private var storeId = ""
   private var recoveryId = ""
@@ -113,8 +112,13 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
         ensureImagesDirectory()
         current = state
         observedPublication = publication
-        cleanupProvisional(record, state)
-        if (state.getJSONArray("sessionKeysToDelete").length() > 0) endSession()
+        try {
+          cleanupProvisional(record, state)
+          if (state.getJSONArray("sessionKeysToDelete").length() > 0) endSession()
+        } catch (e: Exception) {
+          current = null
+          throw e
+        }
         return JSONObject((current ?: state).toString())
       }
       if (record.getString("status") != "creating") throw StateFailure("SESSION_STATE_INVALID")
@@ -155,10 +159,15 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
   @Synchronized fun beginSession(accountId: String, protocolBytes: ByteArray) {
     GLOBAL_LOCK.lock()
     try {
+      current = null
       val state = open()
       if (protocolBytes.size > SESSION_LIMIT) throw StateFailure("SESSION_STORAGE_LIMIT_REACHED")
       if (state.opt("session") != JSONObject.NULL || state.getJSONArray("sessionKeysToDelete").length() != 0) throw StateFailure("SESSION_STATE_INVALID")
       if (!ACCOUNT.matches(accountId)) throw StateFailure("INVALID_INPUT")
+      if (revision == MAX_REVISION) throw StateFailure("STATE_INVALID")
+      val protocol = parseObject(protocolBytes)
+      exact(protocol, "protocolSchemaVersion", "records")
+      if (protocol.get("protocolSchemaVersion") !is Number || protocol.get("protocolSchemaVersion").toString() != "1" || protocol.get("records") !is JSONArray) throw StateFailure("SESSION_STATE_INVALID")
       val record = readRecord() ?: throw StateFailure("SESSION_STATE_INVALID")
       val id = newId()
       writeRecord(record.put("provisionalSessionKeyId", id))
@@ -238,7 +247,10 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     val id = record.optString("provisionalSessionKeyId")
     if (id.isEmpty() || id == "null") return
     if (!ID.matches(id) || id == recoveryId) throw StateFailure("SESSION_STATE_INVALID")
-    if (state.optJSONObject("session")?.optString("sessionKeyId") != id) keys.deleteEntry(alias(id))
+    if (state.optJSONObject("session")?.optString("sessionKeyId") != id) {
+      fault?.invoke("cleanupProvisional")
+      keys.deleteEntry(alias(id))
+    }
     writeRecord(record.put("provisionalSessionKeyId", JSONObject.NULL))
   }
 
@@ -247,13 +259,13 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     val header = JSONObject().put("formatVersion", 1).put("storeId", storeId).put("revision", nextRevision.toString())
       .put("recoveryKeyId", recoveryId).toString().toByteArray(Charsets.UTF_8)
     if (header.size > 4096 || plaintext.size > SESSION_LIMIT + readBudget + 4096) throw StateFailure("STATE_INVALID")
-    val nonce = ByteArray(12).also(random::nextBytes)
+    val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+    cipher.init(Cipher.ENCRYPT_MODE, getKey(recoveryId))
+    val nonce = cipher.iv.also { if (it.size != 12) throw StateFailure("STORAGE_FAILED") }
     val prefix = ByteBuffer.allocate(8 + 4 + header.size + 12 + 8).order(ByteOrder.BIG_ENDIAN)
       .put("YOYOWA01".toByteArray(Charsets.US_ASCII)).putInt(header.size).put(header).put(nonce)
       .putLong(plaintext.size.toLong() + 16).array()
     fault?.invoke("cipher")
-    val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-    cipher.init(Cipher.ENCRYPT_MODE, getKey(recoveryId), GCMParameterSpec(128, nonce))
     cipher.updateAAD(prefix)
     val sealed = cipher.doFinal(plaintext)
     try {
@@ -300,6 +312,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     val headerBytes = ByteArray(length).also(buffer::get)
     val header = parseObject(headerBytes)
     exact(header, "formatVersion", "storeId", "revision", "recoveryKeyId")
+    strings(header, "storeId", "revision", "recoveryKeyId")
     if (header.get("formatVersion") !is Number || header.get("formatVersion").toString() != "1" || header.getString("storeId") != storeId || header.getString("recoveryKeyId") != recoveryId) throw StateFailure("SESSION_STATE_INVALID")
     if (header.get("revision") !is String) throw StateFailure("SESSION_STATE_INVALID")
     val nextRevision = parseRevision(header.getString("revision"))
@@ -329,11 +342,13 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     val service = state.optJSONObject("androidService")
     if (service != null) {
       exact(service, "receiveRequested", "accountId")
+      if (service.opt("accountId") != JSONObject.NULL) strings(service, "accountId")
       if (service.get("receiveRequested") !is Boolean || (service.opt("accountId") != JSONObject.NULL && !ACCOUNT.matches(service.getString("accountId")))) throw StateFailure("SESSION_STATE_INVALID")
     } else if (state.get("androidService") != JSONObject.NULL) throw StateFailure("SESSION_STATE_INVALID")
     val session = state.optJSONObject("session")
     if (session != null) {
       exact(session, "accountId", "sessionKeyId", "sessionRevision", "nonceBase64", "ciphertextBase64")
+      strings(session, "accountId", "sessionKeyId", "sessionRevision", "nonceBase64", "ciphertextBase64")
       val id = session.getString("sessionKeyId")
       if (session.get("sessionRevision") !is String) throw StateFailure("SESSION_STATE_INVALID")
       val sessionRevision = parseRevision(session.getString("sessionRevision"))
@@ -358,6 +373,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     if (service?.getBoolean("receiveRequested") == true &&
       (session == null || service.getString("accountId") != session.getString("accountId"))) throw StateFailure("SESSION_STATE_INVALID")
     val retired = state.getJSONArray("sessionKeysToDelete")
+    if (retired.length() == 1 && retired.get(0) !is String) throw StateFailure("SESSION_STATE_INVALID")
     if (retired.length() > 1 || (retired.length() == 1 && (!ID.matches(retired.getString(0)) || retired.getString(0) == recoveryId || retired.getString(0) == session?.optString("sessionKeyId")))) throw StateFailure("SESSION_STATE_INVALID")
     val pending = state.getJSONArray("pending")
     if (pending.toString().toByteArray(Charsets.UTF_8).size > bound) throw StateFailure("SESSION_STATE_INVALID")
@@ -366,23 +382,27 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     for (index in 0 until pending.length()) {
       val item = pending.getJSONObject(index)
       exact(item, "deliveryId", "accountId", "createdRevision", "createdOrdinal", "source", "identityState", "recovery", *(if (item.has("message")) arrayOf("message") else emptyArray()))
+      strings(item, "deliveryId", "accountId", "createdRevision", "source", "identityState")
       if (!DELIVERY.matches(item.getString("deliveryId")) || !ACCOUNT.matches(item.getString("accountId"))) throw StateFailure("SESSION_STATE_INVALID")
       if (item.get("createdRevision") !is String) throw StateFailure("SESSION_STATE_INVALID")
       val created = parseRevision(item.getString("createdRevision"))
       val rawOrdinal = item.get("createdOrdinal")
       if (rawOrdinal !is Number || !Regex("0|[1-9][0-9]*").matches(rawOrdinal.toString())) throw StateFailure("SESSION_STATE_INVALID")
-      val ordinal = rawOrdinal.toLong()
+      val ordinal = rawOrdinal.toString().toLongOrNull() ?: throw StateFailure("SESSION_STATE_INVALID")
       if (created > atRevision || ordinal !in 0L..4294967295L || !used.add("$created:$ordinal") || !deliveryIds.add(item.getString("deliveryId"))) throw StateFailure("SESSION_STATE_INVALID")
       if (item.getString("source") !in listOf("live", "history") || item.getString("identityState") !in listOf("pendingLid", "resolved")) throw StateFailure("SESSION_STATE_INVALID")
       if ((item.getString("identityState") == "resolved") != item.has("message")) throw StateFailure("SESSION_STATE_INVALID")
       if (item.has("message")) validateMessage(item.get("message") as? JSONObject ?: throw StateFailure("SESSION_STATE_INVALID"), item.getString("accountId"))
       val recovery = item.getJSONObject("recovery")
       exact(recovery, "messageInfoJson", "items")
+      strings(recovery, "messageInfoJson")
       parseObject(recovery.getString("messageInfoJson").toByteArray(Charsets.UTF_8))
       val children = recovery.getJSONArray("items")
       for (i in 0 until children.length()) {
         val child = children.getJSONObject(i)
         exact(child, "format", "plaintextBase64", *(if (child.has("ciphertextHashBase64")) arrayOf("ciphertextHashBase64") else emptyArray()))
+        strings(child, "format", "plaintextBase64")
+        if (child.has("ciphertextHashBase64")) strings(child, "ciphertextHashBase64")
         val format = child.getString("format")
         if (format !in listOf("v2", "v3", "history")) throw StateFailure("SESSION_STATE_INVALID")
         if ((item.getString("source") == "history") != (format == "history")) throw StateFailure("SESSION_STATE_INVALID")
@@ -400,11 +420,12 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     if (message.has("text")) fields.add("text")
     if (message.has("image")) fields.add("image")
     exact(message, *fields.toTypedArray())
+    strings(message, "id", "accountId", "whatsappMessageId", "chatId", "direction")
     val chat = message.getString("chatId")
     val whatsappId = message.getString("whatsappMessageId")
     if (message.getString("accountId") != account || !ACCOUNT.matches(chat) || whatsappId.isEmpty() || message.getString("direction") !in listOf("incoming", "outgoing")) throw StateFailure("SESSION_STATE_INVALID")
     val timestamp = message.get("timestamp")
-    if (timestamp !is Number || !Regex("0|[1-9][0-9]*").matches(timestamp.toString()) || timestamp.toLong() > 9007199254740991L) throw StateFailure("SESSION_STATE_INVALID")
+    if (timestamp !is Number || !Regex("0|[1-9][0-9]*").matches(timestamp.toString()) || timestamp.toString().toLongOrNull()?.let { it <= 9007199254740991L } != true) throw StateFailure("SESSION_STATE_INVALID")
     if (message.has("text") && message.get("text") !is String) throw StateFailure("SESSION_STATE_INVALID")
     val id = message.getString("id")
     val prefix = "wa-message:v1:"
@@ -422,6 +443,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
       exact(image, *(listOfNotNull("reference", if (image.has("mimeType")) "mimeType" else null, if (image.has("size")) "size" else null).toTypedArray()))
       val reference = image.getJSONObject("reference")
       exact(reference, "messageId", "downloadReference")
+      strings(reference, "messageId", "downloadReference")
       if (reference.getString("messageId") != id || reference.getString("downloadReference").isEmpty()) throw StateFailure("SESSION_STATE_INVALID")
       if (image.has("mimeType") && image.get("mimeType") !is String) throw StateFailure("SESSION_STATE_INVALID")
       if (image.has("size")) {
@@ -450,14 +472,18 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
     val record = parseObject(cipher.doFinal(bytes, 12, bytes.size - 12))
     exact(record, "status", "storeId", "recoveryKeyId", "readBudget", "preparedRevision", "provisionalSessionKeyId")
-    if (record.getString("status") !in listOf("creating", "ready") || !ID.matches(record.getString("storeId")) || !ID.matches(record.getString("recoveryKeyId")) || record.getLong("readBudget") !in 1L..9007199254740991L || parseRevision(record.getString("preparedRevision")) > MAX_REVISION) throw StateFailure("SESSION_STATE_INVALID")
+    strings(record, "status", "storeId", "recoveryKeyId", "preparedRevision")
+    if (record.opt("provisionalSessionKeyId") != JSONObject.NULL) strings(record, "provisionalSessionKeyId")
+    val budget = record.get("readBudget")
+    val budgetValue = budget.toString().toLongOrNull()
+    if (record.getString("status") !in listOf("creating", "ready") || !ID.matches(record.getString("storeId")) || !ID.matches(record.getString("recoveryKeyId")) || budget !is Number || !Regex("[1-9][0-9]*").matches(budget.toString()) || budgetValue == null || budgetValue !in 1L..9007199254740991L || parseRevision(record.getString("preparedRevision")) > MAX_REVISION) throw StateFailure("SESSION_STATE_INVALID")
     return record
   }
 
   private fun writeRecord(record: JSONObject) {
-    val nonce = ByteArray(12).also(random::nextBytes)
     val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-    cipher.init(Cipher.ENCRYPT_MODE, getKey(recordAlias), GCMParameterSpec(128, nonce))
+    cipher.init(Cipher.ENCRYPT_MODE, getKey(recordAlias))
+    val nonce = cipher.iv.also { if (it.size != 12) throw StateFailure("STORAGE_FAILED") }
     val bytes = nonce + cipher.doFinal(record.toString().toByteArray(Charsets.UTF_8))
     removeTemp(recordNext)
     FileOutputStream(recordNext).use { it.write(bytes); it.fd.sync() }
@@ -484,9 +510,9 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     ?: throw StateFailure("SESSION_STATE_INVALID")
 
   private fun encrypt(id: String, bytes: ByteArray, aad: ByteArray): Pair<ByteArray, ByteArray> {
-    val nonce = ByteArray(12).also(random::nextBytes)
     val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-    cipher.init(Cipher.ENCRYPT_MODE, getKey(id), GCMParameterSpec(128, nonce))
+    cipher.init(Cipher.ENCRYPT_MODE, getKey(id))
+    val nonce = cipher.iv.also { if (it.size != 12) throw StateFailure("STORAGE_FAILED") }
     cipher.updateAAD(aad)
     return nonce to cipher.doFinal(bytes)
   }
@@ -538,6 +564,9 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
       JSONArray().put("yoyos-whatsapp-session").put(1).put(store).put(account).put(key).put(revision).toString().toByteArray(Charsets.UTF_8)
     private fun exact(obj: JSONObject, vararg fields: String) {
       if (obj.length() != fields.size || obj.keys().asSequence().any { it !in fields }) throw StateFailure("SESSION_STATE_INVALID")
+    }
+    private fun strings(obj: JSONObject, vararg fields: String) {
+      if (fields.any { obj.opt(it) !is String }) throw StateFailure("SESSION_STATE_INVALID")
     }
     internal fun parseObject(bytes: ByteArray): JSONObject {
       val decoded = StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
