@@ -693,3 +693,36 @@ test("buyer pickup removes the shipping rate and ignores a quotation still in fl
     expect(attempts).toBe(3);
   } finally { release(); await page.unrouteAll({ behavior: "wait" }); await f.cleanup(); }
 });
+
+test("buyer cannot use disabled pickup or confirm pickup disabled after opening checkout", async ({ page }) => {
+  const f = await fixture("none", true, false);
+  let quotations = 0;
+  page.on("request", request => { if (request.url().endsWith("/api/quotations")) quotations++; });
+  try {
+    await page.goto(f.path);
+    const mode = page.getByLabel("Forma de entrega");
+    await browserExpect(mode.locator('option[value="store"]')).toHaveCount(0);
+    const savePickup = (enabled: boolean, expectedVersion: number) => withTenantIsolation(f.companyId, () => deliverySettings.save({
+      expectedVersion, home: { enabled: true }, agency: { enabled: false }, couriers: [],
+      store: enabled ? { enabled: true, pickupPoint: { name: "Shop", address: "Pickup address", instructions: "Door 2" } } : { enabled: false, pickupPoint: null },
+    }, { companyId: f.companyId, userId: f.userId }));
+    expect((await savePickup(true, 0)).success).toBe(true);
+    await page.reload();
+    await page.getByLabel("Nombre", { exact: true }).fill("Ana");
+    await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
+    await mode.selectOption("store");
+    await page.getByLabel("Nombre del destinatario").fill("Recipient");
+    await page.getByLabel("Teléfono del destinatario").fill("999");
+    await browserExpect(page.getByText("Pickup address", { exact: true })).toBeVisible();
+    const before = await f.read();
+    expect((await savePickup(false, 1)).success).toBe(true);
+    await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
+    await browserExpect(page.getByRole("alert")).toContainText("Revisa la entrega y vuelve a confirmar.");
+    await browserExpect(page.getByLabel("Nombre", { exact: true })).toHaveValue("Ana");
+    await browserExpect(page.getByLabel("Nombre del destinatario")).toHaveValue("Recipient");
+    expect(await f.read()).toEqual(before);
+    expect(quotations).toBe(0);
+    await page.reload();
+    await browserExpect(mode.locator('option[value="store"]')).toHaveCount(0);
+  } finally { await f.cleanup(); }
+});
