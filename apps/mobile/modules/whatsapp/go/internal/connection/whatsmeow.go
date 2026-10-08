@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"go.mau.fi/whatsmeow"
@@ -29,6 +30,7 @@ type whatsmeowTransport struct {
 	dial           func(context.Context) error
 	loginReconnect chan struct{}
 	localFailure   func() Code
+	handoff        atomic.Bool
 }
 
 func (t *whatsmeowTransport) stopped() Code {
@@ -52,12 +54,20 @@ func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent)
 		if kind == "" {
 			return
 		}
+		if _, disconnected := event.(*events.Disconnected); disconnected && t.handoff.Load() {
+			return
+		}
 		if code := t.stopped(); code != "" {
 			select {
 			case out <- TransportEvent{Kind: "localFailure", Error: code}:
 			case <-ctx.Done():
 			}
 			return
+		}
+		if kind == "loginReconnect" {
+			t.handoff.Store(true)
+		} else if kind == "connected" {
+			t.handoff.Store(false)
 		}
 		select {
 		case out <- TransportEvent{Kind: kind}:

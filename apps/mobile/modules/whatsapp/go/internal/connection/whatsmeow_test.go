@@ -89,6 +89,7 @@ func TestPinned515ContinuesAuthenticationWithinOriginalDeadline(t *testing.T) {
 				clock.Advance(29 * time.Second)
 			}
 			transport.client.DangerousInternals().HandleStreamError(context.Background(), &binary.Node{Tag: "stream:error", Attrs: binary.Attrs{"code": "515"}})
+			transport.client.DangerousInternals().DispatchEvent(&events.Disconnected{})
 			if mode == "late 515" {
 				if receive(t, published).Error != ConnectionFailed || receive(t, published).State != Reconnecting {
 					t.Fatal("expired 515 was accepted")
