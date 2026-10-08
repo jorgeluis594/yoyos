@@ -172,7 +172,8 @@ jobs:
             -only-testing:WhatsAppBridgeTests/WhatsAppBridgeTests/testCallbackValueAndError test
         working-directory: apps/mobile/modules/whatsapp/ios
       - name: Build and inspect entitled iOS storage test host
-        if: matrix.runner == 'macos-26'
+        id: storage_host
+        if: matrix.runner == 'macos-26' && !cancelled()
         run: |
           xcodebuild -workspace WhatsAppNativeProbe.xcworkspace -scheme WhatsAppStateStoreHostTests \
             -configuration Release -derivedDataPath "$RUNNER_TEMP/wa-host" \
@@ -190,7 +191,7 @@ jobs:
             -only-testing:WhatsAppStateStoreHostTests/StateStoreTests/testPublishedStateSurvivesReopenAndIgnoresNextFile test-without-building
         working-directory: apps/mobile/tests/whatsapp-native-app/ios
       - name: Test iOS second-copy ENOSPC on bounded APFS volume
-        if: matrix.runner == 'macos-26'
+        if: matrix.runner == 'macos-26' && steps.storage_host.outcome == 'success' && !cancelled()
         run: |
           image="$RUNNER_TEMP/wa02-enospc.dmg"
           mount_path=/Volumes/wa02-whatsapp-enospc
@@ -204,7 +205,7 @@ jobs:
             -only-testing:WhatsAppStateStoreHostTests/StateStoreTests/testActualENOSPCOnBoundedVolume test-without-building
         working-directory: apps/mobile/tests/whatsapp-native-app/ios
       - name: Test storage on entitled iOS app host
-        if: matrix.runner == 'macos-26' && !cancelled()
+        if: matrix.runner == 'macos-26' && steps.storage_host.outcome == 'success' && !cancelled()
         run: |
           xcodebuild -workspace WhatsAppNativeProbe.xcworkspace -scheme WhatsAppStateStoreHostTests \
             -configuration Release -derivedDataPath "$RUNNER_TEMP/wa-host" \

@@ -90,7 +90,9 @@ final class StateStoreTests: XCTestCase {
     let pendingRevision = pending?.first?["createdRevision"] as? String
     let publishedRevision = try revision()
     let hasTemporary = FileManager.default.fileExists(atPath: root.appendingPathComponent("whatsapp/state.next").path)
-    let restorable = replaced || (try writer.canRestoreSession())
+    let restorable: Bool
+    if replaced { restorable = true }
+    else { restorable = try writer.canRestoreSession() }
     guard retired?.isEmpty == true, sessionMatches, pendingMatches,
           options?["maxImageStorageBytes"] == (replaced ? 123 : 50 * 1024 * 1024),
           !replaced || pendingRevision == "2", publishedRevision == (replaced ? "3" : "1"),

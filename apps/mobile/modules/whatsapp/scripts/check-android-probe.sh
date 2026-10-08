@@ -24,6 +24,7 @@ for phase in cipher write sync close replace directorySync response; do
     rm -f "$crash_output" "$recovery_output"
     exit 1
   fi
+  echo "Recovered Android publication crash at $phase"
   rm -f "$crash_output" "$recovery_output"
 done
 
@@ -34,6 +35,7 @@ if ! timeout 10m adb shell am instrument -w -e class expo.modules.whatsapp.State
   rm -f "$enospc_output"
   exit 1
 fi
+echo 'Verified Android second-copy ENOSPC'
 rm -f "$enospc_output"
 
 adb install app/build/outputs/apk/release/app-release.apk
