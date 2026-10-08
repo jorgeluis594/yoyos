@@ -2,8 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ScrollView, StyleSheet, Switch, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
-import type { DeliverySettingsResponse } from "@shared/contracts/delivery-settings";
+import { err, ok } from "@shared/functional";
+import type { DeliveryZonesResponse, SaveDeliveryZonesRequest, DeliverySettingsResponse } from "@shared/contracts/delivery-settings";
 import { deliverySettings } from "@mobile/features/delivery-settings/composition";
+import { DeliveryZonesSection } from "@mobile/features/delivery-settings/presentation/delivery-zones-section";
 import type { CourierDraft, DeliverySettingsDraft } from "@mobile/features/delivery-settings/application/delivery-settings";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { ThemedText } from "@mobile/components/themed-text";
@@ -25,6 +27,10 @@ export default function DeliverySettingsScreen() {
   const theme = useTheme();
   const companyId = state.status === "ready" ? state.company.id : "";
   const [draft, setDraft] = useState<DeliverySettingsDraft | null>(null);
+  const country = state.status === "ready" ? state.company.country : "";
+  const [zones, setZones] = useState<DeliveryZonesResponse | null>(null);
+  const [zoneConflict, setZoneConflict] = useState(false);
+  const [generation, setGeneration] = useState(0);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
@@ -36,23 +42,28 @@ export default function DeliverySettingsScreen() {
     if (!companyId || inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
-    const result = await deliverySettings.get();
-    if (result.success) { setDraft(draftFrom(result.data)); setError(""); setConflict(false); setSaved(false); }
+    const [result, zoneResult] = await Promise.all([deliverySettings.get(),
+      country === "PE" ? deliverySettings.getZones() : Promise.resolve(ok(null))]);
+    if (result.success && zoneResult.success) { setZones(zoneResult.data); setZoneConflict(false); setGeneration(value => value + 1); }
+    if (result.success && zoneResult.success) { setDraft(draftFrom(result.data)); setError(""); setConflict(false); setSaved(false); }
     else setError("deliverySettingsLoadError");
     inFlight.current = false;
     setBusy(false);
-  }, [companyId]);
+  }, [companyId, country]);
   useEffect(() => {
     if (companyId && !initialized.current) { initialized.current = true; void load(); }
   }, [companyId, load]);
 
   const save = async () => {
-    if (!draft || inFlight.current || conflict) return;
+    if (!draft || inFlight.current || conflict || zoneConflict) return;
     inFlight.current = true;
     setBusy(true);
     setSaved(false);
     const result = await deliverySettings.save(draft);
-    if (result.success) { setDraft(draftFrom(result.data)); setError(""); setSaved(true); }
+    if (result.success) {
+      setDraft(draftFrom(result.data)); setError(""); setSaved(true);
+      setZones(previous => previous ? { ...previous, version: result.data.version, home: result.data.home, agency: result.data.agency } : null);
+    }
     else {
       setConflict(result.error.code === "DELIVERY_SETTINGS_CONFLICT");
       setError(result.error.code === "DELIVERY_SETTINGS_CONFLICT" ? "deliverySettingsConflict"
@@ -60,6 +71,18 @@ export default function DeliverySettingsScreen() {
     }
     inFlight.current = false;
     setBusy(false);
+  };
+  const saveZones = async (input: SaveDeliveryZonesRequest) => {
+    if (inFlight.current || zoneConflict || conflict) return err({ code: "INVALID_INPUT" as const, message: "Reload before saving" });
+    inFlight.current = true; setBusy(true);
+    const result = await deliverySettings.saveZones(input);
+    if (result.success) {
+      setZones(result.data);
+      setDraft(previous => previous ? { ...previous, expectedVersion: result.data.version } : null);
+      setZoneConflict(false);
+    } else setZoneConflict(!["INVALID_INPUT", "INVALID_DELIVERY_ZONE"].includes(result.error.code));
+    inFlight.current = false; setBusy(false);
+    return result;
   };
   if (state.status !== "ready") return null;
   if (!draft) return busy ? <ScreenState status="loading" title={t("loadingDeliverySettings")} />
@@ -82,6 +105,7 @@ export default function DeliverySettingsScreen() {
         <View style={styles.toggle}><ThemedText style={styles.label}>{t("homeDeliveryEnabled")}</ThemedText><Switch accessibilityLabel={t("homeDeliveryEnabled")}
           value={draft.homeEnabled} disabled={busy} hitSlop={10} trackColor={{ true: theme.primary }}
           onValueChange={value => { setDraft({ ...draft, homeEnabled: value }); setSaved(false); }} /></View>
+        {zones ? <DeliveryZonesSection key={`home-${generation}`} method="home" state={zones} disabled={busy} blocked={zoneConflict || conflict} onSave={saveZones} onReload={() => void load()} /> : null}
       </View>
       <View style={styles.section}><ThemedText type="subtitle" accessibilityRole="header">{t("agencyDeliveryTitle")}</ThemedText>
         <View style={styles.toggle}><ThemedText style={styles.label}>{t("agencyDeliveryEnabled")}</ThemedText><Switch accessibilityLabel={t("agencyDeliveryEnabled")}
@@ -102,10 +126,11 @@ export default function DeliverySettingsScreen() {
           </View>;
         })}
         <Button variant="secondary" disabled={busy} onPress={() => { setDraft({ ...draft, couriers: [...draft.couriers, { kind: "new", localKey: ++nextCourierKey.current, name: "", enabled: true }] }); setSaved(false); }}>{t("addCourier")}</Button>
+        {zones ? <DeliveryZonesSection key={`agency-${generation}`} method="agency" state={zones} disabled={busy} blocked={zoneConflict || conflict} onSave={saveZones} onReload={() => void load()} /> : null}
       </View>
       {error ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t(error)}</ThemedText> : null}
       {saved ? <ThemedText accessibilityLiveRegion="polite">{t("deliverySettingsSaved")}</ThemedText> : null}
-      <Button onPress={() => void save()} disabled={busy || conflict} loading={busy}>{t("saveDeliverySettings")}</Button>
+      <Button onPress={() => void save()} disabled={busy || conflict || zoneConflict} loading={busy}>{t("saveDeliverySettings")}</Button>
       {conflict ? <Button variant="secondary" onPress={() => void load()} disabled={busy}>{t("reloadDeliverySettings")}</Button> : null}
     </ScrollView>
   </SafeAreaView></ThemedView>;
