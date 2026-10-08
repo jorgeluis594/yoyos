@@ -159,7 +159,7 @@ export default function OrderDeliveryScreen() {
         </FieldGroup> : null}
         {method !== "store" ? <View style={styles.section}>
           <Controller control={control} name="districtCode" render={({ field }) => <PeruDistrictSelect value={getPeruDistrict(field.value)?.code ?? null}
-            disabled={busy} onChange={code => field.onChange(code ?? "")} />} />
+            disabled={busy} onChange={code => { field.onChange(code ?? ""); setQuoteAttempt(value => value + 1); }} />} />
           {quoting ? <ThemedText accessibilityLiveRegion="polite">{t("orderQuotationLoading")}</ThemedText> : null}
           {quoteError ? <ThemedText accessibilityRole="alert">{t(quoteError)}</ThemedText> : null}
           {!quoting && quotation && rates.length === 0 ? <ThemedText>{t("orderQuotationEmpty")}</ThemedText> : null}

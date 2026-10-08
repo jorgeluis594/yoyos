@@ -302,3 +302,25 @@ test("replacing a historical home delivery retains recipient and street without 
   expect(screen.getByLabelText("Dirección de entrega *").props.value).toBe("Draft street");
   expect(screen.getByRole("button", { name: "Guardar entrega" }).props.accessibilityState.disabled).toBe(true);
 });
+
+test("reselecting the destination requires fresh rates instead of reviving an older quotation", async () => {
+  getSettings.mockResolvedValue(ok(allMethods));
+  const screen = render(<OrderDeliveryScreen />);
+  await screen.findByText("Current address");
+  fireEvent(screen.getByTestId("delivery-method"), "valueChange", 1);
+  fireEvent.changeText(screen.getByLabelText("Dirección de entrega *"), "Street");
+  selectDistrict(screen);
+  await screen.findByTestId("delivery-rate");
+  fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 0);
+  expect(screen.getByRole("button", { name: "Guardar entrega" })).toBeEnabled();
+  let finish: ((result: Awaited<ReturnType<typeof deliverySettings.createQuotation>>) => void) | undefined;
+  quote.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  selectDistrict(screen);
+  await waitFor(() => expect(quote).toHaveBeenCalledTimes(2));
+  expect(screen.queryByTestId("delivery-rate")).toBeNull();
+  expect(screen.getByRole("button", { name: "Guardar entrega" })).toBeDisabled();
+  await act(async () => { finish?.(ok({ ...quotation, rates: [{ ...firstRate, id: "00000000-0000-4000-8000-000000000039" }] })); });
+  expect(screen.getByRole("button", { name: "Guardar entrega" })).toBeDisabled();
+  fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 0);
+  expect(screen.getByRole("button", { name: "Guardar entrega" })).toBeEnabled();
+});
