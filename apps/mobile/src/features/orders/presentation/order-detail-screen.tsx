@@ -334,8 +334,9 @@ export default function OrderDetailScreen() {
               description={`${order.delivery.method === "agency" ? order.delivery.courier?.name ?? ("destination" in order.delivery ? order.delivery.destination.district : "") : order.delivery.method === "store" ? order.delivery.pickupPoint.name : order.delivery.destination.district} · ${order.delivery.recipient.name}`} />
               : canEditDelivery ? <ThemedText themeColor="textSecondary">{t('orderDeliveryUndefined')}</ThemedText> : null}
             </View>
-            {canEditDelivery ? <Button disabled={writeBusy} variant="ghost" onPress={() => router.push({ pathname: "/orders/delivery", params: { id: order.id } })}>{t(order.delivery ? 'replaceOrderDelivery' : 'assignOrderDelivery')}</Button> : null}
+            {canEditDelivery ? <Button disabled={writeBusy} variant="ghost" onPress={() => router.push({ pathname: "/orders/delivery", params: { id: order.id } })}>{t(order.delivery ? 'editOrderDeliveryData' : 'assignOrderDeliveryData')}</Button> : null}
           </View>
+          {canEditDelivery && order.paymentStatus === "pending" ? <ThemedText type="small" themeColor="textSecondary">{t('manualDeliveryWithoutPayment')}</ThemedText> : null}
           {order.delivery ? <>
             {deliveryOpen ? <View style={styles.section}>
               <ThemedText type="small" themeColor="textSecondary">{t('detailRecipient')}</ThemedText>
@@ -365,7 +366,9 @@ export default function OrderDetailScreen() {
               {fulfillmentActions.map(operation => <OrderAction key={operation} label={t(`orderFulfillment.${operation}`)}
                 loading={fulfilling === operation} disabled={writeBusy} onPress={() => void fulfill(operation)} />)}
             </View> : null}
-            {fulfillmentReason ? <ThemedText type="small" themeColor="textSecondary">{t(`orderFulfillment.${fulfillmentReason}`)}</ThemedText> : null}
+            {fulfillmentReason ? <View style={[styles.fulfillmentNotice, { borderColor: theme.border }]}>
+              <ThemedText type="small" themeColor="textSecondary">{t(`orderFulfillment.${fulfillmentReason}`)}</ThemedText>
+            </View> : null}
             {fulfillmentError ? <ThemedText style={{ color: theme.error }} accessibilityRole="alert">{fulfillmentError}</ThemedText> : null}
             {fulfillmentMessage ? <ThemedText accessibilityRole="alert">{fulfillmentMessage}</ThemedText> : null}
           </View> : null}
@@ -472,6 +475,7 @@ const styles = StyleSheet.create({
   paymentSummary: { gap: 8, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth },
   balances: { flexDirection: "row", flexWrap: "wrap", gap: 16, paddingVertical: 4 },
   balance: { flexGrow: 1, flexBasis: 120, gap: 4 },
+  fulfillmentNotice: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10 },
   deliverySummary: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
   deliveryIdentity: { flexGrow: 1, flexShrink: 1, flexBasis: 150 },
   action: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, paddingHorizontal: 4, borderRadius: 6, borderWidth: 2 },

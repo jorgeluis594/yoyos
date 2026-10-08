@@ -178,13 +178,13 @@ test('order detail translates amounts and labels to Portuguese', async () => {
   mockOrder = { ...initialOrder, status: "active", completedAt: null, deliveryStatus: "pending" };
   const screen = render(<OrderDetailScreen />);
   await screen.findByText("Entrega por definir");
-  fireEvent.press(screen.getByText("Asignar entrega"));
+  fireEvent.press(screen.getByText("Asignar datos"));
   expect(mockPush).toHaveBeenCalledWith({ pathname: "/orders/delivery", params: { id: mockId } });
   screen.unmount(); mockOrder = initialOrder;
   const completed = render(<OrderDetailScreen />);
   await completed.findByText("Venta completada");
   expect(completed.queryByText("Entrega por definir")).toBeNull();
-  expect(completed.queryByText("Asignar entrega")).toBeNull();
+  expect(completed.queryByText("Asignar datos")).toBeNull();
  });
  test("saved pickup detail shows historic destination, author and absorbed delivery cost", async () => {
   mockOrder = { ...initialOrder, status: "active", completedAt: null, deliveryStatus: "pending", deliveryCost: { amount: 3, currency: "PEN" },
@@ -197,12 +197,12 @@ test('order detail translates amounts and labels to Portuguese', async () => {
   expect(screen.getByText(/Registrada por vendedor: second-seller/)).toBeTruthy();
   expect(screen.getByText(/Costo de entrega:/)).toBeTruthy();
   expect(screen.getByText(/Cargo al cliente:/)).toBeTruthy();
-  expect(screen.getByText("Editar entrega")).toBeTruthy();
+  expect(screen.getByText("Editar datos")).toBeTruthy();
  });
  test.each(["shipped", "delivered"] as const)("%s details hide assignment", async deliveryStatus => {
    mockOrder = { ...initialOrder, status: "active", deliveryStatus };
    const screen = render(<OrderDetailScreen />); await screen.findByText("Orden activa");
-   expect(screen.queryByText("Asignar entrega")).toBeNull();
+   expect(screen.queryByText("Asignar datos")).toBeNull();
  });
 
 test("a failed refetch after returning hides obsolete details and offers retry", async () => {
@@ -241,7 +241,7 @@ test("agency history shows the saved courier and document after shipment", async
   expect(screen.getByText("Historic courier")).toBeTruthy();
   expect(screen.getByText("Historic agency")).toBeTruthy();
   expect(screen.getByText(/00-A001/)).toBeTruthy();
-  expect(screen.queryByText("Editar entrega")).toBeNull();
+  expect(screen.queryByText("Editar datos")).toBeNull();
 });
 
 test("seller obtains and copies checkout link without changing the payment display", async () => {
@@ -469,7 +469,7 @@ test.each(["NETWORK_ERROR", "RATE_LIMITED"])("%s uncertainty blocks writes and m
   fireEvent.press(screen.getByRole("button", { name: "Confirmación del comprador" }));
   acceptCancellation(screen);
   await screen.findByText(/No pudimos confirmar si se canceló/);
-  for (const name of ["Cancelar pedido", "Anular pago", "Marcar enviado", "Asignar entrega", "Obtener enlace"]) {
+  for (const name of ["Cancelar pedido", "Anular pago", "Marcar enviado", "Asignar datos", "Obtener enlace"]) {
     expect(screen.getByRole("button", { name })).toBeDisabled();
     fireEvent.press(screen.getByRole("button", { name }));
   }
