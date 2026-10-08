@@ -175,6 +175,7 @@ jobs:
         id: storage_host
         if: matrix.runner == 'macos-26' && !cancelled()
         run: |
+          set -o pipefail
           xcodebuild -workspace WhatsAppNativeProbe.xcworkspace -scheme WhatsAppStateStoreHostTests \
             -configuration Release -derivedDataPath "$RUNNER_TEMP/wa-host" \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" CODE_SIGN_IDENTITY=- build-for-testing
@@ -197,11 +198,14 @@ jobs:
             -configuration Release -derivedDataPath "$RUNNER_TEMP/wa-host" \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -parallel-testing-enabled NO \
-            -only-testing:WhatsAppStateStoreHostTests/StateStoreTests/testPublishedStateSurvivesReopenAndIgnoresNextFile test-without-building
+            -only-testing:WhatsAppStateStoreHostTests/StateStoreTests/testPublishedStateSurvivesReopenAndIgnoresNextFile test-without-building \
+            | tee "$RUNNER_TEMP/wa02-keychain-smoke.log"
+          grep -Eq 'Executed 1 test, with 0 failures' "$RUNNER_TEMP/wa02-keychain-smoke.log"
         working-directory: apps/mobile/tests/whatsapp-native-app/ios
       - name: Test iOS second-copy ENOSPC on bounded APFS volume
         if: matrix.runner == 'macos-26' && steps.storage_host.outcome == 'success' && !cancelled()
         run: |
+          set -o pipefail
           image="$RUNNER_TEMP/wa02-enospc.dmg"
           mount_path=/Volumes/wa02-whatsapp-enospc
           hdiutil create -size 256m -type UDIF -fs APFS -volname WA02-ENOSPC "$image"
@@ -211,22 +215,29 @@ jobs:
             -configuration Release -derivedDataPath "$RUNNER_TEMP/wa-host" \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -parallel-testing-enabled NO \
-            -only-testing:WhatsAppStateStoreHostTests/StateStoreTests/testActualENOSPCOnBoundedVolume test-without-building
+            -only-testing:WhatsAppStateStoreHostTests/StateStoreTests/testActualENOSPCOnBoundedVolume test-without-building \
+            | tee "$RUNNER_TEMP/wa02-enospc.log"
+          grep -Eq 'Executed 1 test, with 0 failures' "$RUNNER_TEMP/wa02-enospc.log"
         working-directory: apps/mobile/tests/whatsapp-native-app/ios
       - name: Test storage on entitled iOS app host
         if: matrix.runner == 'macos-26' && steps.storage_host.outcome == 'success' && !cancelled()
         run: |
+          set -o pipefail
           xcodebuild -workspace WhatsAppNativeProbe.xcworkspace -scheme WhatsAppStateStoreHostTests \
             -configuration Release -derivedDataPath "$RUNNER_TEMP/wa-host" \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -skip-testing:WhatsAppStateStoreHostTests/StateStoreTests/testProcessCrashMatrix \
             -skip-testing:WhatsAppStateStoreHostTests/StateStoreTests/testResetCrashMatrix \
-            -skip-testing:WhatsAppStateStoreHostTests/StateStoreTests/testActualENOSPCOnBoundedVolume test-without-building
+            -skip-testing:WhatsAppStateStoreHostTests/StateStoreTests/testActualENOSPCOnBoundedVolume test-without-building \
+            | tee "$RUNNER_TEMP/wa02-storage-tests.log"
+          grep -Eq 'Executed 25 tests, with 0 failures' "$RUNNER_TEMP/wa02-storage-tests.log"
           xcodebuild -workspace WhatsAppNativeProbe.xcworkspace -scheme WhatsAppStateStoreHostTests \
             -configuration Release -derivedDataPath "$RUNNER_TEMP/wa-host" \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -parallel-testing-enabled NO \
-            -only-testing:WhatsAppStateStoreHostTests/StateStoreTests/testResetCrashMatrix test-without-building
+            -only-testing:WhatsAppStateStoreHostTests/StateStoreTests/testResetCrashMatrix test-without-building \
+            | tee "$RUNNER_TEMP/wa02-crash-reset.log"
+          grep -Eq 'Executed 1 test, with 0 failures' "$RUNNER_TEMP/wa02-crash-reset.log"
           for phase in cipher write sync close replace directorySync response; do
             echo "Crash phase: $phase"
             if xcodebuild -workspace WhatsAppNativeProbe.xcworkspace -scheme WhatsAppStateStoreHostTests \
@@ -241,7 +252,9 @@ jobs:
               -configuration Release -derivedDataPath "$RUNNER_TEMP/wa-host" \
               -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
               -parallel-testing-enabled NO \
-              -only-testing:WhatsAppStateStoreHostTests/StateStoreTests/testProcessCrashMatrix test-without-building
+              -only-testing:WhatsAppStateStoreHostTests/StateStoreTests/testProcessCrashMatrix test-without-building \
+              | tee "$RUNNER_TEMP/wa02-crash-recovery-$phase.log"
+            grep -Eq 'Executed 1 test, with 0 failures' "$RUNNER_TEMP/wa02-crash-recovery-$phase.log"
             echo "Recovered phase: $phase"
           done
         working-directory: apps/mobile/tests/whatsapp-native-app/ios
