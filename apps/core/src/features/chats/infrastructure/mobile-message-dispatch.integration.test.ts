@@ -68,8 +68,17 @@ test("real provider recovers pending dispatch after restart and concurrent regis
     expect(retried).toMatchObject({ success: true, data: { status: "duplicate", messageId: row.id, eventId: row.id, receivedAt: row.receivedAt } });
     const publish = runtime.provider.publish.bind(runtime.provider);
     const observed = vi.spyOn(runtime.provider, "publish").mockImplementation(async (name, payload, metadata) => {
-      const committed = await withTenantIsolation(payload.companyId, async () => await prisma.chatMessage.findFirst({ where: { id: metadata.eventId } }));
-      expect(committed?.id).toBe(metadata.eventId);
+      const observer = await pool.connect();
+      try {
+        await observer.query("BEGIN");
+        await observer.query("SELECT set_config('app.company_id', $1, true)", [payload.companyId]);
+        const committed = await observer.query('SELECT id FROM "ChatMessage" WHERE id = $1', [metadata.eventId]);
+        expect(committed.rows.map(row => row.id)).toEqual([metadata.eventId]);
+        await observer.query("COMMIT");
+      } catch (cause) {
+        await observer.query("ROLLBACK");
+        throw cause;
+      } finally { observer.release(); }
       return publish(name, payload, metadata);
     });
     const race = await Promise.all(Array.from({ length: 10 }, () => registerMobileMessage(input("race"), f.context)));
@@ -93,6 +102,38 @@ test("real provider recovers pending dispatch after restart and concurrent regis
     expect(stoppedRow.eventDispatchedAt).toBeInstanceOf(Date);
     expect(recovered.success && recovered.data.eventId).toBe(stoppedRow.id);
   } finally { await runtime.provider.stop(); delete events.__yoyosEvents; await pool.end(); await f.cleanup(); }
+});
+
+test("deferred commit failure never publishes a message event", async () => {
+  const f = await fixture();
+  const runtime = createEventBusRuntime();
+  events.__yoyosEvents = runtime;
+  const publish = vi.spyOn(runtime.provider, "publish");
+  const admin = new pg.Client({ connectionString: process.env.MIGRATION_TEST_DATABASE_URL });
+  const trigger = `mobile_commit_${randomUUID().replaceAll("-", "")}`;
+  await admin.connect();
+  try {
+    await runtime.provider.start();
+    await admin.query(`CREATE FUNCTION "${trigger}"() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'Injected deferred message failure' USING ERRCODE = '23514'; END $$;
+      CREATE CONSTRAINT TRIGGER "${trigger}" AFTER INSERT ON "ChatMessage" DEFERRABLE INITIALLY DEFERRED
+      FOR EACH ROW WHEN (NEW."companyId" = '${f.companyId}'::uuid) EXECUTE FUNCTION "${trigger}"()`);
+    expect(await registerMobileMessage(input("commit-failure"), f.context))
+      .toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
+    expect(publish).not.toHaveBeenCalled();
+    await withTenantIsolation(f.companyId, async () => {
+      expect(await prisma.contact.count({ where: { companyId: f.companyId } })).toBe(0);
+      expect(await prisma.chat.count({ where: { companyId: f.companyId } })).toBe(0);
+      expect(await prisma.chatMessage.count({ where: { companyId: f.companyId } })).toBe(0);
+    });
+  } finally {
+    await admin.query(`DROP TRIGGER IF EXISTS "${trigger}" ON "ChatMessage"; DROP FUNCTION IF EXISTS "${trigger}"()`);
+    await admin.end();
+    publish.mockRestore();
+    await runtime.provider.stop();
+    delete events.__yoyosEvents;
+    await f.cleanup();
+  }
 });
 
 test("failed marker keeps committed row pending and retry republishes its stable event", async () => {

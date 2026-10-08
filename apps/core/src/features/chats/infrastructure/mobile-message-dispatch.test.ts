@@ -24,6 +24,12 @@ test("validates message event and tenant even when the provider has no subscribe
       .toMatchObject({ success: false, error: { code: "INVALID_EVENT" } });
     expect(await withTenantIsolation(companyId, () => dispatchMessageRecorded(payload, { ...metadata, eventId: randomUUID() })))
       .toMatchObject({ success: false, error: { code: "INVALID_EVENT" } });
+    for (const invalid of [
+      { ...metadata, occurredAt: "invalid" },
+      { eventId: messageId },
+      { ...metadata, extra: "private" },
+    ]) expect(await withTenantIsolation(companyId, () => dispatchMessageRecorded(payload, invalid as typeof metadata)))
+      .toMatchObject({ success: false, error: { code: "INVALID_EVENT", message: "Invalid message event" } });
     expect(await dispatchMessageRecorded(payload, metadata)).toMatchObject({ success: false, error: { code: "INVALID_EVENT" } });
     expect(publish).toHaveBeenCalledTimes(1);
   } finally { publish.mockRestore(); }
