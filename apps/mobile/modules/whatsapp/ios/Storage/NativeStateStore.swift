@@ -102,13 +102,14 @@ public final class NativeStateStore {
   @discardableResult public func commit(expectedRevision: String, change: ([String: Any]) throws -> [String: Any]) throws -> [String: Any] {
     lock.lock(); defer { lock.unlock() }
     let old = try open()
+    let originalSession = try Self.json(old["session"] ?? NSNull())
     guard Self.parseRevision(expectedRevision) == revision else { throw StateStoreError.revision }
     guard revision < Self.maxRevision else { throw StateStoreError.invalid }
     let next = try change(old)
     guard let options = next["options"] as? [String: Any], let requested = Self.safeInt(options["maxRecoveryBufferBytes"]) else { throw StateStoreError.invalid }
     guard var record = try readRecord() else { throw StateStoreError.invalid }
     let nextBound = max(readBudget, requested)
-    try validate(next, revision: revision + 1, bound: nextBound, allowSessionFailure: !sessionUsable && (try Self.json(next["session"] ?? NSNull())) == (try Self.json(old["session"] ?? NSNull())))
+    try validate(next, revision: revision + 1, bound: nextBound, allowSessionFailure: !sessionUsable && (try Self.json(next["session"] ?? NSNull())) == originalSession)
     record["readBudget"] = nextBound
     record["preparedRevision"] = String(revision + 1)
     try writeRecord(record)
@@ -283,11 +284,13 @@ public final class NativeStateStore {
             let id = session["sessionKeyId"] as? String, Self.validId(id), id != recoveryId,
             let number = session["sessionRevision"] as? String, let sessionRevision = Self.parseRevision(number), sessionRevision <= revision,
             session["nonceBase64"] is String, session["ciphertextBase64"] is String else { throw StateStoreError.invalid }
+      guard let nonceText = session["nonceBase64"] as? String, let nonceData = Self.decode(nonceText, max: 12), nonceData.count == 12 else { throw StateStoreError.invalid }
       if oversizedSession {
+        guard let ciphertext = session["ciphertextBase64"] as? String, ciphertext.count >= 24,
+              Self.canonicalBase64(ciphertext) else { throw StateStoreError.invalid }
         sessionUsable = false
       } else {
-        guard let nonceText = session["nonceBase64"] as? String, let nonceData = Self.decode(nonceText, max: 12), nonceData.count == 12,
-              let ciphertextText = session["ciphertextBase64"] as? String,
+        guard let ciphertextText = session["ciphertextBase64"] as? String,
               let ciphertext = Self.decode(ciphertextText, max: Self.maxSession), ciphertext.count >= 16 else { throw StateStoreError.invalid }
         do {
           let nonce = try AES.GCM.Nonce(data: nonceData)
@@ -396,6 +399,7 @@ public final class NativeStateStore {
   }
 
   private func writeRecord(_ record: [String: Any]) throws {
+    state = nil
     let data = try Self.json(record)
     guard data.count <= 4096 else { throw StateStoreError.invalid }
     try keychain.put("record", data: data)
@@ -488,9 +492,14 @@ public final class NativeStateStore {
     return integer
   }
   private static func decode(_ text: String, max: Int) -> Data? {
-    guard text.count <= ((max + 2) / 3) * 4, text.range(of: "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?\\z", options: .regularExpression) != nil,
+    guard text.count <= ((max + 2) / 3) * 4, canonicalBase64(text),
           let decoded = Data(base64Encoded: text), decoded.count <= max, decoded.base64EncodedString() == text else { return nil }
     return decoded
+  }
+  private static func canonicalBase64(_ text: String) -> Bool {
+    guard text.range(of: "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?\\z", options: .regularExpression) != nil else { return false }
+    let tail = String(text.suffix(4))
+    return tail.isEmpty || Data(base64Encoded: tail)?.base64EncodedString() == tail
   }
   private static func exact(_ object: [String: Any], _ fields: Set<String>) throws {
     guard Set(object.keys) == fields else { throw StateStoreError.invalid }

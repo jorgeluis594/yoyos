@@ -161,8 +161,9 @@ final class StateStoreTests: XCTestCase {
     let orphan = try accounts().subtracting(before)
     XCTAssertEqual(orphan.count, 1)
     cleanupFail = true
-    XCTAssertThrowsError(try writer.beginSession(accountId: "123@lid", protocolBytes: valid))
+    XCTAssertThrowsError(try writer.open())
     XCTAssertEqual(try accounts().subtracting(before), orphan)
+    _ = try writer.open()
     try writer.beginSession(accountId: "123@lid", protocolBytes: valid)
     let after = try accounts()
     XCTAssertTrue(orphan.isDisjoint(with: after))
@@ -461,6 +462,13 @@ final class StateStoreTests: XCTestCase {
     let restored = try makeStore(root)
     XCTAssertEqual((try restored.open()["pending"] as? [[String: Any]])?.count, 1)
     XCTAssertFalse(try restored.canRestoreSession())
+    XCTAssertThrowsError(try restored.commit(expectedRevision: "0") { current in
+      var next = current; var changed = next["session"] as! [String: Any]
+      changed["ciphertextBase64"] = String(repeating: "B", count: 16 * 1024 * 1024)
+      next["session"] = changed; return next
+    })
+    XCTAssertEqual((try restored.open()["session"] as? [String: Any])?["ciphertextBase64"] as? String,
+                   session["ciphertextBase64"] as? String)
     _ = try restored.commit(expectedRevision: "0") { current in
       var next = current; next["pending"] = [[String: Any]](); return next
     }

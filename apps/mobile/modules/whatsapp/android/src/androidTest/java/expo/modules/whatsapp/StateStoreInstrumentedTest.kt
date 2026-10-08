@@ -180,10 +180,9 @@ class StateStoreInstrumentedTest {
     val orphan = keys() - before
     assertEquals(1, orphan.size)
     cleanupFail = true
-    assertThrows(StateFailure::class.java) {
-      writer.beginSession("123@lid", "{\"protocolSchemaVersion\":1,\"records\":[]}".toByteArray())
-    }
+    assertThrows(StateFailure::class.java) { writer.open() }
     assertEquals(orphan, keys() - before)
+    writer.open()
     writer.beginSession("123@lid", "{\"protocolSchemaVersion\":1,\"records\":[]}".toByteArray())
     assertFalse(keys().contains(orphan.single()))
     assertEquals(before.size + 1, keys().size)
@@ -454,6 +453,10 @@ class StateStoreInstrumentedTest {
     val restored = makeStore(root)
     assertEquals(1, restored.open().getJSONArray("pending").length())
     assertFalse(restored.canRestoreSession())
+    assertThrows(StateFailure::class.java) { restored.commit("0") {
+      it.getJSONObject("session").put("ciphertextBase64", "B".repeat(16 * 1024 * 1024)); it
+    } }
+    assertEquals(session.getString("ciphertextBase64"), restored.open().getJSONObject("session").getString("ciphertextBase64"))
     restored.commit("0") { it.put("pending", org.json.JSONArray()) }
     assertEquals(0, makeStore(root).open().getJSONArray("pending").length())
   }

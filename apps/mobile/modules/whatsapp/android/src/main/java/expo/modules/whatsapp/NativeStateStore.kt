@@ -140,13 +140,14 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     GLOBAL_LOCK.lock()
     try {
       val old = open()
+      val originalSession = old.opt("session")?.toString()
       if (parseRevision(expectedRevision) != revision) throw StateFailure("SESSION_REVISION_MISMATCH")
       if (revision == MAX_REVISION) throw StateFailure("STATE_INVALID")
       val next = change(old)
       val requested = next.getJSONObject("options").getLong("maxRecoveryBufferBytes")
       val record = readRecord() ?: throw StateFailure("SESSION_STATE_INVALID")
       val nextBound = maxOf(readBudget, requested)
-      validateState(next, revision + BigInteger.ONE, nextBound, !sessionUsable && next.opt("session")?.toString() == old.opt("session")?.toString())
+      validateState(next, revision + BigInteger.ONE, nextBound, !sessionUsable && next.opt("session")?.toString() == originalSession)
       writeRecord(record.put("readBudget", nextBound).put("preparedRevision", (revision + BigInteger.ONE).toString()))
       readBudget = nextBound
       publish(next, revision + BigInteger.ONE)
@@ -357,13 +358,16 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
       if (session.get("sessionRevision") !is String) throw StateFailure("SESSION_STATE_INVALID")
       val sessionRevision = parseRevision(session.getString("sessionRevision"))
       if (!ACCOUNT.matches(session.getString("accountId")) || !ID.matches(id) || id == recoveryId || sessionRevision > atRevision) throw StateFailure("SESSION_STATE_INVALID")
+      val nonce = decode(session.getString("nonceBase64"), 12)
+      if (nonce.size != 12) throw StateFailure("SESSION_STATE_INVALID")
       if (sessionSize > SESSION_LIMIT) {
         if (!allowSessionFailure) throw StateFailure("SESSION_STORAGE_LIMIT_REACHED")
+        canonicalBase64(session.getString("ciphertextBase64"))
+        if (session.getString("ciphertextBase64").length < 24) throw StateFailure("SESSION_STATE_INVALID")
         sessionUsable = false
       } else {
-        val nonce = decode(session.getString("nonceBase64"), 12)
         val ciphertext = decode(session.getString("ciphertextBase64"), SESSION_LIMIT)
-        if (nonce.size != 12 || ciphertext.size < 16) throw StateFailure("SESSION_STATE_INVALID")
+        if (ciphertext.size < 16) throw StateFailure("SESSION_STATE_INVALID")
         try {
           val cipher = Cipher.getInstance("AES/GCM/NoPadding")
           cipher.init(Cipher.DECRYPT_MODE, getKey(id), GCMParameterSpec(128, nonce))
@@ -490,6 +494,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
   }
 
   private fun writeRecord(record: JSONObject) {
+    current = null
     val cipher = Cipher.getInstance("AES/GCM/NoPadding")
     cipher.init(Cipher.ENCRYPT_MODE, getKey(recordAlias))
     val nonce = cipher.iv.also { if (it.size != 12) throw StateFailure("STORAGE_FAILED") }
@@ -563,8 +568,13 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
       return BigInteger(value).also { if (it > MAX_REVISION) throw StateFailure("SESSION_STATE_INVALID") }
     }
     private fun b64(bytes: ByteArray) = Base64.encodeToString(bytes, Base64.NO_WRAP)
+    private fun canonicalBase64(value: String) {
+      if (value.length % 4 != 0 || !Regex("(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?").matches(value) ||
+        (value.isNotEmpty() && b64(Base64.decode(value.takeLast(4), Base64.DEFAULT)) != value.takeLast(4))) throw StateFailure("SESSION_STATE_INVALID")
+    }
     private fun decode(value: String, max: Int): ByteArray {
-      if (value.length > ((max + 2L) / 3 * 4) || !Regex("(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?").matches(value)) throw StateFailure("SESSION_STATE_INVALID")
+      if (value.length > ((max + 2L) / 3 * 4)) throw StateFailure("SESSION_STATE_INVALID")
+      canonicalBase64(value)
       val bytes = Base64.decode(value, Base64.DEFAULT)
       if (bytes.size > max || b64(bytes) != value) throw StateFailure("SESSION_STATE_INVALID")
       return bytes
