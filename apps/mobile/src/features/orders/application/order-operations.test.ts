@@ -333,3 +333,38 @@ test.each(["TOTAL_CHANGED", "RATE_UNAVAILABLE", "DELIVERY_METHOD_DISABLED"] as c
     data: { kind: "uncertain", pending: { id: id(3), shownTotal: { amount: 10, currency: "PEN" }, request: { delivery: pickup } } } });
   expect(bodies).toHaveLength(2);
 });
+
+
+test("reviewing a saved order checks its identity and atomically saves corrections before resending", async () => {
+  const store = storage();
+  const original = { version: 2 as const, companyId, id: id(3), shownTotal: { amount: 10, currency: "PEN" as const },
+    request: { id: id(3), contactId: id(7), items: [{ variantId: id(2), quantity: 1 }],
+      payments: [{ paymentId: id(8), amount: { amount: 4.5, currency: "PEN" as const }, method: "bank_transfer" as const, deductStockIfPartial: false }] } };
+  await store.save(original);
+  const paths: string[] = [];
+  const api = createOrderApi(async path => {
+    paths.push(path);
+    return err({ code: "API_ERROR", message: "Missing", http: { status: 404, body: { code: "ORDER_NOT_FOUND", error: "Missing" } } });
+  });
+  const selected = draft();
+  if (selected.kind !== "items") throw new Error("Expected cart");
+  const corrected = { ...selected, customer: { kind: "contact" as const, contactId: id(7), name: "Ana", phone: "999" },
+    items: [{ ...selected.items[0], quantity: 2 }] as const,
+    payments: [{ paymentId: id(8), amount: "4.50", method: "bank_transfer" as const, deductStockIfPartial: false }] };
+  const operations = createOrderOperations(api, store);
+  expect(await operations.reviewPendingOrder(companyId, { ...corrected, id: id(9) }))
+    .toMatchObject({ success: false, error: { code: "PENDING_CONFIRMATION" } });
+  expect(paths).toEqual([]);
+  expect(await operations.reviewPendingOrder(companyId, { ...corrected, items: [{ ...corrected.items[0], quantity: 0 }] }))
+    .toMatchObject({ success: false, error: { code: "INVALID_CART" } });
+  expect(await store.read(companyId)).toEqual(ok(original));
+  const broken = createOrderOperations(api, { ...store, replace: async () => err({ code: "PENDING_STORAGE_UNAVAILABLE", message: "Cannot save" }) });
+  expect(await broken.reviewPendingOrder(companyId, corrected))
+    .toMatchObject({ success: false, error: { code: "PENDING_STORAGE_UNAVAILABLE" } });
+  expect(await store.read(companyId)).toEqual(ok(original));
+  const next = { ...original, shownTotal: { amount: 20, currency: "PEN" },
+    request: { ...original.request, items: [{ variantId: id(2), quantity: 2 }] } };
+  expect(await operations.reviewPendingOrder(companyId, corrected)).toEqual(ok({ kind: "uncertain", pending: next }));
+  expect(await store.read(companyId)).toEqual(ok(next));
+  expect(paths).toEqual(Array(3).fill(`/api/orders/${id(3)}/aggregate`));
+});

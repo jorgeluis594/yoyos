@@ -167,6 +167,20 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
     resolvePendingOrderConfirmation,
     clearPendingOrderConfirmation: pendingStore.clear,
     completeOrder: (draft: OrderDraft, companyId: string) => run(companyId, draft.kind === "items" ? draft.id : undefined, () => send(draft, companyId)),
+    reviewPendingOrder: (companyId: string, draft: OrderDraft) => run(companyId, undefined, async () => {
+      const pending = await pendingStore.read(companyId);
+      if (!pending.success) return pending;
+      if (!pending.data?.request || draft.kind !== "items" || draft.id !== pending.data.id)
+        return err({ code: "PENDING_CONFIRMATION", message: "No matching saved attempt to review" });
+      const found = await api.get(pending.data.id);
+      if (found.success) return confirmed(found.data, pending.data);
+      if (found.error.code !== "ORDER_NOT_FOUND") return found;
+      const prepared = prepareOrder(draft);
+      if (!prepared.success) return prepared;
+      const next = { ...pending.data, shownTotal: prepared.data.shownTotal, request: prepared.data.request };
+      const saved = await pendingStore.replace(pending.data, next);
+      return saved.success ? ok({ kind: "uncertain", pending: saved.data }) : saved;
+    }),
     reviewLegacyPendingDelivery: (companyId: string, delivery: RatedDeliveryAssignment) => run(companyId, undefined, async () => {
       const pending = await pendingStore.read(companyId);
       if (!pending.success) return pending;
