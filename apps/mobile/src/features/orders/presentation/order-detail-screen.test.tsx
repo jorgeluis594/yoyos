@@ -256,6 +256,14 @@ test("seller obtains and copies checkout link without changing the payment displ
   fireEvent.press(screen.getByText("Obtener enlace"));
   await screen.findByText("Pendiente de confirmación");
   expect(mockEnableCheckout).toHaveBeenCalledWith(mockId);
+  expect(screen.queryByText(url)).toBeNull();
+  expect(screen.queryByRole("button", { name: "Obtener enlace" })).toBeNull();
+  const reveal = screen.getByRole("button", { name: "Ver enlace" });
+  expect(reveal.props.accessibilityState).toEqual({ expanded: false });
+  fireEvent.press(reveal);
+  expect(screen.getByText(url).props.selectable).toBe(true);
+  fireEvent.press(reveal);
+  expect(screen.queryByText(url)).toBeNull();
   fireEvent.press(screen.getByText("Copiar enlace"));
   await screen.findByText("Enlace copiado");
   expect(Clipboard.setStringAsync).toHaveBeenCalledWith(url);
@@ -264,6 +272,19 @@ test("seller obtains and copies checkout link without changing the payment displ
   fireEvent.press(screen.getByText("Copiar enlace"));
   await screen.findByText("Mantén pulsado el enlace para copiarlo.");
   expect(screen.getByText(url).props.selectable).toBe(true);
+});
+
+test("clipboard rejection reveals the complete selectable link for manual recovery", async () => {
+  const url = `https://shop.example/checkout/${mockId}`;
+  mockEnableCheckout.mockResolvedValue({ success: true, data: { url } });
+  jest.mocked(Clipboard.setStringAsync).mockRejectedValueOnce(new Error("Clipboard unavailable"));
+  const screen = render(<OrderDetailScreen />);
+  fireEvent.press(await screen.findByRole("button", { name: "Confirmación del comprador" }));
+  fireEvent.press(screen.getByRole("button", { name: "Obtener enlace" }));
+  fireEvent.press(await screen.findByRole("button", { name: "Copiar enlace" }));
+  await screen.findByText("Mantén pulsado el enlace para copiarlo.");
+  expect(screen.getByText(url).props.selectable).toBe(true);
+  expect(screen.getByRole("button", { name: "Ver enlace" }).props.accessibilityState).toEqual({ expanded: true });
 });
 
 test("confirmed and cancelled checkouts display persisted state while link failures remain retryable", async () => {

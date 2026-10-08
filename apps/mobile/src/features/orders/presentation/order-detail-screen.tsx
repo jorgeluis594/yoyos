@@ -1,9 +1,9 @@
 /** @jsxImportSource react */
-// THESIS: understand the sale before editing it; approved native commercial summary A.
+// THESIS: understand the sale, then act on delivery beside its data; approved order-detail A.
 // OWN-WORLD: Caramelo sobrio, Inter, flat token surfaces, discreet borders and native symbols.
-// STORY: identify independent states, inspect products and money, review payments, consult delivery.
+// STORY: inspect products and payments, consult and fulfill delivery, disclose technical details.
 // FIRST VIEWPORT: compact header, buyer, receipt notice, products then payment; actions stay contextual.
-// FORM: user-approved .impeccable/mocks/native-order-detail/a-commercial.png.
+// FORM: coordinator-approved .impeccable/mocks/order-detail/a-unified.png; stacked contextual actions.
 // FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance.
 import { showConfirmation } from "@mobile/components/ui/show-confirmation";
 import type { CancellationRequestError, CancellationRecoveryError } from "@mobile/features/orders/application/cancel-order";
@@ -67,6 +67,7 @@ export default function OrderDetailScreen() {
   const [paymentsOpen, setPaymentsOpen] = useState(false);
   const [deliveryOpen, setDeliveryOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [checkoutUrlOpen, setCheckoutUrlOpen] = useState(false);
   const [internalOpen, setInternalOpen] = useState(false);
   const [editor, setEditor] = useState<"manual" | { paymentId: string; receiptImageId: string } | null>(null);
   const companyId = state.status === "ready" ? state.company.id : "";
@@ -133,7 +134,7 @@ export default function OrderDetailScreen() {
   useFocusEffect(useCallback(() => {
     checkoutGeneration.current += 1;
     cancellationLock.current = false; setCancellation({ kind: "idle" }); setDetailRefreshFailed(false);
-    setCheckoutUrl(""); setCheckoutMessage("");
+    setCheckoutUrl(""); setCheckoutUrlOpen(false); setCheckoutMessage("");
     if (companyId) void reload();
     return () => {
       checkoutGeneration.current += 1;
@@ -162,7 +163,7 @@ export default function OrderDetailScreen() {
     cancellationLock.current = true;
     setCancellation({ kind: verify ? "verifying" : "submitting", orderId: order.id });
     setDetailRefreshFailed(false);
-    setCheckoutUrl(""); setCheckoutMessage(""); setEditor(null);
+    setCheckoutUrl(""); setCheckoutUrlOpen(false); setCheckoutMessage(""); setEditor(null);
     let confirmed = false;
     try {
       const result = await orders[verify ? "checkCancellation" : "cancelOrder"](order.id);
@@ -195,8 +196,11 @@ export default function OrderDetailScreen() {
       onConfirm: () => { if (generation === checkoutGeneration.current && requestScope === currentScope.current) void runCancellation(false); } });
   }
   async function copyCheckoutLink() {
-    try { setCheckoutMessage(t(await Clipboard.setStringAsync(checkoutUrl) ? "checkoutCopied" : "checkoutCopyManually")); }
-    catch { setCheckoutMessage(t("checkoutCopyManually")); }
+    try {
+      const copied = await Clipboard.setStringAsync(checkoutUrl);
+      setCheckoutMessage(t(copied ? "checkoutCopied" : "checkoutCopyManually"));
+      if (!copied) setCheckoutUrlOpen(true);
+    } catch { setCheckoutUrlOpen(true); setCheckoutMessage(t("checkoutCopyManually")); }
   }
 
   if (state.status !== "ready") return null;
@@ -312,23 +316,8 @@ export default function OrderDetailScreen() {
             }) : null}
           </> : null}
         </View>
-        {!order.cancelled ? <View style={[styles.card, styles.section, cardStyle]}>
-          <ThemedText type="subtitle" accessibilityRole="header">{t("delivery")}</ThemedText>
-          {(["ship", "deliver"] as const).map(operation => {
-            const blocked = fulfillmentBlock(order, operation);
-            return <View key={operation} style={styles.heading}>
-              <Button variant={operation === "ship" ? "secondary" : "default"} loading={fulfilling === operation} disabled={!!blocked || writeBusy} onPress={() => void fulfill(operation)}>{t(`orderFulfillment.${operation}`)}</Button>
-              {blocked ? <ThemedText type="small" themeColor="textSecondary">{t(`orderFulfillment.${blocked}`)}</ThemedText> : null}
-            </View>;
-          })}
-          {fulfillmentError ? <ThemedText style={{ color: theme.error }} accessibilityRole="alert">{fulfillmentError}</ThemedText> : null}
-          {fulfillmentMessage ? <ThemedText accessibilityRole="alert">{fulfillmentMessage}</ThemedText> : null}
-        </View> : null}
-        {order.delivery || canEditDelivery ? <View style={[styles.card, styles.section, cardStyle]}>
-          <View style={styles.sectionHeading}>
-            <ThemedText type="subtitle" accessibilityRole="header" style={styles.flex}>{t('delivery')}</ThemedText>
-            {canEditDelivery ? <Button disabled={writeBusy} variant="ghost" onPress={() => router.push({ pathname: "/orders/delivery", params: { id: order.id } })}>{t(order.delivery ? 'replaceOrderDelivery' : 'assignOrderDelivery')}</Button> : null}
-          </View>
+        {order.delivery || !order.cancelled ? <View style={[styles.card, styles.section, cardStyle]}>
+          <ThemedText type="subtitle" accessibilityRole="header">{t('delivery')}</ThemedText>
           {order.delivery ? <>
             <Disclosure label={deliveryMethodLabel(order.delivery.method, language)} open={deliveryOpen} onPress={() => setDeliveryOpen(!deliveryOpen)}
               description={`${order.delivery.method === "agency" ? order.delivery.courier?.name ?? ("destination" in order.delivery ? order.delivery.destination.district : "") : order.delivery.method === "store" ? order.delivery.pickupPoint.name : order.delivery.destination.district} · ${order.delivery.recipient.name}`} />
@@ -354,13 +343,29 @@ export default function OrderDetailScreen() {
               <ThemedText type="small">{t('orderDeliveryCharge', { amount: format(order.deliveryCharge) })}</ThemedText>
               {!canEditDelivery ? <ThemedText type="small" themeColor="textSecondary">{t('orderDeliveryLocked')}</ThemedText> : null}
             </View> : null}
-          </> : <ThemedText themeColor="textSecondary">{t('orderDeliveryUndefined')}</ThemedText>}
+          </> : canEditDelivery ? <ThemedText themeColor="textSecondary">{t('orderDeliveryUndefined')}</ThemedText> : null}
+          {canEditDelivery ? <Button disabled={writeBusy} variant="secondary" onPress={() => router.push({ pathname: "/orders/delivery", params: { id: order.id } })}>{t(order.delivery ? 'replaceOrderDelivery' : 'assignOrderDelivery')}</Button> : null}
+          {!order.cancelled ? <View style={styles.section}>
+            <View style={[styles.divider, { borderColor: theme.border }]} />
+            {(["ship", "deliver"] as const).map(operation => {
+              const blocked = fulfillmentBlock(order, operation);
+              return <View key={operation} style={styles.heading}>
+                <Button variant={operation === "ship" ? "secondary" : "default"} loading={fulfilling === operation} disabled={!!blocked || writeBusy} onPress={() => void fulfill(operation)}>{t(`orderFulfillment.${operation}`)}</Button>
+                {blocked ? <ThemedText type="small" themeColor="textSecondary">{t(`orderFulfillment.${blocked}`)}</ThemedText> : null}
+              </View>;
+            })}
+            {fulfillmentError ? <ThemedText style={{ color: theme.error }} accessibilityRole="alert">{fulfillmentError}</ThemedText> : null}
+            {fulfillmentMessage ? <ThemedText accessibilityRole="alert">{fulfillmentMessage}</ThemedText> : null}
+          </View> : null}
         </View> : null}
         <View style={[styles.card, styles.section, cardStyle]}>
           <Disclosure label={t('checkoutTitle')} description={checkoutState} open={checkoutOpen} onPress={() => setCheckoutOpen(!checkoutOpen)} />
           {checkoutOpen && !order.cancelled ? <>
-            <Button variant="secondary" disabled={writeBusy} loading={checkoutBusy} onPress={() => void obtainCheckoutLink()}>{t('getCheckoutLink')}</Button>
-            {checkoutUrl ? <><ThemedText selectable>{checkoutUrl}</ThemedText><Button variant="secondary" onPress={() => void copyCheckoutLink()}>{t('copyCheckoutLink')}</Button></> : null}
+            {checkoutUrl ? <>
+              <Button variant="secondary" onPress={() => void copyCheckoutLink()}>{t('copyCheckoutLink')}</Button>
+              <Disclosure label={t('viewCheckoutLink')} open={checkoutUrlOpen} onPress={() => setCheckoutUrlOpen(!checkoutUrlOpen)} />
+              {checkoutUrlOpen ? <ThemedText type="small" themeColor="textSecondary" selectable>{checkoutUrl}</ThemedText> : null}
+            </> : <Button variant="secondary" disabled={writeBusy} loading={checkoutBusy} onPress={() => void obtainCheckoutLink()}>{t('getCheckoutLink')}</Button>}
             {checkoutMessage ? <ThemedText accessibilityRole="alert">{checkoutMessage}</ThemedText> : null}
           </> : null}
         </View>
@@ -368,7 +373,7 @@ export default function OrderDetailScreen() {
           <Disclosure label={t('detailInternal')} open={internalOpen} onPress={() => setInternalOpen(!internalOpen)} />
           {internalOpen ? <>
             <ThemedText type="small">{order.stockDeducted ? t('stockDeducted') : t('stockPending')}</ThemedText>
-            <ThemedText type="small" selectable>{t('detailSeller', { id: order.sellerId })}</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary" selectable>{t('detailSeller', { id: order.sellerId })}</ThemedText>
             {order.completedAt ? <ThemedText type="small" themeColor="textSecondary">{t('completedOn', { date: date(order.completedAt, locale) })}</ThemedText> : null}
             {order.delivery ? <>
               <ThemedText type="small">{t('orderDeliveryCost', { amount: format(order.deliveryCost) })}</ThemedText>
@@ -437,7 +442,7 @@ const styles = StyleSheet.create({
   card: { padding: 16, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth },
   customer: { flexDirection: "row", alignItems: "center", gap: 12 },
   receiptNotice: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth },
-  section: { gap: 10 }, sectionHeading: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
+  section: { gap: 10 },
   product: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8, paddingVertical: 12 },
   productIdentity: { flexGrow: 1, flexShrink: 1, flexBasis: 170, gap: 2 },
   semibold: { fontWeight: "600" }, amount: { fontWeight: "600", fontVariant: ["tabular-nums"], textAlign: "right" },

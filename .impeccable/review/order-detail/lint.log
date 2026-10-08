@@ -1,0 +1,15 @@
+
+> mobile@1.0.0 lint /Users/jorgegonzalez/orca/workspaces/yoyos/mobile-redesign-order-detail/apps/mobile
+> expo lint
+
+
+/Users/jorgegonzalez/orca/workspaces/yoyos/mobile-redesign-order-detail/apps/mobile/src/components/ui/option-selector.test.tsx
+   9:17  warning  A `require()` style import is forbidden  @typescript-eslint/no-require-imports
+  10:26  warning  A `require()` style import is forbidden  @typescript-eslint/no-require-imports
+
+/Users/jorgegonzalez/orca/workspaces/yoyos/mobile-redesign-order-detail/apps/mobile/src/features/printing/infrastructure/temporary-documents.test.ts
+  14:1  warning  Import in body of module; reorder to top  import/first
+
+✖ 3 problems (0 errors, 3 warnings)
+  0 errors and 1 warning potentially fixable with the `--fix` option.
+

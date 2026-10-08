@@ -1,0 +1,39 @@
+---
+version: 1
+slug: "order-detail"
+primary_target: "apps/mobile/src/features/orders/presentation/order-detail-screen.tsx"
+related_targets: []
+---
+
+# Order detail — contextual delivery
+
+Mode: Operate. Scope: `apps/mobile/src/features/orders/presentation/order-detail-screen.tsx`, tests and the authorized `viewCheckoutLink` i18n key. Preserve the approved commercial summary, independent business states, payments, cancellation, historical delivery snapshots, native navigation and Spanish/Portuguese behavior.
+
+## Approved composition
+
+Coordinator explicitly selected A on 2026-10-08 after inspecting exactly three newly generated raster alternatives: `a-unified.png`, `b-ledger.png`, `c-paired.png` under `.impeccable/mocks/order-detail/`. A's JSON records approval and the exact prompt is embedded in its PNG. Earlier `a-commercial`, `b-fulfillment`, `c-compact` files predate this task and are unchanged.
+
+A reunites delivery data and editing with vertically stacked fulfillment actions in one surface. Keep the commercial summary above it. Keep checkout confirmation separate from payment; once generated, put Copy first and hide the raw URL under Ver enlace. Obtener enlace only generates a missing URL. Failed copy automatically exposes selectable full text for manual recovery. Internal metadata stays behind its existing disclosure; the full seller ID remains selectable but uses secondary text.
+
+| Ingredient | Implementation | Commitment |
+| --- | --- | --- |
+| Header, commercial summary and navigation | Existing native components | Preserve existing order and hierarchy |
+| Unified delivery surface | Native View/ThemedText/Disclosure/Button | Details, assignment, divider, stacked ship/deliver; unchanged eligibility and reasons |
+| Main delivery action | Existing native Button | Caramel full width, minimum 48dp, height grows with text |
+| Checkout | Existing native Button/Disclosure and selectable text | Copy then explicit URL reveal; no lost clipboard failure recovery |
+| Internal metadata | Existing native disclosure and secondary text | Full ID on request, no truncation or data loss |
+| Raster assets in app | None | Comps are decision artifacts only |
+
+Existing grammar: Inter with native weight adapter, flat 8dp cards/hairline border, 6dp controls, 16dp gutters/padding, 12dp section separation, standard body and small secondary text. Maintain theme roles, safe areas and scrolling. The generated A samples are canvas rgb(246,245,240), card rgb(254,254,254), primary rgb(144,88,47), secondary rgb(235,230,222). These corroborate the incumbent palette; generated sheen and a captured accessibility overlay are rendering defects, not assets to reproduce. Coordinator explicitly retains global tokens and commercial summary; the payment tail in the mock does not authorize a new payment accordion. Real state labels/expanded content adapt the illustrated pending empty-delivery case.
+
+## Verification and final scope
+
+The user explicitly ended further phone QA, exhaustive validation and additional reviewers on 2026-10-08 (coordinator message msg_40c570ae15ce). Final review is limited to the three inspected mocks, the two original reference screenshots and the code diff. There are no new device captures and no claim of verified dark-mode, large-text, compact-size, iOS or tablet rendering. No device settings were changed by this worker. No independent final visual reviewer or documenter was launched after the scope reduction; this surface record documents the built source. The independent asset-producer inspection had already confirmed that no build raster assets are needed. No web detector ran because this is native UI.
+
+The unified delivery region and link/internal disclosures follow A's composition while retaining the existing commercial summary, native components and theme roles. Functional state rules and error handling remain in the existing operations. Copy failure reveals the complete selectable link; tests cover successful copying, explicit reveal/collapse and failure recovery. New Ver enlace / Ver link labels are localized.
+
+Final checks used Node 24.21.0 and pnpm 12.5.1: typecheck passed; lint passed with three pre-existing warnings (two require imports in option-selector tests, one import-order warning in temporary-documents tests); complete Jest suite passed in the coordinator's exclusive slot with the default timeout. Logs are under `.impeccable/review/order-detail/`. Earlier parallel execution hit timeouts and two unsupported test matchers; matchers were corrected and the final standard-timeout serial run supersedes that result. No further tests ran after the user's stop instruction.
+
+Frozen installs were blocked by the existing shared multi-document lockfile and mobile patchedDependencies mismatch. Authorized ignored local symlinks reuse base node_modules; no dependency or lockfile changed. Android bundling returned HTTP 200, which is not device rendering evidence. Metro 8084 was stopped at closure.
+
+Expo SDK 57 clipboard documentation was read at https://docs.expo.dev/versions/v57.0.0/sdk/clipboard/ after Context7 lookup; native copy resolves true, while defensive failure recovery remains for exceptions and web. Global PRODUCT.md, DESIGN.md, tokens and shared components were preserved.
