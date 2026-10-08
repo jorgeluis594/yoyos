@@ -108,6 +108,7 @@ final class StateStoreTests: XCTestCase {
       XCTAssertThrowsError(try store.commit(expectedRevision: "1") { current in
         var next = current; next["session"] = mutate(original); return next
       })
+      XCTAssertTrue(try store.canRestoreSession())
     }
   }
 

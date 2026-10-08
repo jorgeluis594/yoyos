@@ -100,7 +100,7 @@ public final class NativeStateStore {
   }
 
   @discardableResult public func commit(expectedRevision: String, change: ([String: Any]) throws -> [String: Any]) throws -> [String: Any] {
-    lock.lock(); defer { lock.unlock() }
+    lock.lock(); var committed = false; defer { if !committed { state = nil }; lock.unlock() }
     let old = try open()
     let originalSession = try Self.json(old["session"] ?? NSNull())
     guard Self.parseRevision(expectedRevision) == revision else { throw StateStoreError.revision }
@@ -117,6 +117,7 @@ public final class NativeStateStore {
     try publish(next, revision: revision + 1)
     state = next
     observedPublication = Self.publication
+    committed = true
     return next
   }
 

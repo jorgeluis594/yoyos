@@ -126,6 +126,7 @@ class StateStoreInstrumentedTest {
         store.commit("1") { it.put("session", org.json.JSONObject(original.toString()).also(change)) }
       }
       assertEquals("1", currentRevision(root))
+      assertEquals(true, store.canRestoreSession())
     }
   }
 

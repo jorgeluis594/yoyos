@@ -154,6 +154,9 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
       current = next
       observedPublication = publication
       return JSONObject(next.toString())
+    } catch (e: Exception) {
+      current = null
+      throw e
     } finally { GLOBAL_LOCK.unlock() }
   }
 
