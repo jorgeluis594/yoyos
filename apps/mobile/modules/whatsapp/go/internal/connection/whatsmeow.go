@@ -22,15 +22,16 @@ func NewWhatsmeowTransport(device *store.Device, localFailure func() Code) Trans
 	client.InitialAutoReconnect = false
 	client.DisableLoginAutoReconnect = true
 	client.UseRetryMessageStore = false
-	return &whatsmeowTransport{client: client, dial: client.ConnectContext, loginReconnect: make(chan struct{}, 1), localFailure: localFailure}
+	return &whatsmeowTransport{client: client, dial: client.ConnectContext, socketConnected: client.IsConnected, loginReconnect: make(chan struct{}, 1), localFailure: localFailure}
 }
 
 type whatsmeowTransport struct {
-	client         *whatsmeow.Client
-	dial           func(context.Context) error
-	loginReconnect chan struct{}
-	localFailure   func() Code
-	handoff        atomic.Bool
+	client          *whatsmeow.Client
+	dial            func(context.Context) error
+	socketConnected func() bool
+	loginReconnect  chan struct{}
+	localFailure    func() Code
+	handoff         atomic.Bool
 }
 
 func (t *whatsmeowTransport) stopped() Code {
@@ -54,7 +55,7 @@ func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent)
 		if kind == "" {
 			return
 		}
-		if _, disconnected := event.(*events.Disconnected); disconnected && t.handoff.Load() {
+		if _, disconnected := event.(*events.Disconnected); disconnected && (t.handoff.Load() || t.socketConnected()) {
 			return
 		}
 		if code := t.stopped(); code != "" {
@@ -64,7 +65,7 @@ func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent)
 			}
 			return
 		}
-		if kind == "loginReconnect" {
+		if kind == "authenticating" || kind == "loginReconnect" {
 			t.handoff.Store(true)
 		} else if kind == "connected" {
 			t.handoff.Store(false)

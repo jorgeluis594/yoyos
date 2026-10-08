@@ -2,6 +2,7 @@ package connection
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -122,5 +123,52 @@ func TestPinned515ContinuesAuthenticationWithinOriginalDeadline(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestPairingSocketCloseBefore515AndDelayedAfterReconnect(t *testing.T) {
+	clock := &testClock{now: time.Unix(0, 0), created: make(chan struct{}, 8)}
+	transport := NewWhatsmeowTransport(&store.Device{}, nil).(*whatsmeowTransport)
+	dials := make(chan struct{}, 2)
+	transport.dial = func(context.Context) error { dials <- struct{}{}; return nil }
+	var socketConnected atomic.Bool
+	transport.socketConnected = socketConnected.Load
+	created := 0
+	published := make(chan Event, 8)
+	c := New(func() (Transport, error) { created++; return transport, nil }, func(event Event) { published <- event }, clock)
+	defer c.Close()
+	c.Prepare(false)
+	if code := c.Connect(); code != "" {
+		t.Fatal(code)
+	}
+	<-dials
+	receive(t, published)
+	clock.WaitTimer(t)
+	transport.client.DangerousInternals().DispatchEvent(&events.PairSuccess{})
+	clock.WaitTimer(t)
+	transport.client.DangerousInternals().DispatchEvent(&events.Disconnected{})
+	if c.State() != Connecting || created != 1 {
+		t.Fatal("early socket close retired the pairing attempt")
+	}
+	clock.Advance(29 * time.Second)
+	transport.client.DangerousInternals().HandleStreamError(context.Background(), &binary.Node{Tag: "stream:error", Attrs: binary.Attrs{"code": "515"}})
+	select {
+	case <-dials:
+	case <-time.After(time.Second):
+		t.Fatal("515 did not redial the same client")
+	}
+	socketConnected.Store(true)
+	transport.client.DangerousInternals().DispatchEvent(&events.Connected{})
+	if receive(t, published).State != Connected {
+		t.Fatal("authentication did not complete")
+	}
+	transport.client.DangerousInternals().DispatchEvent(&events.Disconnected{})
+	select {
+	case event := <-published:
+		t.Fatalf("delayed old-socket close affected replacement: %+v", event)
+	case <-time.After(20 * time.Millisecond):
+	}
+	if created != 1 || c.State() != Connected {
+		t.Fatal("replacement authentication was retired")
 	}
 }
