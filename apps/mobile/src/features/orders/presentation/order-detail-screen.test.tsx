@@ -1,3 +1,4 @@
+import { Alert } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
@@ -16,9 +17,12 @@ const mockVoidPayment = jest.fn();
 const mockEnableCheckout = jest.fn();
 const mockShip = jest.fn();
 const mockDeliver = jest.fn();
+const mockCancel = jest.fn();
+const mockCheckCancellation = jest.fn();
+let mockUserId = "seller";
 jest.mock("expo-clipboard", () => ({ setStringAsync: jest.fn(async () => true) }));
 const initialOrder: OrderAggregateResponse = { number: 1001, id: mockId, companyId: "00000000-0000-4000-8000-000000000001", sellerId: "seller",
-  buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, createdAt: "2026-09-29T11:00:00.000Z", deliveredAt: "2026-09-29T12:00:00.000Z", completedAt: "2026-09-29T12:00:00.000Z",
+  buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, checkoutDeliveryRequest: null, createdAt: "2026-09-29T11:00:00.000Z", deliveredAt: "2026-09-29T12:00:00.000Z", completedAt: "2026-09-29T12:00:00.000Z",
   status: "completed", paymentStatus: "paid", paidAmount: { amount: 12, currency: "PEN" },
   balanceDue: { amount: 0, currency: "PEN" }, overpaidAmount: { amount: 0, currency: "PEN" }, cancelled: false,
   delivery: null, deliveryStatus: "delivered", stockDeducted: true, itemsTotal: { amount: 12, currency: "PEN" },
@@ -29,12 +33,14 @@ const initialOrder: OrderAggregateResponse = { number: 1001, id: mockId, company
     productName: "Camisa", variantAttributes: { Talla: "M" }, sku: null, quantity: 1,
     unitPrice: { amount: 12, currency: "PEN" }, subtotal: { amount: 12, currency: "PEN" } }] };
 let mockOrder = initialOrder;
-beforeEach(() => { mockOrder = initialOrder; mockNotice = null; mockCountry = "PE"; mockPush.mockReset(); mockLoadFailed = false; mockEnableCheckout.mockReset(); mockShip.mockReset(); mockDeliver.mockReset(); mockRegisterPayment.mockReset(); mockVoidPayment.mockReset(); jest.mocked(Clipboard.setStringAsync).mockResolvedValue(true); });
+beforeEach(() => { mockUserId = "seller"; mockCancel.mockReset(); mockCheckCancellation.mockReset(); mockOrder = initialOrder; mockNotice = null; mockCountry = "PE"; mockPush.mockReset(); mockLoadFailed = false; mockEnableCheckout.mockReset(); mockShip.mockReset(); mockDeliver.mockReset(); mockRegisterPayment.mockReset(); mockVoidPayment.mockReset(); jest.mocked(Clipboard.setStringAsync).mockResolvedValue(true); });
 
 jest.mock("expo-router", () => ({ useRouter: () => ({ back: jest.fn(), push: mockPush }),
   useLocalSearchParams: () => ({ id: mockId }),
   useFocusEffect: (callback: () => void) => { mockFocus = callback; jest.requireActual("react").useEffect(callback, [callback]); } }));
 jest.mock("@mobile/features/orders/composition", () => ({ orders: {
+  cancelOrder: (...args: unknown[]) => mockCancel(...args),
+  checkCancellation: (...args: unknown[]) => mockCheckCancellation(...args),
   ship: (...args: unknown[]) => mockShip(...args),
   deliver: (...args: unknown[]) => mockDeliver(...args),
   enableOrderCheckout: (...args: unknown[]) => mockEnableCheckout(...args),
@@ -44,7 +50,7 @@ jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   voidPayment: (...args: unknown[]) => mockVoidPayment(...args),
 } }));
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAccess: () => ({ state: {
-  status: "ready", company: { id: "00000000-0000-4000-8000-000000000001", country: mockCountry },
+  status: "ready", user: { id: mockUserId }, company: { id: "00000000-0000-4000-8000-000000000001", country: mockCountry },
 } }) }));
 jest.mock("@mobile/features/orders/presentation/order-result", () => ({ useOrderResult: () => ({ notice: mockNotice, clear: mockClear }) }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
@@ -324,6 +330,12 @@ test.each([
 ] as const)("fulfillment is blocked and explained: $reason", async ({ reason, ...state }) => {
   mockOrder = { ...initialOrder, ...state };
   const screen = render(<OrderDetailScreen />);
+  if (state.cancelled) {
+    await screen.findByText(/Pedido cancelado. Los pagos se conservan/);
+    expect(screen.queryByRole("button", { name: "Marcar enviado" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Marcar entregado" })).toBeNull();
+    return;
+  }
   await screen.findAllByText(reason);
   for (const name of ["Marcar enviado", "Marcar entregado"]) {
     const button = screen.getByRole("button", { name });
@@ -366,4 +378,157 @@ test('rated agency delivery shows its district and pending operational assignmen
   fireEvent.press(await screen.findByRole('button', { name: /Agencia/ }));
   expect(screen.getByText('Miraflores')).toBeTruthy();
   expect(screen.getByText('Courier y agencia pendientes de asignación')).toBeTruthy();
+});
+
+function pendingCancellationOrder() {
+  mockOrder = { ...initialOrder, status: "active", deliveryStatus: "pending", deliveredAt: null, completedAt: null };
+  return mockOrder;
+}
+function acceptCancellation(screen: ReturnType<typeof render>) {
+  const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+  fireEvent.press(screen.getByRole("button", { name: "Cancelar pedido" }));
+  const buttons = alert.mock.calls.at(-1)?.[2];
+  act(() => buttons?.[1]?.onPress?.());
+  alert.mockRestore();
+}
+
+test("native confirmation preserves the order on dismissal and only accepts an explicit confirmation", async () => {
+  pendingCancellationOrder();
+  const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Orden activa");
+  fireEvent.press(screen.getByRole("button", { name: "Cancelar pedido" }));
+  const [title, description, buttons, options] = alert.mock.calls[0];
+  expect(title).toBe("¿Cancelar este pedido?");
+  expect(description).toContain("no realiza un reembolso");
+  expect(options?.cancelable).toBe(true);
+  act(() => buttons?.[0]?.onPress?.());
+  expect(mockCancel).not.toHaveBeenCalled();
+  expect(screen.getByText("Orden activa")).toBeTruthy();
+  alert.mockRestore();
+});
+
+test("confirmation survives detail refresh failure and keeps recorded payments visible", async () => {
+  const original = pendingCancellationOrder();
+  mockCancel.mockResolvedValue({ success: true, data: { kind: "cancelled", order: {
+    id: mockId, status: "cancelled", cancelled: true, deliveryStatus: "pending", stockDeducted: true, deliveredAt: null, completedAt: null,
+  } } });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Orden activa");
+  mockLoadFailed = true;
+  acceptCancellation(screen);
+  await screen.findByText("No pudimos actualizar el detalle. El estado confirmado se conserva.");
+  expect(screen.getByText(/Pedido cancelado. Los pagos se conservan/)).toBeTruthy();
+  expect(screen.queryByText("Entrega pendiente")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Cancelar pedido" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Marcar enviado" })).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: "Ver pagos" }));
+  expect(screen.getByText("Pago confirmado")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Anular pago" })).toBeNull();
+  expect(mockCancel).toHaveBeenCalledTimes(1);
+  mockOrder = { ...original, status: "cancelled", cancelled: true };
+  mockLoadFailed = false;
+  mockCheckCancellation.mockResolvedValue({ success: true, data: { kind: "cancelled", order: mockOrder } });
+  fireEvent.press(screen.getByRole("button", { name: "Consultar estado" }));
+  await waitFor(() => expect(screen.queryByText("No pudimos actualizar el detalle. El estado confirmado se conserva.")).toBeNull());
+  expect(mockCancel).toHaveBeenCalledTimes(1);
+  expect(mockCheckCancellation).toHaveBeenCalledWith(mockId);
+});
+
+test.each(["NETWORK_ERROR", "RATE_LIMITED"])("%s uncertainty blocks writes and manual consultation resolves the dispatched conflict", async code => {
+  pendingCancellationOrder();
+  mockCancel.mockResolvedValue({ success: true, data: { kind: "uncertain", orderId: mockId, cause: { code, message: "Unable to verify" } } });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Orden activa");
+  fireEvent.press(screen.getByRole("button", { name: "Ver pagos" }));
+  fireEvent.press(screen.getByRole("button", { name: "Confirmación del comprador" }));
+  acceptCancellation(screen);
+  await screen.findByText(/No pudimos confirmar si se canceló/);
+  for (const name of ["Cancelar pedido", "Anular pago", "Marcar enviado", "Asignar entrega", "Obtener enlace"]) {
+    expect(screen.getByRole("button", { name })).toBeDisabled();
+    fireEvent.press(screen.getByRole("button", { name }));
+  }
+  expect(mockVoidPayment).not.toHaveBeenCalled(); expect(mockShip).not.toHaveBeenCalled();
+  expect(mockEnableCheckout).not.toHaveBeenCalled(); expect(mockPush).not.toHaveBeenCalled();
+  mockOrder = { ...mockOrder, deliveryStatus: "shipped" };
+  mockCheckCancellation.mockResolvedValue({ success: true, data: { kind: "dispatched", order: { id: mockId, cancelled: false, status: "active", deliveryStatus: "shipped" } } });
+  fireEvent.press(screen.getByRole("button", { name: "Consultar estado" }));
+  await screen.findByText("El pedido ya fue enviado o entregado y no se puede cancelar.");
+  expect(screen.queryByRole("button", { name: "Cancelar pedido" })).toBeNull();
+  expect(mockCancel).toHaveBeenCalledTimes(1);
+});
+
+test("repeated acceptance writes once and a response from the previous session is discarded", async () => {
+  pendingCancellationOrder();
+  let resolve!: (value: unknown) => void;
+  mockCancel.mockReturnValue(new Promise(done => { resolve = done; }));
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Orden activa");
+  const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+  fireEvent.press(screen.getByRole("button", { name: "Cancelar pedido" }));
+  const accept = alert.mock.calls[0][2]?.[1]?.onPress;
+  act(() => { accept?.(); accept?.(); });
+  expect(mockCancel).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("button", { name: "Marcar enviado" })).toBeDisabled();
+  mockUserId = "another-seller";
+  screen.rerender(<OrderDetailScreen />);
+  await screen.findByText("Orden activa");
+  await act(async () => resolve({ success: true, data: { kind: "cancelled", order: { id: mockId, status: "cancelled", cancelled: true, deliveryStatus: "pending", stockDeducted: true, deliveredAt: null, completedAt: null } } }));
+  expect(screen.queryByText(/Pedido cancelado. Los pagos se conservan/)).toBeNull();
+  expect(screen.getByText("Orden activa")).toBeTruthy();
+  alert.mockRestore();
+});
+
+
+test.each([0, 4, 12])("mobile cancellation retains received amount %s after refreshing the detail", async received => {
+  pendingCancellationOrder();
+  mockOrder = { ...mockOrder, paidAmount: { amount: received, currency: "PEN" },
+    balanceDue: { amount: 12 - received, currency: "PEN" }, paymentStatus: received === 12 ? "paid" : "pending", payments: received ? initialOrder.payments : [] };
+  mockCancel.mockImplementation(async () => {
+    mockOrder = { ...mockOrder, status: "cancelled", cancelled: true };
+    return { success: true, data: { kind: "cancelled", order: mockOrder } };
+  });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Orden activa");
+  acceptCancellation(screen);
+  await screen.findByText("Orden cancelada");
+  expect(screen.getAllByText(new Intl.NumberFormat("es-PE", { style: "currency", currency: "PEN" }).format(received)).length).toBeGreaterThan(0);
+  expect(screen.queryByText("Entrega pendiente")).toBeNull();
+  expect(mockCancel).toHaveBeenCalledTimes(1);
+});
+
+test("Portuguese cancellation explains preservation and offers a safe exit", async () => {
+  await i18n.changeLanguage("pt-BR");
+  try {
+    pendingCancellationOrder();
+    const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+    const screen = render(<OrderDetailScreen />);
+    await screen.findByText("Pedido ativo");
+    fireEvent.press(screen.getByRole("button", { name: "Cancelar pedido" }));
+    expect(alert.mock.calls[0][1]).toContain("não realiza um reembolso");
+    expect(alert.mock.calls[0][2]?.[0].text).toBe("Manter pedido");
+    expect(mockCancel).not.toHaveBeenCalled();
+    screen.unmount(); alert.mockRestore();
+  } finally { await i18n.changeLanguage("es"); }
+});
+
+// @ts-expect-error An in-flight cancellation requires an order identity.
+const missingCancellationId: import("@mobile/features/orders/presentation/order-detail-screen").CancellationUiState = { kind: "submitting" };
+void missingCancellationId;
+
+
+test("a known cancellation failure restores the permitted interaction and translates the error", async () => {
+  await i18n.changeLanguage("pt-BR");
+  try {
+    pendingCancellationOrder();
+    mockCancel.mockResolvedValue({ success: false, error: { code: "UNAUTHENTICATED", message: "Expired" } });
+    const screen = render(<OrderDetailScreen />);
+    await screen.findByText("Pedido ativo");
+    acceptCancellation(screen);
+    await screen.findByText("Entre na sua conta para continuar.");
+    expect(screen.getByRole("button", { name: "Cancelar pedido" })).not.toBeDisabled();
+    expect(mockCheckCancellation).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Os pagamentos são mantidos/)).toBeNull();
+    screen.unmount();
+  } finally { await i18n.changeLanguage("es"); }
 });

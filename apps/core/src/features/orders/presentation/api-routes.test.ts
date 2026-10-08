@@ -1,6 +1,7 @@
 import express from "express";
 import { afterEach, expect, test, vi } from "vitest";
-import { hasDuplicateJsonKeys, orderRoutes } from "@core/src/features/orders/presentation/api-routes";
+import { orderRoutes } from "@core/src/features/orders/presentation/api-routes";
+import { hasDuplicateJsonKeys } from "@core/src/shared/presentation/json-keys";
 import * as orderComposition from "@core/src/features/orders/composition";
 import { orders } from "@core/src/features/orders/composition";
 import { app as fullApp } from "@core/src/app";

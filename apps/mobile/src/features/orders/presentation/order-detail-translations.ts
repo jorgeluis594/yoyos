@@ -1,5 +1,19 @@
 export const orderDetailTranslations = {
   es: {
+    orderCancellation: {
+      title: '¿Cancelar este pedido?', cancel: 'Cancelar pedido', keep: 'Conservar pedido',
+      description: 'La devolución del stock descontado se procesará después de cancelar. Los pagos registrados se conservarán; cancelar no realiza un reembolso. No podrás reabrir este pedido.',
+      cancelled: 'Pedido cancelado. Los pagos se conservan; no se realizó un reembolso. No se puede reabrir.',
+      submitting: 'Cancelando pedido…', verifying: 'Consultando estado…', check: 'Consultar estado',
+      uncertain: 'No pudimos confirmar si se canceló. Consulta el estado antes de continuar.',
+      failed: 'No se pudo cancelar el pedido.', refreshFailed: 'No pudimos actualizar el detalle. El estado confirmado se conserva.',
+      INVALID_TRANSITION: 'El pedido ya fue enviado o entregado y no se puede cancelar.',
+      NETWORK_ERROR: 'El pedido sigue activo. Puedes volver a intentar cancelar.',
+      ORDER_NOT_FOUND: 'El pedido no está disponible.', UNAUTHENTICATED: 'Inicia sesión para continuar.',
+      COMPANY_REQUIRED: 'Selecciona tu empresa para continuar.', INVALID_COMPANY: 'La empresa no está disponible.',
+      OPERATION_CANCELLED: 'La sesión cambió. Vuelve a abrir el pedido.',
+    },
+
     detailAgencyAssignmentPending: 'Courier y agencia pendientes de asignación',
     detailBuyer: 'Comprador', detailPaymentPending: 'Pago pendiente',
     detailReports_one: '{{count}} comprobante por revisar', detailReports_other: '{{count}} comprobantes por revisar',
@@ -11,6 +25,20 @@ export const orderDetailTranslations = {
     detailSeller: 'Vendedor: {{id}}', detailClose: 'Cerrar',
   },
   'pt-BR': {
+    orderCancellation: {
+      title: 'Cancelar este pedido?', cancel: 'Cancelar pedido', keep: 'Manter pedido',
+      description: 'A devolução do estoque descontado será processada após cancelar. Os pagamentos registrados serão mantidos; cancelar não realiza um reembolso. Você não poderá reabrir este pedido.',
+      cancelled: 'Pedido cancelado. Os pagamentos são mantidos; nenhum reembolso foi realizado. Não é possível reabrir.',
+      submitting: 'Cancelando pedido…', verifying: 'Consultando status…', check: 'Consultar status',
+      uncertain: 'Não conseguimos confirmar se foi cancelado. Consulte o status antes de continuar.',
+      failed: 'Não foi possível cancelar o pedido.', refreshFailed: 'Não conseguimos atualizar os detalhes. O status confirmado foi mantido.',
+      INVALID_TRANSITION: 'O pedido já foi enviado ou entregue e não pode ser cancelado.',
+      NETWORK_ERROR: 'O pedido continua ativo. Você pode tentar cancelar novamente.',
+      ORDER_NOT_FOUND: 'O pedido não está disponível.', UNAUTHENTICATED: 'Entre na sua conta para continuar.',
+      COMPANY_REQUIRED: 'Selecione sua empresa para continuar.', INVALID_COMPANY: 'A empresa não está disponível.',
+      OPERATION_CANCELLED: 'A sessão mudou. Abra o pedido novamente.',
+    },
+
     detailAgencyAssignmentPending: 'Transportadora e agência pendentes de atribuição',
     detailBuyer: 'Comprador', detailPaymentPending: 'Pagamento pendente',
     detailReports_one: '{{count}} comprovante para revisar', detailReports_other: '{{count}} comprovantes para revisar',

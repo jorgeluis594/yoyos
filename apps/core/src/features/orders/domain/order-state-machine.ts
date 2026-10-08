@@ -48,6 +48,7 @@ export type OrderAggregate = Readonly<{
   buyer: OrderBuyer | null;
   checkoutEnabledAt: Date | null;
   checkoutConfirmedAt: Date | null;
+  checkoutDeliveryRequest: DeliverySnapshot | null;
   createdAt: Date;
   deliveredAt: Date | null;
   completedAt: Date | null;
@@ -73,7 +74,10 @@ export type SetDeliveryChange = Readonly<{ resolved: ResolvedDelivery }>;
 export type StockDeductionPlan =
   | Readonly<{ kind: "none"; reason: "already_deducted" | "not_requested"; nextOrder: OrderAggregate }>
   | Readonly<{ kind: "deduct"; nextOrder: OrderAggregate }>;
-export type CancellationPlan = Readonly<{ nextOrder: OrderAggregate; restoreStock: boolean }>;
+export type CancelledOrder = OrderAggregate & Readonly<{ cancelled: true; deliveryStatus: "pending"; deliveredAt: null; completedAt: null }>;
+export type AggregateValidationError = Readonly<{ code: "INVALID_ORDER" | "INVALID_PAYMENT" | "CURRENCY_MISMATCH"; message: string }>;
+export type CancellationDomainError = AggregateValidationError | Readonly<{ code: "INVALID_TRANSITION"; message: string }>;
+export type CancellationPlan = Readonly<{ nextOrder: CancelledOrder; emitOrderCancelled: boolean }>;
 export type BuildPendingOrderInput = BuildOrderInput & Readonly<{ number: OrderNumber }>;
 
 export function buildPendingOrder(input: BuildPendingOrderInput): Result<OrderAggregate, BuildOrderError> {
@@ -84,7 +88,7 @@ export function buildPendingOrder(input: BuildPendingOrderInput): Result<OrderAg
   const zero: Money = { amount: 0, currency: snapshot.total.currency };
   return ok({ number: input.number, id: snapshot.id, companyId: snapshot.companyId, sellerId: snapshot.sellerId,
     buyer: snapshot.customer.kind === "contact" ? { contactId: snapshot.customer.contactId, name: snapshot.customer.name, phone: snapshot.customer.phone } : null,
-    checkoutEnabledAt: null, checkoutConfirmedAt: null, items: snapshot.items, total: snapshot.total,
+    checkoutEnabledAt: null, checkoutConfirmedAt: null, checkoutDeliveryRequest: null, items: snapshot.items, total: snapshot.total,
     createdAt: new Date(input.createdAt), deliveredAt: null, completedAt: null, cancelled: false,
     payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false,
     itemsTotal: snapshot.total, deliveryCost: zero, deliveryCharge: zero });
@@ -176,7 +180,7 @@ export function parseDeliverySnapshot(value: unknown): Result<DeliverySnapshot, 
 }
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const validDate = (date: Date) => date instanceof Date && Number.isFinite(date.getTime());
-const failure = (code: OrderDomainError["code"], message: string): Result<never, OrderDomainError> => err({ code, message });
+const failure = <Code extends OrderDomainError["code"]>(code: Code, message: string): Result<never, Readonly<{ code: Code; message: string }>> => err({ code, message });
 const validMoney = (value: Money, positive: boolean) => isCurrency(value?.currency) && moneyAmount.safeParse(value?.amount).success && (!positive || value.amount > 0);
 
 export function validateDeliveryCost(cost: Money, currency: Currency): Result<Money, OrderDomainError> {
@@ -184,7 +188,7 @@ export function validateDeliveryCost(cost: Money, currency: Currency): Result<Mo
   return cost.currency === currency ? ok(cost) : failure("CURRENCY_MISMATCH", "Delivery currency differs from order");
 }
 
-function paymentSummary(order: OrderAggregate): Result<PaymentSummary, OrderDomainError> {
+function paymentSummary(order: OrderAggregate): Result<PaymentSummary, AggregateValidationError> {
   if (!uuid.test(order.id) || !uuid.test(order.companyId) || !order.sellerId || !order.items.length ||
     (order.delivery !== null && !delivery.safeParse(order.delivery).success) ||
     !validMoney(order.total, true) || !validMoney(order.itemsTotal, true) || !validMoney(order.deliveryCost, false) || !validMoney(order.deliveryCharge, false) ||
@@ -215,7 +219,7 @@ function paymentSummary(order: OrderAggregate): Result<PaymentSummary, OrderDoma
     balanceDue: coverage.data < 0 ? difference.data : zero, overpaidAmount: coverage.data > 0 ? difference.data : zero });
 }
 
-function lifecycle(order: OrderAggregate): Result<OrderLifecycle, OrderDomainError> {
+function lifecycle(order: OrderAggregate): Result<OrderLifecycle, AggregateValidationError> {
   const summary = paymentSummary(order);
   if (!summary.success) return summary;
   if (!validDate(order.createdAt) || (order.deliveredAt !== null && !validDate(order.deliveredAt)) ||
@@ -333,12 +337,13 @@ function registerDelivery(order: OrderAggregate, completedAt: Date): Result<Orde
     : failure("INVALID_TRANSITION", "Delivery is already completed");
 }
 
-function cancel(order: OrderAggregate): Result<CancellationPlan, OrderDomainError> {
+function cancel(order: OrderAggregate): Result<CancellationPlan, CancellationDomainError> {
   const state = lifecycle(order);
   if (!state.success) return state;
-  if (state.data.status === "cancelled") return ok({ nextOrder: order, restoreStock: false });
   if (order.deliveryStatus !== "pending") return failure("INVALID_TRANSITION", "Dispatched order cannot be cancelled here");
-  return ok({ nextOrder: { ...order, cancelled: true, stockDeducted: false }, restoreStock: order.stockDeducted });
+  if (order.deliveredAt !== null || order.completedAt !== null) return failure("INVALID_ORDER", "Invalid cancellation dates");
+  return ok({ nextOrder: { ...order, cancelled: true, deliveryStatus: "pending", deliveredAt: null, completedAt: null },
+    emitOrderCancelled: !order.cancelled });
 }
 
 export const orderStateMachine = { setDelivery, canSetDelivery, registerPayment, addReportedPayment, voidConfirmedPayment, planStockDeduction, registerShipment,

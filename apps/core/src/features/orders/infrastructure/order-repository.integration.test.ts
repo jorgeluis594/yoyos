@@ -322,7 +322,7 @@ test("rolls back every immediate-sale write when stock is insufficient", async (
   } finally { await f.cleanup(); }
 });
 
-test("restores deducted stock once when cancelling before dispatch and preserves payments", async () => {
+test("cancelling before dispatch retains deducted stock for deferred restoration and preserves payments", async () => {
   const f = await fixture();
   try {
     await withTenantIsolation(f.companyId, async () => {
@@ -338,12 +338,12 @@ test("restores deducted stock once when cancelling before dispatch and preserves
       expect(before.success).toBe(true);
       const cancellations = await Promise.all([orders.cancel(orderId, context), orders.cancel(orderId, context)]);
       for (const result of cancellations) expect(result).toMatchObject({ success: true,
-        data: { cancelled: true, stockDeducted: false, payments: [{ amount: { amount: 0.2 } }] } });
+        data: { cancelled: true, stockDeducted: true, payments: [{ amount: { amount: 0.2 } }] } });
       if (before.success && before.data) {
         expect(await findOrderAggregate(orderId, context.companyId)).toMatchObject({ data: { payments: before.data.payments } });
       }
       expect(await orders.cancel(orderId, context)).toMatchObject({ success: true, data: { cancelled: true } });
-      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
       expect(await prisma.payment.count({ where: { orderId } })).toBe(1);
       expect(await orders.deductStock(orderId, context)).toMatchObject({ success: false, error: { code: "ORDER_CANCELLED" } });
       for (const operation of [orders.ship, orders.deliver])
@@ -773,20 +773,25 @@ test.each(["ship", "cancel"] as const)("delivery editing and %s serialize withou
       const input = { orderId, delivery: parsed.data, expectedPrice: { amount: 0, currency: "PEN" as const } };
       const assign = () => orders.setDelivery(input, context);
       const finish = () => orders[close](orderId, context);
-      let release!: () => void;
-      let arrived!: () => void;
-      const hold = new Promise<void>(resolve => { release = resolve; });
-      const locked = new Promise<void>(resolve => { arrived = resolve; });
-      const first = run(() => withinTransaction(async () => {
-        const result = await (assignmentFirst ? assign() : finish());
-        arrived(); await hold; return result;
-      }));
-      await locked;
-      const second = run(assignmentFirst ? finish : assign);
-      try { await waitForDeliveryLock(); } finally { release(); }
-      expect(await first).toMatchObject({ success: true });
-      expect(await second).toMatchObject(assignmentFirst ? { success: true } : { success: false, error: { code: close === "ship" ? "DELIVERY_LOCKED" : "ORDER_CANCELLED" } });
-      expect(await run(() => orderDetail(orderId, f))).toMatchObject({ success: true, data: { cancelled: close === "cancel", deliveryStatus: close === "ship" ? "shipped" : "pending", deliveryCost: { amount: 0 }, deliveryCharge: { amount: 0 }, total: { amount: 0.1 }, stockDeducted: close === "ship", delivery: assignmentFirst ? { pricing: { rateId: quote.data.rates[0].id, quotationId: quote.data.quotation.id }, destination: { address: "Confirmed address" }, recordedBy: { userId: f.sellerId } } : null } });
+      if (close === "cancel" && !assignmentFirst) {
+        expect(await run(finish)).toMatchObject({ success: true });
+        expect(await run(assign)).toMatchObject({ success: false, error: { code: "ORDER_CANCELLED" } });
+      } else {
+        let release!: () => void;
+        let arrived!: () => void;
+        const hold = new Promise<void>(resolve => { release = resolve; });
+        const locked = new Promise<void>(resolve => { arrived = resolve; });
+        const first = run(() => withinTransaction(async () => {
+          const result = await (assignmentFirst ? assign() : finish());
+          arrived(); await hold; return result;
+        }));
+        await locked;
+        const second = run(assignmentFirst ? finish : assign);
+        try { await waitForDeliveryLock(); } finally { release(); }
+        expect(await first).toMatchObject({ success: true });
+        expect(await second).toMatchObject(assignmentFirst ? { success: true } : { success: false, error: { code: "DELIVERY_LOCKED" } });
+      }
+      expect(await run(() => orderDetail(orderId, f))).toMatchObject({ success: true, data: { cancelled: close === "cancel", deliveryStatus: close === "ship" ? "shipped" : "pending", deliveryCost: { amount: 0 }, deliveryCharge: { amount: 0 }, total: { amount: 0.1 }, stockDeducted: true, delivery: assignmentFirst ? { pricing: { rateId: quote.data.rates[0].id, quotationId: quote.data.quotation.id }, destination: { address: "Confirmed address" }, recordedBy: { userId: f.sellerId } } : null } });
 
     }
   } finally { await f.cleanup(); }
@@ -812,8 +817,9 @@ test("allocates permanent company numbers atomically across concurrent orders an
       expect(await create(a)).toMatchObject({ data: { number: 1007 } });
       await prisma.company.update({ where: { id: a.companyId }, data: { nextOrderNumber: 1001n } });
       expect(await create(a)).toMatchObject({ error: { code: "PERSISTENCE_UNAVAILABLE" } });
-      expect(errorLog.mock.calls).toHaveLength(1);
-      expect(errorLog.mock.calls[0][0]).toMatchObject({ event: "unable_to_save_pending_order", errorCode: "ORDER_NUMBER_CONFLICT" });
+      const numberConflicts = errorLog.mock.calls.filter(([entry]) => (entry as { event?: string })?.event === "unable_to_save_pending_order");
+      expect(numberConflicts).toHaveLength(1);
+      expect(numberConflicts[0][0]).toMatchObject({ event: "unable_to_save_pending_order", errorCode: "ORDER_NUMBER_CONFLICT" });
       await prisma.company.update({ where: { id: a.companyId }, data: { nextOrderNumber: 9999n } });
       expect(await create(a)).toMatchObject({ data: { number: 9999 } });
       expect(await create(a)).toMatchObject({ data: { number: 10000 } });

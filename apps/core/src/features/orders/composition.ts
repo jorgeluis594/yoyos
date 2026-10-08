@@ -1,3 +1,4 @@
+import { applicationEventBus } from "@core/src/composition/event-bus";
 import { createCompleteOrder, type CreateCompleteOrderInput, type CreateCompleteOrderError } from "@core/src/features/orders/application/create-complete-order";
 import { enableOrderCheckout, getOrderCheckout, confirmOrderCheckout, confirmCheckoutDelivery, type CheckoutDependencies, type ConfirmOrderCheckoutInput, type ConfirmCheckoutDeliveryInput } from "@core/src/features/orders/application/checkout";
 import { findCheckoutOrder, findCheckoutOrderForUpdate, saveCheckoutEnabled, saveCheckoutBuyer, saveCheckoutConfirmed } from "@core/src/features/orders/infrastructure/checkout-repository";
@@ -26,7 +27,7 @@ import { getOrderAggregate } from "@core/src/features/orders/application/read-or
 import { listOrderAggregates } from "@core/src/features/orders/application/list-order-aggregates";
 import { listOrders } from "@core/src/features/orders/application/read-orders";
 import { allocateOrderNumber, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveCancellation, findOrderAggregate, findOrderAggregates, findOrderForUpdate, findOrders, orderExists, resolveBuyerOrderCompany } from "@core/src/features/orders/infrastructure/order-repository";
-import { findSellableVariant, deductProductStock, restoreProductStock, searchSaleCatalog } from "@core/src/features/products";
+import { findSellableVariant, deductProductStock, searchSaleCatalog } from "@core/src/features/products";
 import { findContactById, searchSaleContacts } from "@core/src/features/contacts";
 import { findAvailablePublicImage, resolvePublicImage } from "@core/src/shared/images";
 import { companyPaymentSettings } from "@core/src/features/companies";
@@ -116,10 +117,12 @@ export function createConfiguredOrder(input: CreateCompleteOrderInput, context: 
 
 const checkoutDependencies: CheckoutDependencies = { transaction: scopedOrderTransaction,
   findOrder: findCheckoutOrder, findOrderForUpdate: findCheckoutOrderForUpdate,
-  saveEnabled: saveCheckoutEnabled, saveBuyer: saveCheckoutBuyer, saveConfirmed: saveCheckoutConfirmed };
+  saveEnabled: saveCheckoutEnabled, saveBuyer: saveCheckoutBuyer, saveConfirmed: saveCheckoutConfirmed,
+};
 function rejectedCheckout(error: CheckoutError) {
   const outcomes = { CHECKOUT_UNAVAILABLE: "unavailable", ORDER_CANCELLED: "cancelled", INVALID_BUYER: "invalid_input",
-    TOTAL_CHANGED: "total_changed", INVALID_CHECKOUT: "technical_failure", PERSISTENCE_UNAVAILABLE: "technical_failure" } as const;
+    TOTAL_CHANGED: "total_changed", INVALID_CHECKOUT: "technical_failure", PERSISTENCE_UNAVAILABLE: "technical_failure",
+    DELIVERY_METHOD_DISABLED: "invalid_input", COURIER_UNAVAILABLE: "invalid_input", DELIVERY_LOCKED: "invalid_input", INVALID_DELIVERY: "invalid_input" } as const;
   bindRequestOperation({ outcome: outcomes[error.code] });
 }
 
@@ -154,9 +157,10 @@ export async function getBuyerPaymentView(id: string) {
       if (!resolved.success) return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Image unavailable" });
       images.set(imageId, resolved.data?.url ?? null);
     }
-    const view: BuyerPaymentView = { orderId: found.data.id, total: found.data.total, deliveryCharge: found.data.deliveryCharge,
+    const availability = "available" as const;
+    const view: BuyerPaymentView = { orderId: found.data.id, total: found.data.total, deliveryCharge: found.data.deliveryCharge, availability,
       paidAmount: summary.data.paidAmount, balanceDue: summary.data.balanceDue, paymentStatus: summary.data.status,
-      settings: settings.data.map((item) => { const imageUrl = item.imageId ? images.get(item.imageId) ?? null : null;
+      settings: (availability === "available" ? settings.data : []).map((item) => { const imageUrl = item.imageId ? images.get(item.imageId) ?? null : null;
         return item.method === "digital_wallet" ? { method: item.method, provider: item.provider, holder: item.holder, imageUrl }
           : { method: item.method, bank: item.bank, holder: item.holder, accountNumber: item.accountNumber, cci: item.cci, imageUrl }; }),
       payments: found.data.payments.map((payment) => { const imageId = payment.status === "reported" ? payment.data.receiptImageId
@@ -223,8 +227,11 @@ export const orders = {
     registerShipment(id, context, fulfillmentDependencies),
   deliver: (id: Parameters<typeof registerDelivery>[0], context: Parameters<typeof registerDelivery>[1]) =>
     registerDelivery(id, context, fulfillmentDependencies),
-  cancel: (id: Parameters<typeof cancelOrder>[0], context: Parameters<typeof cancelOrder>[1]) =>
-    cancelOrder(id, context, { transaction: cancellationTransaction, findOrderForUpdate, restoreProductStock, saveCancellation }),
+  cancel: (id: Parameters<typeof cancelOrder>[0], context: Parameters<typeof cancelOrder>[1]) => {
+    requireNoActiveTransaction();
+    return cancelOrder(id, context, { transaction: cancellationTransaction, findOrderForUpdate, saveCancellation,
+      publishOrderCancelled: (payload) => applicationEventBus().publishEvent("order_cancelled", payload) });
+  },
   registerImmediateSale: (input: Parameters<typeof registerImmediateSale>[0], context: Parameters<typeof registerImmediateSale>[1]) =>
     registerImmediateSale(input, context, { transaction: immediateTransaction, orderExists,
       findContact: findContactById, findVariant: findSellableVariant, saveOrder: savePendingOrder, allocateNumber: allocateOrderNumber,

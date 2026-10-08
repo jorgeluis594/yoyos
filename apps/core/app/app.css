@@ -135,3 +135,11 @@
   [data-mobile-table="true"] [data-mobile-empty] td { display: table-cell; padding: 1rem; }
   [data-mobile-table="true"] [aria-busy="true"] tbody tr { min-height: 6rem; }
 }
+
+.checkout-page { accent-color: var(--primary); caret-color: var(--primary); }
+.checkout-page ::selection { background: var(--primary); color: var(--primary-foreground); }
+@media (min-width: 48rem) {
+  .checkout-page details::details-content { content-visibility: visible; }
+  .checkout-page details > .checkout-products { display: block; }
+  .checkout-page aside summary { pointer-events: none; }
+}

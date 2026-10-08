@@ -1,6 +1,7 @@
 import type { Resource } from "i18next";
 
 const es = {
+  checkoutQuote: { title: "Entrega por cotizar", hint: "El comprador confirmó sus datos. Confirma el costo para habilitar el pago en su checkout.", cost: "Costo de entrega", invalid: "Ingresa un importe válido, incluso 0 si no hay costo.", charge: "Cobrar la entrega al comprador", error: "No se pudo confirmar el costo. Actualiza el pedido y vuelve a intentarlo.", save: "Confirmar costo y habilitar pago", saving: "Confirmando…" },
   common: { email: "Correo electrónico", password: "Contraseña", name: "Nombre", login: "Iniciar sesión", forgotPassword: "Recuperar contraseña", sending: "Enviando…", retry: "Inténtalo de nuevo.", loading: "Cargando {{caption}}…", noResults: "Sin resultados.", close: "Cerrar" },
   auth: {
     createAccount: "Crear cuenta", createCompany: "Crear empresa", companyTitle: "Crea tu empresa",
@@ -26,6 +27,18 @@ const es = {
     agencyScope: "Habilita al menos un courier. La agencia de destino se indica en cada venta.",
     saveScope: "Se guardan las modalidades y el punto de recojo. Las zonas se guardan por separado.", unsaved: "Tienes cambios de modalidades sin guardar. Las zonas se guardan por separado.",
     title: "Modalidades de entrega", description: "Configura las opciones que ofreces a tus clientes.", home: "Entrega a domicilio", homeEnabled: "Ofrecer entrega a domicilio", agency: "Envío a agencia", agencyEnabled: "Ofrecer envío a agencia", courierHint: "Para ofrecer envío a agencia, habilita al menos un courier. Al desactivarlo, conservamos sus datos.", noCouriers: "Todavía no hay couriers configurados.", courierName: "Nombre del courier {{number}}", courierEnabled: "Habilitar courier {{number}}", addCourier: "Agregar courier", removeCourier: "Quitar alta sin guardar", removeCourierLabel: "Quitar courier {{number}} sin guardar", store: "Recojo en tienda", enabled: "Ofrecer recojo en tienda", storeHint: "Al desactivar el recojo, conservamos los datos del punto para volver a activarlo.", name: "Nombre del punto de recojo", address: "Dirección", instructions: "Indicaciones (opcional)", save: "Guardar configuración", saving: "Guardando…", saved: "Configuración guardada.", reload: "Recargar configuración", invalid: "Completa los campos obligatorios y habilita al menos un courier si ofreces envío a agencia.", conflict: "Otra persona cambió la configuración. Recarga para revisar los cambios antes de guardar.", saveError: "No se pudo guardar. Conservamos tus cambios para que puedas reintentar.", loadError: "No se pudo cargar la configuración",
+  },
+  orderCancellation: {
+    cancel: "Cancelar pedido", keep: "Conservar pedido", confirm: "¿Cancelar este pedido?",
+    effects: "La devolución del stock descontado se procesará después de cancelar. Los pagos registrados se conservarán; cancelar no realiza un reembolso. No podrás reabrir este pedido.",
+    saved: "Pedido cancelado. Los pagos registrados se conservan; no se realizó un reembolso. No se puede reabrir.",
+    submitting: "Cancelando pedido…", verifying: "Consultando estado…", check: "Consultar estado", refreshFailed: "El pedido está cancelado, pero no se pudo actualizar el detalle. Recarga para consultarlo.",
+    uncertain: "No pudimos confirmar si se canceló. Consulta el estado antes de realizar otra operación.",
+    conflict: "El pedido ya fue enviado o entregado y no se puede cancelar. Actualizamos su estado.",
+    stateRefreshFailed: "No se pudo actualizar el estado del pedido. Consulta su estado antes de continuar.",
+    missing: "El pedido ya no está disponible. Vuelve al listado de pedidos.",
+    inconsistent: "Los datos del pedido son inconsistentes. No se pudo cancelar.",
+    invalid: "La solicitud de cancelación no es válida.", retry: "El pedido sigue activo. Puedes intentar cancelarlo de nuevo.",
   },
   orderFulfillment: {
     ship: "Marcar enviado", deliver: "Marcar entregado", shipSaved: "Pedido marcado como enviado.", deliverSaved: "Pedido marcado como entregado.",
@@ -106,6 +119,7 @@ const es = {
 } as const;
 
 const pt = {
+  checkoutQuote: { title: "Entrega para cotação", hint: "O comprador confirmou os dados. Confirme o custo para liberar o pagamento no checkout.", cost: "Custo de entrega", invalid: "Informe um valor válido, inclusive 0 se não houver custo.", charge: "Cobrar a entrega do comprador", error: "Não foi possível confirmar o custo. Atualize o pedido e tente novamente.", save: "Confirmar custo e liberar pagamento", saving: "Confirmando…" },
   common: { email: "E-mail", password: "Senha", name: "Nome", login: "Entrar", forgotPassword: "Recuperar senha", sending: "Enviando…", retry: "Tente novamente.", loading: "Carregando {{caption}}…", noResults: "Nenhum resultado.", close: "Fechar" },
   auth: {
     createAccount: "Criar conta", createCompany: "Criar empresa", companyTitle: "Crie sua empresa",
@@ -131,6 +145,18 @@ const pt = {
     agencyScope: "Habilite pelo menos uma transportadora. A agência de destino é informada em cada venda.",
     saveScope: "As modalidades e o ponto de retirada são salvos. As zonas são salvas separadamente.", unsaved: "Há alterações de modalidades não salvas. As zonas são salvas separadamente.",
     title: "Modalidades de entrega", description: "Configure as opções que você oferece aos seus clientes.", home: "Entrega em domicílio", homeEnabled: "Oferecer entrega em domicílio", agency: "Envio para agência", agencyEnabled: "Oferecer envio para agência", courierHint: "Para oferecer envio para agência, habilite pelo menos uma transportadora. Ao desativá-la, mantemos seus dados.", noCouriers: "Ainda não há transportadoras configuradas.", courierName: "Nome da transportadora {{number}}", courierEnabled: "Habilitar transportadora {{number}}", addCourier: "Adicionar transportadora", removeCourier: "Remover cadastro não salvo", removeCourierLabel: "Remover transportadora {{number}} não salva", store: "Retirada na loja", enabled: "Oferecer retirada na loja", storeHint: "Ao desativar a retirada, mantemos os dados do ponto para ativá-lo novamente.", name: "Nome do ponto de retirada", address: "Endereço", instructions: "Instruções (opcional)", save: "Salvar configuração", saving: "Salvando…", saved: "Configuração salva.", reload: "Recarregar configuração", invalid: "Preencha os campos obrigatórios e habilite pelo menos uma transportadora se oferecer envio para agência.", conflict: "Outra pessoa alterou a configuração. Recarregue para revisar as alterações antes de salvar.", saveError: "Não foi possível salvar. Mantemos suas alterações para tentar novamente.", loadError: "Não foi possível carregar a configuração",
+  },
+  orderCancellation: {
+    cancel: "Cancelar pedido", keep: "Manter pedido", confirm: "Cancelar este pedido?",
+    effects: "A devolução do estoque descontado será processada depois de cancelar. Os pagamentos registrados serão mantidos; cancelar não realiza um reembolso. Você não poderá reabrir este pedido.",
+    saved: "Pedido cancelado. Os pagamentos registrados foram mantidos; nenhum reembolso foi realizado. Não é possível reabrir.",
+    submitting: "Cancelando pedido…", verifying: "Consultando estado…", check: "Consultar estado", refreshFailed: "O pedido foi cancelado, mas não foi possível atualizar os detalhes. Recarregue para consultá-los.",
+    uncertain: "Não foi possível confirmar se o pedido foi cancelado. Consulte o estado antes de realizar outra operação.",
+    conflict: "O pedido já foi enviado ou entregue e não pode ser cancelado. Atualizamos seu estado.",
+    stateRefreshFailed: "Não foi possível atualizar o estado do pedido. Consulte seu estado antes de continuar.",
+    missing: "O pedido não está mais disponível. Volte à lista de pedidos.",
+    inconsistent: "Os dados do pedido são inconsistentes. Não foi possível cancelar.",
+    invalid: "A solicitação de cancelamento não é válida.", retry: "O pedido continua ativo. Você pode tentar cancelar novamente.",
   },
   orderFulfillment: {
     ship: "Marcar como enviado", deliver: "Marcar como entregue", shipSaved: "Pedido marcado como enviado.", deliverSaved: "Pedido marcado como entregue.",

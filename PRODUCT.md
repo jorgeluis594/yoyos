@@ -12,7 +12,7 @@ The web and mobile apps form one product, sharing its purpose and business rules
 
 The direct users are sellers and their management teams. The initial audience is sellers who sell through live streams.
 
-Potential buyer interactions for confirming or paying for an order remain undefined. A buyer application has not been established as part of the scope.
+Buyers use a public checkout link to review an existing seller-created order, edit prefilled contact and delivery details, and confirm without an account or application installation. New or changed delivery selections require the store to confirm the cost before payment is enabled. Buyers then use the configured digital wallet (Yape or Plin) or bank transfer and upload a receipt; the seller separately verifies the received payment.
 
 ## Product Purpose
 

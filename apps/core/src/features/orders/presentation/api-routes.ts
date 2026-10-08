@@ -2,7 +2,7 @@ import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import express, { type Request, type Response } from "express";
 import { z } from "zod";
-import { createOrderSchema, setRatedOrderDeliverySchema, orderApiErrorSchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
+import { cancelOrderResponseSchema, createOrderSchema, setRatedOrderDeliverySchema, orderApiErrorSchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
 import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { apiError, type PrivateLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { orders, createConfiguredOrder } from "@core/src/features/orders/composition";
@@ -19,33 +19,6 @@ const contactsQuerySchema = z.union([searchSchema, z.strictObject({ contactId: z
 const catalogQuerySchema = z.union([searchSchema, z.strictObject({ variantIds: z.string().transform(value => value.split(","))
   .pipe(z.array(z.uuid()).min(1).refine(values => new Set(values).size === values.length)) })]);
 
-export function hasDuplicateJsonKeys(raw: string): boolean {
-  const stack: ({ kind: "object"; keys: Set<string>; expectsKey: boolean } | { kind: "array" })[] = [];
-  for (let index = 0; index < raw.length; index++) {
-    const char = raw[index];
-    if (char === '"') {
-      const start = index;
-      while (++index < raw.length) {
-        if (raw[index] === "\\") { index++; continue; }
-        if (raw[index] === '"') break;
-      }
-      const top = stack.at(-1);
-      if (top?.kind === "object" && top.expectsKey) {
-        const key = JSON.parse(raw.slice(start, index + 1)) as string;
-        if (top.keys.has(key)) return true;
-        top.keys.add(key);
-        top.expectsKey = false;
-      }
-    } else if (char === "{") stack.push({ kind: "object", keys: new Set(), expectsKey: true });
-    else if (char === "[") stack.push({ kind: "array" });
-    else if (char === "}" || char === "]") stack.pop();
-    else if (char === ",") {
-      const top = stack.at(-1);
-      if (top?.kind === "object") top.expectsKey = true;
-    }
-  }
-  return false;
-}
 
 function queryFrom(request: Request, response: Response): Record<string, string> | null {
   const params = new URL(request.originalUrl, "http://localhost").searchParams;
@@ -253,7 +226,7 @@ for (const [path, operation] of [
     if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order ID");
     try {
       const result = await operation(parsed.data as OrderId, orderContext(response));
-      return result.success ? response.json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
+      return result.success ? response.json(path === "cancel" ? cancelOrderResponseSchema.parse(toOrderAggregateJson(result.data)) : toOrderAggregateJson(result.data)) : operationError(response, result.error);
     } catch (error) { return unexpected(response, error); }
   });
 }

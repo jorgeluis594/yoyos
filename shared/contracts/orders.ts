@@ -104,7 +104,7 @@ export const paymentSchema = z.discriminatedUnion("status", [
   z.strictObject({ ...paymentIdentitySchema, status: z.literal("voided"), amount: moneySchema,
     method: z.enum(["digital_wallet", "bank_transfer"]), data: confirmationDataSchema.extend({ voidedAt: z.iso.datetime(), voidedBy: z.string().min(1) }) }),
 ]);
-export const orderAggregateSchema = z.strictObject({ checkoutEnabledAt: z.iso.datetime().nullable(), checkoutConfirmedAt: z.iso.datetime().nullable(), number: z.number().int().safe().min(1001), id: z.uuid(), companyId: z.uuid(), sellerId: z.string(), buyer: orderBuyerSchema.nullable(),
+export const orderAggregateSchema = z.strictObject({ checkoutDeliveryRequest: deliverySnapshotSchema.nullable().default(null), checkoutEnabledAt: z.iso.datetime().nullable(), checkoutConfirmedAt: z.iso.datetime().nullable(), number: z.number().int().safe().min(1001), id: z.uuid(), companyId: z.uuid(), sellerId: z.string(), buyer: orderBuyerSchema.nullable(),
   createdAt: z.iso.datetime(), deliveredAt: z.iso.datetime().nullable(), completedAt: z.iso.datetime().nullable(), status: z.enum(["active", "cancelled", "completed"]),
   paymentStatus: z.enum(["pending", "paid"]), paidAmount: moneySchema, balanceDue: moneySchema, overpaidAmount: moneySchema,
   cancelled: z.boolean(), delivery: deliverySnapshotSchema.nullable(), deliveryStatus: z.enum(["pending", "shipped", "delivered"]),
@@ -143,6 +143,7 @@ export type RegisterPaymentResponse = z.infer<typeof registerPaymentResponseSche
 export const reportPaymentSchema = z.strictObject({ paymentId: z.uuid(), receiptImageId: z.uuid() });
 export const reportPaymentResponseSchema = z.strictObject({ paymentId: z.uuid(), status: z.literal("reported") });
 export const buyerPaymentViewSchema = z.strictObject({ orderId: z.uuid(), total: moneySchema, deliveryCharge: moneySchema,
+  availability: z.enum(["available", "delivery_quote_pending", "checkout_pending", "cancelled"]).default("available"),
   paidAmount: moneySchema, balanceDue: moneySchema, paymentStatus: z.enum(["pending", "paid"]),
   settings: z.array(z.discriminatedUnion("method", [
     z.strictObject({ method: z.literal("digital_wallet"), provider: z.string(), holder: z.string(), imageUrl: z.url().nullable() }),
@@ -194,3 +195,13 @@ export const newOrderLoaderSchema = z.strictObject({ products: orderCatalogSchem
 export const orderListLoaderSchema = z.strictObject({ list: listOrderAggregatesResponseSchema.extend({ items: z.array(orderAggregateSummarySchema.extend({ itemCount: z.number().int().positive().safe(), balanceDue: moneySchema })) }), filters: listOrderAggregatesSchema, contacts: orderContactsSchema, customerSearch: z.string(), base: z.string() });
 export const orderDetailLoaderSchema = z.strictObject({ order: orderAggregateSchema, base: z.string(), manualPaymentId: z.uuid(),
   receiptUrls: z.record(z.string(), z.url()) });
+
+export const cancelOrderParamsSchema = z.strictObject({ id: z.uuid() });
+export const cancelOrderResponseSchema = orderAggregateSchema.extend({ status: z.literal("cancelled"), cancelled: z.literal(true),
+  deliveryStatus: z.literal("pending"), deliveredAt: z.null(), completedAt: z.null() });
+export const cancelOrderErrorSchema = orderApiErrorSchema.extend({ code: z.enum([
+  "INVALID_INPUT", "ORDER_NOT_FOUND", "INVALID_TRANSITION", "INVALID_ORDER", "INVALID_PAYMENT", "CURRENCY_MISMATCH", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR",
+]) });
+export type CancelOrderResponse = z.infer<typeof cancelOrderResponseSchema>;
+export type CancelOrderParams = z.infer<typeof cancelOrderParamsSchema>;
+export type CancelOrderHttpError = z.infer<typeof cancelOrderErrorSchema>;

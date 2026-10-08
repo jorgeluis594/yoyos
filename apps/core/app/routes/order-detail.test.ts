@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from "vitest";
 import type { ActionFunctionArgs } from "react-router";
-import { action } from "@core/app/routes/order-detail";
+import { action, clientAction, shouldRevalidate } from "@core/app/routes/order-detail";
 import { orders } from "@core/src/features/orders/composition";
 import { ok, err } from "@shared/functional";
 
@@ -54,4 +54,32 @@ test.each(["ship", "deliver"] as const)("seller %s action uses fulfillment and n
   expect(await action(args({ operation }))).toMatchObject({ error: "STOCK_NOT_DEDUCTED" });
   fulfillment.mockRejectedValue(new Error("Unavailable"));
   expect(await action(args({ operation }))).toMatchObject({ operation, success: false, error: "INTERNAL_ERROR" });
+});
+
+
+test("cancellation validates ID and uses only authenticated scope without payment operations", async () => {
+  const cancel = vi.spyOn(orders, "cancel").mockResolvedValue(err({ code: "ORDER_NOT_FOUND", message: "Unavailable" }));
+  const confirm = vi.spyOn(orders, "registerPayment");
+  const voidPayment = vi.spyOn(orders, "voidPayment");
+  expect(await action({ ...args({ operation: "cancel" }), params: { orderId: "invalid" } })).toMatchObject({ operation: "cancel", result: { success: false, error: { code: "INVALID_INPUT" } } });
+  expect(cancel).not.toHaveBeenCalled();
+  expect(await action(args({ operation: "cancel", companyId: "foreign", sellerId: "foreign" }))).toEqual({ operation: "cancel", result: err({ code: "ORDER_NOT_FOUND", message: "Unavailable" }) });
+  expect(cancel).toHaveBeenCalledWith(orderId, { companyId, userId: "authenticated-seller" });
+  expect(confirm).not.toHaveBeenCalled(); expect(voidPayment).not.toHaveBeenCalled();
+});
+
+test("lost cancellation response reads once, preserves uncertainty and manual check never writes", async () => {
+  const fetch = vi.fn(async () => { throw new Error("Offline"); });
+  vi.stubGlobal("fetch", fetch);
+  const serverAction = vi.fn(async () => { throw new Error("Lost response"); });
+  try {
+    const request = new Request(`http://localhost/es-PE/orders/${orderId}`, { method: "POST", body: new URLSearchParams({ operation: "cancel" }) });
+    const result = await clientAction({ ...args(), request, params: { orderId }, serverAction });
+    expect(result).toMatchObject({ operation: "cancellation", outcome: { kind: "uncertain" } });
+    expect(serverAction).toHaveBeenCalledOnce(); expect(fetch).toHaveBeenCalledOnce();
+    expect(shouldRevalidate({ actionResult: result, defaultShouldRevalidate: true })).toBe(false);
+    const check = new Request(request.url, { method: "POST", body: new URLSearchParams({ operation: "check-cancellation" }) });
+    expect(await clientAction({ ...args(), request: check, params: { orderId }, serverAction })).toMatchObject({ outcome: { kind: "uncertain" } });
+    expect(serverAction).toHaveBeenCalledOnce(); expect(fetch).toHaveBeenCalledTimes(2);
+  } finally { vi.unstubAllGlobals(); }
 });
