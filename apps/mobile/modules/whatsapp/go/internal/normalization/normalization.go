@@ -12,6 +12,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
@@ -76,7 +77,7 @@ func Normalize(evt *events.Message, own, ownAlt types.JID, mappings VerifiedLIDs
 		return Result{}, nil
 	}
 	msg := evt.Message
-	if msg.GetProtocolMessage() != nil || evt.RawMessage.GetProtocolMessage() != nil || msg.GetReactionMessage() != nil || msg.GetEncReactionMessage() != nil || msg.GetEditedMessage() != nil || msg.GetViewOnceMessage() != nil || msg.GetViewOnceMessageV2() != nil || msg.GetViewOnceMessageV2Extension() != nil {
+	if msg.GetProtocolMessage() != nil || evt.RawMessage.GetProtocolMessage() != nil || rawEdit(evt.RawMessage) || msg.GetReactionMessage() != nil || msg.GetEncReactionMessage() != nil || msg.GetEditedMessage() != nil || msg.GetViewOnceMessage() != nil || msg.GetViewOnceMessageV2() != nil || msg.GetViewOnceMessageV2Extension() != nil {
 		return Result{}, nil
 	}
 	contentFields := 0
@@ -113,8 +114,8 @@ func Normalize(evt *events.Message, own, ownAlt types.JID, mappings VerifiedLIDs
 	if image == nil && content == "" {
 		return Result{}, nil
 	}
-	if evt.Info.ID == "" {
-		return Result{}, fmt.Errorf("%w: empty protocol message ID", ErrInvalidIdentity)
+	if evt.Info.ID == "" || !utf8.ValidString(evt.Info.ID) {
+		return Result{}, fmt.Errorf("%w: invalid protocol message ID", ErrInvalidIdentity)
 	}
 	ts := evt.Info.Timestamp
 	if ts.IsZero() || ts.Unix() <= 0 || ts.Year() > 9999 || ts.UnixMilli() > maxSafeJSONInteger {
@@ -175,9 +176,35 @@ func Normalize(evt *events.Message, own, ownAlt types.JID, mappings VerifiedLIDs
 	return Result{Message: out}, nil
 }
 
+// ParseWebMessage replaces an unwrapped edit protocol message with its content.
+func rawEdit(raw *waE2E.Message) bool {
+	for range 8 {
+		if raw == nil {
+			return false
+		}
+		if raw.GetProtocolMessage().GetType() == waE2E.ProtocolMessage_MESSAGE_EDIT {
+			return true
+		}
+		switch {
+		case raw.GetDeviceSentMessage().GetMessage() != nil:
+			raw = raw.GetDeviceSentMessage().GetMessage()
+		case raw.GetBotInvokeMessage().GetMessage() != nil:
+			raw = raw.GetBotInvokeMessage().GetMessage()
+		case raw.GetEphemeralMessage().GetMessage() != nil:
+			raw = raw.GetEphemeralMessage().GetMessage()
+		default:
+			return false
+		}
+	}
+	return true // A deeper wrapper chain cannot be classified safely.
+}
+
 func canonicalLID(jid, alternate types.JID, mappings VerifiedLIDs) (string, error) {
 	jid = jid.ToNonAD()
 	alternate = alternate.ToNonAD()
+	if !utf8.ValidString(jid.String()) || !utf8.ValidString(alternate.String()) {
+		return "", ErrInvalidIdentity
+	}
 	if jid.Server == types.HiddenUserServer && jid.User != "" && jid.Integrator == 0 {
 		return jid.String(), nil
 	}
@@ -192,14 +219,14 @@ func canonicalLID(jid, alternate types.JID, mappings VerifiedLIDs) (string, erro
 		return "", nil
 	}
 	lid = lid.ToNonAD()
-	if lid.Server != types.HiddenUserServer || lid.User == "" || lid.Integrator != 0 {
+	if lid.Server != types.HiddenUserServer || lid.User == "" || lid.Integrator != 0 || !utf8.ValidString(lid.String()) {
 		return "", fmt.Errorf("%w: invalid verified LID for %s", ErrInvalidIdentity, jid)
 	}
 	return lid.String(), nil
 }
 
 func MessageID(accountID, chatID, whatsappMessageID string) (string, error) {
-	if !validLID(accountID) || !validLID(chatID) || whatsappMessageID == "" {
+	if !validLID(accountID) || !validLID(chatID) || whatsappMessageID == "" || !utf8.ValidString(whatsappMessageID) {
 		return "", ErrInvalidIdentity
 	}
 	raw, err := json.Marshal([3]string{accountID, chatID, whatsappMessageID})
@@ -209,6 +236,9 @@ func MessageID(accountID, chatID, whatsappMessageID string) (string, error) {
 	return "wa-message:v1:" + base64.RawURLEncoding.EncodeToString(raw), nil
 }
 func validLID(value string) bool {
+	if !utf8.ValidString(value) {
+		return false
+	}
 	jid, err := types.ParseJID(value)
 	return err == nil && jid.Server == types.HiddenUserServer && jid.User != "" && jid.ToNonAD().String() == value && jid.Integrator == 0 && !strings.ContainsAny(jid.User, "@.:/")
 }
@@ -256,14 +286,56 @@ func ValidateImageReference(ref ImageReference) error {
 	if err != nil || base64.RawURLEncoding.EncodeToString(raw) != encoded {
 		return ErrInvalidIdentity
 	}
-	var descriptor imageDescriptor
-	decoder := json.NewDecoder(strings.NewReader(string(raw)))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&descriptor); err != nil {
-		return err
-	}
-	if decoder.Decode(new(any)) != io.EOF {
+	if !utf8.Valid(raw) {
 		return ErrInvalidIdentity
+	}
+	fields := map[string]string{}
+	decoder := json.NewDecoder(strings.NewReader(string(raw)))
+	start, err := decoder.Token()
+	if err != nil || start != json.Delim('{') {
+		return ErrInvalidIdentity
+	}
+	for decoder.More() {
+		keyToken, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		key, ok := keyToken.(string)
+		if !ok {
+			return ErrInvalidIdentity
+		}
+		switch key {
+		case "accountId", "messageId", "mimeType", "directPath", "mediaKey", "fileSha256", "fileEncSha256", "fileLength":
+		default:
+			return ErrInvalidIdentity
+		}
+		if _, exists := fields[key]; exists {
+			return ErrInvalidIdentity
+		}
+		var value json.RawMessage
+		if err := decoder.Decode(&value); err != nil {
+			return err
+		}
+		if len(value) < 2 || value[0] != '"' {
+			return ErrInvalidIdentity
+		}
+		var decoded string
+		if err := json.Unmarshal(value, &decoded); err != nil || decoded == "" {
+			return ErrInvalidIdentity
+		}
+		fields[key] = decoded
+	}
+	if end, err := decoder.Token(); err != nil || end != json.Delim('}') {
+		return ErrInvalidIdentity
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		return ErrInvalidIdentity
+	}
+	descriptor := imageDescriptor{
+		AccountID: fields["accountId"], MessageID: fields["messageId"],
+		MIMEType: fields["mimeType"], DirectPath: fields["directPath"],
+		MediaKey: fields["mediaKey"], FileSHA256: fields["fileSha256"],
+		FileEncSHA256: fields["fileEncSha256"], FileLength: fields["fileLength"],
 	}
 	if descriptor.MessageID != ref.MessageID || !validLID(descriptor.AccountID) {
 		return ErrInvalidIdentity

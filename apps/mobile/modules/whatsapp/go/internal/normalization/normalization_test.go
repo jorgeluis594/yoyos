@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -35,31 +36,73 @@ func normalize(t *testing.T, evt *events.Message) Result {
 }
 
 func TestLiveAndHistoricalFixturesShareContract(t *testing.T) {
-	body := &waE2E.Message{Conversation: proto.String("  intact  ")}
-	history, err := (&whatsmeow.Client{}).ParseWebMessage(peer, &waWeb.WebMessageInfo{
-		Key:     &waCommon.MessageKey{RemoteJID: proto.String(peer.String()), ID: proto.String("Ab:C/9")},
-		Message: body, MessageTimestamp: proto.Uint64(1_600_000_000),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := normalize(t, history).Message; !reflect.DeepEqual(got, normalize(t, fixture(body, false)).Message) {
-		t.Fatalf("parsed history differs: %#v", got)
-	}
 	for _, outgoing := range []bool{false, true} {
-		live := fixture(body, outgoing)
-		history := fixture(body, outgoing)
-		got := normalize(t, live).Message
-		want := normalize(t, history).Message
-		if !reflect.DeepEqual(got, want) || got == nil {
-			t.Fatalf("source mismatch: %#v %#v", got, want)
+		for _, image := range []bool{false, true} {
+			body := &waE2E.Message{Conversation: proto.String("  intact  ")}
+			if image {
+				body = &waE2E.Message{ImageMessage: &waE2E.ImageMessage{Caption: proto.String("  intact  ")}}
+			}
+			web := &waWeb.WebMessageInfo{
+				Key:                             &waCommon.MessageKey{RemoteJID: proto.String(peer.String()), ID: proto.String("Ab:C/9"), FromMe: proto.Bool(outgoing)},
+				OriginalSelfAuthorUserJIDString: proto.String(own.String()), Message: body, MessageTimestamp: proto.Uint64(1_600_000_000),
+			}
+			before, _ := proto.Marshal(web)
+			history, err := (&whatsmeow.Client{}).ParseWebMessage(peer, web)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := normalize(t, history).Message
+			want := normalize(t, fixture(body, outgoing)).Message
+			if !reflect.DeepEqual(got, want) || got == nil {
+				t.Fatalf("source mismatch: %#v %#v", got, want)
+			}
+			direction := "incoming"
+			if outgoing {
+				direction = "outgoing"
+			}
+			if got.Text == nil || *got.Text != "  intact  " || got.Timestamp != 1_600_000_000_000 || got.WhatsAppMessageID != "Ab:C/9" || got.AccountID != own.String() || got.ChatID != peer.String() || got.Direction != direction || (got.Image != nil) != image {
+				t.Fatalf("lost source content or identity: %#v", got)
+			}
+			after, _ := proto.Marshal(web)
+			if !bytes.Equal(before, after) {
+				t.Fatal("source changed")
+			}
 		}
-		if got.Text == nil || *got.Text != "  intact  " || got.Timestamp != 1_600_000_000_000 || got.WhatsAppMessageID != "Ab:C/9" {
-			t.Fatalf("lost content: %#v", got)
-		}
-		if outgoing && got.Direction != "outgoing" || !outgoing && got.Direction != "incoming" {
-			t.Fatalf("direction: %s", got.Direction)
-		}
+	}
+}
+
+func TestParsedWrappedHistoricalEditExcluded(t *testing.T) {
+	edit := &waE2E.Message{ProtocolMessage: &waE2E.ProtocolMessage{Type: waE2E.ProtocolMessage_MESSAGE_EDIT.Enum(), Key: &waCommon.MessageKey{ID: proto.String("original")}, EditedMessage: &waE2E.Message{Conversation: proto.String("edited content")}}}
+	for name, raw := range map[string]*waE2E.Message{
+		"ephemeral":             {EphemeralMessage: &waE2E.FutureProofMessage{Message: edit}},
+		"device then ephemeral": {DeviceSentMessage: &waE2E.DeviceSentMessage{Message: &waE2E.Message{EphemeralMessage: &waE2E.FutureProofMessage{Message: edit}}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			evt, err := (&whatsmeow.Client{}).ParseWebMessage(peer, &waWeb.WebMessageInfo{Key: &waCommon.MessageKey{ID: proto.String("edit-event")}, MessageTimestamp: proto.Uint64(1_600_000_000), Message: raw})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if evt.IsEdit || evt.Message.GetConversation() != "edited content" {
+				t.Fatalf("fixture missed parser edit rewrite: %#v", evt)
+			}
+			if got := normalize(t, evt); got.Message != nil || got.Unresolved != nil {
+				t.Fatalf("edit emitted: %#v", got)
+			}
+		})
+	}
+	for name, raw := range map[string]*waE2E.Message{
+		"ephemeral": {EphemeralMessage: &waE2E.FutureProofMessage{Message: &waE2E.Message{Conversation: proto.String("ordinary")}}},
+		"device":    {DeviceSentMessage: &waE2E.DeviceSentMessage{Message: &waE2E.Message{Conversation: proto.String("ordinary")}}},
+	} {
+		t.Run(name+" content", func(t *testing.T) {
+			evt, err := (&whatsmeow.Client{}).ParseWebMessage(peer, &waWeb.WebMessageInfo{Key: &waCommon.MessageKey{ID: proto.String("ordinary")}, MessageTimestamp: proto.Uint64(1_600_000_000), Message: raw})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := normalize(t, evt).Message; got == nil || got.Text == nil || *got.Text != "ordinary" {
+				t.Fatalf("wrapped content lost: %#v", got)
+			}
+		})
 	}
 }
 
@@ -214,7 +257,40 @@ func TestStableMessageIdentityAndVerifiedLID(t *testing.T) {
 	}
 }
 
-func TestDeliveryIDCollisionAndReplay(t *testing.T) {
+func TestMessageIDRejectsLossyIdentity(t *testing.T) {
+	for _, invalid := range []string{string([]byte{0xff}), string([]byte{0xfe})} {
+		for _, parts := range [][3]string{{invalid + "@lid", peer.String(), "message"}, {own.String(), invalid + "@lid", "message"}, {own.String(), peer.String(), invalid}} {
+			if _, err := MessageID(parts[0], parts[1], parts[2]); !errors.Is(err, ErrInvalidIdentity) {
+				t.Fatalf("invalid UTF-8 identity accepted: %v", parts)
+			}
+		}
+	}
+	protocolID := "Pedido Ñ/東京"
+	id, err := MessageID(own.String(), peer.String(), protocolID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(id, "wa-message:v1:"))
+	if err != nil || string(raw) != `["9007199254740993@lid","9007199254740995@lid","Pedido Ñ/東京"]` {
+		t.Fatalf("valid non-ASCII protocol ID changed: %s %v", raw, err)
+	}
+	evt := fixture(&waE2E.Message{Conversation: proto.String("content")}, false)
+	evt.Info.ID = string([]byte{0xff})
+	if _, err := Normalize(evt, own, types.JID{}, nil); !errors.Is(err, ErrInvalidIdentity) {
+		t.Fatalf("normalization accepted invalid protocol ID: %v", err)
+	}
+	evt.Info.ID = "message"
+	badJID := types.NewJID(string([]byte{0xfe}), types.HiddenUserServer)
+	if _, err := Normalize(evt, badJID, types.JID{}, nil); !errors.Is(err, ErrInvalidIdentity) {
+		t.Fatalf("normalization accepted invalid account: %v", err)
+	}
+	evt.Info.Chat = badJID
+	if _, err := Normalize(evt, own, types.JID{}, nil); !errors.Is(err, ErrInvalidIdentity) {
+		t.Fatalf("normalization accepted invalid chat: %v", err)
+	}
+}
+
+func TestDeliveryIDCollisionAndFailures(t *testing.T) {
 	zero := bytes.Repeat([]byte{0}, 16)
 	one := bytes.Repeat([]byte{1}, 16)
 	pendingID := "wa-delivery:v1:" + strings.Repeat("00", 16)
@@ -222,10 +298,6 @@ func TestDeliveryIDCollisionAndReplay(t *testing.T) {
 	id, err := NewDeliveryID(bytes.NewReader(append(zero, one...)), func(candidate string) (bool, error) { n++; return candidate == pendingID, nil })
 	if err != nil || n != 2 || id == pendingID || id != "wa-delivery:v1:"+strings.Repeat("01", 16) {
 		t.Fatalf("id=%s checks=%d err=%v", id, n, err)
-	}
-	replay := id
-	if replay != id {
-		t.Fatal("replay changed")
 	}
 	if _, err := NewDeliveryID(bytes.NewReader(nil), func(string) (bool, error) { return false, nil }); err == nil {
 		t.Fatal("short random source accepted")
@@ -259,5 +331,38 @@ func TestImageDescriptorRejectsUnsafeOrIncoherentInput(t *testing.T) {
 	}
 	if err := ValidateImageReference(ImageReference{MessageID: "other", DownloadReference: valid.DownloadReference}); err == nil {
 		t.Fatal("accepted wrong external message ID")
+	}
+}
+
+func TestImageDescriptorStrictSchema(t *testing.T) {
+	id, err := MessageID(own.String(), peer.String(), "message")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix := fmt.Sprintf(`{"accountId":%q,"messageId":%q`, own.String(), id)
+	for name, raw := range map[string][]byte{
+		"empty key":           []byte(prefix + `,"mediaKey":""}`),
+		"null key":            []byte(prefix + `,"mediaKey":null}`),
+		"wrong type":          []byte(prefix + `,"mediaKey":12}`),
+		"empty hash":          []byte(prefix + `,"fileSha256":""}`),
+		"null encrypted hash": []byte(prefix + `,"fileEncSha256":null}`),
+		"empty length":        []byte(prefix + `,"fileLength":""}`),
+		"noncanonical length": []byte(prefix + `,"fileLength":"01"}`),
+		"empty mime":          []byte(prefix + `,"mimeType":""}`),
+		"duplicate account":   []byte(fmt.Sprintf(`{"accountId":"wrong@lid","accountId":%q,"messageId":%q}`, own.String(), id)),
+		"wrong key case":      []byte(fmt.Sprintf(`{"ACCOUNTID":%q,"messageId":%q}`, own.String(), id)),
+		"invalid UTF-8":       append(append([]byte(prefix+`,"mimeType":"`), 0xff), []byte(`"}`)...),
+	} {
+		t.Run(name, func(t *testing.T) {
+			ref := ImageReference{MessageID: id, DownloadReference: "wa-image:v1:" + base64.RawURLEncoding.EncodeToString(raw)}
+			if err := ValidateImageReference(ref); err == nil {
+				t.Fatal("malformed descriptor accepted")
+			}
+		})
+	}
+	ordered := []byte(fmt.Sprintf(`{"fileLength":"0","messageId":%q,"accountId":%q}`, id, own.String()))
+	ref := ImageReference{MessageID: id, DownloadReference: "wa-image:v1:" + base64.RawURLEncoding.EncodeToString(ordered)}
+	if err := ValidateImageReference(ref); err != nil {
+		t.Fatalf("valid reordered fields rejected: %v", err)
 	}
 }
