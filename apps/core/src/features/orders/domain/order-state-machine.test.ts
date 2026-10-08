@@ -190,3 +190,11 @@ describe("delivery and stock transitions", () => {
     expect(orderStateMachine.cancel(shipped.data)).toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
   });
 });
+
+test.each([true, false])("new delivery transitions reject the obsolete charge decision %s", chargeDeliveryToCustomer => {
+  const current = order();
+  const change = { resolved: { delivery: home, cost: money(3) }, chargeDeliveryToCustomer };
+  expect(orderStateMachine.setDelivery(current, change)).toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
+  expect(current.delivery).toBeNull();
+  expect(current.total).toEqual(money(10));
+});
