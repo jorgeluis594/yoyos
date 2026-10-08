@@ -3,7 +3,9 @@ import Foundation
 import Security
 import CryptoKit
 import Darwin
+#if !WA02_APP_HOSTED
 @testable import WhatsAppStateStore
+#endif
 
 final class StateStoreTests: XCTestCase {
   private func persistCrashMarker(_ value: String, at url: URL) throws {
@@ -88,7 +90,9 @@ final class StateStoreTests: XCTestCase {
     let pendingRevision = pending?.first?["createdRevision"] as? String
     let publishedRevision = try revision()
     let hasTemporary = FileManager.default.fileExists(atPath: root.appendingPathComponent("whatsapp/state.next").path)
-    let restorable = replaced || (try writer.canRestoreSession())
+    let restorable: Bool
+    if replaced { restorable = true }
+    else { restorable = try writer.canRestoreSession() }
     guard retired?.isEmpty == true, sessionMatches, pendingMatches,
           options?["maxImageStorageBytes"] == (replaced ? 123 : 50 * 1024 * 1024),
           !replaced || pendingRevision == "2", publishedRevision == (replaced ? "3" : "1"),
@@ -104,6 +108,22 @@ final class StateStoreTests: XCTestCase {
 
   private func makeStore(_ root: URL, fault: ((String) throws -> Void)? = nil) throws -> NativeStateStore {
     try NativeStateStore(directory: root, serviceSuffix: root.lastPathComponent.replacingOccurrences(of: "-", with: "").lowercased(), fault: fault)
+  }
+
+  private func keychainData(_ root: URL, id: String) throws -> Data {
+    let suffix = root.lastPathComponent.replacingOccurrences(of: "-", with: "").lowercased()
+    let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                kSecAttrService as String: "com.yoyos.whatsapp.state.test." + suffix,
+                                kSecAttrAccount as String: id, kSecReturnData as String: true,
+                                kSecMatchLimit as String: kSecMatchLimitOne,
+                                kSecUseDataProtectionKeychain as String: true]
+    var result: CFTypeRef?
+    guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess else { throw StateStoreError.storage }
+    return try XCTUnwrap(result as? Data)
+  }
+
+  private func creationRecord(_ root: URL) throws -> [String: Any] {
+    try NativeStateStore.parseObject(keychainData(root, id: "record"))
   }
 
   func testStrictJsonRejectsDuplicateKeysAndMalformedNumbers() {
@@ -151,6 +171,66 @@ final class StateStoreTests: XCTestCase {
     let recovered = try makeStore(root).open()
     XCTAssertEqual((recovered["options"] as? [String: Int])?["maxRecoveryBufferBytes"], 20 * 1024 * 1024)
     XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("state.next").path))
+  }
+
+  func testTrustedReadBudgetSurvivesGrowthReductionFailureAndDrain() throws {
+    let largeInfo = "{\"padding\":\"" + String(repeating: "A", count: 10 * 1024 * 1024) + "\"}"
+    let pending: [String: Any] = ["deliveryId": "wa-delivery:v1:" + String(repeating: "a", count: 32),
+                                  "accountId": "123@lid", "createdRevision": "1", "createdOrdinal": 0,
+                                  "source": "live", "identityState": "pendingLid",
+                                  "recovery": ["messageInfoJson": largeInfo, "items": [[String: Any]]()]]
+    func grow(_ state: [String: Any]) throws -> [String: Any] {
+      var next = state
+      var options = try XCTUnwrap(state["options"] as? [String: Int])
+      options["maxRecoveryBufferBytes"] = 12 * 1024 * 1024
+      next["options"] = options
+      next["pending"] = [pending]
+      return next
+    }
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let writer = try makeStore(root)
+    _ = try writer.open()
+    _ = try writer.commit(expectedRevision: "0", change: grow)
+    XCTAssertEqual((try creationRecord(root))["readBudget"] as? Int, 12 * 1024 * 1024)
+    XCTAssertEqual((try creationRecord(root))["preparedRevision"] as? String, "1")
+    let grown = try makeStore(root).open()
+    XCTAssertEqual(((grown["pending"] as? [[String: Any]])?.first?["recovery"] as? [String: Any])?["messageInfoJson"] as? String, largeInfo)
+    _ = try writer.commit(expectedRevision: "1") { state in
+      var next = state
+      var options = try XCTUnwrap(state["options"] as? [String: Int])
+      options["maxRecoveryBufferBytes"] = 1024
+      next["options"] = options
+      return next
+    }
+    let reduced = try makeStore(root).open()
+    XCTAssertEqual((reduced["options"] as? [String: Int])?["maxRecoveryBufferBytes"], 1024)
+    XCTAssertEqual(((reduced["pending"] as? [[String: Any]])?.first?["recovery"] as? [String: Any])?["messageInfoJson"] as? String, largeInfo)
+    XCTAssertEqual((try creationRecord(root))["readBudget"] as? Int, 12 * 1024 * 1024)
+    XCTAssertEqual((try creationRecord(root))["preparedRevision"] as? String, "2")
+    _ = try writer.commit(expectedRevision: "2") { state in
+      var next = state; next["pending"] = [[String: Any]](); return next
+    }
+    XCTAssertEqual((try makeStore(root).open()["pending"] as? [[String: Any]])?.count, 0)
+    XCTAssertEqual((try creationRecord(root))["preparedRevision"] as? String, "3")
+
+    for phase in ["recordResponse", "replace"] {
+      let failedRoot = try temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: failedRoot) }
+      var active = false
+      let failedWriter = try makeStore(failedRoot) { if active && $0 == phase { throw StateStoreError.storage } }
+      _ = try failedWriter.open()
+      let published = failedRoot.appendingPathComponent("whatsapp/state.bin")
+      let oldBytes = try Data(contentsOf: published)
+      active = true
+      XCTAssertThrowsError(try failedWriter.commit(expectedRevision: "0", change: grow))
+      XCTAssertEqual(try Data(contentsOf: published), oldBytes)
+      let recovered = try makeStore(failedRoot).open()
+      XCTAssertEqual((recovered["pending"] as? [[String: Any]])?.count, 0)
+      XCTAssertEqual((recovered["options"] as? [String: Int])?["maxRecoveryBufferBytes"], 10 * 1024 * 1024)
+      XCTAssertEqual((try creationRecord(failedRoot))["readBudget"] as? Int, 12 * 1024 * 1024)
+      XCTAssertEqual((try creationRecord(failedRoot))["preparedRevision"] as? String, "1")
+    }
   }
 
   func testRecoveryOnlyCommitPreservesSessionCiphertext() throws {
@@ -211,6 +291,33 @@ final class StateStoreTests: XCTestCase {
       let recovered = try makeStore(root).open()
       XCTAssertTrue(recovered["session"] is NSNull)
     }
+  }
+
+  func testCreatingRecordRemovesPartialTemporaryBeforeReusingRecoveryKey() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    XCTAssertThrowsError(try makeStore(root) { if $0 == "recoveryKey" { throw StateStoreError.storage } }.open())
+    let record = try creationRecord(root)
+    XCTAssertEqual(record["status"] as? String, "creating")
+    let recoveryId = try XCTUnwrap(record["recoveryKeyId"] as? String)
+    let originalKey = try keychainData(root, id: recoveryId)
+    let sealed = try AES.GCM.seal(Data("partial".utf8), using: SymmetricKey(data: originalKey))
+    let partial = Data("YOYOWA01".utf8) + Data(sealed.ciphertext.prefix(4))
+    let next = root.appendingPathComponent("whatsapp/state.next")
+    try FileManager.default.createDirectory(at: next, withIntermediateDirectories: false)
+    try partial.write(to: next.appendingPathComponent("partial"))
+    XCTAssertThrowsError(try makeStore(root).open())
+    XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("whatsapp/state.bin").path))
+    XCTAssertEqual((try creationRecord(root))["status"] as? String, "creating")
+    XCTAssertEqual(try keychainData(root, id: recoveryId), originalKey)
+    try FileManager.default.removeItem(at: next)
+    try partial.write(to: next)
+    let recovered = try makeStore(root).open()
+    XCTAssertTrue(recovered["session"] is NSNull)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: next.path))
+    XCTAssertEqual((try creationRecord(root))["status"] as? String, "ready")
+    XCTAssertEqual((try creationRecord(root))["recoveryKeyId"] as? String, recoveryId)
+    XCTAssertEqual(try keychainData(root, id: recoveryId), originalKey)
   }
 
   func testProvisionalSessionRecoveryKeepsOnlyPublishedSession() throws {
@@ -439,8 +546,8 @@ final class StateStoreTests: XCTestCase {
   func testActualENOSPCOnBoundedVolume() throws {
     let volume = URL(fileURLWithPath: "/Volumes/wa02-whatsapp-enospc", isDirectory: true)
     let manager = FileManager.default
-    let volumeDevice = try XCTUnwrap(manager.attributesOfItem(atPath: volume.path)[.deviceIdentifier] as? NSNumber)
-    let hostDevice = try XCTUnwrap(manager.attributesOfItem(atPath: manager.temporaryDirectory.path)[.deviceIdentifier] as? NSNumber)
+    let volumeDevice = try XCTUnwrap(manager.attributesOfFileSystem(forPath: volume.path)[.systemNumber] as? NSNumber)
+    let hostDevice = try XCTUnwrap(manager.attributesOfFileSystem(forPath: manager.temporaryDirectory.path)[.systemNumber] as? NSNumber)
     let capacity = try XCTUnwrap(manager.attributesOfFileSystem(forPath: volume.path)[.systemSize] as? NSNumber).int64Value
     guard volumeDevice != hostDevice, capacity > 32 * 1024 * 1024,
           capacity <= 300 * 1024 * 1024 else { XCTFail("Test requires a separate bounded filesystem"); return }
@@ -462,6 +569,10 @@ final class StateStoreTests: XCTestCase {
                          "maxImageStorageBytes": 50 * 1024 * 1024]
       next["pending"] = [pending]
       return next
+    }
+    let preflight = try makeStore(root).open()
+    guard (preflight["pending"] as? [[String: Any]])?.count == 1 else {
+      XCTFail("Mounted volume could not reopen the published state"); return
     }
     let published = root.appendingPathComponent("whatsapp/state.bin")
     let publishedSize = try XCTUnwrap(manager.attributesOfItem(atPath: published.path)[.size] as? NSNumber).intValue
@@ -499,8 +610,8 @@ final class StateStoreTests: XCTestCase {
     let headerLength = bytes[8..<12].reduce(0) { ($0 << 8) | Int($1) }
     let header = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes[12..<12+headerLength]) as? [String: Any])
     XCTAssertEqual(header["revision"] as? String, "1")
-    try probeHandle.close()
-    try fillHandle.close()
+    try? probeHandle.close()
+    try? fillHandle.close()
     try manager.removeItem(at: probe)
     try manager.removeItem(at: filler)
     XCTAssertEqual((try makeStore(root).open()["pending"] as? [[String: Any]])?.count, 1)
@@ -509,7 +620,7 @@ final class StateStoreTests: XCTestCase {
   private func isNoSpace(_ error: Error) -> Bool {
     let value = error as NSError
     if value.domain == NSPOSIXErrorDomain && value.code == Int(ENOSPC) { return true }
-    if value.domain == NSCocoaErrorDomain && value.code == NSFileWriteOutOfSpaceError { return true }
+    if value.domain == NSCocoaErrorDomain && value.code == CocoaError.fileWriteOutOfSpace.rawValue { return true }
     if let underlying = value.userInfo[NSUnderlyingErrorKey] as? Error { return isNoSpace(underlying) }
     return false
   }
