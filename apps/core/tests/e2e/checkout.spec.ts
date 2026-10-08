@@ -440,3 +440,59 @@ test("buyer chooses an agency rate and reaches payment without choosing an opera
     expect(stored.stockDeducted).toBe(false);
   } finally { await f.cleanup(); }
 });
+
+
+test("buyer waits for a district and recovers a failed quotation without losing the form", async ({ page }) => {
+  const f = await fixture("none", true, false);
+  let attempts = 0;
+  let release!: () => void;
+  const hold = new Promise<void>(resolve => { release = resolve; });
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const access = { companyId: f.companyId, userId: f.userId };
+      expect((await deliverySettings.saveZones({ method: "home", expectedVersion: 0,
+        zones: [{ kind: "new", name: "Home", enabled: true, districtCodes: ["150122"], price: { amount: 8, currency: "PEN" } }] }, access)).success).toBe(true);
+      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [],
+        store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
+    });
+    await page.route("**/api/quotations", async route => {
+      attempts++;
+      if (attempts === 1) return route.abort("failed");
+      const response = await route.fetch();
+      await hold;
+      await route.fulfill({ response });
+    });
+    await page.goto(f.path);
+    await page.getByLabel("Nombre", { exact: true }).fill("Ana");
+    await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
+    await page.getByLabel("Nombre del destinatario").fill("Recipient");
+    await page.getByLabel("Teléfono del destinatario").fill("999");
+    const confirm = page.getByRole("button", { name: "Confirmar pedido", exact: true });
+    await browserExpect(confirm).toBeDisabled();
+    expect(attempts).toBe(0);
+    await page.getByLabel("Departamento", { exact: true }).selectOption("15");
+    await page.getByLabel("Provincia", { exact: true }).selectOption("1501");
+    await page.getByLabel("Distrito", { exact: true }).selectOption("150122");
+    await browserExpect(page.getByRole("alert")).toContainText("No se pudieron cargar las tarifas. Tus datos siguen aquí.");
+    await browserExpect(confirm).toBeDisabled();
+    await browserExpect(page.getByText("Gratis", { exact: true })).toHaveCount(0);
+    await browserExpect(page.getByLabel("Nombre", { exact: true })).toHaveValue("Ana");
+    await browserExpect(page.getByLabel("Nombre del destinatario")).toHaveValue("Recipient");
+    await page.getByRole("button", { name: "Reintentar tarifas", exact: true }).click();
+    await browserExpect(page.getByRole("status").filter({ hasText: "Consultando opciones de envío…" })).toBeVisible();
+    await browserExpect(confirm).toBeDisabled();
+    release();
+    const rates = page.getByLabel("Tarifa de envío");
+    await browserExpect(rates.locator("option")).toHaveCount(2);
+    expect(attempts).toBe(2);
+    await rates.selectOption({ index: 1 });
+    await page.getByLabel("Dirección de entrega").fill("Street 123");
+    await browserExpect(confirm).toBeEnabled();
+    await confirm.click();
+    await browserExpect(page.getByRole("heading", { name: "Pago del pedido", exact: true })).toBeVisible();
+    const stored = await f.read();
+    expect(stored.total.toNumber()).toBe(18);
+    expect(stored.delivery).toMatchObject({ recipient: { name: "Recipient" }, destination: { address: "Street 123" } });
+    expect(stored.payments).toEqual([]);
+  } finally { release(); await page.unrouteAll({ behavior: "wait" }); await f.cleanup(); }
+});
