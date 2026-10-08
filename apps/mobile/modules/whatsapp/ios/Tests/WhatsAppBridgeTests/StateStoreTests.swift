@@ -152,8 +152,10 @@ final class StateStoreTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: root) }
     let writer = try makeStore(root)
     _ = try writer.open()
-    try FileManager.default.createDirectory(at: root.appendingPathComponent("whatsapp/state.next"), withIntermediateDirectories: false)
+    let next = root.appendingPathComponent("whatsapp/state.next")
+    try FileManager.default.createDirectory(at: next, withIntermediateDirectories: false)
     XCTAssertThrowsError(try writer.commit(expectedRevision: "0") { $0 })
+    try FileManager.default.removeItem(at: next)
     XCTAssertNoThrow(try makeStore(root).open())
   }
 

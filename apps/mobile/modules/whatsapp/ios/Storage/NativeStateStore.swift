@@ -365,7 +365,8 @@ public final class NativeStateStore {
   }
 
   private func durableWrite(_ bytes: Data, to next: URL, replacing target: URL) throws {
-    let fd = Darwin.open(next.path, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR)
+    try removeIfPresent(next)
+    let fd = Darwin.open(next.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, mode_t(S_IRUSR | S_IWUSR))
     guard fd >= 0 else { throw StateStoreError.storage }
     var closed = false
     defer { if !closed { _ = Darwin.close(fd) } }
@@ -419,7 +420,11 @@ public final class NativeStateStore {
     throw StateStoreError.storage
   }
   private func removeIfPresent(_ url: URL) throws {
-    if try existsChecked(url) { try FileManager.default.removeItem(at: url) }
+    var info = stat()
+    if lstat(url.path, &info) == 0 {
+      guard (info.st_mode & mode_t(S_IFMT)) != mode_t(S_IFDIR) else { throw StateStoreError.storage }
+      try FileManager.default.removeItem(at: url)
+    } else if errno != ENOENT { throw StateStoreError.storage }
   }
 
   private static func emptyState() -> [String: Any] {

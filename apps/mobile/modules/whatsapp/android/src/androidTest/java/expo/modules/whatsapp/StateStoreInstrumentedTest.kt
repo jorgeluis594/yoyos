@@ -145,6 +145,7 @@ class StateStoreInstrumentedTest {
     writer.open()
     val next = File(directory(root), "state.next")
     assertEquals(true, next.mkdir())
+    File(next, "occupied").writeText("x")
     assertThrows(StateFailure::class.java) { writer.commit("0") { it } }
     assertEquals("0", currentRevision(root))
   }

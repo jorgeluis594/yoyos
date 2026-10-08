@@ -74,11 +74,11 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
         if (aliases.any { it.startsWith(readyPrefix) } || existsChecked(published)) throw StateFailure("SESSION_STATE_INVALID")
         val markers = aliases.filter { it.startsWith(markerPrefix) }
         if (markers.size > 1) throw StateFailure("SESSION_STATE_INVALID")
-        if (existsChecked(recordNext) && !recordNext.delete()) throw StateFailure("STORAGE_FAILED")
+        removeTemp(recordNext)
         if (markers.size == 1) {
           val parts = markers.single().removePrefix(markerPrefix).split('.')
           if (parts.size != 2 || !ID.matches(parts[0]) || !ID.matches(parts[1])) throw StateFailure("SESSION_STATE_INVALID")
-          if (existsChecked(temporary) && !temporary.delete()) throw StateFailure("STORAGE_FAILED")
+          removeTemp(temporary)
           storeId = parts[0]; recoveryId = parts[1]; readBudget = DEFAULT_BUFFER
           val pending = JSONObject().put("status", "creating").put("storeId", storeId)
             .put("recoveryKeyId", recoveryId).put("readBudget", readBudget).put("preparedRevision", "0")
@@ -104,8 +104,8 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
         if (revision > preparedRevision) throw StateFailure("SESSION_STATE_INVALID")
         if (record.getString("status") == "creating") writeRecord(record.put("status", "ready"))
         ensureNamedKey(readyPrefix + storeId)
-        if (existsChecked(temporary) && !temporary.delete()) throw StateFailure("STORAGE_FAILED")
-        if (existsChecked(recordNext) && !recordNext.delete()) throw StateFailure("STORAGE_FAILED")
+        removeTemp(temporary)
+        removeTemp(recordNext)
         ensureImagesDirectory()
         current = state
         cleanupProvisional(record, state)
@@ -113,7 +113,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
         return JSONObject((current ?: state).toString())
       }
       if (record.getString("status") != "creating") throw StateFailure("SESSION_STATE_INVALID")
-      if (existsChecked(temporary) && !temporary.delete()) throw StateFailure("STORAGE_FAILED")
+      removeTemp(temporary)
       ensureKey(recoveryId)
       val state = emptyState()
       publish(state, BigInteger.ZERO)
@@ -249,6 +249,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     cipher.updateAAD(prefix)
     val sealed = cipher.doFinal(plaintext)
     try {
+      removeTemp(temporary)
       FileOutputStream(temporary).use { output ->
         fault?.invoke("write")
         output.write(prefix); output.write(sealed)
@@ -459,6 +460,10 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     cipher.init(Cipher.ENCRYPT_MODE, getKey(id), GCMParameterSpec(128, nonce))
     cipher.updateAAD(aad)
     return nonce to cipher.doFinal(bytes)
+  }
+
+  private fun removeTemp(file: File) {
+    if (existsChecked(file) && (file.isDirectory || !file.delete())) throw StateFailure("STORAGE_FAILED")
   }
 
   private fun ensureImagesDirectory() {
