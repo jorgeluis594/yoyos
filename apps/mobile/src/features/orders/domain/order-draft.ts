@@ -32,7 +32,7 @@ const deliverySelection = z.discriminatedUnion("method", [
   z.strictObject({ method: z.literal("agency"), recipient: recipient.extend({ identity: identity.options[1] }), courierId: z.uuid(), agency: z.string().trim().min(1).max(500) }),
 ]);
 const districtCode = z.string().refine(code => !!getPeruDistrict(code));
-const ratedDeliveryAssignmentSchema = z.strictObject({
+export const ratedDeliveryAssignmentSchema = z.strictObject({
   expectedPrice: z.strictObject({ amount: z.number().finite().nonnegative().refine(value => /^\d+(?:\.\d{1,2})?$/.test(String(value))), currency: z.enum(currencies) }),
   delivery: z.discriminatedUnion("method", [
     z.strictObject({ method: z.literal("store"), recipient }),

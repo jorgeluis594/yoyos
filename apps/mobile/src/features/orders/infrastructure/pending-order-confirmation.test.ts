@@ -55,6 +55,24 @@ test("corrupt or unreadable pending data never looks like absence", async () => 
   expect(await unavailable.read(id(1))).toMatchObject({ success: false, error: { code: "PENDING_STORAGE_UNAVAILABLE" } });
 });
 
+test("review replacement rejects another identity and retains the original on storage failure", async () => {
+  const pending = { companyId: id(1), id: id(2), shownTotal: { amount: 10, currency: "PEN" as const } };
+  let raw = JSON.stringify(pending);
+  let fail = true;
+  const deleteItemAsync = jest.fn(async () => {});
+  const store = createPendingOrderConfirmationStore({ getItemAsync: async () => raw,
+    setItemAsync: async (_key, value) => { if (fail) throw new Error("Storage failed"); raw = value; }, deleteItemAsync });
+  const next = { ...pending, shownTotal: { amount: 12, currency: "PEN" as const } };
+  expect(await store.replace(pending, { ...next, id: id(3) })).toMatchObject({ success: false, error: { code: "INVALID_PENDING_DATA" } });
+  expect(await store.replace(pending, next)).toMatchObject({ success: false, error: { code: "PENDING_STORAGE_UNAVAILABLE" } });
+  expect(await store.read(id(1))).toEqual({ success: true, data: pending });
+  fail = false;
+  expect(await store.replace(pending, next)).toEqual({ success: true, data: next });
+  expect(await store.replace(pending, pending)).toMatchObject({ success: false, error: { code: "PENDING_CONFIRMATION" } });
+  expect(await store.read(id(1))).toEqual({ success: true, data: next });
+  expect(deleteItemAsync).not.toHaveBeenCalled();
+});
+
 test("versioned pending requests survive restart unchanged and reject mismatched identities", async () => {
   const values = new Map<string, string>();
   const storage = { getItemAsync: async (key: string) => values.get(key) ?? null,

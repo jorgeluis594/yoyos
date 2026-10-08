@@ -2,10 +2,10 @@ import { z } from "zod";
 import { listOrderAggregatesResponseSchema, listOrderAggregatesSchema, listOrdersResponseSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema,
   type SetOrderDeliveryRequest, type ListOrderAggregatesRequest, type ListOrdersRequest, type OrderAggregateResponse, type OrderApiError, type OrderApiIssue } from "@shared/contracts/orders";
 import { err, ok } from "@shared/functional";
-import type { Money } from "@shared/money";
+import { add, type Money } from "@shared/money";
 import { limaMidnightUtc, nextCalendarDay } from "@shared/orders-date";
 import type { Result } from "@shared/result";
-import { prepareOrder, type CartError, type OrderDraft, type OrderSubmission, type RatedDeliveryAssignment } from "@mobile/features/orders/domain/order-draft";
+import { prepareOrder, ratedDeliveryAssignmentSchema, type CartError, type OrderDraft, type OrderSubmission, type RatedDeliveryAssignment } from "@mobile/features/orders/domain/order-draft";
 import type { TransportError } from "@mobile/shared/application/transport-error";
 
 export type PendingOrderConfirmation = Readonly<{
@@ -54,6 +54,7 @@ type PendingStore = Readonly<{
   read: (companyId: string) => Promise<Result<PendingOrderConfirmation | null, PendingOrderStoreError>>;
   save: (pending: PendingOrderConfirmation) => Promise<Result<PendingOrderConfirmation, PendingOrderStoreError>>;
   clear: (companyId: string, id: string) => Promise<Result<void, PendingOrderStoreError>>;
+  replace: (previous: PendingOrderConfirmation, next: PendingOrderConfirmation) => Promise<Result<PendingOrderConfirmation, PendingOrderStoreError>>;
 }>;
 
 function listRequest(criteria: OrderListCriteria): Result<ListOrdersRequest, OrderRequestError> {
@@ -164,6 +165,22 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
     resolvePendingOrderConfirmation,
     clearPendingOrderConfirmation: pendingStore.clear,
     completeOrder: (draft: OrderDraft, companyId: string) => run(companyId, draft.kind === "items" ? draft.id : undefined, () => send(draft, companyId)),
+    reviewLegacyPendingDelivery: (companyId: string, delivery: RatedDeliveryAssignment) => run(companyId, undefined, async () => {
+      const pending = await pendingStore.read(companyId);
+      if (!pending.success) return pending;
+      if (!pending.data?.request?.delivery || !("chargeDeliveryToCustomer" in pending.data.request.delivery))
+        return err({ code: "PENDING_CONFIRMATION", message: "No legacy delivery attempt to review" });
+      const found = await api.get(pending.data.id);
+      if (found.success) return confirmed(found.data, pending.data);
+      if (found.error.code !== "ORDER_NOT_FOUND") return found;
+      const parsed = ratedDeliveryAssignmentSchema.safeParse(delivery);
+      if (!parsed.success) return err({ code: "INVALID_CART", message: "Invalid reviewed delivery" });
+      const total = add(parsed.data.expectedPrice)(pending.data.shownTotal);
+      if (!total.success) return err({ code: "INVALID_CART", message: "Invalid reviewed total" });
+      const next = { ...pending.data, shownTotal: total.data, request: { ...pending.data.request, delivery: parsed.data } };
+      const saved = await pendingStore.replace(pending.data, next);
+      return saved.success ? ok({ kind: "uncertain", pending: saved.data }) : saved;
+    }),
     resendPendingOrder: (companyId: string) => run(companyId, undefined, async () => {
       const pending = await pendingStore.read(companyId);
       if (!pending.success) return pending;

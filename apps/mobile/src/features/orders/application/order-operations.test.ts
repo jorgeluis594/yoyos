@@ -265,6 +265,37 @@ test("in-flight outcomes never cross company boundaries", async () => {
   expect(second).toMatchObject({ success: true, data: { kind: "uncertain", pending: { companyId: id(9) } } });
 });
 
+test("reviewing a legacy delivery keeps order and payment identities and saves before any resend", async () => {
+  const store = storage();
+  const pending = { version: 2 as const, companyId, id: id(3), shownTotal: { amount: 10, currency: "PEN" as const },
+    request: { id: id(3), contactId: id(7), items: [{ variantId: id(2), quantity: 1 }],
+      payments: [{ paymentId: id(8), amount: { amount: 4.5, currency: "PEN" as const }, method: "bank_transfer" as const, deductStockIfPartial: false }],
+      delivery: { chargeDeliveryToCustomer: false, delivery: { method: "store" as const,
+        recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } } } }, deliverImmediately: false } };
+  await store.save(pending);
+  const delivery = { expectedPrice: { amount: 8, currency: "PEN" as const }, delivery: {
+    method: "home" as const, rateId: id(6), recipient: pending.request.delivery.delivery.recipient,
+    destination: { districtCode: "150122", address: "Reviewed street", instructions: null },
+  } };
+  const calls: string[] = [];
+  let offline = true;
+  const api = createOrderApi(async (path) => {
+    calls.push(path);
+    return offline ? err({ code: "NETWORK_ERROR", message: "Offline" })
+      : err({ code: "API_ERROR", message: "Missing", http: { status: 404, body: { code: "ORDER_NOT_FOUND", error: "Missing" } } });
+  });
+  const operations = createOrderOperations(api, store);
+  expect(await operations.reviewLegacyPendingDelivery(companyId, delivery)).toMatchObject({ success: false, error: { code: "NETWORK_ERROR" } });
+  expect(await store.read(companyId)).toEqual(ok(pending));
+  offline = false;
+  const next = { ...pending, shownTotal: { amount: 18, currency: "PEN" }, request: { ...pending.request, delivery } };
+  expect(await operations.reviewLegacyPendingDelivery(companyId, delivery)).toEqual(ok({ kind: "uncertain", pending: next }));
+  expect(await store.read(companyId)).toEqual(ok(next));
+  expect(calls).toEqual([`/api/orders/${id(3)}/aggregate`, `/api/orders/${id(3)}/aggregate`]);
+  expect(await operations.reviewLegacyPendingDelivery(companyId, delivery)).toMatchObject({ success: false, error: { code: "PENDING_CONFIRMATION" } });
+  expect(calls).toHaveLength(2);
+});
+
 test("rated creation resends its exact reviewed selection after restart and clears a price rejection", async () => {
   const bodies: unknown[] = [];
   let reject = false;
