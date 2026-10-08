@@ -12,12 +12,12 @@ export type RegisterMobileMessage = (message: MobileMessageInput, context: Regis
 export const mobileMessageParser = express.Router();
 mobileMessageParser.use((_request, response, next) => { response.set("Cache-Control", "no-store"); next(); });
 mobileMessageParser.use((request, response, next) => {
-  const charset = request.headers["content-type"]?.match(/;\s*charset\s*=\s*"?([^";\s]+)/i)?.[1];
-  if (!request.is("application/json") || (charset && charset.toLowerCase() !== "utf-8") || ![undefined, "identity"].includes(request.headers["content-encoding"]))
+  if (!request.is("application/json") || ![undefined, "identity"].includes(request.headers["content-encoding"]))
     return apiError(response, 415, "UNSUPPORTED_MEDIA_TYPE", "Unsupported media type");
   return next();
 });
-mobileMessageParser.use(express.json({ limit: 102400, inflate: false, verify: (_request, _response, body) => {
+mobileMessageParser.use(express.json({ limit: 102400, inflate: false, verify: (_request, _response, body, encoding) => {
+  if (encoding !== "utf-8") throw Object.assign(new Error("Unsupported charset"), { type: "charset.unsupported" });
   let raw: string;
   try {
     raw = new TextDecoder("utf-8", { fatal: true }).decode(body);

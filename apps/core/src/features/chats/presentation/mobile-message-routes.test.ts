@@ -49,6 +49,7 @@ test("parser rejects malformed, duplicate, compressed, oversized and wrong media
     [JSON.stringify(body), { "content-type": "text/plain" }, 415, null],
     [JSON.stringify(body), { "content-type": "application/json; charset=iso-8859-1" }, 415, null],
     [JSON.stringify(body), { "content-type": "application/json; charset=utf-16le" }, 415, null],
+    [JSON.stringify(body), { "content-type": 'application/json; note=";charset=utf-8"; charset=utf-16le' }, 415, null],
     [JSON.stringify(body), { "content-type": "application/json", "content-encoding": "gzip" }, 415, null],
     [JSON.stringify({ ...body, extra: "x".repeat(102400) }), { "content-type": "application/json" }, 413, null],
   ] as const) {
@@ -66,6 +67,20 @@ test("parser rejects malformed, duplicate, compressed, oversized and wrong media
   expect(response.status).toBe(400);
   expect((await response.json()).issues).toContainEqual({ field: "body", reason: "INVALID_JSON" });
   expect(register).not.toHaveBeenCalled();
+});
+
+test("parser accepts the actual UTF-8 charset despite quoted parameter text", async () => {
+  const register = vi.fn<RegisterMobileMessage>().mockResolvedValue({ success: true, data: { status: "stored", messageId: id as never, eventId: id as never, receivedAt: new Date(0) } });
+  const url = await serve(register);
+  for (const contentType of [
+    'application/json; note=";charset=iso-8859-1"; charset=utf-8',
+    'application/json; charset="utf\\-8"',
+  ]) {
+    const response = await fetch(url, { method: "POST", headers: { "content-type": contentType }, body: JSON.stringify(body) });
+    expect(response.status).toBe(201);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  }
+  expect(register).toHaveBeenCalledTimes(2);
 });
 
 test("the byte limit admits exactly 102400 bytes", async () => {
