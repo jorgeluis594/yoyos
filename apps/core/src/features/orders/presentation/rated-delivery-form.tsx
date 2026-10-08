@@ -81,13 +81,13 @@ export function RatedDeliveryForm({ order, settings, pending, active, recovery, 
       {enabled && draft.districtCode && !current && <p role="status">{t("orderDelivery.quoting")}</p>}
       {current && !current.quotation && <div><p role="alert">{t("orderDelivery.quoteError")}</p><Button type="button" variant="outline" onClick={() => setRevision(value => value + 1)}>{t("orderDelivery.retryRates")}</Button></div>}
       {current?.quotation && rates.length === 0 && <p role="status">{t("orderDelivery.noRates")}</p>}
-      {rates.length > 0 && <Controller name="rateId" control={form.control} render={({ field }) => <Field><FieldLabel htmlFor="rated-rate">{t("orderDelivery.rate")}</FieldLabel><select {...field} value={rate ? field.value : ""} id="rated-rate" className={controlClass}><option value="">{t("orderDelivery.chooseRate")}</option>{rates.map((item, index) => <option key={item.id} value={item.id}>{t(`deliverySettings.${item.method}`)} · {formatCurrency(item.price.amount, item.price.currency, i18n.language)} · {index + 1}</option>)}</select></Field>} />}
+      {rates.length > 0 && <Controller name="rateId" control={form.control} render={({ field }) => <Field><FieldLabel htmlFor="rated-rate">{t("orderDelivery.rate")}</FieldLabel><select {...field} value={rate ? field.value : ""} id="rated-rate" className={controlClass}><option value="">{t("orderDelivery.chooseRate")}</option>{rates.map((item, index) => <option key={item.id} value={item.id}>{t(`deliverySettings.${item.method}`)} · {item.price.amount === 0 ? t("deliveryZones.free") : formatCurrency(item.price.amount, item.price.currency, i18n.language)} · {index + 1}</option>)}</select></Field>} />}
     </>}
     {input("name", t("orderDelivery.recipientName"), true)}{input("phone", t("orderDelivery.recipientPhone"), true)}
     {draft.method === "home" && <>{input("address", t("orderDelivery.address"), true)}{input("instructions", t("orderDelivery.instructions"))}</>}
     <Controller name="documentType" control={form.control} render={({ field }) => <Field><FieldLabel htmlFor="rated-document-type">{t(draft.method === "agency" ? "orderDelivery.identityRequired" : "orderDelivery.identity")}</FieldLabel><select {...field} id="rated-document-type" className={controlClass}><option value="absent">{t("orderDelivery.noDocument")}</option>{(["national_id", "passport", "foreign_id"] as const).map(type => <option key={type} value={type}>{t(`orders.documentType.${type}`)}</option>)}</select></Field>} />
     {draft.documentType !== "absent" && input("document", t("orderDelivery.document"), true)}
-    {price && <p>{t("orderDelivery.cost", { amount: formatCurrency(price.amount, price.currency, i18n.language) })}</p>}
+    {price && <p>{price.amount === 0 ? t("deliveryZones.free") : t("orderDelivery.cost", { amount: formatCurrency(price.amount, price.currency, i18n.language) })}</p>}
     {total?.success && <p className="font-semibold">Total: {formatCurrency(total.data.amount, total.data.currency, i18n.language)}</p>}
   </fieldset>;
   if (onChange) return fields;

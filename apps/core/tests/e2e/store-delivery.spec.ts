@@ -102,7 +102,9 @@ test("rated pickup freezes its point and replacement preserves author and stock 
     await browserExpect(tariff.locator("option")).toHaveCount(2);
     const rateId = await tariff.locator("option").nth(1).getAttribute("value");
     if (!rateId) throw new Error("Expected rate");
+    await browserExpect(tariff.locator("option").nth(1)).toContainText("Entrega gratis");
     await tariff.selectOption(rateId);
+    await browserExpect(page.getByText("Entrega gratis", { exact: true })).toBeVisible();
     await page.getByLabel("Nombre del destinatario").fill("Ana");
     await page.getByLabel("Indicaciones de entrega (opcional)").fill("Puerta verde");
     await saveDelivery();
