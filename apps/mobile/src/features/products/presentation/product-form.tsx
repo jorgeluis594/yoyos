@@ -100,5 +100,5 @@ export function ProductForm({
 const styles = StyleSheet.create({
   page: { gap: 24, padding: 20, paddingBottom: 48 }, error: { color: "#b42318" },
   variants: { gap: 10 }, variant: { borderWidth: 1, borderColor: "#ddd", borderRadius: 12, padding: 14, gap: 4 },
-  actions: { flexDirection: "row", gap: 12, justifyContent: "flex-end" },
+  actions: { gap: 8 },
 });
