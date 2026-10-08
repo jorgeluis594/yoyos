@@ -743,12 +743,20 @@ test.each(["ship", "cancel"] as const)("delivery editing and %s serialize withou
   const run = <T>(work: () => Promise<T>) => withTenantIsolation(f.companyId, async () => await work());
   try {
     expect(await run(() => deliverySettings.save({ expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: true }, store: { enabled: false, pickupPoint: null } }, context))).toMatchObject({ success: true });
+    expect(await run(() => deliverySettings.saveZones({ method: "home", expectedVersion: 1, zones: [{ kind: "new", name: "Free delivery", enabled: true,
+      districtCodes: ["150122"], price: { amount: 0, currency: "PEN" } }] }, context))).toMatchObject({ success: true });
+    const quote = await run(() => deliverySettings.createQuotation({ companyId: f.companyId, country: "PE", districtCode: "150122", address: null, instructions: null }));
+    if (!quote.success || !quote.data.rates[0]) throw new Error("Missing free delivery rate");
+    const parsed = parseRatedDeliverySelection({ method: "home", rateId: quote.data.rates[0].id,
+      recipient: { name: "Recipient", phone: "00123", identity: { kind: "absent" } },
+      destination: { address: "Confirmed address", districtCode: "150122", instructions: null } });
+    if (!parsed.success) throw new Error(parsed.error.message);
     for (const assignmentFirst of [true, false]) {
       const orderId = randomUUID() as OrderId;
       expect(await run(() => orders.create({ id: orderId, contactId: null, items: [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }] }, context))).toMatchObject({ success: true });
       expect(await run(() => orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId, amount: { amount: 0.1, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context))).toMatchObject({ success: true });
-      const input = { orderId, delivery: { method: "home" as const, recipient: { name: "Recipient", phone: "00123", identity: { kind: "absent" as const } }, destination: { address: "Confirmed address", district: "Lima", instructions: null } }, chargeDeliveryToCustomer: false };
-      const assign = () => setConfiguredOrderDelivery(input, context, async (_snapshot, _access, currency) => ok({ amount: 3, currency }));
+      const input = { orderId, delivery: parsed.data, expectedPrice: { amount: 0, currency: "PEN" as const } };
+      const assign = () => orders.setDelivery(input, context);
       const finish = () => orders[close](orderId, context);
       let release!: () => void;
       let arrived!: () => void;
@@ -763,7 +771,7 @@ test.each(["ship", "cancel"] as const)("delivery editing and %s serialize withou
       try { await waitForDeliveryLock(); } finally { release(); }
       expect(await first).toMatchObject({ success: true });
       expect(await second).toMatchObject(assignmentFirst ? { success: true } : { success: false, error: { code: close === "ship" ? "DELIVERY_LOCKED" : "ORDER_CANCELLED" } });
-      expect(await run(() => orderDetail(orderId, f))).toMatchObject({ success: true, data: { cancelled: close === "cancel", deliveryStatus: close === "ship" ? "shipped" : "pending", delivery: assignmentFirst ? { destination: { address: "Confirmed address" }, recordedBy: { userId: f.sellerId } } : null } });
+      expect(await run(() => orderDetail(orderId, f))).toMatchObject({ success: true, data: { cancelled: close === "cancel", deliveryStatus: close === "ship" ? "shipped" : "pending", deliveryCost: { amount: 0 }, deliveryCharge: { amount: 0 }, total: { amount: 0.1 }, stockDeducted: close === "ship", delivery: assignmentFirst ? { pricing: { rateId: quote.data.rates[0].id, quotationId: quote.data.quotation.id }, destination: { address: "Confirmed address" }, recordedBy: { userId: f.sellerId } } : null } });
 
     }
   } finally { await f.cleanup(); }
