@@ -12,6 +12,10 @@ test("mobile seller copies checkout and sees the anonymous buyer confirmation in
   try {
     companyId = await prepareVerifiedCompany(page, { email, name: "Mobile seller", companyName: "Mobile checkout", country: "PE" });
     const tenant = companyId;
+    expect((await page.request.put("/api/delivery-settings", { data: {
+      expectedVersion: 0, home: { enabled: false }, agency: { enabled: false }, couriers: [],
+      store: { enabled: true, pickupPoint: { name: "Tienda", address: "Lima", instructions: null } },
+    } })).status()).toBe(200);
     const product = await withTenantIsolation(tenant, () => products.create({ name: "Producto móvil", currency: "PEN", variants: [{ attributes: {}, salePrice: 10, initialStock: 3 }] }));
     if (!product.success) throw new Error("Fixture product failed");
     const variantId = await withTenantIsolation(tenant, async () => (await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } })).id);
@@ -36,8 +40,11 @@ test("mobile seller copies checkout and sees the anonymous buyer confirmation in
     await buyer.goto(url);
     await buyer.getByLabel("Nombre", { exact: true }).fill("Ana");
     await buyer.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
+    await buyer.getByLabel("Forma de entrega", { exact: true }).selectOption("store");
+    await buyer.getByLabel("Nombre del destinatario", { exact: true }).fill("Ana");
+    await buyer.getByLabel("Teléfono del destinatario", { exact: true }).fill("+51987654321");
     await buyer.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
-    await browserExpect(buyer.getByRole("heading", { name: "Pedido confirmado", exact: true })).toBeVisible();
+    await browserExpect(buyer.getByRole("heading", { name: "Pago del pedido", exact: true })).toBeVisible();
     await page.reload();
     await browserExpect(page.getByText("Confirmado por el comprador", { exact: true })).toBeVisible();
     await browserExpect(page.getByText("Ana", { exact: true })).toBeVisible();
@@ -65,6 +72,7 @@ test("mobile seller copies checkout and sees the anonymous buyer confirmation in
     if (companyId) await withTenantIsolation(companyId, async () => {
       await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
       await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+      await prisma.companyDeliverySettings.deleteMany();
       await systemPrisma.user.deleteMany({ where: { email } }); await prisma.company.delete({ where: { id: companyId } });
     });
   }
