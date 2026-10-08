@@ -4,15 +4,9 @@ import type { Result } from "@shared/result";
 import type { DeliverySettings, ResolveSelectedRateInput, ResolvedDeliveryRate, ResolveRateError } from "@core/src/features/delivery-settings";
 import type { CompanyId } from "@shared/identity";
 import type { PeruDistrictError } from "@shared/peru-geography";
-import { buildRatedDeliverySnapshot, parseRatedDeliverySelection, parseDeliverySelection, parseDeliverySnapshot, validateDeliveryCost,
-  type DeliveryAuthor, type DeliverySelection, type DeliverySnapshot, type ResolvedDelivery } from "@core/src/features/orders/domain/order-state-machine";
-import type { OrderAccess } from "@core/src/features/orders/application/create-order";
+import { buildRatedDeliverySnapshot, parseRatedDeliverySelection, parseDeliverySnapshot, validateDeliveryCost,
+  type DeliveryAuthor, type ResolvedDelivery } from "@core/src/features/orders/domain/order-state-machine";
 import type { SetDeliveryError } from "@core/src/features/orders/application/set-delivery";
-
-export type ResolveDeliveryDependencies = Readonly<{
-  getSettings: (context: OrderAccess) => Promise<Result<DeliverySettings, SetDeliveryError>>;
-  resolveShippingCost: (delivery: DeliverySnapshot, context: OrderAccess, currency: Currency) => Promise<Result<Money, SetDeliveryError>>;
-}>;
 
 export type ResolveShippingError = SetDeliveryError | ResolveRateError | PeruDistrictError;
 export type ResolveShippingDependencies = Readonly<{
@@ -51,28 +45,4 @@ export async function resolveShippingCost(input: unknown, context: Readonly<{ co
   }
   return expected.data.amount === resolved.cost.amount ? ok(resolved)
     : err({ code: "TOTAL_CHANGED", message: "Delivery price changed", currentPrice: { ...resolved.cost } });
-}
-
-export async function resolveDeliverySelection(input: DeliverySelection, context: OrderAccess, currency: Currency,
-  deps: ResolveDeliveryDependencies): Promise<Result<ResolvedDelivery, SetDeliveryError>> {
-  const selection = parseDeliverySelection(input);
-  if (!selection.success) return selection;
-  const found = await deps.getSettings(context);
-  if (!found.success) return found;
-  const delivery = selection.data;
-  if (delivery.method === "store" ? !found.data.store.enabled : delivery.method === "home" ? !found.data.home.enabled : !found.data.agency.enabled)
-    return err({ code: "DELIVERY_METHOD_DISABLED", message: "Delivery method is disabled" });
-  const courier = delivery.method === "agency" ? found.data.couriers.find(courier => courier.id === delivery.courierId && courier.enabled) : undefined;
-  if (delivery.method === "agency" && !courier) return err({ code: "COURIER_UNAVAILABLE", message: "Courier is unavailable" });
-  const destination = delivery.method === "agency" && courier
-    ? { method: delivery.method, recipient: delivery.recipient, agency: delivery.agency, courier: { id: courier.id, name: courier.name } }
-    : delivery;
-  const snapshot = parseDeliverySnapshot({ ...destination,
-    ...(delivery.method === "store" ? { pickupPoint: found.data.store.pickupPoint } : {}),
-    recordedBy: { kind: "seller", userId: context.userId } });
-  if (!snapshot.success) return snapshot;
-  const cost = await deps.resolveShippingCost(snapshot.data, context, currency);
-  if (!cost.success) return cost;
-  const validatedCost = validateDeliveryCost(cost.data, currency);
-  return validatedCost.success ? ok({ delivery: snapshot.data, cost: validatedCost.data }) : validatedCost;
 }
