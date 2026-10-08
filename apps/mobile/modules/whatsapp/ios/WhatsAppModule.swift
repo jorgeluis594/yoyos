@@ -156,7 +156,7 @@ public class WhatsAppModule: Module {
               let image = (requested["maxImageStorageBytes"] as? NSNumber)?.int64Value else { return failure("INVALID_INPUT") }
         if recovery != (saved["maxRecoveryBufferBytes"] as? NSNumber)?.int64Value ||
            image != (saved["maxImageStorageBytes"] as? NSNumber)?.int64Value {
-          if let state = runtime.session?.state(), state != "disconnected" { return failure("INVALID_INPUT") }
+          if runtime.session?.canUpdateOptions() == false { return failure("INVALID_INPUT") }
           runtime.stop()
           _ = try writer.updateOptions(maxRecoveryBufferBytes: recovery, maxImageStorageBytes: image)
           snapshot = try writer.open()

@@ -137,7 +137,7 @@ class WhatsAppModule : Module() {
           val recovery = (requested["maxRecoveryBufferBytes"] as Number).toLong()
           val image = (requested["maxImageStorageBytes"] as Number).toLong()
           if (recovery != saved.getLong("maxRecoveryBufferBytes") || image != saved.getLong("maxImageStorageBytes")) {
-            if (ConnectionRuntime.session?.state()?.let { it != "disconnected" } == true) return@synchronized failure("INVALID_INPUT")
+            if (ConnectionRuntime.session?.canUpdateOptions() == false) return@synchronized failure("INVALID_INPUT")
             ConnectionRuntime.stop()
             writer.updateOptions(recovery, image)
             snapshot = writer.open()

@@ -149,6 +149,9 @@ func TestStopRejectsLateEventsAndRevocationBlocksRelink(t *testing.T) {
 	if receive(t, events).Error != SessionExpiredError {
 		t.Fatal("missing expiry error")
 	}
+	if c.CanUpdateOptions() {
+		t.Fatal("revoked session admitted options")
+	}
 	if c.Connect() != SessionExpiredError {
 		t.Fatal("revoked session restarted")
 	}
@@ -254,6 +257,9 @@ func TestCapacityPauseResumesOnlyRequestedConnection(t *testing.T) {
 		return second, nil
 	}, func(e Event) { events <- e }, nil)
 	c.Prepare(true)
+	if !c.CanUpdateOptions() {
+		t.Fatal("idle connection rejected options")
+	}
 	c.Connect()
 	started(t, first)
 	receive(t, events)
@@ -261,12 +267,18 @@ func TestCapacityPauseResumesOnlyRequestedConnection(t *testing.T) {
 	if receive(t, events).Error != RecoveryBufferFull || receive(t, events).State != Disconnected {
 		t.Fatal("capacity was treated as network")
 	}
+	if c.CanUpdateOptions() {
+		t.Fatal("paused request admitted options")
+	}
 	c.ResumeCapacity()
 	started(t, second)
 	if receive(t, events).State != Reconnecting || count != 2 {
 		t.Fatal("resume did not start one attempt")
 	}
 	c.Disconnect()
+	if !c.CanUpdateOptions() {
+		t.Fatal("stopped connection rejected options")
+	}
 	c.ResumeCapacity()
 	if count != 2 {
 		t.Fatal("explicit stop resumed")

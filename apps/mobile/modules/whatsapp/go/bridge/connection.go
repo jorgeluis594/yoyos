@@ -127,6 +127,9 @@ func (s *ConnectionSession) State() string {
 	}
 	return string(s.controller.State())
 }
+func (s *ConnectionSession) CanUpdateOptions() bool {
+	return s != nil && s.controller != nil && s.controller.CanUpdateOptions()
+}
 func (s *ConnectionSession) CurrentQR() string {
 	if s == nil || s.controller == nil {
 		return ""

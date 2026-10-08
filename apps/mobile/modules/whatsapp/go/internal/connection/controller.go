@@ -138,6 +138,11 @@ func (c *Controller) Close() {
 	c.eventMu.Unlock()
 }
 func (c *Controller) State() State { c.mu.Lock(); defer c.mu.Unlock(); return c.state }
+func (c *Controller) CanUpdateOptions() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return !c.requested && !c.expired && c.state == Disconnected
+}
 func (c *Controller) CurrentQR() (Event, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
