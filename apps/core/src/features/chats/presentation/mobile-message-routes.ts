@@ -12,7 +12,8 @@ export type RegisterMobileMessage = (message: MobileMessageInput, context: Regis
 export const mobileMessageParser = express.Router();
 mobileMessageParser.use((_request, response, next) => { response.set("Cache-Control", "no-store"); next(); });
 mobileMessageParser.use((request, response, next) => {
-  if (!request.is("application/json") || ![undefined, "identity"].includes(request.headers["content-encoding"]))
+  const charset = request.headers["content-type"]?.match(/;\s*charset\s*=\s*"?([^";\s]+)/i)?.[1];
+  if (!request.is("application/json") || (charset && charset.toLowerCase() !== "utf-8") || ![undefined, "identity"].includes(request.headers["content-encoding"]))
     return apiError(response, 415, "UNSUPPORTED_MEDIA_TYPE", "Unsupported media type");
   return next();
 });
@@ -28,7 +29,7 @@ mobileMessageParser.use((error: unknown, _request: express.Request, response: ex
   void _next;
   if (typeof error === "object" && error !== null && "type" in error) {
     if (error.type === "entity.too.large") return apiError(response, 413, "PAYLOAD_TOO_LARGE", "Payload too large");
-    if (error.type === "encoding.unsupported") return apiError(response, 415, "UNSUPPORTED_MEDIA_TYPE", "Unsupported media type");
+    if (error.type === "encoding.unsupported" || error.type === "charset.unsupported") return apiError(response, 415, "UNSUPPORTED_MEDIA_TYPE", "Unsupported media type");
     if (error.type === "entity.verify.failed") return apiError(response, 400, "INVALID_INPUT", "Invalid input", [{ field: "body", reason: "message" in error && error.message === "INVALID_JSON" ? "INVALID_JSON" : "DUPLICATE_KEY" }]);
     if (error.type === "entity.parse.failed") return apiError(response, 400, "INVALID_INPUT", "Invalid input", [{ field: "body", reason: "INVALID_JSON" }]);
   }
