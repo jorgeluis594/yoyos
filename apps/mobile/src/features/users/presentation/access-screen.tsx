@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { countries, isCountry, type Country } from '@shared/country';
 import type { CompanyDraft } from '@mobile/features/companies';
@@ -8,7 +8,8 @@ import { Field, FieldError, FieldGroup, FieldLabel } from '@mobile/components/ui
 import { Input } from '@mobile/components/ui/input';
 import { ThemedText } from '@mobile/components/themed-text';
 import { useTheme } from '@mobile/hooks/use-theme';
-import { useAccess } from './access-provider';
+import { useAccess } from '@mobile/features/users/presentation/access-provider';
+import { Button } from '@mobile/components/ui/button';
 import i18n from '@mobile/i18n';
 
 const countryKeys: Record<Country, string> = { PE: 'countryPE', US: 'countryUS', CO: 'countryCO', AR: 'countryAR', CL: 'countryCL', BR: 'countryBR' };
@@ -23,10 +24,6 @@ function message(code: string): string {
   return i18n.t('operationError');
 }
 
-function Action({ label, onPress, disabled = false }: { label: string; onPress: () => void; disabled?: boolean }) {
-  const theme = useTheme();
-  return <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} style={[styles.action, { backgroundColor: theme.ring }, disabled && styles.disabled]}><ThemedText style={{ color: theme.backgroundElement, fontWeight: '600' }}>{label}</ThemedText></Pressable>;
-}
 function TextField({ label, value, onChangeText, disabled, secure = false, email = false }: { label: string; value: string; onChangeText: (value: string) => void; disabled: boolean; secure?: boolean; email?: boolean }) {
   return <Field required disabled={disabled}><FieldLabel>{label}</FieldLabel><Input value={value} onChangeText={onChangeText} autoCapitalize={email ? 'none' : 'sentences'} autoCorrect={!email && !secure} keyboardType={email ? 'email-address' : 'default'} textContentType={secure ? 'password' : email ? 'emailAddress' : 'none'} secureTextEntry={secure} /></Field>;
 }
@@ -92,23 +89,33 @@ export function AccessScreen() {
   };
 
   if (state.status === 'checking') return <SafeAreaView style={[styles.center, { backgroundColor: theme.background }]}><ThemedText accessibilityRole="progressbar">{t('checkingSession')}</ThemedText></SafeAreaView>;
-  if (state.status === 'unavailable') return <SafeAreaView style={[styles.center, { backgroundColor: theme.background }]}><ThemedText type="subtitle">{t('accessUnavailable')}</ThemedText><ThemedText>{message(state.error.code)}</ThemedText><Action label={state.error.code === 'SECURE_STORAGE_ERROR' ? t('retryCleanup') : t('retry')} onPress={() => void (state.error.code === 'SECURE_STORAGE_ERROR' ? access.signOut() : access.restore())} /></SafeAreaView>;
+  if (state.status === 'unavailable') return <SafeAreaView style={[styles.center, { backgroundColor: theme.background }]}><ThemedText type="subtitle">{t('accessUnavailable')}</ThemedText><ThemedText>{message(state.error.code)}</ThemedText><Button onPress={() => void (state.error.code === 'SECURE_STORAGE_ERROR' ? access.signOut() : access.restore())} >{state.error.code === 'SECURE_STORAGE_ERROR' ? t('retryCleanup') : t('retry')}</Button></SafeAreaView>;
   if (state.status === 'ready') return null;
-  return <SafeAreaView style={[styles.page, { backgroundColor: theme.background }]}><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
-    <ThemedText type="title">{checkEmail ? t('checkEmail') : onboarding ? t('completeCompany') : mode === 'login' ? t('welcome') : t('createAccount')}</ThemedText>
+  return <SafeAreaView style={[styles.page, { backgroundColor: theme.background }]}><KeyboardAvoidingView style={styles.page} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}><ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
+    <ThemedText type="title" accessibilityRole="header">{checkEmail ? t('checkEmail') : onboarding ? t('completeCompany') : mode === 'login' ? t('welcome') : t('createAccount')}</ThemedText>
     <ThemedText themeColor="textSecondary">{checkEmail ? t('checkEmailDescription') : onboarding ? t('companyDescription') : t('welcomeDescription')}</ThemedText>
     <FieldGroup style={styles.fields}>
       {state.status === 'signed_out' && mode === 'register' ? <TextField label={t('name')} value={name} onChangeText={setName} disabled={busy} /> : null}
       {state.status === 'signed_out' || checkEmail ? <TextField label={t('email')} value={email} onChangeText={setEmail} disabled={busy} email /> : null}
       {state.status === 'signed_out' ? <TextField label={t('password')} value={password} onChangeText={setPassword} disabled={busy} secure /> : null}
+      {state.status === 'signed_out' && mode === 'login' ? <View style={styles.recovery}><Button variant="ghost" disabled={busy} onPress={() => void requestPasswordReset()}>{t('recoverPassword')}</Button></View> : null}
       {onboarding ? <CompanyFields name={companyName} country={country} setName={setCompanyName} setCountry={setCountry} disabled={busy} /> : null}
       {notice ? <ThemedText accessibilityRole="text">{notice}</ThemedText> : null}
       {error ? <FieldError>{error}</FieldError> : null}
-      {checkEmail ? <Action label={busy ? t('sending') : t('resendVerification')} disabled={busy} onPress={() => void requestVerification()} /> : <Action label={busy ? t('sending') : onboarding ? t('createCompany') : mode === 'login' ? t('signIn') : t('createAccountAction')} disabled={busy} onPress={() => void run()} />}
+      {checkEmail ? <Button disabled={busy} onPress={() => void requestVerification()} >{busy ? t('sending') : t('resendVerification')}</Button> : <Button disabled={busy} onPress={() => void run()} >{busy ? t('sending') : onboarding ? t('createCompany') : mode === 'login' ? t('signIn') : t('createAccountAction')}</Button>}
     </FieldGroup>
-    {state.status === 'signed_out' && mode === 'login' ? <><Action label={t('resendVerification')} disabled={busy} onPress={() => void requestVerification()} /><Action label={t('recoverPassword')} disabled={busy} onPress={() => void requestPasswordReset()} /></> : null}
-    {state.status === 'signed_out' ? <Action label={mode === 'login' ? t('createAnAccount') : t('alreadyHaveAccount')} onPress={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(''); setNotice(''); setPassword(''); }} /> : checkEmail ? <Action label={t('backToSignIn')} onPress={() => { void access.signOut(); setMode('login'); }} /> : <Action label={t('signOut')} onPress={() => void access.signOut()} />}
-  </ScrollView></SafeAreaView>;
+    {state.status === 'signed_out' ? <Button variant="secondary" disabled={busy} onPress={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(''); setNotice(''); setPassword(''); }} >{mode === 'login' ? t('createAnAccount') : t('alreadyHaveAccount')}</Button> : checkEmail ? <Button variant="ghost" disabled={busy} onPress={() => { void access.signOut(); setMode('login'); }} >{t('backToSignIn')}</Button> : <Button variant="ghost" disabled={busy} onPress={() => void access.signOut()} >{t('signOut')}</Button>}
+    {state.status === 'signed_out' && mode === 'login' ? <View style={[styles.verification, { borderTopColor: theme.border }]}><Button variant="ghost" disabled={busy} onPress={() => void requestVerification()}>{t('resendVerification')}</Button></View> : null}
+  </ScrollView></KeyboardAvoidingView></SafeAreaView>;
 }
 
-const styles = StyleSheet.create({ page: { flex: 1 }, center: { flex: 1, justifyContent: 'center', padding: 24, gap: 16 }, content: { flexGrow: 1, justifyContent: 'center', padding: 24, gap: 16, maxWidth: 560, width: '100%', alignSelf: 'center' }, fields: { marginVertical: 16 }, action: { minHeight: 48, paddingHorizontal: 16, justifyContent: 'center', alignItems: 'center', borderRadius: 8 }, disabled: { opacity: 0.5 }, countries: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, country: { minWidth: 56, minHeight: 48, paddingHorizontal: 12, borderWidth: 1, borderRadius: 8, justifyContent: 'center', alignItems: 'center' } });
+const styles = StyleSheet.create({
+  page: { flex: 1 },
+  center: { flex: 1, justifyContent: 'center', padding: 24, gap: 16 },
+  content: { flexGrow: 1, padding: 24, paddingTop: 48, gap: 16, maxWidth: 560, width: '100%', alignSelf: 'center' },
+  fields: { marginTop: 16 },
+  recovery: { alignSelf: 'flex-end' },
+  verification: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 16, marginTop: 8 },
+  countries: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  country: { minWidth: 56, minHeight: 48, paddingHorizontal: 12, borderWidth: 1, borderRadius: 8, justifyContent: 'center', alignItems: 'center' },
+});
