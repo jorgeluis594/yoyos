@@ -38,7 +38,11 @@ func TestFatalRecoveryAuxiliaryWritesJoinPendingTransaction(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			native := &controlledStorage{}
 			protocol := openTest(t, native)
-			device := &store.Device{}
+			device := validDevice()
+			device.PushName = "Before"
+			if err := protocol.PutDevice(context.Background(), device); err != nil {
+				t.Fatal(err)
+			}
 			protocol.AttachDevice(device)
 			client := whatsmeow.NewClient(device, nil)
 			completions := 0
@@ -64,6 +68,7 @@ func TestFatalRecoveryAuxiliaryWritesJoinPendingTransaction(t *testing.T) {
 				{`["contact","456@lid"]`, &waSyncAction.SyncActionValue{ContactAction: &waSyncAction.ContactAction{FullName: proto.String("Recovered")}}},
 				{`["pin_v1","456@lid"]`, &waSyncAction.SyncActionValue{PinAction: &waSyncAction.PinAction{Pinned: proto.Bool(true)}}},
 				{`["nct_salt_sync"]`, &waSyncAction.SyncActionValue{NctSaltSyncAction: &waSyncAction.NctSaltSyncAction{Salt: []byte{7, 8}}}},
+				{`["setting_pushName"]`, &waSyncAction.SyncActionValue{PushNameSetting: &waSyncAction.PushNameSetting{Name: proto.String("After")}}},
 			}
 			snapshot := &recoverypb.SyncdSnapshotRecovery{CollectionName: proto.String("regular"), Version: &recoverypb.SyncdVersion{Version: proto.Uint64(2)}, CollectionLthash: make([]byte, 128)}
 			for _, r := range records {
@@ -95,6 +100,9 @@ func TestFatalRecoveryAuxiliaryWritesJoinPendingTransaction(t *testing.T) {
 			if completions != 0 {
 				t.Fatal("completion dispatched before durable commit")
 			}
+			if device.PushName != "Before" {
+				t.Fatal("push name published before recovery commit")
+			}
 			if test.name == "commit" {
 				for range 2 {
 					ok, err := client.DangerousInternals().HandleAppStateRecovery(ctx, info.ID, result)
@@ -107,6 +115,10 @@ func TestFatalRecoveryAuxiliaryWritesJoinPendingTransaction(t *testing.T) {
 				}
 			}
 			restored := openTest(t, native)
+			restoredDevice, err := restored.RestoreDevice(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
 			version, _, err := restored.GetAppStateVersion(context.Background(), "regular")
 			if err != nil {
 				t.Fatal(err)
@@ -124,10 +136,10 @@ func TestFatalRecoveryAuxiliaryWritesJoinPendingTransaction(t *testing.T) {
 				t.Fatal(err)
 			}
 			if test.name != "commit" {
-				if version != 0 || contact.Found || chat.Pinned || len(salt) != 0 || len(native.pending) != 0 {
+				if version != 0 || contact.Found || chat.Pinned || len(salt) != 0 || len(native.pending) != 0 || restoredDevice.PushName != "Before" {
 					t.Fatal("failed mutation published partial recovery")
 				}
-			} else if version != 2 || contact.FullName != "Recovered" || !chat.Pinned || len(salt) != 2 || len(native.pending) != 1 {
+			} else if version != 2 || contact.FullName != "Recovered" || !chat.Pinned || len(salt) != 2 || len(native.pending) != 1 || restoredDevice.PushName != "After" || device.PushName != "After" {
 				t.Fatalf("recovery lost auxiliary state: version=%d contact=%+v chat=%+v salt=%v pending=%d", version, contact, chat, salt, len(native.pending))
 			}
 		})

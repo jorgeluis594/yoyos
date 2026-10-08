@@ -2546,11 +2546,12 @@ diff --git a/appstate.go b/appstate.go
 index 1acb77b..3f3e493 100644
 --- a/appstate.go
 +++ b/appstate.go
-@@ -27,6 +27,12 @@ import (
+@@ -27,6 +27,13 @@ import (
  	"go.mau.fi/whatsmeow/types/events"
  )
  
 +type appStateEventsOnlyKey struct{}
++type appStateStagingKey struct{}
 +
 +func appStateEventsOnly(ctx context.Context) bool {
 +	return ctx.Value(appStateEventsOnlyKey{}) == true
@@ -2590,7 +2591,7 @@ index 1acb77b..3f3e493 100644
 +			if stageErr != nil {
 +				return stageErr
 +			}
-+			return cli.collectEventsToDispatch(tx, name, mutations, true, nil)
++			return cli.collectEventsToDispatch(context.WithValue(tx, appStateStagingKey{}, true), name, mutations, true, nil)
 +		})
 +	}
  	if err != nil {
@@ -2676,7 +2677,7 @@ index 1acb77b..3f3e493 100644
  			storeUpdateError = cli.Store.Contacts.PutContactName(ctx, jid, act.GetFirstName(), act.GetFullName())
  		}
  	case appstate.IndexClearChat:
-@@ -369,11 +402,13 @@ func (cli *Client) dispatchAppState(ctx context.Context, name appstate.WAPatchNa
+@@ -369,11 +402,15 @@ func (cli *Client) dispatchAppState(ctx context.Context, name appstate.WAPatchNa
  			Action:       mutation.Action.GetPushNameSetting(),
  			FromFullSync: fullSync,
  		}
@@ -2691,7 +2692,9 @@ index 1acb77b..3f3e493 100644
 +			previous := cli.Store.PushName
 +			cli.Store.PushName = mutation.Action.GetPushNameSetting().GetName()
 +			storeUpdateError = cli.Store.Save(ctx)
-+			cli.Store.PushName = previous
++			if storeUpdateError != nil || ctx.Value(appStateStagingKey{}) == true {
++				cli.Store.PushName = previous
++			}
  		}
  	case appstate.IndexSettingUnarchiveChats:
  		eventToDispatch = &events.UnarchiveChatsSetting{
@@ -2840,7 +2843,7 @@ index 0c7e3ed..7204f89 100644
 +							if err != nil {
  								return err
  							}
-+							if err := cli.collectEventsToDispatch(ctx, appstate.WAPatchName(snapshot.GetCollectionName()), mutations, true, nil); err != nil {
++							if err := cli.collectEventsToDispatch(context.WithValue(ctx, appStateStagingKey{}, true), appstate.WAPatchName(snapshot.GetCollectionName()), mutations, true, nil); err != nil {
 +								return err
 +							}
 +							store.MarkAppStateRecoveryStaged(ctx)
