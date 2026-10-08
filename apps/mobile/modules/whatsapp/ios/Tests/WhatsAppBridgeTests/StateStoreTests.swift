@@ -432,6 +432,84 @@ final class StateStoreTests: XCTestCase {
     XCTAssertNoThrow(try makeStore(root).open())
   }
 
+  func testActualENOSPCOnBoundedVolume() throws {
+    let volume = URL(fileURLWithPath: "/Volumes/wa02-whatsapp-enospc", isDirectory: true)
+    let manager = FileManager.default
+    let volumeDevice = try XCTUnwrap(manager.attributesOfItem(atPath: volume.path)[.deviceIdentifier] as? NSNumber)
+    let hostDevice = try XCTUnwrap(manager.attributesOfItem(atPath: manager.temporaryDirectory.path)[.deviceIdentifier] as? NSNumber)
+    let capacity = try XCTUnwrap(manager.attributesOfFileSystem(forPath: volume.path)[.systemSize] as? NSNumber).int64Value
+    guard volumeDevice != hostDevice, capacity > 32 * 1024 * 1024,
+          capacity <= 300 * 1024 * 1024 else { XCTFail("Test requires a separate bounded filesystem"); return }
+    let root = volume.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    let filler = volume.appendingPathComponent("filler")
+    let probe = volume.appendingPathComponent("probe")
+    defer { try? manager.removeItem(at: root); try? manager.removeItem(at: filler); try? manager.removeItem(at: probe) }
+    let store = try makeStore(root)
+    _ = try store.open()
+    let messageInfoJson = "{\"padding\":\"" + String(repeating: "A", count: 8 * 1024 * 1024) + "\"}"
+    let recovery: [String: Any] = ["messageInfoJson": messageInfoJson, "items": [Any]()]
+    let pending: [String: Any] = ["deliveryId": "wa-delivery:v1:" + String(repeating: "a", count: 32),
+                                  "accountId": "123@lid", "createdRevision": "1", "createdOrdinal": 0,
+                                  "source": "live", "identityState": "pendingLid",
+                                  "recovery": recovery]
+    _ = try store.commit(expectedRevision: "0") { current in
+      var next = current
+      next["options"] = ["maxRecoveryBufferBytes": 12 * 1024 * 1024,
+                         "maxImageStorageBytes": 50 * 1024 * 1024]
+      next["pending"] = [pending]
+      return next
+    }
+    let published = root.appendingPathComponent("whatsapp/state.bin")
+    let publishedSize = try XCTUnwrap(manager.attributesOfItem(atPath: published.path)[.size] as? NSNumber).intValue
+    let protection = try published.resourceValues(forKeys: [.fileProtectionKey]).fileProtection
+    guard protection == .completeUntilFirstUserAuthentication else {
+      XCTFail("Mounted volume did not preserve file protection"); return
+    }
+    func freeBytes() throws -> Int64 {
+      try XCTUnwrap(manager.attributesOfFileSystem(forPath: volume.path)[.systemFreeSize] as? NSNumber).int64Value
+    }
+    guard try freeBytes() > Int64(publishedSize * 2) else { XCTFail("Not enough bounded volume space for the second-copy test"); return }
+    XCTAssertTrue(manager.createFile(atPath: filler.path, contents: nil))
+    let fillHandle = try FileHandle(forWritingTo: filler)
+    defer { try? fillHandle.close() }
+    let block = Data(repeating: 0x5a, count: 1024 * 1024)
+    while true {
+      let available = try freeBytes()
+      if available <= Int64(publishedSize / 2) { break }
+      let count = Int(min(Int64(block.count), available - Int64(publishedSize / 2)))
+      do { try fillHandle.write(contentsOf: block.prefix(count)) }
+      catch { guard isNoSpace(error) else { throw error }; break }
+    }
+    XCTAssertTrue(manager.createFile(atPath: probe.path, contents: nil))
+    let probeHandle = try FileHandle(forWritingTo: probe)
+    defer { try? probeHandle.close() }
+    var exhausted = false
+    do { try probeHandle.write(contentsOf: Data(repeating: 0, count: publishedSize)) }
+    catch { exhausted = isNoSpace(error); if !exhausted { throw error } }
+    XCTAssertTrue(exhausted, "Expected a real ENOSPC from the bounded filesystem")
+    var reachedWrite = false
+    let writer = try makeStore(root) { if $0 == "write" { reachedWrite = true } }
+    XCTAssertThrowsError(try writer.commit(expectedRevision: "1") { $0 })
+    XCTAssertTrue(reachedWrite)
+    let bytes = try Data(contentsOf: published)
+    let headerLength = bytes[8..<12].reduce(0) { ($0 << 8) | Int($1) }
+    let header = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes[12..<12+headerLength]) as? [String: Any])
+    XCTAssertEqual(header["revision"] as? String, "1")
+    try probeHandle.close()
+    try fillHandle.close()
+    try manager.removeItem(at: probe)
+    try manager.removeItem(at: filler)
+    XCTAssertEqual((try makeStore(root).open()["pending"] as? [[String: Any]])?.count, 1)
+  }
+
+  private func isNoSpace(_ error: Error) -> Bool {
+    let value = error as NSError
+    if value.domain == NSPOSIXErrorDomain && value.code == Int(ENOSPC) { return true }
+    if value.domain == NSCocoaErrorDomain && value.code == NSFileWriteOutOfSpaceError { return true }
+    if let underlying = value.userInfo[NSUnderlyingErrorKey] as? Error { return isNoSpace(underlying) }
+    return false
+  }
+
   func testStaleRevisionCannotReplacePublishedState() throws {
     let root = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: root) }

@@ -161,12 +161,26 @@ jobs:
           echo "SIMULATOR_ID=$SIMULATOR_ID" >> "$GITHUB_ENV"
           xcrun simctl boot "$SIMULATOR_ID"
           xcrun simctl bootstatus "$SIMULATOR_ID" -b
+      - name: Test iOS second-copy ENOSPC on bounded APFS volume
+        if: matrix.runner == 'macos-26'
+        run: |
+          image="$RUNNER_TEMP/wa02-enospc.dmg"
+          mount_path=/Volumes/wa02-whatsapp-enospc
+          hdiutil create -size 256m -type UDIF -fs APFS -volname WA02-ENOSPC "$image"
+          hdiutil attach -nobrowse -mountpoint "$mount_path" "$image"
+          trap 'hdiutil detach "$mount_path" || true' EXIT
+          scheme=$(xcodebuild -list -json | python3 -c 'import json,sys; data=json.load(sys.stdin); schemes=next(v["schemes"] for v in data.values() if isinstance(v,dict) and "schemes" in v); print(next(s for s in schemes if "WhatsAppBridgeTests" in s))')
+          xcodebuild -scheme "$scheme" -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -parallel-testing-enabled NO \
+            -only-testing:WhatsAppBridgeTests/StateStoreTests/testActualENOSPCOnBoundedVolume test
+        working-directory: apps/mobile/modules/whatsapp/ios
       - name: Test callback on simulator
         run: |
           scheme=$(xcodebuild -list -json | python3 -c 'import json,sys; data=json.load(sys.stdin); schemes=next(v["schemes"] for v in data.values() if isinstance(v,dict) and "schemes" in v); print(next(s for s in schemes if "WhatsAppBridgeTests" in s))')
           xcodebuild -scheme "$scheme" -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -skip-testing:WhatsAppBridgeTests/StateStoreTests/testProcessCrashMatrix \
-            -skip-testing:WhatsAppBridgeTests/StateStoreTests/testResetCrashMatrix test
+            -skip-testing:WhatsAppBridgeTests/StateStoreTests/testResetCrashMatrix \
+            -skip-testing:WhatsAppBridgeTests/StateStoreTests/testActualENOSPCOnBoundedVolume test
           xcodebuild -scheme "$scheme" -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -parallel-testing-enabled NO \
             -only-testing:WhatsAppBridgeTests/StateStoreTests/testResetCrashMatrix test
