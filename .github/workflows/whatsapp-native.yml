@@ -173,15 +173,17 @@ jobs:
       - name: Build and inspect entitled iOS storage test host
         run: |
           xcodebuild -workspace WhatsAppNativeProbe.xcworkspace -scheme WhatsAppStateStoreHostTests \
-            -derivedDataPath "$RUNNER_TEMP/wa-host" -destination "platform=iOS Simulator,id=$SIMULATOR_ID" build-for-testing
-          app="$RUNNER_TEMP/wa-host/Build/Products/Debug-iphonesimulator/WhatsAppNativeProbe.app"
+            -configuration Release -derivedDataPath "$RUNNER_TEMP/wa-host" \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" build-for-testing
+          app="$RUNNER_TEMP/wa-host/Build/Products/Release-iphonesimulator/WhatsAppNativeProbe.app"
           codesign -d --entitlements :- "$app" > "$RUNNER_TEMP/wa-host-entitlements.plist"
           app_id=$(/usr/libexec/PlistBuddy -c 'Print :application-identifier' "$RUNNER_TEMP/wa-host-entitlements.plist")
           keychain_group=$(/usr/libexec/PlistBuddy -c 'Print :keychain-access-groups:0' "$RUNNER_TEMP/wa-host-entitlements.plist")
           test -n "$app_id" && test "$app_id" = "$keychain_group"
           echo "Storage test host application identifier: $app_id"
           xcodebuild -workspace WhatsAppNativeProbe.xcworkspace -scheme WhatsAppStateStoreHostTests \
-            -derivedDataPath "$RUNNER_TEMP/wa-host" -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -configuration Release -derivedDataPath "$RUNNER_TEMP/wa-host" \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -parallel-testing-enabled NO \
             -only-testing:WhatsAppStateStoreHostTests/StateStoreTests/testPublishedStateSurvivesReopenAndIgnoresNextFile test-without-building
         working-directory: apps/mobile/tests/whatsapp-native-app/ios
@@ -194,33 +196,40 @@ jobs:
           hdiutil attach -nobrowse -mountpoint "$mount_path" "$image"
           trap 'hdiutil detach "$mount_path" || true' EXIT
           xcodebuild -workspace WhatsAppNativeProbe.xcworkspace -scheme WhatsAppStateStoreHostTests \
-            -derivedDataPath "$RUNNER_TEMP/wa-host" -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -configuration Release -derivedDataPath "$RUNNER_TEMP/wa-host" \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -parallel-testing-enabled NO \
             -only-testing:WhatsAppStateStoreHostTests/StateStoreTests/testActualENOSPCOnBoundedVolume test-without-building
         working-directory: apps/mobile/tests/whatsapp-native-app/ios
       - name: Test storage on entitled iOS app host
         run: |
           xcodebuild -workspace WhatsAppNativeProbe.xcworkspace -scheme WhatsAppStateStoreHostTests \
-            -derivedDataPath "$RUNNER_TEMP/wa-host" -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -configuration Release -derivedDataPath "$RUNNER_TEMP/wa-host" \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -skip-testing:WhatsAppStateStoreHostTests/StateStoreTests/testProcessCrashMatrix \
             -skip-testing:WhatsAppStateStoreHostTests/StateStoreTests/testResetCrashMatrix \
             -skip-testing:WhatsAppStateStoreHostTests/StateStoreTests/testActualENOSPCOnBoundedVolume test-without-building
           xcodebuild -workspace WhatsAppNativeProbe.xcworkspace -scheme WhatsAppStateStoreHostTests \
-            -derivedDataPath "$RUNNER_TEMP/wa-host" -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -configuration Release -derivedDataPath "$RUNNER_TEMP/wa-host" \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -parallel-testing-enabled NO \
             -only-testing:WhatsAppStateStoreHostTests/StateStoreTests/testResetCrashMatrix test-without-building
           for phase in cipher write sync close replace directorySync response; do
+            echo "Crash phase: $phase"
             if xcodebuild -workspace WhatsAppNativeProbe.xcworkspace -scheme WhatsAppStateStoreHostTests \
-              -derivedDataPath "$RUNNER_TEMP/wa-host" -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+              -configuration Release -derivedDataPath "$RUNNER_TEMP/wa-host" \
+              -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
               -parallel-testing-enabled NO \
               -only-testing:WhatsAppStateStoreHostTests/StateStoreTests/testProcessCrashMatrix test-without-building; then
               echo "Expected process kill at $phase" >&2
               exit 1
             fi
             xcodebuild -workspace WhatsAppNativeProbe.xcworkspace -scheme WhatsAppStateStoreHostTests \
-              -derivedDataPath "$RUNNER_TEMP/wa-host" -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+              -configuration Release -derivedDataPath "$RUNNER_TEMP/wa-host" \
+              -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
               -parallel-testing-enabled NO \
               -only-testing:WhatsAppStateStoreHostTests/StateStoreTests/testProcessCrashMatrix test-without-building
+            echo "Recovered phase: $phase"
           done
         working-directory: apps/mobile/tests/whatsapp-native-app/ios
       - name: Build Expo app with the vendored framework
