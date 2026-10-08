@@ -94,10 +94,7 @@ jobs:
           disable-animations: true
           working-directory: apps/mobile/tests/whatsapp-native-app/android
           script: |
-            if ! timeout 15m ./gradlew :yoyos-whatsapp:connectedDebugAndroidTest; then
-              adb logcat -d -t 500
-              exit 1
-            fi
+            timeout 15m ./gradlew :yoyos-whatsapp:connectedDebugAndroidTest || { adb logcat -d -t 500; exit 1; }
             adb install app/build/outputs/apk/release/app-release.apk
             adb shell am start -n com.yoyos.whatsappnativeprobe/.MainActivity
             for attempt in 1 2 3 4 5 6 7 8 9 10; do
