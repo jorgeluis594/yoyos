@@ -133,7 +133,9 @@ jobs:
           xcrun simctl boot "$SIMULATOR_ID"
           xcrun simctl bootstatus "$SIMULATOR_ID" -b
       - name: Test callback on simulator
-        run: xcodebuild -scheme WhatsAppBridgeTests -destination "platform=iOS Simulator,id=$SIMULATOR_ID" test
+        run: |
+          scheme=$(xcodebuild -list -json | python3 -c 'import json,sys; data=json.load(sys.stdin); schemes=next(v["schemes"] for v in data.values() if isinstance(v,dict) and "schemes" in v); print(next(s for s in schemes if "WhatsAppBridgeTests" in s))')
+          xcodebuild -scheme "$scheme" -destination "platform=iOS Simulator,id=$SIMULATOR_ID" test
         working-directory: apps/mobile/modules/whatsapp/ios
       - name: Build Expo app with the vendored framework
         run: |
