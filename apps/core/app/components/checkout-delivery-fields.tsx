@@ -7,6 +7,7 @@ import { Button } from "@core/app/components/ui/button";
 import { Field, FieldLabel, controlClass } from "@core/app/components/ui/field";
 import { PeruDistrictSelect } from "@core/app/components/peru-district-select";
 import { formatCurrency } from "@core/app/format-currency";
+import { useClientReady } from "@core/app/use-client-ready";
 import { getPeruDistrict } from "@shared/peru-geography";
 import type { Money } from "@shared/money";
 import type { Result } from "@shared/result";
@@ -24,6 +25,7 @@ export function CheckoutDeliveryFields({ orderId, checkout, options, onChange, r
   orderId: string; checkout: PublicCheckoutResponse; options: CheckoutDeliveryOptions;
   onChange: (draft: CheckoutDeliveryDraft | null) => void; recoveryVersion?: number | object; disabled?: boolean;
 }>) {
+  const ready = useClientReady();
   const saved = checkout.delivery;
   const shippingEnabled = options.home.enabled || options.agency.enabled;
   const form = useForm<Draft>({ resolver: zodResolver(draftSchema), defaultValues: {
@@ -66,7 +68,7 @@ export function CheckoutDeliveryFields({ orderId, checkout, options, onChange, r
   const amount = (price: Money) => price.amount === 0 ? "Gratis" : formatCurrency(price.amount, price.currency, "es");
   const input = (name: "name" | "phone" | "address" | "instructions" | "document", label: string, required = false) => <Controller key={name} name={name} control={form.control} render={({ field }) =>
     <Field><FieldLabel htmlFor={`delivery-${name}`}>{label}</FieldLabel><Input {...field} name={undefined} id={`delivery-${name}`} required={required} type={name === "phone" ? "tel" : "text"} /></Field>} />;
-  return <fieldset disabled={disabled} className="flex min-w-0 flex-col gap-4">
+  return <fieldset disabled={disabled || !ready} className="flex min-w-0 flex-col gap-4">
     <legend className="mb-3 text-lg font-semibold">Entrega</legend>
     <Controller name="mode" control={form.control} render={({ field }) => <Field><FieldLabel htmlFor="delivery-mode">Forma de entrega</FieldLabel>
       <select id="delivery-mode" className={controlClass} value={field.value} onBlur={field.onBlur} onChange={event => {

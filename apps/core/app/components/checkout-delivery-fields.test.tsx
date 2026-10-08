@@ -10,6 +10,10 @@ const checkout: PublicCheckoutResponse = { companyName: "Shop", number: 1001, bu
 const options = { home: { enabled: true }, agency: { enabled: false }, store: { enabled: false as const, pickupPoint: null } };
 const render = (value = checkout, settings = options) => renderToStaticMarkup(<CheckoutDeliveryFields orderId="00000000-0000-4000-8000-000000000001" checkout={value} options={settings} onChange={() => undefined} />);
 
+test("delivery controls wait for client hydration before accepting selections", () => {
+  expect(render()).toMatch(/<fieldset disabled=""/);
+});
+
 test("unassigned delivery asks for a district and recipient and never offers implicit free pickup", () => {
   const html = render();
   expect(html).toContain("Distrito de entrega");
