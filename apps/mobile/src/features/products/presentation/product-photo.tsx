@@ -6,6 +6,7 @@ import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { Button } from "@/components/ui/button";
 import { ThemedText } from "@/components/themed-text";
+import { useTheme } from "@mobile/hooks/use-theme";
 import type { ImageId, PhotoSelection, Product } from "../domain/product";
 import { useProductDraft } from "./draft-guard";
 import i18n from '@mobile/i18n';
@@ -44,6 +45,7 @@ export function ProductPhoto({ value, original, upload, disabled = false, onChan
 }) {
   const [busyVersion, setBusyVersion] = useState<number | null>(null);
   const { t } = useTranslation();
+  const theme = useTheme();
   const { discardVersion } = useProductDraft();
   const discardVersionRef = useRef(discardVersion);
   const previousDiscardVersionRef = useRef(discardVersion);
@@ -97,18 +99,21 @@ export function ProductPhoto({ value, original, upload, disabled = false, onChan
 
   return <View style={styles.root}>
     <ThemedText type="subtitle">{t('photo')}</ThemedText>
-    {preview ? <Image source={{ uri: preview }} contentFit="cover" style={styles.preview} accessibilityLabel={t('photoPreview')} /> : <View style={styles.placeholder}><ThemedText themeColor="textSecondary">{t('noPhoto')}</ThemedText></View>}
-    <View style={styles.actions}>
-      <Button variant="secondary" disabled={busy || disabled} loading={busy} onPress={() => void choose("gallery")}>{t('chooseGallery')}</Button>
-      <Button variant="secondary" disabled={busy || disabled} onPress={() => void choose("camera")}>{t('takePhoto')}</Button>
-      {value.kind !== "keep" || original ? <Button variant="ghost" disabled={busy || disabled} onPress={() => onChange(original ? { kind: "remove" } : { kind: "keep" })}>{t('removePhoto')}</Button> : null}
-      {value.kind === "remove" && original ? <Button variant="ghost" disabled={disabled} onPress={() => onChange({ kind: "keep" })}>{t('keepPhoto')}</Button> : null}
+    <View style={styles.content}>
+      {preview ? <Image source={{ uri: preview }} contentFit="cover" style={styles.preview} accessibilityLabel={t('photoPreview')} /> : <View style={[styles.placeholder, { backgroundColor: theme.secondary }]}><ThemedText themeColor="textSecondary">{t('noPhoto')}</ThemedText></View>}
+      <View style={styles.actions}>
+        <Button variant="secondary" disabled={busy || disabled} loading={busy} onPress={() => void choose("gallery")}>{t('chooseGallery')}</Button>
+        <Button variant="secondary" disabled={busy || disabled} onPress={() => void choose("camera")}>{t('takePhoto')}</Button>
+        {value.kind !== "keep" || original ? <Button variant="ghost" disabled={busy || disabled} onPress={() => onChange(original ? { kind: "remove" } : { kind: "keep" })}>{t('removePhoto')}</Button> : null}
+        {value.kind === "remove" && original ? <Button variant="ghost" disabled={disabled} onPress={() => onChange({ kind: "keep" })}>{t('keepPhoto')}</Button> : null}
+      </View>
     </View>
   </View>;
 }
 
 const styles = StyleSheet.create({
-  root: { gap: 12 }, preview: { width: "100%", height: 200, borderRadius: 12 },
-  placeholder: { height: 120, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#eee" },
-  actions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  root: { gap: 12 }, content: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  preview: { width: 96, height: 96, borderRadius: 12 },
+  placeholder: { width: 96, height: 96, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  actions: { flex: 1, gap: 8 },
 });

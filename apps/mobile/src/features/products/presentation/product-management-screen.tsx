@@ -1,11 +1,16 @@
+/** @jsxImportSource react */
+// Preserve native Pressable style callbacks outside NativeWind interop.
 import { useEffect, useRef, useState } from "react";
-import { Alert, StyleSheet, View } from "react-native";
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { SymbolView } from "expo-symbols";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ScreenState } from "@/components/ui/screen-state";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
+import { Button } from "@/components/ui/button";
+import { useTheme } from "@mobile/hooks/use-theme";
 import { products } from "@mobile/features/products/composition";
 import { useAccess } from "@/features/users/presentation/access-provider";
 import type { PhotoSelection, Product, ProductId, VariantId } from "../domain/product";
@@ -64,6 +69,7 @@ export default function ProductManagementScreen() {
   const { productId } = useLocalSearchParams<{ productId: string }>();
   const router = useRouter();
   const { t } = useTranslation();
+  const theme = useTheme();
   const { state } = useAccess();
   const { startAttempt } = usePrint();
   const [product, setProduct] = useState<Product | null>(null);
@@ -77,6 +83,7 @@ export default function ProductManagementScreen() {
   const [uncertain, setUncertain] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [copies, setCopies] = useState("1");
+  const [choosingVariant, setChoosingVariant] = useState(false);
   const { discardVersion } = useProductDraft();
   const discardVersionRef = useRef(discardVersion);
   const requestKey = `${productId}:${reloadKey}`;
@@ -190,12 +197,26 @@ export default function ProductManagementScreen() {
   };
   const printVariant = (variantId: VariantId) => {
     const quantity = makeCopyCount(Number(copies));
-    if (!quantity.success || quantity.data > 99) { setErrors((current) => ({ ...current, form: t('copyCountError') })); return; }
+    if (!quantity.success || quantity.data > 99) { setErrors((current) => ({ ...current, form: t('copyCountError') })); Alert.alert(t('copyCountError')); return; }
     startAttempt(productPrintWork({ kind: "saved-product", product, variantId }, quantity.data));
+    setChoosingVariant(false);
+  };
+  const print = () => {
+    if (product.variants.length === 1) printVariant(product.variants[0].id);
+    else setChoosingVariant(true);
   };
 
   return <ThemedView style={styles.page}><SafeAreaView style={styles.safe}>
-    <View style={styles.header}><ThemedText type="subtitle">{t('manageProduct')}</ThemedText><ThemedText themeColor="textSecondary">{t('currencyLabel', { currency: product.currency })}</ThemedText></View>
+    <View style={styles.header}>
+      <View style={styles.heading}><ThemedText type="subtitle" style={styles.title}>{t('manageProduct')}</ThemedText>
+        {product.variants.length > 0 ? <Pressable accessibilityRole="button" accessibilityLabel={t('printLabel')}
+          accessibilityState={{ disabled: saving || photoBusy || uncertain }} disabled={saving || photoBusy || uncertain}
+          onPress={print} style={({ pressed }) => [styles.printAction, { backgroundColor: pressed ? theme.accent : theme.secondary, opacity: saving || photoBusy || uncertain ? 0.5 : 1 }]}>
+          <SymbolView name={{ ios: "printer", android: "print" }} size={24} tintColor={theme.secondaryForeground} />
+        </Pressable> : null}
+      </View>
+      <ThemedText themeColor="textSecondary">{t('currencyLabel', { currency: product.currency })}</ThemedText>
+    </View>
     {dirty ? <ThemedText themeColor="textSecondary" style={styles.printNote}>{t('printSavedDataHint')}</ThemedText> : null}
     <ProductForm
       values={values}
@@ -209,8 +230,6 @@ export default function ProductManagementScreen() {
       photoBusy={photoBusy}
       onPhotoBusy={setPhotoBusy}
       onSave={() => void save()}
-      onPrint={product.variants.length === 1 ? () => printVariant(product.variants[0].id) : undefined}
-      onPrintVariant={product.variants.length > 1 ? printVariant : undefined}
       copies={copies}
       onCopiesChange={setCopies}
       onCancel={() => router.replace("/products")}
@@ -219,7 +238,25 @@ export default function ProductManagementScreen() {
       saving={saving}
       uncertain={uncertain}
     />
+    <Modal visible={choosingVariant} transparent animationType="fade" onRequestClose={() => setChoosingVariant(false)}>
+      <View style={styles.scrim}><View style={[styles.picker, { backgroundColor: theme.backgroundElement }]}>
+        <ThemedText type="subtitle">{t('selectVariantToPrint')}</ThemedText>
+        <ScrollView contentContainerStyle={styles.variantChoices}>
+          {product.variants.map((variant, index) => <Button key={variant.id} variant="secondary" onPress={() => printVariant(variant.id)}>
+            {Object.entries(variant.attributes).map(([key, value]) => `${key}: ${value}`).join(" · ") || t('numberedVariant', { count: index + 1 })}
+          </Button>)}
+        </ScrollView>
+        <Button variant="ghost" onPress={() => setChoosingVariant(false)}>{t('cancel')}</Button>
+      </View></View>
+    </Modal>
   </SafeAreaView></ThemedView>;
 }
 
-const styles = StyleSheet.create({ page: { flex: 1 }, safe: { flex: 1 }, header: { paddingHorizontal: 20, paddingTop: 8, gap: 4 }, printNote: { paddingHorizontal: 20, paddingTop: 8 } });
+const styles = StyleSheet.create({
+  page: { flex: 1 }, safe: { flex: 1 }, header: { paddingHorizontal: 20, paddingTop: 8, gap: 4 },
+  heading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  title: { flexShrink: 1 }, printAction: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
+  printNote: { paddingHorizontal: 20, paddingTop: 8 },
+  scrim: { flex: 1, justifyContent: "center", padding: 24, backgroundColor: "#0008" },
+  picker: { maxHeight: "75%", borderRadius: 12, padding: 20, gap: 16 }, variantChoices: { gap: 8 },
+});

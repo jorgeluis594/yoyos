@@ -7,6 +7,14 @@ related_targets: []
 
 # Products — native form actions
 
+## Current direction — product form redesign (2026-10-08)
+
+The user selected `.impeccable/mocks/products-v2/option-a.png` for the broader form redesign, then moved printing from the comp's floating text pill to an **icon beside the top title**. The original decision and evidence below describe the earlier, narrower stacked-action iteration and remain as history.
+
+The current native form places the existing photo selection first in a compact horizontal block, keeps name and description open, and groups price and inventory in restrained white sections. Both creation and editing use one primary `Guardar` button in the scroll flow. Creation navigates to the persisted detail only after confirmed success and never prints automatically. A loaded persisted detail presents a 48dp printer icon in the header with an accessible ES/PT name; it prints saved data, and for multiple variants first opens a variant picker. An uncertain edit disables the print action until the status is resolved. The print icon is outside the scroll flow, while all form fields and actions remain scrollable above the bottom tabs.
+
+Native Android evidence is in `.impeccable/review/products-v2/` and the selected final captures in `/Users/jorgegonzalez/orca/projects/yoyos/artifacts/mobile-redesign/final/02-producto-*-rediseño-*.png`. No physical printer test is claimed.
+
 Mode: Operate. Scope: creation and editing action overflow only. Inherit PRODUCT.md and DESIGN.md, Caramelo sobrio, Inter and the existing native controls. The shared form is consumed by CreateProductScreen and ProductManagementScreen; their handlers, validation, data contracts, copies field, conflict recovery, navigation and accessibility remain intact.
 
 ## Direction and approval

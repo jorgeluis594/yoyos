@@ -1,0 +1,11 @@
+{
+  "approved": true,
+  "approval": "User chose option A and requested an accessible print icon beside the top title instead of the mock's floating print pill.",
+  "imageGeneration": "built-in image_gen",
+  "references": [
+    "/Users/jorgegonzalez/orca/projects/yoyos/artifacts/mobile-redesign/final/02-producto-alta.png",
+    "/Users/jorgegonzalez/orca/projects/yoyos/artifacts/mobile-redesign/final/02-producto-edicion.png",
+    "https://cdn.shopify.com/b/shopify-brochure2-assets/3df8d447b185c6286e3e9c504022f59d.png"
+  ],
+  "prompt": "Use case: ui-mockup. Create a high-fidelity RASTER DESIGN PROPOSAL SHEET, landscape canvas with TWO Android phone screens side by side, each complete portrait viewport. LEFT screen Spanish Yoyos 'Nuevo producto' before save; RIGHT screen 'Gestionar producto' after successful save. Option A: editorial grouped sections, compact visual density. White photo upload strip first, then title and description as open fields; subtle grouped section headings 'Precios' and 'Inventario'; large caramel 'Guardar' button in form flow on creation. On saved edit, a clearly FLOATING pill/button labeled 'Imprimir' with print icon hovers above but never overlaps the bottom Products tab bar or any fields; standard 'Guardar' button remains distinct. Show name 'Blusa lino arena', sale price S/ 79.90, purchase S/ 40.00, SKU BL-001, stock 8 read-only, copies 1. Use exact Spanish text legibly. Match reference Yoyos Caramelo sobrio palette cream #F7F4EF, white surfaces, charcoal #242326, caramel #8C552D, Inter-like typography, discreet borders, native tabs. Shopify reference contributes ONLY the task hierarchy of media/title/sections, no green, brand, desktop UI, channels, or copied shapes. No combined save and print action, no pre-save print. Two phones only, clear state labels ALTA and GUARDADO outside phones. This is a usable app UI, not a poster."
+}
