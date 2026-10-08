@@ -33,6 +33,7 @@ if test "$target" = ios || test "$target" = all; then
   rm -rf "$module_dir/ios/Frameworks/WhatsAppGo.xcframework"
   test "$(uname -s)" = Darwin || fail 'iOS requires macOS'
   command -v xcodebuild >/dev/null 2>&1 || fail 'Xcode required'
+  command -v python3 >/dev/null 2>&1 || fail 'Python 3 required to inspect the framework'
   xcodebuild -version >/dev/null 2>&1 || fail 'full Xcode required'
   xcrun --sdk iphoneos --show-sdk-path >/dev/null 2>&1 || fail 'iPhoneOS SDK required'
   xcrun --sdk iphonesimulator --show-sdk-path >/dev/null 2>&1 || fail 'iPhoneSimulator SDK required'
@@ -45,6 +46,9 @@ cd "$module_dir/go"
 go mod verify || fail 'Go dependencies failed verification'
 go build -mod=readonly -o "$build_dir/gomobile" golang.org/x/mobile/cmd/gomobile
 go build -mod=readonly -o "$build_dir/gobind" golang.org/x/mobile/cmd/gobind
+for tool in gomobile gobind; do
+  go version -m "$build_dir/$tool" | awk -v expected="$expected_mobile" '$1 == "mod" && $2 == "golang.org/x/mobile" && $3 == expected { found = 1 } END { exit !found }' || fail "$tool revision changed"
+done
 export PATH="$build_dir:$PATH"
 
 upstream_dir=$(go list -m -f '{{.Dir}}' go.mau.fi/whatsmeow)
@@ -64,12 +68,23 @@ export GOPATH="$build_dir/gopath"
 mkdir -p "$GOPATH/pkg/gomobile"
 if test "$target" = android || test "$target" = all; then
   gomobile bind -target=android/arm64,android/amd64 -androidapi=24 -javapkg=expo.modules.whatsapp.go -o "$build_dir/WhatsAppGo.aar" ./bridge
-  unzip -l "$build_dir/WhatsAppGo.aar" | grep -q 'jni/arm64-v8a/libgojni.so' || fail 'Android arm64 binding missing'
-  unzip -l "$build_dir/WhatsAppGo.aar" | grep -q 'jni/x86_64/libgojni.so' || fail 'Android amd64 binding missing'
+  test "$(unzip -Z1 "$build_dir/WhatsAppGo.aar" | awk -F/ '$1 == "jni" && $2 != "" { print $2 }' | sort -u)" = "$(printf 'arm64-v8a\nx86_64')" || fail 'unexpected Android ABI set'
+  unzip -p "$build_dir/WhatsAppGo.aar" classes.jar > "$build_dir/classes.jar"
+  jar tf "$build_dir/classes.jar" | grep -q '^expo/modules/whatsapp/go/bridge/Bridge.class$' || fail 'Java binding prefix missing'
 fi
 if test "$target" = ios || test "$target" = all; then
   gomobile bind -target=ios/arm64,iossimulator/arm64,iossimulator/amd64 -iosversion=16.4 -prefix=YYWhatsAppGo -o "$build_dir/WhatsAppGo.xcframework" ./bridge
   test -f "$build_dir/WhatsAppGo.xcframework/Info.plist" || fail 'iOS framework incomplete'
+  python3 - "$build_dir/WhatsAppGo.xcframework/Info.plist" <<'PY' || fail 'unexpected iOS architecture set'
+import plistlib
+import sys
+
+with open(sys.argv[1], 'rb') as source:
+    libraries = plistlib.load(source)['AvailableLibraries']
+device = {arch for lib in libraries if lib['SupportedPlatform'] == 'ios' and 'SupportedPlatformVariant' not in lib for arch in lib['SupportedArchitectures']}
+simulator = {arch for lib in libraries if lib['SupportedPlatformVariant'] == 'simulator' for arch in lib['SupportedArchitectures']}
+assert device == {'arm64'} and simulator == {'arm64', 'x86_64'}
+PY
 fi
 
 if test "$target" = android || test "$target" = all; then
