@@ -23,3 +23,4 @@ export function recordWhatsAppMessage(input: RecordMessageInput, connection: Wha
   return recordMessage(input, dependencies);
 }
 export type { Chat, ChatMessage, MessageOrigin, RecordMessageInput, RecordMessageOutcome } from "@core/src/features/chats/domain/message";
+export { storeOnce } from "@core/src/features/chats/store-mobile-message";
