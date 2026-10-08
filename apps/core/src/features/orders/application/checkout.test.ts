@@ -160,7 +160,7 @@ test("checkout keep requires an existing delivery and preserves historical price
   f.deps = { ...f.deps, findOrderForUpdate: async () => ok(historical) };
   expect(await confirmCheckoutDelivery({ ...input, expectedTotal: historical.total }, access, now, f.deps))
     .toMatchObject({ data: { changed: true, checkout: { total: historical.total } } });
-  expect(f.deps.saveDelivery).toHaveBeenCalledWith(access.orderId, access.companyId, historical);
+  expect(f.deps.saveDelivery).not.toHaveBeenCalled();
   expect(f.deps.getStoreSettings).not.toHaveBeenCalled();
   expect(f.deps.resolveSelectedDeliveryRate).not.toHaveBeenCalled();
 });

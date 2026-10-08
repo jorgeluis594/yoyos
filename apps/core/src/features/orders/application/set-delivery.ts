@@ -62,6 +62,7 @@ export async function persistDeliveryChange(previous: OrderAggregate, changed: O
     if (!saved.success) return saved;
     next = plan.data.nextOrder;
   }
+  if (changed === previous) return ok(next);
   const saved = await deps.saveDelivery(previous.id, previous.companyId, next);
   return saved.success ? ok(next) : saved;
 }

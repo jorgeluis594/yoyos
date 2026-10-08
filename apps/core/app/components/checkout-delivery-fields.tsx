@@ -22,7 +22,7 @@ export type CheckoutDeliveryDraft = Readonly<{ delivery: ConfirmCheckoutDelivery
 
 export function CheckoutDeliveryFields({ orderId, checkout, options, onChange, recoveryVersion = 0, disabled = false }: Readonly<{
   orderId: string; checkout: PublicCheckoutResponse; options: CheckoutDeliveryOptions;
-  onChange: (draft: CheckoutDeliveryDraft | null) => void; recoveryVersion?: number; disabled?: boolean;
+  onChange: (draft: CheckoutDeliveryDraft | null) => void; recoveryVersion?: number | object; disabled?: boolean;
 }>) {
   const saved = checkout.delivery;
   const form = useForm<Draft>({ resolver: zodResolver(draftSchema), defaultValues: {
@@ -34,7 +34,7 @@ export function CheckoutDeliveryFields({ orderId, checkout, options, onChange, r
   } });
   const draft = useWatch({ control: form.control });
   const [revision, setRevision] = useState(0);
-  const [received, setReceived] = useState<Readonly<{ districtCode: string; revision: number; recoveryVersion: number; result: Result<QuotationResponse, QuotationRequestError> }> | null>(null);
+  const [received, setReceived] = useState<Readonly<{ districtCode: string; revision: number; recoveryVersion: number | object; result: Result<QuotationResponse, QuotationRequestError> }> | null>(null);
   const current = received && received.districtCode === draft.districtCode && received.revision === revision && received.recoveryVersion === recoveryVersion ? received.result : null;
   const rates = current?.success ? current.data.rates : [];
   const rate = draft.mode === "ship" ? rates.find(item => item.id === draft.rateId) : undefined;
