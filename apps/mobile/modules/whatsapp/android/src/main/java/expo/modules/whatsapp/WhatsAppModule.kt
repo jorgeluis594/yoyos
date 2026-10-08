@@ -31,6 +31,7 @@ internal fun openProtocolSession(
 
 private class PublicConnectionEvents(private val forward: (String, Map<String, Any?>) -> Unit) : ConnectionEvents {
   private var active = true
+  private var revoked = false
   override fun onConnectionEvent(value: String) {
     synchronized(this) {
       if (!active) return
@@ -40,11 +41,12 @@ private class PublicConnectionEvents(private val forward: (String, Map<String, A
         val event = envelope.getString("event")
         if (event !in setOf("qr", "connectionChanged", "error")) return
         val payload = envelope.getJSONObject("payload")
+        if (event == "connectionChanged" && payload.optString("state") == "sessionExpired") revoked = true
         forward(event, payload.keys().asSequence().associateWith { payload.get(it) })
       } catch (_: Exception) { /* Invalid native events never reach JavaScript. */ }
     }
   }
-  fun retire() { synchronized(this) { active = false } }
+  fun retire(): Boolean = synchronized(this) { active = false; revoked }
 }
 
 private object ConnectionRuntime {
@@ -53,9 +55,11 @@ private object ConnectionRuntime {
   var session: ConnectionSession? = null
   var eventSink: PublicConnectionEvents? = null
   var prepared = false
+  var revoked = false
   var emit: ((String, Map<String, Any?>) -> Unit)? = null
 
   fun openConnection(context: Context, snapshot: JSONObject): String? {
+    if (revoked) return "SESSION_EXPIRED"
     val store = writer ?: NativeStateStore(context).also { writer = it }
     if (snapshot.optJSONObject("session") != null && !store.canRestoreSession()) { stop(); return "SESSION_STATE_INVALID" }
     if (session != null) return null
@@ -86,7 +90,8 @@ private object ConnectionRuntime {
   }
 
   fun stop() {
-    eventSink?.retire()
+    val sessionRevoked = session?.state() == "sessionExpired"
+    if (eventSink?.retire() == true || sessionRevoked) revoked = true
     eventSink = null
     val hadSession = session != null
     session?.close()
@@ -137,12 +142,14 @@ class WhatsAppModule : Module() {
           val recovery = (requested["maxRecoveryBufferBytes"] as Number).toLong()
           val image = (requested["maxImageStorageBytes"] as Number).toLong()
           if (recovery != saved.getLong("maxRecoveryBufferBytes") || image != saved.getLong("maxImageStorageBytes")) {
+            if (ConnectionRuntime.revoked) return@synchronized failure("INVALID_INPUT")
             if (ConnectionRuntime.session?.canUpdateOptions() == false) return@synchronized failure("INVALID_INPUT")
             ConnectionRuntime.stop()
             writer.updateOptions(recovery, image)
             snapshot = writer.open()
           }
           ConnectionRuntime.prepared = true
+          if (ConnectionRuntime.revoked) return@synchronized success(mapOf("state" to "sessionExpired"))
           ConnectionRuntime.openConnection(context, snapshot)?.let { return@synchronized failure(it) }
           val session = ConnectionRuntime.session ?: return@synchronized failure("NATIVE_CALL_FAILED")
           val state = mutableMapOf<String, Any?>("state" to session.state())
@@ -184,6 +191,7 @@ class WhatsAppModule : Module() {
             ConnectionRuntime.stop()
             val hadSession = writer.open().optJSONObject("session") != null
             writer.endSession()
+            ConnectionRuntime.revoked = false
             if (hadSession) failure("REMOTE_LOGOUT_UNCONFIRMED") else success()
           } catch (error: Exception) { failure(publicError(error)) }
         }

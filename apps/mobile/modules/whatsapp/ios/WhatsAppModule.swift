@@ -46,6 +46,7 @@ func openProtocolSession(writer: NativeStateStore, generationId: String, account
 private final class NativeConnectionEvents: NSObject, YYWhatsAppGoBridgeConnectionEventsProtocol {
   private let lock = NSLock()
   private var active = true
+  private var revoked = false
 
   func onConnectionEvent(_ value: String?) {
     lock.lock(); defer { lock.unlock() }
@@ -56,12 +57,14 @@ private final class NativeConnectionEvents: NSObject, YYWhatsAppGoBridgeConnecti
           let event = envelope["event"] as? String,
           ["qr", "connectionChanged", "error"].contains(event),
           let payload = envelope["payload"] as? [String: Any] else { return }
+    if event == "connectionChanged", payload["state"] as? String == "sessionExpired" { revoked = true }
     ConnectionRuntime.shared.emit?(event, payload)
   }
 
-  func retire() {
+  func retire() -> Bool {
     lock.lock(); defer { lock.unlock() }
     active = false
+    return revoked
   }
 }
 
@@ -72,9 +75,11 @@ private final class ConnectionRuntime {
   var session: YYWhatsAppGoBridgeConnectionSession?
   var eventSink: NativeConnectionEvents?
   var prepared = false
+  var revoked = false
   var emit: ((String, [String: Any]) -> Void)?
 
   func openConnection(snapshot: [String: Any]) throws -> String? {
+    if revoked { return "SESSION_EXPIRED" }
     guard let writer else { return "NOT_INITIALIZED" }
     if snapshot["session"] is [String: Any] && (try !writer.canRestoreSession()) { stop(); return "SESSION_STATE_INVALID" }
     if session != nil { return nil }
@@ -98,7 +103,8 @@ private final class ConnectionRuntime {
   }
 
   func stop() {
-    eventSink?.retire()
+    let sessionRevoked = session?.state() == "sessionExpired"
+    if eventSink?.retire() == true || sessionRevoked { revoked = true }
     eventSink = nil
     let hadSession = session != nil
     session?.close()
@@ -156,12 +162,14 @@ public class WhatsAppModule: Module {
               let image = (requested["maxImageStorageBytes"] as? NSNumber)?.int64Value else { return failure("INVALID_INPUT") }
         if recovery != (saved["maxRecoveryBufferBytes"] as? NSNumber)?.int64Value ||
            image != (saved["maxImageStorageBytes"] as? NSNumber)?.int64Value {
+          if runtime.revoked { return failure("INVALID_INPUT") }
           if runtime.session?.canUpdateOptions() == false { return failure("INVALID_INPUT") }
           runtime.stop()
           _ = try writer.updateOptions(maxRecoveryBufferBytes: recovery, maxImageStorageBytes: image)
           snapshot = try writer.open()
         }
         runtime.prepared = true
+        if runtime.revoked { return success(["state": "sessionExpired"]) }
         if let code = try runtime.openConnection(snapshot: snapshot) { return failure(code) }
         guard let session = runtime.session else { return failure("NATIVE_CALL_FAILED") }
         var data: [String: Any] = ["state": session.state()]
@@ -198,6 +206,7 @@ public class WhatsAppModule: Module {
         runtime.stop()
         let hadSession = try writer.open()["session"] is [String: Any]
         try writer.endSession()
+        runtime.revoked = false
         return hadSession ? failure("REMOTE_LOGOUT_UNCONFIRMED") : success()
       } catch { return failure(publicError(error)) }
     }
