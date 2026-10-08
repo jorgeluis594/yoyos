@@ -12,6 +12,7 @@ import { ok, err } from "@shared/functional";
 import type { Currency } from "@shared/money";
 import { orders, setConfiguredOrderDelivery, createConfiguredOrder } from "@core/src/features/orders/composition";
 import { prisma, systemPrisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
+import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { setOrderDelivery, type SetDeliveryDependencies } from "@core/src/features/orders/application/set-delivery";
 import { findOrderAggregate, findOrderForUpdate, saveDelivery, saveStockDeduction } from "@core/src/features/orders/infrastructure/order-repository";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
@@ -48,6 +49,10 @@ async function fixture() {
       await prisma.product.deleteMany();
       await prisma.image.deleteMany();
       await systemPrisma.user.delete({ where: { id: sellerId } });
+      await prisma.deliveryRate.deleteMany();
+      await prisma.quotation.deleteMany();
+      await prisma.deliveryZoneDistrict.deleteMany();
+      await prisma.deliveryZone.deleteMany();
       await prisma.companyCourier.deleteMany();
       await prisma.companyDeliverySettings.deleteMany();
       await prisma.company.delete({ where: { id: companyId } });
@@ -389,7 +394,7 @@ test("reducing a delivery charge to covered payment deducts stock atomically", a
       const delivery = { method: "home" as const, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } },
         destination: { address: "Av. Lima 123", district: "Lima", instructions: null } };
       let cost = 0.1;
-      const deps: SetDeliveryDependencies = { transaction: async (_companyId, work) => withinTransaction(work),
+      const deps: SetDeliveryDependencies = { resolveRatedDelivery: async () => err({ code: "INTERNAL_ERROR", message: "Unexpected rated selection" }), transaction: async (_companyId, work) => withinTransaction(work),
         findOrderForUpdate, saveDelivery, saveStockDeduction, deductProductStock,
         resolveDelivery: async (selection, access, currency) => {
           if (selection.method !== "home") throw new Error("Expected home selection");
@@ -423,7 +428,7 @@ test("keeps the previous delivery when its required stock deduction fails", asyn
       const delivery = { method: "home" as const, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } },
         destination: { address: "Original", district: "Lima", instructions: null } };
       let cost = 0.1;
-      const deps: SetDeliveryDependencies = { transaction: async (_companyId, work) => withinTransaction(work),
+      const deps: SetDeliveryDependencies = { resolveRatedDelivery: async () => err({ code: "INTERNAL_ERROR", message: "Unexpected rated selection" }), transaction: async (_companyId, work) => withinTransaction(work),
         findOrderForUpdate, saveDelivery, saveStockDeduction, deductProductStock,
         resolveDelivery: async (selection, access, currency) => {
           if (selection.method !== "home") throw new Error("Expected home selection");
@@ -1359,6 +1364,74 @@ test("concurrent complete creations with the same IDs save and deduct only once"
       expect(await prisma.order.count()).toBe(1);
       expect(await prisma.payment.count()).toBe(1);
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
+    });
+  } finally { await f.cleanup(); }
+});
+
+
+test("rated assignment and initial creation persist prices atomically and deduct covered stock exactly once", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+      const saved = await deliverySettings.saveZones({ method: "home", expectedVersion: 0, zones: [0, 8].map(amount => ({
+        kind: "new" as const, name: "Zone", enabled: true, districtCodes: ["150122"], price: { amount, currency: "PEN" as const },
+      })) }, context);
+      if (!saved.success) throw new Error(saved.error.message);
+      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [],
+        store: { enabled: false, pickupPoint: null } }, context)).success).toBe(true);
+      const quote = await deliverySettings.createQuotation({ companyId: f.companyId, country: "PE", districtCode: "150122", address: null, instructions: null });
+      if (!quote.success) throw new Error(quote.error.message);
+      const selection = (amount: number) => {
+        const rate = quote.data.rates.find(value => value.price.amount === amount);
+        if (!rate) throw new Error("Expected option");
+        const parsed = parseRatedDeliverySelection({ method: "home", rateId: rate.id, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
+          destination: { districtCode: "150122", address: "Street", instructions: null } });
+        if (!parsed.success) throw new Error(parsed.error.message);
+        return parsed.data;
+      };
+      const orderId = randomUUID() as OrderId;
+      expect((await orders.create({ id: orderId, contactId: null, items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] }, context)).success).toBe(true);
+      await prisma.payment.create({ data: { id: randomUUID(), orderId, status: "confirmed", currency: "PEN", amount: 0.2, method: "digital_wallet",
+        data: { confirmedAt: new Date().toISOString(), confirmedBy: { kind: "seller", userId: f.sellerId }, evidence: { kind: "manual" } } } });
+      expect(await orders.setDelivery({ orderId, delivery: selection(8), expectedPrice: { amount: 8, currency: "PEN" } }, context))
+        .toMatchObject({ success: true, data: { total: { amount: 8.2 }, deliveryCost: { amount: 8 }, deliveryCharge: { amount: 8 }, stockDeducted: false,
+          delivery: { pricing: { quotationId: quote.data.quotation.id, settingsVersion: 2 }, recordedBy: { kind: "seller", userId: f.sellerId } } } });
+      const before = await orderDetail(orderId, f);
+      const changed = await deliverySettings.saveZones({ method: "home", expectedVersion: 2, zones: saved.data.zones.map(zone => ({
+        kind: "existing" as const, id: zone.id, name: zone.name, enabled: zone.enabled, districtCodes: zone.districtCodes,
+        price: { amount: zone.price.amount === 8 ? 10 : 0, currency: "PEN" as const },
+      })) }, context);
+      expect(changed.success).toBe(true);
+      expect(await orders.setDelivery({ orderId, delivery: selection(8), expectedPrice: { amount: 8, currency: "PEN" } }, context))
+        .toMatchObject({ success: false, error: { code: "TOTAL_CHANGED", currentPrice: { amount: 10 } } });
+      expect(await orderDetail(orderId, f)).toEqual(before);
+      expect((await prisma.productStock.findUnique({ where: { variantId: f.variantIds[0] } }))?.quantity).toBe(3n);
+      const rejectedId = randomUUID() as OrderId;
+      expect(await createConfiguredOrder({ id: rejectedId, contactId: null, items: [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }],
+        delivery: { delivery: selection(8), expectedPrice: { amount: 8, currency: "PEN" } } }, context))
+        .toMatchObject({ success: false, error: { code: "TOTAL_CHANGED" } });
+      expect(await prisma.order.findUnique({ where: { id: rejectedId } })).toBeNull();
+      const free = { orderId, delivery: selection(0), expectedPrice: { amount: 0, currency: "PEN" as const } };
+      expect(await orders.setDelivery(free, context)).toMatchObject({ success: true, data: { total: { amount: 0.2 }, deliveryCost: { amount: 0 },
+        deliveryCharge: { amount: 0 }, stockDeducted: true } });
+      expect((await prisma.productStock.findUnique({ where: { variantId: f.variantIds[0] } }))?.quantity).toBe(1n);
+      expect((await orders.setDelivery(free, context)).success).toBe(true);
+      expect((await prisma.productStock.findUnique({ where: { variantId: f.variantIds[0] } }))?.quantity).toBe(1n);
+      const failedId = randomUUID() as OrderId;
+      expect(await createConfiguredOrder({ id: failedId, contactId: null, items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }],
+        delivery: { delivery: selection(0), expectedPrice: { amount: 0, currency: "PEN" } },
+        payments: [{ paymentId: randomUUID() as PaymentId, amount: { amount: 0.2, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }] }, context))
+        .toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
+      expect(await prisma.order.findUnique({ where: { id: failedId } })).toBeNull();
+      expect(await prisma.payment.count()).toBe(1);
+      const newId = randomUUID() as OrderId;
+      expect(await createConfiguredOrder({ id: newId, contactId: null, items: [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }],
+        delivery: { delivery: selection(0), expectedPrice: { amount: 0, currency: "PEN" } },
+        payments: [{ paymentId: randomUUID() as PaymentId, amount: { amount: 0.1, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }] }, context))
+        .toMatchObject({ success: true, data: { total: { amount: 0.1 }, stockDeducted: true, delivery: { pricing: { quotationId: quote.data.quotation.id } } } });
+      expect((await prisma.productStock.findUnique({ where: { variantId: f.variantIds[0] } }))?.quantity).toBe(0n);
+      expect(await prisma.deliveryRate.count()).toBe(2);
     });
   } finally { await f.cleanup(); }
 });

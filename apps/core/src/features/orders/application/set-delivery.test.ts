@@ -3,6 +3,7 @@ import { err, ok } from "@shared/functional";
 import { buildPendingOrder, type DeliverySelection, type OrderAggregate, type Payment } from "@core/src/features/orders/domain/order-state-machine";
 import type { CompanyId, OrderId, OrderItemId, PaymentId, UserId } from "@core/src/features/orders/domain/order";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
+import type { DeliverySettingsVersion } from "@core/src/features/delivery-settings";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import { setOrderDelivery, type SetDeliveryDependencies } from "@core/src/features/orders/application/set-delivery";
 import { resolveDeliverySelection } from "@core/src/features/orders/application/resolve-delivery-selection";
@@ -28,7 +29,7 @@ function dependencies(current: OrderAggregate | null, amount = 3) {
   const resolveDelivery = vi.fn<SetDeliveryDependencies["resolveDelivery"]>((selection, access, currency) => resolveDeliverySelection(selection, access, currency, {
     getSettings: async () => ok({ version: 1, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: true, pickupPoint: point } }), resolveShippingCost: async () => ok(money(amount)),
   }));
-  const deps: SetDeliveryDependencies = { transaction: async (_companyId, work) => work(),
+  const deps: SetDeliveryDependencies = { resolveRatedDelivery: async () => err({ code: "INTERNAL_ERROR", message: "Unexpected rated selection" }), transaction: async (_companyId, work) => work(),
     findOrderForUpdate: async () => ok(current), resolveDelivery, saveDelivery, deductProductStock, saveStockDeduction };
   return { deps, saveDelivery, deductProductStock, saveStockDeduction, resolveDelivery };
 }
@@ -84,4 +85,33 @@ test("failed resolution and forged authority leave all writes untouched", async 
     .toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
   expect(f.saveDelivery).not.toHaveBeenCalled();
   expect(f.deductProductStock).not.toHaveBeenCalled();
+});
+
+test("rated assignments charge the validated price and reuse covered-stock deduction without a client charge flag", async () => {
+  const f = dependencies({ ...order(), payments: [payment(10)] });
+  const resolveRatedDelivery = vi.fn<SetDeliveryDependencies['resolveRatedDelivery']>(async () => ok({
+    delivery: { ...delivery, pickupPoint: point, settingsVersion: 2 as DeliverySettingsVersion,
+      recordedBy: { kind: 'seller', userId: context.userId } }, cost: money(0),
+  }));
+  const rated = { orderId: input.orderId, delivery, expectedPrice: money(0) };
+  expect(await setOrderDelivery(rated, context, { ...f.deps, resolveRatedDelivery })).toMatchObject({ success: true, data: {
+    stockDeducted: true, deliveryCost: money(0), deliveryCharge: money(0), total: money(10),
+  } });
+  expect(resolveRatedDelivery).toHaveBeenCalledWith(delivery, context, 'PEN', money(0));
+  expect(f.resolveDelivery).not.toHaveBeenCalled();
+  expect(f.deductProductStock).toHaveBeenCalledTimes(1);
+  const rejected = dependencies(order());
+  expect(await setOrderDelivery({ ...rated, chargeDeliveryToCustomer: false }, context, rejected.deps))
+    .toMatchObject({ success: false, error: { code: 'INVALID_ORDER' } });
+  expect(rejected.saveDelivery).not.toHaveBeenCalled();
+});
+
+test("rated price conflicts never save delivery, stock or totals", async () => {
+  const f = dependencies({ ...order(), payments: [payment(10)] });
+  const failure = err({ code: 'TOTAL_CHANGED' as const, currentPrice: money(8), message: 'Review price' });
+  expect(await setOrderDelivery({ orderId: input.orderId, delivery, expectedPrice: money(0) }, context,
+    { ...f.deps, resolveRatedDelivery: async () => failure })).toEqual(failure);
+  expect(f.saveDelivery).not.toHaveBeenCalled();
+  expect(f.deductProductStock).not.toHaveBeenCalled();
+  expect(f.saveStockDeduction).not.toHaveBeenCalled();
 });

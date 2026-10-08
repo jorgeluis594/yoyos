@@ -4,12 +4,12 @@ import type { CompanyId } from "@core/src/features/orders/domain/order";
 import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { CreateOrderInput, CreateOrderError, OrderAccess } from "@core/src/features/orders/application/create-order";
 import type { RegisterPaymentInput, RegisterPaymentOutput, RegisterPaymentError } from "@core/src/features/orders/application/register-payment";
-import type { SetDeliveryInput, SetDeliveryError } from "@core/src/features/orders/application/set-delivery";
+import type { InitialOrderDeliveryInput, SetDeliveryInput, SetDeliveryError } from "@core/src/features/orders/application/set-delivery";
 import type { FulfillOrderError } from "@core/src/features/orders/application/fulfill-order";
 
 export type CreateCompleteOrderInput = CreateOrderInput & Readonly<{
   payments?: readonly Omit<RegisterPaymentInput, "orderId" | "source">[];
-  delivery?: Omit<SetDeliveryInput, "orderId">;
+  delivery?: InitialOrderDeliveryInput;
   deliverImmediately?: boolean;
 }>;
 export type CreateCompleteOrderError = CreateOrderError | RegisterPaymentError | SetDeliveryError | FulfillOrderError;

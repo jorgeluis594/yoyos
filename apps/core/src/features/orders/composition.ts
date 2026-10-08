@@ -11,7 +11,7 @@ import type { AppError, Result } from "@shared/result";
 import { afterTransactionCommit, getCompanyId, requireNoActiveTransaction, withinTransaction, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { deliverySettings } from "@core/src/features/delivery-settings";
 import { setOrderDelivery, type SetDeliveryInput } from "@core/src/features/orders/application/set-delivery";
-import { resolveDeliverySelection, type ResolveDeliveryDependencies } from "@core/src/features/orders/application/resolve-delivery-selection";
+import { resolveShippingCost as resolveRatedShippingCost, resolveDeliverySelection, type ResolveDeliveryDependencies } from "@core/src/features/orders/application/resolve-delivery-selection";
 import { validateDeliveryCost, type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import { z } from "zod";
 import { createOrder, type CreateOrderDependencies } from "@core/src/features/orders/application/create-order";
@@ -100,6 +100,13 @@ export async function setConfiguredOrderDelivery(input: SetDeliveryInput, contex
         },
       });
     },
+    resolveRatedDelivery: (selection, access, currency, expectedPrice) => {
+      observed.stage = "resolve_delivery";
+      return resolveRatedShippingCost(selection, { companyId: access.companyId, author: { kind: "seller", userId: access.userId } }, currency, expectedPrice, {
+        getStoreSettings: () => deliverySettings.get(access, "set_order_delivery"),
+        resolveSelectedDeliveryRate: deliverySettings.resolveSelectedDeliveryRate,
+      });
+    },
     saveDelivery: (id, companyId, change) => { observed.stage = "save_delivery"; return saveDelivery(id, companyId, change); },
     deductProductStock: (variantId, quantity) => { observed.stage = "deduct_stock"; return deductProductStock(variantId, quantity, { operation: "set_order_delivery", orderId: input.orderId }); },
     saveStockDeduction: (id, companyId) => { observed.stage = "save_stock_deduction"; return saveStockDeduction(id, companyId, "set_order_delivery"); },
@@ -110,7 +117,7 @@ export async function setConfiguredOrderDelivery(input: SetDeliveryInput, contex
     afterTransactionCommit(() => log.info({ event: "order_delivery_saved", operation: "set_order_delivery", orderId: input.orderId,
       userId: context.userId, authorKind: "seller", changeKind: before?.delivery ? "replaced" : "assigned",
       courierId: observed.courierId, previousDeliveryMethod: before?.delivery?.method, deliveryMethod: input.delivery.method, settingsVersion: observed.settingsVersion,
-      chargeDeliveryToCustomer: input.chargeDeliveryToCustomer, totalChanged: before?.total.amount !== result.data.total.amount,
+      chargeDeliveryToCustomer: "expectedPrice" in input ? true : input.chargeDeliveryToCustomer, totalChanged: before?.total.amount !== result.data.total.amount,
       stockDeductionRequired: !before?.stockDeducted && result.data.stockDeducted, stockDeducted: result.data.stockDeducted,
       transactionOutcome: "committed", durationMs }, "Order delivery saved"));
   } else if (!["ORDER_NOT_FOUND", "PERSISTENCE_UNAVAILABLE", "INVALID_STORED_DATA", "INVALID_ORDER", "CURRENCY_MISMATCH"].includes(result.error.code)) {
