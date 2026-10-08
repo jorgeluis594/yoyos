@@ -214,6 +214,7 @@ test("uncertain zone save preserves the draft and blocks all saves until explici
   expect(screen.getByLabelText("Nombre de la zona *").props.value).toBe("My draft");
   expect(screen.getByRole("button", { name: "Guardar zona" }).props.accessibilityState.disabled).toBe(true);
   expect(screen.getByRole("button", { name: "Guardar configuración" }).props.accessibilityState.disabled).toBe(true);
+  expect(screen.getByRole("button", { name: "Cancelar edición" }).props.accessibilityState.disabled).toBe(true);
   expect(saveZones).toHaveBeenCalledTimes(1);
   expect(getZones).toHaveBeenCalledTimes(1);
   expect(screen.queryByText("Private detail")).toBeNull();

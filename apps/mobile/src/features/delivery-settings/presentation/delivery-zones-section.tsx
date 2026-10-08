@@ -72,7 +72,7 @@ export function DeliveryZonesSection({ method, state, disabled, blocked, onSave,
         <ThemedText type="small" themeColor="textSecondary">{t("zonesPriceHint")}</ThemedText>
         <View style={styles.toggle}><ThemedText style={styles.label}>{t("zonesActive")}</ThemedText><Switch accessibilityLabel={t("zonesActive")} value={draft.enabled} disabled={locked} trackColor={{ true: theme.primary }} onValueChange={enabled => setDraft({ ...draft, enabled })} /></View>
         <Button disabled={locked} loading={disabled} onPress={() => void save()}>{t("zonesSave")}</Button>
-        <Button variant="ghost" disabled={disabled} onPress={() => { setDraft(empty); setEditing(undefined); setError(""); }}>{t("zonesCancel")}</Button>
+        <Button variant="ghost" disabled={locked} onPress={() => { setDraft(empty); setEditing(undefined); setError(""); }}>{t("zonesCancel")}</Button>
       </View>}
     {error ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t(error)}</ThemedText> : null}
     {saved ? <ThemedText accessibilityLiveRegion="polite">{t("zonesSaved")}</ThemedText> : null}
