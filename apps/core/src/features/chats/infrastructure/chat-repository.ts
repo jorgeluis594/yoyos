@@ -18,7 +18,7 @@ function mapChat(chat: { id: string; contactId: string; createdAt: Date }) {
 export const chatRepository: ChatRepository = {
   async findMessageId(externalId) {
     try {
-      const message = await prisma.chatMessage.findFirst({ where: { externalId }, select: { id: true } });
+      const message = await prisma.chatMessage.findFirst({ where: { externalId, whatsappMessageId: null }, select: { id: true } });
       return ok(message);
     } catch (cause) {
       if (!isPersistenceFailure(cause)) throw cause;
@@ -58,7 +58,7 @@ export const chatRepository: ChatRepository = {
         imageFailureCode: image && input.content.image.status === "failed" ? input.content.image.failure.code : null,
         imageFailureMessage: image && input.content.image.status === "failed" ? input.content.image.failure.message : null,
       }], skipDuplicates: true });
-      const message = await prisma.chatMessage.findFirst({ where: { externalId: input.externalId }, select: { id: true } });
+      const message = await prisma.chatMessage.findFirst({ where: { externalId: input.externalId, whatsappMessageId: null }, select: { id: true } });
       if (!message) return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to persist message" });
       return ok({ status: inserted.count ? "stored" as const : "duplicate" as const, messageId: message.id });
     } catch (cause) {

@@ -1,11 +1,11 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import { validRecordMessage, type Chat, type ChatMessage, type RecordMessageError, type RecordMessageOutcome, type RecordMessageInput, type MessageOrigin, type MessageImage } from "@core/src/features/chats/domain/message";
-import type { Contact } from "@core/src/features/contacts/domain/contact";
+import { validRecordMessage, type Chat, type ChatMessage, type RecordMessageError, type RecordMessageOutcome, type RecordMessageInput, type MessageOrigin, type CloudMessageImage } from "@core/src/features/chats/domain/message";
+import type { PhoneContact } from "@core/src/features/contacts";
 
 export type NewChatMessage = Readonly<{ chatId: string; externalId: string; origin: MessageOrigin; sentAt: Date; receivedAt: Date; content:
   | Readonly<{ type: "text"; text: string }>
-  | Readonly<{ type: "image"; caption: string | null; image: MessageImage }>
+  | Readonly<{ type: "image"; caption: string | null; image: CloudMessageImage }>
 }>;
 export type ChatRepository = Readonly<{
   findMessageId: (externalId: string) => Promise<Result<Pick<ChatMessage, "id"> | null, RecordMessageError>>;
@@ -13,9 +13,9 @@ export type ChatRepository = Readonly<{
   insertMessage: (input: NewChatMessage) => Promise<Result<RecordMessageOutcome, RecordMessageError>>;
 }>;
 export type RecordMessageDependencies = Readonly<{
-  ensureContact: (input: Readonly<{ phone: string; profileName: string | null }>) => Promise<Result<Contact, RecordMessageError>>;
+  ensureContact: (input: Readonly<{ phone: string; profileName: string | null }>) => Promise<Result<PhoneContact, RecordMessageError>>;
   chats: ChatRepository;
-  storeImage: (externalId: string, mediaId: string) => Promise<Result<MessageImage>>;
+  storeImage: (externalId: string, mediaId: string) => Promise<Result<CloudMessageImage>>;
   transaction: <T>(operation: () => Promise<Result<T, RecordMessageError>>) => Promise<Result<T, RecordMessageError>>;
 }>;
 

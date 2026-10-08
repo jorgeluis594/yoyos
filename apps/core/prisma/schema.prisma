@@ -160,6 +160,7 @@ enum MessageType {
 enum MessageImageStatus {
   ready
   failed
+  metadata_only
 }
 
 model Image {
@@ -233,7 +234,9 @@ model Contact {
   id        String   @id @default(uuid()) @db.Uuid
   companyId String   @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
   company   Company  @relation(fields: [companyId], references: [id])
-  phone     String
+  phone     String?
+  whatsappAccountId String? @db.VarChar(128)
+  whatsappLid String? @db.VarChar(128)
   name      String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -242,6 +245,7 @@ model Contact {
 
   @@unique([companyId, id])
   @@unique([companyId, phone])
+  @@unique([companyId, whatsappAccountId, whatsappLid])
 }
 
 model Chat {
@@ -264,6 +268,7 @@ model ChatMessage {
   chatId              String                    @db.Uuid
   chat                Chat                      @relation(fields: [companyId, chatId], references: [companyId, id])
   externalId          String
+  whatsappMessageId   String?
   direction           MessageDirection
   source              MessageSource
   userId              String?
@@ -279,9 +284,14 @@ model ChatMessage {
   imageStatus         MessageImageStatus?
   imageFailureCode    String?
   imageFailureMessage String?
+  imageMimeType       String?                   @db.VarChar(127)
+  imageSize           BigInt?
+  uploadedByUserId    String?
+  eventDispatchedAt   DateTime?                 @db.Timestamp(3)
 
   @@unique([companyId, id])
-  @@unique([companyId, externalId])
+  // Cloud API externalId uniqueness is a partial SQL index in the migration.
+  @@unique([companyId, chatId, whatsappMessageId])
   @@index([companyId, chatId, sentAt, id])
 }
 

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { normalizePhone } from "@core/src/features/contacts/domain/contact";
+import { normalizePhone } from "@core/src/features/contacts";
 import type { MessageOrigin, ReceivedContent, RecordMessageInput } from "@core/src/features/chats/domain/message";
 
 const textSchema = z.object({ body: z.string() }).passthrough();
