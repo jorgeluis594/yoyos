@@ -1,5 +1,5 @@
-import { action as confirmCheckoutAction } from "@core/app/routes/checkout";
-import type { ActionFunctionArgs } from "react-router";
+import { loader as checkoutLoader, action as confirmCheckoutAction } from "@core/app/routes/checkout";
+import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
 import { createOrderOperations } from "@mobile/features/orders/application/order-operations";
 import { addDraftItem, emptyOrderDraft } from "@mobile/features/orders/domain/order-draft";
 import { createPendingOrderConfirmationStore } from "@mobile/features/orders/infrastructure/pending-order-confirmation";
@@ -690,6 +690,9 @@ test("public checkout delivery action persists buyer pickup and redirects to exi
   await withTenantIsolation(seller.companyId, async () => {
     await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: new Date() } });
   });
+  const loaded = await checkoutLoader({ params: { companyId: seller.companyId, orderId } } as unknown as LoaderFunctionArgs);
+  expect(loaded.data.deliveryOptions).toEqual({ home: { enabled: false }, agency: { enabled: false },
+    store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } });
   const input = { buyer: { name: "Ana", phone: "+51987654321" }, expectedTotal: { amount: 10, currency: "PEN" }, delivery: { kind: "replace",
     selection: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } }, expectedPrice: { amount: 0, currency: "PEN" } } };
   const result = await confirmCheckoutAction({ params: { companyId: seller.companyId, orderId }, request: new Request(`${base}/checkout/${seller.companyId}/${orderId}`, {

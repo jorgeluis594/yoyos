@@ -10,8 +10,10 @@ import { parseBuyer, type CheckoutAccess, type CheckoutView } from "@core/src/fe
 import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import type { CheckoutDeliveryChange } from "@core/src/features/orders/application/checkout";
 import type { Money } from "@shared/money";
+import { deliverySettings } from "@core/src/features/delivery-settings";
+import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { bindRequestOperation, log } from "@core/src/shared/infrastructure/logger";
-import { checkoutPathSchema, confirmCheckoutDeliverySchema, confirmCheckoutSchema, publicCheckoutSchema, type PublicCheckoutResponse } from "@shared/contracts/order-checkout";
+import { checkoutPathSchema, checkoutDeliveryOptionsSchema, confirmCheckoutDeliverySchema, confirmCheckoutSchema, publicCheckoutSchema, type CheckoutDeliveryOptions, type PublicCheckoutResponse } from "@shared/contracts/order-checkout";
 
 const privacyHeaders = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
 export const headers = () => privacyHeaders;
@@ -20,7 +22,7 @@ export const shouldRevalidate = ({ formMethod, defaultShouldRevalidate }: Should
 export const meta = () => [{ title: "Revisa tu pedido" }, { name: "robots", content: "noindex, nofollow" }];
 const unavailable = "Enlace no disponible";
 const retry = "No se pudo completar la solicitud. Inténtalo de nuevo.";
-type PageData = { checkout: PublicCheckoutResponse | null; message: string | null; fieldErrors?: { name?: string; phone?: string }; unavailable?: boolean; code?: string; currentPrice?: Money };
+type PageData = { checkout: PublicCheckoutResponse | null; deliveryOptions?: CheckoutDeliveryOptions; message: string | null; fieldErrors?: { name?: string; phone?: string }; unavailable?: boolean; code?: string; currentPrice?: Money };
 const response = (value: PageData, status = 200) => data(value, { status, headers: privacyHeaders });
 
 function serialize(checkout: CheckoutView): PublicCheckoutResponse {
@@ -44,7 +46,18 @@ export async function loader({ params }: LoaderFunctionArgs) {
   const result = await orders.getCheckout(path.data as CheckoutAccess);
   if (!result.success) throw new Response(result.error.code === "CHECKOUT_UNAVAILABLE" ? unavailable : retry,
     { status: result.error.code === "CHECKOUT_UNAVAILABLE" ? 404 : 503, headers: privacyHeaders });
-  return response({ checkout: serialize(result.data), message: null });
+  if (result.data.state.kind !== "pending") return response({ checkout: serialize(result.data), message: null });
+  const settings = await withTenantIsolation(path.data.companyId, () => deliverySettings.getForCompany(path.data.companyId));
+  if (!settings.success) {
+    bindRequestOperation({ outcome: "technical_failure" });
+    throw new Response(retry, { status: 503, headers: privacyHeaders });
+  }
+  const options = checkoutDeliveryOptionsSchema.safeParse({ home: settings.data.home, agency: settings.data.agency, store: settings.data.store });
+  if (!options.success) {
+    bindRequestOperation({ outcome: "technical_failure" });
+    throw new Response(retry, { status: 503, headers: privacyHeaders });
+  }
+  return response({ checkout: serialize(result.data), deliveryOptions: options.data, message: null });
 }
 
 const formSchema = z.strictObject({ name: z.string(), phone: z.string(), expectedTotal: z.string(), delivery: z.string().optional() });

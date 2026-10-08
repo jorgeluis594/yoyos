@@ -2,6 +2,7 @@ import { z } from "zod";
 import { internationalPhonePattern } from "@shared/phone";
 import { deliverySnapshotSchemas, ratedDeliverySelectionSchema } from "@shared/contracts/orders";
 import { moneySchema } from "@shared/contracts/money";
+import { storeDeliverySettingsSchema } from "@shared/contracts/delivery-settings";
 
 export const checkoutPathSchema = z.strictObject({ companyId: z.uuid(), orderId: z.uuid() });
 export const checkoutBuyerSchema = z.strictObject({ name: z.string().trim().min(1), phone: z.string().regex(internationalPhonePattern) });
@@ -15,6 +16,10 @@ export const checkoutDeliveryChangeSchema = z.discriminatedUnion("kind", [
 export const confirmCheckoutDeliverySchema = confirmCheckoutSchema.extend({ delivery: checkoutDeliveryChangeSchema });
 export type ConfirmCheckoutDeliveryRequest = z.infer<typeof confirmCheckoutDeliverySchema>;
 export const checkoutLinkSchema = z.strictObject({ url: z.url() });
+export const checkoutDeliveryOptionsSchema = z.strictObject({
+  home: z.strictObject({ enabled: z.boolean() }), agency: z.strictObject({ enabled: z.boolean() }), store: storeDeliverySettingsSchema,
+});
+export type CheckoutDeliveryOptions = z.infer<typeof checkoutDeliveryOptionsSchema>;
 export const publicCheckoutDeliverySchema = z.union([
   deliverySnapshotSchemas[0].omit({ recordedBy: true }),
   deliverySnapshotSchemas[1].omit({ recordedBy: true }),

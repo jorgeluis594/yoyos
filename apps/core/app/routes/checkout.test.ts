@@ -2,6 +2,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { action, headers, loader } from "@core/app/routes/checkout";
 import { orders } from "@core/src/features/orders/composition";
+import { deliverySettings } from "@core/src/features/delivery-settings";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { ok, err } from "@shared/functional";
 import type { CheckoutView, OrderNumber } from "@core/src/features/orders/domain/checkout";
@@ -18,11 +19,13 @@ const args = (payload: unknown, path = params) => ({ params: path, request: new 
 afterEach(() => vi.restoreAllMocks());
 
 test("public loader preserves wire amounts and privacy headers without requiring an authenticated context", async () => {
+  const settings = vi.spyOn(deliverySettings, "getForCompany").mockResolvedValue(ok({ version: 0, home: { enabled: false }, agency: { enabled: false }, couriers: [], store: { enabled: false, pickupPoint: null } }));
   vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(view));
   expect(await loader({ params } as unknown as LoaderFunctionArgs)).toMatchObject({ data: { checkout: view }, init: { headers: headers() } });
   await expect(loader({ params: { companyId: "bad", orderId: "1001" } } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 404 });
   vi.mocked(orders.getCheckout).mockResolvedValue(err({ code: "CHECKOUT_UNAVAILABLE", message: "not public" }));
   await expect(loader({ params } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 404 });
+  expect(settings).toHaveBeenCalledTimes(1);
 });
 
 test("public action rejects tampering and attaches field errors before calling the use case", async () => {
@@ -98,4 +101,28 @@ test("delivery form accepts exactly four fields and rejects repeated delivery va
   expect(await action({ params, request: request() } as unknown as ActionFunctionArgs)).toBeInstanceOf(Response);
   fields.append("delivery", JSON.stringify({ kind: "keep" }));
   expect(await action({ params, request: request() } as unknown as ActionFunctionArgs)).toMatchObject({ init: { status: 422 } });
+});
+
+test("public checkout exposes current pickup configuration without courier names or seller identity", async () => {
+  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(view));
+  vi.spyOn(deliverySettings, "getForCompany").mockResolvedValue(ok({ version: 7, home: { enabled: true }, agency: { enabled: false }, couriers: [],
+    store: { enabled: true, pickupPoint: { name: "Shop", address: "Pickup address", instructions: "Door 2" } } }));
+  const result = await loader({ params } as unknown as LoaderFunctionArgs);
+  expect(result.data.deliveryOptions).toEqual({ home: { enabled: true }, agency: { enabled: false },
+    store: { enabled: true, pickupPoint: { name: "Shop", address: "Pickup address", instructions: "Door 2" } } });
+  expect(result.data.deliveryOptions).not.toHaveProperty("version");
+  expect(result.data.deliveryOptions).not.toHaveProperty("couriers");
+});
+
+test("failed current configuration does not manufacture free shipping or enabled pickup", async () => {
+  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(view));
+  vi.spyOn(deliverySettings, "getForCompany").mockResolvedValue(err({ code: "PERSISTENCE_UNAVAILABLE", message: "Private detail" }));
+  await expect(loader({ params } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 503 });
+});
+
+test("confirmed checkout keeps its saved summary without requiring current delivery settings", async () => {
+  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok({ ...view, buyer: body.buyer, state: { kind: "confirmed", confirmedAt: new Date("2026-10-05T00:00:00Z") } }));
+  const settings = vi.spyOn(deliverySettings, "getForCompany");
+  expect(await loader({ params } as unknown as LoaderFunctionArgs)).toMatchObject({ data: { checkout: { total, state: { kind: "confirmed" } } } });
+  expect(settings).not.toHaveBeenCalled();
 });
