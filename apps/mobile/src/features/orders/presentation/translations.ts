@@ -1,5 +1,13 @@
 export const translations = {
   es: {
+    invalidRatedAgencyRecipient: "Completa el nombre, el teléfono y el documento del destinatario.",
+    orderDeliveryRate: "Tarifa de entrega", orderQuotationLoading: "Buscando tarifas…",
+    orderQuotationError: "No se pudieron consultar las tarifas. Conservamos tus datos para reintentar.",
+    orderQuotationEmpty: "No hay cobertura para esta modalidad en el distrito seleccionado.",
+    orderQuotationRetry: "Consultar tarifas nuevamente", orderRatedDeliveryHint: "El cliente paga la tarifa completa. El recojo en tienda es gratis.",
+    orderDeliveryProductsAmount: "Productos: {{amount}}", orderDeliveryTotalAmount: "Total: {{amount}}",
+    orderDeliveryAmount: "Entrega: {{amount}}", orderDeliveryPriceChanged: "La tarifa cambió. Revisa las nuevas opciones y vuelve a confirmar.",
+    orderDeliveryRateUnavailable: "La tarifa ya no está disponible. Selecciona una opción vigente.",
   orderFulfillment: {
     ship: "Marcar enviado", deliver: "Marcar entregado", shipSaved: "Pedido marcado como enviado.", deliverSaved: "Pedido marcado como entregado.",
     PAYMENT_REQUIRED: "Se requiere el pago completo antes de enviar o entregar.", STOCK_NOT_DEDUCTED: "Se requiere descontar el stock antes de enviar o entregar.",
@@ -168,6 +176,14 @@ export const translations = {
     offlineEditing: 'Sin conexión. Puedes seguir editando.',
   },
   'pt-BR': {
+    invalidRatedAgencyRecipient: "Preencha o nome, o telefone e o documento do destinatário.",
+    orderDeliveryRate: "Tarifa de entrega", orderQuotationLoading: "Buscando tarifas…",
+    orderQuotationError: "Não foi possível consultar as tarifas. Mantemos seus dados para tentar novamente.",
+    orderQuotationEmpty: "Não há cobertura para esta modalidade no distrito selecionado.",
+    orderQuotationRetry: "Consultar tarifas novamente", orderRatedDeliveryHint: "O cliente paga a tarifa integral. A retirada na loja é grátis.",
+    orderDeliveryProductsAmount: "Produtos: {{amount}}", orderDeliveryTotalAmount: "Total: {{amount}}",
+    orderDeliveryAmount: "Entrega: {{amount}}", orderDeliveryPriceChanged: "A tarifa mudou. Revise as novas opções e confirme novamente.",
+    orderDeliveryRateUnavailable: "A tarifa não está mais disponível. Selecione uma opção atual.",
   orderFulfillment: {
     ship: "Marcar como enviado", deliver: "Marcar como entregue", shipSaved: "Pedido marcado como enviado.", deliverSaved: "Pedido marcado como entregue.",
     PAYMENT_REQUIRED: "É necessário o pagamento completo antes de enviar ou entregar.", STOCK_NOT_DEDUCTED: "É necessário descontar o estoque antes de enviar ou entregar.",

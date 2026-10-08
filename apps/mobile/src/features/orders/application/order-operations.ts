@@ -37,8 +37,20 @@ export type OrderListCriteria = Readonly<{
   throughDay?: string;
 }>;
 
+type DeliveryIdentity = Readonly<{ kind: "absent" }>
+  | Readonly<{ kind: "document"; documentType: "national_id" | "passport" | "foreign_id"; document: string }>;
+type DeliveryRecipient = Readonly<{ name: string; phone: string; identity: DeliveryIdentity }>;
+export type RatedDeliveryAssignment = Readonly<{
+  expectedPrice: Money;
+  delivery: Readonly<{ method: "store"; recipient: DeliveryRecipient }>
+    | Readonly<{ method: "home"; recipient: DeliveryRecipient; rateId: string;
+        destination: Readonly<{ districtCode: string; address: string; instructions: string | null }> }>
+    | Readonly<{ method: "agency"; recipient: DeliveryRecipient & { identity: Extract<DeliveryIdentity, { kind: "document" }> };
+        rateId: string; districtCode: string }>;
+}>;
+
 type Api = Readonly<{
-  setDelivery: (orderId: string, input: SetOrderDeliveryRequest) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
+  setDelivery: (orderId: string, input: SetOrderDeliveryRequest | RatedDeliveryAssignment) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
   enableCheckout: (orderId: string) => Promise<Result<Readonly<{ url: string }>, OrderRequestError>>;
   listAggregates: (input: ListOrderAggregatesRequest) => Promise<Result<z.infer<typeof listOrderAggregatesResponseSchema>, OrderRequestError>>;
   getAggregate: (id: string) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
