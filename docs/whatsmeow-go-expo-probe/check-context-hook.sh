@@ -14,7 +14,7 @@ git apply --check pre-decrypt-context.patch
 git apply pre-decrypt-context.patch
 git apply --check async-ack-observer.patch
 git apply async-ack-observer.patch
-gofmt -w client.go message.go store/store.go context-hook_test.go
+gofmt -w client.go message.go receipt.go store/store.go context-hook_test.go
 # Use the selected Go version, not upstream's newer toolchain directive.
 GOTOOLCHAIN=local go test -race -run '^TestRecovery(ContextHook|StorageFailure)$' .
 GOTOOLCHAIN=local go vet .

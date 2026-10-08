@@ -234,8 +234,8 @@ type receiveProbeLog struct {
 	acks, receipts, errors, leaked atomic.Int32
 }
 
-// The temporary test-only patch observes scheduling and drains both async sends.
-var probeAsyncSendsScheduled = func() func() { return func() {} }
+// The temporary test-only patch observes scheduling and drains async sends.
+var probeAsyncSendsScheduled = func(int) func() { return func() {} }
 
 func (l *receiveProbeLog) Warnf(format string, args ...any) {
 	if strings.HasPrefix(format, "Failed to send acknowledgement") {
@@ -259,12 +259,12 @@ func TestRecoveryStorageFailure(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/synchronous=%t", phase, synchronous), func(t *testing.T) {
 				var asyncScheduled int
 				var asyncSends sync.WaitGroup
-				probeAsyncSendsScheduled = func() func() {
+				probeAsyncSendsScheduled = func(jobs int) func() {
 					asyncScheduled++
-					asyncSends.Add(2)
+					asyncSends.Add(jobs)
 					return asyncSends.Done
 				}
-				defer func() { probeAsyncSendsScheduled = func() func() { return func() {} } }()
+				defer func() { probeAsyncSendsScheduled = func(int) func() { return func() {} } }()
 				info, node := recoveryProbeMessage()
 				cause := errors.New("auxiliary native storage failed")
 				storage := &receiveFailureStore{phase: phase, cause: cause}
@@ -344,7 +344,7 @@ func TestRecoveryStorageFailure(t *testing.T) {
 					}
 				}
 				if log.acks.Load() != 0 || log.receipts.Load() != 0 || asyncScheduled != 0 || undecryptable != 0 || client.messageRetries[info.ID] != 4 {
-					t.Fatal("local failure attempted a protocol acknowledgement or retry")
+					t.Fatalf("local failure attempted a protocol acknowledgement or retry: scheduled=%d acks=%d receipts=%d undecryptable=%d retries=%d", asyncScheduled, log.acks.Load(), log.receipts.Load(), undecryptable, client.messageRetries[info.ID])
 				}
 				wantDelivered := 0
 				if phase == "clear" || phase == "handler-panic" {
@@ -362,6 +362,24 @@ func TestRecoveryStorageFailure(t *testing.T) {
 			})
 		}
 	}
+	t.Run("async-helper-control", func(t *testing.T) {
+		var scheduled int
+		var sends sync.WaitGroup
+		probeAsyncSendsScheduled = func(jobs int) func() {
+			scheduled += jobs
+			sends.Add(jobs)
+			return sends.Done
+		}
+		defer func() { probeAsyncSendsScheduled = func(int) func() { return func() {} } }()
+		_, node := recoveryProbeMessage()
+		log := &receiveProbeLog{Logger: waLog.Noop}
+		client := NewClient(&store.Device{}, log)
+		client.backgroundIfAsyncAck(func() { client.sendAck(context.Background(), &node, 0) })
+		sends.Wait()
+		if scheduled != 1 || log.acks.Load() != 1 {
+			t.Fatalf("async helper did not schedule and attempt its ACK: scheduled=%d acks=%d", scheduled, log.acks.Load())
+		}
+	})
 	for _, phase := range []string{"write", "commit"} {
 		t.Run(phase+"-propagation", func(t *testing.T) {
 			storage := &receiveFailureStore{phase: phase}
