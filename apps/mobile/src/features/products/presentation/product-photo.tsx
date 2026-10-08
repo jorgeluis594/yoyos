@@ -1,11 +1,14 @@
+/** @jsxImportSource react */
 import { useEffect, useRef, useState } from "react";
-import { Alert, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Alert, Pressable, StyleSheet, View } from "react-native";
 import { Image } from "expo-image";
+import { SymbolView } from "expo-symbols";
 import { useTranslation } from "react-i18next";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { Button } from "@/components/ui/button";
 import { ThemedText } from "@/components/themed-text";
+import { useTheme } from "@mobile/hooks/use-theme";
 import type { ImageId, PhotoSelection, Product } from "../domain/product";
 import { useProductDraft } from "./draft-guard";
 import i18n from '@mobile/i18n';
@@ -44,6 +47,7 @@ export function ProductPhoto({ value, original, upload, disabled = false, onChan
 }) {
   const [busyVersion, setBusyVersion] = useState<number | null>(null);
   const { t } = useTranslation();
+  const theme = useTheme();
   const { discardVersion } = useProductDraft();
   const discardVersionRef = useRef(discardVersion);
   const previousDiscardVersionRef = useRef(discardVersion);
@@ -95,20 +99,33 @@ export function ProductPhoto({ value, original, upload, disabled = false, onChan
     }
   };
 
+  const chooseSource = () => Alert.alert(t('photo'), undefined, [
+    { text: t('chooseGallery'), onPress: () => void choose('gallery') },
+    { text: t('takePhoto'), onPress: () => void choose('camera') },
+    { text: t('cancel'), style: 'cancel' },
+  ]);
+
   return <View style={styles.root}>
-    <ThemedText type="subtitle">{t('photo')}</ThemedText>
-    {preview ? <Image source={{ uri: preview }} contentFit="cover" style={styles.preview} accessibilityLabel={t('photoPreview')} /> : <View style={styles.placeholder}><ThemedText themeColor="textSecondary">{t('noPhoto')}</ThemedText></View>}
-    <View style={styles.actions}>
-      <Button variant="secondary" disabled={busy || disabled} loading={busy} onPress={() => void choose("gallery")}>{t('chooseGallery')}</Button>
-      <Button variant="secondary" disabled={busy || disabled} onPress={() => void choose("camera")}>{t('takePhoto')}</Button>
-      {value.kind !== "keep" || original ? <Button variant="ghost" disabled={busy || disabled} onPress={() => onChange(original ? { kind: "remove" } : { kind: "keep" })}>{t('removePhoto')}</Button> : null}
-      {value.kind === "remove" && original ? <Button variant="ghost" disabled={disabled} onPress={() => onChange({ kind: "keep" })}>{t('keepPhoto')}</Button> : null}
-    </View>
+    <Pressable accessibilityRole="button" accessibilityLabel={preview ? t('changeProductPhoto') : t('addProductPhoto')}
+      accessibilityState={{ disabled: busy || disabled, busy }} disabled={busy || disabled} onPress={chooseSource}
+      style={({ pressed }) => [styles.strip, { borderColor: theme.border, backgroundColor: pressed ? theme.secondary : theme.backgroundElement, opacity: disabled ? 0.5 : 1 }]}>
+      {preview ? <Image source={{ uri: preview }} contentFit="cover" style={styles.preview} accessibilityLabel={t('photoPreview')} />
+        : <SymbolView name={{ ios: 'camera', android: 'photo_camera' }} size={28} tintColor={theme.textSecondary} />}
+      <View style={styles.copy}>
+        <ThemedText type="smallBold">{preview ? t('changeProductPhoto') : t('addProductPhoto')}</ThemedText>
+        <ThemedText themeColor="textSecondary" type="small">{t('photoSourceHint')}</ThemedText>
+      </View>
+      {busy ? <ActivityIndicator color={theme.textSecondary} /> : null}
+    </Pressable>
+    {value.kind !== "remove" && (value.kind !== "keep" || original) ? <View style={styles.remove}><Button variant="ghost" disabled={busy || disabled} onPress={() => onChange(original ? { kind: "remove" } : { kind: "keep" })}>{t('removePhoto')}</Button></View> : null}
+    {value.kind === "remove" && original ? <View style={styles.remove}><Button variant="ghost" disabled={disabled} onPress={() => onChange({ kind: "keep" })}>{t('keepPhoto')}</Button></View> : null}
   </View>;
 }
 
 const styles = StyleSheet.create({
-  root: { gap: 12 }, preview: { width: "100%", height: 200, borderRadius: 12 },
-  placeholder: { height: 120, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#eee" },
-  actions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  root: { gap: 2 },
+  strip: { minHeight: 84, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, borderWidth: 1, borderStyle: 'dashed', borderRadius: 10, padding: 10 },
+  preview: { width: 64, height: 64, borderRadius: 8 },
+  copy: { alignItems: 'center', gap: 2 },
+  remove: { alignSelf: 'flex-start' },
 });

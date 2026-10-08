@@ -1,0 +1,16 @@
+{
+  "prompt": "Use case: ui-mockup. Redesign the attached Yoyos Android Nueva venta screen as a high-fidelity native mobile interface, ONE portrait phone viewport 432x936 logical proportions, no device bezel or surrounding board. Option A: persistent compact review header and bottom purchase-action dock. Reference images carry existing warm cream #F7F4EF canvas, charcoal #242326 Inter typography, restrained caramel #8C552D primary action, neutral secondary buttons, discreet borders, rounded 6px controls, native Android status/navigation and four-tab bottom bar; keep these exact visual conventions and actual content, improve composition only. Screen in review stage scrolled to payment and delivery near its end. At top: compact back link 'Volver a pedidos', title 'Nueva venta', then two-step strip '1 Productos' and caramel-accent selected '2 Revisar'. Main scroll region compact and comfortably readable: 'Pagos' heading, 'Sin pagos. El pedido quedará pendiente de pago.', neutral full width 'Agregar pago'; 'Entrega' heading, native off switches with wrapping labels 'Configurar datos de entrega' and 'Marcar como entregado al guardar', small explanatory line 'Para marcar entregado, los pagos deben cubrir el total y debe haber stock suficiente.'; 'Resumen' with aligned rows 'Pagos ingresados' / 'S/ 0.00' and 'Saldo referencial de productos' / 'S/ 129.90', secondary disclaimer 'El servidor calculará precios, cargo de entrega y saldo al guardar.' Stable bottom dock ABOVE tabs, white flat surface with subtle top separator: row small '2 artículos' left and bold 'S/ 129.90' right, caramel full-width 'Guardar pedido', secondary text button 'Editar productos'. Tabs below dock: home icon, products icon, Pedidos selected caramel, settings icon; separate Android navigation area. All actions fully visible, safe areas clear, no overlap or clipping. This is Operate mode, compact working seller app not a marketing poster. No new brand, gradients, decorative graphics, shadows or imagery. Preserve credible native controls with at least 48dp targets. Output only one polished raster mock.",
+  "approved": true,
+  "tool": "image_gen",
+  "mode": "Operate",
+  "references": [
+    "artifacts/mobile-screenshots/15-pedido-nuevo-revision.png",
+    "artifacts/mobile-screenshots/15-pedido-nuevo-pago-entrega.png"
+  ],
+  "approval": {
+    "by": "coordinator term_3ab97a09-0cbb-45a9-8dfd-6ee3eacac9d6",
+    "date": "2026-10-08",
+    "choice": "A",
+    "constraints": "Preserve callbacks; clearly identify merchandise amount, not definitive order total; footer must not obscure fields/errors or impair keyboard and large-text usage."
+  }
+}

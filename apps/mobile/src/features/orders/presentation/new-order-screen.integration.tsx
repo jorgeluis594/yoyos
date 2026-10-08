@@ -59,6 +59,7 @@ jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAcc
 } }) }));
 jest.mock("@mobile/features/orders/presentation/order-draft-guard", () => ({ useOrderDraft: () => ({ dirty: false, setDirty: jest.fn(), discardVersion: 0 }) }));
 jest.mock("@mobile/features/orders/presentation/order-result", () => ({ useOrderResult: () => ({ show: jest.fn() }) }));
+jest.mock("react-native-screens/experimental", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 
 async function mockRequest(path: string, init: RequestInit = {}): Promise<Result<unknown, TransportError>> {
@@ -111,7 +112,7 @@ async function review() {
   await screen.findByText("Journey product");
   fireEvent.press(screen.getByRole("button", { name: /Journey product/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
-  fireEvent.press(screen.getByRole("button", { name: "Revisar venta" }));
+  fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
   return screen;
 }
 
@@ -129,8 +130,8 @@ test("mobile interface creates a pending order without payments or stock changes
 test("mobile interface creates an immediate sale with payment, stock deduction and delivery", async () => {
   const screen = await review();
   fireEvent.press(screen.getByRole("button", { name: "Agregar pago" }));
-  fireEvent.changeText(screen.getByLabelText(/Importe recibido/), "10");
-  fireEvent(screen.getByRole("switch", { name: "Marcar como entregado al guardar" }), "valueChange", true);
+  fireEvent.changeText(screen.getByLabelText(/Monto/), "10");
+  fireEvent(screen.getByTestId("delivery-status"), "valueChange", 1);
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   await waitFor(() => expect(mockReplace).toHaveBeenCalledTimes(1));
   const id = mockReplace.mock.calls[0][0].split("/").at(-1);
@@ -168,7 +169,7 @@ test("mobile recovers a persisted pending creation after a lost response and res
 
 async function ratedReview(method: "home" | "agency" = "home", rateIndex = 0) {
   const screen = await review();
-  fireEvent(screen.getByLabelText("Configurar datos de entrega"), "valueChange", true);
+  fireEvent.press(screen.getByRole("button", { name: "Datos de envío" }));
   fireEvent(screen.getByTestId("delivery-method"), "valueChange", method === "home" ? 1 : 2);
   const district = getPeruDistrict("150122")!;
   fireEvent(screen.getByTestId("delivery-department"), "valueChange", peruDepartments.findIndex(value => value.code === district.departmentCode));
@@ -189,9 +190,9 @@ async function ratedReview(method: "home" | "agency" = "home", rateIndex = 0) {
 
 test("mobile creates a rated home order and payment atomically with the full selected charge", async () => {
   const screen = await ratedReview();
-  expect(screen.getByText(/Total:\sS\/\s18\.00/)).toBeTruthy();
+  expect(screen.getAllByText(/S\/\s18\.00/).length).toBeGreaterThan(0);
   fireEvent.press(screen.getByRole("button", { name: "Agregar pago" }));
-  fireEvent.changeText(screen.getByLabelText(/Importe recibido/), "18");
+  fireEvent.changeText(screen.getByLabelText(/Monto/), "18");
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   await waitFor(() => expect(mockReplace).toHaveBeenCalledTimes(1));
   const id = mockReplace.mock.calls[0][0].split("/").at(-1);
@@ -236,7 +237,7 @@ test("mobile price conflict leaves no order and preserves fields for explicit ra
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
   await screen.findByTestId("delivery-rate");
   fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 0);
-  expect(screen.getByText(/Total:\sS\/\s20\.00/)).toBeTruthy();
+  expect(screen.getAllByText(/S\/\s20\.00/).length).toBeGreaterThan(0);
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   await waitFor(() => expect(mockReplace).toHaveBeenCalledTimes(1));
   const id = mockReplace.mock.calls[0][0].split("/").at(-1);
@@ -371,8 +372,10 @@ test("restarted stock rejection keeps the paid attempt editable and resends its 
   const screen = render(<NewOrderScreen />);
   fireEvent.press(await screen.findByRole("button", { name: "Corregir intento guardado" }));
   await screen.findByRole("button", { name: "Guardar correcciones" });
-  expect(screen.getByLabelText(/Importe recibido/)).toHaveProp("value", "40");
+  expect(screen.getByLabelText(/Monto/)).toHaveProp("value", "40");
+  fireEvent.press(screen.getByRole("button", { name: "Editar productos" }));
   for (let count = 0; count < 3; count++) fireEvent.press(screen.getByRole("button", { name: "−" }));
+  fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
   fireEvent.press(screen.getByRole("button", { name: "Guardar correcciones" }));
   await waitFor(() => expect(screen.queryByRole("button", { name: "Guardar correcciones" })).toBeNull(), { timeout: 10000 });
   expect(await mockOrders.readPendingOrderConfirmation(companyId)).toEqual(ok({ ...pending, shownTotal: { amount: 10, currency: "PEN" },

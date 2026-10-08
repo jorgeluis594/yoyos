@@ -7,6 +7,8 @@ related_targets: ["apps/mobile/src/features/orders/presentation/translations.ts"
 
 # Pedidos — compact native list
 
+2026-10-08 revision: the current entry/access/history composition is recorded in [entry-history](entry-history.md), with coordinator-approved option B. That revision replaces the horizontal filter strip and paired status pills with wrapping quick filters, a named advanced-filter action, and independent payment/delivery lines. The remaining notes below document the earlier 2026-10-06 implementation and evidence.
+
 Mode: Operate. User explicitly approved option 1 and implementation on 2026-10-06.
 Approved comp: `.impeccable/mocks/decision/pedidos-compacta.png`.
 
