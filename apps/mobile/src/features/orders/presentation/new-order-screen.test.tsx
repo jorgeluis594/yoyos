@@ -497,8 +497,16 @@ test("a saved rated delivery can be reviewed without charging its old fee twice"
         recipient: { name: "Ana", phone: "999001", identity: { kind: "absent" } },
         destination: { address: "Original street", districtCode: "150122", instructions: null } } } } };
   mockReadPending.mockResolvedValue(ok(pending));
+  mockResolvePending.mockResolvedValue(ok({ kind: "uncertain", pending }));
   const screen = render(<NewOrderScreen />);
-  fireEvent.press(await screen.findByRole("button", { name: "Revisar entrega guardada" }));
+  await screen.findByRole("button", { name: "Revisar entrega guardada" });
+  fireEvent.press(screen.getByRole("button", { name: "Verificar venta" }));
+  await waitFor(() => expect(mockResolvePending).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Verificar venta" })).toBeEnabled());
+  fireEvent.press(screen.getByRole("button", { name: "Verificar venta" }));
+  await screen.findByRole("button", { name: "Reenviar mismo intento" });
+  fireEvent.press(screen.getByRole("button", { name: "Revisar entrega guardada" }));
+  expect(screen.queryByRole("button", { name: "Reenviar mismo intento" })).toBeNull();
   await screen.findByLabelText(/Dirección de entrega/);
   expect(screen.getByLabelText(/Dirección de entrega/)).toHaveProp("value", "Original street");
   selectDistrict(screen);

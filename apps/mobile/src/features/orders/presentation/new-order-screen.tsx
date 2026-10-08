@@ -302,7 +302,7 @@ function CompanyOrderScreen() {
                 if (ratedDelivery) void performSave(() => orders.reviewLegacyPendingDelivery(companyId, ratedDelivery));
               }}>{t('saveReviewedDelivery')}</Button>
             </> : null}
-            {checks >= 2 && pending?.request && !legacyDelivery ? <Button variant="secondary" loading={sending} onPress={() => void performSave(() => orders.resendPendingOrder(companyId))}>{t('resendAttempt')}</Button> : null}
+            {checks >= 2 && pending?.request && !legacyDelivery && !reviewingLegacy ? <Button variant="secondary" loading={sending} onPress={() => void performSave(() => orders.resendPendingOrder(companyId))}>{t('resendAttempt')}</Button> : null}
             {pending && !pending.request ? <ThemedText>{t('legacyAttemptHint')}</ThemedText> : null}
           </View>
         : stage === "products" ? <View style={styles.section}>
