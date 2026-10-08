@@ -37,3 +37,21 @@ test("pickup is offered explicitly only with an enabled configured point", () =>
     options={{ ...options, store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } }} onChange={() => undefined} />);
   expect(html).toContain("Recojo en tienda · Gratis");
 });
+
+test("pickup-only businesses show the configured point without offering shipping or a district", () => {
+  const html = renderToStaticMarkup(<CheckoutDeliveryFields orderId="00000000-0000-4000-8000-000000000001" checkout={checkout}
+    options={{ home: { enabled: false }, agency: { enabled: false }, store: { enabled: true,
+      pickupPoint: { name: "Shop", address: "Pickup street", instructions: "Door 2" } } }} onChange={() => undefined} />);
+  expect(html).toContain("Pickup street");
+  expect(html).toContain("Door 2");
+  expect(html).not.toContain('value="ship"');
+  expect(html).not.toContain("Distrito de entrega");
+});
+
+test("businesses without available delivery methods cannot offer an implicit delivery", () => {
+  const html = render(checkout, { ...options, home: { enabled: false } });
+  expect(html).toContain("No hay modalidades de entrega disponibles");
+  expect(html).not.toContain('value="ship"');
+  expect(html).not.toContain("Distrito de entrega");
+  expect(html).not.toContain("Nombre del destinatario");
+});
