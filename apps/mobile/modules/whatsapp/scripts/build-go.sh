@@ -5,6 +5,14 @@ module_dir=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 target=${1:-}
 case "$target" in android|ios|all) ;; *) echo 'usage: build-go.sh android|ios|all' >&2; exit 2 ;; esac
 
+rm -f "$module_dir/.generated/build-info.txt"
+if test "$target" = android || test "$target" = all; then
+  rm -f "$module_dir/android/libs/WhatsAppGo.aar"
+fi
+if test "$target" = ios || test "$target" = all; then
+  rm -rf "$module_dir/ios/Frameworks/WhatsAppGo.xcframework"
+fi
+
 export GOTOOLCHAIN=local
 export GOPROXY=off
 expected_meow=v0.0.0-20261006124319-9399289b022b
@@ -20,7 +28,6 @@ test "$(cd "$module_dir/go" && go list -m -f '{{.Version}}' golang.org/x/mobile)
 test -f "$module_dir/patches/pre-decrypt-context.patch" || fail 'required whatsmeow patch missing'
 
 if test "$target" = android || test "$target" = all; then
-  rm -f "$module_dir/android/libs/WhatsAppGo.aar"
   command -v javac >/dev/null 2>&1 || fail 'JDK required for Android'
   test -n "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}" || fail 'Android SDK required'
   android_sdk=${ANDROID_HOME:-$ANDROID_SDK_ROOT}
@@ -30,7 +37,6 @@ if test "$target" = android || test "$target" = all; then
   export ANDROID_NDK_HOME="$android_sdk/ndk/27.1.12297006"
 fi
 if test "$target" = ios || test "$target" = all; then
-  rm -rf "$module_dir/ios/Frameworks/WhatsAppGo.xcframework"
   test "$(uname -s)" = Darwin || fail 'iOS requires macOS'
   command -v xcodebuild >/dev/null 2>&1 || fail 'Xcode required'
   command -v python3 >/dev/null 2>&1 || fail 'Python 3 required to inspect the framework'
@@ -101,5 +107,6 @@ fi
   echo "x/mobile: $expected_mobile"
   echo "source: $(git -C "$module_dir" rev-parse HEAD)"
   echo "target: $target"
-  echo "gomobile: $($build_dir/gomobile version)"
+  go version -m "$build_dir/gomobile"
+  go version -m "$build_dir/gobind"
 } > "$module_dir/.generated/build-info.txt"

@@ -2,11 +2,6 @@ name: WhatsApp native bridge
 
 on:
   pull_request:
-    branches: [jorgeluis594/add-bailyes]
-    paths:
-      - 'apps/mobile/modules/whatsapp/**'
-      - 'apps/mobile/app.config.js'
-      - '.github/workflows/whatsapp-native.yml'
   workflow_dispatch:
 
 permissions:
@@ -50,6 +45,8 @@ jobs:
         working-directory: apps/mobile/modules/whatsapp/go
       - run: go vet ./bridge
         working-directory: apps/mobile/modules/whatsapp/go
+      - run: sh scripts/test-build-go-cleanup.sh
+        working-directory: apps/mobile/modules/whatsapp
       - run: sh scripts/build-go.sh android
         working-directory: apps/mobile/modules/whatsapp
       - name: Link WhatsApp into isolated Expo probe app
@@ -61,6 +58,17 @@ jobs:
       - run: pnpm exec expo prebuild tests/whatsapp-native-app --platform android --no-install
         working-directory: apps/mobile
       - run: ./gradlew :app:assembleRelease
+        working-directory: apps/mobile/tests/whatsapp-native-app/android
+      - name: Record effective Android matrix
+        run: |
+          {
+            java -version 2>&1
+            echo "ANDROID_HOME=$ANDROID_HOME"
+            echo "Android platform: $(ls "$ANDROID_HOME/platforms" | grep '^android-36$')"
+            echo "Android build tools: $(ls "$ANDROID_HOME/build-tools" | grep '^36.0.0$')"
+            echo "Android NDK: $(ls "$ANDROID_HOME/ndk" | grep '^27.1.12297006$')"
+            ./gradlew --version
+          } >> ../../../modules/whatsapp/.generated/build-info.txt
         working-directory: apps/mobile/tests/whatsapp-native-app/android
       - uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -114,6 +122,8 @@ jobs:
         working-directory: apps/mobile/modules/whatsapp
       - run: go test ./bridge
         working-directory: apps/mobile/modules/whatsapp/go
+      - run: sh scripts/test-build-go-cleanup.sh
+        working-directory: apps/mobile/modules/whatsapp
       - run: sh scripts/build-go.sh ios
         working-directory: apps/mobile/modules/whatsapp
       - name: Link WhatsApp into isolated Expo probe app
@@ -125,6 +135,16 @@ jobs:
       - run: pnpm exec expo prebuild tests/whatsapp-native-app --platform ios --no-install
         working-directory: apps/mobile
       - run: pod install
+        working-directory: apps/mobile/tests/whatsapp-native-app/ios
+      - name: Record effective iOS matrix
+        run: |
+          {
+            xcodebuild -version
+            xcrun --sdk iphoneos --show-sdk-version
+            xcrun --sdk iphonesimulator --show-sdk-version
+            pod --version
+            xcodebuild -project WhatsAppNativeProbe.xcodeproj -scheme WhatsAppNativeProbe -showBuildSettings | grep -E '^[[:space:]]*(IPHONEOS_DEPLOYMENT_TARGET|SWIFT_VERSION) = ' | sort -u
+          } >> ../../../modules/whatsapp/.generated/build-info.txt
         working-directory: apps/mobile/tests/whatsapp-native-app/ios
       - name: Boot available simulator
         run: |

@@ -1,7 +1,7 @@
 import XCTest
 import WhatsAppGo
 
-private final class Storage: NSObject, YYWhatsAppGoBridgeStorage {
+private final class Storage: NSObject, YYWhatsAppGoBridgeStorageProtocol {
   var fail = false
 
   func commit(_ value: String?) throws -> String {

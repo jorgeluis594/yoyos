@@ -1,7 +1,7 @@
 import ExpoModulesCore
 import WhatsAppGo
 
-private final class ProbeStorage: NSObject, YYWhatsAppGoBridgeStorage {
+private final class ProbeStorage: NSObject, YYWhatsAppGoBridgeStorageProtocol {
   let fail: Bool
 
   init(fail: Bool) { self.fail = fail }
