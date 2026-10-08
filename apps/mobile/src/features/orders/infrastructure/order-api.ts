@@ -163,6 +163,11 @@ export function createOrderApi(request: Request) {
       return response(await request("/api/orders", { method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify(parsed.data) }), orderAggregateSchema, "create");
     },
+    findCatalog: async (variantIds: readonly string[]): Promise<Result<z.infer<typeof orderCatalogSchema>, OrderRequestError>> => {
+      if (!z.array(z.uuid()).min(1).refine(values => new Set(values).size === values.length).safeParse(variantIds).success)
+        return err({ code: "INVALID_INPUT", message: "Invalid catalog variant IDs" });
+      return response(await request(`/api/orders/catalog?${new URLSearchParams({ variantIds: variantIds.join(",") })}`), orderCatalogSchema, "catalog");
+    },
     searchCatalog: async (search: string): Promise<Result<z.infer<typeof orderCatalogSchema>, OrderRequestError>> =>
       response(await request(`/api/orders/catalog?${new URLSearchParams({ search })}`), orderCatalogSchema, "catalog"),
     searchContacts: async (search: string): Promise<Result<z.infer<typeof orderContactsSchema>, OrderRequestError>> =>

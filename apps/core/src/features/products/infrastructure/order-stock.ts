@@ -54,10 +54,14 @@ export async function restoreProductStock(variantId: VariantId, quantity: number
   }
 }
 
-export async function searchSaleCatalog(search: string) {
+export async function searchSaleCatalog(search: string, variantIds?: readonly string[]) {
   try {
-    const rows = await prisma.product.findMany({ where: { name: { contains: search.replace(/[\\%_]/g, "\\$&"), mode: "insensitive" }, status: "active" },
-      orderBy: { name: "asc" }, take: 20, include: { variants: { where: { status: "active" }, include: { stock: true } } } });
+    const variantFilter = { status: "active" as const, ...(variantIds ? { id: { in: [...variantIds] } } : {}) };
+    const rows = await prisma.product.findMany({ where: { status: "active", ...(variantIds
+      ? { variants: { some: variantFilter } }
+      : { name: { contains: search.replace(/[\\%_]/g, "\\$&"), mode: "insensitive" as const } }) },
+      orderBy: { name: "asc" }, ...(variantIds ? {} : { take: 20 }),
+      include: { variants: { where: variantFilter, include: { stock: true } } } });
     if (rows.some((row) => row.variants.some((variant) => !variant.attributes || typeof variant.attributes !== "object" || Array.isArray(variant.attributes) ||
       Object.values(variant.attributes).some((value) => typeof value !== "string") || !variant.stock ||
       variant.stock.quantity < 0n || variant.stock.quantity > BigInt(Number.MAX_SAFE_INTEGER)))) {

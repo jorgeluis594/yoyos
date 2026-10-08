@@ -15,6 +15,8 @@ import type { RegisterPaymentInput } from "@core/src/features/orders/application
 import type { VariantId } from "@core/src/features/products/domain/product";
 
 const searchSchema = z.strictObject({ search: z.string().trim().max(100).default("") });
+const catalogQuerySchema = z.union([searchSchema, z.strictObject({ variantIds: z.string().transform(value => value.split(","))
+  .pipe(z.array(z.uuid()).min(1).refine(values => new Set(values).size === values.length)) })]);
 
 export function hasDuplicateJsonKeys(raw: string): boolean {
   const stack: ({ kind: "object"; keys: Set<string>; expectsKey: boolean } | { kind: "array" })[] = [];
@@ -146,10 +148,10 @@ orderRoutes.get("/mixed", async (request, response: Response<unknown, PrivateLoc
 orderRoutes.get("/catalog", async (request, response) => {
   const query = queryFrom(request, response);
   if (!query) return;
-  const parsed = searchSchema.safeParse(query);
+  const parsed = catalogQuerySchema.safeParse(query);
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid search");
   try {
-    const result = await orders.searchProducts(parsed.data.search);
+    const result = await orders.searchProducts("search" in parsed.data ? parsed.data.search : "", "variantIds" in parsed.data ? parsed.data.variantIds : undefined);
     return result.success ? response.json(orderCatalogSchema.parse(result.data)) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });

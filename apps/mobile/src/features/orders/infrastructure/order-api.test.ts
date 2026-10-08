@@ -217,3 +217,14 @@ test("rated assignment sends the rate and reviewed price and preserves typed pri
   expect(await api.create(creation)).toMatchObject({ success: false, error: { code: "TOTAL_CHANGED", currentPrice } });
   expect(JSON.parse(String(calls[2][1]?.body))).toEqual(creation);
 });
+
+
+test("catalog recovery loads explicit variant IDs and rejects malformed or duplicate IDs before HTTP", async () => {
+  const paths: string[] = [];
+  const api = createOrderApi(async path => { paths.push(path); return ok([]); });
+  expect(await api.findCatalog([id(1), id(2)])).toEqual(ok([]));
+  expect(paths).toEqual([`/api/orders/catalog?${new URLSearchParams({ variantIds: [id(1), id(2)].join(",") })}`]);
+  for (const ids of [[], ["invalid"], [id(1), id(1)]])
+    expect(await api.findCatalog(ids)).toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
+  expect(paths).toHaveLength(1);
+});

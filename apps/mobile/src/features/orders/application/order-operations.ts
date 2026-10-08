@@ -47,6 +47,7 @@ type Api = Readonly<{
   list: (input: ListOrdersRequest) => Promise<Result<z.infer<typeof listOrdersResponseSchema>, OrderRequestError>>;
   get: (id: string) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
   create: (input: OrderSubmission) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
+  findCatalog: (variantIds: readonly string[]) => Promise<Result<z.infer<typeof orderCatalogSchema>, OrderRequestError>>;
   searchCatalog: (search: string) => Promise<Result<z.infer<typeof orderCatalogSchema>, OrderRequestError>>;
   searchContacts: (search: string) => Promise<Result<z.infer<typeof orderContactsSchema>, OrderRequestError>>;
 }>;
@@ -162,6 +163,7 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
     },
     loadOrder: api.get,
     searchOrderCatalog: api.searchCatalog,
+    loadOrderCatalog: api.findCatalog,
     searchOrderContacts: api.searchContacts,
     readPendingOrderConfirmation: pendingStore.read,
     resolvePendingOrderConfirmation,

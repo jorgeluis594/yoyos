@@ -729,3 +729,33 @@ test("public checkout delivery action persists buyer pickup and redirects to exi
     expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: seller.variantId } })).quantity).toBe(3n);
   });
 });
+
+
+test("catalog lookup by variant IDs bypasses search pagination and excludes unavailable or foreign variants", async () => {
+  const seller = await fixture("PE");
+  const other = await fixture("PE");
+  const extra = Array.from({ length: 21 }, () => ({ productId: randomUUID(), variantId: randomUUID() }));
+  await withTenantIsolation(seller.companyId, async () => {
+    for (const value of extra) {
+      await prisma.product.create({ data: { id: value.productId, name: "A catalog product", currency: "PEN", qrCode: value.productId,
+        status: "active", createdAt: new Date(), updatedAt: new Date() } });
+      await prisma.productVariant.create({ data: { id: value.variantId, productId: value.productId, attributes: {}, salePrice: 12,
+        qrCode: value.variantId, status: "active" } });
+      await prisma.productStock.create({ data: { variantId: value.variantId, quantity: 2n } });
+    }
+    await prisma.productStock.delete({ where: { variantId: extra[0].variantId } });
+    await prisma.productVariant.delete({ where: { id: extra[0].variantId } });
+  });
+  const search = await (await call("/api/orders/catalog?search=", seller.cookie)).json();
+  expect(search).toHaveLength(20);
+  expect(search.some((product: { id: string }) => product.id === seller.productId)).toBe(false);
+  const ids = [seller.variantId, ...extra.map(value => value.variantId), other.variantId];
+  const selected = await call(`/api/orders/catalog?${new URLSearchParams({ variantIds: ids.join(",") })}`, seller.cookie);
+  expect(selected.status).toBe(200);
+  const rows = await selected.json();
+  expect(rows.flatMap((product: { variants: { id: string }[] }) => product.variants.map(value => value.id)).sort())
+    .toEqual([seller.variantId, ...extra.slice(1).map(value => value.variantId)].sort());
+  expect(rows.find((product: { id: string }) => product.id === seller.productId)).toMatchObject({ variants: [{ id: seller.variantId, price: 10, stock: 3 }] });
+  for (const query of ["variantIds=bad", `variantIds=${seller.variantId},${seller.variantId}`, `variantIds=${seller.variantId}&search=Camisa`])
+    expect((await call(`/api/orders/catalog?${query}`, seller.cookie)).status).toBe(400);
+});
