@@ -13,16 +13,15 @@ type testStorage struct {
 func (s testStorage) Commit(string) (string, error) { return s.value, s.err }
 
 func TestProbe(t *testing.T) {
-	got, err := Probe(testStorage{value: "native callback"}, `{"probe":true}`)
-	if err != nil || got != "native callback" {
-		t.Fatalf("callback value: %q, %v", got, err)
+	got := Probe(testStorage{value: "native callback"}, `{"probe":true}`)
+	if got.Code != "" || got.Value != "native callback" {
+		t.Fatalf("callback value: %+v", got)
 	}
-	want := errors.New("native callback failed")
-	_, err = Probe(testStorage{err: want}, `{"probe":true}`)
-	if !errors.Is(err, want) {
-		t.Fatalf("callback error was lost: %v", err)
+	got = Probe(testStorage{err: errors.New("native callback failed")}, `{"probe":true}`)
+	if got.Code != "NATIVE_CALL_FAILED" || got.Value != "" {
+		t.Fatalf("callback error was lost: %+v", got)
 	}
-	if _, err = Probe(testStorage{}, "bad json"); err == nil {
-		t.Fatal("invalid input accepted")
+	if got = Probe(testStorage{}, "bad json"); got.Code != "INVALID_REQUEST" {
+		t.Fatalf("invalid input accepted: %+v", got)
 	}
 }

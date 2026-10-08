@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
   name: "WhatsAppBridgeTests",
-  platforms: [.iOS(.v16)],
+  platforms: [.iOS("16.4")],
   products: [],
   targets: [
     .binaryTarget(name: "WhatsAppGo", path: "Frameworks/WhatsAppGo.xcframework"),

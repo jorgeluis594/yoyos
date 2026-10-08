@@ -4,7 +4,6 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import expo.modules.whatsapp.go.bridge.Bridge
 import expo.modules.whatsapp.go.bridge.Storage
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertThrows
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -14,14 +13,15 @@ class BridgeInstrumentedTest {
     val result = Bridge.probe(object : Storage {
       override fun commit(value: String): String = "callback:$value"
     }, "{}")
-    assertEquals("callback:{}", result)
+    assertEquals("callback:{}", result.value)
+    assertEquals("", result.code)
   }
 
   @Test fun nativeErrorReturnsToGo() {
-    assertThrows(Exception::class.java) {
-      Bridge.probe(object : Storage {
-        override fun commit(value: String): String = throw Exception("controlled failure")
-      }, "{}")
-    }
+    val result = Bridge.probe(object : Storage {
+      override fun commit(value: String): String = throw Exception("controlled failure")
+    }, "{}")
+    assertEquals("NATIVE_CALL_FAILED", result.code)
+    assertEquals("", result.value)
   }
 }

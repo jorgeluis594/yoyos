@@ -17,7 +17,11 @@ class WhatsAppModule : Module() {
             return value
           }
         }, value)
-        mapOf("status" to "ok", "value" to result)
+        when {
+          result == null -> mapOf("status" to "error", "code" to "NATIVE_CALL_FAILED")
+          result.code.isNotEmpty() -> mapOf("status" to "error", "code" to result.code)
+          else -> mapOf("status" to "ok", "value" to result.value)
+        }
       } catch (_: Exception) {
         mapOf("status" to "error", "code" to "NATIVE_CALL_FAILED")
       }
