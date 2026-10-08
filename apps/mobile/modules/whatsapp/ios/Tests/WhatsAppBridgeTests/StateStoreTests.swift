@@ -98,6 +98,8 @@ final class StateStoreTests: XCTestCase {
       { var session = $0; session["accountId"] = "456@lid"; return session },
       { var session = $0; session["sessionRevision"] = "0"; return session },
       { var session = $0; let value = session["sessionKeyId"] as! String; session["sessionKeyId"] = (value.first == "0" ? "1" : "0") + String(value.dropFirst()); return session },
+      { var session = $0; session["sessionKeyId"] = (session["sessionKeyId"] as! String) + "\n"; return session },
+      { var session = $0; session["sessionKeyId"] = (session["sessionKeyId"] as! String) + "\r\n"; return session },
       { var session = $0; let value = session["nonceBase64"] as! String; session["nonceBase64"] = (value.first == "A" ? "B" : "A") + String(value.dropFirst()); return session },
       { var session = $0; let value = session["ciphertextBase64"] as! String; session["ciphertextBase64"] = (value.first == "A" ? "B" : "A") + String(value.dropFirst()); return session },
     ]
@@ -261,6 +263,7 @@ final class StateStoreTests: XCTestCase {
       { var item = $0; var message = item["message"] as! [String: Any]; message["chatId"] = "789@lid"; item["message"] = message; return item },
       { var item = $0; item["identityState"] = "pendingLid"; return item },
       { var item = $0; item["deliveryId"] = (item["deliveryId"] as! String) + "\n"; return item },
+      { var item = $0; item["deliveryId"] = (item["deliveryId"] as! String) + "\r\n"; return item },
       { var item = $0; item["createdOrdinal"] = 4_294_967_296; return item },
       { var item = $0; item["createdRevision"] = "01"; return item },
       { var item = $0; var recovery = item["recovery"] as! [String: Any]; recovery["items"] = [["format": "v2", "plaintextBase64": "AQ==", "ciphertextHashBase64": "AQ=="]]; item["recovery"] = recovery; return item },

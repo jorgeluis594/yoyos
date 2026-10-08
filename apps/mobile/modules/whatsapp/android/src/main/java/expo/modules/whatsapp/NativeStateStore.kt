@@ -201,7 +201,10 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
       val session = state.optJSONObject("session")
       if (session != null) {
         val id = session.getString("sessionKeyId")
-        commit(revision.toString()) { it.put("session", JSONObject.NULL).put("sessionKeysToDelete", JSONArray().put(id)) }
+        commit(revision.toString()) {
+          it.put("session", JSONObject.NULL).put("sessionKeysToDelete", JSONArray().put(id))
+            .put("androidService", JSONObject.NULL)
+        }
         fault?.invoke("retiredPublished")
         state = open()
       }

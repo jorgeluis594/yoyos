@@ -68,6 +68,22 @@ class StateStoreInstrumentedTest {
     assertEquals(false, firstNonce == store.open().getJSONObject("session").getString("nonceBase64"))
   }
 
+  @Test fun logoutClearsReceiveIntentWithSessionAndKeepsPending() {
+    val root = freshRoot
+    val store = makeStore(root)
+    store.open()
+    store.beginSession("123@lid", "{\"protocolSchemaVersion\":1,\"records\":[]}".toByteArray())
+    store.commit(currentRevision(root)) { it.put("androidService", org.json.JSONObject()
+      .put("receiveRequested", true).put("accountId", "123@lid"))
+      .put("pending", org.json.JSONArray().put(pending())) }
+    store.endSession()
+    val recovered = makeStore(root).open()
+    assertEquals(org.json.JSONObject.NULL, recovered.get("session"))
+    assertEquals(org.json.JSONObject.NULL, recovered.get("androidService"))
+    assertEquals(1, recovered.getJSONArray("pending").length())
+    assertEquals(0, recovered.getJSONArray("sessionKeysToDelete").length())
+  }
+
   @Test fun storageKeysAreNonexportableAndDoNotRequirePerUseAuthentication() {
     val root = freshRoot
     val store = makeStore(root)
