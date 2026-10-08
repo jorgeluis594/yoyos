@@ -2,7 +2,7 @@ import { log } from "@core/src/shared/infrastructure/logger";
 import { afterEach, expect, test, vi } from "vitest";
 import { action } from "@core/app/routes/order-detail";
 import * as composition from "@core/src/features/orders/composition";
-import { createDeliveryRequestContext } from "@core/app/delivery-cost-context";
+import { RouterContextProvider } from "react-router";
 import { privateUserContext } from "@core/app/private-user-context";
 import type { ReadyAccess } from "@core/src/features/users";
 
@@ -10,7 +10,7 @@ const orderId = "00000000-0000-4000-8000-000000000003";
 const access = { company: { id: "00000000-0000-4000-8000-000000000001" }, user: { id: "current-seller" } };
 const input = { delivery: { method: "store", recipient: { name: " Ana ", phone: " 999 ", identity: { kind: "absent" } } }, expectedPrice: { amount: 0, currency: "PEN" } };
 async function save(body: unknown) {
-  const context = createDeliveryRequestContext();
+  const context = new RouterContextProvider();
   context.set(privateUserContext, access as unknown as ReadyAccess);
   const request = new Request(`http://localhost/es-PE/orders/${orderId}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   return action({ params: { orderId }, context, request, url: new URL(request.url), pattern: "/:locale/orders/:orderId" });

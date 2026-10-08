@@ -1,8 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
-import type { ActionFunctionArgs } from "react-router";
+import { RouterContextProvider, type ActionFunctionArgs } from "react-router";
 import { action } from "@core/app/routes/order-new";
 import * as composition from "@core/src/features/orders/composition";
-import { createDeliveryRequestContext } from "@core/app/delivery-cost-context";
 import { privateUserContext } from "@core/app/private-user-context";
 import type { ReadyAccess } from "@core/src/features/users";
 
@@ -12,7 +11,7 @@ const input = { id: orderId, contactId: null, items: [{ variantId: "00000000-000
   delivery: { delivery: { method: "home", rateId: "00000000-0000-4000-8000-000000000004", recipient: { name: " Ana ", phone: " 999 ", identity: { kind: "absent" } },
     destination: { districtCode: "040110", address: " Street ", instructions: null } }, expectedPrice: { amount: 8, currency: "PEN" } } };
 async function save(body: unknown) {
-  const context = createDeliveryRequestContext();
+  const context = new RouterContextProvider();
   context.set(privateUserContext, { company: { id: companyId, country: "PE" }, user: { id: "seller" } } as unknown as ReadyAccess);
   return action({ context, request: new Request("http://localhost/es-PE/orders/new", { method: "POST", body: new URLSearchParams({ order: JSON.stringify(body) }) }) } as ActionFunctionArgs);
 }
