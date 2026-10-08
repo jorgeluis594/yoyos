@@ -1214,7 +1214,7 @@ index 98e97f6..727148f 100644
  
  // SendProtocolMessageReceipt sends a receipt for a protocol message back to the phone.
 diff --git a/notification.go b/notification.go
-index 22b6d10..fc0ba06 100644
+index 22b6d10..f0c2ce7 100644
 --- a/notification.go
 +++ b/notification.go
 @@ -23,7 +23,7 @@ import (
@@ -1226,7 +1226,7 @@ index 22b6d10..fc0ba06 100644
  	from := node.AttrGetter().JID("from")
  	if from == types.ServerJID {
  		count := node.GetChildByTag("count")
-@@ -31,27 +31,41 @@ func (cli *Client) handleEncryptNotification(ctx context.Context, node *waBinary
+@@ -31,27 +31,50 @@ func (cli *Client) handleEncryptNotification(ctx context.Context, node *waBinary
  		otksLeft := ag.Int("value")
  		if !ag.OK() {
  			cli.Log.Warnf("Didn't get number of OTKs left in encryption notification %s", node)
@@ -1242,14 +1242,28 @@ index 22b6d10..fc0ba06 100644
  		}
  	} else if _, ok := node.GetOptionalChildByTag("identity"); ok {
  		cli.Log.Debugf("Got identity change for %s: %s, deleting all identities/sessions for that number", from, node)
- 		err := cli.Store.Identities.DeleteAllIdentities(ctx, from.User)
- 		if err != nil {
- 			cli.Log.Warnf("Failed to delete all identities of %s from store after identity change: %v", from, err)
-+			return errors.Join(store.ErrLocalStorage, err)
+-		err := cli.Store.Identities.DeleteAllIdentities(ctx, from.User)
+-		if err != nil {
+-			cli.Log.Warnf("Failed to delete all identities of %s from store after identity change: %v", from, err)
++		clear := func(writeCtx context.Context) error {
++			if err := cli.Store.Identities.DeleteAllIdentities(writeCtx, from.User); err != nil {
++				return errors.Join(store.ErrLocalStorage, err)
++			}
++			if err := cli.Store.Sessions.DeleteAllSessions(writeCtx, from.User); err != nil {
++				return errors.Join(store.ErrLocalStorage, err)
++			}
++			return nil
++		}
++		var err error
++		if cli.EnableDecryptedEventBuffer {
++			err = cli.Store.EventBuffer.DoDecryptionTxn(ctx, clear)
++		} else {
++			err = clear(ctx)
  		}
- 		err = cli.Store.Sessions.DeleteAllSessions(ctx, from.User)
+-		err = cli.Store.Sessions.DeleteAllSessions(ctx, from.User)
  		if err != nil {
- 			cli.Log.Warnf("Failed to delete all sessions of %s from store after identity change: %v", from, err)
+-			cli.Log.Warnf("Failed to delete all sessions of %s from store after identity change: %v", from, err)
++			cli.Log.Warnf("Failed to reset identity and sessions for %s: %v", from, err)
 +			return errors.Join(store.ErrLocalStorage, err)
  		}
  		ts := node.AttrGetter().UnixTime("t")
@@ -1271,7 +1285,7 @@ index 22b6d10..fc0ba06 100644
  		}
  		storedSenderTS := time.Time{}
  		if pt != nil {
-@@ -68,9 +82,10 @@ func (cli *Client) handleEncryptNotification(ctx context.Context, node *waBinary
+@@ -68,9 +91,10 @@ func (cli *Client) handleEncryptNotification(ctx context.Context, node *waBinary
  	} else {
  		cli.Log.Debugf("Got unknown encryption notification from server: %s", node)
  	}
@@ -1283,7 +1297,7 @@ index 22b6d10..fc0ba06 100644
  	for _, collection := range node.GetChildrenByTag("collection") {
  		ag := collection.AttrGetter()
  		name := appstate.WAPatchName(ag.String("name"))
-@@ -80,11 +95,15 @@ func (cli *Client) handleAppStateNotification(ctx context.Context, node *waBinar
+@@ -80,11 +104,15 @@ func (cli *Client) handleAppStateNotification(ctx context.Context, node *waBinar
  		if errors.Is(err, ErrIQDisconnected) || errors.Is(err, ErrNotConnected) {
  			// There are some app state changes right before a remote logout, so stop syncing if we're disconnected.
  			cli.Log.Debugf("Failed to sync app state after notification: %v, not trying to sync other states", err)
@@ -1300,7 +1314,7 @@ index 22b6d10..fc0ba06 100644
  }
  
  func (cli *Client) handlePictureNotification(ctx context.Context, node *waBinary.Node) {
-@@ -113,19 +132,21 @@ func (cli *Client) handlePictureNotification(ctx context.Context, node *waBinary
+@@ -113,19 +141,21 @@ func (cli *Client) handlePictureNotification(ctx context.Context, node *waBinary
  	}
  }
  
@@ -1325,7 +1339,7 @@ index 22b6d10..fc0ba06 100644
  	}
  	var cachedLID deviceCache
  	var cachedLIDHash string
-@@ -184,6 +205,7 @@ func (cli *Client) handleDeviceNotification(ctx context.Context, node *waBinary.
+@@ -184,6 +214,7 @@ func (cli *Client) handleDeviceNotification(ctx context.Context, node *waBinary.
  			}
  		}
  	}
@@ -1333,7 +1347,7 @@ index 22b6d10..fc0ba06 100644
  }
  
  func (cli *Client) handleFBDeviceNotification(ctx context.Context, node *waBinary.Node) {
-@@ -283,25 +305,34 @@ func (cli *Client) handleAccountSyncNotification(ctx context.Context, node *waBi
+@@ -283,25 +314,34 @@ func (cli *Client) handleAccountSyncNotification(ctx context.Context, node *waBi
  	}
  }
  
@@ -1373,7 +1387,7 @@ index 22b6d10..fc0ba06 100644
  	}
  	for _, child := range tokens.GetChildren() {
  		ag := child.AttrGetter()
-@@ -329,10 +360,12 @@ func (cli *Client) handlePrivacyTokenNotification(ctx context.Context, node *waB
+@@ -329,10 +369,12 @@ func (cli *Client) handlePrivacyTokenNotification(ctx context.Context, node *waB
  		})
  		if err != nil {
  			cli.Log.Errorf("Failed to save privacy token from %s: %v", senderLID, err)
@@ -1386,7 +1400,7 @@ index 22b6d10..fc0ba06 100644
  }
  
  func (cli *Client) parseNewsletterMessages(node *waBinary.Node) []*types.NewsletterMessage {
-@@ -466,13 +499,19 @@ func (cli *Client) handleNotification(ctx context.Context, node *waBinary.Node)
+@@ -466,13 +508,19 @@ func (cli *Client) handleNotification(ctx context.Context, node *waBinary.Node)
  	}
  	switch notifType {
  	case "encrypt":
@@ -1409,22 +1423,34 @@ index 22b6d10..fc0ba06 100644
  	case "fbid:devices":
  		cli.handleFBDeviceNotification(ctx, node)
  	case "w:gp2":
-@@ -483,10 +522,14 @@ func (cli *Client) handleNotification(ctx context.Context, node *waBinary.Node)
- 			err = cli.Store.LIDs.PutManyLIDMappings(ctx, lidPairs)
- 			if err != nil {
- 				cli.Log.Errorf("Failed to store LID mappings from group notification: %v", err)
-+				cancelled = true
-+				return
+@@ -480,13 +528,21 @@ func (cli *Client) handleNotification(ctx context.Context, node *waBinary.Node)
+ 		if err != nil {
+ 			cli.Log.Errorf("Failed to parse group notification: %v", err)
+ 		} else {
+-			err = cli.Store.LIDs.PutManyLIDMappings(ctx, lidPairs)
+-			if err != nil {
+-				cli.Log.Errorf("Failed to store LID mappings from group notification: %v", err)
++			persist := func(writeCtx context.Context) error {
++				if err := cli.Store.LIDs.PutManyLIDMappings(writeCtx, lidPairs); err != nil {
++					return errors.Join(store.ErrLocalStorage, err)
++				}
++				return cli.Store.Contacts.PutManyRedactedPhones(writeCtx, redactedPhones)
++			}
++			if cli.EnableDecryptedEventBuffer {
++				err = cli.Store.EventBuffer.DoDecryptionTxn(ctx, persist)
++			} else {
++				err = persist(ctx)
  			}
- 			err = cli.Store.Contacts.PutManyRedactedPhones(ctx, redactedPhones)
+-			err = cli.Store.Contacts.PutManyRedactedPhones(ctx, redactedPhones)
  			if err != nil {
- 				cli.Log.Warnf("Failed to store redacted phones from group notification: %v", err)
+-				cli.Log.Warnf("Failed to store redacted phones from group notification: %v", err)
++				cli.Log.Warnf("Failed to store group notification state: %v", err)
 +				cancelled = true
 +				return
  			}
  			cancelled = cli.dispatchEvent(evt)
  		}
-@@ -495,7 +538,9 @@ func (cli *Client) handleNotification(ctx context.Context, node *waBinary.Node)
+@@ -495,7 +551,9 @@ func (cli *Client) handleNotification(ctx context.Context, node *waBinary.Node)
  	case "mediaretry":
  		cli.handleMediaRetryNotification(ctx, node)
  	case "privacy_token":
@@ -1725,7 +1751,7 @@ index 7075357..ba70a5c 100644
  func parseVerifiedName(businessNode waBinary.Node) (*types.VerifiedName, error) {
 diff --git a/wa03_receive_test.go b/wa03_receive_test.go
 new file mode 100644
-index 0000000..fbfd3dc
+index 0000000..eca81bf
 --- /dev/null
 +++ b/wa03_receive_test.go
 @@ -0,0 +1,575 @@
@@ -2147,7 +2173,7 @@ index 0000000..fbfd3dc
 +	for _, synchronous := range []bool{true, false} {
 +		t.Run(fmt.Sprint("synchronous=", synchronous), func(t *testing.T) {
 +			failed := &store.NoopStore{Error: store.ErrLocalStorage}
-+			client := NewClient(&store.Device{Identities: failed, Sessions: failed}, waLog.Noop)
++			client := NewClient(&store.Device{Identities: failed, Sessions: failed, EventBuffer: &contextBuffer{}}, waLog.Noop)
 +			client.EnableDecryptedEventBuffer = true
 +			client.SynchronousAck = synchronous
 +			var attempts atomic.Int32
