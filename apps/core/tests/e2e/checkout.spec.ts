@@ -557,3 +557,63 @@ test("buyer distinguishes uncovered shipping from an explicit free home rate", a
     expect(stored.payments).toEqual([]);
   } finally { await f.cleanup(); }
 });
+
+
+test("buyer keeps the selected district rate when an earlier real quotation arrives late", async ({ page }) => {
+  const f = await fixture("none", true, false);
+  let release!: () => void;
+  let received!: () => void;
+  let delivered!: () => void;
+  const hold = new Promise<void>(resolve => { release = resolve; });
+  const firstReceived = new Promise<void>(resolve => { received = resolve; });
+  const firstDelivered = new Promise<void>(resolve => { delivered = resolve; });
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const access = { companyId: f.companyId, userId: f.userId };
+      expect((await deliverySettings.saveZones({ method: "home", expectedVersion: 0, zones: [
+        { kind: "new", name: "District A", enabled: true, districtCodes: ["150122"], price: { amount: 8, currency: "PEN" } },
+        { kind: "new", name: "District B", enabled: true, districtCodes: ["040110"], price: { amount: 12, currency: "PEN" } },
+      ] }, access)).success).toBe(true);
+      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [],
+        store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
+    });
+    await page.route("**/api/quotations", async route => {
+      if (route.request().postDataJSON().destination.districtCode !== "150122") return route.continue();
+      const response = await route.fetch();
+      expect(response.status()).toBe(201);
+      received();
+      await hold;
+      await route.fulfill({ response });
+      delivered();
+    });
+    await page.goto(f.path);
+    await page.getByLabel("Nombre", { exact: true }).fill("Ana");
+    await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
+    await page.getByLabel("Nombre del destinatario").fill("Recipient");
+    await page.getByLabel("Teléfono del destinatario").fill("999");
+    await page.getByLabel("Departamento", { exact: true }).selectOption("15");
+    await page.getByLabel("Provincia", { exact: true }).selectOption("1501");
+    await page.getByLabel("Distrito", { exact: true }).selectOption("150122");
+    await firstReceived;
+    await browserExpect(page.getByRole("button", { name: "Confirmar pedido", exact: true })).toBeDisabled();
+    await page.getByLabel("Departamento", { exact: true }).selectOption("04");
+    await page.getByLabel("Provincia", { exact: true }).selectOption("0401");
+    await page.getByLabel("Distrito", { exact: true }).selectOption("040110");
+    const rates = page.getByLabel("Tarifa de envío");
+    await browserExpect(rates.locator("option")).toHaveCount(2);
+    await rates.selectOption({ index: 1 });
+    const selected = await rates.inputValue();
+    await page.getByLabel("Dirección de entrega").fill("District B street");
+    release();
+    await firstDelivered;
+    await browserExpect(rates).toHaveValue(selected);
+    await browserExpect(rates.locator("option").nth(1)).toContainText(/12[.,]00/);
+    await browserExpect(page.getByLabel("Distrito", { exact: true })).toHaveValue("040110");
+    await browserExpect(page.getByText("Total a pagar", { exact: true }).locator("..")).toContainText(/22[.,]00/);
+    await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
+    await browserExpect(page.getByRole("heading", { name: "Pago del pedido", exact: true })).toBeVisible();
+    const stored = await f.read();
+    expect(stored.delivery).toMatchObject({ destination: { districtCode: "040110", address: "District B street" }, pricing: { rateId: selected } });
+    expect(stored.total.toNumber()).toBe(22);
+  } finally { release(); await page.unrouteAll({ behavior: "wait" }); await f.cleanup(); }
+});
