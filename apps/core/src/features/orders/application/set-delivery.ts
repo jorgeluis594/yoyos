@@ -41,22 +41,27 @@ export async function setOrderDelivery(input: SetDeliveryInput, context: OrderAc
     const changed = orderStateMachine.setDelivery(found.data, { resolved: resolved.data,
       chargeDeliveryToCustomer: "expectedPrice" in input ? true : input.chargeDeliveryToCustomer });
     if (!changed.success) return changed;
-    const after = orderStateMachine.getPaymentSummary(changed.data);
-    if (!after.success) return after;
-    let next = changed.data;
-    if (after.data.status === "paid" && !found.data.stockDeducted) {
-      const plan = orderStateMachine.planStockDeduction(changed.data, false);
-      if (!plan.success) return plan;
-      if (plan.data.kind !== "deduct") throw new Error("Covered order has no stock deduction plan");
-      for (const item of [...changed.data.items].sort((a, b) => a.variantId.localeCompare(b.variantId))) {
-        const deducted = await deps.deductProductStock(item.variantId, item.quantity);
-        if (!deducted.success) return deducted;
-      }
-      const saved = await deps.saveStockDeduction(input.orderId, context.companyId);
-      if (!saved.success) return saved;
-      next = plan.data.nextOrder;
-    }
-    const saved = await deps.saveDelivery(input.orderId, context.companyId, next);
-    return saved.success ? ok(next) : saved;
+    return persistDeliveryChange(found.data, changed.data, deps);
   });
+}
+
+export async function persistDeliveryChange(previous: OrderAggregate, changed: OrderAggregate,
+  deps: Pick<SetDeliveryDependencies, "saveDelivery" | "deductProductStock" | "saveStockDeduction">): Promise<Result<OrderAggregate, SetDeliveryError>> {
+  const after = orderStateMachine.getPaymentSummary(changed);
+  if (!after.success) return after;
+  let next = changed;
+  if (after.data.status === "paid" && !previous.stockDeducted) {
+    const plan = orderStateMachine.planStockDeduction(changed, false);
+    if (!plan.success) return plan;
+    if (plan.data.kind !== "deduct") throw new Error("Covered order has no stock deduction plan");
+    for (const item of [...changed.items].sort((a, b) => a.variantId.localeCompare(b.variantId))) {
+      const deducted = await deps.deductProductStock(item.variantId, item.quantity);
+      if (!deducted.success) return deducted;
+    }
+    const saved = await deps.saveStockDeduction(previous.id, previous.companyId);
+    if (!saved.success) return saved;
+    next = plan.data.nextOrder;
+  }
+  const saved = await deps.saveDelivery(previous.id, previous.companyId, next);
+  return saved.success ? ok(next) : saved;
 }

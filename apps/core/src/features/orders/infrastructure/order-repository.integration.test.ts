@@ -1,7 +1,7 @@
 import type { CreateCompleteOrderInput } from "@core/src/features/orders/application/create-complete-order";
 import { log, safeError } from "@core/src/shared/infrastructure/logger";
 import { parseBuyer, type CheckoutAccess } from "@core/src/features/orders/domain/checkout";
-import { confirmOrderCheckout } from "@core/src/features/orders/application/checkout";
+import { confirmCheckoutDelivery, confirmOrderCheckout } from "@core/src/features/orders/application/checkout";
 import { findCheckoutOrderForUpdate, saveCheckoutBuyer, saveCheckoutConfirmed } from "@core/src/features/orders/infrastructure/checkout-repository";
 import { randomUUID } from "node:crypto";
 import pg from "pg";
@@ -1433,5 +1433,112 @@ test("rated assignment and initial creation persist prices atomically and deduct
       expect((await prisma.productStock.findUnique({ where: { variantId: f.variantIds[0] } }))?.quantity).toBe(0n);
       expect(await prisma.deliveryRate.count()).toBe(2);
     });
+  } finally { await f.cleanup(); }
+});
+
+
+test("checkout delivery, buyer, confirmation and covered stock commit together and roll back on failure", async () => {
+  const f = await fixture();
+  try {
+    const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+    const buyer = parseBuyer({ name: "Ana", phone: "+51987654321" });
+    if (!buyer.success) throw new Error("Invalid buyer");
+    const parsed = parseRatedDeliverySelection({ method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } });
+    if (!parsed.success) throw new Error("Invalid pickup");
+    const input = { buyer: buyer.data, expectedTotal: { amount: 0.2, currency: "PEN" as const },
+      delivery: { kind: "replace" as const, selection: parsed.data, expectedPrice: { amount: 0, currency: "PEN" as const } } };
+    await withTenantIsolation(f.companyId, async () => {
+      expect((await deliverySettings.save({ expectedVersion: 0, home: { enabled: false }, agency: { enabled: false }, couriers: [],
+        store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } }, context)).success).toBe(true);
+    });
+    const create = async (quantity: number) => {
+      const id = randomUUID() as OrderId;
+      await withTenantIsolation(f.companyId, async () => {
+        expect((await orders.create({ id, contactId: null, items: [{ variantId: f.variantIds[0] as VariantId, quantity: quantity as PositiveInteger }] }, context)).success).toBe(true);
+        await prisma.order.update({ where: { id }, data: { checkoutEnabledAt: new Date() } });
+        await prisma.payment.create({ data: { id: randomUUID(), orderId: id, status: "confirmed", currency: "PEN", amount: quantity * 0.1,
+          method: "digital_wallet", data: { confirmedAt: new Date().toISOString(), confirmedBy: { kind: "seller", userId: f.sellerId }, evidence: { kind: "manual" } } } });
+      });
+      return { companyId: context.companyId, orderId: id };
+    };
+    const access = await create(2);
+    expect(await orders.confirmCheckoutDelivery({ ...input, expectedTotal: { amount: 1, currency: "PEN" } }, access))
+      .toMatchObject({ error: { code: "TOTAL_CHANGED" } });
+    await withTenantIsolation(f.companyId, async () => {
+      expect(await prisma.order.findUnique({ where: { id: access.orderId } })).toMatchObject({ delivery: null, checkoutConfirmedAt: null, stockDeducted: false });
+      expect(await prisma.orderBuyer.findUnique({ where: { orderId: access.orderId } })).toBeNull();
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
+    });
+    const results = await Promise.all([orders.confirmCheckoutDelivery(input, access), orders.confirmCheckoutDelivery(input, access)]);
+    expect(results.every(result => result.success)).toBe(true);
+    await withTenantIsolation(f.companyId, async () => {
+      expect(await prisma.order.findUnique({ where: { id: access.orderId } })).toMatchObject({ delivery: { recordedBy: { kind: "buyer" }, settingsVersion: 1 }, stockDeducted: true });
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
+      expect(await prisma.payment.count()).toBe(1);
+    });
+    const insufficient = await create(2);
+    expect(await orders.confirmCheckoutDelivery(input, insufficient)).toMatchObject({ error: { code: "INSUFFICIENT_STOCK" } });
+    await withTenantIsolation(f.companyId, async () => {
+      expect(await prisma.order.findUnique({ where: { id: insufficient.orderId } })).toMatchObject({ delivery: null, checkoutConfirmedAt: null, stockDeducted: false });
+      expect(await prisma.orderBuyer.findUnique({ where: { orderId: insufficient.orderId } })).toBeNull();
+    });
+    const failed = await create(1);
+    await withTenantIsolation(f.companyId, async () => {
+      expect(await confirmCheckoutDelivery({ ...input, expectedTotal: { amount: 0.1, currency: "PEN" } }, failed, new Date(), {
+        transaction: (_company, work) => withinTransaction(work), findOrderForUpdate: findCheckoutOrderForUpdate,
+        saveDelivery, deductProductStock, saveStockDeduction, saveBuyer: saveCheckoutBuyer,
+        saveConfirmed: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "Confirmation failed" }),
+        getStoreSettings: deliverySettings.getForCompany, resolveSelectedDeliveryRate: deliverySettings.resolveSelectedDeliveryRate,
+      })).toMatchObject({ error: { code: "PERSISTENCE_UNAVAILABLE" } });
+      expect(await prisma.order.findUnique({ where: { id: failed.orderId } })).toMatchObject({ delivery: null, checkoutConfirmedAt: null, stockDeducted: false });
+      expect(await prisma.orderBuyer.findUnique({ where: { orderId: failed.orderId } })).toBeNull();
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
+    });
+  } finally { await f.cleanup(); }
+});
+
+
+test("checkout validates immutable home rate and current price before total and preserves confirmed snapshots", async () => {
+  const f = await fixture();
+  try {
+    const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+    const access = { companyId: context.companyId, orderId: randomUUID() as OrderId };
+    const buyer = parseBuyer({ name: "Ana", phone: "+51987654321" });
+    if (!buyer.success) throw new Error("Invalid buyer");
+    const prepare = await withTenantIsolation(f.companyId, async () => {
+      const saved = await deliverySettings.saveZones({ method: "home", expectedVersion: 0,
+        zones: [{ kind: "new", name: "Home", enabled: true, districtCodes: ["150122"], price: { amount: 8, currency: "PEN" } }] }, context);
+      if (!saved.success) throw new Error(saved.error.message);
+      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [], store: { enabled: false, pickupPoint: null } }, context)).success).toBe(true);
+      expect((await orders.create({ id: access.orderId, contactId: null, items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] }, context)).success).toBe(true);
+      await prisma.order.update({ where: { id: access.orderId }, data: { checkoutEnabledAt: new Date() } });
+      const quote = await deliverySettings.createQuotation({ companyId: f.companyId, country: "PE", districtCode: "150122", address: null, instructions: null });
+      if (!quote.success) throw new Error(quote.error.message);
+      const selection = parseRatedDeliverySelection({ method: "home", rateId: quote.data.rates[0].id,
+        recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, destination: { districtCode: "150122", address: "Street", instructions: null } });
+      if (!selection.success) throw new Error(selection.error.message);
+      const zone = saved.data.zones[0];
+      expect((await deliverySettings.saveZones({ method: "home", expectedVersion: 2, zones: [{ kind: "existing", id: zone.id, name: zone.name, enabled: zone.enabled, districtCodes: zone.districtCodes, price: { amount: 10, currency: "PEN" } }] }, context)).success).toBe(true);
+      return { selection: selection.data, zone };
+    });
+    const input = { buyer: buyer.data, delivery: { kind: "replace" as const, selection: prepare.selection, expectedPrice: { amount: 8, currency: "PEN" as const } }, expectedTotal: { amount: 10.2, currency: "PEN" as const } };
+    expect(await orders.confirmCheckoutDelivery(input, access)).toMatchObject({ error: { code: "TOTAL_CHANGED", currentPrice: { amount: 10 } } });
+    await withTenantIsolation(f.companyId, async () => {
+      expect(await prisma.orderBuyer.findUnique({ where: { orderId: access.orderId } })).toBeNull();
+      expect(await prisma.order.findUnique({ where: { id: access.orderId } })).toMatchObject({ delivery: null, checkoutConfirmedAt: null, stockDeducted: false });
+      const quote = await deliverySettings.createQuotation({ companyId: f.companyId, country: "PE", districtCode: "150122", address: null, instructions: null });
+      if (!quote.success) throw new Error(quote.error.message);
+      const selection = parseRatedDeliverySelection({ ...prepare.selection, rateId: quote.data.rates[0].id });
+      if (!selection.success) throw new Error(selection.error.message);
+      input.delivery.selection = selection.data;
+      input.delivery.expectedPrice.amount = 10;
+    });
+    expect(await orders.confirmCheckoutDelivery({ ...input, expectedTotal: { amount: 0.2, currency: "PEN" } }, access)).toMatchObject({ error: { code: "TOTAL_CHANGED" } });
+    expect(await orders.confirmCheckoutDelivery(input, access)).toMatchObject({ success: true, data: { total: { amount: 10.2 }, state: { kind: "confirmed" } } });
+    await withTenantIsolation(f.companyId, async () => {
+      expect(await prisma.order.findUnique({ where: { id: access.orderId } })).toMatchObject({ delivery: { recordedBy: { kind: "buyer" }, destination: { districtCode: "150122", district: "MIRAFLORES" } } });
+      expect((await deliverySettings.saveZones({ method: "home", expectedVersion: 3, zones: [{ kind: "existing", id: prepare.zone.id, name: prepare.zone.name, districtCodes: prepare.zone.districtCodes, enabled: false, price: { amount: 11, currency: "PEN" } }] }, context)).success).toBe(true);
+    });
+    expect(await orders.confirmCheckoutDelivery({ ...input, expectedTotal: { amount: 1, currency: "PEN" } }, access)).toMatchObject({ success: true, data: { total: { amount: 10.2 } } });
   } finally { await f.cleanup(); }
 });

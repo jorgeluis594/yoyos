@@ -12,7 +12,7 @@ export type SaveDeliverySettingsDependencies = Readonly<{
   save: (companyId: string, settings: DeliverySettings) => Promise<Result<null, DeliverySettingsError>>;
 }>;
 
-export async function getDeliverySettings(context: DeliverySettingsAccess, read: ReadDeliverySettings): Promise<Result<DeliverySettings, DeliverySettingsReadError>> {
+export async function getDeliverySettings(context: Pick<DeliverySettingsAccess, "companyId">, read: ReadDeliverySettings): Promise<Result<DeliverySettings, DeliverySettingsReadError>> {
   const found = await read(context.companyId);
   return found.success ? ok(found.data ?? initialDeliverySettings()) : found;
 }

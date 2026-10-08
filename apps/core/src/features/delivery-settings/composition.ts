@@ -38,6 +38,8 @@ async function settingsTransaction<T, E extends AppError>(context: DeliverySetti
 }
 
 export const deliverySettings = {
+  getForCompany: (companyId: string) => quotationTransaction(companyId,
+    () => getDeliverySettings({ companyId }, id => readDeliverySettings(id, "shared", undefined, "confirm_checkout"))),
   createQuotation: (input: CreateQuotationInput) => createQuotation(input, {
     generateId: randomUUID, now: () => new Date(), insertQuotationWithRates,
     readConfigurationForShare: companyId => readDeliveryConfiguration(companyId, "shared"),

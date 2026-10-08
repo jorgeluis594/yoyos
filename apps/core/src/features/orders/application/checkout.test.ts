@@ -1,6 +1,6 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { err, ok } from "@shared/functional";
-import { confirmOrderCheckout, enableOrderCheckout, getOrderCheckout, type CheckoutDependencies } from "@core/src/features/orders/application/checkout";
+import { confirmCheckoutDelivery, type ConfirmCheckoutDeliveryDependencies, confirmOrderCheckout, enableOrderCheckout, getOrderCheckout, type CheckoutDependencies } from "@core/src/features/orders/application/checkout";
 import { parseBuyer, parseOrderNumber, type BuyerData, type CheckoutAccess, type CheckoutOrder } from "@core/src/features/orders/domain/checkout";
 import type { CompanyId, ContactId, OrderId, OrderItemId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
@@ -111,4 +111,67 @@ test("technical failures propagate without a false success or subsequent writes"
   expect(await confirmOrderCheckout({ buyer, expectedTotal: total }, access, now, { ...f.deps, saveBuyer: async () => failure })).toEqual(failure);
   expect(f.writes).toEqual([]);
   expect(await confirmOrderCheckout({ buyer, expectedTotal: total }, access, now, { ...f.deps, transaction: async () => failure })).toEqual(failure);
+});
+
+
+function deliveryFixture() {
+  const order = { ...base, items: [base.items[0]] as const, sellerId: seller.userId, createdAt: now,
+    completedAt: null, deliveredAt: null, deliveryStatus: "pending" as const, stockDeducted: false, payments: [],
+    delivery: null, deliveryCost: { amount: 0, currency: "PEN" as const }, deliveryCharge: { amount: 0, currency: "PEN" as const }, total: base.itemsTotal };
+  const deps: ConfirmCheckoutDeliveryDependencies = {
+    transaction: async (_company, work) => work(), findOrderForUpdate: async () => ok(order),
+    getStoreSettings: vi.fn(async () => ok({ version: 2, home: { enabled: false }, agency: { enabled: false }, couriers: [],
+      store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } })),
+    resolveSelectedDeliveryRate: vi.fn(async () => err({ code: "RATE_UNAVAILABLE" as const, message: "Unavailable" })),
+    saveDelivery: vi.fn(async () => ok(null)), deductProductStock: vi.fn(async () => ok(null)),
+    saveStockDeduction: vi.fn(async () => ok(null)), saveBuyer: vi.fn(async () => ok(null)), saveConfirmed: vi.fn(async () => ok(null)),
+  };
+  const input = { buyer, expectedTotal: order.total, delivery: { kind: "replace" as const,
+    selection: { method: "store" as const, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } } },
+    expectedPrice: { amount: 0, currency: "PEN" as const } } };
+  return { order, deps, input };
+}
+
+test("checkout pickup uses buyer authority and validates price separately from total before any write", async () => {
+  const f = deliveryFixture();
+  expect(await confirmCheckoutDelivery({ ...f.input, delivery: { ...f.input.delivery, expectedPrice: { amount: 2, currency: "PEN" } } }, access, now, f.deps))
+    .toMatchObject({ error: { code: "TOTAL_CHANGED", currentPrice: { amount: 0 } } });
+  expect(f.deps.saveDelivery).not.toHaveBeenCalled();
+  expect(await confirmCheckoutDelivery({ ...f.input, expectedTotal: { amount: 99, currency: "PEN" } }, access, now, f.deps))
+    .toMatchObject({ error: { code: "TOTAL_CHANGED" } });
+  expect(f.deps.saveBuyer).not.toHaveBeenCalled();
+  expect(f.deps.saveConfirmed).not.toHaveBeenCalled();
+  expect(f.deps.deductProductStock).not.toHaveBeenCalled();
+  expect(await confirmCheckoutDelivery(f.input, access, now, f.deps)).toMatchObject({ data: { changed: true, checkout: { total: { amount: 100 } } } });
+  expect(f.deps.saveDelivery).toHaveBeenCalledWith(access.orderId, access.companyId,
+    expect.objectContaining({ delivery: expect.objectContaining({ recordedBy: { kind: "buyer" }, settingsVersion: 2 }), deliveryCharge: { amount: 0, currency: "PEN" } }));
+  expect(f.deps.resolveSelectedDeliveryRate).not.toHaveBeenCalled();
+});
+
+test("checkout keep requires an existing delivery and preserves historical prices and author without reading settings", async () => {
+  const f = deliveryFixture();
+  const input = { ...f.input, delivery: { kind: "keep" as const } };
+  expect(await confirmCheckoutDelivery(input, access, now, f.deps)).toMatchObject({ error: { code: "INVALID_CHECKOUT" } });
+  const historical = { ...f.order, deliveryCost: { amount: 30, currency: "PEN" as const },
+    deliveryCharge: { amount: 0, currency: "PEN" as const }, delivery: { method: "home" as const,
+      recipient: f.input.delivery.selection.recipient, destination: { address: "Old street", district: "Old district", instructions: null },
+      recordedBy: { kind: "seller" as const, userId: seller.userId } } };
+  f.deps = { ...f.deps, findOrderForUpdate: async () => ok(historical) };
+  expect(await confirmCheckoutDelivery({ ...input, expectedTotal: historical.total }, access, now, f.deps))
+    .toMatchObject({ data: { changed: true, checkout: { total: historical.total } } });
+  expect(f.deps.saveDelivery).toHaveBeenCalledWith(access.orderId, access.companyId, historical);
+  expect(f.deps.getStoreSettings).not.toHaveBeenCalled();
+  expect(f.deps.resolveSelectedDeliveryRate).not.toHaveBeenCalled();
+});
+
+test("checkout confirmation replay preserves buyer and delivery without resolving or writing again", async () => {
+  const f = deliveryFixture();
+  const confirmed = { ...f.order, buyer: { ...buyer, contactId: null }, checkoutConfirmedAt: now };
+  f.deps = { ...f.deps, findOrderForUpdate: async () => ok(confirmed) };
+  expect(await confirmCheckoutDelivery({ ...f.input, expectedTotal: { amount: 1, currency: "PEN" } }, access, now, f.deps))
+    .toMatchObject({ data: { changed: false, checkout: { buyer, total: confirmed.total } } });
+  expect(f.deps.getStoreSettings).not.toHaveBeenCalled();
+  expect(f.deps.saveDelivery).not.toHaveBeenCalled();
+  expect(f.deps.saveBuyer).not.toHaveBeenCalled();
+  expect(f.deps.saveConfirmed).not.toHaveBeenCalled();
 });

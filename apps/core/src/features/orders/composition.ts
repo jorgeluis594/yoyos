@@ -1,5 +1,5 @@
 import { createCompleteOrder, type CreateCompleteOrderInput, type CreateCompleteOrderError } from "@core/src/features/orders/application/create-complete-order";
-import { enableOrderCheckout, getOrderCheckout, confirmOrderCheckout, type CheckoutDependencies, type ConfirmOrderCheckoutInput } from "@core/src/features/orders/application/checkout";
+import { enableOrderCheckout, getOrderCheckout, confirmOrderCheckout, confirmCheckoutDelivery, type CheckoutDependencies, type ConfirmOrderCheckoutInput, type ConfirmCheckoutDeliveryInput } from "@core/src/features/orders/application/checkout";
 import { findCheckoutOrder, findCheckoutOrderForUpdate, saveCheckoutEnabled, saveCheckoutBuyer, saveCheckoutConfirmed } from "@core/src/features/orders/infrastructure/checkout-repository";
 import { canAccessBuyerPayment, type CheckoutAccess, type CheckoutError } from "@core/src/features/orders/domain/checkout";
 import type { OrderAccess } from "@core/src/features/orders/application/create-order";
@@ -196,6 +196,25 @@ export async function getBuyerPaymentView(id: string) {
 }
 
 export const orders = {
+  confirmCheckoutDelivery: async (input: ConfirmCheckoutDeliveryInput, access: CheckoutAccess) => {
+    requireNoActiveTransaction();
+    bindRequestOperation({ operation: "confirm_checkout" });
+    const result = await withTenantIsolation(access.companyId, () => confirmCheckoutDelivery(input, access, new Date(), {
+      transaction: scopedOrderTransaction, findOrderForUpdate: findCheckoutOrderForUpdate,
+      saveBuyer: saveCheckoutBuyer, saveConfirmed: saveCheckoutConfirmed,
+      saveDelivery, deductProductStock, saveStockDeduction,
+      getStoreSettings: deliverySettings.getForCompany, resolveSelectedDeliveryRate: deliverySettings.resolveSelectedDeliveryRate,
+    }));
+    if (!result.success) {
+      bindRequestOperation({ outcome: result.error.code === "TOTAL_CHANGED" ? "total_changed" :
+        ["PERSISTENCE_UNAVAILABLE", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR", "INVALID_STORED_DATA"].includes(result.error.code) ? "technical_failure" : "invalid_input" });
+      return result;
+    }
+    bindRequestOperation({ outcome: result.data.changed ? "confirmed" : "already_confirmed", orderNumber: result.data.checkout.number });
+    if (result.data.changed) log.info({ event: "order_checkout_confirmed", companyId: access.companyId,
+      orderNumber: result.data.checkout.number }, "Order checkout confirmed");
+    return ok(result.data.checkout);
+  },
   setDelivery: (input: SetDeliveryInput, context: OrderAccess) => setConfiguredOrderDelivery(input, context),
   resolveBuyerAccess,
   getBuyerPaymentView,
