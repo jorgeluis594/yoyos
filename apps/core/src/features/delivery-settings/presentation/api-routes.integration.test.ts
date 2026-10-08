@@ -248,3 +248,24 @@ test("seller quotations require company access, validate destinations and persis
     expect(await prisma.companyDeliverySettings.count()).toBe(0);
   });
 });
+
+test("mobile zone adapter consumes real authenticated saves and preserves conflict details without duplicating zones", async () => {
+  const seller = await fixture();
+  const api = createDeliverySettingsApi(async (path, init) => {
+    const response = await fetch(base + path, { ...init, headers: { origin, cookie: seller.cookie, ...init?.headers } });
+    const body: unknown = await response.json();
+    return response.ok ? ok(body) : err({ code: "API_ERROR", message: "Request failed", http: { status: response.status, body } });
+  });
+  expect(await api.getZones()).toMatchObject({ success: true, data: { version: 0, currency: "PEN", zones: [] } });
+  const input = { method: "agency" as const, expectedVersion: 0, zones: [{ kind: "new" as const, name: "Free agency", enabled: true,
+    districtCodes: ["150122"], price: { amount: 0, currency: "PEN" as const } }] };
+  const saved = await api.saveZones(input);
+  expect(saved).toMatchObject({ success: true, data: { version: 1, zones: [expect.objectContaining({
+    id: expect.any(String), method: "agency", price: { amount: 0, currency: "PEN" },
+  })] } });
+  expect(await api.saveZones(input)).toMatchObject({ error: { code: "DELIVERY_SETTINGS_CONFLICT", currentVersion: 1, reason: "stale_version" } });
+  expect(await api.getZones()).toEqual(saved);
+  expect(await api.saveZones({ ...input, expectedVersion: 1, zones: [{ ...input.zones[0], districtCodes: ["000000"] }] }))
+    .toMatchObject({ error: { code: "INVALID_DELIVERY_ZONE", field: "districtCodes", index: 0 } });
+  expect(await api.getZones()).toEqual(saved);
+});

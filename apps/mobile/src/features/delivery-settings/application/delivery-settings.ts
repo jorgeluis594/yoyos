@@ -7,6 +7,14 @@ export type DeliverySettingsError = Readonly<{
   code: TransportError["code"] | "INVALID_INPUT" | "INVALID_DELIVERY_SETTINGS" | "DELIVERY_SETTINGS_CONFLICT" | "PAYLOAD_TOO_LARGE";
   message: string;
 }>;
+export type DeliveryZonesError = Readonly<{
+  code: DeliverySettingsError["code"] | "INVALID_DELIVERY_ZONE" | "UNSUPPORTED_COUNTRY" | "UNSUPPORTED_MEDIA_TYPE";
+  message: string;
+  currentVersion?: number;
+  reason?: "stale_version" | "concurrent_creation";
+  field?: "id" | "method" | "name" | "enabled" | "districtCodes" | "price" | "zones";
+  index?: number;
+}>;
 export type CourierDraft = Extract<SaveDeliverySettingsRequest["couriers"][number], { kind: "existing" }>
   | (Extract<SaveDeliverySettingsRequest["couriers"][number], { kind: "new" }> & { localKey: number });
 export type DeliverySettingsDraft = Readonly<{ expectedVersion: number; homeEnabled: boolean; agencyEnabled: boolean; couriers: readonly CourierDraft[]; storeEnabled: boolean; pickupName: string; pickupAddress: string; pickupInstructions: string }>;

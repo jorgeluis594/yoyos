@@ -3,4 +3,4 @@ import { saveDeliverySettings, type DeliverySettingsDraft } from "@mobile/featur
 import { createDeliverySettingsApi } from "@mobile/features/delivery-settings/infrastructure/delivery-settings-api";
 
 const api = createDeliverySettingsApi(request);
-export const deliverySettings = { get: api.get, save: (draft: DeliverySettingsDraft) => saveDeliverySettings(draft, api.save) };
+export const deliverySettings = { get: api.get, getZones: api.getZones, saveZones: api.saveZones, save: (draft: DeliverySettingsDraft) => saveDeliverySettings(draft, api.save) };
