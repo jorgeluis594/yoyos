@@ -38,6 +38,9 @@ export const translations = {
 
     orderDeliveryMethod: "Modalidad de entrega", orderDeliveryAddress: "Dirección de entrega", orderDeliveryDistrict: "Distrito", orderDeliveryInstructions: "Indicaciones de entrega (opcional)", invalidHomeDestination: "Completa la dirección y el distrito de entrega.",
     assignOrderDelivery: "Asignar entrega",
+    assignOrderDeliveryData: "Asignar datos",
+    editOrderDeliveryData: "Editar datos",
+    manualDeliveryWithoutPayment: "Puedes completar los datos sin haber cobrado.",
     replaceOrderDelivery: "Editar entrega",
     backToOrder: "Volver al pedido",
     loadingOrderDelivery: "Cargando entrega…",
@@ -227,6 +230,9 @@ export const translations = {
 
     orderDeliveryMethod: "Modalidade de entrega", orderDeliveryAddress: "Endereço de entrega", orderDeliveryDistrict: "Distrito", orderDeliveryInstructions: "Instruções de entrega (opcional)", invalidHomeDestination: "Preencha o endereço e o distrito da entrega.",
     assignOrderDelivery: "Definir entrega",
+    assignOrderDeliveryData: "Definir dados",
+    editOrderDeliveryData: "Editar dados",
+    manualDeliveryWithoutPayment: "Você pode preencher os dados antes de receber o pagamento.",
     replaceOrderDelivery: "Editar entrega",
     backToOrder: "Voltar ao pedido",
     loadingOrderDelivery: "Carregando entrega…",

@@ -1,0 +1,40 @@
+{
+  "option": "A",
+  "name": "resumen-conectado",
+  "approved": true,
+  "createdAt": "2026-10-08",
+  "scope": "Whole order detail, proposal only",
+  "mode": "Operate",
+  "generator": "image_gen native tool",
+  "prompt": "Use case: ui-mockup. High fidelity raster design proposal for the EXISTING Yoyos native Android order detail, Operate mode. Create a tall portrait 1536x2304 comparison composition containing TWO portrait native screen panels side by side, each legible at 720px wide, including full content top to bottom (extended scroll capture, not a cropped viewport); small labels above panels. This is one proposal, not alternatives within it. References: images 1 and 2 are current detail ANTI-reference for redundant oversized controls, preserve their real data and navigation; images 3-5 provide REQUIRED visual grammar of the rest of app: calm cream #F7F4EF, white flat connected list groups, Inter, charcoal #242326, caramel #8C552D, thin warm separators, 8dp corners, 16dp gutters, native back and bottom four tabs Inicio/Catálogo/Pedidos/Ajustes with Pedidos selected. No shadows, gradients, phone frame, decorative illustrations, debug gear, tiny text. Preserve 48dp tappable rows, compact via grouping not shrinking. Main screen header back arrow 'Pedido #1001' and overflow menu. Date '8 oct. 2026 · 10:16 a. m.' and quiet 'Activa'. Buyer Público general, product Camisa QA Productos / SKU QA-CAM-001 / 1 × S/79.90. Products subtotal S/79.90, shipping S/0.00, total S/79.90, received S/0.00, balance S/79.90. Unpaid delivery cannot ship or deliver: show ONE plain reason, not disabled buttons. Paid with stock deducted can mark shipped OR directly delivered; show both valid choices compactly without changing rules. Edit/assign delivery remains distinct. Keep link, payment history, internal metadata and cancellation accessible through named rows. Link URL and seller technical ID not primary content. No invented tracking, dates, payment methods or domain features. Spanish UI text crisp.\nOPTION A 'Resumen conectado'. Left panel labeled 'A · Vista completa': compact buyer/date/order status grouped into header without a buyer card. One white commercial group: Productos · 1 unidad; product item and amount; thin separator; concise rows 'Productos 79.90', 'Envío 0.00', 'Total S/79.90'; then two aligned small labeled values Recibido S/0.00 / Por cobrar S/79.90; one caramel 'Registrar pago' control; quiet 'Historial de pagos' row. Below one connected white group with 'Entrega' heading and pending status; a single row 'Entrega por definir' with right 'Asignar' text action; one sentence 'Completa el pago para enviar o entregar.' No shipping buttons in unpaid state. In same group following separator: 'Confirmación del comprador' / 'Enlace aún no habilitado' with chevron. Next connected row 'Detalles internos' chevron. Bottom quiet 'Cancelar pedido' text row with full tap target. No duplicated status badge above payment or delivery. Full screen visible down to tabs.\nRight panel labeled 'Detalles y acciones · Ejemplo con pago cubierto': same app header and buyer, compact product/totals summary and 'Pago cubierto · S/79.90' plus Historial de pagos row. Expanded white Entrega group: 'Pendiente', 'Entrega a domicilio' and right 'Editar'; 'Ana Torres · 999 123 456', 'DNI 12345678', 'Av. Arequipa 120, Miraflores', 'Tocar el timbre', 'Cargo al cliente S/0.00'. One outlined row 'Actualizar entrega' chevron followed by an open compact contextual action list inside the group with two simple 48dp menu rows 'Marcar enviado' and 'Marcar entregado', neither a giant CTA. Expanded Confirmación del comprador group, status 'Pendiente de confirmación', two text actions 'Copiar enlace' and 'Ver enlace'; never show raw URL. Expanded Detalles internos: Stock descontado; Costo interno S/0.00; Registrado por vendedor; ID vendedor usr_8d3a as small secondary selectable text. Cancelar pedido quiet row. Whole surface ends with tabs. This option uses natural grouped list sections like Inicio, very little decoration, one dominant payment button only.",
+  "references": [
+    "/Users/jorgegonzalez/orca/projects/yoyos/artifacts/mobile-redesign/final/06-detalle-superior.png",
+    "/Users/jorgegonzalez/orca/projects/yoyos/artifacts/mobile-redesign/final/06-detalle-entrega.png",
+    "/Users/jorgegonzalez/orca/projects/yoyos/artifacts/mobile-redesign/final/01-inicio.png",
+    "/Users/jorgegonzalez/orca/projects/yoyos/artifacts/mobile-redesign/final/04-pedidos.png",
+    "/Users/jorgegonzalez/orca/projects/yoyos/artifacts/mobile-redesign/final/03-configuracion.png"
+  ],
+  "renderCaveats": [
+    "Generated product thumbnails are outside scope; keep existing text-only product rows."
+  ],
+  "approval": {
+    "by": "user",
+    "date": "2026-10-08",
+    "choice": "A",
+    "feedback": "la opcion a esta mejor porque agrupa inputs. Las otras copiones tienen mucho texto",
+    "direction": "Keep grouped fields/data and reduce text; whole-view simplification within the existing visual system."
+  },
+  "functionalClarification": {
+    "source": "Explicit user clarification, 2026-10-08",
+    "manualDeliveryData": "Assigning or editing delivery data does not require payment. Keep the action available for active, non-cancelled orders with pending delivery, including unpaid and partially paid orders. Existing busy/recovery locks and data validation remain.",
+    "fulfillment": "Marking shipped or delivered is a separate operation. Preserve current full-payment, stock and state guards; do not infer rule changes from permission to edit data.",
+    "presentation": "Keep Asignar/Editar beside delivery data, separate from fulfillment actions and their payment explanation. All three existing raster proposals already show Asignar in the unpaid example; apply the same availability to Editar when data exists.",
+    "evidence": [
+      "apps/mobile/src/features/orders/presentation/order-detail-screen.tsx:219",
+      "apps/mobile/src/features/orders/presentation/order-delivery-screen.tsx:61",
+      "apps/core/src/features/orders/domain/order-state-machine.ts:251",
+      "apps/core/src/features/orders/application/set-delivery.ts:33"
+    ],
+    "verification": "Source inspection only; no tests or native QA performed for this clarification."
+  }
+}
