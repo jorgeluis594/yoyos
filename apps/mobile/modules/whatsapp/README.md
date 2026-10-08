@@ -13,6 +13,12 @@ This local Expo module links Go/whatsmeow into Android and iOS. Its current `pro
 | iOS | minimum 16.4; full Xcode and CocoaPods required |
 | Expo / React Native | existing `apps/mobile/pnpm-lock.yaml` (Expo 57.0.24 / RN 0.86.3) |
 
+## Observed native matrix
+
+The first controlled Android runtime passed in [CI run 37774770222](https://github.com/jorgeluis594/yoyos/actions/runs/37774770222), PR head `c918484` (Actions checkout source `ee307df`). `build-info.txt` from that run records Go 1.26.5, the pinned whatsmeow and x/mobile revisions, Temurin JDK 17.0.20.1, Gradle 9.3.1, and both Go tool modules via `go version -m`. The evaluated app **and** module use compile SDK 36, build tools 36.0.0, NDK 27.1.12297006, minimum API 24, target API 36, and ABI filters `arm64-v8a,x86_64`; the release APK manifest and native-library inventory agree. Android CI ran `go test -race ./bridge`, `go vet ./bridge`, `build-go.sh android`, Expo prebuild, `:app:assembleRelease`, two `:yoyos-whatsapp:connectedDebugAndroidTest` cases on an API 35 x86_64 emulator, then installed/launched the app and found `bridge-ok` in its UI.
+
+The current PR head `c918484` also passed the `macos-26` iOS simulator job in [CI run 37774770222](https://github.com/jorgeluis594/yoyos/actions/runs/37774770222), from Actions checkout source `ee307df`. Its artifact records Go 1.26.5, Xcode 26.4.1 (17E202), iOS SDK 26.4, CocoaPods 1.17.0, and the pinned x/mobile tool revision. The Release Expo app binary contains arm64 and x86_64 simulator slices with minimum iOS 16.4, confirmed by `lipo` and `vtool`. CI ran `build-go.sh ios`, the Swift XCTest callback value/error case, Expo prebuild and CocoaPods, then built, installed and launched the app in the ARM simulator; screenshot recognition found `bridge-ok`. An earlier [CI run 37747233055](https://github.com/jorgeluis594/yoyos/actions/runs/37747233055) passed the same tests on both ARM and Intel simulators at PR head `12cd0d2`; the current-head Intel job had not completed when this matrix was recorded. The generated XCFramework also includes the requested arm64 device slice, but device execution remains untested.
+
 Run an explicit dependency setup before building; the build script uses `GOTOOLCHAIN=local` and `GOPROXY=off` and never installs an SDK or upgrades dependencies:
 
 ```sh
