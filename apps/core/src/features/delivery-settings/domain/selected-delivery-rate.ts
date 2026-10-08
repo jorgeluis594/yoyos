@@ -1,6 +1,6 @@
 import { err, ok } from "@shared/functional";
 import type { CompanyId } from "@shared/identity";
-import type { Currency, Money } from "@shared/money";
+import { compare, type Currency, type Money } from "@shared/money";
 import type { PeruDistrictCode } from "@shared/peru-geography";
 import type { Result } from "@shared/result";
 import type { DeliverySettings } from "@core/src/features/delivery-settings/domain/delivery-settings";
@@ -28,7 +28,9 @@ export function validateSelectedDeliveryRate(input: ResolveSelectedRateInput, va
     return unavailable();
   const zone = applicableDeliveryZones(settings, zones, input.districtCode).find(zone => zone.id === rate.zoneId && zone.method === input.method);
   if (!zone || zone.price.currency !== currency) return unavailable();
-  if (zone.price.amount !== rate.price.amount)
+  const price = compare(rate.price)(zone.price);
+  if (!price.success) return unavailable();
+  if (price.data !== 0)
     return err({ code: "TOTAL_CHANGED", message: "Delivery price changed", currentPrice: { ...zone.price } });
   return ok({ quotationId: quotation.id, rateId: rate.id, price: { ...rate.price }, settingsVersion: rate.settingsVersion,
     method: rate.method, zoneId: rate.zoneId });

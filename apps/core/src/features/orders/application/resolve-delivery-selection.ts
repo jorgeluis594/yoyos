@@ -1,5 +1,5 @@
 import { err, ok } from "@shared/functional";
-import type { Currency, Money } from "@shared/money";
+import { compare, type Currency, type Money } from "@shared/money";
 import type { Result } from "@shared/result";
 import type { DeliverySettings, ResolveSelectedRateInput, ResolvedDeliveryRate, ResolveRateError } from "@core/src/features/delivery-settings";
 import type { CompanyId } from "@shared/identity";
@@ -43,6 +43,8 @@ export async function resolveShippingCost(input: unknown, context: Readonly<{ co
     if (!snapshot.success) return snapshot;
     resolved = { delivery: snapshot.data, cost: price.data };
   }
-  return expected.data.amount === resolved.cost.amount ? ok(resolved)
+  const price = compare(resolved.cost)(expected.data);
+  if (!price.success) return err({ code: "INVALID_ORDER", message: price.error.message });
+  return price.data === 0 ? ok(resolved)
     : err({ code: "TOTAL_CHANGED", message: "Delivery price changed", currentPrice: { ...resolved.cost } });
 }

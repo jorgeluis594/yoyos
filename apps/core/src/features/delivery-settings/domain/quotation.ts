@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { err, ok } from "@shared/functional";
 import type { CompanyId } from "@shared/identity";
-import type { Currency, Money } from "@shared/money";
+import { compare, type Currency, type Money } from "@shared/money";
 import { parsePeruDistrictCode, type PeruDistrictCode } from "@shared/peru-geography";
 import type { Result } from "@shared/result";
 import { parseDeliverySettings, type DeliverySettings } from "@core/src/features/delivery-settings/domain/delivery-settings";
@@ -85,8 +85,11 @@ export function parseQuotationDestination(value: unknown): Result<QuotationDesti
 export function applicableDeliveryZones(settings: DeliverySettings, zones: readonly DeliveryZone[], districtCode: PeruDistrictCode): readonly DeliveryZone[] {
   return zones.filter(zone => zone.enabled && zone.districtCodes.includes(districtCode) &&
     (zone.method === "home" ? settings.home.enabled : settings.agency.enabled && settings.couriers.some(courier => courier.enabled)))
-    .sort((left, right) => (left.method === right.method ? 0 : left.method === "home" ? -1 : 1) ||
-      left.price.amount - right.price.amount || left.id.localeCompare(right.id));
+    .sort((left, right) => {
+      const price = compare(right.price)(left.price);
+      return (left.method === right.method ? 0 : left.method === "home" ? -1 : 1) ||
+        (price.success ? price.data : 0) || left.id.localeCompare(right.id);
+    });
 }
 
 export type BuildQuotationInput = Readonly<{
