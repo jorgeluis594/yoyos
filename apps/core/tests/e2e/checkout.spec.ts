@@ -53,10 +53,11 @@ test("anonymous mobile buyer reviews fixed products, corrects prefilled data and
     const response = await page.goto(f.path);
     expect(response?.headers()["cache-control"]).toBe("no-store");
     expect(response?.headers()["referrer-policy"]).toBe("no-referrer");
-    await browserExpect(page.getByRole("heading", { name: "Pedido #1001" })).toBeVisible();
+    await browserExpect(page.getByText("Pedido #1001", { exact: true })).toBeVisible();
     await browserExpect(page.getByLabel("Nombre", { exact: true })).toHaveValue("");
     await browserExpect(page.getByLabel("Teléfono", { exact: true })).toHaveValue("+51987654321");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.locator("summary").click();
     await browserExpect(page.getByText("Cuaderno", { exact: true })).toBeVisible();
     await page.getByLabel("Teléfono", { exact: true }).fill("invalid");
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
@@ -127,6 +128,7 @@ test("public links hide unavailable orders and show cancellation received during
       await browserExpect(page.getByText("Cuaderno")).toHaveCount(0);
     }
     await page.goto(f.path);
+    await page.getByRole("button", { name: "Editar", exact: true }).click();
     await browserExpect(page.getByLabel("Nombre", { exact: true })).toHaveValue("Anterior");
     await f.cancel();
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
@@ -161,11 +163,12 @@ test("failed network requests recover pending orders and lost responses recover 
       else await route.continue();
     });
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
+    await expect.poll(async () => (await f.read()).checkoutConfirmedAt !== null).toBe(true);
     await browserExpect(page.getByRole("heading", { name: "No se pudo cargar el pedido" })).toBeVisible();
     const persisted = await f.read();
     expect(persisted.checkoutConfirmedAt).not.toBeNull();
     await page.unrouteAll();
-    await page.getByRole("link", { name: "Reintentar" }).click();
+    await page.reload();
     await browserExpect(page.getByRole("heading", { name: "Pedido confirmado", exact: true })).toBeVisible();
     expect(await f.read()).toEqual(persisted);
     await expect.poll(() => requestLogs(requestId).filter((event) => event.event === "order_checkout_confirmed").length).toBe(1);
@@ -288,4 +291,43 @@ test("pending submit is disabled and browser history cannot reopen confirmed buy
     await browserExpect(page.getByRole("heading", { name: "Pedido confirmado", exact: true })).toBeVisible();
     await browserExpect(page.getByRole("textbox")).toHaveCount(0);
   } finally { release.resolve(); await page.unrouteAll({ behavior: "wait" }); await f.cleanup(); }
+});
+
+test("prefilled review keeps quoted delivery and changing it validates agency data", async ({ page }) => {
+  const f = await fixture("full");
+  const courierId = randomUUID();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      await prisma.companyDeliverySettings.create({ data: { companyId: f.companyId, version: 1,
+        homeEnabled: true, agencyEnabled: true, storeEnabled: true, pickupName: "Tienda", pickupAddress: "Av. Arequipa 123",
+        couriers: { create: [{ id: courierId, name: "Shalom", enabled: true }] } } });
+      await prisma.order.update({ where: { id: f.orderId }, data: { total: 20, deliveryCost: 10, deliveryCharge: 10,
+        delivery: { method: "home", recipient: { name: "Anterior", phone: "+51987654321", identity: { kind: "absent" } }, destination: { address: "Av. Arequipa 123, dpto. 402", district: "Miraflores, Lima", instructions: null }, recordedBy: { kind: "seller", userId: f.userId } } } });
+    });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(f.path);
+    await browserExpect(page.getByRole("button", { name: "Editar", exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("textbox")).toHaveCount(0);
+    await page.screenshot({ path: "../../.impeccable/review/checkout-review-desktop.png", fullPage: true });
+    await page.setViewportSize({ width: 1586, height: 992 });
+    await page.screenshot({ path: "../../.impeccable/review/hero-repro.png" });
+    await page.setViewportSize({ width: 390, height: 938 });
+    await page.screenshot({ path: "../../.impeccable/review/checkout-review-mobile.png", fullPage: true });
+    await page.getByRole("button", { name: "Cambiar", exact: true }).click();
+    await page.getByRole("radio", { name: "Retiro en tienda", exact: true }).check();
+    await browserExpect(page.getByText("Tienda · Av. Arequipa 123", { exact: false })).toBeVisible();
+    await page.getByRole("radio", { name: "Agencia", exact: true }).check();
+    await page.getByLabel("Courier", { exact: true }).selectOption(courierId);
+    await page.getByLabel("Agencia de destino").fill("Shalom Miraflores");
+    await page.getByRole("button", { name: "Confirmar y solicitar costo de entrega" }).click();
+    await browserExpect(page.getByText("Completa este dato para la entrega.")).toBeVisible();
+    expect((await f.read()).checkoutConfirmedAt).toBeNull();
+    await page.getByLabel("Número de documento").fill("12345678");
+    await page.getByRole("button", { name: "Confirmar y solicitar costo de entrega" }).click();
+    await browserExpect(page.getByRole("heading", { name: "Esperando costo de entrega" })).toBeVisible();
+    expect((await f.read()).checkoutDeliveryRequest).toMatchObject({ method: "agency", recipient: { identity: { document: "12345678" } } });
+  } finally {
+    await withTenantIsolation(f.companyId, async () => { await prisma.companyCourier.deleteMany(); await prisma.companyDeliverySettings.deleteMany(); });
+    await f.cleanup();
+  }
 });

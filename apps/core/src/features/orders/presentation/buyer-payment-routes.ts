@@ -47,9 +47,9 @@ export function buyerPaymentRoutes(images: express.Router) {
         receiptImageId: parsed.data.receiptImageId as ImageId }, access);
       if (!result.success) {
         const code = result.error.code;
-        return apiError(response, code === "RECEIPT_NOT_FOUND" || code === "INVALID_PAYMENT" ? 422 : code === "PAYMENT_CONFLICT" || code === "ORDER_CANCELLED" ? 409 : 503,
+        return apiError(response, code === "RECEIPT_NOT_FOUND" || code === "INVALID_PAYMENT" ? 422 : code === "PAYMENT_CONFLICT" || code === "ORDER_CANCELLED" || code === "INVALID_TRANSITION" ? 409 : 503,
           code === "RECEIPT_NOT_FOUND" ? "RECEIPT_NOT_FOUND" : code === "PAYMENT_CONFLICT" ? "PAYMENT_CONFLICT"
-            : code === "ORDER_CANCELLED" ? "ORDER_CANCELLED" : code === "INVALID_PAYMENT" ? "INVALID_PAYMENT" : "SERVICE_UNAVAILABLE", "Payment report unavailable");
+            : code === "ORDER_CANCELLED" ? "ORDER_CANCELLED" : code === "INVALID_TRANSITION" ? "INVALID_TRANSITION" : code === "INVALID_PAYMENT" ? "INVALID_PAYMENT" : "SERVICE_UNAVAILABLE", "Payment report unavailable");
       }
       return response.status(201).json(reportPaymentResponseSchema.parse({ paymentId: parsed.data.paymentId, status: "reported" }));
     } catch (error) {

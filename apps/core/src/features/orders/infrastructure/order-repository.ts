@@ -82,6 +82,13 @@ function knownFailure(cause: unknown) {
   return cause instanceof Prisma.PrismaClientKnownRequestError || cause instanceof Prisma.PrismaClientUnknownRequestError || cause instanceof Prisma.PrismaClientInitializationError;
 }
 
+function readRequestedDelivery(value: unknown) {
+  if (value === null) return null;
+  const parsed = parseDeliverySnapshot(value);
+  if (!parsed.success || parsed.data.recordedBy.kind !== "buyer") throw new InvalidStoredDeliveryError("Invalid requested delivery");
+  return parsed.data;
+}
+
 function mapAggregate(row: DbAggregate, operation = "get_order_aggregate"): OrderAggregate {
   if (!isCurrency(row.currency) || !row.items.length || (row.buyer && !row.buyer.phone) ||
     row.items.some((item) => item.quantity <= 0n || item.quantity > BigInt(Number.MAX_SAFE_INTEGER)))
@@ -107,6 +114,7 @@ function mapAggregate(row: DbAggregate, operation = "get_order_aggregate"): Orde
   const order: OrderAggregate = { number: number.data, id: row.id as OrderId, companyId: row.companyId as CompanyId, sellerId: row.sellerId as UserId,
     buyer: row.buyer ? { contactId: row.buyer.contactId as ContactId | null, name: row.buyer.name, phone: row.buyer.phone } : null,
     checkoutEnabledAt: row.checkoutEnabledAt, checkoutConfirmedAt: row.checkoutConfirmedAt,
+    checkoutDeliveryRequest: readRequestedDelivery(row.checkoutDeliveryRequest),
     createdAt: row.createdAt, deliveredAt: row.deliveredAt, completedAt: row.completedAt, cancelled: row.cancelled, items, payments,
     delivery: delivery === null ? null : delivery.data, deliveryStatus: row.deliveryStatus, stockDeducted: row.stockDeducted,
     itemsTotal: { amount: row.itemsTotal.toNumber(), currency: row.currency },
@@ -272,17 +280,30 @@ export async function saveFulfillment(id: OrderId, companyId: CompanyId, change:
   }
 }
 
-export async function saveCancellation(id: OrderId, companyId: CompanyId, stockDeducted: false) {
+export async function saveCancellation(id: OrderId, companyId: CompanyId) {
   requireActiveTransaction(companyId);
   try {
     const updated = await prisma.order.updateMany({ where: { id, companyId, deliveryStatus: "pending", cancelled: false, completedAt: null },
-      data: { cancelled: true, stockDeducted } });
+      data: { cancelled: true } });
     if (updated.count !== 1) throw new Error("Locked order was not available for cancellation");
     return ok<null>(null);
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
     log.error({ event: "unable_to_save_order_cancellation", err: cause }, "unable_to_save_order_cancellation");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save order cancellation" });
+  }
+}
+
+export async function saveStockRestoration(id: OrderId, companyId: CompanyId) {
+  requireActiveTransaction(companyId);
+  try {
+    const updated = await prisma.order.updateMany({ where: { id, companyId, cancelled: true, stockDeducted: true }, data: { stockDeducted: false } });
+    if (updated.count !== 1) throw new Error("Locked cancelled order was not available for restoration");
+    return ok<null>(null);
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_save_stock_restoration", err: cause }, "Unable to save stock restoration");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save stock restoration" });
   }
 }
 

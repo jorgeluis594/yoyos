@@ -8,7 +8,7 @@ import { getDeliverySettings, saveDeliverySettings, type DeliverySettingsAccess,
 import { readDeliverySettings, writeDeliverySettings } from "@core/src/features/delivery-settings/infrastructure/delivery-settings-repository";
 import type { CourierId, DeliverySettingsError, DeliverySettingsReadError } from "@core/src/features/delivery-settings/domain/delivery-settings";
 
-async function settingsTransaction<T, E extends DeliverySettingsError>(context: DeliverySettingsAccess, operation: string, expectedVersion: number | undefined,
+async function settingsTransaction<T, E extends DeliverySettingsError>(context: Pick<DeliverySettingsAccess, "companyId"> & Partial<Pick<DeliverySettingsAccess, "userId">>, operation: string, expectedVersion: number | undefined,
   work: () => Promise<Result<T, E>>): Promise<Result<T, E | DeliverySettingsReadError>> {
   if (getCompanyId() !== context.companyId) throw new Error("Settings company differs from tenant context");
   try { return await withinTransaction(work); }
@@ -21,7 +21,7 @@ async function settingsTransaction<T, E extends DeliverySettingsError>(context: 
 }
 
 export const deliverySettings = {
-  get: (context: DeliverySettingsAccess, operation = "get_delivery_settings") => settingsTransaction(context, operation, undefined,
+  get: (context: Pick<DeliverySettingsAccess, "companyId"> & Partial<Pick<DeliverySettingsAccess, "userId">>, operation = "get_delivery_settings") => settingsTransaction(context, operation, undefined,
     () => getDeliverySettings(context, (companyId) => readDeliverySettings(companyId, "shared", undefined, operation))),
   async save(input: SaveDeliverySettingsInput, context: DeliverySettingsAccess) {
     const started = performance.now();

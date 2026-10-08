@@ -1,3 +1,5 @@
+import { parseOrderCancelled } from "@core/src/features/orders/infrastructure/event-payloads";
+import { eventHandlers } from "@core/src/composition/event-handlers";
 import { describe, expect, it, vi } from "vitest";
 import { err, ok } from "@shared/functional";
 import { bootstrapEventHandlers, defineEventHandler } from "@core/src/composition/event-handlers";
@@ -29,4 +31,10 @@ describe("handler bootstrap", () => {
     expect(await bootstrap()).toEqual(err({ code: "INVALID_SUBSCRIPTION", message: "duplicate" }));
     expect(unsubscribe).toHaveBeenCalledOnce();
   });
+});
+
+
+it("registers stock restoration for the producer and worker and rejects invalid payloads", () => {
+  expect(eventHandlers.filter(handler => handler.name === "order_cancelled").map(handler => handler.id)).toEqual(["restore-cancelled-order-stock"]);
+  expect(parseOrderCancelled({ orderId: "invalid", companyId: "invalid" })).toMatchObject({ success: false, error: { code: "INVALID_EVENT" } });
 });

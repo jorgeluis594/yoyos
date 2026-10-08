@@ -4,6 +4,14 @@ import type { Result } from "@shared/result";
 import { compare, currencies, type Money } from "@shared/money";
 import { internationalPhonePattern } from "@shared/phone";
 import type { CompanyId, ContactId, OrderId, OrderItem } from "@core/src/features/orders/domain/order";
+import type { DeliverySnapshot, DeliveryStatus, OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
+
+export function buyerPaymentAvailability(order: Pick<OrderAggregate, "cancelled" | "checkoutDeliveryRequest" | "checkoutEnabledAt" | "checkoutConfirmedAt">) {
+  if (order.cancelled) return "cancelled" as const;
+  if (order.checkoutDeliveryRequest) return "delivery_quote_pending" as const;
+  if (order.checkoutEnabledAt && !order.checkoutConfirmedAt) return "checkout_pending" as const;
+  return "available" as const;
+}
 
 export type OrderNumber = number & { readonly __brand: "OrderNumber" };
 export type BuyerName = string & { readonly __brand: "BuyerName" };
@@ -12,7 +20,7 @@ export type BuyerData = Readonly<{ name: BuyerName; phone: PhoneNumber }>;
 export type OrderBuyer = Readonly<{ contactId: ContactId | null; name: string | null; phone: string }>;
 export type CheckoutAccess = Readonly<{ companyId: CompanyId; orderId: OrderId }>;
 export type CheckoutError = Readonly<{
-  code: "CHECKOUT_UNAVAILABLE" | "ORDER_CANCELLED" | "INVALID_BUYER" | "TOTAL_CHANGED" | "INVALID_CHECKOUT" | "PERSISTENCE_UNAVAILABLE";
+  code: "CHECKOUT_UNAVAILABLE" | "ORDER_CANCELLED" | "INVALID_BUYER" | "TOTAL_CHANGED" | "INVALID_CHECKOUT" | "PERSISTENCE_UNAVAILABLE" | "DELIVERY_METHOD_DISABLED" | "COURIER_UNAVAILABLE" | "DELIVERY_LOCKED" | "INVALID_DELIVERY";
   message: string;
 }>;
 export type CheckoutOrder = Readonly<{
@@ -27,6 +35,10 @@ export type CheckoutOrder = Readonly<{
   cancelled: boolean;
   checkoutEnabledAt: Date | null;
   checkoutConfirmedAt: Date | null;
+  delivery: DeliverySnapshot | null;
+  checkoutDeliveryRequest: DeliverySnapshot | null;
+  deliveryCharge: Money;
+  deliveryStatus: DeliveryStatus;
 }>;
 export type CheckoutState =
   | Readonly<{ kind: "not_enabled" }>
@@ -41,7 +53,17 @@ export type CheckoutView = Readonly<{
   itemsTotal: Money;
   total: Money;
   state: Exclude<CheckoutState, { kind: "not_enabled" }>;
+  delivery: ReturnType<typeof publicDelivery>;
+  deliveryQuotePending: boolean;
+  deliveryCharge: Money;
 }>;
+
+function publicDelivery(delivery: DeliverySnapshot | null) {
+  if (!delivery) return null;
+  const { recordedBy, ...details } = delivery;
+  void recordedBy;
+  return details;
+}
 
 const numberSchema = z.number().int().safe().min(1001);
 const buyerSchema = z.strictObject({ name: z.string().trim().min(1), phone: z.string().regex(internationalPhonePattern) });
@@ -75,7 +97,9 @@ export function checkoutView(order: CheckoutOrder): Result<CheckoutView, Checkou
   return ok({ companyName: order.companyName, number: order.number,
     buyer: order.buyer ? { name: order.buyer.name, phone: order.buyer.phone } : null,
     items: order.items.map(({ productName, variantAttributes, sku, quantity, unitPrice, subtotal }) => ({ productName, variantAttributes, sku, quantity, unitPrice, subtotal })),
-    itemsTotal: order.itemsTotal, total: order.total, state: state.data });
+    itemsTotal: order.itemsTotal, total: order.total, state: state.data,
+    delivery: publicDelivery(order.checkoutDeliveryRequest ?? order.delivery),
+    deliveryQuotePending: order.checkoutDeliveryRequest !== null, deliveryCharge: order.deliveryCharge });
 }
 
 export function checkExpectedTotal(expected: Money, current: Money): Result<null, CheckoutError> {

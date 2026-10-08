@@ -1,8 +1,8 @@
-import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
+import { checkoutLinkSchema, quoteCheckoutDeliverySchema } from "@shared/contracts/order-checkout";
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import express, { type Request, type Response } from "express";
 import { z } from "zod";
-import { createOrderSchema, setOrderDeliverySchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
+import { cancelOrderResponseSchema, createOrderSchema, setOrderDeliverySchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
 import { parseDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { apiError, type PrivateLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { orders, createConfiguredOrder } from "@core/src/features/orders/composition";
@@ -92,6 +92,16 @@ function unexpected(response: Response, error: unknown, context?: Readonly<{ ope
 }
 
 export const orderRoutes = express.Router();
+orderRoutes.post("/:orderId/checkout-delivery-quote", async (request, response: Response<unknown, PrivateLocals>) => {
+  if (!request.is("application/json")) return apiError(response, 415, "UNSUPPORTED_MEDIA_TYPE", "JSON body required");
+  const id = z.uuid().safeParse(request.params.orderId);
+  const input = quoteCheckoutDeliverySchema.safeParse(request.body);
+  if (!id.success || !input.success) return apiError(response, 422, "INVALID_INPUT", "Invalid delivery quote");
+  try {
+    const result = await orders.quoteCheckoutDelivery({ ...input.data, orderId: id.data as OrderId }, orderContext(response));
+    return result.success ? response.json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
+  } catch (cause) { return unexpected(response, cause); }
+});
 const orderContext = (response: Response<unknown, PrivateLocals>): OrderAccess => ({
   companyId: response.locals.auth.company.id as CompanyId, userId: response.locals.auth.user.id as UserId,
 });
@@ -243,7 +253,7 @@ for (const [path, operation] of [
     if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order ID");
     try {
       const result = await operation(parsed.data as OrderId, orderContext(response));
-      return result.success ? response.json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
+      return result.success ? response.json(path === "cancel" ? cancelOrderResponseSchema.parse(toOrderAggregateJson(result.data)) : toOrderAggregateJson(result.data)) : operationError(response, result.error);
     } catch (error) { return unexpected(response, error); }
   });
 }

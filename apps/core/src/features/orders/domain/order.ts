@@ -61,3 +61,6 @@ export function buildOrder(input: BuildOrderInput): Result<PricedOrder, BuildOrd
     customer: input.customer.kind === "contact" ? { ...input.customer } : { kind: "general_public" },
     createdAt: new Date(input.createdAt), items: items as [OrderItem, ...OrderItem[]], total: total! });
 }
+
+export function isOrderId(value: string): value is OrderId { return uuid.test(value); }
+export function isCompanyId(value: string): value is CompanyId { return uuid.test(value); }

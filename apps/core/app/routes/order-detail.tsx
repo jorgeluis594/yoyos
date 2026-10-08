@@ -1,10 +1,16 @@
+import { err, ok } from "@shared/functional";
+import type { Result } from "@shared/result";
+import { isOrderId } from "@core/src/features/orders/domain/order";
+import { readCancellationOrder, verifyCancellation, cancellationMessage, type CancelOrderActionError, type CancellationClientResult, type CancellationUiState } from "@core/src/features/orders/presentation/cancellation-client";
+import { cancelOrderResponseSchema, type CancelOrderResponse } from "@shared/contracts/orders";
+import { CheckoutDeliveryQuote } from "@core/src/features/orders/presentation/checkout-delivery-quote";
 import { fulfillmentBlock } from "@shared/orders-fulfillment";
 import { PaymentFields, type PaymentDraft } from "@core/src/features/orders/presentation/payment-fields";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ArrowLeft, ChevronDown, CircleCheck, CircleX, CreditCard, ExternalLink, Truck } from "lucide-react";
 import { Card } from "@core/app/components/ui/card";
 import { z } from "zod";
-import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
+import { checkoutLinkSchema, quoteCheckoutDeliverySchema } from "@shared/contracts/order-checkout";
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import { Input } from "@core/app/components/ui/input";
 import { Field, FieldLabel } from "@core/app/components/ui/field";
@@ -12,7 +18,7 @@ import { useTranslation } from "react-i18next";
 import { randomUUID } from "node:crypto";
 import { companyPath } from "@core/app/locale";
 import { formatCurrency } from "@core/app/format-currency";
-import { Form, useActionData, data, isRouteErrorResponse, Link, useFetcher, useNavigation, useLoaderData, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
+import { Form, useActionData, data, isRouteErrorResponse, Link, useFetcher, useFetchers, useNavigation, useLoaderData, type ClientActionFunctionArgs, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
 import { privateUserContext } from "@core/app/private-user-context";
 import { deliverySettingsSchema } from "@shared/contracts/delivery-settings";
 import { deliverySettings } from "@core/src/features/delivery-settings";
@@ -76,15 +82,66 @@ async function deliveryAction({ params, request, context }: ActionFunctionArgs) 
 
 export const headers = () => ({ "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
 
+export type CancelOrderActionResult = Readonly<{ operation: "cancel"; result: Result<CancelOrderResponse, CancelOrderActionError> }>;
+
+export async function clientAction({ request, params, serverAction }: ClientActionFunctionArgs) {
+  if (request.headers.get("content-type")?.includes("application/json")) return serverAction<typeof action>();
+  const operation = (await request.clone().formData()).get("operation");
+  if (operation !== "cancel" && operation !== "check-cancellation") return serverAction<typeof action>();
+  const id = params.orderId ?? "";
+  if (operation === "check-cancellation") return verifyCancellation(id, { code: "INTERNAL_ERROR", message: "Check current state before retrying" });
+  let response: Awaited<ReturnType<typeof serverAction<typeof action>>>;
+  try { response = await serverAction<typeof action>(); }
+  catch (cause) {
+    if (cause instanceof Response || isRouteErrorResponse(cause)) throw cause;
+    return verifyCancellation(id, { code: "INTERNAL_ERROR", message: "Cancellation response was lost" });
+  }
+  if (!("operation" in response) || response.operation !== "cancel") return response;
+  const result = response.result;
+  if (result.success) {
+    const refreshed = await readCancellationOrder(id);
+    return { operation: "cancellation", orderId: id, outcome: { kind: "confirmed", order: refreshed.success && refreshed.data.cancelled ? refreshed.data : result.data,
+      refreshFailed: !refreshed.success || !refreshed.data.cancelled } } satisfies CancellationClientResult;
+  }
+  if (["INVALID_TRANSITION", "PERSISTENCE_UNAVAILABLE", "INTERNAL_ERROR"].includes(result.error.code)) return verifyCancellation(id, result.error);
+  return { operation: "cancellation", orderId: id, outcome: { kind: "failed", error: result.error } } satisfies CancellationClientResult;
+}
+
+export function shouldRevalidate({ actionResult, defaultShouldRevalidate }: { actionResult: unknown; defaultShouldRevalidate: boolean }) {
+  // Cancellation already reads the detail once; retain confirmed/uncertain evidence if that read fails.
+  return actionResult && typeof actionResult === "object" && "operation" in actionResult && actionResult.operation === "cancellation"
+    ? false : defaultShouldRevalidate;
+}
+
 export async function action({ params, context, request }: ActionFunctionArgs) {
   if (request.headers.get("content-type")?.includes("application/json")) return deliveryAction({ params, context, request } as ActionFunctionArgs);
   const access = context.get(privateUserContext);
   const id = z.uuid().safeParse(params.orderId);
   const fields = await request.formData();
   const operation = fields.get("operation");
-  if (!id.success || ([...fields].length !== 0 && operation !== "confirm" && operation !== "void" && operation !== "ship" && operation !== "deliver")) {
+  if (operation === "cancel") {
+    const orderId = params.orderId ?? "";
+    if (!isOrderId(orderId)) return { operation: "cancel", result: err({ code: "INVALID_INPUT", message: "Invalid order ID" }) } satisfies CancelOrderActionResult;
+    try {
+      const result = await orders.cancel(orderId, { companyId: access.company.id, userId: access.user.id });
+      return { operation: "cancel", result: result.success ? ok(cancelOrderResponseSchema.parse(toOrderAggregateJson(result.data))) : result } satisfies CancelOrderActionResult;
+    } catch (cause) {
+      log.error({ event: "order_cancellation_request_failed", orderId, err: cause }, "Unable to cancel order");
+      return { operation: "cancel", result: err({ code: "INTERNAL_ERROR", message: "Cancellation could not be confirmed" }) } satisfies CancelOrderActionResult;
+    }
+  }
+  if (!id.success || ([...fields].length !== 0 && operation !== "confirm" && operation !== "void" && operation !== "ship" && operation !== "deliver" && operation !== "quote-delivery")) {
     bindRequestOperation({ outcome: "invalid_input" });
     return data({ url: null, success: false, error: true }, { status: 422, headers: headers() });
+  }
+  if (operation === "quote-delivery") {
+    const current = await orders.getAggregate(id.data as OrderId, { companyId: access.company.id, userId: access.user.id });
+    if (!current.success) return { operation, url: null, success: false, error: "saveError" } as const;
+    const rawCost = fields.get("cost");
+    const parsed = quoteCheckoutDeliverySchema.safeParse({ cost: { amount: typeof rawCost === "string" && rawCost.trim() ? Number(rawCost) : NaN, currency: current.data.total.currency }, chargeDeliveryToCustomer: fields.get("charge") === "on" });
+    if (!parsed.success) return { operation, url: null, success: false, error: "invalid" } as const;
+    const result = await orders.quoteCheckoutDelivery({ ...parsed.data, orderId: id.data as OrderId }, { companyId: access.company.id, userId: access.user.id });
+    return { operation, url: null, success: result.success, error: result.success ? false : "saveError" } as const;
   }
   if (operation === "ship" || operation === "deliver") {
     try {
@@ -126,18 +183,37 @@ export async function action({ params, context, request }: ActionFunctionArgs) {
 
 export default function OrderDetail() {
   const { t, i18n } = useTranslation();
-  const { order, base, manualPaymentId, receiptUrls, settings, settingsPath } = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
+  const { order: loadedOrder, base, manualPaymentId, receiptUrls, settings, settingsPath } = useLoaderData<typeof loader>();
+  const rawAction = useActionData<typeof clientAction>();
+  const [cancellationSource, setCancellationSource] = useState({ action: rawAction, order: loadedOrder });
+  if (cancellationSource.action !== rawAction) {
+    setCancellationSource({ action: rawAction, order: loadedOrder });
+  }
+  const cancellation = cancellationSource.order === loadedOrder && rawAction && "operation" in rawAction && rawAction.operation === "cancellation" && rawAction.orderId === loadedOrder.id ? rawAction : undefined;
+  const actionData = rawAction && "operation" in rawAction && (rawAction.operation === "cancel" || rawAction.operation === "cancellation") ? undefined : rawAction;
+  const order = cancellation?.outcome.kind === "confirmed" ? cancellation.outcome.order
+    : cancellation?.outcome.kind === "failed" && cancellation.outcome.order ? cancellation.outcome.order : loadedOrder;
   const result = actionData && "operation" in actionData && actionData.operation === "delivery" ? actionData : undefined;
   const fulfillment = actionData && "operation" in actionData && (actionData.operation === "ship" || actionData.operation === "deliver") ? actionData : undefined;
   const navigation = useNavigation();
-  const editable = !order.cancelled && order.deliveryStatus === "pending" && order.completedAt === null;
+  const editable = !order.checkoutDeliveryRequest && !order.cancelled && order.deliveryStatus === "pending" && order.completedAt === null;
   const [editingDelivery, setEditingDelivery] = useState(false);
   const checkout = useFetcher<typeof action>();
+  const checkoutData = checkout.data && !("result" in checkout.data) ? checkout.data : undefined;
+  const cancellationState: CancellationUiState = navigation.state !== "idle" && navigation.formData?.get("operation") === "cancel"
+    ? { kind: "submitting", orderId: order.id }
+    : navigation.state !== "idle" && navigation.formData?.get("operation") === "check-cancellation" ? { kind: "verifying", orderId: order.id }
+    : cancellation?.outcome.kind === "uncertain" ? { kind: "uncertain", orderId: order.id, cause: cancellation.outcome.cause }
+    : cancellation?.outcome.kind === "failed" ? { kind: "failed", error: cancellation.outcome.error } : { kind: "idle" };
+  const fetchers = useFetchers();
+  const busy = navigation.state !== "idle" || fetchers.some(fetcher => fetcher.state !== "idle");
+  const needsCheck = cancellationState.kind === "uncertain" || (cancellation?.outcome.kind === "failed" && cancellation.outcome.refreshFailed);
+  const blocked = busy || !!needsCheck;
+  const cancelDialog = useRef<HTMLDialogElement>(null);
   const [copyMessage, setCopyMessage] = useState<"copied" | "copyManually" | null>(null);
   async function copyLink() {
-    if (!checkout.data?.url) return;
-    try { await navigator.clipboard.writeText(checkout.data.url); setCopyMessage("copied"); }
+    if (!checkoutData?.url) return;
+    try { await navigator.clipboard.writeText(checkoutData.url); setCopyMessage("copied"); }
     catch { setCopyMessage("copyManually"); }
   }
   const amount = (money: typeof order.total) => formatCurrency(money.amount, money.currency, i18n.language);
@@ -155,12 +231,31 @@ export default function OrderDetail() {
         <div className="flex flex-wrap gap-2">
           <span className={`${badge} ${order.cancelled ? "bg-[var(--error-surface)] text-[var(--error)]" : "bg-[var(--success-surface)] text-[var(--success)]"}`}><span aria-hidden="true">{order.cancelled ? <CircleX className="size-icon-inline" /> : <CircleCheck className="size-icon-inline" />}</span>{t(`orders.status.${order.status}`)}</span>
           <span className={`${badge} ${order.paymentStatus === "paid" ? "bg-[var(--info-surface)] text-[var(--info)]" : "bg-[var(--warning-surface)] text-[var(--warning)]"}`}><CreditCard className="size-icon-inline" aria-hidden="true" />{t("orders.payment")}: {order.paymentStatus === "paid" ? t("orders.paid") : t("orderDetail.pendingPayment")}</span>
-          <span className={`${badge} ${order.deliveryStatus === "pending" ? "bg-[var(--warning-surface)] text-[var(--warning)]" : "bg-[var(--success-surface)] text-[var(--success)]"}`}><Truck className="size-icon-inline" aria-hidden="true" />{t("orders.delivery")}: {t(`orders.deliveryStatus.${order.deliveryStatus}`)}</span>
+          {!order.cancelled && <span className={`${badge} ${order.deliveryStatus === "pending" ? "bg-[var(--warning-surface)] text-[var(--warning)]" : "bg-[var(--success-surface)] text-[var(--success)]"}`}><Truck className="size-icon-inline" aria-hidden="true" />{t("orders.delivery")}: {t(`orders.deliveryStatus.${order.deliveryStatus}`)}</span>}
         </div>
       </div>
+      {!order.cancelled && order.status === "active" && order.deliveryStatus === "pending" && <Button type="button" variant="destructive" className="self-start" disabled={blocked} onClick={() => cancelDialog.current?.showModal()}>{t("orderCancellation.cancel")}</Button>}
+      <dialog ref={cancelDialog} aria-labelledby="cancel-title" aria-describedby="cancel-description" className="m-auto w-[calc(100%-2rem)] max-w-lg rounded-lg border bg-card p-6 text-card-foreground shadow-xl backdrop:bg-foreground/40">
+        <h2 id="cancel-title" className="text-lg font-semibold">{t("orderCancellation.confirm")}</h2>
+        <p id="cancel-description" className="mt-3 text-sm leading-relaxed text-muted-foreground">{t("orderCancellation.effects")}</p>
+        <div className="mt-6 flex flex-wrap justify-end gap-3">
+          <Button type="button" variant="outline" onClick={() => cancelDialog.current?.close()}>{t("orderCancellation.keep")}</Button>
+          <Form method="post" onSubmit={event => { if (blocked) event.preventDefault(); else cancelDialog.current?.close(); }}>
+            <input type="hidden" name="operation" value="cancel" /><Button type="submit" variant="destructive" disabled={blocked}>{t("orderCancellation.cancel")}</Button>
+          </Form>
+        </div>
+      </dialog>
+      {!order.cancelled && (cancellationState.kind === "submitting" || cancellationState.kind === "verifying") && <p role="status">{t(`orderCancellation.${cancellationState.kind}`)}</p>}
+      {!order.cancelled && cancellationState.kind === "failed" && <p role="alert" className="text-sm text-destructive">{t(`orderCancellation.${cancellationMessage[cancellationState.error.code]}`)}</p>}
+      {!order.cancelled && needsCheck && <div className="flex flex-col gap-3"><p role="alert">{t(cancellationState.kind === "uncertain" ? "orderCancellation.uncertain" : "orderCancellation.stateRefreshFailed")}</p><Form method="post"><input type="hidden" name="operation" value="check-cancellation" /><Button type="submit" disabled={busy}>{t("orderCancellation.check")}</Button></Form></div>}
+      {cancellation?.outcome.kind === "confirmed" && cancellation.outcome.refreshFailed && <p role="alert">{t("orderCancellation.refreshFailed")}</p>}
+      {order.cancelled && <p role="status" className="text-sm text-muted-foreground">{t("orderCancellation.saved")}</p>}
+
     </header>
 
-    <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+    {order.checkoutDeliveryRequest && !order.cancelled && <CheckoutDeliveryQuote delivery={order.checkoutDeliveryRequest} currency={order.total.currency} disabled={blocked} />}
+
+    <fieldset disabled={blocked} className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
       <div className="contents xl:flex xl:min-w-0 xl:flex-col xl:gap-4">
         <Card role="region" aria-labelledby="order-products-title" className="min-w-0 max-xl:order-1">
           <div className="flex items-center justify-between gap-3 p-4"><h2 id="order-products-title" className="text-lg font-semibold">{t("products.title")}</h2><span className="text-sm text-muted-foreground">{t("orders.itemCount", { count: order.items.length })}</span></div>
@@ -210,8 +305,8 @@ export default function OrderDetail() {
           <div className="flex flex-wrap items-center justify-between gap-3 p-4"><h2 id="checkout-title" className="text-lg font-semibold">{t("orders.checkout")}</h2>{!order.cancelled && <checkout.Form method="post"><Button type="submit" variant="outline" disabled={checkout.state !== "idle"}>{t("orders.getCheckoutLink")}</Button></checkout.Form>}</div>
           <div className="flex flex-col gap-3 px-4 pb-4">
             <p className="text-sm text-muted-foreground">{t(order.cancelled ? "orders.checkoutCancelled" : order.checkoutConfirmedAt ? "orders.checkoutConfirmed" : order.checkoutEnabledAt ? "orders.checkoutPending" : "orders.checkoutDisabled")}</p>
-            {checkout.data?.error && <p role="alert" className="text-sm text-destructive">{t("orders.checkoutLinkError")}</p>}
-            {checkout.data?.url && <><Field><FieldLabel htmlFor="checkout-link">{t("orders.checkoutLink")}</FieldLabel><Input id="checkout-link" readOnly value={checkout.data.url} onFocus={event => event.target.select()} /></Field><Button type="button" variant="outline" className="self-start" onClick={copyLink}>{t("orders.copyCheckoutLink")}</Button>{copyMessage && <p role="status" className="text-sm">{t(`orders.${copyMessage}`)}</p>}</>}
+            {checkoutData?.error && <p role="alert" className="text-sm text-destructive">{t("orders.checkoutLinkError")}</p>}
+            {!order.cancelled && checkoutData?.url && <><Field><FieldLabel htmlFor="checkout-link">{t("orders.checkoutLink")}</FieldLabel><Input id="checkout-link" readOnly value={checkoutData.url} onFocus={event => event.target.select()} /></Field><Button type="button" variant="outline" className="self-start" onClick={copyLink}>{t("orders.copyCheckoutLink")}</Button>{copyMessage && <p role="status" className="text-sm">{t(`orders.${copyMessage}`)}</p>}</>}
             <a href={`/pago/${order.id}`} target="_blank" rel="noreferrer" className="flex min-h-control items-center justify-between gap-3 border-t pt-3 text-sm text-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring max-md:min-h-touch">{t("orders.buyerPaymentLink")}<ExternalLink className="size-icon-inline shrink-0" aria-hidden="true" /></a>
           </div>
         </Card>
@@ -227,7 +322,7 @@ export default function OrderDetail() {
           <div className="flex flex-wrap items-center justify-between gap-3 p-4"><h2 id="order-delivery-title" className="text-lg font-semibold">{t("orders.delivery")}</h2>{editable && settings && (settings.store.enabled || settings.home.enabled || settings.agency.enabled) && <Button type="button" aria-expanded={editingDelivery} aria-controls="delivery-editor" onClick={() => setEditingDelivery(!editingDelivery)}>{t(editingDelivery ? "orderDetail.closeEditor" : order.delivery ? "orderDetail.editDelivery" : "orderDelivery.assign")}</Button>}</div>
           <div className="flex flex-col gap-4 px-4 pb-4">
             <div className="flex flex-col gap-3">
-              {(["ship", "deliver"] as const).map(operation => {
+              {!order.cancelled && (["ship", "deliver"] as const).map(operation => {
                 const blocked = fulfillmentBlock(order, operation);
                 return <Form key={operation} method="post" className="flex flex-col gap-1">
                   <input type="hidden" name="operation" value={operation} />
@@ -258,7 +353,7 @@ export default function OrderDetail() {
 
         <Card className="min-w-0 max-xl:order-6"><details className="group p-4"><summary className="flex min-h-control cursor-pointer list-none items-center justify-between gap-3 rounded-sm text-sm font-semibold focus-visible:outline-2 focus-visible:outline-ring max-md:min-h-touch [&::-webkit-details-marker]:hidden">{t("orderDetail.internalDetails")}<ChevronDown className="size-icon-inline shrink-0 group-open:rotate-180" aria-hidden="true" /></summary><dl className="mt-3 flex flex-col gap-3 border-t pt-4 text-sm"><div><dt className="text-muted-foreground">{t("orders.stock")}</dt><dd>{t(order.stockDeducted ? "orders.stockDeducted" : "orders.stockPending")}</dd></div><div><dt className="text-muted-foreground">{t("orders.seller")}</dt><dd className="break-all">{order.sellerId}</dd></div>{order.delivery && <div><dt className="text-muted-foreground">{t("orderDelivery.recordedBy")}</dt><dd className="break-all">{order.delivery.recordedBy.kind === "seller" ? order.delivery.recordedBy.userId : t("orderDelivery.buyer")}</dd></div>}</dl></details></Card>
       </div>
-    </div>
+    </fieldset>
   </section>;
 }
 
@@ -270,7 +365,7 @@ function PaymentForm({ paymentId, source, currency, balance }: { paymentId: stri
     <input type="hidden" name="operation" value="confirm" /><input type="hidden" name="source" value={source} />
     <input type="hidden" name="paymentId" value={paymentId} /><input type="hidden" name="currency" value={currency} />
     <PaymentFields value={value} onChange={setValue} />
-    <Button type="submit" disabled={navigation.state !== "idle"} className="sm:col-start-3 sm:row-start-1">{t("orders.confirmPayment")}</Button>
+    <Button type="submit" disabled={navigation.state !== "idle"} className="h-control sm:col-start-3 sm:row-start-1">{t("orders.confirmPayment")}</Button>
   </Form>;
 }
 
