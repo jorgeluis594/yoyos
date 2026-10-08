@@ -16,6 +16,11 @@ jest.mock("@mobile/features/orders/composition", () => ({ orders: { loadOrderAgg
 jest.mock("@mobile/features/delivery-settings/composition", () => ({ deliverySettings: { get: jest.fn(), createQuotation: jest.fn() } }));
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAccess: () => ({ state: { status: "ready", company: { id: "company", country: "PE" } } }) }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
+jest.mock("@expo/ui/community/menu", () => {
+  const { View } = jest.requireActual<typeof import("react-native")>("react-native");
+  return { MenuView: ({ children, onPressAction }: { children: React.ReactNode; onPressAction: (event: { nativeEvent: { event: string } }) => void }) =>
+    <View {...{ onValueChange: (index: number) => onPressAction({ nativeEvent: { event: String(index) } }) }}>{children}</View> };
+});
 jest.mock("@expo/ui", () => {
   const { View } = jest.requireActual<typeof import("react-native")>("react-native");
   const Picker = ({ onValueChange, children, testID }: { onValueChange: (value: number) => void; children: React.ReactNode; testID?: string }) => <View testID={testID} accessible accessibilityRole="adjustable" {...{ onValueChange }}>{children}</View>;

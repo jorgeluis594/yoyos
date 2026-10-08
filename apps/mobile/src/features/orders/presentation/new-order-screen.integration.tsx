@@ -47,6 +47,11 @@ jest.mock("@mobile/features/delivery-settings/composition", () => {
   return { deliverySettings: { get: () => createDeliverySettingsApi(mockRequest).get(),
     createQuotation: (districtCode: string) => createQuotationApi(mockRequest)(districtCode) } };
 });
+jest.mock("@expo/ui/community/menu", () => {
+  const { View } = jest.requireActual<typeof import("react-native")>("react-native");
+  return { MenuView: ({ children, onPressAction }: { children: React.ReactNode; onPressAction: (event: { nativeEvent: { event: string } }) => void }) =>
+    <View {...{ onValueChange: (index: number) => onPressAction({ nativeEvent: { event: String(index) } }) }}>{children}</View> };
+});
 jest.mock("@expo/ui", () => {
   const { View } = jest.requireActual<typeof import("react-native")>("react-native");
   const Picker = ({ children, testID, onValueChange }: { children: React.ReactNode; testID?: string; onValueChange: (value: number) => void }) =>
