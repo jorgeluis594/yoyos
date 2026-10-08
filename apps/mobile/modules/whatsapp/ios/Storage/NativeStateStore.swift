@@ -509,7 +509,7 @@ public final class NativeStateStore {
     guard Set(object.keys) == fields else { throw StateStoreError.invalid }
   }
   private static func json(_ object: Any) throws -> Data {
-    try JSONSerialization.data(withJSONObject: object, options: [.fragmentsAllowed, .sortedKeys])
+    try JSONSerialization.data(withJSONObject: object, options: [.fragmentsAllowed, .sortedKeys, .withoutEscapingSlashes])
   }
   static func parseObject(_ bytes: Data) throws -> [String: Any] {
     guard let string = String(data: bytes, encoding: .utf8), Data(string.utf8) == bytes else { throw StateStoreError.invalid }

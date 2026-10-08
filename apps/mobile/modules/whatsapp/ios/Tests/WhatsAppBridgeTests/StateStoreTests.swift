@@ -413,6 +413,26 @@ final class StateStoreTests: XCTestCase {
     XCTAssertEqual(try accounts(), before)
   }
 
+  func testExactlySixteenMiBSerializedSessionRestores() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = try makeStore(root)
+    _ = try store.open()
+    let template: [String: Any] = ["accountId": "1@lid", "sessionKeyId": String(repeating: "a", count: 32),
+                                   "sessionRevision": "1", "nonceBase64": String(repeating: "A", count: 16), "ciphertextBase64": ""]
+    let overhead = try JSONSerialization.data(withJSONObject: template, options: [.sortedKeys]).count
+    let encoded = 16 * 1024 * 1024 - overhead
+    XCTAssertEqual(encoded % 4, 0)
+    let prefix = "{\"protocolSchemaVersion\":1,\"records\":[\""
+    let suffix = "\"]}"
+    let padding = encoded / 4 * 3 - 16 - prefix.utf8.count - suffix.utf8.count
+    let protocolBytes = Data((prefix + String(repeating: "A", count: padding) + suffix).utf8)
+    try store.beginSession(accountId: "1@lid", protocolBytes: protocolBytes)
+    let session = try XCTUnwrap(store.open()["session"])
+    XCTAssertEqual(try JSONSerialization.data(withJSONObject: session, options: [.sortedKeys, .withoutEscapingSlashes]).count, 16 * 1024 * 1024)
+    XCTAssertTrue(try makeStore(root).canRestoreSession())
+  }
+
   func testOversizedSessionCannotPublishOrPruneState() throws {
     let root = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: root) }
