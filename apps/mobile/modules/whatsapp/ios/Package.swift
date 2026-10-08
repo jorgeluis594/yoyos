@@ -6,7 +6,7 @@ let package = Package(
   platforms: [.iOS(.v16)],
   products: [],
   targets: [
-    .binaryTarget(name: "WhatsAppGo", path: "../Frameworks/WhatsAppGo.xcframework"),
+    .binaryTarget(name: "WhatsAppGo", path: "Frameworks/WhatsAppGo.xcframework"),
     .testTarget(name: "WhatsAppBridgeTests", dependencies: ["WhatsAppGo"]),
   ]
 )

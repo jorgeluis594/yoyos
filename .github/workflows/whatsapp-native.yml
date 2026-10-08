@@ -130,7 +130,7 @@ jobs:
           xcrun simctl bootstatus "$SIMULATOR_ID" -b
       - name: Test callback on simulator
         run: xcodebuild -scheme WhatsAppBridgeTests -destination "platform=iOS Simulator,id=$SIMULATOR_ID" test
-        working-directory: apps/mobile/modules/whatsapp/ios/Tests
+        working-directory: apps/mobile/modules/whatsapp/ios
       - name: Build Expo app with the vendored framework
         run: |
           workspace=$(find . -maxdepth 1 -name '*.xcworkspace' -print -quit)
