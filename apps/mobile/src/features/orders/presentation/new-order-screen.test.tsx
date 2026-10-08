@@ -14,6 +14,8 @@ const mockReadPending = jest.fn();
 const mockResolvePending = jest.fn();
 const mockResendPending = jest.fn();
 const mockReviewPending = jest.fn();
+const mockLoadReview = jest.fn();
+const mockReviewOrder = jest.fn();
 let mockDirty = false;
 let mockCountry = "PE";
 let mockNextId = 3;
@@ -35,6 +37,8 @@ jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   readPendingOrderConfirmation: (...args: unknown[]) => mockReadPending(...args),
   resendPendingOrder: (...args: unknown[]) => mockResendPending(...args),
   reviewLegacyPendingDelivery: (...args: unknown[]) => mockReviewPending(...args),
+  loadPendingOrderReview: (...args: unknown[]) => mockLoadReview(...args),
+  reviewPendingOrder: (...args: unknown[]) => mockReviewOrder(...args),
   resolvePendingOrderConfirmation: (...args: unknown[]) => mockResolvePending(...args),
   searchOrderCatalog: async () => ({ success: true, data: [{ id: mockId(4), name: "Camisa", currency: "PEN",
     variants: [{ id: mockId(2), attributes: { Talla: "M" }, sku: "CAM-M", price: 10, stock: 3 }] }] }),
@@ -515,6 +519,45 @@ test("a saved rated delivery can be reviewed without charging its old fee twice"
   fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 1);
   expect(screen.getByText(/Total:\sS\/\s22\.00/)).toBeTruthy();
   expect(screen.getByRole("button", { name: "Guardar entrega revisada" })).toBeEnabled();
+  expect(mockCompleteOrder).not.toHaveBeenCalled();
+  expect(mockResendPending).not.toHaveBeenCalled();
+});
+
+
+test("restarted seller corrects missing references and payments before saving the same attempt", async () => {
+  const pending = { version: 2, companyId: mockId(1), id: mockId(3), shownTotal: { amount: 30, currency: "PEN" },
+    request: { id: mockId(3), contactId: mockId(7), items: [{ variantId: mockId(2), quantity: 2 }, { variantId: mockId(6), quantity: 1 }],
+      payments: [{ paymentId: mockId(8), amount: { amount: 4.5, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false }] } };
+  const draft = { kind: "items", id: pending.id, customer: { kind: "contact", contactId: mockId(7), name: null, phone: "" },
+    items: [{ variantId: mockId(2), quantity: 2, productName: "Camisa", variantAttributes: {}, sku: null,
+      shownUnitPrice: { amount: 10, currency: "PEN" }, shownStock: 1 }],
+    payments: [{ paymentId: mockId(8), amount: "4.5", method: "bank_transfer", deductStockIfPartial: false }] };
+  mockReadPending.mockResolvedValue(ok(pending));
+  mockLoadReview.mockResolvedValue(ok({ kind: "review", pending, draft, unavailableVariantIds: [mockId(6)], contactUnavailable: true }));
+  const screen = render(<NewOrderScreen />);
+  const reviewButton = await screen.findByRole("button", { name: "Corregir intento guardado" });
+  await act(async () => { fireEvent.press(reviewButton); });
+  expect(mockLoadReview).toHaveBeenCalledWith(mockId(1));
+  expect(screen.getByText(/El producto guardado 1 ya no está disponible/)).toBeTruthy();
+  expect(screen.getByText(/El cliente guardado ya no está disponible/)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Guardar correcciones" })).toBeDisabled();
+  expect(screen.queryByRole("button", { name: "Reenviar mismo intento" })).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: "Quitar producto no disponible 1" }));
+  expect(screen.getByRole("button", { name: "Guardar correcciones" })).toBeDisabled();
+  fireEvent.press(screen.getByRole("button", { name: "Quitar contacto" }));
+  fireEvent.press(screen.getByRole("button", { name: "−" }));
+  fireEvent.changeText(screen.getByLabelText(/Importe recibido/), "5.50");
+  expect(screen.getByRole("button", { name: "Guardar correcciones" })).toBeEnabled();
+  mockReviewOrder.mockResolvedValueOnce(err({ code: "PENDING_STORAGE_UNAVAILABLE", message: "Cannot save" }));
+  await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar correcciones" })); });
+  expect(screen.getByLabelText(/Importe recibido/)).toHaveProp("value", "5.50");
+  expect(mockReviewOrder).toHaveBeenLastCalledWith(mockId(1), expect.objectContaining({ id: pending.id,
+    customer: { kind: "general_public" }, items: [expect.objectContaining({ variantId: mockId(2), quantity: 1 })],
+    payments: [expect.objectContaining({ paymentId: mockId(8), amount: "5.50" })] }));
+  mockReviewOrder.mockResolvedValueOnce(ok({ kind: "uncertain", pending }));
+  await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar correcciones" })); });
+  expect(screen.queryByRole("button", { name: "Guardar correcciones" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Verificar venta" })).toBeEnabled();
   expect(mockCompleteOrder).not.toHaveBeenCalled();
   expect(mockResendPending).not.toHaveBeenCalled();
 });
