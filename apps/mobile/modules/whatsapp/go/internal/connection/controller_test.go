@@ -2,6 +2,7 @@ package connection
 
 import (
 	"context"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -286,4 +287,43 @@ func TestRepeatedPreparationAdoptsExistingConnection(t *testing.T) {
 	if c.State() != Disconnected || c.Connect() != SessionStateInvalid {
 		t.Fatal("invalid session did not stop protocol")
 	}
+}
+
+func TestExpiredQueuedQRIsNotPublished(t *testing.T) {
+	clock := &testClock{now: time.Unix(0, 0)}
+	transport := newTransport()
+	blocked := make(chan struct{})
+	events := make(chan Event, 16)
+	c := New(func() (Transport, error) { return transport, nil }, func(e Event) {
+		if e.State == Connecting {
+			<-blocked
+		}
+		events <- e
+	}, clock)
+	c.Prepare(false)
+	c.Connect()
+	channel := started(t, transport)
+	channel <- TransportEvent{Kind: "qr", QR: "expired", ExpiresAt: clock.Now().Add(time.Second)}
+	until := time.After(time.Second)
+	for c.State() != AwaitingQR {
+		select {
+		case <-until:
+			t.Fatal("QR not accepted")
+		default:
+			runtime.Gosched()
+		}
+	}
+	clock.Advance(2 * time.Second)
+	close(blocked)
+	if receive(t, events).State != Connecting || receive(t, events).State != AwaitingQR {
+		t.Fatal("state order changed")
+	}
+	select {
+	case e := <-events:
+		if e.QR != "" {
+			t.Fatal("expired QR delivered")
+		}
+	case <-time.After(20 * time.Millisecond):
+	}
+	c.Disconnect()
 }

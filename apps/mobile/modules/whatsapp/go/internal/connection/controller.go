@@ -75,6 +75,7 @@ type Controller struct {
 	localFault    Code
 	state         State
 	qr            Event
+	qrExpiry      time.Time
 	generation    uint64
 	cancel        context.CancelFunc
 	retryCancel   chan struct{}
@@ -109,7 +110,7 @@ func (c *Controller) deliver() {
 		c.eventMu.Unlock()
 		if event.QR != "" {
 			c.mu.Lock()
-			current := c.state == AwaitingQR && c.qr.QR == event.QR && c.clock.Now().Before(time.UnixMilli(event.ExpiresAt))
+			current := c.state == AwaitingQR && c.qr.QR == event.QR && c.qr.ExpiresAt == event.ExpiresAt && c.clock.Now().Before(c.qrExpiry)
 			c.mu.Unlock()
 			if !current {
 				continue
@@ -122,7 +123,7 @@ func (c *Controller) State() State { c.mu.Lock(); defer c.mu.Unlock(); return c.
 func (c *Controller) CurrentQR() (Event, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.qr, c.state == AwaitingQR && c.qr.QR != "" && c.clock.Now().Before(time.UnixMilli(c.qr.ExpiresAt))
+	return c.qr, c.state == AwaitingQR && c.qr.QR != "" && c.clock.Now().Before(c.qrExpiry)
 }
 func (c *Controller) Prepare(paired bool) {
 	c.mu.Lock()
@@ -240,10 +241,12 @@ func (c *Controller) retireLocked() {
 		c.transport = nil
 	}
 	c.qr = Event{}
+	c.qrExpiry = time.Time{}
 }
 func (c *Controller) setState(state State) {
 	if state != AwaitingQR {
 		c.qr = Event{}
+		c.qrExpiry = time.Time{}
 	}
 	if c.state != state {
 		c.state = state
@@ -293,6 +296,7 @@ func (c *Controller) run(ctx context.Context, generation uint64, transport Trans
 					timer = nil
 					c.setState(AwaitingQR)
 					c.qr = Event{QR: item.QR, ExpiresAt: item.ExpiresAt.UnixMilli()}
+					c.qrExpiry = item.ExpiresAt
 					c.publish(c.qr)
 				}
 			case "authenticating":
@@ -363,6 +367,7 @@ func (c *Controller) finish(generation uint64, code Code, retry bool) {
 		c.transport = nil
 	}
 	c.qr = Event{}
+	c.qrExpiry = time.Time{}
 	c.publish(Event{Error: code})
 	if !retry || !c.paired {
 		c.requested = false
