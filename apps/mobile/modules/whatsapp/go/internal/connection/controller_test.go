@@ -15,8 +15,9 @@ type testClock struct {
 	created chan struct{}
 }
 type clockWait struct {
-	at time.Time
-	ch chan time.Time
+	at       time.Time
+	ch       chan time.Time
+	duration time.Duration
 }
 
 func (c *testClock) Now() time.Time { c.mu.Lock(); defer c.mu.Unlock(); return c.now }
@@ -24,7 +25,7 @@ func (c *testClock) After(d time.Duration) <-chan time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	ch := make(chan time.Time, 1)
-	c.waits = append(c.waits, clockWait{c.now.Add(d), ch})
+	c.waits = append(c.waits, clockWait{c.now.Add(d), ch, d})
 	if c.created != nil {
 		c.created <- struct{}{}
 	}
@@ -37,6 +38,11 @@ func (c *testClock) WaitTimer(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timer not scheduled")
 	}
+}
+func (c *testClock) LastDuration() time.Duration {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.waits[len(c.waits)-1].duration
 }
 func (c *testClock) Advance(d time.Duration) {
 	c.mu.Lock()
@@ -324,6 +330,56 @@ func TestExpiredQueuedQRIsNotPublished(t *testing.T) {
 			t.Fatal("expired QR delivered")
 		}
 	case <-time.After(20 * time.Millisecond):
+	}
+	c.Disconnect()
+}
+
+func TestBackoffSequenceCapsAndResetsAfterConnection(t *testing.T) {
+	clock := &testClock{now: time.Unix(0, 0), created: make(chan struct{}, 32)}
+	events := make(chan Event, 40)
+	created := make(chan *testTransport, 8)
+	c := New(func() (Transport, error) { transport := newTransport(); created <- transport; return transport, nil }, func(e Event) { events <- e }, clock)
+	c.Prepare(true)
+	c.Connect()
+	transport := <-created
+	channel := started(t, transport)
+	receive(t, events)
+	clock.WaitTimer(t)
+	for index, delay := range []time.Duration{1, 2, 4, 8, 16, 30, 30} {
+		channel <- TransportEvent{Kind: "networkFailure"}
+		if receive(t, events).Error != ConnectionFailed {
+			t.Fatal("missing retry transition")
+		}
+		if index == 0 && receive(t, events).State != Reconnecting {
+			t.Fatal("not reconnecting")
+		}
+		if c.State() != Reconnecting {
+			t.Fatal("retry state changed")
+		}
+		clock.WaitTimer(t)
+		if got := clock.LastDuration(); got != delay*time.Second {
+			t.Fatalf("backoff %v, want %v", got, delay*time.Second)
+		}
+		clock.Advance(delay * time.Second)
+		select {
+		case transport = <-created:
+		case <-time.After(time.Second):
+			t.Fatal("retry not created")
+		}
+		channel = started(t, transport)
+		clock.WaitTimer(t)
+	}
+	channel <- TransportEvent{Kind: "connected"}
+	if receive(t, events).State != Connected {
+		t.Fatal("connection missing")
+	}
+	channel <- TransportEvent{Kind: "networkFailure"}
+	if receive(t, events).Error != ConnectionFailed || receive(t, events).State != Reconnecting {
+		t.Fatal("missing retry after success")
+	}
+	clock.WaitTimer(t)
+	if got := clock.LastDuration(); got != time.Second {
+		t.Fatalf("backoff did not reset: %v", got)
 	}
 	c.Disconnect()
 }
