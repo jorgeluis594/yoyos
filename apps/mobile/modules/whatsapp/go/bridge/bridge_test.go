@@ -50,6 +50,19 @@ func TestOpenProtocolStoreUsesNativeRead(t *testing.T) {
 	}
 }
 
+func TestFirstLinkBridgeKeepsCredentialsInGo(t *testing.T) {
+	if got := NewFirstLinkProtocolStore(nil, "generation", 1024, 1024); got.Code != "INVALID_REQUEST" || got.Session != nil {
+		t.Fatalf("nil native storage admitted: %+v", got)
+	}
+	got := NewFirstLinkProtocolStore(protocolStorage{}, "generation", 1024, 1024)
+	if got.Code != "" || got.Session == nil || got.Session.device == nil || got.Session.StopReason() != "" {
+		t.Fatalf("first-link credentials unavailable to Go controller: %+v", got)
+	}
+	if got.Session.device.ID != nil {
+		t.Fatal("first-link device was treated as paired before verification")
+	}
+}
+
 func TestPureNativeAdmissionUsesCompleteCodec(t *testing.T) {
 	if !ValidateProtocolChange("put", "prekey-state", "W10", "eyJ2ZXJzaW9uIjoxLCJuZXh0SWQiOjEsInVwbG9hZGVkVGhyb3VnaCI6MH0=") {
 		t.Fatal("valid protocol record rejected")

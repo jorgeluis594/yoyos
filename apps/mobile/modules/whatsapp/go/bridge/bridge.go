@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 
+	"go.mau.fi/whatsmeow/store"
 	"yoyos-whatsapp/internal"
 	"yoyos-whatsapp/internal/protocolstate"
 	"yoyos-whatsapp/internal/protocolstore"
@@ -47,6 +48,52 @@ type ProtocolOpenResult struct {
 	Code    string
 }
 
+// FirstLinkSession holds the new credentials in Go until whatsmeow verifies
+// pairing. Its device is used by the Go connection controller; native only
+// receives the opaque session and a typed failure code.
+type FirstLinkSession struct{ device *store.Device }
+
+type FirstLinkOpenResult struct {
+	Session *FirstLinkSession
+	Code    string
+}
+
+// NewFirstLinkProtocolStore is called after native registers a fresh generation.
+// Its first durable write is the verified pair's BeginFreshSession callback.
+func NewFirstLinkProtocolStore(storage ProtocolStorage, generationID string, readRecoveryBytes, newRecoveryBytes int64) *FirstLinkOpenResult {
+	if storage == nil {
+		return &FirstLinkOpenResult{Code: string(protocolstore.InvalidRequest)}
+	}
+	device, err := protocolstore.NewFirstLinkDevice(storage, generationID, readRecoveryBytes, newRecoveryBytes)
+	if err != nil {
+		if typed, ok := err.(*protocolstore.Error); ok {
+			return &FirstLinkOpenResult{Code: string(typed.Code)}
+		}
+		return &FirstLinkOpenResult{Code: string(protocolstore.StorageFailed)}
+	}
+	return &FirstLinkOpenResult{Session: &FirstLinkSession{device: device}}
+}
+
+func (s *FirstLinkSession) StopReason() string {
+	if s == nil || s.device == nil || s.device.Container == nil {
+		return string(protocolstore.InvalidRequest)
+	}
+	if health, ok := s.device.Container.(interface{ StopReason() error }); ok {
+		return protocolErrorCode(health.StopReason())
+	}
+	return string(protocolstore.StateInvalid)
+}
+
+func protocolErrorCode(err error) string {
+	if err == nil {
+		return ""
+	}
+	if typed, ok := err.(*protocolstore.Error); ok {
+		return string(typed.Code)
+	}
+	return string(protocolstore.StorageFailed)
+}
+
 // OpenProtocolStore connects the generated native callback to the real Go stores.
 // The native controller registers the generation before calling this function.
 func OpenProtocolStore(storage ProtocolStorage, generationID, accountID string, readRecoveryBytes, newRecoveryBytes int64) *ProtocolOpenResult {
@@ -67,13 +114,7 @@ func (s *ProtocolSession) StopReason() string {
 	if s == nil || s.store == nil {
 		return string(protocolstore.InvalidRequest)
 	}
-	if err := s.store.StopReason(); err != nil {
-		if typed, ok := err.(*protocolstore.Error); ok {
-			return string(typed.Code)
-		}
-		return string(protocolstore.StorageFailed)
-	}
-	return ""
+	return protocolErrorCode(s.store.StopReason())
 }
 
 // ProbeResult keeps callback errors explicit across bindings that advertise nonnull returns.
