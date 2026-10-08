@@ -355,6 +355,8 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
       }
     } else if (state.get("session") != JSONObject.NULL) throw StateFailure("SESSION_STATE_INVALID")
     else sessionUsable = true
+    if (service?.getBoolean("receiveRequested") == true &&
+      (session == null || service.getString("accountId") != session.getString("accountId"))) throw StateFailure("SESSION_STATE_INVALID")
     val retired = state.getJSONArray("sessionKeysToDelete")
     if (retired.length() > 1 || (retired.length() == 1 && (!ID.matches(retired.getString(0)) || retired.getString(0) == recoveryId || retired.getString(0) == session?.optString("sessionKeyId")))) throw StateFailure("SESSION_STATE_INVALID")
     val pending = state.getJSONArray("pending")
@@ -432,9 +434,18 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
   private fun readRecord(): JSONObject? {
     if (!existsChecked(recordFile)) return null
     val key = getKey(recordAlias)
-    if (recordFile.length() !in 29L..4096L) throw StateFailure("SESSION_STATE_INVALID")
-    val bytes = recordFile.readBytes()
-    if (bytes.size !in 29..4096) throw StateFailure("SESSION_STATE_INVALID")
+    val size = recordFile.length()
+    if (size !in 29L..4096L) throw StateFailure("SESSION_STATE_INVALID")
+    val bytes = ByteArray(size.toInt())
+    FileInputStream(recordFile).use { input ->
+      var offset = 0
+      while (offset < bytes.size) {
+        val count = input.read(bytes, offset, bytes.size - offset)
+        if (count <= 0) throw StateFailure("SESSION_STATE_INVALID")
+        offset += count
+      }
+      if (input.read() != -1) throw StateFailure("SESSION_STATE_INVALID")
+    }
     val cipher = Cipher.getInstance("AES/GCM/NoPadding")
     cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
     val record = parseObject(cipher.doFinal(bytes, 12, bytes.size - 12))
@@ -448,6 +459,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     val cipher = Cipher.getInstance("AES/GCM/NoPadding")
     cipher.init(Cipher.ENCRYPT_MODE, getKey(recordAlias), GCMParameterSpec(128, nonce))
     val bytes = nonce + cipher.doFinal(record.toString().toByteArray(Charsets.UTF_8))
+    removeTemp(recordNext)
     FileOutputStream(recordNext).use { it.write(bytes); it.fd.sync() }
     uncertain = true
     Os.rename(recordNext.path, recordFile.path)

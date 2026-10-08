@@ -29,6 +29,22 @@ final class StateStoreTests: XCTestCase {
     let initial = try store.open()
     let images = root.appendingPathComponent("whatsapp/images")
     XCTAssertTrue((try images.resourceValues(forKeys: [.isExcludedFromBackupKey])).isExcludedFromBackup == true)
+    let stateFile = root.appendingPathComponent("whatsapp/state.bin")
+    let protected = try stateFile.resourceValues(forKeys: [.isExcludedFromBackupKey, .fileProtectionKey])
+    XCTAssertTrue(protected.isExcludedFromBackup == true)
+    XCTAssertEqual(protected.fileProtection, .completeUntilFirstUserAuthentication)
+    let stateBytes = try Data(contentsOf: stateFile)
+    let headerLength = stateBytes[8..<12].reduce(0) { ($0 << 8) | Int($1) }
+    let header = try XCTUnwrap(JSONSerialization.jsonObject(with: stateBytes[12..<12+headerLength]) as? [String: Any])
+    let keyId = try XCTUnwrap(header["recoveryKeyId"] as? String)
+    let service = "com.yoyos.whatsapp.state.test." + root.lastPathComponent.replacingOccurrences(of: "-", with: "").lowercased()
+    let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
+                                kSecAttrAccount as String: keyId, kSecReturnAttributes as String: true,
+                                kSecUseDataProtectionKeychain as String: true]
+    var result: CFTypeRef?
+    XCTAssertEqual(SecItemCopyMatching(query as CFDictionary, &result), errSecSuccess)
+    let attributes = try XCTUnwrap(result as? [String: Any])
+    XCTAssertEqual(attributes[kSecAttrAccessible as String] as? String, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String)
     XCTAssertEqual((initial["options"] as? [String: Int])?["maxRecoveryBufferBytes"], 10 * 1024 * 1024)
     _ = try store.commit(expectedRevision: "0") { state in
       var next = state
@@ -105,6 +121,26 @@ final class StateStoreTests: XCTestCase {
     }
   }
 
+  func testUncertainPublicationIsRereadBeforeNextMutation() throws {
+    for phase in ["directorySync", "response"] {
+      let root = try temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: root) }
+      var active = false
+      let writer = try makeStore(root) { reached in
+        if active && reached == phase { active = false; throw StateStoreError.storage }
+      }
+      _ = try writer.open(); active = true
+      XCTAssertThrowsError(try writer.commit(expectedRevision: "0") { $0 })
+      _ = try writer.commit(expectedRevision: "1") { state in
+        var next = state
+        next["options"] = ["maxRecoveryBufferBytes": 10 * 1024 * 1024, "maxImageStorageBytes": 123]
+        return next
+      }
+      let options = try XCTUnwrap(makeStore(root).open()["options"] as? [String: Int])
+      XCTAssertEqual(options["maxImageStorageBytes"], 123)
+    }
+  }
+
   func testPendingRemainsReadableWithoutSessionKey() throws {
     let root = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: root) }
@@ -167,6 +203,12 @@ final class StateStoreTests: XCTestCase {
         var next = current; next["pending"] = [mutate(pending())]; return next
       })
     }
+    XCTAssertThrowsError(try store.commit(expectedRevision: "1") { current in
+      var next = current
+      var duplicate = pending(); duplicate["deliveryId"] = "wa-delivery:v1:" + String(repeating: "b", count: 32)
+      next["pending"] = [pending(), duplicate]
+      return next
+    })
   }
 
   func testInterruptedRetirementCompletesBeforeAnotherSession() throws {
@@ -220,6 +262,15 @@ final class StateStoreTests: XCTestCase {
     for account in ["", "123@s.whatsapp.net", "123:1@lid", "abc@lid", "123@lid/other"] {
       XCTAssertThrowsError(try store.beginSession(accountId: account, protocolBytes: Data("{}".utf8)))
     }
+  }
+
+  func testOversizedSessionCannotPublishOrPruneState() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = try makeStore(root)
+    _ = try store.open()
+    XCTAssertThrowsError(try store.beginSession(accountId: "123@lid", protocolBytes: Data(repeating: 0, count: 16 * 1024 * 1024 + 1)))
+    XCTAssertTrue(try makeStore(root).open()["session"] is NSNull)
   }
 
   func testConcurrentStoreInstancesCannotOverwriteAnOlderSnapshot() throws {

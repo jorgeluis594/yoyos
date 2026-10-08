@@ -54,8 +54,12 @@ public final class NativeStateStore {
     guard var record = try readRecord() else {
       let hasPublished = try existsChecked(published)
       let hasTemporary = try existsChecked(temporary)
-      if hasPublished || hasTemporary || (try keychain.hasAnyItems()) { throw StateStoreError.invalid }
-      if existed && !(try FileManager.default.contentsOfDirectory(atPath: directory.path)).isEmpty { throw StateStoreError.invalid }
+      let hasKeyItems = try keychain.hasAnyItems()
+      if hasPublished || hasTemporary || hasKeyItems { throw StateStoreError.invalid }
+      if existed {
+        let entries = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        if !entries.isEmpty { throw StateStoreError.invalid }
+      }
       return try create()
     }
     guard let store = record["storeId"] as? String, Self.validId(store),
@@ -416,11 +420,11 @@ public final class NativeStateStore {
   }
   private func protect(_ url: URL) throws {
     var values = URLResourceValues(); values.isExcludedFromBackup = true
-    #if os(iOS)
-    values.fileProtection = .completeUntilFirstUserAuthentication
-    #endif
     var mutableURL = url
     try mutableURL.setResourceValues(values)
+    #if os(iOS)
+    try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: url.path)
+    #endif
   }
   private func ensureImagesDirectory() throws {
     let images = directory.appendingPathComponent("images", isDirectory: true)

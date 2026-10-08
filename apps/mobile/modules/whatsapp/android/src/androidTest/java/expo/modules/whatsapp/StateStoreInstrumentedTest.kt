@@ -60,6 +60,23 @@ class StateStoreInstrumentedTest {
     assertEquals(false, firstNonce == store.open().getJSONObject("session").getString("nonceBase64"))
   }
 
+  @Test fun storageKeysAreNonexportableAndDoNotRequirePerUseAuthentication() {
+    val root = freshRoot
+    val store = makeStore(root)
+    store.open()
+    val file = File(directory(root), "state.bin").readBytes()
+    val length = java.nio.ByteBuffer.wrap(file, 8, 4).int
+    val header = org.json.JSONObject(String(file, 12, length, Charsets.UTF_8))
+    val namespace = root.name.removePrefix("state-test-").replace("-", "")
+    val keys = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+    val key = keys.getKey("yoyos.whatsapp.test.$namespace.key.${header.getString("recoveryKeyId")}", null) as javax.crypto.SecretKey
+    assertEquals(null, key.encoded)
+    val info = javax.crypto.SecretKeyFactory.getInstance(key.algorithm, "AndroidKeyStore")
+      .getKeySpec(key, android.security.keystore.KeyInfo::class.java) as android.security.keystore.KeyInfo
+    assertFalse(info.isUserAuthenticationRequired)
+    if (android.os.Build.VERSION.SDK_INT >= 28) assertFalse(info.isUnlockedDeviceRequired)
+  }
+
   @Test fun interruptedCreationResumesWithoutPromotingPreparation() {
     for (phase in listOf("recordResponse", "creationRecord", "recoveryKey", "initialPublication")) {
       val root = freshRoot
@@ -99,6 +116,22 @@ class StateStoreInstrumentedTest {
       val expected = if (phase == "directorySync" || phase == "response") "1" else "0"
       assertEquals(expected, currentRevision(root))
       makeStore(root).open()
+    }
+  }
+
+  @Test fun uncertainPublicationIsRereadBeforeNextMutation() {
+    for (phase in listOf("directorySync", "response")) {
+      val root = freshRoot
+      var active = false
+      val writer = makeStore(root) { reached ->
+        if (active && reached == phase) { active = false; throw StateFailure("STORAGE_FAILED") }
+      }
+      writer.open(); active = true
+      assertThrows(StateFailure::class.java) { writer.commit("0") { it } }
+      assertEquals("1", currentRevision(root))
+      writer.commit("1") { it.getJSONObject("options").put("maxImageStorageBytes", 123); it }
+      assertEquals("2", currentRevision(root))
+      assertEquals(123L, makeStore(root).open().getJSONObject("options").getLong("maxImageStorageBytes"))
     }
   }
 
@@ -157,6 +190,10 @@ class StateStoreInstrumentedTest {
       assertThrows(Exception::class.java) { store.commit("1") { it.put("pending", org.json.JSONArray().put(pending().also(bad))) } }
       assertEquals("1", currentRevision(root))
     }
+    assertThrows(StateFailure::class.java) {
+      store.commit("1") { it.put("pending", org.json.JSONArray().put(pending())
+        .put(pending().put("deliveryId", "wa-delivery:v1:" + "b".repeat(32)))) }
+    }
   }
 
   @Test fun interruptedRetirementCompletesBeforeAnotherSession() {
@@ -210,6 +247,15 @@ class StateStoreInstrumentedTest {
     assertEquals("0", currentRevision(root))
   }
 
+  @Test fun oversizedSessionCannotPublishOrPruneState() {
+    val root = freshRoot
+    val store = makeStore(root)
+    store.open()
+    assertThrows(StateFailure::class.java) { store.beginSession("123@lid", ByteArray(16 * 1024 * 1024 + 1)) }
+    assertEquals("0", currentRevision(root))
+    assertEquals(org.json.JSONObject.NULL, makeStore(root).open().get("session"))
+  }
+
   @Test fun concurrentStoreInstancesCannotOverwriteAnOlderSnapshot() {
     val root = freshRoot
     val first = makeStore(root)
@@ -221,6 +267,43 @@ class StateStoreInstrumentedTest {
     val recovered = makeStore(root).open().getJSONObject("options")
     assertEquals(123L, recovered.getLong("maxImageStorageBytes"))
     assertEquals(456L, recovered.getLong("maxRecoveryBufferBytes"))
+  }
+
+  @Test fun logoutCannotDiscardAPendingCommitFromAnotherWriter() {
+    val root = freshRoot
+    val first = makeStore(root)
+    val second = makeStore(root)
+    first.open()
+    first.beginSession("123@lid", "{\"protocolSchemaVersion\":1,\"records\":[]}".toByteArray())
+    second.open()
+    val entered = java.util.concurrent.CountDownLatch(1)
+    val release = java.util.concurrent.CountDownLatch(1)
+    val workers = java.util.concurrent.Executors.newFixedThreadPool(2)
+    try {
+      val insert = workers.submit {
+        first.commit("1") { state ->
+          entered.countDown()
+          if (!release.await(10, java.util.concurrent.TimeUnit.SECONDS)) throw StateFailure("STORAGE_FAILED")
+          state.getJSONArray("pending").put(org.json.JSONObject()
+            .put("deliveryId", "wa-delivery:v1:" + "b".repeat(32)).put("accountId", "123@lid")
+            .put("createdRevision", "2").put("createdOrdinal", 0).put("source", "live")
+            .put("identityState", "pendingLid")
+            .put("recovery", org.json.JSONObject().put("messageInfoJson", "{}").put("items", org.json.JSONArray())))
+          state
+        }
+      }
+      assertEquals(true, entered.await(10, java.util.concurrent.TimeUnit.SECONDS))
+      val logout = workers.submit { second.endSession() }
+      release.countDown()
+      insert.get(10, java.util.concurrent.TimeUnit.SECONDS)
+      logout.get(10, java.util.concurrent.TimeUnit.SECONDS)
+      val recovered = makeStore(root).open()
+      assertEquals(1, recovered.getJSONArray("pending").length())
+      assertEquals(org.json.JSONObject.NULL, recovered.get("session"))
+    } finally {
+      release.countDown()
+      workers.shutdownNow()
+    }
   }
 
   @Test fun corruptedPublicationDoesNotBecomeEmptyInstallation() {
@@ -286,6 +369,7 @@ class StateStoreInstrumentedTest {
       { it.getJSONObject("options").put("maxRecoveryBufferBytes", "100") },
       { it.getJSONObject("options").put("maxRecoveryBufferBytes", 9007199254740992L) },
       { it.put("unexpected", true) },
+      { it.put("androidService", org.json.JSONObject().put("receiveRequested", true).put("accountId", "123@lid")) },
       { it.getJSONArray("pending").put(org.json.JSONObject().put("deliveryId", "wrong")) },
     )
     for (mutate in invalid) {
