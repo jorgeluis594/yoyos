@@ -48,3 +48,32 @@ test("unexpected action failures have one safe bounded server context and no suc
   expect(failure).toHaveBeenCalledOnce();
   expect(failure.mock.calls[0][0]).toMatchObject({ event: "order_delivery_request_failed", entryPoint: "web_action", operation: "set_order_delivery", orderId, userId: access.user.id, errorCode: "INTERNAL_ERROR" });
 });
+
+const ratedInput = { delivery: { method: "home", recipient: input.delivery.recipient,
+  rateId: "00000000-0000-4000-8000-000000000004", destination: { districtCode: "040110", address: " Calle QA ", instructions: null } },
+  expectedPrice: { amount: 8, currency: "PEN" } };
+
+test("passes a reviewed rate separately from trusted seller access", async () => {
+  const assign = vi.spyOn(composition, "setConfiguredOrderDelivery").mockResolvedValue({ success: false,
+    error: { code: "RATE_UNAVAILABLE", message: "Private detail" } });
+  expect(await save(ratedInput)).toMatchObject({ error: "rateUnavailable" });
+  expect(assign).toHaveBeenCalledWith({ orderId, delivery: { ...ratedInput.delivery,
+    recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, destination: { ...ratedInput.delivery.destination, address: "Calle QA" } },
+    expectedPrice: ratedInput.expectedPrice }, { companyId: access.company.id, userId: access.user.id });
+});
+
+test("returns the current delivery price for explicit conflict recovery", async () => {
+  vi.spyOn(composition, "setConfiguredOrderDelivery").mockResolvedValue({ success: false,
+    error: { code: "TOTAL_CHANGED", message: "Private detail", currentPrice: { amount: 10, currency: "PEN" } } });
+  expect(await save(ratedInput)).toEqual({ operation: "delivery", url: null, success: false, error: "priceChanged", currentPrice: { amount: 10, currency: "PEN" } });
+});
+
+test("rejects rated charge decisions, snapshot claims and unofficial districts", async () => {
+  const assign = vi.spyOn(composition, "setConfiguredOrderDelivery");
+  for (const body of [{ ...ratedInput, chargeDeliveryToCustomer: false }, { ...ratedInput, companyId: "forged" },
+    { ...ratedInput, delivery: { ...ratedInput.delivery, recordedBy: { kind: "buyer" } } },
+    { ...ratedInput, delivery: { ...ratedInput.delivery, destination: { ...ratedInput.delivery.destination, districtCode: "999999" } } }]) {
+    expect(await save(body)).toMatchObject({ error: "invalid" });
+  }
+  expect(assign).not.toHaveBeenCalled();
+});

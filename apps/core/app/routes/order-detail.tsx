@@ -18,11 +18,11 @@ import { deliverySettingsSchema } from "@shared/contracts/delivery-settings";
 import { deliverySettings } from "@core/src/features/delivery-settings";
 import { deliveryCostContext } from "@core/app/delivery-cost-context";
 import { DeliveryForm } from "@core/src/features/orders/presentation/delivery-form";
-import { parseDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
+import { parseDeliverySelection, parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { setConfiguredOrderDelivery } from "@core/src/features/orders/composition";
 import { orders } from "@core/src/features/orders/composition";
 import { toOrderAggregateJson } from "@core/src/features/orders/presentation/order-json";
-import { orderDetailLoaderSchema, orderAggregateSchema, setOrderDeliverySchema, registerPaymentSchema } from "@shared/contracts/orders";
+import { orderDetailLoaderSchema, orderAggregateSchema, setOrderDeliverySchema, setRatedOrderDeliverySchema, registerPaymentSchema } from "@shared/contracts/orders";
 import type { OrderId, PaymentId, CompanyId, UserId } from "@core/src/features/orders/domain/order";
 import { resolvePublicImage } from "@core/src/shared/images";
 import { Button } from "@core/app/components/ui/button";
@@ -52,16 +52,26 @@ async function deliveryAction({ params, request, context }: ActionFunctionArgs) 
   const id = z.uuid().safeParse(params.orderId);
   let raw: unknown;
   try { raw = await request.json(); } catch { return { operation: "delivery" as const, url: null, success: false, error: "invalid" as const }; }
-  const parsed = setOrderDeliverySchema.safeParse(raw);
+  const parsed = z.union([setRatedOrderDeliverySchema, setOrderDeliverySchema]).safeParse(raw);
   if (!id.success || !parsed.success) return { operation: "delivery" as const, url: null, success: false, error: "invalid" as const };
-  const selection = parseDeliverySelection(parsed.data.delivery);
-  if (!selection.success) return { operation: "delivery" as const, url: null, success: false, error: "invalid" as const };
   const access = context.get(privateUserContext);
   try {
-    const result = await setConfiguredOrderDelivery({ orderId: id.data as OrderId, delivery: selection.data,
-      chargeDeliveryToCustomer: parsed.data.chargeDeliveryToCustomer }, { companyId: access.company.id as CompanyId, userId: access.user.id as UserId }, context.get(deliveryCostContext) ?? undefined);
+    const seller = { companyId: access.company.id as CompanyId, userId: access.user.id as UserId };
+    let result: Awaited<ReturnType<typeof setConfiguredOrderDelivery>>;
+    if ("expectedPrice" in parsed.data) {
+      const selection = parseRatedDeliverySelection(parsed.data.delivery);
+      if (!selection.success) return { operation: "delivery" as const, url: null, success: false, error: "invalid" as const };
+      result = await setConfiguredOrderDelivery({ orderId: id.data as OrderId, delivery: selection.data, expectedPrice: parsed.data.expectedPrice }, seller);
+    } else {
+      const selection = parseDeliverySelection(parsed.data.delivery);
+      if (!selection.success) return { operation: "delivery" as const, url: null, success: false, error: "invalid" as const };
+      result = await setConfiguredOrderDelivery({ orderId: id.data as OrderId, delivery: selection.data,
+        chargeDeliveryToCustomer: parsed.data.chargeDeliveryToCustomer }, seller, context.get(deliveryCostContext) ?? undefined);
+    }
     if (result.success) return { operation: "delivery" as const, url: null, success: false, error: false, order: orderAggregateSchema.parse(toOrderAggregateJson(result.data)) };
-    return { operation: "delivery" as const, url: null, success: false, error: result.error.code === "DELIVERY_METHOD_DISABLED" ? "disabled" as const
+    if (result.error.code === "TOTAL_CHANGED") return { operation: "delivery" as const, url: null, success: false, error: "priceChanged" as const, currentPrice: result.error.currentPrice };
+    return { operation: "delivery" as const, url: null, success: false, error: result.error.code === "RATE_UNAVAILABLE" ? "rateUnavailable" as const
+      : result.error.code === "DELIVERY_METHOD_DISABLED" ? "disabled" as const
       : result.error.code === "COURIER_UNAVAILABLE" ? "courierUnavailable" as const
       : result.error.code === "DELIVERY_UNAVAILABLE" ? "unavailable" as const
       : result.error.code === "DELIVERY_LOCKED" || result.error.code === "ORDER_CANCELLED" ? "locked" as const
