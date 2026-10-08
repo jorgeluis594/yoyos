@@ -127,12 +127,16 @@ func (c *Controller) CurrentQR() (Event, bool) {
 func (c *Controller) Prepare(paired bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.prepared && c.requested && c.localFault == "" {
+		return
+	}
 	c.prepared, c.paired, c.localFault = true, paired, ""
 	c.setState(Disconnected)
 }
 func (c *Controller) PrepareInvalidSession() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.retireLocked()
 	c.prepared, c.localFault = true, SessionStateInvalid
 	c.setState(Disconnected)
 }

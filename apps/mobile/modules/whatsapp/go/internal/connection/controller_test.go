@@ -265,3 +265,25 @@ func TestCapacityPauseResumesOnlyRequestedConnection(t *testing.T) {
 		t.Fatal("explicit stop resumed")
 	}
 }
+
+func TestRepeatedPreparationAdoptsExistingConnection(t *testing.T) {
+	transport := newTransport()
+	events := make(chan Event, 16)
+	c := New(func() (Transport, error) { return transport, nil }, func(e Event) { events <- e }, nil)
+	c.Prepare(true)
+	c.Connect()
+	channel := started(t, transport)
+	receive(t, events)
+	channel <- TransportEvent{Kind: "connected"}
+	if receive(t, events).State != Connected {
+		t.Fatal("not connected")
+	}
+	c.Prepare(true)
+	if c.State() != Connected {
+		t.Fatal("repeated initialize reset live state")
+	}
+	c.PrepareInvalidSession()
+	if c.State() != Disconnected || c.Connect() != SessionStateInvalid {
+		t.Fatal("invalid session did not stop protocol")
+	}
+}
