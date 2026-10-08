@@ -121,14 +121,15 @@ export function createWhatsAppClient(resolveNative: () => NativeWhatsApp | null 
     initializingOptions = effective;
     initializing = (async () => {
       const result = await call("initialize", [options], (data) => {
-        const parsed = z.object({ state: states }).strict().safeParse(data);
+        const parsed = z.object({ state: states, qr: eventSchemas.qr.optional() }).strict().safeParse(data);
         return parsed.success ? parsed.data : null;
       });
       if (result.success) {
         prepared = localReady = true;
         sessionInvalid = false;
         activeOptions = effective;
-        receive("connectionChanged", result.data);
+        receive("connectionChanged", { state: result.data.state });
+        if (result.data.qr) receive("qr", result.data.qr);
         return ok(undefined);
       }
       if (result.error.code === "SESSION_STATE_INVALID") { localReady = true; prepared = false; sessionInvalid = true; receive("connectionChanged", { state: "disconnected" }); }

@@ -110,3 +110,15 @@ test("remote logout uncertainty still permits a new explicit link request", asyn
   expect(await client.logout()).toMatchObject({ success: false, error: { code: "REMOTE_LOGOUT_UNCONFIRMED" } });
   expect(await client.connect()).toEqual({ success: true, data: undefined });
 });
+
+test("initialization adopts a valid native QR without requesting another connection", async () => {
+  const native = fakeNative();
+  native.initialize.mockResolvedValueOnce({ success: true, data: { state: "awaitingQr", qr: { value: "active", expiresAt: 300 } } });
+  const client = createWhatsAppClient(() => native, () => 100);
+  await client.initialize();
+  const qr = jest.fn();
+  client.addListener("qr", qr);
+  await Promise.resolve();
+  expect(qr).toHaveBeenCalledWith({ value: "active", expiresAt: 300 });
+  expect(native.connect).not.toHaveBeenCalled();
+});
