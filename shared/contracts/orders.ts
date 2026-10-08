@@ -80,13 +80,14 @@ const peruDeliveryDistrictSchema = z.strictObject({ country: z.literal("PE"), di
   district: z.string().trim().min(1).max(120), province: z.string().trim().min(1).max(120), department: z.string().trim().min(1).max(120) });
 const ratedAgencyFields = { method: z.literal("agency"), recipient: agencyRecipientSchema, destination: peruDeliveryDistrictSchema,
   pricing: deliveryPricingSchema, recordedBy: deliveryAuthorSchema };
-export const deliverySnapshotSchema = z.union([legacyDeliverySnapshotSchema,
+export const deliverySnapshotSchemas = [...legacyDeliverySnapshotSchema.options,
   z.strictObject({ method: z.literal("home"), recipient: recipientSchema, destination: homeDestinationSchema.extend(peruDeliveryDistrictSchema.shape),
     pricing: deliveryPricingSchema, recordedBy: deliveryAuthorSchema }),
   z.strictObject({ ...ratedAgencyFields, courier: z.null(), agency: z.null() }),
   z.strictObject({ ...ratedAgencyFields, courier: z.strictObject({ id: z.uuid(), name: z.string().trim().min(1).max(120) }), agency: z.string().trim().min(1).max(500) }),
   z.strictObject({ method: z.literal("store"), recipient: recipientSchema, pickupPoint: pickupPointSchema, settingsVersion: settingsVersionSchema, recordedBy: deliveryAuthorSchema }),
-]);
+] as const;
+export const deliverySnapshotSchema = z.union(deliverySnapshotSchemas);
 const reportDataSchema = z.strictObject({ receiptImageId: z.uuid(), reportedAt: z.iso.datetime() });
 const confirmationDataSchema = z.strictObject({ confirmedAt: z.iso.datetime(),
   confirmedBy: z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("seller"), userId: z.string().min(1) }), z.strictObject({ kind: z.literal("legacy") })]),

@@ -25,7 +25,7 @@ async function request() {
 }
 function authorize() {
   vi.spyOn(orders, "resolveBuyerAccess").mockResolvedValue(ok({ kind: "buyer", companyId, orderId }));
-  return vi.spyOn(orders, "getCheckout").mockResolvedValue(ok({ companyName: "Shop", number: 1001 as OrderNumber, buyer: null, items: [],
+  return vi.spyOn(orders, "getCheckout").mockResolvedValue(ok({ companyName: "Shop", number: 1001 as OrderNumber, buyer: null, delivery: null, deliveryCharge: { amount: 0, currency: "PEN" }, items: [],
     itemsTotal: { amount: 0, currency: "PEN" }, total: { amount: 0, currency: "PEN" }, state: { kind: "pending" } }));
 }
 afterEach(async () => {

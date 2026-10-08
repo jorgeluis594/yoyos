@@ -62,7 +62,7 @@ test("checkout does not announce transitions before the outer commit succeeds", 
   if (!buyer.success) throw new Error("Invalid fixture");
   const total = { amount: 1, currency: "PEN" as const };
   const order = { id: input.id, companyId: context.companyId, companyName: "Store", number: 1001,
-    buyer: null, items: [], itemsTotal: total, total, cancelled: false,
+    buyer: null, delivery: null, deliveryCharge: { amount: 0, currency: "PEN" }, items: [], itemsTotal: total, total, cancelled: false,
     checkoutEnabledAt: null, checkoutConfirmedAt: null };
   try {
     for (const operation of ["enable", "confirm"] as const) {

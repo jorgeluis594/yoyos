@@ -1540,5 +1540,10 @@ test("checkout validates immutable home rate and current price before total and 
       expect((await deliverySettings.saveZones({ method: "home", expectedVersion: 3, zones: [{ kind: "existing", id: prepare.zone.id, name: prepare.zone.name, districtCodes: prepare.zone.districtCodes, enabled: false, price: { amount: 11, currency: "PEN" } }] }, context)).success).toBe(true);
     });
     expect(await orders.confirmCheckoutDelivery({ ...input, expectedTotal: { amount: 1, currency: "PEN" } }, access)).toMatchObject({ success: true, data: { total: { amount: 10.2 } } });
+    const checkout = await orders.getCheckout(access);
+    expect(checkout).toMatchObject({ success: true, data: { deliveryCharge: { amount: 10 }, total: { amount: 10.2 },
+      delivery: { method: "home", destination: { districtCode: "150122", address: "Street" } } } });
+    if (!checkout.success) throw new Error("Expected persisted checkout");
+    expect(checkout.data.delivery).not.toHaveProperty("recordedBy");
   } finally { await f.cleanup(); }
 });

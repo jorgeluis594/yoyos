@@ -1,3 +1,4 @@
+import { parseDeliverySnapshot } from "@core/src/features/orders/domain/order-state-machine";
 import { expect, test, vi } from "vitest";
 import { err, ok } from "@shared/functional";
 import { confirmCheckoutDelivery, type ConfirmCheckoutDeliveryDependencies, confirmOrderCheckout, enableOrderCheckout, getOrderCheckout, type CheckoutDependencies } from "@core/src/features/orders/application/checkout";
@@ -18,7 +19,7 @@ const base: CheckoutOrder = {
   ...access, id: access.orderId, companyName: "Store", number: number.data, buyer: null,
   items: [{ id: uuid(3) as OrderItemId, variantId: uuid(4) as VariantId, productName: "Product", variantAttributes: {}, sku: null,
     quantity: 2 as PositiveInteger, unitPrice: { amount: 50, currency: "PEN" }, subtotal: { amount: 100, currency: "PEN" } }],
-  itemsTotal: { amount: 100, currency: "PEN" }, total, cancelled: false,
+  delivery: null, deliveryCharge: { amount: 20, currency: "PEN" }, itemsTotal: { amount: 100, currency: "PEN" }, total, cancelled: false,
   checkoutEnabledAt: new Date("2020-01-01T00:00:00Z"), checkoutConfirmedAt: null,
 };
 
@@ -49,7 +50,7 @@ test("public view exposes only checkout data and uses the order total, not a rec
   const result = await getOrderCheckout(access, f.deps);
   expect(result).toEqual({ success: true, data: { companyName: "Store", number: 1001, buyer: { name: null, phone: buyer.phone },
     items: [{ productName: "Product", variantAttributes: {}, sku: null, quantity: 2, unitPrice: { amount: 50, currency: "PEN" }, subtotal: base.itemsTotal }],
-    itemsTotal: base.itemsTotal, total, state: { kind: "pending" } } });
+    itemsTotal: base.itemsTotal, delivery: null, deliveryCharge: base.deliveryCharge, total, state: { kind: "pending" } } });
   expect(f.writes).toEqual([]);
 });
 
@@ -174,4 +175,19 @@ test("checkout confirmation replay preserves buyer and delivery without resolvin
   expect(f.deps.saveDelivery).not.toHaveBeenCalled();
   expect(f.deps.saveBuyer).not.toHaveBeenCalled();
   expect(f.deps.saveConfirmed).not.toHaveBeenCalled();
+});
+
+
+test("checkout exposes the saved delivery and customer charge without seller identity or repricing", async () => {
+  const parsed = parseDeliverySnapshot({ method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
+    destination: { address: "Historical street", district: "Historical district", instructions: null }, recordedBy: { kind: "seller", userId: seller.userId } });
+  if (!parsed.success) throw new Error("Invalid delivery fixture");
+  const f = fixture({ ...base, delivery: parsed.data });
+  const result = await getOrderCheckout(access, f.deps);
+  expect(result).toMatchObject({ success: true, data: { deliveryCharge: base.deliveryCharge, total: base.total,
+    delivery: { method: "home", destination: { address: "Historical street", district: "Historical district" } } } });
+  if (!result.success) throw new Error("Expected checkout");
+  expect(result.data.delivery).not.toHaveProperty("recordedBy");
+  expect(result.data).not.toHaveProperty("deliveryCost");
+  expect(f.writes).toEqual([]);
 });
