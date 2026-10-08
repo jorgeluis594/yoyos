@@ -2,7 +2,7 @@ import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import express, { type Request, type Response } from "express";
 import { z } from "zod";
-import { createOrderSchema, createRatedOrderSchema, setRatedOrderDeliverySchema, orderApiErrorSchema, setOrderDeliverySchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
+import { createOrderSchema, createRatedOrderSchema, setRatedOrderDeliverySchema, orderApiErrorSchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
 import { parseRatedDeliverySelection, parseDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { apiError, type PrivateLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { orders, createConfiguredOrder } from "@core/src/features/orders/composition";
@@ -221,20 +221,13 @@ orderRoutes.post("/:id/payments", async (request, response: Response<unknown, Pr
 orderRoutes.put("/:id/delivery", async (request, response: Response<unknown, PrivateLocals>) => {
   if (!request.is("application/json")) return apiError(response, 415, "UNSUPPORTED_MEDIA_TYPE", "JSON body required");
   const parsedId = orderId(request.params.id);
-  const parsed = z.union([setRatedOrderDeliverySchema, setOrderDeliverySchema]).safeParse(request.body);
+  const parsed = setRatedOrderDeliverySchema.safeParse(request.body);
   if (!parsedId.success || !parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid delivery input");
   const context = orderContext(response);
   try {
-    if ("expectedPrice" in parsed.data) {
-      const selection = parseRatedDeliverySelection(parsed.data.delivery);
-      if (!selection.success) return operationError(response, selection.error);
-      const result = await orders.setDelivery({ orderId: parsedId.data as OrderId, delivery: selection.data, expectedPrice: parsed.data.expectedPrice }, context);
-      return result.success ? response.json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
-    }
-    const selection = parseDeliverySelection(parsed.data.delivery);
+    const selection = parseRatedDeliverySelection(parsed.data.delivery);
     if (!selection.success) return operationError(response, selection.error);
-    const result = await orders.setDelivery({ orderId: parsedId.data as OrderId, delivery: selection.data,
-      chargeDeliveryToCustomer: parsed.data.chargeDeliveryToCustomer }, context);
+    const result = await orders.setDelivery({ orderId: parsedId.data as OrderId, delivery: selection.data, expectedPrice: parsed.data.expectedPrice }, context);
     return result.success ? response.json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
   } catch (cause) { return unexpected(response, cause, { operation: "set_order_delivery", orderId: parsedId.data, userId: context.userId }); }
 });

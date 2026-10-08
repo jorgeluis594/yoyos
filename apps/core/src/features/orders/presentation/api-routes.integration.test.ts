@@ -10,7 +10,6 @@ import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, expect, test, vi } from "vitest";
 import { err, ok } from "@shared/functional";
 import { createOrderApi } from "@mobile/features/orders/infrastructure/order-api";
-import { orders, setConfiguredOrderDelivery } from "@core/src/features/orders/composition";
 import { quotationResponseSchema } from "@shared/contracts/quotations";
 import { orderAggregateSchema } from "@shared/contracts/orders";
 import { app } from "@core/src/app";
@@ -97,27 +96,26 @@ test("delivery HTTP resolves real configuration, preserves snapshots, replaces a
   expect((await call("/api/delivery-settings", seller.cookie, { expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: false }, store }, "PUT")).status).toBe(200);
   expect((await call("/api/orders/pending", seller.cookie, { id: orderId, contactId: seller.contactId,
     items: [{ variantId: seller.variantId, quantity: 2 }] })).status).toBe(201);
-  const input = { delivery: { method: "store", recipient: { name: "Destinatario distinto", phone: "987", identity: { kind: "absent" } } }, chargeDeliveryToCustomer: true } as const;
+  const input = { delivery: { method: "store", recipient: { name: "Destinatario distinto", phone: "987", identity: { kind: "absent" } } }, expectedPrice: { amount: 0, currency: "PEN" } } as const;
   const mobile = createOrderApi(async (path, init) => {
     const response = await fetch(`${base}${path}`, { ...init, headers: { ...Object.fromEntries(new Headers(init?.headers)), origin, cookie: seller.cookie } });
     const body: unknown = await response.json();
     return response.ok ? ok(body) : err({ code: "API_ERROR", message: "HTTP failure", http: { status: response.status, body } });
   });
 
-  const unresolved = await call(`/api/orders/${orderId}/delivery`, seller.cookie, input, "PUT");
-  expect(unresolved.status).toBe(422);
-  expect(await unresolved.json()).toMatchObject({ code: "DELIVERY_UNAVAILABLE" });
-  expect(await mobile.setDelivery(orderId, input)).toMatchObject({ success: false, error: { code: "DELIVERY_UNAVAILABLE" } });
+  for (const chargeDeliveryToCustomer of [true, false]) {
+    const rejected = await call(`/api/orders/${orderId}/delivery`, seller.cookie, { delivery: input.delivery, chargeDeliveryToCustomer }, "PUT");
+    expect(rejected.status).toBe(400);
+    expect(await rejected.json()).toMatchObject({ code: "INVALID_INPUT" });
+  }
   expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toMatchObject({ delivery: null, total: { amount: 20 }, stockDeducted: false });
   expect((await call(`/api/orders/${orderId}/delivery`, second.cookie, input, "PUT")).status).toBe(404);
-  vi.spyOn(orders, "setDelivery").mockImplementation((value, context) => setConfiguredOrderDelivery(value, context,
-    async (_snapshot, _authorized, currency) => ({ success: true, data: { amount: 3, currency } })));
   const assigned = await mobile.setDelivery(orderId, input);
   expect(assigned.success).toBe(true);
   if (!assigned.success) throw new Error("Expected mobile assignment");
   const first = assigned.data;
   expect(first).toMatchObject({ delivery: { method: "store", pickupPoint: store.pickupPoint,
-    recordedBy: { kind: "seller", userId: seller.userId } }, total: { amount: 23 }, deliveryCost: { amount: 3 }, deliveryCharge: { amount: 3 } });
+    recordedBy: { kind: "seller", userId: seller.userId } }, total: { amount: 20 }, deliveryCost: { amount: 0 }, deliveryCharge: { amount: 0 } });
   expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toEqual(first);
   const nextStore = { ...store, pickupPoint: { ...store.pickupPoint, address: "Dirección nueva" } };
   expect((await call("/api/delivery-settings", seller.cookie, { expectedVersion: 1, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: nextStore }, "PUT")).status).toBe(200);
@@ -125,13 +123,13 @@ test("delivery HTTP resolves real configuration, preserves snapshots, replaces a
   expect((await call(`/api/orders/${orderId}/payments`, seller.cookie, { paymentId: randomUUID(), amount: { amount: 20, currency: "PEN" },
     method: "digital_wallet", deductStockIfPartial: false })).status).toBe(200);
   await systemPrisma.user.update({ where: { id: second.userId }, data: { companyId: seller.companyId } });
-  const replaced = await call(`/api/orders/${orderId}/delivery`, second.cookie, { ...input, chargeDeliveryToCustomer: false }, "PUT");
+  const replaced = await call(`/api/orders/${orderId}/delivery`, second.cookie, input, "PUT");
   expect(replaced.status).toBe(200);
   const updated = orderAggregateSchema.parse(await replaced.json());
   expect(updated).toMatchObject({ delivery: { pickupPoint: nextStore.pickupPoint, recordedBy: { kind: "seller", userId: second.userId } },
     total: { amount: 20 }, balanceDue: { amount: 0 }, paidAmount: { amount: 20 }, stockDeducted: true });
   expect(await withTenantIsolation(seller.companyId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId: seller.variantId } })).quantity)).toBe(1n);
-  expect((await call(`/api/orders/${orderId}/delivery`, second.cookie, { ...input, chargeDeliveryToCustomer: false }, "PUT")).status).toBe(200);
+  expect((await call(`/api/orders/${orderId}/delivery`, second.cookie, input, "PUT")).status).toBe(200);
   expect(await withTenantIsolation(seller.companyId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId: seller.variantId } })).quantity)).toBe(1n);
   expect((await call(`/api/orders/${orderId}/ship`, seller.cookie, {})).status).toBe(200);
   expect((await call(`/api/orders/${orderId}/delivery`, seller.cookie, input, "PUT")).status).toBe(409);
@@ -376,14 +374,16 @@ test("home HTTP uses persisted enablement, requires district and replaces store 
   expect((await call("/api/delivery-settings", seller.cookie, settings, "PUT")).status).toBe(200);
   expect((await call("/api/orders/pending", seller.cookie, { id: orderId, contactId: null, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
   const recipient = { name: "Different recipient", phone: "00123", identity: { kind: "absent" } } as const;
-  const home = { delivery: { method: "home", recipient, destination: { address: " Street 123 ", district: " District ", instructions: null } }, chargeDeliveryToCustomer: true } as const;
+  const home = { delivery: { method: "home" as const, recipient, rateId: randomUUID(), destination: { address: " Street 123 ", districtCode: "040110", instructions: null } }, expectedPrice: { amount: 6, currency: "PEN" as const } };
   expect((await call(`/api/orders/${orderId}/delivery`, seller.cookie, home, "PUT")).status).toBe(422);
   expect((await call(`/api/orders/${orderId}/delivery`, seller.cookie, { ...home, delivery: { ...home.delivery, destination: { address: "Street" } } }, "PUT")).status).toBe(400);
   const before = await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json();
   expect(before).toMatchObject({ delivery: null, total: { amount: 10 } });
-  vi.spyOn(orders, "setDelivery").mockImplementation((input, context) => setConfiguredOrderDelivery(input, context,
-    async (_snapshot, _authorized, currency) => ok({ amount: 6, currency })));
-  expect((await call(`/api/orders/${orderId}/delivery`, seller.cookie, { delivery: { method: "store", recipient }, chargeDeliveryToCustomer: false }, "PUT")).status).toBe(200);
+  expect((await call("/api/delivery-settings/zones", seller.cookie, { method: "home", expectedVersion: 1,
+    zones: [{ kind: "new", name: "Home", enabled: true, districtCodes: ["040110"], price: home.expectedPrice }] }, "PUT")).status).toBe(200);
+  const quotation = await (await call("/api/quotations", seller.cookie, { destination: { country: "PE", districtCode: "040110" } })).json();
+  home.delivery.rateId = quotation.rates[0].id;
+  expect((await call(`/api/orders/${orderId}/delivery`, seller.cookie, { delivery: { method: "store", recipient }, expectedPrice: { amount: 0, currency: "PEN" } }, "PUT")).status).toBe(200);
   const mobile = createOrderApi(async (path, init) => {
     const response = await fetch(`${base}${path}`, { ...init, headers: { ...Object.fromEntries(new Headers(init?.headers)), origin, cookie: seller.cookie } });
     const body: unknown = await response.json();
@@ -393,19 +393,19 @@ test("home HTTP uses persisted enablement, requires district and replaces store 
   expect(saved.success).toBe(true);
   if (!saved.success) throw new Error("Expected home assignment through mobile adapter");
   const assigned = saved.data;
-  expect(assigned).toMatchObject({ delivery: { method: "home", recipient, destination: { address: "Street 123", district: "District", instructions: null },
+  expect(assigned).toMatchObject({ delivery: { method: "home", recipient, destination: { address: "Street 123", district: "MIRAFLORES", districtCode: "040110", instructions: null },
     recordedBy: { kind: "seller", userId: seller.userId } }, deliveryCost: { amount: 6 }, deliveryCharge: { amount: 6 }, total: { amount: 16 } });
   expect(assigned.delivery).not.toHaveProperty("pickupPoint");
   expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toEqual(assigned);
-  expect((await call("/api/delivery-settings", seller.cookie, { ...settings, expectedVersion: 1, agency: { enabled: false }, couriers: [], home: { enabled: false } }, "PUT")).status).toBe(200);
+  expect((await call("/api/delivery-settings", seller.cookie, { ...settings, expectedVersion: 2, agency: { enabled: false }, couriers: [], home: { enabled: false } }, "PUT")).status).toBe(200);
   const blocked = await call(`/api/orders/${orderId}/delivery`, seller.cookie, home, "PUT");
-  expect(blocked.status).toBe(422); expect(await blocked.json()).toMatchObject({ code: "DELIVERY_METHOD_DISABLED" });
+  expect(blocked.status).toBe(422); expect(await blocked.json()).toMatchObject({ code: "RATE_UNAVAILABLE" });
   expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toEqual(assigned);
-  expect(await (await call("/api/delivery-settings", seller.cookie)).json()).toEqual({ version: 2, agency: { enabled: false }, couriers: [], home: { enabled: false }, store });
+  expect(await (await call("/api/delivery-settings", seller.cookie)).json()).toEqual({ version: 3, agency: { enabled: false }, couriers: [], home: { enabled: false }, store });
 });
 
 
-test("agency mobile adapters use real auth, config and immutable snapshots; deactivated or foreign couriers preserve the order", async () => {
+test("rated agency adapters preserve snapshots and reject unavailable or foreign rates", async () => {
   const summary = vi.spyOn(log, "info").mockImplementation(() => {});
   const rejection = vi.spyOn(log, "debug").mockImplementation(() => {});
   const seller = await fixture("PE");
@@ -423,42 +423,33 @@ test("agency mobile adapters use real auth, config and immutable snapshots; deac
   if (!configured.success) throw new Error("Expected agency configuration");
   const courier = configured.data.couriers[0];
   expect((await call("/api/orders/pending", seller.cookie, { id: orderId, contactId: null, items: [{ variantId: seller.variantId, quantity: 2 }] })).status).toBe(201);
-  const delivery = { method: "agency" as const, courierId: courier.id, agency: " Office Lima ", recipient: { name: "Different recipient", phone: "00123", identity: { kind: "document" as const, documentType: "passport" as const, document: "00-A-001" } } };
-  const input = { delivery, chargeDeliveryToCustomer: true };
-  expect(await mobile.setDelivery(orderId, input)).toMatchObject({ success: false, error: { code: "DELIVERY_UNAVAILABLE" } });
+  expect((await call("/api/delivery-settings/zones", seller.cookie, { method: "agency", expectedVersion: 1,
+    zones: [{ kind: "new", name: "Agency", enabled: true, districtCodes: ["040110"], price: { amount: 3, currency: "PEN" } }] }, "PUT")).status).toBe(200);
+  const quotation = await (await call("/api/quotations", seller.cookie, { destination: { country: "PE", districtCode: "040110" } })).json();
+  const delivery = { method: "agency" as const, rateId: quotation.rates[0].id as string, districtCode: "040110", recipient: { name: "Different recipient", phone: "00123", identity: { kind: "document" as const, documentType: "passport" as const, document: "00-A-001" } } };
+  const input = { delivery, expectedPrice: { amount: 3, currency: "PEN" as const } };
   expect((await call(`/api/orders/${orderId}/delivery`, seller.cookie, { ...input, delivery: { ...delivery, recipient: { ...delivery.recipient, identity: { kind: "absent" } } } }, "PUT")).status).toBe(400);
-  for (const extra of [{ courier: { id: courier.id, name: "Forged" } }, { recordedBy: { kind: "buyer" } }]) {
+  for (const extra of [{ courierId: courier.id }, { agency: "Office Lima" }, { recordedBy: { kind: "buyer" } }]) {
     expect((await call(`/api/orders/${orderId}/delivery`, seller.cookie, { ...input, delivery: { ...delivery, ...extra } }, "PUT")).status).toBe(400);
   }
-  vi.spyOn(orders, "setDelivery").mockImplementation((value, context) => setConfiguredOrderDelivery(value, context, async (_snapshot, _authorized, currency) => ok({ amount: 3, currency })));
   const saved = await mobile.setDelivery(orderId, input);
-  expect(saved.success).toBe(true);
-  if (!saved.success) throw new Error("Expected agency assignment");
-  expect(saved.data).toMatchObject({ delivery: { method: "agency", courier: { id: courier.id, name: "Courier" }, agency: "Office Lima", recipient: delivery.recipient, recordedBy: { kind: "seller", userId: seller.userId } }, total: { amount: 23 }, deliveryCost: { amount: 3 }, deliveryCharge: { amount: 3 }, stockDeducted: false });
-  expect(saved.data.delivery).not.toHaveProperty("courierId");
-  expect(summary).toHaveBeenCalledWith(expect.objectContaining({ event: "order_delivery_saved", courierId: courier.id, deliveryMethod: "agency", transactionOutcome: "committed" }), "Order delivery saved");
-  expect(summary).toHaveBeenCalledWith(expect.objectContaining({ event: "delivery_settings_saved", agencyEnabled: true, couriersCount: 1, enabledCouriersCount: 1 }), "Delivery settings saved");
-
-  const nextSettings = { ...settingsInput, expectedVersion: 1, couriers: [{ ...courier, kind: "existing" as const, name: "Renamed", enabled: false }, { kind: "new" as const, name: "Other courier", enabled: true }] };
-  expect(await settingsApi.save(nextSettings)).toMatchObject({ success: true, data: { version: 2 } });
+  expect(saved).toMatchObject({ success: true, data: { delivery: { method: "agency", courier: null, agency: null, recipient: delivery.recipient, recordedBy: { kind: "seller", userId: seller.userId } }, total: { amount: 23 }, deliveryCost: { amount: 3 }, deliveryCharge: { amount: 3 }, stockDeducted: false } });
+  if (!saved.success) throw new Error("Expected rated agency assignment");
+  expect(summary).toHaveBeenCalledWith(expect.objectContaining({ event: "order_delivery_saved", deliveryMethod: "agency", transactionOutcome: "committed" }), "Order delivery saved");
+  const nextSettings = { ...settingsInput, expectedVersion: 2, agency: { enabled: false }, couriers: [{ ...courier, kind: "existing" as const, name: "Renamed", enabled: false }] };
+  expect(await settingsApi.save(nextSettings)).toMatchObject({ success: true, data: { version: 3 } });
   expect(await mobile.getAggregate(orderId)).toEqual(saved);
-  expect(await mobile.setDelivery(orderId, input)).toMatchObject({ success: false, error: { code: "COURIER_UNAVAILABLE" } });
-  expect(rejection).toHaveBeenCalledWith(expect.objectContaining({ event: "order_delivery_rejected", courierId: courier.id, errorCode: "COURIER_UNAVAILABLE", stage: "resolve_delivery" }), "Order delivery rejected");
-  for (const privateText of ["Different recipient", "00-A-001", "Office Lima"]) {
-    expect(JSON.stringify([...summary.mock.calls, ...rejection.mock.calls])).not.toContain(privateText);
-  }
-
-  const foreignConfig = await call("/api/delivery-settings", other.cookie, settingsInput, "PUT");
-  const foreignCourier = (await foreignConfig.json()).couriers[0];
-  expect(await mobile.setDelivery(orderId, { ...input, delivery: { ...delivery, courierId: foreignCourier.id } })).toMatchObject({ success: false, error: { code: "COURIER_UNAVAILABLE" } });
+  expect(await mobile.setDelivery(orderId, input)).toMatchObject({ success: false, error: { code: "RATE_UNAVAILABLE" } });
+  for (const privateText of ["Different recipient", "00-A-001"]) expect(JSON.stringify([...summary.mock.calls, ...rejection.mock.calls])).not.toContain(privateText);
+  expect((await call("/api/delivery-settings", other.cookie, settingsInput, "PUT")).status).toBe(200);
+  expect((await call("/api/delivery-settings/zones", other.cookie, { method: "agency", expectedVersion: 1,
+    zones: [{ kind: "new", name: "Foreign", enabled: true, districtCodes: ["040110"], price: input.expectedPrice }] }, "PUT")).status).toBe(200);
+  const foreign = await (await call("/api/quotations", other.cookie, { destination: { country: "PE", districtCode: "040110" } })).json();
+  expect(await mobile.setDelivery(orderId, { ...input, delivery: { ...delivery, rateId: foreign.rates[0].id } })).toMatchObject({ success: false, error: { code: "RATE_UNAVAILABLE" } });
   expect(await mobile.getAggregate(orderId)).toEqual(saved);
-  const read = await settingsApi.get();
-  if (!read.success) throw new Error("Expected configuration read");
-  const active = read.data.couriers.find(courier => courier.enabled);
-  if (!active) throw new Error("Expected active courier");
-  expect((await call(`/api/orders/${orderId}/payments`, seller.cookie, { paymentId: randomUUID(), amount: { amount: 20, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false })).status).toBe(200);
-  const replaced = await mobile.setDelivery(orderId, { delivery: { ...delivery, courierId: active.id }, chargeDeliveryToCustomer: false });
-  expect(replaced).toMatchObject({ success: true, data: { delivery: { courier: { id: active.id, name: "Other courier" } }, total: { amount: 20 }, paidAmount: { amount: 20 }, stockDeducted: true } });
+  expect(await settingsApi.save({ ...settingsInput, expectedVersion: 3, couriers: [{ ...courier, kind: "existing", name: "Renamed", enabled: true }] })).toMatchObject({ success: true });
+  expect((await call(`/api/orders/${orderId}/payments`, seller.cookie, { paymentId: randomUUID(), amount: { amount: 23, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false })).status).toBe(200);
+  expect(await mobile.setDelivery(orderId, input)).toMatchObject({ success: true, data: { total: { amount: 23 }, paidAmount: { amount: 23 }, stockDeducted: true } });
   expect(await withTenantIsolation(seller.companyId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId: seller.variantId } })).quantity)).toBe(1n);
   expect((await call(`/api/orders/${orderId}/ship`, seller.cookie, {})).status).toBe(200);
   expect(await mobile.setDelivery(orderId, input)).toMatchObject({ success: false, error: { code: "DELIVERY_LOCKED" } });
@@ -614,12 +605,13 @@ test("aggregate reads preserve rated and historical delivery snapshots without c
   const historicalHome = { method: "home", recipient, destination: { address: "Old street", district: "Historical free text", instructions: null }, recordedBy };
   const historicalAgency = { method: "agency", recipient, courier: { id: randomUUID(), name: "Old courier" }, agency: "Old office", recordedBy };
   for (const delivery of [home, agency, historicalHome, historicalAgency]) {
+    const charge = "pricing" in delivery ? 8 : 0;
     await withTenantIsolation(seller.companyId, async () => await prisma.order.update({ where: { id: orderId }, data: {
-      delivery, deliveryCost: 8, deliveryCharge: 8, total: 18,
+      delivery, deliveryCost: 8, deliveryCharge: charge, total: 10 + charge,
     } }));
     const response = await call(`/api/orders/${orderId}/aggregate`, seller.cookie);
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ delivery, deliveryCost: { amount: 8, currency: "PEN" }, deliveryCharge: { amount: 8 }, total: { amount: 18 } });
+    expect(await response.json()).toMatchObject({ delivery, deliveryCost: { amount: 8, currency: "PEN" }, deliveryCharge: { amount: charge }, total: { amount: 10 + charge } });
   }
   await withTenantIsolation(seller.companyId, async () => expect(await prisma.companyDeliverySettings.count()).toBe(0));
 });

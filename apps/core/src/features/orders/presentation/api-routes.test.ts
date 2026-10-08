@@ -80,13 +80,16 @@ test("JSON key validation scopes keys to each object and decodes escaped names",
 
 test("delivery HTTP rejects client authority and maps disabled or locked delivery", async () => {
   const set = vi.spyOn(orders, "setDelivery").mockResolvedValue({ success: false, error: { code: "DELIVERY_METHOD_DISABLED", message: "Disabled" } });
-  const body = { delivery: { method: "store", recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } } }, chargeDeliveryToCustomer: true };
+  const body = { delivery: { method: "store", recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } } }, expectedPrice: { amount: 0, currency: "PEN" } };
   const put = (input: unknown): RequestInit => ({ method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
   for (const extra of [{ cost: 0 }, { companyId: "other" }, { recordedBy: { kind: "buyer" } }]) {
     expect(await request(`/${contactId}/delivery`, "PE", put({ ...body, ...extra }))).toMatchObject({ status: 400 });
   }
   for (const extra of [{ recordedBy: { kind: "seller", userId: "other" } }, { pickupPoint: { name: "Fake", address: "Fake", instructions: null } }]) {
     expect(await request(`/${contactId}/delivery`, "PE", put({ ...body, delivery: { ...body.delivery, ...extra } }))).toMatchObject({ status: 400 });
+  }
+  for (const chargeDeliveryToCustomer of [true, false]) {
+    expect(await request(`/${contactId}/delivery`, "PE", put({ delivery: body.delivery, chargeDeliveryToCustomer }))).toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
   }
   expect(set).not.toHaveBeenCalled();
   expect(await request(`/${contactId}/delivery`, "PE", put(body))).toMatchObject({ status: 422, body: { code: "DELIVERY_METHOD_DISABLED" } });
