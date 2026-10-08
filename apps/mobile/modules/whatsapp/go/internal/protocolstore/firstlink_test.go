@@ -2,6 +2,7 @@ package protocolstore
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -13,6 +14,29 @@ type freshStorage struct {
 	controlledStorage
 	requests  int
 	loseFirst bool
+}
+
+type rejectedFreshStorage struct{ freshStorage }
+
+func (*rejectedFreshStorage) BeginFreshSession(string) (string, error) {
+	return `{"contractVersion":1,"success":false,"error":{"code":"SESSION_FULL","message":"capacity"}}`, nil
+}
+
+func TestFirstLinkFailureLatchesTypedHealth(t *testing.T) {
+	native := &rejectedFreshStorage{}
+	fresh, err := NewFirstLinkDevice(native, "gen", 10<<20, 10<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paired := validDevice()
+	paired.Container = fresh.Container
+	codeIs(t, paired.Container.PutDevice(context.Background(), paired), SessionFull)
+	health, ok := paired.Container.(interface{ StopReason() error })
+	if !ok {
+		t.Fatal("first-link health unavailable to connection bridge")
+	}
+	codeIs(t, health.StopReason(), SessionFull)
+	codeIs(t, paired.Container.PutDevice(context.Background(), paired), SessionFull)
 }
 
 func (n *freshStorage) BeginFreshSession(raw string) (string, error) {
@@ -53,12 +77,20 @@ func TestFirstLinkPublishesDeviceAtomicallyAndRecoversLostReply(t *testing.T) {
 		t.Fatal("generated device touched storage", err)
 	}
 	paired := validDevice()
+	paired.LID.Device = 2
 	paired.Container = fresh.Container
 	if err = paired.Container.PutDevice(context.Background(), paired); err != nil {
 		t.Fatal(err)
 	}
 	if n.requests != 2 || len(n.records) != 1 || !paired.Initialized || paired.Sessions == nil {
 		t.Fatal("first link not durably attached")
+	}
+	value, err := base64.StdEncoding.DecodeString(n.records[0].ValueBase64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := protocolstate.DecodeValue("device", value); err != nil || got.(*protocolstate.Device).LID != "123:2@lid" {
+		t.Fatal("device-addressed LID was not preserved", err)
 	}
 	if err = paired.Container.PutDevice(context.Background(), paired); err != nil {
 		t.Fatal("linked save failed", err)
