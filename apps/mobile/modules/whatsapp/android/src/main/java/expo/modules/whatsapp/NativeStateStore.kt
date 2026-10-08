@@ -259,7 +259,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     if (device.getString("recordType") != "device") throw StateFailure("INVALID_REQUEST")
     validateProtocolChange(JSONObject(device.toString()).put("operation", "put"))
     val value = parseObject(decode(device.getString("valueBase64"), SESSION_LIMIT))
-    if (value.getString("lid") != account || value.getString("id").isEmpty()) throw StateFailure("INVALID_REQUEST")
+    if (deviceAccount(value.getString("lid")) != account || value.getString("id").isEmpty()) throw StateFailure("INVALID_REQUEST")
     val protocol = JSONObject().put("protocolSchemaVersion", 1).put("records", JSONArray().put(device))
     validateProtocolRecords(protocol.getJSONArray("records"), account)
     GLOBAL_LOCK.lock()
@@ -448,12 +448,73 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     StrictJson.check(bytes.toString(Charsets.UTF_8))
     val tuple = JSONArray(bytes.toString(Charsets.UTF_8))
     if (tuple.length() != arity || (0 until arity).any { tuple.get(it) !is String || tuple.getString(it).isEmpty() || tuple.getString(it).length > 512 } || tuple.toString() != bytes.toString(Charsets.UTF_8)) throw StateFailure("INVALID_REQUEST")
+    val parts = (0 until arity).map { tuple.getString(it) }
+    fun decimal(text: String, max: Long, allowZero: Boolean): Boolean =
+      Regex(if (allowZero) "0|[1-9][0-9]*" else "[1-9][0-9]*").matches(text) && (text.toLongOrNull()?.let { it <= max } == true)
+    fun binary(text: String, min: Int, max: Int): Boolean = try { decode(text, max).size in min..max } catch (_: Exception) { false }
+    when (kind) {
+      "prekey" -> if (!decimal(parts[0], 4294967295L, false)) throw StateFailure("INVALID_REQUEST")
+      "identity", "signal-session" -> if (!validSignalAddress(parts[0])) throw StateFailure("INVALID_REQUEST")
+      "sender-key" -> if (!validSignalAddress(parts[1])) throw StateFailure("INVALID_REQUEST")
+      "app-state-key" -> if (!binary(parts[0], 1, 256)) throw StateFailure("INVALID_REQUEST")
+      "app-state-mac" -> if (!binary(parts[1], 32, 32)) throw StateFailure("INVALID_REQUEST")
+      "retry-hash" -> if (!binary(parts[0], 32, 32)) throw StateFailure("INVALID_REQUEST")
+      "lid-mapping" -> if (!Regex("[0-9]+@s\\.whatsapp\\.net").matches(parts[0])) throw StateFailure("INVALID_REQUEST")
+    }
     if (put) {
       val encoded = change.getString("valueBase64")
       if (encoded.length > SESSION_LIMIT) throw StateFailure("INVALID_REQUEST")
       val value = decode(encoded, SESSION_LIMIT)
       val parsed = parseObject(value)
-      if (parsed.getInt("version") != 1) throw StateFailure("INVALID_REQUEST")
+      if (parsed.get("version") !is Number || parsed.get("version").toString() != "1") throw StateFailure("INVALID_REQUEST")
+      validateProtocolValue(kind, parsed)
+    }
+  }
+
+  private fun validSignalAddress(value: String): Boolean {
+    val cut = value.lastIndexOf(':')
+    return cut > 0 && value.substring(0, cut).none { it == '@' || it == '/' || it == '\\' } &&
+      Regex("0|[1-9][0-9]*").matches(value.substring(cut + 1)) && value.substring(cut + 1).toLongOrNull()?.let { it <= 4294967295L } == true
+  }
+
+  private fun validateProtocolValue(kind: String, value: JSONObject) {
+    fun bytes(field: String, min: Int, max: Int): Int {
+      if (value.get(field) !is String) throw StateFailure("INVALID_REQUEST")
+      val count = decode(value.getString(field), max).size
+      if (count !in min..max) throw StateFailure("INVALID_REQUEST")
+      return count
+    }
+    fun number(field: String, max: Long, allowZero: Boolean = true): Long {
+      val raw = value.get(field)
+      val text = raw.toString()
+      if (raw !is Number || !Regex(if (allowZero) "0|[1-9][0-9]*" else "[1-9][0-9]*").matches(text)) throw StateFailure("INVALID_REQUEST")
+      val n = text.toLongOrNull() ?: throw StateFailure("INVALID_REQUEST")
+      if (n > max) throw StateFailure("INVALID_REQUEST")
+      return n
+    }
+    when (kind) {
+      "device" -> {
+        exact(value, "version", "noisePrivateKey", "identityPrivateKey", "signedPreKeyPrivate", "signedPreKeyId", "signedPreKeySignature", "registrationId", "advSecretKey", "id", "lid", "account", "platform", "businessName", "pushName", "facebookUuid", "lidMigrationTimestamp", "companionMetaNonce")
+        for (field in listOf("noisePrivateKey", "identityPrivateKey", "signedPreKeyPrivate", "advSecretKey")) bytes(field, 32, 32)
+        bytes("signedPreKeySignature", 64, 64); bytes("account", 1, SESSION_LIMIT)
+        number("signedPreKeyId", 4294967295L); number("registrationId", 4294967295L)
+        for (field in listOf("id", "lid", "platform", "businessName", "pushName", "facebookUuid", "companionMetaNonce")) if (value.get(field) !is String) throw StateFailure("INVALID_REQUEST")
+        if (!Regex("[0-9]+(?:_[0-9]+)?(?::[0-9]+)?@s\\.whatsapp\\.net").matches(value.getString("id")) || deviceAccount(value.getString("lid")) == null) throw StateFailure("INVALID_REQUEST")
+        if (value.get("lidMigrationTimestamp") !is Number || value.get("lidMigrationTimestamp").toString().toLongOrNull() == null) throw StateFailure("INVALID_REQUEST")
+      }
+      "identity", "signal-session", "sender-key", "message-secret", "nct-salt" -> {
+        exact(value, "version", "data"); bytes("data", if (kind == "identity") 32 else 1, if (kind == "identity") 32 else SESSION_LIMIT)
+      }
+      "prekey" -> { exact(value, "version", "privateKey", "uploaded"); bytes("privateKey", 32, 32); if (value.get("uploaded") !is Boolean) throw StateFailure("INVALID_REQUEST") }
+      "prekey-state" -> { exact(value, "version", "nextId", "uploadedThrough"); val next = number("nextId", 4294967296L, false); if (number("uploadedThrough", 4294967295L) >= next) throw StateFailure("INVALID_REQUEST") }
+      "app-state-key" -> { exact(value, "version", "data", "fingerprint", "timestamp"); bytes("data", 1, SESSION_LIMIT); bytes("fingerprint", 0, SESSION_LIMIT); number("timestamp", Long.MAX_VALUE) }
+      "app-state-version" -> { exact(value, "version", "number", "hash"); number("number", Long.MAX_VALUE, false); bytes("hash", 128, 128) }
+      "app-state-mac" -> { exact(value, "version", "mutationVersion", "valueMac"); number("mutationVersion", Long.MAX_VALUE, false); bytes("valueMac", 32, 32) }
+      "contact" -> { exact(value, "version", "firstName", "fullName", "pushName", "businessName", "redactedPhone"); for (field in listOf("firstName", "fullName", "pushName", "businessName", "redactedPhone")) if (value.get(field) !is String) throw StateFailure("INVALID_REQUEST") }
+      "chat-setting" -> { exact(value, "version", "mutedUntil", "pinned", "archived", "wasaRootSecretId"); if (value.get("mutedUntil") !is String || value.get("pinned") !is Boolean || value.get("archived") !is Boolean || value.get("wasaRootSecretId") !is String) throw StateFailure("INVALID_REQUEST") }
+      "privacy-token" -> { exact(value, "version", "token", "timestamp", "senderTimestamp"); bytes("token", 1, SESSION_LIMIT); number("timestamp", Long.MAX_VALUE); if (value.get("senderTimestamp") != JSONObject.NULL) number("senderTimestamp", Long.MAX_VALUE) }
+      "lid-mapping" -> { exact(value, "version", "lid"); if (value.get("lid") !is String || !ACCOUNT.matches(value.getString("lid"))) throw StateFailure("INVALID_REQUEST") }
+      "retry-hash" -> { exact(value, "version", "insertTimeMs", "serverTimeSeconds"); number("insertTimeMs", Long.MAX_VALUE); number("serverTimeSeconds", Long.MAX_VALUE) }
     }
   }
 
@@ -469,7 +530,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
       if (!seen.add("$kind\u0000$key")) throw StateFailure("INVALID_REQUEST")
       if (kind == "device") {
         val value = parseObject(decode(record.getString("valueBase64"), SESSION_LIMIT))
-        if (value.getString("lid") != account || value.getString("id").isEmpty()) throw StateFailure("INVALID_REQUEST")
+        if (deviceAccount(value.getString("lid")) != account || value.getString("id").isEmpty()) throw StateFailure("INVALID_REQUEST")
       }
       if (kind == "lid-mapping") {
         val tuple = JSONArray(Base64.decode(key, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING).toString(Charsets.UTF_8))
@@ -481,6 +542,11 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
         inverse[lid] = pn
       }
     }
+  }
+
+  private fun deviceAccount(jid: String): String? {
+    val match = Regex("([0-9]+)(?:_[0-9]+)?(?::[0-9]+)?@lid").matchEntire(jid) ?: return null
+    return match.groupValues[1] + "@lid"
   }
 
   @Synchronized fun endSession() {

@@ -222,7 +222,7 @@ public final class NativeStateStore {
       try Self.validateProtocolChange(change)
       guard let encoded = device["valueBase64"] as? String,
             let value = Self.decode(encoded, max: Self.maxSession),
-            let body = try? Self.parseObject(value), body["lid"] as? String == account,
+            let body = try? Self.parseObject(value), let lid = body["lid"] as? String, Self.deviceAccount(lid) == account,
             let id = body["id"] as? String, !id.isEmpty else { throw StateStoreError.invalidRequest }
       let protocolState: [String: Any] = ["protocolSchemaVersion": 1, "records": [device]]
       try Self.validateProtocolRecords([device], account: account)
@@ -411,7 +411,7 @@ public final class NativeStateStore {
           let kind = change["recordType"] as? String, let key = change["recordKey"] as? String else { throw StateStoreError.invalidRequest }
     var fields: Set<String> = ["operation", "recordType", "recordKey"]
     if operation == "put" { fields.insert("valueBase64") }
-    try exact(change, fields)
+    guard Set(change.keys) == fields else { throw StateStoreError.invalidRequest }
     if kind == "device" && operation != "put" { throw StateStoreError.invalidRequest }
     let arity: Int
     switch kind {
@@ -423,11 +423,98 @@ public final class NativeStateStore {
     }
     guard key.utf8.count <= 2048, let bytes = decodeURL(key),
           let tuple = try JSONSerialization.jsonObject(with: bytes) as? [String], tuple.count == arity,
-          tuple.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 512 }) else { throw StateStoreError.invalidRequest }
+          tuple.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 512 }),
+          try json(tuple) == bytes else { throw StateStoreError.invalidRequest }
+    func decimal(_ text: String, max: UInt64, allowZero: Bool = true) -> Bool {
+      guard let value = UInt64(text), String(value) == text, value <= max else { return false }
+      return allowZero || value > 0
+    }
+    func binary(_ text: String, min: Int, max: Int) -> Bool {
+      guard let bytes = decode(text, max: max) else { return false }
+      return bytes.count >= min
+    }
+    switch kind {
+    case "prekey": guard decimal(tuple[0], max: UInt64(UInt32.max), allowZero: false) else { throw StateStoreError.invalidRequest }
+    case "identity", "signal-session": guard validSignalAddress(tuple[0]) else { throw StateStoreError.invalidRequest }
+    case "sender-key": guard validSignalAddress(tuple[1]) else { throw StateStoreError.invalidRequest }
+    case "app-state-key": guard binary(tuple[0], min: 1, max: 256) else { throw StateStoreError.invalidRequest }
+    case "app-state-mac", "retry-hash": guard binary(tuple[kind == "app-state-mac" ? 1 : 0], min: 32, max: 32) else { throw StateStoreError.invalidRequest }
+    case "lid-mapping": guard tuple[0].range(of: "^[0-9]+@s\\.whatsapp\\.net$", options: .regularExpression) != nil else { throw StateStoreError.invalidRequest }
+    default: break
+    }
     if operation == "put" {
       guard let encoded = change["valueBase64"] as? String, encoded.utf8.count <= Self.maxSession,
             let value = decode(encoded, max: Self.maxSession),
             let object = try? parseObject(value), safeInt(object["version"]) == 1 else { throw StateStoreError.invalidRequest }
+      try validateProtocolValue(kind, object)
+    }
+  }
+
+  private static func validSignalAddress(_ value: String) -> Bool {
+    guard let cut = value.lastIndex(of: ":"), cut != value.startIndex else { return false }
+    let user = value[..<cut]
+    let device = value[value.index(after: cut)...]
+    return !user.contains(where: { "@/\\".contains($0) }) &&
+      UInt64(device).map { String($0) == String(device) && $0 <= UInt64(UInt32.max) } == true
+  }
+
+  private static func validateProtocolValue(_ kind: String, _ value: [String: Any]) throws {
+    func fields(_ expected: Set<String>) throws {
+      guard Set(value.keys) == expected else { throw StateStoreError.invalidRequest }
+    }
+    func bytes(_ name: String, min: Int, max: Int) throws {
+      guard let encoded = value[name] as? String, let data = decode(encoded, max: max), data.count >= min else { throw StateStoreError.invalidRequest }
+    }
+    func number(_ name: String, max: Int = Int.max, allowZero: Bool = true) throws -> Int {
+      guard let value = safeInt(value[name]), value >= 0, value <= max, allowZero || value > 0 else { throw StateStoreError.invalidRequest }
+      return value
+    }
+    switch kind {
+    case "device":
+      try fields(["version", "noisePrivateKey", "identityPrivateKey", "signedPreKeyPrivate", "signedPreKeyId", "signedPreKeySignature", "registrationId", "advSecretKey", "id", "lid", "account", "platform", "businessName", "pushName", "facebookUuid", "lidMigrationTimestamp", "companionMetaNonce"])
+      for name in ["noisePrivateKey", "identityPrivateKey", "signedPreKeyPrivate", "advSecretKey"] { try bytes(name, min: 32, max: 32) }
+      try bytes("signedPreKeySignature", min: 64, max: 64)
+      try bytes("account", min: 1, max: maxSession)
+      _ = try number("signedPreKeyId", max: Int(UInt32.max)); _ = try number("registrationId", max: Int(UInt32.max))
+      for name in ["id", "lid", "platform", "businessName", "pushName", "facebookUuid", "companionMetaNonce"] {
+        guard value[name] is String else { throw StateStoreError.invalidRequest }
+      }
+      guard let id = value["id"] as? String, id.range(of: "^[0-9]+(?:_[0-9]+)?(?::[0-9]+)?@s\\.whatsapp\\.net$", options: .regularExpression) != nil,
+            let lid = value["lid"] as? String, deviceAccount(lid) != nil,
+            safeInt(value["lidMigrationTimestamp"]) != nil else { throw StateStoreError.invalidRequest }
+    case "identity", "signal-session", "sender-key", "message-secret", "nct-salt":
+      try fields(["version", "data"]); try bytes("data", min: kind == "identity" ? 32 : 1, max: kind == "identity" ? 32 : maxSession)
+    case "prekey":
+      try fields(["version", "privateKey", "uploaded"]); try bytes("privateKey", min: 32, max: 32)
+      guard value["uploaded"] is Bool else { throw StateStoreError.invalidRequest }
+    case "prekey-state":
+      try fields(["version", "nextId", "uploadedThrough"])
+      let next = try number("nextId", max: Int(UInt32.max) + 1, allowZero: false)
+      guard try number("uploadedThrough", max: Int(UInt32.max)) < next else { throw StateStoreError.invalidRequest }
+    case "app-state-key":
+      try fields(["version", "data", "fingerprint", "timestamp"])
+      try bytes("data", min: 1, max: maxSession); try bytes("fingerprint", min: 0, max: maxSession); _ = try number("timestamp")
+    case "app-state-version":
+      try fields(["version", "number", "hash"]); _ = try number("number", allowZero: false); try bytes("hash", min: 128, max: 128)
+    case "app-state-mac":
+      try fields(["version", "mutationVersion", "valueMac"]); _ = try number("mutationVersion", allowZero: false); try bytes("valueMac", min: 32, max: 32)
+    case "contact":
+      try fields(["version", "firstName", "fullName", "pushName", "businessName", "redactedPhone"])
+      for name in ["firstName", "fullName", "pushName", "businessName", "redactedPhone"] { guard value[name] is String else { throw StateStoreError.invalidRequest } }
+    case "chat-setting":
+      try fields(["version", "mutedUntil", "pinned", "archived", "wasaRootSecretId"])
+      guard value["mutedUntil"] is String, value["pinned"] is Bool, value["archived"] is Bool, value["wasaRootSecretId"] is String else { throw StateStoreError.invalidRequest }
+    case "privacy-token":
+      try fields(["version", "token", "timestamp", "senderTimestamp"])
+      try bytes("token", min: 1, max: maxSession); _ = try number("timestamp")
+      if !(value["senderTimestamp"] is NSNull) { _ = try number("senderTimestamp") }
+    case "lid-mapping":
+      try fields(["version", "lid"])
+      guard let lid = value["lid"] as? String, validAccount(lid) else { throw StateStoreError.invalidRequest }
+    case "retry-hash":
+      try fields(["version", "insertTimeMs", "serverTimeSeconds"])
+      _ = try number("insertTimeMs"); _ = try number("serverTimeSeconds")
+    default: throw StateStoreError.invalidRequest
     }
   }
 
@@ -443,7 +530,8 @@ public final class NativeStateStore {
             let encoded = record["valueBase64"] as? String,
             let value = decode(encoded, max: maxSession), let body = try? parseObject(value) else { throw StateStoreError.invalidRequest }
       if kind == "device" {
-        guard body["lid"] as? String == account, let id = body["id"] as? String, !id.isEmpty else { throw StateStoreError.invalidRequest }
+        guard let lid = body["lid"] as? String, Self.deviceAccount(lid) == account,
+              let id = body["id"] as? String, !id.isEmpty else { throw StateStoreError.invalidRequest }
       }
       if kind == "lid-mapping" {
         guard let keyBytes = decodeURL(key), let tuple = try? JSONSerialization.jsonObject(with: keyBytes) as? [String],
@@ -453,6 +541,12 @@ public final class NativeStateStore {
         inverse[lid] = pn
       }
     }
+  }
+
+  private static func deviceAccount(_ jid: String) -> String? {
+    guard let match = jid.range(of: "^([0-9]+)(?:_[0-9]+)?(?::[0-9]+)?@lid$", options: .regularExpression) else { return nil }
+    let digits = jid[match].prefix { $0.isNumber }
+    return String(digits) + "@lid"
   }
 
   private static func decodeURL(_ text: String) -> Data? {

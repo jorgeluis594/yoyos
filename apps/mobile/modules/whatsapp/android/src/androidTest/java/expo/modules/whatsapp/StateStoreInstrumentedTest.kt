@@ -876,8 +876,24 @@ class StateStoreInstrumentedTest {
     val data = org.json.JSONObject(makeStore(root).readProtocolState("{\"contractVersion\":1}")).getJSONObject("data")
     assertEquals("2", data.getString("sessionRevision"))
     assertEquals(1, data.getJSONObject("session").getJSONArray("records").length())
+    val invalidPrekey = org.json.JSONObject().put("operation", "put").put("recordType", "prekey")
+      .put("recordKey", "WyIwMSJd").put("valueBase64", "eyJ2ZXJzaW9uIjoxfQ==")
+    val invalidRequest = org.json.JSONObject(request("generation", "2"))
+      .put("protocolChanges", org.json.JSONArray().put(invalidPrekey)).toString()
+    assertFalse(org.json.JSONObject(writer.applyProtocolChanges(invalidRequest)).getBoolean("success"))
+    assertEquals("2", currentRevision(root))
     writer.retireGeneration()
     assertFalse(org.json.JSONObject(writer.applyProtocolChanges(request("generation", "2"))).getBoolean("success"))
+  }
+
+  @Test fun freshProtocolRejectsIncompleteDeviceWithoutPublishing() {
+    val root = freshRoot
+    val writer = makeStore(root)
+    writer.open()
+    writer.registerFreshGeneration("fresh-generation")
+    val request = """{"contractVersion":1,"generationId":"fresh-generation","accountId":"123@lid","device":{"recordType":"device","recordKey":"W10","valueBase64":"eyJ2ZXJzaW9uIjoxLCJpZCI6IjEyMzoyQHMud2hhdHNhcHAubmV0IiwibGlkIjoiMTIzQGxpZCJ9"}}"""
+    assertFalse(org.json.JSONObject(writer.beginFreshProtocolSession(request)).getBoolean("success"))
+    assertEquals("0", currentRevision(root))
   }
 
   @Test fun optionsUpdateUsesCurrentWriterRevisionWithoutSession() {

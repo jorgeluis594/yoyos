@@ -972,8 +972,34 @@ final class StateStoreTests: XCTestCase {
     let session = try XCTUnwrap(data["session"] as? [String: Any])
     XCTAssertEqual((session["records"] as? [[String: Any]])?.count, 1)
     XCTAssertEqual(data["sessionRevision"] as? String, "2")
+    let invalidPrekey: [String: Any] = ["operation": "put", "recordType": "prekey", "recordKey": "WyIwMSJd",
+      "valueBase64": "eyJ2ZXJzaW9uIjoxfQ=="]
+    let invalidRequest: [String: Any] = ["contractVersion": 1, "generationId": "generation", "accountId": "123@lid",
+      "expectedSessionRevision": "2", "protocolChanges": [invalidPrekey], "pendingInserts": [Any](), "pendingIdentityUpdates": [Any]()]
+    let invalidRaw = try XCTUnwrap(String(data: JSONSerialization.data(withJSONObject: invalidRequest), encoding: .utf8))
+    XCTAssertEqual(try response(writer.applyProtocolChanges(invalidRaw))["success"] as? Bool, false)
+    XCTAssertEqual(try makeStore(root).open()["revision"] as? String, "2")
+    let whitespaceTuple = "WyAiMTIzOjIiIF0"
+    let noncanonical: [String: Any] = ["contractVersion": 1, "generationId": "generation", "accountId": "123@lid",
+      "expectedSessionRevision": "2", "protocolChanges": [["operation": "put", "recordType": "signal-session",
+        "recordKey": whitespaceTuple, "valueBase64": "eyJ2ZXJzaW9uIjoxLCJkYXRhIjoiQVE9PSJ9"]],
+      "pendingInserts": [Any](), "pendingIdentityUpdates": [Any]()]
+    let noncanonicalRaw = try XCTUnwrap(String(data: JSONSerialization.data(withJSONObject: noncanonical), encoding: .utf8))
+    XCTAssertEqual(try response(writer.applyProtocolChanges(noncanonicalRaw))["success"] as? Bool, false)
     writer.retireGeneration()
     XCTAssertEqual(try response(writer.applyProtocolChanges(request("generation", "2")))["success"] as? Bool, false)
+  }
+
+  func testFreshProtocolRejectsIncompleteDeviceWithoutPublishing() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let writer = try makeStore(root)
+    _ = try writer.open()
+    try writer.registerFreshGeneration("fresh-generation")
+    let request = #"{"contractVersion":1,"generationId":"fresh-generation","accountId":"123@lid","device":{"recordType":"device","recordKey":"W10","valueBase64":"eyJ2ZXJzaW9uIjoxLCJpZCI6IjEyMzoyQHMud2hhdHNhcHAubmV0IiwibGlkIjoiMTIzQGxpZCJ9"}}"#
+    let response = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(writer.beginFreshProtocolSession(request).utf8)) as? [String: Any])
+    XCTAssertEqual(response["success"] as? Bool, false)
+    XCTAssertTrue(try writer.open()["session"] is NSNull)
   }
 
   func testOptionsUpdateUsesCurrentWriterRevisionWithoutSession() throws {
