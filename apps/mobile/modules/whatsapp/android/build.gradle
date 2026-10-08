@@ -23,6 +23,9 @@ version = '0.1.0'
 
 android {
   namespace 'expo.modules.whatsapp'
+  compileSdkVersion 36
+  buildToolsVersion '36.0.0'
+  ndkVersion '27.1.12297006'
   defaultConfig {
     minSdkVersion 24
     versionCode 1

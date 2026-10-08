@@ -47,6 +47,8 @@ jobs:
         working-directory: apps/mobile/modules/whatsapp/go
       - run: sh scripts/test-build-go-cleanup.sh
         working-directory: apps/mobile/modules/whatsapp
+      - run: sh scripts/test-check-android-probe.sh
+        working-directory: apps/mobile/modules/whatsapp
       - run: sh scripts/build-go.sh android
         working-directory: apps/mobile/modules/whatsapp
       - name: Link WhatsApp into isolated Expo probe app
