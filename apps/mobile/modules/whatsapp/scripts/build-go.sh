@@ -82,7 +82,7 @@ import sys
 with open(sys.argv[1], 'rb') as source:
     libraries = plistlib.load(source)['AvailableLibraries']
 device = {arch for lib in libraries if lib['SupportedPlatform'] == 'ios' and 'SupportedPlatformVariant' not in lib for arch in lib['SupportedArchitectures']}
-simulator = {arch for lib in libraries if lib['SupportedPlatformVariant'] == 'simulator' for arch in lib['SupportedArchitectures']}
+simulator = {arch for lib in libraries if lib.get('SupportedPlatformVariant') == 'simulator' for arch in lib['SupportedArchitectures']}
 assert device == {'arm64'} and simulator == {'arm64', 'x86_64'}
 PY
 fi
