@@ -74,9 +74,13 @@ class StateStoreInstrumentedTest {
     val store = makeStore(root)
     store.open()
     store.beginSession("123@lid", "{\"protocolSchemaVersion\":1,\"records\":[]}".toByteArray())
+    val pending = org.json.JSONObject().put("deliveryId", "wa-delivery:v1:" + "a".repeat(32))
+      .put("accountId", "123@lid").put("createdRevision", "2").put("createdOrdinal", 0)
+      .put("source", "live").put("identityState", "pendingLid")
+      .put("recovery", org.json.JSONObject().put("messageInfoJson", "{}").put("items", org.json.JSONArray()))
     store.commit(currentRevision(root)) { it.put("androidService", org.json.JSONObject()
       .put("receiveRequested", true).put("accountId", "123@lid"))
-      .put("pending", org.json.JSONArray().put(pending())) }
+      .put("pending", org.json.JSONArray().put(pending)) }
     store.endSession()
     val recovered = makeStore(root).open()
     assertEquals(org.json.JSONObject.NULL, recovered.get("session"))
