@@ -38,6 +38,15 @@ test("requires initialization for every available local operation", async () => 
   expect(native.connect).not.toHaveBeenCalled();
 });
 
+test("cleans up partial native event registration", async () => {
+  const native = fakeNative();
+  const remove = jest.fn();
+  native.addListener.mockImplementationOnce(() => ({remove})).mockImplementationOnce(() => {throw new Error("not ready")});
+  const client = createWhatsAppClient(() => native);
+  expect(await client.initialize()).toMatchObject({success:false,error:{code:"MODULE_UNAVAILABLE"}});
+  expect(remove).toHaveBeenCalledTimes(1);
+});
+
 test("coalesces preparation, accepts connect before QR, and retries failed preparation", async () => {
   const native = fakeNative();
   let resolve!: (value: unknown) => void;

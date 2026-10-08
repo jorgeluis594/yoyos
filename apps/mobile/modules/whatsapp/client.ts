@@ -94,8 +94,10 @@ export function createWhatsAppClient(resolveNative: () => NativeWhatsApp | null 
     if (native) return native;
     try { native = resolveNative(); } catch { return null; }
     if (!native) return null;
+    const subscriptions: Array<{ remove(): void }> = [];
     for (const event of ["connectionChanged", "qr", "messageReceived", "error"] as const) {
-      try { native.addListener(event, (payload) => receive(event, payload)); } catch { native = null; return null; }
+      try { subscriptions.push(native.addListener(event, (payload) => receive(event, payload))); }
+      catch { for (const subscription of subscriptions) subscription.remove(); native = null; return null; }
     }
     return native;
   }
