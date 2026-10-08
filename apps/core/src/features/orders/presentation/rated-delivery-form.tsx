@@ -1,13 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useSubmit } from "react-router";
 import { useTranslation } from "react-i18next";
-import { setRatedOrderDeliverySchema, type OrderAggregateResponse } from "@shared/contracts/orders";
+import { setRatedOrderDeliverySchema, type OrderAggregateResponse, type SetRatedOrderDeliveryRequest } from "@shared/contracts/orders";
 import type { DeliverySettingsResponse } from "@shared/contracts/delivery-settings";
 import type { QuotationResponse } from "@shared/contracts/quotations";
-import { add } from "@shared/money";
+import { add, type Money } from "@shared/money";
 import { getPeruDistrict } from "@shared/peru-geography";
 import { requestDeliveryQuotation } from "@core/src/features/delivery-settings/infrastructure/quotation-api";
 import { PeruDistrictSelect } from "@core/app/components/peru-district-select";
@@ -22,8 +22,10 @@ const draftSchema = z.object({ method: z.enum(["home", "agency", "store"]), dist
   documentType: z.enum(["absent", "national_id", "passport", "foreign_id"]), document: z.string() });
 type Draft = z.infer<typeof draftSchema>;
 
-export function RatedDeliveryForm({ order, settings, pending, active, recovery }: Readonly<{
-  order: OrderAggregateResponse; settings: DeliverySettingsResponse; pending: boolean; active: boolean; recovery?: object;
+export type RatedDeliveryReview = Readonly<{ request: SetRatedOrderDeliveryRequest | null; price: Money | null }>;
+
+export function RatedDeliveryForm({ order, settings, pending, active, recovery, onChange }: Readonly<{
+  order: Pick<OrderAggregateResponse, "delivery" | "buyer" | "itemsTotal" | "total"> & { id?: string }; settings: DeliverySettingsResponse; pending: boolean; active: boolean; recovery?: object; onChange?: (review: RatedDeliveryReview) => void;
 }>) {
   const { t, i18n } = useTranslation();
   const submit = useSubmit();
@@ -53,19 +55,22 @@ export function RatedDeliveryForm({ order, settings, pending, active, recovery }
     });
     return () => controller.abort();
   }, [active, enabled, draft.method, draft.districtCode, key, recovery, current]);
-  const price = draft.method === "store" && enabled ? { amount: 0, currency: order.total.currency } : rate?.price;
+  const review = useMemo<RatedDeliveryReview>(() => {
+    const price = draft.method === "store" && enabled ? { amount: 0, currency: order.total.currency } : rate?.price;
+    const recipient = { name: draft.name, phone: draft.phone, identity: draft.documentType === "absent" ? { kind: "absent" }
+      : { kind: "document", documentType: draft.documentType, document: draft.document } };
+    const selection = draft.method === "store" ? { method: "store", recipient } : draft.method === "home"
+      ? { method: "home", recipient, rateId: rate?.id, destination: { districtCode: draft.districtCode, address: draft.address, instructions: draft.instructions?.trim() || null } }
+      : { method: "agency", recipient, rateId: rate?.id, districtCode: draft.districtCode };
+    const request = setRatedOrderDeliverySchema.safeParse({ delivery: selection, expectedPrice: price });
+    return { request: enabled && request.success ? request.data : null, price: enabled ? price ?? null : null };
+  }, [draft.method, draft.name, draft.phone, draft.documentType, draft.document, draft.districtCode, draft.address, draft.instructions, rate, enabled, order.total.currency]);
+  useEffect(() => { onChange?.(review); }, [onChange, review]);
+  const { request, price } = review;
   const total = price ? add(price)(order.itemsTotal) : null;
-  const recipient = { name: draft.name, phone: draft.phone, identity: draft.documentType === "absent" ? { kind: "absent" }
-    : { kind: "document", documentType: draft.documentType, document: draft.document } };
-  const selection = draft.method === "store" ? { method: "store", recipient } : draft.method === "home"
-    ? { method: "home", recipient, rateId: rate?.id, destination: { districtCode: draft.districtCode, address: draft.address, instructions: draft.instructions?.trim() || null } }
-    : { method: "agency", recipient, rateId: rate?.id, districtCode: draft.districtCode };
-  const request = setRatedOrderDeliverySchema.safeParse({ delivery: selection, expectedPrice: price });
   const input = (name: "name" | "phone" | "address" | "instructions" | "document", label: string, required = false) => <Controller key={name} name={name} control={form.control} render={({ field, fieldState }) =>
     <Field data-invalid={fieldState.invalid}><FieldLabel htmlFor={`rated-${name}`}>{label}</FieldLabel><Input {...field} id={`rated-${name}`} required={required} aria-invalid={fieldState.invalid} type={name === "phone" ? "tel" : "text"} />{fieldState.error && <FieldError>{fieldState.error.message}</FieldError>}</Field>} />;
-  return <form className="flex max-w-form flex-col gap-4" onSubmit={form.handleSubmit(() => {
-    if (ready && enabled && request.success && total?.success) submit(request.data, { method: "post", encType: "application/json" });
-  })}><fieldset disabled={pending || !ready} className="flex min-w-0 flex-col gap-4">
+  const fields = <fieldset disabled={pending || !ready || !active} className="flex min-w-0 flex-col gap-4">
     <legend className="mb-3 text-lg font-semibold">{t("orderDelivery.assign")}</legend>
     <Controller name="method" control={form.control} render={({ field }) => <Field><FieldLabel htmlFor="rated-method">{t("orderDelivery.method")}</FieldLabel><select id="rated-method" className={controlClass} value={enabled ? field.value : ""} onBlur={field.onBlur} onChange={event => {
       field.onChange(event); form.setValue("rateId", ""); setRevision(value => value + 1);
@@ -84,5 +89,9 @@ export function RatedDeliveryForm({ order, settings, pending, active, recovery }
     {draft.documentType !== "absent" && input("document", t("orderDelivery.document"), true)}
     {price && <p>{t("orderDelivery.cost", { amount: formatCurrency(price.amount, price.currency, i18n.language) })}</p>}
     {total?.success && <p className="font-semibold">Total: {formatCurrency(total.data.amount, total.data.currency, i18n.language)}</p>}
-  </fieldset><Button type="submit" disabled={pending || !ready || !enabled || !request.success || !total?.success}>{t(pending ? "deliverySettings.saving" : "orderDelivery.save")}</Button></form>;
+  </fieldset>;
+  if (onChange) return fields;
+  return <form className="flex max-w-form flex-col gap-4" onSubmit={form.handleSubmit(() => {
+    if (ready && enabled && request && total?.success) submit(request, { method: "post", encType: "application/json" });
+  })}>{fields}<Button type="submit" disabled={pending || !ready || !enabled || !request || !total?.success}>{t(pending ? "deliverySettings.saving" : "orderDelivery.save")}</Button></form>;
 }

@@ -53,7 +53,7 @@ const es = {
   },
   orderDetail: { pendingPayment: "Pendiente", amount: "Importe", subtotal: "Subtotal", deliveryCharge: "Cargo de entrega al cliente", received: "Importe recibido", balance: "Saldo pendiente", paymentHistory: "Historial de pagos", noPayments: "Aún no hay pagos registrados.", confirmedPayment: "Pago confirmado", editDelivery: "Editar entrega", closeEditor: "Cerrar edición", internalDeliveryCost: "Costo de entrega (interno)", internalDetails: "Detalles internos" },
   orders: {
-    estimatedBalance: "Saldo referencial de productos", deliveryChargePending: "El cargo de entrega se calculará y añadirá al guardar.",
+    estimatedBalance: "Saldo referencial", deliveryChargePending: "El cargo de entrega se calculará y añadirá al guardar.",
     creationHint: "Completa los productos, cliente, pagos y entrega en un solo guardado.", saveOrder: "Guardar pedido", savingOrder: "Guardando pedido…",
     noInitialPayments: "Sin pagos registrados. El pedido quedará pendiente de pago.", initialPayment: "Pago {{number}}", addPayment: "Agregar pago",
     configureInitialDelivery: "Configurar datos de entrega", deliverImmediately: "Marcar como entregado al guardar",
@@ -158,7 +158,7 @@ const pt = {
   },
   orderDetail: { pendingPayment: "Pendente", amount: "Valor", subtotal: "Subtotal", deliveryCharge: "Taxa de entrega ao cliente", received: "Valor recebido", balance: "Saldo pendente", paymentHistory: "Histórico de pagamentos", noPayments: "Ainda não há pagamentos registrados.", confirmedPayment: "Pagamento confirmado", editDelivery: "Editar entrega", closeEditor: "Fechar edição", internalDeliveryCost: "Custo da entrega (interno)", internalDetails: "Detalhes internos" },
   orders: {
-    estimatedBalance: "Saldo estimado dos produtos", deliveryChargePending: "O valor da entrega será calculado e adicionado ao salvar.",
+    estimatedBalance: "Saldo estimado", deliveryChargePending: "O valor da entrega será calculado e adicionado ao salvar.",
     creationHint: "Preencha produtos, cliente, pagamentos e entrega em um único salvamento.", saveOrder: "Salvar pedido", savingOrder: "Salvando pedido…",
     noInitialPayments: "Sem pagamentos registrados. O pedido ficará pendente de pagamento.", initialPayment: "Pagamento {{number}}", addPayment: "Adicionar pagamento",
     configureInitialDelivery: "Configurar dados de entrega", deliverImmediately: "Marcar como entregue ao salvar",

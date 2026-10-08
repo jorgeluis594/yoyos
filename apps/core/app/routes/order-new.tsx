@@ -1,7 +1,10 @@
 import { z } from "zod";
 import type { InitialOrderDeliveryInput } from "@core/src/features/orders/application/set-delivery";
 import { PaymentFields, type PaymentDraft } from "@core/src/features/orders/presentation/payment-fields";
-import { DeliveryFields, deliveryDraft, deliveryRequest } from "@core/src/features/orders/presentation/delivery-form";
+import { RatedDeliveryForm, type RatedDeliveryReview } from "@core/src/features/orders/presentation/rated-delivery-form";
+import { add as addMoney, multiply, subtract, isCurrency, type Money, type MoneyError } from "@shared/money";
+import { andThen, ok } from "@shared/functional";
+import type { Result } from "@shared/result";
 import { deliverySettings } from "@core/src/features/delivery-settings";
 import { deliverySettingsSchema } from "@shared/contracts/delivery-settings";
 import { deliveryCostContext } from "@core/app/delivery-cost-context";
@@ -86,9 +89,9 @@ export default function OrderNew() {
   const contacts = contactSearch.data?.contacts ?? initial.contacts;
   const [payments, setPayments] = useState<(PaymentDraft & { paymentId: string })[]>([]);
   const [deliveryEnabled, setDeliveryEnabled] = useState(false);
-  const [delivery, setDelivery] = useState(() => initial.settings ? deliveryDraft({ delivery: null, buyer: null, deliveryCharge: { amount: 0, currency: "PEN" } }, initial.settings) : null);
+  const [deliveryReview, setDeliveryReview] = useState<RatedDeliveryReview>({ request: null, price: null });
   const [deliverImmediately, setDeliverImmediately] = useState(false);
-  const parsedDelivery = deliveryEnabled && delivery ? deliveryRequest(delivery) : null;
+  const parsedDelivery = deliveryEnabled ? deliveryReview.request : null;
   const [cart, setCart] = useState<CartItem[]>([]);
   const [orderId, setOrderId] = useState("");
   const [contactId, setContactId] = useState<string | null>(null);
@@ -99,10 +102,16 @@ export default function OrderNew() {
   const [summaryVisible, setSummaryVisible] = useState(false);
   const summaryRef = useRef<HTMLElement>(null);
   const currencies = new Set(cart.map((item) => item.currency));
-  const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const currency = currencies.size === 1 ? [...currencies][0] : "";
-  const paidAmount = payments.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
-  const canComplete = cart.length > 0 && currencies.size <= 1 && cart.every((item) => Number.isSafeInteger(item.quantity) && item.quantity > 0);
+  const productTotal = isCurrency(currency) ? cart.reduce<Result<Money, MoneyError>>((sum, item) =>
+    andThen(sum, current => andThen(multiply({ amount: item.price, currency })(item.quantity), price => addMoney(price)(current))), ok({ amount: 0, currency })) : null;
+  const reviewedTotal = productTotal && deliveryEnabled ? deliveryReview.price ? andThen(productTotal, addMoney(deliveryReview.price)) : null : productTotal;
+  const total = reviewedTotal?.success ? reviewedTotal.data.amount : null;
+  const paidTotal = isCurrency(currency) ? payments.reduce<Result<Money, MoneyError>>((sum, payment) =>
+    andThen(sum, addMoney({ amount: Number(payment.amount) || 0, currency })), ok({ amount: 0, currency })) : null;
+  const paidAmount = paidTotal?.success ? paidTotal.data.amount : null;
+  const balance = reviewedTotal?.success && paidTotal?.success ? subtract(paidTotal.data)(reviewedTotal.data) : null;
+  const canComplete = reviewedTotal?.success && cart.length > 0 && currencies.size <= 1 && cart.every((item) => Number.isSafeInteger(item.quantity) && item.quantity > 0);
   const variants = products.flatMap((product) => product.variants.map((variant) => ({ product, variant })));
 
   useEffect(() => {
@@ -150,7 +159,7 @@ export default function OrderNew() {
           <div className="min-w-0"><p className="font-medium">{item.productName}</p>{item.quantity > item.stock && <p role="status" className="text-sm text-muted-foreground">{t("orders.stockWarning", { stock: item.stock })}</p>}<p className="text-sm text-muted-foreground">{item.label} · {item.price.toFixed(2)} {item.currency}</p></div>
           <div className="flex items-center justify-between gap-2 sm:justify-end lg:justify-between"><label className="flex items-center gap-2 text-sm">{t("orders.quantity")}<Input type="number" min="1" step="1" value={item.quantity} className="w-20 text-center tabular-nums" onChange={(event) => { const quantity = Number(event.target.value); setCart((current) => current.map((row) => row.variantId === item.variantId ? { ...row, quantity } : row)); }} /></label><Button type="button" variant="ghost" onClick={() => setCart((current) => current.filter((row) => row.variantId !== item.variantId))}>{t("orders.remove")}</Button></div>
         </li>)}</ul>}
-        <p className="flex items-center justify-between gap-3"><span className="font-medium">{t("orders.shownTotal")}:</span><strong className="text-xl font-semibold tabular-nums">{currency ? formatCurrency(total, currency, i18n.language) : total.toFixed(2)}</strong></p>
+        <p className="flex items-center justify-between gap-3"><span className="font-medium">{t("orders.shownTotal")}:</span><strong className="text-xl font-semibold tabular-nums">{currency && total !== null ? formatCurrency(total, currency, i18n.language) : "—"}</strong></p>
         {currencies.size > 1 && <p role="alert" className="text-sm text-destructive">{t("orders.currencyMismatch")}</p>}
         <div className="border-t pt-4"><div className="flex items-center justify-between gap-3"><div><p className="text-sm font-medium">{t("orders.customer")}</p><p className="text-sm text-muted-foreground">{contactLabel ?? t("orders.generalPublic")}</p></div><Button type="button" variant="ghost" onClick={() => setEditingCustomer((open) => !open)} aria-expanded={editingCustomer} aria-controls="order-customer-search">{editingCustomer ? t("orders.close") : t("orders.change")}</Button></div>
           {editingCustomer && <div id="order-customer-search" className="mt-4 flex flex-col gap-3"><contactSearch.Form method="get" className="flex gap-2"><label className="min-w-0 flex-1"><span className="sr-only">{t("orders.searchCustomer")}</span><Input name="customerSearch" type="search" placeholder={t("orders.nameOrPhone")} /></label><Button type="submit" variant="outline">{t("orders.search")}</Button></contactSearch.Form><Button type="button" variant={contactId === null ? "secondary" : "ghost"} className="self-start" onClick={() => { setContactId(null); setContactLabel(null); setEditingCustomer(false); }}>{t("orders.generalPublic")}</Button><ul className="divide-y">{contacts.map((contact) => <li key={contact.id} className="flex items-center justify-between gap-2 py-2"><span className="min-w-0 break-words text-sm">{contact.name ? `${contact.name} · ${contact.phone}` : contact.phone}</span><Button type="button" size="sm" variant={contactId === contact.id ? "secondary" : "outline"} onClick={() => { setContactId(contact.id); setContactLabel(contact.name ? `${contact.name} · ${contact.phone}` : contact.phone); setEditingCustomer(false); }}>{t("orders.select")}</Button></li>)}</ul></div>}
@@ -160,7 +169,7 @@ export default function OrderNew() {
           <input type="hidden" name="order" value={JSON.stringify({ id: orderId, contactId,
             items: cart.map(({ variantId, quantity }) => ({ variantId, quantity })),
             payments: payments.map(payment => ({ ...payment, amount: { amount: Number(payment.amount), currency } })),
-            delivery: parsedDelivery?.success ? parsedDelivery.data : undefined, deliverImmediately })} />
+            delivery: parsedDelivery ?? undefined, deliverImmediately })} />
           <section className="flex flex-col gap-3 rounded-md border bg-card p-4" aria-labelledby="new-payments-title">
             <h2 id="new-payments-title" className="text-lg font-semibold">{t("orders.payments")}</h2>
             {payments.length === 0 && <p className="text-sm text-muted-foreground">{t("orders.noInitialPayments")}</p>}
@@ -173,25 +182,28 @@ export default function OrderNew() {
           </section>
           <section className="flex flex-col gap-3 rounded-md border bg-card p-4" aria-labelledby="new-delivery-title">
             <h2 id="new-delivery-title" className="text-lg font-semibold">{t("orders.delivery")}</h2>
-            {initial.settings && (initial.settings.store.enabled || initial.settings.home.enabled || initial.settings.agency.enabled)
+            {initial.settings && (initial.settings.store.enabled || initial.settings.home.enabled || initial.settings.agency.enabled || deliveryEnabled)
               ? <><label className="flex min-h-touch items-center gap-3"><input type="checkbox" checked={deliveryEnabled} onChange={event => setDeliveryEnabled(event.target.checked)} />{t("orders.configureInitialDelivery")}</label>
-                {deliveryEnabled && delivery && <DeliveryFields value={delivery} onChange={setDelivery} settings={initial.settings} pending={navigation.state === "submitting"} />}</>
+                <div hidden={!deliveryEnabled}><RatedDeliveryForm order={{ id: orderId, delivery: null, buyer: null,
+                  itemsTotal: productTotal?.success ? productTotal.data : { amount: 0, currency: "PEN" }, total: productTotal?.success ? productTotal.data : { amount: 0, currency: "PEN" } }}
+                  settings={initial.settings} active={deliveryEnabled} pending={navigation.state !== "idle"} onChange={setDeliveryReview}
+                  recovery={actionData && ["TOTAL_CHANGED", "RATE_UNAVAILABLE", "DELIVERY_METHOD_DISABLED", "COURIER_UNAVAILABLE", "INVALID_DISTRICT"].includes(actionData.code) ? actionData : undefined} /></div></>
               : <div className="flex flex-col gap-2 text-sm"><p className="text-muted-foreground">{t(initial.settings ? "orderDelivery.disabled" : "deliverySettings.loadError")}</p><Link className="text-primary underline underline-offset-4" to={initial.base.replace(/\/orders$/, "/settings/delivery")}>{t("orderDelivery.configure")}</Link></div>}
             <label className="flex min-h-touch items-center gap-3"><input type="checkbox" checked={deliverImmediately} onChange={event => setDeliverImmediately(event.target.checked)} />{t("orders.deliverImmediately")}</label>
             <p className="text-sm text-muted-foreground">{t("orders.immediateRequirements")}</p>
           </section>
           <section className="flex flex-col gap-3 rounded-md border bg-card p-4 lg:col-span-2" aria-labelledby="new-summary-title">
             <h2 id="new-summary-title" className="text-lg font-semibold">{t("orders.creationSummary")}</h2>
-            <p className="text-sm">{t("orders.initialPaid")}: {currency ? formatCurrency(paidAmount, currency, i18n.language) : "—"}</p>
-            <p className="text-sm">{t("orders.estimatedBalance")}: {currency ? formatCurrency(Math.max(0, total - paidAmount), currency, i18n.language) : "—"}</p>
-            {deliveryEnabled && delivery?.charge && <p className="text-sm text-muted-foreground">{t("orders.deliveryChargePending")}</p>}
+            <p className="text-sm">{t("orders.initialPaid")}: {currency && paidAmount !== null ? formatCurrency(paidAmount, currency, i18n.language) : "—"}</p>
+            <p className="text-sm">{t("orders.estimatedBalance")}: {balance?.success ? formatCurrency(Math.max(0, balance.data.amount), balance.data.currency, i18n.language) : "—"}</p>
+            {deliveryEnabled && deliveryReview.price && <p className="text-sm">{t("orderDelivery.cost", { amount: formatCurrency(deliveryReview.price.amount, deliveryReview.price.currency, i18n.language) })}</p>}
             <p className="text-sm text-muted-foreground">{t("orders.finalPriceHint")}</p>
-            <Button type="submit" className="w-full" disabled={!canComplete || (deliveryEnabled && !parsedDelivery?.success) || navigation.state === "submitting"}>{t(navigation.state === "submitting" ? "orders.savingOrder" : "orders.saveOrder")}<ArrowRight aria-hidden="true" data-icon="inline-end" /></Button>
+            <Button type="submit" className="w-full" disabled={!canComplete || (deliveryEnabled && !parsedDelivery) || navigation.state === "submitting"}>{t(navigation.state === "submitting" ? "orders.savingOrder" : "orders.saveOrder")}<ArrowRight aria-hidden="true" data-icon="inline-end" /></Button>
           </section>
         </Form>
-        {actionData?.error && <p role="alert" className="text-sm text-destructive">{t(actionData.code === "INSUFFICIENT_STOCK" ? "orders.insufficientStock" : actionData.code === "ORDER_ALREADY_EXISTS" ? "orders.alreadyExists" : actionData.code === "CONTACT_NOT_FOUND" ? "orders.contactMissing" : actionData.code === "VARIANT_NOT_FOUND" ? "orders.variantMissing" : actionData.code === "CURRENCY_MISMATCH" ? "orders.currencyMismatch" : actionData.code === "PAYMENT_REQUIRED" ? "orders.immediateRequirements" : actionData.code === "DELIVERY_UNAVAILABLE" ? "orderDelivery.unavailable" : actionData.code === "DELIVERY_METHOD_DISABLED" ? "orderDelivery.disabled" : actionData.code === "COURIER_UNAVAILABLE" ? "orderDelivery.courierUnavailable" : actionData.code === "PERSISTENCE_UNAVAILABLE" ? "orders.saveError" : "orders.invalidOrder")}</p>}
+        {actionData?.error && <p role="alert" className="text-sm text-destructive">{t(actionData.code === "INSUFFICIENT_STOCK" ? "orders.insufficientStock" : actionData.code === "ORDER_ALREADY_EXISTS" ? "orders.alreadyExists" : actionData.code === "CONTACT_NOT_FOUND" ? "orders.contactMissing" : actionData.code === "VARIANT_NOT_FOUND" ? "orders.variantMissing" : actionData.code === "CURRENCY_MISMATCH" ? "orders.currencyMismatch" : actionData.code === "PAYMENT_REQUIRED" ? "orders.immediateRequirements" : actionData.code === "TOTAL_CHANGED" ? "orderDelivery.priceChanged" : actionData.code === "RATE_UNAVAILABLE" ? "orderDelivery.rateUnavailable" : actionData.code === "DELIVERY_UNAVAILABLE" ? "orderDelivery.unavailable" : actionData.code === "DELIVERY_METHOD_DISABLED" ? "orderDelivery.disabled" : actionData.code === "COURIER_UNAVAILABLE" ? "orderDelivery.courierUnavailable" : actionData.code === "PERSISTENCE_UNAVAILABLE" ? "orders.saveError" : "orders.invalidOrder")}</p>}
     </div>
-    {cart.length > 0 && !summaryVisible && <div className="fixed inset-x-0 bottom-0 flex items-center justify-between gap-3 border-t bg-card px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:hidden"><div><p className="text-xs text-muted-foreground">{t("orders.shownTotal")}</p><p className="font-semibold tabular-nums">{currency ? formatCurrency(total, currency, i18n.language) : total.toFixed(2)}</p></div><Button asChild variant="outline"><a href="#resumen">{t("orders.review")} <ArrowRight aria-hidden="true" data-icon="inline-end" /></a></Button></div>}
+    {cart.length > 0 && !summaryVisible && <div className="fixed inset-x-0 bottom-0 flex items-center justify-between gap-3 border-t bg-card px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:hidden"><div><p className="text-xs text-muted-foreground">{t("orders.shownTotal")}</p><p className="font-semibold tabular-nums">{currency && total !== null ? formatCurrency(total, currency, i18n.language) : "—"}</p></div><Button asChild variant="outline"><a href="#resumen">{t("orders.review")} <ArrowRight aria-hidden="true" data-icon="inline-end" /></a></Button></div>}
   </section>;
 }
 

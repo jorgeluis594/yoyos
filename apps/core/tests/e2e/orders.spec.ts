@@ -253,31 +253,68 @@ test("new order saves partial payments, paid pending delivery and configured del
     expect(product.success).toBe(true);
     expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 0, home: { enabled: true },
       store: { enabled: false, pickupPoint: null }, agency: { enabled: false }, couriers: [] } })).ok()).toBe(true);
+    expect((await page.request.put("/api/delivery-settings/zones", { data: { method: "home", expectedVersion: 1,
+      zones: [{ kind: "new", name: "Creation zone", enabled: true, districtCodes: ["040110"], price: { amount: 3, currency: "PEN" } }] } })).ok()).toBe(true);
     for (const scenario of ["partial", "paid", "delivery", "no-stock"] as const) {
       if (scenario === "no-stock") await withTenantIsolation(companyId, async () => await prisma.productStock.updateMany({ data: { quantity: 0n } }));
       await page.goto("/es-PE/orders/new");
       await page.getByRole("button", { name: "Agregar Agenda" }).click();
       if (scenario !== "no-stock") {
         await page.getByRole("button", { name: "Agregar pago" }).click();
-        await page.getByLabel("Importe recibido").fill(scenario === "partial" ? "5" : "10");
+        await page.getByLabel("Importe recibido").fill(scenario === "partial" ? "0.1" : "10");
       } else await browserExpect(page.getByText(/Disponible: 0/)).toBeVisible();
+      if (scenario === "partial") {
+        await page.getByRole("button", { name: "Agregar pago" }).click();
+        await page.getByLabel("Importe recibido").nth(1).fill("0.7");
+        await browserExpect(page.getByText(`Saldo referencial: ${formatCurrency(9.2, "PEN", "es")}`, { exact: true })).toBeVisible();
+      }
       if (scenario === "delivery") {
         await page.getByRole("button", { name: "Agregar pago" }).click();
         await page.getByLabel("Importe recibido").nth(1).fill("3");
         await page.getByLabel("Configurar datos de entrega").check();
-        await page.locator("#delivery-address").fill("Av. Lima 123");
-        await page.locator("#delivery-district").fill("Lima");
-        await page.locator("#delivery-instructions").fill("Puerta 2");
-        await page.locator("#recipient-name").fill("Unavailable");
-        await page.locator("#recipient-phone").fill("999001");
-        await page.getByRole("checkbox", { name: /cobrar|cargar/i }).check();
+        await page.getByLabel("Dirección de entrega", { exact: true }).fill("Av. Lima 123");
+        await page.getByLabel("Departamento", { exact: true }).selectOption("04");
+        await page.getByLabel("Provincia", { exact: true }).selectOption("0401");
+        await page.getByLabel("Distrito", { exact: true }).selectOption("040110");
+        const tariff = page.getByLabel("Tarifa de entrega", { exact: true });
+        await browserExpect(tariff.locator("option")).toHaveCount(2);
+        let rateId = await tariff.locator("option").nth(1).getAttribute("value");
+        if (!rateId) throw new Error("Expected delivery rate");
+        await tariff.selectOption(rateId);
+        await page.getByLabel("Distrito", { exact: true }).selectOption("040101");
+        await browserExpect(page.getByRole("status").filter({ hasText: "No hay tarifas para esta modalidad y distrito." })).toBeVisible();
+        await browserExpect(page.locator("#resumen strong")).toHaveText("—");
+        await browserExpect(page.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
+        await page.getByLabel("Distrito", { exact: true }).selectOption("040110");
+        await browserExpect(tariff.locator("option")).toHaveCount(2);
+        await browserExpect(tariff).toHaveValue("");
+        const reselectedRate = await tariff.locator("option").nth(1).getAttribute("value");
+        if (!reselectedRate) throw new Error("Expected new quotation after district change");
+        expect(reselectedRate).not.toBe(rateId);
+        rateId = reselectedRate;
+        await tariff.selectOption(rateId);
+        await page.getByLabel("Indicaciones de entrega (opcional)").fill("Puerta 2");
+        await page.getByLabel("Nombre del destinatario").fill("Ana");
+        await page.getByLabel("Teléfono del destinatario").fill("999001");
+        await browserExpect(page.locator("#resumen strong")).toHaveText(formatCurrency(13, "PEN", "es"));
         const countBefore = await withTenantIsolation(companyId, async () => await prisma.order.count());
+        const stateBefore = await (await page.request.get("/api/delivery-settings/zones")).json();
+        expect((await page.request.put("/api/delivery-settings/zones", { data: { method: "home", expectedVersion: stateBefore.version,
+          zones: stateBefore.zones.map((zone: { id: string; name: string; enabled: boolean; districtCodes: string[] }) => ({ ...zone, method: undefined, kind: "existing", price: { amount: 4, currency: "PEN" } })) } })).ok()).toBe(true);
         await page.getByRole("button", { name: "Guardar pedido" }).click();
-        await browserExpect(page.getByRole("alert")).toBeVisible();
+        await browserExpect(page.getByRole("alert")).toContainText("La tarifa cambió");
         expect(await withTenantIsolation(companyId, async () => await prisma.order.count())).toBe(countBefore);
-        await browserExpect(page.locator("#delivery-address")).toHaveValue("Av. Lima 123");
+        await browserExpect(page.getByLabel("Dirección de entrega", { exact: true })).toHaveValue("Av. Lima 123");
         await browserExpect(page.getByLabel("Importe recibido").nth(1)).toHaveValue("3");
-        await page.locator("#recipient-name").fill("Ana");
+        await browserExpect(tariff).toHaveValue("");
+        await browserExpect(page.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
+        await browserExpect(tariff.locator("option")).toHaveCount(2);
+        const refreshedRate = await tariff.locator("option").nth(1).getAttribute("value");
+        if (!refreshedRate) throw new Error("Expected refreshed rate");
+        expect(refreshedRate).not.toBe(rateId);
+        await tariff.selectOption(refreshedRate);
+        await page.getByLabel("Importe recibido").nth(1).fill("4");
+        await browserExpect(page.locator("#resumen strong")).toHaveText(formatCurrency(14, "PEN", "es"));
         await page.setViewportSize({ width: 1280, height: 900 });
         await page.screenshot({ path: "test-results/order-new-desktop.png", fullPage: true });
         await page.setViewportSize({ width: 390, height: 844 });
@@ -291,10 +328,10 @@ test("new order saves partial payments, paid pending delivery and configured del
       expect(order).toMatchObject({ deliveryStatus: "pending", completedAt: null,
         stockDeducted: scenario === "paid" || scenario === "delivery",
         paymentStatus: scenario === "paid" || scenario === "delivery" ? "paid" : "pending",
-        balanceDue: { amount: scenario === "partial" ? 5 : scenario === "no-stock" ? 10 : 0 } });
-      if (scenario === "delivery") expect(order).toMatchObject({ total: { amount: 13 }, deliveryCharge: { amount: 3 },
-        payments: expect.arrayContaining([expect.objectContaining({ amount: { amount: 10, currency: "PEN" } }), expect.objectContaining({ amount: { amount: 3, currency: "PEN" } })]),
-        delivery: { recipient: { name: "Ana", phone: "999001" }, destination: { address: "Av. Lima 123", district: "Lima", instructions: "Puerta 2" } } });
+        balanceDue: { amount: scenario === "partial" ? 9.2 : scenario === "no-stock" ? 10 : 0 } });
+      if (scenario === "delivery") expect(order).toMatchObject({ total: { amount: 14 }, deliveryCharge: { amount: 4 },
+        payments: expect.arrayContaining([expect.objectContaining({ amount: { amount: 10, currency: "PEN" } }), expect.objectContaining({ amount: { amount: 4, currency: "PEN" } })]),
+        delivery: { recipient: { name: "Ana", phone: "999001" }, destination: { address: "Av. Lima 123", district: "MIRAFLORES", districtCode: "040110", instructions: "Puerta 2" } } });
       if (scenario === "no-stock") expect(await withTenantIsolation(companyId, async () => await prisma.productStock.findFirst())).toMatchObject({ quantity: 0n });
     }
   } finally {
@@ -302,6 +339,8 @@ test("new order saves partial payments, paid pending delivery and configured del
     if (user?.companyId) await withTenantIsolation(user.companyId, async () => {
       await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
       await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+      await prisma.deliveryRate.deleteMany(); await prisma.quotation.deleteMany();
+      await prisma.deliveryZoneDistrict.deleteMany(); await prisma.deliveryZone.deleteMany();
       await prisma.companyDeliverySettings.deleteMany();
     });
     await systemPrisma.user.deleteMany({ where: { email } });
