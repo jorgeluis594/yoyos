@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { expect, test } from "vitest";
 import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
-import { ensureWhatsAppContact } from "@core/src/features/contacts/application/ensure-whatsapp-contact";
-import { contactRepository, whatsappContactRepository, findContactById, searchSaleContacts } from "@core/src/features/contacts/infrastructure/contact-repository";
+import { ensureWhatsAppContact } from "@core/src/features/contacts";
+import { contactRepository, findContactById, searchSaleContacts } from "@core/src/features/contacts/infrastructure/contact-repository";
 import { chatRepository } from "@core/src/features/chats/infrastructure/chat-repository";
 import { createOrderInTransaction } from "@core/src/features/orders/application/create-order";
 import { ok } from "@shared/functional";
@@ -21,22 +21,27 @@ test("LID contacts remain tenant scoped and cannot become sale buyers without a 
   });
   try {
     for (const id of [companyA, companyB]) await withTenantIsolation(id, async () => await prisma.company.create({ data: { id, name: "LID test", country: "PE" } }));
-    expect(await withTenantIsolation(companyA, () => ensureWhatsAppContact({ companyId: companyA, whatsappAccountId: "123@c.us", whatsappLid: lid }, whatsappContactRepository)))
+    expect(await withTenantIsolation(companyA, () => ensureWhatsAppContact({ companyId: companyA, whatsappAccountId: "123@c.us", whatsappLid: lid })))
       .toMatchObject({ success: false, error: { code: "INVALID_CONTACT" } });
-    const first = await withTenantIsolation(companyA, () => ensureWhatsAppContact({ companyId: companyA, whatsappAccountId: account, whatsappLid: lid }, whatsappContactRepository));
+    const first = await withTenantIsolation(companyA, () => ensureWhatsAppContact({ companyId: companyA, whatsappAccountId: account, whatsappLid: lid }));
     expect(first).toMatchObject({ success: true, data: { phone: null, name: null, whatsappAccountId: account, whatsappLid: lid } });
     if (!first.success) return;
-    expect(await withTenantIsolation(companyA, () => ensureWhatsAppContact({ companyId: companyA, whatsappAccountId: account, whatsappLid: lid }, whatsappContactRepository)))
+    expect(await withTenantIsolation(companyA, () => ensureWhatsAppContact({ companyId: companyA, whatsappAccountId: account, whatsappLid: lid })))
       .toMatchObject({ success: true, data: { id: first.data.id } });
-    expect(await withTenantIsolation(companyA, () => ensureWhatsAppContact({ companyId: companyA, whatsappAccountId: "789@lid", whatsappLid: lid }, whatsappContactRepository)))
+    expect(await withTenantIsolation(companyA, () => ensureWhatsAppContact({ companyId: companyA, whatsappAccountId: "789@lid", whatsappLid: lid })))
       .toMatchObject({ success: true, data: { phone: null } });
-    const other = await withTenantIsolation(companyB, () => ensureWhatsAppContact({ companyId: companyB, whatsappAccountId: account, whatsappLid: lid }, whatsappContactRepository));
+    const named = await withTenantIsolation(companyA, async () => await prisma.contact.create({ data: { phone: "+51912345678", name: "Existing name", whatsappAccountId: "333@lid", whatsappLid: lid } }));
+    expect(await withTenantIsolation(companyA, () => ensureWhatsAppContact({ companyId: companyA, whatsappAccountId: "333@lid", whatsappLid: lid })))
+      .toMatchObject({ success: true, data: { id: named.id, phone: named.phone, name: named.name } });
+    expect(await withTenantIsolation(companyA, async () => await prisma.contact.findUnique({ where: { id: named.id } })))
+      .toMatchObject({ phone: "+51912345678", name: "Existing name", whatsappAccountId: "333@lid", whatsappLid: lid });
+    const other = await withTenantIsolation(companyB, () => ensureWhatsAppContact({ companyId: companyB, whatsappAccountId: account, whatsappLid: lid }));
     expect(other).toMatchObject({ success: true, data: { phone: null } });
     if (other.success) expect(other.data.id).not.toBe(first.data.id);
     await withTenantIsolation(companyA, async () => {
-      expect(await prisma.contact.count()).toBe(2);
+      expect(await prisma.contact.count()).toBe(3);
       expect(await findContactById(first.data.id)).toEqual({ success: true, data: null });
-      expect(await searchSaleContacts("")).toEqual({ success: true, data: [] });
+      expect(await searchSaleContacts("")).toMatchObject({ success: true, data: [{ id: named.id, phone: named.phone }] });
       const orderInput = { id: randomUUID(), contactId: first.data.id, items: [{ variantId: randomUUID(), quantity: 1 }] } as unknown as Parameters<typeof createOrderInTransaction>[0];
       const orderAccess = { companyId: companyA, userId: "seller" } as unknown as Parameters<typeof createOrderInTransaction>[1];
       expect(await createOrderInTransaction(orderInput, orderAccess, {

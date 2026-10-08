@@ -1,7 +1,7 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { validRecordMessage, type Chat, type ChatMessage, type RecordMessageError, type RecordMessageOutcome, type RecordMessageInput, type MessageOrigin, type CloudMessageImage } from "@core/src/features/chats/domain/message";
-import type { PhoneContact } from "@core/src/features/contacts/domain/contact";
+import type { PhoneContact } from "@core/src/features/contacts";
 
 export type NewChatMessage = Readonly<{ chatId: string; externalId: string; origin: MessageOrigin; sentAt: Date; receivedAt: Date; content:
   | Readonly<{ type: "text"; text: string }>

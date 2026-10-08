@@ -16,13 +16,16 @@ function isPersistenceFailure(cause: unknown) {
 type ContactRow = { id: string; phone: string | null; whatsappAccountId: string | null; whatsappLid: string | null; name: string | null; createdAt: Date; updatedAt: Date };
 
 function mapPhoneContact(contact: ContactRow): PhoneContact | null {
-  const validPair = (contact.whatsappAccountId === null && contact.whatsappLid === null)
-    || (contact.whatsappAccountId !== null && contact.whatsappLid !== null
-      && validWhatsAppLid(contact.whatsappAccountId) && validWhatsAppLid(contact.whatsappLid));
-  return contact.phone && normalizePhone(contact.phone) && validPair ? { ...contact, phone: contact.phone } : null;
+  if (!contact.phone || !normalizePhone(contact.phone)) return null;
+  if (contact.whatsappAccountId === null && contact.whatsappLid === null)
+    return { ...contact, phone: contact.phone, whatsappAccountId: null, whatsappLid: null };
+  if (contact.whatsappAccountId && contact.whatsappLid
+    && validWhatsAppLid(contact.whatsappAccountId) && validWhatsAppLid(contact.whatsappLid))
+    return { ...contact, phone: contact.phone, whatsappAccountId: contact.whatsappAccountId, whatsappLid: contact.whatsappLid };
+  return null;
 }
 
-function mapWhatsAppContact(contact: ContactRow): WhatsAppContact | null {
+export function mapWhatsAppContact(contact: ContactRow): WhatsAppContact | null {
   return (contact.phone === null || normalizePhone(contact.phone)) && contact.whatsappAccountId && contact.whatsappLid
     && validWhatsAppLid(contact.whatsappAccountId) && validWhatsAppLid(contact.whatsappLid)
     ? { ...contact, whatsappAccountId: contact.whatsappAccountId, whatsappLid: contact.whatsappLid } : null;
