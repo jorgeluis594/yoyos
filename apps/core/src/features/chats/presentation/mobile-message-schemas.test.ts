@@ -35,7 +35,7 @@ test("checks LID and native identity encoding against the exact tuple", () => {
   for (const accountId of ["1@s.whatsapp.net", "1@g.us", "1:2@lid", 1, "1".repeat(125) + "@lid"]) {
     expect(valid({ ...base, message: { ...base.message, accountId } })).toBe(false);
   }
-  for (const id of ["x", "wa-message:v1:", "wa-message:v1:!!!", "wa-message:v1:_w", nativeId("3@lid"), nativeId("1@lid", "2@lid", "ABCx"),
+  for (const id of ["x", "wa-message:v1:", "wa-message:v1:!!!", "wa-message:v1:_w", `${nativeId().slice(0, -1)}1`, nativeId("3@lid"), nativeId("1@lid", "2@lid", "ABCx"),
     `wa-message:v1:${Buffer.from('["1@lid","2@lid","ABC","extra"]').toString("base64url")}`,
     `wa-message:v1:${Buffer.from([0xff]).toString("base64url")}`,
     `wa-message:v1:${Buffer.from("{").toString("base64url")}`,
