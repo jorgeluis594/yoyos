@@ -51,7 +51,8 @@ test("confirmed duplicate skips dispatch; pending duplicate uses the original ro
 });
 
 test("dispatch and marker failures leave registration unsuccessful and allow identical retry", async () => {
-  const deps = dependencies();
+  const deps = dependencies(false);
+  deps.now = () => new Date("2026-10-09T12:00:00.456Z");
   deps.dispatchMessageRecorded.mockResolvedValueOnce(err({ code: "EVENT_BUS_UNAVAILABLE", message: "Unavailable" }));
   expect(await registerMobileMessage(input, context, deps)).toMatchObject({ success: false, error: { code: "EVENT_BUS_UNAVAILABLE" } });
   expect(deps.markEventDispatched).not.toHaveBeenCalled();
@@ -59,7 +60,9 @@ test("dispatch and marker failures leave registration unsuccessful and allow ide
   expect(await registerMobileMessage(input, context, deps)).toEqual(err(failure));
   expect(await registerMobileMessage(input, context, deps)).toMatchObject({ success: true, data: { eventId: messageId } });
   expect(deps.dispatchMessageRecorded.mock.calls).toHaveLength(3);
-  expect(deps.dispatchMessageRecorded.mock.calls.every(([payload, metadata]) => payload.messageId === messageId && metadata.eventId === messageId)).toBe(true);
+  for (const call of deps.dispatchMessageRecorded.mock.calls) expect(call).toEqual([
+    { companyId, messageId }, { eventId: messageId, occurredAt: receivedAt.toISOString() },
+  ]);
 });
 
 test("rejects a stored row from another tenant and propagates unexpected exceptions", async () => {
