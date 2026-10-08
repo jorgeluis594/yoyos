@@ -276,6 +276,7 @@ test("new order selects one overlapping home rate and reviews the full charge wi
   expect(screen.getByText(/Productos:\sS\/\s10\.00/)).toBeTruthy();
   expect(screen.getByText(/Entrega:\sS\/\s12\.00/)).toBeTruthy();
   expect(screen.getByText(/Total:\sS\/\s22\.00/)).toBeTruthy();
+  expect(screen.getByText(/Saldo referencial:\sS\/\s22\.00/)).toBeTruthy();
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
   fireEvent.changeText(screen.getByLabelText(/Dirección de entrega/), "Calle nueva");
   fireEvent.changeText(screen.getByLabelText(/Nombre del destinatario/), "Recipient");

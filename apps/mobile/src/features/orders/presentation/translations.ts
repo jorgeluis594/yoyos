@@ -15,7 +15,7 @@ export const translations = {
     saveError: "No se pudo actualizar el pedido. Inténtalo de nuevo.",
   },
 
-    initialPaid: "Pagos ingresados", estimatedBalance: "Saldo referencial de productos", deliveryChargePending: "El cargo de entrega se calculará y añadirá al guardar.",
+    initialPaid: "Pagos ingresados", estimatedBalance: "Saldo referencial", deliveryChargePending: "El cargo de entrega se calculará y añadirá al guardar.",
     saveOrder: "Guardar pedido", noInitialPayments: "Sin pagos. El pedido quedará pendiente de pago.", addInitialPayment: "Agregar pago", initialPayment: "Pago {{number}}",
     configureInitialDelivery: "Configurar datos de entrega", deliverImmediately: "Marcar como entregado al guardar",
     immediateRequirements: "Para marcar entregado, los pagos deben cubrir el total y debe haber stock suficiente.",
@@ -191,7 +191,7 @@ export const translations = {
     saveError: "Não foi possível atualizar o pedido. Tente novamente.",
   },
 
-    initialPaid: "Pagamentos informados", estimatedBalance: "Saldo estimado dos produtos", deliveryChargePending: "O valor da entrega será calculado e adicionado ao salvar.",
+    initialPaid: "Pagamentos informados", estimatedBalance: "Saldo estimado", deliveryChargePending: "O valor da entrega será calculado e adicionado ao salvar.",
     saveOrder: "Salvar pedido", noInitialPayments: "Sem pagamentos. O pedido ficará pendente de pagamento.", addInitialPayment: "Adicionar pagamento", initialPayment: "Pagamento {{number}}",
     configureInitialDelivery: "Configurar dados de entrega", deliverImmediately: "Marcar como entregue ao salvar",
     immediateRequirements: "Para marcar entregue, os pagamentos devem cobrir o total e deve haver estoque suficiente.",
