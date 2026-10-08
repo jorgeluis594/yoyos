@@ -168,6 +168,44 @@ class StateStoreInstrumentedTest {
     assertThrows(Exception::class.java) { makeStore(root).open() }
   }
 
+  @Test fun malformedEnvelopeNeverPromotesTemporaryOrCreatesEmptyState() {
+    for (mutate in listOf<(ByteArray) -> ByteArray>(
+      { it.copyOf().also { bytes -> bytes[0] = 0 } },
+      { it.copyOf().also { bytes -> java.nio.ByteBuffer.wrap(bytes, 8, 4).putInt(4097) } },
+      { it.copyOf().also { bytes -> java.nio.ByteBuffer.wrap(bytes, 8, 4).putInt(Int.MAX_VALUE) } },
+      { it.copyOfRange(0, it.size - 1) },
+      { it + 0.toByte() },
+      { it.copyOf().also { bytes -> bytes[bytes.lastIndex] = (bytes.last().toInt() xor 1).toByte() } },
+    )) {
+      val root = freshRoot
+      makeStore(root).open()
+      val file = File(directory(root), "state.bin")
+      file.writeBytes(mutate(file.readBytes()))
+      assertThrows(Exception::class.java) { makeStore(root).open() }
+      assertEquals(true, file.exists())
+    }
+  }
+
+  @Test fun invalidStateDoesNotAdvancePublishedRevision() {
+    val root = freshRoot
+    val store = makeStore(root)
+    store.open()
+    val invalid = listOf<(org.json.JSONObject) -> Unit>(
+      { it.getJSONObject("options").put("maxRecoveryBufferBytes", 0) },
+      { it.getJSONObject("options").put("maxRecoveryBufferBytes", 1.5) },
+      { it.getJSONObject("options").put("maxRecoveryBufferBytes", "100") },
+      { it.getJSONObject("options").put("maxRecoveryBufferBytes", 9007199254740992L) },
+      { it.put("unexpected", true) },
+      { it.getJSONArray("pending").put(org.json.JSONObject().put("deliveryId", "wrong")) },
+    )
+    for (mutate in invalid) {
+      assertThrows(Exception::class.java) { store.commit("0") { next -> mutate(next); next } }
+      assertEquals("0", currentRevision(root))
+      assertEquals("0", currentRevision(root))
+      makeStore(root).open()
+    }
+  }
+
   private fun currentRevision(root: File): String {
     val bytes = File(directory(root), "state.bin").readBytes()
     val length = java.nio.ByteBuffer.wrap(bytes, 8, 4).int

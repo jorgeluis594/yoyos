@@ -136,9 +136,9 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
       val requested = next.getJSONObject("options").getLong("maxRecoveryBufferBytes")
       val record = readRecord() ?: throw StateFailure("SESSION_STATE_INVALID")
       val nextBound = maxOf(readBudget, requested)
+      validateState(next, revision + BigInteger.ONE, nextBound, !sessionUsable && next.opt("session")?.toString() == old.opt("session")?.toString())
       writeRecord(record.put("readBudget", nextBound).put("preparedRevision", (revision + BigInteger.ONE).toString()))
       readBudget = nextBound
-      validateState(next, revision + BigInteger.ONE, readBudget, !sessionUsable && next.opt("session")?.toString() == old.opt("session")?.toString())
       publish(next, revision + BigInteger.ONE)
       current = next
       return JSONObject(next.toString())
@@ -314,7 +314,8 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     exact(options, "maxRecoveryBufferBytes", "maxImageStorageBytes")
     for (key in listOf("maxRecoveryBufferBytes", "maxImageStorageBytes")) {
       val value = options.get(key)
-      if (value !is Number || value.toString().contains('.') || value.toLong() !in 1L..9007199254740991L) throw StateFailure("SESSION_STATE_INVALID")
+      val number = value.toString().toLongOrNull()
+      if (value !is Number || !Regex("[1-9][0-9]*").matches(value.toString()) || number == null || number !in 1L..9007199254740991L) throw StateFailure("SESSION_STATE_INVALID")
     }
     val service = state.optJSONObject("androidService")
     if (service != null) {
@@ -410,6 +411,11 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
       val reference = image.getJSONObject("reference")
       exact(reference, "messageId", "downloadReference")
       if (reference.getString("messageId") != id || reference.getString("downloadReference").isEmpty()) throw StateFailure("SESSION_STATE_INVALID")
+      if (image.has("mimeType") && image.get("mimeType") !is String) throw StateFailure("SESSION_STATE_INVALID")
+      if (image.has("size")) {
+        val size = image.get("size")
+        if (size !is Number || !Regex("0|[1-9][0-9]*").matches(size.toString()) || size.toString().toLongOrNull()?.let { it <= 9007199254740991L } != true) throw StateFailure("SESSION_STATE_INVALID")
+      }
     }
   }
 

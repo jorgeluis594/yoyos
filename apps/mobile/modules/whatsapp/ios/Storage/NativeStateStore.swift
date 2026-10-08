@@ -51,7 +51,7 @@ public final class NativeStateStore {
     guard var record = try readRecord() else {
       let hasPublished = try existsChecked(published)
       let hasTemporary = try existsChecked(temporary)
-      if hasPublished || hasTemporary { throw StateStoreError.invalid }
+      if hasPublished || hasTemporary || (try keychain.hasAnyItems()) { throw StateStoreError.invalid }
       if existed && !(try FileManager.default.contentsOfDirectory(atPath: directory.path)).isEmpty { throw StateStoreError.invalid }
       return try create()
     }
@@ -94,11 +94,11 @@ public final class NativeStateStore {
     guard let options = next["options"] as? [String: Any], let requested = Self.safeInt(options["maxRecoveryBufferBytes"]) else { throw StateStoreError.invalid }
     guard var record = try readRecord() else { throw StateStoreError.invalid }
     let nextBound = max(readBudget, requested)
+    try validate(next, revision: revision + 1, bound: nextBound, allowSessionFailure: !sessionUsable && (try Self.json(next["session"] ?? NSNull())) == (try Self.json(old["session"] ?? NSNull())))
     record["readBudget"] = nextBound
     record["preparedRevision"] = String(revision + 1)
     try writeRecord(record)
     readBudget = nextBound
-    try validate(next, revision: revision + 1, bound: readBudget, allowSessionFailure: !sessionUsable && (try Self.json(next["session"] ?? NSNull())) == (try Self.json(old["session"] ?? NSNull())))
     try publish(next, revision: revision + 1)
     state = next
     return next
@@ -346,6 +346,10 @@ public final class NativeStateStore {
       try exact(reference, ["messageId", "downloadReference"])
       guard reference["messageId"] as? String == id,
             let opaque = reference["downloadReference"] as? String, !opaque.isEmpty else { throw StateStoreError.invalid }
+      if image["mimeType"] != nil && !(image["mimeType"] is String) { throw StateStoreError.invalid }
+      if image["size"] != nil {
+        guard let size = safeInt(image["size"]), size >= 0, size <= 9_007_199_254_740_991 else { throw StateStoreError.invalid }
+      }
     }
   }
 
@@ -495,6 +499,18 @@ private final class StateKeychain {
     guard status == errSecSuccess else { throw StateStoreError.storage }
     guard let data = result as? Data else { throw StateStoreError.invalid }
     return data
+  }
+  func hasAnyItems() throws -> Bool {
+    let request: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                  kSecAttrService as String: service,
+                                  kSecMatchLimit as String: kSecMatchLimitOne,
+                                  kSecReturnAttributes as String: true,
+                                  kSecUseDataProtectionKeychain as String: true]
+    var result: CFTypeRef?
+    let status = SecItemCopyMatching(request as CFDictionary, &result)
+    if status == errSecItemNotFound { return false }
+    guard status == errSecSuccess else { throw StateStoreError.storage }
+    return true
   }
   func put(_ id: String, data: Data) throws {
     let existing = try self.data(id)

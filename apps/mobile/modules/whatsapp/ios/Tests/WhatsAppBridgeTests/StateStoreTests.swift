@@ -179,4 +179,50 @@ final class StateStoreTests: XCTestCase {
     try data.write(to: file)
     XCTAssertThrowsError(try makeStore(root).open())
   }
+
+  func testMalformedEnvelopeDoesNotBecomeEmptyInstall() throws {
+    let mutations: [(inout Data) -> Void] = [
+      { $0[0] = 0 },
+      { $0.replaceSubrange(8..<12, with: [0, 0, 16, 1]) },
+      { $0.replaceSubrange(8..<12, with: [127, 255, 255, 255]) },
+      { $0.removeLast() },
+      { $0.append(0) },
+      { $0[$0.count - 1] ^= 1 },
+    ]
+    for mutate in mutations {
+      let root = try temporaryDirectory()
+      defer { try? FileManager.default.removeItem(at: root) }
+      _ = try makeStore(root).open()
+      let file = root.appendingPathComponent("whatsapp/state.bin")
+      var data = try Data(contentsOf: file)
+      mutate(&data)
+      try data.write(to: file)
+      XCTAssertThrowsError(try makeStore(root).open())
+      XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+    }
+  }
+
+  func testInvalidStateDoesNotAdvancePublishedRevision() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let store = try makeStore(root)
+    _ = try store.open()
+    let invalid: [([String: Any]) -> [String: Any]] = [
+      { var state = $0; state["options"] = ["maxRecoveryBufferBytes": 0, "maxImageStorageBytes": 1]; return state },
+      { var state = $0; state["options"] = ["maxRecoveryBufferBytes": 1.5, "maxImageStorageBytes": 1]; return state },
+      { var state = $0; state["options"] = ["maxRecoveryBufferBytes": "100", "maxImageStorageBytes": 1]; return state },
+      { var state = $0; state["options"] = ["maxRecoveryBufferBytes": 9_007_199_254_740_992, "maxImageStorageBytes": 1]; return state },
+      { var state = $0; state["unexpected"] = true; return state },
+      { var state = $0; state["pending"] = [["deliveryId": "wrong"]]; return state },
+    ]
+    for mutate in invalid {
+      XCTAssertThrowsError(try store.commit(expectedRevision: "0", change: mutate))
+      let file = root.appendingPathComponent("whatsapp/state.bin")
+      let bytes = try Data(contentsOf: file)
+      let length = bytes[8..<12].reduce(0) { ($0 << 8) | Int($1) }
+      let header = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes[12..<12+length]) as? [String: Any])
+      XCTAssertEqual(header["revision"] as? String, "0")
+      XCTAssertNoThrow(try makeStore(root).open())
+    }
+  }
 }
