@@ -951,16 +951,21 @@ final class StateStoreTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: root) }
     let writer = try makeStore(root)
     _ = try writer.open()
-    try writer.beginSession(accountId: "123@lid", protocolBytes: Data("{\"protocolSchemaVersion\":1,\"records\":[]}".utf8))
-    try writer.registerGeneration("generation", accountId: "123@lid")
+    try writer.registerFreshGeneration("generation")
     func response(_ raw: String) throws -> [String: Any] {
       try XCTUnwrap(JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
     }
-    let value = Data("{\"version\":1,\"nextId\":1,\"uploadedThrough\":0}".utf8).base64EncodedString()
+    func b64(_ value: Data) -> String { value.base64EncodedString() }
+    let account = Data([10, 2, 8, 1, 18, 32]) + Data(repeating: 1, count: 32) +
+      Data([26, 64]) + Data(repeating: 1, count: 64) + Data([34, 64]) + Data(repeating: 1, count: 64)
+    let value = "{\"version\":1,\"noisePrivateKey\":\"\(b64(Data(repeating: 1, count: 32)))\",\"identityPrivateKey\":\"\(b64(Data(repeating: 2, count: 32)))\",\"signedPreKeyPrivate\":\"\(b64(Data(repeating: 3, count: 32)))\",\"signedPreKeyId\":7,\"signedPreKeySignature\":\"\(b64(Data(repeating: 4, count: 64)))\",\"registrationId\":9,\"advSecretKey\":\"\(b64(Data(repeating: 1, count: 32)))\",\"id\":\"123:2@s.whatsapp.net\",\"lid\":\"123:2@lid\",\"account\":\"\(b64(account))\",\"platform\":\"\",\"businessName\":\"\",\"pushName\":\"\",\"facebookUuid\":\"\",\"lidMigrationTimestamp\":0,\"companionMetaNonce\":\"\"}"
+    let first = "{\"contractVersion\":1,\"generationId\":\"generation\",\"accountId\":\"123@lid\",\"device\":{\"recordType\":\"device\",\"recordKey\":\"W10\",\"valueBase64\":\"\(b64(Data(value.utf8)))\"}}"
+    XCTAssertEqual(try response(writer.beginFreshProtocolSession(first))["success"] as? Bool, true)
+    let prekeyState = Data("{\"version\":1,\"nextId\":1,\"uploadedThrough\":0}".utf8).base64EncodedString()
     func request(_ generation: String, _ expected: String) throws -> String {
       let body: [String: Any] = ["contractVersion": 1, "generationId": generation, "accountId": "123@lid",
         "expectedSessionRevision": expected, "protocolChanges": [["operation": "put", "recordType": "prekey-state",
-          "recordKey": "W10", "valueBase64": value]], "pendingInserts": [Any](), "pendingIdentityUpdates": [Any]()]
+          "recordKey": "W10", "valueBase64": prekeyState]], "pendingInserts": [Any](), "pendingIdentityUpdates": [Any]()]
       return try XCTUnwrap(String(data: JSONSerialization.data(withJSONObject: body), encoding: .utf8))
     }
     XCTAssertEqual(try response(writer.applyProtocolChanges(request("other", "1")))["success"] as? Bool, false)
@@ -970,7 +975,7 @@ final class StateStoreTests: XCTestCase {
     let read = try response(disk.readProtocolState("{\"contractVersion\":1}"))
     let data = try XCTUnwrap(read["data"] as? [String: Any])
     let session = try XCTUnwrap(data["session"] as? [String: Any])
-    XCTAssertEqual((session["records"] as? [[String: Any]])?.count, 1)
+    XCTAssertEqual((session["records"] as? [[String: Any]])?.count, 2)
     XCTAssertEqual(data["sessionRevision"] as? String, "2")
     let invalidPrekey: [String: Any] = ["operation": "put", "recordType": "prekey", "recordKey": "WyIwMSJd",
       "valueBase64": "eyJ2ZXJzaW9uIjoxfQ=="]

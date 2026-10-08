@@ -2,11 +2,30 @@
 package bridge
 
 import (
+	"encoding/base64"
 	"encoding/json"
 
 	"yoyos-whatsapp/internal"
+	"yoyos-whatsapp/internal/protocolstate"
 	"yoyos-whatsapp/internal/protocolstore"
 )
+
+// ValidateProtocolChange is pure and may be called by native before taking its writer lock.
+func ValidateProtocolChange(operation, recordType, recordKey, valueBase64 string) bool {
+	if operation == "delete" {
+		_, err := protocolstate.DecodeKey(recordType, recordKey)
+		return err == nil && recordType != "device" && valueBase64 == ""
+	}
+	if operation != "put" {
+		return false
+	}
+	value, err := base64.StdEncoding.DecodeString(valueBase64)
+	if err != nil || base64.StdEncoding.EncodeToString(value) != valueBase64 {
+		return false
+	}
+	_, err = protocolstate.Encode([]protocolstate.Record{{RecordType: recordType, RecordKey: recordKey, ValueBase64: valueBase64}})
+	return err == nil
+}
 
 // Storage is implemented by the native platform and called synchronously by Go.
 type Storage interface {

@@ -3,6 +3,7 @@ import CryptoKit
 import Security
 import CoreFoundation
 import Darwin
+import WhatsAppGo
 
 public enum StateStoreError: Error {
   case invalid
@@ -220,6 +221,7 @@ public final class NativeStateStore {
       try Self.exact(device, ["recordType", "recordKey", "valueBase64"])
       var change = device; change["operation"] = "put"
       try Self.validateProtocolChange(change)
+      guard YYWhatsAppGoBridgeValidateProtocolChange("put", "device", device["recordKey"] as? String ?? "", device["valueBase64"] as? String ?? "") else { throw StateStoreError.invalidRequest }
       guard let encoded = device["valueBase64"] as? String,
             let value = Self.decode(encoded, max: Self.maxSession),
             let body = try? Self.parseObject(value), let lid = body["lid"] as? String, Self.deviceAccount(lid) == account,
@@ -283,7 +285,11 @@ public final class NativeStateStore {
             let inserts = input["pendingInserts"] as? [[String: Any]],
             let updates = input["pendingIdentityUpdates"] as? [[String: Any]] else { throw StateStoreError.invalidRequest }
       guard !changes.isEmpty || !inserts.isEmpty || !updates.isEmpty else { throw StateStoreError.invalidRequest }
-      for change in changes { try Self.validateProtocolChange(change) }
+      for change in changes {
+        try Self.validateProtocolChange(change)
+        guard YYWhatsAppGoBridgeValidateProtocolChange(change["operation"] as? String ?? "", change["recordType"] as? String ?? "",
+                                                     change["recordKey"] as? String ?? "", change["valueBase64"] as? String ?? "") else { throw StateStoreError.invalidRequest }
+      }
       for item in inserts {
         var fields: Set<String> = ["deliveryId", "accountId", "source", "identityState", "recovery"]
         if item["message"] != nil { fields.insert("message") }
@@ -521,6 +527,7 @@ public final class NativeStateStore {
   private static func validateProtocolRecords(_ records: [[String: Any]], account: String) throws {
     var seen = Set<String>()
     var inverse = [String: String]()
+    var devices = 0
     for record in records {
       try exact(record, ["recordType", "recordKey", "valueBase64"])
       var change = record; change["operation"] = "put"
@@ -530,6 +537,7 @@ public final class NativeStateStore {
             let encoded = record["valueBase64"] as? String,
             let value = decode(encoded, max: maxSession), let body = try? parseObject(value) else { throw StateStoreError.invalidRequest }
       if kind == "device" {
+        devices += 1
         guard let lid = body["lid"] as? String, Self.deviceAccount(lid) == account,
               let id = body["id"] as? String, !id.isEmpty else { throw StateStoreError.invalidRequest }
       }
@@ -541,6 +549,7 @@ public final class NativeStateStore {
         inverse[lid] = pn
       }
     }
+    guard devices == 1 else { throw StateStoreError.invalidRequest }
   }
 
   private static func deviceAccount(_ jid: String) -> String? {

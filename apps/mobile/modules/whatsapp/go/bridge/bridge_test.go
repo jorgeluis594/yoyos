@@ -49,3 +49,18 @@ func TestOpenProtocolStoreUsesNativeRead(t *testing.T) {
 		t.Fatalf("failed native read became empty state: %+v", failed)
 	}
 }
+
+func TestPureNativeAdmissionUsesCompleteCodec(t *testing.T) {
+	if !ValidateProtocolChange("put", "prekey-state", "W10", "eyJ2ZXJzaW9uIjoxLCJuZXh0SWQiOjEsInVwbG9hZGVkVGhyb3VnaCI6MH0=") {
+		t.Fatal("valid protocol record rejected")
+	}
+	if ValidateProtocolChange("put", "prekey", "WyIwMSJd", "eyJ2ZXJzaW9uIjoxfQ==") {
+		t.Fatal("noncanonical prekey admitted")
+	}
+	if ValidateProtocolChange("put", "device", "W10", "eyJ2ZXJzaW9uIjoxLCJpZCI6IjEyMzoyQHMud2hhdHNhcHAubmV0IiwibGlkIjoiMTIzQGxpZCJ9") {
+		t.Fatal("incomplete paired device admitted")
+	}
+	if ValidateProtocolChange("put", "signal-session", "WyAiMTIzOjIiIF0", "eyJ2ZXJzaW9uIjoxLCJkYXRhIjoiQVE9PSJ9") {
+		t.Fatal("noncanonical tuple admitted")
+	}
+}

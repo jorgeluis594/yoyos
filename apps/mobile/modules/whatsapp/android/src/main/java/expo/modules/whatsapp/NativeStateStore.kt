@@ -9,6 +9,7 @@ import android.system.Os
 import android.system.ErrnoException
 import android.system.OsConstants
 import android.util.Base64
+import expo.modules.whatsapp.go.bridge.Bridge
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -258,6 +259,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     exact(device, "recordType", "recordKey", "valueBase64")
     if (device.getString("recordType") != "device") throw StateFailure("INVALID_REQUEST")
     validateProtocolChange(JSONObject(device.toString()).put("operation", "put"))
+    if (!Bridge.validateProtocolChange("put", device.getString("recordType"), device.getString("recordKey"), device.getString("valueBase64"))) throw StateFailure("INVALID_REQUEST")
     val value = parseObject(decode(device.getString("valueBase64"), SESSION_LIMIT))
     if (deviceAccount(value.getString("lid")) != account || value.getString("id").isEmpty()) throw StateFailure("INVALID_REQUEST")
     val protocol = JSONObject().put("protocolSchemaVersion", 1).put("records", JSONArray().put(device))
@@ -316,7 +318,11 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     val inserts = input.getJSONArray("pendingInserts")
     val updates = input.getJSONArray("pendingIdentityUpdates")
     if (changes.length() == 0 && inserts.length() == 0 && updates.length() == 0) throw StateFailure("INVALID_REQUEST")
-    for (i in 0 until changes.length()) validateProtocolChange(changes.getJSONObject(i))
+    for (i in 0 until changes.length()) {
+      val change = changes.getJSONObject(i)
+      validateProtocolChange(change)
+      if (!Bridge.validateProtocolChange(change.getString("operation"), change.getString("recordType"), change.getString("recordKey"), change.optString("valueBase64"))) throw StateFailure("INVALID_REQUEST")
+    }
     for (i in 0 until inserts.length()) {
       val item = inserts.getJSONObject(i)
       exact(item, "deliveryId", "accountId", "source", "identityState", "recovery", *(if (item.has("message")) arrayOf("message") else emptyArray()))
@@ -521,6 +527,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
   private fun validateProtocolRecords(records: JSONArray, account: String) {
     val seen = mutableSetOf<String>()
     val inverse = mutableMapOf<String, String>()
+    var devices = 0
     for (i in 0 until records.length()) {
       val record = records.getJSONObject(i)
       exact(record, "recordType", "recordKey", "valueBase64")
@@ -529,6 +536,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
       val key = record.getString("recordKey")
       if (!seen.add("$kind\u0000$key")) throw StateFailure("INVALID_REQUEST")
       if (kind == "device") {
+        devices++
         val value = parseObject(decode(record.getString("valueBase64"), SESSION_LIMIT))
         if (deviceAccount(value.getString("lid")) != account || value.getString("id").isEmpty()) throw StateFailure("INVALID_REQUEST")
       }
@@ -542,6 +550,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
         inverse[lid] = pn
       }
     }
+    if (devices != 1) throw StateFailure("INVALID_REQUEST")
   }
 
   private fun deviceAccount(jid: String): String? {
