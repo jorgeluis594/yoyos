@@ -976,15 +976,34 @@ test("two delivery edits serialize complete snapshots, authors and amounts", asy
       expect(await deliverySettings.save({ expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: true }, store: { enabled: false, pickupPoint: null } }, context)).toMatchObject({ success: true });
       expect(await orders.create({ id: orderId, contactId: null, items: [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }] }, context)).toMatchObject({ success: true });
     });
-    const selection = (name: string) => ({ method: "home" as const, recipient: { name, phone: "00123", identity: { kind: "absent" as const } }, destination: { address: name, district: "Lima", instructions: null } });
-    const first = run(() => setConfiguredOrderDelivery({ orderId, delivery: selection("First"), chargeDeliveryToCustomer: true }, context,
-      async (_snapshot, _access, currency) => { arrived(); await hold; return ok({ amount: 3, currency }); }));
+    const quote = await run(async () => {
+      expect(await deliverySettings.saveZones({ method: "home", expectedVersion: 1, zones: [3, 4].map(amount => ({
+        kind: "new" as const, name: "Concurrent delivery", enabled: true, districtCodes: ["150122"], price: { amount, currency: "PEN" as const },
+      })) }, context)).toMatchObject({ success: true });
+      return deliverySettings.createQuotation({ companyId: f.companyId, country: "PE", districtCode: "150122", address: null, instructions: null });
+    });
+    if (!quote.success) throw new Error(quote.error.message);
+    const selection = (name: string, amount: number) => {
+      const rate = quote.data.rates.find(value => value.price.amount === amount);
+      if (!rate) throw new Error("Missing concurrent delivery rate");
+      const parsed = parseRatedDeliverySelection({ method: "home", rateId: rate.id,
+        recipient: { name, phone: "00123", identity: { kind: "absent" } },
+        destination: { address: name, districtCode: "150122", instructions: null } });
+      if (!parsed.success) throw new Error(parsed.error.message);
+      return parsed.data;
+    };
+    const firstSelection = selection("First", 3);
+    const secondSelection = selection("Second", 4);
+    const first = run(() => withinTransaction(async () => {
+      const result = await orders.setDelivery({ orderId, delivery: firstSelection, expectedPrice: { amount: 3, currency: "PEN" } }, context);
+      arrived(); await hold; return result;
+    }));
     await resolving;
-    const second = run(() => setConfiguredOrderDelivery({ orderId, delivery: selection("Second"), chargeDeliveryToCustomer: false }, { ...context, userId: nextAuthor }, async (_snapshot, _access, currency) => ok({ amount: 4, currency })));
+    const second = run(() => orders.setDelivery({ orderId, delivery: secondSelection, expectedPrice: { amount: 4, currency: "PEN" } }, { ...context, userId: nextAuthor }));
     try { await waitForDeliveryLock(); } finally { release(); }
-    expect(await first).toMatchObject({ success: true, data: { delivery: { recipient: { name: "First" }, recordedBy: { userId: f.sellerId } }, total: { amount: 3.1 }, deliveryCharge: { amount: 3 } } });
+    expect(await first).toMatchObject({ success: true, data: { delivery: { pricing: { quotationId: quote.data.quotation.id }, recipient: { name: "First" }, recordedBy: { userId: f.sellerId } }, total: { amount: 3.1 }, deliveryCharge: { amount: 3 } } });
     const confirmed = await second;
-    expect(confirmed).toMatchObject({ success: true, data: { delivery: { recipient: { name: "Second" }, destination: { address: "Second" }, recordedBy: { userId: nextAuthor } }, total: { amount: 0.1 }, deliveryCost: { amount: 4 }, deliveryCharge: { amount: 0 }, stockDeducted: false } });
+    expect(confirmed).toMatchObject({ success: true, data: { delivery: { pricing: { quotationId: quote.data.quotation.id }, recipient: { name: "Second" }, destination: { address: "Second" }, recordedBy: { userId: nextAuthor } }, total: { amount: 4.1 }, deliveryCost: { amount: 4 }, deliveryCharge: { amount: 4 }, stockDeducted: false } });
     expect(await run(() => orderDetail(orderId, f))).toEqual(confirmed);
   } finally { release?.(); await f.cleanup(); }
 });
