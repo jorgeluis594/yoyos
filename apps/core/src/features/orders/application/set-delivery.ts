@@ -34,8 +34,7 @@ export async function setOrderDelivery(input: SetDeliveryInput, context: OrderAc
     if (!allowed.success) return allowed;
     const resolved = await deps.resolveRatedDelivery(selection.data, context, found.data.total.currency, input.expectedPrice);
     if (!resolved.success) return resolved;
-    const changed = orderStateMachine.setDelivery(found.data, { resolved: resolved.data,
-      chargeDeliveryToCustomer: true });
+    const changed = orderStateMachine.setDelivery(found.data, { resolved: resolved.data });
     if (!changed.success) return changed;
     return persistDeliveryChange(found.data, changed.data, deps);
   });

@@ -69,7 +69,7 @@ export type OrderLifecycle =
   | Readonly<{ status: "completed"; completedAt: Date }>;
 export type OrderDomainError = Readonly<{ code: "INVALID_ORDER" | "INVALID_PAYMENT" | "CURRENCY_MISMATCH" | "PAYMENT_CONFLICT" | "INVALID_TRANSITION" | "DELIVERY_LOCKED" | "PAYMENT_REQUIRED" | "STOCK_NOT_DEDUCTED" | "ORDER_CANCELLED"; message: string }>;
 export type ResolvedDelivery = Readonly<{ delivery: DeliverySnapshot; cost: Money }>;
-export type SetDeliveryChange = Readonly<{ resolved: ResolvedDelivery; chargeDeliveryToCustomer: boolean }>;
+export type SetDeliveryChange = Readonly<{ resolved: ResolvedDelivery }>;
 export type StockDeductionPlan =
   | Readonly<{ kind: "none"; reason: "already_deducted" | "not_requested"; nextOrder: OrderAggregate }>
   | Readonly<{ kind: "deduct"; nextOrder: OrderAggregate }>;
@@ -235,10 +235,10 @@ function setDelivery(order: OrderAggregate, change: SetDeliveryChange): Result<O
   const allowed = canSetDelivery(order);
   if (!allowed.success) return allowed;
   const { cost, delivery: details } = change.resolved;
-  if (!delivery.safeParse(details).success || typeof change.chargeDeliveryToCustomer !== "boolean") return failure("INVALID_ORDER", "Invalid delivery");
+  if (!delivery.safeParse(details).success || "chargeDeliveryToCustomer" in change) return failure("INVALID_ORDER", "Invalid delivery");
   const validatedCost = validateDeliveryCost(cost, order.total.currency);
   if (!validatedCost.success) return validatedCost;
-  const charge: Money = change.chargeDeliveryToCustomer ? cost : { amount: 0, currency: cost.currency };
+  const charge = cost;
   const total = add(charge)(order.itemsTotal);
   if (!total.success || !validMoney(total.data, true)) return failure("INVALID_ORDER", "Total exceeds supported range");
   return ok({ ...order, delivery: details, deliveryCost: cost, deliveryCharge: charge, total: total.data });

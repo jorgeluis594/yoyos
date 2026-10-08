@@ -112,7 +112,7 @@ export async function confirmCheckoutDelivery(input: ConfirmCheckoutDeliveryInpu
       const resolved = await resolveShippingCost(input.delivery.selection, { companyId: access.companyId, author: { kind: "buyer" } },
         order.total.currency, input.delivery.expectedPrice, deps);
       if (!resolved.success) return resolved;
-      const changed = orderStateMachine.setDelivery(order, { resolved: resolved.data, chargeDeliveryToCustomer: true });
+      const changed = orderStateMachine.setDelivery(order, { resolved: resolved.data });
       if (!changed.success) return changed;
       next = { ...changed.data, companyName: order.companyName };
     }
