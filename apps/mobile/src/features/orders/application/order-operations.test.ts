@@ -82,12 +82,13 @@ test("known stock rejection clears the marker and leaves the cart available", as
 });
 
 test.each([
+  ["INSUFFICIENT_STOCK", 409], ["VARIANT_NOT_FOUND", 404], ["CONTACT_NOT_FOUND", 404],
   ["INVALID_INPUT", 400],
   ["INVALID_PAYMENT", 422], ["PAYMENT_CONFLICT", 409], ["PAYMENT_REQUIRED", 409],
   ["INVALID_TRANSITION", 409], ["STOCK_NOT_DEDUCTED", 409],
   ["DELIVERY_UNAVAILABLE", 422], ["DELIVERY_METHOD_DISABLED", 422], ["COURIER_UNAVAILABLE", 422],
   ["RATE_UNAVAILABLE", 422], ["TOTAL_CHANGED", 409], ["INVALID_DISTRICT", 422], ["INVALID_DELIVERY_RATE", 422],
-] as const)("recovery clears a definitively rejected creation (%s)", async (code, status) => {
+] as const)("recovery preserves a definitively rejected creation (%s)", async (code, status) => {
   const store = storage();
   let posts = 0;
   let rejectCreation = false;
@@ -104,10 +105,11 @@ test.each([
   const selected = { ...draft(), deliverImmediately: true };
   expect(await createOrderOperations(api, store).completeOrder(selected, companyId))
     .toMatchObject({ success: true, data: { kind: "uncertain" } });
+  const original = await store.read(companyId);
   rejectCreation = true;
   const restarted = createOrderOperations(api, store);
   expect(await restarted.resendPendingOrder(companyId)).toMatchObject({ success: false, error: { code } });
-  expect(await store.read(companyId)).toEqual(ok(null));
+  expect(await store.read(companyId)).toEqual(original);
   expect(posts).toBe(2);
 });
 
