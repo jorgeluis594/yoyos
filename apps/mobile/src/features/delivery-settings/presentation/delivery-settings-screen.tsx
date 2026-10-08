@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ScrollView, StyleSheet, Switch, View } from "react-native";
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Switch, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import { err, ok } from "@shared/functional";
@@ -88,12 +88,13 @@ export default function DeliverySettingsScreen() {
   if (!draft) return busy ? <ScreenState status="loading" title={t("loadingDeliverySettings")} />
     : <ScreenState status="error" title={t("deliverySettingsLoadError")} description={t(error)} onRetry={() => void load()} />;
   const setText = (field: "pickupName" | "pickupAddress" | "pickupInstructions", value: string) => { setDraft({ ...draft, [field]: value }); setSaved(false); };
-  return <ThemedView style={styles.page}><SafeAreaView style={styles.page} edges={["top", "left", "right"]}>
-    <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
+  return <ThemedView style={styles.page}><SafeAreaView style={styles.page} edges={Platform.OS === "ios" ? ["top", "left", "right", "bottom"] : ["top", "left", "right"]}>
+    <KeyboardAvoidingView style={styles.page} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+    <ScrollView style={styles.page} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
       <View style={styles.heading}><ThemedText type="title" accessibilityRole="header">{t("deliverySettingsTitle")}</ThemedText>
         <ThemedText themeColor="textSecondary">{t("deliverySettingsDescription")}</ThemedText></View>
-      <View style={styles.section}><ThemedText type="subtitle" accessibilityRole="header">{t("pickupStoreTitle")}</ThemedText>
-        <View style={styles.toggle}><ThemedText style={styles.label}>{t("pickupEnabled")}</ThemedText><Switch accessibilityLabel={t("pickupEnabled")}
+      <View style={[styles.section, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}><View style={styles.toggle}><View style={[styles.label, styles.heading]}><ThemedText type="subtitle" accessibilityRole="header">{t("pickupStoreTitle")}</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">{t("pickupEnabled")}</ThemedText></View><Switch accessibilityLabel={t("pickupEnabled")}
           value={draft.storeEnabled} disabled={busy} hitSlop={10} trackColor={{ true: theme.primary }}
           onValueChange={value => { setDraft({ ...draft, storeEnabled: value }); setSaved(false); }} /></View>
         <ThemedText type="small" themeColor="textSecondary">{t("pickupHint")}</ThemedText>
@@ -101,14 +102,14 @@ export default function DeliverySettingsScreen() {
           <Field disabled={busy}><FieldLabel>{t("pickupAddress")}</FieldLabel><Input value={draft.pickupAddress} onChangeText={value => setText("pickupAddress", value)} maxLength={500} multiline accessibilityLabel={t("pickupAddress")} /></Field>
           <Field disabled={busy}><FieldLabel>{t("pickupInstructions")}</FieldLabel><Input value={draft.pickupInstructions} onChangeText={value => setText("pickupInstructions", value)} maxLength={1000} multiline accessibilityLabel={t("pickupInstructions")} /></Field></FieldGroup>
       </View>
-      <View style={styles.section}><ThemedText type="subtitle" accessibilityRole="header">{t("homeDeliveryTitle")}</ThemedText>
-        <View style={styles.toggle}><ThemedText style={styles.label}>{t("homeDeliveryEnabled")}</ThemedText><Switch accessibilityLabel={t("homeDeliveryEnabled")}
+      <View style={[styles.section, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}><View style={styles.toggle}><View style={[styles.label, styles.heading]}><ThemedText type="subtitle" accessibilityRole="header">{t("homeDeliveryTitle")}</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">{t("homeDeliveryEnabled")}</ThemedText></View><Switch accessibilityLabel={t("homeDeliveryEnabled")}
           value={draft.homeEnabled} disabled={busy} hitSlop={10} trackColor={{ true: theme.primary }}
           onValueChange={value => { setDraft({ ...draft, homeEnabled: value }); setSaved(false); }} /></View>
         {zones ? <DeliveryZonesSection key={`home-${generation}`} method="home" state={zones} disabled={busy} blocked={zoneConflict || conflict} onSave={saveZones} onReload={() => void load()} /> : null}
       </View>
-      <View style={styles.section}><ThemedText type="subtitle" accessibilityRole="header">{t("agencyDeliveryTitle")}</ThemedText>
-        <View style={styles.toggle}><ThemedText style={styles.label}>{t("agencyDeliveryEnabled")}</ThemedText><Switch accessibilityLabel={t("agencyDeliveryEnabled")}
+      <View style={[styles.section, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}><View style={styles.toggle}><View style={[styles.label, styles.heading]}><ThemedText type="subtitle" accessibilityRole="header">{t("agencyDeliveryTitle")}</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">{t("agencyDeliveryEnabled")}</ThemedText></View><Switch accessibilityLabel={t("agencyDeliveryEnabled")}
           value={draft.agencyEnabled} disabled={busy} hitSlop={10} trackColor={{ true: theme.primary }}
           onValueChange={value => { setDraft({ ...draft, agencyEnabled: value }); setSaved(false); }} /></View>
         <ThemedText type="small" themeColor="textSecondary">{t("courierHint")}</ThemedText>
@@ -128,13 +129,17 @@ export default function DeliverySettingsScreen() {
         <Button variant="secondary" disabled={busy} onPress={() => { setDraft({ ...draft, couriers: [...draft.couriers, { kind: "new", localKey: ++nextCourierKey.current, name: "", enabled: true }] }); setSaved(false); }}>{t("addCourier")}</Button>
         {zones ? <DeliveryZonesSection key={`agency-${generation}`} method="agency" state={zones} disabled={busy} blocked={zoneConflict || conflict} onSave={saveZones} onReload={() => void load()} /> : null}
       </View>
+    </ScrollView>
+    <View style={[styles.footer, { backgroundColor: theme.background, borderColor: theme.border }]}>
       {error ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t(error)}</ThemedText> : null}
       {saved ? <ThemedText accessibilityLiveRegion="polite">{t("deliverySettingsSaved")}</ThemedText> : null}
       <Button onPress={() => void save()} disabled={busy || conflict || zoneConflict} loading={busy}>{t("saveDeliverySettings")}</Button>
       {conflict ? <Button variant="secondary" onPress={() => void load()} disabled={busy}>{t("reloadDeliverySettings")}</Button> : null}
-    </ScrollView>
+    </View>
+    </KeyboardAvoidingView>
   </SafeAreaView></ThemedView>;
 }
 
-const styles = StyleSheet.create({ page: { flex: 1 }, content: { padding: 16, gap: 24, paddingBottom: 32, width: "100%", maxWidth: 640, alignSelf: "center" },
-  courier: { gap: 12, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 16 }, heading: { gap: 8 }, section: { gap: 16 }, toggle: { flexDirection: "row", alignItems: "center", gap: 16, minHeight: 48 }, label: { flex: 1 } });
+const styles = StyleSheet.create({ page: { flex: 1 }, content: { padding: 16, gap: 24, paddingBottom: 24, width: "100%", maxWidth: 640, alignSelf: "center" },
+  footer: { gap: 8, padding: 16, borderTopWidth: StyleSheet.hairlineWidth, width: "100%", maxWidth: 640, alignSelf: "center" },
+  courier: { gap: 12, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 16 }, heading: { gap: 8 }, section: { gap: 16, padding: 16, borderWidth: 1, borderRadius: 8 }, toggle: { flexDirection: "row", alignItems: "center", gap: 16, minHeight: 48 }, label: { flex: 1 } });
