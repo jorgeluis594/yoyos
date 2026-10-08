@@ -21,6 +21,7 @@ echo /tmp/mock-androidTest.apk
 EOF
 cat > "$test_dir/bin/adb" <<'EOF'
 #!/bin/sh
+test -z "${MOCK_ADB_LOG:-}" || printf '%s\n' "$*" >> "$MOCK_ADB_LOG"
 case "$*" in
   'install -r /tmp/mock-androidTest.apk') ;;
   'shell pm list instrumentation') echo 'instrumentation:expo.modules.whatsapp.test/androidx.test.runner.AndroidJUnitRunner (target=expo.modules.whatsapp)' ;;
@@ -40,7 +41,10 @@ chmod +x "$test_dir/bin/timeout" "$test_dir/bin/find" "$test_dir/bin/adb" "$test
 
 (
   cd "$test_dir"
-  PATH="$test_dir/bin:$PATH" sh "$module_dir/scripts/check-android-probe.sh" > "$test_dir/result"
+  MOCK_ADB_LOG="$test_dir/adb.log" PATH="$test_dir/bin:$PATH" sh "$module_dir/scripts/check-android-probe.sh" > "$test_dir/result"
+  marker_line=$(grep -n 'shell cat /sdcard/window.xml' "$test_dir/adb.log" | head -1 | cut -d: -f1)
+  enospc_line=$(grep -n 'enospcDuringSecondCopyKeepsPublishedState' "$test_dir/adb.log" | head -1 | cut -d: -f1)
+  test "$marker_line" -lt "$enospc_line"
   if MOCK_GRADLE_FAIL=1 PATH="$test_dir/bin:$PATH" sh "$module_dir/scripts/check-android-probe.sh" > "$test_dir/result"; then
     echo 'instrumentation failure was accepted' >&2
     exit 1
