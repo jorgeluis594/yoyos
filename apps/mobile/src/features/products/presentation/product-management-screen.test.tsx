@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { Alert } from "react-native";
-import { ok } from "@shared/functional";
+import { err, ok } from "@shared/functional";
 import { createProductApi } from "@mobile/features/products/infrastructure/product-api";
 import { createProductOperations } from "@mobile/features/products/application/product-operations";
 import { createProductPrintingOperations, type ProductPrintingDependencies } from "@mobile/features/products/application/product-printing";
@@ -88,7 +88,9 @@ test("an explicit variant prints saved data and copies while saving the draft do
     expect(screen.getByText("La etiqueta usará los datos guardados, sin incluir los cambios de este formulario.")).toBeTruthy();
     expect(screen.getByLabelText("Copias de la etiqueta").props.value).toBe("1");
     fireEvent.changeText(screen.getByLabelText("Copias de la etiqueta"), "3");
-    fireEvent.press(screen.getAllByRole("button", { name: "Imprimir etiqueta" })[1]);
+    fireEvent.press(screen.getByRole("button", { name: "Imprimir etiqueta" }));
+    expect(screen.getByText("Elige una variante para imprimir")).toBeTruthy();
+    fireEvent.press(screen.getByRole("button", { name: "color: Azul" }));
     const work = mockStartAttempt.mock.calls[0][0] as PrintWork;
     expect(await work({ isSessionCurrent: () => true, onStage: jest.fn() })).toEqual({ status: "completed" });
     expect(renderProductLabel).toHaveBeenCalledWith({ productName: "Camisa", sku: "AZUL-1", qrCode: secondQr }, expect.anything());
@@ -100,6 +102,34 @@ test("an explicit variant prints saved data and copies while saving the draft do
     expect(printDocument).toHaveBeenCalledTimes(1);
     expect(request.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1);
     expect(request.mock.calls.map(([path]) => path)).toEqual(Array(3).fill(`/api/products/${productId}`));
+  } finally { alert.mockRestore(); }
+});
+
+test("a failed edit reports the error and does not present a saved result", async () => {
+  mockLoadProduct.mockResolvedValue(ok(product));
+  mockUpdateProduct.mockResolvedValue(err({ code: "NETWORK_ERROR", message: "offline" }));
+  const alert = jest.spyOn(Alert, "alert");
+  try {
+    render(<ProductManagementScreen />);
+    fireEvent.changeText(await screen.findByLabelText("Nombre *"), "Camisa editada");
+    fireEvent.press(screen.getByRole("button", { name: "Guardar" }));
+    expect(await screen.findByText("No se pudo guardar. Revisa tu conexión e inténtalo otra vez.")).toBeTruthy();
+    expect(screen.getByLabelText("Nombre *").props.value).toBe("Camisa editada");
+    expect(screen.getByRole("button", { name: "Imprimir etiqueta" }).props.accessibilityState.disabled).toBe(true);
+    expect(alert).not.toHaveBeenCalled();
+  } finally { alert.mockRestore(); }
+});
+
+test("invalid copies are reported before starting a print attempt", async () => {
+  mockLoadProduct.mockResolvedValue(ok(product));
+  const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+  try {
+    render(<ProductManagementScreen />);
+    await screen.findByLabelText("Nombre *");
+    fireEvent.changeText(screen.getByLabelText("Copias de la etiqueta"), "0");
+    fireEvent.press(screen.getByRole("button", { name: "Imprimir etiqueta" }));
+    expect(alert).toHaveBeenCalledWith("Elige entre 1 y 99 copias.");
+    expect(mockStartAttempt).not.toHaveBeenCalled();
   } finally { alert.mockRestore(); }
 });
 
