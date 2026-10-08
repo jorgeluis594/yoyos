@@ -40,11 +40,13 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
   private val published = File(directory, "state.bin")
   private val temporary = File(directory, "state.next")
   private val keys = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+  // All mutable writer state is guarded by GLOBAL_LOCK. Do not add instance-monitor
+  // synchronization: callers such as applyProtocolChanges take GLOBAL_LOCK first.
   private var current: JSONObject? = null
   private var storeId = ""
   private var recoveryId = ""
   private var revision = BigInteger.ZERO
-  private var readBudget = DEFAULT_BUFFER
+  @Volatile private var readBudget = DEFAULT_BUFFER
   private var uncertain = false
   private var sessionUsable = true
   private var registeredGeneration: String? = null
@@ -61,7 +63,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
   private fun marker(store: String, recovery: String) = "$markerPrefix$store.$recovery"
   private fun alias(id: String) = "$keySpace.key.$id"
 
-  @Synchronized fun open(): JSONObject {
+  fun open(): JSONObject {
     GLOBAL_LOCK.lock()
     try {
       if (Build.VERSION.SDK_INT >= 24 && !context.getSystemService(UserManager::class.java).isUserUnlocked) throw StateFailure("STORAGE_FAILED")
@@ -142,7 +144,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     } finally { GLOBAL_LOCK.unlock() }
   }
 
-  @Synchronized fun commit(expectedRevision: String, change: (JSONObject) -> JSONObject): JSONObject {
+  fun commit(expectedRevision: String, change: (JSONObject) -> JSONObject): JSONObject {
     GLOBAL_LOCK.lock()
     try {
       val old = open()
@@ -166,7 +168,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     } finally { GLOBAL_LOCK.unlock() }
   }
 
-  @Synchronized fun beginSession(accountId: String, protocolBytes: ByteArray) {
+  fun beginSession(accountId: String, protocolBytes: ByteArray) {
     GLOBAL_LOCK.lock()
     try {
       registeredGeneration = null
@@ -198,7 +200,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     } finally { current = null; GLOBAL_LOCK.unlock() }
   }
 
-  @Synchronized fun canRestoreSession(): Boolean {
+  fun canRestoreSession(): Boolean {
     GLOBAL_LOCK.lock()
     try {
       open()
@@ -335,6 +337,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     }
     GLOBAL_LOCK.lock()
     try {
+      if (request.toByteArray(Charsets.UTF_8).size > SESSION_LIMIT.toLong() + readBudget + 12340L) throw StateFailure("INVALID_REQUEST")
       if (registeredGeneration != generation || registeredAccount != account) throw StateFailure("STALE_GENERATION")
       val snapshot = open()
       val session = snapshot.optJSONObject("session") ?: throw StateFailure("STALE_GENERATION")
@@ -558,7 +561,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     return match.groupValues[1] + "@lid"
   }
 
-  @Synchronized fun endSession() {
+  fun endSession() {
     GLOBAL_LOCK.lock()
     try {
       registeredGeneration = null
