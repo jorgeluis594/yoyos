@@ -25,6 +25,7 @@ type firstLinkContainer struct {
 	generationID                        string
 	readRecoveryBytes, newRecoveryBytes int64
 	linked                              *Store
+	failure                             error
 }
 
 // NewFirstLinkDevice mirrors pinned sqlstore.NewDevice's credential generation.
@@ -43,9 +44,17 @@ func NewFirstLinkDevice(storage FirstLinkStorage, generationID string, readRecov
 	return device, nil
 }
 
-func (c *firstLinkContainer) PutDevice(ctx context.Context, device *store.Device) error {
+func (c *firstLinkContainer) PutDevice(ctx context.Context, device *store.Device) (err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	defer func() {
+		if err != nil && c.failure == nil {
+			c.failure = err
+		}
+	}()
+	if c.failure != nil {
+		return c.failure
+	}
 	if c.linked != nil {
 		return c.linked.PutDevice(ctx, device)
 	}
@@ -103,6 +112,18 @@ func (c *firstLinkContainer) PutDevice(ctx context.Context, device *store.Device
 	}
 	linked.AttachDevice(device)
 	c.linked = linked
+	return nil
+}
+
+func (c *firstLinkContainer) StopReason() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.failure != nil {
+		return c.failure
+	}
+	if c.linked != nil {
+		return c.linked.StopReason()
+	}
 	return nil
 }
 
