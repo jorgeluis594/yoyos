@@ -1,4 +1,4 @@
-import { parseDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
+import { parseDeliverySelection, parseDeliverySnapshot } from "@core/src/features/orders/domain/order-state-machine";
 import { expect, test } from "vitest";
 import { deliverySnapshotSchema, deliverySelectionSchema, setOrderDeliverySchema, listOrdersSchema, orderApiErrorSchema, registerPaymentSchema, stockOutcomeSchema } from "@shared/contracts/orders";
 import { limaMidnightUtc, nextCalendarDay } from "@shared/orders-date";
@@ -63,4 +63,33 @@ test("delivery text boundaries accept their limits and reject excess without lim
     }
     expect(parse({ ...agency, agency: "x".repeat(501) }).success).toBe(false);
   }
+});
+
+
+test("rated snapshots require complete pricing and geographic references while historical snapshots stay explicit", () => {
+  const id = "00000000-0000-4000-8000-000000000001";
+  const recipient = { name: "Ana", phone: "999", identity: { kind: "document", documentType: "national_id", document: "12345678" } };
+  const pricing = { quotationId: id, rateId: id, zoneId: id, settingsVersion: 2 };
+  const district = { country: "PE", districtCode: "150122", district: "Miraflores", province: "Lima", department: "Lima" };
+  const author = { kind: "buyer" };
+  const home = { method: "home", recipient, destination: { ...district, address: "Street", instructions: null }, pricing, recordedBy: author };
+  const pendingAgency = { method: "agency", recipient, destination: district, pricing, courier: null, agency: null, recordedBy: author };
+  const assignedAgency = { ...pendingAgency, courier: { id, name: "Courier" }, agency: "Office" };
+  const pickup = { method: "store", recipient, pickupPoint: { name: "Shop", address: "Street", instructions: null }, settingsVersion: 2, recordedBy: author };
+  for (const value of [home, pendingAgency, assignedAgency, pickup]) {
+    expect(deliverySnapshotSchema.safeParse(value).success).toBe(true);
+    expect(parseDeliverySnapshot(value).success).toBe(true);
+  }
+  const legacy = { method: "home", recipient, destination: { address: "Street", district: "Old free text", instructions: null }, recordedBy: author };
+  expect(parseDeliverySnapshot(legacy)).toMatchObject({ success: true, data: legacy });
+  expect(deliverySnapshotSchema.parse(legacy)).not.toHaveProperty("pricing");
+  for (const value of [{ ...home, pricing: { ...pricing, rateId: null } }, { ...home, pricing: { rateId: id } },
+    { ...home, destination: legacy.destination }, { ...pendingAgency, courier: null, agency: "Office" },
+    { ...pendingAgency, courier: assignedAgency.courier, agency: null }, { ...pendingAgency, courier: { id, name: "" }, agency: "" },
+    { ...pendingAgency, pricing: { ...pricing, settingsVersion: -1 } }, { ...pickup, pricing }, { ...pickup, destination: district },
+    { ...pickup, settingsVersion: -1 }]) {
+    expect(deliverySnapshotSchema.safeParse(value).success).toBe(false);
+    expect(parseDeliverySnapshot(value).success).toBe(false);
+  }
+  expect(parseDeliverySnapshot({ ...home, destination: { ...home.destination, districtCode: "999999" } }).success).toBe(false);
 });

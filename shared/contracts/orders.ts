@@ -56,11 +56,24 @@ export const createOrderSchema = z.union([
   }),
 ]);
 export type CreateOrderRequest = z.infer<typeof createOrderSchema>;
-export const deliverySnapshotSchema = z.discriminatedUnion("method", [
+const legacyDeliverySnapshotSchema = z.discriminatedUnion("method", [
   z.strictObject({ method: z.literal("home"), recipient: recipientSchema, destination: homeDestinationSchema, recordedBy: deliveryAuthorSchema }),
   z.strictObject({ method: z.literal("agency"), recipient: agencyRecipientSchema,
     courier: z.strictObject({ id: z.uuid(), name: z.string().trim().min(1).max(120) }), agency: z.string().trim().min(1).max(500), recordedBy: deliveryAuthorSchema }),
   z.strictObject({ method: z.literal("store"), recipient: recipientSchema, pickupPoint: pickupPointSchema, recordedBy: deliveryAuthorSchema }),
+]);
+const settingsVersionSchema = z.number().int().min(0).max(2147483647);
+const deliveryPricingSchema = z.strictObject({ quotationId: z.uuid(), rateId: z.uuid(), zoneId: z.uuid(), settingsVersion: settingsVersionSchema });
+const peruDeliveryDistrictSchema = z.strictObject({ country: z.literal("PE"), districtCode: z.string().regex(/^\d{6}$/),
+  district: z.string().trim().min(1).max(120), province: z.string().trim().min(1).max(120), department: z.string().trim().min(1).max(120) });
+const ratedAgencyFields = { method: z.literal("agency"), recipient: agencyRecipientSchema, destination: peruDeliveryDistrictSchema,
+  pricing: deliveryPricingSchema, recordedBy: deliveryAuthorSchema };
+export const deliverySnapshotSchema = z.union([legacyDeliverySnapshotSchema,
+  z.strictObject({ method: z.literal("home"), recipient: recipientSchema, destination: homeDestinationSchema.extend(peruDeliveryDistrictSchema.shape),
+    pricing: deliveryPricingSchema, recordedBy: deliveryAuthorSchema }),
+  z.strictObject({ ...ratedAgencyFields, courier: z.null(), agency: z.null() }),
+  z.strictObject({ ...ratedAgencyFields, courier: z.strictObject({ id: z.uuid(), name: z.string().trim().min(1).max(120) }), agency: z.string().trim().min(1).max(500) }),
+  z.strictObject({ method: z.literal("store"), recipient: recipientSchema, pickupPoint: pickupPointSchema, settingsVersion: settingsVersionSchema, recordedBy: deliveryAuthorSchema }),
 ]);
 const reportDataSchema = z.strictObject({ receiptImageId: z.uuid(), reportedAt: z.iso.datetime() });
 const confirmationDataSchema = z.strictObject({ confirmedAt: z.iso.datetime(),

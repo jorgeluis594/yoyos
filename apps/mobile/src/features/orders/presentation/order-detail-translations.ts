@@ -1,5 +1,6 @@
 export const orderDetailTranslations = {
   es: {
+    detailAgencyAssignmentPending: 'Courier y agencia pendientes de asignación',
     detailBuyer: 'Comprador', detailPaymentPending: 'Pago pendiente',
     detailReports_one: '{{count}} comprobante por revisar', detailReports_other: '{{count}} comprobantes por revisar',
     detailProducts_one: 'Productos · {{count}} unidad', detailProducts_other: 'Productos · {{count}} unidades',
@@ -10,6 +11,7 @@ export const orderDetailTranslations = {
     detailSeller: 'Vendedor: {{id}}', detailClose: 'Cerrar',
   },
   'pt-BR': {
+    detailAgencyAssignmentPending: 'Transportadora e agência pendentes de atribuição',
     detailBuyer: 'Comprador', detailPaymentPending: 'Pagamento pendente',
     detailReports_one: '{{count}} comprovante para revisar', detailReports_other: '{{count}} comprovantes para revisar',
     detailProducts_one: 'Produtos · {{count}} unidade', detailProducts_other: 'Produtos · {{count}} unidades',

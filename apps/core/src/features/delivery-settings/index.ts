@@ -3,3 +3,6 @@ export type { DeliverySettings, StoreDeliverySettings, PickupPoint, CourierId } 
 
 export type { ResolveSelectedRateInput, ResolvedDeliveryRate } from "@core/src/features/delivery-settings/domain/selected-delivery-rate";
 export type { ResolveRateError } from "@core/src/features/delivery-settings/application/resolve-selected-delivery-rate";
+
+export type { QuotationId, DeliveryRateId, DeliverySettingsVersion } from "@core/src/features/delivery-settings/domain/quotation";
+export type { DeliveryZoneId } from "@core/src/features/delivery-settings/domain/delivery-zone";

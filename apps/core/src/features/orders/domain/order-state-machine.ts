@@ -5,6 +5,8 @@ import type { Result } from "@shared/result";
 import { z } from "zod";
 import { buildOrder, type BuildOrderInput, type BuildOrderError, type CompanyId, type OrderId, type OrderItem, type UserId } from "@core/src/features/orders/domain/order";
 import { parsePayment, voidPayment, type ConfirmedPayment, type Payment, type ReportedPayment } from "@core/src/features/orders/domain/payment";
+import { parsePeruDistrictCode, type PeruDistrictCode } from "@shared/peru-geography";
+import type { QuotationId, DeliveryRateId, DeliveryZoneId, DeliverySettingsVersion } from "@core/src/features/delivery-settings";
 import type { CourierId, PickupPoint } from "@core/src/features/delivery-settings";
 
 export type OrderStatus = "active" | "cancelled" | "completed";
@@ -21,10 +23,17 @@ export type DeliverySelection =
   | Readonly<{ method: "home"; recipient: Recipient; destination: HomeDestination }>
   | Readonly<{ method: "agency"; recipient: AgencyRecipient; courierId: CourierId; agency: string }>
   | Readonly<{ method: "store"; recipient: Recipient }>;
+export type DeliveryPricing = Readonly<{ quotationId: QuotationId; rateId: DeliveryRateId; zoneId: DeliveryZoneId; settingsVersion: DeliverySettingsVersion }>;
+export type PeruDeliveryDistrict = Readonly<{ country: "PE"; districtCode: PeruDistrictCode; district: string; province: string; department: string }>;
 export type DeliverySnapshot = Readonly<{ recordedBy: DeliveryAuthor }> & (
   | Readonly<{ method: "home"; recipient: Recipient; destination: HomeDestination }>
+  | Readonly<{ method: "home"; recipient: Recipient; destination: HomeDestination & PeruDeliveryDistrict; pricing: DeliveryPricing }>
   | Readonly<{ method: "agency"; recipient: AgencyRecipient; courier: Readonly<{ id: CourierId; name: string }>; agency: string }>
-  | Readonly<{ method: "store"; recipient: Recipient; pickupPoint: PickupPoint }>
+  | (Readonly<{ method: "agency"; recipient: AgencyRecipient; destination: PeruDeliveryDistrict; pricing: DeliveryPricing }> & (
+      | Readonly<{ courier: null; agency: null }>
+      | Readonly<{ courier: Readonly<{ id: CourierId; name: string }>; agency: string }>
+    ))
+  | Readonly<{ method: "store"; recipient: Recipient; pickupPoint: PickupPoint; settingsVersion?: DeliverySettingsVersion }>
 );
 export type OrderAggregate = Readonly<{
   number: OrderNumber;
@@ -99,11 +108,24 @@ const selection = z.discriminatedUnion("method", [
   z.strictObject({ method: z.literal("agency"), recipient: documentedRecipient, courierId, agency: requiredText.max(500) }),
   z.strictObject({ method: z.literal("store"), recipient }),
 ]);
-const delivery = z.discriminatedUnion("method", [
+const legacyDelivery = z.discriminatedUnion("method", [
   z.strictObject({ method: z.literal("home"), recipient, destination: homeDestination, recordedBy }),
   z.strictObject({ method: z.literal("agency"), recipient: documentedRecipient,
     courier: z.strictObject({ id: courierId, name: requiredText.max(120) }), agency: requiredText.max(500), recordedBy }),
   z.strictObject({ method: z.literal("store"), recipient, pickupPoint, recordedBy }),
+]);
+const settingsVersion = z.number().int().min(0).max(2147483647).transform(value => value as DeliverySettingsVersion);
+const pricing = z.strictObject({ quotationId: z.uuid().transform(value => value as QuotationId),
+  rateId: z.uuid().transform(value => value as DeliveryRateId), zoneId: z.uuid().transform(value => value as DeliveryZoneId), settingsVersion });
+const peruDistrict = z.strictObject({ country: z.literal("PE"),
+  districtCode: z.string().refine(value => parsePeruDistrictCode(value).success).transform(value => value as PeruDistrictCode),
+  district: requiredText.max(120), province: requiredText.max(120), department: requiredText.max(120) });
+const ratedAgency = { method: z.literal("agency"), recipient: documentedRecipient, destination: peruDistrict, pricing, recordedBy };
+const delivery = z.union([legacyDelivery,
+  z.strictObject({ method: z.literal("home"), recipient, destination: homeDestination.extend(peruDistrict.shape), pricing, recordedBy }),
+  z.strictObject({ ...ratedAgency, courier: z.null(), agency: z.null() }),
+  z.strictObject({ ...ratedAgency, courier: z.strictObject({ id: courierId, name: requiredText.max(120) }), agency: requiredText.max(500) }),
+  z.strictObject({ method: z.literal("store"), recipient, pickupPoint, settingsVersion, recordedBy }),
 ]);
 export function parseDeliverySelection(value: unknown): Result<DeliverySelection, OrderDomainError> {
   const parsed = selection.safeParse(value);

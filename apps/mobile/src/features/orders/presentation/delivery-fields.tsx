@@ -17,7 +17,7 @@ export function deliveryDraftFromOrder(order: Pick<OrderAggregateResponse, "buye
     documentType: recipient?.identity.kind === "document" ? recipient.identity.documentType : "absent",
     document: recipient?.identity.kind === "document" ? recipient.identity.document : "", charge: order.deliveryCharge.amount > 0,
     method: order.delivery?.method ?? (settings.store.enabled ? "store" : settings.home.enabled ? "home" : settings.agency.enabled ? "agency" : "store"),
-    courierId: order.delivery?.method === "agency" ? order.delivery.courier.id : "", agency: order.delivery?.method === "agency" ? order.delivery.agency : "",
+    courierId: order.delivery?.method === "agency" ? order.delivery.courier?.id ?? "" : "", agency: order.delivery?.method === "agency" ? order.delivery.agency ?? "" : "",
     address: destination?.address ?? "", district: destination?.district ?? "", instructions: destination?.instructions ?? "" };
 }
 

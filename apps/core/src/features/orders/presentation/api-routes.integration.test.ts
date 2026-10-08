@@ -557,3 +557,28 @@ test("quotation HTTP uses the checkout order tenant even with a foreign seller s
   expect(await cancelled.json()).toMatchObject({ code: "ORDER_CANCELLED" });
   await withTenantIsolation(seller.companyId, async () => expect(await prisma.quotation.count()).toBe(2));
 });
+
+
+test("aggregate reads preserve rated and historical delivery snapshots without consulting current configuration", async () => {
+  const seller = await fixture("PE");
+  const orderId = randomUUID();
+  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, contactId: null,
+    items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
+  const recipient = { name: "Ana", phone: "999", identity: { kind: "document", documentType: "national_id", document: "12345678" } };
+  const pricing = { quotationId: randomUUID(), rateId: randomUUID(), zoneId: randomUUID(), settingsVersion: 3 };
+  const district = { country: "PE", districtCode: "150122", district: "Miraflores", province: "Lima", department: "Lima" };
+  const recordedBy = { kind: "buyer" };
+  const home = { method: "home", recipient, destination: { ...district, address: "Street", instructions: null }, pricing, recordedBy };
+  const agency = { method: "agency", recipient, destination: district, pricing, courier: null, agency: null, recordedBy };
+  const historicalHome = { method: "home", recipient, destination: { address: "Old street", district: "Historical free text", instructions: null }, recordedBy };
+  const historicalAgency = { method: "agency", recipient, courier: { id: randomUUID(), name: "Old courier" }, agency: "Old office", recordedBy };
+  for (const delivery of [home, agency, historicalHome, historicalAgency]) {
+    await withTenantIsolation(seller.companyId, async () => await prisma.order.update({ where: { id: orderId }, data: {
+      delivery, deliveryCost: 8, deliveryCharge: 8, total: 18,
+    } }));
+    const response = await call(`/api/orders/${orderId}/aggregate`, seller.cookie);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ delivery, deliveryCost: { amount: 8, currency: "PEN" }, deliveryCharge: { amount: 8 }, total: { amount: 18 } });
+  }
+  await withTenantIsolation(seller.companyId, async () => expect(await prisma.companyDeliverySettings.count()).toBe(0));
+});
