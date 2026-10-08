@@ -37,6 +37,8 @@ jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   searchOrderContacts: (...args: Parameters<typeof mockOrders.searchOrderContacts>) => mockOrders.searchOrderContacts(...args),
   completeOrder: (...args: Parameters<typeof mockOrders.completeOrder>) => mockOrders.completeOrder(...args),
   resendPendingOrder: (...args: Parameters<typeof mockOrders.resendPendingOrder>) => mockOrders.resendPendingOrder(...args),
+  loadPendingOrderReview: (...args: Parameters<typeof mockOrders.loadPendingOrderReview>) => mockOrders.loadPendingOrderReview(...args),
+  reviewPendingOrder: (...args: Parameters<typeof mockOrders.reviewPendingOrder>) => mockOrders.reviewPendingOrder(...args),
   reviewLegacyPendingDelivery: (...args: Parameters<typeof mockOrders.reviewLegacyPendingDelivery>) => mockOrders.reviewLegacyPendingDelivery(...args),
 } }));
 jest.mock("@mobile/features/delivery-settings/composition", () => {
@@ -349,4 +351,46 @@ test("a restarted rated attempt retains a real HTTP price conflict and saves a f
       delivery: { expectedPrice: { amount: 12, currency: "PEN" } } } } });
   expect(mockPosts).toBe(1);
   expect(mockReplace).not.toHaveBeenCalled();
+}, 20000);
+
+
+test("restarted stock rejection keeps the paid attempt editable and resends its original identities", async () => {
+  const companyId = process.env.ORDER_JOURNEY_COMPANY!;
+  const catalog = await mockOrders.searchOrderCatalog("Journey product");
+  if (!catalog.success || !catalog.data[0]?.variants[0]) throw new Error("Missing catalog fixture");
+  const variantId = catalog.data[0].variants[0].id;
+  const orderId = randomUUID();
+  const paymentId = randomUUID();
+  const pending = { version: 2, companyId, id: orderId, shownTotal: { amount: 40, currency: "PEN" },
+    request: { id: orderId, contactId: null, items: [{ variantId, quantity: 4 }],
+      payments: [{ paymentId, amount: { amount: 40, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false }] } };
+  writeFileSync(join(directory, `yoyos_pending_order_${companyId}`), JSON.stringify(pending));
+  restartOperations();
+  expect(await mockOrders.resendPendingOrder(companyId)).toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
+  expect(await mockOrders.readPendingOrderConfirmation(companyId)).toEqual(ok(pending));
+  const screen = render(<NewOrderScreen />);
+  fireEvent.press(await screen.findByRole("button", { name: "Corregir intento guardado" }));
+  await screen.findByRole("button", { name: "Guardar correcciones" });
+  expect(screen.getByLabelText(/Importe recibido/)).toHaveProp("value", "40");
+  for (let count = 0; count < 3; count++) fireEvent.press(screen.getByRole("button", { name: "−" }));
+  fireEvent.press(screen.getByRole("button", { name: "Guardar correcciones" }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Guardar correcciones" })).toBeNull(), { timeout: 10000 });
+  expect(await mockOrders.readPendingOrderConfirmation(companyId)).toEqual(ok({ ...pending, shownTotal: { amount: 10, currency: "PEN" },
+    request: { ...pending.request, items: [{ variantId, quantity: 1 }] } }));
+  expect(mockPosts).toBe(1);
+  screen.unmount(); restartOperations();
+  const reopened = render(<NewOrderScreen />);
+  await reopened.findByText("Venta pendiente de confirmar");
+  for (let count = 0; count < 2; count++) {
+    fireEvent.press(reopened.getByRole("button", { name: "Verificar venta" }));
+    await waitFor(() => expect(reopened.getByRole("button", { name: "Verificar venta" })).toBeEnabled());
+  }
+  fireEvent.press(await reopened.findByRole("button", { name: "Reenviar mismo intento" }));
+  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(`/orders/${orderId}`));
+  expect(await mockOrders.loadOrder(orderId)).toMatchObject({ success: true, data: {
+    total: { amount: 10, currency: "PEN" }, stockDeducted: true, overpaidAmount: { amount: 30, currency: "PEN" },
+    payments: [expect.objectContaining({ id: paymentId, amount: { amount: 40, currency: "PEN" } })],
+    items: [expect.objectContaining({ variantId, quantity: 1 })],
+  } });
+  expect(mockPosts).toBe(2);
 }, 20000);
