@@ -79,7 +79,10 @@ public final class NativeStateStore {
       observedPublication = Self.publication
       do {
         try cleanupProvisional(&record, publishedState: loaded)
-        if let retired = loaded["sessionKeysToDelete"] as? [String], !retired.isEmpty { try endSession() }
+        if let retired = loaded["sessionKeysToDelete"] as? [String], !retired.isEmpty {
+          try endSession()
+          return try open()
+        }
       } catch {
         state = nil
         throw error

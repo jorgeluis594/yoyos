@@ -114,7 +114,10 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
         observedPublication = publication
         try {
           cleanupProvisional(record, state)
-          if (state.getJSONArray("sessionKeysToDelete").length() > 0) endSession()
+          if (state.getJSONArray("sessionKeysToDelete").length() > 0) {
+            endSession()
+            return open()
+          }
         } catch (e: Exception) {
           current = null
           throw e

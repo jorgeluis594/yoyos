@@ -88,10 +88,11 @@ final class StateStoreTests: XCTestCase {
     let pendingRevision = pending?.first?["createdRevision"] as? String
     let publishedRevision = try revision()
     let hasTemporary = FileManager.default.fileExists(atPath: root.appendingPathComponent("whatsapp/state.next").path)
+    let restorable = replaced || (try writer.canRestoreSession())
     guard retired?.isEmpty == true, sessionMatches, pendingMatches,
           options?["maxImageStorageBytes"] == (replaced ? 123 : 50 * 1024 * 1024),
           !replaced || pendingRevision == "2", publishedRevision == (replaced ? "3" : "1"),
-          !hasTemporary else { XCTFail("Crash recovery mixed session and pending at \(phases[step])"); return }
+          !hasTemporary, restorable else { XCTFail("Crash recovery mixed session and pending at \(phases[step])"); return }
     try persistCrashMarker("ready:\(step + 1)", at: marker)
   }
 
@@ -415,6 +416,9 @@ final class StateStoreTests: XCTestCase {
       let state = try recovered.open()
       XCTAssertTrue(state["session"] is NSNull)
       XCTAssertEqual((state["sessionKeysToDelete"] as? [String])?.count, 0)
+      let published = try makeStore(root).open()
+      XCTAssertEqual(try JSONSerialization.data(withJSONObject: state, options: [.sortedKeys]),
+                     try JSONSerialization.data(withJSONObject: published, options: [.sortedKeys]))
       try recovered.beginSession(accountId: "123@lid", protocolBytes: Data("{\"protocolSchemaVersion\":1,\"records\":[]}".utf8))
     }
   }

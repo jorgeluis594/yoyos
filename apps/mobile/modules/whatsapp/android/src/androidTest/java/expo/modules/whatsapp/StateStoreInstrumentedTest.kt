@@ -322,6 +322,10 @@ class StateStoreInstrumentedTest {
       val state = recovered.open()
       assertEquals(org.json.JSONObject.NULL, state.get("session"))
       assertEquals(0, state.getJSONArray("sessionKeysToDelete").length())
+      assertEquals("3", currentRevision(root))
+      val published = makeStore(root).open()
+      assertEquals(state.get("session"), published.get("session"))
+      assertEquals(state.getJSONArray("sessionKeysToDelete").length(), published.getJSONArray("sessionKeysToDelete").length())
       recovered.beginSession("123@lid", "{\"protocolSchemaVersion\":1,\"records\":[]}".toByteArray())
     }
   }

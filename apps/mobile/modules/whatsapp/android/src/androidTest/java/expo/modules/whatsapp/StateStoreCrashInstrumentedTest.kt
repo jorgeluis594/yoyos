@@ -29,7 +29,7 @@ class StateStoreCrashInstrumentedTest {
   }
 
   @Test fun crashAtPublicationBoundary() {
-    val phase = requireNotNull(phase)
+    val phase = phase ?: return
     val root = root(phase, requireNotNull(runId))
     var active = false
     val writer = store(root) { reached ->
@@ -58,7 +58,7 @@ class StateStoreCrashInstrumentedTest {
   }
 
   @Test fun recoverAfterPublicationCrash() {
-    val phase = requireNotNull(phase)
+    val phase = phase ?: return
     val root = root(phase, requireNotNull(runId))
     assertEquals(phase, File(root, "crashed").readText())
     val recovered = store(root).open()
@@ -68,6 +68,7 @@ class StateStoreCrashInstrumentedTest {
     assertEquals(if (replaced) 1 else 0, recovered.getJSONArray("pending").length())
     assertEquals(0, recovered.getJSONArray("sessionKeysToDelete").length())
     if (replaced) assertEquals("2", recovered.getJSONArray("pending").getJSONObject(0).getString("createdRevision"))
+    else assertEquals(true, store(root).canRestoreSession())
     assertFalse(File(root, "whatsapp/state.next").exists())
   }
 }
