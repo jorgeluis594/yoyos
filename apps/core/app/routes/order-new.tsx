@@ -1,16 +1,18 @@
+import { z } from "zod";
+import type { InitialOrderDeliveryInput } from "@core/src/features/orders/application/set-delivery";
 import { PaymentFields, type PaymentDraft } from "@core/src/features/orders/presentation/payment-fields";
 import { DeliveryFields, deliveryDraft, deliveryRequest } from "@core/src/features/orders/presentation/delivery-form";
 import { deliverySettings } from "@core/src/features/delivery-settings";
 import { deliverySettingsSchema } from "@shared/contracts/delivery-settings";
 import { deliveryCostContext } from "@core/app/delivery-cost-context";
-import { parseDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
+import { parseDeliverySelection, parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { useTranslation } from "react-i18next";
 import { companyPath } from "@core/app/locale";
 import { formatCurrency } from "@core/app/format-currency";
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Plus, Search, ShoppingBag } from "lucide-react";
 import { Form, Link, useActionData, useFetcher, useLoaderData, useNavigation, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
-import { completeOrderSchema, newOrderLoaderSchema, orderActionErrorSchema } from "@shared/contracts/orders";
+import { createRatedOrderSchema, completeOrderSchema, newOrderLoaderSchema, orderActionErrorSchema } from "@shared/contracts/orders";
 import { privateUserContext } from "@core/app/private-user-context";
 import { orders, createConfiguredOrder } from "@core/src/features/orders/composition";
 import type { ContactId, OrderId, PaymentId, PositiveInteger } from "@core/src/features/orders/domain/order";
@@ -37,20 +39,32 @@ export async function action({ request, context }: ActionFunctionArgs) {
   let raw: unknown;
   try { raw = JSON.parse(String((await request.formData()).get("order"))); }
   catch { return orderActionErrorSchema.parse({ code: "INVALID_ORDER", error: "Revisa los datos de la venta." }); }
-  const parsed = completeOrderSchema.safeParse(raw);
+  const parsed = z.union([createRatedOrderSchema, completeOrderSchema]).safeParse(raw);
   if (!parsed.success) return orderActionErrorSchema.parse({ code: "INVALID_ORDER", error: "Revisa los datos de la venta." });
   const [first, ...rest] = parsed.data.items;
   if (!first) return orderActionErrorSchema.parse({ code: "INVALID_ORDER", error: "Revisa los datos de la venta." });
   const item = (selection: typeof first) => ({ variantId: selection.variantId as VariantId, quantity: selection.quantity as PositiveInteger });
-  const selected = parsed.data.delivery ? parseDeliverySelection(parsed.data.delivery.delivery) : null;
-  if (selected && !selected.success) return orderActionErrorSchema.parse({ code: "INVALID_ORDER", error: "Revisa la entrega." });
+  let delivery: InitialOrderDeliveryInput | undefined;
+  if (parsed.data.delivery) {
+    const input = parsed.data.delivery;
+    if ("expectedPrice" in input) {
+      const selected = parseRatedDeliverySelection(input.delivery);
+      if (!selected.success) return orderActionErrorSchema.parse({ code: "INVALID_ORDER", error: "Revisa la entrega." });
+      delivery = { delivery: selected.data, expectedPrice: input.expectedPrice };
+    } else {
+      const selected = parseDeliverySelection(input.delivery);
+      if (!selected.success) return orderActionErrorSchema.parse({ code: "INVALID_ORDER", error: "Revisa la entrega." });
+      delivery = { delivery: selected.data, chargeDeliveryToCustomer: input.chargeDeliveryToCustomer };
+    }
+  }
   const result = await createConfiguredOrder({ id: parsed.data.id as OrderId,
     contactId: parsed.data.contactId as ContactId | null, items: [item(first), ...rest.map(item)],
     payments: parsed.data.payments?.map(payment => ({ ...payment, paymentId: payment.paymentId as PaymentId })),
-    delivery: selected?.success && parsed.data.delivery ? { delivery: selected.data, chargeDeliveryToCustomer: parsed.data.delivery.chargeDeliveryToCustomer } : undefined,
+    delivery,
     deliverImmediately: parsed.data.deliverImmediately },
   { companyId: access.company.id, userId: access.user.id }, context.get(deliveryCostContext) ?? undefined);
-  if (!result.success) return orderActionErrorSchema.parse({ code: result.error.code, error: result.error.code === "INSUFFICIENT_STOCK" ? "No hay stock suficiente para uno de los productos." :
+  if (!result.success) return orderActionErrorSchema.parse({ code: result.error.code,
+    ...(result.error.code === "TOTAL_CHANGED" ? { currentPrice: result.error.currentPrice } : {}), error: result.error.code === "INSUFFICIENT_STOCK" ? "No hay stock suficiente para uno de los productos." :
     result.error.code === "ORDER_ALREADY_EXISTS" ? "Esta venta ya se registró. Revisa el historial antes de intentar otra." :
     result.error.code === "CONTACT_NOT_FOUND" ? "El cliente ya no está disponible." :
     result.error.code === "VARIANT_NOT_FOUND" ? "Uno de los productos ya no está disponible." :
