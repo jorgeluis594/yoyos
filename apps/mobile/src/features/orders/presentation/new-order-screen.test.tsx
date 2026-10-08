@@ -297,6 +297,7 @@ test("legacy recovery reviews an explicit rate while retaining recipient and ori
   mockReviewPending.mockResolvedValueOnce(err({ code: "PENDING_STORAGE_UNAVAILABLE", message: "Cannot save" }));
   fireEvent.press(screen.getByRole("button", { name: "Guardar entrega revisada" }));
   await waitFor(() => expect(mockReviewPending).toHaveBeenCalledWith(mockId(1), delivery));
+  await screen.findByText("No se pudo guardar la confirmación pendiente. Reintenta sin salir.");
   await waitFor(() => expect(screen.getByRole("button", { name: "Guardar entrega revisada" })).toBeEnabled());
   expect(screen.getByLabelText(/Dirección de entrega/)).toHaveProp("value", "Original street");
   mockReviewPending.mockResolvedValueOnce(ok({ kind: "uncertain", pending: revised }));
