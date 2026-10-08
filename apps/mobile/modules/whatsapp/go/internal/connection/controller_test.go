@@ -240,9 +240,10 @@ func TestQRScanExcludesWaitFromAuthenticationDeadline(t *testing.T) {
 	}
 	clock.WaitTimer(t)
 	clock.Advance(31 * time.Second)
-	if receive(t, events).Error != ConnectionFailed || receive(t, events).State != Disconnected {
+	if receive(t, events).Error != ConnectionFailed || receive(t, events).State != Reconnecting {
 		t.Fatal("authentication deadline not applied")
 	}
+	c.Close()
 }
 
 func TestCapacityPauseResumesOnlyRequestedConnection(t *testing.T) {

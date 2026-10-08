@@ -21,12 +21,13 @@ const (
 type Code string
 
 const (
-	ConnectionFailed     Code = "CONNECTION_FAILED"
-	SessionExpiredError  Code = "SESSION_EXPIRED"
-	SessionStorageFailed Code = "SESSION_STORAGE_FAILED"
-	SessionStateInvalid  Code = "SESSION_STATE_INVALID"
-	RecoveryBufferFull   Code = "RECOVERY_BUFFER_FULL"
-	ConsumerUnavailable  Code = "CONSUMER_UNAVAILABLE"
+	ConnectionFailed           Code = "CONNECTION_FAILED"
+	SessionExpiredError        Code = "SESSION_EXPIRED"
+	SessionStorageFailed       Code = "SESSION_STORAGE_FAILED"
+	SessionStorageLimitReached Code = "SESSION_STORAGE_LIMIT_REACHED"
+	SessionStateInvalid        Code = "SESSION_STATE_INVALID"
+	RecoveryBufferFull         Code = "RECOVERY_BUFFER_FULL"
+	ConsumerUnavailable        Code = "CONSUMER_UNAVAILABLE"
 )
 
 type Event struct {
@@ -204,6 +205,9 @@ func (c *Controller) RetiredSession() {
 func (c *Controller) FailLocal(code Code) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.failLocalLocked(code)
+}
+func (c *Controller) failLocalLocked(code Code) {
 	c.retireLocked()
 	c.localFault = code
 	c.publish(Event{Error: code})
@@ -212,6 +216,9 @@ func (c *Controller) FailLocal(code Code) {
 func (c *Controller) PauseForCapacity() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.pauseForCapacityLocked()
+}
+func (c *Controller) pauseForCapacityLocked() {
 	if !c.requested {
 		return
 	}
@@ -303,13 +310,17 @@ func (c *Controller) run(ctx context.Context, generation uint64, transport Trans
 				timer = c.clock.After(deadline.Sub(c.clock.Now()))
 				continue
 			}
-			transport.Stop()
 			c.finish(generation, ConnectionFailed, true)
 			return
 		case item := <-events:
 			c.mu.Lock()
 			if generation != c.generation || !c.requested {
 				c.mu.Unlock()
+				return
+			}
+			if item.Kind != "localFailure" && item.Kind != "revoked" && !awaiting && !c.clock.Now().Before(deadline) {
+				c.mu.Unlock()
+				c.finish(generation, ConnectionFailed, true)
 				return
 			}
 			switch item.Kind {
@@ -326,6 +337,7 @@ func (c *Controller) run(ctx context.Context, generation uint64, transport Trans
 				if c.state == Connected {
 					break
 				}
+				c.paired = true
 				awaiting = false
 				deadline = c.clock.Now().Add(30 * time.Second)
 				timer = c.clock.After(30 * time.Second)
@@ -343,8 +355,8 @@ func (c *Controller) run(ctx context.Context, generation uint64, transport Trans
 				c.publish(Event{Error: SessionExpiredError})
 			case "localFailure":
 				if item.Error == RecoveryBufferFull {
+					c.pauseForCapacityLocked()
 					c.mu.Unlock()
-					c.PauseForCapacity()
 					return
 				}
 				c.retireLocked()
@@ -369,12 +381,16 @@ func (c *Controller) run(ctx context.Context, generation uint64, transport Trans
 			var classified RunError
 			retry := !awaiting
 			if errors.As(runErr, &classified) {
-				if classified.Code == RecoveryBufferFull {
-					c.PauseForCapacity()
-					return
-				}
 				if classified.Code != "" {
-					c.FailLocal(classified.Code)
+					c.mu.Lock()
+					if generation == c.generation && c.requested {
+						if classified.Code == RecoveryBufferFull {
+							c.pauseForCapacityLocked()
+						} else {
+							c.failLocalLocked(classified.Code)
+						}
+					}
+					c.mu.Unlock()
 					return
 				}
 				retry = classified.Retry

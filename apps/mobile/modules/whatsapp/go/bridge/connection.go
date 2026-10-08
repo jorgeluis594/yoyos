@@ -153,6 +153,11 @@ func (s *ConnectionSession) StopReason() string {
 	if s == nil {
 		return ""
 	}
+	if source, ok := s.device.Container.(interface{ StopReason() error }); ok {
+		if err := source.StopReason(); err != nil {
+			return publicCode(err)
+		}
+	}
 	protocol := s.store
 	if protocol == nil {
 		protocol, _ = s.device.Container.(*protocolstore.Store)

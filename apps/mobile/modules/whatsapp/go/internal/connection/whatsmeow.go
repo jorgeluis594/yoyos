@@ -10,6 +10,7 @@ import (
 	"go.mau.fi/whatsmeow/socket"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types/events"
+	"yoyos-whatsapp/internal/protocolstore"
 )
 
 // NewWhatsmeowTransport uses the pinned client with a device whose stores and
@@ -75,6 +76,9 @@ func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent)
 				if code := t.stopped(); code != "" {
 					return RunError{Code: code}
 				}
+				if code := storageCode(err); code != "" {
+					return RunError{Code: code}
+				}
 				var network net.Error
 				return RunError{Retry: errors.Is(err, socket.ErrDialFailed) || errors.As(err, &network)}
 			}
@@ -94,13 +98,11 @@ func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent)
 				}
 			case whatsmeow.QRChannelSuccess.Event:
 				qr = nil
-				select {
-				case out <- TransportEvent{Kind: "authenticating"}:
-				case <-ctx.Done():
-					return ctx.Err()
-				}
 			default:
 				if code := t.stopped(); code != "" {
+					return RunError{Code: code}
+				}
+				if code := storageCode(item.Error); code != "" {
 					return RunError{Code: code}
 				}
 				return RunError{Retry: false}
@@ -109,10 +111,29 @@ func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent)
 	}
 }
 
+func storageCode(err error) Code {
+	var failure *protocolstore.Error
+	if !errors.As(err, &failure) {
+		return ""
+	}
+	switch failure.Code {
+	case protocolstore.SessionFull:
+		return SessionStorageLimitReached
+	case protocolstore.StateInvalid:
+		return SessionStateInvalid
+	default:
+		return SessionStorageFailed
+	}
+}
+
 func classify(event any) string {
 	switch value := event.(type) {
 	case *events.Connected:
 		return "connected"
+	case *events.PairSuccess:
+		return "authenticating"
+	case *events.ManualLoginReconnect:
+		return "networkFailure"
 	case *events.Disconnected:
 		return "networkFailure"
 	case *events.LoggedOut:
