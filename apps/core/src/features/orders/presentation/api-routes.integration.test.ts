@@ -670,13 +670,34 @@ test("rated delivery HTTP assigns the selected option, reports price conflicts a
   const agencySaved = await call(path, seller.cookie, { delivery: { method: "agency", recipient, rateId: agency.id, districtCode: "150122" }, expectedPrice: agency.price }, "PUT");
   expect(agencySaved.status).toBe(200);
   expect(await agencySaved.json()).toMatchObject({ total: { amount: 15 }, delivery: { method: "agency", courier: null, agency: null, pricing: { rateId: agency.id } } });
+  const paidId = randomUUID();
+  const paymentId = randomUUID();
+  const paidInput = { id: paidId, contactId: null, items: [{ variantId: seller.variantId, quantity: 1 }], delivery: input,
+    payments: [{ paymentId, amount: { amount: 18, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }] };
+  for (const chargeDeliveryToCustomer of [true, false]) {
+    const rejected = await call("/api/orders", seller.cookie, { ...paidInput, delivery: { delivery: { method: "store", recipient }, chargeDeliveryToCustomer } });
+    expect(rejected.status).toBe(400);
+    expect(await rejected.json()).toMatchObject({ code: "INVALID_INPUT" });
+  }
+  const staleCreation = await call("/api/orders", seller.cookie, { ...paidInput, delivery: { ...input, expectedPrice: { amount: 7, currency: "PEN" } } });
+  expect(staleCreation.status).toBe(409);
+  expect(await staleCreation.json()).toMatchObject({ code: "TOTAL_CHANGED", currentPrice: home.price });
+  await withTenantIsolation(seller.companyId, async () => {
+    expect(await prisma.order.findUnique({ where: { id: paidId } })).toBeNull();
+    expect(await prisma.payment.count({ where: { orderId: paidId } })).toBe(0);
+    expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: seller.variantId } })).quantity).toBe(3n);
+  });
+  const paidCreation = await call("/api/orders", seller.cookie, paidInput);
+  expect(paidCreation.status).toBe(201);
+  expect(await paidCreation.json()).toMatchObject({ id: paidId, total: { amount: 18 }, deliveryCharge: home.price, paidAmount: { amount: 18 }, stockDeducted: true,
+    delivery: { pricing: { rateId: home.id } }, payments: [expect.objectContaining({ id: paymentId })] });
   const initialId = randomUUID();
   const created = await call("/api/orders", seller.cookie, { id: initialId, contactId: null, items: [{ variantId: seller.variantId, quantity: 1 }],
     delivery: { ...input, delivery: { ...input.delivery, rateId: free.id }, expectedPrice: free.price },
     payments: [{ paymentId: randomUUID(), amount: { amount: 10, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }] });
   expect(created.status).toBe(201);
   expect(await created.json()).toMatchObject({ stockDeducted: true, total: { amount: 10 }, delivery: { pricing: { rateId: free.id } } });
-  await withTenantIsolation(seller.companyId, async () => expect((await prisma.productStock.findUnique({ where: { variantId: seller.variantId } }))?.quantity).toBe(2n));
+  await withTenantIsolation(seller.companyId, async () => expect((await prisma.productStock.findUnique({ where: { variantId: seller.variantId } }))?.quantity).toBe(1n));
 });
 
 

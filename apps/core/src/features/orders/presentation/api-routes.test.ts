@@ -140,3 +140,16 @@ test("rated assignment errors preserve public price metadata and distinguish sto
     if (error.code === "TOTAL_CHANGED") expect(response.body.currentPrice).toEqual(error.currentPrice);
   }
 });
+
+
+test("creation API rejects legacy delivery choices without dispatching a save", async () => {
+  const create = vi.spyOn(orderComposition, "createConfiguredOrder");
+  const immediate = vi.spyOn(orders, "registerImmediateSale");
+  for (const chargeDeliveryToCustomer of [true, false]) {
+    const body = { id: "00000000-0000-4000-8000-000000000003", contactId: null, items: [{ variantId: contactId, quantity: 1 }],
+      delivery: { delivery: { method: "store", recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } } }, chargeDeliveryToCustomer } };
+    expect(await request("/", "PE", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
+  }
+  expect(create).not.toHaveBeenCalled();
+  expect(immediate).not.toHaveBeenCalled();
+});

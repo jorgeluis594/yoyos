@@ -2,15 +2,15 @@ import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import express, { type Request, type Response } from "express";
 import { z } from "zod";
-import { createOrderSchema, createRatedOrderSchema, setRatedOrderDeliverySchema, orderApiErrorSchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
-import { parseRatedDeliverySelection, parseDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
+import { createOrderSchema, createRatedOrderSchema, completeOrderSchema, setRatedOrderDeliverySchema, orderApiErrorSchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
+import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { apiError, type PrivateLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { orders, createConfiguredOrder } from "@core/src/features/orders/composition";
 import { toLegacyOrderJson, toOrderAggregateJson, toOrderAggregateListJson, toOrderListJson } from "@core/src/features/orders/presentation/order-json";
 import type { CreateOrderInput, OrderAccess } from "@core/src/features/orders/application/create-order";
 import type { ContactId, CompanyId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { Money } from "@shared/money";
-import type { InitialOrderDeliveryInput } from "@core/src/features/orders/application/set-delivery";
+import type { RatedSetDeliveryInput } from "@core/src/features/orders/application/set-delivery";
 import type { RegisterPaymentInput } from "@core/src/features/orders/application/register-payment";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
@@ -257,7 +257,7 @@ for (const [path, operation] of [
 
 orderRoutes.post("/", async (request, response: Response<unknown, PrivateLocals>) => {
   if (!request.is("application/json")) return apiError(response, 415, "UNSUPPORTED_MEDIA_TYPE", "JSON body required");
-  const parsed = z.union([createRatedOrderSchema, createOrderSchema]).safeParse(request.body);
+  const parsed = z.union([createRatedOrderSchema, completeOrderSchema.omit({ delivery: true }), createOrderSchema.options[1]]).safeParse(request.body);
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order input");
   try {
     const input = toCreateOrderInput(parsed.data);
@@ -266,18 +266,12 @@ orderRoutes.post("/", async (request, response: Response<unknown, PrivateLocals>
       const result = await orders.registerImmediateSale(input, context);
       return result.success ? response.status(201).json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
     }
-    let delivery: InitialOrderDeliveryInput | undefined;
-    if (parsed.data.delivery) {
+    let delivery: Omit<RatedSetDeliveryInput, "orderId"> | undefined;
+    if ("delivery" in parsed.data) {
       const change = parsed.data.delivery;
-      if ("expectedPrice" in change) {
-        const selection = parseRatedDeliverySelection(change.delivery);
-        if (!selection.success) return operationError(response, selection.error);
-        delivery = { delivery: selection.data, expectedPrice: change.expectedPrice };
-      } else {
-        const selection = parseDeliverySelection(change.delivery);
-        if (!selection.success) return operationError(response, selection.error);
-        delivery = { delivery: selection.data, chargeDeliveryToCustomer: change.chargeDeliveryToCustomer };
-      }
+      const selection = parseRatedDeliverySelection(change.delivery);
+      if (!selection.success) return operationError(response, selection.error);
+      delivery = { delivery: selection.data, expectedPrice: change.expectedPrice };
     }
     const result = await createConfiguredOrder({ ...input,
       payments: parsed.data.payments?.map(payment => ({ ...payment, paymentId: payment.paymentId as PaymentId })), delivery,
