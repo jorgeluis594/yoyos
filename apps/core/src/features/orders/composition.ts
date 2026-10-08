@@ -11,8 +11,8 @@ import type { AppError, Result } from "@shared/result";
 import { afterTransactionCommit, getCompanyId, requireNoActiveTransaction, withinTransaction, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { deliverySettings } from "@core/src/features/delivery-settings";
 import { setOrderDelivery, type SetDeliveryInput } from "@core/src/features/orders/application/set-delivery";
-import { resolveShippingCost as resolveRatedShippingCost, resolveDeliverySelection, type ResolveDeliveryDependencies } from "@core/src/features/orders/application/resolve-delivery-selection";
-import { validateDeliveryCost, type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
+import { resolveShippingCost as resolveRatedShippingCost } from "@core/src/features/orders/application/resolve-delivery-selection";
+import { type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import { z } from "zod";
 import { createOrder, type CreateOrderDependencies } from "@core/src/features/orders/application/create-order";
 import { deductStock, type DeductStockDependencies } from "@core/src/features/orders/application/deduct-stock";
@@ -60,8 +60,7 @@ const fulfillmentTransaction: FulfillOrderDependencies["transaction"] = scopedOr
 const fulfillmentDependencies: FulfillOrderDependencies = { transaction: fulfillmentTransaction, findOrderForUpdate,
   saveFulfillment, clock: () => new Date() };
 
-export async function setConfiguredOrderDelivery(input: SetDeliveryInput, context: OrderAccess,
-  resolveShippingCost: ResolveDeliveryDependencies["resolveShippingCost"] = async () => err({ code: "DELIVERY_UNAVAILABLE", reason: "resolver_not_integrated", message: "Delivery cost resolver is not integrated" })) {
+export async function setConfiguredOrderDelivery(input: SetDeliveryInput, context: OrderAccess) {
   const started = performance.now();
   const observed: { previous: OrderAggregate | null; settingsVersion?: number; courierId?: string; stage: string } = { previous: null, stage: "lock_order" };
   const result = await setOrderDelivery(input, context, {
@@ -73,32 +72,6 @@ export async function setConfiguredOrderDelivery(input: SetDeliveryInput, contex
       const found = await findOrderForUpdate(id, companyId, "set_order_delivery");
       if (found.success) observed.previous = found.data;
       return found;
-    },
-    resolveDelivery: (selection, access, currency) => {
-      observed.stage = "resolve_delivery";
-      if (selection.method === "agency") observed.courierId = selection.courierId;
-      return resolveDeliverySelection(selection, access, currency, {
-        getSettings: async (authorized) => {
-          const settings = await deliverySettings.get(authorized, "set_order_delivery");
-          if (settings.success) observed.settingsVersion = settings.data.version;
-          return settings;
-        },
-        resolveShippingCost: async (snapshot, authorized, orderCurrency) => {
-          try {
-            const resolved = await resolveShippingCost(snapshot, authorized, orderCurrency);
-            if (resolved.success) {
-              const valid = validateDeliveryCost(resolved.data, orderCurrency);
-              if (!valid.success) log.error({ event: "order_delivery_resolution_invalid", operation: "set_order_delivery", orderId: input.orderId,
-                courierId: observed.courierId, deliveryMethod: selection.method, stage: observed.stage, reason: valid.error.code === "CURRENCY_MISMATCH" ? "currency_mismatch" : "invalid_cost", errorCode: valid.error.code }, "Delivery cost resolution is invalid");
-            }
-            return resolved;
-          } catch (cause) {
-            log.error({ event: "order_delivery_resolution_failed", operation: "set_order_delivery", orderId: input.orderId,
-              courierId: observed.courierId, deliveryMethod: selection.method, settingsVersion: observed.settingsVersion, stage: observed.stage, errorCode: "DELIVERY_UNAVAILABLE", err: cause }, "Unable to resolve delivery cost");
-            return err({ code: "DELIVERY_UNAVAILABLE", message: "Unable to resolve delivery cost" });
-          }
-        },
-      });
     },
     resolveRatedDelivery: (selection, access, currency, expectedPrice) => {
       observed.stage = "resolve_delivery";
@@ -117,7 +90,7 @@ export async function setConfiguredOrderDelivery(input: SetDeliveryInput, contex
     afterTransactionCommit(() => log.info({ event: "order_delivery_saved", operation: "set_order_delivery", orderId: input.orderId,
       userId: context.userId, authorKind: "seller", changeKind: before?.delivery ? "replaced" : "assigned",
       courierId: observed.courierId, previousDeliveryMethod: before?.delivery?.method, deliveryMethod: input.delivery.method, settingsVersion: observed.settingsVersion,
-      chargeDeliveryToCustomer: "expectedPrice" in input ? true : input.chargeDeliveryToCustomer, totalChanged: before?.total.amount !== result.data.total.amount,
+      chargeDeliveryToCustomer: true, totalChanged: before?.total.amount !== result.data.total.amount,
       stockDeductionRequired: !before?.stockDeducted && result.data.stockDeducted, stockDeducted: result.data.stockDeducted,
       transactionOutcome: "committed", durationMs }, "Order delivery saved"));
   } else if (!["ORDER_NOT_FOUND", "PERSISTENCE_UNAVAILABLE", "INVALID_STORED_DATA", "INVALID_ORDER", "CURRENCY_MISMATCH"].includes(result.error.code)) {

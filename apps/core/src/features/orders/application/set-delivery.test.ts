@@ -29,7 +29,6 @@ function dependencies(current: OrderAggregate | null, amount = 3) {
   const saveDelivery = vi.fn<SetDeliveryDependencies["saveDelivery"]>(async () => ok(null));
   const deductProductStock = vi.fn<SetDeliveryDependencies["deductProductStock"]>(async () => ok(null));
   const saveStockDeduction = vi.fn<SetDeliveryDependencies["saveStockDeduction"]>(async () => ok(null));
-  const resolveDelivery = vi.fn<SetDeliveryDependencies["resolveDelivery"]>(async () => err({ code: "INTERNAL_ERROR", message: "Unexpected legacy selection" }));
   const resolveRatedDelivery = vi.fn<SetDeliveryDependencies["resolveRatedDelivery"]>(async (selection, access) => {
     if (selection.method !== "home") throw new Error("Expected home selection");
     const { rateId, ...details } = selection;
@@ -41,8 +40,8 @@ function dependencies(current: OrderAggregate | null, amount = 3) {
     return ok({ delivery: snapshot.data, cost: money(amount) });
   });
   const deps: SetDeliveryDependencies = { resolveRatedDelivery, transaction: async (_companyId, work) => work(),
-    findOrderForUpdate: async () => ok(current), resolveDelivery, saveDelivery, deductProductStock, saveStockDeduction };
-  return { deps, saveDelivery, deductProductStock, saveStockDeduction, resolveDelivery, resolveRatedDelivery };
+    findOrderForUpdate: async () => ok(current), saveDelivery, deductProductStock, saveStockDeduction };
+  return { deps, saveDelivery, deductProductStock, saveStockDeduction, resolveRatedDelivery };
 }
 const input = { orderId: id(2) as OrderId, delivery: home, expectedPrice: money(3) };
 
@@ -70,7 +69,6 @@ test("rejects missing, cancelled and fulfilled orders before resolving delivery"
   ] as const) {
     const f = dependencies(current);
     expect(await setOrderDelivery(input, context, f.deps)).toMatchObject({ success: false, error: { code } });
-    expect(f.resolveDelivery).not.toHaveBeenCalled();
     expect(f.resolveRatedDelivery).not.toHaveBeenCalled();
     expect(f.saveDelivery).not.toHaveBeenCalled();
     expect(f.deductProductStock).not.toHaveBeenCalled();
@@ -112,10 +110,9 @@ test("rated assignments charge the validated price and reuse covered-stock deduc
     stockDeducted: true, deliveryCost: money(0), deliveryCharge: money(0), total: money(10),
   } });
   expect(resolveRatedDelivery).toHaveBeenCalledWith(delivery, context, 'PEN', money(0));
-  expect(f.resolveDelivery).not.toHaveBeenCalled();
   expect(f.deductProductStock).toHaveBeenCalledTimes(1);
   const rejected = dependencies(order());
-  expect(await setOrderDelivery({ ...rated, chargeDeliveryToCustomer: false }, context, rejected.deps))
+  expect(await setOrderDelivery({ ...rated, chargeDeliveryToCustomer: false } as typeof rated, context, rejected.deps))
     .toMatchObject({ success: false, error: { code: 'INVALID_ORDER' } });
   expect(rejected.saveDelivery).not.toHaveBeenCalled();
 });
@@ -125,6 +122,17 @@ test("rated price conflicts never save delivery, stock or totals", async () => {
   const failure = err({ code: 'TOTAL_CHANGED' as const, currentPrice: money(8), message: 'Review price' });
   expect(await setOrderDelivery({ orderId: input.orderId, delivery, expectedPrice: money(0) }, context,
     { ...f.deps, resolveRatedDelivery: async () => failure })).toEqual(failure);
+  expect(f.saveDelivery).not.toHaveBeenCalled();
+  expect(f.deductProductStock).not.toHaveBeenCalled();
+  expect(f.saveStockDeduction).not.toHaveBeenCalled();
+});
+
+test.each([true, false])("rejects legacy charge decision %s before resolving or writing", async chargeDeliveryToCustomer => {
+  const f = dependencies(order());
+  const legacy = { orderId: input.orderId, delivery, chargeDeliveryToCustomer };
+  expect(await setOrderDelivery(legacy as unknown as typeof input, context, f.deps))
+    .toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
+  expect(f.resolveRatedDelivery).not.toHaveBeenCalled();
   expect(f.saveDelivery).not.toHaveBeenCalled();
   expect(f.deductProductStock).not.toHaveBeenCalled();
   expect(f.saveStockDeduction).not.toHaveBeenCalled();
