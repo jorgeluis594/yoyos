@@ -141,3 +141,39 @@ test("core resolves a committed lost response, offers manual verification and re
     await browserExpect(page.getByRole("button", { name: "Cancelar pedido", exact: true })).toHaveCount(0);
   } finally { await f.cleanup(); }
 }, 120000);
+
+
+test("new loader data replaces a recovered active cancellation snapshot after checkout activation", async ({ page }) => {
+  const f = await fixture(page);
+  try {
+    const id = await f.create();
+    const dataRoute = new RegExp(`/orders/${id}\\.data(?:\\?|$)`);
+    await page.goto(`/es-PE/orders/${id}`);
+    await page.route(dataRoute, route => route.request().method() === "POST"
+      ? route.abort("failed") : route.continue());
+    await confirm(page);
+    await browserExpect(page.getByRole("button", { name: "Cancelar pedido", exact: true })).toBeEnabled();
+    await browserExpect(page.getByRole("alert")).toBeVisible();
+    await browserExpect(page.getByText("Enlace aún no habilitado", { exact: true })).toBeVisible();
+    await page.unroute(dataRoute);
+    await page.getByRole("button", { name: "Obtener enlace", exact: true }).click();
+    await browserExpect(page.getByText("Pendiente de confirmación", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Enlace aún no habilitado", { exact: true })).toHaveCount(0);
+    expect((await f.detail(id)).checkoutEnabledAt).not.toBeNull();
+  } finally { await f.cleanup(); }
+});
+
+
+test("confirmed cancellation snapshot survives a failed detail refresh", async ({ page }) => {
+  const f = await fixture(page);
+  try {
+    const id = await f.create();
+    await page.goto(`/es-PE/orders/${id}`);
+    await page.route(`**/api/orders/${id}/aggregate`, route => route.abort("failed"));
+    await confirm(page);
+    await browserExpect(page.getByRole("alert")).toContainText("El pedido está cancelado, pero no se pudo actualizar el detalle");
+    await browserExpect(page.getByRole("status")).toContainText("Pedido cancelado");
+    await browserExpect(page.getByRole("button", { name: "Cancelar pedido", exact: true })).toHaveCount(0);
+    await browserExpect(page.getByRole("button", { name: "Obtener enlace", exact: true })).toHaveCount(0);
+  } finally { await f.cleanup(); }
+});

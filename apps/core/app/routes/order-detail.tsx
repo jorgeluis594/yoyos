@@ -185,7 +185,11 @@ export default function OrderDetail() {
   const { t, i18n } = useTranslation();
   const { order: loadedOrder, base, manualPaymentId, receiptUrls, settings, settingsPath } = useLoaderData<typeof loader>();
   const rawAction = useActionData<typeof clientAction>();
-  const cancellation = rawAction && "operation" in rawAction && rawAction.operation === "cancellation" && rawAction.orderId === loadedOrder.id ? rawAction : undefined;
+  const [cancellationSource, setCancellationSource] = useState({ action: rawAction, order: loadedOrder });
+  if (cancellationSource.action !== rawAction) {
+    setCancellationSource({ action: rawAction, order: loadedOrder });
+  }
+  const cancellation = cancellationSource.order === loadedOrder && rawAction && "operation" in rawAction && rawAction.operation === "cancellation" && rawAction.orderId === loadedOrder.id ? rawAction : undefined;
   const actionData = rawAction && "operation" in rawAction && (rawAction.operation === "cancel" || rawAction.operation === "cancellation") ? undefined : rawAction;
   const order = cancellation?.outcome.kind === "confirmed" ? cancellation.outcome.order
     : cancellation?.outcome.kind === "failed" && cancellation.outcome.order ? cancellation.outcome.order : loadedOrder;
