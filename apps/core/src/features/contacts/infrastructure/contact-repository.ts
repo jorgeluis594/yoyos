@@ -109,7 +109,11 @@ export async function findContactById(id: string) {
   }
 }
 
-export async function searchSaleContacts(search: string) {
+export async function searchSaleContacts(search: string, contactId?: string) {
+  if (contactId) {
+    const found = await findContactById(contactId);
+    return found.success ? ok(found.data ? [found.data] : []) : found;
+  }
   try {
     const contacts = await prisma.contact.findMany({ where: { phone: { not: null }, OR: [
       { name: { contains: search.replace(/[\\%_]/g, "\\$&"), mode: "insensitive" } },

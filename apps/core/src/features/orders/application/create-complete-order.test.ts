@@ -25,9 +25,10 @@ function fixture() {
     saveOrder: async () => ok(null), newItemId: () => order.items[0].id, clock: () => order.createdAt }));
   const registerPayment = vi.fn(async () => ok({ order, stock: { kind: "not_requested" as const } }));
   const deliver = vi.fn(async () => ok(order));
-  const deps: CreateCompleteOrderDependencies = { transaction: async (_companyId, work) => work(), create,
+  const transaction = vi.fn();
+  const deps: CreateCompleteOrderDependencies = { transaction: async (_companyId, work) => { transaction(); return work(); }, create,
     setDelivery: async () => ok(order), registerPayment, deliver };
-  return { deps, create, registerPayment, deliver, order };
+  return { deps, transaction, create, registerPayment, deliver, order };
 }
 
 test("optional creation data does not turn a pending order into an immediate sale", async () => {
@@ -47,8 +48,21 @@ test("delivery failure prevents payments and fulfillment", async () => {
   const f = fixture();
   const failure = err({ code: "DELIVERY_UNAVAILABLE" as const, message: "Unavailable" });
   expect(await createCompleteOrder({ ...input, payments: [payment], deliverImmediately: true,
-    delivery: { delivery: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } }, chargeDeliveryToCustomer: true } },
+    delivery: { delivery: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } }, expectedPrice: { amount: 0, currency: "PEN" } } },
   context, { ...f.deps, setDelivery: async () => failure })).toEqual(failure);
+  expect(f.registerPayment).not.toHaveBeenCalled();
+  expect(f.deliver).not.toHaveBeenCalled();
+});
+
+test.each([true, false])("legacy initial delivery is rejected before opening a transaction (charge: %s)", async (chargeDeliveryToCustomer) => {
+  const f = fixture();
+  const delivery = { delivery: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } }, chargeDeliveryToCustomer };
+  for (const selection of [delivery, { ...delivery, expectedPrice: { amount: 0, currency: "PEN" } }, { delivery: delivery.delivery }]) {
+    expect(await createCompleteOrder({ ...input, payments: [payment], delivery: selection } as unknown as CreateCompleteOrderInput, context, f.deps))
+      .toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
+  }
+  expect(f.transaction).not.toHaveBeenCalled();
+  expect(f.create).not.toHaveBeenCalled();
   expect(f.registerPayment).not.toHaveBeenCalled();
   expect(f.deliver).not.toHaveBeenCalled();
 });

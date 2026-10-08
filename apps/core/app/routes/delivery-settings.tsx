@@ -8,8 +8,8 @@ import { Tabs } from "radix-ui";
 import { Store, Truck, Package } from "lucide-react";
 import { useClientReady } from "@core/app/use-client-ready";
 import { useTranslation } from "react-i18next";
-import { useActionData, useLoaderData, useNavigation, useSubmit, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
-import { courierInputSchema, deliverySettingsSchema, saveDeliverySettingsSchema, type DeliverySettingsResponse, type SaveDeliverySettingsRequest } from "@shared/contracts/delivery-settings";
+import { useFetcher, useActionData, useLoaderData, useNavigation, useSubmit, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
+import { courierInputSchema, deliverySettingsSchema, saveDeliverySettingsSchema, deliveryZonesSchema, saveDeliveryZonesSchema, type DeliveryZonesResponse, type DeliverySettingsResponse, type SaveDeliverySettingsRequest } from "@shared/contracts/delivery-settings";
 import { privateUserContext } from "@core/app/private-user-context";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
 import { log } from "@core/src/shared/infrastructure/logger";
@@ -18,19 +18,42 @@ import { PageHeader } from "@core/app/components/ui/page-header";
 import { Button } from "@core/app/components/ui/button";
 import { Input } from "@core/app/components/ui/input";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@core/app/components/ui/field";
+import { DeliveryZonesSection } from "@core/app/components/delivery-zones-section";
 import { ErrorState } from "@core/app/components/ui/error-state";
 
 export async function loader({ context }: LoaderFunctionArgs) {
   const access = context.get(privateUserContext);
   const result = await deliverySettings.get({ companyId: access.company.id, userId: access.user.id });
   if (!result.success) throw new Response("Unable to load delivery settings", { status: result.error.code === "PERSISTENCE_UNAVAILABLE" ? 503 : 500 });
-  return deliverySettingsSchema.parse(result.data);
+  const settings = deliverySettingsSchema.parse(result.data);
+  if (access.company.country !== "PE") return { ...settings, zones: null };
+  const zones = await deliverySettings.getZones({ companyId: access.company.id, userId: access.user.id });
+  if (!zones.success) throw new Response("Unable to load delivery zones", { status: 503 });
+  return { ...settings, zones: deliveryZonesSchema.parse(zones.data) };
 }
 
 export async function action({ context, request }: ActionFunctionArgs) {
   let raw: unknown;
   try { raw = await request.json(); }
   catch { return { error: "invalid" as const }; }
+  if (typeof raw === "object" && raw !== null && "intent" in raw) {
+    const zones = saveDeliveryZonesSchema.extend({ intent: z.literal("zones") }).safeParse(raw);
+    if (!zones.success) return { zonesError: { code: "INVALID_INPUT" as const } };
+    const access = context.get(privateUserContext);
+    const input = { method: zones.data.method, expectedVersion: zones.data.expectedVersion, zones: zones.data.zones };
+    try {
+      const result = await deliverySettings.saveZones(input, { companyId: access.company.id, userId: access.user.id });
+      if (result.success) return { zonesSaved: deliveryZonesSchema.parse(result.data), zonesMethod: input.method };
+      const error = result.error;
+      return { zonesError: { code: error.code,
+        ...(error.code === "DELIVERY_SETTINGS_CONFLICT" ? { currentVersion: error.currentVersion, reason: error.reason } : {}),
+        ...(error.code === "INVALID_DELIVERY_ZONE" ? { field: error.field, index: error.index } : {}) } };
+    } catch (cause) {
+      log.error({ event: "delivery_zones_request_failed", operation: "save_delivery_zones", entryPoint: "web_action", userId: access.user.id,
+        errorCode: "INTERNAL_ERROR", err: cause }, "Unable to handle delivery zones request");
+      return { zonesError: { code: "INTERNAL_ERROR" as const } };
+    }
+  }
   const parsed = saveDeliverySettingsSchema.safeParse(raw);
   if (!parsed.success) return { error: "invalid" as const };
   const access = context.get(privateUserContext);
@@ -82,12 +105,15 @@ function createDraft(settings: DeliverySettingsResponse): FormValues {
   };
 }
 
-function SettingsForm({ settings }: { settings: DeliverySettingsResponse }) {
+function SettingsForm({ settings }: { settings: DeliverySettingsResponse & { zones: DeliveryZonesResponse | null } }) {
   const { t } = useTranslation();
   const submit = useSubmit();
   const ready = useClientReady();
   const navigation = useNavigation();
   const result = useActionData<typeof action>();
+  const zonesFetcher = useFetcher<typeof action>();
+  const [zoneHistory, setZoneHistory] = useState<{ state: DeliveryZonesResponse | null; seen?: DeliveryZonesResponse;
+    home?: DeliveryZonesResponse; agency?: DeliveryZonesResponse }>({ state: settings.zones });
   const [tab, setTab] = useState("store");
   const form = useForm<FormValues>({ resolver: zodResolver(formSchema), defaultValues: createDraft(settings), shouldFocusError: false });
   const { fields, append, remove } = useFieldArray({ control: form.control, name: "couriers", keyName: "fieldKey" });
@@ -99,7 +125,23 @@ function SettingsForm({ settings }: { settings: DeliverySettingsResponse }) {
   useEffect(() => {
     if (saved && saved.version !== getValues("version")) reset(createDraft(saved));
   }, [saved, getValues, reset]);
-  const pending = navigation.state !== "idle";
+  const zonesSaved = zonesFetcher.data?.zonesSaved;
+  const { setValue } = form;
+  useEffect(() => {
+    if (zonesSaved) setValue("version", zonesSaved.version);
+  }, [zonesSaved, setValue]);
+  const zonesMethod = zonesFetcher.data?.zonesMethod;
+  if (zonesSaved && zonesMethod && zoneHistory.seen !== zonesSaved)
+    setZoneHistory({ ...zoneHistory, state: zonesSaved, seen: zonesSaved, [zonesMethod]: zonesSaved });
+  const baseZones = zoneHistory.state;
+  const zonesState = baseZones ? { ...baseZones, version: Math.max(baseZones.version, saved?.version ?? 0),
+    ...(saved && saved.version > baseZones.version ? { home: saved.home, agency: saved.agency } : {}) } : null;
+  const zoneSection = (method: "home" | "agency") => zonesState && <DeliveryZonesSection method={method} state={zonesState}
+    pending={navigation.state !== "idle" || zonesFetcher.state !== "idle" || !ready}
+    error={zonesFetcher.data?.zonesMethod === undefined || zonesFetcher.data.zonesMethod === method ? zonesFetcher.data?.zonesError?.code : undefined}
+    saved={zoneHistory[method]}
+    onSave={request => zonesFetcher.submit({ intent: "zones", ...request }, { method: "post", encType: "application/json" })} />;
+  const pending = navigation.state !== "idle" || zonesFetcher.state !== "idle";
   const conflict = result?.error === "conflict";
   const invalidMessage = t("deliverySettings.invalid");
   const revealInvalid = (errors: FieldErrors<FormValues>) => {
@@ -162,6 +204,7 @@ function SettingsForm({ settings }: { settings: DeliverySettingsResponse }) {
             <p className="text-sm text-muted-foreground">{t("deliverySettings.homeScope")}</p>
           </FieldGroup>
         </fieldset>
+        {zoneSection("home")}
       </Tabs.Content>
       <Tabs.Content value="agency" forceMount className="outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=inactive]:hidden">
         <fieldset disabled={pending || !ready}>
@@ -185,6 +228,7 @@ function SettingsForm({ settings }: { settings: DeliverySettingsResponse }) {
             <Button type="button" variant="outline" className="self-start max-md:min-h-touch" onClick={() => append({ kind: "new", name: "", enabled: true })}>{t("deliverySettings.addCourier")}</Button>
           </FieldGroup>
         </fieldset>
+        {zoneSection("agency")}
       </Tabs.Content>
     </Tabs.Root>
     <div className="flex flex-col gap-3 border-t border-border pt-4">

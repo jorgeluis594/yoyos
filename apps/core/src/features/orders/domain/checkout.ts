@@ -3,15 +3,8 @@ import { ok, err } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { compare, currencies, type Money } from "@shared/money";
 import { internationalPhonePattern } from "@shared/phone";
+import type { DeliverySnapshot } from "@core/src/features/orders/domain/order-state-machine";
 import type { CompanyId, ContactId, OrderId, OrderItem } from "@core/src/features/orders/domain/order";
-import type { DeliverySnapshot, DeliveryStatus, OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
-
-export function buyerPaymentAvailability(order: Pick<OrderAggregate, "cancelled" | "checkoutDeliveryRequest" | "checkoutEnabledAt" | "checkoutConfirmedAt">) {
-  if (order.cancelled) return "cancelled" as const;
-  if (order.checkoutDeliveryRequest) return "delivery_quote_pending" as const;
-  if (order.checkoutEnabledAt && !order.checkoutConfirmedAt) return "checkout_pending" as const;
-  return "available" as const;
-}
 
 export type OrderNumber = number & { readonly __brand: "OrderNumber" };
 export type BuyerName = string & { readonly __brand: "BuyerName" };
@@ -20,9 +13,10 @@ export type BuyerData = Readonly<{ name: BuyerName; phone: PhoneNumber }>;
 export type OrderBuyer = Readonly<{ contactId: ContactId | null; name: string | null; phone: string }>;
 export type CheckoutAccess = Readonly<{ companyId: CompanyId; orderId: OrderId }>;
 export type CheckoutError = Readonly<{
-  code: "CHECKOUT_UNAVAILABLE" | "ORDER_CANCELLED" | "INVALID_BUYER" | "TOTAL_CHANGED" | "INVALID_CHECKOUT" | "PERSISTENCE_UNAVAILABLE" | "DELIVERY_METHOD_DISABLED" | "COURIER_UNAVAILABLE" | "DELIVERY_LOCKED" | "INVALID_DELIVERY";
+  code: "CHECKOUT_UNAVAILABLE" | "ORDER_CANCELLED" | "INVALID_BUYER" | "TOTAL_CHANGED" | "INVALID_CHECKOUT" | "PERSISTENCE_UNAVAILABLE";
   message: string;
 }>;
+export type CheckoutDelivery = DeliverySnapshot extends infer Snapshot ? Snapshot extends DeliverySnapshot ? Omit<Snapshot, "recordedBy"> : never : never;
 export type CheckoutOrder = Readonly<{
   id: OrderId;
   companyId: CompanyId;
@@ -32,13 +26,11 @@ export type CheckoutOrder = Readonly<{
   items: readonly OrderItem[];
   itemsTotal: Money;
   total: Money;
+  delivery: DeliverySnapshot | null;
+  deliveryCharge: Money;
   cancelled: boolean;
   checkoutEnabledAt: Date | null;
   checkoutConfirmedAt: Date | null;
-  delivery: DeliverySnapshot | null;
-  checkoutDeliveryRequest: DeliverySnapshot | null;
-  deliveryCharge: Money;
-  deliveryStatus: DeliveryStatus;
 }>;
 export type CheckoutState =
   | Readonly<{ kind: "not_enabled" }>
@@ -52,18 +44,10 @@ export type CheckoutView = Readonly<{
   items: readonly Pick<OrderItem, "productName" | "variantAttributes" | "sku" | "quantity" | "unitPrice" | "subtotal">[];
   itemsTotal: Money;
   total: Money;
-  state: Exclude<CheckoutState, { kind: "not_enabled" }>;
-  delivery: ReturnType<typeof publicDelivery>;
-  deliveryQuotePending: boolean;
+  delivery: CheckoutDelivery | null;
   deliveryCharge: Money;
+  state: Exclude<CheckoutState, { kind: "not_enabled" }>;
 }>;
-
-function publicDelivery(delivery: DeliverySnapshot | null) {
-  if (!delivery) return null;
-  const { recordedBy, ...details } = delivery;
-  void recordedBy;
-  return details;
-}
 
 const numberSchema = z.number().int().safe().min(1001);
 const buyerSchema = z.strictObject({ name: z.string().trim().min(1), phone: z.string().regex(internationalPhonePattern) });
@@ -90,16 +74,29 @@ export function checkoutState(order: Pick<CheckoutOrder, "checkoutEnabledAt" | "
   return ok(order.checkoutConfirmedAt ? { kind: "confirmed", confirmedAt: order.checkoutConfirmedAt } : { kind: "pending" });
 }
 
+function publicDelivery(snapshot: DeliverySnapshot): CheckoutDelivery {
+  const { recordedBy, ...delivery } = snapshot;
+  void recordedBy;
+  return delivery;
+}
+
 export function checkoutView(order: CheckoutOrder): Result<CheckoutView, CheckoutError> {
   const state = checkoutState(order);
   if (!state.success) return state;
   if (!order.checkoutEnabledAt || state.data.kind === "not_enabled") return err({ code: "CHECKOUT_UNAVAILABLE", message: "Checkout is unavailable" });
+  const delivery = order.delivery ? publicDelivery(order.delivery) : null;
   return ok({ companyName: order.companyName, number: order.number,
     buyer: order.buyer ? { name: order.buyer.name, phone: order.buyer.phone } : null,
     items: order.items.map(({ productName, variantAttributes, sku, quantity, unitPrice, subtotal }) => ({ productName, variantAttributes, sku, quantity, unitPrice, subtotal })),
-    itemsTotal: order.itemsTotal, total: order.total, state: state.data,
-    delivery: publicDelivery(order.checkoutDeliveryRequest ?? order.delivery),
-    deliveryQuotePending: order.checkoutDeliveryRequest !== null, deliveryCharge: order.deliveryCharge });
+    itemsTotal: order.itemsTotal, delivery, deliveryCharge: order.deliveryCharge, total: order.total, state: state.data });
+}
+
+export function canAccessBuyerPayment(order: Pick<CheckoutOrder, "checkoutEnabledAt" | "checkoutConfirmedAt" | "cancelled" | "buyer">): Result<null, CheckoutError> {
+  const state = checkoutState(order);
+  if (!state.success) return state;
+  if (state.data.kind === "cancelled") return err({ code: "ORDER_CANCELLED", message: "Order is cancelled" });
+  if (state.data.kind === "pending") return err({ code: "CHECKOUT_UNAVAILABLE", message: "Confirm checkout before paying" });
+  return ok(null);
 }
 
 export function checkExpectedTotal(expected: Money, current: Money): Result<null, CheckoutError> {

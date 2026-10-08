@@ -1,4 +1,4 @@
-import { isRouteErrorResponse, useLoaderData, type LoaderFunctionArgs } from "react-router";
+import { redirect, isRouteErrorResponse, useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { buyerPaymentViewSchema } from "@shared/contracts/orders";
 import { orders } from "@core/src/features/orders/composition";
 import { BuyerPaymentContent } from "@core/src/features/orders/presentation/buyer-payment-content";
@@ -6,8 +6,12 @@ export const headers = () => ({ "Cache-Control": "no-store", "Referrer-Policy": 
 export const meta = () => [{ title: "Pago del pedido" }, { name: "robots", content: "noindex, nofollow" }];
 export async function loader({ params }: LoaderFunctionArgs) {
   const result = await orders.getBuyerPaymentView(params.orderId ?? "");
+  if (!result.success && result.error.code === "CHECKOUT_UNAVAILABLE") {
+    const access = await orders.resolveBuyerAccess(params.orderId ?? "");
+    if (access.success) throw redirect(`/checkout/${access.data.companyId}/${access.data.orderId}`);
+  }
   if (!result.success) throw new Response("Pedido no disponible", { status: result.error.code === "ORDER_NOT_FOUND" ? 404 :
-    result.error.code === "INVALID_ORDER" ? 400 : 503 });
+    result.error.code === "INVALID_ORDER" ? 400 : result.error.code === "ORDER_CANCELLED" ? 409 : 503 });
   return buyerPaymentViewSchema.parse(result.data);
 }
 

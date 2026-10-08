@@ -3,14 +3,13 @@ import type { Result } from "@shared/result";
 import { isOrderId } from "@core/src/features/orders/domain/order";
 import { readCancellationOrder, verifyCancellation, cancellationMessage, type CancelOrderActionError, type CancellationClientResult, type CancellationUiState } from "@core/src/features/orders/presentation/cancellation-client";
 import { cancelOrderResponseSchema, type CancelOrderResponse } from "@shared/contracts/orders";
-import { CheckoutDeliveryQuote } from "@core/src/features/orders/presentation/checkout-delivery-quote";
 import { fulfillmentBlock } from "@shared/orders-fulfillment";
 import { PaymentFields, type PaymentDraft } from "@core/src/features/orders/presentation/payment-fields";
 import { useRef, useState } from "react";
 import { ArrowLeft, ChevronDown, CircleCheck, CircleX, CreditCard, ExternalLink, Truck } from "lucide-react";
 import { Card } from "@core/app/components/ui/card";
 import { z } from "zod";
-import { checkoutLinkSchema, quoteCheckoutDeliverySchema } from "@shared/contracts/order-checkout";
+import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import { Input } from "@core/app/components/ui/input";
 import { Field, FieldLabel } from "@core/app/components/ui/field";
@@ -22,13 +21,12 @@ import { Form, useActionData, data, isRouteErrorResponse, Link, useFetcher, useF
 import { privateUserContext } from "@core/app/private-user-context";
 import { deliverySettingsSchema } from "@shared/contracts/delivery-settings";
 import { deliverySettings } from "@core/src/features/delivery-settings";
-import { deliveryCostContext } from "@core/app/delivery-cost-context";
-import { DeliveryForm } from "@core/src/features/orders/presentation/delivery-form";
-import { parseDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
+import { RatedDeliveryForm } from "@core/src/features/orders/presentation/rated-delivery-form";
+import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { setConfiguredOrderDelivery } from "@core/src/features/orders/composition";
 import { orders } from "@core/src/features/orders/composition";
 import { toOrderAggregateJson } from "@core/src/features/orders/presentation/order-json";
-import { orderDetailLoaderSchema, orderAggregateSchema, setOrderDeliverySchema, registerPaymentSchema } from "@shared/contracts/orders";
+import { orderDetailLoaderSchema, orderAggregateSchema, setRatedOrderDeliverySchema, registerPaymentSchema } from "@shared/contracts/orders";
 import type { OrderId, PaymentId, CompanyId, UserId } from "@core/src/features/orders/domain/order";
 import { resolvePublicImage } from "@core/src/shared/images";
 import { Button } from "@core/app/components/ui/button";
@@ -58,16 +56,18 @@ async function deliveryAction({ params, request, context }: ActionFunctionArgs) 
   const id = z.uuid().safeParse(params.orderId);
   let raw: unknown;
   try { raw = await request.json(); } catch { return { operation: "delivery" as const, url: null, success: false, error: "invalid" as const }; }
-  const parsed = setOrderDeliverySchema.safeParse(raw);
+  const parsed = setRatedOrderDeliverySchema.safeParse(raw);
   if (!id.success || !parsed.success) return { operation: "delivery" as const, url: null, success: false, error: "invalid" as const };
-  const selection = parseDeliverySelection(parsed.data.delivery);
-  if (!selection.success) return { operation: "delivery" as const, url: null, success: false, error: "invalid" as const };
   const access = context.get(privateUserContext);
   try {
-    const result = await setConfiguredOrderDelivery({ orderId: id.data as OrderId, delivery: selection.data,
-      chargeDeliveryToCustomer: parsed.data.chargeDeliveryToCustomer }, { companyId: access.company.id as CompanyId, userId: access.user.id as UserId }, context.get(deliveryCostContext) ?? undefined);
+    const seller = { companyId: access.company.id as CompanyId, userId: access.user.id as UserId };
+    const selection = parseRatedDeliverySelection(parsed.data.delivery);
+    if (!selection.success) return { operation: "delivery" as const, url: null, success: false, error: "invalid" as const };
+    const result = await setConfiguredOrderDelivery({ orderId: id.data as OrderId, delivery: selection.data, expectedPrice: parsed.data.expectedPrice }, seller);
     if (result.success) return { operation: "delivery" as const, url: null, success: false, error: false, order: orderAggregateSchema.parse(toOrderAggregateJson(result.data)) };
-    return { operation: "delivery" as const, url: null, success: false, error: result.error.code === "DELIVERY_METHOD_DISABLED" ? "disabled" as const
+    if (result.error.code === "TOTAL_CHANGED") return { operation: "delivery" as const, url: null, success: false, error: "priceChanged" as const, currentPrice: result.error.currentPrice };
+    return { operation: "delivery" as const, url: null, success: false, error: result.error.code === "RATE_UNAVAILABLE" ? "rateUnavailable" as const
+      : result.error.code === "DELIVERY_METHOD_DISABLED" ? "disabled" as const
       : result.error.code === "COURIER_UNAVAILABLE" ? "courierUnavailable" as const
       : result.error.code === "DELIVERY_UNAVAILABLE" ? "unavailable" as const
       : result.error.code === "DELIVERY_LOCKED" || result.error.code === "ORDER_CANCELLED" ? "locked" as const
@@ -130,18 +130,9 @@ export async function action({ params, context, request }: ActionFunctionArgs) {
       return { operation: "cancel", result: err({ code: "INTERNAL_ERROR", message: "Cancellation could not be confirmed" }) } satisfies CancelOrderActionResult;
     }
   }
-  if (!id.success || ([...fields].length !== 0 && operation !== "confirm" && operation !== "void" && operation !== "ship" && operation !== "deliver" && operation !== "quote-delivery")) {
+  if (!id.success || ([...fields].length !== 0 && operation !== "confirm" && operation !== "void" && operation !== "ship" && operation !== "deliver")) {
     bindRequestOperation({ outcome: "invalid_input" });
     return data({ url: null, success: false, error: true }, { status: 422, headers: headers() });
-  }
-  if (operation === "quote-delivery") {
-    const current = await orders.getAggregate(id.data as OrderId, { companyId: access.company.id, userId: access.user.id });
-    if (!current.success) return { operation, url: null, success: false, error: "saveError" } as const;
-    const rawCost = fields.get("cost");
-    const parsed = quoteCheckoutDeliverySchema.safeParse({ cost: { amount: typeof rawCost === "string" && rawCost.trim() ? Number(rawCost) : NaN, currency: current.data.total.currency }, chargeDeliveryToCustomer: fields.get("charge") === "on" });
-    if (!parsed.success) return { operation, url: null, success: false, error: "invalid" } as const;
-    const result = await orders.quoteCheckoutDelivery({ ...parsed.data, orderId: id.data as OrderId }, { companyId: access.company.id, userId: access.user.id });
-    return { operation, url: null, success: result.success, error: result.success ? false : "saveError" } as const;
   }
   if (operation === "ship" || operation === "deliver") {
     try {
@@ -196,7 +187,7 @@ export default function OrderDetail() {
   const result = actionData && "operation" in actionData && actionData.operation === "delivery" ? actionData : undefined;
   const fulfillment = actionData && "operation" in actionData && (actionData.operation === "ship" || actionData.operation === "deliver") ? actionData : undefined;
   const navigation = useNavigation();
-  const editable = !order.checkoutDeliveryRequest && !order.cancelled && order.deliveryStatus === "pending" && order.completedAt === null;
+  const editable = !order.cancelled && order.deliveryStatus === "pending" && order.completedAt === null;
   const [editingDelivery, setEditingDelivery] = useState(false);
   const checkout = useFetcher<typeof action>();
   const checkoutData = checkout.data && !("result" in checkout.data) ? checkout.data : undefined;
@@ -253,7 +244,6 @@ export default function OrderDetail() {
 
     </header>
 
-    {order.checkoutDeliveryRequest && !order.cancelled && <CheckoutDeliveryQuote delivery={order.checkoutDeliveryRequest} currency={order.total.currency} disabled={blocked} />}
 
     <fieldset disabled={blocked} className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
       <div className="contents xl:flex xl:min-w-0 xl:flex-col xl:gap-4">
@@ -338,14 +328,14 @@ export default function OrderDetail() {
                 <h3 className="font-semibold">{t(`deliverySettings.${order.delivery.method}`)}</h3>
                 {order.delivery.method === "store" && <><p className="break-words">{order.delivery.pickupPoint.name}</p><p className="whitespace-pre-wrap break-words">{order.delivery.pickupPoint.address}</p>{order.delivery.pickupPoint.instructions && <p className="whitespace-pre-wrap break-words text-muted-foreground">{order.delivery.pickupPoint.instructions}</p>}</>}
                 {order.delivery.method === "home" && <><p className="whitespace-pre-wrap break-words">{order.delivery.destination.address}</p><p className="break-words">{order.delivery.destination.district}</p>{order.delivery.destination.instructions && <p className="whitespace-pre-wrap break-words text-muted-foreground">{order.delivery.destination.instructions}</p>}</>}
-                {order.delivery.method === "agency" && <dl className="grid grid-cols-2 gap-x-3 gap-y-2"><dt className="text-muted-foreground">{t("orderDelivery.courier")}</dt><dd className="break-words">{order.delivery.courier.name}</dd><dt className="text-muted-foreground">{t("orderDelivery.agency")}</dt><dd className="whitespace-pre-wrap break-words">{order.delivery.agency}</dd></dl>}
+                {order.delivery.method === "agency" && (order.delivery.courier === null ? <div><p>{order.delivery.destination.district}</p><p className="text-muted-foreground">{t("orderDelivery.assignmentPending")}</p></div> : <dl className="grid grid-cols-2 gap-x-3 gap-y-2"><dt className="text-muted-foreground">{t("orderDelivery.courier")}</dt><dd className="break-words">{order.delivery.courier.name}</dd><dt className="text-muted-foreground">{t("orderDelivery.agency")}</dt><dd className="whitespace-pre-wrap break-words">{order.delivery.agency}</dd></dl>)}
               </section>
               <section className="flex flex-col gap-2 border-t pt-4 text-sm"><h3 className="font-semibold">{t("orders.recipient")}</h3><p className="break-words">{order.delivery.recipient.name}</p><p className="break-words text-muted-foreground">{order.delivery.recipient.phone}</p>{order.delivery.recipient.identity.kind === "document" && <p className="break-words text-muted-foreground">{t(`orders.documentType.${order.delivery.recipient.identity.documentType}`)}: {order.delivery.recipient.identity.document}</p>}</section>
               <dl className="border-t pt-4 text-sm"><div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("orderDetail.internalDeliveryCost")}</dt><dd className="shrink-0 tabular-nums">{amount(order.deliveryCost)}</dd></div></dl>
             </> : editable && <p className="text-sm text-muted-foreground">{t("orderDelivery.undefined")}</p>}
             {result && typeof result.error === "string" && <p role="alert" className="text-sm text-destructive">{t(`orderDelivery.${result.error}`)}</p>}
             {result && "order" in result && result.order && <p role="status" className="text-sm text-[var(--success)]">{t("orderDelivery.saved")}</p>}
-            {editable ? settings && (settings.store.enabled || settings.home.enabled || settings.agency.enabled) ? <div id="delivery-editor" hidden={!editingDelivery} className="border-t pt-4"><DeliveryForm key={JSON.stringify(order.delivery)} order={order} settings={settings} pending={navigation.state !== "idle"} /></div>
+            {editable ? settings && (settings.store.enabled || settings.home.enabled || settings.agency.enabled || editingDelivery) ? <div id="delivery-editor" hidden={!editingDelivery} className="border-t pt-4"><RatedDeliveryForm active={editingDelivery} recovery={result?.error ? result : undefined} key={JSON.stringify(order.delivery)} order={order} settings={settings} pending={navigation.state !== "idle"} /></div>
               : <div className="flex flex-col gap-2 text-sm"><p className="text-muted-foreground">{t(settings ? "orderDelivery.disabled" : "deliverySettings.loadError")}</p><Link className="text-primary underline underline-offset-4" to={settingsPath}>{t("orderDelivery.configure")}</Link></div>
               : <p className="text-sm text-muted-foreground">{t("orderDelivery.locked")}</p>}
           </div>

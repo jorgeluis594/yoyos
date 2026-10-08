@@ -81,13 +81,16 @@ test("JSON key validation scopes keys to each object and decodes escaped names",
 
 test("delivery HTTP rejects client authority and maps disabled or locked delivery", async () => {
   const set = vi.spyOn(orders, "setDelivery").mockResolvedValue({ success: false, error: { code: "DELIVERY_METHOD_DISABLED", message: "Disabled" } });
-  const body = { delivery: { method: "store", recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } } }, chargeDeliveryToCustomer: true };
+  const body = { delivery: { method: "store", recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } } }, expectedPrice: { amount: 0, currency: "PEN" } };
   const put = (input: unknown): RequestInit => ({ method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
   for (const extra of [{ cost: 0 }, { companyId: "other" }, { recordedBy: { kind: "buyer" } }]) {
     expect(await request(`/${contactId}/delivery`, "PE", put({ ...body, ...extra }))).toMatchObject({ status: 400 });
   }
   for (const extra of [{ recordedBy: { kind: "seller", userId: "other" } }, { pickupPoint: { name: "Fake", address: "Fake", instructions: null } }]) {
     expect(await request(`/${contactId}/delivery`, "PE", put({ ...body, delivery: { ...body.delivery, ...extra } }))).toMatchObject({ status: 400 });
+  }
+  for (const chargeDeliveryToCustomer of [true, false]) {
+    expect(await request(`/${contactId}/delivery`, "PE", put({ delivery: body.delivery, chargeDeliveryToCustomer }))).toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
   }
   expect(set).not.toHaveBeenCalled();
   expect(await request(`/${contactId}/delivery`, "PE", put(body))).toMatchObject({ status: 422, body: { code: "DELIVERY_METHOD_DISABLED" } });
@@ -120,4 +123,34 @@ test("mixed order API validates and forwards search and work filters", async () 
   expect(await request("/mixed?search=%231005&view=unpaid")).toMatchObject({ status: 200 });
   expect(list).toHaveBeenCalledWith(expect.objectContaining({ search: "#1005", view: "unpaid" }),
     expect.objectContaining({ companyId }));
+});
+
+test("rated assignment errors preserve public price metadata and distinguish storage failures", async () => {
+  const id = "00000000-0000-4000-8000-000000000003";
+  const input = { delivery: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } },
+    expectedPrice: { amount: 0, currency: "PEN" } };
+  const set = vi.spyOn(orders, "setDelivery");
+  for (const [error, status] of [[{ code: "TOTAL_CHANGED", currentPrice: { amount: 8, currency: "PEN" }, message: "private price" }, 409],
+    [{ code: "RATE_UNAVAILABLE", message: "private tenant detail" }, 422], [{ code: "SERVICE_UNAVAILABLE", message: "private SQL detail" }, 503],
+    [{ code: "INTERNAL_ERROR", message: "private stored data" }, 500], [{ code: "INVALID_DISTRICT", message: "private district" }, 422]] as const) {
+    set.mockResolvedValueOnce({ success: false, error });
+    const response = await request(`/${id}/delivery`, "PE", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
+    expect(response.status).toBe(status);
+    expect(response.body.code).toBe(error.code);
+    expect(JSON.stringify(response.body)).not.toContain("private");
+    if (error.code === "TOTAL_CHANGED") expect(response.body.currentPrice).toEqual(error.currentPrice);
+  }
+});
+
+
+test("creation API rejects legacy delivery choices without dispatching a save", async () => {
+  const create = vi.spyOn(orderComposition, "createConfiguredOrder");
+  const immediate = vi.spyOn(orders, "registerImmediateSale");
+  for (const chargeDeliveryToCustomer of [true, false]) {
+    const body = { id: "00000000-0000-4000-8000-000000000003", contactId: null, items: [{ variantId: contactId, quantity: 1 }],
+      delivery: { delivery: { method: "store", recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } } }, chargeDeliveryToCustomer } };
+    expect(await request("/", "PE", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
+  }
+  expect(create).not.toHaveBeenCalled();
+  expect(immediate).not.toHaveBeenCalled();
 });

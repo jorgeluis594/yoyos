@@ -36,3 +36,47 @@ test("preserves save conflicts without retry and checks error status and operati
     .toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
   expect(await createDeliverySettingsApi(async () => err({ code: "NETWORK_ERROR", message: "Offline" })).get()).toMatchObject({ success: false, error: { code: "NETWORK_ERROR" } });
 });
+
+const zoneId = "00000000-0000-4000-8000-000000000010";
+const zoneInput = { method: "home" as const, expectedVersion: 0, zones: [{ kind: "new" as const, name: "Lima",
+  enabled: true, districtCodes: ["150122"], price: { amount: 0, currency: "PEN" as const } }] };
+const zoneState = { version: 1, currency: "PEN", home: { enabled: true }, agency: { enabled: false },
+  zones: [{ id: zoneId, method: "home", name: "Lima", enabled: true, districtCodes: ["150122"], price: { amount: 0, currency: "PEN" } }] };
+
+test("zone adapter returns definitive identities, validates the complete response and saves only a strict method request", async () => {
+  const request = jest.fn<ReturnType<Parameters<typeof createDeliverySettingsApi>[0]>, Parameters<Parameters<typeof createDeliverySettingsApi>[0]>>(async () => ok(zoneState));
+  const api = createDeliverySettingsApi(request);
+  expect(await api.getZones()).toEqual(ok(zoneState));
+  expect(await api.saveZones(zoneInput)).toEqual(ok(zoneState));
+  expect(JSON.parse(String(request.mock.calls[1][1]?.body))).toEqual(zoneInput);
+  expect(request.mock.calls[1][0]).toBe("/api/delivery-settings/zones");
+  expect(request.mock.calls[1][1]?.method).toBe("PUT");
+  expect(await api.saveZones({ ...zoneInput, companyId: "forged" } as typeof zoneInput)).toMatchObject({ error: { code: "INVALID_INPUT" } });
+  expect(request).toHaveBeenCalledTimes(2);
+  for (const zone of [{ ...zoneState.zones[0], districtCodes: ["000000"] },
+    { ...zoneState.zones[0], districtCodes: ["150122", "150122"] },
+    { ...zoneState.zones[0], price: { amount: -1, currency: "PEN" } },
+    { ...zoneState.zones[0], price: { amount: 0, currency: "USD" } }]) {
+    expect(await createDeliverySettingsApi(async () => ok({ ...zoneState, zones: [zone] })).getZones()).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+  }
+  expect(await createDeliverySettingsApi(async () => ok({ ...zoneState, zones: [zoneState.zones[0], zoneState.zones[0]] })).getZones())
+    .toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+  expect(await createDeliverySettingsApi(async () => ok({ ...zoneState, version: 2 })).saveZones(zoneInput)).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+});
+
+test("zone adapter preserves conflict and field details, checks HTTP status and never retries a lost response", async () => {
+  const conflict = { code: "DELIVERY_SETTINGS_CONFLICT", error: "Changed", currentVersion: 2, reason: "stale_version" };
+  const request = jest.fn(async () => err({ code: "API_ERROR" as const, message: "Failed", http: { status: 409, body: conflict } }));
+  expect(await createDeliverySettingsApi(request).saveZones(zoneInput)).toMatchObject({
+    error: { code: conflict.code, currentVersion: 2, reason: "stale_version" },
+  });
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(await createDeliverySettingsApi(async () => err({ code: "API_ERROR", message: "Failed", http: { status: 422, body: conflict } })).saveZones(zoneInput))
+    .toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+  expect(await createDeliverySettingsApi(async () => err({ code: "API_ERROR", message: "Failed", http: {
+    status: 422, body: { code: "INVALID_DELIVERY_ZONE", error: "Invalid zone", field: "districtCodes", index: 0 },
+  } })).saveZones(zoneInput)).toMatchObject({ error: { code: "INVALID_DELIVERY_ZONE", field: "districtCodes", index: 0 } });
+  const offline = jest.fn(async () => err({ code: "NETWORK_ERROR" as const, message: "Offline" }));
+  expect(await createDeliverySettingsApi(offline).saveZones(zoneInput)).toMatchObject({ error: { code: "NETWORK_ERROR" } });
+  expect(offline).toHaveBeenCalledTimes(1);
+});

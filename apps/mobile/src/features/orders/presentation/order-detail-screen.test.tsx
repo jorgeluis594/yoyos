@@ -367,6 +367,18 @@ test("fulfillment errors remain visible and requests can be retried without chan
   expect(mockVoidPayment).not.toHaveBeenCalled();
 });
 
+test('rated agency delivery shows its district and pending operational assignment', async () => {
+  await i18n.changeLanguage('es');
+  mockOrder = { ...initialOrder, delivery: { method: 'agency',
+    recipient: { name: 'Ana', phone: '999', identity: { kind: 'document', documentType: 'national_id', document: '12345678' } },
+    destination: { country: 'PE', districtCode: '150122', district: 'Miraflores', province: 'Lima', department: 'Lima' },
+    pricing: { quotationId: mockId, rateId: mockId, zoneId: mockId, settingsVersion: 3 },
+    courier: null, agency: null, recordedBy: { kind: 'buyer' } } };
+  const screen = render(<OrderDetailScreen />);
+  fireEvent.press(await screen.findByRole('button', { name: /Agencia/ }));
+  expect(screen.getByText('Miraflores')).toBeTruthy();
+  expect(screen.getByText('Courier y agencia pendientes de asignación')).toBeTruthy();
+});
 
 function pendingCancellationOrder() {
   mockOrder = { ...initialOrder, status: "active", deliveryStatus: "pending", deliveredAt: null, completedAt: null };

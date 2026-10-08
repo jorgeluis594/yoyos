@@ -3,11 +3,11 @@ import type { Result } from "@shared/result";
 import { orderStateMachine, type OrderAggregate, type OrderDomainError } from "@core/src/features/orders/domain/order-state-machine";
 import { reportPayment as createReport, type ImageId, type Payment, type PaymentError } from "@core/src/features/orders/domain/payment";
 import type { CompanyId, OrderId, PaymentId } from "@core/src/features/orders/domain/order";
-import { buyerPaymentAvailability } from "@core/src/features/orders/domain/checkout";
+import { canAccessBuyerPayment, type CheckoutError } from "@core/src/features/orders/domain/checkout";
 
 export type BuyerPaymentAccess = Readonly<{ kind: "buyer"; companyId: CompanyId; orderId: OrderId }>;
 export type ReportPaymentInput = Readonly<{ paymentId: PaymentId; receiptImageId: ImageId }>;
-export type ReportPaymentError = OrderDomainError | PaymentError | Readonly<{ code: "ORDER_NOT_FOUND" | "RECEIPT_NOT_FOUND" | "PERSISTENCE_UNAVAILABLE"; message: string }>;
+export type ReportPaymentError = OrderDomainError | PaymentError | CheckoutError | Readonly<{ code: "ORDER_NOT_FOUND" | "RECEIPT_NOT_FOUND" | "PERSISTENCE_UNAVAILABLE"; message: string }>;
 export type ReportPaymentDependencies = Readonly<{
   transaction: <T>(companyId: CompanyId, work: () => Promise<Result<T, ReportPaymentError>>) => Promise<Result<T, ReportPaymentError>>;
   findOrderForUpdate: (id: OrderId, companyId: CompanyId) => Promise<Result<OrderAggregate | null, ReportPaymentError>>;
@@ -22,12 +22,13 @@ export async function reportPayment(input: ReportPaymentInput, access: BuyerPaym
     const found = await deps.findOrderForUpdate(access.orderId, access.companyId);
     if (!found.success) return found;
     if (!found.data) return err({ code: "ORDER_NOT_FOUND", message: "Order is not available" });
+    const allowed = canAccessBuyerPayment(found.data);
+    if (!allowed.success) return allowed;
     const existing = found.data.payments.find((item) => item.id === input.paymentId) ?? null;
     const reported = createReport({ id: input.paymentId, orderId: access.orderId, currency: found.data.total.currency,
       receiptImageId: input.receiptImageId, reportedAt: deps.clock() }, existing);
     if (!reported.success) return reported;
     if (existing) return ok(found.data);
-    if (buyerPaymentAvailability(found.data) !== "available") return err({ code: "INVALID_TRANSITION", message: "Payment is not available yet" });
     if (reported.data.status !== "reported") return err({ code: "INVALID_TRANSITION", message: "Payment is not a report" });
     const receipt = await deps.findReceipt(input.receiptImageId);
     if (!receipt.success) return receipt;

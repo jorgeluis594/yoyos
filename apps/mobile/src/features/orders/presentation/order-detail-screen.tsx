@@ -331,7 +331,7 @@ export default function OrderDetailScreen() {
           </View>
           {order.delivery ? <>
             <Disclosure label={deliveryMethodLabel(order.delivery.method, language)} open={deliveryOpen} onPress={() => setDeliveryOpen(!deliveryOpen)}
-              description={`${order.delivery.method === "agency" ? order.delivery.courier.name : order.delivery.method === "store" ? order.delivery.pickupPoint.name : order.delivery.destination.district} · ${order.delivery.recipient.name}`} />
+              description={`${order.delivery.method === "agency" ? order.delivery.courier?.name ?? ("destination" in order.delivery ? order.delivery.destination.district : "") : order.delivery.method === "store" ? order.delivery.pickupPoint.name : order.delivery.destination.district} · ${order.delivery.recipient.name}`} />
             {deliveryOpen ? <View style={styles.section}>
               <ThemedText type="small" themeColor="textSecondary">{t('detailRecipient')}</ThemedText>
               <ThemedText selectable>{order.delivery.recipient.name} · {order.delivery.recipient.phone}</ThemedText>
@@ -347,7 +347,9 @@ export default function OrderDetailScreen() {
                 {order.delivery.destination.instructions ? <ThemedText themeColor="textSecondary">{order.delivery.destination.instructions}</ThemedText> : null}
               </> : null}
               {order.delivery.method === "agency" ? <>
-                <ThemedText>{order.delivery.courier.name}</ThemedText><ThemedText>{order.delivery.agency}</ThemedText>
+                {order.delivery.courier === null ? <>
+                  <ThemedText>{order.delivery.destination.district}</ThemedText><ThemedText themeColor="textSecondary">{t('detailAgencyAssignmentPending')}</ThemedText>
+                </> : <><ThemedText>{order.delivery.courier.name}</ThemedText><ThemedText>{order.delivery.agency}</ThemedText></>}
               </> : null}
               <ThemedText type="small">{t('orderDeliveryCharge', { amount: format(order.deliveryCharge) })}</ThemedText>
               {!canEditDelivery ? <ThemedText type="small" themeColor="textSecondary">{t('orderDeliveryLocked')}</ThemedText> : null}

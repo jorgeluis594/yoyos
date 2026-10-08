@@ -20,6 +20,19 @@ test("order API sends only validated creation fields and validates the reply", a
   expect(JSON.parse(String(calls[1][1]?.body))).toEqual(complete);
 });
 
+test.each(["home", "agency", "store"] as const)("creation refuses legacy %s delivery before HTTP", async (method) => {
+  const request = jest.fn(async () => ok({ unexpected: true }));
+  const api = createOrderApi(request);
+  const recipient = { name: "Ana", phone: "999", identity: { kind: "document" as const, documentType: "national_id" as const, document: "00123456" } };
+  const delivery = method === "home" ? { method, recipient, destination: { address: "Street", district: "Lima", instructions: null } }
+    : method === "agency" ? { method, recipient, courierId: id(4), agency: "Old agency" } : { method, recipient };
+  for (const chargeDeliveryToCustomer of [true, false]) {
+    expect(await api.create({ id: id(1), contactId: null, items: [{ variantId: id(2), quantity: 1 }],
+      delivery: { delivery, chargeDeliveryToCustomer } } as unknown as Parameters<typeof api.create>[0])).toMatchObject({ error: { code: "INVALID_INPUT" } });
+  }
+  expect(request).not.toHaveBeenCalled();
+});
+
 test("order API preserves matching business errors and rejects mismatched status or operation", async () => {
   const stock = { code: "INSUFFICIENT_STOCK", error: "No stock", issues: [{ field: "items", reason: "STOCK", variantId: id(2) }] };
   const api = createOrderApi(async () => err({ code: "API_ERROR", message: "API error", http: { status: 409, body: stock } }));
@@ -86,11 +99,16 @@ test("order API reads mixed summaries and validates complete aggregate states", 
 });
 
 test("delivery API rejects forged snapshots and preserves applicable errors with no retries", async () => {
-  const input = { delivery: { method: "store" as const, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } } }, chargeDeliveryToCustomer: false };
+  const input = { delivery: { method: "store" as const, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } } }, expectedPrice: { amount: 0, currency: "PEN" as const } };
   const request = jest.fn(async () => err({ code: "API_ERROR" as const, message: "Failed", http: { status: 422, body: { code: "DELIVERY_METHOD_DISABLED", error: "Disabled" } } }));
   const api = createOrderApi(request);
   expect(await api.setDelivery(id(1), { ...input, delivery: { ...input.delivery, recordedBy: { kind: "buyer" } } } as typeof input))
     .toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
+  expect(request).not.toHaveBeenCalled();
+  for (const chargeDeliveryToCustomer of [true, false]) {
+    expect(await api.setDelivery(id(1), { ...input, chargeDeliveryToCustomer } as typeof input)).toMatchObject({ error: { code: "INVALID_INPUT" } });
+    expect(await api.setDelivery(id(1), { delivery: input.delivery, chargeDeliveryToCustomer } as unknown as typeof input)).toMatchObject({ error: { code: "INVALID_INPUT" } });
+  }
   expect(request).not.toHaveBeenCalled();
   expect(await api.setDelivery(id(1), input)).toMatchObject({ success: false, error: { code: "DELIVERY_METHOD_DISABLED" } });
   expect(request).toHaveBeenCalledTimes(1);
@@ -104,12 +122,35 @@ test("delivery API validates the complete authored snapshot and updated aggregat
   const zero = { amount: 0, currency: "PEN" as const };
   const delivery = { method: "store" as const, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } },
     pickupPoint: { name: "Store", address: "Lima", instructions: null }, recordedBy: { kind: "seller" as const, userId: "current-editor" } };
-  const input = { delivery: { method: "store" as const, recipient: delivery.recipient }, chargeDeliveryToCustomer: false };
+  const input = { delivery: { method: "store" as const, recipient: delivery.recipient }, expectedPrice: zero };
   const order = { id: id(1), companyId: id(2), sellerId: "original-seller", number: 1001, buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, checkoutDeliveryRequest: null, deliveredAt: null, createdAt: "2026-10-05T12:00:00.000Z", completedAt: null,
     status: "active", paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false, total, paidAmount: zero, balanceDue: total, overpaidAmount: zero,
     cancelled: false, delivery, payments: [], itemsTotal: total, deliveryCost: { amount: 3, currency: "PEN" }, deliveryCharge: zero,
     items: [{ id: id(3), variantId: id(4), productName: "Item", variantAttributes: {}, sku: null, quantity: 1, unitPrice: total, subtotal: total }] };
-  expect(await createOrderApi(async () => ok(order)).setDelivery(id(1), input)).toMatchObject({ success: true, data: { delivery, total } });
+  expect(await createOrderApi(async () => ok(order)).get(id(1))).toMatchObject({ success: true, data: { delivery, total } });
+  const ratedPickup = { delivery: input.delivery, expectedPrice: zero };
+  expect(await createOrderApi(async () => ok({ ...order, deliveryCost: zero })).setDelivery(id(1), ratedPickup)).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+  expect(await createOrderApi(async () => ok({ ...order, delivery: { ...delivery, settingsVersion: 2 } })).setDelivery(id(1), ratedPickup))
+    .toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+  expect(await createOrderApi(async () => ok({ ...order, deliveryCost: zero, delivery: { ...delivery, settingsVersion: 2 } })).setDelivery(id(1), ratedPickup))
+    .toMatchObject({ success: true });
+  const ratedHome = { delivery: { method: "home" as const, recipient: delivery.recipient, rateId: id(5),
+    destination: { districtCode: "150122", address: "Street", instructions: null } }, expectedPrice: { amount: 8, currency: "PEN" as const } };
+  const homeSnapshot = { method: "home", recipient: delivery.recipient, recordedBy: delivery.recordedBy,
+    pricing: { rateId: id(5), quotationId: id(6), zoneId: id(7), settingsVersion: 2 },
+    destination: { country: "PE", districtCode: "150122", district: "MIRAFLORES", province: "LIMA METROPOLITANA", department: "LIMA", address: "Street", instructions: null } };
+  const homeOrder = { ...order, delivery: homeSnapshot, deliveryCost: ratedHome.expectedPrice, deliveryCharge: ratedHome.expectedPrice,
+    total: { amount: 18, currency: "PEN" }, balanceDue: { amount: 18, currency: "PEN" } };
+  expect(await createOrderApi(async () => ok(homeOrder)).setDelivery(id(1), ratedHome)).toMatchObject({ success: true });
+  for (const wrong of [{ ...homeOrder, deliveryCharge: zero }, { ...homeOrder, deliveryCost: zero },
+    { ...homeOrder, deliveryCharge: { amount: 8, currency: "USD" } }]) {
+    expect(await createOrderApi(async () => ok(wrong)).setDelivery(id(1), ratedHome)).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+  }
+  for (const wrong of [{ ...homeSnapshot, pricing: { ...homeSnapshot.pricing, rateId: id(8) } },
+    { ...homeSnapshot, destination: { ...homeSnapshot.destination, districtCode: "040110" } }]) {
+    expect(await createOrderApi(async () => ok({ ...homeOrder, delivery: wrong })).setDelivery(id(1), ratedHome))
+      .toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+  }
   for (const operation of ["ship", "deliver"] as const) {
     const fulfilled = { ...order, paymentStatus: "paid", paidAmount: total, balanceDue: zero, stockDeducted: true,
       deliveryStatus: operation === "ship" ? "shipped" : "delivered",
@@ -153,6 +194,52 @@ test.each(["ship", "deliver"] as const)("%s validates IDs, sends no payment data
     const wrongStatus = createOrderApi(async () => err({ code: "API_ERROR", message: "Failed", http: { status: 422, body: { code, error: "Rejected" } } }));
     expect(await wrongStatus[operation](id(1))).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
   }
+});
+
+test("rated assignment sends the rate and reviewed price and preserves typed price conflicts", async () => {
+  const input = { delivery: { method: "home", rateId: id(5), recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
+    destination: { districtCode: "150122", address: "Street", instructions: null } }, expectedPrice: { amount: 8, currency: "PEN" } } as const;
+  const calls: [string, RequestInit | undefined][] = [];
+  const currentPrice = { amount: 10, currency: "PEN" };
+  const api = createOrderApi(async (path, init) => { calls.push([path, init]); return err({ code: "API_ERROR", message: "API error",
+    http: { status: 409, body: { code: "TOTAL_CHANGED", error: "Review price", currentPrice } } }); });
+  expect(await api.setDelivery(id(1), input)).toEqual(err({ code: "TOTAL_CHANGED", message: "Review price", currentPrice }));
+  expect(calls[0][0]).toBe(`/api/orders/${id(1)}/delivery`);
+  expect(JSON.parse(String(calls[0][1]?.body))).toEqual(input);
+  const wrong = createOrderApi(async () => err({ code: "API_ERROR", message: "Error", http: { status: 422,
+    body: { code: "TOTAL_CHANGED", error: "Review price", currentPrice } } }));
+  expect(await wrong.setDelivery(id(1), input)).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+  expect(await api.get(id(1))).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+  const incomplete = createOrderApi(async () => err({ code: "API_ERROR", message: "Error", http: { status: 409,
+    body: { code: "TOTAL_CHANGED", error: "Review price" } } }));
+  expect(await incomplete.setDelivery(id(1), input)).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+  const creation = { id: id(1), contactId: null, items: [{ variantId: id(2), quantity: 1 }], delivery: input };
+  expect(await api.create(creation)).toMatchObject({ success: false, error: { code: "TOTAL_CHANGED", currentPrice } });
+  expect(JSON.parse(String(calls[2][1]?.body))).toEqual(creation);
+});
+
+
+test("catalog recovery loads explicit variant IDs and rejects malformed or duplicate IDs before HTTP", async () => {
+  const paths: string[] = [];
+  const api = createOrderApi(async path => { paths.push(path); return ok([]); });
+  expect(await api.findCatalog([id(1), id(2)])).toEqual(ok([]));
+  expect(paths).toEqual([`/api/orders/catalog?${new URLSearchParams({ variantIds: [id(1), id(2)].join(",") })}`]);
+  for (const ids of [[], ["invalid"], [id(1), id(1)]])
+    expect(await api.findCatalog(ids)).toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
+  expect(paths).toHaveLength(1);
+});
+
+
+test("saved contact lookup validates identity and represents a deleted contact as absence", async () => {
+  const contact = { id: id(1), name: "Ana", phone: "999" };
+  const request = jest.fn(async () => ok([contact]));
+  const api = createOrderApi(request);
+  expect(await api.findContact(id(1))).toEqual(ok(contact));
+  expect(request).toHaveBeenCalledWith(`/api/orders/contacts?contactId=${id(1)}`);
+  expect(await api.findContact("invalid")).toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
+  expect(request).toHaveBeenCalledTimes(1);
+  expect(await createOrderApi(async () => ok([])).findContact(id(1))).toEqual(ok(null));
+  expect(await api.findContact(id(2))).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
 });
 
 function cancellationFixture() {

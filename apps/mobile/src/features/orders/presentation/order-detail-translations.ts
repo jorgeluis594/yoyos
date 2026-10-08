@@ -13,6 +13,8 @@ export const orderDetailTranslations = {
       COMPANY_REQUIRED: 'Selecciona tu empresa para continuar.', INVALID_COMPANY: 'La empresa no está disponible.',
       OPERATION_CANCELLED: 'La sesión cambió. Vuelve a abrir el pedido.',
     },
+
+    detailAgencyAssignmentPending: 'Courier y agencia pendientes de asignación',
     detailBuyer: 'Comprador', detailPaymentPending: 'Pago pendiente',
     detailReports_one: '{{count}} comprobante por revisar', detailReports_other: '{{count}} comprobantes por revisar',
     detailProducts_one: 'Productos · {{count}} unidad', detailProducts_other: 'Productos · {{count}} unidades',
@@ -36,6 +38,8 @@ export const orderDetailTranslations = {
       COMPANY_REQUIRED: 'Selecione sua empresa para continuar.', INVALID_COMPANY: 'A empresa não está disponível.',
       OPERATION_CANCELLED: 'A sessão mudou. Abra o pedido novamente.',
     },
+
+    detailAgencyAssignmentPending: 'Transportadora e agência pendentes de atribuição',
     detailBuyer: 'Comprador', detailPaymentPending: 'Pagamento pendente',
     detailReports_one: '{{count}} comprovante para revisar', detailReports_other: '{{count}} comprovantes para revisar',
     detailProducts_one: 'Produtos · {{count}} unidade', detailProducts_other: 'Produtos · {{count}} unidades',

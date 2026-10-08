@@ -4,12 +4,12 @@ import type { CompanyId } from "@core/src/features/orders/domain/order";
 import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { CreateOrderInput, CreateOrderError, OrderAccess } from "@core/src/features/orders/application/create-order";
 import type { RegisterPaymentInput, RegisterPaymentOutput, RegisterPaymentError } from "@core/src/features/orders/application/register-payment";
-import type { SetDeliveryInput, SetDeliveryError } from "@core/src/features/orders/application/set-delivery";
+import type { InitialOrderDeliveryInput, SetDeliveryInput, SetDeliveryError } from "@core/src/features/orders/application/set-delivery";
 import type { FulfillOrderError } from "@core/src/features/orders/application/fulfill-order";
 
 export type CreateCompleteOrderInput = CreateOrderInput & Readonly<{
   payments?: readonly Omit<RegisterPaymentInput, "orderId" | "source">[];
-  delivery?: Omit<SetDeliveryInput, "orderId">;
+  delivery?: InitialOrderDeliveryInput;
   deliverImmediately?: boolean;
 }>;
 export type CreateCompleteOrderError = CreateOrderError | RegisterPaymentError | SetDeliveryError | FulfillOrderError;
@@ -23,6 +23,8 @@ export type CreateCompleteOrderDependencies = Readonly<{
 
 export async function createCompleteOrder(input: CreateCompleteOrderInput, context: OrderAccess,
   deps: CreateCompleteOrderDependencies): Promise<Result<OrderAggregate, CreateCompleteOrderError>> {
+  if (input.delivery && ("chargeDeliveryToCustomer" in input.delivery || !("expectedPrice" in input.delivery)))
+    return err({ code: "INVALID_ORDER", message: "Initial delivery requires a reviewed configured rate" });
   if ((input.deliverImmediately !== undefined && typeof input.deliverImmediately !== "boolean") ||
     new Set(input.payments?.map(payment => payment.paymentId)).size !== (input.payments?.length ?? 0))
     return err({ code: "INVALID_ORDER", message: "Invalid creation options or duplicate payment identifiers" });

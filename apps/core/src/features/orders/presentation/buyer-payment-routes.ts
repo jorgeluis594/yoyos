@@ -29,8 +29,10 @@ export function buyerPaymentRoutes(images: express.Router) {
   router.get("/:orderId/payment", async (request, response) => {
     try {
       const result = await orders.getBuyerPaymentView(request.params.orderId as string);
-      if (!result.success) return apiError(response, result.error.code === "ORDER_NOT_FOUND" ? 404 : 503,
-        result.error.code === "ORDER_NOT_FOUND" ? "ORDER_NOT_FOUND" : "SERVICE_UNAVAILABLE", "Payment view unavailable");
+      if (!result.success) return apiError(response, result.error.code === "ORDER_NOT_FOUND" ? 404 :
+        result.error.code === "CHECKOUT_UNAVAILABLE" || result.error.code === "ORDER_CANCELLED" ? 409 : 503,
+        result.error.code === "ORDER_NOT_FOUND" ? "ORDER_NOT_FOUND" : result.error.code === "CHECKOUT_UNAVAILABLE" ? "CHECKOUT_UNAVAILABLE"
+          : result.error.code === "ORDER_CANCELLED" ? "ORDER_CANCELLED" : "SERVICE_UNAVAILABLE", "Payment view unavailable");
       return response.json(buyerPaymentViewSchema.parse(result.data));
     } catch (error) {
       log.error({ event: "buyer_payment_view_failed", err: error }, "Buyer payment view failed");
@@ -47,9 +49,10 @@ export function buyerPaymentRoutes(images: express.Router) {
         receiptImageId: parsed.data.receiptImageId as ImageId }, access);
       if (!result.success) {
         const code = result.error.code;
-        return apiError(response, code === "RECEIPT_NOT_FOUND" || code === "INVALID_PAYMENT" ? 422 : code === "PAYMENT_CONFLICT" || code === "ORDER_CANCELLED" || code === "INVALID_TRANSITION" ? 409 : 503,
+        return apiError(response, code === "RECEIPT_NOT_FOUND" || code === "INVALID_PAYMENT" ? 422 : code === "PAYMENT_CONFLICT" || code === "ORDER_CANCELLED" || code === "CHECKOUT_UNAVAILABLE" ? 409 : 503,
           code === "RECEIPT_NOT_FOUND" ? "RECEIPT_NOT_FOUND" : code === "PAYMENT_CONFLICT" ? "PAYMENT_CONFLICT"
-            : code === "ORDER_CANCELLED" ? "ORDER_CANCELLED" : code === "INVALID_TRANSITION" ? "INVALID_TRANSITION" : code === "INVALID_PAYMENT" ? "INVALID_PAYMENT" : "SERVICE_UNAVAILABLE", "Payment report unavailable");
+            : code === "ORDER_CANCELLED" ? "ORDER_CANCELLED" : code === "CHECKOUT_UNAVAILABLE" ? "CHECKOUT_UNAVAILABLE"
+              : code === "INVALID_PAYMENT" ? "INVALID_PAYMENT" : "SERVICE_UNAVAILABLE", "Payment report unavailable");
       }
       return response.status(201).json(reportPaymentResponseSchema.parse({ paymentId: parsed.data.paymentId, status: "reported" }));
     } catch (error) {

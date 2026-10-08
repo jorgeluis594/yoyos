@@ -60,8 +60,11 @@ export function BuyerPaymentContent({ view }: { view: BuyerPaymentView }) {
   }
 
   return <div className="flex flex-col gap-6">
-
-    {view.availability === "available" && (view.paymentStatus === "paid" || pendingReport || success || view.settings.length === 0) && <section aria-label="Importe pendiente" className="flex items-center justify-between gap-4 border-y py-4"><span className="font-medium">{view.paymentStatus === "paid" ? "Total pagado" : "Importe a pagar"}</span><strong className="text-xl tabular-nums">{money(view.paymentStatus === "paid" ? view.paidAmount : view.balanceDue)}</strong></section>}
+    <section aria-label="Resumen del pedido" className="rounded-lg border bg-card p-5">
+      <div className="flex items-center justify-between gap-4"><span className="text-muted-foreground">Total del pedido</span><strong className="text-xl tabular-nums">{money(view.total)}</strong></div>
+      {view.deliveryCharge.amount > 0 && <div className="mt-3 flex items-center justify-between gap-4 text-sm"><span className="text-muted-foreground">Incluye entrega</span><span className="tabular-nums">{money(view.deliveryCharge)}</span></div>}
+      <div className="mt-5 flex items-center justify-between gap-4 border-t pt-4"><span className="font-medium">Saldo pendiente</span><strong className="text-xl tabular-nums">{money(view.balanceDue)}</strong></div>
+    </section>
     {view.availability !== "available" ? <section role="status" className="rounded-lg border bg-card p-5"><h2 className="text-lg font-semibold">{view.availability === "delivery_quote_pending" ? "Entrega pendiente de cotización" : view.availability === "cancelled" ? "Pedido cancelado" : "Confirma tu pedido"}</h2><p className="mt-2 text-muted-foreground">{view.availability === "delivery_quote_pending" ? "La tienda confirmará el costo de entrega antes de habilitar el pago." : "Contacta a la tienda para revisar tu pedido."}</p></section> : view.paymentStatus === "paid" ? <section className="rounded-lg border bg-card p-5" role="status"><h2 className="text-lg font-semibold">Pedido pagado</h2><p className="text-muted-foreground">El pago de este pedido ya está confirmado.</p></section> : <>
       <section className="flex flex-col gap-4"><h2 className="text-xl font-semibold">Cómo pagar</h2>
         {view.settings.length === 0 ? <p className="rounded-lg border bg-card p-5 text-muted-foreground">El negocio aún no ha configurado sus datos de cobro. Contacta al vendedor.</p> :
@@ -84,7 +87,6 @@ export function BuyerPaymentContent({ view }: { view: BuyerPaymentView }) {
           {file && !imageId && !uploading && <Button type="button" variant="outline" onClick={() => void upload(file)}>Reintentar subida</Button>}
           {imageId && <p className="text-sm text-muted-foreground" role="status">Captura lista para enviar.</p>}
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-          <div className="mt-2 flex items-center justify-between gap-4 border-t pt-4"><span className="font-medium">Importe a pagar</span><strong className="text-xl tabular-nums">{money(view.balanceDue)}</strong></div>
           <Button type="button" disabled={!imageId || uploading || submitting} onClick={() => void submit()}>{submitting ? "Enviando…" : "Ya pagué"}</Button>
         </section>}
     </>}

@@ -9,7 +9,7 @@ import { orders } from "@core/src/features/orders/composition";
 import type { CompanyId, OrderId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
-test("normal composition saves configuration but never assigns an invented delivery cost", async () => {
+test("normal composition assigns configured pickup explicitly for free", async () => {
   const baseURL = "http://127.0.0.1:4174";
   const server = spawn("node", ["--import", "tsx", "src/server.ts"], { env: { ...process.env, PORT: "4174", BETTER_AUTH_URL: baseURL }, stdio: "inherit" });
   const browser = await chromium.launch();
@@ -46,11 +46,11 @@ test("normal composition saves configuration but never assigns an invented deliv
     await page.getByLabel("Nombre del destinatario").fill("Recipient");
     await page.getByLabel("Teléfono del destinatario").fill("00123");
     await page.getByRole("button", { name: "Guardar entrega" }).click();
-    await browserExpect(page.getByRole("alert")).toContainText("No se pudo confirmar");
+    await browserExpect(page.getByRole("status")).toHaveText("Entrega guardada.");
     await browserExpect(page.getByLabel("Nombre del destinatario")).toHaveValue("Recipient");
-    expect(await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json()).toMatchObject({ delivery: null, total: { amount: 10 }, stockDeducted: false });
+    expect(await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json()).toMatchObject({ delivery: { method: "store", pickupPoint: { address: "Lima" } }, deliveryCharge: { amount: 0 }, total: { amount: 10 }, stockDeducted: false });
     await page.reload();
-    await browserExpect(page.getByText("Entrega por definir", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Lima", { exact: true })).toBeVisible();
     await mkdir("../../.impeccable/review", { recursive: true });
     for (const [width, height, label] of [[1280, 900, "desktop"], [390, 844, "mobile"]] as const) {
       await page.setViewportSize({ width, height });

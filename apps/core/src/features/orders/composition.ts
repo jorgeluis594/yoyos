@@ -1,10 +1,8 @@
 import { applicationEventBus } from "@core/src/composition/event-bus";
 import { createCompleteOrder, type CreateCompleteOrderInput, type CreateCompleteOrderError } from "@core/src/features/orders/application/create-complete-order";
-import { enableOrderCheckout, getOrderCheckout, confirmOrderCheckout, type CheckoutDependencies, type ConfirmOrderCheckoutInput } from "@core/src/features/orders/application/checkout";
-import { findCheckoutOrder, findCheckoutOrderForUpdate, saveCheckoutEnabled, saveCheckoutBuyer, saveCheckoutConfirmed, saveCheckoutDeliveryRequest } from "@core/src/features/orders/infrastructure/checkout-repository";
-import { buyerPaymentAvailability } from "@core/src/features/orders/domain/checkout";
-import { quoteCheckoutDelivery, type QuoteCheckoutDeliveryInput } from "@core/src/features/orders/application/quote-checkout-delivery";
-import type { CheckoutAccess, CheckoutError } from "@core/src/features/orders/domain/checkout";
+import { enableOrderCheckout, getOrderCheckout, confirmOrderCheckout, confirmCheckoutDelivery, type CheckoutDependencies, type ConfirmOrderCheckoutInput, type ConfirmCheckoutDeliveryInput } from "@core/src/features/orders/application/checkout";
+import { findCheckoutOrder, findCheckoutOrderForUpdate, saveCheckoutEnabled, saveCheckoutBuyer, saveCheckoutConfirmed } from "@core/src/features/orders/infrastructure/checkout-repository";
+import { canAccessBuyerPayment, type CheckoutAccess, type CheckoutError } from "@core/src/features/orders/domain/checkout";
 import type { OrderAccess } from "@core/src/features/orders/application/create-order";
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import { randomUUID } from "node:crypto";
@@ -14,8 +12,8 @@ import type { AppError, Result } from "@shared/result";
 import { afterTransactionCommit, getCompanyId, requireNoActiveTransaction, withinTransaction, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { deliverySettings } from "@core/src/features/delivery-settings";
 import { setOrderDelivery, type SetDeliveryInput } from "@core/src/features/orders/application/set-delivery";
-import { resolveDeliverySelection, type ResolveDeliveryDependencies } from "@core/src/features/orders/application/resolve-delivery-selection";
-import { validateDeliveryCost, type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
+import { resolveShippingCost as resolveRatedShippingCost } from "@core/src/features/orders/application/resolve-delivery-selection";
+import { type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import { z } from "zod";
 import { createOrder, type CreateOrderDependencies } from "@core/src/features/orders/application/create-order";
 import { deductStock, type DeductStockDependencies } from "@core/src/features/orders/application/deduct-stock";
@@ -63,8 +61,7 @@ const fulfillmentTransaction: FulfillOrderDependencies["transaction"] = scopedOr
 const fulfillmentDependencies: FulfillOrderDependencies = { transaction: fulfillmentTransaction, findOrderForUpdate,
   saveFulfillment, clock: () => new Date() };
 
-export async function setConfiguredOrderDelivery(input: SetDeliveryInput, context: OrderAccess,
-  resolveCost: ResolveDeliveryDependencies["resolveCost"] = async () => err({ code: "DELIVERY_UNAVAILABLE", reason: "resolver_not_integrated", message: "Delivery cost resolver is not integrated" })) {
+export async function setConfiguredOrderDelivery(input: SetDeliveryInput, context: OrderAccess) {
   const started = performance.now();
   const observed: { previous: OrderAggregate | null; settingsVersion?: number; courierId?: string; stage: string } = { previous: null, stage: "lock_order" };
   const result = await setOrderDelivery(input, context, {
@@ -77,30 +74,11 @@ export async function setConfiguredOrderDelivery(input: SetDeliveryInput, contex
       if (found.success) observed.previous = found.data;
       return found;
     },
-    resolveDelivery: (selection, access, currency) => {
+    resolveRatedDelivery: (selection, access, currency, expectedPrice) => {
       observed.stage = "resolve_delivery";
-      if (selection.method === "agency") observed.courierId = selection.courierId;
-      return resolveDeliverySelection(selection, access, currency, {
-        getSettings: async (authorized) => {
-          const settings = await deliverySettings.get(authorized, "set_order_delivery");
-          if (settings.success) observed.settingsVersion = settings.data.version;
-          return settings;
-        },
-        resolveCost: async (snapshot, authorized, orderCurrency) => {
-          try {
-            const resolved = await resolveCost(snapshot, authorized, orderCurrency);
-            if (resolved.success) {
-              const valid = validateDeliveryCost(resolved.data, orderCurrency);
-              if (!valid.success) log.error({ event: "order_delivery_resolution_invalid", operation: "set_order_delivery", orderId: input.orderId,
-                courierId: observed.courierId, deliveryMethod: selection.method, stage: observed.stage, reason: valid.error.code === "CURRENCY_MISMATCH" ? "currency_mismatch" : "invalid_cost", errorCode: valid.error.code }, "Delivery cost resolution is invalid");
-            }
-            return resolved;
-          } catch (cause) {
-            log.error({ event: "order_delivery_resolution_failed", operation: "set_order_delivery", orderId: input.orderId,
-              courierId: observed.courierId, deliveryMethod: selection.method, settingsVersion: observed.settingsVersion, stage: observed.stage, errorCode: "DELIVERY_UNAVAILABLE", err: cause }, "Unable to resolve delivery cost");
-            return err({ code: "DELIVERY_UNAVAILABLE", message: "Unable to resolve delivery cost" });
-          }
-        },
+      return resolveRatedShippingCost(selection, { companyId: access.companyId, author: { kind: "seller", userId: access.userId } }, currency, expectedPrice, {
+        getStoreSettings: () => deliverySettings.get(access, "set_order_delivery"),
+        resolveSelectedDeliveryRate: deliverySettings.resolveSelectedDeliveryRate,
       });
     },
     saveDelivery: (id, companyId, change) => { observed.stage = "save_delivery"; return saveDelivery(id, companyId, change); },
@@ -113,7 +91,7 @@ export async function setConfiguredOrderDelivery(input: SetDeliveryInput, contex
     afterTransactionCommit(() => log.info({ event: "order_delivery_saved", operation: "set_order_delivery", orderId: input.orderId,
       userId: context.userId, authorKind: "seller", changeKind: before?.delivery ? "replaced" : "assigned",
       courierId: observed.courierId, previousDeliveryMethod: before?.delivery?.method, deliveryMethod: input.delivery.method, settingsVersion: observed.settingsVersion,
-      chargeDeliveryToCustomer: input.chargeDeliveryToCustomer, totalChanged: before?.total.amount !== result.data.total.amount,
+      chargeDeliveryToCustomer: true, totalChanged: before?.total.amount !== result.data.total.amount,
       stockDeductionRequired: !before?.stockDeducted && result.data.stockDeducted, stockDeducted: result.data.stockDeducted,
       transactionOutcome: "committed", durationMs }, "Order delivery saved"));
   } else if (!["ORDER_NOT_FOUND", "PERSISTENCE_UNAVAILABLE", "INVALID_STORED_DATA", "INVALID_ORDER", "CURRENCY_MISMATCH"].includes(result.error.code)) {
@@ -126,12 +104,11 @@ export async function setConfiguredOrderDelivery(input: SetDeliveryInput, contex
   return result;
 }
 
-export function createConfiguredOrder(input: CreateCompleteOrderInput, context: OrderAccess,
-  resolveCost?: ResolveDeliveryDependencies["resolveCost"]): Promise<Result<OrderAggregate, CreateCompleteOrderError>> {
+export function createConfiguredOrder(input: CreateCompleteOrderInput, context: OrderAccess): Promise<Result<OrderAggregate, CreateCompleteOrderError>> {
   return createCompleteOrder(input, context, {
     transaction: scopedOrderTransaction,
     create: orders.create,
-    setDelivery: (delivery, access) => setConfiguredOrderDelivery(delivery, access, resolveCost),
+    setDelivery: (delivery, access) => setConfiguredOrderDelivery(delivery, access),
     registerPayment: (payment, access) => registerPayment(payment, access, { transaction: paymentTransaction,
       findOrderForUpdate, savePayment, updatePayment, saveCompletion, deductProductStock, saveStockDeduction, clock: () => new Date() }),
     deliver: orders.deliver,
@@ -141,11 +118,7 @@ export function createConfiguredOrder(input: CreateCompleteOrderInput, context: 
 const checkoutDependencies: CheckoutDependencies = { transaction: scopedOrderTransaction,
   findOrder: findCheckoutOrder, findOrderForUpdate: findCheckoutOrderForUpdate,
   saveEnabled: saveCheckoutEnabled, saveBuyer: saveCheckoutBuyer, saveConfirmed: saveCheckoutConfirmed,
-  saveDeliveryRequest: saveCheckoutDeliveryRequest,
-  getDeliverySettings: async (access) => {
-    const found = await deliverySettings.get(access, "checkout_delivery");
-    return found.success ? found : err({ code: "PERSISTENCE_UNAVAILABLE", message: "Delivery settings unavailable" });
-  } };
+};
 function rejectedCheckout(error: CheckoutError) {
   const outcomes = { CHECKOUT_UNAVAILABLE: "unavailable", ORDER_CANCELLED: "cancelled", INVALID_BUYER: "invalid_input",
     TOTAL_CHANGED: "total_changed", INVALID_CHECKOUT: "technical_failure", PERSISTENCE_UNAVAILABLE: "technical_failure",
@@ -170,6 +143,8 @@ export async function getBuyerPaymentView(id: string) {
     ]);
     if (!found.success) return found;
     if (!found.data) return err({ code: "ORDER_NOT_FOUND" as const, message: "Order not found" });
+    const allowed = canAccessBuyerPayment(found.data);
+    if (!allowed.success) return allowed;
     if (!settings.success) return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Payment settings unavailable" });
     const summary = orderStateMachine.getPaymentSummary(found.data);
     if (!summary.success) return summary;
@@ -182,7 +157,7 @@ export async function getBuyerPaymentView(id: string) {
       if (!resolved.success) return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Image unavailable" });
       images.set(imageId, resolved.data?.url ?? null);
     }
-    const availability = buyerPaymentAvailability(found.data);
+    const availability = "available" as const;
     const view: BuyerPaymentView = { orderId: found.data.id, total: found.data.total, deliveryCharge: found.data.deliveryCharge, availability,
       paidAmount: summary.data.paidAmount, balanceDue: summary.data.balanceDue, paymentStatus: summary.data.status,
       settings: (availability === "available" ? settings.data : []).map((item) => { const imageUrl = item.imageId ? images.get(item.imageId) ?? null : null;
@@ -197,18 +172,25 @@ export async function getBuyerPaymentView(id: string) {
 }
 
 export const orders = {
-  quoteCheckoutDelivery: (input: QuoteCheckoutDeliveryInput, access: OrderAccess) => quoteCheckoutDelivery(input, access, {
-    transaction: scopedOrderTransaction, findOrderForUpdate, saveDelivery, deductProductStock, saveStockDeduction,
-    getSettings: (context) => deliverySettings.get(context, "quote_checkout_delivery"),
-    clearRequest: async (orderId, companyId) => {
-      const saved = await saveCheckoutDeliveryRequest({ orderId, companyId }, null);
-      return saved.success ? saved : err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to save quote" });
-    },
-  }),
-  getCheckoutDeliverySettings: (access: CheckoutAccess) => withTenantIsolation(access.companyId, async () => {
-    const checkout = await getOrderCheckout(access, checkoutDependencies);
-    return checkout.success ? checkoutDependencies.getDeliverySettings(access) : checkout;
-  }),
+  confirmCheckoutDelivery: async (input: ConfirmCheckoutDeliveryInput, access: CheckoutAccess) => {
+    requireNoActiveTransaction();
+    bindRequestOperation({ operation: "confirm_checkout" });
+    const result = await withTenantIsolation(access.companyId, () => confirmCheckoutDelivery(input, access, new Date(), {
+      transaction: scopedOrderTransaction, findOrderForUpdate: findCheckoutOrderForUpdate,
+      saveBuyer: saveCheckoutBuyer, saveConfirmed: saveCheckoutConfirmed,
+      saveDelivery, deductProductStock, saveStockDeduction,
+      getStoreSettings: deliverySettings.getForCompany, resolveSelectedDeliveryRate: deliverySettings.resolveSelectedDeliveryRate,
+    }));
+    if (!result.success) {
+      bindRequestOperation({ outcome: result.error.code === "TOTAL_CHANGED" ? "total_changed" :
+        ["PERSISTENCE_UNAVAILABLE", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR", "INVALID_STORED_DATA"].includes(result.error.code) ? "technical_failure" : "invalid_input" });
+      return result;
+    }
+    bindRequestOperation({ outcome: result.data.changed ? "confirmed" : "already_confirmed", orderNumber: result.data.checkout.number });
+    if (result.data.changed) log.info({ event: "order_checkout_confirmed", companyId: access.companyId,
+      orderNumber: result.data.checkout.number }, "Order checkout confirmed");
+    return ok(result.data.checkout);
+  },
   setDelivery: (input: SetDeliveryInput, context: OrderAccess) => setConfiguredOrderDelivery(input, context),
   resolveBuyerAccess,
   getBuyerPaymentView,

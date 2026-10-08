@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { checkExpectedTotal, checkoutState, parseBuyer, parseOrderNumber } from "@core/src/features/orders/domain/checkout";
+import { canAccessBuyerPayment, checkExpectedTotal, checkoutState, parseBuyer, parseOrderNumber } from "@core/src/features/orders/domain/checkout";
 
 test("order numbers continue past four digits and preserve safe integer precision", () => {
   for (const value of [1001, 9999, 10000, Number.MAX_SAFE_INTEGER]) expect(parseOrderNumber(value)).toEqual({ success: true, data: value });
@@ -34,4 +34,16 @@ test("expected total checks amount and currency without rounding client values i
   expect(checkExpectedTotal({ ...current, amount: 100 }, current)).toMatchObject({ error: { code: "TOTAL_CHANGED" } });
   expect(checkExpectedTotal({ ...current, currency: "USD" }, current)).toMatchObject({ error: { code: "TOTAL_CHANGED" } });
   expect(checkExpectedTotal({ ...current, amount: 100.501 }, current)).toMatchObject({ error: { code: "INVALID_CHECKOUT" } });
+});
+
+test("buyer payment requires enabled checkout confirmation while preserving historical orders", () => {
+  const historical = { checkoutEnabledAt: null, checkoutConfirmedAt: null, cancelled: false, buyer: null };
+  expect(canAccessBuyerPayment(historical)).toEqual({ success: true, data: null });
+  const pending = { ...historical, checkoutEnabledAt: new Date("2026-01-01T00:00:00Z") };
+  expect(canAccessBuyerPayment(pending)).toMatchObject({ error: { code: "CHECKOUT_UNAVAILABLE" } });
+  const confirmed = { ...pending, checkoutConfirmedAt: new Date("2026-01-02T00:00:00Z"),
+    buyer: { contactId: null, name: "Ana", phone: "+51987654321" } };
+  expect(canAccessBuyerPayment(confirmed)).toEqual({ success: true, data: null });
+  expect(canAccessBuyerPayment({ ...confirmed, cancelled: true })).toMatchObject({ error: { code: "ORDER_CANCELLED" } });
+  expect(canAccessBuyerPayment({ ...confirmed, buyer: null })).toMatchObject({ error: { code: "INVALID_CHECKOUT" } });
 });

@@ -105,6 +105,67 @@ model Company {
   deliverySettings CompanyDeliverySettings?
   paymentSettings CompanyPaymentSettings?
   couriers CompanyCourier[]
+  deliveryZones DeliveryZone[]
+  deliveryZoneDistricts DeliveryZoneDistrict[]
+  quotations Quotation[]
+  deliveryRates DeliveryRate[]
+}
+
+model DeliveryZone {
+  id String @id @db.Uuid
+  companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company Company @relation(fields: [companyId], references: [id])
+  method String
+  name String @db.VarChar(120)
+  enabled Boolean
+  priceAmount Decimal @db.Decimal(15, 2)
+  priceCurrency String
+  districts DeliveryZoneDistrict[]
+  rates DeliveryRate[]
+
+  @@unique([companyId, method, id])
+}
+
+model DeliveryZoneDistrict {
+  companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company Company @relation(fields: [companyId], references: [id])
+  method String
+  districtCode String @db.VarChar(6)
+  zoneId String @db.Uuid
+  zone DeliveryZone @relation(fields: [companyId, method, zoneId], references: [companyId, method, id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@id([companyId, zoneId, districtCode])
+  @@index([companyId, method, districtCode])
+}
+
+model Quotation {
+  id String @id @db.Uuid
+  companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company Company @relation(fields: [companyId], references: [id])
+  destination Json
+  createdAt DateTime @db.Timestamptz(6)
+  rates DeliveryRate[]
+
+  @@unique([companyId, id])
+}
+
+model DeliveryRate {
+  id String @id @db.Uuid
+  companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company Company @relation(fields: [companyId], references: [id])
+  quotationId String @db.Uuid
+  quotation Quotation @relation(fields: [companyId, quotationId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
+  method String
+  zoneId String @db.Uuid
+  zone DeliveryZone @relation(fields: [companyId, method, zoneId], references: [companyId, method, id], onDelete: Restrict, onUpdate: NoAction)
+  districtCode String @db.VarChar(6)
+  priceAmount Decimal @db.Decimal(15, 2)
+  priceCurrency String
+  settingsVersion Int
+  createdAt DateTime @db.Timestamptz(6)
+
+  @@unique([companyId, id])
+  @@unique([companyId, quotationId, zoneId])
 }
 
 model CompanyDeliverySettings {

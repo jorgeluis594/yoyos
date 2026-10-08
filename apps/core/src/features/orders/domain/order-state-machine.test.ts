@@ -105,10 +105,10 @@ describe("delivery and stock transitions", () => {
   test("replaces delivery cost and charge while retaining payments and item prices", () => {
     const initial = orderStateMachine.registerPayment(order(), payment(5, 10));
     if (!initial.success) throw new Error("Expected payment");
-    const free = orderStateMachine.setDelivery(initial.data, { resolved: { delivery: home, cost: money(3) }, chargeDeliveryToCustomer: false });
-    expect(free).toMatchObject({ success: true, data: { deliveryCost: money(3), deliveryCharge: money(0), total: money(10) } });
+    const free = orderStateMachine.setDelivery(initial.data, { resolved: { delivery: home, cost: money(0) } });
+    expect(free).toMatchObject({ success: true, data: { deliveryCost: money(0), deliveryCharge: money(0), total: money(10) } });
     if (!free.success) return;
-    const charged = orderStateMachine.setDelivery(free.data, { resolved: { delivery: home, cost: money(2) }, chargeDeliveryToCustomer: true });
+    const charged = orderStateMachine.setDelivery(free.data, { resolved: { delivery: home, cost: money(2) } });
     expect(charged).toMatchObject({ success: true, data: { deliveryCost: money(2), deliveryCharge: money(2), total: money(12) } });
     if (!charged.success) return;
     expect(orderStateMachine.getPaymentSummary(charged.data)).toMatchObject({ success: true, data: { status: "pending", balanceDue: money(2) } });
@@ -118,11 +118,11 @@ describe("delivery and stock transitions", () => {
 
   test("requires documented agency recipient and validates identity at runtime", () => {
     const invalid = { method: "agency", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, courier: { id: id(8) as CourierId, name: "Courier" }, agency: "Lima", recordedBy: { kind: "seller", userId: "seller" as UserId } };
-    expect(orderStateMachine.setDelivery(order(), { resolved: { delivery: invalid as DeliverySnapshot, cost: money(1) }, chargeDeliveryToCustomer: true }))
+    expect(orderStateMachine.setDelivery(order(), { resolved: { delivery: invalid as DeliverySnapshot, cost: money(1) } }))
       .toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
     const agency: DeliverySnapshot = { method: "agency", recipient: { name: "Ana", phone: "999", identity: {
       kind: "document", documentType: "passport", document: "A-001" } }, courier: { id: id(8) as CourierId, name: "Courier" }, agency: "Lima", recordedBy: { kind: "seller", userId: "seller" as UserId } };
-    expect(orderStateMachine.setDelivery(order(), { resolved: { delivery: agency, cost: money(0) }, chargeDeliveryToCustomer: false }))
+    expect(orderStateMachine.setDelivery(order(), { resolved: { delivery: agency, cost: money(0) } }))
       .toMatchObject({ success: true, data: { delivery: agency } });
   });
 
@@ -151,7 +151,7 @@ describe("delivery and stock transitions", () => {
     expect(shipped).toMatchObject({ success: true, data: { deliveryStatus: "shipped", completedAt: null } });
     if (!shipped.success) return;
     expect(shipped.data.payments).toEqual(deducted.data.nextOrder.payments);
-    expect(orderStateMachine.setDelivery(shipped.data, { resolved: { delivery: home, cost: money(1) }, chargeDeliveryToCustomer: true }))
+    expect(orderStateMachine.setDelivery(shipped.data, { resolved: { delivery: home, cost: money(1) } }))
       .toMatchObject({ success: false, error: { code: "DELIVERY_LOCKED" } });
     const delivered = orderStateMachine.registerDelivery(shipped.data, paymentAt);
     expect(delivered).toMatchObject({ success: true, data: { deliveryStatus: "delivered", deliveredAt: paymentAt, completedAt: paymentAt } });
@@ -207,4 +207,12 @@ describe("delivery and stock transitions", () => {
     expect(orderStateMachine.cancel({ ...order(), cancelled: true, deliveryStatus: "shipped", stockDeducted: true })).toMatchObject({ error: { code: "INVALID_TRANSITION" } });
   });
 
+});
+
+test.each([true, false])("new delivery transitions reject the obsolete charge decision %s", chargeDeliveryToCustomer => {
+  const current = order();
+  const change = { resolved: { delivery: home, cost: money(3) }, chargeDeliveryToCustomer };
+  expect(orderStateMachine.setDelivery(current, change)).toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
+  expect(current.delivery).toBeNull();
+  expect(current.total).toEqual(money(10));
 });

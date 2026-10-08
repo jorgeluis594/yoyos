@@ -7,7 +7,7 @@ import type { CompanyId, OrderId, PositiveInteger, UserId } from "@core/src/feat
 import type { VariantId } from "@core/src/features/products/domain/product";
 import { formatCurrency } from "@core/app/format-currency";
 
-test("store assignment preserves unavailable delivery, freezes its point and atomically replaces charge and author", async ({ page }) => {
+test("rated pickup freezes its point and replacement preserves author and stock deduction", async ({ page }) => {
   const email = `store-order-${crypto.randomUUID()}@example.test`;
   const otherEmail = `store-editor-${crypto.randomUUID()}@example.test`;
   let companyId: string | undefined;
@@ -20,7 +20,7 @@ test("store assignment preserves unavailable delivery, freezes its point and ato
       const response = page.waitForResponse(value => value.request().method() === "POST" && value.url().includes(`/orders/${orderId}`));
       await page.getByRole("button", { name: "Guardar entrega" }).click();
       await response;
-      await browserExpect(page.getByRole("button", { name: "Guardar entrega" })).toBeEnabled();
+      await browserExpect(page.getByRole("status").filter({ hasText: "Entrega guardada." })).toBeVisible();
     };
     const variantId = await withTenantIsolation(tenantId, async () => {
       const created = await products.create({ name: "Pickup product", currency: "PEN", variants: [{ attributes: {}, salePrice: 10, initialStock: 3 }] });
@@ -41,29 +41,16 @@ test("store assignment preserves unavailable delivery, freezes its point and ato
     await browserExpect(page.getByRole("status")).toHaveText("Configuración guardada.");
     await page.goto(`/es-PE/orders/${orderId}`);
     await page.getByRole("button", { name: "Asignar entrega", exact: true }).click();
-    await page.getByLabel("Nombre del destinatario").fill("Unavailable");
     await page.getByLabel("Teléfono del destinatario").fill("999123456");
-    await saveDelivery();
-    await browserExpect(page.getByRole("alert")).toContainText("No se pudo confirmar");
-    await browserExpect(page.getByLabel("Nombre del destinatario")).toHaveValue("Unavailable");
-    const unchanged = await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json();
-    expect(unchanged).toMatchObject({ delivery: null, total: { amount: 20 }, stockDeducted: false });
-    const apiUnavailable = await page.request.put(`/api/orders/${orderId}/delivery`, { data: {
-      delivery: { method: "store", recipient: { name: "Unavailable", phone: "999123456", identity: { kind: "absent" } } },
-      chargeDeliveryToCustomer: true,
-    } });
-    expect(apiUnavailable.status()).toBe(422);
-    expect(await apiUnavailable.json()).toMatchObject({ code: "DELIVERY_UNAVAILABLE" });
     await page.getByLabel("Nombre del destinatario").fill("Ana");
-    await page.getByLabel("Cobrar la entrega al cliente").check();
     await saveDelivery();
     await browserExpect(page.getByRole("status")).toHaveText("Entrega guardada.");
-    await browserExpect(page.getByText(`Total: ${formatCurrency(23, "PEN", "es")}`, { exact: true })).toBeVisible();
+    await browserExpect(page.getByText(`Total: ${formatCurrency(20, "PEN", "es")}`, { exact: true }).first()).toBeVisible();
     const assigned = await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json();
-    expect(assigned).toMatchObject({ delivery: { method: "store", pickupPoint: { address: "Av. Original 123" }, recordedBy: { kind: "seller", userId: sellerId } }, deliveryCost: { amount: 3 }, deliveryCharge: { amount: 3 }, stockDeducted: false });
+    expect(assigned).toMatchObject({ delivery: { method: "store", pickupPoint: { address: "Av. Original 123" }, recordedBy: { kind: "seller", userId: sellerId } }, deliveryCost: { amount: 0 }, deliveryCharge: { amount: 0 }, stockDeducted: false });
     const apiAssigned = await page.request.put(`/api/orders/${orderId}/delivery`, { data: {
       delivery: { method: "store", recipient: { name: "Ana", phone: "999123456", identity: { kind: "absent" } } },
-      chargeDeliveryToCustomer: true,
+      expectedPrice: { amount: 0, currency: "PEN" },
     } });
     expect(apiAssigned.ok()).toBe(true);
     expect(await apiAssigned.json()).toEqual(assigned);
@@ -80,12 +67,11 @@ test("store assignment preserves unavailable delivery, freezes its point and ato
     expect((await page.request.post("/api/auth/sign-in/email", { data: { email: otherEmail, password: "test-password-123" } })).ok()).toBe(true);
     await page.goto(`/es-PE/orders/${orderId}`);
     await page.getByRole("button", { name: "Editar entrega", exact: true }).click();
-    await page.getByLabel("Cobrar la entrega al cliente").uncheck();
     await saveDelivery();
     await browserExpect(page.getByRole("status")).toHaveText("Entrega guardada.");
-    await browserExpect(page.getByText(`Total: ${formatCurrency(20, "PEN", "es")}`, { exact: true })).toBeVisible();
+    await browserExpect(page.getByText(`Total: ${formatCurrency(20, "PEN", "es")}`, { exact: true }).first()).toBeVisible();
     const replaced = await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json();
-    expect(replaced).toMatchObject({ delivery: { pickupPoint: { address: "Av. Nueva 456" }, recordedBy: { kind: "seller", userId: editor.id } }, deliveryCost: { amount: 3 }, deliveryCharge: { amount: 0 }, stockDeducted: true, paidAmount: { amount: 20 } });
+    expect(replaced).toMatchObject({ delivery: { pickupPoint: { address: "Av. Nueva 456" }, recordedBy: { kind: "seller", userId: editor.id } }, deliveryCost: { amount: 0 }, deliveryCharge: { amount: 0 }, stockDeducted: true, paidAmount: { amount: 20 } });
     expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(1n);
     await saveDelivery();
     await browserExpect(page.getByRole("status")).toHaveText("Entrega guardada.");
@@ -105,24 +91,30 @@ test("store assignment preserves unavailable delivery, freezes its point and ato
     await page.getByRole("button", { name: "Editar entrega", exact: true }).click();
     await page.getByLabel("Modalidad de entrega").selectOption("home");
     await page.getByLabel("Dirección de entrega", { exact: true }).fill("Calle Destino 789");
-    await page.getByRole("button", { name: "Guardar entrega" }).click();
-    expect(await page.getByLabel("Distrito", { exact: true }).evaluate(element => (element as HTMLInputElement).validity.valueMissing)).toBe(true);
+    await browserExpect(page.getByRole("button", { name: "Guardar entrega" })).toBeDisabled();
     expect((await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json()).delivery.method).toBe("store");
-    await page.getByLabel("Distrito", { exact: true }).fill("Miraflores");
-    await page.getByLabel("Nombre del destinatario").fill("Unavailable");
-    await saveDelivery();
-    await browserExpect(page.getByRole("alert")).toContainText("No se pudo confirmar");
-    await browserExpect(page.getByLabel("Dirección de entrega", { exact: true })).toHaveValue("Calle Destino 789");
+    expect((await page.request.put("/api/delivery-settings/zones", { data: { method: "home", expectedVersion: 3,
+      zones: [{ kind: "new", name: "Free home", enabled: true, districtCodes: ["040110"], price: { amount: 0, currency: "PEN" } }] } })).ok()).toBe(true);
+    await page.getByLabel("Departamento", { exact: true }).selectOption("04");
+    await page.getByLabel("Provincia", { exact: true }).selectOption("0401");
+    await page.getByLabel("Distrito", { exact: true }).selectOption("040110");
+    const tariff = page.getByLabel("Tarifa de entrega", { exact: true });
+    await browserExpect(tariff.locator("option")).toHaveCount(2);
+    const rateId = await tariff.locator("option").nth(1).getAttribute("value");
+    if (!rateId) throw new Error("Expected rate");
+    await browserExpect(tariff.locator("option").nth(1)).toContainText("Entrega gratis");
+    await tariff.selectOption(rateId);
+    await browserExpect(page.getByText("Entrega gratis", { exact: true })).toBeVisible();
     await page.getByLabel("Nombre del destinatario").fill("Ana");
     await page.getByLabel("Indicaciones de entrega (opcional)").fill("Puerta verde");
     await saveDelivery();
     const home = await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json();
-    expect(home).toMatchObject({ delivery: { method: "home", destination: { address: "Calle Destino 789", district: "Miraflores", instructions: "Puerta verde" },
-      recordedBy: { kind: "seller", userId: editor.id } }, total: { amount: 20 }, deliveryCost: { amount: 3 }, deliveryCharge: { amount: 0 }, stockDeducted: true });
+    expect(home).toMatchObject({ delivery: { method: "home", destination: { address: "Calle Destino 789", district: "MIRAFLORES", instructions: "Puerta verde" },
+      recordedBy: { kind: "seller", userId: editor.id } }, total: { amount: 20 }, deliveryCost: { amount: 0 }, deliveryCharge: { amount: 0 }, stockDeducted: true });
     expect(home.delivery).not.toHaveProperty("pickupPoint");
     await page.reload();
     await browserExpect(page.getByText("Calle Destino 789", { exact: true })).toBeVisible();
-    await browserExpect(page.getByText("Miraflores", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("MIRAFLORES", { exact: true })).toBeVisible();
     await page.goto(`/pt-BR/orders/${orderId}`);
     await page.getByRole("button", { name: "Editar entrega", exact: true }).click();
     await browserExpect(page.getByLabel("Endereço de entrega", { exact: true })).toHaveValue("Calle Destino 789");
@@ -138,9 +130,12 @@ test("store assignment preserves unavailable delivery, freezes its point and ato
     await browserExpect(page.getByText("Calle Destino 789", { exact: true })).toBeVisible();
     await browserExpect(page.getByText(/La entrega no se puede cambiar/)).toBeVisible();
   } finally {
+    await page.goto("/");
     if (companyId) await withTenantIsolation(companyId, async () => {
       await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
       await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+      await prisma.deliveryRate.deleteMany(); await prisma.quotation.deleteMany();
+      await prisma.deliveryZoneDistrict.deleteMany(); await prisma.deliveryZone.deleteMany();
       await prisma.companyDeliverySettings.deleteMany();
       await systemPrisma.user.deleteMany({ where: { email: { in: [email, otherEmail] } } });
       await prisma.company.delete({ where: { id: companyId } });

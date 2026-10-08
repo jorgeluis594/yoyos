@@ -21,7 +21,7 @@ test("seller ships or delivers directly, refreshes details and list, and preserv
       expect((await page.request.post("/api/orders", { data: { id: orderId, contactId: null, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
       if (mode === "pickup") {
         expect((await page.request.put(`/api/orders/${orderId}/delivery`, { data: {
-          delivery: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } }, chargeDeliveryToCustomer: false,
+          delivery: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } }, expectedPrice: { amount: 0, currency: "PEN" },
         } })).ok()).toBe(true);
       }
       await page.goto(`/es-PE/orders/${orderId}`);
