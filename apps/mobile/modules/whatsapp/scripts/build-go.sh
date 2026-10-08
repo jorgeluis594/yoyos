@@ -58,8 +58,10 @@ cd "$module_dir/go"
 cp -R . "$build_dir/go"
 cd "$build_dir/go"
 go mod edit -replace="go.mau.fi/whatsmeow=$build_dir/whatsmeow"
-
-gomobile init
+# gomobile init installs gobind@latest; bind only needs its work directory.
+export GOMODCACHE="$(go env GOMODCACHE)"
+export GOPATH="$build_dir/gopath"
+mkdir -p "$GOPATH/pkg/gomobile"
 if test "$target" = android || test "$target" = all; then
   gomobile bind -target=android/arm64,android/amd64 -androidapi=24 -javapkg=expo.modules.whatsapp.go -o "$build_dir/WhatsAppGo.aar" ./bridge
   unzip -l "$build_dir/WhatsAppGo.aar" | grep -q 'jni/arm64-v8a/libgojni.so' || fail 'Android arm64 binding missing'
