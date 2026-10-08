@@ -1493,6 +1493,39 @@ index 5ba89ba..69c9eac 100644
  }
  
  func (cli *Client) fetchPreKeysNoError(ctx context.Context, retryDevices []types.JID) map[types.JID]*prekey.Bundle {
+diff --git a/qrchan.go b/qrchan.go
+index 710e3c6..439c10a 100644
+--- a/qrchan.go
++++ b/qrchan.go
+@@ -29,6 +29,8 @@ type QRChannelItem struct {
+ 	Code string
+ 	// The timeout after which the next code will be sent down the channel.
+ 	Timeout time.Duration
++	// Absolute deadline fixed when this code is emitted, including buffered delivery.
++	ExpiresAt time.Time
+ 
+ 	PasskeyRequest      *events.PairPasskeyRequest
+ 	PasskeyConfirmation *events.PairPasskeyConfirmation
+@@ -95,8 +97,9 @@ func (qrc *qrChannel) emitQRs(codes []string) {
+ 		}
+ 		nextCode, codes = codes[0], codes[1:]
+ 		qrc.log.Debugf("Emitting QR code %s", nextCode)
++		deadline := time.Now().Add(timeout)
+ 		select {
+-		case qrc.output <- QRChannelItem{Code: nextCode, Timeout: timeout, Event: QRChannelEventCode}:
++		case qrc.output <- QRChannelItem{Code: nextCode, Timeout: timeout, ExpiresAt: deadline, Event: QRChannelEventCode}:
+ 		default:
+ 			qrc.log.Debugf("Output channel didn't accept code, exiting QR emitter")
+ 			if qrc.close() {
+@@ -107,7 +110,7 @@ func (qrc *qrChannel) emitQRs(codes []string) {
+ 			return
+ 		}
+ 		select {
+-		case <-time.After(timeout):
++		case <-time.After(time.Until(deadline)):
+ 		case <-qrc.stopQRs:
+ 			qrc.log.Debugf("Got signal to stop QR emitter")
+ 			return
 diff --git a/receipt.go b/receipt.go
 index 8def76a..f517da6 100644
 --- a/receipt.go
@@ -1692,10 +1725,10 @@ index 7075357..ba70a5c 100644
  func parseVerifiedName(businessNode waBinary.Node) (*types.VerifiedName, error) {
 diff --git a/wa03_receive_test.go b/wa03_receive_test.go
 new file mode 100644
-index 0000000..49a0153
+index 0000000..fbfd3dc
 --- /dev/null
 +++ b/wa03_receive_test.go
-@@ -0,0 +1,559 @@
+@@ -0,0 +1,575 @@
 +package whatsmeow
 +
 +import (
@@ -2236,6 +2269,22 @@ index 0000000..49a0153
 +	ok, err := client.processProtocolParts(store.WithPrecommittedProtocol(context.Background()), &info, message)
 +	if err != nil || !ok {
 +		t.Fatalf("precommitted write repeated: %v", err)
++	}
++}
++
++func TestQRDeadlineIsFixedBeforeBufferedConsumption(t *testing.T) {
++	items := make(chan QRChannelItem, 1)
++	stop := make(chan struct{})
++	done := make(chan struct{})
++	client := NewClient(&store.Device{}, waLog.Noop)
++	channel := &qrChannel{cli: client, log: waLog.Noop, ctx: context.Background(), output: items, stopQRs: stop, rotateAdv: make(chan *events.RotateADVSecret)}
++	go func() { defer close(done); channel.emitQRs([]string{"owned-code"}) }()
++	time.Sleep(30 * time.Millisecond)
++	item := <-items
++	close(stop)
++	<-done
++	if item.Event != QRChannelEventCode || item.Code != "owned-code" || item.ExpiresAt.IsZero() || time.Until(item.ExpiresAt) >= item.Timeout-15*time.Millisecond {
++		t.Fatal("QR deadline was reconstructed after buffered consumption")
 +	}
 +}
 +
