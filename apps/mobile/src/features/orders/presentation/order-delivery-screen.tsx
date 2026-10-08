@@ -1,7 +1,8 @@
 import { deliveryDraftFromOrder } from "@mobile/features/orders/presentation/delivery-fields";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView as NativeSafeAreaView } from "react-native-screens/experimental";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { Controller, useForm, useWatch } from "react-hook-form";
@@ -19,7 +20,7 @@ import { Input } from "@mobile/components/ui/input";
 import { OptionSelector } from "@mobile/components/ui/option-selector";
 import { ScreenState } from "@mobile/components/ui/screen-state";
 import { PeruDistrictSelect } from "@mobile/components/peru-district-select";
-import { getPeruDistrict } from "@shared/peru-geography";
+import { getPeruDistrict, getPeruProvinces, peruDepartments } from "@shared/peru-geography";
 import { add, type Money } from "@shared/money";
 import type { DeliveryQuotation } from "@mobile/features/delivery-settings";
 import { useTheme } from "@mobile/hooks/use-theme";
@@ -33,6 +34,7 @@ export default function OrderDeliveryScreen() {
   const { state } = useAccess();
   const theme = useTheme();
   const companyId = state.status === "ready" ? state.company.id : "";
+  const [editingDistrict, setEditingDistrict] = useState(false);
   const [order, setOrder] = useState<OrderAggregateResponse | null>(null);
   const [settings, setSettings] = useState<DeliverySettingsResponse | null>(null);
   const { control, reset, getValues, setValue, handleSubmit, formState: { isSubmitting } } = useForm<OrderDeliveryFormValues, unknown, SetRatedOrderDeliveryRequest>({
@@ -46,6 +48,8 @@ export default function OrderDeliveryScreen() {
   const [loading, setLoading] = useState(true);
   const busy = loading || isSubmitting;
   const [error, setError] = useState("");
+  const scroll = useRef<ScrollView>(null);
+  useEffect(() => { if (error) scroll.current?.scrollToEnd({ animated: false }); }, [error]);
   const [locked, setLocked] = useState(false);
   const inFlight = useRef(false);
   const initialized = useRef(false);
@@ -129,11 +133,16 @@ export default function OrderDeliveryScreen() {
   if (!order || !settings) return busy ? <ScreenState status="loading" title={t("loadingOrderDelivery")} />
     : <ScreenState status="error" title={t("loadOrderDeliveryError")} description={error === "loadOrderDeliveryError" ? undefined : t(error)} onRetry={() => void load()} />;
   const point = settings.store.pickupPoint;
+  const district = getPeruDistrict(districtCode);
+  const districtLabel = district ? `${district.name} · ${getPeruProvinces(district.departmentCode).find(item => item.code === district.provinceCode)?.name} · ${peruDepartments.find(item => item.code === district.departmentCode)?.name}` : "";
+  const editable = !locked && (settings.store.enabled || settings.home.enabled || settings.agency.enabled);
   const language = orderLanguage(state.company.country, i18n.language);
   const formatPrice = (price: Money) => new Intl.NumberFormat(i18n.language === "pt-BR" ? "pt-BR" : "es-PE", { style: "currency", currency: price.currency }).format(price.amount);
   return <ThemedView style={styles.page}><SafeAreaView style={styles.page} edges={["top", "left", "right"]}>
-    <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
-      <Button variant="ghost" onPress={() => router.back()} disabled={busy}>{t("backToOrder")}</Button>
+    <KeyboardAvoidingView style={styles.page} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+    <NativeSafeAreaView style={styles.page} edges={{ bottom: Platform.OS === "ios" }}>
+    <ScrollView ref={scroll} style={styles.page} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
+      <View style={styles.back}><Button variant="ghost" onPress={() => router.back()} disabled={busy}>{t("backToOrder")}</Button></View>
       <ThemedText type="title" accessibilityRole="header">{t(order.delivery ? "replaceOrderDelivery" : "assignOrderDelivery")}</ThemedText>
       {locked ? (!error ? <ThemedText>{t("orderDeliveryLocked")}</ThemedText> : null) : !settings.store.enabled && !settings.home.enabled && !settings.agency.enabled ? <View style={styles.section}>
         <ThemedText>{t("orderDeliveryDisabled")}</ThemedText><Button variant="secondary" onPress={() => router.push("/settings/delivery")}>{t("configureOrderDelivery")}</Button>
@@ -147,6 +156,8 @@ export default function OrderDeliveryScreen() {
           ]} />{fieldState.error ? <FieldError>{t(fieldState.error.message ?? "invalidOrderDelivery")}</FieldError> : null}</Field>
         )} />
         {!enabled ? <ThemedText>{t("orderDeliveryDisabled")}</ThemedText> : null}
+        <View style={styles.section}>
+        <ThemedText type="subtitle" accessibilityRole="header">{t("orderDeliveryDestinationTitle")}</ThemedText>
         {method === "store" ? <View style={styles.section}><ThemedText type="subtitle" accessibilityRole="header">{t("pickupStoreTitle")}</ThemedText>
           <ThemedText>{point?.name}</ThemedText><ThemedText>{point?.address}</ThemedText>
           {point?.instructions ? <ThemedText themeColor="textSecondary">{point.instructions}</ThemedText> : null}</View> : method === "home" ? <FieldGroup>
@@ -158,8 +169,10 @@ export default function OrderDeliveryScreen() {
         )} />
         </FieldGroup> : null}
         {method !== "store" ? <View style={styles.section}>
-          <Controller control={control} name="districtCode" render={({ field }) => <PeruDistrictSelect value={getPeruDistrict(field.value)?.code ?? null}
-            disabled={busy} onChange={code => { field.onChange(code ?? ""); setQuoteAttempt(value => value + 1); }} />} />
+          {district && !editingDistrict ? <Field><FieldLabel>{t("orderDeliveryDistrict")}</FieldLabel>
+            <Button variant="secondary" accessibilityLabel={`${t("orderDeliveryDistrict")}: ${districtLabel}`} disabled={busy} onPress={() => setEditingDistrict(true)}>{districtLabel}</Button>
+          </Field> : <Controller control={control} name="districtCode" render={({ field }) => <PeruDistrictSelect value={getPeruDistrict(field.value)?.code ?? null}
+            disabled={busy} onChange={code => { field.onChange(code ?? ""); setEditingDistrict(!code); setQuoteAttempt(value => value + 1); }} />} />}
           {quoting ? <ThemedText accessibilityLiveRegion="polite">{t("orderQuotationLoading")}</ThemedText> : null}
           {quoteError ? <ThemedText accessibilityRole="alert">{t(quoteError)}</ThemedText> : null}
           {!quoting && quotation && rates.length === 0 ? <ThemedText>{t("orderQuotationEmpty")}</ThemedText> : null}
@@ -168,9 +181,12 @@ export default function OrderDeliveryScreen() {
               label: rate.price.amount === 0 ? t("zonesFree") : formatPrice(rate.price) }))}
               onValueChange={id => { const rate = rates.find(rate => rate.id === id); setValue("rateId", rate?.id ?? ""); setValue("price", rate?.price ?? null); }} />
           </Field> : null}
-          {districtCode && !quoting ? <Button variant="secondary" disabled={busy} onPress={() => setQuoteAttempt(value => value + 1)}>{t("orderQuotationRetry")}</Button> : null}
+          {districtCode && !quoting ? <Button variant="ghost" disabled={busy} onPress={() => setQuoteAttempt(value => value + 1)}>{t("orderQuotationRetry")}</Button> : null}
         </View> : null}
-        <FieldGroup><Controller control={control} name="name" render={({ field, fieldState }) => (
+        </View>
+        <FieldGroup style={[styles.recipient, { borderTopColor: theme.border }]}>
+          <ThemedText type="subtitle" accessibilityRole="header">{t("orderDeliveryRecipientTitle")}</ThemedText>
+          <Controller control={control} name="name" render={({ field, fieldState }) => (
           <Field required disabled={busy} invalid={fieldState.invalid}><FieldLabel>{t("deliveryRecipientName")}</FieldLabel><Input ref={field.ref} value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} accessibilityLabel={t("deliveryRecipientName")} />{fieldState.error ? <FieldError>{t(fieldState.error.message ?? "invalidOrderDelivery")}</FieldError> : null}</Field>
         )} />
           <Controller control={control} name="phone" render={({ field, fieldState }) => (
@@ -184,14 +200,27 @@ export default function OrderDeliveryScreen() {
           <Field required disabled={busy} invalid={fieldState.invalid}><FieldLabel>{t("deliveryDocument")}</FieldLabel><Input ref={field.ref} value={field.value} onChangeText={field.onChange} onBlur={field.onBlur} accessibilityLabel={t("deliveryDocument")} />{fieldState.error ? <FieldError>{t(fieldState.error.message ?? "invalidOrderDelivery")}</FieldError> : null}</Field>
         )} /> : null}</FieldGroup>
         <ThemedText type="small" themeColor="textSecondary">{t("orderRatedDeliveryHint")}</ThemedText>
-        <ThemedText>{t("orderDeliveryProductsAmount", { amount: formatPrice(order.itemsTotal) })}</ThemedText>
-        {price && shownTotal?.success ? <><ThemedText>{t("orderDeliveryAmount", { amount: formatPrice(price) })}</ThemedText>
-          <ThemedText>{t("orderDeliveryTotalAmount", { amount: formatPrice(shownTotal.data) })}</ThemedText></> : null}
-        <Button onPress={() => void handleSubmit(save)()} loading={busy} disabled={busy || !enabled || !selectionReady || quoting}>{t("saveOrderDelivery")}</Button>
       </>}
       {error ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t(error)}</ThemedText> : null}
     </ScrollView>
+    {editable ? <View style={[styles.footer, { borderTopColor: theme.border, backgroundColor: theme.background }]}>
+      <View style={styles.amounts}>
+        <ThemedText type="small" themeColor="textSecondary">{t("orderDeliveryProductsAmount", { amount: formatPrice(order.itemsTotal) })}</ThemedText>
+        {price && shownTotal?.success ? <ThemedText type="small" themeColor="textSecondary">{t("orderDeliveryAmount", { amount: formatPrice(price) })}</ThemedText> : null}
+      </View>
+      {shownTotal?.success ? <ThemedText type="subtitle" accessibilityLiveRegion="polite">{t("orderDeliveryTotalAmount", { amount: formatPrice(shownTotal.data) })}</ThemedText> : null}
+      <Button onPress={() => void handleSubmit(save)()} loading={busy} disabled={busy || !enabled || !selectionReady || quoting}>{t("saveOrderDelivery")}</Button>
+    </View> : null}
+    </NativeSafeAreaView>
+    </KeyboardAvoidingView>
   </SafeAreaView></ThemedView>;
 }
-const styles = StyleSheet.create({ page: { flex: 1 }, content: { gap: 24, padding: 16, paddingBottom: 32, maxWidth: 640, width: "100%", alignSelf: "center" },
-  section: { gap: 8 } });
+const styles = StyleSheet.create({
+  page: { flex: 1 },
+  content: { gap: 16, padding: 16, paddingBottom: 24, maxWidth: 640, width: "100%", alignSelf: "center" },
+  back: { alignSelf: "flex-start" },
+  section: { gap: 16 },
+  recipient: { borderTopWidth: 1, paddingTop: 16 },
+  footer: { gap: 8, padding: 16, borderTopWidth: 1, maxWidth: 640, width: "100%", alignSelf: "center" },
+  amounts: { flexDirection: "row", flexWrap: "wrap", columnGap: 16, rowGap: 4 },
+});
