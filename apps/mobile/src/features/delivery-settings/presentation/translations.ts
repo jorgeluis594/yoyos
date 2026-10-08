@@ -20,7 +20,7 @@ export const translations = {
     zonesConflict: "La configuración cambió. Conservamos el borrador; recarga antes de guardar.",
     zonesSaveError: "No pudimos confirmar el guardado. Conservamos el borrador; recarga antes de reenviar altas.",
     zonesSaved: "Zona guardada.",
-    zoneDepartment: "Departamento", zoneProvince: "Provincia", zoneDistrictSearch: "Buscar distrito",
+    zoneDepartment: "Departamento", zoneProvince: "Provincia", zoneDistrictSearch: "Buscar distrito", zoneDistrictChoice: "Distrito de destino",
     zoneDistrictSelected: "{{count}} distritos seleccionados", zoneDistrictEmpty: "No hay distritos con esa búsqueda.",
     zoneDistrictHierarchy: "Selecciona departamento y provincia.", zoneDistrictRemove: "Quitar {{name}}",
 
@@ -47,7 +47,7 @@ export const translations = {
     zonesConflict: "A configuração mudou. Mantemos o rascunho; recarregue antes de salvar.",
     zonesSaveError: "Não confirmamos o salvamento. Mantemos o rascunho; recarregue antes de reenviar novos cadastros.",
     zonesSaved: "Zona salva.",
-    zoneDepartment: "Departamento", zoneProvince: "Província", zoneDistrictSearch: "Buscar distrito",
+    zoneDepartment: "Departamento", zoneProvince: "Província", zoneDistrictSearch: "Buscar distrito", zoneDistrictChoice: "Distrito de destino",
     zoneDistrictSelected: "{{count}} distritos selecionados", zoneDistrictEmpty: "Não há distritos com essa busca.",
     zoneDistrictHierarchy: "Selecione departamento e província.", zoneDistrictRemove: "Remover {{name}}",
 
