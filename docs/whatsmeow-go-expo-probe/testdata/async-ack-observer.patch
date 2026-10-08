@@ -1,0 +1,18 @@
+--- a/message.go
++++ b/message.go
+@@ -456,6 +456,13 @@
+ 				// TODO this probably isn't supposed to ack
+ 				cli.sendAck(ctx, node, 0)
+ 			} else {
+-				go cli.sendRetryReceipt(context.WithoutCancel(ctx), node, info, isUnavailable)
+-				go cli.sendAck(ctx, node, 0)
++				done := probeAsyncSendsScheduled()
++				go func() {
++					defer done()
++					cli.sendRetryReceipt(context.WithoutCancel(ctx), node, info, isUnavailable)
++				}()
++				go func() {
++					defer done()
++					cli.sendAck(ctx, node, 0)
++				}()
+ 			}
