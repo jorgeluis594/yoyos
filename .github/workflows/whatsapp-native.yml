@@ -47,7 +47,10 @@ jobs:
         run: |
           go mod download all
           upstream=$(go list -m -f '{{.Dir}}' go.mau.fi/whatsmeow)
-          (cd "$upstream" && go mod download all)
+          cp -R "$upstream" "$RUNNER_TEMP/whatsmeow-dependencies"
+          chmod -R u+w "$RUNNER_TEMP/whatsmeow-dependencies"
+          (cd "$RUNNER_TEMP/whatsmeow-dependencies" && go mod download all)
+          (cd "$RUNNER_TEMP/whatsmeow-dependencies" && go mod download github.com/kisielk/sqlstruct@v0.0.0-20201105191214-5f3e10d3ab46)
         working-directory: apps/mobile/modules/whatsapp/go
       - run: go test -race ./bridge
         working-directory: apps/mobile/modules/whatsapp/go
@@ -116,7 +119,10 @@ jobs:
         run: |
           go mod download all
           upstream=$(go list -m -f '{{.Dir}}' go.mau.fi/whatsmeow)
-          (cd "$upstream" && go mod download all)
+          cp -R "$upstream" "$RUNNER_TEMP/whatsmeow-dependencies"
+          chmod -R u+w "$RUNNER_TEMP/whatsmeow-dependencies"
+          (cd "$RUNNER_TEMP/whatsmeow-dependencies" && go mod download all)
+          (cd "$RUNNER_TEMP/whatsmeow-dependencies" && go mod download github.com/kisielk/sqlstruct@v0.0.0-20201105191214-5f3e10d3ab46)
         working-directory: apps/mobile/modules/whatsapp/go
       - run: go test ./bridge
         working-directory: apps/mobile/modules/whatsapp/go
