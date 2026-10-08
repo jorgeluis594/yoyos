@@ -6,8 +6,8 @@ import { orderDeliveryFormSchema, type OrderDeliveryFormValues } from "@mobile/f
 import type { DeliverySettingsResponse } from "@shared/contracts/delivery-settings";
 import { orderLanguage } from "@mobile/features/orders/presentation/order-labels";
 import type { Result } from "@shared/result";
-import { add } from "@shared/money";
-import { ok } from "@shared/functional";
+import { add, subtract, type Money, type MoneyError } from "@shared/money";
+import { andThen, ok } from "@shared/functional";
 import { useEffect, useRef, useState } from "react";
 import { ScrollView, StyleSheet, Switch, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -34,7 +34,6 @@ import { useOrderDraft } from "@mobile/features/orders/presentation/order-draft-
 import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
 import { useTheme } from "@mobile/hooks/use-theme";
 import translations from "@mobile/i18n";
-import { normalizeDecimalInput } from "@mobile/shared/decimal-input";
 
 type Catalog = z.infer<typeof orderCatalogSchema>;
 type Contacts = z.infer<typeof orderContactsSchema>;
@@ -119,7 +118,12 @@ function CompanyOrderScreen() {
     setInitialDelivery(current => current ? { ...current, rateId: "", price: null } : null);
     setQuoteAttempt(value => value + 1);
   };
-  const paidAmount = (draft.payments ?? []).reduce((sum, payment) => sum + (Number(normalizeDecimalInput(payment.amount)) || 0), 0);
+  const paymentDraft = prepareOrder({ ...draft, ratedDelivery: undefined });
+  const paidAmount = paymentDraft.success ? (paymentDraft.data.request.payments ?? []).reduce(
+    (sum, payment) => andThen(sum, current => add(payment.amount)(current)),
+    ok({ amount: 0, currency: paymentDraft.data.shownTotal.currency }) as Result<Money, MoneyError>,
+  ) : null;
+  const balance = paidAmount?.success && reviewedTotal?.success ? subtract(paidAmount.data)(reviewedTotal.data) : null;
 
   useEffect(() => {
     if (!canQuote) return;
@@ -358,9 +362,9 @@ function CompanyOrderScreen() {
             <View style={styles.toggle}><ThemedText style={styles.toggleLabel}>{t('deliverImmediately')}</ThemedText><Switch disabled={sending} value={draft.deliverImmediately ?? false} accessibilityLabel={t('deliverImmediately')} onValueChange={deliverImmediately => setDraft(current => ({ ...current, deliverImmediately }))} /></View>
             <ThemedText type="small" themeColor="textSecondary">{t('immediateRequirements')}</ThemedText>
             <ThemedText type="subtitle" accessibilityRole="header">{t('creationSummary')}</ThemedText>
-            {productTotal.success ? <>
-              <ThemedText>{t('initialPaid')}: {money(paidAmount, productTotal.data.shownTotal.currency, locale)}</ThemedText>
-              {reviewedTotal?.success ? <ThemedText>{t('estimatedBalance')}: {money(Math.max(0, reviewedTotal.data.amount - paidAmount), reviewedTotal.data.currency, locale)}</ThemedText> : null}
+            {paidAmount?.success ? <>
+              <ThemedText>{t('initialPaid')}: {money(paidAmount.data.amount, paidAmount.data.currency, locale)}</ThemedText>
+              {balance?.success ? <ThemedText>{t('estimatedBalance')}: {money(Math.max(0, balance.data.amount), balance.data.currency, locale)}</ThemedText> : null}
             </> : null}
             {productTotal.success ? <ThemedText>{t("orderDeliveryProductsAmount", { amount: money(productTotal.data.shownTotal.amount, productTotal.data.shownTotal.currency, locale) })}</ThemedText> : null}
             {reviewedPrice && reviewedTotal?.success ? <><ThemedText>{t("orderDeliveryAmount", { amount: money(reviewedPrice.amount, reviewedPrice.currency, locale) })}</ThemedText>

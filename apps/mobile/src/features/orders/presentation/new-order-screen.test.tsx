@@ -241,6 +241,10 @@ test("decimal comma in an initial payment updates the summary and allows saving"
   fireEvent.press(screen.getByRole("button", { name: "Agregar pago" }));
   fireEvent.changeText(screen.getByLabelText(/Importe recibido/), "5,50");
   expect(screen.getByText(/Pagos ingresados:.*5[.,]50/)).toBeTruthy();
+  fireEvent.changeText(screen.getByLabelText(/Importe recibido/), "1e309");
+  expect(screen.queryByText(/Pagos ingresados:/)).toBeNull();
+  expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
+  fireEvent.changeText(screen.getByLabelText(/Importe recibido/), "5,50");
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledWith(expect.objectContaining({
