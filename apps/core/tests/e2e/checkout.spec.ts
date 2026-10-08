@@ -6,6 +6,7 @@ import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests
 import { products } from "@core/src/features/products/composition";
 import { deliverySettings } from "@core/src/features/delivery-settings";
 import { orders } from "@core/src/features/orders/composition";
+import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import type { CompanyId, ContactId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
@@ -725,4 +726,69 @@ test("buyer cannot use disabled pickup or confirm pickup disabled after opening 
     await page.reload();
     await browserExpect(mode.locator('option[value="store"]')).toHaveCount(0);
   } finally { await f.cleanup(); }
+});
+
+test("buyer keeps a historical rate after its zone changes or replaces it with a current option", async ({ page }) => {
+  for (const replace of [false, true]) {
+    const f = await fixture("none", true, false);
+    try {
+      const original = await withTenantIsolation(f.companyId, async () => {
+        const access = { companyId: f.companyId, userId: f.userId };
+        const saved = await deliverySettings.saveZones({ method: "home", expectedVersion: 0,
+          zones: [{ kind: "new", name: "Original", enabled: true, districtCodes: ["150122"], price: { amount: 8, currency: "PEN" } }] }, access);
+        if (!saved.success) throw new Error(saved.error.message);
+        expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [],
+          store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
+        const quote = await deliverySettings.createQuotation({ companyId: f.companyId, country: "PE", districtCode: "150122", address: null, instructions: null });
+        if (!quote.success) throw new Error(quote.error.message);
+        const selection = parseRatedDeliverySelection({ method: "home", rateId: quote.data.rates[0].id,
+          recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } },
+          destination: { districtCode: "150122", address: "Historical street", instructions: null } });
+        if (!selection.success) throw new Error(selection.error.message);
+        expect((await orders.setDelivery({ orderId: f.orderId, delivery: selection.data, expectedPrice: { amount: 8, currency: "PEN" } }, access)).success).toBe(true);
+        expect((await deliverySettings.saveZones({ method: "home", expectedVersion: 2, zones: [
+          { kind: "existing", id: saved.data.zones[0].id, name: "Original", enabled: false, districtCodes: ["150122"], price: { amount: 10, currency: "PEN" } },
+          { kind: "new", name: "Current", enabled: true, districtCodes: ["150122"], price: { amount: 12, currency: "PEN" } },
+        ] }, access)).success).toBe(true);
+        return quote.data.rates[0].id;
+      });
+      const before = await f.read();
+      let quotations = 0;
+      const countQuotation = (request: { url: () => string }) => { if (request.url().endsWith("/api/quotations")) quotations++; };
+      page.on("request", countQuotation);
+      try {
+        await page.goto(f.path);
+        await browserExpect(page.getByLabel("Forma de entrega")).toHaveValue("keep");
+        await browserExpect(page.getByText("Historical street, MIRAFLORES", { exact: true })).toBeVisible();
+        await browserExpect(page.getByText("Total a pagar", { exact: true }).locator("..")).toContainText(/18[.,]00/);
+        expect(quotations).toBe(0);
+        await page.getByLabel("Nombre", { exact: true }).fill("Ana");
+        await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
+        if (replace) {
+          await page.getByLabel("Forma de entrega").selectOption("ship");
+          const rates = page.getByLabel("Tarifa de envío");
+          await browserExpect(rates.locator("option")).toHaveCount(2);
+          await browserExpect(rates).toContainText(/12[.,]00/);
+          await rates.selectOption({ index: 1 });
+          expect(await rates.inputValue()).not.toBe(original);
+          await browserExpect(page.getByLabel("Dirección de entrega")).toHaveValue("Historical street");
+          await page.getByLabel("Dirección de entrega").fill("Replacement street");
+        }
+        await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
+        await browserExpect(page.getByRole("heading", { name: "Pago del pedido", exact: true })).toBeVisible();
+        const total = replace ? 22 : 18;
+        await browserExpect(page.getByText("Total del pedido", { exact: true }).locator("..")).toContainText(new RegExp(`${total}[.,]00`));
+        const stored = await f.read();
+        expect(stored.total.toNumber()).toBe(total);
+        expect(stored.deliveryCharge.toNumber()).toBe(replace ? 12 : 8);
+        if (replace) {
+          expect(stored.delivery).toMatchObject({ destination: { address: "Replacement street" } });
+          expect(stored.delivery).not.toEqual(before.delivery);
+        }
+        else expect(stored.delivery).toEqual(before.delivery);
+        expect(quotations).toBe(replace ? 1 : 0);
+        expect(stored.payments).toEqual([]);
+      } finally { page.off("request", countQuotation); }
+    } finally { await f.cleanup(); }
+  }
 });
