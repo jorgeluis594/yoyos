@@ -945,4 +945,34 @@ final class StateStoreTests: XCTestCase {
       XCTAssertNoThrow(try makeStore(root).open())
     }
   }
+
+  func testProtocolCallbackUsesRegisteredGenerationAndDurableRevision() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let writer = try makeStore(root)
+    _ = try writer.open()
+    try writer.beginSession(accountId: "123@lid", protocolBytes: Data("{\"protocolSchemaVersion\":1,\"records\":[]}".utf8))
+    try writer.registerGeneration("generation", accountId: "123@lid")
+    func response(_ raw: String) throws -> [String: Any] {
+      try XCTUnwrap(JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
+    }
+    let value = Data("{\"version\":1,\"nextId\":1,\"uploadedThrough\":0}".utf8).base64EncodedString()
+    func request(_ generation: String, _ expected: String) throws -> String {
+      let body: [String: Any] = ["contractVersion": 1, "generationId": generation, "accountId": "123@lid",
+        "expectedSessionRevision": expected, "protocolChanges": [["operation": "put", "recordType": "prekey-state",
+          "recordKey": "W10", "valueBase64": value]], "pendingInserts": [Any](), "pendingIdentityUpdates": [Any]()]
+      return try XCTUnwrap(String(data: JSONSerialization.data(withJSONObject: body), encoding: .utf8))
+    }
+    XCTAssertEqual(try response(writer.applyProtocolChanges(request("other", "1")))["success"] as? Bool, false)
+    XCTAssertEqual(try response(writer.applyProtocolChanges(request("generation", "0")))["success"] as? Bool, false)
+    XCTAssertEqual(try response(writer.applyProtocolChanges(request("generation", "1")))["success"] as? Bool, true)
+    let disk = try makeStore(root)
+    let read = try response(disk.readProtocolState("{\"contractVersion\":1}"))
+    let data = try XCTUnwrap(read["data"] as? [String: Any])
+    let session = try XCTUnwrap(data["session"] as? [String: Any])
+    XCTAssertEqual((session["records"] as? [[String: Any]])?.count, 1)
+    XCTAssertEqual(data["sessionRevision"] as? String, "2")
+    writer.retireGeneration()
+    XCTAssertEqual(try response(writer.applyProtocolChanges(request("generation", "2")))["success"] as? Bool, false)
+  }
 }

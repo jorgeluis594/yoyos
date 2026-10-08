@@ -5,11 +5,56 @@ import (
 	"encoding/json"
 
 	"yoyos-whatsapp/internal"
+	"yoyos-whatsapp/internal/protocolstore"
 )
 
 // Storage is implemented by the native platform and called synchronously by Go.
 type Storage interface {
 	Commit(value string) (string, error)
+}
+
+// ProtocolStorage is implemented by the native transactional writer. Its methods
+// return a versioned JSON response even for a known storage rejection.
+type ProtocolStorage interface {
+	ReadState(request string) (string, error)
+	ApplyChanges(request string) (string, error)
+	BeginFreshSession(request string) (string, error)
+}
+
+type ProtocolSession struct{ store *protocolstore.Store }
+
+type ProtocolOpenResult struct {
+	Session *ProtocolSession
+	Code    string
+}
+
+// OpenProtocolStore connects the generated native callback to the real Go stores.
+// The native controller registers the generation before calling this function.
+func OpenProtocolStore(storage ProtocolStorage, generationID, accountID string, readRecoveryBytes, newRecoveryBytes int64) *ProtocolOpenResult {
+	if storage == nil {
+		return &ProtocolOpenResult{Code: string(protocolstore.InvalidRequest)}
+	}
+	s, err := protocolstore.Open(storage, generationID, accountID, readRecoveryBytes, newRecoveryBytes)
+	if err != nil {
+		if typed, ok := err.(*protocolstore.Error); ok {
+			return &ProtocolOpenResult{Code: string(typed.Code)}
+		}
+		return &ProtocolOpenResult{Code: string(protocolstore.StorageFailed)}
+	}
+	return &ProtocolOpenResult{Session: &ProtocolSession{store: s}}
+}
+
+func (s *ProtocolSession) StopReason() string {
+	if s == nil || s.store == nil {
+		return string(protocolstore.InvalidRequest)
+	}
+	if err := s.store.StopReason(); err != nil {
+		if typed, ok := err.(*protocolstore.Error); ok {
+			return string(typed.Code)
+		}
+		return string(protocolstore.StorageFailed)
+	}
+	return ""
 }
 
 // ProbeResult keeps callback errors explicit across bindings that advertise nonnull returns.

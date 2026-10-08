@@ -1,6 +1,40 @@
+diff --git a/armadillomessage.go b/armadillomessage.go
+index aea3518..0d99a98 100644
+--- a/armadillomessage.go
++++ b/armadillomessage.go
+@@ -22,7 +22,7 @@ import (
+ 	"go.mau.fi/whatsmeow/types/events"
+ )
+ 
+-func (cli *Client) handleDecryptedArmadillo(ctx context.Context, info *types.MessageInfo, decrypted []byte, retryCount int) (handlerFailed, protobufFailed bool) {
++func (cli *Client) handleDecryptedArmadillo(ctx context.Context, info *types.MessageInfo, decrypted []byte, retryCount int) (handlerFailed, protobufFailed bool, storageErr error) {
+ 	dec, err := decodeArmadillo(decrypted)
+ 	if err != nil {
+ 		cli.Log.Warnf("Failed to decode armadillo message from %s: %v", info.SourceString(), err)
+@@ -36,7 +36,9 @@ func (cli *Client) handleDecryptedArmadillo(ctx context.Context, info *types.Mes
+ 			cli.Log.Warnf("Got sender key distribution message in non-group chat from %s", info.Sender)
+ 		} else {
+ 			skdm := dec.Transport.GetProtocol().GetAncillary().GetSkdm()
+-			cli.handleSenderKeyDistributionMessage(ctx, info.Chat, info.Sender, skdm.AxolotlSenderKeyDistributionMessage)
++			if storageErr = cli.handleSenderKeyDistributionMessage(ctx, info.Chat, info.Sender, skdm.AxolotlSenderKeyDistributionMessage); storageErr != nil {
++				return true, false, storageErr
++			}
+ 		}
+ 	}
+ 	if dec.Message != nil || dec.FBApplication != nil {
+diff --git a/client.go b/client.go
+index 54fc0a4..9f97d14 100644
 --- a/client.go
 +++ b/client.go
-@@ -85,7 +85,15 @@
+@@ -67,6 +67,7 @@ type Client struct {
+ 	sendLog waLog.Logger
+ 
+ 	socket           *socket.NoiseSocket
++	transportAttempt func([]byte) error // controlled send boundary for package transport tests
+ 	socketLock       sync.RWMutex
+ 	socketWait       chan struct{}
+ 	handlerQueueWait chan struct{}
+@@ -85,7 +86,15 @@ type Client struct {
  	// If SynchronousAck is set, acks for messages will only be sent after all event handlers return.
  	SynchronousAck             bool
  	EnableDecryptedEventBuffer bool
@@ -17,7 +51,26 @@
  
  	DisableLoginAutoReconnect bool
  
-@@ -983,6 +991,11 @@
+@@ -959,7 +968,7 @@ func (cli *Client) sendNodeAndGetData(ctx context.Context, node waBinary.Node) (
+ 	cli.socketLock.RLock()
+ 	sock := cli.socket
+ 	cli.socketLock.RUnlock()
+-	if sock == nil {
++	if sock == nil && cli.transportAttempt == nil {
+ 		return nil, ErrNotConnected
+ 	}
+ 
+@@ -969,6 +978,9 @@ func (cli *Client) sendNodeAndGetData(ctx context.Context, node waBinary.Node) (
+ 	}
+ 
+ 	cli.sendLog.Debugf("%s", &node)
++	if cli.transportAttempt != nil {
++		return payload, cli.transportAttempt(payload)
++	}
+ 	return payload, sock.SendFrame(ctx, payload)
+ }
+ 
+@@ -983,6 +995,11 @@ func (cli *Client) dispatchEvent(evt any) (handlerFailed bool) {
  		cli.eventHandlersLock.RUnlock()
  		err := recover()
  		if err != nil {
@@ -29,9 +82,108 @@
  			cli.Log.Errorf("Event handler panicked while handling a %T: %v\n%s", evt, err, debug.Stack())
  		}
  	}()
+@@ -1063,7 +1080,7 @@ func (cli *Client) ParseWebMessage(chatJID types.JID, webMsg *waWeb.WebMessageIn
+ 	return evt, nil
+ }
+ 
+-func (cli *Client) StoreLIDPNMapping(ctx context.Context, first, second types.JID) {
++func (cli *Client) StoreLIDPNMapping(ctx context.Context, first, second types.JID) error {
+ 	var lid, pn types.JID
+ 	if first.Server == types.HiddenUserServer && second.Server == types.DefaultUserServer {
+ 		lid = first
+@@ -1072,12 +1089,13 @@ func (cli *Client) StoreLIDPNMapping(ctx context.Context, first, second types.JI
+ 		lid = second
+ 		pn = first
+ 	} else {
+-		return
++		return nil
+ 	}
+ 	err := cli.Store.LIDs.PutLIDMapping(ctx, lid, pn)
+ 	if err != nil {
+ 		cli.Log.Errorf("Failed to store LID-PN mapping for %s -> %s: %v", lid, pn, err)
+ 	}
++	return err
+ }
+ 
+ const unifiedOffset = 3 * 24 * time.Hour
+diff --git a/internals.go b/internals.go
+index d9ce814..cd15758 100644
+--- a/internals.go
++++ b/internals.go
+@@ -87,7 +87,7 @@ func (int *DangerousInternalClient) SendAppState(ctx context.Context, patch apps
+ 	return int.c.sendAppState(ctx, patch, allowRetry)
+ }
+ 
+-func (int *DangerousInternalClient) HandleDecryptedArmadillo(ctx context.Context, info *types.MessageInfo, decrypted []byte, retryCount int) (handlerFailed, protobufFailed bool) {
++func (int *DangerousInternalClient) HandleDecryptedArmadillo(ctx context.Context, info *types.MessageInfo, decrypted []byte, retryCount int) (handlerFailed, protobufFailed bool, err error) {
+ 	return int.c.handleDecryptedArmadillo(ctx, info, decrypted, retryCount)
+ }
+ 
+@@ -343,12 +343,12 @@ func (int *DangerousInternalClient) HandlePlaintextMessage(ctx context.Context,
+ 	return int.c.handlePlaintextMessage(ctx, info, node)
+ }
+ 
+-func (int *DangerousInternalClient) MigrateSessionStore(ctx context.Context, pn, lid types.JID) {
+-	int.c.migrateSessionStore(ctx, pn, lid)
++func (int *DangerousInternalClient) MigrateSessionStore(ctx context.Context, pn, lid types.JID) error {
++	return int.c.migrateSessionStore(ctx, pn, lid)
+ }
+ 
+-func (int *DangerousInternalClient) DecryptMessages(ctx context.Context, info *types.MessageInfo, node *waBinary.Node) {
+-	int.c.decryptMessages(ctx, info, node)
++func (int *DangerousInternalClient) DecryptMessages(ctx context.Context, info *types.MessageInfo, node *waBinary.Node) error {
++	return int.c.decryptMessages(ctx, info, node)
+ }
+ 
+ func (int *DangerousInternalClient) ClearUntrustedIdentity(ctx context.Context, target types.JID) error {
+@@ -387,12 +387,12 @@ func (int *DangerousInternalClient) HandleProtocolMessage(ctx context.Context, i
+ 	return int.c.handleProtocolMessage(ctx, info, msg)
+ }
+ 
+-func (int *DangerousInternalClient) ProcessProtocolParts(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message) (ok bool) {
++func (int *DangerousInternalClient) ProcessProtocolParts(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message) (ok bool, err error) {
+ 	return int.c.processProtocolParts(ctx, info, msg)
+ }
+ 
+-func (int *DangerousInternalClient) StoreMessageSecret(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message) {
+-	int.c.storeMessageSecret(ctx, info, msg)
++func (int *DangerousInternalClient) StoreMessageSecret(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message) error {
++	return int.c.storeMessageSecret(ctx, info, msg)
+ }
+ 
+ func (int *DangerousInternalClient) StoreHistoricalMessageSecrets(ctx context.Context, conversations []*waHistorySync.Conversation) {
+@@ -415,7 +415,7 @@ func (int *DangerousInternalClient) StoreHistoricalPNLIDMappings(ctx context.Con
+ 	int.c.storeHistoricalPNLIDMappings(ctx, mappings)
+ }
+ 
+-func (int *DangerousInternalClient) HandleDecryptedMessage(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message, retryCount int) (handlerFailed bool) {
++func (int *DangerousInternalClient) HandleDecryptedMessage(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message, retryCount int) (handlerFailed bool, err error) {
+ 	return int.c.handleDecryptedMessage(ctx, info, msg, retryCount)
+ }
+ 
+diff --git a/message.go b/message.go
+index 98e97f6..40f2c4f 100644
 --- a/message.go
 +++ b/message.go
-@@ -292,7 +292,9 @@
+@@ -48,17 +48,6 @@ func (cli *Client) handleEncryptedMessage(ctx context.Context, node *waBinary.No
+ 		cli.sendAck(ctx, node, NackParsingError)
+ 		return
+ 	}
+-	if !info.SenderAlt.IsEmpty() {
+-		cli.StoreLIDPNMapping(ctx, info.SenderAlt, info.Sender)
+-	} else if !info.RecipientAlt.IsEmpty() {
+-		cli.StoreLIDPNMapping(ctx, info.RecipientAlt, info.Chat)
+-	}
+-	if info.VerifiedName != nil && len(info.VerifiedName.Details.GetVerifiedName()) > 0 {
+-		go cli.updateBusinessName(ctx, info.Sender, info.SenderAlt, info, info.VerifiedName.Details.GetVerifiedName())
+-	}
+-	if len(info.PushName) > 0 && info.PushName != "-" && (cli.MessengerConfig == nil || info.PushName != "username") {
+-		go cli.updatePushName(ctx, info.Sender, info.SenderAlt, info, info.PushName)
+-	}
+ 	if info.Sender.Server == types.NewsletterServer {
+ 		var cancelled bool
+ 		defer cli.maybeDeferredAck(ctx, node)(&cancelled)
+@@ -292,7 +281,9 @@ func (cli *Client) handlePlaintextMessage(ctx context.Context, info *types.Messa
  		cli.Log.Warnf("Error unmarshaling plaintext message from %s: %v", info.SourceString(), err)
  		return
  	}
@@ -42,7 +194,7 @@
  	evt := &events.Message{
  		Info:       *info,
  		RawMessage: &msg,
-@@ -307,20 +309,40 @@
+@@ -307,20 +298,59 @@ func (cli *Client) handlePlaintextMessage(ctx context.Context, info *types.Messa
  	return cli.dispatchEvent(evt.UnwrapRaw())
  }
  
@@ -51,15 +203,12 @@
  	err := cli.Store.Sessions.MigratePNToLID(ctx, pn, lid)
  	if err != nil {
 -		cli.Log.Errorf("Failed to migrate signal store from %s to %s: %v", pn, lid, err)
--	}
--}
--
--func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo, node *waBinary.Node) {
 +		return fmt.Errorf("session migration: %w: %w", store.ErrLocalStorage, err)
-+	}
+ 	}
 +	return nil
-+}
-+
+ }
+ 
+-func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo, node *waBinary.Node) {
 +func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo, node *waBinary.Node) (receiveErr error) {
  	defer func() {
  		if err := recover(); err != nil {
@@ -88,10 +237,29 @@
 +		}
 +		ctx = prepared
 +	}
++	if !info.SenderAlt.IsEmpty() {
++		if err := cli.StoreLIDPNMapping(ctx, info.SenderAlt, info.Sender); err != nil {
++			return errors.Join(store.ErrLocalStorage, err)
++		}
++	} else if !info.RecipientAlt.IsEmpty() {
++		if err := cli.StoreLIDPNMapping(ctx, info.RecipientAlt, info.Chat); err != nil {
++			return errors.Join(store.ErrLocalStorage, err)
++		}
++	}
++	if info.VerifiedName != nil && len(info.VerifiedName.Details.GetVerifiedName()) > 0 {
++		if err := cli.updateBusinessName(ctx, info.Sender, info.SenderAlt, info, info.VerifiedName.Details.GetVerifiedName()); err != nil {
++			return errors.Join(store.ErrLocalStorage, err)
++		}
++	}
++	if len(info.PushName) > 0 && info.PushName != "-" && (cli.MessengerConfig == nil || info.PushName != "username") {
++		if err := cli.updatePushName(ctx, info.Sender, info.SenderAlt, info, info.PushName); err != nil {
++			return errors.Join(store.ErrLocalStorage, err)
++		}
++	}
  	unavailableNode, ok := node.GetOptionalChildByTag("unavailable")
  	if ok && len(node.GetChildrenByTag("enc")) == 0 {
  		uType := events.UnavailableType(unavailableNode.AttrGetter().String("type"))
-@@ -340,11 +362,15 @@
+@@ -340,11 +370,15 @@ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo,
  	if info.Sender.Server == types.DefaultUserServer && !info.Sender.IsBot() {
  		if info.SenderAlt.Server == types.HiddenUserServer {
  			senderEncryptionJID = info.SenderAlt
@@ -110,7 +278,20 @@
  			senderEncryptionJID = lid
  			info.SenderAlt = lid
  		} else {
-@@ -405,6 +431,10 @@
+@@ -352,10 +386,11 @@ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo,
+ 		}
+ 	}
+ 	var recognizedStanza, protobufFailed bool
+-	for _, child := range children {
++	for childIndex, child := range children {
+ 		if child.Tag != "enc" {
+ 			continue
+ 		}
++		ctx := store.WithBufferedEventChild(ctx, childIndex)
+ 		recognizedStanza = true
+ 		ag := child.AttrGetter()
+ 		encType, ok := ag.GetString("type", false)
+@@ -405,6 +440,10 @@ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo,
  			continue
  		}
  
@@ -121,16 +302,17 @@
  		if errors.Is(err, ErrEventAlreadyProcessed) {
  			cli.Log.Debugf("Ignoring message %s from %s: %v", info.ID, info.SourceString(), err)
  			continue
-@@ -450,7 +480,7 @@
+@@ -450,15 +489,18 @@ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo,
  				continue
  			}
  			protobufFailed = false
 -			handlerFailed = cli.handleDecryptedMessage(ctx, info, &msg, retryCount)
 +			handlerFailed, err = cli.handleDecryptedMessage(ctx, info, &msg, retryCount)
  		case 3:
- 			handlerFailed, protobufFailed = cli.handleDecryptedArmadillo(ctx, info, decrypted, retryCount)
+-			handlerFailed, protobufFailed = cli.handleDecryptedArmadillo(ctx, info, decrypted, retryCount)
++			handlerFailed, protobufFailed, err = cli.handleDecryptedArmadillo(ctx, info, decrypted, retryCount)
  		default:
-@@ -458,7 +488,10 @@
+ 			cli.Log.Warnf("Unknown version %d in decrypted message from %s", ag.Int("v"), info.SourceString())
  		}
  		if handlerFailed {
  			cli.Log.Warnf("Handler for %s failed", info.ID)
@@ -142,7 +324,7 @@
  		}
  		if ciphertextHash != nil && cli.EnableDecryptedEventBuffer {
  			// Use the context passed to decryptMessages
-@@ -468,6 +501,7 @@
+@@ -468,6 +510,7 @@ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo,
  					Hex("ciphertext_hash", ciphertextHash[:]).
  					Str("message_id", info.ID).
  					Msg("Failed to clear buffered event plaintext")
@@ -150,7 +332,7 @@
  			} else {
  				zerolog.Ctx(ctx).Debug().
  					Hex("ciphertext_hash", ciphertextHash[:]).
-@@ -495,6 +529,7 @@
+@@ -495,6 +538,7 @@ func (cli *Client) decryptMessages(ctx context.Context, info *types.MessageInfo,
  			cli.sendMessageReceipt(ctx, info, node)
  		}
  	})
@@ -158,7 +340,7 @@
  }
  
  func (cli *Client) clearUntrustedIdentity(ctx context.Context, target types.JID) error {
-@@ -511,6 +546,8 @@
+@@ -511,6 +555,8 @@ func (cli *Client) clearUntrustedIdentity(ctx context.Context, target types.JID)
  }
  
  var ErrEventAlreadyProcessed = errors.New("event was already processed")
@@ -167,7 +349,91 @@
  
  // Deprecated: use ErrEventAlreadyProcessed
  var EventAlreadyProcessed = ErrEventAlreadyProcessed
-@@ -935,9 +972,11 @@
+@@ -612,7 +658,10 @@ func (cli *Client) decryptDM(ctx context.Context, child *waBinary.Node, from typ
+ 				}
+ 				pt, innerErr = cipher.DecryptMessage(decryptCtx, preKeyMsg)
+ 			}
+-			return pt, innerErr
++			if innerErr != nil {
++				return nil, innerErr
++			}
++			return unpadMessage(pt, child.AttrGetter().Int("v"))
+ 		}, "prekey", from.String())
+ 		if err != nil {
+ 			return nil, nil, fmt.Errorf("failed to decrypt prekey message: %w", err)
+@@ -623,17 +672,16 @@ func (cli *Client) decryptDM(ctx context.Context, child *waBinary.Node, from typ
+ 			return nil, nil, fmt.Errorf("failed to parse normal message: %w", err)
+ 		}
+ 		plaintext, ciphertextHash, err = cli.bufferedDecrypt(ctx, content, serverTS, func(decryptCtx context.Context) ([]byte, error) {
+-			return cipher.Decrypt(decryptCtx, msg)
++			pt, innerErr := cipher.Decrypt(decryptCtx, msg)
++			if innerErr != nil {
++				return nil, innerErr
++			}
++			return unpadMessage(pt, child.AttrGetter().Int("v"))
+ 		}, "normal", from.String())
+ 		if err != nil {
+ 			return nil, nil, fmt.Errorf("failed to decrypt normal message: %w", err)
+ 		}
+ 	}
+-	var err error
+-	plaintext, err = unpadMessage(plaintext, child.AttrGetter().Int("v"))
+-	if err != nil {
+-		return nil, nil, fmt.Errorf("failed to unpad message: %w", err)
+-	}
+ 	return plaintext, &ciphertextHash, nil
+ }
+ 
+@@ -651,15 +699,15 @@ func (cli *Client) decryptGroupMsg(ctx context.Context, child *waBinary.Node, fr
+ 		return nil, nil, fmt.Errorf("failed to parse group message: %w", err)
+ 	}
+ 	plaintext, ciphertextHash, err := cli.bufferedDecrypt(ctx, content, serverTS, func(decryptCtx context.Context) ([]byte, error) {
+-		return cipher.Decrypt(decryptCtx, msg)
++		pt, innerErr := cipher.Decrypt(decryptCtx, msg)
++		if innerErr != nil {
++			return nil, innerErr
++		}
++		return unpadMessage(pt, child.AttrGetter().Int("v"))
+ 	}, "senderkey", chat.String(), from.String())
+ 	if err != nil {
+ 		return nil, nil, fmt.Errorf("failed to decrypt group message: %w", err)
+ 	}
+-	plaintext, err = unpadMessage(plaintext, child.AttrGetter().Int("v"))
+-	if err != nil {
+-		return nil, nil, err
+-	}
+ 	return plaintext, &ciphertextHash, nil
+ }
+ 
+@@ -693,20 +741,24 @@ func padMessage(plaintext []byte) []byte {
+ 	return plaintext
+ }
+ 
+-func (cli *Client) handleSenderKeyDistributionMessage(ctx context.Context, chat, from types.JID, axolotlSKDM []byte) {
++func (cli *Client) handleSenderKeyDistributionMessage(ctx context.Context, chat, from types.JID, axolotlSKDM []byte) error {
+ 	builder := groups.NewGroupSessionBuilder(cli.Store, pbSerializer)
+ 	senderKeyName := protocol.NewSenderKeyName(chat.String(), from.SignalAddress())
+ 	sdkMsg, err := protocol.NewSenderKeyDistributionMessageFromBytes(axolotlSKDM, pbSerializer.SenderKeyDistributionMessage)
+ 	if err != nil {
+ 		cli.Log.Errorf("Failed to parse sender key distribution message from %s for %s: %v", from, chat, err)
+-		return
++		return nil
+ 	}
+ 	err = builder.Process(ctx, senderKeyName, sdkMsg)
+ 	if err != nil {
+ 		cli.Log.Errorf("Failed to process sender key distribution message from %s for %s: %v", from, chat, err)
+-		return
++		if errors.Is(err, store.ErrLocalStorage) {
++			return err
++		}
++		return nil
+ 	}
+ 	cli.Log.Debugf("Processed sender key distribution message from %s in %s", senderKeyName.Sender().String(), senderKeyName.GroupID())
++	return nil
+ }
+ 
+ func (cli *Client) handleHistorySyncNotificationLoop() {
+@@ -935,9 +987,11 @@ func (cli *Client) handleProtocolMessage(ctx context.Context, info *types.Messag
  	return
  }
  
@@ -181,7 +447,18 @@
  	// Hopefully sender key distribution messages and protocol messages can't be inside ephemeral messages
  	if msg.GetDeviceSentMessage().GetMessage() != nil {
  		msg = msg.GetDeviceSentMessage().GetMessage()
-@@ -961,7 +1000,7 @@
+@@ -950,7 +1004,9 @@ func (cli *Client) processProtocolParts(ctx context.Context, info *types.Message
+ 			if encryptionIdentity.Server == types.DefaultUserServer && info.SenderAlt.Server == types.HiddenUserServer {
+ 				encryptionIdentity = info.SenderAlt
+ 			}
+-			cli.handleSenderKeyDistributionMessage(ctx, info.Chat, encryptionIdentity, msg.SenderKeyDistributionMessage.AxolotlSenderKeyDistributionMessage)
++			if err := cli.handleSenderKeyDistributionMessage(ctx, info.Chat, encryptionIdentity, msg.SenderKeyDistributionMessage.AxolotlSenderKeyDistributionMessage); err != nil {
++				return false, err
++			}
+ 		}
+ 	}
+ 	// N.B. Edits are protocol messages, but they're also wrapped inside EditedMessage,
+@@ -961,7 +1017,7 @@ func (cli *Client) processProtocolParts(ctx context.Context, info *types.Message
  	return
  }
  
@@ -190,7 +467,7 @@
  	if msgSecret := msg.GetMessageContextInfo().GetMessageSecret(); len(msgSecret) > 0 {
  		targetChat := info.Chat
  		dsm := msg
-@@ -972,17 +1011,17 @@
+@@ -972,17 +1028,17 @@ func (cli *Client) storeMessageSecret(ctx context.Context, info *types.MessageIn
  			var err error
  			targetChat, err = types.ParseJID(targetChatJID)
  			if err != nil {
@@ -211,7 +488,7 @@
  }
  
  func (cli *Client) storeHistoricalMessageSecrets(ctx context.Context, conversations []*waHistorySync.Conversation) {
-@@ -1169,13 +1208,16 @@
+@@ -1169,13 +1225,44 @@ func (cli *Client) storeHistoricalPNLIDMappings(ctx context.Context, mappings []
  	}
  }
  
@@ -229,38 +506,42 @@
  	evt := &events.Message{Info: *info, RawMessage: msg, RetryCount: retryCount}
 -	return cli.dispatchEvent(evt.UnwrapRaw())
 +	return cli.dispatchEvent(evt.UnwrapRaw()), nil
++}
++
++// ReplayRecoveredProtocol completes post-decryption writes without decrypting a
++// second time or dispatching the already durable application message.
++func (cli *Client) ReplayRecoveredProtocol(ctx context.Context, info *types.MessageInfo, format string, plaintext []byte) error {
++	if info == nil || len(plaintext) == 0 {
++		return errors.New("missing recovered message")
++	}
++	switch format {
++	case "v2":
++		var msg waE2E.Message
++		if err := proto.Unmarshal(plaintext, &msg); err != nil {
++			return err
++		}
++		_, err := cli.processProtocolParts(ctx, info, &msg)
++		return err
++	case "v3":
++		decoded, err := decodeArmadillo(plaintext)
++		if err != nil {
++			return err
++		}
++		if info.IsGroup && decoded.Transport.GetProtocol().GetAncillary().GetSkdm() != nil {
++			return cli.handleSenderKeyDistributionMessage(ctx, info.Chat, info.Sender, decoded.Transport.GetProtocol().GetAncillary().GetSkdm().AxolotlSenderKeyDistributionMessage)
++		}
++		return nil
++	default:
++		return errors.New("unknown recovered message format")
++	}
  }
  
  // SendProtocolMessageReceipt sends a receipt for a protocol message back to the phone.
---- a/store/store.go
-+++ b/store/store.go
-@@ -19,6 +19,10 @@
- 	"go.mau.fi/whatsmeow/util/keys"
- 	waLog "go.mau.fi/whatsmeow/util/log"
- )
-+
-+// ErrLocalStorage marks local persistence or capacity failures, not Signal protocol errors.
-+// Custom stores must wrap it on failed reads, writes, transaction commits and rollbacks.
-+var ErrLocalStorage = errors.New("local storage failure")
- 
- type IdentityStore interface {
- 	PutIdentity(ctx context.Context, address string, key [32]byte) error
---- a/send.go
-+++ b/send.go
-@@ -1317,7 +1317,9 @@
- 		if jid.Server == types.DefaultUserServer {
- 			// TODO query LID from server for missing entries
- 			if lidForPN, ok := lidMappings[jid]; ok && !lidForPN.IsEmpty() {
--				cli.migrateSessionStore(ctx, jid, lidForPN)
-+				if err := cli.migrateSessionStore(ctx, jid, lidForPN); err != nil {
-+					return nil, false, err
-+				}
- 				encryptionIdentity = lidForPN
- 			}
- 		}
+diff --git a/retry.go b/retry.go
+index 9e9267b..c495274 100644
 --- a/retry.go
 +++ b/retry.go
-@@ -346,7 +346,9 @@
+@@ -346,7 +346,9 @@ func (cli *Client) handleRetryReceipt(ctx context.Context, receipt *events.Recei
  			if err != nil {
  				cli.Log.Warnf("Failed to get LID for %s: %v", receipt.Sender, err)
  			} else if !lidForPN.IsEmpty() {
@@ -271,49 +552,538 @@
  				encryptionIdentity = lidForPN
  			}
  		}
---- a/internals.go
-+++ b/internals.go
-@@ -343,12 +343,12 @@
- 	return int.c.handlePlaintextMessage(ctx, info, node)
+diff --git a/send.go b/send.go
+index 9b53895..92be8cb 100644
+--- a/send.go
++++ b/send.go
+@@ -1317,7 +1317,9 @@ func (cli *Client) encryptMessageForDevices(
+ 		if jid.Server == types.DefaultUserServer {
+ 			// TODO query LID from server for missing entries
+ 			if lidForPN, ok := lidMappings[jid]; ok && !lidForPN.IsEmpty() {
+-				cli.migrateSessionStore(ctx, jid, lidForPN)
++				if err := cli.migrateSessionStore(ctx, jid, lidForPN); err != nil {
++					return nil, false, err
++				}
+ 				encryptionIdentity = lidForPN
+ 			}
+ 		}
+diff --git a/store/store.go b/store/store.go
+index d4ae51e..8b2f940 100644
+--- a/store/store.go
++++ b/store/store.go
+@@ -20,6 +20,10 @@ import (
+ 	waLog "go.mau.fi/whatsmeow/util/log"
+ )
+ 
++// ErrLocalStorage marks local persistence or capacity failures, not Signal protocol errors.
++// Custom stores must wrap it on failed reads, writes, transaction commits and rollbacks.
++var ErrLocalStorage = errors.New("local storage failure")
++
+ type IdentityStore interface {
+ 	PutIdentity(ctx context.Context, address string, key [32]byte) error
+ 	DeleteAllIdentities(ctx context.Context, phone string) error
+@@ -163,6 +167,18 @@ type BufferedEvent struct {
+ 	ServerTime time.Time
  }
  
--func (int *DangerousInternalClient) MigrateSessionStore(ctx context.Context, pn, lid types.JID) {
--	int.c.migrateSessionStore(ctx, pn, lid)
--}
--
--func (int *DangerousInternalClient) DecryptMessages(ctx context.Context, info *types.MessageInfo, node *waBinary.Node) {
--	int.c.decryptMessages(ctx, info, node)
-+func (int *DangerousInternalClient) MigrateSessionStore(ctx context.Context, pn, lid types.JID) error {
-+	return int.c.migrateSessionStore(ctx, pn, lid)
++type bufferedEventChildKey struct{}
++
++// WithBufferedEventChild identifies the copied child whose Signal transaction is active.
++func WithBufferedEventChild(ctx context.Context, index int) context.Context {
++	return context.WithValue(ctx, bufferedEventChildKey{}, index)
 +}
 +
-+func (int *DangerousInternalClient) DecryptMessages(ctx context.Context, info *types.MessageInfo, node *waBinary.Node) error {
-+	return int.c.decryptMessages(ctx, info, node)
++func BufferedEventChild(ctx context.Context) (int, bool) {
++	index, ok := ctx.Value(bufferedEventChildKey{}).(int)
++	return index, ok
++}
++
+ type EventBuffer interface {
+ 	GetBufferedEvent(ctx context.Context, ciphertextHash [32]byte) (*BufferedEvent, error)
+ 	PutBufferedEvent(ctx context.Context, ciphertextHash [32]byte, plaintext []byte, serverTimestamp time.Time) error
+diff --git a/user.go b/user.go
+index 7075357..caa17f5 100644
+--- a/user.go
++++ b/user.go
+@@ -676,23 +676,28 @@ func (cli *Client) handleHistoricalPushNames(ctx context.Context, names []*waHis
+ 	}
  }
  
- func (int *DangerousInternalClient) ClearUntrustedIdentity(ctx context.Context, target types.JID) error {
-@@ -387,12 +387,12 @@
- 	return int.c.handleProtocolMessage(ctx, info, msg)
+-func (cli *Client) updatePushName(ctx context.Context, user, userAlt types.JID, messageInfo *types.MessageInfo, name string) {
++func (cli *Client) updatePushName(ctx context.Context, user, userAlt types.JID, messageInfo *types.MessageInfo, name string) error {
+ 	if cli.Store.Contacts == nil {
+-		return
++		return nil
+ 	}
+ 	user = user.ToNonAD()
+ 	changed, previousName, err := cli.Store.Contacts.PutPushName(ctx, user, name)
+ 	if err != nil {
+ 		cli.Log.Errorf("Failed to save push name of %s in device store: %v", user, err)
++		return err
+ 	} else if changed {
+ 		userAlt = userAlt.ToNonAD()
+ 		if userAlt.IsEmpty() {
+-			userAlt, _ = cli.Store.GetAltJID(ctx, user)
++			userAlt, err = cli.Store.GetAltJID(ctx, user)
++			if err != nil {
++				return err
++			}
+ 		}
+ 		if !userAlt.IsEmpty() {
+ 			_, _, err = cli.Store.Contacts.PutPushName(ctx, userAlt, name)
+ 			if err != nil {
+ 				cli.Log.Errorf("Failed to save push name of %s in device store: %v", userAlt, err)
++				return err
+ 			}
+ 		}
+ 		cli.Log.Debugf("Push name of %s changed from %s to %s, dispatching event", user, previousName, name)
+@@ -704,24 +709,30 @@ func (cli *Client) updatePushName(ctx context.Context, user, userAlt types.JID,
+ 			NewPushName: name,
+ 		})
+ 	}
++	return nil
  }
  
--func (int *DangerousInternalClient) ProcessProtocolParts(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message) (ok bool) {
-+func (int *DangerousInternalClient) ProcessProtocolParts(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message) (ok bool, err error) {
- 	return int.c.processProtocolParts(ctx, info, msg)
+-func (cli *Client) updateBusinessName(ctx context.Context, user, userAlt types.JID, messageInfo *types.MessageInfo, name string) {
++func (cli *Client) updateBusinessName(ctx context.Context, user, userAlt types.JID, messageInfo *types.MessageInfo, name string) error {
+ 	if cli.Store.Contacts == nil {
+-		return
++		return nil
+ 	}
+ 	changed, previousName, err := cli.Store.Contacts.PutBusinessName(ctx, user, name)
+ 	if err != nil {
+ 		cli.Log.Errorf("Failed to save business name of %s in device store: %v", user, err)
++		return err
+ 	} else if changed {
+ 		userAlt = userAlt.ToNonAD()
+ 		if userAlt.IsEmpty() {
+-			userAlt, _ = cli.Store.GetAltJID(ctx, user)
++			userAlt, err = cli.Store.GetAltJID(ctx, user)
++			if err != nil {
++				return err
++			}
+ 		}
+ 		if !userAlt.IsEmpty() {
+ 			_, _, err = cli.Store.Contacts.PutBusinessName(ctx, userAlt, name)
+ 			if err != nil {
+ 				cli.Log.Errorf("Failed to save push name of %s in device store: %v", userAlt, err)
++				return err
+ 			}
+ 		}
+ 		cli.Log.Debugf("Business name of %s changed from %s to %s, dispatching event", user, previousName, name)
+@@ -732,6 +743,7 @@ func (cli *Client) updateBusinessName(ctx context.Context, user, userAlt types.J
+ 			NewBusinessName: name,
+ 		})
+ 	}
++	return nil
  }
  
--func (int *DangerousInternalClient) StoreMessageSecret(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message) {
--	int.c.storeMessageSecret(ctx, info, msg)
-+func (int *DangerousInternalClient) StoreMessageSecret(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message) error {
-+	return int.c.storeMessageSecret(ctx, info, msg)
- }
- 
- func (int *DangerousInternalClient) StoreHistoricalMessageSecrets(ctx context.Context, conversations []*waHistorySync.Conversation) {
-@@ -415,7 +415,7 @@
- 	int.c.storeHistoricalPNLIDMappings(ctx, mappings)
- }
- 
--func (int *DangerousInternalClient) HandleDecryptedMessage(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message, retryCount int) (handlerFailed bool) {
-+func (int *DangerousInternalClient) HandleDecryptedMessage(ctx context.Context, info *types.MessageInfo, msg *waE2E.Message, retryCount int) (handlerFailed bool, err error) {
- 	return int.c.handleDecryptedMessage(ctx, info, msg, retryCount)
- }
- 
+ func parseVerifiedName(businessNode waBinary.Node) (*types.VerifiedName, error) {
+diff --git a/wa03_receive_test.go b/wa03_receive_test.go
+new file mode 100644
+index 0000000..ac75e3a
+--- /dev/null
++++ b/wa03_receive_test.go
+@@ -0,0 +1,402 @@
++package whatsmeow
++
++import (
++	"context"
++	"errors"
++	"fmt"
++	"strings"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"go.mau.fi/libsignal/protocol"
++	"go.mau.fi/libsignal/signalerror"
++	waBinary "go.mau.fi/whatsmeow/binary"
++	"go.mau.fi/whatsmeow/proto/waE2E"
++	"go.mau.fi/whatsmeow/store"
++	"go.mau.fi/whatsmeow/types"
++	"go.mau.fi/whatsmeow/types/events"
++	waLog "go.mau.fi/whatsmeow/util/log"
++	"google.golang.org/protobuf/proto"
++)
++
++type recoveryContextKey struct{}
++
++type recoveryContext struct {
++	Account string
++	Info    types.MessageInfo
++	Version int
++}
++
++// These spies test context transport and error propagation, not native durability.
++type contextBuffer struct {
++	store.EventBuffer
++	lookup, transaction, write context.Context
++	writeErr                   error
++}
++
++func (s *contextBuffer) GetBufferedEvent(ctx context.Context, _ [32]byte) (*store.BufferedEvent, error) {
++	s.lookup = ctx
++	return nil, nil
++}
++
++func (s *contextBuffer) DoDecryptionTxn(ctx context.Context, fn func(context.Context) error) error {
++	s.transaction = ctx
++	return fn(ctx)
++}
++
++func (s *contextBuffer) PutBufferedEvent(ctx context.Context, _ [32]byte, _ []byte, _ time.Time) error {
++	s.write = ctx
++	return s.writeErr
++}
++
++type canceledSessions struct {
++	store.SessionStore
++	seen context.Context
++}
++
++func (s *canceledSessions) HasSession(ctx context.Context, _ string) (bool, error) {
++	s.seen = ctx
++	// Stop the real receive path inside the transaction, before requiring keys.
++	return false, context.Canceled
++}
++
++func recoveryProbeMessage() (types.MessageInfo, waBinary.Node) {
++	info := types.MessageInfo{
++		MessageSource: types.MessageSource{
++			Chat:     types.NewJID("chat", types.HiddenUserServer),
++			Sender:   types.NewJID("sender", types.HiddenUserServer),
++			IsFromMe: true,
++		},
++		ID: "message-id", Timestamp: time.Unix(123, 0),
++	}
++	// Syntactically valid envelope only: this does not authenticate or decrypt it.
++	ratchetKey := make([]byte, 33)
++	ratchetKey[0] = 5
++	ciphertext := pbSerializer.SignalMessage.Serialize(&protocol.SignalMessageStructure{
++		Version: 3, RatchetKey: ratchetKey, CipherText: []byte{1}, Mac: make([]byte, 8),
++	})
++	node := waBinary.Node{Tag: "message", Content: []waBinary.Node{
++		{Tag: "enc", Attrs: waBinary.Attrs{"type": "msg", "v": "2"}, Content: ciphertext},
++	}}
++	node.Attrs = waBinary.Attrs{"id": info.ID, "from": info.Sender}
++	return info, node
++}
++
++func TestRecoveryContextHook(t *testing.T) {
++	info, node := recoveryProbeMessage()
++	for _, outcome := range []string{"metadata", "error", "nil-context", "no-hook"} {
++		t.Run(outcome, func(t *testing.T) {
++			buffer := &contextBuffer{}
++			sessions := &canceledSessions{}
++			client := NewClient(&store.Device{EventBuffer: buffer, Sessions: sessions}, nil)
++			client.EnableDecryptedEventBuffer = true
++			calls := 0
++			finished := 0
++			var finishErr error
++			client.MessageReceiveFinished = func(_ context.Context, _ *types.MessageInfo, errorValue error) {
++				finished++
++				finishErr = errorValue
++			}
++			if outcome != "no-hook" {
++				client.PreDecryptMessage = func(ctx context.Context, got *types.MessageInfo, packet *waBinary.Node) (context.Context, error) {
++					calls++
++					if outcome == "error" {
++						return ctx, errors.New("buffer full")
++					}
++					if outcome == "nil-context" {
++						return nil, nil
++					}
++					version := packet.GetChildren()[0].AttrGetter().Int("v")
++					return context.WithValue(ctx, recoveryContextKey{}, recoveryContext{"account", *got, version}), nil
++				}
++			}
++			client.decryptMessages(context.Background(), &info, &node)
++			if finished != 1 {
++				t.Fatal("receive completion must be reported once")
++			}
++			if outcome == "error" || outcome == "nil-context" {
++				if calls != 1 || finishErr == nil || buffer.lookup != nil || buffer.transaction != nil || sessions.seen != nil {
++					t.Fatal("rejected hook must stop before buffer and session access")
++				}
++				return
++			}
++			if buffer.lookup == nil || buffer.transaction == nil || sessions.seen == nil {
++				t.Fatal("receive path did not reach the buffer transaction and Signal store")
++			}
++			if outcome == "no-hook" {
++				if calls != 0 || sessions.seen.Value(recoveryContextKey{}) != nil {
++					t.Fatal("unset hook changed the receive context")
++				}
++				return
++			}
++			for _, ctx := range []context.Context{buffer.lookup, buffer.transaction, sessions.seen} {
++				got, ok := ctx.Value(recoveryContextKey{}).(recoveryContext)
++				if !ok || got.Account != "account" || got.Info.ID != info.ID || got.Info.Chat != info.Chat || !got.Info.IsFromMe || got.Info.Timestamp != info.Timestamp || got.Version != 2 {
++					t.Fatal("recovery metadata did not reach the receive transaction")
++				}
++			}
++			// Exercise the existing successful-plaintext path without real Signal keys.
++			failure := errors.New("native storage failed")
++			buffer.writeErr = failure
++			_, _, err := client.bufferedDecrypt(buffer.transaction, []byte("another envelope"), info.Timestamp,
++				func(context.Context) ([]byte, error) { return []byte("plaintext"), nil })
++			if !errors.Is(err, failure) || buffer.write == nil || buffer.write.Value(recoveryContextKey{}) == nil {
++				t.Fatal("buffer must receive metadata and propagate its write failure")
++			}
++		})
++	}
++}
++
++type receiveFailureStore struct {
++	store.NoopStore
++	phase       string
++	cleared     bool
++	bufferReads int
++	cause       error
++}
++
++func (s *receiveFailureStore) GetBufferedEvent(context.Context, [32]byte) (*store.BufferedEvent, error) {
++	s.bufferReads++
++	switch s.phase {
++	case "lookup":
++		return nil, fmt.Errorf("lookup: %w", store.ErrLocalStorage)
++	case "panic":
++		panic("private payload")
++	case "clear", "handler-panic":
++		return &store.BufferedEvent{Plaintext: []byte{0x0a, 0x01, 'x'}}, nil
++	case "message-secret":
++		payload, err := proto.Marshal(&waE2E.Message{Conversation: proto.String("x"),
++			MessageContextInfo: &waE2E.MessageContextInfo{MessageSecret: []byte{1}}})
++		if err != nil {
++			return nil, err
++		}
++		return &store.BufferedEvent{Plaintext: payload}, nil
++	}
++	return nil, nil
++}
++
++func (s *receiveFailureStore) GetLIDForPN(context.Context, types.JID) (types.JID, error) {
++	if s.phase == "lid-lookup" {
++		return types.EmptyJID, s.cause
++	}
++	return types.NewJID("sender", types.HiddenUserServer), nil
++}
++
++func (s *receiveFailureStore) MigratePNToLID(context.Context, types.JID, types.JID) error {
++	return s.cause
++}
++
++func (s *receiveFailureStore) PutMessageSecret(context.Context, types.JID, types.JID, types.MessageID, []byte) error {
++	return s.cause
++}
++
++func (s *receiveFailureStore) DoDecryptionTxn(ctx context.Context, fn func(context.Context) error) error {
++	if s.phase == "transaction" {
++		return fmt.Errorf("transaction: %w", store.ErrLocalStorage)
++	}
++	if err := fn(ctx); err != nil {
++		return err
++	}
++	if s.phase == "commit" {
++		return fmt.Errorf("commit: %w", store.ErrLocalStorage)
++	}
++	return nil
++}
++
++func (s *receiveFailureStore) HasSession(context.Context, string) (bool, error) {
++	if s.phase == "mixed" {
++		return false, errors.Join(store.ErrLocalStorage, signalerror.ErrOldCounter)
++	}
++	if s.phase == "protocol" {
++		return false, nil
++	}
++	return false, fmt.Errorf("session: %w", store.ErrLocalStorage)
++}
++
++func (s *receiveFailureStore) PutBufferedEvent(context.Context, [32]byte, []byte, time.Time) error {
++	if s.phase == "write" {
++		return fmt.Errorf("write: %w", store.ErrLocalStorage)
++	}
++	return nil
++}
++
++func (s *receiveFailureStore) ClearBufferedEventPlaintext(context.Context, [32]byte) error {
++	s.cleared = true
++	return fmt.Errorf("clear: %w", store.ErrLocalStorage)
++}
++
++type receiveProbeLog struct {
++	waLog.Logger
++	errors, leaked atomic.Int32
++}
++
++func (l *receiveProbeLog) Errorf(format string, args ...any) {
++	l.errors.Add(1)
++	if strings.Contains(fmt.Sprintf(format, args...), "private payload") {
++		l.leaked.Add(1)
++	}
++}
++
++func TestRecoveryStorageFailure(t *testing.T) {
++	for _, synchronous := range []bool{true, false} {
++		for _, phase := range []string{"lookup", "transaction", "session", "mixed", "panic", "hook-panic", "clear", "handler-panic", "lid-lookup", "migration-alt", "migration-lookup", "message-secret", "protocol"} {
++			t.Run(fmt.Sprintf("%s/synchronous=%t", phase, synchronous), func(t *testing.T) {
++				attempts := make(chan string, 16)
++				info, node := recoveryProbeMessage()
++				cause := errors.New("auxiliary native storage failed")
++				storage := &receiveFailureStore{phase: phase, cause: cause}
++				log := &receiveProbeLog{Logger: waLog.Noop}
++				client := NewClient(&store.Device{EventBuffer: storage, Sessions: storage, LIDs: storage, MsgSecrets: storage}, log)
++				if phase == "lid-lookup" || strings.HasPrefix(phase, "migration-") {
++					info.Sender = types.NewJID("sender", types.DefaultUserServer)
++					if phase == "migration-alt" {
++						info.SenderAlt = types.NewJID("sender", types.HiddenUserServer)
++					}
++				}
++				client.EnableDecryptedEventBuffer = true
++				client.SynchronousAck = synchronous
++				client.transportAttempt = func(payload []byte) error {
++					if len(payload) == 0 {
++						t.Fatal("empty transport frame")
++					}
++					attempts <- "frame"
++					return nil
++				}
++				// Suppress retries in the protocol control; inspect that the counter stays unchanged on local failures.
++				client.messageRetries[info.ID] = 4
++				retries := func() int {
++					client.messageRetriesLock.Lock()
++					defer client.messageRetriesLock.Unlock()
++					return client.messageRetries[info.ID]
++				}
++				if phase == "hook-panic" {
++					client.PreDecryptMessage = func(context.Context, *types.MessageInfo, *waBinary.Node) (context.Context, error) {
++						panic("private payload")
++					}
++				}
++				var delivered, undecryptable int
++				finished := 0
++				var finishErr error
++				client.MessageReceiveFinished = func(_ context.Context, got *types.MessageInfo, err error) {
++					finished++
++					finishErr = err
++					if got.ID != info.ID {
++						t.Fatal("completion lost message identity")
++					}
++				}
++				client.AddEventHandler(func(evt any) {
++					switch evt.(type) {
++					case *events.Message:
++						delivered++
++						if phase == "handler-panic" {
++							panic("private payload")
++						}
++					case *events.UndecryptableMessage:
++						undecryptable++
++					}
++				})
++				client.decryptMessages(context.Background(), &info, &node)
++				if phase == "protocol" && !synchronous {
++					select {
++					case <-attempts:
++					case <-time.After(time.Second):
++						t.Fatal("async transport ACK was not attempted")
++					}
++					for deadline := time.Now().Add(time.Second); retries() != 5 && time.Now().Before(deadline); {
++						time.Sleep(time.Millisecond)
++					}
++				}
++				if finished != 1 {
++					t.Fatal("receive completion must be reported once")
++				}
++				if phase == "protocol" {
++					if synchronous {
++						select {
++						case tag := <-attempts:
++							if tag != "frame" {
++								t.Fatalf("first transport attempt %s", tag)
++							}
++						default:
++							t.Fatal("no synchronous ACK attempt")
++						}
++					}
++					if finishErr != nil || undecryptable != 1 || retries() != 5 {
++						t.Fatalf("protocol error lost its existing retry/ACK handling: retries=%d", retries())
++					}
++					return
++				}
++				if finishErr == nil {
++					t.Fatal("controller did not receive the failure")
++				}
++				if phase == "panic" || phase == "hook-panic" {
++					if !errors.Is(finishErr, ErrMessageReceivePanic) {
++						t.Fatal("panic was not classified")
++					}
++				} else if phase == "handler-panic" {
++					if !errors.Is(finishErr, ErrMessageDeliveryFailed) {
++						t.Fatal("consumer failure was not classified")
++					}
++				} else if !errors.Is(finishErr, store.ErrLocalStorage) {
++					t.Fatal("local storage classification was lost")
++				}
++				if phase == "lid-lookup" || strings.HasPrefix(phase, "migration-") || phase == "message-secret" {
++					if !errors.Is(finishErr, cause) {
++						t.Fatal("auxiliary storage cause was lost")
++					}
++					if phase != "message-secret" && storage.bufferReads != 0 {
++						t.Fatal("decryption continued after failed migration/lookup")
++					}
++					if storage.cleared {
++						t.Fatal("pending content was cleared after auxiliary failure")
++					}
++				}
++				if len(attempts) != 0 || undecryptable != 0 || retries() != 4 {
++					t.Fatalf("local failure reached transport: attempts=%d undecryptable=%d retries=%d", len(attempts), undecryptable, retries())
++				}
++				wantDelivered := 0
++				if phase == "clear" || phase == "handler-panic" {
++					wantDelivered = 1
++				}
++				if delivered != wantDelivered || log.leaked.Load() != 0 {
++					t.Fatal("unexpected delivery or sensitive panic diagnostic")
++				}
++				if phase == "handler-panic" && storage.cleared {
++					t.Fatal("panicking consumer caused pending content to be cleared")
++				}
++				if phase != "clear" && phase != "lid-lookup" && !strings.HasPrefix(phase, "migration-") && phase != "message-secret" && log.errors.Load() == 0 {
++					t.Fatal("receive path was not exercised through its failure handler")
++				}
++			})
++		}
++	}
++	for _, phase := range []string{"write", "commit"} {
++		t.Run(phase+"-propagation", func(t *testing.T) {
++			storage := &receiveFailureStore{phase: phase}
++			client := NewClient(&store.Device{EventBuffer: storage}, nil)
++			client.EnableDecryptedEventBuffer = true
++			_, _, err := client.bufferedDecrypt(context.Background(), []byte("envelope"), time.Unix(123, 0),
++				func(context.Context) ([]byte, error) { return []byte("plaintext"), nil })
++			if !errors.Is(err, store.ErrLocalStorage) {
++				t.Fatal("local write/commit classification was lost")
++			}
++		})
++	}
++}
++
++func TestControlledTransportAttempt(t *testing.T) {
++	_, node := recoveryProbeMessage()
++	client := NewClient(&store.Device{}, nil)
++	called := false
++	client.transportAttempt = func(payload []byte) error {
++		called = true
++		if len(payload) == 0 {
++			t.Fatal("empty ACK frame")
++		}
++		return nil
++	}
++	client.sendAck(context.Background(), &node, 0)
++	if !called {
++		t.Fatal("ACK did not reach controlled transport")
++	}
++}
