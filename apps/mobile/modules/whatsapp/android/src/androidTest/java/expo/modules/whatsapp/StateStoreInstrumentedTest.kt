@@ -856,4 +856,27 @@ class StateStoreInstrumentedTest {
     val length = java.nio.ByteBuffer.wrap(bytes, 8, 4).int
     return org.json.JSONObject(String(bytes, 12, length, Charsets.UTF_8)).getString("revision")
   }
+
+  @Test fun protocolCallbackRequiresRegisteredGenerationAndPublishesRevision() {
+    val root = freshRoot
+    val writer = makeStore(root)
+    writer.open()
+    writer.beginSession("123@lid", "{\"protocolSchemaVersion\":1,\"records\":[]}".toByteArray())
+    writer.registerGeneration("generation", "123@lid")
+    val value = android.util.Base64.encodeToString("{\"version\":1,\"nextId\":1,\"uploadedThrough\":0}".toByteArray(), android.util.Base64.NO_WRAP)
+    fun request(generation: String, expected: String) = org.json.JSONObject()
+      .put("contractVersion", 1).put("generationId", generation).put("accountId", "123@lid")
+      .put("expectedSessionRevision", expected)
+      .put("protocolChanges", org.json.JSONArray().put(org.json.JSONObject()
+        .put("operation", "put").put("recordType", "prekey-state").put("recordKey", "W10").put("valueBase64", value)))
+      .put("pendingInserts", org.json.JSONArray()).put("pendingIdentityUpdates", org.json.JSONArray()).toString()
+    assertFalse(org.json.JSONObject(writer.applyProtocolChanges(request("other", "1"))).getBoolean("success"))
+    assertFalse(org.json.JSONObject(writer.applyProtocolChanges(request("generation", "0"))).getBoolean("success"))
+    assertTrue(org.json.JSONObject(writer.applyProtocolChanges(request("generation", "1"))).getBoolean("success"))
+    val data = org.json.JSONObject(makeStore(root).readProtocolState("{\"contractVersion\":1}")).getJSONObject("data")
+    assertEquals("2", data.getString("sessionRevision"))
+    assertEquals(1, data.getJSONObject("session").getJSONArray("records").length())
+    writer.retireGeneration()
+    assertFalse(org.json.JSONObject(writer.applyProtocolChanges(request("generation", "2"))).getBoolean("success"))
+  }
 }

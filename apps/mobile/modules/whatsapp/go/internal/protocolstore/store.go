@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"yoyos-whatsapp/internal/protocolstate"
 )
@@ -46,6 +47,7 @@ type Error struct {
 }
 
 func (e *Error) Error() string                { return string(e.Code) + ": " + e.Message }
+func (e *Error) Unwrap() error                { return store.ErrLocalStorage }
 func failure(code Code, message string) error { return &Error{Code: code, Message: message} }
 
 // The binding's JSON shapes are fixed here; native must independently validate all inputs.
@@ -276,6 +278,7 @@ type Store struct {
 	mu                                  sync.Mutex
 	revision, sessionRevision           uint64
 	records                             map[string]protocolstate.Record
+	pending                             []PendingRecord
 	stopped                             error
 	readbackErr                         error
 }
@@ -362,7 +365,7 @@ func (s *Store) read() error {
 			return failure(StateInvalid, "stored device account mismatch")
 		}
 	}
-	s.revision, s.sessionRevision, s.records = rev, sr, records
+	s.revision, s.sessionRevision, s.records, s.pending = rev, sr, records, data.Pending
 	return nil
 }
 func validatePending(pending []PendingRecord, rev uint64) error {

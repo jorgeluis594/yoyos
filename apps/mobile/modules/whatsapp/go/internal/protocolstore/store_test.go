@@ -136,6 +136,9 @@ func codeIs(t *testing.T, err error, code Code) {
 	if !errors.As(err, &typed) || typed.Code != code {
 		t.Fatalf("want %s, got %v", code, err)
 	}
+	if !errors.Is(err, store.ErrLocalStorage) {
+		t.Fatalf("%s is not marked as a local storage failure", code)
+	}
 }
 func TestEmptyReadAndReadFailure(t *testing.T) {
 	n := &controlledStorage{}
@@ -317,10 +320,14 @@ func TestLIDMappingAccountScopeAndUnexpectedRecovery(t *testing.T) {
 		t.Fatal("bulk mapping partly committed", got, e)
 	}
 	codeIs(t, s.PutBufferedEvent(context.Background(), [32]byte{}, []byte("body"), time.Now()), RecoveryContextMissing)
-	_, e = s.GetBufferedEvent(context.Background(), [32]byte{})
-	codeIs(t, e, RecoveryContextMissing)
-	codeIs(t, s.ClearBufferedEventPlaintext(context.Background(), [32]byte{}), RecoveryContextMissing)
-	codeIs(t, s.DeleteOldBufferedHashes(context.Background()), RecoveryContextMissing)
+	buffered, e := s.GetBufferedEvent(context.Background(), [32]byte{})
+	if e != nil || buffered != nil {
+		t.Fatal("absent retry marker is not empty", buffered, e)
+	}
+	codeIs(t, s.ClearBufferedEventPlaintext(context.Background(), [32]byte{}), StateInvalid)
+	if e := s.DeleteOldBufferedHashes(context.Background()); e != nil {
+		t.Fatal(e)
+	}
 	_, _, e = s.GetOutgoingEvent(context.Background(), pn, lid, "id")
 	codeIs(t, e, OutgoingUnsupported)
 	codeIs(t, s.AddOutgoingEvent(context.Background(), pn, "id", "v2", []byte{1}), OutgoingUnsupported)

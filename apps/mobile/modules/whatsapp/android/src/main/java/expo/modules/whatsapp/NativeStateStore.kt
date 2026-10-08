@@ -46,6 +46,8 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
   private var readBudget = DEFAULT_BUFFER
   private var uncertain = false
   private var sessionUsable = true
+  private var registeredGeneration: String? = null
+  private var registeredAccount: String? = null
   private var observedPublication = -1L
 
   // The secure creation record is a Keystore-backed encrypted file. Its key is created before
@@ -166,6 +168,8 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
   @Synchronized fun beginSession(accountId: String, protocolBytes: ByteArray) {
     GLOBAL_LOCK.lock()
     try {
+      registeredGeneration = null
+      registeredAccount = null
       current = null
       val state = open()
       if (protocolBytes.size > SESSION_LIMIT) throw StateFailure("SESSION_STORAGE_LIMIT_REACHED")
@@ -201,9 +205,275 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     } finally { GLOBAL_LOCK.unlock() }
   }
 
+  /** Called by the native connection controller before opening the Go store. */
+  fun registerGeneration(generationId: String, accountId: String) {
+    GLOBAL_LOCK.lock()
+    try {
+      val snapshot = open()
+      if (generationId.isEmpty() || !ACCOUNT.matches(accountId) ||
+        snapshot.optJSONObject("session")?.getString("accountId") != accountId) throw StateFailure("STALE_GENERATION")
+      registeredGeneration = generationId
+      registeredAccount = accountId
+    } finally { GLOBAL_LOCK.unlock() }
+  }
+
+  fun registerFreshGeneration(generationId: String) {
+    GLOBAL_LOCK.lock()
+    try {
+      val snapshot = open()
+      if (generationId.isEmpty() || snapshot.optJSONObject("session") != null) throw StateFailure("STALE_GENERATION")
+      registeredGeneration = generationId
+      registeredAccount = null
+    } finally { GLOBAL_LOCK.unlock() }
+  }
+
+  fun retireGeneration() {
+    GLOBAL_LOCK.lock()
+    try { registeredGeneration = null; registeredAccount = null } finally { GLOBAL_LOCK.unlock() }
+  }
+
+  fun beginFreshProtocolSession(request: String): String = protocolResponse {
+    if (request.toByteArray(Charsets.UTF_8).size > SESSION_LIMIT + 1024) throw StateFailure("INVALID_REQUEST")
+    val input = parseProtocolRequest(request)
+    exact(input, "contractVersion", "generationId", "accountId", "device")
+    if (input.get("contractVersion") !is Number || input.get("contractVersion").toString() != "1") throw StateFailure("INVALID_REQUEST")
+    val generation = input.getString("generationId")
+    val account = input.getString("accountId")
+    if (generation.isEmpty() || !ACCOUNT.matches(account)) throw StateFailure("INVALID_REQUEST")
+    val device = input.getJSONObject("device")
+    exact(device, "recordType", "recordKey", "valueBase64")
+    if (device.getString("recordType") != "device") throw StateFailure("INVALID_REQUEST")
+    validateProtocolChange(JSONObject(device.toString()).put("operation", "put"))
+    val value = parseObject(decode(device.getString("valueBase64"), SESSION_LIMIT))
+    if (value.getString("lid") != account || value.getString("id").isEmpty()) throw StateFailure("INVALID_REQUEST")
+    val protocol = JSONObject().put("protocolSchemaVersion", 1).put("records", JSONArray().put(device))
+    validateProtocolRecords(protocol.getJSONArray("records"), account)
+    GLOBAL_LOCK.lock()
+    try {
+      if (registeredGeneration != generation || (registeredAccount != null && registeredAccount != account)) throw StateFailure("STALE_GENERATION")
+      val existing = open().optJSONObject("session")
+      if (existing == null) {
+        try { beginSession(account, protocol.toString().toByteArray(Charsets.UTF_8)) }
+        finally { registeredGeneration = generation; registeredAccount = null }
+      }
+      else {
+        if (!sessionUsable || existing.getString("accountId") != account ||
+          decryptProtocol(existing).getJSONArray("records").toString() != protocol.getJSONArray("records").toString()) throw StateFailure("STALE_GENERATION")
+      }
+      registerGeneration(generation, account)
+      val final = open().getJSONObject("session")
+      JSONObject().put("revision", revision.toString()).put("sessionRevision", final.getString("sessionRevision"))
+    } finally { GLOBAL_LOCK.unlock() }
+  }
+
+  fun readProtocolState(request: String): String = protocolResponse {
+    if (request.toByteArray(Charsets.UTF_8).size > 128) throw StateFailure("INVALID_REQUEST")
+    val input = parseProtocolRequest(request)
+    exact(input, "contractVersion")
+    if (input.get("contractVersion") !is Number || input.get("contractVersion").toString() != "1") throw StateFailure("INVALID_REQUEST")
+    GLOBAL_LOCK.lock()
+    try {
+      val snapshot = open()
+      val session = snapshot.optJSONObject("session")
+      val data = JSONObject().put("revision", revision.toString())
+        .put("sessionRevision", session?.getString("sessionRevision") ?: "0")
+        .put("pending", snapshot.getJSONArray("pending"))
+      if (session == null) data.put("session", JSONObject.NULL) else {
+        if (!sessionUsable) throw StateFailure("STATE_INVALID")
+        val plain = decryptProtocol(session)
+        validateProtocolRecords(plain.getJSONArray("records"), session.getString("accountId"))
+        data.put("session", JSONObject().put("accountId", session.getString("accountId"))
+          .put("protocolSchemaVersion", 1).put("records", plain.getJSONArray("records")))
+      }
+      data
+    } finally { GLOBAL_LOCK.unlock() }
+  }
+
+  fun applyProtocolChanges(request: String): String = protocolResponse {
+    if (request.toByteArray(Charsets.UTF_8).size > SESSION_LIMIT.toLong() + readBudget + 12340L) throw StateFailure("INVALID_REQUEST")
+    val input = parseProtocolRequest(request)
+    exact(input, "contractVersion", "generationId", "accountId", "expectedSessionRevision", "protocolChanges", "pendingInserts", "pendingIdentityUpdates")
+    if (input.get("contractVersion") !is Number || input.get("contractVersion").toString() != "1" || input.get("generationId") !is String ||
+      input.get("accountId") !is String || input.get("expectedSessionRevision") !is String) throw StateFailure("INVALID_REQUEST")
+    val generation = input.getString("generationId")
+    val account = input.getString("accountId")
+    val expected = parseRevision(input.getString("expectedSessionRevision"))
+    val changes = input.getJSONArray("protocolChanges")
+    val inserts = input.getJSONArray("pendingInserts")
+    val updates = input.getJSONArray("pendingIdentityUpdates")
+    if (changes.length() == 0 && inserts.length() == 0 && updates.length() == 0) throw StateFailure("INVALID_REQUEST")
+    for (i in 0 until changes.length()) validateProtocolChange(changes.getJSONObject(i))
+    for (i in 0 until inserts.length()) {
+      val item = inserts.getJSONObject(i)
+      exact(item, "deliveryId", "accountId", "source", "identityState", "recovery", *(if (item.has("message")) arrayOf("message") else emptyArray()))
+      if (item.getString("accountId") != account || !DELIVERY.matches(item.getString("deliveryId"))) throw StateFailure("INVALID_REQUEST")
+    }
+    for (i in 0 until updates.length()) {
+      val item = updates.getJSONObject(i)
+      exact(item, "deliveryId", "identityState", "message")
+      if (!DELIVERY.matches(item.getString("deliveryId")) || item.getString("identityState") != "resolved") throw StateFailure("INVALID_REQUEST")
+    }
+    GLOBAL_LOCK.lock()
+    try {
+      if (registeredGeneration != generation || registeredAccount != account) throw StateFailure("STALE_GENERATION")
+      val snapshot = open()
+      val session = snapshot.optJSONObject("session") ?: throw StateFailure("STALE_GENERATION")
+      if (session.getString("accountId") != account) throw StateFailure("STALE_GENERATION")
+      if (parseRevision(session.getString("sessionRevision")) != expected) throw StateFailure("SESSION_REVISION_MISMATCH")
+      val oldProtocol = decryptProtocol(session)
+      val records = oldProtocol.getJSONArray("records")
+      val ordered = linkedMapOf<String, JSONObject>()
+      for (i in 0 until records.length()) {
+        val record = records.getJSONObject(i)
+        ordered[record.getString("recordType") + "\u0000" + record.getString("recordKey")] = record
+      }
+      for (i in 0 until changes.length()) {
+        val change = changes.getJSONObject(i)
+        val key = change.getString("recordType") + "\u0000" + change.getString("recordKey")
+        if (change.getString("operation") == "delete") ordered.remove(key)
+        else ordered[key] = JSONObject().put("recordType", change.getString("recordType"))
+          .put("recordKey", change.getString("recordKey")).put("valueBase64", change.getString("valueBase64"))
+      }
+      val merged = JSONArray()
+      ordered.values.forEach { merged.put(it) }
+      validateProtocolRecords(merged, account)
+      val oldDevice = (0 until records.length()).map { records.getJSONObject(it) }.firstOrNull { it.getString("recordType") == "device" }
+      val newDevice = (0 until merged.length()).map { merged.getJSONObject(it) }.firstOrNull { it.getString("recordType") == "device" }
+      if (oldDevice != null && (newDevice == null ||
+        parseObject(decode(oldDevice.getString("valueBase64"), SESSION_LIMIT)).getString("id") !=
+        parseObject(decode(newDevice.getString("valueBase64"), SESSION_LIMIT)).getString("id"))) throw StateFailure("INVALID_REQUEST")
+      val protocol = JSONObject().put("protocolSchemaVersion", 1).put("records", merged)
+      val plain = protocol.toString().toByteArray(Charsets.UTF_8)
+      if (plain.size > SESSION_LIMIT) throw StateFailure("SESSION_STORAGE_LIMIT_REACHED")
+      val existing = snapshot.getJSONArray("pending")
+      val pending = JSONArray(existing.toString())
+      val ids = (0 until pending.length()).map { pending.getJSONObject(it).getString("deliveryId") }.toMutableSet()
+      for (i in 0 until inserts.length()) {
+        val item = JSONObject(inserts.getJSONObject(i).toString())
+        if (!ids.add(item.getString("deliveryId"))) throw StateFailure("INVALID_REQUEST")
+        item.put("createdRevision", (revision + BigInteger.ONE).toString()).put("createdOrdinal", i)
+        pending.put(item)
+      }
+      for (i in 0 until updates.length()) {
+        val update = updates.getJSONObject(i)
+        val id = update.getString("deliveryId")
+        var found = false
+        for (j in 0 until existing.length()) {
+          val item = pending.getJSONObject(j)
+          if (item.getString("deliveryId") == id && item.getString("identityState") == "pendingLid") {
+            item.put("identityState", "resolved").put("message", update.getJSONObject("message"))
+            found = true
+          }
+        }
+        if (!found) throw StateFailure("INVALID_REQUEST")
+      }
+      val maxPending = snapshot.getJSONObject("options").getLong("maxRecoveryBufferBytes")
+      if (pending.toString().toByteArray(Charsets.UTF_8).size > maxPending) throw StateFailure("BUFFER_FULL")
+      val nextRevision = revision + BigInteger.ONE
+      val nextSession = if (changes.length() == 0) session else {
+        val id = session.getString("sessionKeyId")
+        val (nonce, ciphertext) = encrypt(id, plain, sessionAad(storeId, account, id, nextRevision.toString()))
+        JSONObject().put("accountId", account).put("sessionKeyId", id).put("sessionRevision", nextRevision.toString())
+          .put("nonceBase64", b64(nonce)).put("ciphertextBase64", b64(ciphertext))
+      }
+      val next = commit(revision.toString()) { old -> old.put("session", nextSession).put("pending", pending) }
+      JSONObject().put("revision", revision.toString())
+        .put("sessionRevision", next.getJSONObject("session").getString("sessionRevision"))
+    } finally { GLOBAL_LOCK.unlock() }
+  }
+
+  private fun decryptProtocol(session: JSONObject): JSONObject {
+    val id = session.getString("sessionKeyId")
+    val nonce = decode(session.getString("nonceBase64"), 12)
+    val ciphertext = decode(session.getString("ciphertextBase64"), SESSION_LIMIT)
+    val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+    cipher.init(Cipher.DECRYPT_MODE, getKey(id), GCMParameterSpec(128, nonce))
+    cipher.updateAAD(sessionAad(storeId, session.getString("accountId"), id, session.getString("sessionRevision")))
+    return parseObject(cipher.doFinal(ciphertext))
+  }
+
+  private fun parseProtocolRequest(request: String): JSONObject = try {
+    parseObject(request.toByteArray(Charsets.UTF_8))
+  } catch (_: Exception) { throw StateFailure("INVALID_REQUEST") }
+
+  private fun protocolResponse(action: () -> JSONObject): String = try {
+    JSONObject().put("contractVersion", 1).put("success", true).put("data", action()).toString()
+  } catch (e: StateFailure) {
+    JSONObject().put("contractVersion", 1).put("success", false)
+      .put("error", JSONObject().put("code", when (e.code) {
+        "SESSION_STORAGE_LIMIT_REACHED" -> "SESSION_FULL"
+        "SESSION_STATE_INVALID" -> "STATE_INVALID"
+        "SESSION_REVISION_MISMATCH" -> "SESSION_REVISION_MISMATCH"
+        "BUFFER_FULL" -> "BUFFER_FULL"
+        "STALE_GENERATION" -> "STALE_GENERATION"
+        "INVALID_REQUEST" -> "INVALID_REQUEST"
+        else -> "STORAGE_FAILED"
+      }).put("message", e.code)).toString()
+  } catch (_: Exception) {
+    JSONObject().put("contractVersion", 1).put("success", false)
+      .put("error", JSONObject().put("code", "STORAGE_FAILED").put("message", "native writer failed")).toString()
+  }
+
+  private fun validateProtocolChange(change: JSONObject) {
+    val put = change.optString("operation") == "put"
+    if (!put && change.optString("operation") != "delete") throw StateFailure("INVALID_REQUEST")
+    exact(change, "operation", "recordType", "recordKey", *(if (put) arrayOf("valueBase64") else emptyArray()))
+    val kind = change.getString("recordType")
+    if (kind == "device" && !put) throw StateFailure("INVALID_REQUEST")
+    val arity = when (kind) {
+      "device", "prekey-state", "nct-salt" -> 0
+      "identity", "signal-session", "prekey", "app-state-key", "app-state-version", "contact", "chat-setting", "privacy-token", "lid-mapping", "retry-hash" -> 1
+      "sender-key", "app-state-mac" -> 2
+      "message-secret" -> 3
+      else -> throw StateFailure("INVALID_REQUEST")
+    }
+    val key = change.getString("recordKey")
+    if (key.length > 2048 || !Regex("[A-Za-z0-9_-]+").matches(key)) throw StateFailure("INVALID_REQUEST")
+    val bytes = Base64.decode(key, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
+    if (Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING) != key) throw StateFailure("INVALID_REQUEST")
+    StrictJson.check(bytes.toString(Charsets.UTF_8))
+    val tuple = JSONArray(bytes.toString(Charsets.UTF_8))
+    if (tuple.length() != arity || (0 until arity).any { tuple.get(it) !is String || tuple.getString(it).isEmpty() || tuple.getString(it).length > 512 } || tuple.toString() != bytes.toString(Charsets.UTF_8)) throw StateFailure("INVALID_REQUEST")
+    if (put) {
+      val encoded = change.getString("valueBase64")
+      if (encoded.length > SESSION_LIMIT) throw StateFailure("INVALID_REQUEST")
+      val value = decode(encoded, SESSION_LIMIT)
+      val parsed = parseObject(value)
+      if (parsed.getInt("version") != 1) throw StateFailure("INVALID_REQUEST")
+    }
+  }
+
+  private fun validateProtocolRecords(records: JSONArray, account: String) {
+    val seen = mutableSetOf<String>()
+    val inverse = mutableMapOf<String, String>()
+    for (i in 0 until records.length()) {
+      val record = records.getJSONObject(i)
+      exact(record, "recordType", "recordKey", "valueBase64")
+      validateProtocolChange(JSONObject(record.toString()).put("operation", "put"))
+      val kind = record.getString("recordType")
+      val key = record.getString("recordKey")
+      if (!seen.add("$kind\u0000$key")) throw StateFailure("INVALID_REQUEST")
+      if (kind == "device") {
+        val value = parseObject(decode(record.getString("valueBase64"), SESSION_LIMIT))
+        if (value.getString("lid") != account || value.getString("id").isEmpty()) throw StateFailure("INVALID_REQUEST")
+      }
+      if (kind == "lid-mapping") {
+        val tuple = JSONArray(Base64.decode(key, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING).toString(Charsets.UTF_8))
+        val pn = tuple.getString(0)
+        val value = parseObject(decode(record.getString("valueBase64"), SESSION_LIMIT))
+        val lid = value.getString("lid")
+        if (!Regex("[0-9]+@s\\.whatsapp\\.net").matches(pn) || !ACCOUNT.matches(lid) ||
+          (inverse[lid] != null && inverse[lid] != pn)) throw StateFailure("INVALID_REQUEST")
+        inverse[lid] = pn
+      }
+    }
+  }
+
   @Synchronized fun endSession() {
     GLOBAL_LOCK.lock()
     try {
+      registeredGeneration = null
+      registeredAccount = null
       var state = open()
       val session = state.optJSONObject("session")
       if (session != null) {
