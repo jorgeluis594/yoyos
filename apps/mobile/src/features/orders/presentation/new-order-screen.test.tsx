@@ -489,3 +489,23 @@ test("disabled delivery after a rejection preserves the form and can be explicit
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();
   expect(screen.queryByTestId("delivery-rate")).toBeNull();
 });
+
+test("a saved rated delivery can be reviewed without charging its old fee twice", async () => {
+  const pending = { version: 2, companyId: mockId(1), id: mockId(3), shownTotal: { amount: 18, currency: "PEN" },
+    request: { id: mockId(3), contactId: null, items: [{ variantId: mockId(2), quantity: 1 }],
+      delivery: { expectedPrice: { amount: 8, currency: "PEN" }, delivery: { method: "home", rateId: mockId(9),
+        recipient: { name: "Ana", phone: "999001", identity: { kind: "absent" } },
+        destination: { address: "Original street", districtCode: "150122", instructions: null } } } } };
+  mockReadPending.mockResolvedValue(ok(pending));
+  const screen = render(<NewOrderScreen />);
+  fireEvent.press(await screen.findByRole("button", { name: "Revisar entrega guardada" }));
+  await screen.findByLabelText(/Dirección de entrega/);
+  expect(screen.getByLabelText(/Dirección de entrega/)).toHaveProp("value", "Original street");
+  selectDistrict(screen);
+  await screen.findByTestId("delivery-rate");
+  fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 1);
+  expect(screen.getByText(/Total:\sS\/\s22\.00/)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Guardar entrega revisada" })).toBeEnabled();
+  expect(mockCompleteOrder).not.toHaveBeenCalled();
+  expect(mockResendPending).not.toHaveBeenCalled();
+});

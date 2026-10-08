@@ -89,7 +89,10 @@ function CompanyOrderScreen() {
   const activeCompany = useRef(companyId);
   const offline = network.isConnected === false || network.isInternetReachable === false;
   const legacyDelivery = pending?.request?.delivery && "chargeDeliveryToCustomer" in pending.request.delivery ? pending.request.delivery.delivery : null;
-  const productTotal = reviewingLegacy && pending ? ok({ shownTotal: pending.shownTotal })
+  const savedDelivery = pending?.request?.delivery?.delivery;
+  const savedProducts = pending?.request?.delivery && "expectedPrice" in pending.request.delivery
+    ? subtract(pending.request.delivery.expectedPrice)(pending.shownTotal) : pending ? ok(pending.shownTotal) : null;
+  const productTotal = reviewingLegacy && savedProducts?.success ? ok({ shownTotal: savedProducts.data })
     : prepareOrder({ ...draft, payments: undefined, ratedDelivery: undefined });
   const method = initialDelivery?.method;
   const districtCode = initialDelivery?.districtCode ?? "";
@@ -270,13 +273,13 @@ function CompanyOrderScreen() {
             <ThemedText type="subtitle" accessibilityRole="header">{t('pendingSale')}</ThemedText>
             <ThemedText>{t('verifyPendingId', { id: pending?.id })}</ThemedText>
             <Button disabled={sending} loading={checking} onPress={() => void verify()}>{t('verifyOrder')}</Button>
-            {legacyDelivery && pending && !reviewingLegacy ? <Button variant="secondary" disabled={checking || sending} onPress={() => {
-              const recipient = legacyDelivery.recipient;
-              setInitialDelivery({ method: legacyDelivery.method, name: recipient.name, phone: recipient.phone,
+            {savedDelivery && pending && !reviewingLegacy ? <Button variant="secondary" disabled={checking || sending} onPress={() => {
+              const recipient = savedDelivery.recipient;
+              setInitialDelivery({ method: savedDelivery.method, name: recipient.name, phone: recipient.phone,
                 documentType: recipient.identity.kind === "document" ? recipient.identity.documentType : "absent",
                 document: recipient.identity.kind === "document" ? recipient.identity.document : "",
-                address: legacyDelivery.method === "home" ? legacyDelivery.destination.address : "",
-                instructions: legacyDelivery.method === "home" ? legacyDelivery.destination.instructions ?? "" : "",
+                address: savedDelivery.method === "home" ? savedDelivery.destination.address : "",
+                instructions: savedDelivery.method === "home" ? savedDelivery.destination.instructions ?? "" : "",
                 districtCode: "", rateId: "", price: null, currency: pending.shownTotal.currency });
               setReviewingLegacy(true); setQuoteAttempt(value => value + 1); setError("");
             }}>{t('reviewLegacyDelivery')}</Button> : null}
@@ -289,7 +292,7 @@ function CompanyOrderScreen() {
                 setInitialDelivery(next);
               }} settings={settings} busy={sending || checking} language={orderLanguage(state.company.country, i18n.language)}
                 rates={rates} quoting={quoting} quoteError={quoteError} onRetry={retryQuotation} /> : <ThemedText>{t('loadOrderDeliveryError')}</ThemedText>}
-              <ThemedText>{t('orderDeliveryProductsAmount', { amount: money(pending.shownTotal.amount, pending.shownTotal.currency, locale) })}</ThemedText>
+              <ThemedText>{t('orderDeliveryProductsAmount', { amount: money(productTotal.success ? productTotal.data.shownTotal.amount : pending.shownTotal.amount, pending.shownTotal.currency, locale) })}</ThemedText>
               {reviewedPrice && reviewedTotal?.success ? <>
                 <ThemedText>{t('orderDeliveryAmount', { amount: money(reviewedPrice.amount, reviewedPrice.currency, locale) })}</ThemedText>
                 <ThemedText>{t('orderDeliveryTotalAmount', { amount: money(reviewedTotal.data.amount, reviewedTotal.data.currency, locale) })}</ThemedText>

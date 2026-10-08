@@ -300,7 +300,7 @@ test("reviewing a legacy delivery keeps order and payment identities and saves b
   expect(calls).toHaveLength(3);
 });
 
-test("rated creation resends its exact reviewed selection after restart and clears a price rejection", async () => {
+test("rated creation retains a price rejection after restart for delivery review", async () => {
   const bodies: unknown[] = [];
   let reject = false;
   const api = createOrderApi(async (path, init) => {
@@ -319,10 +319,11 @@ test("rated creation resends its exact reviewed selection after restart and clea
   const store = storage();
   expect(await createOrderOperations(api, store).completeOrder(selected, companyId)).toMatchObject({ success: true,
     data: { kind: "uncertain", pending: { shownTotal: { amount: 18, currency: "PEN" }, request: { delivery: selected.ratedDelivery } } } });
+  const saved = await store.read(companyId);
   reject = true;
   expect(await createOrderOperations(api, store).resendPendingOrder(companyId)).toMatchObject({ success: false,
     error: { code: "TOTAL_CHANGED", currentPrice: { amount: 10, currency: "PEN" } } });
   expect(bodies).toEqual([expect.objectContaining({ delivery: selected.ratedDelivery }), bodies[0]]);
-  expect(await store.read(companyId)).toEqual(ok(null));
+  expect(await store.read(companyId)).toEqual(saved);
   expect(selected.ratedDelivery.expectedPrice.amount).toBe(8);
 });

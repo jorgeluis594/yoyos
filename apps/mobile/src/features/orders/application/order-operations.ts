@@ -105,7 +105,7 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
       ? ok({ kind: "uncertain", pending: pending.data }) : found;
     return confirmed(found.data, pending.data);
   };
-  const post = async (pending: PendingOrderConfirmation): Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>> => {
+  const post = async (pending: PendingOrderConfirmation, retainDeliveryConflict = false): Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>> => {
     if (!pending.request) return err({ code: "PENDING_CONFIRMATION", message: "Legacy attempt can only be verified; original request is unavailable" });
     const { delivery, ...selection } = pending.request;
     if (delivery && "chargeDeliveryToCustomer" in delivery)
@@ -113,6 +113,8 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
     const request: OrderSubmission = delivery ? { ...selection, delivery } : selection;
     const result = await api.create(request);
     if (result.success) return confirmed(result.data, pending);
+    if (retainDeliveryConflict && delivery && ["TOTAL_CHANGED", "RATE_UNAVAILABLE", "INVALID_DELIVERY_RATE", "INVALID_DISTRICT",
+      "COURIER_UNAVAILABLE", "DELIVERY_METHOD_DISABLED", "DELIVERY_UNAVAILABLE"].includes(result.error.code)) return result;
     if (definitive.has(result.error.code)) {
       const cleared = await pendingStore.clear(pending.companyId, pending.id);
       return cleared.success ? result : cleared;
@@ -124,7 +126,7 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
     const found = await api.get(pending.id);
     if (found.success) return confirmed(found.data, pending);
     if (found.error.code !== "ORDER_NOT_FOUND") return found;
-    return post(pending);
+    return post(pending, true);
   };
   const send = async (draft: OrderDraft, companyId: string): Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>> => {
     const current = await pendingStore.read(companyId);
