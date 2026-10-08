@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { listOrderAggregatesResponseSchema, listOrderAggregatesSchema, listOrdersResponseSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema,
-  type SetOrderDeliveryRequest, type ListOrderAggregatesRequest, type ListOrdersRequest, type OrderAggregateResponse, type OrderApiError, type OrderApiIssue } from "@shared/contracts/orders";
+  type ListOrderAggregatesRequest, type ListOrdersRequest, type OrderAggregateResponse, type OrderApiError, type OrderApiIssue } from "@shared/contracts/orders";
 import { err, ok } from "@shared/functional";
 import { add, type Money } from "@shared/money";
 import { limaMidnightUtc, nextCalendarDay } from "@shared/orders-date";
@@ -40,7 +40,7 @@ export type OrderListCriteria = Readonly<{
 export type { RatedDeliveryAssignment } from "@mobile/features/orders/domain/order-draft";
 
 type Api = Readonly<{
-  setDelivery: (orderId: string, input: SetOrderDeliveryRequest | RatedDeliveryAssignment) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
+  setDelivery: (orderId: string, input: RatedDeliveryAssignment) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
   enableCheckout: (orderId: string) => Promise<Result<Readonly<{ url: string }>, OrderRequestError>>;
   listAggregates: (input: ListOrderAggregatesRequest) => Promise<Result<z.infer<typeof listOrderAggregatesResponseSchema>, OrderRequestError>>;
   getAggregate: (id: string) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;

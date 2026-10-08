@@ -2,7 +2,7 @@ import type { OrderSubmission } from "@mobile/features/orders/domain/order-draft
 import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
 import { z } from "zod";
 import { createRatedOrderSchema, createOrderSchema, listOrderAggregatesResponseSchema, listOrderAggregatesSchema, listOrdersResponseSchema, listOrdersSchema, orderAggregateSchema, orderApiErrorSchema,
-  orderCatalogSchema, orderContactsSchema, setRatedOrderDeliverySchema, setOrderDeliverySchema, type SetRatedOrderDeliveryRequest, type SetOrderDeliveryRequest, registerPaymentResponseSchema, registerPaymentSchema, type CreateRatedOrderRequest, type CreateOrderRequest, type ListOrderAggregatesRequest, type ListOrdersRequest, type RegisterPaymentRequest,
+  orderCatalogSchema, orderContactsSchema, setRatedOrderDeliverySchema, type SetRatedOrderDeliveryRequest, registerPaymentResponseSchema, registerPaymentSchema, type CreateRatedOrderRequest, type CreateOrderRequest, type ListOrderAggregatesRequest, type ListOrdersRequest, type RegisterPaymentRequest,
   type OrderAggregateResponse, type OrderApiError } from "@shared/contracts/orders";
 import { err, ok } from "@shared/functional";
 import { imageResponseSchema } from "@shared/contracts/images";
@@ -90,8 +90,8 @@ export function createOrderApi(request: Request) {
   return {
     ship: (orderId: string) => fulfill(orderId, "ship"),
     deliver: (orderId: string) => fulfill(orderId, "deliver"),
-    setDelivery: async (orderId: string, input: SetOrderDeliveryRequest | SetRatedOrderDeliveryRequest): Promise<Result<OrderAggregateResponse, OrderRequestError>> => {
-      const parsed = z.union([setRatedOrderDeliverySchema, setOrderDeliverySchema]).safeParse(input);
+    setDelivery: async (orderId: string, input: SetRatedOrderDeliveryRequest): Promise<Result<OrderAggregateResponse, OrderRequestError>> => {
+      const parsed = setRatedOrderDeliverySchema.safeParse(input);
       if (!z.uuid().safeParse(orderId).success || !parsed.success) return err({ code: "INVALID_INPUT", message: "Invalid delivery request" });
       const result = response(await request(`/api/orders/${orderId}/delivery`, { method: "PUT", headers: { "content-type": "application/json" },
         body: JSON.stringify(parsed.data) }), orderAggregateSchema, "delivery");
@@ -99,13 +99,13 @@ export function createOrderApi(request: Request) {
       const assigned = result.data.delivery;
       const invalid = () => err({ code: "INVALID_RESPONSE" as const, message: "Unexpected assigned order delivery" });
       if (result.data.id !== orderId || !assigned || assigned.method !== parsed.data.delivery.method) return invalid();
-      if ("expectedPrice" in parsed.data) {
-        const selected = parsed.data.delivery;
-        if (selected.method === "store") {
-          if (!("settingsVersion" in assigned)) return invalid();
-        } else if (!("pricing" in assigned) || assigned.pricing.rateId !== selected.rateId ||
-          assigned.destination.districtCode !== (selected.method === "home" ? selected.destination.districtCode : selected.districtCode)) return invalid();
-      }
+      if ([result.data.deliveryCost, result.data.deliveryCharge].some(price => price.amount !== parsed.data.expectedPrice.amount || price.currency !== parsed.data.expectedPrice.currency))
+        return invalid();
+      const selected = parsed.data.delivery;
+      if (selected.method === "store") {
+        if (!("settingsVersion" in assigned)) return invalid();
+      } else if (!("pricing" in assigned) || assigned.pricing.rateId !== selected.rateId ||
+        assigned.destination.districtCode !== (selected.method === "home" ? selected.destination.districtCode : selected.districtCode)) return invalid();
       return result;
 
     },
