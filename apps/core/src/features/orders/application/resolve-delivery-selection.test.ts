@@ -11,7 +11,7 @@ const selection = { method: "store" as const, recipient };
 const point = { name: "Tienda", address: "Av. Lima 123", instructions: null };
 const settings = { version: 1, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: true as const, pickupPoint: point } };
 const cost = { amount: 3, currency: "PEN" as const };
-const dependencies = (): ResolveDeliveryDependencies => ({ getSettings: async () => ok(settings), resolveCost: async () => ok(cost) });
+const dependencies = (): ResolveDeliveryDependencies => ({ getSettings: async () => ok(settings), resolveShippingCost: async () => ok(cost) });
 
 test("resolves store snapshot using authoritative configuration and the current seller", async () => {
   const result = await resolveDeliverySelection(selection, context, "PEN", dependencies());
@@ -28,13 +28,13 @@ test("resolves store snapshot using authoritative configuration and the current 
 });
 
 test("rejects absent or disabled settings without requesting a cost", async () => {
-  const resolveCost = vi.fn(dependencies().resolveCost);
+  const resolveShippingCost = vi.fn(dependencies().resolveShippingCost);
   for (const pickupPoint of [null, point]) {
     expect(await resolveDeliverySelection(selection, context, "PEN", {
-      getSettings: async () => ok({ version: pickupPoint ? 1 : 0, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: false, pickupPoint } }), resolveCost,
+      getSettings: async () => ok({ version: pickupPoint ? 1 : 0, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: false, pickupPoint } }), resolveShippingCost,
     })).toMatchObject({ success: false, error: { code: "DELIVERY_METHOD_DISABLED" } });
   }
-  expect(resolveCost).not.toHaveBeenCalled();
+  expect(resolveShippingCost).not.toHaveBeenCalled();
 });
 
 test("propagates unavailable configuration and costs without manufacturing a zero price", async () => {
@@ -42,9 +42,9 @@ test("propagates unavailable configuration and costs without manufacturing a zer
     const failure = err({ code, message: "Controlled failure" });
     const deps = dependencies();
     expect(await resolveDeliverySelection(selection, context, "PEN", { ...deps, getSettings: async () => failure })).toEqual(failure);
-    expect(await resolveDeliverySelection(selection, context, "PEN", { ...deps, resolveCost: async () => failure })).toEqual(failure);
+    expect(await resolveDeliverySelection(selection, context, "PEN", { ...deps, resolveShippingCost: async () => failure })).toEqual(failure);
   }
-  expect(await resolveDeliverySelection(selection, context, "PEN", { ...dependencies(), resolveCost: async () => ok({ amount: 0, currency: "PEN" }) }))
+  expect(await resolveDeliverySelection(selection, context, "PEN", { ...dependencies(), resolveShippingCost: async () => ok({ amount: 0, currency: "PEN" }) }))
     .toMatchObject({ success: true, data: { cost: { amount: 0 } } });
 });
 
@@ -54,7 +54,7 @@ test.each([
   [{ amount: 1.001, currency: "PEN" as const }, "INVALID_ORDER"],
   [{ amount: 1, currency: "USD" as const }, "CURRENCY_MISMATCH"],
 ])("rejects an invalid resolved cost: %j", async (value, code) => {
-  expect(await resolveDeliverySelection(selection, context, "PEN", { ...dependencies(), resolveCost: async () => ok(value) }))
+  expect(await resolveDeliverySelection(selection, context, "PEN", { ...dependencies(), resolveShippingCost: async () => ok(value) }))
     .toMatchObject({ success: false, error: { code } });
 });
 
@@ -70,12 +70,12 @@ test("rejects partial recipients, forged authority and legacy snapshots while pr
 
 test("home requires its enabled flag and snapshots typed destination with optional instructions and seller authority", async () => {
   const home = { method: "home" as const, recipient, destination: { address: " Calle 123 ", district: " Lima ", instructions: null } };
-  const resolveCost = vi.fn(dependencies().resolveCost);
-  expect(await resolveDeliverySelection(home, context, "PEN", { ...dependencies(), resolveCost }))
+  const resolveShippingCost = vi.fn(dependencies().resolveShippingCost);
+  expect(await resolveDeliverySelection(home, context, "PEN", { ...dependencies(), resolveShippingCost }))
     .toMatchObject({ success: false, error: { code: "DELIVERY_METHOD_DISABLED" } });
-  expect(resolveCost).not.toHaveBeenCalled();
+  expect(resolveShippingCost).not.toHaveBeenCalled();
   const result = await resolveDeliverySelection(home, context, "PEN", {
-    getSettings: async () => ok({ ...settings, agency: { enabled: false }, couriers: [], home: { enabled: true } }), resolveCost,
+    getSettings: async () => ok({ ...settings, agency: { enabled: false }, couriers: [], home: { enabled: true } }), resolveShippingCost,
   });
   expect(result).toEqual(ok({ delivery: { method: "home", recipient, destination: { address: "Calle 123", district: "Lima", instructions: null },
     recordedBy: { kind: "seller", userId: context.userId } }, cost }));
@@ -93,17 +93,17 @@ test("agency snapshots the configured active courier and document; unknown and i
   const id = "00000000-0000-4000-8000-000000000003" as CourierId;
   const agency = { method: "agency" as const, courierId: id, agency: " Office Lima ", recipient: { ...recipient, identity: { kind: "document" as const, documentType: "passport" as const, document: "00-A-001" } } };
   const courier = { id, name: "Courier", enabled: true };
-  const resolveCost = vi.fn(dependencies().resolveCost);
-  const deps = { getSettings: async () => ok({ ...settings, agency: { enabled: true }, couriers: [courier] }), resolveCost };
+  const resolveShippingCost = vi.fn(dependencies().resolveShippingCost);
+  const deps = { getSettings: async () => ok({ ...settings, agency: { enabled: true }, couriers: [courier] }), resolveShippingCost };
   const assigned = await resolveDeliverySelection(agency, context, "PEN", deps);
   expect(assigned).toEqual(ok({ delivery: { method: "agency", recipient: agency.recipient, agency: "Office Lima", courier: { id, name: "Courier" }, recordedBy: { kind: "seller", userId: context.userId } }, cost }));
   courier.name = "Renamed";
   courier.enabled = false;
   expect(assigned).toMatchObject({ data: { delivery: { courier: { name: "Courier" } } } });
-  resolveCost.mockClear();
+  resolveShippingCost.mockClear();
   for (const courierId of [id, "00000000-0000-4000-8000-000000000004" as CourierId]) {
     expect(await resolveDeliverySelection({ ...agency, courierId }, context, "PEN", deps)).toMatchObject({ success: false, error: { code: "COURIER_UNAVAILABLE" } });
   }
-  expect(resolveCost).not.toHaveBeenCalled();
+  expect(resolveShippingCost).not.toHaveBeenCalled();
   expect(parseDeliverySelection({ ...agency, recipient }).success).toBe(false);
 });

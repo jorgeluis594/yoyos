@@ -6,7 +6,7 @@ import type { ResolveDeliveryDependencies } from "@core/src/features/orders/appl
 import { log } from "@core/src/shared/infrastructure/logger";
 import { createEventBusRuntime } from "@core/src/composition/event-bus";
 
-export async function startServer(resolveDeliveryCost?: ResolveDeliveryDependencies["resolveCost"]) {
+export async function startServer(resolveDeliveryCost?: ResolveDeliveryDependencies["resolveShippingCost"]) {
   const port = Number(process.env.PORT ?? 3000);
   const build = await import(new URL("../build/server/index.js", import.meta.url).href);
   const { provider } = createEventBusRuntime();

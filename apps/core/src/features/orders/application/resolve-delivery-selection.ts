@@ -8,7 +8,7 @@ import type { SetDeliveryError } from "@core/src/features/orders/application/set
 
 export type ResolveDeliveryDependencies = Readonly<{
   getSettings: (context: OrderAccess) => Promise<Result<DeliverySettings, SetDeliveryError>>;
-  resolveCost: (delivery: DeliverySnapshot, context: OrderAccess, currency: Currency) => Promise<Result<Money, SetDeliveryError>>;
+  resolveShippingCost: (delivery: DeliverySnapshot, context: OrderAccess, currency: Currency) => Promise<Result<Money, SetDeliveryError>>;
 }>;
 
 export async function resolveDeliverySelection(input: DeliverySelection, context: OrderAccess, currency: Currency,
@@ -29,7 +29,7 @@ export async function resolveDeliverySelection(input: DeliverySelection, context
     ...(delivery.method === "store" ? { pickupPoint: found.data.store.pickupPoint } : {}),
     recordedBy: { kind: "seller", userId: context.userId } });
   if (!snapshot.success) return snapshot;
-  const cost = await deps.resolveCost(snapshot.data, context, currency);
+  const cost = await deps.resolveShippingCost(snapshot.data, context, currency);
   if (!cost.success) return cost;
   const validatedCost = validateDeliveryCost(cost.data, currency);
   return validatedCost.success ? ok({ delivery: snapshot.data, cost: validatedCost.data }) : validatedCost;

@@ -61,7 +61,7 @@ const fulfillmentDependencies: FulfillOrderDependencies = { transaction: fulfill
   saveFulfillment, clock: () => new Date() };
 
 export async function setConfiguredOrderDelivery(input: SetDeliveryInput, context: OrderAccess,
-  resolveCost: ResolveDeliveryDependencies["resolveCost"] = async () => err({ code: "DELIVERY_UNAVAILABLE", reason: "resolver_not_integrated", message: "Delivery cost resolver is not integrated" })) {
+  resolveShippingCost: ResolveDeliveryDependencies["resolveShippingCost"] = async () => err({ code: "DELIVERY_UNAVAILABLE", reason: "resolver_not_integrated", message: "Delivery cost resolver is not integrated" })) {
   const started = performance.now();
   const observed: { previous: OrderAggregate | null; settingsVersion?: number; courierId?: string; stage: string } = { previous: null, stage: "lock_order" };
   const result = await setOrderDelivery(input, context, {
@@ -83,9 +83,9 @@ export async function setConfiguredOrderDelivery(input: SetDeliveryInput, contex
           if (settings.success) observed.settingsVersion = settings.data.version;
           return settings;
         },
-        resolveCost: async (snapshot, authorized, orderCurrency) => {
+        resolveShippingCost: async (snapshot, authorized, orderCurrency) => {
           try {
-            const resolved = await resolveCost(snapshot, authorized, orderCurrency);
+            const resolved = await resolveShippingCost(snapshot, authorized, orderCurrency);
             if (resolved.success) {
               const valid = validateDeliveryCost(resolved.data, orderCurrency);
               if (!valid.success) log.error({ event: "order_delivery_resolution_invalid", operation: "set_order_delivery", orderId: input.orderId,
@@ -124,11 +124,11 @@ export async function setConfiguredOrderDelivery(input: SetDeliveryInput, contex
 }
 
 export function createConfiguredOrder(input: CreateCompleteOrderInput, context: OrderAccess,
-  resolveCost?: ResolveDeliveryDependencies["resolveCost"]): Promise<Result<OrderAggregate, CreateCompleteOrderError>> {
+  resolveShippingCost?: ResolveDeliveryDependencies["resolveShippingCost"]): Promise<Result<OrderAggregate, CreateCompleteOrderError>> {
   return createCompleteOrder(input, context, {
     transaction: scopedOrderTransaction,
     create: orders.create,
-    setDelivery: (delivery, access) => setConfiguredOrderDelivery(delivery, access, resolveCost),
+    setDelivery: (delivery, access) => setConfiguredOrderDelivery(delivery, access, resolveShippingCost),
     registerPayment: (payment, access) => registerPayment(payment, access, { transaction: paymentTransaction,
       findOrderForUpdate, savePayment, updatePayment, saveCompletion, deductProductStock, saveStockDeduction, clock: () => new Date() }),
     deliver: orders.deliver,
