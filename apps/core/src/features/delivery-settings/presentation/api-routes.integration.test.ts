@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, expect, test } from "vitest";
 import { err, ok } from "@shared/functional";
 import { createDeliverySettingsApi } from "@mobile/features/delivery-settings/infrastructure/delivery-settings-api";
+import { createQuotationApi } from "@mobile/features/delivery-settings/infrastructure/quotation-api";
 import { deliverySettingsSchema, deliveryZonesSchema } from "@shared/contracts/delivery-settings";
 import { app } from "@core/src/app";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
@@ -268,4 +269,37 @@ test("mobile zone adapter consumes real authenticated saves and preserves confli
   expect(await api.saveZones({ ...input, expectedVersion: 1, zones: [{ ...input.zones[0], districtCodes: ["000000"] }] }))
     .toMatchObject({ error: { code: "INVALID_DELIVERY_ZONE", field: "districtCodes", index: 0 } });
   expect(await api.getZones()).toEqual(saved);
+});
+
+test("mobile seller quotation adapter consumes overlapping real rates, empty coverage and new IDs per request", async () => {
+  const seller = await fixture();
+  expect((await request("/api/delivery-settings", seller.cookie, { expectedVersion: 0, home: { enabled: true },
+    agency: { enabled: true }, couriers: [{ kind: "new", name: "Courier", enabled: true }],
+    store: { enabled: false, pickupPoint: null } }, "PUT")).status).toBe(200);
+  const zone = { kind: "new", enabled: true, districtCodes: ["150122"], price: { amount: 8, currency: "PEN" } };
+  expect((await request("/api/delivery-settings/zones", seller.cookie, { expectedVersion: 1, method: "home",
+    zones: [{ ...zone, name: "First" }, { ...zone, name: "Second" }] }, "PUT")).status).toBe(200);
+  expect((await request("/api/delivery-settings/zones", seller.cookie, { expectedVersion: 2, method: "agency",
+    zones: [{ ...zone, name: "Free agency", price: { amount: 0, currency: "PEN" } }] }, "PUT")).status).toBe(200);
+  const api = createQuotationApi(async (path, init) => {
+    const response = await fetch(base + path, { ...init, headers: { origin, cookie: seller.cookie, ...init?.headers } });
+    const body: unknown = await response.json();
+    return response.ok ? ok(body) : err({ code: "API_ERROR", message: "Request failed", http: { status: response.status, body } });
+  });
+  const first = await api("150122");
+  expect(first.success).toBe(true);
+  if (!first.success) throw new Error("Expected quotation");
+  expect(first.data.rates.filter(rate => rate.method === "home").map(rate => rate.price.amount)).toEqual([8, 8]);
+  expect(first.data.rates.filter(rate => rate.method === "agency").map(rate => rate.price.amount)).toEqual([0]);
+  const second = await api("150122");
+  expect(second.success).toBe(true);
+  if (!second.success) throw new Error("Expected repeated quotation");
+  expect(second.data.id).not.toBe(first.data.id);
+  expect(second.data.rates.every(rate => !first.data.rates.some(previous => previous.id === rate.id))).toBe(true);
+  expect(await api("040110")).toMatchObject({ success: true, data: { districtCode: "040110", rates: [] } });
+  await withTenantIsolation(seller.companyId ?? "", async () => {
+    expect(await prisma.quotation.count()).toBe(3);
+    expect(await prisma.deliveryRate.count()).toBe(6);
+    expect(await prisma.companyDeliverySettings.findUnique({ where: { companyId: seller.companyId ?? "" } })).toMatchObject({ version: 3 });
+  });
 });
