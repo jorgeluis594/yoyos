@@ -129,3 +129,86 @@ test("a deferred commit failure rolls back contact, chat and message", async () 
     await f.cleanup();
   }
 });
+
+test("sequential and concurrent repeats preserve the first committed message", async () => {
+  const f = await fixture();
+  try {
+    const first = message(f.companyId, "repeat", { type: "image", caption: "first", mimeType: "image/png", size: 9 });
+    const stored = await storeOnce(first);
+    expect(stored).toMatchObject({ success: true, data: { created: true } });
+    const repeat = message(f.companyId, "repeat", { type: "text", text: "changed" }, "outgoing", "other-uploader");
+    expect(await storeOnce(repeat)).toEqual({ success: true, data: { created: false, message: stored.success ? stored.data.message : undefined } });
+    const escaped = `wa-message:v1:${Buffer.from('["123\\u0040lid","456@lid","repeat"]').toString("base64url")}`;
+    expect(await storeOnce(message(f.companyId, "repeat", { type: "text", text: "escaped" }, "incoming", "third", escaped)))
+      .toEqual({ success: true, data: { created: false, message: stored.success ? stored.data.message : undefined } });
+
+    const race = await Promise.all(Array.from({ length: 12 }, (_, index) => storeOnce(message(f.companyId, "race", { type: "text", text: `value ${index}` }, "incoming", `uploader ${index}`))));
+    expect(race.every((result) => result.success)).toBe(true);
+    expect(race.filter((result) => result.success && result.data.created)).toHaveLength(1);
+    const ids = race.map((result) => result.success && result.data.message.id);
+    expect(new Set(ids).size).toBe(1);
+    const winners = race.filter((result) => result.success).map((result) => result.data.message);
+    expect(winners.every((winner) => JSON.stringify(winner) === JSON.stringify(winners[0]))).toBe(true);
+    await withTenantIsolation(f.companyId, async () => {
+      expect(await prisma.contact.count({ where: { companyId: f.companyId } })).toBe(1);
+      expect(await prisma.chat.count({ where: { companyId: f.companyId } })).toBe(1);
+      expect(await prisma.chatMessage.count({ where: { companyId: f.companyId } })).toBe(2);
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("account, chat, protocol and company identify independent messages; uploader does not", async () => {
+  const a = await fixture();
+  const b = await fixture();
+  try {
+    const make = (companyId: string, account: string, remote: string, protocol: string) => {
+      const parsed = parseMobileMessage({ version: 1, message: { id: nativeId(account, remote, protocol), accountId: account,
+        chatId: remote, whatsappMessageId: protocol, direction: "incoming", timestamp: 1791417600123,
+        content: { type: "text", text: "identity" } } });
+      expect(parsed).not.toBeNull();
+      return { ...parsed!, id: randomUUID() as NewMobileMessage["id"], companyId: companyId as NewMobileMessage["companyId"],
+        uploadedByUserId: "original", receivedAt: new Date("2026-10-08T12:00:00.456Z") };
+    };
+    const inputs = [make(a.companyId, "123@lid", "456@lid", "same"), make(a.companyId, "789@lid", "456@lid", "same"),
+      make(a.companyId, "123@lid", "999@lid", "same"), make(a.companyId, "123@lid", "456@lid", "different"),
+      make(b.companyId, "123@lid", "456@lid", "same")];
+    const outcomes = await Promise.all(inputs.map(storeOnce));
+    expect(outcomes.every((result) => result.success && result.data.created)).toBe(true);
+    expect(new Set(outcomes.map((result) => result.success && result.data.message.id)).size).toBe(5);
+    expect(await storeOnce({ ...inputs[0], id: randomUUID() as NewMobileMessage["id"], uploadedByUserId: "different" }))
+      .toMatchObject({ success: true, data: { created: false, message: { id: outcomes[0].success ? outcomes[0].data.message.id : "" } } });
+    await withTenantIsolation(a.companyId, async () => {
+      expect(await prisma.contact.count({ where: { companyId: a.companyId } })).toBe(3);
+      expect(await prisma.chat.count({ where: { companyId: a.companyId } })).toBe(3);
+      expect(await prisma.chatMessage.count({ where: { companyId: a.companyId } })).toBe(4);
+    });
+    await withTenantIsolation(b.companyId, async () => expect(await prisma.chatMessage.count({ where: { companyId: b.companyId } })).toBe(1));
+  } finally { await a.cleanup(); await b.cleanup(); }
+});
+
+test("Cloud API and mobile may share an externalId without capturing each other's lookup", async () => {
+  const f = await fixture();
+  try {
+    const input = message(f.companyId, "coexist", { type: "text", text: "mobile" });
+    expect((await storeOnce(input)).success).toBe(true);
+    const { recordMessage } = await import("@core/src/features/chats/application/record-message");
+    const { ensureContact } = await import("@core/src/features/contacts/application/ensure-contact");
+    const { contactRepository } = await import("@core/src/features/contacts/infrastructure/contact-repository");
+    const { chatRepository } = await import("@core/src/features/chats/infrastructure/chat-repository");
+    const { withinTransaction } = await import("@core/src/shared/infrastructure/persistance");
+    const recordCloud = () => withTenantIsolation(f.companyId, () => recordMessage({ externalId: input.externalId,
+      contactPhone: "+51912345678", contactName: null, origin: { direction: "incoming", source: "contact" },
+      sentAt: input.sentAt, receivedAt: input.receivedAt, content: { type: "text", text: "cloud" },
+    }, { ensureContact: (contact) => ensureContact(contact, contactRepository), chats: chatRepository,
+      transaction: withinTransaction, storeImage: async () => { throw new Error("No image expected"); } }));
+    const cloud = await recordCloud();
+    expect(cloud).toMatchObject({ success: true, data: { status: "stored" } });
+    expect(await recordCloud()).toEqual({ success: true, data: { status: "duplicate", messageId: cloud.success ? cloud.data.messageId : "" } });
+    expect(await storeOnce({ ...input, id: randomUUID() as NewMobileMessage["id"] })).toMatchObject({
+      success: true, data: { created: false, message: { id: input.id, content: { type: "text", text: "mobile" } } },
+    });
+    await withTenantIsolation(f.companyId, async () => {
+      expect(await prisma.chatMessage.count({ where: { companyId: f.companyId, externalId: input.externalId } })).toBe(2);
+    });
+  } finally { await f.cleanup(); }
+});
