@@ -112,7 +112,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [macos-15, macos-15-intel]
+        runner: [macos-26, macos-26-intel]
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
@@ -129,7 +129,7 @@ jobs:
           cache-dependency-path: apps/mobile/modules/whatsapp/go/go.sum
       - name: Select full Xcode
         run: |
-          sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer
+          sudo xcode-select -s /Applications/Xcode_26.4.1.app/Contents/Developer
           xcodebuild -version
           pod --version
       - run: pnpm --dir apps/mobile install --frozen-lockfile
