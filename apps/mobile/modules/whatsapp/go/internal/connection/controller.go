@@ -45,7 +45,10 @@ type Transport interface {
 	Run(context.Context, chan<- TransportEvent) error
 	Stop()
 }
-type RunError struct{ Retry bool }
+type RunError struct {
+	Retry bool
+	Code  Code
+}
 
 func (e RunError) Error() string { return "connection attempt failed" }
 
@@ -319,6 +322,11 @@ func (c *Controller) run(ctx context.Context, generation uint64, transport Trans
 				c.setState(SessionExpired)
 				c.publish(Event{Error: SessionExpiredError})
 			case "localFailure":
+				if item.Error == RecoveryBufferFull {
+					c.mu.Unlock()
+					c.PauseForCapacity()
+					return
+				}
 				c.retireLocked()
 				c.localFault = item.Error
 				c.publish(Event{Error: item.Error})
@@ -341,6 +349,14 @@ func (c *Controller) run(ctx context.Context, generation uint64, transport Trans
 			var classified RunError
 			retry := !awaiting
 			if errors.As(runErr, &classified) {
+				if classified.Code == RecoveryBufferFull {
+					c.PauseForCapacity()
+					return
+				}
+				if classified.Code != "" {
+					c.FailLocal(classified.Code)
+					return
+				}
 				retry = classified.Retry
 			}
 			c.finish(generation, ConnectionFailed, retry)

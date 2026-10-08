@@ -14,16 +14,26 @@ import (
 
 // NewWhatsmeowTransport uses the pinned client with a device whose stores and
 // generation have already been authorized by the native storage controller.
-func NewWhatsmeowTransport(device *store.Device) Transport {
+func NewWhatsmeowTransport(device *store.Device, localFailure func() Code) Transport {
 	client := whatsmeow.NewClient(device, nil)
 	client.EnableAutoReconnect = false
 	client.InitialAutoReconnect = false
 	client.DisableLoginAutoReconnect = true
 	client.UseRetryMessageStore = false
-	return &whatsmeowTransport{client: client}
+	return &whatsmeowTransport{client: client, localFailure: localFailure}
 }
 
-type whatsmeowTransport struct{ client *whatsmeow.Client }
+type whatsmeowTransport struct {
+	client       *whatsmeow.Client
+	localFailure func() Code
+}
+
+func (t *whatsmeowTransport) stopped() Code {
+	if t.localFailure != nil {
+		return t.localFailure()
+	}
+	return ""
+}
 
 func (t *whatsmeowTransport) Stop() { t.client.Disconnect() }
 func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent) error {
@@ -31,6 +41,13 @@ func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent)
 	handler := client.AddEventHandler(func(event any) {
 		kind := classify(event)
 		if kind == "" {
+			return
+		}
+		if code := t.stopped(); code != "" {
+			select {
+			case out <- TransportEvent{Kind: "localFailure", Error: code}:
+			case <-ctx.Done():
+			}
 			return
 		}
 		select {
@@ -55,6 +72,9 @@ func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent)
 			return ctx.Err()
 		case err := <-connectDone:
 			if err != nil {
+				if code := t.stopped(); code != "" {
+					return RunError{Code: code}
+				}
 				var network net.Error
 				return RunError{Retry: errors.Is(err, socket.ErrDialFailed) || errors.As(err, &network)}
 			}
@@ -80,6 +100,9 @@ func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent)
 					return ctx.Err()
 				}
 			default:
+				if code := t.stopped(); code != "" {
+					return RunError{Code: code}
+				}
 				return RunError{Retry: false}
 			}
 		}
