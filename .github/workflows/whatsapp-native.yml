@@ -178,6 +178,23 @@ jobs:
           set -o pipefail
           xcodebuild -workspace WhatsAppNativeProbe.xcworkspace -scheme WhatsAppStateStoreHostTests \
             -configuration Release -derivedDataPath "$RUNNER_TEMP/wa-host" \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" CODE_SIGN_IDENTITY=- \
+            -showBuildSettings -json > "$RUNNER_TEMP/wa-host-build-settings.json"
+          python3 - "$RUNNER_TEMP/wa-host-build-settings.json" <<'PY'
+          import json, sys
+          from pathlib import PurePosixPath
+          name = 'WhatsAppStateStoreHostTests'
+          rows = [row for row in json.load(open(sys.argv[1])) if row.get('target') == name]
+          assert len(rows) == 1, f'Expected one {name} target, found {len(rows)}'
+          settings = rows[0]['buildSettings']
+          for key, expected in {'PRODUCT_NAME': name, 'EXECUTABLE_NAME': name,
+                                'FULL_PRODUCT_NAME': name + '.xctest'}.items():
+              assert settings.get(key) == expected, f'{key}: {settings.get(key)!r}'
+          path = PurePosixPath(settings.get('EXECUTABLE_PATH', ''))
+          assert path.parts[-2:] == (name + '.xctest', name), f'Invalid EXECUTABLE_PATH: {path}'
+          PY
+          xcodebuild -workspace WhatsAppNativeProbe.xcworkspace -scheme WhatsAppStateStoreHostTests \
+            -configuration Release -derivedDataPath "$RUNNER_TEMP/wa-host" \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" CODE_SIGN_IDENTITY=- build-for-testing
           app="$RUNNER_TEMP/wa-host/Build/Products/Release-iphonesimulator/WhatsAppNativeProbe.app"
           xcrun otool -arch arm64 -s __TEXT __entitlements "$app/WhatsAppNativeProbe" > "$RUNNER_TEMP/wa-host-simulated-entitlements.txt"
