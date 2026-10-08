@@ -334,7 +334,7 @@ test("seller ships then delivers and sees an updated state after each operation"
   await screen.findByText("Pedido marcado como enviado.");
   expect(screen.getByText("Pago cubierto")).toBeTruthy();
   expect(screen.getByText("Despachado")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Marcar enviado" })).toBeDisabled();
+  expect(screen.queryByRole("button", { name: "Marcar enviado" })).toBeNull();
   fireEvent.press(screen.getByRole("button", { name: "Marcar entregado" }));
   await screen.findByText("Pedido marcado como entregado.");
   expect(screen.getByText("Venta completada")).toBeTruthy();
@@ -357,11 +357,15 @@ test.each([
     expect(screen.queryByRole("button", { name: "Marcar entregado" })).toBeNull();
     return;
   }
-  await screen.findAllByText(reason);
+  if (state.deliveryStatus === "delivered") {
+    await screen.findByText("Entregado");
+    expect(screen.queryByText(reason)).toBeNull();
+  } else {
+    await screen.findByText(reason);
+    expect(screen.getAllByText(reason)).toHaveLength(1);
+  }
   for (const name of ["Marcar enviado", "Marcar entregado"]) {
-    const button = screen.getByRole("button", { name });
-    expect(button).toBeDisabled();
-    fireEvent.press(button);
+    expect(screen.queryByRole("button", { name })).toBeNull();
   }
   expect(mockShip).not.toHaveBeenCalled();
   expect(mockDeliver).not.toHaveBeenCalled();
