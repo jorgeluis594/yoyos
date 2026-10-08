@@ -1,11 +1,15 @@
 #!/bin/sh
 set -eu
+module_dir=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 
 if ! timeout 15m ./gradlew :yoyos-whatsapp:connectedDebugAndroidTest; then
   adb logcat -d -t 500
   exit 1
 fi
 
+test_apk=$(find "$module_dir/android/build/outputs/apk/androidTest" -type f -name '*.apk' -print -quit)
+test -n "$test_apk"
+adb install -r "$test_apk"
 instrumentation=$(adb shell pm list instrumentation | sed -n '/AndroidJUnitRunner/ s/^instrumentation:\([^ ]*\).*/\1/p' | head -1 | tr -d '\r')
 test -n "$instrumentation"
 run_id="$(date +%s)-$$"

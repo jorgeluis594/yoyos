@@ -15,9 +15,14 @@ cat > "$test_dir/gradlew" <<'EOF'
 #!/bin/sh
 test "${MOCK_GRADLE_FAIL:-0}" != 1
 EOF
+cat > "$test_dir/bin/find" <<'EOF'
+#!/bin/sh
+echo /tmp/mock-androidTest.apk
+EOF
 cat > "$test_dir/bin/adb" <<'EOF'
 #!/bin/sh
 case "$*" in
+  'install -r /tmp/mock-androidTest.apk') ;;
   'shell pm list instrumentation') echo 'instrumentation:expo.modules.whatsapp.test/androidx.test.runner.AndroidJUnitRunner (target=expo.modules.whatsapp)' ;;
   *crashAtPublicationBoundary*)
     if test "${MOCK_CRASH_SUCCESS:-0}" = 1; then echo 'OK (1 test)'; else echo 'INSTRUMENTATION_RESULT: shortMsg=Process crashed.'; fi ;;
@@ -31,7 +36,7 @@ cat > "$test_dir/bin/sleep" <<'EOF'
 #!/bin/sh
 exit 0
 EOF
-chmod +x "$test_dir/bin/timeout" "$test_dir/bin/adb" "$test_dir/bin/sleep" "$test_dir/gradlew"
+chmod +x "$test_dir/bin/timeout" "$test_dir/bin/find" "$test_dir/bin/adb" "$test_dir/bin/sleep" "$test_dir/gradlew"
 
 (
   cd "$test_dir"
