@@ -3,7 +3,9 @@ import Foundation
 import Security
 import CryptoKit
 import Darwin
+#if !WA02_APP_HOSTED
 @testable import WhatsAppStateStore
+#endif
 
 final class StateStoreTests: XCTestCase {
   private func persistCrashMarker(_ value: String, at url: URL) throws {
