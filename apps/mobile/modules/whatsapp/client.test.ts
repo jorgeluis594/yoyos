@@ -101,3 +101,12 @@ test("drops stale queued replay and rejects malformed events", async () => {
   native.handlers.get("messageReceived")?.({ deliveryId: "bad", message: {} });
   expect(error).toHaveBeenCalledWith({ code: "INVALID_NATIVE_RESPONSE", message: "Invalid WhatsApp native response" });
 });
+
+test("remote logout uncertainty still permits a new explicit link request", async () => {
+  const native = fakeNative();
+  const client = createWhatsAppClient(() => native);
+  await client.initialize();
+  native.logout.mockResolvedValueOnce({ success: false, error: { code: "REMOTE_LOGOUT_UNCONFIRMED" } });
+  expect(await client.logout()).toMatchObject({ success: false, error: { code: "REMOTE_LOGOUT_UNCONFIRMED" } });
+  expect(await client.connect()).toEqual({ success: true, data: undefined });
+});

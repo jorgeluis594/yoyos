@@ -11,7 +11,7 @@ const messageId = z.string().regex(/^wa-message:v1:[A-Za-z0-9_-]+$/);
 const imageReference = z.object({ messageId, downloadReference: z.string().max(16384).regex(/^wa-image:v1:[A-Za-z0-9_-]+$/) }).strict();
 const message = z.object({
   id: messageId, accountId: z.string().regex(/^[0-9]+@lid$/), whatsappMessageId: z.string().min(1), chatId: z.string().regex(/^[0-9]+@lid$/),
-  direction: z.enum(["incoming", "outgoing"]), timestamp: z.number().int().nonnegative(), text: z.string().optional(),
+  direction: z.enum(["incoming", "outgoing"]), timestamp: z.number().int().nonnegative().safe(), text: z.string().optional(),
   image: z.object({ mimeType: z.string().min(1).optional(), size: z.number().int().nonnegative().optional(), reference: imageReference }).strict().optional(),
 }).strict();
 const eventSchemas = {
@@ -144,7 +144,11 @@ export function createWhatsAppClient(resolveNative: () => NativeWhatsApp | null 
     if (method === "connect" && sessionInvalid) return failureResult("SESSION_STATE_INVALID");
     if (!prepared && !(method !== "connect" && localReady)) return failureResult("NOT_INITIALIZED");
     const result = await call(method, [], empty);
-    if (result.success && method === "logout") { prepared = localReady = true; sessionInvalid = false; receive("connectionChanged", { state: "disconnected" }); }
+    if (method === "logout" && (result.success || result.error.code === "REMOTE_LOGOUT_UNCONFIRMED")) {
+      prepared = localReady = true;
+      sessionInvalid = false;
+      receive("connectionChanged", { state: "disconnected" });
+    }
     return result;
   }
   return {
@@ -177,7 +181,7 @@ export function createWhatsAppClient(resolveNative: () => NativeWhatsApp | null 
         if (!set.has(listener)) return;
         if (event === "connectionChanged" && current !== state) return;
         if (event === "qr" && (current !== qr || state?.state !== "awaitingQr" || qr.expiresAt <= now())) return;
-        listener(current as WhatsAppEvents[E]);
+        try { listener(current as WhatsAppEvents[E]); } catch { /* Listener failure cannot affect another subscription. */ }
       });
       return { remove: () => { set.delete(listener); } };
     },
