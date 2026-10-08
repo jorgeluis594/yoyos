@@ -215,7 +215,6 @@ export default function ProductManagementScreen() {
           <SymbolView name={{ ios: "printer", android: "print" }} size={24} tintColor={theme.secondaryForeground} />
         </Pressable> : null}
       </View>
-      <ThemedText themeColor="textSecondary">{t('currencyLabel', { currency: product.currency })}</ThemedText>
     </View>
     {dirty ? <ThemedText themeColor="textSecondary" style={styles.printNote}>{t('printSavedDataHint')}</ThemedText> : null}
     <ProductForm
@@ -253,7 +252,7 @@ export default function ProductManagementScreen() {
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1 }, safe: { flex: 1 }, header: { paddingHorizontal: 20, paddingTop: 8, gap: 4 },
+  page: { flex: 1 }, safe: { flex: 1 }, header: { minHeight: 52, justifyContent: "center", paddingHorizontal: 16 },
   heading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   title: { flexShrink: 1 }, printAction: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
   printNote: { paddingHorizontal: 20, paddingTop: 8 },

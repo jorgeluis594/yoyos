@@ -76,7 +76,7 @@ export default function CreateProductScreen() {
   };
 
   return <ThemedView style={styles.page}><SafeAreaView style={styles.safe}>
-    <View style={styles.header}><ThemedText type="subtitle">{t('newProduct')}</ThemedText><ThemedText themeColor="textSecondary">{t('currencyLabel', { currency: countryCurrencies[state.company.country] })}</ThemedText></View>
+    <View style={styles.header}><ThemedText type="subtitle">{t('newProduct')}</ThemedText></View>
     <ProductForm
       values={values}
       setValue={setValue}
@@ -96,4 +96,4 @@ export default function CreateProductScreen() {
   </SafeAreaView></ThemedView>;
 }
 
-const styles = StyleSheet.create({ page: { flex: 1 }, safe: { flex: 1 }, header: { paddingHorizontal: 20, paddingTop: 8, gap: 4 } });
+const styles = StyleSheet.create({ page: { flex: 1 }, safe: { flex: 1 }, header: { minHeight: 52, justifyContent: "center", paddingHorizontal: 16 } });
