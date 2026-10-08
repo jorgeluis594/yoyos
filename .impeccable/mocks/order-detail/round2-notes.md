@@ -17,3 +17,11 @@ La confirmación del comprador mantiene generación del enlace, copia, URL selec
 Límites detectados del raster: A añadió miniaturas de producto fuera de alcance; se conservarían filas de texto existentes. B generó el subtítulo Sin pagos registrados en un ejemplo pagado: no se debe literalizar, se usa el historial real. C conserva Ver desglose con el desglose abierto: ajustar etiqueta/chevron al estado real, sin duplicación. Son decisiones de composición, no datos nuevos ni cambios de reglas.
 
 La fase de propuestas se realizó sin cambios de código, pruebas, QA exhaustivo ni acceso al celular. Evidencia anterior intacta.
+
+## Aclaración funcional del usuario — datos manuales de entrega
+
+Regla común a A, B y C: asignar o editar datos de entrega NO exige pago. En pedidos activos, no cancelados y con entrega pendiente, Asignar/Editar permanece disponible incluso sin pago o con pago parcial. Se conservan los bloqueos transitorios por operación/recuperación y las validaciones del formulario. Los tres raster ya muestran Asignar en el estado sin pago; Editar debe conservar la misma disponibilidad cuando existen datos. No se regeneran imágenes ni se altera su prompt de procedencia.
+
+La acción manual queda junto a los datos, separada de marcar enviado/entregado. El motivo de pago se refiere exclusivamente a estas dos operaciones de cumplimiento, cuyas guardas de pago completo, stock y estado no cambian.
+
+Lectura de código: canEditDelivery en order-detail-screen.tsx:219 no consulta pago; order-delivery-screen.tsx:61 tampoco lo utiliza para bloquear el formulario; save conserva solo bloqueos de operación, estado, selección y cotización. canSetDelivery en order-state-machine.ts:251 y setOrderDelivery en application/set-delivery.ts:33 permiten la edición pendiente sin exigir pago. No se encontró un bloqueo indebido por pago. Verificación solo por lectura, sin tests ni QA.

@@ -16,5 +16,18 @@
   ],
   "renderCaveats": [
     "Generated paid-state subtitle Sin pagos registrados is inconsistent; use actual payment history."
-  ]
+  ],
+  "functionalClarification": {
+    "source": "Explicit user clarification, 2026-10-08",
+    "manualDeliveryData": "Assigning or editing delivery data does not require payment. Keep the action available for active, non-cancelled orders with pending delivery, including unpaid and partially paid orders. Existing busy/recovery locks and data validation remain.",
+    "fulfillment": "Marking shipped or delivered is a separate operation. Preserve current full-payment, stock and state guards; do not infer rule changes from permission to edit data.",
+    "presentation": "Keep Asignar/Editar beside delivery data, separate from fulfillment actions and their payment explanation. All three existing raster proposals already show Asignar in the unpaid example; apply the same availability to Editar when data exists.",
+    "evidence": [
+      "apps/mobile/src/features/orders/presentation/order-detail-screen.tsx:219",
+      "apps/mobile/src/features/orders/presentation/order-delivery-screen.tsx:61",
+      "apps/core/src/features/orders/domain/order-state-machine.ts:251",
+      "apps/core/src/features/orders/application/set-delivery.ts:33"
+    ],
+    "verification": "Source inspection only; no tests or native QA performed for this clarification."
+  }
 }
