@@ -9,7 +9,6 @@ import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { expect, test, vi } from "vitest";
 import { ok, err } from "@shared/functional";
-import type { Currency } from "@shared/money";
 import { orders, setConfiguredOrderDelivery, createConfiguredOrder } from "@core/src/features/orders/composition";
 import { prisma, systemPrisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
@@ -641,21 +640,30 @@ test("rolls back earlier stock deductions and the configured snapshot when a lat
       const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
       const orderId = randomUUID() as OrderId;
       const [first, second] = [...f.variantIds].sort();
-      expect(await deliverySettings.save({ expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: true,
+      expect(await deliverySettings.save({ expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: true }, store: { enabled: true,
         pickupPoint: { name: "Store", address: "Original", instructions: null } } }, context)).toMatchObject({ success: true });
+      expect(await deliverySettings.saveZones({ method: "home", expectedVersion: 1, zones: [{ kind: "new", name: "Paid delivery", enabled: true,
+        districtCodes: ["150122"], price: { amount: 1, currency: "PEN" } }] }, context)).toMatchObject({ success: true });
+      const quote = await deliverySettings.createQuotation({ companyId: f.companyId, country: "PE", districtCode: "150122", address: null, instructions: null });
+      if (!quote.success || !quote.data.rates[0]) throw new Error("Missing paid delivery rate");
+      const recipient = { name: "Ana", phone: "999", identity: { kind: "absent" as const } };
+      const home = parseRatedDeliverySelection({ method: "home", rateId: quote.data.rates[0].id, recipient,
+        destination: { address: "Original", districtCode: "150122", instructions: null } });
+      const store = parseRatedDeliverySelection({ method: "store", recipient });
+      if (!home.success || !store.success) throw new Error("Invalid delivery fixture");
       expect(await orders.create({ id: orderId, contactId: null, items: [
         { variantId: first as VariantId, quantity: 2 as PositiveInteger },
         { variantId: second as VariantId, quantity: 4 as PositiveInteger },
       ] }, context)).toMatchObject({ success: true });
-      const input = { orderId, delivery: { method: "store" as const, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } } }, chargeDeliveryToCustomer: true };
-      const cost = async (_selection: unknown, _context: unknown, currency: Currency) => ok({ amount: 1, currency });
-      expect(await setConfiguredOrderDelivery(input, context, cost)).toMatchObject({ success: true });
+      expect(await orders.setDelivery({ orderId, delivery: home.data, expectedPrice: { amount: 1, currency: "PEN" } }, context))
+        .toMatchObject({ success: true, data: { deliveryCost: { amount: 1 }, deliveryCharge: { amount: 1 } } });
+      const input = { orderId, delivery: store.data, expectedPrice: { amount: 0, currency: "PEN" as const } };
       const before = await orderDetail(orderId, f);
       if (!before.success) throw new Error("Expected order");
       expect(await orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId,
         amount: before.data.itemsTotal, method: "digital_wallet", deductStockIfPartial: false }, context)).toMatchObject({ success: true });
       const paid = await orderDetail(orderId, f);
-      expect(await setConfiguredOrderDelivery({ ...input, chargeDeliveryToCustomer: false }, context, cost))
+      expect(await orders.setDelivery(input, context))
         .toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK", variantId: second } });
       expect(await orderDetail(orderId, f)).toEqual(paid);
       expect((await prisma.productStock.findMany({ orderBy: { variantId: "asc" } })).map(row => row.quantity)).toEqual([3n, 3n]);
@@ -668,7 +676,7 @@ test("rolls back earlier stock deductions and the configured snapshot when a lat
       try {
         await admin.$executeRawUnsafe(`CREATE FUNCTION public.${name}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF OLD."companyId" = '${f.companyId}'::uuid THEN RAISE EXCEPTION 'delivery write rejected by test'; END IF; RETURN NEW; END $$`);
         await admin.$executeRawUnsafe(`CREATE TRIGGER ${name} BEFORE UPDATE OF "delivery" ON "Order" FOR EACH ROW EXECUTE FUNCTION public.${name}()`);
-        expect(await setConfiguredOrderDelivery({ ...input, chargeDeliveryToCustomer: false }, context, cost))
+        expect(await orders.setDelivery(input, context))
           .toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
         expect(await orderDetail(orderId, f)).toEqual(paid);
         expect((await prisma.productStock.findMany({ orderBy: { variantId: "asc" } })).map(row => row.quantity)).toEqual([3n, 5n]);
