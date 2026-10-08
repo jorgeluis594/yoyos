@@ -48,13 +48,14 @@ export const setRatedOrderDeliverySchema = z.strictObject({ delivery: ratedDeliv
 export type RatedDeliverySelectionRequest = z.infer<typeof ratedDeliverySelectionSchema>;
 export type SetRatedOrderDeliveryRequest = z.infer<typeof setRatedOrderDeliverySchema>;
 export type DeliverySelectionRequest = z.infer<typeof deliverySelectionSchema>;
-export const setOrderDeliverySchema = z.strictObject({ delivery: deliverySelectionSchema, chargeDeliveryToCustomer: z.boolean() });
+export const setOrderDeliverySchema = setRatedOrderDeliverySchema;
+const legacySetOrderDeliverySchema = z.strictObject({ delivery: deliverySelectionSchema, chargeDeliveryToCustomer: z.boolean() });
 export type SetOrderDeliveryRequest = z.infer<typeof setOrderDeliverySchema>;
 
 export const completeOrderSchema = orderSelectionSchema.extend({
   payments: z.array(z.strictObject({ paymentId: z.uuid(), amount: moneySchema,
     method: z.enum(["digital_wallet", "bank_transfer"]), deductStockIfPartial: z.boolean() })).optional(),
-  delivery: setOrderDeliverySchema.optional(),
+  delivery: legacySetOrderDeliverySchema.optional(),
   deliverImmediately: z.boolean().optional(),
 });
 export const createRatedOrderSchema = completeOrderSchema.extend({ delivery: setRatedOrderDeliverySchema });

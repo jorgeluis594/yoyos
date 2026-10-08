@@ -113,3 +113,14 @@ test("price conflict metadata validates a nonnegative current price, including e
   for (const amount of [-1, 8.001, Infinity]) expect(orderApiErrorSchema.safeParse({ ...base, currentPrice: { amount, currency: "PEN" } }).success).toBe(false);
   expect(orderApiErrorSchema.safeParse({ ...base, currentPrice: { amount: 0, currency: "PEN" } }).success).toBe(true);
 });
+
+test("the canonical assignment contract requires a reviewed price and rejects legacy charge choices", () => {
+  const delivery = { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } };
+  const current = { delivery, expectedPrice: { amount: 0, currency: "PEN" } };
+  expect(setOrderDeliverySchema.safeParse(current).success).toBe(true);
+  expect(setOrderDeliverySchema.safeParse({ delivery }).success).toBe(false);
+  for (const chargeDeliveryToCustomer of [true, false]) {
+    expect(setOrderDeliverySchema.safeParse({ delivery, chargeDeliveryToCustomer }).success).toBe(false);
+    expect(setOrderDeliverySchema.safeParse({ ...current, chargeDeliveryToCustomer }).success).toBe(false);
+  }
+});
