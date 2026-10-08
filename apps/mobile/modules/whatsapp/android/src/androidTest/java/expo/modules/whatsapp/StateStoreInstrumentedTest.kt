@@ -521,7 +521,13 @@ class StateStoreInstrumentedTest {
     val valid = session ?: throw AssertionError("Could not produce unescaped Base64 fixture")
     assertEquals(16 * 1024 * 1024, valid.toString().toByteArray().size)
     store.commit("1") { it.put("session", valid) }
-    assertEquals(true, makeStore(root).canRestoreSession())
+    val restored = makeStore(root)
+    val restoredSession = restored.open().getJSONObject("session")
+    assertEquals(16 * 1024 * 1024, restoredSession.toString().toByteArray().size)
+    for (field in listOf("accountId", "sessionKeyId", "sessionRevision", "nonceBase64", "ciphertextBase64")) {
+      assertEquals(valid.getString(field), restoredSession.getString(field))
+    }
+    assertEquals(true, restored.canRestoreSession())
   }
 
   @Test fun oversizedRestoredSessionStillAllowsPendingToDrain() {

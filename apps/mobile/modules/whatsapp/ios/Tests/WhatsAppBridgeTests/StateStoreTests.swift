@@ -6,22 +6,43 @@ import Darwin
 @testable import WhatsAppStateStore
 
 final class StateStoreTests: XCTestCase {
-  // Invoked separately by CI because each publication fault terminates the XCTest process.
+  private func persistCrashMarker(_ value: String, at url: URL) throws {
+    try Data(value.utf8).write(to: url)
+    let handle = try FileHandle(forWritingTo: url)
+    try handle.synchronize()
+    try handle.close()
+  }
+
+  func testResetCrashMatrix() throws {
+    let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
+                                               appropriateFor: nil, create: true)
+    let plan = support.appendingPathComponent("wa02-crash-matrix", isDirectory: true)
+    try FileManager.default.createDirectory(at: plan, withIntermediateDirectories: true)
+    let run = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+    try persistCrashMarker(run, at: plan.appendingPathComponent("run"))
+    try persistCrashMarker("ready:0", at: plan.appendingPathComponent("step"))
+  }
+
+  // CI invokes each phase twice: a process kill, then a separately successful recovery.
   func testProcessCrashMatrix() throws {
     let phases = ["cipher", "write", "sync", "close", "replace", "directorySync", "response"]
     let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
                                                appropriateFor: nil, create: true)
-    let root = support.appendingPathComponent("wa02-crash-matrix", isDirectory: true)
+    let plan = support.appendingPathComponent("wa02-crash-matrix", isDirectory: true)
+    let marker = plan.appendingPathComponent("step")
+    let run = try String(contentsOf: plan.appendingPathComponent("run"), encoding: .utf8)
+    let parts = try String(contentsOf: marker, encoding: .utf8).split(separator: ":")
+    guard run.count == 32, parts.count == 2, let step = Int(parts[1]), phases.indices.contains(step),
+          parts[0] == "ready" || parts[0] == "crashed" else { XCTFail("Invalid crash plan"); return }
+    let root = plan.appendingPathComponent(run, isDirectory: true)
+      .appendingPathComponent(String(step), isDirectory: true)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-    let stepFile = root.appendingPathComponent("step")
-    let step = Int((try? String(contentsOf: stepFile, encoding: .utf8)) ?? "0") ?? -1
-    guard step >= 0, step <= phases.count else { XCTFail("Invalid crash phase marker"); return }
+    let suffix = SHA256.hash(data: Data("\(run):\(step)".utf8)).prefix(16)
+      .map { String(format: "%02x", $0) }.joined()
     var armed = false
-    let writer = try NativeStateStore(directory: root, serviceSuffix: String(repeating: "c", count: 32)) { reached in
+    let writer = try NativeStateStore(directory: root, serviceSuffix: suffix) { reached in
       if armed && reached == phases[step] {
-        try Data(String(step + 1).utf8).write(to: stepFile)
-        let marker = try FileHandle(forWritingTo: stepFile)
-        try marker.synchronize(); try marker.close()
+        try self.persistCrashMarker("crashed:\(step)", at: marker)
         _ = Darwin.kill(Darwin.getpid(), SIGKILL)
         Darwin._exit(137)
       }
@@ -33,23 +54,45 @@ final class StateStoreTests: XCTestCase {
       let header = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes[12..<12+length]) as? [String: Any])
       return try XCTUnwrap(header["revision"] as? String)
     }
+    if parts[0] == "ready" {
+      _ = try writer.open()
+      try writer.beginSession(accountId: "123@lid", protocolBytes: Data("{\"protocolSchemaVersion\":1,\"records\":[]}".utf8))
+      let session = try XCTUnwrap(writer.open()["session"] as? [String: Any])
+      let sessionId = try XCTUnwrap(session["sessionKeyId"] as? String)
+      armed = true
+      _ = try writer.commit(expectedRevision: "1") { current in
+        let pending: [String: Any] = ["deliveryId": "wa-delivery:v1:" + String(repeating: "a", count: 32),
+                                      "accountId": "123@lid", "createdRevision": "2", "createdOrdinal": 0,
+                                      "source": "live", "identityState": "pendingLid",
+                                      "recovery": ["messageInfoJson": "{}", "items": [Any]()]]
+        var next = current
+        next["session"] = NSNull()
+        next["sessionKeysToDelete"] = [sessionId]
+        next["pending"] = [pending]
+        var options = current["options"] as! [String: Int]
+        options["maxImageStorageBytes"] = 123
+        next["options"] = options
+        return next
+      }
+      XCTFail("Publication phase \(phases[step]) did not terminate the process")
+      return
+    }
     let state = try writer.open()
-    if step > 0 {
-      let expected = ["directorySync", "response"].contains(phases[step - 1]) ? 2000 + step - 1 : 1000 + step - 1
-      XCTAssertEqual((state["options"] as? [String: Int])?["maxImageStorageBytes"], expected)
-      XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("whatsapp/state.next").path))
-    }
-    if step == phases.count { return }
-    _ = try writer.commit(expectedRevision: revision()) { current in
-      var next = current; var options = current["options"] as! [String: Int]
-      options["maxImageStorageBytes"] = 1000 + step; next["options"] = options; return next
-    }
-    armed = true
-    _ = try writer.commit(expectedRevision: revision()) { current in
-      var next = current; var options = current["options"] as! [String: Int]
-      options["maxImageStorageBytes"] = 2000 + step; next["options"] = options; return next
-    }
-    XCTFail("Publication fault \(phases[step]) did not terminate the process")
+    let replaced = step >= 5
+    let pending = state["pending"] as? [[String: Any]]
+    let retired = state["sessionKeysToDelete"] as? [String]
+    let options = state["options"] as? [String: Int]
+    let account = (state["session"] as? [String: Any])?["accountId"] as? String
+    let sessionMatches = replaced ? state["session"] is NSNull : account == "123@lid"
+    let pendingMatches = pending?.count == (replaced ? 1 : 0)
+    let pendingRevision = pending?.first?["createdRevision"] as? String
+    let publishedRevision = try revision()
+    let hasTemporary = FileManager.default.fileExists(atPath: root.appendingPathComponent("whatsapp/state.next").path)
+    guard retired?.isEmpty == true, sessionMatches, pendingMatches,
+          options?["maxImageStorageBytes"] == (replaced ? 123 : 50 * 1024 * 1024),
+          !replaced || pendingRevision == "2", publishedRevision == (replaced ? "3" : "1"),
+          !hasTemporary else { XCTFail("Crash recovery mixed session and pending at \(phases[step])"); return }
+    try persistCrashMarker("ready:\(step + 1)", at: marker)
   }
 
   private func temporaryDirectory() throws -> URL {
@@ -487,7 +530,11 @@ final class StateStoreTests: XCTestCase {
     try store.beginSession(accountId: "1@lid", protocolBytes: protocolBytes)
     let session = try XCTUnwrap(store.open()["session"])
     XCTAssertEqual(try JSONSerialization.data(withJSONObject: session, options: [.sortedKeys, .withoutEscapingSlashes]).count, 16 * 1024 * 1024)
-    XCTAssertTrue(try makeStore(root).canRestoreSession())
+    let restored = try makeStore(root)
+    let restoredSession = try XCTUnwrap(restored.open()["session"] as? [String: Any])
+    XCTAssertEqual(try JSONSerialization.data(withJSONObject: restoredSession, options: [.sortedKeys, .withoutEscapingSlashes]).count, 16 * 1024 * 1024)
+    XCTAssertEqual(restoredSession["ciphertextBase64"] as? String, (session as? [String: Any])?["ciphertextBase64"] as? String)
+    XCTAssertTrue(try restored.canRestoreSession())
   }
 
   func testOversizedSessionCannotPublishOrPruneState() throws {
