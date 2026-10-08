@@ -65,8 +65,8 @@ type PendingInsert struct {
 }
 type PendingRecord struct {
 	PendingInsert
-	CreatedRevision string `json:"createdRevision"`
-	CreatedOrdinal  uint32 `json:"createdOrdinal"`
+	CreatedRevision string  `json:"createdRevision"`
+	CreatedOrdinal  *uint32 `json:"createdOrdinal"`
 }
 type Recovery struct {
 	MessageInfoJSON string         `json:"messageInfoJson"`
@@ -384,7 +384,10 @@ func validatePending(pending []PendingRecord, rev uint64) error {
 		if e != nil || created == 0 || created > rev {
 			return failure(StateInvalid, "invalid pending revision")
 		}
-		pos := p.CreatedRevision + ":" + strconv.FormatUint(uint64(p.CreatedOrdinal), 10)
+		if p.CreatedOrdinal == nil {
+			return failure(StateInvalid, "missing pending ordinal")
+		}
+		pos := p.CreatedRevision + ":" + strconv.FormatUint(uint64(*p.CreatedOrdinal), 10)
 		if positions[pos] {
 			return failure(StateInvalid, "duplicate pending ordinal")
 		}
@@ -479,7 +482,7 @@ func (s *Store) stage(ctx context.Context, mutate func(*txn) error) error {
 		if t.err != nil {
 			return t.err
 		}
-		t.err = mutate(t)
+		t.err = storageError(mutate(t))
 		return t.err
 	}
 	s.mu.Lock()
@@ -488,7 +491,8 @@ func (s *Store) stage(ctx context.Context, mutate func(*txn) error) error {
 		return s.stopped
 	}
 	t := &txn{owner: s, active: true, records: clone(s.records)}
-	if err := mutate(t); err != nil {
+	if err := storageError(mutate(t)); err != nil {
+		s.stopped = err
 		return err
 	}
 	return s.commit(t)
@@ -562,10 +566,16 @@ func (s *Store) commit(t *txn) error {
 		records = append(records, r)
 	}
 	if _, err := protocolstate.Encode(records); err != nil {
-		return err
+		if errors.Is(err, protocolstate.ErrSessionTooLarge) {
+			s.stopped = failure(SessionFull, "session record limit reached")
+		} else {
+			s.stopped = failure(StateInvalid, "invalid staged session records")
+		}
+		return s.stopped
 	}
 	if err := validatePrekeyRecords(t.records); err != nil {
-		return err
+		s.stopped = storageError(err)
+		return s.stopped
 	}
 	request := ApplyRequest{1, s.generationID, s.accountID, strconv.FormatUint(s.sessionRevision, 10), t.changes, t.pending, t.updates}
 	if request.ProtocolChanges == nil {
@@ -582,7 +592,8 @@ func (s *Store) commit(t *txn) error {
 		return err
 	}
 	if uint64(len(body)) > payloadLimit(s.newRecoveryBytes) {
-		return failure(SessionFull, "binding request too large")
+		s.stopped = failure(SessionFull, "binding request too large")
+		return s.stopped
 	}
 	raw, callErr := invoke(s.storage.ApplyChanges, string(body))
 	if callErr != nil {
@@ -766,3 +777,13 @@ func binary(data []byte) protocolstate.Binary {
 func binaryKey(b []byte) string    { return base64.StdEncoding.EncodeToString(b) }
 func malformed(msg string) error   { return failure(InvalidRequest, msg) }
 func unsupported(msg string) error { return failure(RecoveryContextMissing, msg) }
+func storageError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var typed *Error
+	if errors.As(err, &typed) {
+		return err
+	}
+	return failure(StateInvalid, "invalid protocol state change")
+}

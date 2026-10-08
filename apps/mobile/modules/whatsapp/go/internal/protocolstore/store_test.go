@@ -96,7 +96,8 @@ func (n *controlledStorage) ApplyChanges(request string) (string, error) {
 		n.sessionRevision++
 	}
 	for i, p := range a.PendingInserts {
-		n.pending = append(n.pending, PendingRecord{PendingInsert: p, CreatedRevision: fmt.Sprint(n.revision), CreatedOrdinal: uint32(i)})
+		ordinal := uint32(i)
+		n.pending = append(n.pending, PendingRecord{PendingInsert: p, CreatedRevision: fmt.Sprint(n.revision), CreatedOrdinal: &ordinal})
 	}
 	for _, update := range a.PendingIdentityUpdates {
 		found := false
@@ -306,9 +307,12 @@ func TestLIDMappingAccountScopeAndUnexpectedRecovery(t *testing.T) {
 	other, _ := types.ParseJID("789@s.whatsapp.net")
 	e = s.PutLIDMapping(context.Background(), lid, other)
 	codeIs(t, e, InvalidRequest)
+	codeIs(t, s.StopReason(), InvalidRequest)
+	s = openTest(t, n)
 	third, _ := types.ParseJID("999@lid")
 	e = s.PutManyLIDMappings(context.Background(), []store.LIDMapping{{LID: third, PN: other}, {LID: lid, PN: other}})
 	codeIs(t, e, InvalidRequest)
+	s = openTest(t, n)
 	if got, e = s.GetLIDForPN(context.Background(), other); e != nil || !got.IsEmpty() {
 		t.Fatal("bulk mapping partly committed", got, e)
 	}
@@ -422,4 +426,85 @@ func TestNativeApplyPanicStopsAndReadsBack(t *testing.T) {
 	if len(n.calls) != 1 {
 		t.Fatal("unexpected retry")
 	}
+}
+
+func TestLIDDeviceMappingUsesAccountScopedKey(t *testing.T) {
+	n := &controlledStorage{}
+	s := openTest(t, n)
+	pn := types.NewADJID("123", 0, 7)
+	lid := types.JID{User: "456", Server: types.HiddenUserServer, Device: 8}
+	if err := s.PutLIDMapping(context.Background(), lid, pn); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetLIDForPN(context.Background(), pn)
+	if err != nil || got.User != lid.User || got.Device != pn.Device {
+		t.Fatalf("LID device: %v %v", got, err)
+	}
+	got, err = s.GetPNForLID(context.Background(), lid)
+	if err != nil || got.User != pn.User || got.Device != lid.Device {
+		t.Fatalf("PN device: %v %v", got, err)
+	}
+	if len(n.records) != 1 {
+		t.Fatalf("mapping records: %d", len(n.records))
+	}
+}
+
+func TestDeleteAppStateVersionAlsoDeletesMACs(t *testing.T) {
+	n := &controlledStorage{}
+	s := openTest(t, n)
+	ctx := context.Background()
+	index := make([]byte, 32)
+	if err := s.PutAppStateVersion(ctx, "regular", 1, [128]byte{1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutAppStateMutationMACs(ctx, "regular", 1, []store.AppStateMutationMAC{{IndexMAC: index, ValueMAC: make([]byte, 32)}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutAppStateVersion(ctx, "other", 1, [128]byte{1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutAppStateMutationMACs(ctx, "other", 1, []store.AppStateMutationMAC{{IndexMAC: index, ValueMAC: make([]byte, 32)}}); err != nil {
+		t.Fatal(err)
+	}
+	before := len(n.calls)
+	if err := s.DeleteAppStateVersion(ctx, "regular"); err != nil {
+		t.Fatal(err)
+	}
+	if len(n.calls) != before+1 || len(n.calls[before].ProtocolChanges) != 2 {
+		t.Fatal("version and MAC were not one commit")
+	}
+	if value, err := s.GetAppStateMutationMAC(ctx, "regular", index); err != nil || value != nil {
+		t.Fatalf("stale MAC: %v %v", value, err)
+	}
+	if value, err := s.GetAppStateMutationMAC(ctx, "other", index); err != nil || value == nil {
+		t.Fatalf("unrelated MAC lost: %v %v", value, err)
+	}
+}
+
+func TestCapacityRejectionStopsGeneration(t *testing.T) {
+	n := &controlledStorage{}
+	s := openTest(t, n)
+	ctx := context.Background()
+	if err := s.PutNCTSalt(ctx, make([]byte, 5<<20)); err != nil {
+		t.Fatal(err)
+	}
+	err := s.PutSession(ctx, "alice.0:0", make([]byte, 5<<20))
+	codeIs(t, err, SessionFull)
+	codeIs(t, s.StopReason(), SessionFull)
+	codeIs(t, s.PutNCTSalt(ctx, []byte{1}), SessionFull)
+	if len(n.calls) != 1 {
+		t.Fatal("write followed capacity rejection")
+	}
+}
+
+type missingOrdinalRead struct{}
+
+func (missingOrdinalRead) ReadState(string) (string, error) {
+	return `{"contractVersion":1,"success":true,"data":{"revision":"1","sessionRevision":"0","session":null,"pending":[{"deliveryId":"wa-delivery:v1:00112233445566778899aabbccddeeff","accountId":"123@lid","createdRevision":"1","source":"live","identityState":"pendingLid","recovery":{"messageInfoJson":"{}","items":[{"format":"v2","plaintextBase64":"AQ==","ciphertextHashBase64":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}]}}]}}`, nil
+}
+func (missingOrdinalRead) ApplyChanges(string) (string, error) { panic("unused") }
+
+func TestReadRejectsMissingPendingOrdinal(t *testing.T) {
+	_, err := Open(missingOrdinalRead{}, "gen", "123@lid", 1024, 1024)
+	codeIs(t, err, StateInvalid)
 }

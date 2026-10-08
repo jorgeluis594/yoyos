@@ -94,7 +94,23 @@ func (s *Store) GetAppStateVersion(ctx context.Context, name string) (uint64, [1
 	return item.Number, h, nil
 }
 func (s *Store) DeleteAppStateVersion(ctx context.Context, name string) error {
-	return s.del(ctx, "app-state-version", name)
+	return s.stage(ctx, func(t *txn) error {
+		if err := t.del("app-state-version", name); err != nil {
+			return err
+		}
+		for _, record := range scanMap(t.records, "app-state-mac") {
+			parts, err := protocolstate.DecodeKey("app-state-mac", record.RecordKey)
+			if err != nil {
+				return err
+			}
+			if parts[0] == name {
+				if err := t.del("app-state-mac", parts...); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
 }
 func (s *Store) PutAppStateMutationMACs(ctx context.Context, name string, version uint64, mutations []store.AppStateMutationMAC) error {
 	return s.stage(ctx, func(t *txn) error {

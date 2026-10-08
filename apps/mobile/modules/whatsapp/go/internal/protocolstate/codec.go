@@ -16,6 +16,8 @@ import (
 
 const MaxSessionBytes = 16 << 20
 
+var ErrSessionTooLarge = errors.New("session too large")
+
 // Value JSON gains another Base64 layer; the envelope limit remains authoritative.
 const MaxRecordBytes = 3*(MaxSessionBytes/4) - 1
 const MaxKeyBytes = 2048
@@ -33,7 +35,7 @@ type envelope struct {
 // Decode accepts only the closed v1 catalog and returns validated raw value bytes.
 func Decode(data []byte) ([]Record, error) {
 	if len(data) > MaxSessionBytes {
-		return nil, errors.New("session too large")
+		return nil, ErrSessionTooLarge
 	}
 	var e envelope
 	if err := strict(data, &e); err != nil {
