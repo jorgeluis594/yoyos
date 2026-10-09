@@ -61,6 +61,10 @@ func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent)
 			if value.SocketID != 0 && value.SocketID == t.pairedSocketID.Load() {
 				return
 			}
+		case *events.ManualLoginReconnect:
+			if value.SocketID == 0 || value.SocketID != t.socketID() {
+				return
+			}
 		case *events.Connected:
 			if value.SocketID == 0 || value.SocketID == t.pairedSocketID.Load() || value.SocketID != t.socketID() || !t.socketConnected() {
 				return
