@@ -65,13 +65,13 @@ func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent)
 		case *events.ManualLoginReconnect:
 			// The pinned queue drains stream:error after the socket closed, so the
 			// pairing socket's 515 is honored once even when no socket is current.
-			current := value.SocketID != 0 && value.SocketID == t.socketID()
-			handoff := value.SocketID != 0 && value.SocketID == t.pairedSocketID.Load() && !t.handedOff.Load()
-			if !current && !handoff {
+			paired := value.SocketID != 0 && value.SocketID == t.pairedSocketID.Load()
+			if value.SocketID != 0 && value.SocketID == t.socketID() {
+				if paired {
+					t.handedOff.Store(true)
+				}
+			} else if !paired || !t.handedOff.CompareAndSwap(false, true) {
 				return
-			}
-			if handoff {
-				t.handedOff.Store(true)
 			}
 		case *events.Connected:
 			if value.SocketID == 0 || value.SocketID == t.pairedSocketID.Load() || value.SocketID != t.socketID() || !t.socketConnected() {

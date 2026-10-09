@@ -347,6 +347,10 @@ func (c *fakeConn) streamError(t *testing.T, code string) {
 // drop closes the TCP connection without a websocket close handshake.
 func (c *fakeConn) drop() { _ = c.ws.CloseNow() }
 
+// closeOrderly sends a websocket close after every frame already written, so
+// the client reads those frames before it sees the close.
+func (c *fakeConn) closeOrderly() { _ = c.ws.Close(websocket.StatusNormalClosure, "") }
+
 func (c *fakeConn) waitClosed(t *testing.T) {
 	t.Helper()
 	select {

@@ -332,8 +332,10 @@ func TestLoginReconnectDrainedAfterPairingSocketCloseStartsHandoff(t *testing.T)
 			first := h.connectFirstLink(t)
 			h.pairOn(t)
 			if mode == "515 then close" {
+				// An orderly close keeps the 515 ahead of the close frame; an
+				// abrupt TCP close may discard it before the client reads it.
 				first.streamError(t, "515")
-				first.drop()
+				first.closeOrderly()
 			} else {
 				oldCtx := h.oldContext(t, first)
 				first.drop()
