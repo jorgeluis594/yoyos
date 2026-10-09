@@ -2542,3 +2542,352 @@ index 0000000..a0f1fdc
 +		t.Fatal("ACK did not reach controlled transport")
 +	}
 +}
+diff --git a/appstate.go b/appstate.go
+index 1acb77b..3f3e493 100644
+--- a/appstate.go
++++ b/appstate.go
+@@ -27,6 +27,13 @@ import (
+ 	"go.mau.fi/whatsmeow/types/events"
+ )
+ 
++type appStateEventsOnlyKey struct{}
++type appStateStagingKey struct{}
++
++func appStateEventsOnly(ctx context.Context) bool {
++	return ctx.Value(appStateEventsOnlyKey{}) == true
++}
++
+ // FetchAppState fetches updates to the given type of app state. If fullSync is true, the current
+ // cached state will be removed and all app state patches will be re-fetched from the server.
+ func (cli *Client) FetchAppState(ctx context.Context, name appstate.WAPatchName, fullSync, onlyIfNotSynced bool) error {
+@@ -119,22 +125,42 @@ func (cli *Client) handleAppStateRecovery(
+ 	}
+ 	name := appstate.WAPatchName(snapshot.GetCollectionName())
+ 	version := snapshot.GetVersion().GetVersion()
++	if store.ProtocolPrecommitted(ctx) && !store.AppStateRecoveryStaged(ctx) {
++		return true, nil
++	}
+ 	currentVersion, _, err := cli.Store.AppState.GetAppStateVersion(ctx, string(name))
+ 	if err != nil {
+ 		cli.Log.Errorf("Failed to get current app state %s version for %s: %v", name, reqID, err)
+ 		return false, errors.Join(store.ErrLocalStorage, err)
+-	} else if currentVersion >= version {
++	} else if currentVersion > version || (currentVersion == version && !store.ProtocolPrecommitted(ctx)) {
+ 		cli.Log.Infof("Ignoring app state recovery response for %s as current version %d is newer than or equal to recovery version %d", reqID, currentVersion, snapshot.GetVersion().GetVersion())
+ 		return true, nil
+ 	}
+ 	cli.Log.Debugf("Handling app state recovery response for %s", reqID)
+-	mutations, err := cli.appStateProc.ProcessRecovery(ctx, snapshot)
++	var mutations []appstate.Mutation
++	if store.ProtocolPrecommitted(ctx) {
++		if currentVersion != version {
++			return false, errors.Join(store.ErrLocalStorage, fmt.Errorf("staged recovery version %d missing", version))
++		}
++		mutations, err = cli.appStateProc.DecodeRecovery(ctx, snapshot)
++	} else {
++		err = cli.Store.EventBuffer.DoDecryptionTxn(ctx, func(tx context.Context) error {
++			var stageErr error
++			mutations, stageErr = cli.appStateProc.StageRecovery(tx, snapshot)
++			if stageErr != nil {
++				return stageErr
++			}
++			return cli.collectEventsToDispatch(context.WithValue(tx, appStateStagingKey{}, true), name, mutations, true, nil)
++		})
++	}
+ 	if err != nil {
+ 		cli.Log.Warnf("Failed to parse app state recovery blob for %s: %v", reqID, err)
+-		if errors.Is(err, store.ErrLocalStorage) { return false, err }
++		if errors.Is(err, store.ErrLocalStorage) {
++			return false, err
++		}
+ 		return true, nil
+ 	}
+-	err = cli.collectEventsToDispatch(ctx, name, mutations, true, eventsToDispatchPtr)
++	err = cli.collectEventsToDispatch(context.WithValue(ctx, appStateEventsOnlyKey{}, true), name, mutations, true, eventsToDispatchPtr)
+ 	if err != nil {
+ 		cli.Log.Warnf("Failed to collect app state events for %s: %v", reqID, err)
+ 		return false, err
+@@ -146,6 +172,9 @@ func (cli *Client) handleAppStateRecovery(
+ 			return false, nil
+ 		}
+ 	}
++	if store.ProtocolPrecommitted(ctx) {
++		store.ClearAppStateRecoveryStage(ctx)
++	}
+ 	cli.Log.Debugf("Finished handling app state recovery response for %s (%s to v%d)", reqID, name, version)
+ 	return true, nil
+ }
+@@ -177,7 +206,7 @@ func (cli *Client) collectEventsToDispatch(
+ 	fullSync bool,
+ 	eventsToDispatch *[]any,
+ ) error {
+-	if name == appstate.WAPatchCriticalUnblockLow && fullSync && !cli.EmitAppStateEventsOnFullSync {
++	if name == appstate.WAPatchCriticalUnblockLow && fullSync && !cli.EmitAppStateEventsOnFullSync && !appStateEventsOnly(ctx) {
+ 		var contacts []store.ContactEntry
+ 		mutations, contacts = cli.filterContacts(mutations)
+ 		cli.Log.Debugf("Mass inserting app state snapshot with %d contacts into the store", len(contacts))
+@@ -241,6 +270,9 @@ func (cli *Client) dispatchAppState(ctx context.Context, name appstate.WAPatchNa
+ 	logEvt.Msg("Received app state mutation")
+ 
+ 	if len(mutation.Index) == 1 && mutation.Index[0] == appstate.IndexNCTSaltSync {
++		if appStateEventsOnly(ctx) {
++			return nil, nil
++		}
+ 		var err error
+ 		if mutation.Operation == waServerSync.SyncdMutation_SET {
+ 			err = cli.storeNCTSalt(ctx, mutation.Action.GetNctSaltSyncAction().GetSalt())
+@@ -249,8 +281,9 @@ func (cli *Client) dispatchAppState(ctx context.Context, name appstate.WAPatchNa
+ 		}
+ 		if err != nil {
+ 			cli.Log.Warnf("Failed to update NCT salt from app state mutation: %v", err)
++			return nil, errors.Join(store.ErrLocalStorage, err)
+ 		}
+-		return
++		return nil, nil
+ 	}
+ 
+ 	if mutation.Operation != waServerSync.SyncdMutation_SET {
+@@ -276,25 +309,25 @@ func (cli *Client) dispatchAppState(ctx context.Context, name appstate.WAPatchNa
+ 				mutedUntil = time.UnixMilli(act.GetMuteEndTimestamp())
+ 			}
+ 		}
+-		if cli.Store.ChatSettings != nil {
++		if cli.Store.ChatSettings != nil && !appStateEventsOnly(ctx) {
+ 			storeUpdateError = cli.Store.ChatSettings.PutMutedUntil(ctx, jid, mutedUntil)
+ 		}
+ 	case appstate.IndexPin:
+ 		act := mutation.Action.GetPinAction()
+ 		eventToDispatch = &events.Pin{JID: jid, Timestamp: ts, Action: act, FromFullSync: fullSync}
+-		if cli.Store.ChatSettings != nil {
++		if cli.Store.ChatSettings != nil && !appStateEventsOnly(ctx) {
+ 			storeUpdateError = cli.Store.ChatSettings.PutPinned(ctx, jid, act.GetPinned())
+ 		}
+ 	case appstate.IndexArchive:
+ 		act := mutation.Action.GetArchiveChatAction()
+ 		eventToDispatch = &events.Archive{JID: jid, Timestamp: ts, Action: act, FromFullSync: fullSync}
+-		if cli.Store.ChatSettings != nil {
++		if cli.Store.ChatSettings != nil && !appStateEventsOnly(ctx) {
+ 			storeUpdateError = cli.Store.ChatSettings.PutArchived(ctx, jid, act.GetArchived())
+ 		}
+ 	case appstate.IndexContact:
+ 		act := mutation.Action.GetContactAction()
+ 		eventToDispatch = &events.Contact{JID: jid, Timestamp: ts, Action: act, FromFullSync: fullSync}
+-		if cli.Store.Contacts != nil {
++		if cli.Store.Contacts != nil && !appStateEventsOnly(ctx) {
+ 			storeUpdateError = cli.Store.Contacts.PutContactName(ctx, jid, act.GetFirstName(), act.GetFullName())
+ 		}
+ 	case appstate.IndexClearChat:
+@@ -369,11 +402,15 @@ func (cli *Client) dispatchAppState(ctx context.Context, name appstate.WAPatchNa
+ 			Action:       mutation.Action.GetPushNameSetting(),
+ 			FromFullSync: fullSync,
+ 		}
+-		cli.Store.PushName = mutation.Action.GetPushNameSetting().GetName()
+-		err := cli.Store.Save(ctx)
+-		if err != nil {
+-			cli.Log.Errorf("Failed to save device store after updating push name: %v", err)
+-			storeUpdateError = err
++		if appStateEventsOnly(ctx) {
++			cli.Store.PushName = mutation.Action.GetPushNameSetting().GetName()
++		} else {
++			previous := cli.Store.PushName
++			cli.Store.PushName = mutation.Action.GetPushNameSetting().GetName()
++			storeUpdateError = cli.Store.Save(ctx)
++			if storeUpdateError != nil || ctx.Value(appStateStagingKey{}) == true {
++				cli.Store.PushName = previous
++			}
+ 		}
+ 	case appstate.IndexSettingUnarchiveChats:
+ 		eventToDispatch = &events.UnarchiveChatsSetting{
+@@ -431,6 +466,9 @@ func (cli *Client) dispatchAppState(ctx context.Context, name appstate.WAPatchNa
+ 		ownLID := cli.getOwnLID()
+ 		inputSecrets := mutation.Action.GetWasaRootSecretAction().GetSecrets()
+ 		ids := make([]string, 0, len(inputSecrets))
++		if appStateEventsOnly(ctx) {
++			break
++		}
+ 		storeUpdateError = cli.Store.MsgSecrets.PutMessageSecrets(ctx, exslices.CastFunc(inputSecrets, func(secret *waSyncAction.WASARootSecretAction_RootSecretEntry) store.MessageSecretInsert {
+ 			ids = append(ids, secret.GetID())
+ 			return store.MessageSecretInsert{
+diff --git a/appstate/keys.go b/appstate/keys.go
+index 8e2cc85..b8e3ad4 100644
+--- a/appstate/keys.go
++++ b/appstate/keys.go
+@@ -179,23 +179,28 @@ func expandAppStateKeys(keyData []byte) (keys ExpandedAppStateKeys) {
+ 
+ func (proc *Processor) getAppStateKey(ctx context.Context, keyID []byte) (keys ExpandedAppStateKeys, err error) {
+ 	keyCacheID := base64.RawStdEncoding.EncodeToString(keyID)
+-	var ok bool
+-
+ 	proc.keyCacheLock.Lock()
+-	defer proc.keyCacheLock.Unlock()
+-
+-	keys, ok = proc.keyCache[keyCacheID]
+-	if !ok {
+-		var keyData *store.AppStateSyncKey
+-		keyData, err = proc.Store.AppStateKeys.GetAppStateSyncKey(ctx, keyID)
+-		if keyData != nil {
+-			keys = expandAppStateKeys(keyData.Data)
+-			proc.keyCache[keyCacheID] = keys
+-		} else if err == nil {
+-			err = ErrKeyNotFound
+-		}
++	keys, ok := proc.keyCache[keyCacheID]
++	proc.keyCacheLock.Unlock()
++	if ok {
++		return keys, nil
++	}
++	keyData, err := proc.Store.AppStateKeys.GetAppStateSyncKey(ctx, keyID)
++	if err != nil {
++		return keys, err
++	}
++	if keyData == nil {
++		return keys, ErrKeyNotFound
++	}
++	keys = expandAppStateKeys(keyData.Data)
++	proc.keyCacheLock.Lock()
++	if cached, ok := proc.keyCache[keyCacheID]; ok {
++		keys = cached
++	} else {
++		proc.keyCache[keyCacheID] = keys
+ 	}
+-	return
++	proc.keyCacheLock.Unlock()
++	return keys, nil
+ }
+ 
+ func (proc *Processor) GetMissingKeyIDs(ctx context.Context, pl *PatchList) [][]byte {
+diff --git a/appstate/recovery.go b/appstate/recovery.go
+index 484ff6e..0a69788 100644
+--- a/appstate/recovery.go
++++ b/appstate/recovery.go
+@@ -60,12 +60,34 @@ func (proc *Processor) ProcessRecovery(ctx context.Context, recovery *waSyncdSna
+ 
+ // StageRecovery is called only inside the receive transaction, before pending admission.
+ func (proc *Processor) StageRecovery(ctx context.Context, recovery *waSyncdSnapshotRecovery.SyncdSnapshotRecovery) ([]Mutation, error) {
++	mutations, err := proc.DecodeRecovery(ctx, recovery)
++	if err != nil {
++		return nil, err
++	}
++	name := recovery.GetCollectionName()
++	version := recovery.GetVersion().GetVersion()
++	macs := make([]store.AppStateMutationMAC, len(mutations))
++	for i, mutation := range mutations {
++		macs[i] = store.AppStateMutationMAC{IndexMAC: mutation.IndexMAC, ValueMAC: mutation.ValueMAC}
++	}
++	if err := proc.Store.AppState.DeleteAppStateVersion(ctx, name); err != nil {
++		return mutations, fmt.Errorf("failed to reset app state version in database: %w", err)
++	}
++	if err := proc.Store.AppState.PutAppStateVersion(ctx, name, version, *(*[128]byte)(recovery.GetCollectionLthash())); err != nil {
++		return mutations, fmt.Errorf("failed to update app state version in the database: %w", err)
++	}
++	if err := proc.Store.AppState.PutAppStateMutationMACs(ctx, name, version, macs); err != nil {
++		return mutations, fmt.Errorf("failed to insert added mutation MACs to the database: %w", err)
++	}
++	return mutations, nil
++}
++
++// DecodeRecovery reconstructs events from a committed recovery without writing protocol state.
++func (proc *Processor) DecodeRecovery(ctx context.Context, recovery *waSyncdSnapshotRecovery.SyncdSnapshotRecovery) ([]Mutation, error) {
+ 	if len(recovery.GetCollectionLthash()) != 128 {
+ 		return nil, fmt.Errorf("invalid lthash length: %d", len(recovery.GetCollectionLthash()))
+ 	}
+-	name := recovery.GetCollectionName()
+ 	version := recovery.GetVersion().GetVersion()
+-	macs := make([]store.AppStateMutationMAC, len(recovery.MutationRecords))
+ 	mutations := make([]Mutation, len(recovery.MutationRecords))
+ 	for i, mutation := range recovery.MutationRecords {
+ 		keys, err := proc.getAppStateKey(ctx, mutation.GetKeyID())
+@@ -77,29 +99,17 @@ func (proc *Processor) StageRecovery(ctx context.Context, recovery *waSyncdSnaps
+ 		if err != nil {
+ 			return nil, fmt.Errorf("failed to unmarshal index for mutation #%d: %w", i+1, err)
+ 		}
+-		macs[i] = store.AppStateMutationMAC{
+-			IndexMAC: concatAndHMAC(sha256.New, keys.Index, mutation.GetValue().GetIndex()),
+-			ValueMAC: mutation.GetMac(),
+-		}
++		indexMAC := concatAndHMAC(sha256.New, keys.Index, mutation.GetValue().GetIndex())
+ 		mutations[i] = Mutation{
+ 			KeyID:        mutation.GetKeyID(),
+ 			Operation:    waServerSync.SyncdMutation_SET,
+ 			Action:       mutation.GetValue().GetValue(),
+ 			Version:      mutation.GetValue().GetVersion(),
+ 			Index:        parsedIndex,
+-			IndexMAC:     macs[i].IndexMAC,
+-			ValueMAC:     macs[i].ValueMAC,
++			IndexMAC:     indexMAC,
++			ValueMAC:     mutation.GetMac(),
+ 			PatchVersion: version,
+ 		}
+ 	}
+-	if err := proc.Store.AppState.DeleteAppStateVersion(ctx, name); err != nil {
+-		return mutations, fmt.Errorf("failed to reset app state version in database: %w", err)
+-	}
+-	if err := proc.Store.AppState.PutAppStateVersion(ctx, name, version, *(*[128]byte)(recovery.GetCollectionLthash())); err != nil {
+-		return mutations, fmt.Errorf("failed to update app state version in the database: %w", err)
+-	}
+-	if err := proc.Store.AppState.PutAppStateMutationMACs(ctx, name, version, macs); err != nil {
+-		return mutations, fmt.Errorf("failed to insert added mutation MACs to the database: %w", err)
+-	}
+ 	return mutations, nil
+ }
+diff --git a/message.go b/message.go
+index 0c7e3ed..7204f89 100644
+--- a/message.go
++++ b/message.go
+@@ -1362,9 +1362,14 @@ func (cli *Client) ReplayRecoveredProtocol(ctx context.Context, info *types.Mess
+ 							return errors.Join(store.ErrLocalStorage, err)
+ 						}
+ 						if current < snapshot.GetVersion().GetVersion() {
+-							if _, err := cli.appStateProc.StageRecovery(ctx, snapshot); err != nil {
++							mutations, err := cli.appStateProc.StageRecovery(ctx, snapshot)
++							if err != nil {
+ 								return err
+ 							}
++							if err := cli.collectEventsToDispatch(context.WithValue(ctx, appStateStagingKey{}, true), appstate.WAPatchName(snapshot.GetCollectionName()), mutations, true, nil); err != nil {
++								return err
++							}
++							store.MarkAppStateRecoveryStaged(ctx)
+ 						}
+ 					}
+ 				}
+diff --git a/store/store.go b/store/store.go
+index 823f536..9e537f2 100644
+--- a/store/store.go
++++ b/store/store.go
+@@ -10,6 +10,7 @@ package store
+ import (
+ 	"context"
+ 	"errors"
++	"sync/atomic"
+ 	"time"
+ 
+ 	"github.com/google/uuid"
+@@ -171,6 +172,28 @@ type BufferedEvent struct {
+ 
+ type bufferedEventChildKey struct{}
+ type precommittedProtocolKey struct{}
++type stagedAppStateRecoveryKey struct{}
++
++func WithAppStateRecoveryStage(ctx context.Context) context.Context {
++	return context.WithValue(ctx, stagedAppStateRecoveryKey{}, new(atomic.Bool))
++}
++
++func MarkAppStateRecoveryStaged(ctx context.Context) {
++	if staged, ok := ctx.Value(stagedAppStateRecoveryKey{}).(*atomic.Bool); ok {
++		staged.Store(true)
++	}
++}
++
++func AppStateRecoveryStaged(ctx context.Context) bool {
++	staged, ok := ctx.Value(stagedAppStateRecoveryKey{}).(*atomic.Bool)
++	return ok && staged.Load()
++}
++
++func ClearAppStateRecoveryStage(ctx context.Context) {
++	if staged, ok := ctx.Value(stagedAppStateRecoveryKey{}).(*atomic.Bool); ok {
++		staged.Store(false)
++	}
++}
+ 
+ // WithPrecommittedProtocol marks receive contexts whose durable buffer admission
+ // already staged post-decryption protocol writes in the Signal transaction.

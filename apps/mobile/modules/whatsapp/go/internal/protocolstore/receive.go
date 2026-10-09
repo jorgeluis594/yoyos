@@ -132,7 +132,7 @@ func CaptureReceive(ctx context.Context, accountID string, info *types.MessageIn
 		}
 		captured.Children = append(captured.Children, CapturedChild{index, format, child.AttrGetter().OptionalString("type"), append([]byte(nil), ciphertext...)})
 	}
-	return store.WithPrecommittedProtocol(context.WithValue(ctx, receiveContextKey{}, receiveContext{captured, build, processor})), nil
+	return store.WithAppStateRecoveryStage(store.WithPrecommittedProtocol(context.WithValue(ctx, receiveContextKey{}, receiveContext{captured, build, processor}))), nil
 }
 
 func (s *Store) prepareBufferedEvent(ctx context.Context, hash [32]byte, plaintext []byte, serverTime time.Time) error {
