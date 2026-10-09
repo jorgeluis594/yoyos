@@ -321,3 +321,36 @@ func TestCancelDuringHandoffClosesSocketsAndIgnoresLateSuccess(t *testing.T) {
 		t.Fatal("cancelled attempt connected")
 	}
 }
+
+// The pinned queue loop drains stream:error after the socket closed, so a 515
+// followed by the server closing the pairing socket reaches the transport while
+// no socket is current. It must still start the handoff.
+func TestLoginReconnectDrainedAfterPairingSocketCloseStartsHandoff(t *testing.T) {
+	for _, mode := range []string{"515 then close", "late handler after close"} {
+		t.Run(mode, func(t *testing.T) {
+			h := newSocketHarness(t, openAuthStore{}, false)
+			first := h.connectFirstLink(t)
+			h.pairOn(t)
+			if mode == "515 then close" {
+				first.streamError(t, "515")
+				first.drop()
+			} else {
+				oldCtx := h.oldContext(t, first)
+				first.drop()
+				for h.transport.client.CurrentSocketID() != 0 {
+					time.Sleep(time.Millisecond)
+				}
+				h.transport.client.DangerousInternals().HandleStreamError(oldCtx, &binary.Node{Tag: "stream:error", Attrs: binary.Attrs{"code": "515"}})
+			}
+			second := h.wa.next()
+			h.transport.client.IsConnected()
+			if h.clients() != 1 || h.c.State() != Connecting {
+				t.Fatal("handoff replaced the client or reset state")
+			}
+			second.success(t)
+			if event := receive(t, h.published); event.State != Connected {
+				t.Fatalf("handoff did not authenticate: %+v", event)
+			}
+		})
+	}
+}

@@ -33,6 +33,7 @@ type whatsmeowTransport struct {
 	loginReconnect  chan struct{}
 	localFailure    func() Code
 	pairedSocketID  atomic.Uint64
+	handedOff       atomic.Bool
 }
 
 func (t *whatsmeowTransport) stopped() Code {
@@ -62,8 +63,15 @@ func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent)
 				return
 			}
 		case *events.ManualLoginReconnect:
-			if value.SocketID == 0 || value.SocketID != t.socketID() {
+			// The pinned queue drains stream:error after the socket closed, so the
+			// pairing socket's 515 is honored once even when no socket is current.
+			current := value.SocketID != 0 && value.SocketID == t.socketID()
+			handoff := value.SocketID != 0 && value.SocketID == t.pairedSocketID.Load() && !t.handedOff.Load()
+			if !current && !handoff {
 				return
+			}
+			if handoff {
+				t.handedOff.Store(true)
 			}
 		case *events.Connected:
 			if value.SocketID == 0 || value.SocketID == t.pairedSocketID.Load() || value.SocketID != t.socketID() || !t.socketConnected() {
@@ -79,6 +87,7 @@ func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent)
 		}
 		if paired, ok := event.(*events.PairSuccess); ok {
 			t.pairedSocketID.Store(paired.SocketID)
+			t.handedOff.Store(false)
 		}
 		select {
 		case out <- TransportEvent{Kind: kind}:
