@@ -59,18 +59,25 @@ func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent)
 		}
 		switch value := event.(type) {
 		case *events.Disconnected:
+			// Once pairing succeeded, the pairing socket closing is the start of
+			// the handoff even if the dependency lost its 515. The same one-shot
+			// flag as the 515 decides which of the two redials.
 			if value.SocketID != 0 && value.SocketID == t.pairedSocketID.Load() {
-				return
+				if !t.handedOff.CompareAndSwap(false, true) {
+					return
+				}
+				kind = "loginReconnect"
 			}
 		case *events.ManualLoginReconnect:
 			// The pinned queue drains stream:error after the socket closed, so the
 			// pairing socket's 515 is honored once even when no socket is current.
 			paired := value.SocketID != 0 && value.SocketID == t.pairedSocketID.Load()
-			if value.SocketID != 0 && value.SocketID == t.socketID() {
-				if paired {
-					t.handedOff.Store(true)
+			current := value.SocketID != 0 && value.SocketID == t.socketID()
+			if paired {
+				if !t.handedOff.CompareAndSwap(false, true) {
+					return
 				}
-			} else if !paired || !t.handedOff.CompareAndSwap(false, true) {
+			} else if !current {
 				return
 			}
 		case *events.Connected:

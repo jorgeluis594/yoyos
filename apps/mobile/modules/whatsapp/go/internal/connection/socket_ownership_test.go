@@ -233,17 +233,6 @@ func TestDelayedPairingSocketCloseDoesNotRetireReplacement(t *testing.T) {
 	}
 }
 
-func TestPairingSocketCloseBeforeHandoffKeepsAttempt(t *testing.T) {
-	h := newSocketHarness(t, openAuthStore{}, false)
-	first := h.connectFirstLink(t)
-	h.pairOn(t)
-	first.drop()
-	h.expectNothing(t, "pairing socket close retired the attempt")
-	if h.c.State() != Connecting || h.clients() != 1 {
-		t.Fatal("pairing attempt was not kept")
-	}
-}
-
 func TestReplacementSocketCloseDuringAuthenticationFails(t *testing.T) {
 	auth := newGatedAuthStore()
 	h := newSocketHarness(t, auth, false)
@@ -322,37 +311,90 @@ func TestCancelDuringHandoffClosesSocketsAndIgnoresLateSuccess(t *testing.T) {
 	}
 }
 
-// The pinned queue loop drains stream:error after the socket closed, so a 515
-// followed by the server closing the pairing socket reaches the transport while
-// no socket is current. It must still start the handoff.
+// The pinned queue loop drains stream:error after the socket closed, so a late
+// 515 reaches the transport while no socket is current.
 func TestLoginReconnectDrainedAfterPairingSocketCloseStartsHandoff(t *testing.T) {
-	for _, mode := range []string{"515 then close", "late handler after close"} {
-		t.Run(mode, func(t *testing.T) {
+	h := newSocketHarness(t, openAuthStore{}, false)
+	first := h.connectFirstLink(t)
+	h.pairOn(t)
+	oldCtx := h.oldContext(t, first)
+	pairing := h.transport.client.CurrentSocketID()
+	first.drop()
+	for h.transport.client.CurrentSocketID() == pairing {
+		time.Sleep(time.Millisecond)
+	}
+	// The handoff may already have started from the close itself; either way
+	// the drained 515 must not start a second one.
+	h.transport.client.DangerousInternals().HandleStreamError(oldCtx, &binary.Node{Tag: "stream:error", Attrs: binary.Attrs{"code": "515"}})
+	second := h.wa.next()
+	h.transport.client.IsConnected()
+	h.expectNoSocket(t, "drained 515 started a second handoff")
+	second.success(t)
+	if event := receive(t, h.published); event.State != Connected {
+		t.Fatalf("handoff did not authenticate: %+v", event)
+	}
+	if h.clients() != 1 {
+		t.Fatal("handoff replaced the client")
+	}
+}
+
+func (h *socketHarness) expectOneHandoff(t *testing.T) {
+	t.Helper()
+	second := h.wa.next()
+	h.transport.client.IsConnected()
+	h.expectNoSocket(t, "handoff ran more than once")
+	if h.clients() != 1 || h.c.State() != Connecting {
+		t.Fatal("handoff replaced the client or reset state")
+	}
+	second.success(t)
+	if event := receive(t, h.published); event.State != Connected {
+		t.Fatalf("handoff did not authenticate: %+v", event)
+	}
+}
+
+func TestHandoffStartsFrom515OnCurrentSocket(t *testing.T) {
+	h := newSocketHarness(t, openAuthStore{}, false)
+	first := h.connectFirstLink(t)
+	h.pairOn(t)
+	first.streamError(t, "515")
+	h.expectOneHandoff(t)
+}
+
+// The dependency can drop a 515 that arrives next to the close; the close alone
+// must start the handoff.
+func TestHandoffStartsFromPairingSocketCloseWithout515(t *testing.T) {
+	h := newSocketHarness(t, openAuthStore{}, false)
+	first := h.connectFirstLink(t)
+	h.pairOn(t)
+	first.drop()
+	h.expectOneHandoff(t)
+}
+
+func TestHandoffRunsOnceWhen515AndCloseCompete(t *testing.T) {
+	for _, order := range []string{"515 then close", "close then 515"} {
+		t.Run(order, func(t *testing.T) {
 			h := newSocketHarness(t, openAuthStore{}, false)
-			first := h.connectFirstLink(t)
+			h.connectFirstLink(t)
 			h.pairOn(t)
-			if mode == "515 then close" {
-				// An orderly close keeps the 515 ahead of the close frame; an
-				// abrupt TCP close may discard it before the client reads it.
-				first.streamError(t, "515")
-				first.closeOrderly()
+			internals := h.transport.client.DangerousInternals()
+			reconnect := &events.ManualLoginReconnect{SocketID: h.transport.client.CurrentSocketID()}
+			closed := &events.Disconnected{SocketID: reconnect.SocketID}
+			if order == "515 then close" {
+				internals.DispatchEvent(reconnect)
+				internals.DispatchEvent(closed)
 			} else {
-				oldCtx := h.oldContext(t, first)
-				first.drop()
-				for h.transport.client.CurrentSocketID() != 0 {
-					time.Sleep(time.Millisecond)
-				}
-				h.transport.client.DangerousInternals().HandleStreamError(oldCtx, &binary.Node{Tag: "stream:error", Attrs: binary.Attrs{"code": "515"}})
+				internals.DispatchEvent(closed)
+				internals.DispatchEvent(reconnect)
 			}
-			second := h.wa.next()
-			h.transport.client.IsConnected()
-			if h.clients() != 1 || h.c.State() != Connecting {
-				t.Fatal("handoff replaced the client or reset state")
-			}
-			second.success(t)
-			if event := receive(t, h.published); event.State != Connected {
-				t.Fatalf("handoff did not authenticate: %+v", event)
-			}
+			h.expectOneHandoff(t)
 		})
 	}
+}
+
+func TestReplacementCloseIsNotAHandoff(t *testing.T) {
+	h := newSocketHarness(t, openAuthStore{}, false)
+	_, second, _ := h.pairAndHandOff(t)
+	second.drop()
+	h.expectFailureAndRetry(t, "replacement close was treated as a handoff")
+	h.expectNoSocket(t, "replacement close started another handoff")
 }
