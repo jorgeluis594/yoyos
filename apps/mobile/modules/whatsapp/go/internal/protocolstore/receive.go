@@ -132,7 +132,7 @@ func CaptureReceive(ctx context.Context, accountID string, info *types.MessageIn
 		}
 		captured.Children = append(captured.Children, CapturedChild{index, format, child.AttrGetter().OptionalString("type"), append([]byte(nil), ciphertext...)})
 	}
-	return store.WithPrecommittedProtocol(context.WithValue(ctx, receiveContextKey{}, receiveContext{captured, build, processor})), nil
+	return store.WithAppStateRecoveryStage(store.WithPrecommittedProtocol(context.WithValue(ctx, receiveContextKey{}, receiveContext{captured, build, processor}))), nil
 }
 
 func (s *Store) prepareBufferedEvent(ctx context.Context, hash [32]byte, plaintext []byte, serverTime time.Time) error {
@@ -160,6 +160,25 @@ func (s *Store) prepareBufferedEvent(ctx context.Context, hash [32]byte, plainte
 	info, err := parseReceiveInfo(value.captured.MessageInfoJSON, s.accountID)
 	if err != nil {
 		return err
+	}
+	if info.Sender.Server == types.DefaultUserServer && info.SenderAlt.IsEmpty() {
+		lid, err := s.GetLIDForPN(ctx, info.Sender)
+		if err != nil {
+			return err
+		}
+		if !lid.IsEmpty() {
+			info.SenderAlt = lid
+			var metadata map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(value.captured.MessageInfoJSON), &metadata); err != nil {
+				return failure(StateInvalid, "invalid captured metadata")
+			}
+			metadata["senderAlt"], _ = json.Marshal(lid.String())
+			updated, err := json.Marshal(metadata)
+			if err != nil {
+				return failure(StateInvalid, "invalid resolved metadata")
+			}
+			value.captured.MessageInfoJSON = string(updated)
+		}
 	}
 	if err := value.processor.ReplayRecoveredProtocol(ctx, info, child.Format, plaintext); err != nil {
 		return err
