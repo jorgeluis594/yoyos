@@ -11,7 +11,7 @@ export function EmailText({ children }: { children: ReactNode }) {
 }
 
 export function EmailButton({ href, children }: { href: string; children: ReactNode }) {
-  return <a href={href} className="email-action" style={{ backgroundColor: c.action, borderRadius: emailRadius.control, color: c.actionText, display: "inline-block", fontSize: 15, fontWeight: 600, lineHeight: "20px", padding: "14px 24px", textDecoration: "none" }}>{children}</a>;
+  return <a href={href} data-skip-in-text="true" className="email-action" style={{ backgroundColor: c.action, borderRadius: emailRadius.control, color: c.actionText, display: "inline-block", fontSize: 15, fontWeight: 600, lineHeight: "20px", padding: "14px 24px", textDecoration: "none" }}>{children}</a>;
 }
 
 export function EmailNote({ children }: { children: ReactNode }) {
@@ -23,8 +23,8 @@ export type EmailDetail = Readonly<{ label: string; value: string }>;
 export function EmailDetails({ rows }: { rows: readonly EmailDetail[] }) {
   return <table role="presentation" width="100%" cellPadding={0} cellSpacing={0} className="email-divider" style={{ borderTop: `1px solid ${c.border}`, margin: "-4px 0 28px" }}><tbody>
     {rows.map((row) => <tr key={row.label}>
-      <td className="email-muted email-divider" style={{ borderBottom: `1px solid ${c.border}`, color: c.muted, fontSize: 14, lineHeight: "20px", padding: "12px 16px 12px 0" }}>{row.label}</td>
-      <td align="right" className="email-text email-divider" style={{ borderBottom: `1px solid ${c.border}`, color: c.text, fontSize: 14, fontWeight: 500, lineHeight: "20px", padding: "12px 0" }}>{row.value}</td>
+      <td className="email-detail email-muted email-divider" style={{ borderBottom: `1px solid ${c.border}`, color: c.muted, fontSize: 14, lineHeight: "20px", padding: "12px 16px 12px 0" }}>{row.label}</td>
+      <td align="right" className="email-detail email-text email-divider" style={{ borderBottom: `1px solid ${c.border}`, color: c.text, fontSize: 14, fontWeight: 500, lineHeight: "20px", overflowWrap: "anywhere", padding: "12px 0", wordBreak: "break-word" }}>{row.value}</td>
     </tr>)}
   </tbody></table>;
 }
