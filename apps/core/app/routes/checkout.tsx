@@ -2,13 +2,10 @@ import { useState } from "react";
 import { useController, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { CheckoutDeliveryFields, type CheckoutDeliveryDraft } from "@core/app/components/checkout-delivery-fields";
-import { add } from "@shared/money";
 import { redirect, data, isRouteErrorResponse, useFetcher, useLoaderData, useParams, type ActionFunctionArgs, type LoaderFunctionArgs, type ShouldRevalidateFunctionArgs } from "react-router";
 import { z } from "zod";
 import { Button } from "@core/app/components/ui/button";
-import { Input } from "@core/app/components/ui/input";
-import { Field, FieldError, FieldLabel } from "@core/app/components/ui/field";
-import { formatCurrency } from "@core/app/format-currency";
+import { CheckoutBuyerDetails, CheckoutOrderSummary, CheckoutPayment, CheckoutReviewFields, CheckoutShell, checkoutTotal } from "@core/app/components/checkout-sections";
 import { orders } from "@core/src/features/orders/composition";
 import { parseBuyer, type CheckoutAccess, type CheckoutView } from "@core/src/features/orders/domain/checkout";
 import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
@@ -19,10 +16,7 @@ import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance
 import { bindRequestOperation, log } from "@core/src/shared/infrastructure/logger";
 import { buyerPaymentViewSchema, type BuyerPaymentView } from "@shared/contracts/orders";
 import { checkoutAppearance, parseCompanyId } from "@core/src/features/checkout-appearance";
-import { CheckoutBrandHeader } from "@core/src/features/checkout-appearance/presentation/checkout-brand-header";
-import { CheckoutTheme } from "@core/src/features/checkout-appearance/presentation/checkout-theme";
 import { publicCheckoutAppearanceSchema, type PublicCheckoutAppearance } from "@core/src/features/checkout-appearance/presentation/checkout-appearance-schemas";
-import { BuyerPaymentContent } from "@core/src/features/orders/presentation/buyer-payment-content";
 import { checkoutBuyerSchema, checkoutPathSchema, checkoutDeliveryOptionsSchema, confirmCheckoutDeliverySchema, publicCheckoutSchema, type CheckoutDeliveryOptions, type PublicCheckoutResponse } from "@shared/contracts/order-checkout";
 
 const privacyHeaders = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
@@ -195,33 +189,24 @@ export default function Checkout() {
   const name = useController({ name: "name", control: buyerForm.control });
   const phone = useController({ name: "phone", control: buyerForm.control });
   const [deliveryDraft, setDeliveryDraft] = useState<CheckoutDeliveryDraft | null>(null);
-  const summed = deliveryDraft?.delivery.kind === "replace" ? add(deliveryDraft.price)(checkout.itemsTotal) : null;
-  const total = checkout.state.kind !== "pending" || deliveryDraft?.delivery.kind === "keep" ? checkout.total : summed?.success ? summed.data : null;
+  const total = checkoutTotal(checkout, deliveryDraft);
   const recoveryVersion = fetcher.data?.code && ["TOTAL_CHANGED", "RATE_UNAVAILABLE", "INVALID_DISTRICT", "INVALID_DELIVERY_RATE", "DELIVERY_METHOD_DISABLED"].includes(fetcher.data.code) ? fetcher.data : undefined;
   const pending = fetcher.state !== "idle";
   const errors = { name: name.fieldState.error ? "Ingresa tu nombre." : fetcher.data?.fieldErrors?.name,
     phone: phone.fieldState.error ? "Ingresa un teléfono con código de país, por ejemplo +51987654321." : fetcher.data?.fieldErrors?.phone };
-  const amount = (money: PublicCheckoutResponse["total"]) => formatCurrency(money.amount, money.currency, "es");
   if (fetcher.data?.unavailable) return <main className="mx-auto max-w-lg p-6"><h1 className="text-2xl font-semibold">{unavailable}</h1><p>Solicita el enlace al vendedor.</p></main>;
-  return <CheckoutTheme appearance={initialData.appearance ?? null}><main className="mx-auto flex max-w-lg flex-col gap-6 p-5 py-8">
-    <header><CheckoutBrandHeader companyName={checkout.companyName} logoUrl={initialData.appearance?.logoUrl ?? null} /><h1 className="text-2xl font-semibold">Pedido #{checkout.number}</h1><p>Revisa los productos y el total de tu pedido.</p></header>
-    {checkout.state.kind === "cancelled" && <section role="status"><h2 className="text-xl font-semibold">Pedido cancelado</h2><p>Este pedido ya no puede confirmarse. Contacta al vendedor.</p></section>}
-    {checkout.state.kind === "confirmed" && <section role="status"><h2 className="text-xl font-semibold">Pedido confirmado</h2><p>Recibimos tu confirmación. Esto no registra un pago.</p><p>Para solicitar cambios, contacta al vendedor por el canal que ya utilizan.</p></section>}
-    <section aria-labelledby="products-title"><h2 id="products-title" className="font-semibold">Productos</h2><ul className="divide-y">{checkout.items.map((item, index) => <li key={index} className="flex justify-between gap-4 py-4"><div className="min-w-0 break-words"><p className="font-medium">{item.productName}</p><p className="text-sm text-muted-foreground">{Object.values(item.variantAttributes).join(" · ")}</p><p>{item.quantity} × {amount(item.unitPrice)}</p></div><strong className="shrink-0">{amount(item.subtotal)}</strong></li>)}</ul></section>
-    <dl className="flex flex-col gap-2"><div className="flex justify-between gap-4"><dt>Subtotal de productos</dt><dd>{amount(checkout.itemsTotal)}</dd></div><div className="flex justify-between gap-4"><dt>Entrega</dt><dd>{checkout.state.kind !== "pending" ? (checkout.deliveryCharge.amount === 0 ? "Gratis" : amount(checkout.deliveryCharge)) : deliveryDraft ? (deliveryDraft.price.amount === 0 ? "Gratis" : amount(deliveryDraft.price)) : "Selecciona una opción"}</dd></div><div className="flex justify-between gap-4 text-xl font-semibold"><dt>Total a pagar</dt><dd>{total ? amount(total) : "Selecciona entrega"}</dd></div></dl>
+  return <CheckoutShell appearance={initialData.appearance ?? null} checkout={checkout}>
+    <CheckoutOrderSummary checkout={checkout} deliveryDraft={deliveryDraft} />
     {checkout.state.kind === "pending" ? <fetcher.Form method="post" noValidate className="flex flex-col gap-5" onSubmit={buyerForm.handleSubmit(buyer => {
       if (pending || !deliveryDraft || !total) return;
       fetcher.submit({ buyer, delivery: deliveryDraft.delivery, expectedTotal: total }, { method: "post", encType: "application/json" });
     })}>
-      <h2 className="text-lg font-semibold">Tus datos</h2>
-      {fetcher.data?.message && <p role="alert">{fetcher.data.message}</p>}
-      <Field data-invalid={Boolean(errors?.name)}><FieldLabel htmlFor="buyer-name">Nombre</FieldLabel><Input {...name.field} id="buyer-name" autoComplete="name" required aria-invalid={Boolean(errors?.name)} aria-describedby={errors?.name ? "name-error" : undefined} />{errors?.name && <FieldError id="name-error">{errors.name}</FieldError>}</Field>
-      <Field data-invalid={Boolean(errors?.phone)}><FieldLabel htmlFor="buyer-phone">Teléfono</FieldLabel><Input {...phone.field} id="buyer-phone" type="tel" autoComplete="tel" required aria-invalid={Boolean(errors?.phone)} aria-describedby="phone-hint phone-error" /><p id="phone-hint" className="text-sm text-muted-foreground">Incluye el código de país, por ejemplo +51987654321.</p>{errors?.phone && <FieldError id="phone-error">{errors.phone}</FieldError>}</Field>
-      <CheckoutDeliveryFields orderId={orderId} checkout={checkout} options={initialData.deliveryOptions!} onChange={setDeliveryDraft} recoveryVersion={recoveryVersion} disabled={pending} />
-      <Button type="submit" disabled={pending || !deliveryDraft || !total}>{pending ? "Confirmando…" : "Confirmar pedido"}</Button><p className="text-sm text-muted-foreground">Confirmas tu intención de compra. El pago se coordina por separado.</p>
-    </fetcher.Form> : checkout.buyer && <section><h2 className="font-semibold">Datos del comprador</h2><p>{checkout.buyer.name}</p><p>{checkout.buyer.phone}</p></section>}
-    {checkout.state.kind === "confirmed" && initialData.payment && <section aria-label="Pago del pedido" className="flex flex-col gap-4"><BuyerPaymentContent view={initialData.payment} /></section>}
-  </main></CheckoutTheme>;
+      <CheckoutReviewFields message={fetcher.data?.message ?? null} name={name.field} nameError={errors.name} phone={phone.field} phoneError={errors.phone}
+        delivery={<CheckoutDeliveryFields orderId={orderId} checkout={checkout} options={initialData.deliveryOptions!} onChange={setDeliveryDraft} recoveryVersion={recoveryVersion} disabled={pending} />}
+        confirm={{ type: "submit", disabled: pending || !deliveryDraft || !total, pending }} />
+    </fetcher.Form> : <CheckoutBuyerDetails buyer={checkout.buyer} />}
+    {checkout.state.kind === "confirmed" && initialData.payment && <CheckoutPayment view={initialData.payment} />}
+  </CheckoutShell>;
 }
 
 export function ErrorBoundary({ error }: { error: unknown }) {
