@@ -1,7 +1,7 @@
 import type { Money } from "@shared/money";
 import type { Result } from "@shared/result";
 import type { CreateError } from "@core/src/features/products/application/create";
-import type { ListOutput } from "@core/src/features/products/application/list";
+import type { ListPage } from "@core/src/features/products/application/list";
 import type { UpdateError } from "@core/src/features/products/application/update";
 import type { ImageId, Product, ProductId, VariantId } from "@core/src/features/products/domain/product";
 
@@ -14,5 +14,5 @@ export type ProductRepository = Readonly<{
   create(product: Product): Promise<Result<ProductId, CreateError>>;
   update(id: ProductId, changes: UpdateChanges): Promise<Result<ProductId, UpdateError>>;
   get(id: ProductId): Promise<Result<Product | null, ProductReadError>>;
-  list(criteria: Criteria): Promise<Result<ListOutput, ProductReadError>>;
+  list(criteria: Criteria): Promise<Result<ListPage, ProductReadError>>;
 }>;

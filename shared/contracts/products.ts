@@ -39,6 +39,8 @@ export const productListQuerySchema = z.object({
   pageSize: z.string().regex(/^-?\d+$/).transform(Number).optional(),
 }).strict();
 
+const productImageSchema = z.object({ id: uuidSchema, url: z.url().refine((value) => /^https?:\/\//i.test(value)) });
+
 export const productListResponseSchema = z.object({
   items: z.array(z.object({
     id: uuidSchema,
@@ -48,6 +50,7 @@ export const productListResponseSchema = z.object({
     minSalePrice: moneySchema,
     hasDifferentPrices: z.boolean(),
     totalStock: z.number().int().nonnegative(),
+    image: productImageSchema.optional(),
   })),
   page: z.number().int().positive(),
   pageSize: z.number().int().positive(),
@@ -77,7 +80,7 @@ export const productDetailResponseSchema = z.object({
       stock: z.object({ variantId: uuidSchema, quantity: z.number().int().nonnegative() }),
     })).min(1),
   }),
-  image: z.object({ id: uuidSchema, url: z.url().refine((value) => /^https?:\/\//i.test(value)) }).optional(),
+  image: productImageSchema.optional(),
 }).superRefine((response, context) => {
   if ((response.product.imageId === undefined) !== (response.image === undefined) || response.image && response.product.imageId !== response.image.id) {
     context.addIssue({ code: "custom", path: ["image", "id"], message: "Image must match the product reference" });

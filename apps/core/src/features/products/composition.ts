@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { err, map } from "@shared/functional";
+import { log } from "@core/src/shared/infrastructure/logger";
 import { getImage } from "@core/src/shared/images/application/images";
 import { imageRepository } from "@core/src/shared/images/infrastructure/image-repository";
 import { createR2ImageStorage } from "@core/src/shared/images/infrastructure/r2-image-storage";
@@ -24,6 +25,12 @@ async function resolveImage(imageId: ImageId) {
   return { success: true as const, data: result.data ? { id: result.data.id as typeof imageId, url: result.data.url } : null };
 }
 
+async function resolveListImage(imageId: ImageId) {
+  const result = await resolveImage(imageId);
+  if (!result.success) log.error({ event: "product_list_image_unavailable", imageId, err: result.error }, "product_list_image_unavailable");
+  return result;
+}
+
 async function findImage(imageId: ImageId) {
   return map(await imageRepository.find(imageId), (image) => image !== null && image.visibility !== "private");
 }
@@ -36,5 +43,5 @@ export const products = {
   update: (id: Parameters<typeof updateProduct>[0], input: Parameters<typeof updateProduct>[1]) =>
     updateProduct(id, input, { repository: productRepository, findImage, clock: () => new Date() }),
   list: (input: Parameters<typeof listProducts>[0]) =>
-    listProducts(input, productRepository),
+    listProducts(input, { repository: productRepository, resolveImage: resolveListImage }),
 };
