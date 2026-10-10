@@ -240,6 +240,25 @@ func (s *ConnectionSession) Disconnect() {
 	}
 }
 
+// Suspend ends the live connection before iOS suspends the process and remembers that one was
+// requested. Pending entries, the stored session and downloaded images are untouched; a QR, a
+// connection result or a download that arrives late is discarded. There is no reception while
+// suspended and nothing wakes the app: only Resume, called when the app runs again, reconnects.
+func (s *ConnectionSession) Suspend() {
+	if s != nil && s.controller != nil {
+		s.controller.Suspend()
+	}
+}
+
+// Resume starts one new attempt after Suspend, with fresh deadlines. It returns "" when there was
+// nothing to resume or the attempt started, and a public code when the session can no longer connect.
+func (s *ConnectionSession) Resume() string {
+	if s == nil || s.controller == nil {
+		return "NOT_INITIALIZED"
+	}
+	return publicConnectCode(s.controller.Resume())
+}
+
 // Logout stops reception and generation, completes the identity mappings that are still
 // verifiable and asks WhatsApp to unlink within 15 seconds. It returns "" only when the
 // remote unlink was confirmed, "REMOTE_LOGOUT_UNCONFIRMED" when it was not, and a public

@@ -80,6 +80,7 @@ type Controller struct {
 	paired        bool
 	requested     bool
 	paused        bool
+	suspended     bool // the process was suspended with a connection requested; Resume owes one attempt
 	expired       bool
 	localFault    Code
 	state         State
@@ -202,6 +203,7 @@ func (c *Controller) Connect() Code {
 		return ConnectionFailed
 	}
 	c.requested = true
+	c.suspended = false // an explicit request replaces the one a suspension was holding
 	c.retries = 0
 	c.startLocked(transport, Connecting)
 	return ""
@@ -301,6 +303,7 @@ func (c *Controller) retireLocked() {
 func (c *Controller) detachLocked() Transport {
 	c.requested = false
 	c.paused = false
+	c.suspended = false
 	c.generation++
 	if c.retryCancel != nil {
 		close(c.retryCancel)
