@@ -246,7 +246,7 @@ La lectura pública es independiente de la del pedido. Si un vendedor guarda jus
 
 - **Servidor:** el checkout se renderiza en el servidor con el `<style>` de la marca dentro del HTML. No hay destello de la apariencia de Yoyos antes de aplicar la marca.
 - **Hidratación:** `checkoutPalette` es una consulta al catálogo, así que servidor y navegador producen el mismo CSS y no hay diferencias al hidratar.
-- **Modo oscuro:** el script actual de `root.tsx` aplica `.dark` antes de pintar. El `<style>` ya trae las dos variantes (`[data-checkout-theme]` y `.dark [data-checkout-theme]`), por lo que el cambio de modo no requiere JavaScript adicional.
+- **Modo oscuro:** el script actual de `root.tsx` aplica `.dark` antes de pintar. El `<style>` ya trae las dos variantes (`[data-checkout-theme="…"]` y `.dark [data-checkout-theme="…"]`), por lo que el cambio de modo no requiere JavaScript adicional.
 - **Catálogo en el navegador:** el editor lo usa para las muestras del diálogo y del inspector, y el iframe para aplicar el borrador. El costo en el paquete es una tabla de nueve colores.
 - **Persistencia:** se guarda el identificador del color y el fondo, no los tonos. Un ajuste de tonos en el catálogo se aplica a todas las empresas que usan ese color sin migrar datos.
 
@@ -519,10 +519,11 @@ type CheckoutThemeProps = Readonly<{ appearance: PublicCheckoutAppearance | null
 - En otro caso, obtiene `checkoutPalette(brandColor, background)` y renderiza:
 
   ```html
-  <style>[data-checkout-theme]{--primary:#…;…}.dark [data-checkout-theme]{--primary:#…;…}</style>
-  <div data-checkout-theme class="min-h-screen bg-background text-foreground">…</div>
+  <style>[data-checkout-theme="…"]{--primary:#…;…}.dark [data-checkout-theme="…"]{--primary:#…;…}</style>
+  <div data-checkout-theme="…" class="min-h-screen bg-background text-foreground">…</div>
   ```
 
+- El valor del atributo lo genera `useId`: cada instancia aplica sus variables solo a su subárbol, y servidor y navegador producen el mismo valor.
 - Los valores salen siempre del catálogo escrito en el código. Nunca se interpola texto del usuario en el CSS.
 - Al limitar el alcance a `[data-checkout-theme]`, la marca no afecta al panel privado.
 
