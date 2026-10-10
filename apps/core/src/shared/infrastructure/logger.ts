@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import pino from "pino";
 
-type OperationContext = { operation?: "create_order" | "create_quotation" | "enable_checkout" | "get_checkout" | "confirm_checkout" | "redirect_buyer_payment"; outcome?: "enabled" | "already_enabled" | "cancelled" | "unavailable" | "invalid_input" | "unauthenticated" | "technical_failure" | "pending" | "confirmed" | "already_confirmed" | "total_changed" | "redirected" | "rendered"; orderNumber?: number; checkoutAppearance?: "default" | "custom" | "fallback" };
+type OperationContext = { operation?: "create_order" | "create_quotation" | "enable_checkout" | "get_checkout" | "confirm_checkout" | "redirect_buyer_payment" | "get_checkout_preview"; outcome?: "enabled" | "already_enabled" | "cancelled" | "unavailable" | "invalid_input" | "unauthenticated" | "technical_failure" | "pending" | "confirmed" | "already_confirmed" | "total_changed" | "redirected" | "rendered"; orderNumber?: number; checkoutAppearance?: "default" | "custom" | "fallback" };
 type LogContext = { requestId: string; companyId?: string } & OperationContext;
 type LoggingState = { context: AsyncLocalStorage<LogContext>; log?: pino.Logger };
 // Express loads source modules; the React Router server build bundles them.
