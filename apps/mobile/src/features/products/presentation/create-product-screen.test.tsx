@@ -66,3 +66,33 @@ test('new product form and validation are translated to Portuguese', async () =>
     await i18n.changeLanguage('es');
   }
 });
+
+test("shows profit and margin once sale price and cost are valid", () => {
+  render(<CreateProductScreen />);
+  expect(screen.getByText("Agrega el costo para ver tu ganancia y margen.")).toBeTruthy();
+  fireEvent.changeText(screen.getByLabelText(/Precio de venta/), "59.90");
+  fireEvent.changeText(screen.getByLabelText("Costo"), "32");
+  expect(screen.getByLabelText("Ganancia S/ 27.90, margen 46.6 %")).toBeTruthy();
+  fireEvent.changeText(screen.getByLabelText(/Precio de venta/), "");
+  expect(screen.queryByText("Ganancia")).toBeNull();
+});
+
+test("stock stepper adjusts the initial stock sent on creation", async () => {
+  mockCreate.mockResolvedValue(ok(productId));
+  render(<CreateProductScreen />);
+  fillForm();
+  const decrease = screen.getByRole("button", { name: "Restar uno al stock" });
+  expect(decrease.props.accessibilityState.disabled).toBe(true);
+  fireEvent.press(screen.getByRole("button", { name: "Sumar uno al stock" }));
+  fireEvent.press(screen.getByRole("button", { name: "Sumar uno al stock" }));
+  fireEvent.press(decrease);
+  expect(screen.getByLabelText("Stock inicial").props.value).toBe("1");
+  await act(async () => fireEvent.press(screen.getByRole("button", { name: "Guardar" })));
+  expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ initialStock: 1 }));
+});
+
+test("close returns to the catalog", () => {
+  render(<CreateProductScreen />);
+  fireEvent.press(screen.getByRole("button", { name: "Cerrar" }));
+  expect(mockReplace).toHaveBeenCalledWith("/products");
+});

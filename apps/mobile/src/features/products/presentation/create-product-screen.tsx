@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import * as Crypto from "expo-crypto";
 import { countryCurrencies } from "@shared/country";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { products } from "@mobile/features/products/composition";
 import { useAccess } from "@/features/users/presentation/access-provider";
@@ -76,8 +75,8 @@ export default function CreateProductScreen() {
   };
 
   return <ThemedView style={styles.page}><SafeAreaView style={styles.safe}>
-    <View style={styles.header}><ThemedText type="subtitle">{t('newProduct')}</ThemedText></View>
     <ProductForm
+      title={t('newProduct')}
       values={values}
       setValue={setValue}
       currency={countryCurrencies[state.company.country]}
@@ -88,7 +87,7 @@ export default function CreateProductScreen() {
       photoBusy={photoBusy}
       onPhotoBusy={setPhotoBusy}
       onSave={() => void save()}
-      onCancel={() => router.replace("/products")}
+      onClose={() => router.replace("/products")}
       onReviewCatalog={() => { setDirty(false); router.replace("/products"); }}
       saving={saving}
       conflict={conflict}
@@ -96,4 +95,4 @@ export default function CreateProductScreen() {
   </SafeAreaView></ThemedView>;
 }
 
-const styles = StyleSheet.create({ page: { flex: 1 }, safe: { flex: 1 }, header: { minHeight: 52, justifyContent: "center", paddingHorizontal: 16 } });
+const styles = StyleSheet.create({ page: { flex: 1 }, safe: { flex: 1 } });

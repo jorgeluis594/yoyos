@@ -207,17 +207,14 @@ export default function ProductManagementScreen() {
   };
 
   return <ThemedView style={styles.page}><SafeAreaView style={styles.safe}>
-    <View style={styles.header}>
-      <View style={styles.heading}><ThemedText type="subtitle" style={styles.title}>{t('manageProduct')}</ThemedText>
-        {product.variants.length > 0 ? <Pressable accessibilityRole="button" accessibilityLabel={t('printLabel')}
-          accessibilityState={{ disabled: saving || photoBusy || uncertain }} disabled={saving || photoBusy || uncertain}
-          onPress={print} style={({ pressed }) => [styles.printAction, { backgroundColor: pressed ? theme.accent : theme.secondary, opacity: saving || photoBusy || uncertain ? 0.5 : 1 }]}>
-          <SymbolView name={{ ios: "printer", android: "print" }} size={24} tintColor={theme.secondaryForeground} />
-        </Pressable> : null}
-      </View>
-    </View>
-    {dirty ? <ThemedText themeColor="textSecondary" style={styles.printNote}>{t('printSavedDataHint')}</ThemedText> : null}
     <ProductForm
+      title={t('manageProduct')}
+      headerAction={product.variants.length > 0 ? <Pressable accessibilityRole="button" accessibilityLabel={t('printLabel')}
+        accessibilityState={{ disabled: saving || photoBusy || uncertain }} disabled={saving || photoBusy || uncertain}
+        onPress={print} style={({ pressed }) => [styles.printAction, { backgroundColor: pressed ? theme.accent : "transparent", opacity: saving || photoBusy || uncertain ? 0.5 : 1 }]}>
+        <SymbolView name={{ ios: "printer", android: "print" }} size={24} tintColor={theme.text} />
+      </Pressable> : undefined}
+      notice={dirty ? t('printSavedDataHint') : undefined}
       values={values}
       setValue={setValue}
       currency={product.currency}
@@ -231,7 +228,7 @@ export default function ProductManagementScreen() {
       onSave={() => void save()}
       copies={copies}
       onCopiesChange={setCopies}
-      onCancel={() => router.replace("/products")}
+      onClose={() => router.replace("/products")}
       onReviewCatalog={() => { setDirty(false); router.replace("/products"); }}
       onCheckStatus={() => void checkStatus()}
       saving={saving}
@@ -252,10 +249,8 @@ export default function ProductManagementScreen() {
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1 }, safe: { flex: 1 }, header: { minHeight: 52, justifyContent: "center", paddingHorizontal: 16 },
-  heading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  title: { flexShrink: 1 }, printAction: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
-  printNote: { paddingHorizontal: 20, paddingTop: 8 },
+  page: { flex: 1 }, safe: { flex: 1 },
+  printAction: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
   scrim: { flex: 1, justifyContent: "center", padding: 24, backgroundColor: "#0008" },
   picker: { maxHeight: "75%", borderRadius: 12, padding: 20, gap: 16 }, variantChoices: { gap: 8 },
 });
