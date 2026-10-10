@@ -59,7 +59,21 @@ internal object ReceiveServicePolicy {
   fun isLocalFault(errorCode: String): Boolean =
     errorCode == "SESSION_STORAGE_FAILED" || errorCode == "SESSION_STORAGE_LIMIT_REACHED" || errorCode == "SESSION_STATE_INVALID"
 
-  /** Terminal events that end the receive request without a fault: the service has nothing left to hold. */
-  fun endsReceiveRequest(event: String, state: String?): Boolean =
-    event == "connectionChanged" && (state == "sessionExpired" || state == "disconnected")
+  /** What a connection event means for the service. */
+  enum class EventEffect { NONE, CHECK_REQUEST, END }
+
+  /**
+   * `disconnected` is ambiguous: Go publishes it for an ended request (unpaired failure, nothing left to
+   * retry) and also for a RECOVERY_BUFFER_FULL pause that resumes by itself with the request still held.
+   * Only `sessionExpired` is final by itself; `disconnected` must be settled with Go's own
+   * `requestActive` before the intent is withdrawn.
+   */
+  fun eventEffect(event: String, state: String?): EventEffect = when {
+    event == "connectionChanged" && state == "sessionExpired" -> EventEffect.END
+    event == "connectionChanged" && state == "disconnected" -> EventEffect.CHECK_REQUEST
+    else -> EventEffect.NONE
+  }
+
+  /** Withdraw for a `disconnected` only when Go no longer holds the request (it is not a pause or retry). */
+  fun endsRequest(requestActive: Boolean): Boolean = !requestActive
 }

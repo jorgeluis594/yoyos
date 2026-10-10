@@ -315,6 +315,11 @@ func (s *ConnectionSession) State() string {
 func (s *ConnectionSession) CanUpdateOptions() bool {
 	return s != nil && s.controller != nil && s.controller.CanUpdateOptions()
 }
+// RequestActive tells native whether Go still holds the connection request, so a transient `disconnected`
+// (capacity pause) is told apart from an ended request.
+func (s *ConnectionSession) RequestActive() bool {
+	return s != nil && s.controller != nil && s.controller.RequestActive()
+}
 func (s *ConnectionSession) CurrentQR() string {
 	if s == nil || s.controller == nil {
 		return ""

@@ -33,6 +33,7 @@ class WhatsAppService : Service() {
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    if (intent?.action == ReceiveServicePolicy.ACTION_START) ConnectionRuntime.pendingStarts.updateAndGet { if (it > 0) it - 1 else 0 }
     if (!promote()) return START_NOT_STICKY
     // Promotion has happened, so stopping now cannot trigger "did not then call startForeground()".
     // stopSelfResult(startId) is a no-op when a newer start (a racing connect()) arrived meanwhile.
@@ -62,6 +63,9 @@ class WhatsAppService : Service() {
       true
     } catch (_: Exception) {
       // Not allowed or rejected: no loop and no alternative service type. Data and session stay.
+      // This is an unrecoverable configuration error (invalid notification or type): the service never reached
+      // the foreground, so AOSP may still report "did not then call startForeground()" for this start. A
+      // background-start refusal does not get here; startForegroundService itself throws and connect() handles it.
       refused = true
       worker.execute { ConnectionRuntime.serviceRefused() }
       stopSelf()
@@ -93,7 +97,8 @@ class WhatsAppService : Service() {
   }
 
   override fun onDestroy() {
-    ConnectionRuntime.serviceActive = false
+    // A newer connect() may already have requested a start; its flag must survive this instance's destruction.
+    if (ConnectionRuntime.pendingStarts.get() == 0) ConnectionRuntime.serviceActive = false
     worker.shutdown() // no persistence here: a killed process never reaches this method
     super.onDestroy()
   }

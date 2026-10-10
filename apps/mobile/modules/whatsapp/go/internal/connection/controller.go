@@ -157,6 +157,14 @@ func (c *Controller) CanUpdateOptions() bool {
 	defer c.mu.Unlock()
 	return !c.requested && !c.expired && c.state == Disconnected
 }
+// RequestActive reports whether a connection is still requested. It stays true while a capacity pause or a
+// retry is pending (a `disconnected` that Go resumes by itself) and is false once the request really ended:
+// Disconnect, logout, a local fault, revocation, or a failure with nothing left to retry.
+func (c *Controller) RequestActive() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.requested
+}
 func (c *Controller) CurrentQR() (Event, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

@@ -490,3 +490,46 @@ func TestWA12PreparedControllerConnectsOnceWhenRestoreAdoptsIt(t *testing.T) {
 		t.Fatalf("expected one connecting generation, creates=%d", creates)
 	}
 }
+
+// WA-12 N1: `disconnected` alone does not say whether the request ended. RequestActive stays true through a
+// capacity pause (Go resumes it) and is already false when an unpaired attempt really ends.
+func TestWA12RequestActiveDistinguishesPauseFromEnd(t *testing.T) {
+	first := newTransport()
+	events := make(chan Event, 16)
+	c := New(func() (Transport, error) { return first, nil }, func(e Event) { events <- e }, nil)
+	c.Prepare(true)
+	if c.RequestActive() {
+		t.Fatal("nothing requested yet")
+	}
+	c.Connect()
+	started(t, first)
+	receive(t, events)
+	c.PauseForCapacity()
+	if receive(t, events).Error != RecoveryBufferFull || receive(t, events).State != Disconnected {
+		t.Fatal("pause not announced")
+	}
+	if !c.RequestActive() {
+		t.Fatal("a capacity pause ended the request")
+	}
+	c.Disconnect()
+	if c.RequestActive() {
+		t.Fatal("disconnect left the request")
+	}
+
+	unpaired := newTransport()
+	events2 := make(chan Event, 16)
+	u := New(func() (Transport, error) { return unpaired, nil }, func(e Event) { events2 <- e }, nil)
+	u.Prepare(false)
+	u.Connect()
+	channel := started(t, unpaired)
+	receive(t, events2)
+	channel <- TransportEvent{Kind: "networkFailure"}
+	for {
+		if e := receive(t, events2); e.State == Disconnected {
+			break
+		}
+	}
+	if u.RequestActive() {
+		t.Fatal("request still active when disconnected was announced")
+	}
+}

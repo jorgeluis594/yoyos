@@ -227,11 +227,30 @@ describe("review M2 stopping a service that may not be promoted yet", () => {
   });
 });
 
-describe("review m2 ended request", () => {
-  test("Go ending the request without a fault withdraws the intent and stops the service", () => {
-    const observe = body(module, "private fun observeConnectionEvent");
-    expect(observe).toContain("endsReceiveRequest");
-    expect(observe).toContain("retireIntent()");
-    expect(policy).toMatch(/state == "sessionExpired" \|\| state == "disconnected"/);
+describe("review m2 and N1 ended request", () => {
+  const observe = () => body(module, "private fun observeConnectionEvent");
+  test("a bare disconnected never withdraws: it is settled with Go's requestActive under the lock", () => {
+    expect(policy).toMatch(/event == "connectionChanged" && state == "disconnected" -> EventEffect\.CHECK_REQUEST/);
+    expect(policy).toMatch(/event == "connectionChanged" && state == "sessionExpired" -> EventEffect\.END/);
+    expect(policy).toContain("fun endsRequest(requestActive: Boolean): Boolean = !requestActive");
+    expect(observe()).toContain("session?.requestActive()");
+    expect(order(observe(), "synchronized(lock)", "requestActive()")).toBe(true);
+    expect(order(observe(), "if (!finished) return@synchronized", "retireIntent()")).toBe(true);
+    expect(observe()).toContain("background.execute");
+  });
+  test("a paused or retried request keeps service and intent; only a missing session counts as ended", () => {
+    expect(observe()).toContain("?: false");
+  });
+  test("Go exposes the request state through the bridge", () => {
+    const bridge = readFileSync(join(__dirname, "go", "bridge", "connection.go"), "utf8");
+    expect(bridge).toContain("func (s *ConnectionSession) RequestActive() bool");
+  });
+});
+
+describe("review n1 serviceActive race", () => {
+  test("an old instance's destroy cannot clear the flag of a newer start", () => {
+    expect(body(service, "override fun onDestroy")).toContain("if (ConnectionRuntime.pendingStarts.get() == 0) ConnectionRuntime.serviceActive = false");
+    expect(body(module, "fun startService")).toContain("pendingStarts.incrementAndGet()");
+    expect(code(body(service, "override fun onStartCommand"))).toContain("pendingStarts.updateAndGet");
   });
 });

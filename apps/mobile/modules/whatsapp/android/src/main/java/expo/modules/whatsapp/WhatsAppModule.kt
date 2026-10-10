@@ -21,6 +21,7 @@ import android.content.Intent
 import android.os.Build
 import java.util.UUID
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 
 internal fun openProtocolSession(
   writer: NativeStateStore, generationId: String, accountId: String,
@@ -202,9 +203,16 @@ internal object ConnectionRuntime {
   fun startService(context: Context): String? = try {
     val intent = Intent(context, WhatsAppService::class.java).setAction(ReceiveServicePolicy.ACTION_START)
     serviceActive = true
+    pendingStarts.incrementAndGet()
     if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
     null
-  } catch (_: Exception) { serviceActive = false; "CONNECTION_FAILED" }
+  } catch (_: Exception) { pendingStarts.decrementAndGet(); serviceActive = false; "CONNECTION_FAILED" }
+
+  /**
+   * START requests not yet seen by a service instance. An old instance's onDestroy must not clear
+   * `serviceActive` while a newer start is on its way (disconnect, then connect, then the old destroy).
+   */
+  val pendingStarts = AtomicInteger(0)
 
   /** True from a successful start request until the service is destroyed (set by the service itself). */
   @Volatile var serviceActive = false
@@ -278,13 +286,16 @@ internal object ConnectionRuntime {
   private fun observeConnectionEvent(sink: PublicConnectionEvents, event: String, fields: Map<String, Any?>) {
     val revokedNow = event == "connectionChanged" && fields["state"] == "sessionExpired"
     val fault = event == "error" && ReceiveServicePolicy.isLocalFault(fields["code"] as? String ?: "")
-    // Our own stops retire the sink first, so a `disconnected` seen here is Go ending the request
-    // (unpaired QR expiry, no retry left): nothing is left to receive, so the service must not linger.
-    val ended = ReceiveServicePolicy.endsReceiveRequest(event, fields["state"] as? String)
-    if (!revokedNow && !fault && !ended) return
+    // Our own stops retire the sink first, so a `disconnected` seen here comes from Go. It may be a capacity
+    // pause or a retry that Go resumes by itself (request still held): that keeps the service and the intent.
+    val effect = ReceiveServicePolicy.eventEffect(event, fields["state"] as? String)
+    if (!revokedNow && !fault && effect == ReceiveServicePolicy.EventEffect.NONE) return
     background.execute {
       synchronized(lock) {
         if (eventSink !== sink) return@synchronized
+        // Settled under the lock, after Go set `requested` (it does so before publishing the state).
+        val finished = revokedNow || fault || ReceiveServicePolicy.endsRequest(session?.requestActive() ?: false)
+        if (!finished) return@synchronized
         if (revokedNow) revoked = true
         // A revoked session, a local fault or an ended request is not retried by START_STICKY; credentials stay.
         retireIntent()

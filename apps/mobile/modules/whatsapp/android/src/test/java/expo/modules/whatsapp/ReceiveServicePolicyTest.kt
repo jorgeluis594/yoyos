@@ -58,11 +58,22 @@ class ReceiveServicePolicyTest {
     assertFalse(ReceiveServicePolicy.isLocalFault("RECOVERY_BUFFER_FULL"))
   }
 
-  // WA-12 review m2: a request ended by Go without a fault (unpaired QR expiry) must not leave the service.
-  @Test fun endedRequestsStopTheService() {
-    assertTrue(ReceiveServicePolicy.endsReceiveRequest("connectionChanged", "disconnected"))
-    assertTrue(ReceiveServicePolicy.endsReceiveRequest("connectionChanged", "sessionExpired"))
-    assertFalse(ReceiveServicePolicy.endsReceiveRequest("connectionChanged", "reconnecting"))
-    assertFalse(ReceiveServicePolicy.endsReceiveRequest("qr", null))
+  // WA-12 N1: every cause of `disconnected`, settled with Go's own requestActive.
+  @Test fun disconnectedIsSettledWithRequestActive() {
+    val effect = ReceiveServicePolicy.eventEffect("connectionChanged", "disconnected")
+    assertEquals(ReceiveServicePolicy.EventEffect.CHECK_REQUEST, effect)
+    // RECOVERY_BUFFER_FULL pause: Go keeps requested=true and resumes by itself.
+    assertFalse(ReceiveServicePolicy.endsRequest(requestActive = true))
+    // Unpaired failure without retry, Disconnect, local fault: requested=false.
+    assertTrue(ReceiveServicePolicy.endsRequest(requestActive = false))
+  }
+
+  @Test fun otherEventsNeverEndTheRequestByThemselves() {
+    assertEquals(ReceiveServicePolicy.EventEffect.END, ReceiveServicePolicy.eventEffect("connectionChanged", "sessionExpired"))
+    for (state in listOf("connecting", "awaitingQr", "connected", "reconnecting")) {
+      assertEquals(ReceiveServicePolicy.EventEffect.NONE, ReceiveServicePolicy.eventEffect("connectionChanged", state))
+    }
+    assertEquals(ReceiveServicePolicy.EventEffect.NONE, ReceiveServicePolicy.eventEffect("error", null)) // RECOVERY_BUFFER_FULL is an error event
+    assertEquals(ReceiveServicePolicy.EventEffect.NONE, ReceiveServicePolicy.eventEffect("qr", null))
   }
 }
