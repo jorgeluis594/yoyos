@@ -95,6 +95,7 @@ function productListItem(item: ReturnType<typeof productListResponseSchema.parse
     price: item.minSalePrice,
     priceFrom: item.hasDifferentPrices,
     stock: item.totalStock,
+    ...(item.image === undefined ? {} : { photo: { id: item.image.id as ImageId, url: item.image.url } }),
   };
 }
 
@@ -154,6 +155,8 @@ export function createProductApi(request: Request, sessionGeneration: () => numb
       const params = new URLSearchParams({ page: String(criteria.page), pageSize: String(criteria.pageSize) });
       const search = criteria.search?.trim();
       if (search) params.set("search", search);
+      if (criteria.stock) params.set("stock", criteria.stock);
+      if (criteria.sort) params.set("sort", criteria.sort);
       const result = restrictFailure(await run(`/api/products?${params}`, {}, ["INVALID_INPUT", "VALIDATION_ERROR", "UNAUTHENTICATED", "COMPANY_REQUIRED", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR"]), ["INVALID_INPUT", "VALIDATION_ERROR"] as const);
       if (!result.success) {
         if (result.error.code === "INVALID_INPUT" || result.error.code === "VALIDATION_ERROR") return err(listError(result.error));
