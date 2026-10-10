@@ -1,8 +1,17 @@
 package receive
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
+
+	waBinary "go.mau.fi/whatsmeow/binary"
+	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/store"
+	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
+	"google.golang.org/protobuf/proto"
 )
 
 // WA-14 controlled journey on the Go side: live reception, a lost confirmation, a restart, a PN/LID identity that
@@ -113,4 +122,51 @@ func TestWA14JourneyDurableConsumerSurvivesLostConfirmationRestartLateIdentityAn
 	if n.pendingCount() != 0 {
 		t.Fatal("the unlinked account's delivery stayed pending")
 	}
+}
+
+// IT-MSG-07 (WA-14 review M2): live content whose timestamp cannot become a public one (a zero or negative one is already refused at capture, undecrypted and unacknowledged) is never discarded with an ACK.
+// It stays as recoverable pending content, is not delivered, gets no ACK and invents no reception time.
+func TestITMSG07LiveContentWithAnInvalidTimestampIsKeptAndNotAcknowledged(t *testing.T) {
+	n := newNative()
+	l := newLife(t, n, 1<<20)
+	app := l.subscribe("a")
+	l.coord.Start()
+	chat := types.JID{User: "555", Server: types.HiddenUserServer}
+	info := &types.MessageInfo{MessageSource: types.MessageSource{Chat: chat, Sender: chat}, ID: "nots", Timestamp: time.Unix(300000000000, 0)} // year ~11500: accepted by capture, invalid for a public timestamp
+	node := &waBinary.Node{Content: []waBinary.Node{{Tag: "enc", Attrs: waBinary.Attrs{"v": "2", "type": "msg"}, Content: []byte("cipher-nots")}}}
+	plain, _ := proto.Marshal(&waE2E.Message{Conversation: proto.String("sin hora")})
+	ctx, err := l.recv.PreDecrypt(context.Background(), info, node)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := [32]byte{}
+	copy(hash[:], "nots")
+	if _, err := l.store.GetBufferedEvent(ctx, hash); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.store.DoDecryptionTxn(store.WithBufferedEventChild(ctx, 0), func(tx context.Context) error {
+		return l.store.PutBufferedEvent(tx, hash, plain, time.Unix(1700000001, 0))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	granted := make(chan bool, 1)
+	go func() {
+		granted <- l.recv.Handle(ctx, &events.Message{Info: *info})
+		l.recv.Finished(ctx, info, nil)
+	}()
+	select {
+	case ok := <-granted:
+		if ok {
+			t.Fatal("content with an invalid timestamp was acknowledged")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("handler did not finish")
+	}
+	if n.pendingCount() != 1 {
+		t.Fatalf("pending = %d: the content must be kept for recovery", n.pendingCount())
+	}
+	if entry := n.entry(t, 0); entry.IdentityState == "resolved" || len(entry.Message) != 0 || len(entry.Recovery.Items) == 0 {
+		t.Fatalf("kept entry must be unresolved with its recovery data and no invented message: %+v", entry)
+	}
+	app.none(t)
 }

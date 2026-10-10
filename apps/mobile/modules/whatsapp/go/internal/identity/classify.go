@@ -41,7 +41,7 @@ func Classify(info *types.MessageInfo, format string, plaintext []byte, own, own
 			return HistoryNotification, nil, nil
 		}
 		event := (&events.Message{Info: *info, RawMessage: &message}).UnwrapRaw()
-		return classifyEvent(event, own, ownAlt, mappings)
+		return classifyEvent(event, own, ownAlt, mappings, false)
 	case "history":
 		var web waWeb.WebMessageInfo
 		if err := proto.Unmarshal(plaintext, &web); err != nil {
@@ -58,7 +58,7 @@ func Classify(info *types.MessageInfo, format string, plaintext []byte, own, own
 // later identity resolution use.
 func ClassifyWeb(info *types.MessageInfo, web *waWeb.WebMessageInfo, own, ownAlt types.JID, mappings normalization.VerifiedLIDs) (State, json.RawMessage, error) {
 	event := (&events.Message{Info: *info, RawMessage: web.GetMessage(), SourceWebMsg: web}).UnwrapRaw()
-	return classifyEvent(event, own, ownAlt, mappings)
+	return classifyEvent(event, own, ownAlt, mappings, true)
 }
 
 // isHistoryNotification recognizes the notification the phone sends to this companion; one
@@ -67,10 +67,18 @@ func isHistoryNotification(info *types.MessageInfo, message *waE2E.Message) bool
 	return info.IsFromMe && message.GetProtocolMessage().GetHistorySyncNotification() != nil
 }
 
-func classifyEvent(event *events.Message, own, ownAlt types.JID, mappings normalization.VerifiedLIDs) (State, json.RawMessage, error) {
+// classifyEvent applies IT-MSG-07 to an invalid timestamp: normalization stops, no reception time is invented
+// and the content is never discarded. A live message is kept as unresolved recoverable content (so it gets
+// no ACK and is never delivered); a history message fails its batch, which is then not declared complete.
+func classifyEvent(event *events.Message, own, ownAlt types.JID, mappings normalization.VerifiedLIDs, historical bool) (State, json.RawMessage, error) {
 	result, err := normalization.Normalize(event, own, ownAlt, mappings)
 	switch {
-	case errors.Is(err, normalization.ErrInvalidTimestamp), errors.Is(err, normalization.ErrInvalidIdentity), errors.Is(err, normalization.ErrRawEditInspectionExhausted):
+	case errors.Is(err, normalization.ErrInvalidTimestamp):
+		if historical {
+			return "", nil, err
+		}
+		return PendingLID, nil, nil
+	case errors.Is(err, normalization.ErrInvalidIdentity), errors.Is(err, normalization.ErrRawEditInspectionExhausted):
 		// Content that cannot be given a valid public identity is never deliverable.
 		return Excluded, nil, nil
 	case err != nil:

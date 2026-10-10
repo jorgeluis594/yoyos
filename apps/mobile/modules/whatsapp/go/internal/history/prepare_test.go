@@ -174,3 +174,18 @@ func TestPrepareDeduplicatesAndKeepsChronologicalOrder(t *testing.T) {
 		seen[insert.DeliveryID] = true
 	}
 }
+
+// IT-MSG-07 (WA-14 review M2): a supported history message with an invalid timestamp stops the batch
+// instead of being excluded, so the batch is never declared complete over lost content.
+func TestITMSG07AnInvalidTimestampInHistoryFailsTheBatchInsteadOfExcludingIt(t *testing.T) {
+	for _, at := range []uint64{0} {
+		b := batch(conversation("555@lid", text("ok1", "555@lid", 1700000001, "fine"), text("nots", "555@lid", at, "no time")))
+		got, err := Prepare(context.Background(), b, env(t, nil))
+		if !errors.Is(err, ErrInvalid) {
+			t.Fatalf("timestamp %d: want ErrInvalid, got %v (excluded=%d inserts=%d)", at, err, got.Excluded, len(got.Inserts))
+		}
+		if len(got.Inserts) != 0 {
+			t.Fatalf("a failed batch yields nothing to publish, got %d", len(got.Inserts))
+		}
+	}
+}
