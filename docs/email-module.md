@@ -5,8 +5,10 @@ Email delivery runs on the `apps/core` server. Keep each email's content and sen
 ## Add a template
 
 1. Create a React component with typed props in the feature's `infrastructure/emails` directory. Pass in the data it needs; do not read environment variables or fetch data inside the template.
-2. Wrap its content in `EmailLayout` from `src/shared/emails/components/email-layout.tsx` to use the common email layout.
-3. Render the component with `render` from `@react-email/render`, then use `toPlainText` on the HTML. Send both formats.
+2. Wrap its content in `EmailLayout` from `src/shared/emails/components/email-layout.tsx`. It provides the brand header with a translated `category` (for example "Tu cuenta" or "Seguridad"), a band with the `fallbackUrl` for clients that block the button, and the notice outside the card.
+3. Compose only the content blocks the email needs from `email-content.tsx`: `EmailTitle`, `EmailText`, `EmailButton`, `EmailNote`, and `EmailDetails` for key–value rows. Emails need not share the same blocks: a simple action uses title, text, button and note; an email carrying data such as an address, order or amount adds `EmailDetails` before the button.
+4. Take colors, radii and font from `email-theme.ts`, which reads `docs/design-tokens.json`; do not write literal colors in templates. Add the `email-*` class matching each colored element so supporting clients apply dark mode.
+5. Render the component with `render` from `@react-email/render`, then use `emailPlainText` from `email-layout.tsx` on the HTML. Send both formats.
 
 ## Send the email
 

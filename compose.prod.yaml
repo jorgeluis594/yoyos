@@ -1,0 +1,73 @@
+services:
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: core
+      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_64_POSTGRES}
+      POSTGRES_DB: core
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U core -d core"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres_data:/var/lib/postgresql
+
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/core/Dockerfile
+    restart: "no"
+    command: sh -c 'psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -v app_password="$$APP_DB_PASSWORD" -f scripts/create-role.sql && pnpm exec tsx scripts/migrate.ts && psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -v app_password="$$APP_DB_PASSWORD" -v dbname=core -f scripts/provision-role.sql'
+    environment:
+      DATABASE_URL: postgresql://core:${SERVICE_PASSWORD_64_POSTGRES}@db:5432/core
+      APP_DB_PASSWORD: ${SERVICE_PASSWORD_64_APPDB}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/core/Dockerfile
+    restart: unless-stopped
+    # shortcut: builds at container startup, move the build into the image when startup time matters.
+    command: sh -c 'pnpm exec prisma generate && pnpm build && exec pnpm start'
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://core_app:${SERVICE_PASSWORD_64_APPDB}@db:5432/core
+      BETTER_AUTH_SECRET: ${SERVICE_PASSWORD_64_AUTH}
+      BETTER_AUTH_URL: https://yoyos.kogozstaging.lat
+      EMAIL_TRANSPORT: resend
+      EMAIL_FROM: Yoyos <cuentas@kogozstaging.lat>
+      RESEND_API_KEY: ${RESEND_API_KEY:?Set the Resend API key in Coolify}
+      R2_ENDPOINT: ${R2_ENDPOINT:-}
+      R2_BUCKET: ${R2_BUCKET:-}
+      R2_PRIVATE_BUCKET: ${R2_PRIVATE_BUCKET:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      R2_PUBLIC_BASE_URL: ${R2_PUBLIC_BASE_URL:-}
+    expose:
+      - "3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/core/Dockerfile
+    restart: unless-stopped
+    command: sh -c 'pnpm exec prisma generate && exec pnpm worker'
+    stop_grace_period: 40s
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://core_app:${SERVICE_PASSWORD_64_APPDB}@db:5432/core
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  postgres_data:

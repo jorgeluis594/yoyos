@@ -87,6 +87,17 @@ docker compose up --build -d web
 
 Do not use `docker compose down -v` during an update: it deletes the data.
 
+## Staging deployment with Coolify
+
+The Git-based Coolify application uses [`compose.prod.yaml`](compose.prod.yaml) from the repository root. It runs PostgreSQL with a persistent volume, applies migrations with the database administrator role, then starts the web server and event worker with the restricted `core_app` role. The database has no public port.
+
+1. In Coolify, create an Application from the public GitHub repository `jorgeluis594/yoyos`. Select Docker Compose, set the base directory to `/`, and set the Compose location to `compose.prod.yaml`.
+2. Set `RESEND_API_KEY` in Coolify's environment variables. The configured sender is `Yoyos <cuentas@kogozstaging.lat>`, whose domain must be verified in Resend. Coolify generates the `SERVICE_PASSWORD_64_POSTGRES`, `SERVICE_PASSWORD_64_APPDB`, and `SERVICE_PASSWORD_64_AUTH` values referenced by the Compose file.
+3. Assign `https://yoyos.kogozstaging.lat` to the `web` service on internal port `3000`. The DNS A record must point to the Coolify server, and ports 80 and 443 must reach its proxy.
+4. Deploy. Wait for `migrate` to exit successfully and for `web` and `worker` to start. Verify account registration and the verification email before testing business flows.
+
+Images require the `R2_*` environment variables from [`apps/core/.env.example`](apps/core/.env.example). WhatsApp connections are optional for initial staging tests. Keep backups of the PostgreSQL volume before upgrades; the migration service runs again on each deployment.
+
 ## Contributor documentation
 
 - [Product definition](PRODUCT.md).

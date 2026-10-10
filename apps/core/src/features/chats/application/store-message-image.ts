@@ -1,6 +1,6 @@
 import { ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import type { MessageImage } from "@core/src/features/chats/domain/message";
+import type { CloudMessageImage } from "@core/src/features/chats/domain/message";
 import type { DownloadedImage } from "@core/src/shared/images";
 
 export type StoreImageDependencies = Readonly<{
@@ -9,7 +9,7 @@ export type StoreImageDependencies = Readonly<{
   importPrivateImage: (sourceKey: string, file: DownloadedImage) => Promise<Result<{ id: string }>>;
 }>;
 
-export async function storeMessageImage(externalId: string, mediaId: string, deps: StoreImageDependencies): Promise<Result<MessageImage>> {
+export async function storeMessageImage(externalId: string, mediaId: string, deps: StoreImageDependencies): Promise<Result<CloudMessageImage>> {
   const sourceKey = `whatsapp-message:${externalId}`;
   const prior = await deps.findCompletedPrivateImageImport(sourceKey);
   if (!prior.success) return prior;

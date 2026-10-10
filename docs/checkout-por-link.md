@@ -2,7 +2,7 @@
 
 Definiciones de producto y arquitectura acordadas para [MVP · Checkout del pedido por link](https://app.todoist.com/app/task/6hfvfVX2fwpmcwx3).
 
-Este documento recoge el alcance implementado y sus contratos de producto, arquitectura y observabilidad. La evidencia local y las comprobaciones de despliegue pendientes se detallan al final. Última consolidación: 5 de octubre de 2026.
+Este documento recoge el alcance implementado y sus contratos de producto, arquitectura y observabilidad. La evidencia local y las comprobaciones de despliegue pendientes se detallan al final. Última consolidación: 6 de octubre de 2026.
 
 ## Objetivo
 
@@ -31,7 +31,7 @@ Esta tarea incluye:
 | Instrucciones de pago y confirmación manual del cobro | Pago con confirmación manual. |
 | Exponer los importes del pedido al comprador | Checkout, leyendo los importes autoritativos del pedido. |
 
-La interfaz debe permitir integrar esas responsabilidades posteriormente. Esta rama no implementa sus formularios, cálculos ni reglas, ni los exige para confirmar el checkout de este alcance.
+El checkout integra la selección de modalidades habilitadas, destinatario y dirección, además de las instrucciones de cobro configuradas. Si la entrega cambia o se elige por primera vez, el comprador confirma sus datos y la tienda cotiza antes de habilitar el pago. No se calculan tarifas automáticas ni cobertura por zona.
 
 Quedan fuera el catálogo público, carrito editable, creación del pedido desde un chat, pasarela de pago, notificaciones adicionales y cambios de productos. Para cambiar productos se cancelaría el pedido y se crearía otro; ese flujo queda fuera de esta tarea.
 
@@ -42,8 +42,8 @@ Compartir significa obtener y copiar una URL. No se agrega configuración de con
 | Situación | Comportamiento |
 | --- | --- |
 | Checkout no habilitado | No ofrece acceso público; el vendedor puede habilitarlo si el pedido no está cancelado. |
-| Pendiente | Permite editar los datos del comprador y confirmar. |
-| Confirmado | Muestra el resumen de solo lectura. Repetir la confirmación no sobrescribe datos. |
+| Pendiente | Resume datos precargados; permite editar comprador y entrega habilitada antes de confirmar. |
+| Confirmado | Datos de solo lectura. Si hay cotización pendiente, espera el costo; en otro caso muestra instrucciones de pago y carga del comprobante. Repetir la confirmación no sobrescribe datos. |
 | Cancelado | Muestra la cancelación y bloquea la confirmación, aunque hubiera sido confirmado antes. |
 
 - El enlace no vence automáticamente.
@@ -52,6 +52,16 @@ Compartir significa obtener y copiar una URL. No se agrega configuración de con
 - No se agrega un cierre del checkout basado en envío o entrega. La propuesta de bloquear por envío fue descartada.
 - Los pedidos históricos sin checkout habilitado no se muestran como pendientes de confirmación.
 - Confirmar requiere un nombre no vacío y un teléfono válido. No se exige nombre legal completo, apellidos ni un número de palabras.
+
+## Entrega y pago en la misma página
+
+- `checkoutDeliveryRequest` conserva el snapshot solicitado por el comprador, separado de la entrega ya cotizada. Confirmar una solicitud no inventa costo cero ni modifica el total anterior.
+- La tienda confirma un importe explícito (incluido cero) e indica si se cobra al comprador desde el detalle del pedido. La operación privada `/api/orders/:orderId/checkout-delivery-quote` valida empresa, estado e importe, actualiza entrega y total y limpia la solicitud en una transacción.
+- Mientras hay solicitud pendiente, el checkout muestra productos y «Entrega por confirmar», sin presentar el importe anterior como total final. El comprador puede actualizar el estado desde la misma página.
+- Un checkout pendiente de confirmación o cotización oculta las instrucciones y rechaza nuevos avisos de pago en el servidor. Los enlaces de pago históricos de pedidos sin checkout habilitado conservan su funcionamiento.
+- Se reutilizan los datos de cobro de la empresa: una billetera configurada (Yape o Plin) y transferencia. Se muestra un medio a la vez y permite copiar cuenta/CCI. Solo se muestra la imagen de pago cargada por la tienda.
+- «Ya pagué» requiere una captura JPG, PNG o WEBP de hasta 10 MB. El aviso conserva idempotencia al reintentar y queda pendiente de revisión; únicamente la confirmación del vendedor registra el importe recibido.
+- Vista de escritorio con resumen lateral; móvil con productos desplegables. La opción visual aprobada y sus capturas están en `.impeccable/surfaces/apps-core-app-routes-checkout-tsx.md`.
 
 ## Identificación y acceso público
 

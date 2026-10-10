@@ -1,3 +1,9 @@
+import { err } from "@shared/functional";
+import { restoreCancelledOrderStock, restoreProductStock } from "@core/src/features/products";
+import { parseOrderCancelled } from "@core/src/features/orders/infrastructure/event-payloads";
+import { findOrderForUpdate, saveStockRestoration } from "@core/src/features/orders/infrastructure/order-repository";
+import { getCompanyId, withinTransaction, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { isPersistenceFailure } from "@core/src/shared/infrastructure/persistence-error";
 import { ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type {
@@ -24,7 +30,19 @@ export function defineEventHandler<Events extends object, Name extends EventName
 }
 
 /** Feature exports are added here when their first event is introduced. */
-export const eventHandlers: AnyEventSubscription<AppEvents>[] = [];
+export const restoreCancelledStock = defineEventHandler<AppEvents, "order_cancelled">("order_cancelled",
+  (payload) => withTenantIsolation(payload.companyId, () => restoreCancelledOrderStock(payload, {
+    transaction: async (companyId, work) => {
+      if (getCompanyId() !== companyId) throw new Error("Restoration company differs from context");
+      try { return await withinTransaction(work); }
+      catch (cause) {
+        if (!isPersistenceFailure(cause)) throw cause;
+        return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to commit stock restoration" });
+      }
+    },
+    findOrderForUpdate, restoreProductStock, saveStockRestoration,
+  })), { id: "restore-cancelled-order-stock", parsePayload: parseOrderCancelled });
+export const eventHandlers: AnyEventSubscription<AppEvents>[] = [restoreCancelledStock];
 
 export function subscribeToEvent<Events extends object, Name extends EventName<Events>>(
   subscriber: EventSubscriber<Events>,

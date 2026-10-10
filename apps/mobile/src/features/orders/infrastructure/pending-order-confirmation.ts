@@ -1,13 +1,17 @@
+import { legacyCompleteOrderSchema, createRatedOrderSchema } from "@shared/contracts/orders";
 import { z } from "zod";
 import { currencies } from "@shared/money";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { PendingOrderConfirmation, PendingOrderStoreError } from "@mobile/features/orders/application/order-operations";
 
-const pendingSchema = z.strictObject({
+const legacyPendingSchema = z.strictObject({
   companyId: z.uuid(), id: z.uuid(),
   shownTotal: z.strictObject({ amount: z.number().positive().finite(), currency: z.enum(currencies) }),
 });
+
+const pendingSchema = z.union([legacyPendingSchema.extend({ version: z.literal(2), request: z.union([createRatedOrderSchema, legacyCompleteOrderSchema]) })
+  .refine(value => value.request.id === value.id, { message: "Pending order identity mismatch" }), legacyPendingSchema]);
 
 type Storage = Readonly<{
   getItemAsync: (key: string) => Promise<string | null>;
@@ -31,6 +35,18 @@ export function createPendingOrderConfirmationStore(storage: Storage) {
   };
   return {
     read,
+    replace: async (previous: PendingOrderConfirmation, next: PendingOrderConfirmation): Promise<Result<PendingOrderConfirmation, PendingOrderStoreError>> => {
+      const parsed = pendingSchema.safeParse(next);
+      if (!parsed.success || next.companyId !== previous.companyId || next.id !== previous.id)
+        return err({ code: "INVALID_PENDING_DATA", message: "Invalid replacement attempt" });
+      const existing = await read(previous.companyId);
+      if (!existing.success) return existing;
+      if (JSON.stringify(existing.data) !== JSON.stringify(previous))
+        return err({ code: "PENDING_CONFIRMATION", message: "Pending attempt changed before review" });
+      try { await storage.setItemAsync(key(previous.companyId), JSON.stringify(parsed.data)); }
+      catch { return err({ code: "PENDING_STORAGE_UNAVAILABLE", message: "Cannot save reviewed attempt" }); }
+      return ok(parsed.data);
+    },
     save: async (pending: PendingOrderConfirmation): Promise<Result<PendingOrderConfirmation, PendingOrderStoreError>> => {
       const parsed = pendingSchema.safeParse(pending);
       if (!parsed.success) return err({ code: "INVALID_PENDING_DATA", message: "Invalid pending order" });

@@ -77,7 +77,7 @@ productRoutes.get("/", async (request, response) => {
   const parsed = productListQuerySchema.safeParse(values);
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid query", zodIssues(parsed.error));
   try {
-    const result = await products.list(parsed.data);
+    const result = await products.list(parsed.data, { includeImages: true });
     if (!result.success) return sendOperationError(response, result.error);
     return response.json(toProductListResponse(result.data));
   } catch (error) {

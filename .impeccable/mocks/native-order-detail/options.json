@@ -1,0 +1,39 @@
+{
+  "title": "Yoyos · Detalle de pedido nativo",
+  "question": "Compara las tres propuestas. Elige una o escribe qué combinar, cambiar o rechazar. Son mockups con datos ilustrativos; elegir aprueba la dirección visual, no inicia la implementación.",
+  "options": [
+    {
+      "id": "a-commercial",
+      "label": "A · Resumen comercial",
+      "kicker": "RECOMENDADA",
+      "thesis": "Entender la venta completa y detectar comprobantes pendientes en una sola pantalla.",
+      "palette": ["#1C1B1D", "#272528", "#EEE8DF", "#D5A16C"],
+      "materials": ["Inter", "Filas compactas", "Bordes discretos"],
+      "viewport": "Cabecera breve, cliente, aviso de comprobante, productos y resumen de pago; entrega y confirmación continúan debajo.",
+      "risk": "Los pedidos con muchos artículos necesitan más desplazamiento.",
+      "comp": ".impeccable/mocks/native-order-detail/a-commercial.png"
+    },
+    {
+      "id": "b-action",
+      "label": "B · Pendiente primero",
+      "thesis": "Abrir el pedido y resolver primero el comprobante o la coordinación pendiente.",
+      "palette": ["#1C1B1D", "#272528", "#EEE8DF", "#D5A16C"],
+      "materials": ["Inter", "Acción contextual", "Resumen progresivo"],
+      "viewport": "La revisión del comprobante protagoniza la pantalla; venta, pago, entrega y confirmación siguen en bloques compactos.",
+      "risk": "Consultar todos los productos requiere abrir su resumen.",
+      "comp": ".impeccable/mocks/native-order-detail/b-action.png"
+    },
+    {
+      "id": "c-sections",
+      "label": "C · Detalle por secciones",
+      "thesis": "Separar resumen, pagos y entrega manteniendo identidad y saldo siempre visibles.",
+      "palette": ["#1C1B1D", "#272528", "#EEE8DF", "#D5A16C"],
+      "materials": ["Inter", "Pestañas locales", "Contenido enfocado"],
+      "viewport": "Cabecera con cliente y saldo, pestañas Resumen / Pagos / Entrega y productos con importes alineados.",
+      "risk": "Relacionar el pago con la entrega exige cambiar de pestaña.",
+      "comp": ".impeccable/mocks/native-order-detail/c-sections.png"
+    }
+  ],
+  "steer": true,
+  "reroll": true
+}

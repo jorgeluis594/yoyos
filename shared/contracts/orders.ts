@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { currencies } from "@shared/money";
+import { moneySchema } from "@shared/contracts/money";
+import { pickupPointSchema } from "@shared/contracts/delivery-settings";
 
 export const orderSelectionSchema = z.strictObject({
   id: z.uuid(),
@@ -7,14 +9,6 @@ export const orderSelectionSchema = z.strictObject({
   items: z.array(z.strictObject({ variantId: z.uuid(), quantity: z.number().int().positive().safe() })).min(1),
 });
 export type OrderSelectionRequest = z.infer<typeof orderSelectionSchema>;
-export const createOrderSchema = z.union([
-  orderSelectionSchema,
-  orderSelectionSchema.extend({
-    payment: z.strictObject({ method: z.literal("digital_wallet") }),
-    delivery: z.strictObject({ method: z.literal("handover") }),
-  }),
-]);
-export type CreateOrderRequest = z.infer<typeof createOrderSchema>;
 
 export const orderCustomerSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("general_public") }),
@@ -25,7 +19,7 @@ export const orderItemSchema = z.strictObject({ id: z.uuid(), variantId: z.uuid(
 export const orderSchema = z.strictObject({ number: z.number().int().safe().min(1001), id: z.uuid(), companyId: z.uuid(), sellerId: z.string(), buyer: orderBuyerSchema.nullable(), paymentMethod: z.literal("digital_wallet"), completedAt: z.iso.datetime(), currency: z.enum(currencies), items: z.array(orderItemSchema).min(1), total: z.number().positive() });
 export type OrderResponse = z.infer<typeof orderSchema>;
 
-export const moneySchema = z.strictObject({ amount: z.number().finite(), currency: z.enum(currencies) });
+export { moneySchema } from "@shared/contracts/money";
 const identitySchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("absent") }),
   z.strictObject({ kind: z.literal("document"), documentType: z.enum(["national_id", "passport", "foreign_id"]), document: z.string().trim().min(1) }),
@@ -33,11 +27,70 @@ const identitySchema = z.discriminatedUnion("kind", [
 const recipientSchema = z.strictObject({ name: z.string().trim().min(1), phone: z.string().trim().min(1), identity: identitySchema });
 const agencyRecipientSchema = z.strictObject({ name: z.string().trim().min(1), phone: z.string().trim().min(1),
   identity: z.strictObject({ kind: z.literal("document"), documentType: z.enum(["national_id", "passport", "foreign_id"]), document: z.string().trim().min(1) }) });
-export const deliveryDetailsSchema = z.discriminatedUnion("method", [
-  z.strictObject({ method: z.literal("home"), recipient: recipientSchema, destination: z.strictObject({ address: z.string().trim().min(1) }) }),
-  z.strictObject({ method: z.literal("agency"), recipient: agencyRecipientSchema, destination: z.strictObject({ agencyId: z.string().trim().min(1) }) }),
-  z.strictObject({ method: z.literal("store"), recipient: recipientSchema, destination: z.strictObject({ storeId: z.string().trim().min(1) }) }),
+const homeDestinationSchema = z.strictObject({ address: z.string().trim().min(1).max(500), district: z.string().trim().min(1).max(120), instructions: z.string().trim().min(1).max(1000).nullable() });
+const deliveryAuthorSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("seller"), userId: z.string().trim().min(1) }),
+  z.strictObject({ kind: z.literal("buyer") }),
 ]);
+export const deliverySelectionSchema = z.discriminatedUnion("method", [
+  z.strictObject({ method: z.literal("home"), recipient: recipientSchema, destination: homeDestinationSchema }),
+  z.strictObject({ method: z.literal("agency"), recipient: agencyRecipientSchema, courierId: z.uuid(), agency: z.string().trim().min(1).max(500) }),
+  z.strictObject({ method: z.literal("store"), recipient: recipientSchema }),
+]);
+export const ratedDeliverySelectionSchema = z.discriminatedUnion("method", [
+  z.strictObject({ method: z.literal("home"), recipient: recipientSchema, rateId: z.uuid(), destination: z.strictObject({
+    districtCode: z.string().regex(/^\d{6}$/), address: z.string().trim().min(1).max(500), instructions: z.string().trim().max(1000).nullable(),
+  }) }),
+  z.strictObject({ method: z.literal("agency"), recipient: agencyRecipientSchema, rateId: z.uuid(), districtCode: z.string().regex(/^\d{6}$/) }),
+  z.strictObject({ method: z.literal("store"), recipient: recipientSchema }),
+]);
+export const setRatedOrderDeliverySchema = z.strictObject({ delivery: ratedDeliverySelectionSchema, expectedPrice: moneySchema });
+export type RatedDeliverySelectionRequest = z.infer<typeof ratedDeliverySelectionSchema>;
+export type SetRatedOrderDeliveryRequest = z.infer<typeof setRatedOrderDeliverySchema>;
+export type DeliverySelectionRequest = z.infer<typeof deliverySelectionSchema>;
+export const setOrderDeliverySchema = setRatedOrderDeliverySchema;
+const legacySetOrderDeliverySchema = z.strictObject({ delivery: deliverySelectionSchema, chargeDeliveryToCustomer: z.boolean() });
+export type SetOrderDeliveryRequest = z.infer<typeof setOrderDeliverySchema>;
+
+export const legacyCompleteOrderSchema = orderSelectionSchema.extend({
+  payments: z.array(z.strictObject({ paymentId: z.uuid(), amount: moneySchema,
+    method: z.enum(["digital_wallet", "bank_transfer"]), deductStockIfPartial: z.boolean() })).optional(),
+  delivery: legacySetOrderDeliverySchema.optional(),
+  deliverImmediately: z.boolean().optional(),
+});
+export type LegacyCompleteOrderRequest = z.infer<typeof legacyCompleteOrderSchema>;
+export const completeOrderSchema = legacyCompleteOrderSchema.extend({ delivery: setOrderDeliverySchema.optional() });
+export const createRatedOrderSchema = completeOrderSchema.extend({ delivery: setRatedOrderDeliverySchema });
+export type CreateRatedOrderRequest = z.infer<typeof createRatedOrderSchema>;
+export type CompleteOrderRequest = z.infer<typeof completeOrderSchema>;
+export const createOrderSchema = z.union([
+  completeOrderSchema,
+  orderSelectionSchema.extend({
+    payment: z.strictObject({ method: z.literal("digital_wallet") }),
+    delivery: z.strictObject({ method: z.literal("handover") }),
+  }),
+]);
+export type CreateOrderRequest = z.infer<typeof createOrderSchema>;
+const legacyDeliverySnapshotSchema = z.discriminatedUnion("method", [
+  z.strictObject({ method: z.literal("home"), recipient: recipientSchema, destination: homeDestinationSchema, recordedBy: deliveryAuthorSchema }),
+  z.strictObject({ method: z.literal("agency"), recipient: agencyRecipientSchema,
+    courier: z.strictObject({ id: z.uuid(), name: z.string().trim().min(1).max(120) }), agency: z.string().trim().min(1).max(500), recordedBy: deliveryAuthorSchema }),
+  z.strictObject({ method: z.literal("store"), recipient: recipientSchema, pickupPoint: pickupPointSchema, recordedBy: deliveryAuthorSchema }),
+]);
+const settingsVersionSchema = z.number().int().min(0).max(2147483647);
+const deliveryPricingSchema = z.strictObject({ quotationId: z.uuid(), rateId: z.uuid(), zoneId: z.uuid(), settingsVersion: settingsVersionSchema });
+const peruDeliveryDistrictSchema = z.strictObject({ country: z.literal("PE"), districtCode: z.string().regex(/^\d{6}$/),
+  district: z.string().trim().min(1).max(120), province: z.string().trim().min(1).max(120), department: z.string().trim().min(1).max(120) });
+const ratedAgencyFields = { method: z.literal("agency"), recipient: agencyRecipientSchema, destination: peruDeliveryDistrictSchema,
+  pricing: deliveryPricingSchema, recordedBy: deliveryAuthorSchema };
+export const deliverySnapshotSchemas = [...legacyDeliverySnapshotSchema.options,
+  z.strictObject({ method: z.literal("home"), recipient: recipientSchema, destination: homeDestinationSchema.extend(peruDeliveryDistrictSchema.shape),
+    pricing: deliveryPricingSchema, recordedBy: deliveryAuthorSchema }),
+  z.strictObject({ ...ratedAgencyFields, courier: z.null(), agency: z.null() }),
+  z.strictObject({ ...ratedAgencyFields, courier: z.strictObject({ id: z.uuid(), name: z.string().trim().min(1).max(120) }), agency: z.string().trim().min(1).max(500) }),
+  z.strictObject({ method: z.literal("store"), recipient: recipientSchema, pickupPoint: pickupPointSchema, settingsVersion: settingsVersionSchema, recordedBy: deliveryAuthorSchema }),
+] as const;
+export const deliverySnapshotSchema = z.union(deliverySnapshotSchemas);
 const reportDataSchema = z.strictObject({ receiptImageId: z.uuid(), reportedAt: z.iso.datetime() });
 const confirmationDataSchema = z.strictObject({ confirmedAt: z.iso.datetime(),
   confirmedBy: z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("seller"), userId: z.string().min(1) }), z.strictObject({ kind: z.literal("legacy") })]),
@@ -51,16 +104,18 @@ export const paymentSchema = z.discriminatedUnion("status", [
   z.strictObject({ ...paymentIdentitySchema, status: z.literal("voided"), amount: moneySchema,
     method: z.enum(["digital_wallet", "bank_transfer"]), data: confirmationDataSchema.extend({ voidedAt: z.iso.datetime(), voidedBy: z.string().min(1) }) }),
 ]);
-export const orderAggregateSchema = z.strictObject({ checkoutEnabledAt: z.iso.datetime().nullable(), checkoutConfirmedAt: z.iso.datetime().nullable(), number: z.number().int().safe().min(1001), id: z.uuid(), companyId: z.uuid(), sellerId: z.string(), buyer: orderBuyerSchema.nullable(),
+export const orderAggregateSchema = z.strictObject({ checkoutDeliveryRequest: deliverySnapshotSchema.nullable().default(null), checkoutEnabledAt: z.iso.datetime().nullable(), checkoutConfirmedAt: z.iso.datetime().nullable(), number: z.number().int().safe().min(1001), id: z.uuid(), companyId: z.uuid(), sellerId: z.string(), buyer: orderBuyerSchema.nullable(),
   createdAt: z.iso.datetime(), deliveredAt: z.iso.datetime().nullable(), completedAt: z.iso.datetime().nullable(), status: z.enum(["active", "cancelled", "completed"]),
   paymentStatus: z.enum(["pending", "paid"]), paidAmount: moneySchema, balanceDue: moneySchema, overpaidAmount: moneySchema,
-  cancelled: z.boolean(), delivery: deliveryDetailsSchema.nullable(), deliveryStatus: z.enum(["pending", "shipped", "delivered"]),
+  cancelled: z.boolean(), delivery: deliverySnapshotSchema.nullable(), deliveryStatus: z.enum(["pending", "shipped", "delivered"]),
   stockDeducted: z.boolean(), items: z.array(z.strictObject({ id: z.uuid(), variantId: z.uuid(), productName: z.string(),
     variantAttributes: z.record(z.string(), z.string()), sku: z.string().nullable(), quantity: z.number().int().positive().safe(),
     unitPrice: moneySchema, subtotal: moneySchema })).min(1), payments: z.array(paymentSchema),
   itemsTotal: moneySchema, deliveryCost: moneySchema, deliveryCharge: moneySchema, total: moneySchema });
 export type OrderAggregateResponse = z.infer<typeof orderAggregateSchema>;
 export const listOrderAggregatesSchema = z.strictObject({
+  search: z.string().max(120).optional(),
+  view: z.enum(["all", "unpaid", "undelivered"]).optional(),
   page: z.coerce.number().int().positive().safe().default(1),
   customer: z.enum(["all", "general_public", "contact"]).default("all"),
   contactId: z.uuid().optional(), createdFrom: z.iso.datetime().optional(), createdBefore: z.iso.datetime().optional(),
@@ -88,6 +143,7 @@ export type RegisterPaymentResponse = z.infer<typeof registerPaymentResponseSche
 export const reportPaymentSchema = z.strictObject({ paymentId: z.uuid(), receiptImageId: z.uuid() });
 export const reportPaymentResponseSchema = z.strictObject({ paymentId: z.uuid(), status: z.literal("reported") });
 export const buyerPaymentViewSchema = z.strictObject({ orderId: z.uuid(), total: moneySchema, deliveryCharge: moneySchema,
+  availability: z.enum(["available", "delivery_quote_pending", "checkout_pending", "cancelled"]).default("available"),
   paidAmount: moneySchema, balanceDue: moneySchema, paymentStatus: z.enum(["pending", "paid"]),
   settings: z.array(z.discriminatedUnion("method", [
     z.strictObject({ method: z.literal("digital_wallet"), provider: z.string(), holder: z.string(), imageUrl: z.url().nullable() }),
@@ -127,13 +183,25 @@ export const orderApiErrorSchema = z.strictObject({
     "INSUFFICIENT_STOCK", "ORDER_ALREADY_EXISTS", "ORDER_NOT_FOUND", "SERVICE_UNAVAILABLE",
     "INVALID_PAYMENT", "PAYMENT_CONFLICT", "PAYMENT_NOT_FOUND", "RECEIPT_NOT_FOUND", "INVALID_TRANSITION", "DELIVERY_LOCKED", "PAYMENT_REQUIRED",
     "STOCK_NOT_DEDUCTED", "ORDER_CANCELLED", "DELIVERY_UNAVAILABLE",
+    "DELIVERY_METHOD_DISABLED", "COURIER_UNAVAILABLE", "INTERNAL_ERROR", "RATE_UNAVAILABLE", "TOTAL_CHANGED", "INVALID_DISTRICT", "INVALID_DELIVERY_RATE",
   ]),
   error: z.string(),
   issues: z.array(orderApiIssueSchema).optional(),
+  currentPrice: moneySchema.extend({ amount: z.number().finite().nonnegative().max(9999999999999.99).multipleOf(0.01) }).optional(),
 });
 export type OrderApiError = z.infer<typeof orderApiErrorSchema>;
-export const orderActionErrorSchema = z.strictObject({ code: z.string(), error: z.string() });
+export const orderActionErrorSchema = z.strictObject({ code: z.string(), error: z.string(), currentPrice: orderApiErrorSchema.shape.currentPrice });
 export const newOrderLoaderSchema = z.strictObject({ products: orderCatalogSchema, contacts: orderContactsSchema, base: z.string() });
-export const orderListLoaderSchema = z.strictObject({ list: listOrderAggregatesResponseSchema, filters: listOrderAggregatesSchema, contacts: orderContactsSchema, customerSearch: z.string(), base: z.string() });
+export const orderListLoaderSchema = z.strictObject({ list: listOrderAggregatesResponseSchema.extend({ items: z.array(orderAggregateSummarySchema.extend({ itemCount: z.number().int().positive().safe(), balanceDue: moneySchema })) }), filters: listOrderAggregatesSchema, contacts: orderContactsSchema, customerSearch: z.string(), base: z.string() });
 export const orderDetailLoaderSchema = z.strictObject({ order: orderAggregateSchema, base: z.string(), manualPaymentId: z.uuid(),
   receiptUrls: z.record(z.string(), z.url()) });
+
+export const cancelOrderParamsSchema = z.strictObject({ id: z.uuid() });
+export const cancelOrderResponseSchema = orderAggregateSchema.extend({ status: z.literal("cancelled"), cancelled: z.literal(true),
+  deliveryStatus: z.literal("pending"), deliveredAt: z.null(), completedAt: z.null() });
+export const cancelOrderErrorSchema = orderApiErrorSchema.extend({ code: z.enum([
+  "INVALID_INPUT", "ORDER_NOT_FOUND", "INVALID_TRANSITION", "INVALID_ORDER", "INVALID_PAYMENT", "CURRENCY_MISMATCH", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR",
+]) });
+export type CancelOrderResponse = z.infer<typeof cancelOrderResponseSchema>;
+export type CancelOrderParams = z.infer<typeof cancelOrderParamsSchema>;
+export type CancelOrderHttpError = z.infer<typeof cancelOrderErrorSchema>;

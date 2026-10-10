@@ -1,0 +1,69 @@
+{
+  "title": "Checkout Yoyos · tres propuestas",
+  "question": "Compara las tres opciones de entrega y pago. Son propuestas visuales; las tarifas y datos son de ejemplo. Puedes elegir, combinar o pedir cambios.",
+  "options": [
+    {
+      "id": "single",
+      "label": "1 · Todo en una página",
+      "thesis": "Completar datos, entrega y pago en una sola vista continua.",
+      "palette": [
+        "#F7F4EF",
+        "#FFFFFF",
+        "#242326",
+        "#8C552D"
+      ],
+      "materials": [
+        "Inter",
+        "Separadores discretos",
+        "Controles táctiles"
+      ],
+      "viewport": "Formulario continuo en móvil; resumen lateral fijo en escritorio.",
+      "risk": "Más desplazamiento cuando faltan todos los datos.",
+      "comp": ".impeccable/mocks/decision/checkout-single-mobile.png"
+    },
+    {
+      "id": "progressive",
+      "label": "2 · Secciones progresivas",
+      "thesis": "Abrir solo la sección actual y mantener lo anterior resumido.",
+      "palette": [
+        "#F7F4EF",
+        "#FFFFFF",
+        "#242326",
+        "#8C552D"
+      ],
+      "materials": [
+        "Inter",
+        "Secciones plegables",
+        "Resumen persistente"
+      ],
+      "viewport": "Datos completados, entrega en edición y pago a continuación.",
+      "risk": "Añade transiciones; nunca debe ocultar el costo del envío.",
+      "comp": ".impeccable/mocks/decision/checkout-progressive-mobile.png"
+    },
+    {
+      "id": "review",
+      "label": "3 · Revisar y completar",
+      "thesis": "Aprovechar los datos del vendedor y pedir únicamente lo que falta.",
+      "palette": [
+        "#F7F4EF",
+        "#FFFFFF",
+        "#242326",
+        "#8C552D"
+      ],
+      "materials": [
+        "Inter",
+        "Filas editables",
+        "Pago contextual"
+      ],
+      "viewport": "Contacto y entrega precargados; instrucciones de pago y adjunto visibles.",
+      "risk": "Solo es realmente rápido si los datos llegan completos y vigentes.",
+      "comp": ".impeccable/mocks/decision/checkout-review-mobile.png"
+    }
+  ],
+  "reroll": true,
+  "steer": true,
+  "buildPath": {
+    "value": "comp",
+    "toggle": true
+  }
+}

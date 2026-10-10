@@ -2,44 +2,23 @@ import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import express, { type Request, type Response } from "express";
 import { z } from "zod";
-import { createOrderSchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
+import { cancelOrderResponseSchema, createOrderSchema, setRatedOrderDeliverySchema, orderApiErrorSchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
+import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { apiError, type PrivateLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
-import { orders } from "@core/src/features/orders/composition";
+import { orders, createConfiguredOrder } from "@core/src/features/orders/composition";
 import { toLegacyOrderJson, toOrderAggregateJson, toOrderAggregateListJson, toOrderListJson } from "@core/src/features/orders/presentation/order-json";
 import type { CreateOrderInput, OrderAccess } from "@core/src/features/orders/application/create-order";
 import type { ContactId, CompanyId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
+import type { Money } from "@shared/money";
+import type { RatedSetDeliveryInput } from "@core/src/features/orders/application/set-delivery";
 import type { RegisterPaymentInput } from "@core/src/features/orders/application/register-payment";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
 const searchSchema = z.strictObject({ search: z.string().trim().max(100).default("") });
+const contactsQuerySchema = z.union([searchSchema, z.strictObject({ contactId: z.uuid() })]);
+const catalogQuerySchema = z.union([searchSchema, z.strictObject({ variantIds: z.string().transform(value => value.split(","))
+  .pipe(z.array(z.uuid()).min(1).refine(values => new Set(values).size === values.length)) })]);
 
-export function hasDuplicateJsonKeys(raw: string): boolean {
-  const stack: ({ kind: "object"; keys: Set<string>; expectsKey: boolean } | { kind: "array" })[] = [];
-  for (let index = 0; index < raw.length; index++) {
-    const char = raw[index];
-    if (char === '"') {
-      const start = index;
-      while (++index < raw.length) {
-        if (raw[index] === "\\") { index++; continue; }
-        if (raw[index] === '"') break;
-      }
-      const top = stack.at(-1);
-      if (top?.kind === "object" && top.expectsKey) {
-        const key = JSON.parse(raw.slice(start, index + 1)) as string;
-        if (top.keys.has(key)) return true;
-        top.keys.add(key);
-        top.expectsKey = false;
-      }
-    } else if (char === "{") stack.push({ kind: "object", keys: new Set(), expectsKey: true });
-    else if (char === "[") stack.push({ kind: "array" });
-    else if (char === "}" || char === "]") stack.pop();
-    else if (char === ",") {
-      const top = stack.at(-1);
-      if (top?.kind === "object") top.expectsKey = true;
-    }
-  }
-  return false;
-}
 
 function queryFrom(request: Request, response: Response): Record<string, string> | null {
   const params = new URL(request.originalUrl, "http://localhost").searchParams;
@@ -54,7 +33,7 @@ function queryFrom(request: Request, response: Response): Record<string, string>
   return query;
 }
 
-function operationError(response: Response, error: { code: string; variantId?: string; item?: number }) {
+function operationError(response: Response, error: { code: string; variantId?: string; item?: number; currentPrice?: Money }) {
   const issues = error.variantId || error.item !== undefined ? [{ field: "items", reason: error.code,
     ...(error.variantId ? { variantId: error.variantId } : {}), ...(error.item !== undefined ? { index: error.item } : {}) }] : undefined;
   switch (error.code) {
@@ -75,6 +54,15 @@ function operationError(response: Response, error: { code: string; variantId?: s
     case "STOCK_NOT_DEDUCTED": return apiError(response, 409, "STOCK_NOT_DEDUCTED", "Stock is not deducted");
     case "ORDER_CANCELLED": return apiError(response, 409, "ORDER_CANCELLED", "Order is cancelled");
     case "DELIVERY_UNAVAILABLE": return apiError(response, 422, "DELIVERY_UNAVAILABLE", "Delivery is unavailable");
+    case "DELIVERY_METHOD_DISABLED": return apiError(response, 422, "DELIVERY_METHOD_DISABLED", "Delivery method is disabled");
+    case "COURIER_UNAVAILABLE": return apiError(response, 422, "COURIER_UNAVAILABLE", "Courier is unavailable");
+    case "RATE_UNAVAILABLE": return apiError(response, 422, "RATE_UNAVAILABLE", "Selected delivery rate is unavailable");
+    case "INVALID_DISTRICT": return apiError(response, 422, "INVALID_DISTRICT", "Select a valid district");
+    case "INVALID_DELIVERY_RATE": return apiError(response, 422, "INVALID_DELIVERY_RATE", "Invalid delivery rate");
+    case "TOTAL_CHANGED": return response.status(409).json(orderApiErrorSchema.parse({ code: "TOTAL_CHANGED", error: "Review delivery price", currentPrice: error.currentPrice }));
+    case "SERVICE_UNAVAILABLE": return apiError(response, 503, "SERVICE_UNAVAILABLE", "Service unavailable");
+    case "INTERNAL_ERROR": return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
+    case "INVALID_STORED_DATA": return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
     case "PERSISTENCE_UNAVAILABLE": return apiError(response, 503, "SERVICE_UNAVAILABLE", "Service unavailable");
     default:
       log.error({ event: "unexpected_order_error", err: error }, "unexpected_order_error");
@@ -82,8 +70,8 @@ function operationError(response: Response, error: { code: string; variantId?: s
   }
 }
 
-function unexpected(response: Response, error: unknown) {
-  log.error({ event: "order_api_operation_failed", err: error }, "order_api_operation_failed");
+function unexpected(response: Response, error: unknown, context?: Readonly<{ operation: string; orderId: string; userId: string }>) {
+  log.error({ event: "order_api_operation_failed", ...(context ? { operation: context.operation, orderId: context.orderId, userId: context.userId } : {}), err: error }, "order_api_operation_failed");
   return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
 }
 
@@ -120,9 +108,9 @@ orderRoutes.get("/mixed", async (request, response: Response<unknown, PrivateLoc
   if (!query) return;
   const parsed = listOrderAggregatesSchema.safeParse(query);
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order filters");
-  const { page, customer, contactId, createdFrom, createdBefore } = parsed.data;
+  const { page, customer, contactId, createdFrom, createdBefore, search, view } = parsed.data;
   try {
-    const result = await orders.listAggregates({ page,
+    const result = await orders.listAggregates({ page, search, view,
       customer: customer === "contact" ? { kind: "contact", contactId: contactId as ContactId } : { kind: customer },
       ...(createdFrom ? { createdFrom: new Date(createdFrom) } : {}),
       ...(createdBefore ? { createdBefore: new Date(createdBefore) } : {}),
@@ -134,10 +122,10 @@ orderRoutes.get("/mixed", async (request, response: Response<unknown, PrivateLoc
 orderRoutes.get("/catalog", async (request, response) => {
   const query = queryFrom(request, response);
   if (!query) return;
-  const parsed = searchSchema.safeParse(query);
+  const parsed = catalogQuerySchema.safeParse(query);
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid search");
   try {
-    const result = await orders.searchProducts(parsed.data.search);
+    const result = await orders.searchProducts("search" in parsed.data ? parsed.data.search : "", "variantIds" in parsed.data ? parsed.data.variantIds : undefined);
     return result.success ? response.json(orderCatalogSchema.parse(result.data)) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });
@@ -145,10 +133,10 @@ orderRoutes.get("/catalog", async (request, response) => {
 orderRoutes.get("/contacts", async (request, response) => {
   const query = queryFrom(request, response);
   if (!query) return;
-  const parsed = searchSchema.safeParse(query);
+  const parsed = contactsQuerySchema.safeParse(query);
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid search");
   try {
-    const result = await orders.searchContacts(parsed.data.search);
+    const result = await orders.searchContacts("search" in parsed.data ? parsed.data.search : "", "contactId" in parsed.data ? parsed.data.contactId : undefined);
     return result.success ? response.json(orderContactsSchema.parse(result.data)) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });
@@ -206,6 +194,20 @@ orderRoutes.post("/:id/payments", async (request, response: Response<unknown, Pr
   } catch (error) { return unexpected(response, error); }
 });
 
+orderRoutes.put("/:id/delivery", async (request, response: Response<unknown, PrivateLocals>) => {
+  if (!request.is("application/json")) return apiError(response, 415, "UNSUPPORTED_MEDIA_TYPE", "JSON body required");
+  const parsedId = orderId(request.params.id);
+  const parsed = setRatedOrderDeliverySchema.safeParse(request.body);
+  if (!parsedId.success || !parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid delivery input");
+  const context = orderContext(response);
+  try {
+    const selection = parseRatedDeliverySelection(parsed.data.delivery);
+    if (!selection.success) return operationError(response, selection.error);
+    const result = await orders.setDelivery({ orderId: parsedId.data as OrderId, delivery: selection.data, expectedPrice: parsed.data.expectedPrice }, context);
+    return result.success ? response.json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
+  } catch (cause) { return unexpected(response, cause, { operation: "set_order_delivery", orderId: parsedId.data, userId: context.userId }); }
+});
+
 orderRoutes.post("/:id/payments/:paymentId/void", async (request, response: Response<unknown, PrivateLocals>) => {
   const parsedId = orderId(request.params.id);
   const parsedPaymentId = z.uuid().safeParse(request.params.paymentId);
@@ -224,7 +226,7 @@ for (const [path, operation] of [
     if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order ID");
     try {
       const result = await operation(parsed.data as OrderId, orderContext(response));
-      return result.success ? response.json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
+      return result.success ? response.json(path === "cancel" ? cancelOrderResponseSchema.parse(toOrderAggregateJson(result.data)) : toOrderAggregateJson(result.data)) : operationError(response, result.error);
     } catch (error) { return unexpected(response, error); }
   });
 }
@@ -236,8 +238,20 @@ orderRoutes.post("/", async (request, response: Response<unknown, PrivateLocals>
   try {
     const input = toCreateOrderInput(parsed.data);
     const context = orderContext(response);
-    const result = "payment" in parsed.data
-      ? await orders.registerImmediateSale(input, context) : await orders.create(input, context);
+    if ("payment" in parsed.data) {
+      const result = await orders.registerImmediateSale(input, context);
+      return result.success ? response.status(201).json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
+    }
+    let delivery: Omit<RatedSetDeliveryInput, "orderId"> | undefined;
+    if (parsed.data.delivery) {
+      const change = parsed.data.delivery;
+      const selection = parseRatedDeliverySelection(change.delivery);
+      if (!selection.success) return operationError(response, selection.error);
+      delivery = { delivery: selection.data, expectedPrice: change.expectedPrice };
+    }
+    const result = await createConfiguredOrder({ ...input,
+      payments: parsed.data.payments?.map(payment => ({ ...payment, paymentId: payment.paymentId as PaymentId })), delivery,
+      deliverImmediately: parsed.data.deliverImmediately }, context);
     return result.success ? response.status(201).json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });

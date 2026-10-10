@@ -13,7 +13,7 @@ description: Guide implementation through contextual analysis, case-specific pro
 4. Inspect Git status and preserve unrelated user changes.
 5. Inspect the affected application's `package.json`, tooling, and CI configuration to determine its actual validation commands. Do not assume root-level scripts or copy commands from another repository.
 6. Identify small logical units in dependency order, each independently reviewable and validatable. Implement them through the [Commit workflow](#commit-workflow), reusing existing code and creating only the layers and files the current behavior needs. For internal code imports, use only `@shared/*`, `@core/*`, or `@mobile/*`, according to the owning module. Never use relative paths, absolute paths, or `@/*`. Configure any missing alias in the affected application's tooling before using it.
-7. Add or update behavioral tests and run focused checks while developing, following [Testing Conventions](../../../docs/testing-conventions.md). In `apps/core`, use Vitest to define and run every unit, integration, and end-to-end test, and use its `expect` for general assertions.
+7. Add or update behavioral tests and run focused checks while developing, following the [Testing](../testing/SKILL.md) skill.
 8. Before reporting completion, verify that every completed unit is committed and that successful checks cover the final changes; report commit IDs and any remaining blockers.
 
 ## Guardrails
@@ -21,8 +21,6 @@ description: Guide implementation through contextual analysis, case-specific pro
 - Always create commits during implementation unless the user explicitly requests uncommitted changes. Never accumulate multiple logical units into one final commit or wait until the entire feature is finished to split it into commits. A shared feature goal does not make all its changes one commit; a single commit is appropriate only when the task contains one logical unit.
 - Use `Result` by default for expected failures. Do not throw inside a `try` only to catch and rethrow the same exception in that function; use `Result` or an early return. Use `try/catch` only when an exception must be handled and cannot be controlled with `Result`.
 - Define every port operation's return as `Result<T, E>` or `Promise<Result<T, E>>` in its domain- or application-owned dependency signature, whether the contract is named or declared inline in a use case. Infrastructure adapters must implement that signature: represent valid absence as `ok(null)` and declared failures as `err(...)`, rather than returning bare values or throwing expected errors.
-- In `apps/core` tests, do not use Node.js's native test runner or assertion library: `node:test`, `node:assert`, `node:assert/strict`, or their unprefixed equivalents. Do not substitute another test runner or general assertion library for Vitest.
-- In `apps/core`, Playwright may control the browser and assert on pages and locators in end-to-end tests; Vitest must still define and run those tests.
 
 ## Documentation by case
 
@@ -32,10 +30,11 @@ Paths below are relative to this skill. The documents remain the source of truth
 | --- | --- |
 | Feature ownership, folder structure, layer responsibilities, dependency direction, public exports, shared code, or composition | [Application Architecture](../../../docs/architecture.md) |
 | Writing or changing code: functional programming, Result contracts, composition, and available helpers | [Programming Style](../../../docs/programming-style.md) |
+| Core web frontend changes, including forms, form state, and client-side validation | [Frontend Development](../../../docs/frontend-development.md) |
 | Business types, calculations, normalization, invariants, state transitions, authorization policy, use cases, or search defaults | [Domain Conventions](../../../docs/domain.md) |
 | Repositories, database queries, mobile API or local-storage adapters, technical mapping, ownership scoping, pagination, transactions, concurrency, or technical failure translation | [Persistence Conventions](../../../docs/persistence.md) |
-| Choosing test placement, scope, assertions, fakes, isolation, integration boundaries, or end-to-end verification | [Testing Conventions](../../../docs/testing-conventions.md) |
-| API handlers, mobile screens, hooks, forms, routing, or boundary validation | [Application Architecture — Presentation](../../../docs/architecture.md#presentation) and [Testing Conventions — Presentation](../../../docs/testing-conventions.md#presentation); also read Domain Conventions if business behavior changes |
+| Writing, placing, or running tests, or choosing test runners, fakes, isolation, or integration boundaries | [Testing](../testing/SKILL.md) skill |
+| API handlers, mobile screens, hooks, forms, routing, or boundary validation | [Application Architecture — Presentation](../../../docs/architecture.md#presentation); also read Domain Conventions if business behavior changes |
 | Implementing business validation with Zod, distinguishing business normalization from technical mapping, or deciding who validates a value | [Domain Conventions — Validation and Authority](../../../docs/domain.md#validation-and-authority) and [Persistence Conventions — Responsibility Boundary](../../../docs/persistence.md#responsibility-boundary) |
 | A business decision depends on mutable stored state, or several writes must succeed together | [Domain Conventions — Application Use Cases](../../../docs/domain.md#application-use-cases) and [Persistence Conventions — Transactions and Concurrency](../../../docs/persistence.md#transactions-and-concurrency) |
 
@@ -45,9 +44,8 @@ For mobile changes, also follow [apps/mobile/AGENTS.md](../../../apps/mobile/AGE
 
 Run checks from the owning application directory using its declared package manager and available tooling. Reinspect scripts when working; the scaffolds may evolve.
 
-- `apps/core/package.json` declares `test:unit`, `test:integration`, and `test:e2e` using Vitest, plus `lint` and `typecheck`.
-- `apps/mobile/package.json` declares `test` using Jest with `jest-expo`, plus `lint` and `typecheck`. The Vitest requirement applies to `apps/core`.
-- When the requested behavior needs runnable tests, add only the tooling necessary to run them, following Testing Conventions.
+- `apps/core/package.json` and `apps/mobile/package.json` declare `lint` and `typecheck`.
+- Test commands, runners, and tooling rules are in the [Testing](../testing/SKILL.md) skill.
 
 ## Commit workflow
 

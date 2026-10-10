@@ -1,3 +1,4 @@
+import { createCancellationOperations } from "@mobile/features/orders/application/cancel-order";
 import * as SecureStore from "expo-secure-store";
 import { createOrderOperations } from "@mobile/features/orders/application/order-operations";
 import { createOrderApi } from "@mobile/features/orders/infrastructure/order-api";
@@ -5,5 +6,5 @@ import { createPendingOrderConfirmationStore } from "@mobile/features/orders/inf
 import { request } from "@mobile/composition/auth";
 
 const api = createOrderApi(request);
-export const orders = { ...createOrderOperations(api, createPendingOrderConfirmationStore(SecureStore)),
-  registerPayment: api.registerPayment, voidPayment: api.voidPayment, receiptUrl: api.receiptUrl };
+export const orders = { ...createCancellationOperations({ cancel: api.cancel, readState: api.readCancellationState }), ...createOrderOperations(api, createPendingOrderConfirmationStore(SecureStore)),
+  ship: api.ship, deliver: api.deliver, registerPayment: api.registerPayment, voidPayment: api.voidPayment, receiptUrl: api.receiptUrl };

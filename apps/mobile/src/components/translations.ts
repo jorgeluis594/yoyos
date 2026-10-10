@@ -2,7 +2,7 @@ export const translations = {
   es: {
     home: 'Inicio',
     products: 'Productos',
-    orders: 'Ventas',
+    orders: 'Pedidos',
     addProduct: 'Agregar producto',
     signOut: 'Cerrar sesión',
     discardChanges: '¿Descartar cambios?',
@@ -14,6 +14,7 @@ export const translations = {
     noResults: 'Sin resultados',
     stockCount: 'Stock {{count}}',
     cancel: 'Cancelar',
+    close: 'Cerrar',
     moreActions: 'Más acciones',
     selectOption: 'Selecciona una opción',
     tryEditing: 'Prueba a editar',
@@ -21,7 +22,7 @@ export const translations = {
   'pt-BR': {
     home: 'Início',
     products: 'Produtos',
-    orders: 'Vendas',
+    orders: 'Pedidos',
     addProduct: 'Adicionar produto',
     signOut: 'Sair',
     discardChanges: 'Descartar alterações?',
@@ -33,6 +34,7 @@ export const translations = {
     noResults: 'Sem resultados',
     stockCount: 'Estoque {{count}}',
     cancel: 'Cancelar',
+    close: 'Fechar',
     moreActions: 'Mais ações',
     selectOption: 'Selecione uma opção',
     tryEditing: 'Experimente editar',

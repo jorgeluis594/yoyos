@@ -1,6 +1,7 @@
 import { createContext, isValidElement, useContext, useEffect, useId, useState, type ReactNode } from 'react';
 import { StyleSheet, Text, View, type TextProps, type ViewProps } from 'react-native';
 
+import { interStyle } from '@mobile/constants/typography';
 import tokens from '../../../../../docs/design-tokens.json';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -110,6 +111,6 @@ const styles = StyleSheet.create({
   horizontal: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
   horizontalLabel: { flexBasis: 100 },
   horizontalSupporting: { width: '100%' },
-  label: { fontFamily: tokens.typography.family, fontSize: tokens.typography.roles.label.size, lineHeight: tokens.typography.roles.label.lineHeight, fontWeight: '500' },
+  label: { ...interStyle('500'), fontSize: tokens.typography.roles.label.size, lineHeight: tokens.typography.roles.label.lineHeight },
   supporting: { fontFamily: tokens.typography.family, fontSize: tokens.typography.roles['body-compact'].size, lineHeight: tokens.typography.roles['body-compact'].lineHeight },
 });

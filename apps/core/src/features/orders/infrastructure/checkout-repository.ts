@@ -5,6 +5,7 @@ import { prisma, requireActiveTransaction } from "@core/src/shared/infrastructur
 import { bindCompanyToRequest, bindRequestOperation, log } from "@core/src/shared/infrastructure/logger";
 import { findOrderAggregate, findOrderForUpdate } from "@core/src/features/orders/infrastructure/order-repository";
 import type { CheckoutAccess, CheckoutError, CheckoutOrder, OrderBuyer } from "@core/src/features/orders/domain/checkout";
+import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 
 const failure = (cause: unknown, event: string): Result<never, CheckoutError> => {
   if (!(cause instanceof Prisma.PrismaClientKnownRequestError || cause instanceof Prisma.PrismaClientUnknownRequestError || cause instanceof Prisma.PrismaClientInitializationError)) throw cause;
@@ -12,7 +13,7 @@ const failure = (cause: unknown, event: string): Result<never, CheckoutError> =>
   return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Checkout persistence is unavailable" });
 };
 
-async function readCheckout(access: CheckoutAccess, lock: boolean): Promise<Result<CheckoutOrder | null, CheckoutError>> {
+async function readCheckout(access: CheckoutAccess, lock: boolean): Promise<Result<(CheckoutOrder & OrderAggregate) | null, CheckoutError>> {
   const result = await (lock ? findOrderForUpdate : findOrderAggregate)(access.orderId, access.companyId);
   if (!result.success) return err({ code: result.error.code === "INVALID_ORDER" ? "INVALID_CHECKOUT" : "PERSISTENCE_UNAVAILABLE", message: "Unable to read checkout" });
   if (!result.data) return ok(null);

@@ -1,5 +1,6 @@
 import type { Order, OrderCustomer, OrderId, OrderItemId, PaymentId, ContactId, CompanyId, UserId, PositiveInteger } from "@core/src/features/orders/domain/order";
-import type { AgencyRecipient, OrderAggregate, OrderLifecycle, Recipient } from "@core/src/features/orders/domain/order-state-machine";
+import type { AgencyRecipient, CourierId, DeliveryAuthor, DeliverySelection, DeliverySnapshot, OrderAggregate, OrderLifecycle, Recipient } from "@core/src/features/orders/domain/order-state-machine";
+import type { StoreDeliverySettings } from "@core/src/features/delivery-settings";
 import type { Currency } from "@shared/money";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
@@ -23,4 +24,10 @@ export type OrderContracts = [
   Assert<Equal<{ kind: "document"; documentType: "passport" } extends Recipient["identity"] ? true : false, false>>,
   Assert<Equal<Extract<OrderLifecycle, { status: "completed" }>["completedAt"], Date>>,
   Assert<Equal<Extract<OrderLifecycle, { status: "active" | "cancelled" }>["completedAt"], null>>,
+  Assert<Equal<string extends CourierId ? true : false, false>>,
+  Assert<Equal<"recordedBy" extends keyof DeliverySelection ? true : false, false>>,
+  Assert<Equal<{ kind: "seller" } extends DeliveryAuthor ? true : false, false>>,
+  Assert<Equal<Extract<DeliveryAuthor, { kind: "seller" }>["userId"], UserId>>,
+  Assert<Equal<Extract<DeliverySnapshot, { method: "store" }>["pickupPoint"] extends null ? true : false, false>>,
+  Assert<Equal<{ enabled: true; pickupPoint: null } extends StoreDeliverySettings ? true : false, false>>,
 ];

@@ -11,8 +11,8 @@ export function valuesForProduct(product: Product): ProductFormValues {
     name: product.name,
     description: product.description ?? "",
     sku: variant?.sku ?? "",
-    salePrice: variant?.salePrice.amount.toString() ?? "",
-    purchasePrice: variant?.purchasePrice?.amount.toString() ?? "",
+    salePrice: variant?.salePrice.amount.toFixed(2) ?? "",
+    purchasePrice: variant?.purchasePrice?.amount.toFixed(2) ?? "",
     stock: "",
   };
 }

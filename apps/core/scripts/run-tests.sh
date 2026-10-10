@@ -53,7 +53,9 @@ else
   export BETTER_AUTH_URL=http://localhost:3000
 fi
 
-quiet docker compose -f ../../compose.yaml up -d --wait db_test mailpit
+if [ "${CORE_TEST_EXTERNAL_SERVICES:-0}" != 1 ]; then
+  quiet docker compose -f ../../compose.yaml up -d --wait db_test mailpit
+fi
 quiet psql "$admin_database_url" -v ON_ERROR_STOP=1 -v app_password=core_app_local -f scripts/create-role.sql
 DATABASE_URL="$admin_database_url" quiet pnpm exec tsx scripts/migrate.ts
 quiet psql "$admin_database_url" -v ON_ERROR_STOP=1 -c 'TRUNCATE TABLE public."jwks"'

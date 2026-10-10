@@ -1,21 +1,20 @@
+import type { OrderSubmission } from "@mobile/features/orders/domain/order-draft";
+import type { CancelledOrderState, CancellationOrderState, CancellationRequestError } from "@mobile/features/orders/application/cancel-order";
+import { cancelOrderParamsSchema, cancelOrderResponseSchema, cancelOrderErrorSchema } from "@shared/contracts/orders";
 import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
 import { z } from "zod";
 import { createOrderSchema, listOrderAggregatesResponseSchema, listOrderAggregatesSchema, listOrdersResponseSchema, listOrdersSchema, orderAggregateSchema, orderApiErrorSchema,
-  orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, type CreateOrderRequest, type ListOrderAggregatesRequest, type ListOrdersRequest, type RegisterPaymentRequest,
-  type OrderAggregateResponse, type OrderApiError, type OrderApiIssue } from "@shared/contracts/orders";
+  orderCatalogSchema, orderContactsSchema, setRatedOrderDeliverySchema, type SetRatedOrderDeliveryRequest, registerPaymentResponseSchema, registerPaymentSchema, type CreateRatedOrderRequest, type CreateOrderRequest, type ListOrderAggregatesRequest, type ListOrdersRequest, type RegisterPaymentRequest,
+  type OrderAggregateResponse, type OrderApiError } from "@shared/contracts/orders";
 import { err, ok } from "@shared/functional";
 import { imageResponseSchema } from "@shared/contracts/images";
 import type { Result } from "@shared/result";
 import type { TransportError } from "@mobile/shared/application/transport-error";
 
-export type OrderRequestError = Readonly<{
-  code: OrderApiError["code"] | TransportError["code"];
-  message: string;
-  issues?: readonly OrderApiIssue[];
-}>;
+import type { OrderRequestError } from "@mobile/features/orders/application/order-operations";
 
 type Request = (path: string, init?: RequestInit) => Promise<Result<unknown, TransportError>>;
-type Operation = "checkout" | "list" | "mixed" | "get" | "aggregate" | "create" | "payment" | "void" | "deduct" | "catalog" | "contacts";
+type Operation = "fulfillment" | "delivery" | "checkout" | "list" | "mixed" | "get" | "aggregate" | "create" | "payment" | "void" | "deduct" | "catalog" | "contacts";
 
 const statusByCode: Record<OrderApiError["code"], number> = {
   INVALID_INPUT: 400, UNSUPPORTED_MEDIA_TYPE: 415, PAYLOAD_TOO_LARGE: 413,
@@ -23,28 +22,56 @@ const statusByCode: Record<OrderApiError["code"], number> = {
   INSUFFICIENT_STOCK: 409, ORDER_ALREADY_EXISTS: 409, ORDER_NOT_FOUND: 404, SERVICE_UNAVAILABLE: 503,
   INVALID_PAYMENT: 422, PAYMENT_CONFLICT: 409, PAYMENT_NOT_FOUND: 404, RECEIPT_NOT_FOUND: 422, INVALID_TRANSITION: 409, DELIVERY_LOCKED: 409,
   PAYMENT_REQUIRED: 409, STOCK_NOT_DEDUCTED: 409, ORDER_CANCELLED: 409, DELIVERY_UNAVAILABLE: 422,
+  INTERNAL_ERROR: 500, DELIVERY_METHOD_DISABLED: 422, COURIER_UNAVAILABLE: 422,
+  RATE_UNAVAILABLE: 422, TOTAL_CHANGED: 409, INVALID_DISTRICT: 422, INVALID_DELIVERY_RATE: 422,
 };
-const createCodes = new Set<OrderApiError["code"]>(["INVALID_ORDER", "CURRENCY_MISMATCH", "CONTACT_NOT_FOUND",
-  "VARIANT_NOT_FOUND", "INSUFFICIENT_STOCK", "ORDER_ALREADY_EXISTS", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]);
-const paymentCodes = new Set<OrderApiError["code"]>(["ORDER_NOT_FOUND", "INVALID_ORDER", "INVALID_PAYMENT", "CURRENCY_MISMATCH",
-  "PAYMENT_CONFLICT", "PAYMENT_NOT_FOUND", "INVALID_TRANSITION", "ORDER_CANCELLED", "INSUFFICIENT_STOCK", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]);
+function httpErrorSchema(codes: readonly OrderApiError["code"][], invalidInputStatus = 400) {
+  return z.object({
+    status: z.number(),
+    body: orderApiErrorSchema.extend({
+      code: z.enum(["INVALID_INPUT", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR", ...codes]),
+    }),
+  }).refine(({ status, body }) => (body.code !== "TOTAL_CHANGED" || body.currentPrice !== undefined) && status === (
+    body.code === "INVALID_INPUT" ? invalidInputStatus : statusByCode[body.code]
+  ));
+}
+
+const commonErrorSchema = httpErrorSchema([]);
+const getErrorSchema = httpErrorSchema(["ORDER_NOT_FOUND"]);
+const errorSchemas = {
+  checkout: httpErrorSchema(["ORDER_NOT_FOUND", "ORDER_CANCELLED"], 422),
+  create: httpErrorSchema(["INVALID_ORDER", "CURRENCY_MISMATCH", "CONTACT_NOT_FOUND", "VARIANT_NOT_FOUND",
+    "INSUFFICIENT_STOCK", "ORDER_ALREADY_EXISTS", "INVALID_PAYMENT", "PAYMENT_CONFLICT", "PAYMENT_REQUIRED",
+    "INVALID_TRANSITION", "STOCK_NOT_DEDUCTED", "DELIVERY_UNAVAILABLE", "DELIVERY_METHOD_DISABLED",
+    "COURIER_UNAVAILABLE", "RATE_UNAVAILABLE", "TOTAL_CHANGED", "INVALID_DISTRICT", "INVALID_DELIVERY_RATE", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]),
+  payment: httpErrorSchema(["ORDER_NOT_FOUND", "INVALID_ORDER", "INVALID_PAYMENT", "CURRENCY_MISMATCH",
+    "PAYMENT_CONFLICT", "PAYMENT_NOT_FOUND", "INVALID_TRANSITION", "ORDER_CANCELLED", "INSUFFICIENT_STOCK",
+    "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]),
+  void: httpErrorSchema(["ORDER_NOT_FOUND", "PAYMENT_NOT_FOUND", "PAYMENT_CONFLICT", "INVALID_TRANSITION", "INVALID_ORDER"]),
+  delivery: httpErrorSchema(["ORDER_NOT_FOUND", "INVALID_ORDER", "CURRENCY_MISMATCH", "ORDER_CANCELLED", "DELIVERY_LOCKED",
+    "DELIVERY_METHOD_DISABLED", "COURIER_UNAVAILABLE", "DELIVERY_UNAVAILABLE", "INSUFFICIENT_STOCK",
+    "RATE_UNAVAILABLE", "TOTAL_CHANGED", "INVALID_DISTRICT", "INVALID_DELIVERY_RATE",
+    "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]),
+  fulfillment: httpErrorSchema(["ORDER_NOT_FOUND", "INVALID_ORDER", "INVALID_TRANSITION", "PAYMENT_REQUIRED", "STOCK_NOT_DEDUCTED", "ORDER_CANCELLED", "CURRENCY_MISMATCH"]),
+  deduct: httpErrorSchema(["ORDER_NOT_FOUND", "INSUFFICIENT_STOCK", "ORDER_CANCELLED", "INVALID_ORDER"]),
+  get: getErrorSchema,
+  aggregate: getErrorSchema,
+  list: commonErrorSchema,
+  mixed: commonErrorSchema,
+  catalog: commonErrorSchema,
+  contacts: commonErrorSchema,
+} satisfies Record<Operation, z.ZodType>;
 
 function requestError(error: TransportError, operation: Operation): OrderRequestError {
   if (error.http) {
-    const parsed = orderApiErrorSchema.safeParse(error.http.body);
+    const parsed = errorSchemas[operation].safeParse(error.http);
     if (parsed.success) {
-      const { code, issues } = parsed.data;
-      const allowed = ["INVALID_INPUT", "SERVICE_UNAVAILABLE"].includes(code)
-        || operation === "checkout" && ["ORDER_NOT_FOUND", "ORDER_CANCELLED"].includes(code)
-        || operation === "create" && createCodes.has(code)
-        || operation === "payment" && paymentCodes.has(code)
-        || operation === "void" && ["ORDER_NOT_FOUND", "PAYMENT_NOT_FOUND", "PAYMENT_CONFLICT", "INVALID_TRANSITION", "INVALID_ORDER"].includes(code)
-        || operation === "deduct" && ["ORDER_NOT_FOUND", "INSUFFICIENT_STOCK", "ORDER_CANCELLED", "INVALID_ORDER"].includes(code)
-        || (operation === "get" || operation === "aggregate") && code === "ORDER_NOT_FOUND";
-      if ((operation === "checkout" && code === "INVALID_INPUT" ? 422 : statusByCode[code]) === error.http.status && allowed) return { code, message: parsed.data.error, ...(issues ? { issues } : {}) };
+      const { code, error: message, issues, currentPrice } = parsed.data.body;
+      return { code, message, ...(issues ? { issues } : {}), ...(currentPrice ? { currentPrice } : {}) };
+    }
+    if (error.code === "API_ERROR" || orderApiErrorSchema.safeParse(error.http.body).success) {
       return { code: "INVALID_RESPONSE", message: "Unexpected order error" };
     }
-    if (error.code === "API_ERROR") return { code: "INVALID_RESPONSE", message: "Unexpected order error" };
   }
   return { code: error.code, message: error.message };
 }
@@ -55,8 +82,82 @@ function response<T extends z.ZodType>(raw: Result<unknown, TransportError>, sch
   return parsed.success ? ok(parsed.data) : err({ code: "INVALID_RESPONSE", message: "Invalid order response" });
 }
 
+function cancellationError(error: TransportError): CancellationRequestError {
+  if (error.http?.status === 401 || error.http?.status === 403) return { code: "UNAUTHENTICATED", message: error.message };
+  if (error.http) {
+    const parsed = cancelOrderErrorSchema.safeParse(error.http.body);
+    if (parsed.success && error.http.status === statusByCode[parsed.data.code]) {
+      return { code: parsed.data.code === "INTERNAL_ERROR" ? "SERVER_ERROR" : parsed.data.code, message: parsed.data.error };
+    }
+    if (error.code === "API_ERROR" || orderApiErrorSchema.safeParse(error.http.body).success)
+      return { code: "INVALID_RESPONSE", message: "Incompatible cancellation error" };
+  }
+  switch (error.code) {
+    case "UNAUTHENTICATED": case "COMPANY_REQUIRED": case "INVALID_COMPANY": case "OPERATION_CANCELLED": case "SECURE_STORAGE_ERROR":
+    case "NETWORK_ERROR": case "RATE_LIMITED": case "SERVICE_UNAVAILABLE": case "SERVER_ERROR": case "INVALID_RESPONSE":
+      return { code: error.code, message: error.message };
+    default: return { code: "INVALID_RESPONSE", message: "Unknown cancellation error" };
+  }
+}
+
+function cancellationProjection(order: OrderAggregateResponse): Result<CancellationOrderState, CancellationRequestError> {
+  if (order.cancelled || order.status === "cancelled") {
+    const parsed = cancelOrderResponseSchema.safeParse(order);
+    return parsed.success ? ok({ id: parsed.data.id, status: parsed.data.status, cancelled: parsed.data.cancelled,
+      deliveryStatus: parsed.data.deliveryStatus, stockDeducted: parsed.data.stockDeducted, deliveredAt: parsed.data.deliveredAt, completedAt: parsed.data.completedAt })
+      : err({ code: "INVALID_RESPONSE", message: "Invalid cancelled state" });
+  }
+  if (order.deliveryStatus === "pending") return order.status === "active"
+    ? ok({ id: order.id, status: "active", cancelled: false, deliveryStatus: "pending" })
+    : err({ code: "INVALID_RESPONSE", message: "Invalid pending order state" });
+  return ok({ id: order.id, status: order.status, cancelled: false, deliveryStatus: order.deliveryStatus });
+}
+
 export function createOrderApi(request: Request) {
+  const fulfill = async (orderId: string, operation: "ship" | "deliver"): Promise<Result<OrderAggregateResponse, OrderRequestError>> => {
+    if (!z.uuid().safeParse(orderId).success) return err({ code: "INVALID_INPUT", message: "Invalid order ID" });
+    const result = response(await request(`/api/orders/${orderId}/${operation}`, { method: "POST" }), orderAggregateSchema, "fulfillment");
+    return result.success && (result.data.id !== orderId || result.data.deliveryStatus !== (operation === "ship" ? "shipped" : "delivered"))
+      ? err({ code: "INVALID_RESPONSE", message: "Unexpected order fulfillment" }) : result;
+  };
   return {
+    cancel: async (orderId: string): Promise<Result<CancelledOrderState, CancellationRequestError>> => {
+      if (!cancelOrderParamsSchema.safeParse({ id: orderId }).success) return err({ code: "INVALID_INPUT", message: "Invalid order ID" });
+      const raw = await request(`/api/orders/${orderId}/cancel`, { method: "POST" });
+      if (!raw.success) return err(cancellationError(raw.error));
+      const parsed = cancelOrderResponseSchema.safeParse(raw.data);
+      if (!parsed.success || parsed.data.id !== orderId) return err({ code: "INVALID_RESPONSE", message: "Invalid cancellation response" });
+      return ok({ id: parsed.data.id, status: parsed.data.status, cancelled: parsed.data.cancelled,
+        deliveryStatus: parsed.data.deliveryStatus, stockDeducted: parsed.data.stockDeducted, deliveredAt: parsed.data.deliveredAt, completedAt: parsed.data.completedAt });
+    },
+    readCancellationState: async (orderId: string): Promise<Result<CancellationOrderState, CancellationRequestError>> => {
+      if (!cancelOrderParamsSchema.safeParse({ id: orderId }).success) return err({ code: "INVALID_INPUT", message: "Invalid order ID" });
+      const raw = await request(`/api/orders/${orderId}/aggregate`);
+      if (!raw.success) return err(cancellationError(raw.error));
+      const parsed = orderAggregateSchema.safeParse(raw.data);
+      return parsed.success && parsed.data.id === orderId ? cancellationProjection(parsed.data) : err({ code: "INVALID_RESPONSE", message: "Invalid order state" });
+    },
+    ship: (orderId: string) => fulfill(orderId, "ship"),
+    deliver: (orderId: string) => fulfill(orderId, "deliver"),
+    setDelivery: async (orderId: string, input: SetRatedOrderDeliveryRequest): Promise<Result<OrderAggregateResponse, OrderRequestError>> => {
+      const parsed = setRatedOrderDeliverySchema.safeParse(input);
+      if (!z.uuid().safeParse(orderId).success || !parsed.success) return err({ code: "INVALID_INPUT", message: "Invalid delivery request" });
+      const result = response(await request(`/api/orders/${orderId}/delivery`, { method: "PUT", headers: { "content-type": "application/json" },
+        body: JSON.stringify(parsed.data) }), orderAggregateSchema, "delivery");
+      if (!result.success) return result;
+      const assigned = result.data.delivery;
+      const invalid = () => err({ code: "INVALID_RESPONSE" as const, message: "Unexpected assigned order delivery" });
+      if (result.data.id !== orderId || !assigned || assigned.method !== parsed.data.delivery.method) return invalid();
+      if ([result.data.deliveryCost, result.data.deliveryCharge].some(price => price.amount !== parsed.data.expectedPrice.amount || price.currency !== parsed.data.expectedPrice.currency))
+        return invalid();
+      const selected = parsed.data.delivery;
+      if (selected.method === "store") {
+        if (!("settingsVersion" in assigned)) return invalid();
+      } else if (!("pricing" in assigned) || assigned.pricing.rateId !== selected.rateId ||
+        assigned.destination.districtCode !== (selected.method === "home" ? selected.destination.districtCode : selected.districtCode)) return invalid();
+      return result;
+
+    },
     enableCheckout: async (orderId: string): Promise<Result<Readonly<{ url: string }>, OrderRequestError>> => {
       if (!z.uuid().safeParse(orderId).success) return err({ code: "INVALID_INPUT", message: "Invalid order ID" });
       return response(await request(`/api/orders/${orderId}/checkout-link`, { method: "POST" }), checkoutLinkSchema, "checkout");
@@ -105,14 +206,26 @@ export function createOrderApi(request: Request) {
       if (!z.uuid().safeParse(id).success) return err({ code: "INVALID_INPUT", message: "Invalid order ID" });
       return response(await request(`/api/orders/${id}/aggregate`), orderAggregateSchema, "get");
     },
-    create: async (input: CreateOrderRequest): Promise<Result<OrderAggregateResponse, OrderRequestError>> => {
+    create: async (input: OrderSubmission | CreateOrderRequest | CreateRatedOrderRequest): Promise<Result<OrderAggregateResponse, OrderRequestError>> => {
       const parsed = createOrderSchema.safeParse(input);
       if (!parsed.success) return err({ code: "INVALID_INPUT", message: "Invalid order request" });
       return response(await request("/api/orders", { method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify(parsed.data) }), orderAggregateSchema, "create");
     },
+    findCatalog: async (variantIds: readonly string[]): Promise<Result<z.infer<typeof orderCatalogSchema>, OrderRequestError>> => {
+      if (!z.array(z.uuid()).min(1).refine(values => new Set(values).size === values.length).safeParse(variantIds).success)
+        return err({ code: "INVALID_INPUT", message: "Invalid catalog variant IDs" });
+      return response(await request(`/api/orders/catalog?${new URLSearchParams({ variantIds: variantIds.join(",") })}`), orderCatalogSchema, "catalog");
+    },
     searchCatalog: async (search: string): Promise<Result<z.infer<typeof orderCatalogSchema>, OrderRequestError>> =>
       response(await request(`/api/orders/catalog?${new URLSearchParams({ search })}`), orderCatalogSchema, "catalog"),
+    findContact: async (contactId: string): Promise<Result<z.infer<typeof orderContactsSchema>[number] | null, OrderRequestError>> => {
+      if (!z.uuid().safeParse(contactId).success) return err({ code: "INVALID_INPUT", message: "Invalid contact ID" });
+      const found = response(await request(`/api/orders/contacts?${new URLSearchParams({ contactId })}`), orderContactsSchema, "contacts");
+      if (!found.success) return found;
+      return found.data.length <= 1 && found.data.every(contact => contact.id === contactId) ? ok(found.data[0] ?? null)
+        : err({ code: "INVALID_RESPONSE", message: "Unexpected contact identity" });
+    },
     searchContacts: async (search: string): Promise<Result<z.infer<typeof orderContactsSchema>, OrderRequestError>> =>
       response(await request(`/api/orders/contacts?${new URLSearchParams({ search })}`), orderContactsSchema, "contacts"),
   };

@@ -74,6 +74,13 @@ test('Field states take precedence over control states', async () => {
   expect(screen.getByTestId('email').props.accessibilityHint).toBe('Usa tu correo laboral');
 });
 
+test('decimal input normalizes a locale comma before reporting changes', () => {
+  const change = jest.fn();
+  const screen = render(<Input value="" onChangeText={change} keyboardType="decimal-pad" accessibilityLabel="Importe" />);
+  fireEvent.changeText(screen.getByLabelText('Importe'), '10,50');
+  expect(change).toHaveBeenCalledWith('10.50');
+});
+
 test('standalone input needs a label and uses dark tokens', async () => {
   expect(() => render(<Input value="" onChangeText={() => {}} />)).toThrow('accessibilityLabel');
   mockScheme = 'dark';

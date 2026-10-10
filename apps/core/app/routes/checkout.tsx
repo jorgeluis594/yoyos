@@ -1,5 +1,9 @@
 import { useState } from "react";
-import { data, isRouteErrorResponse, useFetcher, useLoaderData, type ActionFunctionArgs, type LoaderFunctionArgs, type ShouldRevalidateFunctionArgs } from "react-router";
+import { useController, useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { CheckoutDeliveryFields, type CheckoutDeliveryDraft } from "@core/app/components/checkout-delivery-fields";
+import { add } from "@shared/money";
+import { redirect, data, isRouteErrorResponse, useFetcher, useLoaderData, useParams, type ActionFunctionArgs, type LoaderFunctionArgs, type ShouldRevalidateFunctionArgs } from "react-router";
 import { z } from "zod";
 import { Button } from "@core/app/components/ui/button";
 import { Input } from "@core/app/components/ui/input";
@@ -7,8 +11,13 @@ import { Field, FieldError, FieldLabel } from "@core/app/components/ui/field";
 import { formatCurrency } from "@core/app/format-currency";
 import { orders } from "@core/src/features/orders/composition";
 import { parseBuyer, type CheckoutAccess, type CheckoutView } from "@core/src/features/orders/domain/checkout";
+import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
+import type { CheckoutDeliveryChange } from "@core/src/features/orders/application/checkout";
+import type { Money } from "@shared/money";
+import { deliverySettings } from "@core/src/features/delivery-settings";
+import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { bindRequestOperation, log } from "@core/src/shared/infrastructure/logger";
-import { checkoutPathSchema, confirmCheckoutSchema, publicCheckoutSchema, type PublicCheckoutResponse } from "@shared/contracts/order-checkout";
+import { checkoutBuyerSchema, checkoutPathSchema, checkoutDeliveryOptionsSchema, confirmCheckoutDeliverySchema, publicCheckoutSchema, type CheckoutDeliveryOptions, type PublicCheckoutResponse } from "@shared/contracts/order-checkout";
 
 const privacyHeaders = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
 export const headers = () => privacyHeaders;
@@ -17,7 +26,7 @@ export const shouldRevalidate = ({ formMethod, defaultShouldRevalidate }: Should
 export const meta = () => [{ title: "Revisa tu pedido" }, { name: "robots", content: "noindex, nofollow" }];
 const unavailable = "Enlace no disponible";
 const retry = "No se pudo completar la solicitud. Inténtalo de nuevo.";
-type PageData = { checkout: PublicCheckoutResponse | null; message: string | null; fieldErrors?: { name?: string; phone?: string }; unavailable?: boolean };
+type PageData = { checkout: PublicCheckoutResponse | null; deliveryOptions?: CheckoutDeliveryOptions; message: string | null; fieldErrors?: { name?: string; phone?: string }; unavailable?: boolean; code?: string; currentPrice?: Money };
 const response = (value: PageData, status = 200) => data(value, { status, headers: privacyHeaders });
 
 function serialize(checkout: CheckoutView): PublicCheckoutResponse {
@@ -41,10 +50,21 @@ export async function loader({ params }: LoaderFunctionArgs) {
   const result = await orders.getCheckout(path.data as CheckoutAccess);
   if (!result.success) throw new Response(result.error.code === "CHECKOUT_UNAVAILABLE" ? unavailable : retry,
     { status: result.error.code === "CHECKOUT_UNAVAILABLE" ? 404 : 503, headers: privacyHeaders });
-  return response({ checkout: serialize(result.data), message: null });
+  if (result.data.state.kind !== "pending") return response({ checkout: serialize(result.data), message: null });
+  const settings = await withTenantIsolation(path.data.companyId, () => deliverySettings.getForCompany(path.data.companyId));
+  if (!settings.success) {
+    bindRequestOperation({ outcome: "technical_failure" });
+    throw new Response(retry, { status: 503, headers: privacyHeaders });
+  }
+  const options = checkoutDeliveryOptionsSchema.safeParse({ home: settings.data.home, agency: settings.data.agency, store: settings.data.store });
+  if (!options.success) {
+    bindRequestOperation({ outcome: "technical_failure" });
+    throw new Response(retry, { status: 503, headers: privacyHeaders });
+  }
+  return response({ checkout: serialize(result.data), deliveryOptions: options.data, message: null });
 }
 
-const formSchema = z.strictObject({ name: z.string(), phone: z.string(), expectedTotal: z.string() });
+const formSchema = z.strictObject({ name: z.string(), phone: z.string(), expectedTotal: z.string(), delivery: z.string() });
 export async function action({ request, params }: ActionFunctionArgs) {
   bindRequestOperation({ operation: "confirm_checkout" });
   const path = checkoutPathSchema.safeParse(params);
@@ -58,13 +78,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
     else {
       const fields = await request.formData();
       const parsed = formSchema.safeParse(Object.fromEntries(fields));
-      if (!parsed.success || [...fields.keys()].length !== 3) body = null;
-      else body = { buyer: { name: parsed.data.name, phone: parsed.data.phone }, expectedTotal: JSON.parse(parsed.data.expectedTotal) };
+      if (!parsed.success || [...fields.keys()].length !== 4) body = null;
+      else body = { buyer: { name: parsed.data.name, phone: parsed.data.phone }, expectedTotal: JSON.parse(parsed.data.expectedTotal),
+        delivery: JSON.parse(parsed.data.delivery) };
     }
   } catch {
     body = null;
   }
-  const parsed = confirmCheckoutSchema.safeParse(body);
+  const parsed = confirmCheckoutDeliverySchema.safeParse(body);
   if (!parsed.success) {
     bindRequestOperation({ outcome: "invalid_input" });
     const fieldErrors: NonNullable<PageData["fieldErrors"]> = {};
@@ -78,8 +99,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
   if (!buyer.success) return response({ checkout: null, message: "Revisa los datos del comprador." }, 422);
   const access = path.data as CheckoutAccess;
   try {
-    const result = await orders.confirmCheckout({ buyer: buyer.data, expectedTotal: parsed.data.expectedTotal }, access);
-    if (result.success) return response({ checkout: serialize(result.data), message: null });
+    let delivery: CheckoutDeliveryChange;
+    if (parsed.data.delivery.kind === "keep") delivery = { kind: "keep" };
+    else {
+      const selection = parseRatedDeliverySelection(parsed.data.delivery.selection);
+      if (!selection.success) return response({ checkout: null, message: "Revisa el destino y los datos de entrega.", code: selection.error.code }, 422);
+      delivery = { kind: "replace", selection: selection.data, expectedPrice: parsed.data.delivery.expectedPrice };
+    }
+    const result = await orders.confirmCheckoutDelivery({ buyer: buyer.data, expectedTotal: parsed.data.expectedTotal, delivery }, access);
+    if (result.success) return redirect(`/pago/${access.orderId}`, { headers: privacyHeaders });
     if (result.error.code === "CHECKOUT_UNAVAILABLE") return response({ checkout: null, message: unavailable, unavailable: true }, 404);
     if (result.error.code === "TOTAL_CHANGED" || result.error.code === "ORDER_CANCELLED") {
       const latest = await orders.getCheckout(access);
@@ -89,9 +117,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
         return response({ checkout: null, message: missing ? unavailable : retry, unavailable: missing }, missing ? 404 : 503);
       }
       bindRequestOperation({ operation: "confirm_checkout", outcome: result.error.code === "TOTAL_CHANGED" ? "total_changed" : "cancelled" });
-      return response({ checkout: serialize(latest.data), message: result.error.code === "TOTAL_CHANGED"
+      return response({ checkout: serialize(latest.data), code: result.error.code,
+        ...("currentPrice" in result.error ? { currentPrice: result.error.currentPrice } : {}), message: result.error.code === "TOTAL_CHANGED"
         ? "El total cambió. Revisa el nuevo importe y vuelve a confirmar." : null }, 409);
     }
+    if (["RATE_UNAVAILABLE", "INVALID_DELIVERY_RATE", "INVALID_DISTRICT", "DELIVERY_METHOD_DISABLED", "INVALID_CHECKOUT", "INVALID_ORDER", "DELIVERY_LOCKED"].includes(result.error.code))
+      return response({ checkout: null, code: result.error.code, message: "Revisa la entrega y vuelve a confirmar." }, 422);
+    if (result.error.code === "INSUFFICIENT_STOCK") return response({ checkout: null, code: result.error.code, message: "No hay stock suficiente. Contacta al vendedor." }, 409);
     return response({ checkout: null, message: retry }, 503);
   } catch (cause) {
     if (cause instanceof Response) return response({ checkout: null, message: retry }, cause.status);
@@ -102,13 +134,22 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function Checkout() {
-  const initial = useLoaderData<typeof loader>().checkout!;
+  const initialData = useLoaderData<typeof loader>();
+  const initial = initialData.checkout!;
+  const { orderId = "" } = useParams();
   const fetcher = useFetcher<typeof action>();
   const checkout = fetcher.data?.checkout ?? initial;
-  const [name, setName] = useState(initial.buyer?.name ?? "");
-  const [phone, setPhone] = useState(initial.buyer?.phone ?? "");
+  const buyerForm = useForm<{ name: string; phone: string }>({ resolver: zodResolver(checkoutBuyerSchema),
+    defaultValues: { name: initial.buyer?.name ?? "", phone: initial.buyer?.phone ?? "" } });
+  const name = useController({ name: "name", control: buyerForm.control });
+  const phone = useController({ name: "phone", control: buyerForm.control });
+  const [deliveryDraft, setDeliveryDraft] = useState<CheckoutDeliveryDraft | null>(null);
+  const summed = deliveryDraft?.delivery.kind === "replace" ? add(deliveryDraft.price)(checkout.itemsTotal) : null;
+  const total = checkout.state.kind !== "pending" || deliveryDraft?.delivery.kind === "keep" ? checkout.total : summed?.success ? summed.data : null;
+  const recoveryVersion = fetcher.data?.code && ["TOTAL_CHANGED", "RATE_UNAVAILABLE", "INVALID_DISTRICT", "INVALID_DELIVERY_RATE", "DELIVERY_METHOD_DISABLED"].includes(fetcher.data.code) ? fetcher.data : undefined;
   const pending = fetcher.state !== "idle";
-  const errors = fetcher.data?.fieldErrors;
+  const errors = { name: name.fieldState.error ? "Ingresa tu nombre." : fetcher.data?.fieldErrors?.name,
+    phone: phone.fieldState.error ? "Ingresa un teléfono con código de país, por ejemplo +51987654321." : fetcher.data?.fieldErrors?.phone };
   const amount = (money: PublicCheckoutResponse["total"]) => formatCurrency(money.amount, money.currency, "es");
   if (fetcher.data?.unavailable) return <main className="mx-auto max-w-lg p-6"><h1 className="text-2xl font-semibold">{unavailable}</h1><p>Solicita el enlace al vendedor.</p></main>;
   return <main className="mx-auto flex max-w-lg flex-col gap-6 p-5 py-8">
@@ -116,14 +157,17 @@ export default function Checkout() {
     {checkout.state.kind === "cancelled" && <section role="status"><h2 className="text-xl font-semibold">Pedido cancelado</h2><p>Este pedido ya no puede confirmarse. Contacta al vendedor.</p></section>}
     {checkout.state.kind === "confirmed" && <section role="status"><h2 className="text-xl font-semibold">Pedido confirmado</h2><p>Recibimos tu confirmación. Esto no registra un pago.</p><p>Para solicitar cambios, contacta al vendedor por el canal que ya utilizan.</p></section>}
     <section aria-labelledby="products-title"><h2 id="products-title" className="font-semibold">Productos</h2><ul className="divide-y">{checkout.items.map((item, index) => <li key={index} className="flex justify-between gap-4 py-4"><div className="min-w-0 break-words"><p className="font-medium">{item.productName}</p><p className="text-sm text-muted-foreground">{Object.values(item.variantAttributes).join(" · ")}</p><p>{item.quantity} × {amount(item.unitPrice)}</p></div><strong className="shrink-0">{amount(item.subtotal)}</strong></li>)}</ul></section>
-    <dl className="flex flex-col gap-2"><div className="flex justify-between gap-4"><dt>Subtotal de productos</dt><dd>{amount(checkout.itemsTotal)}</dd></div><div className="flex justify-between gap-4 text-xl font-semibold"><dt>Total a pagar</dt><dd>{amount(checkout.total)}</dd></div></dl>
-    {checkout.state.kind === "pending" ? <fetcher.Form method="post" noValidate className="flex flex-col gap-5">
+    <dl className="flex flex-col gap-2"><div className="flex justify-between gap-4"><dt>Subtotal de productos</dt><dd>{amount(checkout.itemsTotal)}</dd></div><div className="flex justify-between gap-4"><dt>Entrega</dt><dd>{checkout.state.kind !== "pending" ? (checkout.deliveryCharge.amount === 0 ? "Gratis" : amount(checkout.deliveryCharge)) : deliveryDraft ? (deliveryDraft.price.amount === 0 ? "Gratis" : amount(deliveryDraft.price)) : "Selecciona una opción"}</dd></div><div className="flex justify-between gap-4 text-xl font-semibold"><dt>Total a pagar</dt><dd>{total ? amount(total) : "Selecciona entrega"}</dd></div></dl>
+    {checkout.state.kind === "pending" ? <fetcher.Form method="post" noValidate className="flex flex-col gap-5" onSubmit={buyerForm.handleSubmit(buyer => {
+      if (pending || !deliveryDraft || !total) return;
+      fetcher.submit({ buyer, delivery: deliveryDraft.delivery, expectedTotal: total }, { method: "post", encType: "application/json" });
+    })}>
       <h2 className="text-lg font-semibold">Tus datos</h2>
       {fetcher.data?.message && <p role="alert">{fetcher.data.message}</p>}
-      <Field data-invalid={Boolean(errors?.name)}><FieldLabel htmlFor="buyer-name">Nombre</FieldLabel><Input id="buyer-name" name="name" autoComplete="name" required value={name} onChange={(event) => setName(event.target.value)} aria-invalid={Boolean(errors?.name)} aria-describedby={errors?.name ? "name-error" : undefined} />{errors?.name && <FieldError id="name-error">{errors.name}</FieldError>}</Field>
-      <Field data-invalid={Boolean(errors?.phone)}><FieldLabel htmlFor="buyer-phone">Teléfono</FieldLabel><Input id="buyer-phone" name="phone" type="tel" autoComplete="tel" required value={phone} onChange={(event) => setPhone(event.target.value)} aria-invalid={Boolean(errors?.phone)} aria-describedby="phone-hint phone-error" /><p id="phone-hint" className="text-sm text-muted-foreground">Incluye el código de país, por ejemplo +51987654321.</p>{errors?.phone && <FieldError id="phone-error">{errors.phone}</FieldError>}</Field>
-      <input type="hidden" name="expectedTotal" value={JSON.stringify(checkout.total)} />
-      <Button type="submit" disabled={pending}>{pending ? "Confirmando…" : "Confirmar pedido"}</Button><p className="text-sm text-muted-foreground">Confirmas tu intención de compra. El pago se coordina por separado.</p>
+      <Field data-invalid={Boolean(errors?.name)}><FieldLabel htmlFor="buyer-name">Nombre</FieldLabel><Input {...name.field} id="buyer-name" autoComplete="name" required aria-invalid={Boolean(errors?.name)} aria-describedby={errors?.name ? "name-error" : undefined} />{errors?.name && <FieldError id="name-error">{errors.name}</FieldError>}</Field>
+      <Field data-invalid={Boolean(errors?.phone)}><FieldLabel htmlFor="buyer-phone">Teléfono</FieldLabel><Input {...phone.field} id="buyer-phone" type="tel" autoComplete="tel" required aria-invalid={Boolean(errors?.phone)} aria-describedby="phone-hint phone-error" /><p id="phone-hint" className="text-sm text-muted-foreground">Incluye el código de país, por ejemplo +51987654321.</p>{errors?.phone && <FieldError id="phone-error">{errors.phone}</FieldError>}</Field>
+      <CheckoutDeliveryFields orderId={orderId} checkout={checkout} options={initialData.deliveryOptions!} onChange={setDeliveryDraft} recoveryVersion={recoveryVersion} disabled={pending} />
+      <Button type="submit" disabled={pending || !deliveryDraft || !total}>{pending ? "Confirmando…" : "Confirmar pedido"}</Button><p className="text-sm text-muted-foreground">Confirmas tu intención de compra. El pago se coordina por separado.</p>
     </fetcher.Form> : checkout.buyer && <section><h2 className="font-semibold">Datos del comprador</h2><p>{checkout.buyer.name}</p><p>{checkout.buyer.phone}</p></section>}
   </main>;
 }

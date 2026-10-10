@@ -1,6 +1,6 @@
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import { describe, expect, test } from "vitest";
-import { buildPendingOrder, orderStateMachine, type OrderAggregate, type DeliveryDetails } from "@core/src/features/orders/domain/order-state-machine";
+import { buildPendingOrder, orderStateMachine, type OrderAggregate, type DeliverySnapshot, type CourierId } from "@core/src/features/orders/domain/order-state-machine";
 import type { ConfirmedPayment } from "@core/src/features/orders/domain/payment";
 import type { CompanyId, OrderId, OrderItemId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
@@ -11,7 +11,7 @@ const paymentAt = new Date("2026-09-30T12:00:00Z");
 const money = (amount: number) => ({ amount, currency: "PEN" as const });
 const order = (): OrderAggregate => ({
   number: 1001 as OrderNumber, id: id(1) as OrderId, companyId: id(2) as CompanyId, sellerId: "seller" as UserId,
-  buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, createdAt, deliveredAt: null, completedAt: null, cancelled: false,
+  buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, checkoutDeliveryRequest: null, createdAt, deliveredAt: null, completedAt: null, cancelled: false,
   items: [{ id: id(3) as OrderItemId, variantId: id(4) as VariantId, productName: "Item", variantAttributes: {}, sku: null,
     quantity: 1 as PositiveInteger, unitPrice: money(10), subtotal: money(10) }],
   payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false,
@@ -20,8 +20,8 @@ const order = (): OrderAggregate => ({
 const payment = (n: number, amount: number): ConfirmedPayment => ({ id: id(n) as PaymentId, orderId: id(1) as OrderId,
   status: "confirmed", amount: money(amount), method: "digital_wallet",
   data: { confirmedAt: paymentAt, confirmedBy: { kind: "seller", userId: "seller" as UserId }, evidence: { kind: "manual" } } });
-const home: DeliveryDetails = { method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
-  destination: { address: "Av. Lima 123" } };
+const home: DeliverySnapshot = { method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
+  destination: { address: "Av. Lima 123", district: "Lima", instructions: null }, recordedBy: { kind: "seller", userId: "seller" as UserId } };
 
 describe("pending order construction", () => {
   test("preserves identity and snapshots while leaving payment, delivery and stock pending", () => {
@@ -105,10 +105,10 @@ describe("delivery and stock transitions", () => {
   test("replaces delivery cost and charge while retaining payments and item prices", () => {
     const initial = orderStateMachine.registerPayment(order(), payment(5, 10));
     if (!initial.success) throw new Error("Expected payment");
-    const free = orderStateMachine.setDelivery(initial.data, { resolved: { delivery: home, cost: money(3) }, chargeDeliveryToCustomer: false });
-    expect(free).toMatchObject({ success: true, data: { deliveryCost: money(3), deliveryCharge: money(0), total: money(10) } });
+    const free = orderStateMachine.setDelivery(initial.data, { resolved: { delivery: home, cost: money(0) } });
+    expect(free).toMatchObject({ success: true, data: { deliveryCost: money(0), deliveryCharge: money(0), total: money(10) } });
     if (!free.success) return;
-    const charged = orderStateMachine.setDelivery(free.data, { resolved: { delivery: home, cost: money(2) }, chargeDeliveryToCustomer: true });
+    const charged = orderStateMachine.setDelivery(free.data, { resolved: { delivery: home, cost: money(2) } });
     expect(charged).toMatchObject({ success: true, data: { deliveryCost: money(2), deliveryCharge: money(2), total: money(12) } });
     if (!charged.success) return;
     expect(orderStateMachine.getPaymentSummary(charged.data)).toMatchObject({ success: true, data: { status: "pending", balanceDue: money(2) } });
@@ -117,12 +117,12 @@ describe("delivery and stock transitions", () => {
   });
 
   test("requires documented agency recipient and validates identity at runtime", () => {
-    const invalid = { method: "agency", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, destination: { agencyId: "a" } };
-    expect(orderStateMachine.setDelivery(order(), { resolved: { delivery: invalid as DeliveryDetails, cost: money(1) }, chargeDeliveryToCustomer: true }))
+    const invalid = { method: "agency", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, courier: { id: id(8) as CourierId, name: "Courier" }, agency: "Lima", recordedBy: { kind: "seller", userId: "seller" as UserId } };
+    expect(orderStateMachine.setDelivery(order(), { resolved: { delivery: invalid as DeliverySnapshot, cost: money(1) } }))
       .toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
-    const agency: DeliveryDetails = { method: "agency", recipient: { name: "Ana", phone: "999", identity: {
-      kind: "document", documentType: "passport", document: "A-001" } }, destination: { agencyId: "a" } };
-    expect(orderStateMachine.setDelivery(order(), { resolved: { delivery: agency, cost: money(0) }, chargeDeliveryToCustomer: false }))
+    const agency: DeliverySnapshot = { method: "agency", recipient: { name: "Ana", phone: "999", identity: {
+      kind: "document", documentType: "passport", document: "A-001" } }, courier: { id: id(8) as CourierId, name: "Courier" }, agency: "Lima", recordedBy: { kind: "seller", userId: "seller" as UserId } };
+    expect(orderStateMachine.setDelivery(order(), { resolved: { delivery: agency, cost: money(0) } }))
       .toMatchObject({ success: true, data: { delivery: agency } });
   });
 
@@ -150,11 +150,13 @@ describe("delivery and stock transitions", () => {
     const shipped = orderStateMachine.registerShipment(deducted.data.nextOrder);
     expect(shipped).toMatchObject({ success: true, data: { deliveryStatus: "shipped", completedAt: null } });
     if (!shipped.success) return;
-    expect(orderStateMachine.setDelivery(shipped.data, { resolved: { delivery: home, cost: money(1) }, chargeDeliveryToCustomer: true }))
+    expect(shipped.data.payments).toEqual(deducted.data.nextOrder.payments);
+    expect(orderStateMachine.setDelivery(shipped.data, { resolved: { delivery: home, cost: money(1) } }))
       .toMatchObject({ success: false, error: { code: "DELIVERY_LOCKED" } });
     const delivered = orderStateMachine.registerDelivery(shipped.data, paymentAt);
     expect(delivered).toMatchObject({ success: true, data: { deliveryStatus: "delivered", deliveredAt: paymentAt, completedAt: paymentAt } });
     if (!delivered.success) return;
+    expect(delivered.data.payments).toEqual(shipped.data.payments);
     expect(orderStateMachine.getLifecycle(delivered.data)).toEqual({ success: true, data: { status: "completed", completedAt: paymentAt } });
     expect(orderStateMachine.getLifecycle({ ...delivered.data, deliveredAt: null }))
       .toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
@@ -167,7 +169,7 @@ describe("delivery and stock transitions", () => {
     const deducted = orderStateMachine.planStockDeduction(paid.data, false);
     if (!deducted.success) throw new Error("Expected deduction plan");
     expect(orderStateMachine.registerDelivery(deducted.data.nextOrder, paymentAt)).toMatchObject({ success: true, data: {
-      delivery: null, deliveryStatus: "delivered", completedAt: paymentAt } });
+      delivery: null, deliveryStatus: "delivered", completedAt: paymentAt, payments: paid.data.payments } });
   });
 
   test("cancels before dispatch, requests one restoration and preserves payments", () => {
@@ -176,15 +178,41 @@ describe("delivery and stock transitions", () => {
     const deducted = orderStateMachine.planStockDeduction(paid.data, false);
     if (!deducted.success) throw new Error("Expected deduction plan");
     const cancelled = orderStateMachine.cancel(deducted.data.nextOrder);
-    expect(cancelled).toMatchObject({ success: true, data: { restoreStock: true, nextOrder: { cancelled: true, stockDeducted: false } } });
+    expect(cancelled).toMatchObject({ success: true, data: { emitOrderCancelled: true, nextOrder: { cancelled: true, stockDeducted: true } } });
     if (!cancelled.success) return;
     expect(cancelled.data.nextOrder.payments).toEqual(paid.data.payments);
     expect(orderStateMachine.getLifecycle(cancelled.data.nextOrder)).toEqual({ success: true, data: { status: "cancelled", completedAt: null } });
-    expect(orderStateMachine.cancel(cancelled.data.nextOrder)).toMatchObject({ success: true, data: { restoreStock: false } });
+    expect(orderStateMachine.cancel(cancelled.data.nextOrder)).toMatchObject({ success: true, data: { emitOrderCancelled: false } });
     expect(orderStateMachine.registerPayment(cancelled.data.nextOrder, payment(6, 1))).toMatchObject({ success: false, error: { code: "ORDER_CANCELLED" } });
     expect(orderStateMachine.planStockDeduction(cancelled.data.nextOrder, true)).toMatchObject({ success: false, error: { code: "ORDER_CANCELLED" } });
     const shipped = orderStateMachine.registerShipment(deducted.data.nextOrder);
     if (!shipped.success) throw new Error("Expected shipment");
     expect(orderStateMachine.cancel(shipped.data)).toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
   });
+  test.each([0, 3, 10])("cancellation preserves payment amount %s and all order values", amount => {
+    const base = order();
+    const paid = amount ? orderStateMachine.registerPayment(base, payment(5, amount)) : { success: true as const, data: base };
+    if (!paid.success) throw new Error("Expected payment");
+    for (const stockDeducted of [false, true]) {
+      const before = { ...paid.data, stockDeducted };
+      expect(orderStateMachine.cancel(before)).toEqual({ success: true, data: {
+        nextOrder: { ...before, cancelled: true }, emitOrderCancelled: true,
+      } });
+    }
+  });
+  test("cancellation propagates aggregate and payment validation errors", () => {
+    expect(orderStateMachine.cancel({ ...order(), total: money(-1) })).toMatchObject({ error: { code: "INVALID_ORDER" } });
+    expect(orderStateMachine.cancel({ ...order(), payments: [{ ...payment(5, 1), amount: money(-1) }] })).toMatchObject({ error: { code: "INVALID_PAYMENT" } });
+    expect(orderStateMachine.cancel({ ...order(), payments: [{ ...payment(5, 1), amount: { amount: 1, currency: "USD" } }] })).toMatchObject({ error: { code: "CURRENCY_MISMATCH" } });
+    expect(orderStateMachine.cancel({ ...order(), cancelled: true, deliveryStatus: "shipped", stockDeducted: true })).toMatchObject({ error: { code: "INVALID_TRANSITION" } });
+  });
+
+});
+
+test.each([true, false])("new delivery transitions reject the obsolete charge decision %s", chargeDeliveryToCustomer => {
+  const current = order();
+  const change = { resolved: { delivery: home, cost: money(3) }, chargeDeliveryToCustomer };
+  expect(orderStateMachine.setDelivery(current, change)).toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
+  expect(current.delivery).toBeNull();
+  expect(current.total).toEqual(money(10));
 });

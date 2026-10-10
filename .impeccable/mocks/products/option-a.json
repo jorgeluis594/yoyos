@@ -1,0 +1,7 @@
+{
+  "prompt": "Use case: ui-mockup. Create one high fidelity PORTRAIT Android Yoyos product form screen, scrolled near its bottom, at approximately 390 x 844 logical units. Reference images carry the existing chrome, Inter typography, warm cream #F7F4EF canvas, charcoal #242326 text, caramel #8C552D primary and beige secondary button character. Preserve this sober compact native visual world, no new brand. OPTION A: Single-column action stack in document scroll flow, all three buttons full available width, each minimum 48dp, 8dp gaps, 16dp side gutters; no clipped text, no floating toolbar. Top native header 'Nuevo producto', subtitle 'Moneda PEN'. Body shows SKU (opcional): QA-CAM-001, Precio de venta (PEN) *: 79.90, Precio de compra (PEN, opcional): 40.00, Stock inicial (opcional): 8, Copias de la etiqueta: 1. At bottom caramel 'Guardar e imprimir', beige 'Solo guardar', beige 'Cancelar', stacked vertically. Subtle 6dp rounded buttons, white inputs with thin gray borders, compact readable labels and 48dp inputs. Retain native bottom navigation, Productos active with caramel icon; adequate space above tabs. No phone hardware frame, no decorative imagery, no new text or actions. A precise usable application screenshot, not a poster.",
+  "approved": true,
+  "tool": "image_gen",
+  "reference": "artifacts/mobile-screenshots/07-producto-nuevo-detalle.png; artifacts/mobile-screenshots/08-producto-detalle-datos.png",
+  "approval": "Coordinator explicitly approved option A via Orca ask, 2026-10-08; applies to creation and editing."
+}

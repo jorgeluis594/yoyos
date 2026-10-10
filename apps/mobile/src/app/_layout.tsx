@@ -24,7 +24,13 @@ export default function TabLayout() {
     else void openWhatsAppDatabase().catch(() => console.error('WhatsApp database initialization failed'));
   }, []);
   const colorScheme = useColorScheme();
-  const [fontsLoaded, fontError] = useFonts({ Inter: require('@/assets/fonts/InterVariable.ttf') });
+  const [fontsLoaded, fontError] = useFonts({
+    Inter: require('@/assets/fonts/InterVariable.ttf'),
+    // Static cuts extracted from the same OFL font (opsz=14, wght=500/600/700).
+    'Inter-Medium': require('@/assets/fonts/Inter-Medium.ttf'),
+    'Inter-SemiBold': require('@/assets/fonts/Inter-SemiBold.ttf'),
+    'Inter-Bold': require('@/assets/fonts/Inter-Bold.ttf'),
+  });
   if (Platform.OS !== 'web' && !fontsLoaded && !fontError) return null;
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>

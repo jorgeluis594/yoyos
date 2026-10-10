@@ -12,8 +12,13 @@ import { imageRepository } from "@core/src/shared/images/infrastructure/image-re
 import { createR2ImageStorage } from "@core/src/shared/images/infrastructure/r2-image-storage";
 import { loadWhatsAppConnections } from "@core/src/features/chats/infrastructure/whatsapp-connections";
 import { whatsappWebhook } from "@core/src/features/chats/presentation/whatsapp-webhook";
+import { mobileMessageParser, mobileMessageRoutes } from "@core/src/features/chats/presentation/mobile-message-routes";
+import { registerMobileMessage } from "@core/src/features/chats";
 import { productRoutes } from "@core/src/features/products/presentation/api-routes";
-import { hasDuplicateJsonKeys, orderRoutes } from "@core/src/features/orders/presentation/api-routes";
+import { orderRoutes } from "@core/src/features/orders/presentation/api-routes";
+import { hasDuplicateJsonKeys } from "@core/src/shared/presentation/json-keys";
+import { deliverySettingsRoutes } from "@core/src/features/delivery-settings/presentation/api-routes";
+import { quotationRoutes } from "@core/src/features/delivery-settings/presentation/quotation-routes";
 import { buyerPaymentRoutes } from "@core/src/features/orders/presentation/buyer-payment-routes";
 import { log, requestLogging } from "@core/src/shared/infrastructure/logger";
 
@@ -38,11 +43,18 @@ app.use("/api/orders", (_request, response, next) => {
   response.set("Cache-Control", "no-store");
   next();
 });
+app.use("/api/delivery-settings", (_request, response, next) => {
+  response.set("Cache-Control", "no-store");
+  next();
+});
+app.use("/api/quotations", (_request, response, next) => { response.set("Cache-Control", "no-store"); next(); });
 app.use("/api/orders", express.json({ limit: "100kb", verify: (_request, _response, body) => {
   if (hasDuplicateJsonKeys(body.toString("utf8"))) throw new Error("Duplicate JSON key");
 } }));
+app.post("/api/whatsapp/messages", mobileMessageParser);
 app.use("/api", express.json({ limit: "100kb" }));
 app.use("/api/buyer/orders", buyerPaymentRoutes(images));
+app.use("/api/quotations", quotationRoutes);
 app.use("/api", loadApiAccess);
 
 app.get("/api/me", (_request, response: Response<unknown, AuthenticatedLocals>) => {
@@ -76,9 +88,11 @@ app.post("/api/company", async (request, response: Response<unknown, Authenticat
 });
 
 app.use("/api", requireApiCompany);
+app.use("/api/whatsapp/messages", mobileMessageRoutes(registerMobileMessage));
 app.use("/api/company/payment-settings", paymentSettingsRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);
+app.use("/api/delivery-settings", deliverySettingsRoutes);
 app.use("/api/images", images);
 
 app.use("/api", (_request, response: Response<unknown, PrivateLocals>) => {
@@ -88,7 +102,7 @@ app.use("/api", (_request, response: Response<unknown, PrivateLocals>) => {
 app.use("/api", (error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
   void _next;
   const pathname = _request.originalUrl.split("?", 1)[0];
-  const isFeatureRequest = ["/api/products", "/api/orders"].some((base) => pathname === base || pathname.startsWith(`${base}/`));
+  const isFeatureRequest = ["/api/products", "/api/orders", "/api/delivery-settings", "/api/quotations"].some((base) => pathname === base || pathname.startsWith(`${base}/`));
   if (pathname.startsWith("/api/orders") && typeof error === "object" && error !== null && "type" in error && error.type === "entity.verify.failed")
     return apiError(response, 400, "INVALID_INPUT", "Duplicate JSON key");
   if (error instanceof SyntaxError && "body" in error) return apiError(response, 400, isFeatureRequest ? "INVALID_INPUT" : "INVALID_COMPANY", "Invalid JSON", isFeatureRequest ? [{ field: "body", reason: "INVALID_JSON" }] : undefined);

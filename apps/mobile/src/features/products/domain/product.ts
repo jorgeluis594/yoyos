@@ -32,6 +32,7 @@ export type ProductListItem = Readonly<{
   price: Money;
   priceFrom: boolean;
   stock: number;
+  photo?: Readonly<{ id: ImageId; url: string }>;
 }>;
 
 export type ProductPage = Readonly<{
@@ -41,6 +42,8 @@ export type ProductPage = Readonly<{
   total: number;
 }>;
 
-export type ProductListCriteria = Readonly<{ search?: string; page: number; pageSize: 20 }>;
+export type StockFilter = "in_stock" | "sold_out";
+export type ProductSort = "recent" | "name";
+export type ProductListCriteria = Readonly<{ search?: string; stock?: StockFilter; sort?: ProductSort; page: number; pageSize: 20 }>;
 export type PhotoSelection = Readonly<{ kind: "keep" }> | Readonly<{ kind: "set"; imageId: ImageId; previewUrl?: string }>
   | Readonly<{ kind: "remove" }>;

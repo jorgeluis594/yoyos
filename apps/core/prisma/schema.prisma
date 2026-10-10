@@ -102,7 +102,94 @@ model Company {
   orderBuyers OrderBuyer[]
   orderItems OrderItem[]
   payments Payment[]
+  deliverySettings CompanyDeliverySettings?
   paymentSettings CompanyPaymentSettings?
+  couriers CompanyCourier[]
+  deliveryZones DeliveryZone[]
+  deliveryZoneDistricts DeliveryZoneDistrict[]
+  quotations Quotation[]
+  deliveryRates DeliveryRate[]
+}
+
+model DeliveryZone {
+  id String @id @db.Uuid
+  companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company Company @relation(fields: [companyId], references: [id])
+  method String
+  name String @db.VarChar(120)
+  enabled Boolean
+  priceAmount Decimal @db.Decimal(15, 2)
+  priceCurrency String
+  districts DeliveryZoneDistrict[]
+  rates DeliveryRate[]
+
+  @@unique([companyId, method, id])
+}
+
+model DeliveryZoneDistrict {
+  companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company Company @relation(fields: [companyId], references: [id])
+  method String
+  districtCode String @db.VarChar(6)
+  zoneId String @db.Uuid
+  zone DeliveryZone @relation(fields: [companyId, method, zoneId], references: [companyId, method, id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@id([companyId, zoneId, districtCode])
+  @@index([companyId, method, districtCode])
+}
+
+model Quotation {
+  id String @id @db.Uuid
+  companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company Company @relation(fields: [companyId], references: [id])
+  destination Json
+  createdAt DateTime @db.Timestamptz(6)
+  rates DeliveryRate[]
+
+  @@unique([companyId, id])
+}
+
+model DeliveryRate {
+  id String @id @db.Uuid
+  companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company Company @relation(fields: [companyId], references: [id])
+  quotationId String @db.Uuid
+  quotation Quotation @relation(fields: [companyId, quotationId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
+  method String
+  zoneId String @db.Uuid
+  zone DeliveryZone @relation(fields: [companyId, method, zoneId], references: [companyId, method, id], onDelete: Restrict, onUpdate: NoAction)
+  districtCode String @db.VarChar(6)
+  priceAmount Decimal @db.Decimal(15, 2)
+  priceCurrency String
+  settingsVersion Int
+  createdAt DateTime @db.Timestamptz(6)
+
+  @@unique([companyId, id])
+  @@unique([companyId, quotationId, zoneId])
+}
+
+model CompanyDeliverySettings {
+  companyId          String  @id @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company            Company @relation(fields: [companyId], references: [id])
+  homeEnabled        Boolean @default(false)
+  agencyEnabled      Boolean @default(false)
+  storeEnabled       Boolean
+  pickupName         String?
+  pickupAddress      String?
+  pickupInstructions String?
+  version            Int
+  couriers           CompanyCourier[]
+}
+
+model CompanyCourier {
+  id        String @id @db.Uuid
+  companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company   Company @relation(fields: [companyId], references: [id])
+  settings  CompanyDeliverySettings @relation(fields: [companyId], references: [companyId], map: "CompanyCourier_settings_fkey")
+  name      String
+  enabled   Boolean
+
+  @@index([companyId])
 }
 
 model CompanyPaymentSettings {
@@ -134,6 +221,7 @@ enum MessageType {
 enum MessageImageStatus {
   ready
   failed
+  metadata_only
 }
 
 model Image {
@@ -171,6 +259,7 @@ model Product {
 
   @@unique([companyId, id])
   @@index([companyId])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
 model ProductVariant {
@@ -190,6 +279,7 @@ model ProductVariant {
 
   @@unique([companyId, id])
   @@index([companyId, productId])
+  @@index([sku(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
 model ProductStock {
@@ -207,7 +297,9 @@ model Contact {
   id        String   @id @default(uuid()) @db.Uuid
   companyId String   @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
   company   Company  @relation(fields: [companyId], references: [id])
-  phone     String
+  phone     String?
+  whatsappAccountId String? @db.VarChar(128)
+  whatsappLid String? @db.VarChar(128)
   name      String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -216,6 +308,7 @@ model Contact {
 
   @@unique([companyId, id])
   @@unique([companyId, phone])
+  @@unique([companyId, whatsappAccountId, whatsappLid])
 }
 
 model Chat {
@@ -238,6 +331,7 @@ model ChatMessage {
   chatId              String                    @db.Uuid
   chat                Chat                      @relation(fields: [companyId, chatId], references: [companyId, id])
   externalId          String
+  whatsappMessageId   String?
   direction           MessageDirection
   source              MessageSource
   userId              String?
@@ -253,9 +347,14 @@ model ChatMessage {
   imageStatus         MessageImageStatus?
   imageFailureCode    String?
   imageFailureMessage String?
+  imageMimeType       String?                   @db.VarChar(127)
+  imageSize           BigInt?
+  uploadedByUserId    String?
+  eventDispatchedAt   DateTime?                 @db.Timestamp(3)
 
   @@unique([companyId, id])
-  @@unique([companyId, externalId])
+  // Cloud API externalId uniqueness is a partial SQL index in the migration.
+  @@unique([companyId, chatId, whatsappMessageId])
   @@index([companyId, chatId, sentAt, id])
 }
 
@@ -269,6 +368,7 @@ model Order {
   buyer OrderBuyer?
   checkoutEnabledAt DateTime?
   checkoutConfirmedAt DateTime?
+  checkoutDeliveryRequest Json?
   currency String
   total Decimal @db.Decimal(15, 2)
   itemsTotal Decimal @db.Decimal(15, 2)

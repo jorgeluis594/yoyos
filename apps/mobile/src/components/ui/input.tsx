@@ -4,6 +4,7 @@ import { StyleSheet, TextInput, type TextInputProps } from 'react-native';
 import tokens from '../../../../../docs/design-tokens.json';
 import { useTheme } from '@/hooks/use-theme';
 import { useFieldContext } from './field';
+import { normalizeDecimalInput } from '@mobile/shared/decimal-input';
 
 export type InputProps = Omit<TextInputProps, 'value' | 'onChangeText'> & {
   value: string;
@@ -30,7 +31,7 @@ export function Input({ invalid, disabled, style, accessibilityLabel, accessibil
       {...props}
       ref={ref}
       value={props.value}
-      onChangeText={props.onChangeText}
+      onChangeText={props.keyboardType === 'decimal-pad' ? value => props.onChangeText(normalizeDecimalInput(value)) : props.onChangeText}
       editable={!isDisabled}
       accessibilityLabel={label ? `${label}${field?.required ? ' *' : ''}` : undefined}
       accessibilityLabelledBy={field?.label ? field.labelId : undefined}

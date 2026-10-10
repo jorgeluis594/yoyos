@@ -1,0 +1,69 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><title>A · Tarjetas agrupadas</title><link rel="stylesheet" href="base.css">
+<style>
+.sec { margin-top: 16px; }
+.card-h { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px 6px; }
+.item { display: flex; gap: 14px; padding: 11px 16px; align-items: center; }
+.item + .item { border-top: 1px solid var(--border); margin-left: 74px; padding-left: 0; }
+.item + .item .thumb { margin-left: -58px; }
+.foot { display: flex; justify-content: space-between; padding: 12px 16px 14px; border-top: 1px solid var(--border); }
+</style></head><body>
+<div class="board">
+<div><p class="cap">1 · Revisión — estado de pago primero</p>
+<div class="phone"><div data-status></div>
+  <div class="scroll">
+    <div class="appbar"><div class="iconbtn" data-i="back"></div><div class="title" style="flex:1">Nueva venta</div><span class="small mf">Paso 2 de 2</span></div>
+
+    <div class="card sec" style="margin-top:4px">
+      <div class="card-h"><span class="h2">Productos</span><span class="small" style="color:var(--primary);font-weight:500">Editar</span></div>
+      <div id="items"></div>
+      <div class="foot"><span class="small mf">7 unidades · referencial</span><span class="small num" style="font-weight:600">S/ 550.00</span></div>
+    </div>
+
+    <div class="card sec">
+      <div class="row" style="padding:12px 16px;min-height:56px"><div data-i="user"></div><div style="flex:1"><div class="cap2">Cliente</div><div class="body">Público general</div></div><div data-i="chev"></div></div>
+    </div>
+
+    <div class="card sec" style="padding:14px 16px 16px">
+      <div class="row between" style="margin-bottom:12px"><span class="h2">Pago</span><span class="cap2">Estado</span></div>
+      <div class="seg"><div class="on"><span data-i="clock"></span>Pendiente</div><div><span data-i="check"></span>Pagado</div></div>
+      <p class="note" style="margin-top:10px">El cliente pagará después. Saldo: <b class="num" style="color:var(--fg)">S/ 550.00</b></p>
+      <div class="row" style="margin-top:6px;height:40px;color:var(--primary);font-weight:500;font-size:15px;gap:8px"><span data-i="plus"></span>Registrar adelanto</div>
+    </div>
+
+    <div class="card sec">
+      <div class="row" style="padding:12px 16px;min-height:56px"><div data-i="truck"></div><div style="flex:1"><div class="cap2">Entrega</div><div class="body">Pendiente · Sin envío</div></div><div data-i="chev"></div></div>
+    </div>
+  </div>
+  <div style="padding:12px 16px;border-top:1px solid var(--border);background:var(--card)"><div class="row between" style="margin-bottom:10px"><span class="small mf">Total referencial</span><span class="h2 num">S/ 550.00</span></div><div class="btn primary">Guardar pedido</div></div>
+  <div data-tabs></div>
+</div></div>
+
+<div><p class="cap">2 · Al tocar “Pagado” — hoja inferior</p>
+<div class="phone"><div data-status></div>
+  <div class="scroll" style="opacity:.6"><div class="appbar"><div class="iconbtn" data-i="back"></div><div class="title">Nueva venta</div></div></div>
+  <div class="scrim"></div>
+  <div class="sheet">
+    <div class="grab"></div>
+    <div class="row between" style="margin-bottom:4px"><span class="h2">Marcar como pagado</span><div class="iconbtn" style="margin-right:-12px" data-i="close"></div></div>
+    <p class="note" style="margin-bottom:16px">Registra el pago completo del pedido y adjunta el comprobante que te envió el cliente.</p>
+    <div class="label">Monto recibido (PEN)</div>
+    <div class="field num" style="justify-content:space-between"><span>550.00</span><span class="cap2">Total del pedido</span></div>
+    <div class="label" style="margin-top:16px">Método</div>
+    <div class="row" style="gap:8px"><span class="chip on"><span data-i="check"></span>Billetera digital</span><span class="chip">Transferencia</span></div>
+    <div class="label" style="margin-top:16px">Comprobante</div>
+    <div class="drop" style="height:132px">
+      <div style="color:var(--primary)" data-i="receipt"></div>
+      <div class="small" style="font-weight:500">Sube la captura del Yape, Plin o voucher</div>
+      <div class="row" style="gap:8px;margin-top:6px"><span class="chip"><span data-i="camera"></span>Cámara</span><span class="chip"><span data-i="image"></span>Galería</span></div>
+    </div>
+    <div class="btn primary" style="margin-top:20px">Confirmar pago</div>
+    <div class="btn ghost" style="margin-top:4px">Guardar sin comprobante</div>
+  </div>
+</div></div>
+</div>
+<script src="common.js"></script>
+<script>
+document.getElementById("items").innerHTML = ITEMS.map(it => `<div class="item"><div class="thumb tee">${I[it.i]}<span class="qbadge">${it.q}</span></div>
+<div style="flex:1;min-width:0"><div class="body" style="font-weight:600">${it.n}</div><div class="small mf">${it.v}</div><div class="cap2 num">${it.q} × ${S(it.p)}</div></div>
+<div class="body num" style="font-weight:500">S/ ${it.t}</div></div>`).join("");
+</script></body></html>

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { interStyle } from '@mobile/constants/typography';
 import tokens from '../../../../../docs/design-tokens.json';
 import { useTheme } from '@mobile/hooks/use-theme';
 
@@ -61,10 +62,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   label: {
-    fontFamily: tokens.typography.family,
+    ...interStyle('600'),
     fontSize: tokens.typography.roles.label.size,
     lineHeight: tokens.typography.roles.label.lineHeight,
-    fontWeight: '600',
     textAlign: 'center',
   },
   spinner: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center' },

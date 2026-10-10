@@ -1,9 +1,9 @@
 import { createElement } from 'react';
-import AppTabs from '@/components/app-tabs';
+import RootStack from '@mobile/components/root-stack';
 import { AccessScreen } from '@/features/users/presentation/access-screen';
 import { useAccess } from '@/features/users/presentation/access-provider';
 
 export function AccessGate() {
   const { state } = useAccess();
-  return state.status === 'ready' ? createElement(AppTabs, { key: state.company.id }) : createElement(AccessScreen, { key: state.status });
+  return state.status === 'ready' ? createElement(RootStack, { key: state.company.id }) : createElement(AccessScreen, { key: state.status });
 }

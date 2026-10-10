@@ -1,6 +1,8 @@
 import express from "express";
 import { afterEach, expect, test, vi } from "vitest";
-import { hasDuplicateJsonKeys, orderRoutes } from "@core/src/features/orders/presentation/api-routes";
+import { orderRoutes } from "@core/src/features/orders/presentation/api-routes";
+import { hasDuplicateJsonKeys } from "@core/src/shared/presentation/json-keys";
+import * as orderComposition from "@core/src/features/orders/composition";
 import { orders } from "@core/src/features/orders/composition";
 import { app as fullApp } from "@core/src/app";
 
@@ -48,7 +50,7 @@ test("order API maps a validated contact and UTC interval to the existing list o
 test("order API takes company and seller from access and identifies rejected stock", async () => {
   const create = vi.spyOn(orders, "registerImmediateSale").mockResolvedValue({ success: false,
     error: { code: "INSUFFICIENT_STOCK", message: "No stock", variantId: contactId } });
-  const pending = vi.spyOn(orders, "create").mockResolvedValue({ success: false,
+  const pending = vi.spyOn(orderComposition, "createConfiguredOrder").mockResolvedValue({ success: false,
     error: { code: "ORDER_ALREADY_EXISTS", message: "Exists" } });
   const input = { id: "00000000-0000-4000-8000-000000000003", contactId: null,
     items: [{ variantId: contactId, quantity: 2 }] };
@@ -63,7 +65,7 @@ test("order API takes company and seller from access and identifies rejected sto
   expect(pending).not.toHaveBeenCalled();
   expect(await request("/", "PE", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) }))
     .toMatchObject({ status: 409, body: { code: "ORDER_ALREADY_EXISTS" } });
-  expect(pending).toHaveBeenCalledWith(input, { companyId, userId: "seller" });
+  expect(pending).toHaveBeenCalledWith({ ...input, payments: undefined, delivery: undefined, deliverImmediately: undefined }, { companyId, userId: "seller" });
   expect(create).toHaveBeenCalledOnce();
   expect(await request("/", "PE", { method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ ...input, payment: { method: "digital_wallet" } }) }))
@@ -75,6 +77,26 @@ test("JSON key validation scopes keys to each object and decodes escaped names",
   expect(hasDuplicateJsonKeys('{"id":1,"items":[{"id":2},{"id":3}]}')).toBe(false);
   expect(hasDuplicateJsonKeys('{"id":1,"\\u0069d":2}')).toBe(true);
   expect(hasDuplicateJsonKeys('{"items":[{"quantity":1,"quantity":2}]}')).toBe(true);
+});
+
+test("delivery HTTP rejects client authority and maps disabled or locked delivery", async () => {
+  const set = vi.spyOn(orders, "setDelivery").mockResolvedValue({ success: false, error: { code: "DELIVERY_METHOD_DISABLED", message: "Disabled" } });
+  const body = { delivery: { method: "store", recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } } }, expectedPrice: { amount: 0, currency: "PEN" } };
+  const put = (input: unknown): RequestInit => ({ method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
+  for (const extra of [{ cost: 0 }, { companyId: "other" }, { recordedBy: { kind: "buyer" } }]) {
+    expect(await request(`/${contactId}/delivery`, "PE", put({ ...body, ...extra }))).toMatchObject({ status: 400 });
+  }
+  for (const extra of [{ recordedBy: { kind: "seller", userId: "other" } }, { pickupPoint: { name: "Fake", address: "Fake", instructions: null } }]) {
+    expect(await request(`/${contactId}/delivery`, "PE", put({ ...body, delivery: { ...body.delivery, ...extra } }))).toMatchObject({ status: 400 });
+  }
+  for (const chargeDeliveryToCustomer of [true, false]) {
+    expect(await request(`/${contactId}/delivery`, "PE", put({ delivery: body.delivery, chargeDeliveryToCustomer }))).toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
+  }
+  expect(set).not.toHaveBeenCalled();
+  expect(await request(`/${contactId}/delivery`, "PE", put(body))).toMatchObject({ status: 422, body: { code: "DELIVERY_METHOD_DISABLED" } });
+  expect(set).toHaveBeenCalledWith({ orderId: contactId, ...body }, { companyId, userId: "seller" });
+  set.mockResolvedValueOnce({ success: false, error: { code: "DELIVERY_LOCKED", message: "Locked" } });
+  expect(await request(`/${contactId}/delivery`, "PE", put(body))).toMatchObject({ status: 409, body: { code: "DELIVERY_LOCKED" } });
 });
 
 test("order JSON errors preserve no-store before authentication", async () => {
@@ -90,4 +112,45 @@ test("order JSON errors preserve no-store before authentication", async () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect((await response.json()).code).toBe(status === 413 ? "PAYLOAD_TOO_LARGE" : "INVALID_INPUT");
   }
+});
+
+
+test("mixed order API validates and forwards search and work filters", async () => {
+  const list = vi.spyOn(orders, "listAggregates").mockResolvedValue({ success: true, data: { items: [], page: 1, pageSize: 20, total: 0 } });
+  expect(await request("/mixed?view=invalid")).toMatchObject({ status: 400 });
+  expect(await request(`/mixed?search=${"a".repeat(121)}`)).toMatchObject({ status: 400 });
+  expect(list).not.toHaveBeenCalled();
+  expect(await request("/mixed?search=%231005&view=unpaid")).toMatchObject({ status: 200 });
+  expect(list).toHaveBeenCalledWith(expect.objectContaining({ search: "#1005", view: "unpaid" }),
+    expect.objectContaining({ companyId }));
+});
+
+test("rated assignment errors preserve public price metadata and distinguish storage failures", async () => {
+  const id = "00000000-0000-4000-8000-000000000003";
+  const input = { delivery: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } },
+    expectedPrice: { amount: 0, currency: "PEN" } };
+  const set = vi.spyOn(orders, "setDelivery");
+  for (const [error, status] of [[{ code: "TOTAL_CHANGED", currentPrice: { amount: 8, currency: "PEN" }, message: "private price" }, 409],
+    [{ code: "RATE_UNAVAILABLE", message: "private tenant detail" }, 422], [{ code: "SERVICE_UNAVAILABLE", message: "private SQL detail" }, 503],
+    [{ code: "INTERNAL_ERROR", message: "private stored data" }, 500], [{ code: "INVALID_DISTRICT", message: "private district" }, 422]] as const) {
+    set.mockResolvedValueOnce({ success: false, error });
+    const response = await request(`/${id}/delivery`, "PE", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
+    expect(response.status).toBe(status);
+    expect(response.body.code).toBe(error.code);
+    expect(JSON.stringify(response.body)).not.toContain("private");
+    if (error.code === "TOTAL_CHANGED") expect(response.body.currentPrice).toEqual(error.currentPrice);
+  }
+});
+
+
+test("creation API rejects legacy delivery choices without dispatching a save", async () => {
+  const create = vi.spyOn(orderComposition, "createConfiguredOrder");
+  const immediate = vi.spyOn(orders, "registerImmediateSale");
+  for (const chargeDeliveryToCustomer of [true, false]) {
+    const body = { id: "00000000-0000-4000-8000-000000000003", contactId: null, items: [{ variantId: contactId, quantity: 1 }],
+      delivery: { delivery: { method: "store", recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } } }, chargeDeliveryToCustomer } };
+    expect(await request("/", "PE", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
+  }
+  expect(create).not.toHaveBeenCalled();
+  expect(immediate).not.toHaveBeenCalled();
 });
