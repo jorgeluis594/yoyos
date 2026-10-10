@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import pino from "pino";
 
-type OperationContext = { operation?: "create_order" | "create_quotation" | "enable_checkout" | "get_checkout" | "confirm_checkout"; outcome?: "enabled" | "already_enabled" | "cancelled" | "unavailable" | "invalid_input" | "unauthenticated" | "technical_failure" | "pending" | "confirmed" | "already_confirmed" | "total_changed"; orderNumber?: number };
+type OperationContext = { operation?: "create_order" | "create_quotation" | "enable_checkout" | "get_checkout" | "confirm_checkout" | "get_checkout_appearance" | "save_checkout_appearance"; outcome?: "enabled" | "already_enabled" | "cancelled" | "unavailable" | "invalid_input" | "unauthenticated" | "technical_failure" | "pending" | "confirmed" | "already_confirmed" | "total_changed" | "loaded" | "saved"; orderNumber?: number };
 type LogContext = { requestId: string; companyId?: string } & OperationContext;
 type LoggingState = { context: AsyncLocalStorage<LogContext>; log?: pino.Logger };
 // Express loads source modules; the React Router server build bundles them.
@@ -57,6 +57,7 @@ export function requestLogging(request: Request, response: Response, next: NextF
   const pathname = request.path;
   const checkout = /^\/checkout(?:\/|$)/.test(pathname);
   const enable = /^\/api\/orders\/[^/]+\/checkout-link\/?$/.test(pathname);
+  const appearanceEditor = /^(?:\/[a-z]{2}-[A-Z]{2})?\/settings\/checkout-appearance(?:\.data)?\/?$/.test(pathname);
   const operation = checkout ? request.method === "POST" ? "confirm_checkout" : "get_checkout" : enable ? "enable_checkout" : undefined;
   response.set("x-request-id", requestId);
   // prefinish retains the agent's request context; finish runs after it is gone.
@@ -68,6 +69,7 @@ export function requestLogging(request: Request, response: Response, next: NextF
       event: "http_request_completed",
       method: request.method,
       route: checkout ? "/checkout/:companyId/:orderId" : enable ? "/api/orders/:orderId/checkout-link"
+        : appearanceEditor ? "/settings/checkout-appearance"
         : request.route?.path ? `${request.baseUrl}${request.route.path}` : "unmatched",
       statusCode: response.statusCode,
       durationMs: Math.round(performance.now() - started),
