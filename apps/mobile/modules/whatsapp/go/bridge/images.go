@@ -103,7 +103,17 @@ func (s *ImageSession) Delete(messageID string) string {
 	return ""
 }
 
-// SetLimit changes the global budget; data above a lowered limit stays readable and deletable.
+// BeginSetLimit takes the queue position of a budget change without waiting for it. The change runs
+// after the operations admitted before it, including the cleanup of a download that was cancelled,
+// and its Outcome carries a code only. Data above a lowered limit stays readable and deletable.
+func (s *ImageSession) BeginSetLimit(maxImageStorageBytes int64) *ImageOperation {
+	if s == nil || s.service == nil {
+		return &ImageOperation{code: "NOT_INITIALIZED"}
+	}
+	return &ImageOperation{pending: s.service.BeginSetLimit(maxImageStorageBytes)}
+}
+
+// SetLimit changes the global budget and waits for its turn; it reports false when it was refused.
 func (s *ImageSession) SetLimit(maxImageStorageBytes int64) bool {
 	return s != nil && s.service != nil && s.service.SetLimit(maxImageStorageBytes)
 }

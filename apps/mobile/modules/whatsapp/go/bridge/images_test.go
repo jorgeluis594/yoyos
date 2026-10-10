@@ -348,3 +348,67 @@ func TestB1DisconnectAndLogoutDoNotWaitForADownload(t *testing.T) {
 		t.Fatalf("%+v", r)
 	}
 }
+
+// IT-CFG-08 (Go side): a limit change is queued behind a download that was cancelled but is still
+// unwinding. It waits for that cleanup, while confirmations (the writer) keep progressing, and
+// then applies: a later download that exceeds the new limit is refused before any network.
+func TestITCFG08LimitChangeWaitsForACancelledDownloadWithoutBlockingConfirmations(t *testing.T) {
+	plain := jpeg(256)
+	id, ref := imageReference(t, "cfg08", plain)
+	imageSession, _ := openImageSession(t, 1<<20)
+	started, release := make(chan struct{}), make(chan struct{})
+	transport := &mediaTransport{download: func(ctx context.Context, _ connection.MediaRequest, _ connection.MediaFile) error {
+		close(started)
+		<-ctx.Done()
+		<-release // the cancelled transfer is still unwinding
+		return ctx.Err()
+	}}
+	session := connectedImageSession(t, transport, imageSession)
+	finished := make(chan *ImageDownloadResult, 1)
+	go func() { finished <- imageSession.Download(id, ref) }()
+	<-started
+	session.Disconnect()
+
+	change := imageSession.BeginSetLimit(64)
+	applied := make(chan string, 1)
+	go func() { applied <- change.Outcome().Code }()
+	select {
+	case code := <-applied:
+		t.Fatalf("the limit changed before the cancelled download finished its cleanup: %q", code)
+	case <-time.After(80 * time.Millisecond):
+	}
+	storage := &pendingStorage{}
+	storage.add(1)
+	delivery, _ := openDelivery(t, storage)
+	confirmed := make(chan string, 1)
+	go func() { confirmed <- delivery.Confirm(deliveryID(1)) }()
+	select {
+	case code := <-confirmed:
+		if code != "" || storage.count() != 0 {
+			t.Fatalf("confirmation: %q", code)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the pending limit change blocked the writer")
+	}
+
+	close(release)
+	if result := <-finished; result.Code != "IMAGE_DOWNLOAD_FAILED" {
+		t.Fatalf("cancelled download: %+v", result)
+	}
+	if code := <-applied; code != "" {
+		t.Fatalf("the change applies once the cleanup finished: %q", code)
+	}
+	second := &mediaTransport{download: func(context.Context, connection.MediaRequest, connection.MediaFile) error {
+		return errors.New("must not be reached")
+	}}
+	connectedImageSession(t, second, imageSession)
+	if result := imageSession.Download(id, ref); result.Code != "STORAGE_LIMIT_REACHED" || second.networkCalls() != 0 {
+		t.Fatalf("the new limit is in force: %+v calls=%d", result, second.networkCalls())
+	}
+	if missing := (*ImageSession)(nil).BeginSetLimit(1).Outcome(); missing.Code != "NOT_INITIALIZED" {
+		t.Fatalf("%+v", missing)
+	}
+	if invalid := imageSession.BeginSetLimit(0).Outcome(); invalid.Code != "INVALID_INPUT" {
+		t.Fatalf("%+v", invalid)
+	}
+}

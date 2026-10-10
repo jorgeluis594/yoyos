@@ -98,6 +98,7 @@ type Service struct {
 
 	mu              sync.Mutex
 	tail            chan struct{}
+	queued          int // admitted and not finished, the active operation included
 	network         Network
 	cleanupFailures int
 	deleteFailures  int
@@ -182,15 +183,28 @@ func (s *Service) SetNetwork(network Network) {
 	s.mu.Unlock()
 }
 
-// SetLimit changes the global budget. Data above a reduced limit stays readable and deletable.
+// SetLimit changes the global budget once every operation admitted before it finished: the
+// cleanup of a cancelled download is accounted under the old limit, and a reduction never
+// removes data (it stays readable, reusable and deletable). It reports false for an invalid limit.
 func (s *Service) SetLimit(limit int64) bool {
+	_, err := s.BeginSetLimit(limit).Wait()
+	return err == nil
+}
+
+// BeginSetLimit takes a queue position for a limit change without waiting for it. The change is
+// ordered with downloads and deletions by admission, so it waits for the cleanup of a cancelled
+// download, and it holds no lock of the session writer or the delivery coordinator while it waits.
+func (s *Service) BeginSetLimit(limit int64) *Pending {
 	if limit <= 0 {
-		return false
+		return resolved(fail(InvalidInput, nil))
 	}
-	s.budget.mu.Lock()
-	s.budget.limit = limit
-	s.budget.mu.Unlock()
-	return true
+	t, _ := s.admit(false)
+	return s.start(t, func() (Image, *Error) {
+		s.budget.mu.Lock()
+		s.budget.limit = limit
+		s.budget.mu.Unlock()
+		return Image{}, nil
+	})
 }
 
 func (s *Service) Stats() Stats {
@@ -213,11 +227,24 @@ type turn struct {
 	admitted any
 }
 
+// MaxQueuedOperations bounds the operations admitted and not yet finished. Each one parks a goroutine
+// until its turn (m11 of the WA-10 review: the queue was unbounded), so a caller that keeps asking
+// while a transfer stalls gets a failure instead of unbounded goroutines. A limit change is never
+// refused for being busy.
+const MaxQueuedOperations = 64
+
+var errQueueFull = errors.New("too many image operations are waiting")
+
 // admit puts an operation at the end of the queue and records the generation it was admitted
-// under; the queue itself is FIFO.
-func (s *Service) admit() turn {
+// under; the queue itself is FIFO. It reports false when the bounded queue is full and the
+// operation may be refused.
+func (s *Service) admit(refusable bool) (turn, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if refusable && s.queued >= MaxQueuedOperations {
+		return turn{}, false
+	}
+	s.queued++
 	done := make(chan struct{})
 	wait := s.tail
 	s.tail = done
@@ -228,7 +255,7 @@ func (s *Service) admit() turn {
 	if wait == nil {
 		wait = closedChannel
 	}
-	return turn{wait: wait, done: done, admitted: admitted}
+	return turn{wait: wait, done: done, admitted: admitted}, true
 }
 
 var closedChannel = func() chan struct{} { c := make(chan struct{}); close(c); return c }()
@@ -278,6 +305,7 @@ func (s *Service) start(t turn, run func() (Image, *Error)) *Pending {
 		defer close(p.done)
 		<-t.wait
 		defer close(t.done)
+		defer func() { s.mu.Lock(); s.queued--; s.mu.Unlock() }()
 		p.image, p.failed = run()
 	}()
 	return p
@@ -289,7 +317,10 @@ func (s *Service) BeginDownload(messageID, downloadReference string) *Pending {
 	if perr != nil {
 		return resolved(perr)
 	}
-	t := s.admit()
+	t, ok := s.admit(true)
+	if !ok {
+		return resolved(fail(DownloadFailed, errQueueFull))
+	}
 	return s.start(t, func() (Image, *Error) { return s.download(d, t.admitted) })
 }
 
@@ -298,7 +329,10 @@ func (s *Service) BeginDelete(messageID string) *Pending {
 	if normalization.ValidateMessageID(messageID) != nil {
 		return resolved(fail(InvalidInput, nil))
 	}
-	t := s.admit()
+	t, ok := s.admit(true)
+	if !ok {
+		return resolved(fail(DeleteFailed, errQueueFull))
+	}
 	return s.start(t, func() (Image, *Error) { return Image{}, s.remove(messageID) })
 }
 
