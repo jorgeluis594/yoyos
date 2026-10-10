@@ -72,7 +72,7 @@ test("anonymous mobile buyer reviews fixed products, corrects prefilled data and
     await page.getByLabel("Nombre", { exact: true }).fill("Ana");
     await page.getByLabel("Teléfono", { exact: true }).fill("+14155552671");
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
-    await browserExpect(page.getByRole("heading", { name: "Pago del pedido", exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
     await browserExpect(page.getByRole("textbox")).toHaveCount(0);
     await expect.poll(() => requestLogs(requestId).some((event) => event.event === "http_request_completed" && event.method === "POST" && event.outcome === "confirmed")).toBe(true);
     const logs = requestLogs(requestId);
@@ -88,7 +88,7 @@ test("anonymous mobile buyer reviews fixed products, corrects prefilled data and
     await browserExpect(page.getByRole("heading", { name: "Pedido confirmado", exact: true })).toBeVisible();
     const replay = await page.request.post(f.path, { maxRedirects: 0, data: { delivery: { kind: "keep" }, buyer: { name: "Replacement", phone: "+51999999999" }, expectedTotal: { amount: 1, currency: "USD" } } });
     expect(replay.status()).toBe(302);
-    expect(replay.headers().location).toBe(`/pago/${f.orderId}`);
+    expect(replay.headers().location).toBe(f.path);
     expect(await f.read()).toEqual(stored);
     expect(await withTenantIsolation(f.companyId, async () => (await prisma.contact.findFirstOrThrow()).name)).toBeNull();
     await f.cancel();
@@ -116,7 +116,7 @@ test("changed total preserves buyer input and needs an explicit new confirmation
     await browserExpect(page.getByText("S/ 12.00", { exact: true })).toBeVisible();
     expect((await f.read()).checkoutConfirmedAt).toBeNull();
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
-    await browserExpect(page.getByRole("heading", { name: "Pago del pedido", exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
     expect((await f.read()).total.toNumber()).toBe(12);
     await expect.poll(() => requestLogs(requestId).filter((event) => event.event === "http_request_completed" && event.method === "POST").map((event) => event.outcome))
       .toEqual(["total_changed", "confirmed"]);
@@ -225,7 +225,7 @@ test("seller copies a stable link and sees buyer confirmation separately from pa
     await buyerPage.getByLabel("Nombre", { exact: true }).fill("Ana");
     await buyerPage.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
     await buyerPage.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
-    await browserExpect(buyerPage.getByRole("heading", { name: "Pago del pedido", exact: true })).toBeVisible();
+    await browserExpect(buyerPage.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
     expect(await mobileApi.getAggregate(orderId)).toMatchObject({ data: { number: 10000, buyer: { name: "Ana" }, checkoutConfirmedAt: expect.any(String), paymentStatus: "pending" } });
     expect(await mobileApi.listAggregates({ page: 1, customer: "all" })).toMatchObject({ data: { total: 2, items: expect.arrayContaining([expect.objectContaining({ number: 10000, checkoutConfirmedAt: expect.any(String) })]) } });
     await page.reload();
@@ -266,7 +266,7 @@ test("old links remain usable for paid, shipped and delivered orders", async ({ 
       await page.getByLabel("Nombre", { exact: true }).fill("Ana");
       await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
       await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
-      await browserExpect(page.getByRole("heading", { name: "Pago del pedido", exact: true })).toBeVisible();
+      await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
       const after = await f.read();
       expect(after.payments).toEqual(before.payments);
       expect(after.deliveryStatus).toBe(before.deliveryStatus);
@@ -294,11 +294,11 @@ test("pending submit is disabled and browser history cannot reopen confirmed buy
     await browserExpect(page.getByRole("button", { name: "Confirmando…", exact: true })).toBeDisabled();
     await page.getByRole("button", { name: "Confirmando…", exact: true }).evaluate((button: HTMLButtonElement) => button.click());
     release.resolve();
-    await browserExpect(page.getByRole("heading", { name: "Pago del pedido", exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
     expect(submissions).toBe(1);
     await page.goto("/checkout/unavailable");
     await page.goBack();
-    await browserExpect(page.getByRole("heading", { name: "Pago del pedido", exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
     await browserExpect(page.getByRole("textbox")).toHaveCount(0);
   } finally { release.resolve(); await page.unrouteAll({ behavior: "wait" }); await f.cleanup(); }
 });
@@ -361,7 +361,7 @@ test("buyer selects a district rate, preserves the form on price conflict and co
     expect((await f.read()).checkoutConfirmedAt).toBeNull();
     expect(quoted).toHaveLength(2);
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
-    await browserExpect(page.getByRole("heading", { name: "Pago del pedido", exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
     await browserExpect(page.getByText("Total del pedido", { exact: true }).locator("..")).toContainText(/20[.,]00/);
     await browserExpect(page.getByText("Saldo pendiente", { exact: true }).locator("..")).toContainText(/20[.,]00/);
     const stored = await f.read();
@@ -397,7 +397,7 @@ test("buyer pickup confirms explicit zero without district or quotation", async 
     expect(missingDelivery.status()).toBe(422);
     expect(await f.read()).toEqual(before);
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
-    await browserExpect(page.getByRole("heading", { name: "Pago del pedido", exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
     const stored = await f.read();
     expect(stored.total.toNumber()).toBe(10);
     expect(stored.deliveryCharge.toNumber()).toBe(0);
@@ -438,7 +438,7 @@ test("buyer chooses an agency rate and reaches payment without choosing an opera
     const total = page.locator("dl > div").filter({ has: page.getByText("Total a pagar", { exact: true }) });
     await browserExpect(total).toContainText(/18[.,]00/);
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
-    await browserExpect(page.getByRole("heading", { name: "Pago del pedido", exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
     await browserExpect(page.getByText("Total del pedido", { exact: true }).locator("..")).toContainText(/18[.,]00/);
     await browserExpect(page.getByText("Saldo pendiente", { exact: true }).locator("..")).toContainText(/18[.,]00/);
     const stored = await f.read();
@@ -501,7 +501,7 @@ test("buyer waits for a district and recovers a failed quotation without losing 
     await page.getByLabel("Dirección de entrega").fill("Street 123");
     await browserExpect(confirm).toBeEnabled();
     await confirm.click();
-    await browserExpect(page.getByRole("heading", { name: "Pago del pedido", exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
     const stored = await f.read();
     expect(stored.total.toNumber()).toBe(18);
     expect(stored.delivery).toMatchObject({ recipient: { name: "Recipient" }, destination: { address: "Street 123" } });
@@ -549,7 +549,7 @@ test("buyer distinguishes uncovered shipping from an explicit free home rate", a
     await browserExpect(page.getByText("Gratis", { exact: true })).toBeVisible();
     await browserExpect(confirm).toBeEnabled();
     await confirm.click();
-    await browserExpect(page.getByRole("heading", { name: "Pago del pedido", exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
     await browserExpect(page.getByText("Saldo pendiente", { exact: true }).locator("..")).toContainText(/10[.,]00/);
     const stored = await f.read();
     expect(stored.delivery).toMatchObject({ method: "home", destination: { districtCode: "150122" }, pricing: { settingsVersion: 2 } });
@@ -612,7 +612,7 @@ test("buyer keeps the selected district rate when an earlier real quotation arri
     await browserExpect(page.getByLabel("Distrito", { exact: true })).toHaveValue("040110");
     await browserExpect(page.getByText("Total a pagar", { exact: true }).locator("..")).toContainText(/22[.,]00/);
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
-    await browserExpect(page.getByRole("heading", { name: "Pago del pedido", exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
     const stored = await f.read();
     expect(stored.delivery).toMatchObject({ destination: { districtCode: "040110", address: "District B street" }, pricing: { rateId: selected } });
     expect(stored.total.toNumber()).toBe(22);
@@ -685,7 +685,7 @@ test("buyer pickup removes the shipping rate and ignores a quotation still in fl
     await browserExpect(page.getByLabel("Dirección de entrega")).toHaveValue("Original street");
     await mode.selectOption("store");
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
-    await browserExpect(page.getByRole("heading", { name: "Pago del pedido", exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
     const stored = await f.read();
     expect(stored.delivery).toMatchObject({ method: "store", pickupPoint: { address: "Pickup address" } });
     expect(stored.delivery).not.toHaveProperty("pricing");
@@ -775,7 +775,7 @@ test("buyer keeps a historical rate after its zone changes or replaces it with a
           await page.getByLabel("Dirección de entrega").fill("Replacement street");
         }
         await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
-        await browserExpect(page.getByRole("heading", { name: "Pago del pedido", exact: true })).toBeVisible();
+        await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
         const total = replace ? 22 : 18;
         await browserExpect(page.getByText("Total del pedido", { exact: true }).locator("..")).toContainText(new RegExp(`${total}[.,]00`));
         const stored = await f.read();
