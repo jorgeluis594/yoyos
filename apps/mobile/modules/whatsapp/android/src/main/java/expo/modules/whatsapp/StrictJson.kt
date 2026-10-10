@@ -2,6 +2,27 @@ package expo.modules.whatsapp
 
 /** Checks lexical JSON rules that org.json silently accepts, especially duplicate keys. */
 internal object StrictJson {
+  /**
+   * True when [value] is a JSON array with no insignificant whitespace. Record keys are produced by Go, so the
+   * canonical form is checked on the raw text instead of re-serializing with `org.json`, whose escaping differs
+   * from Go's (it writes `\/` for `/`). Call [check] first: this only inspects the layout of valid JSON.
+   */
+  fun isCompactArray(value: String): Boolean {
+    if (!value.startsWith("[") || !value.endsWith("]")) return false
+    var inString = false
+    var index = 0
+    while (index < value.length) {
+      val character = value[index]
+      when {
+        inString && character == '\\' -> index++
+        character == '"' -> inString = !inString
+        !inString && character in " \n\r\t" -> return false
+      }
+      index++
+    }
+    return !inString
+  }
+
   fun check(value: String) {
     val parser = Parser(value)
     parser.space(); parser.value(); parser.space()

@@ -50,6 +50,7 @@ export default function WhatsAppLinkScreen() {
     return (await runtime?.linkAccount())?.success ? null : "linkError";
   });
   const newQr = () => run(async () => (await runtime?.reception.connect())?.success ? null : "linkError");
+  const reconnect = newQr;
 
   const expired = secondsLeft === 0;
   const connectionLabel = status.connection === "connected" ? "whatsappConnected"
@@ -100,6 +101,12 @@ export default function WhatsAppLinkScreen() {
                     </>
                   )}
                 </View>
+              ) : null}
+              {status.connection === "disconnected" && status.lastError && status.lastError.code !== "LOCAL_STORAGE_FAILED" ? (
+                <>
+                  <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t("whatsappConnectionError", { code: status.lastError.code })}</ThemedText>
+                  <Button loading={busy} onPress={() => void reconnect()}>{t("whatsappReconnect")}</Button>
+                </>
               ) : null}
               {status.unsynced > 0 ? <ThemedText type="small" themeColor="textSecondary">{t("whatsappUnsynced", { count: status.unsynced })}</ThemedText> : null}
               <Button onPress={() => router.push("/whatsapp/chats")}>{t("whatsappOpenChats")}</Button>

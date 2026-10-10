@@ -104,3 +104,16 @@ test("shows an error when linking fails", async () => {
   fireEvent.press(screen.getByRole("button", { name: "Vincular WhatsApp" }));
   expect(await screen.findByText("No se pudo vincular WhatsApp. Vuelve a intentar.")).toBeTruthy();
 });
+
+test("shows the library error code and offers to reconnect after an unexpected disconnect", async () => {
+  mockStatus = linked({ connection: "disconnected", lastError: { code: "INVALID_INPUT", message: "x" } });
+  const screen = render(<WhatsAppLinkScreen />);
+  expect(screen.getByText(/se desconectó por un error \(INVALID_INPUT\)/)).toBeTruthy();
+  fireEvent.press(screen.getByRole("button", { name: "Reintentar conexión" }));
+  await waitFor(() => expect(mockRuntime.reception.connect).toHaveBeenCalledTimes(1));
+});
+
+test("does not offer reconnecting when disconnected without an error", () => {
+  mockStatus = linked({ connection: "disconnected" });
+  expect(render(<WhatsAppLinkScreen />).queryByRole("button", { name: "Reintentar conexión" })).toBeNull();
+});
