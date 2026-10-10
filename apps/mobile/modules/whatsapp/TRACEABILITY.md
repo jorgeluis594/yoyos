@@ -6,11 +6,11 @@
 
 | Status | Cases |
 | --- | ---: |
-| pasa | 115 |
-| parcial | 96 |
+| pasa | 116 |
+| parcial | 98 |
 | no ejecutado-nativo | 21 |
 | falla | 0 |
-| no implementado | 10 |
+| no implementado | 7 |
 
 `pasa` means a non-native test that ran and passed covers the case and the case does not require a platform. `parcial` means only a part is demonstrated (the reason is in the last column). Nothing here asserts behaviour against real WhatsApp.
 
@@ -18,7 +18,7 @@
 
 | Task | pasa | parcial | no ejecutado-nativo | falla | no implementado |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| WA-01 | 0 | 1 | 0 | 0 | 8 |
+| WA-01 | 0 | 3 | 0 | 0 | 6 |
 | WA-02 | 0 | 11 | 19 | 0 | 0 |
 | WA-03 | 0 | 20 | 0 | 0 | 0 |
 | WA-04 | 12 | 8 | 0 | 0 | 0 |
@@ -31,7 +31,7 @@
 | WA-11 | 6 | 5 | 0 | 0 | 0 |
 | WA-12 | 0 | 13 | 0 | 0 | 1 |
 | WA-13 | 0 | 1 | 0 | 0 | 0 |
-| WA-14 | 3 | 0 | 0 | 0 | 1 |
+| WA-14 | 4 | 0 | 0 | 0 | 0 |
 
 ## Cases
 
@@ -234,7 +234,7 @@
 | IT-PRO-01 | WA-03 | `go/internal/protocolstore/receive_test.go` → `TestCapturedReceiveCommitsRecoveryWithSignalState`<br>`go/internal/protocolstore/receive_test.go` → `TestCapturedReceiveResolvesSenderBeforeProtocolStage` | parcial | La reconstruccion v2/v3 y el replay historico (chat, emisor, direccion) se prueban en parches: TestRecoveryContextHook y TestHistoricalIndividualProtobufReconstructsOwnedIdentity (patches/pre-decrypt-context.patch); su resultado no entra a la matriz automatica. |
 | IT-PRO-02 | WA-03 | `go/internal/connection/receiving_test.go` → `TestHandlerResultGatesDispatchAndStopsWithRun`<br>`go/internal/protocolstore/receive_test.go` → `TestPostDecryptWriteFailureDoesNotPublishPendingOrSignal` | parcial | Que ACK/reintento/UndecryptableMessage no ocurran se prueba en parches: TestRecoveryStorageFailure, TestNotificationLocalStorageFailureWithholdsTransportAck, TestDeviceNotificationMappingFailureWithholdsTransportAck, TestBotSecretLookupFailureWithholdsTransport, TestPendingMarkerWithholdsTransportUntilConfirmation, TestControlledTransportAttempt (patches/pre-decrypt-context.patch); su resultado no entra a la matriz automatica. |
 | IT-PRO-03 | WA-03 | `go/internal/protocolstore/store_test.go` → `TestRollbackAndStickyMutationError` | parcial | El tratamiento previsto (ACK y reintento ante error genuino de protocolo) se prueba en el parche: TestRecoveryStorageFailure fase protocol y TestControlledTransportAttempt; su resultado no entra a la matriz automatica. |
-| IT-PRO-04 | WA-03 | `go/internal/protocolstore/store_test.go` → `TestNativeApplyPanicStopsAndReadsBack`<br>`go/internal/protocolstore/store_test.go` → `TestTxnPanicStopsWithoutPublishing` | parcial | Panic de receptor/consumidor, fallo de limpiar EventBuffer, no-ACK y que el diagnostico no exponga el valor del panic se prueban en el parche TestRecoveryStorageFailure (fases panic, hook-panic, clear, handler-panic); su resultado no entra a la matriz automatica. Las pruebas Go no afirman que el mensaje excluya el valor del panic. |
+| IT-PRO-04 | WA-03 | `go/internal/protocolstore/diagnostics_test.go` (mención sin prueba)<br>`go/internal/protocolstore/diagnostics_test.go` → `TestWA14ITPRO04PanicInATransactionBodyDoesNotLeakItsValue`<br>`go/internal/protocolstore/diagnostics_test.go` → `TestWA14ITPRO04NativeCallbackFailuresDoNotLeakTheirValue`<br>`go/internal/protocolstore/diagnostics_test.go` → `TestWA14ITPRO04OpenWithAFailingReadDoesNotLeakTheValue`<br>+2 more | parcial | Panic de receptor/consumidor, fallo de limpiar EventBuffer y no-ACK se prueban en el parche TestRecoveryStorageFailure (fases panic, hook-panic, clear, handler-panic); su resultado no entra a la matriz automatica. WA-14 anade pruebas Go de que el error del store no contiene el valor del panic (protocolstore/diagnostics_test.go). |
 | IT-PRO-05 | WA-03 | `go/internal/connection/receiving_test.go` → `TestDecryptMessagesRunsCaptureAndFinishedHooks` | parcial | Una sola notificacion en exito, fallo del hook y panic, callback breve y liberacion de admision: parches TestRecoveryContextHook y TestRecoveryStorageFailure (patches/pre-decrypt-context.patch); su resultado no entra a la matriz automatica. |
 | IT-PRO-06 | WA-03 | `go/internal/protocolstore/interfaces_test.go` → `TestDeviceAttachesOnlyAfterDurableSave`<br>`go/internal/protocolstore/receive_test.go` → `TestPostDecryptWriteFailureDoesNotPublishPendingOrSignal`<br>`go/internal/protocolstore/recovery_aux_test.go` → `TestFatalRecoveryAuxiliaryWritesJoinPendingTransaction` | parcial | Faltan en MOD/go PN/LID, prekeys, identidad, grupos y rutas previas al hook/v3 con fallo inyectado; en parches: TestAuxiliarySyncStorageFailuresPropagate, TestNotificationLocalStorageFailureWithholdsTransportAck, TestDeviceNotificationMappingFailureWithholdsTransportAck, TestWA03AppStateMACPublicationUsesOneTransaction, TestWA03FatalRecoveryResetIsAtomic; su resultado no entra a la matriz automatica. |
 | IT-PRO-07 | WA-03 | `go/internal/protocolstore/recovery_aux_test.go` → `TestFatalRecoveryAuxiliaryWritesJoinPendingTransaction` | parcial | No hay prueba en MOD/go de la caida y reinicio; en parches: TestRecoveredProtocolReplayDoesNotDecryptOrDispatch, TestRecoveredFatalAppStateResponseStagesBeforePending, TestPrecommittedReceiveSkipsDuplicateSecretWrite (patches/pre-decrypt-context.patch); su resultado no entra a la matriz automatica. |
@@ -265,17 +265,17 @@
 | IT-AND-08 | WA-12 | `android/src/androidTest/java/expo/modules/whatsapp/ReceiveIntentInstrumentedTest.kt` (mención sin prueba)<br>`android/src/androidTest/java/expo/modules/whatsapp/ReceiveIntentInstrumentedTest.kt` → `armingRequiresTheStoredSessionAccount` (nativa, no ejecutada)<br>`android/src/androidTest/java/expo/modules/whatsapp/ReceiveIntentInstrumentedTest.kt` → `logoutClearsTheIntentWithTheSession` (nativa, no ejecutada)<br>`android/src/test/java/expo/modules/whatsapp/ReceiveServicePolicyTest.kt` → `unusableSessionsNeverRestore` (nativa, no ejecutada)<br>+6 more | parcial | parte controlada pasa; la parte nativa no se ejecutó |
 | IT-AND-09 | WA-12 | `android/src/androidTest/java/expo/modules/whatsapp/ReceiveIntentInstrumentedTest.kt` (mención sin prueba)<br>`android/src/androidTest/java/expo/modules/whatsapp/ReceiveIntentInstrumentedTest.kt` → `withdrawalIsDurableAndIdempotent` (nativa, no ejecutada)<br>`android/src/androidTest/java/expo/modules/whatsapp/ReceiveIntentInstrumentedTest.kt` → `failedWithdrawalPropagatesAndLeavesTheIntentVisible` (nativa, no ejecutada)<br>`android/src/test/java/expo/modules/whatsapp/ReceiveServicePolicyTest.kt` → `onlyLocalFaultsWithdrawTheIntent` (nativa, no ejecutada)<br>+4 more | parcial | solo pruebas de forma sobre el código fuente |
 | IT-AND-10 | WA-12 | `android-service.source.test.ts` (mención sin prueba)<br>`android-service.source.test.ts` → `IT-AND-10 no compensating start no boot receiver, alarm, job or work scheduling, and nothing is saved in onDestroy` | parcial | solo pruebas de forma sobre el código fuente |
-| IT-AND-11 | WA-12 | — | no implementado | ninguna prueba lo cita ni lo enlaza |
+| IT-AND-11 | WA-12 | — | no implementado | Doze, ahorro de bateria, perdida de red y muerte del proceso solo se observan en un dispositivo Android real: manual y fuera de alcance, sin prueba ni implementacion automatizada. |
 | IT-AND-12 | WA-12 | `android-service.source.test.ts` (mención sin prueba)<br>`android-service.source.test.ts` → `IT-AND-12 consumer and pending messages restoration neither confirms pending messages nor attaches an Expo consumer` | parcial | solo pruebas de forma sobre el código fuente |
 | IT-IOS-01 | WA-13 | `client.resume.test.ts` (mención sin prueba)<br>`client.resume.test.ts` → `IT-IOS-01 suspension and resumption a QR shown before suspension is dropped and a late QR from that attempt is ignored`<br>`client.resume.test.ts` → `IT-IOS-01 suspension and resumption reconnecting after resume is announced once and connect is not called again`<br>`client.resume.test.ts` → `IT-IOS-01 suspension and resumption a download cancelled by suspension surfaces its own code and the next one works after resume`<br>+22 more | parcial | parte controlada pasa; el caso exige plataforma real |
-| IT-BLD-01 | WA-01 | — | no implementado | ninguna prueba lo cita ni lo enlaza |
-| IT-BLD-02 | WA-01 | — | no implementado | ninguna prueba lo cita ni lo enlaza |
-| IT-BLD-03 | WA-01 | — | no implementado | ninguna prueba lo cita ni lo enlaza |
-| IT-BLD-04 | WA-01 | — | no implementado | ninguna prueba lo cita ni lo enlaza |
-| IT-BLD-05 | WA-01 | — | no implementado | ninguna prueba lo cita ni lo enlaza |
-| IT-BLD-06 | WA-01 | — | no implementado | ninguna prueba lo cita ni lo enlaza |
-| IT-BLD-07 | WA-01 | — | no implementado | ninguna prueba lo cita ni lo enlaza |
-| IT-BLD-08 | WA-01 | — | no implementado | ninguna prueba lo cita ni lo enlaza |
-| IT-SEG-01 | WA-14 | `go/bridge/security_test.go` (mención sin prueba)<br>`go/bridge/security_test.go` → `TestITSEG01EveryErrorEventIsAPublicCodeWithAFixedMessage` (sin resultado)<br>`go/bridge/security_test.go` → `TestITSEG01StorageCodesMapOntoPublicOnes` (sin resultado)<br>`go/bridge/security_test.go` → `TestITSEG01NativeStorageFailuresNeverReachTheOpenResult` (sin resultado)<br>+14 more | pasa |  |
+| IT-BLD-01 | WA-01 | — | no implementado | build-go.sh fija Go 1.26.5, whatsmeow y x/mobile con GOTOOLCHAIN=local y GOPROXY=off, pero ninguna prueba lo ejerce; un test shell con go falso podria hacerlo sin toolchain nativa. |
+| IT-BLD-02 | WA-01 | `scripts/test-build-go-cleanup.sh` → `test-build-go-cleanup.sh` | parcial | Parcial: solo se prueba que, con un go falso, los destinos fallan. No se prueba que Android no requiera Xcode ni que all no omita plataformas. |
+| IT-BLD-03 | WA-01 | — | no implementado | El parche se comprueba con git apply --check sobre una copia en scripts/test-go.sh (exige cache de modulos de Go); build-go.sh no tiene prueba propia del fallo de parche. |
+| IT-BLD-04 | WA-01 | `scripts/test-build-go-cleanup.sh` → `test-build-go-cleanup.sh` | parcial | Parcial: se prueba el borrado de artefactos tras un fallo; no el aborto de build.gradle/WhatsApp.podspec sin artefacto (Gradle/CocoaPods, no ejecutados). |
+| IT-BLD-05 | WA-01 | — | no implementado | La verificacion de ABIs, prefijos y minimos esta en build-go.sh y exige gomobile/NDK/Xcode: no se ejecuto. |
+| IT-BLD-06 | WA-01 | — | no implementado | Exige que Expo, Gradle o CocoaPods carguen el modulo: no se ejecuto. |
+| IT-BLD-07 | WA-01 | — | no implementado | Regla de proceso documentada en el README; no hay prueba automatizada. |
+| IT-BLD-08 | WA-01 | — | no implementado | build-info.txt y los .gitignore registran y excluyen artefactos; ninguna prueba lo comprueba. |
+| IT-SEG-01 | WA-14 | `go/bridge/security_test.go` (mención sin prueba)<br>`go/bridge/security_test.go` → `TestITSEG01EveryErrorEventIsAPublicCodeWithAFixedMessage`<br>`go/bridge/security_test.go` → `TestITSEG01StorageCodesMapOntoPublicOnes`<br>`go/bridge/security_test.go` → `TestITSEG01NativeStorageFailuresNeverReachTheOpenResult`<br>+19 more | pasa |  |
 | IT-SEG-02 | WA-14 | `wa14.contract.test.ts` (mención sin prueba)<br>`wa14.contract.test.ts` → `IT-SEG-02 credentials and reception stay on the phone the JavaScript module has no network client, core endpoint or upload path`<br>`wa14.contract.test.ts` → `IT-SEG-02 credentials and reception stay on the phone native Kotlin and Swift code opens no HTTP connection of its own`<br>`wa14.contract.test.ts` → `IT-SEG-02 credentials and reception stay on the phone Go reaches the network only through whatsmeow and listens on no port`<br>+2 more | pasa |  |
-| IT-SEG-03 | WA-14 | — | no implementado | ninguna prueba lo cita ni lo enlaza |
+| IT-SEG-03 | WA-14 | `go/internal/receive/measure_test.go` (mención sin prueba)<br>`go/internal/receive/measure_test.go` → `TestITSEG03SnapshotCostHarnessOnSmallLoads`<br>`go/internal/receive/measure_test.go` → `TestITSEG03MeasureSnapshotCost` (skip) | pasa |  |

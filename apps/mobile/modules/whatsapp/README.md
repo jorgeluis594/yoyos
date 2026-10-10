@@ -1,6 +1,157 @@
-# WhatsApp native module (WA-01)
+# WhatsApp native module
 
-This local Expo module links Go/whatsmeow into Android and iOS. Its current `probe` method is a build diagnostic: it constructs an unconnected whatsmeow client, calls a native callback, and returns the callback value or a sanitized error. Session, QR, and message reception belong to later WA tasks. The WA-02 storage writers below are internal and are not yet connected to the public API.
+This local Expo module links Go/whatsmeow into Android and iOS and gives Yoyos a durable, confirmable stream of WhatsApp text and image messages received on the phone. Credentials, decryption and reception stay on the phone; the module sends nothing to the Yoyos backend and exposes no way to send a WhatsApp message. The sections below are written per task (WA-01 … WA-13); this first part is the consolidated contract as of WA-14 and the evidence behind it.
+
+> **Status.** Everything described as run was run with Go (`-race`), `go vet`, Jest, TypeScript and ESLint against a controlled transport and in-memory/native test doubles. **Nothing was built or run on Android or iOS, on a simulator, on a phone or against real WhatsApp** (see "Not measured" and "Known limitations" below). No claim of compatibility with real WhatsApp is made.
+
+## Public API
+
+`import { WhatsApp, createWhatsAppClient } from "@mobile/modules/whatsapp"` (`types.ts`, `client.ts`). Every operation returns `Result<T, { code, message }>`; consumers decide by `code`, never by `message` (a fixed sentence per code).
+
+| Method | What it does |
+| --- | --- |
+| `initialize(options?)` | Opens the encrypted container and the stored session without connecting; applies `options` (see Configuration); publishes the current `connectionChanged`. Idempotent for equal options; different options while a connection is requested → `INVALID_INPUT`. |
+| `connect()` | Requests a connection. Without a stored session it starts QR linking (`qr` events); with one it reconnects. One request, one client, no duplicate sockets. |
+| `disconnect()` | Ends the request; session and pending entries are kept. |
+| `logout()` | Asks WhatsApp to unlink this device, then retires the local credentials. `REMOTE_LOGOUT_UNCONFIRMED` means the local session was retired but the server did not confirm. Pending entries keep their account and stay confirmable. |
+| `addListener("messageReceived", fn)` | Becomes the single consumer (a newer subscription replaces the older one). Each event is `{ deliveryId, message }`. |
+| `confirmMessageStored(deliveryId)` | Call after the app committed the message in its own durable store. Durably retires the pending entry (idempotent; an absent id succeeds). It is not an upload to core and deletes no image. |
+| `downloadImage(reference)` / `deleteDownloadedImage(messageId)` | Download, verify and keep a private image file (`file://` URI, MIME and size); reuse without network; delete. Independent of the connection and of the recovery budget. |
+| `addListener("qr" \| "connectionChanged" \| "error", fn)` | `qr`: `{ value, expiresAt }` for the current link attempt; `connectionChanged`: `disconnected, connecting, awaitingQr, connected, reconnecting, sessionExpired`; `error`: `{ code, message }` for faults that happen outside a call. A new listener receives the current state/QR once. |
+
+The API deliberately has **no** send, list, queue or upload operation (IT-API-07; `wa14.contract.test.ts` pins the exact method set and the native methods the client may reach). The consumer owns persistence and any upload to core.
+
+Error codes (19, identical in `types.ts`, `client.ts` and the Go bridge test): `MODULE_UNAVAILABLE`, `NOT_INITIALIZED`, `INVALID_INPUT`, `INVALID_NATIVE_RESPONSE`, `NATIVE_CALL_FAILED`, `CONNECTION_FAILED`, `SESSION_EXPIRED`, `SESSION_STORAGE_FAILED`, `SESSION_STORAGE_LIMIT_REACHED`, `SESSION_STATE_INVALID`, `IDENTITY_UNAVAILABLE`, `ACCOUNT_NOT_CONNECTED`, `RECOVERY_BUFFER_FULL`, `HISTORY_LIMIT_REACHED`, `STORAGE_LIMIT_REACHED`, `IMAGE_UNAVAILABLE`, `IMAGE_DOWNLOAD_FAILED`, `IMAGE_DELETE_FAILED`, `REMOTE_LOGOUT_UNCONFIRMED`. `RECOVERY_BUFFER_FULL`, `HISTORY_LIMIT_REACHED` and `IDENTITY_UNAVAILABLE` can also arrive as informational `error` events without ending the connection.
+
+## Configuration
+
+Two global budgets, both per installation: the recovery buffer (`maxRecoveryBufferBytes`, 10 MiB by default) and the private image directory (`maxImageStorageBytes`, 50 MiB by default). Yoyos sets the first with `EXPO_PUBLIC_WHATSAPP_RECOVERY_BUFFER_MIB` (read in `src/composition/whatsapp.ts`; an invalid value fails with `INVALID_WHATSAPP_RECOVERY_BUFFER_MIB`, never a silent default). Go and the native layers never read `.env`. Details, update rules and "reducing a limit never deletes data" are in "WA-11 persisted budgets". Android additionally declares the foreground service (`remoteMessaging`) in the module manifest; iOS needs 16.4 or later. The library never asks for notification permission.
+
+## Rebuild and test
+
+Pinned inputs are listed below. After any change to Go, a patch or a binding: `./scripts/prepare-go-dependencies.sh`, then `./scripts/build-go.sh android|ios|all`, then rebuild the app (Expo Go cannot load the module). Non-native checks, from the repository root:
+
+```sh
+sh apps/mobile/modules/whatsapp/scripts/test-go.sh     # go test -race ./..., go vet, patched whatsmeow tests
+pnpm --dir apps/mobile typecheck && pnpm --dir apps/mobile lint
+pnpm --dir apps/mobile exec jest modules/whatsapp src/composition/whatsapp-options
+sh apps/mobile/modules/whatsapp/scripts/trace-evidence.sh --check   # reruns the tests, regenerates the 242-case matrix, fails if TRACEABILITY.md is stale
+sh apps/mobile/modules/whatsapp/scripts/measure-go.sh              # Go-side snapshot costs, no -race
+```
+
+## Guarantees
+
+- **At-least-once, ordered, confirmable delivery.** A message is acknowledged to WhatsApp only after: protocol and content commit → `messageReceived` → the consumer's own commit → `confirmMessageStored` (durable retirement) → handler success. A crash, a failed callback, a removed consumer or a lost confirmation keeps the entry; it is delivered again after a restart. Delivery is one entry at a time, ordered by revision and ordinal. **Not exactly-once:** the consumer must be idempotent by `message.id` (the controlled journeys use such a consumer).
+- **Atomicity.** Session changes and the recoverable content they belong to are committed together or not at all; the native container is published through a synced replacement, and reading never recreates an empty container.
+- **Local custody.** Credentials, the Signal session and decrypted content never leave the phone; keys are non-exportable (Android Keystore) or device-only (iOS Keychain); the container and images are private and excluded from backup. The module has no HTTP client, no listening port and no server receiver (checked by source tests).
+- **Bounded resources.** Recovery buffer, session, history batch and image directory have explicit byte budgets; exceeding one pauses reception or refuses the item with a public code and never drops pending data. Reducing a budget never deletes data.
+- **No sensitive diagnostics.** Public messages are one fixed sentence per code; native errors, panic values and callback failures are mapped to codes at the boundary; Go writes no log; the only native log lines are four `NSLog` calls that print an `errno`/`OSStatus`; the Android notification is a fixed title with no text, extras or actions (IT-SEG-01).
+- **Unlink and account change.** `logout()` resolves stored PN/LID mappings first, asks WhatsApp to unlink within 15 s and retires credentials; messages still queued on the server at that moment are not delivered; pending entries of the old account remain confirmable.
+
+## Limits (not promised)
+
+- No reception while the iOS app is suspended and nothing wakes it; on Android reception relies on a foreground service that the OS may still stop (Doze, battery settings and process kill are **not** measured). No boot receiver, alarm or job.
+- No guarantee that WhatsApp offers history or offline messages after a reconnect, no complete remote history, no exactly-once delivery, no sending, no media other than still images, no several accounts at once.
+- No performance threshold has been agreed; the measurements below are reported, not judged. Nothing here proves interoperability with the real WhatsApp service, which may change its protocol.
+- If the app is distributed through Google Play, the foreground-service justification for `remoteMessaging` must be documented first (not done).
+
+## Evidence (WA-14)
+
+**Traceability.** [`TRACEABILITY.md`](TRACEABILITY.md) (and `traceability.json`) cover all **242 cases (68 UT, 174 IT)** with task, file and test, and real status: 116 `pasa`, 98 `parcial`, 21 `no ejecutado-nativo`, 0 `falla`, 7 `no implementado`. They are generated by `scripts/trace-matrix.ts` (run through `scripts/trace-evidence.sh`), which walks the Go, Jest, Kotlin, Swift and shell tests, reads the results of a fresh `go test -json` and `jest --json`, and combines them with the declared links in `trace-links.json` (tests that cover a case without citing its ID, validated against the code; each `gap` states what stays undemonstrated). Assignment in the backlog is not coverage: `pasa` requires a non-native test that ran and passed and no platform requirement; `parcial` a demonstrated part; `no ejecutado-nativo` only Kotlin/Swift tests that cannot run here; `no implementado` no test. The script has its own Jest tests, and `--check` fails if the committed matrix is stale. Links and gaps were drafted by reading each test body against the case text, so they are a reviewable claim, not a proof; a human review of `trace-links.json` is still welcome.
+
+**Controlled journeys** (durable, idempotent consumer; transport and native container are doubles): `go/internal/receive/journey_test.go` (live message, failed confirmation, restart and redelivery with no second effect, late PN/LID identity, deliveries left by an unlinked account) and `wa14.contract.test.ts` "controlled journey" (QR linking, live message, lost confirmation, restart, late identity, image download/delete, logout, new account). Journey map: linking, QR and reconnect → `internal/connection` tests; history batch → `internal/receive/history_*_test.go`; image download → `internal/images` and `bridge/images_test.go`; remote logout → `bridge/logout_test.go`. No single test spans the whole path with the real whatsmeow client.
+
+**Security review (IT-SEG-01/02).** `go/bridge/security_test.go`: every error event is a public code with a fixed message; panics and errors carrying a canary inside storage, connection and delivery callbacks and in image inputs never reach an event, an open result or an image result; calls on nil sessions answer with codes and do not panic; Go sources contain no logging or printing. `wa14.contract.test.ts`: fixed diagnostics for every code, malformed events never echoed, listener failures neither propagate nor log, no QR outside its event; Kotlin/Swift logging and notification content scanned; no network client, upload path, database or listening port in the module.
+
+**Go-side cost (IT-SEG-03).** `MEASUREMENTS.json`: go1.26.5 darwin/arm64, 10 CPUs (Apple M4), no `-race`. Sizes in MiB, times in ms (confirmation in µs: median / p95 / max). The container is an in-memory double, so **only the Go share is measured**. One run per scenario: open and read are single samples, the confirmation figures are over the confirmations of the scenario.
+
+| Scenario | Session | Pending | `ReadState` payload | `ReadState` ms | Go heap peak opening | `ReadPending` ms | Go heap peak reading | Confirmed (twice each) | `RetirePending` µs |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| small session, few messages | 0.0 | 0.0 | 0.1 | 0.1 | 1.2 | 0.1 | 0.2 | 20 | 1 / 2 / 6 |
+| representative session, typical buffer | 2.0 | 0.6 | 2.6 | 4.0 | 11.3 | 2.6 | 4.2 | 500 | 1 / 53 / 404 |
+| session near its 16 MiB allowance, empty buffer | 15.5 | 0.0 | 15.5 | 22.9 | 88.2 | 0.0 | 0.0 | — | — |
+| buffer near its 10 MiB default, typical messages | 2.0 | 9.6 | 11.5 | 25.5 | 45.2 | 29.6 | 55.8 | 5000 | 4 / 425 / 12530 |
+| buffer near its 10 MiB default, few large entries | 2.0 | 7.3 | 9.3 | 16.9 | 44.2 | 18.7 | 37.3 | 8 | 1 / 35 / 35 |
+| both near their limits | 15.5 | 9.6 | 25.1 | 48.2 | 109.8 | 23.6 | 56.2 | 5000 | 4 / 695 / 15629 |
+
+Reading: opening a store at the session limit held about 88 MiB of Go heap above baseline (≈5.7× the 15.5 MiB payload: the raw string, the parsed records and their decoded copies coexist) and, with session and buffer both near their limits, about 110 MiB; reading a near-10-MiB pending list peaks around 56 MiB. A confirmation exchange is a ~100-byte request and a ~60-byte reply that did not grow with the buffer; its tail latency (up to ~16 ms here) comes from the double and the scheduler. These figures say nothing about the device. History processing has its own measured peaks in "WA-08 history by atomic batch" (`TestITHIS09…`).
+
+**Not measured** (no device, SDK or tooling): native encryption, `fsync`, atomic replacement and temporary-file space of `state.bin`/`state.next` (the transient on-disk space of a snapshot), Kotlin/Swift heap and process RSS, any Android/iOS latency, battery, Doze and process-kill behaviour (IT-AND-11), first-unlock access on iOS, and everything against real WhatsApp.
+
+## Known limitations and minors (limitaciones y minors conocidos)
+
+Source: the independent review comments on PRs #34, #35, #36, #45, #47, #48, #49, #51, #52, #53 and #54 (read with `gh api`, as of the WA-14 branch). Blockers and majors were fixed and re-verified in later rounds of each PR and are not repeated; what follows is every finding that ended as a minor, a nit or an observation, with its state **now**: **corregido** (fixed, in the PR's own later round or in WA-14), **aceptado** (the reviewer accepted it as a documented limit; no action planned) or **pendiente** (still open). "WA-14" in a note means the fix is part of this branch.
+
+| PR | Task | Rounds | Final verdict |
+| --- | --- | --- | --- |
+| #34 | WA-03 stores and guarded receive | 1 | ACEPTADA (2 minors) |
+| #35 | WA-05 QR connection | 4 (3 not accepted) | ACEPTADA |
+| #36 | WA-04 normalization | 1 | ACEPTADA (1 informational minor) |
+| #45 | WA-06 confirmable delivery | 4 (1 not accepted) | ACEPTADA |
+| #47 | WA-07 late PN/LID identity | 2 (1 not accepted) | ACEPTADA |
+| #48 | WA-08 history | 3 (2 not accepted) | ACEPTADA |
+| #49 | WA-09 logout and account change | 3 (2 not accepted) | ACEPTADA |
+| #51 | WA-10 private images | 4 (3 not accepted) | ACEPTADA |
+| #52 | WA-11 budgets | 2 (1 not accepted) | ACEPTADA |
+| #53 | WA-13 iOS resume | 4 (1 not accepted) | ACEPTADA |
+| #54 | WA-12 Android service | 4 (2 not accepted) | ACEPTADA |
+
+| PR | ID | Finding | State | Note |
+| --- | --- | --- | --- | --- |
+| #34 | m1 | The push-name preparation in `dispatchAppState` briefly assigns `cli.Store.PushName` and restores it, so an unsynchronised reader (e.g. `SendPresence`) could see an unconfirmed name; a copy of the `Device` would avoid it. | pendiente | `patches/pre-decrypt-context.patch` still does it; the window is short and the same unsynchronised-write pattern exists upstream. |
+| #34 | m2 | The `appStateEventsOnly` guards for mute, archive and WASA secrets (`PutMessageSecrets`) have no recovery-matrix case of their own (only contact, pin, NCT and push name). | pendiente | Correct by inspection; no test added. |
+| #35 | m1 | `PairSuccess` is injected in tests and never goes through `handlePairSuccess` (the `SocketID` context in `pair.go` is uncovered). | aceptado | Documented limit in the reviewer's last round. |
+| #35 | m2 | If the paired socket closes without a 515, only the 30 s deadline noticed. | corregido | The paired socket's `Disconnected` starts the handover (`whatsmeow.go`). |
+| #35 | m3 | `handedOff` used `Load` + `Store(true)` instead of `CompareAndSwap`. | corregido | CAS on the paired path. |
+| #35 | m4 | Two simultaneous 515 on the live-socket path could both pass. | corregido | CAS also for the 515 of the paired socket (last round). |
+| #35 | m5 | A bounded (5 s) block through lock order: `t.socketID()` is always evaluated, even for the paired 515, while `Client.Disconnect()` waits for the handler queue; evaluating `paired` first avoids it. | pendiente | `whatsmeow.go:177-178`. Bounded, never a deadlock. |
+| #35 | m6 | `TestLoginReconnectDrainedAfterPairingSocketCloseStartsHandoff` no longer tests what its name says; it could be renamed. | aceptado | Name kept. |
+| #36 | m1 | Direct `go test`/`go vet` in `go/` fails to compile `protocolstore` (needs the whatsmeow patches); the README should say `scripts/test-go.sh` is the only way. | corregido | WA-14: README "Rebuild and test" snippet replaced and a warning added. |
+| #45 | m1 | Native I/O under the controller mutex in `ResumeCapacity`/`newTransport`. | corregido | Round 2 (`TestResumeCapacityDoesNotHoldControllerLockWhileBuilding`). |
+| #45 | m2 | A read failure in `Receiver.Handle` was not classified as `SESSION_STORAGE_FAILED`. | corregido | Round 2 (`LocalFailure`). |
+| #45 | m3 | No test of the real whatsmeow wiring (`decryptMessages`/`dispatchEvent`); `Await` blocks the queue. | aceptado | Mitigated; `receiving_test.go` covers flags and hooks, not a real decryption end to end. |
+| #45 | n1 | `TestUTDEL08…` was intermittent. | corregido | Round 3 (500/500 with `-race`). |
+| #45 | n2 | `CONSUMER_UNAVAILABLE` left `connect()` raw. | corregido | Translated to `NATIVE_CALL_FAILED`. |
+| #45 | n3 | `ConnectionRuntime.emit` read unsynchronised (Swift/Kotlin). | corregido | `emitLock` (Swift) and `@Volatile` (Kotlin); residual in `definition()` fixed in round 4. |
+| #45 | n4 | Native coverage is partial: nothing tests `setMessageConsumer`/`removeMessageConsumer`/`confirmMessageStored`, `OnDelivery` without runtime or `OnDestroy`. | pendiente | Needs Gradle/Xcode (**no ejecutado**); IT-API-08 and IT-SUB-06 stay `parcial` in the matrix. |
+| #45 | n5 | A stale pause without generation guard: a `Finished` from an old transport can pause the new connection (self-corrects with one extra cycle). | aceptado | No action requested. |
+| #45 | n6 | `TestUTSUB07…` intermittent (`Start()` before `SetConsumer`). | corregido | 200/200 afterwards. |
+| #45 | o1 | The stop after `OnDestroy` is lazy; reflect it in the README/IT-SUB-06 evidence. | corregido | WA-14: README "WA-06" section. |
+| #47 | m1 | A poisoned entry blocked the whole resolution pass. | corregido | Isolated as `Invalid`. |
+| #47 | m2 | The local `s.pending` view ignored `PublishPendingIdentities`. | corregido | `TestPublishedIdentityRefreshesLocalPendingView`. |
+| #47 | m3 | The ACK only happens on a later redelivery; undocumented. | corregido | Documented in `Receiver.Handle` and the PR; the journey test pins it. |
+| #47 | m4 | A test comment promised a failed-commit case it did not test. | corregido | Round 2. |
+| #47 | n1 | The 6× worst-case escape factor is applied to the whole plaintext, over-reserving for pending images. | aceptado | Conservative, no data loss. |
+| #47 | n2 | `Invalid` entries stay pending indefinitely, occupy budget and are indistinguishable from entries waiting for a mapping (only `IDENTITY_UNAVAILABLE`). | pendiente | `Outcome.Invalid` is not consumed outside `identity`. |
+| #47 | n3 | Native size measurement (re-serialised JSON; Android escapes `/`) can differ from `EntrySize` for resolved entries. | aceptado | Pre-existing (WA-03/06). |
+| #48 | m1 | The memory estimate is not conservative against allocator size classes: `HeapInuse` ≈172 MiB against the 160 MiB bound (README says 154–158). | pendiente | `history/cost.go` unchanged. Heap *allocated* stays under the bound; process memory is not claimed. |
+| #48 | m2 | The process peak exceeds the parser bound (inflated bytes + `compact` + ≈3.2× the budget) and was not measured on a device. | pendiente | Not measured here either (no device). |
+| #48 | m3 | No end-to-end test of `whatsmeowHistory.Rollback` restoring the real nonce after `ErrHistoryTooLarge`/`ErrHistoryContent`. | pendiente | Only the "is called" test exists. |
+| #48 | m4 | The previous account's capture had no retirement path (deferred to WA-09). | corregido | `Logout` and `history.Processor.Drain` retire it (WA-11 README). |
+| #49 | m6 | The README promised redelivery of the offline queue after logout; the server discards it. | corregido | Documented in "WA-09". |
+| #49 | m7 | whatsmeow paths before the hook still process and ACK with the unlink client; documentation suffices. | corregido | Documented as a known limit. |
+| #49 | m8 | A late `Disconnected` from a cancelled socket can cut the unlink wait short; filtering by current `SocketID` was suggested. | aceptado | Safe outcome (`REMOTE_LOGOUT_UNCONFIRMED`). |
+| #49 | n1 | Pre-existing race in `TestUnresolvedIdentityNeverGrantsAck` (writes `n.pending[0]` without the lock). | corregido | WA-14: write under `n.set`. |
+| #51 | m10 | `binding_names_test.go` did not cover exported type names. | corregido | Covered since WA-11 (`TestExportedBridgeTypeNamesDoNotCollideWithJavaOrObjectiveC`). |
+| #51 | m11 | One goroutine per queued image operation, no cap. | corregido | `images.MaxQueuedOperations` = 64. |
+| #52 | n1 | `imageBudget` can be updated out of order by concurrent native `initialize` calls (only without the TypeScript facade, which serialises). | pendiente | `WhatsAppModule.kt` / `.swift` assign without a sequence. |
+| #52 | n2 | The README claimed `INVALID_INPUT` always means "refused before anything changed", missing the `catch` branch that stops the runtime. | corregido | WA-14: README wording qualified. |
+| #52 | nota | The pending set can exceed the configured budget up to `readBudget` after a larger earlier budget. | aceptado | Bounded and consistent with IT-CFG-07. |
+| #53 | m1 | In the `release-after-k` matrix, `release()` did not wait for `Resume` before operation k, so the interleaving depended on the scheduler. | corregido | WA-14: `release()()` waits; the labelled interleaving is the one that runs. |
+| #54 | r2 | `onDestroy` read `pendingStarts`, then set `serviceActive`; a `connect()` in between could be lost. | corregido | WA-14: both sides share `serviceFlagLock`. Kotlin **not compiled**; guarded by a source test. |
+| #54 | r3 | A `startForeground` failure in `onCreate` is a configuration error, not recoverable. | aceptado | Documented in "WA-12". |
+| #54 | s1 | An informational error without a request (`IDENTITY_UNAVAILABLE` after `initialize()` without `connect()`) withdrew the durable intent. | corregido | WA-14: only `CONNECTION_FAILED` settles the request (`ReceiveServicePolicy.endsRequestWithError`); JVM test, source test and a Go test pin the premise. |
+
+**Found while tracing the 242 cases (WA-14), still open:**
+
+| Area | Finding | State |
+| --- | --- | --- |
+| IT-MSG-07 | `identity.classifyEvent` classifies `ErrInvalidTimestamp` (and invalid identity) as `Excluded`, so such a message is neither kept as recoverable content nor stops its batch; the case asks to stop that normalisation while keeping recovery and not to declare an affected batch complete. No test exercises it end to end. | pendiente (design decision for WA-04/WA-07) |
+| IT-PRO-04 | The Go store tests did not check that the error text omits the panic value (only the whatsmeow patch tests did, outside the automatic matrix). | corregido: `protocolstore/diagnostics_test.go` (WA-14) |
+| Snapshot memory | Opening a store held ≈5.7× the payload in Go heap (see Evidence). No threshold exists, so nothing fails; the figure matters for devices with little RAM and has not been measured on one. | pendiente (measurement on device) |
+| iOS first unlock | Reading `state.bin` before first unlock must fail explicitly instead of recreating an empty container; no test, source or device, covers it (WA-13 note). | pendiente (device) |
+| Native suites | Kotlin/Swift/instrumented tests (JVM `ReceiveServicePolicyTest`, `ReceiveIntentInstrumentedTest`, `StateStore*`, `ImageOperations*`, `BackgroundTaskGuardTests`) were written but **not compiled or run** in this task; the matrix lists 21 cases that only have such evidence and marks the rest of the platform-dependent cases `parcial`. | pendiente (native CI) |
+
 
 ## Pinned inputs
 
@@ -24,12 +175,11 @@ Run an explicit dependency setup before building; the build script uses `GOTOOLC
 ```sh
 cd apps/mobile/modules/whatsapp
 ./scripts/prepare-go-dependencies.sh
-cd go
-GOTOOLCHAIN=local go test ./bridge
-GOTOOLCHAIN=local go vet ./bridge
-cd ..
+sh scripts/test-go.sh          # go test -race ./..., go vet and the pinned whatsmeow tests, on a patched copy
 ./scripts/build-go.sh android  # or ios, all
 ```
+
+Do not run `go test` or `go vet` directly inside `go/`: since WA-03 the module depends on whatsmeow patches (`patches/*.patch`: `store.WithAppStateRecoveryStage`, `store.WithPrecommittedProtocol`, `store.BufferedEventChild`, `store.ErrLocalStorage`, …), so `protocolstore` does not compile against the unpatched module in Go's cache. `scripts/test-go.sh` applies them to a temporary copy and is the only supported way to run the Go tests (WA-04 review minor, PR #36).
 
 Build Android before Gradle and iOS before CocoaPods. The script removes the requested old artifact before checking prerequisites, patches a copy of the pinned whatsmeow source outside Go's cache, builds in `.generated/`, verifies the Android ABI entries, then publishes generated artifacts. It writes effective tool/source details to ignored `.generated/build-info.txt`. `android/libs/WhatsAppGo.aar`, `ios/Frameworks/WhatsAppGo.xcframework`, and tool binaries are ignored. A failed generation must stop the consuming build.
 
@@ -56,7 +206,7 @@ The recovery budget (`protocolstore.EntrySize`, 10 MiB by default) counts the se
 Native layer (written, **not compiled or run** here: no gradle, xcodebuild, simulator or phone):
 
 - `NativeStateStore.readPending` / `retirePending` (Kotlin and Swift) implement `DeliveryStorage` on the same writer: `ReadPending({"contractVersion":1})` → `{contractVersion:1,success:true,data:{revision,pending:[...]}}` and `RetirePending({"contractVersion":1,"deliveryId"})` → `data:{revision,removed}`. Success means durable publication, a valid absent ID succeeds with `removed:false` and publishes nothing, and neither needs a generation, session key or network.
-- `WhatsAppModule` (both platforms) opens `OpenDelivery`/`Start` from `initialize` even when the session is invalid, passes the delivery session to `OpenConnectionWithDelivery`, and implements `confirmMessageStored`, `setMessageConsumer` and `removeMessageConsumer`. `OnDelivery(json)` forwards `messageReceived` (with its `consumer` token) and throws when the JavaScript runtime is gone, which keeps the entry and stops reception once; `OnDestroy` removes the consumer. Replacing a consumer is one `setMessageConsumer` with the new token; `client.ts` never calls `removeMessageConsumer` first.
+- `WhatsAppModule` (both platforms) opens `OpenDelivery`/`Start` from `initialize` even when the session is invalid, passes the delivery session to `OpenConnectionWithDelivery`, and implements `confirmMessageStored`, `setMessageConsumer` and `removeMessageConsumer`. `OnDelivery(json)` forwards `messageReceived` (with its `consumer` token) and throws when the JavaScript runtime is gone, which keeps the entry and stops reception once; `OnDestroy` removes the consumer. Replacing a consumer is one `setMessageConsumer` with the new token; `client.ts` never calls `removeMessageConsumer` first. **Stopping after `OnDestroy` is lazy** (WA-06 observation, PR #45): the consumer is removed at once, but the connection is only stopped by the first message that needs delivery, so with no live traffic it stays up until then; nothing is confirmed, acknowledged or lost meanwhile (IT-SUB-06).
 - Source tests: `StateStoreInstrumentedTest` (Android) and `StateStoreTests` (iOS) cover retirement, idempotence, invalid requests and the missing session key.
 
 ## WA-08 history by atomic batch
@@ -184,7 +334,7 @@ Two budgets, both global to the installation (not per session, account or histor
 - *Images.* `ImageSession.BeginSetLimit` takes a queue position in the image service: the change applies after every operation admitted before it, including the cleanup of a download that was cancelled by `disconnect` or the option change, and `initialize` reports success only after that. Native calls `beginSetLimit` while it holds the runtime lock and awaits `outcome()` **after** releasing it, so neither the writer nor confirmations wait. Complete files above a reduced limit stay readable, reusable without network and deletable; new downloads get `STORAGE_LIMIT_REACHED` before any network until deletions drain the excess.
 
 - *Native admission rule (review M1).* `applyProtocolChanges` (Kotlin and Swift) applies the budget like Go's `Decide`: only publications that **insert** entries must keep the whole pending set within the configured budget. A publication that inserts nothing (identity resolution, protocol-only) is admitted while the set fits the reliable read bound, so `pendingLid` entries above a reduced budget still resolve when their mapping arrives, are delivered and drain; retirement never checked the budget. The Go test double (`native.nativeBudgetAllows`) applies exactly this rule (`TestM1PendingLidAboveAReducedBudgetResolvesDeliversAndDrains` fails with the old rule), and `reducedBudgetRefusesOnlyInsertions` / `testReducedBudgetRefusesOnlyInsertions` state it for the real stores (not run).
-- *`initialize` hardening (review m1–m3).* `imageBudget` is updated only after Go confirmed the limit change, so a failed change is retried by the next `initialize`; the pending image operation is taken under the same lock hold that created it (a concurrent `initialize` cannot overwrite or await it); and after native stopped the session or published options, `INVALID_INPUT` is reported as `NATIVE_CALL_FAILED`, so the client treats it as uncertain and rereads instead of keeping the old options. `INVALID_INPUT` therefore now always means "refused before anything changed". `history.Processor.Drain` reuses the purge's read of the ledger for its first search (review m4).
+- *`initialize` hardening (review m1–m3).* `imageBudget` is updated only after Go confirmed the limit change, so a failed change is retried by the next `initialize`; the pending image operation is taken under the same lock hold that created it (a concurrent `initialize` cannot overwrite or await it); and after native stopped the session or published options, `INVALID_INPUT` is reported as `NATIVE_CALL_FAILED`, so the client treats it as uncertain and rereads instead of keeping the old options. `INVALID_INPUT` therefore means "refused before options were published": the failure path that has already stopped or published something is reported as `NATIVE_CALL_FAILED`. One narrow exception remains documented rather than closed (WA-11 review n2, PR #52): if the pre-publication `catch` branch stops the runtime (`ConnectionRuntime.stop()`) and the store then answers `INVALID_REQUEST`, `publicError` can translate it to `INVALID_INPUT` although the running connection was stopped. The values were validated first, so this needs a native fault; the TypeScript client treats any failure after a stop as uncertain only for codes other than `INVALID_INPUT`, so such a client keeps believing the old options until the next `initialize` rereads native state. `history.Processor.Drain` reuses the purge's read of the ledger for its first search (review m4).
 
 **Previous-account history captures (WA-08 debt, deferred by WA-09).** A history notification is captured as a pending entry nobody delivers, owned by its account. Once that account logs out, its credentials and store are gone and the capture could never be processed, yet it kept holding the recovery budget. Now (1) `ConnectionSession.Logout` retires the captures of the account being unlinked once the logout succeeded or was unconfirmed (never when nothing was retired), and (2) `history.Processor.Drain` retires, before processing, every capture whose account is not the current one (only with a known current account) as the fallback after a crash between unlink and retirement or for a capture left by an earlier session. Matching is by the entry's own account, so accounts are never mixed; real messages of any account are never touched and stay deliverable/confirmable under their original `accountId`. Retirement failure leaves the capture and is retried by the next pass. Residual risk: a capture of the same account being processed by a generation still unwinding when logout runs may see its capture disappear; its batch then fails like any rejected one (the generation is already retired).
 

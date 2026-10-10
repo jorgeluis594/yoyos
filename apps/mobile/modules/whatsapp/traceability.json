@@ -5716,8 +5716,29 @@
     "id": "IT-PRO-04",
     "task": "WA-03",
     "status": "parcial",
-    "reason": "Panic de receptor/consumidor, fallo de limpiar EventBuffer, no-ACK y que el diagnostico no exponga el valor del panic se prueban en el parche TestRecoveryStorageFailure (fases panic, hook-panic, clear, handler-panic); su resultado no entra a la matriz automatica. Las pruebas Go no afirman que el mensaje excluya el valor del panic.",
+    "reason": "Panic de receptor/consumidor, fallo de limpiar EventBuffer y no-ACK se prueban en el parche TestRecoveryStorageFailure (fases panic, hook-panic, clear, handler-panic); su resultado no entra a la matriz automatica. WA-14 anade pruebas Go de que el error del store no contiene el valor del panic (protocolstore/diagnostics_test.go).",
     "tests": [
+      {
+        "file": "go/internal/protocolstore/diagnostics_test.go",
+        "test": "TestWA14ITPRO04PanicInATransactionBodyDoesNotLeakItsValue",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
+      {
+        "file": "go/internal/protocolstore/diagnostics_test.go",
+        "test": "TestWA14ITPRO04NativeCallbackFailuresDoNotLeakTheirValue",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
+      {
+        "file": "go/internal/protocolstore/diagnostics_test.go",
+        "test": "TestWA14ITPRO04OpenWithAFailingReadDoesNotLeakTheValue",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
       {
         "file": "go/internal/protocolstore/store_test.go",
         "test": "TestNativeApplyPanicStopsAndReadsBack",
@@ -6496,7 +6517,7 @@
     "id": "IT-AND-11",
     "task": "WA-12",
     "status": "no implementado",
-    "reason": "ninguna prueba lo cita ni lo enlaza",
+    "reason": "Doze, ahorro de bateria, perdida de red y muerte del proceso solo se observan en un dispositivo Android real: manual y fuera de alcance, sin prueba ni implementacion automatizada.",
     "tests": []
   },
   {
@@ -6694,56 +6715,72 @@
     "id": "IT-BLD-01",
     "task": "WA-01",
     "status": "no implementado",
-    "reason": "ninguna prueba lo cita ni lo enlaza",
+    "reason": "build-go.sh fija Go 1.26.5, whatsmeow y x/mobile con GOTOOLCHAIN=local y GOPROXY=off, pero ninguna prueba lo ejerce; un test shell con go falso podria hacerlo sin toolchain nativa.",
     "tests": []
   },
   {
     "id": "IT-BLD-02",
     "task": "WA-01",
-    "status": "no implementado",
-    "reason": "ninguna prueba lo cita ni lo enlaza",
-    "tests": []
+    "status": "parcial",
+    "reason": "Parcial: solo se prueba que, con un go falso, los destinos fallan. No se prueba que Android no requiera Xcode ni que all no omita plataformas.",
+    "tests": [
+      {
+        "file": "scripts/test-build-go-cleanup.sh",
+        "test": "test-build-go-cleanup.sh",
+        "via": "link",
+        "native": false,
+        "result": "pass"
+      }
+    ]
   },
   {
     "id": "IT-BLD-03",
     "task": "WA-01",
     "status": "no implementado",
-    "reason": "ninguna prueba lo cita ni lo enlaza",
+    "reason": "El parche se comprueba con git apply --check sobre una copia en scripts/test-go.sh (exige cache de modulos de Go); build-go.sh no tiene prueba propia del fallo de parche.",
     "tests": []
   },
   {
     "id": "IT-BLD-04",
     "task": "WA-01",
-    "status": "no implementado",
-    "reason": "ninguna prueba lo cita ni lo enlaza",
-    "tests": []
+    "status": "parcial",
+    "reason": "Parcial: se prueba el borrado de artefactos tras un fallo; no el aborto de build.gradle/WhatsApp.podspec sin artefacto (Gradle/CocoaPods, no ejecutados).",
+    "tests": [
+      {
+        "file": "scripts/test-build-go-cleanup.sh",
+        "test": "test-build-go-cleanup.sh",
+        "via": "link",
+        "native": false,
+        "result": "pass"
+      }
+    ]
   },
   {
     "id": "IT-BLD-05",
     "task": "WA-01",
     "status": "no implementado",
-    "reason": "ninguna prueba lo cita ni lo enlaza",
+    "reason": "La verificacion de ABIs, prefijos y minimos esta en build-go.sh y exige gomobile/NDK/Xcode: no se ejecuto.",
     "tests": []
   },
   {
     "id": "IT-BLD-06",
     "task": "WA-01",
     "status": "no implementado",
-    "reason": "ninguna prueba lo cita ni lo enlaza",
+    "reason": "Exige que Expo, Gradle o CocoaPods carguen el modulo: no se ejecuto.",
     "tests": []
   },
   {
     "id": "IT-BLD-07",
     "task": "WA-01",
     "status": "no implementado",
-    "reason": "ninguna prueba lo cita ni lo enlaza",
+    "reason": "Regla de proceso documentada en el README; no hay prueba automatizada.",
     "tests": []
   },
   {
     "id": "IT-BLD-08",
     "task": "WA-01",
     "status": "no implementado",
-    "reason": "ninguna prueba lo cita ni lo enlaza",
+    "reason": "build-info.txt y los .gitignore registran y excluyen artefactos; ninguna prueba lo comprueba.",
     "tests": []
   },
   {
@@ -6757,56 +6794,56 @@
         "test": "TestITSEG01EveryErrorEventIsAPublicCodeWithAFixedMessage",
         "via": "cite",
         "native": false,
-        "result": "none"
+        "result": "pass"
       },
       {
         "file": "go/bridge/security_test.go",
         "test": "TestITSEG01StorageCodesMapOntoPublicOnes",
         "via": "cite",
         "native": false,
-        "result": "none"
+        "result": "pass"
       },
       {
         "file": "go/bridge/security_test.go",
         "test": "TestITSEG01NativeStorageFailuresNeverReachTheOpenResult",
         "via": "cite",
         "native": false,
-        "result": "none"
+        "result": "pass"
       },
       {
         "file": "go/bridge/security_test.go",
         "test": "TestITSEG01APanickingConnectionCallbackIsContainedAndSanitized",
         "via": "cite",
         "native": false,
-        "result": "none"
+        "result": "pass"
       },
       {
         "file": "go/bridge/security_test.go",
         "test": "TestITSEG01DeliveryCallbackFailuresCarryOnlyCodes",
         "via": "cite",
         "native": false,
-        "result": "none"
+        "result": "pass"
       },
       {
         "file": "go/bridge/security_test.go",
         "test": "TestITSEG01ImageFailuresCarryOnlyCodes",
         "via": "cite",
         "native": false,
-        "result": "none"
+        "result": "pass"
       },
       {
         "file": "go/bridge/security_test.go",
         "test": "TestITSEG01UnusableBindingsAnswerWithPublicCodesAndNeverPanic",
         "via": "cite",
         "native": false,
-        "result": "none"
+        "result": "pass"
       },
       {
         "file": "go/bridge/security_test.go",
         "test": "TestITSEG01GoSourcesNeverLogOrPrint",
         "via": "cite",
         "native": false,
-        "result": "none"
+        "result": "pass"
       },
       {
         "file": "scripts/trace-matrix.test.ts",
@@ -6863,6 +6900,34 @@
         "via": "cite",
         "native": false,
         "result": "pass"
+      },
+      {
+        "file": "wa14.contract.test.ts",
+        "test": "IT-SEG-01 native diagnostics and the notification the Go bridge test and types.ts agree on the 19 public codes",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
+      {
+        "file": "wa14.contract.test.ts",
+        "test": "IT-SEG-01 native diagnostics and the notification Kotlin never logs or prints and Swift logs only numeric status codes",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
+      {
+        "file": "wa14.contract.test.ts",
+        "test": "IT-SEG-01 native diagnostics and the notification no native event carries a platform error description",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
+      {
+        "file": "wa14.contract.test.ts",
+        "test": "IT-SEG-01 native diagnostics and the notification the foreground notification is generic: fixed title, no text, extras or actions",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
       }
     ]
   },
@@ -6912,8 +6977,23 @@
   {
     "id": "IT-SEG-03",
     "task": "WA-14",
-    "status": "no implementado",
-    "reason": "ninguna prueba lo cita ni lo enlaza",
-    "tests": []
+    "status": "pasa",
+    "reason": "",
+    "tests": [
+      {
+        "file": "go/internal/receive/measure_test.go",
+        "test": "TestITSEG03SnapshotCostHarnessOnSmallLoads",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
+      {
+        "file": "go/internal/receive/measure_test.go",
+        "test": "TestITSEG03MeasureSnapshotCost",
+        "via": "cite",
+        "native": false,
+        "result": "skip"
+      }
+    ]
   }
 ]
