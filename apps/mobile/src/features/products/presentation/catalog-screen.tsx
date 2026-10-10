@@ -217,7 +217,7 @@ export default function CatalogScreen() {
               <SymbolView name={{ ios: "photo", android: "image" }} size={22} tintColor={theme.textSecondary} />
             </View>}
           <View style={styles.productText}>
-            <ThemedText numberOfLines={2} style={styles.productName}>{item.name}</ThemedText>
+            <ThemedText style={styles.productName}>{item.name}</ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
               {item.stock === 0 ? <ThemedText type="small" style={{ color: theme.error, fontWeight: "600" }}>{t('catalogSoldOut')}</ThemedText> : t('catalogStock', { count: item.stock })}
               {` · ${detail(item)}`}
