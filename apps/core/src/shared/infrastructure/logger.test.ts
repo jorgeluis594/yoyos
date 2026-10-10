@@ -185,7 +185,7 @@ it("normalizes the checkout appearance editor route without capturing the previe
   ]);
 });
 
-it("labels the buyer checkout with how its appearance was resolved and logs an explicit outcome", () => {
+it("keeps the checkout appearance label and normalizes the buyer checkout route", () => {
   const output = execFileSync(process.execPath, ["--import", "tsx", "-e", `
     import express from "express";
     import { requestLogging, bindRequestOperation } from "./src/shared/infrastructure/logger.ts";

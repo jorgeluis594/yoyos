@@ -11,7 +11,18 @@ Mode: Operate. Extends Caramelo sobrio. Approved comp: `.impeccable/mocks/checko
 
 ## Review of the built editor against a4 (T5)
 
-Captured with the E2E fixtures (Lima Studio, Bosque, fondo «De marca») at 1440×900 and 390×844, light and dark, closed and with the color dialog open: `.impeccable/review/checkout-appearance/{desktop,phone}-{light,dark}[-dialog].png`. The admin dark theme is the app's `.dark` class; the preview mode is switched with «Oscuro».
+Captures live in `.impeccable/review/checkout-appearance/{desktop,phone}-{light,dark}[-dialog].png`. No test writes them, so the E2E suite never rewrites them.
+
+### How to recapture
+
+1. Start the E2E app (`sh scripts/run-tests.sh e2e` leaves the server on `CORE_E2E_PORT`, or `pnpm --dir apps/core dev` against the test database).
+2. Create a verified company «Lima Studio» (PE) as `openEditor` does in `tests/e2e/checkout-appearance.spec.ts` (`prepareVerifiedCompany`) and open `/es-PE/settings/checkout-appearance`.
+3. Choose the color «Bosque» and the background «De marca». Do not save.
+4. For each viewport, 1440×900 (`desktop`) and 390×844 (`phone`), and each theme (`light`, `dark`):
+   - Switch the panel theme with `localStorage.setItem("yoyos-theme", "dark")` and the `dark` class on `<html>` (see `app/root.tsx` and `delivery-settings.spec.ts`).
+   - Switch the preview mode with «Claro» / «Oscuro».
+5. Take a `fullPage` screenshot with `animations: "disabled"` in two states: closed (`{device}-{theme}.png`) and with the color dialog open, from the last «… Cambiar» button (`{device}-{theme}-dialog.png`).
+6. On the phone, the closed capture is taken on the «Vista previa» tab.
 
 Matches the mock:
 

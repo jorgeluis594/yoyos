@@ -318,6 +318,9 @@ describe("checkout appearance editor with the live preview", () => {
     await browserExpect(page.getByRole("status").filter({ hasText: "Apariencia actualizada" })).toBeVisible();
     await buyer.reload();
     await browserExpect(confirm).toHaveCSS("background-color", "rgb(47, 107, 79)");
+    await buyer.goto(`/pago/${path.split("/").at(-1)}`);
+    await browserExpect(buyer).toHaveURL(new RegExp(`${path}$`));
+    await browserExpect(confirm).toHaveCSS("background-color", "rgb(47, 107, 79)");
   });
 
   test("switches the preview between phone and desktop, light and dark, review and payment", async ({ page }) => {
