@@ -99,7 +99,8 @@ func (r *Receiver) Handle(ctx context.Context, event any) bool {
 	}
 	if record.IdentityState != "resolved" {
 		// No ACK for content without a definitive identity; a resolution pass completes it
-		// when its mapping arrives, and a later redelivery of the protocol message is acknowledged.
+		// when its mapping arrives. The protocol ACK is only sent when the protocol redelivers the
+		// message (normally after reconnecting), never earlier.
 		callAsync(r.hooks.IdentityPending)
 		return false
 	}

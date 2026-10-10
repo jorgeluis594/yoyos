@@ -739,6 +739,13 @@ func (s *Store) commit(t *txn) error {
 	for _, p := range t.pending {
 		s.pending = append(s.pending, PendingRecord{PendingInsert: p})
 	}
+	for _, update := range t.updates {
+		for i := range s.pending {
+			if s.pending[i].DeliveryID == update.DeliveryID {
+				s.pending[i].IdentityState, s.pending[i].Message = update.IdentityState, update.Message
+			}
+		}
+	}
 	for _, fn := range t.afterCommit {
 		fn()
 	}

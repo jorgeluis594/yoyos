@@ -29,9 +29,13 @@ type Account interface {
 type Outcome struct {
 	Resolved   int
 	Unresolved int
+	// Invalid counts entries that cannot be re-evaluated or whose resolved form would
+	// outgrow their reserve; they stay pending and never stop the other entries.
+	Invalid int
 }
 
 var errInvalidPending = errors.New("pending entry cannot be re-evaluated")
+var errOutgrewReserve = errors.New("resolved entry exceeds its reserve")
 
 // Resolve completes every pendingLid entry of the account whose mapping is now
 // verifiable, publishing all of them in one native commit. Absence of a mapping leaves the
@@ -42,26 +46,31 @@ func Resolve(ctx context.Context, ledger Ledger, account Account, device *store.
 		return Outcome{}, err
 	}
 	var updates []protocolstore.PendingIdentityUpdate
-	unresolved := 0
+	unresolved, invalid := 0, 0
 	for i := range pending {
 		record := &pending[i]
 		if record.AccountID != account.AccountID() || record.IdentityState != string(PendingLID) {
 			continue
 		}
 		update, found, err := resolveOne(ctx, record, account, device)
-		if err != nil {
-			return Outcome{}, err
-		}
-		if found {
+		var unreadable *storeReadError
+		switch {
+		case errors.As(err, &unreadable):
+			return Outcome{}, unreadable.err
+		case err != nil:
+			// A poisoned entry is isolated: the rest of the pass still completes.
+			invalid++
+			unresolved++
+		case found:
 			updates = append(updates, update)
-		} else {
+		default:
 			unresolved++
 		}
 	}
 	if err := account.PublishPendingIdentities(ctx, updates); err != nil {
 		return Outcome{}, err
 	}
-	return Outcome{Resolved: len(updates), Unresolved: unresolved}, nil
+	return Outcome{Resolved: len(updates), Unresolved: unresolved, Invalid: invalid}, nil
 }
 
 // resolveOne re-evaluates one entry from its durable plaintext; the DeliveryID,
@@ -77,7 +86,7 @@ func resolveOne(ctx context.Context, record *protocolstore.PendingRecord, accoun
 	}
 	mappings, err := verified(ctx, account, info)
 	if err != nil {
-		return none, false, err
+		return none, false, &storeReadError{err}
 	}
 	item := record.Recovery.Items[0]
 	plaintext, err := base64.StdEncoding.DecodeString(item.PlaintextBase64)
@@ -91,7 +100,30 @@ func resolveOne(ctx context.Context, record *protocolstore.PendingRecord, accoun
 	if state != Resolved || !belongsTo(message, record.AccountID) {
 		return none, false, nil
 	}
+	if !fitsReserve(record, message) {
+		return none, false, errOutgrewReserve
+	}
 	return protocolstore.PendingIdentityUpdate{DeliveryID: record.DeliveryID, IdentityState: string(Resolved), Message: message}, true, nil
+}
+
+// storeReadError marks a failing read of the mapping store: unlike a poisoned entry, it
+// is a storage fault that must stop the pass.
+type storeReadError struct{ err error }
+
+func (e *storeReadError) Error() string { return e.err.Error() }
+func (e *storeReadError) Unwrap() error { return e.err }
+
+// fitsReserve checks locally what native would reject: publishing must never need more
+// budget than the entry already reserved while it was pending.
+func fitsReserve(record *protocolstore.PendingRecord, message []byte) bool {
+	reserved, err := protocolstore.EntrySize(record.PendingInsert)
+	if err != nil {
+		return false
+	}
+	resolved := record.PendingInsert
+	resolved.IdentityState, resolved.Message = string(Resolved), message
+	actual, err := protocolstore.EntrySize(resolved)
+	return err == nil && actual <= reserved
 }
 
 // verified reads the stored correspondence of every PN the message names.

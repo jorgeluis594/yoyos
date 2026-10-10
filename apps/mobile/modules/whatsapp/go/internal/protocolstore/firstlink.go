@@ -29,6 +29,14 @@ type firstLinkContainer struct {
 	mappingHook                         func()
 }
 
+// LinkedStore is the store created by pairing, or nil before it. Readers use it instead of
+// device.Container, which whatsmeow reassigns while pairing completes.
+func (c *firstLinkContainer) LinkedStore() *Store {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.linked
+}
+
 // SetMappingHook registers the callback for LID mappings; it is applied to the store
 // that pairing creates, so mappings arriving after the first link are observed too.
 func (c *firstLinkContainer) SetMappingHook(hook func()) {

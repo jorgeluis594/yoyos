@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -163,5 +164,67 @@ func TestUTID07ServiceWithoutAccountDoesNothing(t *testing.T) {
 	defer service.Close()
 	if out, err := service.Resolve(t.Context()); err != nil || out != (Outcome{}) {
 		t.Fatalf("%+v %v", out, err)
+	}
+}
+
+// IT-ID-08 (M2): the reserve of a pendingLid entry bounds its resolved size even when JSON escaping multiplies the text.
+func TestITID08ReserveBoundsEscapedResolvedSize(t *testing.T) {
+	for _, char := range []string{"<", "\x01", "&", " "} {
+		text := strings.Repeat(char, 60000)
+		plaintext, err := proto.Marshal(&waE2E.Message{Conversation: proto.String(text)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		record := pendingRecord(t, owner)
+		record.Recovery.Items[0].PlaintextBase64 = base64.StdEncoding.EncodeToString(plaintext)
+		reserved, err := protocolstore.EntrySize(record.PendingInsert)
+		if err != nil {
+			t.Fatal(err)
+		}
+		account := &fakeAccount{id: owner, mappings: map[types.JID]types.JID{phone: lid}}
+		if _, err := Resolve(t.Context(), &fakeLedger{records: []protocolstore.PendingRecord{record}}, account, device); err != nil {
+			t.Fatal(err)
+		}
+		if len(account.publishes) != 1 {
+			t.Fatalf("%q: not resolved", char)
+		}
+		resolved := record.PendingInsert
+		resolved.IdentityState, resolved.Message = "resolved", account.publishes[0][0].Message
+		actual, _ := protocolstore.EntrySize(resolved)
+		if actual > reserved {
+			t.Fatalf("%q: resolved entry takes %d bytes, reserve covered %d", char, actual, reserved)
+		}
+	}
+}
+
+// m1: a poisoned entry is isolated; the other entries of the pass still resolve.
+func TestPoisonedEntryDoesNotBlockOthers(t *testing.T) {
+	poisonedItems := pendingRecord(t, owner)
+	poisonedItems.DeliveryID = "wa-delivery:v1:00000000000000000000000000000002"
+	poisonedItems.Recovery.Items = nil
+	poisonedInfo := pendingRecord(t, owner)
+	poisonedInfo.DeliveryID = "wa-delivery:v1:00000000000000000000000000000003"
+	poisonedInfo.Recovery.MessageInfoJSON = `{"version":1}`
+	healthy := pendingRecord(t, owner)
+	account := &fakeAccount{id: owner, mappings: map[types.JID]types.JID{phone: lid}}
+	ledger := &fakeLedger{records: []protocolstore.PendingRecord{poisonedItems, poisonedInfo, healthy}}
+	out, err := Resolve(t.Context(), ledger, account, device)
+	if err != nil || out != (Outcome{Resolved: 1, Unresolved: 2, Invalid: 2}) {
+		t.Fatalf("outcome %+v err %v", out, err)
+	}
+	if len(account.publishes) != 1 || account.publishes[0][0].DeliveryID != deliveryID {
+		t.Fatal("healthy entry not published alone")
+	}
+}
+
+// M2: an entry whose resolved form would outgrow its reserve is never sent to native, so it cannot make the batch fail.
+func TestFitsReserveRejectsOutgrownEntry(t *testing.T) {
+	record := pendingRecord(t, owner)
+	if !fitsReserve(&record, []byte(`{"id":"small"}`)) {
+		t.Fatal("small message rejected")
+	}
+	huge := []byte(`{"text":"` + strings.Repeat("x", int(protocolstore.IdentityReserveBytes)+1024) + `"}`)
+	if fitsReserve(&record, huge) {
+		t.Fatal("oversized message accepted")
 	}
 }

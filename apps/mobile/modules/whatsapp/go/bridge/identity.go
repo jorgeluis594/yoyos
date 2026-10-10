@@ -28,15 +28,15 @@ func (s *ConnectionSession) identityTrigger() {
 	}
 }
 
-// accountStore is the protocol store that holds this account's mappings.
+// accountStore is the protocol store that holds this account's mappings: the opened one,
+// or the one pairing created. It never reads device.Container, which pairing reassigns.
 func (s *ConnectionSession) accountStore() (*protocolstore.Store, *store.Device) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	protocol := s.store
-	if protocol == nil && s.device != nil {
-		protocol, _ = s.device.Container.(*protocolstore.Store)
+	if s.store == nil && s.firstLink != nil {
+		return s.firstLink.LinkedStore(), s.device
 	}
-	return protocol, s.device
+	return s.store, s.device
 }
 
 func (s *ConnectionSession) identitySource() (identity.Account, *store.Device) {
@@ -51,15 +51,13 @@ func (s *ConnectionSession) identitySource() (identity.Account, *store.Device) {
 // first link will create, at the resolution service.
 func (s *ConnectionSession) watchMappings() {
 	s.mu.Lock()
-	var source any
-	if s.store != nil {
-		source = s.store
-	} else if s.device != nil {
-		source = s.device.Container
-	}
+	protocol, link := s.store, s.firstLink
 	s.mu.Unlock()
-	if watched, ok := source.(interface{ SetMappingHook(func()) }); ok {
-		watched.SetMappingHook(s.identity.Trigger)
+	switch {
+	case protocol != nil:
+		protocol.SetMappingHook(s.identity.Trigger)
+	case link != nil:
+		link.SetMappingHook(s.identity.Trigger)
 	}
 }
 

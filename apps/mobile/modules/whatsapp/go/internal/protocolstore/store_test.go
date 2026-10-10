@@ -627,4 +627,27 @@ func TestMappingHookRunsAfterMappingCommit(t *testing.T) {
 	if s.AccountID() != "123@lid" {
 		t.Fatal("account")
 	}
+	n.errCode = StorageFailed // a failed commit never reports a mapping
+	other, _ := types.ParseJID("789@lid")
+	if e := s.PutLIDMapping(context.Background(), other, pn); e == nil || runs != 1 {
+		t.Fatalf("hook after a failed commit: %v %d", e, runs)
+	}
+}
+
+// m2: the local pending view reflects a published identity at once, so admission measures the real entry.
+func TestPublishedIdentityRefreshesLocalPendingView(t *testing.T) {
+	n := &controlledStorage{}
+	s := openTest(t, n)
+	ctx := context.Background()
+	recovery := Recovery{MessageInfoJSON: `{"id":"m"}`, Items: []RecoveryItem{{Format: "v2", PlaintextBase64: "AQ==", CiphertextHashBase64: base64.StdEncoding.EncodeToString(make([]byte, 32))}}}
+	id := "wa-delivery:v1:00112233445566778899aabbccddeeff"
+	if e := s.PreparePendingInsert(ctx, PendingInsert{DeliveryID: id, AccountID: "123@lid", Source: "live", IdentityState: "pendingLid", Recovery: recovery}); e != nil {
+		t.Fatal(e)
+	}
+	if e := s.PublishPendingIdentities(ctx, []PendingIdentityUpdate{{DeliveryID: id, IdentityState: "resolved", Message: json.RawMessage(`{"id":"a"}`)}}); e != nil {
+		t.Fatal(e)
+	}
+	if got := s.pending[0]; got.IdentityState != "resolved" || string(got.Message) != `{"id":"a"}` {
+		t.Fatalf("stale local view: %+v", got)
+	}
 }

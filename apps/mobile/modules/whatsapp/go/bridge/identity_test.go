@@ -19,7 +19,6 @@ import (
 	"yoyos-whatsapp/internal/protocolstore"
 )
 
-
 // linkStorage is one native container serving protocol state, first link and pending entries.
 type linkStorage struct {
 	mu         sync.Mutex

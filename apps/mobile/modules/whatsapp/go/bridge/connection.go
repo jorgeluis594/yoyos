@@ -27,7 +27,14 @@ type ConnectionSession struct {
 	device     *store.Device
 	delivery   *DeliverySession
 	identity   *identity.Service
+	firstLink  firstLink
 	reopen     func() (*protocolstore.Store, *store.Device, error)
+}
+
+// firstLink is the container of a device that is not paired yet; it hands out the store pairing creates.
+type firstLink interface {
+	LinkedStore() *protocolstore.Store
+	SetMappingHook(func())
 }
 type ConnectionOpenResult struct {
 	Session *ConnectionSession
@@ -62,6 +69,9 @@ func OpenConnectionWithDelivery(storage ProtocolStorage, sink ConnectionEvents, 
 		return &ConnectionOpenResult{Code: publicCode(err)}
 	}
 	session := &ConnectionSession{store: protocol, device: device, delivery: delivery}
+	if protocol == nil {
+		session.firstLink, _ = device.Container.(firstLink)
+	}
 	session.reopen = func() (*protocolstore.Store, *store.Device, error) {
 		account := accountID
 		if account == "" {

@@ -311,10 +311,10 @@ func TestITID08RestartResolvesFromStoredMapping(t *testing.T) {
 func TestITID08ForeignAccountEntryStaysPending(t *testing.T) {
 	n := newNative()
 	l := newLife(t, n, 1<<20)
-	il := l.withIdentity()
-	l.storeMapping()
 	seed(n, 7, "999@lid", "1", 0, "pendingLid", 0)
 	n.pending[0].Recovery.MessageInfoJSON = `{"version":1,"accountId":"999@lid","id":"f1","chat":"34600@s.whatsapp.net","sender":"34600@s.whatsapp.net","timestampSeconds":100}`
+	il := l.withIdentity() // the service starts after the fixture is complete
+	l.storeMapping()
 	out, err := il.service.Resolve(context.Background())
 	if err != nil {
 		t.Fatal(err)

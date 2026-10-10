@@ -342,7 +342,7 @@ func TestIdentityUnavailableIsAPublicConnectionError(t *testing.T) {
 	}
 }
 
-// IT-ID-08: resolving before credentials are retired needs no account store to answer; a first link has no pending identity.
+// IT-ID-08: before pairing there is no account store, so resolving succeeds empty; after pairing see TestITID08LateMappingAfterFirstLinkResolves.
 func TestResolveIdentitiesBeforeAccountExistsIsEmptySuccess(t *testing.T) {
 	session, _ := openDelivery(t, &pendingStorage{})
 	opened := OpenConnectionWithDelivery(connectionStorage{}, connectionSink{}, session, "g", "", 10<<20, 10<<20)
