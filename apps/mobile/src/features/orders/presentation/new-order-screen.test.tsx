@@ -96,8 +96,8 @@ test("review preserves payment and shows one save action", async () => {
     order: { id: mockId(3) } }));
   const screen = await review();
   expect(screen.getByText("Productos (referencial)")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Resumen de productos" })).toHaveProp("accessibilityState", { expanded: false });
-  fireEvent.press(screen.getByRole("button", { name: "Agregar pago" }));
+  expect(screen.getByRole("radio", { name: "Pendiente" })).toHaveProp("accessibilityState", expect.objectContaining({ checked: true }));
+  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
   fireEvent.changeText(screen.getByLabelText(/Monto/), "5");
   expect(screen.getByLabelText(/Monto/)).toHaveProp("value", "5");
   expect(screen.getAllByRole("button", { name: "Guardar pedido" })).toHaveLength(1);
@@ -112,11 +112,9 @@ test("review preserves payment and shows one save action", async () => {
 test("products stay read-only on the form and returning preserves entered data", async () => {
   const screen = await review();
   expect(screen.queryByRole("button", { name: "+" })).toBeNull();
-  expect(screen.getByRole("button", { name: "Resumen de productos" })).toHaveProp("accessibilityState", { expanded: false });
-  fireEvent.press(screen.getByRole("button", { name: "Resumen de productos" }));
-  expect(screen.getByText(/Talla: M/)).toBeTruthy();
+  expect(screen.getByText("Talla: M")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Quitar" })).toBeNull();
-  fireEvent.press(screen.getByRole("button", { name: "Agregar pago" }));
+  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
   fireEvent.changeText(screen.getByLabelText(/Monto/), "10");
   fireEvent.press(screen.getByRole("button", { name: "Datos de envío" }));
   expect(screen.getByTestId("delivery-status")).toHaveProp("selectedValue", 0);
@@ -135,7 +133,7 @@ test("delivered status explains missing payment and allows saving once covered",
   fireEvent(screen.getByTestId("delivery-status"), "valueChange", 1);
   expect(screen.getByText(/Completa el pago/)).toHaveProp("accessibilityRole", "alert");
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
-  fireEvent.press(screen.getByRole("button", { name: "Agregar pago" }));
+  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
   fireEvent.changeText(screen.getByLabelText(/Monto/), "10");
   expect(screen.queryByText(/Completa el pago/)).toBeNull();
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();
@@ -266,9 +264,9 @@ test("one save retains editable payments and delivery on rejection and prevents 
   fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  fireEvent.press(screen.getByRole("button", { name: "Agregar pago" }));
+  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
   fireEvent.changeText(screen.getByLabelText(/Monto/), "5");
-  fireEvent.press(screen.getByRole("button", { name: "Agregar pago" }));
+  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
   fireEvent.changeText(screen.getAllByLabelText(/Monto/)[1], "13");
   fireEvent.press(screen.getByRole("button", { name: "Datos de envío" }));
   fireEvent.changeText(screen.getByLabelText(/Dirección de entrega/), "Av. Lima 123");
@@ -300,7 +298,7 @@ test("decimal comma in an initial payment updates the summary and allows saving"
   fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  fireEvent.press(screen.getByRole("button", { name: "Agregar pago" }));
+  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
   fireEvent.changeText(screen.getByLabelText(/Monto/), "5,50");
   expect(screen.getByText(/5[.,]50/)).toBeTruthy();
   fireEvent.changeText(screen.getByLabelText(/Monto/), "1e309");

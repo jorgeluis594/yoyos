@@ -1,0 +1,40 @@
+{
+  "title": "Nueva venta — productos y pago",
+  "question": "Elige la composición para la revisión de la venta (o combina partes de varias).",
+  "options": [
+    {
+      "id": "a-cards",
+      "label": "A · Tarjetas agrupadas + hoja inferior",
+      "kicker": "ESTILO SHOPIFY",
+      "thesis": "Cada bloque (Productos, Cliente, Pago, Entrega) es una tarjeta; el pago se decide con un control Pendiente | Pagado.",
+      "palette": ["#1C1B1D", "#272528", "#D5A16C", "#443326"],
+      "materials": ["tarjetas con borde sutil", "miniatura con badge de cantidad"],
+      "viewport": "Productos con miniatura y cantidad en badge, total por línea a la derecha; Pagado abre una hoja inferior con monto, método y comprobante (cámara/galería).",
+      "risk": "Más contenedores que hoy; DESIGN.md pide superficies planas por defecto.",
+      "comp": ".impeccable/mocks/new-order-v2/a-cards.png"
+    },
+    {
+      "id": "b-flat",
+      "label": "B · Lista plana + pantalla de pago",
+      "kicker": "DECISIÓN EXPLÍCITA",
+      "thesis": "Lista plana con separadores únicos; el estado de pago son dos opciones grandes con descripción, y Pagado abre una pantalla completa centrada en el comprobante.",
+      "palette": ["#1C1B1D", "#443326", "#D5A16C", "#23382C"],
+      "materials": ["filas planas", "opciones tipo radio"],
+      "viewport": "Productos con miniatura, SKU y total por línea; el estado Pagado resume monto, método y miniatura del voucher dentro de la opción.",
+      "risk": "Un paso modal más pesado; ocupa más alto en la pantalla.",
+      "comp": ".impeccable/mocks/new-order-v2/b-flat.png"
+    },
+    {
+      "id": "c-ticket",
+      "label": "C · Ticket con total arriba + expansión en el lugar",
+      "kicker": "TOTAL PRIMERO",
+      "thesis": "Total grande y estado de pago arriba; Pagado expande el comprobante, monto y método en el mismo lugar, sin modal.",
+      "palette": ["#1C1B1D", "#272528", "#D5A16C", "#9AD3AE"],
+      "materials": ["filas tipo ticket", "cantidad en caramelo"],
+      "viewport": "El monto y si está pagado se ven sin hacer scroll; productos como ticket: 4× · nombre · total.",
+      "risk": "El total arriba sigue siendo referencial (el servidor recalcula); hay que dejarlo claro.",
+      "comp": ".impeccable/mocks/new-order-v2/c-ticket.png"
+    }
+  ],
+  "steer": true
+}
