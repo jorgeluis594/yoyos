@@ -1,0 +1,254 @@
+{
+  "go": "go1.26.5",
+  "goos": "darwin",
+  "goarch": "arm64",
+  "cpus": 10,
+  "scope": "Go side only, against an in-memory container double",
+  "raceDetector": false,
+  "scenarios": [
+    {
+      "scenario": {
+        "name": "small session, few messages",
+        "sessionRecords": 50,
+        "recordBytes": 512,
+        "pendingEntries": 20,
+        "textBytes": 300
+      },
+      "sessionBytes": 51539,
+      "pendingBytes": 25985,
+      "openHeapPeakBytes": 1209232,
+      "pendingReadHeapPeakBytes": 218736,
+      "confirmAllHeapPeakBytes": 2304,
+      "calls": {
+        "ReadPending": {
+          "count": 1,
+          "requestBytesTotal": 21,
+          "responseBytesMax": 26057,
+          "medianMicros": 69,
+          "p95Micros": 69,
+          "maxMicros": 69
+        },
+        "ReadState": {
+          "count": 1,
+          "requestBytesTotal": 21,
+          "responseBytesMax": 77651,
+          "medianMicros": 95,
+          "p95Micros": 95,
+          "maxMicros": 95
+        },
+        "RetirePending": {
+          "count": 40,
+          "requestBytesTotal": 3360,
+          "responseBytesMax": 77,
+          "medianMicros": 1,
+          "p95Micros": 2,
+          "maxMicros": 6
+        }
+      },
+      "confirmed": 20
+    },
+    {
+      "scenario": {
+        "name": "representative session, typical buffer",
+        "sessionRecords": 2000,
+        "recordBytes": 512,
+        "pendingEntries": 500,
+        "textBytes": 300
+      },
+      "sessionBytes": 2060039,
+      "pendingBytes": 652069,
+      "openHeapPeakBytes": 11866392,
+      "pendingReadHeapPeakBytes": 4383552,
+      "confirmAllHeapPeakBytes": 1235800,
+      "calls": {
+        "ReadPending": {
+          "count": 1,
+          "requestBytesTotal": 21,
+          "responseBytesMax": 652142,
+          "medianMicros": 2598,
+          "p95Micros": 2598,
+          "maxMicros": 2598
+        },
+        "ReadState": {
+          "count": 1,
+          "requestBytesTotal": 21,
+          "responseBytesMax": 2712236,
+          "medianMicros": 4026,
+          "p95Micros": 4026,
+          "maxMicros": 4026
+        },
+        "RetirePending": {
+          "count": 1000,
+          "requestBytesTotal": 84000,
+          "responseBytesMax": 79,
+          "medianMicros": 1,
+          "p95Micros": 53,
+          "maxMicros": 404
+        }
+      },
+      "confirmed": 500
+    },
+    {
+      "scenario": {
+        "name": "session near its 16 MiB allowance, empty buffer",
+        "sessionRecords": 19500,
+        "recordBytes": 400,
+        "pendingEntries": 0,
+        "textBytes": 0
+      },
+      "sessionBytes": 16263039,
+      "pendingBytes": 4,
+      "openHeapPeakBytes": 92485248,
+      "pendingReadHeapPeakBytes": 6640,
+      "confirmAllHeapPeakBytes": 272,
+      "calls": {
+        "ReadPending": {
+          "count": 1,
+          "requestBytesTotal": 21,
+          "responseBytesMax": 73,
+          "medianMicros": 8,
+          "p95Micros": 8,
+          "maxMicros": 8
+        },
+        "ReadState": {
+          "count": 1,
+          "requestBytesTotal": 21,
+          "responseBytesMax": 16263167,
+          "medianMicros": 22907,
+          "p95Micros": 22907,
+          "maxMicros": 22907
+        }
+      },
+      "confirmed": 0
+    },
+    {
+      "scenario": {
+        "name": "buffer near its 10 MiB default, typical messages",
+        "sessionRecords": 2000,
+        "recordBytes": 512,
+        "pendingEntries": 5000,
+        "textBytes": 600
+      },
+      "sessionBytes": 2060039,
+      "pendingBytes": 10044674,
+      "openHeapPeakBytes": 47441208,
+      "pendingReadHeapPeakBytes": 58499032,
+      "confirmAllHeapPeakBytes": 6666152,
+      "calls": {
+        "ReadPending": {
+          "count": 1,
+          "requestBytesTotal": 21,
+          "responseBytesMax": 10044748,
+          "medianMicros": 29575,
+          "p95Micros": 29575,
+          "maxMicros": 29575
+        },
+        "ReadState": {
+          "count": 1,
+          "requestBytesTotal": 21,
+          "responseBytesMax": 12104842,
+          "medianMicros": 25453,
+          "p95Micros": 25453,
+          "maxMicros": 25453
+        },
+        "RetirePending": {
+          "count": 10000,
+          "requestBytesTotal": 840000,
+          "responseBytesMax": 80,
+          "medianMicros": 4,
+          "p95Micros": 425,
+          "maxMicros": 12530
+        }
+      },
+      "confirmed": 5000
+    },
+    {
+      "scenario": {
+        "name": "buffer near its 10 MiB default, few large entries",
+        "sessionRecords": 2000,
+        "recordBytes": 512,
+        "pendingEntries": 8,
+        "textBytes": 409600
+      },
+      "sessionBytes": 2060039,
+      "pendingBytes": 7650665,
+      "openHeapPeakBytes": 46359440,
+      "pendingReadHeapPeakBytes": 39091856,
+      "confirmAllHeapPeakBytes": 6288,
+      "calls": {
+        "ReadPending": {
+          "count": 1,
+          "requestBytesTotal": 21,
+          "responseBytesMax": 7650736,
+          "medianMicros": 18689,
+          "p95Micros": 18689,
+          "maxMicros": 18689
+        },
+        "ReadState": {
+          "count": 1,
+          "requestBytesTotal": 21,
+          "responseBytesMax": 9710830,
+          "medianMicros": 16900,
+          "p95Micros": 16900,
+          "maxMicros": 16900
+        },
+        "RetirePending": {
+          "count": 16,
+          "requestBytesTotal": 1344,
+          "responseBytesMax": 77,
+          "medianMicros": 1,
+          "p95Micros": 35,
+          "maxMicros": 35
+        }
+      },
+      "confirmed": 8
+    },
+    {
+      "scenario": {
+        "name": "both near their limits",
+        "sessionRecords": 19500,
+        "recordBytes": 400,
+        "pendingEntries": 5000,
+        "textBytes": 600
+      },
+      "sessionBytes": 16263039,
+      "pendingBytes": 10044674,
+      "openHeapPeakBytes": 115097640,
+      "pendingReadHeapPeakBytes": 58886304,
+      "confirmAllHeapPeakBytes": 7594040,
+      "calls": {
+        "ReadPending": {
+          "count": 1,
+          "requestBytesTotal": 21,
+          "responseBytesMax": 10044748,
+          "medianMicros": 23567,
+          "p95Micros": 23567,
+          "maxMicros": 23567
+        },
+        "ReadState": {
+          "count": 1,
+          "requestBytesTotal": 21,
+          "responseBytesMax": 26307842,
+          "medianMicros": 48156,
+          "p95Micros": 48156,
+          "maxMicros": 48156
+        },
+        "RetirePending": {
+          "count": 10000,
+          "requestBytesTotal": 840000,
+          "responseBytesMax": 80,
+          "medianMicros": 4,
+          "p95Micros": 695,
+          "maxMicros": 15629
+        }
+      },
+      "confirmed": 5000
+    }
+  ],
+  "notMeasured": [
+    "native encryption, fsync, atomic replacement and temporary files of the container",
+    "Kotlin/Swift heap and process RSS",
+    "any run on Android or iOS hardware",
+    "battery and thermal behaviour"
+  ]
+}

@@ -2,7 +2,7 @@
  * WA-14 traceability matrix. Walks the source tree and produces, for each of the 242 catalog cases
  * (68 UT, 174 IT), the task that owns it, the tests that cite it and its real status.
  *
- *   node --experimental-strip-types scripts/trace-matrix.ts [--go-json f] [--jest-json f] [--links f] [--check] [--out dir]
+ *   node --experimental-strip-types scripts/trace-matrix.ts [--go-json f] [--jest-json f] [--sh-json f] [--links f] [--check] [--out dir]
  *
  * Inputs: the case catalog (docs/whatsmeow-go-expo-implementation.md), the task assignment (docs/
  * whatsmeow-go-expo-tasks.md), every test file of the module, the declared links in trace-links.json (tests
@@ -19,11 +19,11 @@ import { dirname, join, relative } from "node:path";
 import { z } from "zod";
 
 export type Status = "pasa" | "parcial" | "no ejecutado-nativo" | "falla" | "no implementado";
-export type Lang = "go" | "ts" | "kotlin" | "swift";
+export type Lang = "go" | "ts" | "kotlin" | "swift" | "sh";
 export type Result = "pass" | "fail" | "skip" | "none";
 
 export interface CatalogCase { id: string; title: string }
-export interface Decl { file: string; lang: Lang; name: string; line: number; key: string }
+export interface Decl { file: string; lang: Lang; name: string; line: number; key: string; each?: boolean }
 export interface Citation { id: string; decl: Decl | null; file: string; line: number }
 export interface Evidence { decl: Decl | null; file: string; result: Result; via: "cite" | "link"; note?: string }
 export interface Row { id: string; task: string; title: string; status: Status; evidence: Evidence[]; reason: string }
@@ -70,6 +70,7 @@ const DECLARATIONS: Record<Lang, RegExp[]> = {
   kotlin: [/^\s*(?:@Test\s+)?fun (`[^`]+`|\w+)\(/],
   swift: [/^\s*func (test\w+)\(/],
   ts: [/^\s*(?:test|it)(?:\.\w+)?\(\s*(["'`])((?:\\.|(?!\1).)*)\1/],
+  sh: [],
 };
 
 function languageOf(file: string): Lang | null {
@@ -77,6 +78,7 @@ function languageOf(file: string): Lang | null {
   if (/\.test\.tsx?$/.test(file)) return "ts";
   if (/(?:Test|Tests|InstrumentedTest)\.kt$/.test(file)) return "kotlin";
   if (/Tests\.swift$/.test(file)) return "swift";
+  if (/^scripts\/test-[\w-]+\.sh$/.test(file)) return "sh";
   return null;
 }
 
@@ -84,7 +86,7 @@ function isComment(line: string): boolean {
   return /^\s*(\/\/|\/\*|\*)/.test(line);
 }
 
-interface RawDecl { name: string; line: number; indent: number; describe: boolean; annotated: boolean }
+interface RawDecl { name: string; line: number; indent: number; describe: boolean; annotated: boolean; each?: boolean }
 
 function declarationOf(lang: Lang, line: string): { name: string; describe: boolean } | null {
   if (lang === "ts") {
@@ -104,7 +106,7 @@ function declarationOf(lang: Lang, line: string): { name: string; describe: bool
 function kotlinIsTest(lines: string[], index: number): boolean {
   if (/@Test\b/.test(lines[index])) return true;
   for (let back = index - 1; back >= 0; back--) {
-    if (/^\s*@\w+/.test(lines[back])) {
+    if (/^\s*@\w+(\(.*\))?\s*$/.test(lines[back])) {
       if (/@Test\b/.test(lines[back])) return true;
       continue;
     }
@@ -113,13 +115,19 @@ function kotlinIsTest(lines: string[], index: number): boolean {
   return false;
 }
 
+const EACH_TITLE = /\)\(\s*(["'`])((?:\\.|(?!\1).)*)\1\s*,/;
+
 function collectRaw(lang: Lang, lines: string[]): RawDecl[] {
   const raw: RawDecl[] = [];
+  let eachPending = false; // `test.each(table)(title, fn)`: the title may sit several lines below `.each(`
   lines.forEach((text, index) => {
-    const found = declarationOf(lang, text);
+    if (lang === "ts" && /\b(?:test|it)\.each\b/.test(text)) eachPending = true;
+    const each = lang === "ts" && eachPending ? EACH_TITLE.exec(text) : null;
+    if (each) eachPending = false;
+    const found = each ? { name: each[2], describe: false } : declarationOf(lang, text);
     if (!found) return;
     if (lang === "kotlin" && !kotlinIsTest(lines, index)) return;
-    raw.push({ name: found.name, line: index + 1, indent: text.length - text.trimStart().length, describe: found.describe, annotated: true });
+    raw.push({ name: found.name, line: index + 1, indent: text.length - text.trimStart().length, describe: found.describe, annotated: true, each: each !== null });
   });
   return raw;
 }
@@ -152,11 +160,12 @@ export function scanSource(file: string, source: string): { decls: Decl[]; citat
   const lang = languageOf(file);
   if (!lang) return { decls: [], citations: [] };
   const lines = source.split("\n");
+  if (lang === "sh") return scanShell(file, lines);
   const raw = collectRaw(lang, lines);
   const decls = raw.filter((entry) => !entry.describe).map((entry, _, all) => {
     const position = raw.indexOf(entry);
     const name = qualify(lang, raw, position);
-    return { file, lang, name, line: entry.line, key: declKey(lang, file, name) } satisfies Decl;
+    return { file, lang, name, line: entry.line, key: declKey(lang, file, name), each: entry.each } satisfies Decl;
   });
   const byLine = new Map(decls.map((decl) => [decl.line, decl]));
   const citations: Citation[] = [];
@@ -168,6 +177,17 @@ export function scanSource(file: string, source: string): { decls: Decl[]; citat
     }
   });
   return { decls, citations };
+}
+
+/** A shell test is one unit: the script itself, run as a whole. */
+function scanShell(file: string, lines: string[]): { decls: Decl[]; citations: Citation[] } {
+  const name = file.split("/").pop() ?? file;
+  const decl: Decl = { file, lang: "sh", name, line: 1, key: `${file}::${name}` };
+  const citations: Citation[] = [];
+  lines.forEach((text, index) => {
+    for (const found of text.matchAll(ID_PATTERN)) citations.push({ id: normalizeId(found[1], found[2], found[3]), decl, file, line: index + 1 });
+  });
+  return { decls: [decl], citations };
 }
 
 /** A citation names the declaration it sits on, the one a leading comment precedes, or the enclosing one. */
@@ -220,8 +240,10 @@ function walk(dir: string, accept: (path: string) => boolean, out: string[] = []
   return out;
 }
 
-export function scanModule(moduleDir: string): { decls: Decl[]; citations: Citation[] } {
-  const files = walk(moduleDir, (path) => languageOf(relative(moduleDir, path)) !== null);
+/** The module and the Yoyos composition tests that exercise it from outside (options, budgets). */
+export function scanModule(moduleDir: string, extraRoots: string[] = [join(moduleDir, "../../src/composition")]): { decls: Decl[]; citations: Citation[] } {
+  const accept = (path: string) => languageOf(relative(moduleDir, path)) !== null;
+  const files = [moduleDir, ...extraRoots.filter((root) => existsSync(root))].flatMap((root) => walk(root, accept));
   const decls: Decl[] = [];
   const citations: Citation[] = [];
   for (const path of files) {
@@ -297,6 +319,13 @@ export function parseJestResults(text: string, moduleDir: string): Map<string, R
   return results;
 }
 
+/** `{ "scripts/test-x.sh": "pass" | "fail" }`, written by trace-evidence.sh from each script's exit status. */
+export function parseShellResults(text: string): Map<string, Result> {
+  const parsed = z.record(z.string(), z.enum(["pass", "fail"])).safeParse(JSON.parse(text));
+  if (!parsed.success) throw new Error(`shell results: ${parsed.error.message}`);
+  return new Map(Object.entries(parsed.data).map(([file, result]) => [`${file}::${file.split("/").pop()}`, result]));
+}
+
 // ---------------------------------------------------------------------------------------------------------
 // Evaluation
 // ---------------------------------------------------------------------------------------------------------
@@ -314,6 +343,17 @@ export function isNative(decl: Decl | null): boolean {
   return decl !== null && (decl.lang === "kotlin" || decl.lang === "swift");
 }
 
+/** `test.each` titles carry %s-style placeholders: they match every row that jest ran for them. */
+export function lookupResult(decl: Decl, results: Map<string, Result>): Result {
+  const exact = results.get(decl.key);
+  if (exact || !decl.each) return exact ?? "none";
+  const [file, name] = [decl.file, decl.name];
+  const pattern = new RegExp(`^${file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}::${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%[spdijoOfc#]/g, ".*")}$`);
+  const rows = [...results].filter(([key]) => pattern.test(key)).map(([, value]) => value);
+  if (rows.length === 0) return "none";
+  return rows.includes("fail") ? "fail" : rows.every((row) => row === "pass") ? "pass" : "skip";
+}
+
 function collectEvidence(id: string, inputs: Inputs): Evidence[] {
   const evidence: Evidence[] = [];
   const seen = new Set<string>();
@@ -321,7 +361,7 @@ function collectEvidence(id: string, inputs: Inputs): Evidence[] {
     const key = decl ? decl.key : `${file}::`;
     if (seen.has(key)) return;
     seen.add(key);
-    const result: Result = decl && !isNative(decl) ? (inputs.results.get(decl.key) ?? "none") : "none";
+    const result: Result = decl && !isNative(decl) ? lookupResult(decl, inputs.results) : "none";
     evidence.push({ decl, file, result, via, note });
   };
   for (const citation of inputs.citations) if (citation.id === id) add(citation.decl, citation.file, "cite");
@@ -438,6 +478,7 @@ function option(args: string[], name: string): string | undefined {
 export function run(args: string[], moduleDir: string, repoRoot: string): number {
   const goPath = option(args, "--go-json");
   const jestPath = option(args, "--jest-json");
+  const shellPath = option(args, "--sh-json");
   const catalog = parseCatalog(readFileSync(join(repoRoot, "docs/whatsmeow-go-expo-implementation.md"), "utf8"));
   const owner = parseAssignment(readFileSync(join(repoRoot, "docs/whatsmeow-go-expo-tasks.md"), "utf8"));
   const linksPath = option(args, "--links") ?? join(moduleDir, "trace-links.json");
@@ -446,6 +487,7 @@ export function run(args: string[], moduleDir: string, repoRoot: string): number
   const results = new Map<string, Result>();
   if (goPath) for (const [key, value] of parseGoResults(readFileSync(goPath, "utf8"))) results.set(key, value);
   if (jestPath) for (const [key, value] of parseJestResults(readFileSync(jestPath, "utf8"), moduleDir)) results.set(key, value);
+  if (shellPath) for (const [key, value] of parseShellResults(readFileSync(shellPath, "utf8"))) results.set(key, value);
   const scanned = scanModule(moduleDir);
   const inputs: Inputs = { catalog, owner, decls: scanned.decls, citations: scanned.citations, links: links.value, results };
   const problems = validateLinks(inputs);
