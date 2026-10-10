@@ -9,7 +9,7 @@ Pod::Spec.new do |s|
   s.platforms = { :ios => '16.4' }
   s.source = { :path => '.' }
   s.static_framework = true
-  s.source_files = 'WhatsAppModule.swift'
+  s.source_files = 'WhatsAppModule.swift', 'Storage/*.swift'
   s.vendored_frameworks = 'Frameworks/WhatsAppGo.xcframework'
   s.dependency 'ExpoModulesCore'
   unless File.directory?(File.join(__dir__, 'Frameworks/WhatsAppGo.xcframework'))
