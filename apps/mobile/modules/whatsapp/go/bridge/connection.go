@@ -29,6 +29,7 @@ type ConnectionSession struct {
 	identity   *identity.Service
 	firstLink  firstLink
 	reopen     func() (*protocolstore.Store, *store.Device, error)
+	images     *ImageSession
 }
 
 // firstLink is the container of a device that is not paired yet; it hands out the store pairing creates.
@@ -267,6 +268,9 @@ func (s *ConnectionSession) resolveBeforeLogout() error {
 }
 
 func (s *ConnectionSession) Close() bool {
+	if s != nil {
+		s.detachImages()
+	}
 	if s != nil && s.identity != nil {
 		s.identity.Close()
 	}

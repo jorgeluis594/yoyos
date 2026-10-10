@@ -66,6 +66,7 @@ func (realClock) After(d time.Duration) <-chan time.Time { return time.After(d) 
 // Controller owns one requested connection; callbacks only describe the current generation.
 type Controller struct {
 	mu            sync.Mutex
+	id            uint64 // identifies this controller to media admissions
 	clock         Clock
 	create        func() (Transport, error)
 	emit          func(Event)
@@ -84,6 +85,7 @@ type Controller struct {
 	qrExpiry      time.Time
 	generation    uint64
 	cancel        context.CancelFunc
+	runCtx        context.Context // ends with the generation's transport run
 	retryCancel   chan struct{}
 	transport     Transport
 	retries       int
@@ -96,7 +98,7 @@ func New(create func() (Transport, error), emit func(Event), clock Clock) *Contr
 	if clock == nil {
 		clock = realClock{}
 	}
-	c := &Controller{create: create, emit: emit, clock: clock, state: Disconnected}
+	c := &Controller{id: controllerSequence.Add(1), create: create, emit: emit, clock: clock, state: Disconnected}
 	c.eventReady = sync.NewCond(&c.eventMu)
 	go c.deliver()
 	return c
@@ -326,7 +328,7 @@ func (c *Controller) startLocked(transport Transport, state State) {
 	c.generation++
 	generation := c.generation
 	ctx, cancel := context.WithCancel(context.Background())
-	c.cancel, c.transport = cancel, transport
+	c.cancel, c.transport, c.runCtx = cancel, transport, ctx
 	c.setState(state)
 	go c.run(ctx, generation, transport)
 }

@@ -284,6 +284,23 @@ func NewDeliveryID(random io.Reader, pending func(string) (bool, error)) (string
 	return "", errors.New("delivery ID collisions exhausted")
 }
 
+// ValidateMessageID accepts only a canonical public message ID.
+func ValidateMessageID(id string) error {
+	const prefix = "wa-message:v1:"
+	if !strings.HasPrefix(id, prefix) {
+		return ErrInvalidIdentity
+	}
+	tuple, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(id, prefix))
+	var parts [3]string
+	if err != nil || json.Unmarshal(tuple, &parts) != nil || !validLID(parts[0]) {
+		return ErrInvalidIdentity
+	}
+	if canonical, err := MessageID(parts[0], parts[1], parts[2]); err != nil || canonical != id {
+		return ErrInvalidIdentity
+	}
+	return nil
+}
+
 // ValidateImageReference enforces the descriptor contract before download.
 func ValidateImageReference(ref ImageReference) error {
 	const prefix = "wa-image:v1:"
@@ -375,8 +392,29 @@ func ValidateImageReference(ref ImageReference) error {
 			return ErrInvalidIdentity
 		}
 	}
-	if descriptor.DirectPath != "" && (!strings.HasPrefix(descriptor.DirectPath, "/") || strings.HasPrefix(descriptor.DirectPath, "//") || strings.ContainsAny(descriptor.DirectPath, "?#") || strings.Contains(descriptor.DirectPath, "://")) {
+	if descriptor.DirectPath != "" && !validDirectPath(descriptor.DirectPath) {
 		return ErrInvalidIdentity
 	}
 	return nil
+}
+
+// validDirectPath accepts the media path as the protocol emits it: absolute, with the query
+// (ccb, oh, oe…) the pinned client appends "&hash=" to. It never accepts a scheme, an authority,
+// a fragment, a dot segment, a backslash or a control character.
+func validDirectPath(path string) bool {
+	if !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") || strings.Contains(path, "#") || strings.Contains(path, "://") || strings.Contains(path, "\\") {
+		return false
+	}
+	for _, r := range path {
+		if r < 0x20 || r == 0x7f || r == ' ' {
+			return false
+		}
+	}
+	location, _, _ := strings.Cut(path, "?")
+	for _, segment := range strings.Split(location, "/") {
+		if segment == ".." || segment == "." {
+			return false
+		}
+	}
+	return true
 }

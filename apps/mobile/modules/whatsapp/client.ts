@@ -22,7 +22,8 @@ const eventSchemas = {
   error: z.object({ code: codeSchema, message: z.string() }).strict(),
 };
 const optionsSchema = z.object({ maxImageStorageBytes: z.number().int().positive().safe().optional(), maxRecoveryBufferBytes: z.number().int().positive().safe().optional() }).strict();
-const imageSchema = z.object({ uri: z.string().min(1), mimeType: z.string().min(1), size: z.number().int().nonnegative() }).strict();
+// A downloaded image is a private file URI plus its verified MIME and size; never bytes or base64.
+const imageSchema = z.object({ uri: z.string().startsWith("file://").max(4096), mimeType: z.string().regex(/^image\/[A-Za-z0-9.+-]+$/), size: z.number().int().positive().safe() }).strict();
 const success = z.object({ success: z.literal(true), data: z.unknown().optional() }).strict();
 const failure = z.object({ success: z.literal(false), error: z.object({ code: codeSchema, message: z.string().optional() }).strict() }).strict();
 const nativeResult = z.union([success, failure]);

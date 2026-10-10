@@ -938,6 +938,9 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     if (existsChecked(file) && (file.isDirectory || !file.delete())) throw StateFailure("STORAGE_FAILED")
   }
 
+  /** Private, persistent and outside backups and caches (it lives under noBackupFilesDir). */
+  fun imagesDirectory(): File = File(directory, "images")
+
   private fun ensureImagesDirectory() {
     val images = File(directory, "images")
     if (!existsChecked(images) && !images.mkdir()) throw StateFailure("STORAGE_FAILED")

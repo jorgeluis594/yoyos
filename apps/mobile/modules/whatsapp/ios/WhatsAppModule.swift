@@ -120,6 +120,24 @@ private final class ConnectionRuntime {
   var delivery: YYWhatsAppGoBridgeDeliverySession?
   var deliveryBudget: Int64 = 0
   var consumerToken: String?
+  var images: YYWhatsAppGoBridgeImageSession?
+  var imageBudget: Int64 = 0
+
+  /// The private image directory and its byte budget exist apart from any session, so complete
+  /// files stay reusable and deletable after disconnect or logout.
+  func ensureImages(writer: NativeStateStore, imageBytes: Int64) -> String? {
+    if let images {
+      if imageBudget == imageBytes { return nil }
+      guard images.setLimit(imageBytes) else { return "INVALID_INPUT" }
+      imageBudget = imageBytes
+      return nil
+    }
+    let result = YYWhatsAppGoBridgeOpenImages(writer.imagesDirectory.path, imageBytes)
+    guard let opened = result?.session, result?.code.isEmpty ?? false else { return bridgeCode(result?.code ?? "") }
+    images = opened
+    imageBudget = imageBytes
+    return nil
+  }
 
   /// Recovery and confirmation need only the container, so this is open even when the session is invalid.
   func ensureDelivery(writer: NativeStateStore, recoveryBytes: Int64) -> String? {
@@ -162,6 +180,7 @@ private final class ConnectionRuntime {
       return bridgeCode(result?.code ?? "")
     }
     session = opened
+    if let images { opened.attachImages(images) }
     eventSink = sink
     if revoked { opened.markRevoked() } // reopened only to log out: never connect to unlink it
     return nil
@@ -193,6 +212,13 @@ private func publicError(_ error: Error) -> String {
   case .sessionLimit: return "SESSION_STORAGE_LIMIT_REACHED"
   case .bufferFull: return "RECOVERY_BUFFER_FULL"
   case .staleGeneration, .revision, .storage: return "SESSION_STORAGE_FAILED"
+  }
+}
+private func imageCode(_ code: String) -> String {
+  switch code {
+  case "INVALID_INPUT", "NOT_INITIALIZED", "IMAGE_UNAVAILABLE", "ACCOUNT_NOT_CONNECTED", "STORAGE_LIMIT_REACHED",
+       "IMAGE_DOWNLOAD_FAILED", "IMAGE_DELETE_FAILED": return code
+  default: return "NATIVE_CALL_FAILED"
   }
 }
 private func failure(_ code: String) -> [String: Any] { ["success": false, "error": ["code": code]] }
@@ -234,6 +260,7 @@ public class WhatsAppModule: Module {
         }
         runtime.prepared = true
         if let code = runtime.ensureDelivery(writer: writer, recoveryBytes: recovery) { return failure(code) }
+        if let code = runtime.ensureImages(writer: writer, imageBytes: image) { return failure(code) }
         if runtime.revoked { return success(["state": "sessionExpired"]) }
         if let code = try runtime.openConnection(snapshot: snapshot) { return failure(code) }
         guard let session = runtime.session else { return failure("NATIVE_CALL_FAILED") }
@@ -323,8 +350,34 @@ public class WhatsAppModule: Module {
       delivery?.removeConsumer(token)
       return success()
     }
-    AsyncFunction("downloadImage") { (_: [String: Any]) -> [String: Any] in failure("NATIVE_CALL_FAILED") }
-    AsyncFunction("deleteDownloadedImage") { (_: String) -> [String: Any] in failure("NATIVE_CALL_FAILED") }
+    // Image calls can block for a whole download (60 s) and may wait in Go's own queue. Expo's default
+    // AsyncFunction queue is one serial queue shared by every function and module, so the closures
+    // below only hop to ImageOperations and return: confirmMessageStored, disconnect and logout never
+    // wait behind a download, and a disconnect cancels the transfer immediately. Admission order,
+    // which Go fixes in beginDownload/beginDelete, follows call order because one serial queue
+    // admits. Go returns the published file path, never its bytes.
+    AsyncFunction("downloadImage") { (reference: [String: Any], promise: Promise) in
+      let runtime = ConnectionRuntime.shared
+      runtime.lock.lock(); let images = runtime.images; runtime.lock.unlock()
+      guard let images else { promise.resolve(failure("NOT_INITIALIZED")); return }
+      guard let messageId = reference["messageId"] as? String, let downloadReference = reference["downloadReference"] as? String else {
+        promise.resolve(failure("INVALID_INPUT")); return
+      }
+      ImageOperations.submit(begin: { images.beginDownload(messageId, downloadReference: downloadReference) }, wait: { operation -> [String: Any] in
+        guard let result = operation?.outcome() else { return failure("NATIVE_CALL_FAILED") }
+        if !result.code.isEmpty { return failure(imageCode(result.code)) }
+        return success(["uri": URL(fileURLWithPath: result.path).absoluteString, "mimeType": result.mimeType, "size": result.size])
+      }, completion: { promise.resolve($0) })
+    }
+    AsyncFunction("deleteDownloadedImage") { (messageId: String, promise: Promise) in
+      let runtime = ConnectionRuntime.shared
+      runtime.lock.lock(); let images = runtime.images; runtime.lock.unlock()
+      guard let images else { promise.resolve(failure("NOT_INITIALIZED")); return }
+      ImageOperations.submit(begin: { images.beginDelete(messageId) }, wait: { operation -> [String: Any] in
+        guard let code = operation?.outcome()?.code else { return failure("NATIVE_CALL_FAILED") }
+        return code.isEmpty ? success() : failure(imageCode(code))
+      }, completion: { promise.resolve($0) })
+    }
 
     AsyncFunction("probe") { (value: String, failCallback: Bool) -> [String: String] in
       guard let result = YYWhatsAppGoBridgeProbe(ProbeStorage(fail: failCallback), value) else {
