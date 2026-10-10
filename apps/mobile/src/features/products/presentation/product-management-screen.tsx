@@ -88,9 +88,11 @@ export default function ProductManagementScreen() {
   const discardVersionRef = useRef(discardVersion);
   const requestKey = `${productId}:${reloadKey}`;
   const loading = loadedKey !== requestKey;
-  const dirty = !!product && !!values && (
-    values.name !== product.name || values.description !== (product.description ?? "") ||
-    (product.variants.length === 1 && (values.sku !== (product.variants[0].sku ?? "") || values.salePrice !== product.variants[0].salePrice.amount.toString() || values.purchasePrice !== (product.variants[0].purchasePrice?.amount.toString() ?? ""))) ||
+  const original = product ? valuesForProduct(product) : null;
+  const singleVariant = product?.variants.length === 1;
+  const dirty = !!product && !!values && !!original && (
+    values.name !== original.name || values.description !== original.description ||
+    (singleVariant && (values.sku !== original.sku || values.salePrice !== original.salePrice || values.purchasePrice !== original.purchasePrice)) ||
     photo.kind === "remove" && !!product.photo || photo.kind === "set" && photo.imageId !== product.photo?.id || photoBusy
   );
   const setDirty = useProductNavigationGuard(dirty);

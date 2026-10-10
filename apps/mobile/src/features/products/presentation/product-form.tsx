@@ -4,12 +4,11 @@ import { SafeAreaView, type Edge } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import type { Currency } from "@shared/money";
 import { Button } from "@mobile/components/ui/button";
-import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@mobile/components/ui/field";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@mobile/components/ui/field";
 import { Input } from "@mobile/components/ui/input";
 import { ThemedText } from "@mobile/components/themed-text";
 import { useTheme } from "@mobile/hooks/use-theme";
 import { products } from "@mobile/features/products/composition";
-import { productMargin } from "@mobile/features/products/domain/product-margin";
 import { ProductPhoto } from "@mobile/features/products/presentation/product-photo";
 import { ProductTopBar } from "@mobile/features/products/presentation/product-top-bar";
 import { QuantityStepper } from "@mobile/features/products/presentation/quantity-stepper";
@@ -21,14 +20,6 @@ export type ProductFormField = keyof ProductFormValues | "form";
 
 // The bottom inset is scrolled content, so the form uses the full height when the tab bar is hidden.
 export const formEdges: readonly Edge[] = ["top", "left", "right"];
-
-const amountPattern = /^\d+(?:\.\d{0,2})?$/;
-
-function marginFor(values: ProductFormValues, currency: Currency) {
-  if (!amountPattern.test(values.salePrice) || !amountPattern.test(values.purchasePrice)) return null;
-  const margin = productMargin({ amount: Number(values.salePrice), currency }, { amount: Number(values.purchasePrice), currency });
-  return margin.success ? margin.data : null;
-}
 
 export function ProductForm({
   title, headerAction, values, setValue, currency, current, photo, onPhotoChange, errors, disabled, photoBusy, onPhotoBusy, onSave, onClose, onReviewCatalog, onCheckStatus, saving, conflict, uncertain,
@@ -61,8 +52,6 @@ export function ProductForm({
   const fieldColumn = [styles.column, fontScale > 1.15 && styles.stacked];
   const locale = i18n.language === 'pt-BR' ? 'pt-BR' : 'es-PE';
   const price = new Intl.NumberFormat(locale, { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const percent = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 });
-  const margin = multiVariant ? null : marginFor(values, currency);
   const card = [styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }];
   return <View style={styles.layout}>
     <ProductTopBar title={title} onClose={onClose} closeDisabled={saving || photoBusy}>
@@ -104,17 +93,6 @@ export function ProductForm({
             {errors.purchasePrice ? <FieldError>{errors.purchasePrice}</FieldError> : null}
           </Field>
         </FieldGroup>
-        {margin ? <View accessible accessibilityLabel={t('marginSummary', { profit: price.format(margin.profit.amount), margin: percent.format(margin.percent) })}
-          style={[styles.margin, { backgroundColor: theme.secondary }]}>
-          <View style={styles.column}>
-            <ThemedText type="small" themeColor="textSecondary">{t('profit')}</ThemedText>
-            <ThemedText type="smallBold" style={[styles.figure, margin.profit.amount < 0 ? { color: theme.error } : null]}>{price.format(margin.profit.amount)}</ThemedText>
-          </View>
-          <View style={styles.column}>
-            <ThemedText type="small" themeColor="textSecondary">{t('margin')}</ThemedText>
-            <ThemedText type="smallBold" style={[styles.figure, margin.percent < 0 ? { color: theme.error } : null]}>{percent.format(margin.percent)} %</ThemedText>
-          </View>
-        </View> : !values.purchasePrice.trim() ? <ThemedText type="small" themeColor="textSecondary">{t('costHint')}</ThemedText> : null}
       </View> : null}
       <View style={card}>
         <ThemedText type="small" accessibilityRole="header" style={styles.cardHeading}>{multiVariant ? t('variants') : t('inventory')}</ThemedText>
@@ -133,7 +111,6 @@ export function ProductForm({
             <FieldLabel>{t('stock')}</FieldLabel>
             <QuantityStepper value={String(current.variants[0]?.stock ?? 0)} onChange={() => {}} disabled
               accessibilityLabel={t('readonlyStock', { count: current.variants[0]?.stock ?? 0 })} decreaseLabel={t('decreaseStock')} increaseLabel={t('increaseStock')} />
-            <FieldDescription>{t('stockLockedHint')}</FieldDescription>
           </Field> : <Field style={fieldColumn} invalid={!!errors.stock} disabled={disabled}>
             <FieldLabel>{t('initialStock')}</FieldLabel>
             <QuantityStepper value={values.stock} onChange={(value) => setValue("stock", value)} disabled={disabled}
@@ -160,7 +137,5 @@ const styles = StyleSheet.create({
   column: { flexGrow: 1, flexBasis: 136, minWidth: 0 },
   stacked: { flexBasis: "100%" },
   amount: { fontVariant: ["tabular-nums"] },
-  margin: { flexDirection: "row", gap: tokens.spacing["3"], borderRadius: tokens.radius.control, paddingHorizontal: tokens.spacing["3"], paddingVertical: tokens.spacing["2"] },
-  figure: { fontSize: tokens.typography.roles.body.size, lineHeight: tokens.typography.roles.body.lineHeight, fontVariant: ["tabular-nums"] },
   variants: { gap: 10 }, variant: { borderWidth: 1, borderRadius: 12, padding: 14, gap: 4 },
 });

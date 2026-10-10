@@ -67,16 +67,6 @@ test('new product form and validation are translated to Portuguese', async () =>
   }
 });
 
-test("shows profit and margin once sale price and cost are valid", () => {
-  render(<CreateProductScreen />);
-  expect(screen.getByText("Agrega el costo para ver tu ganancia y margen.")).toBeTruthy();
-  fireEvent.changeText(screen.getByLabelText(/Precio de venta/), "59.90");
-  fireEvent.changeText(screen.getByLabelText("Costo"), "32");
-  expect(screen.getByLabelText("Ganancia S/ 27.90, margen 46.6 %")).toBeTruthy();
-  fireEvent.changeText(screen.getByLabelText(/Precio de venta/), "");
-  expect(screen.queryByText("Ganancia")).toBeNull();
-});
-
 test("stock stepper adjusts the initial stock sent on creation", async () => {
   mockCreate.mockResolvedValue(ok(productId));
   render(<CreateProductScreen />);

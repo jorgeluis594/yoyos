@@ -11,6 +11,7 @@ import type { AdapterId, PrinterId } from "@mobile/features/printing/domain/prin
 import type { PrintWork } from "@mobile/features/printing/presentation/print-provider";
 
 const mockLoadProduct = jest.fn();
+const mockGuard = jest.fn();
 const mockUpdateProduct = jest.fn();
 const mockStartAttempt = jest.fn();
 const mockPrintProductLabel = jest.fn();
@@ -29,7 +30,7 @@ jest.mock("@mobile/features/products/composition", () => ({
   productPrinting: { printProductLabel: (...args: unknown[]) => mockPrintProductLabel(...args) },
 }));
 jest.mock("@mobile/features/printing/presentation/print-provider", () => ({ usePrint: () => ({ startAttempt: mockStartAttempt }) }));
-jest.mock("@mobile/features/products/presentation/use-product-navigation-guard", () => ({ useProductNavigationGuard: () => jest.fn() }));
+jest.mock("@mobile/features/products/presentation/use-product-navigation-guard", () => ({ useProductNavigationGuard: (dirty: boolean) => { mockGuard(dirty); return jest.fn(); } }));
 jest.mock("@mobile/features/products/presentation/draft-guard", () => ({ useProductDraft: () => ({ discardVersion: 0 }) }));
 jest.mock("@mobile/features/products/presentation/product-photo", () => ({ ProductPhoto: () => null }));
 
@@ -159,11 +160,20 @@ test("a product that fails to load can still be closed without the tab bar", asy
   expect(mockReplace).toHaveBeenCalledWith("/products");
 });
 
-test("editing shows the same inventory stepper as creation, locked with an explanation", async () => {
+test("editing shows the same inventory stepper as creation, locked", async () => {
   mockLoadProduct.mockResolvedValue(ok(product));
   render(<ProductManagementScreen />);
   expect(await screen.findByText("Editar producto")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Sumar uno al stock" }).props.accessibilityState.disabled).toBe(true);
-  expect(screen.getByText("El stock cambia con las ventas y ajustes.")).toBeTruthy();
+  expect(screen.queryByText("El stock cambia con las ventas y ajustes.")).toBeNull();
   expect(screen.queryByLabelText("Copias de la etiqueta")).toBeNull();
+});
+
+test("an untouched product is not dirty, even when its price has no decimals", async () => {
+  mockLoadProduct.mockResolvedValue(ok(product));
+  render(<ProductManagementScreen />);
+  await screen.findByText("Editar producto");
+  expect(mockGuard).toHaveBeenLastCalledWith(false);
+  fireEvent.changeText(screen.getByLabelText("Nombre *"), "Otro nombre");
+  expect(mockGuard).toHaveBeenLastCalledWith(true);
 });
