@@ -4,6 +4,8 @@ Diseño técnico para conectar el módulo `@yoyos/whatsapp` (Go + whatsmeow, Exp
 
 > Estado: **implementado salvo el paso 9** (artefactos de Go, development build y validación en dispositivo). Los pasos 1 a 8 del plan están en la rama `jorgeluis594/process-messages`. La librería sigue sin ejecutarse en dispositivo ni contra WhatsApp real (`apps/mobile/modules/whatsapp/README.md`, *Status*).
 >
+> Paso 9, avance (2026-10-10): `scripts/build-go.sh android` genera `WhatsAppGo.aar` con Go 1.26.5 y NDK 27.1.12297006. El módulo Kotlin compila contra ese AAR (`:yoyos-whatsapp:compileDebugKotlin`) y pasan sus 11 pruebas JVM (`:yoyos-whatsapp:testDebugUnitTest`). El APK completo no se pudo armar porque falta `BrotherPrintLibrary.aar` del módulo `brother-printer`, ajeno a esta feature. Falta iOS (`build-go.sh ios`, Xcode) y la validación en dispositivo con una cuenta real.
+>
 > Resolución de A1: se aceptó la recomendación. Core admite `timestamp` opcional y `sentAt` nulo solo en filas móviles (migración `allow_unknown_mobile_message_date`, restricción `ChatMessage_sentAt_required_outside_mobile_check`). Por eso el estado `held_unknown_date` no existe en el móvil: un mensaje sin fecha se envía sin `timestamp`.
 >
 > Desviaciones respecto al diseño: `toRegisterRequest` vive en `infrastructure/message-api.ts` (el dominio no depende de DTOs de transporte); `whatsapp_messages` tiene una columna `rejected_at`; UC-08 no tiene caso de uso propio (las pantallas leen de `MessageStore`); `LinkStore.start` recibe el identificador de un generador inyectado.
