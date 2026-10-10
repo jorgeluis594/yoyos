@@ -111,9 +111,15 @@ func (p *Processor) Run(ctx context.Context) {
 
 // Drain processes the captured notifications of the account oldest first, stopping at the
 // first one that could not finish: it stays captured and is retried by the next trigger.
+// Captures left by another account are retired first (RetireCaptures): they cannot be completed
+// without that account's credentials and would hold the recovery budget for good.
 func (p *Processor) Drain(ctx context.Context) error {
 	p.run.Lock()
 	defer p.run.Unlock()
+	if err := p.retireForeign(); err != nil {
+		p.fail(err)
+		return err
+	}
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -130,6 +136,17 @@ func (p *Processor) Drain(ctx context.Context) error {
 			return err
 		}
 	}
+}
+
+// retireForeign drops the captures of every account but the current one. Without a known
+// account nothing is retired: a capture is never judged against an unlinked session.
+func (p *Processor) retireForeign() error {
+	current := p.account()
+	if current == "" {
+		return nil
+	}
+	_, err := RetireCaptures(p.ledger, p.capacity, func(account string) bool { return account != current })
+	return err
 }
 
 func (p *Processor) next() (protocolstore.PendingRecord, bool, error) {
@@ -339,4 +356,34 @@ func decodeCapture(capture protocolstore.PendingRecord) (*waE2E.HistorySyncNotif
 // carried it: the same remote batch announced again is recognized as already admitted.
 func markerOf(account string, notification *waE2E.HistorySyncNotification) [32]byte {
 	return protocolstore.HistoryMarker(account, notification)
+}
+
+// RetireCaptures retires the captured history notifications whose account is selected and returns
+// how many it removed. It is the only exit for a capture that can no longer be processed: the
+// download needs the account's connection and the batch its store, both gone after a logout or an
+// account change. Entries are matched by their own account, so captures of other accounts and
+// every real message, whatever its account, are never touched. A capture that cannot be retired
+// stays captured and the error is returned; the next pass tries again.
+func RetireCaptures(ledger Ledger, capacity Capacity, selected func(account string) bool) (int, error) {
+	pending, err := ledger.Pending()
+	if err != nil {
+		return 0, err
+	}
+	retired := 0
+	for _, record := range pending {
+		if !protocolstore.IsHistoryNotification(record.PendingInsert) || !selected(record.AccountID) {
+			continue
+		}
+		removed, err := ledger.Retire(record.DeliveryID)
+		if err != nil {
+			return retired, err
+		}
+		if removed {
+			retired++
+		}
+	}
+	if retired > 0 && capacity != nil {
+		capacity.CapacityFreed()
+	}
+	return retired, nil
 }

@@ -26,6 +26,7 @@ type linkStorage struct {
 	sessionRev uint64
 	records    map[string]protocolstate.Record
 	pending    []protocolstore.PendingRecord
+	realRetire bool // RetirePending removes the entry; earlier tests rely on the inert stub
 }
 
 func okJSON(data any) string {
@@ -93,8 +94,36 @@ func (s *linkStorage) ReadPending(string) (string, error) {
 	defer s.mu.Unlock()
 	return okJSON(map[string]any{"revision": fmt.Sprint(s.revision), "pending": append([]protocolstore.PendingRecord{}, s.pending...)}), nil
 }
-func (s *linkStorage) RetirePending(string) (string, error) {
-	return okJSON(map[string]any{"revision": "1", "removed": false}), nil
+func (s *linkStorage) RetirePending(request string) (string, error) {
+	var in struct {
+		DeliveryID string `json:"deliveryId"`
+	}
+	_ = json.Unmarshal([]byte(request), &in)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.realRetire {
+		return okJSON(map[string]any{"revision": "1", "removed": false}), nil
+	}
+	removed := false
+	for i, p := range s.pending {
+		if p.DeliveryID == in.DeliveryID {
+			s.pending = append(s.pending[:i:i], s.pending[i+1:]...)
+			s.revision++
+			removed = true
+			break
+		}
+	}
+	return okJSON(map[string]any{"revision": fmt.Sprint(s.revision), "removed": removed}), nil
+}
+func (s *linkStorage) has(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, p := range s.pending {
+		if p.DeliveryID == id {
+			return true
+		}
+	}
+	return false
 }
 func (s *linkStorage) state(i int) string {
 	s.mu.Lock()

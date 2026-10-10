@@ -251,6 +251,9 @@ func (s *ConnectionSession) Logout() string {
 		return "NOT_INITIALIZED"
 	}
 	result := s.controller.Logout(s.resolveBeforeLogout)
+	if result.Err == nil {
+		s.retireHistoryCaptures()
+	}
 	switch {
 	case result.Err != nil:
 		return publicCode(result.Err)
@@ -258,6 +261,18 @@ func (s *ConnectionSession) Logout() string {
 		return "REMOTE_LOGOUT_UNCONFIRMED"
 	}
 	return ""
+}
+
+// retireHistoryCaptures drops the history captures of the account being unlinked. The credentials
+// that could process them go with the session, so they would hold the recovery budget forever.
+// Failing to retire is not a logout failure: the next session purges every capture that is not its
+// own account's (history.Processor.Drain). Real messages are never touched.
+func (s *ConnectionSession) retireHistoryCaptures() {
+	account := s.account()
+	if s.delivery == nil || account == "" {
+		return
+	}
+	_, _ = history.RetireCaptures(s.delivery.ledger, s.delivery.coordinator, func(owner string) bool { return owner == account })
 }
 
 // MarkRevoked tells a session reopened only to log out that the server already revoked it, so

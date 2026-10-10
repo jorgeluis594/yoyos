@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	"go.mau.fi/whatsmeow/types"
 	"yoyos-whatsapp/internal/connection"
 	"yoyos-whatsapp/internal/protocolstate"
+	"yoyos-whatsapp/internal/protocolstore"
 )
 
 // pairedSession opens a first-link session whose pairing is stored, with two pending entries
@@ -229,4 +231,59 @@ func TestM4KnownRevocationDoesNotConnectToUnlinkButStillResolvesMappings(t *test
 		t.Fatal("mappings were not completed")
 	}
 	(*ConnectionSession)(nil).MarkRevoked()
+}
+
+// historyCapture is the pending entry that a history notification leaves behind: nobody delivers
+// it and only a session of its own account can process it.
+func historyCapture(t *testing.T, id int, owner string) protocolstore.PendingRecord {
+	t.Helper()
+	record := pendingEntry(t, id, "ignored")
+	record.AccountID, record.Source, record.IdentityState = owner, "history", "pendingLid"
+	record.Recovery.Items = []protocolstore.RecoveryItem{{Format: "history", PlaintextBase64: "AA=="}}
+	record.Recovery.MessageInfoJSON = fmt.Sprintf(`{"version":1,"accountId":%q,"id":"h%d","chat":"555@lid","sender":"555@lid","timestampSeconds":100,"messageType":%q}`, owner, id, protocolstore.HistoryNotificationType)
+	return record
+}
+
+// WA-11 (debt of WA-08, deferred by WA-09): logging out retires the history captures of the
+// account being unlinked, since its credentials go with the session; the captures of any other
+// account and every real message keep their entry.
+func TestWA11LogoutRetiresOnlyTheLoggedOutAccountsHistoryCaptures(t *testing.T) {
+	session, native, _, _ := pairedSession(t)
+	native.mu.Lock()
+	native.realRetire = true
+	native.pending = append(native.pending, historyCapture(t, 7, "123@lid"), historyCapture(t, 8, "999@lid"))
+	native.mu.Unlock()
+
+	if code := session.Logout(); code != "REMOTE_LOGOUT_UNCONFIRMED" {
+		t.Fatalf("logout returned %q", code)
+	}
+	if native.has(deliveryID(7)) {
+		t.Fatal("the logged-out account's capture must be retired: it can never be processed again")
+	}
+	if !native.has(deliveryID(8)) {
+		t.Fatal("another account's capture is not this session's to retire at logout")
+	}
+	if !native.has(deliveryID(1)) || !native.has(deliveryID(2)) {
+		t.Fatal("real messages keep their entry and their account")
+	}
+	// A repeated logout is a local success that retires nothing more.
+	if code := session.Logout(); code != "" {
+		t.Fatalf("repeat: %q", code)
+	}
+}
+
+// A confirmed remote unlink retires the captures too, not only the unconfirmed one.
+func TestWA11ConfirmedLogoutRetiresTheCaptures(t *testing.T) {
+	session, native, _, _ := pairedSession(t)
+	session.controller.SetUnlinkTransport(func() (connection.Transport, error) { return &offlineUnlink{confirm: true}, nil })
+	native.mu.Lock()
+	native.realRetire = true
+	native.pending = append(native.pending, historyCapture(t, 7, "123@lid"))
+	native.mu.Unlock()
+	if code := session.Logout(); code != "" {
+		t.Fatalf("logout returned %q", code)
+	}
+	if native.has(deliveryID(7)) {
+		t.Fatal("capture kept after a confirmed logout")
+	}
 }
