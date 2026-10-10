@@ -67,33 +67,37 @@ func (realClock) After(d time.Duration) <-chan time.Time { return time.After(d) 
 
 // Controller owns one requested connection; callbacks only describe the current generation.
 type Controller struct {
-	mu            sync.Mutex
-	id            uint64 // identifies this controller to media admissions
-	clock         Clock
-	create        func() (Transport, error)
-	emit          func(Event)
-	eventMu       sync.Mutex
-	eventReady    *sync.Cond
-	pendingEvents []Event
-	closed        bool
-	prepared      bool
-	paired        bool
-	requested     bool
-	paused        bool
-	expired       bool
-	localFault    Code
-	state         State
-	qr            Event
-	qrExpiry      time.Time
-	generation    uint64
-	cancel        context.CancelFunc
-	runCtx        context.Context // ends with the generation's transport run
-	retryCancel   chan struct{}
-	transport     Transport
-	retries       int
-	logout        *logoutCall               // the unlink in flight; admissions wait for it
-	unlinkCreate  func() (Transport, error) // builds a connection used only to unlink
-	loggedOut     bool                      // this session's credentials were handed to native retirement
+	mu              sync.Mutex
+	id              uint64 // identifies this controller to media admissions
+	clock           Clock
+	create          func() (Transport, error)
+	emit            func(Event)
+	eventMu         sync.Mutex
+	eventReady      *sync.Cond
+	pendingEvents   []Event
+	closed          bool
+	prepared        bool
+	paired          bool
+	requested       bool
+	paused          bool
+	suspended       bool // the process was suspended with a connection requested; Resume owes one attempt
+	suspendedPaused bool // that request was waiting for recovery capacity when it was suspended
+	capacityFreed   bool // capacity came back while suspended; Resume starts the attempt it deferred
+	resuming        bool // Resume is building its attempt; a Suspend in that window cancels it
+	expired         bool
+	localFault      Code
+	state           State
+	qr              Event
+	qrExpiry        time.Time
+	generation      uint64
+	cancel          context.CancelFunc
+	runCtx          context.Context // ends with the generation's transport run
+	retryCancel     chan struct{}
+	transport       Transport
+	retries         int
+	logout          *logoutCall               // the unlink in flight; admissions wait for it
+	unlinkCreate    func() (Transport, error) // builds a connection used only to unlink
+	loggedOut       bool                      // this session's credentials were handed to native retirement
 }
 
 func New(create func() (Transport, error), emit func(Event), clock Clock) *Controller {
@@ -157,6 +161,14 @@ func (c *Controller) CanUpdateOptions() bool {
 	defer c.mu.Unlock()
 	return !c.requested && !c.expired && c.state == Disconnected
 }
+// RequestActive reports whether a connection is still requested. It stays true while a capacity pause or a
+// retry is pending (a `disconnected` that Go resumes by itself) and is false once the request really ended:
+// Disconnect, logout, a local fault, revocation, or a failure with nothing left to retry.
+func (c *Controller) RequestActive() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.requested
+}
 func (c *Controller) CurrentQR() (Event, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -202,6 +214,7 @@ func (c *Controller) Connect() Code {
 		return ConnectionFailed
 	}
 	c.requested = true
+	c.suspended, c.resuming = false, false // an explicit request replaces the one a suspension held, and a Resume still building
 	c.retries = 0
 	c.startLocked(transport, Connecting)
 	return ""
@@ -270,6 +283,11 @@ func (c *Controller) pauseForCapacityLocked() {
 }
 func (c *Controller) ResumeCapacity() {
 	c.mu.Lock()
+	if c.suspended && c.suspendedPaused {
+		c.capacityFreed = true // Resume starts it; nothing connects while suspended
+		c.mu.Unlock()
+		return
+	}
 	if !c.paused || !c.requested || c.localFault != "" || c.expired {
 		c.mu.Unlock()
 		return
@@ -282,14 +300,23 @@ func (c *Controller) ResumeCapacity() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.generation != generation || !c.requested || c.localFault != "" || c.expired {
+		discardUnused(transport)
 		return // stopped or replaced while the attempt was being built
 	}
 	if err != nil {
-		c.requested = false
-		c.publish(Event{Error: ConnectionFailed})
+		c.endRequestLocked(ConnectionFailed)
 		return
 	}
 	c.startLocked(transport, Reconnecting)
+}
+// endRequestLocked is how a request ends on its own (no retry left, or a rebuild failed). `requested` is
+// cleared before the error and the state are published, and the error is published even when the state was
+// already Disconnected (a capacity pause), so a consumer reading RequestActive on either event sees the end.
+func (c *Controller) endRequestLocked(code Code) {
+	c.requested = false
+	c.paused = false
+	c.publish(Event{Error: code})
+	c.setState(Disconnected)
 }
 func (c *Controller) retireLocked() {
 	if transport := c.detachLocked(); transport != nil {
@@ -301,6 +328,7 @@ func (c *Controller) retireLocked() {
 func (c *Controller) detachLocked() Transport {
 	c.requested = false
 	c.paused = false
+	c.suspended, c.suspendedPaused, c.capacityFreed, c.resuming = false, false, false, false
 	c.generation++
 	if c.retryCancel != nil {
 		close(c.retryCancel)
@@ -471,12 +499,11 @@ func (c *Controller) finish(generation uint64, code Code, retry bool) {
 	}
 	c.qr = Event{}
 	c.qrExpiry = time.Time{}
-	c.publish(Event{Error: code})
 	if !retry || !c.paired {
-		c.requested = false
-		c.setState(Disconnected)
+		c.endRequestLocked(code)
 		return
 	}
+	c.publish(Event{Error: code})
 	c.generation++
 	next := c.generation
 	c.setState(Reconnecting)
@@ -510,9 +537,7 @@ func (c *Controller) finish(generation uint64, code Code, retry bool) {
 			c.retryCancel = nil
 			transport, err := c.create()
 			if err != nil {
-				c.requested = false
-				c.publish(Event{Error: ConnectionFailed})
-				c.setState(Disconnected)
+				c.endRequestLocked(ConnectionFailed)
 				c.mu.Unlock()
 				return
 			}

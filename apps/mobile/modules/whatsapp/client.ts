@@ -9,9 +9,13 @@ const codeSchema = z.enum(codes);
 const states = z.enum(["disconnected", "connecting", "awaitingQr", "connected", "reconnecting", "sessionExpired"]);
 const messageId = z.string().regex(/^wa-message:v1:[A-Za-z0-9_-]+$/);
 const imageReference = z.object({ messageId, downloadReference: z.string().max(16384).regex(/^wa-image:v1:[A-Za-z0-9_-]+$/) }).strict();
+// Unix milliseconds, or absent/null when WhatsApp's own time was missing or invalid (decision 2026-10-10, IT-MSG-07).
+// Native omits the key; null is accepted and normalized away so the consumer sees only "number or absent". A present
+// value is a real date (> 0): 0 is never an "unknown" marker and would read as 1970.
+const unknownDate = z.number().int().positive().safe().nullish().transform((value) => value ?? undefined);
 const message = z.object({
   id: messageId, accountId: z.string().regex(/^[0-9]+@lid$/), whatsappMessageId: z.string().min(1), chatId: z.string().regex(/^[0-9]+@lid$/),
-  direction: z.enum(["incoming", "outgoing"]), timestamp: z.number().int().nonnegative().safe(), text: z.string().optional(),
+  direction: z.enum(["incoming", "outgoing"]), timestamp: unknownDate, text: z.string().optional(),
   image: z.object({ mimeType: z.string().min(1).optional(), size: z.number().int().nonnegative().optional(), reference: imageReference }).strict().optional(),
 }).strict();
 const eventSchemas = {

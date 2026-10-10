@@ -17,7 +17,11 @@ import java.io.File
 import org.json.JSONArray
 import android.content.Context
 import org.json.JSONObject
+import android.content.Intent
+import android.os.Build
 import java.util.UUID
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 
 internal fun openProtocolSession(
   writer: NativeStateStore, generationId: String, accountId: String,
@@ -36,7 +40,7 @@ internal fun openProtocolSession(
   return result.session
 }
 
-private class PublicConnectionEvents(private val forward: (String, Map<String, Any?>) -> Unit) : ConnectionEvents {
+internal class PublicConnectionEvents(private val forward: (String, Map<String, Any?>) -> Unit) : ConnectionEvents {
   private var active = true
   private var revoked = false
   override fun onConnectionEvent(value: String) {
@@ -81,7 +85,7 @@ private class PublicDeliveryEvents(private val forward: () -> ((String, Map<Stri
   }
 }
 
-private object ConnectionRuntime {
+internal object ConnectionRuntime {
   val lock = Any()
   var writer: NativeStateStore? = null
   var session: ConnectionSession? = null
@@ -148,8 +152,9 @@ private object ConnectionRuntime {
   /** forLogout opens the stored session without network even after disconnect or revocation. */
   fun openConnection(context: Context, snapshot: JSONObject, forLogout: Boolean = false): String? {
     if (revoked && !forLogout) return "SESSION_EXPIRED"
+    appContext = context.applicationContext
     val store = writer ?: NativeStateStore(context).also { writer = it }
-    if (snapshot.optJSONObject("session") != null && !store.canRestoreSession()) { stop(); return "SESSION_STATE_INVALID" }
+    if (snapshot.optJSONObject("session") != null && !store.canRestoreSession()) { stopAndRetire(); return "SESSION_STATE_INVALID" }
     if (session != null) return null
     val account = snapshot.optJSONObject("session")?.getString("accountId") ?: ""
     val generation = UUID.randomUUID().toString()
@@ -157,7 +162,11 @@ private object ConnectionRuntime {
     val recovery = limits.getLong("maxRecoveryBufferBytes")
     try {
       if (account.isEmpty()) store.registerFreshGeneration(generation) else store.registerGeneration(generation, account)
-      val sink = PublicConnectionEvents { event, fields -> emit?.invoke(event, fields) }
+      lateinit var sink: PublicConnectionEvents
+      sink = PublicConnectionEvents { event, fields ->
+        emit?.invoke(event, fields)
+        observeConnectionEvent(sink, event, fields)
+      }
       val result = Bridge.openConnectionWithDelivery(object : ProtocolStorage {
         override fun readState(request: String): String = store.readProtocolState(request)
         override fun applyChanges(request: String): String = store.applyProtocolChanges(request)
@@ -177,6 +186,156 @@ private object ConnectionRuntime {
       store.retireGeneration()
       return publicError(error)
     }
+  }
+
+  // ---- Android receive service (WA-12) ------------------------------------------------------------
+
+  @Volatile var appContext: Context? = null
+  /** A withdrawal that could not be saved: it is retried before any new start and never reported as persisted. */
+  var intentRetirementPending = false
+  private val background = Executors.newSingleThreadExecutor { Thread(it, "whatsapp-service-work").also { thread -> thread.isDaemon = true } }
+
+  /**
+   * Starts the foreground service from the caller's (allowed) context. A synchronous refusal, such as
+   * ForegroundServiceStartNotAllowedException, is returned before `connect()` accepts anything. It never
+   * asks for permissions and never retries with another service type.
+   */
+  fun startService(context: Context): String? = try {
+    val intent = Intent(context, WhatsAppService::class.java).setAction(ReceiveServicePolicy.ACTION_START)
+    // Count the start and raise the flag under the same lock the service's onDestroy takes to decide whether
+    // it may clear the flag, so the check and the clear cannot interleave with a newer start (WA-12 r2).
+    synchronized(serviceFlagLock) { pendingStarts.incrementAndGet(); serviceActive = true }
+    if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
+    null
+  } catch (_: Exception) { synchronized(serviceFlagLock) { pendingStarts.decrementAndGet(); serviceActive = false }; "CONNECTION_FAILED" }
+
+  /** Guards the pair (`pendingStarts`, `serviceActive`) against the check-then-set of an old instance's onDestroy. */
+  val serviceFlagLock = Any()
+
+  /**
+   * START requests not yet seen by a service instance. An old instance's onDestroy must not clear
+   * `serviceActive` while a newer start is on its way (disconnect, then connect, then the old destroy).
+   */
+  val pendingStarts = AtomicInteger(0)
+
+  /** True from a successful start request until the service is destroyed (set by the service itself). */
+  @Volatile var serviceActive = false
+
+  /**
+   * Asks the service to stop itself. Context.stopService right after startForegroundService could bring the
+   * service down before startForeground and crash the app (see ReceiveServicePolicy.ACTION_STOP); the service
+   * receives ACTION_STOP, promotes if it still has to, and then calls stopSelfResult(startId).
+   */
+  fun stopService(context: Context) {
+    if (!serviceActive) return
+    try {
+      val intent = Intent(context, WhatsAppService::class.java).setAction(ReceiveServicePolicy.ACTION_STOP)
+      if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
+    } catch (_: Exception) {
+      // A running, already promoted service can still be stopped directly; a refused start never ran.
+      try { context.stopService(Intent(context, WhatsAppService::class.java)) } catch (_: Exception) { /* nothing left to stop */ }
+    }
+  }
+
+  /** Durably withdraws the intent. Callers hold the runtime lock, so a recreation can never see a stale `true`. */
+  fun withdrawIntent(): String? {
+    val store = writer ?: return if (intentRetirementPending) "SESSION_STORAGE_FAILED" else null
+    return try {
+      store.withdrawReceiveIntent()
+      intentRetirementPending = false
+      null
+    } catch (error: Exception) {
+      intentRetirementPending = true
+      publicError(error)
+    }
+  }
+
+  /** Withdraws the intent and stops the service; the Go session is left to the caller. */
+  fun retireIntent(): String? {
+    val code = withdrawIntent()
+    appContext?.let { stopService(it) }
+    return code
+  }
+
+  /**
+   * Execution stops even when saving the withdrawal fails; the returned storage code tells the caller
+   * not to claim that the intent is persisted.
+   */
+  fun stopAndRetire(): String? {
+    val code = retireIntent()
+    stop()
+    return code
+  }
+
+  /** Arms reception only for a usable stored session. A failed save stops everything. */
+  fun armIntent(store: NativeStateStore, snapshot: JSONObject): String? {
+    val account = snapshot.optJSONObject("session")?.getString("accountId")
+    if (!ReceiveServicePolicy.mayArmIntent(account, store.canRestoreSession(), revoked)) return null
+    return try { store.armReceiveIntent(account!!); null } catch (error: Exception) { publicError(error) }
+  }
+
+  /** The service was refused after `connect()` accepted: error, disconnected, intent withdrawn, data kept. */
+  fun serviceRefused() {
+    // The service is stopping itself (stopSelf): a STOP request now would start a fresh instance and loop.
+    serviceActive = false
+    synchronized(lock) {
+      val hadSession = session != null // stop() announces `disconnected` itself in that case
+      val code = stopAndRetire()
+      emit?.invoke("error", mapOf("code" to (code ?: "CONNECTION_FAILED"), "message" to "WhatsApp connection failed"))
+      if (!hadSession) emit?.invoke("connectionChanged", mapOf("state" to "disconnected"))
+    }
+  }
+
+  /** Called on Go's thread: nothing here may take the runtime lock inline. */
+  private fun observeConnectionEvent(sink: PublicConnectionEvents, event: String, fields: Map<String, Any?>) {
+    val revokedNow = event == "connectionChanged" && fields["state"] == "sessionExpired"
+    val fault = event == "error" && ReceiveServicePolicy.isLocalFault(fields["code"] as? String ?: "")
+    // Our own stops retire the sink first, so a `disconnected` seen here comes from Go. It may be a capacity
+    // pause or a retry that Go resumes by itself (request still held): that keeps the service and the intent.
+    val effect = ReceiveServicePolicy.eventEffect(event, fields["state"] as? String, fields["code"] as? String)
+    if (!revokedNow && !fault && effect == ReceiveServicePolicy.EventEffect.NONE) return
+    background.execute {
+      synchronized(lock) {
+        if (eventSink !== sink) return@synchronized
+        // Settled under the lock, after Go set `requested` (it does so before publishing the state).
+        val finished = revokedNow || fault || ReceiveServicePolicy.endsRequest(session?.requestActive() ?: false)
+        if (!finished) return@synchronized
+        if (revokedNow) revoked = true
+        // A revoked session, a local fault or an ended request is not retried by START_STICKY; credentials stay.
+        retireIntent()
+      }
+    }
+  }
+
+  /**
+   * Runs on the service worker after promotion, with no JavaScript. Returns true only while one valid
+   * generation runs. The decision, the intent read and the start share one lock hold, so a concurrent
+   * `disconnect()`/`logout()` either withdraws first (this stops) or stops what this started.
+   */
+  fun restoreFromService(context: Context): Boolean = synchronized(lock) {
+    try {
+      appContext = context.applicationContext
+      val store = writer ?: NativeStateStore(context).also { writer = it }
+      if (intentRetirementPending && withdrawIntent() != null) return false
+      val snapshot = store.open()
+      val account = snapshot.optJSONObject("session")?.getString("accountId")
+      val decision = ReceiveServicePolicy.decideRestore(store.receiveIntent(), account, store.canRestoreSession(), revoked)
+      if (decision is RestoreDecision.Stop) {
+        if (decision.retireIntent) withdrawIntent()
+        return false
+      }
+      val options = snapshot.getJSONObject("options")
+      // An already open session (initialize() got there first) is adopted, never duplicated, but it was
+      // opened without a connection request: connect() below is idempotent (Controller.Connect keeps one
+      // request), so recreation always ends with reception running or with the service stopped.
+      if (ensureDelivery(store, options.getLong("maxRecoveryBufferBytes")) != null ||
+        ensureImages(store, options.getLong("maxImageStorageBytes")) != null ||
+        openConnection(context, snapshot) != null) { stopAndRetire(); return false }
+      // No consumer is attached here: pending messages stay paused until JavaScript sets one.
+      val code = session?.connect() ?: "NOT_INITIALIZED"
+      if (code.isNotEmpty()) { stopAndRetire(); return false }
+      true
+    } catch (_: Exception) { stopAndRetire(); false }
   }
 
   fun stop() {
@@ -245,7 +404,7 @@ class WhatsAppModule : Module() {
             if (ConnectionRuntime.revoked) return@run failure("INVALID_INPUT")
             if (ConnectionRuntime.session?.canUpdateOptions() == false) return@run failure("INVALID_INPUT")
             mutated = true // from here a failure may already have published: never report it as a refusal
-            ConnectionRuntime.stop()
+            ConnectionRuntime.stopAndRetire()?.let { return@run failure(it) }
             writer.updateOptions(recovery, image)
             snapshot = writer.open()
           }
@@ -261,7 +420,7 @@ class WhatsAppModule : Module() {
             state["qr"] = mapOf("value" to value.getString("value"), "expiresAt" to value.getLong("expiresAt"))
           }
           success(state)
-        } catch (error: Exception) { ConnectionRuntime.stop(); failure(publicError(error)) }
+        } catch (error: Exception) { ConnectionRuntime.stopAndRetire(); failure(publicError(error)) }
         }
         limit = ConnectionRuntime.pendingImageLimit
         ConnectionRuntime.pendingImageLimit = null
@@ -288,17 +447,26 @@ class WhatsAppModule : Module() {
         try {
           val context = appContext.reactContext ?: return@synchronized failure("MODULE_UNAVAILABLE")
           val writer = ConnectionRuntime.writer ?: return@synchronized failure("NOT_INITIALIZED")
-          ConnectionRuntime.openConnection(context, writer.open())?.let { return@synchronized failure(it) }
+          if (ConnectionRuntime.revoked) return@synchronized failure("SESSION_EXPIRED")
+          // Promotion comes first: the service publishes its notification before Go or storage load.
+          // A refusal here is a failed Result and leaves no intent, no data change and no retry.
+          ConnectionRuntime.startService(context)?.let { return@synchronized failure(it) }
+          if (ConnectionRuntime.intentRetirementPending) ConnectionRuntime.withdrawIntent()?.let { ConnectionRuntime.stopService(context); return@synchronized failure(it) }
+          val snapshot = writer.open()
+          ConnectionRuntime.openConnection(context, snapshot)?.let { ConnectionRuntime.retireIntent(); return@synchronized failure(it) }
+          ConnectionRuntime.armIntent(writer, snapshot)?.let { code -> ConnectionRuntime.stopAndRetire(); return@synchronized failure(code) }
           val code = ConnectionRuntime.session?.connect() ?: "NOT_INITIALIZED"
-          if (code.isEmpty()) success() else failure(code)
-        } catch (error: Exception) { ConnectionRuntime.stop(); failure(publicError(error)) }
+          if (code.isEmpty()) success() else { ConnectionRuntime.retireIntent(); failure(code) }
+        } catch (error: Exception) { ConnectionRuntime.stopAndRetire(); failure(publicError(error)) }
       }
     }
 
     AsyncFunction("disconnect") {
       synchronized(ConnectionRuntime.lock) {
         if (!ConnectionRuntime.prepared) failure("NOT_INITIALIZED") else {
-          try { ConnectionRuntime.stop(); success() } catch (error: Exception) { failure(publicError(error)) }
+          // The durable withdrawal comes before success; if saving fails, execution still stops and the
+          // storage error is returned instead of claiming the intent was persisted.
+          try { ConnectionRuntime.stopAndRetire()?.let { failure(it) } ?: success() } catch (error: Exception) { failure(publicError(error)) }
         }
       }
     }
@@ -308,6 +476,8 @@ class WhatsAppModule : Module() {
         if (!ConnectionRuntime.prepared) failure("NOT_INITIALIZED") else {
           try {
             val writer = ConnectionRuntime.writer ?: return@synchronized failure("NOT_INITIALIZED")
+            // The intent is withdrawn before any unlink attempt; credentials stay when saving it fails.
+            ConnectionRuntime.retireIntent()?.let { code -> ConnectionRuntime.stop(); return@synchronized failure(code) }
             // After disconnect or revocation there is no Go session: open the stored one (no network)
             // so its verifiable mappings are completed before the credentials go. Unreadable credentials
             // (SESSION_STATE_INVALID) cannot be resolved and still allow retirement; any other failure keeps them.
