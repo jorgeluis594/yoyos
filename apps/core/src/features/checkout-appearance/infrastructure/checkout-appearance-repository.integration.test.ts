@@ -58,7 +58,7 @@ describe("loadCheckoutAppearance", () => {
 
   test("logs the invalid fields and returns INVALID_STORED_DATA for a corrupt row", async () => {
     await withCompanies(async (a) => {
-      const error = vi.spyOn(log, "error");
+      const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
       await withTenantIsolation(a.id, async () => {
         // The enum column cannot hold a retired catalog value, so the adapter's read is replaced with one.
         vi.spyOn(prisma.companyCheckoutAppearance, "findUnique").mockResolvedValueOnce(
@@ -138,7 +138,7 @@ describe("persistCheckoutAppearance", () => {
   });
 
   test("logs and returns PERSISTENCE_UNAVAILABLE when the database fails", async () => {
-    const error = vi.spyOn(log, "error");
+    const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
     const malformed = "not-a-uuid" as CompanyId;
     await withTenantIsolation(randomUUID(), async () => {
       expect(await persistCheckoutAppearance(malformed, appearance(null))).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
