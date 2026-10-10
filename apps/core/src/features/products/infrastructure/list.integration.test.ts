@@ -2,10 +2,9 @@ import { randomUUID } from "node:crypto";
 import { expect, test } from "vitest";
 import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { listProducts as listWith, type ListInput } from "@core/src/features/products/application/list";
-import { ok } from "@shared/functional";
 import { productRepository } from "@core/src/features/products/infrastructure/repository";
 
-const listProducts = (input: ListInput) => listWith(input, { repository: productRepository, resolveImage: async () => ok(null) });
+const listProducts = (input: ListInput) => listWith(input, { repository: productRepository });
 
 test("catalog searches distinct products and summarizes all variants within the company", async () => {
   const companyA = randomUUID();
