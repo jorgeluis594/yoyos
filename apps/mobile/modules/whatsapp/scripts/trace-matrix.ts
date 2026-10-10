@@ -383,7 +383,7 @@ function classify(item: CatalogCase, evidence: Evidence[], gap: string | undefin
   const behavioral = passed.filter((entry) => !SOURCE_TEST.test(entry.file));
   const nativeText = NATIVE_TEXT.test(item.title) || /^IT-(AND|IOS|BLD)-/.test(item.id);
   if (failed.length > 0) return { status: "falla", reason: `${failed.length} prueba(s) fallan` };
-  if (named.length === 0) return { status: "no implementado", reason: evidence.length > 0 ? "solo menciones sin prueba" : "ninguna prueba lo cita ni lo enlaza" };
+  if (named.length === 0) return { status: "no implementado", reason: gap ?? (evidence.length > 0 ? "solo menciones sin prueba" : "ninguna prueba lo cita ni lo enlaza") };
   if (passed.length === 0) {
     if (native.length > 0) return { status: "no ejecutado-nativo", reason: "solo código Kotlin/Swift sin ejecutar" };
     const unrun = controlled.length;

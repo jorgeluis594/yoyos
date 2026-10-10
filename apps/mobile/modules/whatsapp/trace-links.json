@@ -112,6 +112,18 @@
    "test": "testInvalidStateDoesNotAdvancePublishedRevision"
   },
   {
+   "id": "IT-BLD-02",
+   "file": "scripts/test-build-go-cleanup.sh",
+   "test": "test-build-go-cleanup.sh",
+   "note": "con un go falso, android/ios/all fallan sin construir; no prueba que Android no requiera Xcode ni que all no omita plataformas"
+  },
+  {
+   "id": "IT-BLD-04",
+   "file": "scripts/test-build-go-cleanup.sh",
+   "test": "test-build-go-cleanup.sh",
+   "note": "un fallo borra AAR, XCFramework y build-info.txt; la parte de build.gradle/podspec que aborta sin artefacto no tiene prueba"
+  },
+  {
    "id": "IT-BRG-01",
    "file": "android/src/androidTest/java/expo/modules/whatsapp/BridgeInstrumentedTest.kt",
    "test": "goCallsNativeAndReturnsValue",
@@ -1911,6 +1923,10 @@
  ],
  "gaps": [
   {
+   "id": "IT-AND-11",
+   "note": "Doze, ahorro de bateria, perdida de red y muerte del proceso solo se observan en un dispositivo Android real: manual y fuera de alcance, sin prueba ni implementacion automatizada."
+  },
+  {
    "id": "IT-API-01",
    "note": "Solo con resolvedor de modulo nulo en Jest; no se ejecuta en un build real sin el modulo, Expo Go ni plataforma no soportada."
   },
@@ -1933,6 +1949,38 @@
   {
    "id": "IT-API-06",
    "note": "Kotlin/Swift no ejecutados aqui; no hay prueba que llame directamente a WhatsAppModule.initialize/confirm con opciones o IDs mal formados sin pasar por la fachada TypeScript. / La prueba de opciones en la fachada (test.each de client.options.test.ts) no la detecta el script; los limites nativos solo con almacen nativo (no ejecutado) y sin llamar a WhatsAppModule directamente."
+  },
+  {
+   "id": "IT-BLD-01",
+   "note": "build-go.sh fija Go 1.26.5, whatsmeow y x/mobile con GOTOOLCHAIN=local y GOPROXY=off, pero ninguna prueba lo ejerce; un test shell con go falso podria hacerlo sin toolchain nativa."
+  },
+  {
+   "id": "IT-BLD-02",
+   "note": "Parcial: solo se prueba que, con un go falso, los destinos fallan. No se prueba que Android no requiera Xcode ni que all no omita plataformas."
+  },
+  {
+   "id": "IT-BLD-03",
+   "note": "El parche se comprueba con git apply --check sobre una copia en scripts/test-go.sh (exige cache de modulos de Go); build-go.sh no tiene prueba propia del fallo de parche."
+  },
+  {
+   "id": "IT-BLD-04",
+   "note": "Parcial: se prueba el borrado de artefactos tras un fallo; no el aborto de build.gradle/WhatsApp.podspec sin artefacto (Gradle/CocoaPods, no ejecutados)."
+  },
+  {
+   "id": "IT-BLD-05",
+   "note": "La verificacion de ABIs, prefijos y minimos esta en build-go.sh y exige gomobile/NDK/Xcode: no se ejecuto."
+  },
+  {
+   "id": "IT-BLD-06",
+   "note": "Exige que Expo, Gradle o CocoaPods carguen el modulo: no se ejecuto."
+  },
+  {
+   "id": "IT-BLD-07",
+   "note": "Regla de proceso documentada en el README; no hay prueba automatizada."
+  },
+  {
+   "id": "IT-BLD-08",
+   "note": "build-info.txt y los .gitignore registran y excluyen artefactos; ninguna prueba lo comprueba."
   },
   {
    "id": "IT-BRG-01",
@@ -2160,7 +2208,7 @@
   },
   {
    "id": "IT-PRO-04",
-   "note": "Panic de receptor/consumidor, fallo de limpiar EventBuffer, no-ACK y que el diagnostico no exponga el valor del panic se prueban en el parche TestRecoveryStorageFailure (fases panic, hook-panic, clear, handler-panic); su resultado no entra a la matriz automatica. Las pruebas Go no afirman que el mensaje excluya el valor del panic."
+   "note": "Panic de receptor/consumidor, fallo de limpiar EventBuffer y no-ACK se prueban en el parche TestRecoveryStorageFailure (fases panic, hook-panic, clear, handler-panic); su resultado no entra a la matriz automatica. WA-14 anade pruebas Go de que el error del store no contiene el valor del panic (protocolstore/diagnostics_test.go)."
   },
   {
    "id": "IT-PRO-05",
