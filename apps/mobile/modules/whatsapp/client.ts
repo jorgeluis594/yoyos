@@ -22,7 +22,8 @@ const eventSchemas = {
   error: z.object({ code: codeSchema, message: z.string() }).strict(),
 };
 const optionsSchema = z.object({ maxImageStorageBytes: z.number().int().positive().safe().optional(), maxRecoveryBufferBytes: z.number().int().positive().safe().optional() }).strict();
-const imageSchema = z.object({ uri: z.string().min(1), mimeType: z.string().min(1), size: z.number().int().nonnegative() }).strict();
+// A downloaded image is a private file URI plus its verified MIME and size; never bytes or base64.
+const imageSchema = z.object({ uri: z.string().startsWith("file://").max(4096), mimeType: z.string().regex(/^image\/[A-Za-z0-9.+-]+$/), size: z.number().int().positive().safe() }).strict();
 const success = z.object({ success: z.literal(true), data: z.unknown().optional() }).strict();
 const failure = z.object({ success: z.literal(false), error: z.object({ code: codeSchema, message: z.string().optional() }).strict() }).strict();
 const nativeResult = z.union([success, failure]);
@@ -182,12 +183,22 @@ export function createWhatsAppClient(resolveNative: () => NativeWhatsApp | null 
     initializingOptions = "";
     return result;
   }
-  async function operation(method: "connect" | "disconnect" | "logout") {
+  /** Simultaneous logouts share one native call and its result; later admissions wait for it. */
+  let loggingOut: Promise<Result<void, WhatsAppError>> | null = null;
+  async function operation(method: "connect" | "disconnect" | "logout"): Promise<Result<void, WhatsAppError>> {
     if (!module()) return failureResult("MODULE_UNAVAILABLE");
+    if (method === "logout" && loggingOut) return loggingOut;
+    if (loggingOut) await loggingOut;
     if (method === "connect" && sessionInvalid) return failureResult("SESSION_STATE_INVALID");
     if (!prepared && !(method !== "connect" && localReady)) return failureResult("NOT_INITIALIZED");
-    const result = await call(method, [], empty);
-    if (method === "logout" && (result.success || result.error.code === "REMOTE_LOGOUT_UNCONFIRMED")) {
+    if (method !== "logout") return call(method, [], empty);
+    loggingOut = logout();
+    try { return await loggingOut; } finally { loggingOut = null; }
+  }
+  /** Unconfirmed remote unlink still retired the local session; any other failure kept it. */
+  async function logout(): Promise<Result<void, WhatsAppError>> {
+    const result = await call("logout", [], empty);
+    if (result.success || result.error.code === "REMOTE_LOGOUT_UNCONFIRMED") {
       prepared = localReady = true;
       sessionInvalid = false;
       receive("connectionChanged", { state: "disconnected" });

@@ -377,3 +377,167 @@ test("removing the active consumer unregisters it natively", async () => {
   native.handlers.get("messageReceived")?.(received(token));
   expect(listener).not.toHaveBeenCalled();
 });
+
+// IT-OUT-05: simultaneous logouts share one native call and one result; a repeat is requested again and stays local.
+test("simultaneous logout calls share one native call and result", async () => {
+  const native = fakeNative();
+  const client = createWhatsAppClient(() => native);
+  await client.initialize();
+  let release: (value: unknown) => void = () => {};
+  native.logout.mockReturnValueOnce(new Promise((resolve) => { release = resolve; }));
+  const first = client.logout();
+  const second = client.logout();
+  release({ success: false, error: { code: "REMOTE_LOGOUT_UNCONFIRMED" } });
+  const results = await Promise.all([first, second]);
+  expect(native.logout).toHaveBeenCalledTimes(1);
+  expect(results[0]).toEqual(results[1]);
+  expect(results[0]).toMatchObject({ success: false, error: { code: "REMOTE_LOGOUT_UNCONFIRMED" } });
+  expect(await client.logout()).toEqual({ success: true, data: undefined });
+  expect(native.logout).toHaveBeenCalledTimes(2);
+});
+
+// UT-CON-10 / IT-CON-10: connect and disconnect requested during a logout are admitted after it.
+test("connect and disconnect wait for a logout in flight", async () => {
+  const native = fakeNative();
+  const client = createWhatsAppClient(() => native);
+  await client.initialize();
+  const order: string[] = [];
+  let release: (value: unknown) => void = () => {};
+  native.logout.mockImplementationOnce(() => new Promise((resolve) => { release = (value) => { order.push("logout"); resolve(value); }; }));
+  native.connect.mockImplementationOnce(async () => { order.push("connect"); return { success: true }; });
+  native.disconnect.mockImplementationOnce(async () => { order.push("disconnect"); return { success: true }; });
+  const logout = client.logout();
+  const connect = client.connect();
+  const disconnect = client.disconnect();
+  await flush();
+  expect(order).toEqual([]);
+  release({ success: true });
+  await Promise.all([logout, connect, disconnect]);
+  expect(order).toEqual(["logout", "connect", "disconnect"]);
+});
+
+// IT-OUT-03: a local failure while retiring keeps the instance's session state and reports the storage error.
+test("a failed local retirement is reported and does not announce a disconnected account", async () => {
+  const native = fakeNative();
+  const client = createWhatsAppClient(() => native);
+  await client.initialize();
+  const states = jest.fn();
+  client.addListener("connectionChanged", states);
+  await flush();
+  states.mockClear();
+  native.logout.mockResolvedValueOnce({ success: false, error: { code: "SESSION_STORAGE_FAILED" } });
+  expect(await client.logout()).toMatchObject({ success: false, error: { code: "SESSION_STORAGE_FAILED" } });
+  await flush();
+  expect(states).not.toHaveBeenCalled();
+});
+
+// WA-10 / IT-API-08: the image calls carry only the opaque reference or the message ID to native,
+// and a download answers with a private file URI, a verified MIME and a measured size.
+describe("private image files", () => {
+  const messageId = "wa-message:v1:YWJj";
+  const reference = { messageId, downloadReference: "wa-image:v1:YWJj" };
+  const image = { uri: "file:///data/user/0/app/files/whatsapp/images/ab12.img", mimeType: "image/jpeg", size: 2048 };
+
+  async function ready() {
+    const native = fakeNative();
+    const client = createWhatsAppClient(() => native);
+    await client.initialize();
+    return { native, client };
+  }
+
+  test("IT-IMG-06: returns the verified file and sends only the opaque reference", async () => {
+    const { native, client } = await ready();
+    native.downloadImage.mockResolvedValueOnce({ success: true, data: image });
+    expect(await client.downloadImage(reference)).toEqual({ success: true, data: image });
+    expect(native.downloadImage).toHaveBeenCalledWith(reference);
+    native.deleteDownloadedImage.mockClear();
+    expect(await client.deleteDownloadedImage(messageId)).toMatchObject({ success: true });
+    expect(native.deleteDownloadedImage).toHaveBeenCalledWith(messageId);
+  });
+
+  test("UT-IMG-02: rejects malformed references before native is called", async () => {
+    const { native, client } = await ready();
+    const bad = [
+      { messageId, downloadReference: "wa-image:v2:YWJj" },
+      { messageId, downloadReference: `wa-image:v1:${"A".repeat(16 * 1024)}` },
+      { messageId, downloadReference: "wa-image:v1:a b" },
+      { messageId: "../../etc/passwd", downloadReference: "wa-image:v1:YWJj" },
+      { ...reference, path: "/etc/passwd" },
+      { messageId },
+    ];
+    for (const value of bad) {
+      expect(await client.downloadImage(value as never)).toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
+    }
+    expect(await client.deleteDownloadedImage("file:///etc/passwd")).toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
+    expect(native.downloadImage).not.toHaveBeenCalled();
+    expect(native.deleteDownloadedImage).not.toHaveBeenCalled();
+  });
+
+  test("IT-IMG-04/05/09/10/12: every image error code keeps its meaning and drops native text", async () => {
+    const { native, client } = await ready();
+    for (const code of ["IMAGE_UNAVAILABLE", "ACCOUNT_NOT_CONNECTED", "STORAGE_LIMIT_REACHED", "IMAGE_DOWNLOAD_FAILED", "INVALID_INPUT"] as const) {
+      native.downloadImage.mockResolvedValueOnce({ success: false, error: { code, message: "wa-image:v1:secret-key" } });
+      const result = await client.downloadImage(reference);
+      expect(result).toMatchObject({ success: false, error: { code } });
+      expect(JSON.stringify(result)).not.toContain("secret-key");
+    }
+    native.deleteDownloadedImage.mockResolvedValueOnce({ success: false, error: { code: "IMAGE_DELETE_FAILED", message: "/private/path" } });
+    const failed = await client.deleteDownloadedImage(messageId);
+    expect(failed).toMatchObject({ success: false, error: { code: "IMAGE_DELETE_FAILED" } });
+    expect(JSON.stringify(failed)).not.toContain("/private/path");
+  });
+
+  test("IT-IMG-06/07: an answer without a verified private file is not a success", async () => {
+    const { native, client } = await ready();
+    for (const data of [
+      undefined,
+      { ...image, uri: "https://example.com/a.jpg" },
+      { ...image, uri: "" },
+      { ...image, mimeType: "text/html" },
+      { ...image, mimeType: "" },
+      { ...image, size: 0 },
+      { ...image, size: -1 },
+      { ...image, size: 1.5 },
+      { ...image, base64: "AAAA" },
+      { uri: image.uri, size: 1 },
+    ]) {
+      native.downloadImage.mockResolvedValueOnce({ success: true, data });
+      expect(await client.downloadImage(reference)).toMatchObject({ success: false, error: { code: "INVALID_NATIVE_RESPONSE" } });
+    }
+  });
+
+  test("a delete answer carrying data is not a success", async () => {
+    const { native, client } = await ready();
+    native.deleteDownloadedImage.mockResolvedValueOnce({ success: true, data: { freed: 1 } });
+    expect(await client.deleteDownloadedImage(messageId)).toMatchObject({ success: false, error: { code: "INVALID_NATIVE_RESPONSE" } });
+  });
+
+  test("IT-IMG-17: downloads neither wait for nor block confirmations", async () => {
+    const { native, client } = await ready();
+    let finish!: (value: unknown) => void;
+    native.downloadImage.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const pending = client.downloadImage(reference);
+    expect(await client.confirmMessageStored(`wa-delivery:v1:${"b".repeat(32)}`)).toMatchObject({ success: true });
+    expect(await client.logout()).toMatchObject({ success: true });
+    finish({ success: true, data: image });
+    expect(await pending).toMatchObject({ success: true });
+    native.downloadImage.mockResolvedValueOnce({ success: true, data: image });
+    expect(await client.downloadImage(reference)).toMatchObject({ success: true });
+  });
+
+  test("B1: disconnect and logout reach native while a download is still pending", async () => {
+    const { native, client } = await ready();
+    native.downloadImage.mockImplementationOnce(() => new Promise(() => { /* never settles: a stalled transfer */ }));
+    void client.downloadImage(reference);
+    expect(await client.disconnect()).toMatchObject({ success: true });
+    expect(await client.logout()).toMatchObject({ success: true });
+    expect(native.disconnect).toHaveBeenCalledTimes(1);
+    expect(native.logout).toHaveBeenCalledTimes(1);
+  });
+
+  test("a call before initialization or without the module keeps its own error", async () => {
+    const client = createWhatsAppClient(() => null);
+    expect(await client.downloadImage(reference)).toMatchObject({ success: false, error: { code: "MODULE_UNAVAILABLE" } });
+    expect(await client.deleteDownloadedImage(messageId)).toMatchObject({ success: false, error: { code: "MODULE_UNAVAILABLE" } });
+  });
+});

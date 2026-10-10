@@ -11,6 +11,9 @@ import expo.modules.whatsapp.go.bridge.ConnectionSession
 import expo.modules.whatsapp.go.bridge.DeliveryEvents
 import expo.modules.whatsapp.go.bridge.DeliverySession
 import expo.modules.whatsapp.go.bridge.DeliveryStorage
+import expo.modules.whatsapp.go.bridge.ImageSession
+import android.net.Uri
+import java.io.File
 import org.json.JSONArray
 import android.content.Context
 import org.json.JSONObject
@@ -89,6 +92,27 @@ private object ConnectionRuntime {
   var delivery: DeliverySession? = null
   var deliveryBudget = 0L
   var consumerToken: String? = null
+  var images: ImageSession? = null
+  var imageBudget = 0L
+
+  /**
+   * The private image directory and its byte budget exist apart from any session, so complete
+   * files stay reusable and deletable after disconnect or logout.
+   */
+  fun ensureImages(store: NativeStateStore, imageBytes: Long): String? {
+    val current = images
+    if (current != null) {
+      if (imageBudget == imageBytes) return null
+      if (!current.setLimit(imageBytes)) return "INVALID_INPUT"
+      imageBudget = imageBytes
+      return null
+    }
+    val result = Bridge.openImages(store.imagesDirectory().path, imageBytes)
+    val opened = result?.session ?: return bridgeCode(result?.code ?: "")
+    images = opened
+    imageBudget = imageBytes
+    return null
+  }
 
   /** Recovery and confirmation need only the container, so this is open even when the session is invalid. */
   fun ensureDelivery(store: NativeStateStore, recoveryBytes: Long): String? {
@@ -113,8 +137,9 @@ private object ConnectionRuntime {
     consumerToken = null
   }
 
-  fun openConnection(context: Context, snapshot: JSONObject): String? {
-    if (revoked) return "SESSION_EXPIRED"
+  /** forLogout opens the stored session without network even after disconnect or revocation. */
+  fun openConnection(context: Context, snapshot: JSONObject, forLogout: Boolean = false): String? {
+    if (revoked && !forLogout) return "SESSION_EXPIRED"
     val store = writer ?: NativeStateStore(context).also { writer = it }
     if (snapshot.optJSONObject("session") != null && !store.canRestoreSession()) { stop(); return "SESSION_STATE_INVALID" }
     if (session != null) return null
@@ -136,7 +161,9 @@ private object ConnectionRuntime {
         return bridgeCode(result?.code ?: "")
       }
       session = result.session
+      images?.let { session?.attachImages(it) }
       eventSink = sink
+      if (revoked) session?.markRevoked() // reopened only to log out: never connect to unlink it
       return null
     } catch (error: Exception) {
       store.retireGeneration()
@@ -165,6 +192,11 @@ private fun publicError(error: Exception): String = when ((error as? StateFailur
 }
 private fun bridgeCode(code: String): String = when (code) {
   "INVALID_INPUT", "NOT_INITIALIZED", "SESSION_STATE_INVALID", "SESSION_STORAGE_FAILED", "SESSION_STORAGE_LIMIT_REACHED", "RECOVERY_BUFFER_FULL" -> code
+  else -> "NATIVE_CALL_FAILED"
+}
+private fun imageCode(code: String): String = when (code) {
+  "INVALID_INPUT", "NOT_INITIALIZED", "IMAGE_UNAVAILABLE", "ACCOUNT_NOT_CONNECTED", "STORAGE_LIMIT_REACHED",
+  "IMAGE_DOWNLOAD_FAILED", "IMAGE_DELETE_FAILED" -> code
   else -> "NATIVE_CALL_FAILED"
 }
 private fun failure(code: String): Map<String, Any?> = mapOf("success" to false, "error" to mapOf("code" to code))
@@ -204,6 +236,7 @@ class WhatsAppModule : Module() {
           }
           ConnectionRuntime.prepared = true
           ConnectionRuntime.ensureDelivery(writer, recovery)?.let { return@synchronized failure(it) }
+          ConnectionRuntime.ensureImages(writer, image)?.let { return@synchronized failure(it) }
           if (ConnectionRuntime.revoked) return@synchronized success(mapOf("state" to "sessionExpired"))
           ConnectionRuntime.openConnection(context, snapshot)?.let { return@synchronized failure(it) }
           val session = ConnectionRuntime.session ?: return@synchronized failure("NATIVE_CALL_FAILED")
@@ -243,11 +276,30 @@ class WhatsAppModule : Module() {
         if (!ConnectionRuntime.prepared) failure("NOT_INITIALIZED") else {
           try {
             val writer = ConnectionRuntime.writer ?: return@synchronized failure("NOT_INITIALIZED")
+            // After disconnect or revocation there is no Go session: open the stored one (no network)
+            // so its verifiable mappings are completed before the credentials go. Unreadable credentials
+            // (SESSION_STATE_INVALID) cannot be resolved and still allow retirement; any other failure keeps them.
+            if (ConnectionRuntime.session == null && writer.open().optJSONObject("session") != null) {
+              val context = appContext.reactContext ?: return@synchronized failure("MODULE_UNAVAILABLE")
+              val opened = ConnectionRuntime.openConnection(context, writer.open(), forLogout = true)
+              if (opened != null && opened != "SESSION_STATE_INVALID") {
+                if (ConnectionRuntime.revoked) ConnectionRuntime.emit?.invoke("connectionChanged", mapOf("state" to "sessionExpired"))
+                return@synchronized failure(opened)
+              }
+            }
+            // Go stops reception, completes verifiable mappings and asks WhatsApp to unlink (15 s).
+            val remote = ConnectionRuntime.session?.logout() ?: "REMOTE_LOGOUT_UNCONFIRMED"
             ConnectionRuntime.stop()
+            // Any other code means nothing was unlinked or retired; credentials stay.
+            if (remote.isNotEmpty() && remote != "REMOTE_LOGOUT_UNCONFIRMED") {
+              // stop() announced disconnected; a revoked session is still sessionExpired.
+              if (ConnectionRuntime.revoked) ConnectionRuntime.emit?.invoke("connectionChanged", mapOf("state" to "sessionExpired"))
+              return@synchronized failure(bridgeCode(remote))
+            }
             val hadSession = writer.open().optJSONObject("session") != null
             writer.endSession()
             ConnectionRuntime.revoked = false
-            if (hadSession) failure("REMOTE_LOGOUT_UNCONFIRMED") else success()
+            if (hadSession && remote.isNotEmpty()) failure("REMOTE_LOGOUT_UNCONFIRMED") else success()
           } catch (error: Exception) { failure(publicError(error)) }
         }
       }
@@ -283,8 +335,40 @@ class WhatsAppModule : Module() {
       delivery?.removeConsumer(token)
       success()
     }
-    AsyncFunction("downloadImage") { _: Map<String, Any?> -> failure("NATIVE_CALL_FAILED") }
-    AsyncFunction("deleteDownloadedImage") { _: String -> failure("NATIVE_CALL_FAILED") }
+    // Image calls can block for a whole download (60 s) and may wait in Go's own queue. Expo's default
+    // AsyncFunction queue is one thread shared by every function and module, so the long wait runs
+    // elsewhere (ImageOperations): confirmMessageStored, disconnect and logout never wait behind a
+    // download, and a disconnect cancels the transfer immediately. Admission order, which Go fixes in
+    // beginDownload/beginDelete, follows call order because one dedicated thread admits. Go returns
+    // the published file path, never its bytes.
+    AsyncFunction("downloadImage") Coroutine { reference: Map<String, Any?> ->
+      val images = synchronized(ConnectionRuntime.lock) { ConnectionRuntime.images }
+      val messageId = reference["messageId"] as? String
+      val downloadReference = reference["downloadReference"] as? String
+      when {
+        images == null -> failure("NOT_INITIALIZED")
+        messageId == null || downloadReference == null -> failure("INVALID_INPUT")
+        else -> ImageOperations.run({ images.beginDownload(messageId, downloadReference) }) { operation ->
+          try {
+            val result = operation.outcome()
+            when {
+              result == null -> failure("NATIVE_CALL_FAILED")
+              result.code.isNotEmpty() -> failure(imageCode(result.code))
+              else -> success(mapOf("uri" to Uri.fromFile(File(result.path)).toString(), "mimeType" to result.mimeType, "size" to result.size))
+            }
+          } catch (_: Exception) { failure("NATIVE_CALL_FAILED") }
+        }
+      }
+    }
+    AsyncFunction("deleteDownloadedImage") Coroutine { messageId: String ->
+      val images = synchronized(ConnectionRuntime.lock) { ConnectionRuntime.images }
+      if (images == null) failure("NOT_INITIALIZED") else ImageOperations.run({ images.beginDelete(messageId) }) { operation ->
+        try {
+          val code = operation.outcome().code
+          if (code.isEmpty()) success() else failure(imageCode(code))
+        } catch (_: Exception) { failure("NATIVE_CALL_FAILED") }
+      }
+    }
 
     AsyncFunction("probe") { value: String, failCallback: Boolean ->
       try {
