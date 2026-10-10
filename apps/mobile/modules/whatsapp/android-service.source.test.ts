@@ -241,9 +241,16 @@ describe("review m2 and N1 ended request", () => {
   test("a paused or retried request keeps service and intent; only a missing session counts as ended", () => {
     expect(observe()).toContain("?: false");
   });
-  test("an error alone is settled the same way (a failed resume after a pause emits no new state)", () => {
-    expect(policy).toMatch(/event == "error" -> EventEffect\.CHECK_REQUEST/);
+  test("a request-ending error is settled the same way (a failed resume after a pause emits no new state)", () => {
+    expect(policy).toMatch(/event == "error" && endsRequestWithError\(errorCode\) -> EventEffect\.CHECK_REQUEST/);
     expect(observe()).toContain("effect == ReceiveServicePolicy.EventEffect.NONE");
+  });
+  // WA-12 s1: informational errors (IDENTITY_UNAVAILABLE after initialize() without connect()) arrive with
+  // requestActive=false and must not withdraw the durable intent.
+  test("s1: only CONNECTION_FAILED settles the request; the module passes the error code", () => {
+    expect(policy).toContain('fun endsRequestWithError(errorCode: String?): Boolean = errorCode == "CONNECTION_FAILED"');
+    expect(policy).not.toMatch(/event == "error" -> EventEffect/);
+    expect(observe()).toContain('fields["code"] as? String');
   });
   test("Go exposes the request state through the bridge", () => {
     const bridge = readFileSync(join(__dirname, "go", "bridge", "connection.go"), "utf8");

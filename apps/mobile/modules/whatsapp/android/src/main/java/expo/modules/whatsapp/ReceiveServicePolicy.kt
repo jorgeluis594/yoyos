@@ -63,17 +63,26 @@ internal object ReceiveServicePolicy {
   enum class EventEffect { NONE, CHECK_REQUEST, END }
 
   /**
+   * Errors that can terminate a request on Go's side (`endRequestLocked`): a failed attempt or rebuild.
+   * Local faults and `SESSION_EXPIRED` end it too but are settled separately (`isLocalFault`, `sessionExpired`).
+   * Every other code is informational and can be emitted with no request at all (WA-12 s1:
+   * `IDENTITY_UNAVAILABLE` when `initialize()` opens the session without `connect()`), so it never
+   * withdraws the intent.
+   */
+  fun endsRequestWithError(errorCode: String?): Boolean = errorCode == "CONNECTION_FAILED"
+
+  /**
    * `disconnected` is ambiguous: Go publishes it for an ended request (unpaired failure, nothing left to
    * retry) and also for a RECOVERY_BUFFER_FULL pause that resumes by itself with the request still held.
-   * Only `sessionExpired` is final by itself; `disconnected` and errors must be settled with Go's own
-   * `requestActive` before the intent is withdrawn.
+   * Only `sessionExpired` is final by itself; `disconnected` and request-ending errors must be settled with
+   * Go's own `requestActive` before the intent is withdrawn.
    */
-  fun eventEffect(event: String, state: String?): EventEffect = when {
+  fun eventEffect(event: String, state: String?, errorCode: String? = null): EventEffect = when {
     event == "connectionChanged" && state == "sessionExpired" -> EventEffect.END
     event == "connectionChanged" && state == "disconnected" -> EventEffect.CHECK_REQUEST
     // A rebuild that fails after a capacity pause ends the request with only an error: the state was already
-    // `disconnected`, so no new state event follows. Any error is therefore settled with requestActive too.
-    event == "error" -> EventEffect.CHECK_REQUEST
+    // `disconnected`, so no new state event follows. Only a request-ending code is settled with requestActive.
+    event == "error" && endsRequestWithError(errorCode) -> EventEffect.CHECK_REQUEST
     else -> EventEffect.NONE
   }
 

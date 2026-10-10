@@ -290,7 +290,7 @@ internal object ConnectionRuntime {
     val fault = event == "error" && ReceiveServicePolicy.isLocalFault(fields["code"] as? String ?: "")
     // Our own stops retire the sink first, so a `disconnected` seen here comes from Go. It may be a capacity
     // pause or a retry that Go resumes by itself (request still held): that keeps the service and the intent.
-    val effect = ReceiveServicePolicy.eventEffect(event, fields["state"] as? String)
+    val effect = ReceiveServicePolicy.eventEffect(event, fields["state"] as? String, fields["code"] as? String)
     if (!revokedNow && !fault && effect == ReceiveServicePolicy.EventEffect.NONE) return
     background.execute {
       synchronized(lock) {

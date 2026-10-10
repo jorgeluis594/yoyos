@@ -76,11 +76,19 @@ class ReceiveServicePolicyTest {
     assertEquals(ReceiveServicePolicy.EventEffect.NONE, ReceiveServicePolicy.eventEffect("qr", null))
   }
 
-  // WA-12 r1: errors are settled with requestActive: RECOVERY_BUFFER_FULL / informational errors keep the
-  // request (true), a failed rebuild after a pause ends it with no further state event (false).
-  @Test fun errorsAreSettledWithRequestActive() {
-    assertEquals(ReceiveServicePolicy.EventEffect.CHECK_REQUEST, ReceiveServicePolicy.eventEffect("error", null))
-    assertFalse(ReceiveServicePolicy.endsRequest(requestActive = true))  // RECOVERY_BUFFER_FULL, IDENTITY_UNAVAILABLE
+  // WA-12 r1: a request-ending error is settled with requestActive: a failed rebuild after a pause ends it
+  // with no further state event (false).
+  @Test fun requestEndingErrorsAreSettledWithRequestActive() {
+    assertEquals(ReceiveServicePolicy.EventEffect.CHECK_REQUEST, ReceiveServicePolicy.eventEffect("error", null, "CONNECTION_FAILED"))
     assertTrue(ReceiveServicePolicy.endsRequest(requestActive = false))  // CONNECTION_FAILED after a failed resume
+    assertFalse(ReceiveServicePolicy.endsRequest(requestActive = true))  // a retry that is still held
+  }
+
+  // WA-12 s1: informational errors can arrive with requestActive=false (IDENTITY_UNAVAILABLE after initialize()
+  // without connect()) and must not withdraw a durable intent that was restored or armed.
+  @Test fun informationalErrorsNeverSettleTheRequest() {
+    for (code in listOf("IDENTITY_UNAVAILABLE", "HISTORY_LIMIT_REACHED", "RECOVERY_BUFFER_FULL", "CONSUMER_UNAVAILABLE", "NATIVE_CALL_FAILED", null)) {
+      assertEquals(ReceiveServicePolicy.EventEffect.NONE, ReceiveServicePolicy.eventEffect("error", null, code))
+    }
   }
 }

@@ -146,3 +146,22 @@ func TestWA12EndRouteConnectRefusedLeavesNoRequest(t *testing.T) {
 		t.Fatal("a refused connect must report the failure and request nothing")
 	}
 }
+
+// WA-12 s1 (fixed in WA-14): an informational error can be published while no request exists (the session
+// opens in initialize() without connect() and the identity pass reports IDENTITY_UNAVAILABLE). The Android
+// policy therefore must not treat it as the end of a request; this pins the premise the Kotlin side relies on.
+func TestWA14S1InformationalErrorArrivesWithNoActiveRequest(t *testing.T) {
+	c, events := newEndController(true, func() (Transport, error) { return newTransport(), nil })
+	c.Notify(IdentityUnavailable)
+	select {
+	case e := <-events:
+		if e.Error != IdentityUnavailable {
+			t.Fatalf("event = %+v, want %s", e, IdentityUnavailable)
+		}
+		if c.RequestActive() {
+			t.Fatal("no connect() was called: the request must not be active")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("IDENTITY_UNAVAILABLE was not published")
+	}
+}
