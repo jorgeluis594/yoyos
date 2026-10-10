@@ -386,3 +386,22 @@ func TestRemoveThenResubscribeDoesNotStopReception(t *testing.T) {
 		t.Fatalf("reception was stopped: %v", stops)
 	}
 }
+
+// UT-SUB-01 / UT-SUB-07: starting recovery before any consumer exists never stops reception;
+// the pending entry waits and is delivered once a consumer registers.
+func TestStartWithoutConsumerWaitsWithoutStoppingReception(t *testing.T) {
+	ledger := &fakeLedger{}
+	ledger.add(record(1, "5", 0, "resolved"))
+	c, logs := started(t, ledger, 1<<20)
+	c.Start()
+	eventually(t, "recovery read the pending entry", func() bool { return ledger.readCount() >= 1 })
+	time.Sleep(60 * time.Millisecond)
+	if stops, _ := logs.snapshot(); len(stops) != 0 {
+		t.Fatalf("reception stopped before any delivery needed a consumer: %v", stops)
+	}
+	out := newSink()
+	c.SetConsumer(out.consumer("a"))
+	if got := out.next(t); got != "a:"+did(1) {
+		t.Fatalf("got %s", got)
+	}
+}

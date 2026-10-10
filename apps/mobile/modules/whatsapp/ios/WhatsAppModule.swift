@@ -61,10 +61,7 @@ private func jsonValue(_ value: Any) -> Any? {
 /// the pending entry and stops reception; a destroyed JavaScript runtime is such a failure.
 private final class NativeDeliveryEvents: NSObject, YYWhatsAppGoBridgeDeliveryEventsProtocol {
   func onDelivery(_ value: String?) throws {
-    // emit is cleared by OnDestroy under the runtime lock; read it under the same lock.
-    let runtime = ConnectionRuntime.shared
-    runtime.lock.lock(); let emit = runtime.emit; runtime.lock.unlock()
-    guard let emit,
+    guard let emit = ConnectionRuntime.shared.emit,
           let value, let data = value.data(using: .utf8),
           let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
           envelope["contractVersion"] as? Int == 1, envelope["event"] as? String == "messageReceived",
@@ -111,7 +108,15 @@ private final class ConnectionRuntime {
   var eventSink: NativeConnectionEvents?
   var prepared = false
   var revoked = false
-  var emit: ((String, [String: Any]) -> Void)?
+  // emit is written by definition() and OnDestroy and read from Go callback threads and stop().
+  // A leaf lock (never held while calling out or taking another lock) synchronizes every access
+  // without waiting on `lock`, which initialize holds across native I/O.
+  private let emitLock = NSLock()
+  private var emitHandler: ((String, [String: Any]) -> Void)?
+  var emit: ((String, [String: Any]) -> Void)? {
+    get { emitLock.lock(); defer { emitLock.unlock() }; return emitHandler }
+    set { emitLock.lock(); defer { emitLock.unlock() }; emitHandler = newValue }
+  }
   var delivery: YYWhatsAppGoBridgeDeliverySession?
   var deliveryBudget: Int64 = 0
   var consumerToken: String?
