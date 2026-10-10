@@ -21,13 +21,13 @@ describe("editor loader", () => {
   test("returns the published appearance and logo URL of the session company", async () => {
     const get = vi.spyOn(checkoutAppearance, "get").mockResolvedValue({ success: true, data: appearance });
     vi.spyOn(images, "resolvePublicImage").mockResolvedValue({ success: true, data: { url: "https://cdn.test/logo.png" } } as never);
-    expect(await load()).toEqual({ companyName: "Lima Studio", published: appearance, logoUrl: "https://cdn.test/logo.png" });
+    expect(await load()).toEqual({ published: appearance, logoUrl: "https://cdn.test/logo.png" });
     expect(get).toHaveBeenCalledWith(access.company.id);
   });
 
   test("returns the Yoyos default when the company has no appearance", async () => {
     vi.spyOn(checkoutAppearance, "get").mockResolvedValue({ success: true, data: null });
-    expect(await load()).toEqual({ companyName: "Lima Studio", published: { logoImageId: null, brandColor: "yoyos", background: "neutral" }, logoUrl: null });
+    expect(await load()).toEqual({ published: { logoImageId: null, brandColor: "yoyos", background: "neutral" }, logoUrl: null });
   });
 
   test("responds 503 when the appearance cannot be read", async () => {

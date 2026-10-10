@@ -22,3 +22,4 @@ export const checkoutPreviewReadySchema = z.strictObject({ type: z.literal("chec
 
 export type PublicCheckoutAppearance = z.infer<typeof publicCheckoutAppearanceSchema>;
 export type CheckoutPreviewMessage = z.infer<typeof checkoutPreviewMessageSchema>;
+export type CheckoutPreviewMode = CheckoutPreviewMessage["mode"];

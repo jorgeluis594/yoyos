@@ -5,18 +5,18 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@core/app/components/ui/button";
 import { checkoutBrandColors, type CheckoutBrandColor } from "@core/src/features/checkout-appearance/domain/checkout-appearance";
 import { checkoutBrandColorCatalog } from "@core/src/features/checkout-appearance/domain/checkout-colors";
-import type { PreviewMode } from "@core/src/features/checkout-appearance/presentation/editor-draft";
+import type { CheckoutPreviewMode } from "@core/src/features/checkout-appearance/presentation/checkout-appearance-schemas";
 
 type BrandColorDialogProps = Readonly<{
   value: CheckoutBrandColor;
-  mode: PreviewMode;
+  mode: CheckoutPreviewMode;
   onUse: (color: CheckoutBrandColor) => void;
   /** The row that opens the dialog; it gets the focus back when the dialog closes. */
   children: ReactNode;
 }>;
 
 /** One swatch per color: the tone of the mode currently shown in the preview. */
-export function swatchOf(color: CheckoutBrandColor, mode: PreviewMode): string {
+export function swatchOf(color: CheckoutBrandColor, mode: CheckoutPreviewMode): string {
   return checkoutBrandColorCatalog[color][mode].primary;
 }
 

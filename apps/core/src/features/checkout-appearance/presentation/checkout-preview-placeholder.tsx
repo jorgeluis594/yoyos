@@ -1,25 +1,21 @@
 import { useTranslation } from "react-i18next";
-import { CheckoutBrandHeader } from "@core/src/features/checkout-appearance/presentation/checkout-brand-header";
 import { CheckoutTheme } from "@core/src/features/checkout-appearance/presentation/checkout-theme";
-import type { PublicCheckoutAppearance } from "@core/src/features/checkout-appearance/presentation/checkout-appearance-schemas";
-import type { PreviewMode } from "@core/src/features/checkout-appearance/presentation/editor-draft";
+import type { CheckoutPreviewMode, PublicCheckoutAppearance } from "@core/src/features/checkout-appearance/presentation/checkout-appearance-schemas";
 
-export type CheckoutPreviewSlotProps = Readonly<{
-  companyName: string;
+type CheckoutPreviewPlaceholderProps = Readonly<{
   /** Draft appearance, in the shape the buyer receives. */
   appearance: PublicCheckoutAppearance;
-  mode: PreviewMode;
-  onModeChange: (mode: PreviewMode) => void;
+  mode: CheckoutPreviewMode;
+  onModeChange: (mode: CheckoutPreviewMode) => void;
 }>;
 
-const modes: readonly PreviewMode[] = ["light", "dark"];
+const modes: readonly CheckoutPreviewMode[] = ["light", "dark"];
 
 /**
  * Reserved space with the final dimensions of the live preview (phone width, scrollable canvas).
- * The editor renders it from one place; replace this component with `<CheckoutPreviewFrame>`
- * keeping the same props (draft appearance and active mode).
+ * Replace with `<CheckoutPreviewFrame>`; the props are identical.
  */
-export function CheckoutPreviewPlaceholder({ companyName, appearance, mode, onModeChange }: CheckoutPreviewSlotProps) {
+export function CheckoutPreviewPlaceholder({ appearance, mode, onModeChange }: CheckoutPreviewPlaceholderProps) {
   const { t } = useTranslation();
   return <div className="flex min-w-0 flex-col items-center gap-4" data-testid="checkout-preview-slot">
     <div role="group" aria-label={t("checkoutAppearance.previewMode")} className="flex gap-1 rounded-md border bg-card p-1">
@@ -31,7 +27,9 @@ export function CheckoutPreviewPlaceholder({ companyName, appearance, mode, onMo
     <div className={`w-full max-w-[390px] overflow-hidden rounded-3xl border-8 border-foreground ${mode === "dark" ? "dark" : ""}`}>
       <CheckoutTheme appearance={appearance}>
         <div className="flex min-h-[640px] flex-col gap-4 p-4">
-          <CheckoutBrandHeader companyName={companyName} logoUrl={appearance.logoUrl} />
+          {appearance.logoUrl && <span className="flex h-10 max-w-40 items-center self-start rounded-sm border bg-white px-2 py-1">
+            <img src={appearance.logoUrl} alt="" className="max-h-full max-w-full object-contain" />
+          </span>}
           <p className="text-sm text-muted-foreground">{t("checkoutAppearance.previewPlaceholder")}</p>
           <div className="mt-auto rounded-md bg-primary px-4 py-3 text-center text-sm font-medium text-primary-foreground" aria-hidden="true" />
         </div>
