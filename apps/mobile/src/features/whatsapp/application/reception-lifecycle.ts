@@ -14,6 +14,7 @@ export const informationalErrorCodes: readonly WhatsAppErrorCode[] = ["RECOVERY_
 
 export type ReceptionStatus = Readonly<{
   connection: ConnectionState;
+  qr: Readonly<{ value: string; expiresAt: number }> | null;
   notice: WhatsAppErrorCode | null;
   lastError: Readonly<{ code: string; message: string }> | null;
 }>;
@@ -28,7 +29,7 @@ export type ReceptionDeps = Readonly<{
 
 export function createReceptionLifecycle(deps: ReceptionDeps) {
   let subscriptions: readonly { remove(): void }[] = [];
-  let status: ReceptionStatus = { connection: "disconnected", notice: null, lastError: null };
+  let status: ReceptionStatus = { connection: "disconnected", qr: null, notice: null, lastError: null };
   const listeners = new Set<(status: ReceptionStatus) => void>();
 
   const publish = (next: Partial<ReceptionStatus>) => {
@@ -47,7 +48,8 @@ export function createReceptionLifecycle(deps: ReceptionDeps) {
         if (!result.success) publish({ lastError: { code: result.error.code, message: result.error.message } });
       });
     }),
-    deps.whatsapp.addListener("connectionChanged", ({ state }) => publish({ connection: state })),
+    deps.whatsapp.addListener("qr", (qr) => publish({ qr })),
+    deps.whatsapp.addListener("connectionChanged", ({ state }) => publish(state === "connected" ? { connection: state, qr: null } : { connection: state })),
     deps.whatsapp.addListener("error", (error) => {
       if (informationalErrorCodes.includes(error.code)) publish({ notice: error.code });
       else publish({ lastError: { code: error.code, message: error.message } });

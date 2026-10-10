@@ -83,7 +83,7 @@ test("publishes connectionChanged and error events as status", async () => {
   await lifecycle.start();
   emit("connectionChanged", { state: "connected" });
   emit("error", { code: "CONNECTION_FAILED", message: "boom" });
-  expect(lifecycle.status()).toEqual({ connection: "connected", notice: null, lastError: { code: "CONNECTION_FAILED", message: "boom" } });
+  expect(lifecycle.status()).toEqual({ connection: "connected", qr: null, notice: null, lastError: { code: "CONNECTION_FAILED", message: "boom" } });
   expect(seen).toHaveLength(2);
 });
 
@@ -129,4 +129,13 @@ test("sign-in with another company does not connect", async () => {
   expect(await lifecycle.signedIn()).toMatchObject({ success: false, error: { code: "LINK_OF_OTHER_COMPANY" } });
   expect(calls).not.toContain("connect");
   expect(sync.wake).not.toHaveBeenCalled();
+});
+
+test("publishes the QR until the connection is established", async () => {
+  const { lifecycle, emit } = setup();
+  await lifecycle.start();
+  emit("qr", { value: "qr-1", expiresAt: 123 });
+  expect(lifecycle.status().qr).toEqual({ value: "qr-1", expiresAt: 123 });
+  emit("connectionChanged", { state: "connected" });
+  expect(lifecycle.status()).toMatchObject({ connection: "connected", qr: null });
 });
