@@ -4,13 +4,14 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, test } from "vitest";
 import { checkoutBrandColors } from "@core/src/features/checkout-appearance/domain/checkout-appearance";
-import { checkoutBrandColorCatalog } from "@core/src/features/checkout-appearance/domain/checkout-colors";
+import { checkoutBrandColorCatalog, checkoutPalette } from "@core/src/features/checkout-appearance/domain/checkout-colors";
 import { CheckoutBrandHeader } from "@core/src/features/checkout-appearance/presentation/checkout-brand-header";
 import { CheckoutTheme } from "@core/src/features/checkout-appearance/presentation/checkout-theme";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const appearance = { logoUrl: null, brandColor: "forest", background: "brand_tint" } as const;
+const scopeOf = (html: string) => /<div data-checkout-theme="([^"]+)"/.exec(html)?.[1];
 const styleOf = (html: string) => /<style>(.*?)<\/style>/s.exec(html)?.[1] ?? "";
 
 describe("CheckoutTheme", () => {
@@ -21,12 +22,30 @@ describe("CheckoutTheme", () => {
   });
 
   test("scopes light and dark variables to the checkout", () => {
-    const css = styleOf(renderToStaticMarkup(<CheckoutTheme appearance={appearance}><p>Pedido</p></CheckoutTheme>));
+    const html = renderToStaticMarkup(<CheckoutTheme appearance={appearance}><p>Pedido</p></CheckoutTheme>);
+    const css = styleOf(html);
     const { light, dark } = checkoutBrandColorCatalog.forest;
-    expect(css).toMatch(/^\[data-checkout-theme\]\{[^}]*--primary:#2F6B4F;[^}]*--background:#F1F6F2;[^}]*\}\.dark \[data-checkout-theme\]\{[^}]*--primary:#8FCBA8;[^}]*--background:#181E1B;[^}]*\}$/);
+    expect(css).toMatch(/^\[data-checkout-theme="([^"]+)"\]\{[^}]*--primary:#2F6B4F;[^}]*--background:#F1F6F2;[^}]*\}\.dark \[data-checkout-theme="\1"\]\{[^}]*--primary:#8FCBA8;[^}]*--background:#181E1B;[^}]*\}$/);
+    expect(scopeOf(html)).toBe(/^\[data-checkout-theme="([^"]+)"\]/.exec(css)?.[1]);
     expect(css).toContain(`--primary-foreground:${light["primary-foreground"]}`);
     expect(css).toContain(`--accent:${dark.accent}`);
     expect(css).not.toContain(":root");
+  });
+
+  test("keeps each theme's colors inside its own checkout", () => {
+    const html = renderToStaticMarkup(<>
+      <CheckoutTheme appearance={{ ...appearance, background: "white" }}><p /></CheckoutTheme>
+      <CheckoutTheme appearance={appearance}><p /></CheckoutTheme>
+    </>);
+    const styles = [...html.matchAll(/<style>(.*?)<\/style>/gs)].map((match) => match[1]);
+    const scopes = [...html.matchAll(/<div data-checkout-theme="([^"]+)"/g)].map((match) => match[1]);
+    expect(scopes[0]).not.toBe(scopes[1]);
+    expect(styles).toHaveLength(2);
+    scopes.forEach((scope, index) => {
+      expect([...styles[index].matchAll(/\[data-checkout-theme="([^"]+)"\]/g)].map((match) => match[1])).toEqual([scope, scope]);
+    });
+    expect(styles[0]).toContain(`--background:${checkoutPalette("forest", "white").light.background}`);
+    expect(styles[1]).toContain("--background:#F1F6F2");
   });
 
   test("renders only catalog colors in the style tag", () => {
