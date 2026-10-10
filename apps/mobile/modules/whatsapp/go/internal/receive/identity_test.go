@@ -161,9 +161,7 @@ func TestITID07StoreFailureIsNotAbsence(t *testing.T) {
 	l.coord.Start()
 	l.receiveFrom("p1", "uno", phone).ack(t)
 	eventually(t, "first report", func() bool { return il.unavailable.Load() == 1 })
-	n.mu.Lock()
-	n.failRead = errBoom
-	n.mu.Unlock()
+	n.set(func() { n.failRead = errBoom })
 	if _, err := il.service.Resolve(context.Background()); err == nil {
 		t.Fatal("unreadable ledger treated as no pending entries")
 	}
@@ -177,10 +175,7 @@ func TestITID07StoreFailureIsNotAbsence(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("store failure not reported")
 	}
-	n.mu.Lock()
-	n.failRead = nil
-	n.failIdent = errBoom
-	n.mu.Unlock()
+	n.set(func() { n.failRead, n.failIdent = nil, errBoom })
 	l.storeMapping() // the mapping commits, but publishing the identity fails
 	select {
 	case err := <-il.failures:

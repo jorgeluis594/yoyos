@@ -176,6 +176,10 @@ func (n *native) RetirePending(request string) (string, error) {
 	return ok(map[string]any{"revision": fmt.Sprint(n.revision), "removed": removed}), nil
 }
 
+// set changes failure-injection fields under the container lock: the receive goroutines read
+// them while a test arms or disarms a failure.
+func (n *native) set(change func()) { n.mu.Lock(); change(); n.mu.Unlock() }
+
 func (n *native) pendingCount() int { n.mu.Lock(); defer n.mu.Unlock(); return len(n.pending) }
 
 // life is one process life: store, coordinator and receiver over the same container.
@@ -209,7 +213,7 @@ func newLife(t *testing.T, n *native, limit int64) *life {
 	if l.store, err = protocolstore.Open(n, "gen", account, limit, limit); err != nil {
 		t.Fatal(err)
 	}
-	if l.ledger, err = protocolstore.NewLedger(n, limit); err != nil {
+	if l.ledger, err = protocolstore.NewLedger(n, limit, limit); err != nil {
 		t.Fatal(err)
 	}
 	l.coord = delivery.New(l.ledger, limit, delivery.Hooks{

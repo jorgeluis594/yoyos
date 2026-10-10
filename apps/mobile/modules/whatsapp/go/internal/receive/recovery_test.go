@@ -83,7 +83,7 @@ func TestITDEL07And08RetireIdempotentAndLostReplyRepeatable(t *testing.T) {
 	seed(n, 1, account, "5", 0, "resolved", 1)
 	seed(n, 2, account, "5", 1, "resolved", 1)
 	l := newLife(t, n, 1<<20)
-	n.loseRetire = true
+	n.set(func() { n.loseRetire = true })
 	if err := l.coord.Confirm(did(1)); err == nil {
 		t.Fatal("a lost reply must surface as an error")
 	}
@@ -102,11 +102,11 @@ func TestITDEL07And08RetireIdempotentAndLostReplyRepeatable(t *testing.T) {
 	if err := l.coord.Confirm("wa-delivery:v1:zz"); err == nil {
 		t.Fatal("malformed ID accepted")
 	}
-	n.failRetire = errBoom
+	n.set(func() { n.failRetire = errBoom })
 	if err := l.coord.Confirm(did(2)); err == nil || n.pendingCount() != 1 {
 		t.Fatal("a failed write was reported as success or removed content")
 	}
-	n.failRetire, n.failRead = nil, errBoom
+	n.set(func() { n.failRetire, n.failRead = nil, errBoom })
 	if _, err := l.ledger.Retire(did(2)); err != nil { // retirement does not read the list
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestHandleReadFailureIsReportedAsStorageFailure(t *testing.T) {
 	l := newLife(t, n, 1<<20)
 	failures := make(chan error, 1)
 	l.recv.hooks.LocalFailure = func(err error) { failures <- err }
-	n.failRead = errBoom
+	n.set(func() { n.failRead = errBoom })
 	info := infoFor("m1", "555@lid")
 	if l.recv.Handle(t.Context(), &events.Message{Info: info}) {
 		t.Fatal("ACK permitted although the ledger could not be read")

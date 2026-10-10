@@ -161,9 +161,7 @@ func TestITHIS02AWriteFailureLeavesNoPartialAdmissionAndRecovers(t *testing.T) {
 	h := newHistoryLife(t, n, bigBuffer, remote)
 	grant, _ := h.capture("notif-1", remote.serve(t, "/v/batch", supportedBatch()))
 	grant.ack(t)
-	n.mu.Lock()
-	n.failApply = errBoom
-	n.mu.Unlock()
+	n.set(func() { n.failApply = errBoom })
 	if err := h.drain(context.Background()); err == nil {
 		t.Fatal("a failed publication fails the pass")
 	}
@@ -179,9 +177,7 @@ func TestITHIS02AWriteFailureLeavesNoPartialAdmissionAndRecovers(t *testing.T) {
 		t.Fatalf("the remote source is untouched: %d %d", receipts, deletes)
 	}
 
-	n.mu.Lock()
-	n.failApply = nil
-	n.mu.Unlock()
+	n.set(func() { n.failApply = nil })
 	next := newHistoryLife(t, n, bigBuffer, remote)
 	next.mustDrain()
 	if messages, captures := n.historyEntries(); messages != 3 || captures != 0 {
@@ -196,9 +192,7 @@ func TestITHIS02AReadFailureIsNotAbsence(t *testing.T) {
 	h := newHistoryLife(t, n, bigBuffer, remote)
 	grant, _ := h.capture("notif-1", remote.serve(t, "/v/batch", supportedBatch()))
 	grant.ack(t)
-	n.mu.Lock()
-	n.failRead = errBoom
-	n.mu.Unlock()
+	n.set(func() { n.failRead = errBoom })
 	if err := h.drain(context.Background()); err == nil {
 		t.Fatal("an unreadable ledger fails the pass")
 	}
