@@ -202,3 +202,37 @@ test("translates SQLite failures into LOCAL_STORAGE_FAILED without the original 
   const result = await store.nextPending(company, now, 1);
   expect(result).toEqual({ success: false, error: { code: "LOCAL_STORAGE_FAILED", message: "Local storage failed" } });
 });
+
+test("saveOnce accepts repeated claims by the same account", async () => {
+  const { database, store, links, linked } = await setup();
+  const placement = await linked(company, true);
+  expect(await store.saveOnce(text(1), placement, now)).toMatchObject({ success: true, data: { status: "stored" } });
+  expect(await store.saveOnce(text(2), placement, now)).toMatchObject({ success: true, data: { status: "stored", message: { sync: { state: "pending" } } } });
+  expect(await links.active()).toMatchObject({ data: { accountId: "1@lid" } });
+  database.close();
+});
+
+test("saveOnce stores a claim from another account as an orphan without throwing", async () => {
+  const { database, store, links, linked } = await setup();
+  const placement = await linked(company, true);
+  await store.saveOnce(text(1), placement, now);
+  const other = { ...text(2), accountId: "9@lid" as never };
+  expect(await store.saveOnce(other, placement, now)).toMatchObject({
+    success: true, data: { status: "stored", message: { linkId: null, companyId: null, sync: { state: "orphaned" } } },
+  });
+  expect(await links.active()).toMatchObject({ data: { accountId: "1@lid" } });
+  database.close();
+});
+
+test("nextRetryAt returns the earliest pending attempt of the company, or null", async () => {
+  const { database, store, linked } = await setup();
+  expect(await store.nextRetryAt(company)).toEqual({ success: true, data: null });
+  const mine = await linked();
+  for (const n of [1, 2, 3]) await store.saveOnce(text(n), mine, now);
+  await store.markRetry(text(1).id, 1, new Date(70_000));
+  await store.markRetry(text(2).id, 1, new Date(50_000));
+  await store.markSynced(text(3).id, "c" as CoreMessageId, now);
+  expect(await store.nextRetryAt(company)).toEqual({ success: true, data: new Date(50_000) });
+  expect(await store.nextRetryAt(otherCompany)).toEqual({ success: true, data: null });
+  database.close();
+});

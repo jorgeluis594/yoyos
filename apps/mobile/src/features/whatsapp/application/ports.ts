@@ -18,6 +18,8 @@ export type SaveOutcome = Readonly<{ status: "stored" | "duplicate"; message: St
 export type MessageStore = Readonly<{
   saveOnce(message: InboundMessage, placement: Placement, now: Date): Promise<Result<SaveOutcome, StoreError>>;
   nextPending(companyId: CompanyId, now: Date, limit: number): Promise<Result<readonly StoredMessage[], StoreError>>;
+  /** Earliest `next_attempt_at` among the company pending messages, or null when none is pending. */
+  nextRetryAt(companyId: CompanyId): Promise<Result<Date | null, StoreError>>;
   markSynced(id: NativeMessageId, coreMessageId: CoreMessageId, at: Date): Promise<Result<void, StoreError>>;
   markRetry(id: NativeMessageId, attempts: number, nextAttemptAt: Date): Promise<Result<void, StoreError>>;
   markRejected(id: NativeMessageId, code: RejectCode, at: Date): Promise<Result<void, StoreError>>;
@@ -47,7 +49,8 @@ export type GatewayConfigurationError = Readonly<{ code: "INVALID_WHATSAPP_RECOV
 export type Session = Readonly<{ companyId: CompanyId; userId: UserId; generation: number }>;
 
 export type RegistrationOutcome = Readonly<{ status: "stored" | "duplicate"; messageId: CoreMessageId }>;
-export type MessageApiError = TransportError;
+/** INVALID_MESSAGE: the local message does not satisfy the core contract, so no request was made. */
+export type MessageApiError = TransportError | Readonly<{ code: "INVALID_MESSAGE"; message: string }>;
 export type MessageApi = Readonly<{
   register(message: InboundMessage): Promise<Result<RegistrationOutcome, MessageApiError>>;
 }>;

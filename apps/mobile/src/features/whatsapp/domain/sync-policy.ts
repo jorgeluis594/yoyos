@@ -19,6 +19,7 @@ const batchStoppingCodes = ["NETWORK_ERROR", "RATE_LIMITED"];
 
 export function classifyFailure(failure: SyncFailure): SyncDecision {
   if (failure.code === "OPERATION_CANCELLED") return { action: "cancel" };
+  if (failure.code === "INVALID_MESSAGE") return { action: "reject", code: "INVALID_INPUT" };
   if (failure.code === "UNSUPPORTED_MEDIA_TYPE") return { action: "reject", code: "UNSUPPORTED_MEDIA_TYPE" };
   if (blockingCodes.includes(failure.code)) return { action: "block" };
   if (failure.code === "API_ERROR") {

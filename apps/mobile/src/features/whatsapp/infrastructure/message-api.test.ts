@@ -67,3 +67,14 @@ test("passes transport errors through with their codes", async () => {
 test("returns NETWORK_ERROR when the request cannot be sent", async () => {
   expect(await createMessageApi(async () => err({ code: "NETWORK_ERROR", message: "x" })).register(text)).toMatchObject({ error: { code: "NETWORK_ERROR" } });
 });
+
+test("returns INVALID_MESSAGE without calling the server when the message breaks the contract", async () => {
+  const request = jest.fn(async (_path: string, _init?: RequestInit) => ok<unknown>(response));
+  const api = createMessageApi(request);
+  const emptyCaption = { ...image, content: { ...image.content, caption: "" } } as InboundMessage;
+  const hugeText = { ...text, content: { type: "text", text: "a".repeat(64 * 1024 + 1) } } as InboundMessage;
+  for (const message of [emptyCaption, hugeText]) {
+    expect(await api.register(message)).toMatchObject({ success: false, error: { code: "INVALID_MESSAGE" } });
+  }
+  expect(request).not.toHaveBeenCalled();
+});

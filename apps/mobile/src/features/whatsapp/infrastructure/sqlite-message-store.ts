@@ -99,11 +99,16 @@ export function createSqliteMessageStore(sql: LocalSql): MessageStore {
     saveOnce: (message, placement, now) => guarded(() => sql.transaction(async (tx) => {
       const existing = await tx.first<MessageRow>(`${selectMessage} WHERE id = ?`, message.id);
       if (existing) return { status: "duplicate" as const, message: toStored(existing) };
+      let effective = placement;
       if (placement.kind === "linked" && placement.claim) {
-        const claimed = await tx.run("UPDATE whatsapp_links SET account_id = ? WHERE id = ? AND account_id IS NULL", message.accountId, placement.link.id);
-        if (claimed !== 1) throw new Error("Link could not be claimed");
+        // Idempotent: a concurrent claim by the same account succeeds; another account already owns the link.
+        const claimed = await tx.run(
+          "UPDATE whatsapp_links SET account_id = ? WHERE id = ? AND (account_id IS NULL OR account_id = ?)",
+          message.accountId, placement.link.id, message.accountId,
+        );
+        if (claimed !== 1) effective = { kind: "orphan" };
       }
-      await insertMessage(tx, message, placement, now);
+      await insertMessage(tx, message, effective, now);
       const row = await tx.first<MessageRow>(`${selectMessage} WHERE id = ?`, message.id);
       if (!row) throw new Error("Inserted message not found");
       return { status: "stored" as const, message: toStored(row) };
@@ -113,6 +118,14 @@ export function createSqliteMessageStore(sql: LocalSql): MessageStore {
       `${selectMessage} WHERE company_id = ? AND sync_state = 'pending' AND COALESCE(next_attempt_at, 0) <= ? ORDER BY arrival_seq LIMIT ?`,
       companyId, now.getTime(), limit,
     )).map(toStored)),
+
+    nextRetryAt: (companyId) => guarded(async () => {
+      const row = await sql.first<{ at: number | null }>(
+        "SELECT MIN(COALESCE(next_attempt_at, 0)) AS at FROM whatsapp_messages WHERE company_id = ? AND sync_state = 'pending'",
+        companyId,
+      );
+      return row?.at == null ? null : new Date(row.at);
+    }),
 
     markSynced: (id, coreMessageId, at) => guarded(async () => {
       await sql.run(

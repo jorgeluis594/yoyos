@@ -40,7 +40,7 @@ export function createMessageApi(request: Request): MessageApi {
   return {
     register: async (message) => {
       const validated = registerWhatsAppMessageRequestSchema.safeParse(toRegisterRequest(message));
-      if (!validated.success) return err({ code: "INVALID_RESPONSE", message: "Message does not satisfy the core contract" });
+      if (!validated.success) return err({ code: "INVALID_MESSAGE", message: "Message does not satisfy the core contract" });
       const response = await request("/api/messages", {
         method: "POST",
         headers: { "content-type": "application/json" },

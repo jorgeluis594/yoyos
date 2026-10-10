@@ -26,6 +26,10 @@ function setup(initial: StoredMessage[], respond: (m: StoredMessage) => ReturnTy
   const store = {
     nextPending: async (companyId: CompanyId, at: Date, limit: number) => ok([...rows.values()]
       .filter((m) => m.companyId === companyId && m.sync.state === "pending" && m.sync.nextAttemptAt <= at).slice(0, limit)),
+    nextRetryAt: async (companyId: CompanyId) => {
+      const times = [...rows.values()].flatMap((m) => m.companyId === companyId && m.sync.state === "pending" ? [m.sync.nextAttemptAt.getTime()] : []);
+      return ok(times.length === 0 ? null : new Date(Math.min(...times)));
+    },
     markSynced: async (id: NativeMessageId, core: CoreMessageId) => { marks.push(`synced:${id}`); const m = rows.get(id)!; rows.set(id, { ...m, sync: { state: "synced", coreMessageId: core, syncedAt: now } }); return ok(undefined); },
     markRejected: async (id: NativeMessageId, code: RejectCode) => { marks.push(`rejected:${code}`); const m = rows.get(id)!; rows.set(id, { ...m, sync: { state: "rejected", code, at: now } }); return ok(undefined); },
     markRetry: async (id: NativeMessageId, attempts: number, at: Date) => { retries.push({ id, attempts, at }); const m = rows.get(id)!; rows.set(id, { ...m, sync: { state: "pending", attempts, nextAttemptAt: at } }); return ok(undefined); },
@@ -148,4 +152,35 @@ test("stop cancels the scheduled retry", async () => {
 test("reports synced, retried and rejected counts", async () => {
   const { worker } = setup([message(1), message(2), message(3)], (m) => m.arrivalSeq === 1 ? stored() : m.arrivalSeq === 2 ? failure("SERVER_ERROR", 500) : failure("API_ERROR", 413));
   expect(await worker.runOnce()).toEqual({ success: true, data: { synced: 1, retried: 1, rejected: 1 } });
+});
+
+test("rejects a message that fails local contract validation instead of retrying it", async () => {
+  const { worker, marks, retries } = setup([message(1)], () => err({ code: "INVALID_MESSAGE", message: "m" }));
+  expect(await worker.runOnce()).toEqual({ success: true, data: { synced: 0, retried: 0, rejected: 1 } });
+  expect(marks).toEqual(["rejected:INVALID_INPUT"]);
+  expect(retries).toHaveLength(0);
+});
+
+test("schedules a timer for pending messages retried by an earlier run", async () => {
+  const later: StoredMessage = { ...message(1), sync: { state: "pending", attempts: 3, nextAttemptAt: new Date(now.getTime() + 300_000) } };
+  const { worker, sent, timers } = setup([later], () => stored());
+  expect(await worker.runOnce()).toEqual({ success: true, data: { synced: 0, retried: 0, rejected: 0 } });
+  expect(sent).toHaveLength(0);
+  expect(timers).toHaveLength(1);
+  expect(timers[0]?.ms).toBe(300_000);
+});
+
+test("waits for the backoff when a network error stops a batch with due messages left", async () => {
+  const { worker, sent, timers } = setup([message(1), message(2)], () => failure("NETWORK_ERROR"));
+  await worker.runOnce();
+  expect(sent).toHaveLength(1);
+  expect(timers).toHaveLength(1);
+  expect(timers[0]?.ms).toBe(2000);
+});
+
+test("does not schedule a timer after the operation is cancelled", async () => {
+  const { worker, sent, timers } = setup([message(1), message(2)], () => failure("OPERATION_CANCELLED"));
+  await worker.runOnce();
+  expect(sent).toHaveLength(1);
+  expect(timers).toHaveLength(0);
 });

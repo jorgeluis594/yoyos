@@ -34,7 +34,9 @@ export function createSyncWorker(deps: SyncWorkerDeps) {
     const startedEpoch = epoch;
     const unchanged = () => startedEpoch === epoch && deps.session()?.generation === session.generation && deps.session()?.companyId === session.companyId;
     let synced = 0, retried = 0, rejected = 0;
-    let earliestRetryMs: number | null = null;
+    // Why the loop stopped early; the due messages left behind must not be retried before the backoff.
+    let stoppedFor: "batch" | "cancel" | null = null;
+    let batchBackoffMs = 0;
 
     batches: while (unchanged()) {
       const pending = await deps.store.nextPending(session.companyId, deps.now(), batchSize);
@@ -51,7 +53,7 @@ export function createSyncWorker(deps: SyncWorkerDeps) {
           continue;
         }
         const decision = classifyFailure({ code: sent.error.code, httpStatus: "http" in sent.error ? sent.error.http?.status ?? null : null });
-        if (decision.action === "cancel") break batches;
+        if (decision.action === "cancel") { stoppedFor = "cancel"; break batches; }
         if (decision.action === "block") return err({ code: "SESSION_BLOCKED", message: "Core rejected the session" });
         if (decision.action === "reject") {
           const marked = await deps.store.markRejected(message.id, decision.code, deps.now());
@@ -64,13 +66,17 @@ export function createSyncWorker(deps: SyncWorkerDeps) {
         const marked = await deps.store.markRetry(message.id, attempts, new Date(deps.now().getTime() + delay));
         if (!marked.success) return marked;
         retried += 1;
-        earliestRetryMs = earliestRetryMs === null ? delay : Math.min(earliestRetryMs, delay);
-        if (decision.stopBatch) break batches;
+        if (decision.stopBatch) { stoppedFor = "batch"; batchBackoffMs = delay; break batches; }
       }
     }
-    if (earliestRetryMs !== null && unchanged()) {
-      clearTimer();
-      cancelTimer = deps.schedule(earliestRetryMs, wake);
+    if (stoppedFor !== "cancel" && unchanged()) {
+      const next = await deps.store.nextRetryAt(session.companyId);
+      if (!next.success) return next;
+      if (next.data !== null && unchanged()) {
+        clearTimer();
+        const untilNext = Math.max(0, next.data.getTime() - deps.now().getTime());
+        cancelTimer = deps.schedule(stoppedFor === "batch" ? Math.max(untilNext, batchBackoffMs) : untilNext, wake);
+      }
     }
     return ok({ synced, retried, rejected });
   }

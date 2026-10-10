@@ -58,3 +58,7 @@ test("rejects any transition out of synced, rejected or orphaned", () => {
   for (const from of ["synced", "rejected", "orphaned"] as const)
     for (const to of all) expect(transition(from, to)).toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
 });
+
+test("rejects INVALID_MESSAGE as INVALID_INPUT instead of retrying it", () => {
+  expect(failure("INVALID_MESSAGE")).toEqual({ action: "reject", code: "INVALID_INPUT" });
+});
