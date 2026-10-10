@@ -1,0 +1,329 @@
+<title>Formulario de producto Yoyos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: a review sheet — critique strip, then three phone comps side by side (stack on narrow), each with its rationale below. Phone comps use Yoyos Caramelo sobrio tokens; they follow the viewer theme. */
+:root {
+  --bg: #F7F4EF; --card: #FFFFFF; --fg: #242326; --muted: #68615B; --secondary: #EDE7DE;
+  --primary: #8C552D; --on-primary: #FFFFFF; --accent: #F0E2D2; --accent-fg: #754522;
+  --border: #DCD4C9; --input: #897F73; --success: #246447; --success-surface: #E8F1EB;
+  --error: #B33332; --error-surface: #FBECE9;
+  --page: #EFEAE2; --frame: #242326;
+  --sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #1C1B1D; --card: #272528; --fg: #EEE8DF; --muted: #B6ACA1; --secondary: #322F32;
+  --primary: #D5A16C; --on-primary: #1C1B1D; --accent: #443326; --accent-fg: #E3B789;
+  --border: #484249; --input: #887F89; --success: #9AD3AE; --success-surface: #23382C;
+  --error: #F09A94; --error-surface: #442B2D;
+  --page: #141315; --frame: #050506; color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --bg: #1C1B1D; --card: #272528; --fg: #EEE8DF; --muted: #B6ACA1; --secondary: #322F32;
+  --primary: #D5A16C; --on-primary: #1C1B1D; --accent: #443326; --accent-fg: #E3B789;
+  --border: #484249; --input: #887F89; --success: #9AD3AE; --success-surface: #23382C;
+  --error: #F09A94; --error-surface: #442B2D;
+  --page: #141315; --frame: #050506; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--page); color: var(--fg); font-family: var(--sans); font-size: 15px; line-height: 1.5; padding-inline: 16px; padding-block: 40px 64px; -webkit-font-smoothing: antialiased; }
+::selection { background: var(--accent); color: var(--accent-fg); }
+.wrap { max-width: 1240px; margin: 0 auto; display: grid; gap: 40px; }
+header.intro { max-width: 720px; display: grid; gap: 12px; }
+h1 { font-size: clamp(26px, 3.2vw, 34px); line-height: 1.15; letter-spacing: -0.02em; margin: 0; text-wrap: balance; font-weight: 700; }
+.lede { color: var(--muted); margin: 0; font-size: 16px; }
+h2 { font-size: 18px; margin: 0; letter-spacing: -0.01em; }
+
+.findings { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px 32px; padding: 20px 0; border-block: 1px solid var(--border); }
+.findings h2 { grid-column: 1 / -1; }
+.finding { display: grid; grid-template-columns: 22px 1fr; gap: 10px; font-size: 14px; }
+.finding svg { margin-top: 2px; color: var(--error); }
+.finding.ok svg { color: var(--success); }
+.finding b { display: block; font-weight: 600; }
+.finding span { color: var(--muted); }
+
+.comps { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 40px 28px; align-items: start; }
+.comp { display: grid; gap: 18px; justify-items: center; min-width: 0; }
+.comp-head { width: 100%; max-width: 360px; display: grid; gap: 4px; }
+.comp-head .tag { font-size: 13px; color: var(--accent-fg); font-weight: 600; }
+.comp-head h2 { font-size: 20px; }
+.comp-head p { margin: 0; color: var(--muted); font-size: 14px; }
+.notes { width: 100%; max-width: 360px; margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; font-size: 14px; }
+.notes li { display: grid; grid-template-columns: 16px 1fr; gap: 8px; }
+.notes li::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--primary); margin-top: 8px; }
+.notes .con::before { background: var(--muted); }
+.pick { font-size: 13px; color: var(--muted); max-width: 360px; width: 100%; border-top: 1px solid var(--border); padding-top: 10px; }
+
+/* ---------- phone ---------- */
+.phone { width: 340px; max-width: 100%; aspect-ratio: 360 / 760; border-radius: 40px; background: var(--frame); padding: 9px; box-shadow: 0 24px 48px rgb(0 0 0 / 0.18); }
+.screen { width: 100%; height: 100%; border-radius: 32px; overflow: hidden; background: var(--bg); display: flex; flex-direction: column; position: relative; font-size: 14px; }
+.status { height: 30px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 22px; font-size: 12px; font-weight: 600; }
+.status .dots { display: flex; gap: 4px; align-items: center; }
+.status .dots i { width: 14px; height: 9px; border-radius: 2px; background: var(--fg); opacity: .8; display: block; }
+.status .dots i:first-child { width: 9px; border-radius: 50%; }
+.appbar { flex: none; height: 52px; display: grid; grid-template-columns: 48px 1fr auto; align-items: center; padding: 0 8px 0 4px; gap: 4px; }
+.appbar.border { border-bottom: 1px solid var(--border); }
+.appbar .title { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.iconbtn { width: 48px; height: 48px; display: grid; place-items: center; color: var(--fg); border: 0; background: none; padding: 0; }
+.textbtn { height: 40px; padding: 0 14px; border-radius: 6px; font: 600 15px var(--sans); border: 0; }
+.textbtn.primary { background: var(--primary); color: var(--on-primary); }
+.textbtn.disabled { background: var(--secondary); color: var(--muted); }
+.textbtn.link { background: none; color: var(--primary); }
+.body { flex: 1; overflow: hidden; padding: 12px 16px 0; display: flex; flex-direction: column; gap: 12px; }
+.navbar { flex: none; height: 30px; display: flex; justify-content: center; align-items: center; }
+.navbar i { width: 108px; height: 4px; border-radius: 4px; background: var(--fg); opacity: .5; }
+
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 14px; display: grid; gap: 12px; }
+.card-title { font-size: 14px; font-weight: 600; display: flex; justify-content: space-between; align-items: baseline; }
+.card-title small { font-weight: 500; color: var(--muted); font-size: 12px; }
+.label { font-size: 13px; font-weight: 500; margin-bottom: 6px; display: block; }
+.label em { font-style: normal; color: var(--muted); font-weight: 400; }
+.field { height: 44px; border: 1px solid var(--input); border-radius: 6px; background: var(--card); display: flex; align-items: center; padding: 0 12px; color: var(--muted); font-size: 15px; gap: 6px; }
+.field.filled { color: var(--fg); }
+.field.focus { border: 2px solid var(--primary); padding: 0 11px; }
+.field .prefix { color: var(--muted); font-size: 14px; }
+.field.area { height: 64px; align-items: flex-start; padding-top: 10px; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* A */
+.media-a { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.media-a .add { aspect-ratio: 1; border: 1px dashed var(--input); border-radius: 8px; display: grid; place-items: center; align-content: center; gap: 4px; color: var(--muted); font-size: 12px; font-weight: 500; }
+.media-a .add svg { color: var(--fg); }
+.profit { display: grid; grid-template-columns: 1fr 1fr; background: var(--secondary); border-radius: 6px; padding: 10px 12px; font-size: 12px; color: var(--muted); }
+.profit b { display: block; color: var(--fg); font-size: 15px; font-weight: 600; }
+.stepper { height: 44px; border: 1px solid var(--input); border-radius: 6px; display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; text-align: center; font-weight: 600; }
+.stepper span { display: grid; place-items: center; height: 100%; color: var(--primary); }
+.stepper span:first-child { border-right: 1px solid var(--border); } .stepper span:last-child { border-left: 1px solid var(--border); }
+
+/* B */
+.hero-photo { display: grid; grid-template-columns: 88px 1fr; gap: 12px; align-items: center; }
+.hero-photo .tile { width: 88px; height: 88px; border-radius: 8px; background: var(--secondary); display: grid; place-items: center; color: var(--fg); position: relative; }
+.hero-photo .tile .plus { position: absolute; right: -4px; bottom: -4px; width: 26px; height: 26px; border-radius: 50%; background: var(--primary); color: var(--on-primary); display: grid; place-items: center; border: 2px solid var(--bg); }
+.group-label { font-size: 12px; font-weight: 600; color: var(--muted); padding: 4px 4px 0; }
+.list { background: var(--card); border: 1px solid var(--border); border-radius: 8px; }
+.list .item { min-height: 50px; display: grid; grid-template-columns: 1fr auto; align-items: center; padding: 0 14px; gap: 12px; }
+.list .item + .item { border-top: 1px solid var(--border); }
+.list .item .k { font-weight: 500; }
+.list .item .k em { font-style: normal; color: var(--muted); font-weight: 400; font-size: 12px; display: block; line-height: 1.2; }
+.list .item .v { color: var(--muted); text-align: right; font-size: 15px; }
+.list .item .v.filled { color: var(--fg); font-weight: 500; }
+.list .item.focus { box-shadow: inset 0 0 0 2px var(--primary); border-radius: 8px; }
+.actionbar { flex: none; display: grid; grid-template-columns: 1fr 1.6fr; gap: 8px; padding: 10px 16px 6px; border-top: 1px solid var(--border); background: var(--bg); }
+.btn { height: 48px; border-radius: 6px; display: grid; place-items: center; font-weight: 600; font-size: 15px; }
+.btn.primary { background: var(--primary); color: var(--on-primary); }
+.btn.secondary { background: var(--secondary); color: var(--fg); }
+
+/* C */
+.quick { display: grid; grid-template-columns: 76px 1fr; gap: 12px; align-items: start; }
+.quick .tile { width: 76px; height: 76px; border-radius: 8px; border: 1px dashed var(--input); display: grid; place-items: center; align-content: center; gap: 2px; font-size: 11px; color: var(--muted); font-weight: 500; }
+.quick .tile svg { color: var(--fg); }
+.price-big { background: var(--card); border: 2px solid var(--primary); border-radius: 8px; padding: 10px 14px 12px; }
+.price-big .label { margin-bottom: 2px; color: var(--muted); font-size: 12px; }
+.price-big .amount { font-size: 30px; font-weight: 600; letter-spacing: -0.02em; display: flex; align-items: baseline; gap: 6px; }
+.price-big .amount span { font-size: 18px; color: var(--muted); font-weight: 500; }
+.price-big .amount .caret { width: 2px; height: 28px; background: var(--primary); align-self: center; }
+.disclosure { background: var(--card); border: 1px solid var(--border); border-radius: 8px; }
+.disclosure .d { min-height: 52px; display: grid; grid-template-columns: 1fr auto; align-items: center; padding: 8px 14px; gap: 10px; }
+.disclosure .d + .d { border-top: 1px solid var(--border); }
+.disclosure .d b { font-weight: 500; display: block; }
+.disclosure .d span { font-size: 12px; color: var(--muted); }
+.disclosure .d .add { color: var(--primary); font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 4px; }
+.keyboard { flex: none; background: var(--secondary); padding: 8px 6px 4px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.keyboard i { height: 34px; border-radius: 6px; background: var(--card); display: grid; place-items: center; font-style: normal; font-size: 17px; font-weight: 500; }
+.savebar { flex: none; padding: 8px 16px; background: var(--bg); border-top: 1px solid var(--border); display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; }
+.savebar .sum { font-size: 12px; color: var(--muted); line-height: 1.3; }
+.savebar .sum b { color: var(--fg); font-size: 14px; display: block; font-weight: 600; }
+.savebar .btn { padding: 0 28px; }
+
+footer.next { max-width: 720px; display: grid; gap: 8px; font-size: 14px; color: var(--muted); }
+footer.next h2 { color: var(--fg); }
+@media (prefers-reduced-motion: no-preference) { .phone { transition: transform .3s cubic-bezier(.2,.8,.2,1); } .phone:hover { transform: translateY(-4px); } }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></symbol>
+    <symbol id="i-cam" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round"><path d="M5 12h14"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></symbol>
+    <symbol id="i-ok" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-5"/></symbol>
+    <symbol id="i-del" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 5H9l-6 7 6 7h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1z"/><path d="m16 10-4 4M12 10l4 4"/></symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <header class="intro">
+    <h1>Formulario de producto: tres direcciones</h1>
+    <p class="lede">Mocks para la pantalla “Nuevo producto” de la app móvil, con la paleta Caramelo sobrio. Referencia: en la app móvil de Shopify, “Agregar producto” se abre sin pestañas, con cerrar (X) arriba a la izquierda y “Guardar” (o ✓ en iPhone) en la barra superior. Las secciones son tarjetas: medios, título y descripción, precio, inventario, variantes. Precio e inventario se muestran como filas resumen que abren su propio detalle, y salir con cambios pide confirmar el descarte.</p>
+  </header>
+
+  <section class="findings" aria-labelledby="f-title">
+    <h2 id="f-title">Qué falla en el formulario actual</h2>
+    <div class="finding"><svg width="18" height="18"><use href="#i-warn"/></svg><div><b>Acciones partidas en dos zonas</b><span>“Guardar” queda fijo abajo y “Cancelar” flota al final del scroll. Ninguno está donde el usuario espera cerrar o confirmar.</span></div></div>
+    <div class="finding"><svg width="18" height="18"><use href="#i-warn"/></svg><div><b>Tres barras apiladas abajo</b><span>Guardar + pestañas + navegación del sistema ocupan casi un tercio de la pantalla. Las pestañas no deberían verse mientras creas un producto.</span></div></div>
+    <div class="finding"><svg width="18" height="18"><use href="#i-warn"/></svg><div><b>Sin forma de salir arriba</b><span>El título “Nuevo producto” no tiene botón de cerrar ni volver; la salida depende del gesto del sistema.</span></div></div>
+    <div class="finding"><svg width="18" height="18"><use href="#i-warn"/></svg><div><b>Secciones con banda gris</b><span>“Precios · PEN” e “Inventario” usan una cabecera con fondo propio dentro de otra superficie: se lee como tarjeta dentro de tarjeta.</span></div></div>
+    <div class="finding"><svg width="18" height="18"><use href="#i-warn"/></svg><div><b>“(opcional)” repetido</b><span>Tres etiquetas truncan su significado con paréntesis. Mejor marcar solo lo obligatorio o mover lo opcional a una sección aparte.</span></div></div>
+    <div class="finding ok"><svg width="18" height="18"><use href="#i-ok"/></svg><div><b>Se conserva</b><span>Foto primero, nombre y precio como únicos campos obligatorios, campos de 48dp y moneda visible.</span></div></div>
+  </section>
+
+  <section class="comps" aria-label="Propuestas">
+
+    <!-- ============ A ============ -->
+    <article class="comp">
+      <div class="comp-head">
+        <span class="tag">Propuesta A</span>
+        <h2>Tarjetas a lo Shopify</h2>
+        <p>La traducción más directa: cerrar a la izquierda, “Guardar” arriba a la derecha, tarjetas por tema y ganancia calculada.</p>
+      </div>
+      <div class="phone" role="img" aria-label="Mock A: barra superior con cerrar y guardar, tarjetas de foto, detalles, precio e inventario">
+        <div class="screen">
+          <div class="status"><span class="num">11:13</span><span class="dots"><i></i><i></i><i></i></span></div>
+          <div class="appbar border">
+            <span class="iconbtn"><svg width="22" height="22"><use href="#i-x"/></svg></span>
+            <span class="title">Nuevo producto</span>
+            <span class="textbtn disabled" style="display:grid;place-items:center">Guardar</span>
+          </div>
+          <div class="body">
+            <div class="card">
+              <div class="media-a">
+                <div class="add"><svg width="22" height="22"><use href="#i-cam"/></svg>Agregar foto</div>
+              </div>
+            </div>
+            <div class="card">
+              <div><span class="label">Nombre</span><div class="field filled">Polo oversize negro</div></div>
+              <div><span class="label">Descripción</span><div class="field area">Algodón, tallas S a XL…</div></div>
+            </div>
+            <div class="card">
+              <div class="card-title">Precio <small>PEN</small></div>
+              <div class="row2">
+                <div><span class="label">Venta</span><div class="field filled focus num"><span class="prefix">S/</span>59.90</div></div>
+                <div><span class="label">Costo</span><div class="field filled num"><span class="prefix">S/</span>32.00</div></div>
+              </div>
+              <div class="profit num"><div>Ganancia<b>S/ 27.90</b></div><div>Margen<b>46.6 %</b></div></div>
+            </div>
+            <div class="card">
+              <div class="card-title">Inventario</div>
+              <div class="row2">
+                <div><span class="label">SKU</span><div class="field">POL-NEG</div></div>
+                <div><span class="label">Stock</span><div class="stepper num"><span><svg width="16" height="16"><use href="#i-minus"/></svg></span>12<span><svg width="16" height="16"><use href="#i-plus"/></svg></span></div></div>
+              </div>
+            </div>
+          </div>
+          <div class="navbar"><i></i></div>
+        </div>
+      </div>
+      <ul class="notes">
+        <li>“Guardar” se activa cuando hay nombre y precio; mientras tanto se ve deshabilitado.</li>
+        <li>Cerrar con cambios abre el diálogo “¿Descartar producto?”, que ya existe en el guard actual.</li>
+        <li>Ganancia y margen se calculan en vivo con venta y costo. Le da sentido al campo de costo.</li>
+        <li class="con">El botón arriba queda lejos del pulgar en teléfonos grandes.</li>
+      </ul>
+    </article>
+
+    <!-- ============ B ============ -->
+    <article class="comp">
+      <div class="comp-head">
+        <span class="tag">Propuesta B</span>
+        <h2>Lista compacta con barra de acción</h2>
+        <p>Filas de etiqueta y valor, como los ajustes del sistema. Cancelar y Guardar juntos en una barra que reemplaza a las pestañas.</p>
+      </div>
+      <div class="phone" role="img" aria-label="Mock B: filas compactas de etiqueta y valor con barra inferior de Cancelar y Guardar">
+        <div class="screen">
+          <div class="status"><span class="num">11:13</span><span class="dots"><i></i><i></i><i></i></span></div>
+          <div class="appbar">
+            <span class="iconbtn"><svg width="22" height="22"><use href="#i-back"/></svg></span>
+            <span class="title">Nuevo producto</span>
+            <span></span>
+          </div>
+          <div class="body">
+            <div class="hero-photo">
+              <div class="tile"><svg width="28" height="28"><use href="#i-cam"/></svg><span class="plus"><svg width="14" height="14"><use href="#i-plus"/></svg></span></div>
+              <div><span class="label">Nombre</span><div class="field filled">Polo oversize negro</div></div>
+            </div>
+            <div class="group-label">Precio · PEN</div>
+            <div class="list num">
+              <div class="item focus"><span class="k">Precio de venta</span><span class="v filled">S/ 59.90</span></div>
+              <div class="item"><span class="k">Costo<em>Para calcular tu ganancia</em></span><span class="v filled">S/ 32.00</span></div>
+            </div>
+            <div class="group-label">Inventario</div>
+            <div class="list num">
+              <div class="item"><span class="k">Stock inicial</span><span class="v filled">12</span></div>
+              <div class="item"><span class="k">SKU</span><span class="v">Agregar</span></div>
+            </div>
+            <div class="group-label">Detalles</div>
+            <div class="list">
+              <div class="item"><span class="k">Descripción</span><span class="v">Agregar <svg width="14" height="14" style="vertical-align:-2px"><use href="#i-chev"/></svg></span></div>
+            </div>
+          </div>
+          <div class="actionbar">
+            <div class="btn secondary">Cancelar</div>
+            <div class="btn primary">Guardar</div>
+          </div>
+          <div class="navbar" style="background:var(--bg)"><i></i></div>
+        </div>
+      </div>
+      <ul class="notes">
+        <li>La más densa: todo el formulario cabe sin scroll en un teléfono de 384dp.</li>
+        <li>Las dos acciones quedan juntas y al alcance del pulgar; el secundario no compite con el primario.</li>
+        <li>La barra sube sobre el teclado, así puedes guardar sin cerrarlo.</li>
+        <li class="con">Los valores alineados a la derecha requieren un input propio; cambia más el componente Field.</li>
+      </ul>
+    </article>
+
+    <!-- ============ C ============ -->
+    <article class="comp">
+      <div class="comp-head">
+        <span class="tag">Propuesta C</span>
+        <h2>Lo esencial primero, para vender en vivo</h2>
+        <p>Foto, nombre y precio arriba; costo, inventario y descripción se agregan solo si hacen falta. Pensada para crear un producto en segundos durante un live.</p>
+      </div>
+      <div class="phone" role="img" aria-label="Mock C: foto y nombre, precio grande enfocado, filas para agregar costo, inventario y descripción, teclado numérico">
+        <div class="screen">
+          <div class="status"><span class="num">11:13</span><span class="dots"><i></i><i></i><i></i></span></div>
+          <div class="appbar">
+            <span class="iconbtn"><svg width="22" height="22"><use href="#i-x"/></svg></span>
+            <span class="title">Nuevo producto</span>
+            <span></span>
+          </div>
+          <div class="body" style="gap:10px">
+            <div class="quick">
+              <div class="tile"><svg width="22" height="22"><use href="#i-cam"/></svg>Foto</div>
+              <div><span class="label">Nombre</span><div class="field filled">Polo oversize negro</div></div>
+            </div>
+            <div class="price-big">
+              <span class="label">Precio de venta</span>
+              <div class="amount num"><span>S/</span>59.90<i class="caret"></i></div>
+            </div>
+            <div class="disclosure">
+              <div class="d"><div><b>Costo y ganancia</b><span>Opcional</span></div><span class="add"><svg width="14" height="14"><use href="#i-plus"/></svg>Agregar</span></div>
+              <div class="d"><div><b>Stock y SKU</b><span>Opcional</span></div><span class="add"><svg width="14" height="14"><use href="#i-plus"/></svg>Agregar</span></div>
+              <div class="d"><div><b>Descripción</b><span>Opcional</span></div><span class="add"><svg width="14" height="14"><use href="#i-plus"/></svg>Agregar</span></div>
+            </div>
+          </div>
+          <div class="savebar">
+            <div class="sum num"><b>S/ 59.90</b>Polo oversize negro</div>
+            <div class="btn primary">Guardar</div>
+          </div>
+          <div class="keyboard num"><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i><i>.</i><i>0</i><i><svg width="20" height="20"><use href="#i-del"/></svg></i></div>
+        </div>
+      </div>
+      <ul class="notes">
+        <li>Solo dos campos visibles para crear: el resto se abre en su sitio al tocar “Agregar”.</li>
+        <li>El precio es el dato más grande de la pantalla; teclado numérico directo.</li>
+        <li>La barra de guardar va pegada sobre el teclado y resume lo que vas a guardar.</li>
+        <li class="con">Al editar un producto existente, las secciones con datos deben mostrarse abiertas.</li>
+      </ul>
+    </article>
+  </section>
+
+  <footer class="next">
+    <h2>Común a las tres</h2>
+    <p>La pantalla de creación se presenta como modal o pantalla de pila sin pestañas. Cerrar con cambios pide confirmar descarte. Mientras guarda, el botón muestra “Guardando…” con el mismo ancho. Los errores siguen debajo de cada campo. Las variantes, la impresión y las copias de etiqueta en edición conservan su lugar actual.</p>
+  </footer>
+</div>

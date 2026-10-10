@@ -8,7 +8,7 @@ const mockCreate = jest.fn();
 const mockStartAttempt = jest.fn();
 const productId = "00000000-0000-4000-8000-000000000001";
 
-jest.mock("expo-router", () => ({ useRouter: () => ({ replace: mockReplace }) }));
+jest.mock("expo-router", () => ({ useRouter: () => ({ replace: mockReplace, canGoBack: () => false, back: jest.fn() }) }));
 jest.mock("expo-crypto", () => ({ randomUUID: () => productId }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({
@@ -65,4 +65,24 @@ test('new product form and validation are translated to Portuguese', async () =>
   } finally {
     await i18n.changeLanguage('es');
   }
+});
+
+test("stock stepper adjusts the initial stock sent on creation", async () => {
+  mockCreate.mockResolvedValue(ok(productId));
+  render(<CreateProductScreen />);
+  fillForm();
+  const decrease = screen.getByRole("button", { name: "Restar uno al stock" });
+  expect(decrease.props.accessibilityState.disabled).toBe(true);
+  fireEvent.press(screen.getByRole("button", { name: "Sumar uno al stock" }));
+  fireEvent.press(screen.getByRole("button", { name: "Sumar uno al stock" }));
+  fireEvent.press(decrease);
+  expect(screen.getByLabelText("Stock inicial").props.value).toBe("1");
+  await act(async () => fireEvent.press(screen.getByRole("button", { name: "Guardar" })));
+  expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ initialStock: 1 }));
+});
+
+test("close returns to the catalog", () => {
+  render(<CreateProductScreen />);
+  fireEvent.press(screen.getByRole("button", { name: "Cerrar" }));
+  expect(mockReplace).toHaveBeenCalledWith("/products");
 });

@@ -5,9 +5,9 @@ import { Pressable } from 'react-native';
 import { AccessGate } from '@/composition/access-gate';
 import { createAuthOperations } from '@/composition/create-auth-operations';
 
-jest.mock('@/components/app-tabs', () => {
+jest.mock('@mobile/components/root-stack', () => {
   const { Text: MockText } = jest.requireActual('react-native');
-  return function Tabs() { return <MockText>Private tabs</MockText>; };
+  return function RootStack() { return <MockText>Private tabs</MockText>; };
 });
 
 function LogoutTrigger() {

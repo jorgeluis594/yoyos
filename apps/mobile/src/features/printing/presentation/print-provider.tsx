@@ -22,6 +22,7 @@ type PrintContextValue = Readonly<{
   startAttempt: (work: PrintWork) => void;
   showPrinterPicker: () => void;
   dismissNotice: () => void;
+  printerName: string | null;
 }>;
 
 const PrintContext = createContext<PrintContextValue | null>(null);
@@ -124,7 +125,7 @@ function PrintSession({ children, sessionKey }: { children: ReactNode; sessionKe
     startAttempt(activeWork.current);
   };
 
-  return <PrintContext.Provider value={{ startAttempt, showPrinterPicker, dismissNotice }}>
+  return <PrintContext.Provider value={{ startAttempt, showPrinterPicker, dismissNotice, printerName: selection?.printer.displayName ?? null }}>
     {children}
     {sessionKey && notice.status !== "idle" ? <ThemedView type="backgroundElement" style={styles.notice} accessibilityLiveRegion="polite" testID="print-notice">
       <ThemedText type="smallBold">{notice.status === "succeeded" ? t('printSent') : notice.status === "failed" ? t('printFailed') : notice.status === "selecting-printer" ? t('choosePrinter') : t('preparingPrint')}</ThemedText>

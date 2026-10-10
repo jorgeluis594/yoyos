@@ -1,5 +1,5 @@
 import { fireEvent, render } from '@testing-library/react-native';
-import HomeScreen from '@mobile/app/index';
+import HomeScreen from '@mobile/app/(tabs)/index';
 import '@mobile/i18n';
 
 const mockPush = jest.fn();

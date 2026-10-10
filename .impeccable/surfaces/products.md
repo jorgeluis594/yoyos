@@ -7,6 +7,22 @@ related_targets: []
 
 # Products — native form actions
 
+## Current direction — Shopify-style cards (2026-10-09)
+
+The user selected proposal A from `.impeccable/mocks/products-v3/` (`option-a-dark.png`, `option-a-light.png`), HTML comps rendered from a Shopify mobile reference. It supersedes the scroll-flow `Guardar` described below.
+
+- The shared `ProductForm` owns a 64dp top bar: 48dp close icon (`Cerrar`, uses the existing discard guard through `onClose`), the screen title, an optional header action (the edit screen's print icon) and the primary `Guardar` button. No bottom action region and no `Cancelar` button remain; conflict and uncertain-status recovery actions stay at the end of the scroll flow as secondary buttons.
+- Content sits on the canvas as flat cards (`card` surface, `border`, 8dp radius, 16dp padding): photo strip, name and description, price (`Precio` + currency, `Precio de venta` / `Costo`) and inventory or variants. Section titles live inside the card; no tinted header band.
+- The price card shows profit and margin from `domain/product-margin.ts` when sale price and cost are valid, and a cost hint while cost is empty. Losses use the error color plus the minus sign.
+- Creation uses a stock stepper (48dp minus/plus with an editable center field); editing keeps stock read-only. Price and inventory columns wrap under enlarged text.
+- Create and edit open in a root stack above the `(tabs)` group (`src/components/root-stack.tsx`), full screen and edge to edge; close goes back to the opening screen, or to `/products` when there is none. Hiding the native tab bar was rejected: on Android the tab content did not reclaim the bar's space when the form was the first screen shown in the tab (opened from Home or by link).
+- Editing mirrors creation (2026-10-10, user request): title `Editar producto`, same cards, the stock stepper shown locked with `El stock cambia con las ventas y ajustes.` (the update API has no stock change), saved prices shown with two decimals. The copies field left the form.
+- The header print icon opens `product-print-sheet.tsx`, a bottom sheet with everything about printing now: what prints (or a variant radio list), copies stepper (1–99, inline error), unsaved-changes notice, the selected printer with choose/change (Android) and the `Imprimir` action.
+
+Save stays enabled and validates on press (errors under each field), unlike the comp's disabled state, so validation feedback is still discoverable. Paired fields stack when the system font scale exceeds 1.15.
+
+Android evidence (Samsung R5CY32G04RW, 384dp, Expo Go against a local core): `.impeccable/review/products-v4/` — create dark/light, margin, keyboard, stepper, edit top/bottom, large text 1.3, print sheet, discard prompt, create opened from Home. Restored font scale 1.0 and night mode auto afterwards. No iOS, tablet or physical print run is claimed.
+
 ## Current direction — product form redesign (2026-10-08)
 
 The user selected `.impeccable/mocks/products-v2/option-a.png` for the broader form redesign, then moved printing from the comp's floating text pill to an **icon beside the top title**. The original decision and evidence below describe the earlier, narrower stacked-action iteration and remain as history.

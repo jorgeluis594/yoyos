@@ -1,16 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import * as Crypto from "expo-crypto";
 import { countryCurrencies } from "@shared/country";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { products } from "@mobile/features/products/composition";
 import { useAccess } from "@/features/users/presentation/access-provider";
 import type { ProductId, PhotoSelection } from "../domain/product";
-import { ProductForm } from "./product-form";
+import { formEdges, ProductForm } from "./product-form";
 import type { ProductFormField, ProductFormValues } from "./product-form";
 import { emptyProductForm, productErrors, validateProductForm } from "./product-form-state";
 import { useProductNavigationGuard } from "./use-product-navigation-guard";
@@ -44,6 +43,8 @@ export default function CreateProductScreen() {
   }, [discardVersion]);
 
   if (state.status !== "ready") return null;
+  // The form opens above the tabs; going back returns to wherever it was opened from.
+  const close = () => router.canGoBack() ? router.back() : router.replace("/products");
   const setValue = (field: keyof ProductFormValues, value: string) => {
     setValues((current) => ({ ...current, [field]: value }));
     setErrors((current) => ({ ...current, [field]: undefined, form: undefined }));
@@ -75,9 +76,9 @@ export default function CreateProductScreen() {
     router.replace({ pathname: "/products/[productId]", params: { productId: result.data } });
   };
 
-  return <ThemedView style={styles.page}><SafeAreaView style={styles.safe}>
-    <View style={styles.header}><ThemedText type="subtitle">{t('newProduct')}</ThemedText></View>
+  return <ThemedView style={styles.page}><SafeAreaView edges={formEdges} style={styles.safe}>
     <ProductForm
+      title={t('newProduct')}
       values={values}
       setValue={setValue}
       currency={countryCurrencies[state.company.country]}
@@ -88,7 +89,7 @@ export default function CreateProductScreen() {
       photoBusy={photoBusy}
       onPhotoBusy={setPhotoBusy}
       onSave={() => void save()}
-      onCancel={() => router.replace("/products")}
+      onClose={close}
       onReviewCatalog={() => { setDirty(false); router.replace("/products"); }}
       saving={saving}
       conflict={conflict}
@@ -96,4 +97,4 @@ export default function CreateProductScreen() {
   </SafeAreaView></ThemedView>;
 }
 
-const styles = StyleSheet.create({ page: { flex: 1 }, safe: { flex: 1 }, header: { minHeight: 52, justifyContent: "center", paddingHorizontal: 16 } });
+const styles = StyleSheet.create({ page: { flex: 1 }, safe: { flex: 1 } });
