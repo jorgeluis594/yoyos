@@ -331,9 +331,12 @@ func classify(event any) string {
 // starts the offline queue as soon as the client is active, before the request can be sent, and
 // this client has no durable receive path. It therefore processes nothing: the pre-decrypt hook
 // rejects every message before any decryption or Signal state change, synchronous acknowledgements
-// wait for handlers, and a handler rejects them all. Nothing is acknowledged, so the server
-// redelivers all of it to the real receive path on the next connection. Whatsmeow offers no way to
-// stay passive, which would avoid the queue altogether.
+// wait for handlers, and a handler rejects them all. Encrypted messages are neither decrypted nor
+// acknowledged, but after a successful logout the device is unlinked and the server discards that
+// queue: it is lost to Yoyos and is not redelivered. Only if the local retirement then fails and the
+// session survives can a later connection receive it again. Notifications and the paths that run
+// before the hook may still write to the store being retired or be acknowledged. Whatsmeow offers
+// no way to stay passive, which would avoid the queue altogether.
 func NewUnlinkTransport(device *store.Device, localFailure func() Code) Transport {
 	transport := NewWhatsmeowTransport(device, localFailure).(*whatsmeowTransport)
 	client := transport.client
