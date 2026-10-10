@@ -147,8 +147,8 @@ func (s *ConnectionSession) newTransport() (connection.Transport, error) {
 	return connection.NewWhatsmeowTransport(device, stopReason, receiver), nil
 }
 
-// newUnlinkTransport builds a client without a receive path: it connects only to unlink, so it
-// captures and acknowledges nothing.
+// newUnlinkTransport builds a client that connects only to unlink: it decrypts and acknowledges
+// nothing (see connection.NewUnlinkTransport).
 func (s *ConnectionSession) newUnlinkTransport() (connection.Transport, error) {
 	s.mu.Lock()
 	device := s.device
@@ -156,7 +156,7 @@ func (s *ConnectionSession) newUnlinkTransport() (connection.Transport, error) {
 	if device == nil {
 		return nil, errors.New("device unknown")
 	}
-	return connection.NewWhatsmeowTransport(device, func() connection.Code { return connection.Code(s.StopReason()) }), nil
+	return connection.NewUnlinkTransport(device, func() connection.Code { return connection.Code(s.StopReason()) }), nil
 }
 
 func (s *ConnectionSession) resumeCapacity() {
@@ -248,6 +248,14 @@ func (s *ConnectionSession) Logout() string {
 		return "REMOTE_LOGOUT_UNCONFIRMED"
 	}
 	return ""
+}
+
+// MarkRevoked tells a session reopened only to log out that the server already revoked it, so
+// no connection is made to unlink it. It changes no state and publishes nothing.
+func (s *ConnectionSession) MarkRevoked() {
+	if s != nil && s.controller != nil {
+		s.controller.MarkRevoked()
+	}
 }
 
 func (s *ConnectionSession) resolveBeforeLogout() error {

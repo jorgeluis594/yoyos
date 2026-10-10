@@ -212,3 +212,21 @@ func TestITID10OtherActiveAccountNeitherResolvesNorWritesForPreviousEntries(t *t
 		t.Fatal("confirming the previous account's entry wrote through the active account")
 	}
 }
+
+// m4: a revocation known to native is passed to Go, which then does not connect to unlink.
+func TestM4KnownRevocationDoesNotConnectToUnlinkButStillResolvesMappings(t *testing.T) {
+	session, native, _, _ := pairedSession(t)
+	storeMapping(t, session, "9001", "34600")
+	session.controller.SetUnlinkTransport(func() (connection.Transport, error) {
+		t.Error("connected to unlink a revoked session")
+		return nil, errors.New("no")
+	})
+	session.MarkRevoked()
+	if code := session.Logout(); code != "REMOTE_LOGOUT_UNCONFIRMED" {
+		t.Fatal(code)
+	}
+	if native.state(0) != "resolved" {
+		t.Fatal("mappings were not completed")
+	}
+	(*ConnectionSession)(nil).MarkRevoked()
+}

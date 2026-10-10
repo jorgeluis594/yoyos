@@ -138,6 +138,7 @@ private object ConnectionRuntime {
       }
       session = result.session
       eventSink = sink
+      if (revoked) session?.markRevoked() // reopened only to log out: never connect to unlink it
       return null
     } catch (error: Exception) {
       store.retireGeneration()
@@ -250,13 +251,20 @@ class WhatsAppModule : Module() {
             if (ConnectionRuntime.session == null && writer.open().optJSONObject("session") != null) {
               val context = appContext.reactContext ?: return@synchronized failure("MODULE_UNAVAILABLE")
               val opened = ConnectionRuntime.openConnection(context, writer.open(), forLogout = true)
-              if (opened != null && opened != "SESSION_STATE_INVALID") return@synchronized failure(opened)
+              if (opened != null && opened != "SESSION_STATE_INVALID") {
+                if (ConnectionRuntime.revoked) ConnectionRuntime.emit?.invoke("connectionChanged", mapOf("state" to "sessionExpired"))
+                return@synchronized failure(opened)
+              }
             }
             // Go stops reception, completes verifiable mappings and asks WhatsApp to unlink (15 s).
             val remote = ConnectionRuntime.session?.logout() ?: "REMOTE_LOGOUT_UNCONFIRMED"
             ConnectionRuntime.stop()
             // Any other code means nothing was unlinked or retired; credentials stay.
-            if (remote.isNotEmpty() && remote != "REMOTE_LOGOUT_UNCONFIRMED") return@synchronized failure(bridgeCode(remote))
+            if (remote.isNotEmpty() && remote != "REMOTE_LOGOUT_UNCONFIRMED") {
+              // stop() announced disconnected; a revoked session is still sessionExpired.
+              if (ConnectionRuntime.revoked) ConnectionRuntime.emit?.invoke("connectionChanged", mapOf("state" to "sessionExpired"))
+              return@synchronized failure(bridgeCode(remote))
+            }
             val hadSession = writer.open().optJSONObject("session") != null
             writer.endSession()
             ConnectionRuntime.revoked = false

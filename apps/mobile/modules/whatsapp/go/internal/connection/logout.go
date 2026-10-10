@@ -35,6 +35,14 @@ func (c *Controller) SetUnlinkTransport(create func() (Transport, error)) {
 	c.mu.Unlock()
 }
 
+// MarkRevoked records a revocation known outside this controller, such as one that ended the
+// previous session. It is the same latch the revoked event sets, without any state change.
+func (c *Controller) MarkRevoked() {
+	c.mu.Lock()
+	c.expired = true
+	c.mu.Unlock()
+}
+
 type logoutCall struct {
 	done   chan struct{}
 	result LogoutResult

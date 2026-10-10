@@ -88,12 +88,17 @@ func (t *whatsmeowTransport) Logout(ctx context.Context) error {
 // authenticated connects when needed and waits for the login to complete, so the unlink
 // request is not sent over a socket the server has not accepted yet.
 func (t *whatsmeowTransport) authenticated(ctx context.Context) error {
-	ready := make(chan struct{}, 1)
+	ready, refused := make(chan struct{}, 1), make(chan struct{}, 1)
 	handler := t.client.AddEventHandler(func(event any) {
 		switch event.(type) {
 		case *events.Connected:
 			select {
 			case ready <- struct{}{}:
+			default:
+			}
+		case *events.LoggedOut, *events.ConnectFailure, *events.Disconnected, *events.StreamReplaced:
+			select {
+			case refused <- struct{}{}:
 			default:
 			}
 		}
@@ -110,6 +115,8 @@ func (t *whatsmeowTransport) authenticated(ctx context.Context) error {
 	select {
 	case <-ready:
 		return nil
+	case <-refused:
+		return errors.New("connection closed before the login completed")
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -118,7 +125,7 @@ func (t *whatsmeowTransport) authenticated(ctx context.Context) error {
 // Quiesce makes the connected client withhold acknowledgements: with no handler left after
 // the run ended, the pinned client would confirm deliveries that never reached the receiver.
 func (t *whatsmeowTransport) Quiesce() {
-	t.client.AddEventHandlerWithSuccessStatus(func(any) bool { return false })
+	t.client.AddEventHandlerWithSuccessStatus(rejectDeliveries)
 }
 
 func confirmedUnlink(err error) error {
@@ -318,4 +325,38 @@ func classify(event any) string {
 	default:
 		return ""
 	}
+}
+
+// NewUnlinkTransport builds the client that connects only to request the unlink. The server
+// starts the offline queue as soon as the client is active, before the request can be sent, and
+// this client has no durable receive path. It therefore processes nothing: the pre-decrypt hook
+// rejects every message before any decryption or Signal state change, synchronous acknowledgements
+// wait for handlers, and a handler rejects them all. Nothing is acknowledged, so the server
+// redelivers all of it to the real receive path on the next connection. Whatsmeow offers no way to
+// stay passive, which would avoid the queue altogether.
+func NewUnlinkTransport(device *store.Device, localFailure func() Code) Transport {
+	transport := NewWhatsmeowTransport(device, localFailure).(*whatsmeowTransport)
+	client := transport.client
+	client.SynchronousAck = true
+	client.EnableDecryptedEventBuffer = true // a panic while receiving then withholds the acknowledgement
+	client.PreDecryptMessage = func(context.Context, *types.MessageInfo, *waBinary.Node) (context.Context, error) {
+		return nil, errUnlinkOnly
+	}
+	client.AddEventHandlerWithSuccessStatus(rejectDeliveries)
+	return transport
+}
+
+var errUnlinkOnly = errors.New("this connection only unlinks the device")
+
+// rejectDeliveries fails every event that carries content to acknowledge. The dispatcher stops at
+// the first handler that fails, so connection lifecycle events pass: the handlers that watch the
+// login, the logout and the socket must still run.
+func rejectDeliveries(event any) bool {
+	switch event.(type) {
+	case *events.Connected, *events.Disconnected, *events.LoggedOut, *events.ConnectFailure, *events.StreamReplaced,
+		*events.ClientOutdated, *events.ManualLoginReconnect, *events.PairSuccess, *events.StreamError, *events.TemporaryBan,
+		*events.KeepAliveTimeout, *events.KeepAliveRestored:
+		return true
+	}
+	return false
 }

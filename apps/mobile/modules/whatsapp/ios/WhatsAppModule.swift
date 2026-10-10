@@ -163,6 +163,7 @@ private final class ConnectionRuntime {
     }
     session = opened
     eventSink = sink
+    if revoked { opened.markRevoked() } // reopened only to log out: never connect to unlink it
     return nil
   }
 
@@ -272,6 +273,7 @@ public class WhatsAppModule: Module {
         // (SESSION_STATE_INVALID) cannot be resolved and still allow retirement; any other failure keeps them.
         if runtime.session == nil, try writer.open()["session"] is [String: Any] {
           if let opened = try runtime.openConnection(snapshot: try writer.open(), forLogout: true), opened != "SESSION_STATE_INVALID" {
+            if runtime.revoked { runtime.emit?("connectionChanged", ["state": "sessionExpired"]) }
             return failure(opened)
           }
         }
@@ -279,7 +281,11 @@ public class WhatsAppModule: Module {
         let remote = runtime.session?.logout() ?? "REMOTE_LOGOUT_UNCONFIRMED"
         runtime.stop()
         // Any other code means nothing was unlinked or retired; credentials stay.
-        if !remote.isEmpty && remote != "REMOTE_LOGOUT_UNCONFIRMED" { return failure(bridgeCode(remote)) }
+        if !remote.isEmpty && remote != "REMOTE_LOGOUT_UNCONFIRMED" {
+          // stop() announced disconnected; a revoked session is still sessionExpired.
+          if runtime.revoked { runtime.emit?("connectionChanged", ["state": "sessionExpired"]) }
+          return failure(bridgeCode(remote))
+        }
         let hadSession = try writer.open()["session"] is [String: Any]
         try writer.endSession()
         runtime.revoked = false
