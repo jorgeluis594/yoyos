@@ -104,7 +104,8 @@ func TestITBUF03PausesAndResumesOnlyWhenRejectedEntryFits(t *testing.T) {
 	if !full || typed.Oversize || typed.Needed != big {
 		t.Fatalf("expected a temporary capacity stop: %v", r3.err)
 	}
-	if l.capacity != 1 || n.pendingCount() != 2 {
+	eventually(t, "capacity pause", func() bool { return l.capacity.Load() == 1 })
+	if n.pendingCount() != 2 {
 		t.Fatal("the buffer was not paused with its pendings preserved")
 	}
 	first := app.take(t)
@@ -147,8 +148,12 @@ func TestITBUF04OversizeEntryIsRejectedWithoutRetryLoop(t *testing.T) {
 	}
 	r := l.receive("big", strings.Repeat("x", 5000))
 	typed, full := isBufferFull(r.err)
-	if !full || !typed.Oversize || l.oversize != 1 || l.capacity != 0 {
+	if !full || !typed.Oversize {
 		t.Fatalf("oversize not reported: %v", r.err)
+	}
+	eventually(t, "oversize stop", func() bool { return l.oversize.Load() == 1 })
+	if l.capacity.Load() != 0 {
+		t.Fatal("an oversize entry paused for capacity")
 	}
 	d := app.take(t)
 	if err := l.coord.Confirm(d.ID); err != nil {
@@ -159,4 +164,14 @@ func TestITBUF04OversizeEntryIsRejectedWithoutRetryLoop(t *testing.T) {
 		t.Fatal("space was freed but an oversize entry can never fit")
 	case <-time.After(120 * time.Millisecond):
 	}
+}
+
+func eventually(t *testing.T, what string, ok func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		if ok() {
+			return
+		}
+	}
+	t.Fatalf("timed out: %s", what)
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -172,8 +173,8 @@ type life struct {
 	coord    *delivery.Coordinator
 	recv     *Receiver
 	replayed int
-	capacity int
-	oversize int
+	capacity atomic.Int32
+	oversize atomic.Int32
 	consumer *consumerApp
 	stops    chan delivery.Cause
 	resumes  chan struct{}
@@ -202,8 +203,8 @@ func newLife(t *testing.T, n *native, limit int64) *life {
 	})
 	t.Cleanup(l.coord.Close)
 	l.recv = New(ownDevice, l.ledger, l.coord, Hooks{
-		Capacity:     func() { l.capacity++ },
-		Oversize:     func() { l.oversize++ },
+		Capacity:     func() { l.capacity.Add(1) },
+		Oversize:     func() { l.oversize.Add(1) },
 		LocalFailure: func(error) {},
 	})
 	l.recv.SetProcessor(l)

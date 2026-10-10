@@ -13,6 +13,8 @@ function fakeNative() {
     disconnect: jest.fn().mockResolvedValue({ success: true }),
     logout: jest.fn().mockResolvedValue({ success: true }),
     confirmMessageStored: jest.fn().mockResolvedValue({ success: true }),
+    setMessageConsumer: jest.fn().mockResolvedValue({ success: true }),
+    removeMessageConsumer: jest.fn().mockResolvedValue({ success: true }),
     downloadImage: jest.fn().mockResolvedValue({ success: false, error: { code: "IMAGE_UNAVAILABLE", message: "secret" } }),
     deleteDownloadedImage: jest.fn().mockResolvedValue({ success: true }),
   };
@@ -175,4 +177,165 @@ test("failed option update requires a fresh native initialization", async () => 
   expect(await client.connect()).toMatchObject({ success: false, error: { code: "NOT_INITIALIZED" } });
   expect(await client.initialize()).toEqual({ success: true, data: undefined });
   expect(native.initialize).toHaveBeenCalledTimes(3);
+});
+
+const deliveryId = `wa-delivery:v1:${"a".repeat(32)}`;
+const received = (consumer?: string) => ({
+  deliveryId,
+  message: { id: "wa-message:v1:YWJj", accountId: "1@lid", whatsappMessageId: "m", chatId: "2@lid", direction: "incoming", timestamp: 1, text: "hola" },
+  ...(consumer ? { consumer } : {}),
+});
+const flush = async () => { for (let i = 0; i < 4; i += 1) await Promise.resolve(); };
+
+// UT-SUB-01 / IT-SUB-01: registering before or after preparation activates local recovery once storage is ready.
+test("registers the consumer with native only once local storage is prepared", async () => {
+  const native = fakeNative();
+  const client = createWhatsAppClient(() => native);
+  client.addListener("messageReceived", jest.fn()); // before initialize()
+  await flush();
+  expect(native.setMessageConsumer).not.toHaveBeenCalled();
+  await client.initialize();
+  await flush();
+  expect(native.setMessageConsumer).toHaveBeenCalledTimes(1);
+  client.addListener("messageReceived", jest.fn()); // after
+  await flush();
+  expect(native.setMessageConsumer).toHaveBeenCalledTimes(2);
+  expect(native.connect).not.toHaveBeenCalled();
+});
+
+// UT-SUB-02 / UT-SUB-03 / IT-SUB-02 / IT-SUB-03: the newest subscription is the only consumer; stale remove() and emissions are ignored.
+test("replaces the consumer and ignores the replaced subscription's remove and queued emissions", async () => {
+  const native = fakeNative();
+  const client = createWhatsAppClient(() => native);
+  await client.initialize();
+  const first = jest.fn();
+  const second = jest.fn();
+  const oldSubscription = client.addListener("messageReceived", first);
+  await flush();
+  const oldToken = native.setMessageConsumer.mock.calls[0][0];
+  client.addListener("messageReceived", second);
+  await flush();
+  const newToken = native.setMessageConsumer.mock.calls[1][0];
+  expect(newToken).not.toBe(oldToken);
+  expect(native.removeMessageConsumer).toHaveBeenCalledWith(oldToken);
+  native.removeMessageConsumer.mockClear();
+  oldSubscription.remove(); // stale: must not retire the current consumer
+  expect(native.removeMessageConsumer).not.toHaveBeenCalled();
+  native.handlers.get("messageReceived")?.(received(oldToken)); // queued for the replaced consumer
+  expect(first).not.toHaveBeenCalled();
+  expect(second).not.toHaveBeenCalled();
+  native.handlers.get("messageReceived")?.(received(newToken));
+  expect(second).toHaveBeenCalledTimes(1);
+  expect(second.mock.calls[0][0]).toEqual({ deliveryId, message: received().message }); // the routing token is not public
+  expect(first).not.toHaveBeenCalled();
+});
+
+// UT-SUB-04 / IT-SUB-04: a confirmation by deliveryId is valid whichever consumer started it.
+test("accepts a late confirmation after the consumer was replaced", async () => {
+  const native = fakeNative();
+  const client = createWhatsAppClient(() => native);
+  await client.initialize();
+  client.addListener("messageReceived", jest.fn());
+  client.addListener("messageReceived", jest.fn()); // replacement
+  await flush();
+  expect(await client.confirmMessageStored(deliveryId)).toEqual({ success: true, data: undefined });
+  expect(native.confirmMessageStored).toHaveBeenCalledWith(deliveryId);
+});
+
+// UT-SUB-07 / IT-SUB-07: subscribing recovers locally; it never connects nor clears an explicit stop.
+test("subscribing after disconnect or logout requests no network and keeps the stop", async () => {
+  const native = fakeNative();
+  const client = createWhatsAppClient(() => native);
+  await client.initialize();
+  await client.disconnect();
+  await client.logout();
+  native.connect.mockClear();
+  client.addListener("messageReceived", jest.fn());
+  await flush();
+  expect(native.setMessageConsumer).toHaveBeenCalledTimes(1);
+  expect(native.connect).not.toHaveBeenCalled();
+});
+
+// IT-INI-05: an invalid session leaves recovery and confirmation available.
+test("registers the consumer when initialization reports an invalid session", async () => {
+  const native = fakeNative();
+  native.initialize.mockResolvedValueOnce({ success: false, error: { code: "SESSION_STATE_INVALID" } });
+  const client = createWhatsAppClient(() => native);
+  client.addListener("messageReceived", jest.fn());
+  expect(await client.initialize()).toMatchObject({ success: false, error: { code: "SESSION_STATE_INVALID" } });
+  await flush();
+  expect(native.setMessageConsumer).toHaveBeenCalledTimes(1);
+  expect(await client.confirmMessageStored(deliveryId)).toEqual({ success: true, data: undefined });
+});
+
+// UT-SUB-08 / IT-SUB-08: a failed registration is reported once and is not retried by a timer.
+test("reports a failed consumer registration once without retrying", async () => {
+  jest.useFakeTimers();
+  try {
+    const native = fakeNative();
+    native.setMessageConsumer.mockResolvedValue({ success: false, error: { code: "NATIVE_CALL_FAILED", message: "secret" } });
+    const client = createWhatsAppClient(() => native);
+    const errors = jest.fn();
+    client.addListener("error", errors);
+    await client.initialize();
+    client.addListener("messageReceived", jest.fn());
+    await flush();
+    jest.advanceTimersByTime(60_000);
+    await flush();
+    expect(native.setMessageConsumer).toHaveBeenCalledTimes(1);
+    expect(errors).toHaveBeenCalledTimes(1);
+    expect(errors).toHaveBeenCalledWith({ code: "NATIVE_CALL_FAILED", message: "WhatsApp native call failed" });
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+// IT-SUB-06: a recreated JavaScript runtime subscribes again without restarting native code.
+test("a new client over the same native module recovers by subscribing", async () => {
+  const native = fakeNative();
+  const first = createWhatsAppClient(() => native);
+  await first.initialize();
+  first.addListener("messageReceived", jest.fn());
+  await flush();
+  const recreated = createWhatsAppClient(() => native); // destroyed and recreated runtime
+  await recreated.initialize();
+  const listener = jest.fn();
+  recreated.addListener("messageReceived", listener);
+  await flush();
+  expect(native.setMessageConsumer).toHaveBeenCalledTimes(2);
+  const [oldToken, newToken] = native.setMessageConsumer.mock.calls.map((call) => call[0]);
+  expect(newToken).not.toBe(oldToken); // the recreated runtime never reuses the lost runtime's identity
+  native.handlers.get("messageReceived")?.(received(newToken));
+  expect(listener).toHaveBeenCalledTimes(1);
+  expect(native.connect).not.toHaveBeenCalled();
+});
+
+// IT-API-08: events are validated JSON contracts and carry metadata only.
+test("rejects a delivery carrying image bytes", async () => {
+  const native = fakeNative();
+  const client = createWhatsAppClient(() => native);
+  await client.initialize();
+  const listener = jest.fn();
+  const errors = jest.fn();
+  client.addListener("messageReceived", listener);
+  client.addListener("error", errors);
+  const message = { ...received().message, image: { reference: { messageId: "wa-message:v1:YWJj", downloadReference: "wa-image:v1:YWJj" }, base64: "AAAA" } };
+  native.handlers.get("messageReceived")?.({ deliveryId, message });
+  expect(listener).not.toHaveBeenCalled();
+  expect(errors).toHaveBeenCalledWith({ code: "INVALID_NATIVE_RESPONSE", message: "Invalid WhatsApp native response" });
+});
+
+// UT-SUB-03: removing the active subscription retires it in native and ignores later emissions.
+test("removing the active consumer unregisters it natively", async () => {
+  const native = fakeNative();
+  const client = createWhatsAppClient(() => native);
+  await client.initialize();
+  const listener = jest.fn();
+  const subscription = client.addListener("messageReceived", listener);
+  await flush();
+  const token = native.setMessageConsumer.mock.calls[0][0];
+  subscription.remove();
+  expect(native.removeMessageConsumer).toHaveBeenCalledWith(token);
+  native.handlers.get("messageReceived")?.(received(token));
+  expect(listener).not.toHaveBeenCalled();
 });

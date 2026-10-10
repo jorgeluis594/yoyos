@@ -317,9 +317,7 @@ func TestITSUB06RemovingActiveConsumerKeepsDeliveryAndRecoversOnResubscribe(t *t
 	c.Start()
 	out.next(t)
 	c.RemoveConsumer("a")
-	if s, _ := logs.snapshot(); len(s) != 1 || s[0] != NoConsumer {
-		t.Fatalf("stops %v", s)
-	}
+	eventually(t, "reception stopped for the missing consumer", func() bool { s, _ := logs.snapshot(); return len(s) == 1 && s[0] == NoConsumer })
 	time.Sleep(60 * time.Millisecond)
 	if len(ledger.records) != 1 {
 		t.Fatal("pending discarded without a consumer")

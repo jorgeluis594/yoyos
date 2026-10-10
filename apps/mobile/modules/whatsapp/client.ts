@@ -17,7 +17,8 @@ const message = z.object({
 const eventSchemas = {
   qr: z.object({ value: z.string().min(1), expiresAt: z.number().int().positive() }).strict(),
   connectionChanged: z.object({ state: states }).strict(),
-  messageReceived: z.object({ deliveryId: z.string().regex(/^wa-delivery:v1:[0-9a-f]{32}$/), message }).strict(),
+  // `consumer` names the subscription a delivery was emitted to; a replaced one is dropped here too.
+  messageReceived: z.object({ deliveryId: z.string().regex(/^wa-delivery:v1:[0-9a-f]{32}$/), message, consumer: z.string().min(1).optional() }).strict(),
   error: z.object({ code: codeSchema, message: z.string() }).strict(),
 };
 const optionsSchema = z.object({ maxImageStorageBytes: z.number().int().positive().safe().optional(), maxRecoveryBufferBytes: z.number().int().positive().safe().optional() }).strict();
@@ -31,11 +32,15 @@ type NativeWhatsApp = {
   disconnect(): Promise<unknown>;
   logout(): Promise<unknown>;
   confirmMessageStored(id: string): Promise<unknown>;
+  setMessageConsumer(token: string): Promise<unknown>;
+  removeMessageConsumer(token: string): Promise<unknown>;
   downloadImage(reference: z.infer<typeof imageReference>): Promise<unknown>;
   deleteDownloadedImage(id: string): Promise<unknown>;
   addListener(event: keyof WhatsAppEvents, listener: (payload: unknown) => void): { remove(): void };
 };
 type ListenerEntry<E extends keyof WhatsAppEvents> = { listener: (payload: WhatsAppEvents[E]) => void };
+/** The single active messageReceived subscription; `token` is its identity toward native. */
+type Consumer = { token: string; listener: (payload: WhatsAppEvents["messageReceived"]) => void; registered: boolean };
 
 const diagnostics: Record<WhatsAppErrorCode, string> = {
   MODULE_UNAVAILABLE: "WhatsApp native module is unavailable", NOT_INITIALIZED: "WhatsApp is not initialized",
@@ -51,6 +56,8 @@ const diagnostics: Record<WhatsAppErrorCode, string> = {
 };
 const failureResult = (code: WhatsAppErrorCode): Result<never, WhatsAppError> => err({ code, message: diagnostics[code] });
 
+let clientCount = 0;
+
 export function createWhatsAppClient(resolveNative: () => NativeWhatsApp | null = () => requireOptionalNativeModule<NativeWhatsApp>("WhatsApp"), now: () => number = Date.now): WhatsAppClient {
   let native: NativeWhatsApp | null = null;
   let prepared = false;
@@ -61,14 +68,16 @@ export function createWhatsAppClient(resolveNative: () => NativeWhatsApp | null 
   let sessionInvalid = false;
   let state: WhatsAppEvents["connectionChanged"] | null = null;
   let qr: WhatsAppEvents["qr"] | null = null;
+  let consumer: Consumer | null = null;
+  const instance = ++clientCount; // tokens stay unique when a recreated runtime builds another client
+  let consumerCount = 0;
   const listeners = {
     qr: new Set<ListenerEntry<"qr">>(),
     connectionChanged: new Set<ListenerEntry<"connectionChanged">>(),
-    messageReceived: new Set<ListenerEntry<"messageReceived">>(),
     error: new Set<ListenerEntry<"error">>(),
   };
 
-  function emit<E extends keyof WhatsAppEvents>(event: E, payload: WhatsAppEvents[E]) {
+  function emit<E extends Exclude<keyof WhatsAppEvents, "messageReceived">>(event: E, payload: WhatsAppEvents[E]) {
     for (const entry of listeners[event] as Set<ListenerEntry<E>>) {
       try { entry.listener(payload); } catch { /* A consumer callback cannot break the native event stream. */ }
     }
@@ -76,7 +85,8 @@ export function createWhatsAppClient(resolveNative: () => NativeWhatsApp | null 
   function receive<E extends keyof WhatsAppEvents>(event: E, payload: unknown) {
     const parsed = eventSchemas[event].safeParse(payload);
     if (!parsed.success) { emit("error", { code: "INVALID_NATIVE_RESPONSE", message: diagnostics.INVALID_NATIVE_RESPONSE }); return; }
-    const value = parsed.data as WhatsAppEvents[E];
+    if (event === "messageReceived") { deliver(parsed.data as z.infer<typeof eventSchemas.messageReceived>); return; }
+    const value = parsed.data as WhatsAppEvents[Exclude<E, "messageReceived">];
     if (event === "connectionChanged") {
       state = value as WhatsAppEvents["connectionChanged"];
       if (state.state !== "awaitingQr") qr = null;
@@ -89,7 +99,28 @@ export function createWhatsAppClient(resolveNative: () => NativeWhatsApp | null 
     if (event === "error") {
       const error = value as WhatsAppError;
       emit("error", { code: error.code, message: diagnostics[error.code] });
-    } else emit(event, value);
+    } else emit(event as "qr" | "connectionChanged", value as never);
+  }
+  /** Hands a delivery to the current consumer only; emissions aimed at a replaced one are dropped. */
+  function deliver({ consumer: target, ...payload }: z.infer<typeof eventSchemas.messageReceived>) {
+    const current = consumer;
+    if (!current || (target !== undefined && target !== current.token)) return;
+    try { current.listener(payload as WhatsAppEvents["messageReceived"]); } catch { /* A consumer callback cannot break the native event stream. */ }
+  }
+  /** Registers the consumer with native once local recovery is possible; one attempt, no retry timer. */
+  async function registerConsumer(target: Consumer) {
+    if (!localReady || consumer !== target || target.registered) return;
+    target.registered = true;
+    const result = await call("setMessageConsumer", [target.token], empty);
+    if (!result.success && consumer === target) {
+      target.registered = false;
+      emit("error", { code: result.error.code, message: diagnostics[result.error.code] });
+    }
+  }
+  function removeConsumer(target: Consumer) {
+    if (consumer !== target) return; // a replaced subscription's remove() changes nothing
+    consumer = null;
+    if (target.registered) void call("removeMessageConsumer", [target.token], empty);
   }
   function module(): NativeWhatsApp | null {
     if (native) return native;
@@ -102,7 +133,7 @@ export function createWhatsAppClient(resolveNative: () => NativeWhatsApp | null 
     }
     return native;
   }
-  async function call<T>(method: keyof Pick<NativeWhatsApp, "initialize" | "connect" | "disconnect" | "logout" | "confirmMessageStored" | "downloadImage" | "deleteDownloadedImage">, args: unknown[], parse: (data: unknown) => T | null): Promise<Result<T, WhatsAppError>> {
+  async function call<T>(method: keyof Pick<NativeWhatsApp, "initialize" | "connect" | "disconnect" | "logout" | "confirmMessageStored" | "setMessageConsumer" | "removeMessageConsumer" | "downloadImage" | "deleteDownloadedImage">, args: unknown[], parse: (data: unknown) => T | null): Promise<Result<T, WhatsAppError>> {
     const target = module();
     if (!target) return failureResult("MODULE_UNAVAILABLE");
     if (typeof target[method] !== "function") return failureResult("NATIVE_CALL_FAILED");
@@ -133,11 +164,17 @@ export function createWhatsAppClient(resolveNative: () => NativeWhatsApp | null 
         activeOptions = effective;
         receive("connectionChanged", { state: result.data.state });
         if (result.data.qr) receive("qr", result.data.qr);
+        if (consumer) { consumer.registered = false; void registerConsumer(consumer); }
         return ok(undefined);
       }
       prepared = false;
       activeOptions = "";
-      if (result.error.code === "SESSION_STATE_INVALID") { localReady = true; prepared = false; sessionInvalid = true; receive("connectionChanged", { state: "disconnected" }); }
+      if (result.error.code === "SESSION_STATE_INVALID") {
+        localReady = true; prepared = false; sessionInvalid = true;
+        receive("connectionChanged", { state: "disconnected" });
+        // Pending entries stay recoverable and confirmable while the session itself is invalid.
+        if (consumer) { consumer.registered = false; void registerConsumer(consumer); }
+      }
       return result;
     })();
     const result = await initializing;
@@ -179,7 +216,17 @@ export function createWhatsAppClient(resolveNative: () => NativeWhatsApp | null 
       return call("deleteDownloadedImage", [id], empty);
     },
     addListener<E extends keyof WhatsAppEvents>(event: E, listener: (payload: WhatsAppEvents[E]) => void) {
-      const set = listeners[event] as Set<ListenerEntry<E>>;
+      if (event === "messageReceived") {
+        // The latest subscription becomes the only consumer and activates local recovery.
+        const entry: Consumer = { token: `consumer-${instance}-${++consumerCount}`, listener: listener as Consumer["listener"], registered: false };
+        const previous = consumer;
+        consumer = entry;
+        module();
+        if (previous?.registered) void call("removeMessageConsumer", [previous.token], empty);
+        void registerConsumer(entry);
+        return { remove: () => removeConsumer(entry) };
+      }
+      const set = listeners[event as Exclude<E, "messageReceived">] as unknown as Set<ListenerEntry<E>>;
       const entry = { listener };
       set.add(entry);
       module();

@@ -138,7 +138,9 @@ func TestExcludedContentStagesOnlyRetryMarker(t *testing.T) {
 	info := &types.MessageInfo{MessageSource: types.MessageSource{Chat: types.NewJID("555", types.HiddenUserServer), Sender: types.NewJID("555", types.HiddenUserServer)}, ID: "x", Timestamp: time.Unix(5, 0)}
 	node := &waBinary.Node{Content: []waBinary.Node{{Tag: "enc", Attrs: waBinary.Attrs{"v": "2", "type": "msg"}, Content: []byte{1}}}}
 	ctx, err := CaptureReceive(context.Background(), "123@lid", info, node,
-		func(CapturedReceive, CapturedChild, []byte) (string, json.RawMessage, error) { return "excluded", nil, nil },
+		func(CapturedReceive, CapturedChild, []byte) (string, json.RawMessage, error) {
+			return "excluded", nil, nil
+		},
 		stagingProcessorNoop{})
 	if err != nil {
 		t.Fatal(err)

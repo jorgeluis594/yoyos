@@ -41,7 +41,7 @@ const (
 )
 
 type Hooks struct {
-	// Stop is called outside every coordinator lock, at most once per cause until a consumer is registered.
+	// Stop runs on its own goroutine, at most once per cause until a consumer is registered.
 	Stop func(Cause, error)
 	// Resume is called when freed capacity can fit the admission that was rejected.
 	Resume func()
@@ -276,7 +276,8 @@ func (c *Coordinator) stop(cause Cause, err error) {
 	c.interruptLocked()
 	c.mu.Unlock()
 	if !already && c.hooks.Stop != nil {
-		c.hooks.Stop(cause, err)
+		// Stopping the client waits for its handler queue, and this may run inside a handler.
+		go c.hooks.Stop(cause, err)
 	}
 }
 

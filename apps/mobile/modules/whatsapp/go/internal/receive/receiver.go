@@ -177,12 +177,14 @@ func (r *Receiver) Finished(_ context.Context, _ *types.MessageInfo, err error) 
 		return
 	}
 	if errors.Is(err, store.ErrLocalStorage) && r.hooks.LocalFailure != nil {
-		r.hooks.LocalFailure(err)
+		go r.hooks.LocalFailure(err)
 	}
 }
 
+// call runs a connection decision off the receive goroutine: stopping the client
+// waits for the handler queue, which this very goroutine is still draining.
 func call(fn func()) {
 	if fn != nil {
-		fn()
+		go fn()
 	}
 }
