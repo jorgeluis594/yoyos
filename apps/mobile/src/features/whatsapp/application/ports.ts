@@ -1,3 +1,4 @@
+import type { WhatsAppClient, WhatsAppError } from "@mobile/modules/whatsapp/types";
 import type { Result } from "@shared/result";
 import type { CompanyId, CoreMessageId, LinkId, NativeMessageId, UserId, WhatsAppChatId } from "@mobile/features/whatsapp/domain/ids";
 import type { InboundMessage } from "@mobile/features/whatsapp/domain/inbound-message";
@@ -33,3 +34,13 @@ export type LinkStore = Readonly<{
 }>;
 
 export type Clock = () => Date;
+
+/** The native client operations the feature needs, supplied by composition so use cases run against fakes. */
+export type WhatsAppGateway = Pick<WhatsAppClient,
+  "connect" | "disconnect" | "logout" | "confirmMessageStored" | "downloadImage" | "deleteDownloadedImage" | "addListener"> & Readonly<{
+  initialize(): Promise<Result<void, WhatsAppError | GatewayConfigurationError>>;
+}>;
+
+export type GatewayConfigurationError = Readonly<{ code: "INVALID_WHATSAPP_RECOVERY_BUFFER_MIB"; message: string }>;
+
+export type Session = Readonly<{ companyId: CompanyId; userId: UserId; generation: number }>;
