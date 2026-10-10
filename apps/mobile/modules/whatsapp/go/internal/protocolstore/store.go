@@ -44,6 +44,10 @@ type Error struct {
 	Code    Code
 	Message string
 	native  bool
+	// Needed and Oversize qualify BufferFull: Oversize means the entry cannot fit even
+	// in an empty buffer, so freeing other pending entries will not admit it.
+	Needed   int64
+	Oversize bool
 }
 
 func (e *Error) Error() string                { return string(e.Code) + ": " + e.Message }
@@ -163,6 +167,14 @@ func decodeResponse[T any](raw string, limit uint64) (*T, error) {
 			}
 		case applied:
 			if err := requireKeys(top["data"], "revision", "sessionRevision"); err != nil {
+				return nil, err
+			}
+		case pendingData:
+			if err := requireKeys(top["data"], "revision", "pending"); err != nil {
+				return nil, err
+			}
+		case retired:
+			if err := requireKeys(top["data"], "revision", "removed"); err != nil {
 				return nil, err
 			}
 		}
@@ -533,9 +545,49 @@ func (s *Store) PreparePendingInsert(ctx context.Context, p PendingInsert) error
 				return malformed("duplicate pending insert")
 			}
 		}
+		if err := s.admit(t, p); err != nil {
+			return err
+		}
 		t.pending = append(t.pending, p)
 		return nil
 	})
+}
+
+// admit applies the global recovery budget to the committed entries plus this transaction.
+func (s *Store) admit(t *txn, p PendingInsert) error {
+	size, err := EntrySize(p)
+	if err != nil {
+		return err
+	}
+	used, err := s.usedBytes(t.pending)
+	if err != nil {
+		return err
+	}
+	switch Decide(s.newRecoveryBytes, used, size) {
+	case Wait:
+		return &Error{Code: BufferFull, Message: "recovery buffer is full", Needed: size}
+	case Reject:
+		return &Error{Code: BufferFull, Message: "entry exceeds recovery buffer", Needed: size, Oversize: true}
+	}
+	return nil
+}
+func (s *Store) usedBytes(staged []PendingInsert) (int64, error) {
+	var used int64
+	for _, record := range s.pending {
+		size, err := EntrySize(record.PendingInsert)
+		if err != nil {
+			return 0, err
+		}
+		used += size
+	}
+	for _, insert := range staged {
+		size, err := EntrySize(insert)
+		if err != nil {
+			return 0, err
+		}
+		used += size
+	}
+	return used, nil
 }
 func (s *Store) PreparePendingIdentityUpdate(ctx context.Context, p PendingIdentityUpdate) error {
 	if !validDeliveryID(p.DeliveryID) || p.IdentityState != "resolved" || len(p.Message) == 0 || string(p.Message) == "null" || !json.Valid(p.Message) {
@@ -763,6 +815,12 @@ func (s *Store) DoDecryptionTxn(ctx context.Context, fn func(context.Context) er
 		}
 	}()
 	if err := fn(context.WithValue(ctx, txnKey{}, t)); err != nil {
+		var full *Error
+		if errors.As(err, &full) && full.Code == BufferFull {
+			// Nothing was published; keep the capacity cause so the controller pauses
+			// instead of reporting a storage failure. The generation is still rebuilt.
+			return err
+		}
 		if len(t.changes) > 0 || len(t.pending) > 0 || len(t.updates) > 0 {
 			return failure(StorageFailed, "decryption aborted after staged changes; rebuild client")
 		}

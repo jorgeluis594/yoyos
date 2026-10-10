@@ -213,6 +213,9 @@ func (c *Controller) FailLocal(code Code) {
 	c.failLocalLocked(code)
 }
 func (c *Controller) failLocalLocked(code Code) {
+	if c.localFault != "" {
+		return // the first local fault is the one reported
+	}
 	c.retireLocked()
 	c.localFault = code
 	c.publish(Event{Error: code})

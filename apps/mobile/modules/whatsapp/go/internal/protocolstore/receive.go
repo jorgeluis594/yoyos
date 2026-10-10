@@ -135,6 +135,11 @@ func CaptureReceive(ctx context.Context, accountID string, info *types.MessageIn
 	return store.WithAppStateRecoveryStage(store.WithPrecommittedProtocol(context.WithValue(ctx, receiveContextKey{}, receiveContext{captured, build, processor}))), nil
 }
 
+// ParseReceiveInfo rebuilds the captured MessageInfo for a receive builder.
+func ParseReceiveInfo(captured CapturedReceive) (*types.MessageInfo, error) {
+	return parseReceiveInfo(captured.MessageInfoJSON, captured.AccountID)
+}
+
 func (s *Store) prepareBufferedEvent(ctx context.Context, hash [32]byte, plaintext []byte, serverTime time.Time) error {
 	value, ok := ctx.Value(receiveContextKey{}).(receiveContext)
 	if !ok {
@@ -187,6 +192,11 @@ func (s *Store) prepareBufferedEvent(ctx context.Context, hash [32]byte, plainte
 	if err != nil {
 		return storageError(err)
 	}
+	if identity == "excluded" {
+		// Unsupported content leaves only the metadata-only retry marker so a
+		// redelivery is acknowledged without a pending entry.
+		return s.putRetryHash(ctx, hash, serverTime)
+	}
 	if identity != "resolved" && identity != "pendingLid" {
 		return malformed("invalid receive identity state")
 	}
@@ -205,5 +215,9 @@ func (s *Store) prepareBufferedEvent(ctx context.Context, hash [32]byte, plainte
 	if err := s.PreparePendingInsert(ctx, p); err != nil {
 		return err
 	}
+	return s.putRetryHash(ctx, hash, serverTime)
+}
+
+func (s *Store) putRetryHash(ctx context.Context, hash [32]byte, serverTime time.Time) error {
 	return s.put(ctx, "retry-hash", protocolstate.RetryHash{Version: 1, InsertTimeMS: time.Now().UnixMilli(), ServerTimeSeconds: serverTime.Unix()}, base64.StdEncoding.EncodeToString(hash[:]))
 }

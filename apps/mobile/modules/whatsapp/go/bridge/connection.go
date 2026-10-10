@@ -9,6 +9,7 @@ import (
 	"go.mau.fi/whatsmeow/store"
 	"yoyos-whatsapp/internal/connection"
 	"yoyos-whatsapp/internal/protocolstore"
+	"yoyos-whatsapp/internal/receive"
 )
 
 // ConnectionEvents is implemented by the platform module; only versioned JSON crosses gomobile.
@@ -20,8 +21,11 @@ type connectionEnvelope struct {
 }
 type ConnectionSession struct {
 	controller *connection.Controller
+	mu         sync.Mutex
 	store      *protocolstore.Store
 	device     *store.Device
+	delivery   *DeliverySession
+	reopen     func() (*protocolstore.Store, *store.Device, error)
 }
 type ConnectionOpenResult struct {
 	Session *ConnectionSession
@@ -29,6 +33,12 @@ type ConnectionOpenResult struct {
 }
 
 func OpenConnection(storage ProtocolStorage, sink ConnectionEvents, generationID, accountID string, readRecoveryBytes, newRecoveryBytes int64) *ConnectionOpenResult {
+	return OpenConnectionWithDelivery(storage, sink, nil, generationID, accountID, readRecoveryBytes, newRecoveryBytes)
+}
+
+// OpenConnectionWithDelivery also receives messages: their durable admission and
+// confirmable delivery go through the shared delivery coordinator.
+func OpenConnectionWithDelivery(storage ProtocolStorage, sink ConnectionEvents, delivery *DeliverySession, generationID, accountID string, readRecoveryBytes, newRecoveryBytes int64) *ConnectionOpenResult {
 	if storage == nil || sink == nil {
 		return &ConnectionOpenResult{Code: "INVALID_INPUT"}
 	}
@@ -49,11 +59,30 @@ func OpenConnection(storage ProtocolStorage, sink ConnectionEvents, generationID
 	if err != nil {
 		return &ConnectionOpenResult{Code: publicCode(err)}
 	}
-	session := &ConnectionSession{store: protocol, device: device}
+	session := &ConnectionSession{store: protocol, device: device, delivery: delivery}
+	session.reopen = func() (*protocolstore.Store, *store.Device, error) {
+		account := accountID
+		if account == "" {
+			session.mu.Lock()
+			current := session.device
+			session.mu.Unlock()
+			if current == nil || current.LID.IsEmpty() {
+				return nil, nil, errors.New("account unknown")
+			}
+			account = current.LID.ToNonAD().String()
+		}
+		reopened, err := protocolstore.Open(storage, generationID, account, readRecoveryBytes, newRecoveryBytes)
+		if err != nil {
+			return nil, nil, err
+		}
+		restored, err := reopened.RestoreDevice(context.Background())
+		if err == nil && restored == nil {
+			err = errors.New("device missing")
+		}
+		return reopened, restored, err
+	}
 	var failedCallback sync.Once
-	session.controller = connection.New(func() (connection.Transport, error) {
-		return connection.NewWhatsmeowTransport(device, func() connection.Code { return connection.Code(session.StopReason()) }), nil
-	}, func(event connection.Event) {
+	session.controller = connection.New(session.newTransport, func(event connection.Event) {
 		raw, _ := json.Marshal(connectionEvent(event))
 		defer func() {
 			if recover() != nil {
@@ -63,7 +92,40 @@ func OpenConnection(storage ProtocolStorage, sink ConnectionEvents, generationID
 		sink.OnConnectionEvent(string(raw))
 	}, nil)
 	session.controller.Prepare(accountID != "")
+	if delivery != nil {
+		delivery.attach(session)
+	}
 	return &ConnectionOpenResult{Session: session}
+}
+
+// newTransport builds one connection attempt. After a capacity stop the store is
+// latched, so the attempt starts again from the last confirmed revision.
+func (s *ConnectionSession) newTransport() (connection.Transport, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stoppedLocked() != "" && s.reopen != nil {
+		reopened, device, err := s.reopen()
+		if err != nil {
+			return nil, err
+		}
+		s.store, s.device = reopened, device
+	}
+	stopReason := func() connection.Code { return connection.Code(s.StopReason()) }
+	if s.delivery == nil {
+		return connection.NewWhatsmeowTransport(s.device, stopReason), nil
+	}
+	receiver := receive.New(s.device, s.delivery.ledger, s.delivery.coordinator, receive.Hooks{
+		Capacity:     s.controller.PauseForCapacity,
+		Oversize:     func() { s.controller.FailLocal(connection.RecoveryBufferFull) },
+		LocalFailure: func(err error) { s.controller.FailLocal(connection.Code(publicCode(err))) },
+	})
+	return connection.NewWhatsmeowTransport(s.device, stopReason, receiver), nil
+}
+
+func (s *ConnectionSession) resumeCapacity() {
+	if s != nil && s.controller != nil {
+		s.controller.ResumeCapacity()
+	}
 }
 
 func connectionEvent(event connection.Event) any {
@@ -117,6 +179,9 @@ func (s *ConnectionSession) Disconnect() {
 	}
 }
 func (s *ConnectionSession) Close() bool {
+	if s != nil && s.delivery != nil {
+		s.delivery.detach(s)
+	}
 	if s != nil && s.controller != nil {
 		return s.controller.Close()
 	}
@@ -154,14 +219,23 @@ func (s *ConnectionSession) StopReason() string {
 	if s == nil {
 		return ""
 	}
-	if source, ok := s.device.Container.(interface{ StopReason() error }); ok {
+	s.mu.Lock()
+	device, protocol := s.device, s.store
+	s.mu.Unlock()
+	return stopReason(device, protocol)
+}
+
+// stoppedLocked is StopReason for callers that already hold s.mu.
+func (s *ConnectionSession) stoppedLocked() string { return stopReason(s.device, s.store) }
+
+func stopReason(device *store.Device, protocol *protocolstore.Store) string {
+	if source, ok := device.Container.(interface{ StopReason() error }); ok {
 		if err := source.StopReason(); err != nil {
 			return publicCode(err)
 		}
 	}
-	protocol := s.store
 	if protocol == nil {
-		protocol, _ = s.device.Container.(*protocolstore.Store)
+		protocol, _ = device.Container.(*protocolstore.Store)
 	}
 	if protocol == nil {
 		return ""

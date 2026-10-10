@@ -8,24 +8,48 @@ import (
 	"time"
 
 	"go.mau.fi/whatsmeow"
+	waBinary "go.mau.fi/whatsmeow/binary"
 	"go.mau.fi/whatsmeow/socket"
 	"go.mau.fi/whatsmeow/store"
+	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	"yoyos-whatsapp/internal/protocolstore"
 )
 
+// Receiving is the durable receive path: it captures encrypted children before
+// decryption, decides whether the handler may acknowledge, and classifies faults.
+type Receiving interface {
+	PreDecrypt(context.Context, *types.MessageInfo, *waBinary.Node) (context.Context, error)
+	Handle(context.Context, any) bool
+	Finished(context.Context, *types.MessageInfo, error)
+	SetProcessor(protocolstore.RecoveryProcessor)
+}
+
 // NewWhatsmeowTransport uses the pinned client with a device whose stores and
 // generation have already been authorized by the native storage controller.
-func NewWhatsmeowTransport(device *store.Device, localFailure func() Code) Transport {
+// With a receive path it enables the decrypted-event buffer and synchronous
+// acknowledgements, and does not trust those flags alone: the handler result
+// is what releases the acknowledgement.
+func NewWhatsmeowTransport(device *store.Device, localFailure func() Code, receiving ...Receiving) Transport {
 	client := whatsmeow.NewClient(device, nil)
 	client.EnableAutoReconnect = false
 	client.InitialAutoReconnect = false
 	client.DisableLoginAutoReconnect = true
 	client.UseRetryMessageStore = false
-	return &whatsmeowTransport{client: client, dial: client.ConnectContext, socketConnected: client.IsConnected, socketID: client.CurrentSocketID, loginReconnect: make(chan struct{}, 1), localFailure: localFailure}
+	var receive Receiving
+	if len(receiving) > 0 && receiving[0] != nil {
+		receive = receiving[0]
+		client.EnableDecryptedEventBuffer = true
+		client.SynchronousAck = true
+		client.PreDecryptMessage = receive.PreDecrypt
+		client.MessageReceiveFinished = receive.Finished
+		receive.SetProcessor(client)
+	}
+	return &whatsmeowTransport{receive: receive, client: client, dial: client.ConnectContext, socketConnected: client.IsConnected, socketID: client.CurrentSocketID, loginReconnect: make(chan struct{}, 1), localFailure: localFailure}
 }
 
 type whatsmeowTransport struct {
+	receive         Receiving
 	client          *whatsmeow.Client
 	dial            func(context.Context) error
 	socketConnected func() bool
@@ -102,6 +126,10 @@ func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent)
 		}
 	})
 	defer client.RemoveEventHandler(handler)
+	if t.receive != nil {
+		receiver := client.AddEventHandlerWithSuccessStatus(func(event any) bool { return t.receive.Handle(ctx, event) })
+		defer client.RemoveEventHandler(receiver)
+	}
 	var qr <-chan whatsmeow.QRChannelItem
 	if client.Store.ID == nil {
 		channel, err := client.GetQRChannel(ctx)
