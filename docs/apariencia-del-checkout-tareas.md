@@ -39,7 +39,7 @@ flowchart LR
 | `app/locales.ts` | texto de `orders.buyerPaymentLink` | — | textos del editor | textos de la barra de vista previa |
 | `logger.ts` y `newrelic.cjs` | regla de `/pago/:orderId` | — | regla de `/settings/checkout-appearance` | regla de `.../preview` |
 
-T3 y T4 se encuentran en un solo punto: el editor renderiza `<CheckoutPreviewFrame>`, que construye T4. Hasta que T4 se integre, T3 muestra un espacio reservado del mismo tamaño.
+T3 y T4 se encuentran en un solo punto: el editor renderiza `<CheckoutPreviewFrame>`, que construye T4. T5 reemplazó el espacio reservado de T3 por ese componente.
 
 ## T0 · Base de la feature y componentes de marca
 
@@ -76,8 +76,8 @@ T3 y T4 se encuentran en un solo punto: el editor renderiza `<CheckoutPreviewFra
 
 **Alcance**
 
-- Loader de redirección 301 en `buyer-payment.tsx`, conservando `ErrorBoundary` y cabeceras; se elimina el componente de página (10.4).
-- `order-detail.tsx` enlaza a `/checkout/:companyId/:orderId`, y se ajusta el texto `orders.buyerPaymentLink`.
+- Loader de `buyer-payment.tsx`: redirección 301 para pedidos con checkout habilitado; los pedidos sin checkout conservan la página de pago (`ErrorBoundary` y cabeceras incluidos) (10.4).
+- `order-detail.tsx` enlaza a `/checkout/:companyId/:orderId` si el checkout está habilitado y a `/pago/:orderId` si no, y se ajusta el texto `orders.buyerPaymentLink`.
 - Normalización de `/pago/:orderId` en `logger.ts` y `newrelic.cjs`, con `outcome` explícito.
 - Tests `buyer-payment.test.ts` y reescritura de `tests/e2e/buyer-payment.spec.ts`.
 
@@ -88,10 +88,11 @@ T3 y T4 se encuentran en un solo punto: el editor renderiza `<CheckoutPreviewFra
 
 **Criterios de aceptación**
 
-- [ ] `GET /pago/:orderId` de un pedido existente responde 301 a `/checkout/:companyId/:orderId`.
+- [ ] `GET /pago/:orderId` de un pedido con checkout habilitado responde 301 a `/checkout/:companyId/:orderId`.
 - [ ] Un pedido inexistente o un ID inválido muestran el error genérico (404), y una falla de base, 503.
 - [ ] En el checkout de destino, el comprador puede ver los medios de pago y subir el comprobante como antes.
-- [ ] El detalle del pedido ya no genera enlaces `/pago`.
+- [ ] El detalle del pedido ya no genera enlaces `/pago` para pedidos con checkout habilitado.
+- [ ] Un pedido sin checkout conserva la página de pago.
 - [ ] Los logs registran la ruta como `/pago/:orderId`, no como `/{*splat}`.
 
 ## T2 · El comprador ve la marca
@@ -199,4 +200,19 @@ T3 y T4 se encuentran en un solo punto: el editor renderiza `<CheckoutPreviewFra
 - [ ] Todo el capítulo 14 pasa: unitarios, integración y E2E.
 - [ ] El editor coincide con el mock aprobado, o las diferencias están documentadas en el registro de superficie.
 - [ ] Ningún log de las rutas nuevas aparece como `/{*splat}` ni con `outcome: invalid_input` en una respuesta exitosa.
+  - **Pendiente en staging** (responsable: el equipo que despliega; ningún agente tiene acceso a staging ni a New Relic). Lo que cubren los tests locales:
+    - `logger.test.ts` normaliza las cuatro rutas y no infiere `invalid_input` en un 200.
+    - El test «names the four routes…» comprueba los patrones de `newrelic.cjs` con `RegExp`.
+    - Ninguno prueba que el agente aplique `rules.name` a las transacciones reales de React Router.
+
+    En New Relic, el nombre esperado es `WebTransaction/NormalizedUri/<name>` o la forma equivalente de la cuenta; importa el sufijo `<name>` y que **no** aparezca `/{*splat}`. En los logs se mira el evento `http_request_completed`.
+
+    | Ruta (acción en staging) | Transacción NR esperada | Log `http_request_completed` esperado |
+    | --- | --- | --- |
+    | `GET /checkout/:companyId/:orderId` (abrir un pedido con checkout) y `POST` (confirmar) | `checkout` | `route: "/checkout/:companyId/:orderId"`. En `GET`: `operation: "get_checkout"`, `outcome` = estado del pedido (`pending`, `confirmed`…) y `checkoutAppearance` = `custom`, `default` o `fallback`. En `POST`: `operation: "confirm_checkout"`, `outcome: "confirmed"` o `"already_confirmed"`. Nunca `invalid_input` con `statusCode` 200/3xx. Sin `orderId` ni UUID en claro. |
+    | `GET /pago/:orderId` de un pedido con checkout y de uno sin checkout | `pago` | `route: "/pago/:orderId"`, `operation: "redirect_buyer_payment"`. Con checkout: `outcome: "redirected"` y `statusCode` 301. Sin checkout: `outcome: "rendered"` y 200. |
+    | `GET /es-PE/settings/checkout-appearance` (y su `.data`) y `POST` guardar | `settings/checkout-appearance` | `route: "/settings/checkout-appearance"`. Al cargar: `operation: "get_checkout_appearance"`, `outcome: "loaded"`. Al guardar: `operation: "save_checkout_appearance"`, `outcome: "saved"`. |
+    | `GET /es-PE/settings/checkout-appearance/preview` (y su `.data`), es decir, el iframe del editor | `settings/checkout-appearance/preview` | `route: "/settings/checkout-appearance/preview"`, `operation: "get_checkout_preview"`, `outcome: "rendered"`. No debe agruparse bajo `settings/checkout-appearance`. |
+
+    Se marca cuando el equipo que despliega adjunte, por ruta, el nombre de transacción visto en New Relic y una línea de log con `route`, `operation` y `outcome`. Si alguna ruta aparece como `/{*splat}`, se abre una tarea de corrección; T5 no la arregla.
 - [ ] El recorrido del flujo se completa en celular y escritorio, en claro y oscuro.

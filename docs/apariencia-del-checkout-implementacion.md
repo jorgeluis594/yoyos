@@ -14,8 +14,8 @@ Se entrega en **un solo lanzamiento**: el editor, la apariencia pública y la re
 | Límite del logo | El mismo del sistema de imágenes: hasta 10 MB. No se crea una validación específica para logos. |
 | Logos animados | No se detectan; se muestran como cualquier imagen. |
 | Vista previa · Pago | Muestra los medios de pago reales del negocio (billetera y banco). Si no tiene ninguno, usa ejemplos rotulados. Pedido, comprador e importes son siempre ficticios. |
-| Página `/pago/:orderId` | Se elimina. El checkout ya muestra el pago después de confirmar y pasa a ser la única superficie pública del comprador. |
-| Enlaces `/pago/:orderId` ya compartidos | Redirigen (301) a `/checkout/:companyId/:orderId`. Si el pedido no existe, se muestra el error genérico. |
+| Página `/pago/:orderId` | Se conserva solo para pedidos sin checkout. Con checkout habilitado, el checkout muestra el pago después de confirmar y es la superficie pública del comprador. |
+| Enlaces `/pago/:orderId` ya compartidos | Con checkout habilitado redirigen (301) a `/checkout/:companyId/:orderId`; sin checkout muestran la página de pago. Si el pedido no existe, se muestra el error genérico. |
 | Rutas | En inglés, como todas las existentes. |
 | Color de marca | Se elige de un catálogo cerrado de nueve colores. Cada color fija sus tonos de claro y oscuro; no hay HEX libre, cálculo de tonos ni aviso de ajuste. |
 | Catálogo de colores | Vive en el código del dominio. Agregar o cambiar un color es un cambio de código revisado, no una configuración. |
@@ -27,7 +27,7 @@ Se entrega en **un solo lanzamiento**: el editor, la apariencia pública y la re
 | Superficie | Cambio |
 | --- | --- |
 | `/checkout/:companyId/:orderId` | Cabecera con logo y nombre. Aplica color y fondo en todos los estados del pedido. |
-| `/pago/:orderId` | Se elimina la página. Queda solo una redirección al checkout. |
+| `/pago/:orderId` | Redirige al checkout si está habilitado; sin checkout conserva la página de pago. |
 | Detalle del pedido (`order-detail.tsx`) | El enlace de pago abre directamente el checkout del pedido. |
 | `settings/checkout-appearance` | Nuevo editor, según el mock aprobado `a4` (vista previa protagonista con colores predefinidos). |
 | `settings/checkout-appearance/preview` | Página interna que se carga dentro del iframe de la vista previa. |
@@ -414,7 +414,7 @@ Solo hay esquemas donde hay una frontera JSON que no cubre el dominio:
 ```ts
 // Servidor → comprador: solo datos visuales
 export const publicCheckoutAppearanceSchema = z.strictObject({
-  logoUrl: httpUrl.nullable(),
+  logoUrl: z.url({ protocol: /^https?$/ }).nullable(),
   brandColor: z.enum(checkoutBrandColors),
   background: z.enum(["white", "neutral", "brand_tint"]),
 });
@@ -432,6 +432,7 @@ export const checkoutPreviewReadySchema = z.strictObject({ type: z.literal("chec
 ```
 
 - **Entrada del editor:** no tiene esquema de transporte propio. La action pasa el JSON como `unknown` a `checkoutAppearance.save`, y `parseCheckoutAppearance` del dominio lo valida y normaliza. Un segundo esquema solo duplicaría esa regla.
+- **`logoUrl`:** el esquema solo valida la forma: `http` o `https` y nunca `javascript:` ni `data:`. Acepta hosts IP y `localhost`, que usan el almacenamiento local y los E2E; `z.httpUrl()` los rechaza. La política de URLs públicas la impone el adaptador R2 (`r2-image-storage.ts`): exige HTTPS con `NODE_ENV=production` y rechaza credenciales, query y fragmento.
 - Los tipos se infieren con `z.infer`; no hay DTOs escritos a mano.
 - La apariencia pública **no** se agrega a `publicCheckoutSchema`. Viaja en un campo propio de los datos del loader del checkout (`PageData.appearance`), porque las respuestas de la action de confirmación no la necesitan.
 - `postMessage` es una frontera JSON. Ambos lados validan con `safeParse` y descartan cualquier mensaje cuyo `event.origin` no sea `window.location.origin`.
@@ -552,18 +553,21 @@ En la página:
 - Se mantienen `Cache-Control: no-store` y `Referrer-Policy: no-referrer`, así que recargar muestra la última apariencia publicada.
 - El `ErrorBoundary` no recibe ni muestra la marca.
 
-### 10.4 `routes/buyer-payment.tsx` (retirada)
+### 10.4 `routes/buyer-payment.tsx` (redirección)
 
-```ts
-export async function loader({ params }: LoaderFunctionArgs) {
-  const access = await orders.resolveBuyerAccess(params.orderId ?? "");
-  if (access.success) throw redirect(`/checkout/${access.data.companyId}/${access.data.orderId}`, 301);
-  throw new Response("Pedido no disponible", { status: access.error.code === "PERSISTENCE_UNAVAILABLE" ? 503 : 404 });
-}
-```
+El pedido tiene checkout habilitado si y solo si `orders.getCheckout(access)` tiene éxito, porque `checkoutView` falla con `CHECKOUT_UNAVAILABLE` cuando `checkoutEnabledAt` es null. Así no se toca `getBuyerPaymentView`.
 
-- Se conservan el `ErrorBoundary` genérico y las cabeceras `no-store` y `no-referrer`. Se elimina el componente de página.
-- `order-detail.tsx` enlaza directamente a `/checkout/:companyId/:orderId` y se ajusta el texto de `orders.buyerPaymentLink`.
+| Caso | Respuesta | `outcome` |
+| --- | --- | --- |
+| ID inválido o pedido inexistente | 404 con el error genérico | `unavailable` |
+| `resolveBuyerAccess` con `PERSISTENCE_UNAVAILABLE` | 503 | `technical_failure` |
+| `getCheckout` con éxito (pendiente, confirmado o cancelado) | 301 a `/checkout/:companyId/:orderId` | `redirected` |
+| Sin checkout y `getBuyerPaymentView` con éxito | 200, página de pago | `rendered` |
+| Sin checkout y pedido cancelado | 409 | `cancelled` |
+| Otro error de `getCheckout` o `getBuyerPaymentView`, o vista inválida | 503 y `log.error` | `technical_failure` |
+
+- Se conservan el `ErrorBoundary` genérico y las cabeceras `no-store` y `no-referrer`. El componente de página se conserva para los pedidos sin checkout (históricos, POS o manuales).
+- `order-detail.tsx` usa `buyerLink`: enlaza a `/checkout/:companyId/:orderId` si el checkout está habilitado y el pedido no está cancelado, a `/pago/:orderId` si no hay checkout y a nada si está cancelado con checkout.
 - `orders.getBuyerPaymentView` y la API de comprobantes se mantienen, porque el checkout los usa.
 
 ### 10.5 Editor (`routes/checkout-appearance-settings.tsx`)
@@ -801,6 +805,7 @@ describe("checkout appearance")
 ```ts
 describe("legacy payment link")
   test("redirects permanently to the checkout of the order")
+  test("renders the payment page for an order without checkout")
   test("responds 404 for an unknown order")
   test("responds 404 for an invalid order id")
   test("responds 503 when the order cannot be resolved")
@@ -838,11 +843,12 @@ describe("buyer checkout with appearance")
 describe("legacy payment link")
   test("opens the order checkout from the order detail")
   test("redirects an old payment link to the order checkout")
+  test("renders the payment page for an order without checkout")
   test("shows the generic error for an unknown payment link")
 ```
 
 ## Estado
 
-**Nada construido.** Al 10 de octubre de 2026 no existen en el repositorio la migración ni la feature `checkout-appearance`. El paso 1 construido con HEX y paleta derivada se revirtió al cambiar a colores predefinidos, así que no hay datos ni migraciones que adaptar desde ese modelo.
+**Construido:** T0 a T5 de [apariencia-del-checkout-tareas.md](apariencia-del-checkout-tareas.md) están integradas en la rama de la feature (`jorgeluis594/checkout-editable`). Incluye la migración `20261010142043_add_company_checkout_appearance`, el editor con vista previa en vivo, el checkout con marca y la redirección de `/pago/:orderId`.
 
-**Pendiente:** las tareas T0 a T5 de [apariencia-del-checkout-tareas.md](apariencia-del-checkout-tareas.md).
+**Pendiente:** la verificación en staging de logs y transacciones de New Relic de las cuatro rutas, a cargo del equipo que despliega. El detalle está en el criterio de T5 de [apariencia-del-checkout-tareas.md](apariencia-del-checkout-tareas.md#t5--cierre-del-lanzamiento).

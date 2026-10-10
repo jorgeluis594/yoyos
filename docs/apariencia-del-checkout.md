@@ -17,7 +17,7 @@ La hipótesis de producto es que una identidad reconocible reduce dudas al conti
 | Usuario | Necesidad | Superficie |
 | --- | --- | --- |
 | Vendedor con acceso a la configuración de su empresa | Configurar y revisar la apariencia | Configuración → Apariencia del checkout |
-| Comprador | Reconocer la tienda y completar su pedido | Checkout público y página pública de pago |
+| Comprador | Reconocer la tienda y completar su pedido | Checkout público (incluye el pago); la página de pago solo para pedidos sin checkout |
 
 La primera versión incluye un editor web adaptable a celular y escritorio. El checkout sigue funcionando en el navegador sin cuenta ni instalación. Un editor nativo dentro de la app móvil queda fuera de esta entrega; esta delimitación es una decisión de alcance de la especificación, no una limitación indicada originalmente por el usuario.
 
@@ -127,7 +127,7 @@ El vendedor elige un solo color; no configura por separado los tonos claro y osc
 
 ## Experiencia del comprador
 
-La identidad se aplica a `/checkout/:companyId/:orderId`, siempre después de resolver y autorizar el acceso al pedido. La página independiente de pago `/pago/:orderId` se retira en esta entrega: el checkout ya muestra el pago tras confirmar, y los enlaces de pago compartidos redirigen al checkout del pedido.
+La identidad se aplica a `/checkout/:companyId/:orderId`, siempre después de resolver y autorizar el acceso al pedido. Los enlaces de pago `/pago/:orderId` de pedidos con checkout habilitado redirigen al checkout del pedido, que ya muestra el pago tras confirmar. Los pedidos sin checkout (históricos, POS o manuales) conservan la página de pago.
 
 | Estado | Resultado esperado |
 | --- | --- |
@@ -179,7 +179,7 @@ Una configuración de apariencia ausente o inválida no debe impedir confirmar n
 6. Guardar publica toda la configuración y un enlace previamente compartido la muestra al recargarse, manteniendo su URL.
 7. Una subida o publicación fallida permite reintentar sin perder la edición ni alterar parcialmente la apariencia pública.
 8. Descartar recupera lo publicado; restablecer requiere guardar; salir con cambios pendientes ofrece conservar la edición o descartarla.
-9. La identidad es consistente en revisión, espera de cotización, pago, comprobante pendiente, pagado y cancelado; un enlace `/pago/:orderId` ya compartido lleva al checkout del pedido.
+9. La identidad es consistente en revisión, espera de cotización, pago, comprobante pendiente, pagado y cancelado; un enlace `/pago/:orderId` ya compartido de un pedido con checkout lleva al checkout del pedido; los pedidos sin checkout conservan la página de pago.
 10. La vista previa usa datos ficticios y ninguna interacción ejecuta acciones comerciales reales.
 11. La configuración de una empresa no modifica la de otra ni la apariencia del panel privado; un comprador no puede editarla.
 12. Los formularios y las reglas comerciales existentes conservan su funcionamiento, incluido el bloqueo del pago mientras falta cotizar la entrega.
@@ -233,7 +233,7 @@ Las métricas son una propuesta de evaluación, no funcionalidades adicionales d
 ## Referencias y puntos de partida
 
 - [Checkout por link de Yoyos](checkout-por-link.md): reglas del pedido, acceso público, entrega y pago.
-- [Página actual de checkout](../apps/core/app/routes/checkout.tsx): superficie que recibe la identidad. El [pago independiente](../apps/core/app/routes/buyer-payment.tsx) se reemplaza por una redirección.
+- [Página actual de checkout](../apps/core/app/routes/checkout.tsx): superficie que recibe la identidad. El [pago independiente](../apps/core/app/routes/buyer-payment.tsx) se reemplaza por una redirección para pedidos con checkout y se conserva para los pedidos sin checkout.
 - [Ajustes de cobro](../apps/core/app/routes/payment-settings.tsx): patrón existente de configuración y carga de imágenes.
 - [Stripe: apariencia de Checkout](https://docs.stripe.com/payments/checkout/customization/appearance?payment-ui=stripe-hosted): referencia de controles acotados de marca.
 - [Shopify: estilo del checkout](https://help.shopify.com/en/manual/checkout-settings/customize-checkout-configurations/checkout-style): referencia de configuración visual.
