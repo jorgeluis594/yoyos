@@ -76,8 +76,8 @@ T3 y T4 se encuentran en un solo punto: el editor renderiza `<CheckoutPreviewFra
 
 **Alcance**
 
-- Loader de redirección 301 en `buyer-payment.tsx`, conservando `ErrorBoundary` y cabeceras; se elimina el componente de página (10.4).
-- `order-detail.tsx` enlaza a `/checkout/:companyId/:orderId`, y se ajusta el texto `orders.buyerPaymentLink`.
+- Loader de `buyer-payment.tsx`: redirección 301 para pedidos con checkout habilitado; los pedidos sin checkout conservan la página de pago (`ErrorBoundary` y cabeceras incluidos) (10.4).
+- `order-detail.tsx` enlaza a `/checkout/:companyId/:orderId` si el checkout está habilitado y a `/pago/:orderId` si no, y se ajusta el texto `orders.buyerPaymentLink`.
 - Normalización de `/pago/:orderId` en `logger.ts` y `newrelic.cjs`, con `outcome` explícito.
 - Tests `buyer-payment.test.ts` y reescritura de `tests/e2e/buyer-payment.spec.ts`.
 
@@ -88,10 +88,11 @@ T3 y T4 se encuentran en un solo punto: el editor renderiza `<CheckoutPreviewFra
 
 **Criterios de aceptación**
 
-- [ ] `GET /pago/:orderId` de un pedido existente responde 301 a `/checkout/:companyId/:orderId`.
+- [ ] `GET /pago/:orderId` de un pedido con checkout habilitado responde 301 a `/checkout/:companyId/:orderId`.
 - [ ] Un pedido inexistente o un ID inválido muestran el error genérico (404), y una falla de base, 503.
 - [ ] En el checkout de destino, el comprador puede ver los medios de pago y subir el comprobante como antes.
-- [ ] El detalle del pedido ya no genera enlaces `/pago`.
+- [ ] El detalle del pedido ya no genera enlaces `/pago` para pedidos con checkout habilitado.
+- [ ] Un pedido sin checkout conserva la página de pago.
 - [ ] Los logs registran la ruta como `/pago/:orderId`, no como `/{*splat}`.
 
 ## T2 · El comprador ve la marca

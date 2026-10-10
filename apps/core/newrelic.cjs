@@ -8,6 +8,7 @@ exports.config = {
   },
   rules: { name: [
     { pattern: "^/checkout(?:/.*)?$", name: "checkout" },
+    { pattern: "^/pago/[^/]+/?$", name: "pago" },
     { pattern: "^/api/orders/[^/]+/checkout-link/?$", name: "orders/checkout-link" },
     { pattern: "^/(?:api/|[a-z]{2}-[A-Z]{2}/)?orders/[0-9a-f-]{36}(?:\\.data)?(?:/.*)?$", name: "orders/detail" },
   ] },

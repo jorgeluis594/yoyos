@@ -17,16 +17,19 @@ import type { Money } from "@shared/money";
 import { deliverySettings } from "@core/src/features/delivery-settings";
 import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { bindRequestOperation, log } from "@core/src/shared/infrastructure/logger";
+import { buyerPaymentViewSchema, type BuyerPaymentView } from "@shared/contracts/orders";
+import { BuyerPaymentContent } from "@core/src/features/orders/presentation/buyer-payment-content";
 import { checkoutBuyerSchema, checkoutPathSchema, checkoutDeliveryOptionsSchema, confirmCheckoutDeliverySchema, publicCheckoutSchema, type CheckoutDeliveryOptions, type PublicCheckoutResponse } from "@shared/contracts/order-checkout";
 
 const privacyHeaders = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
 export const headers = () => privacyHeaders;
-export const shouldRevalidate = ({ formMethod, defaultShouldRevalidate }: ShouldRevalidateFunctionArgs) =>
-  formMethod?.toUpperCase() === "POST" ? false : defaultShouldRevalidate;
+// A rejected confirmation keeps the buyer's input; a successful one redirects here and needs the payment view.
+export const shouldRevalidate = ({ formMethod, actionResult, defaultShouldRevalidate }: ShouldRevalidateFunctionArgs) =>
+  formMethod?.toUpperCase() === "POST" && actionResult !== undefined ? false : defaultShouldRevalidate;
 export const meta = () => [{ title: "Revisa tu pedido" }, { name: "robots", content: "noindex, nofollow" }];
 const unavailable = "Enlace no disponible";
 const retry = "No se pudo completar la solicitud. Inténtalo de nuevo.";
-type PageData = { checkout: PublicCheckoutResponse | null; deliveryOptions?: CheckoutDeliveryOptions; message: string | null; fieldErrors?: { name?: string; phone?: string }; unavailable?: boolean; code?: string; currentPrice?: Money };
+type PageData = { checkout: PublicCheckoutResponse | null; payment?: BuyerPaymentView; deliveryOptions?: CheckoutDeliveryOptions; message: string | null; fieldErrors?: { name?: string; phone?: string }; unavailable?: boolean; code?: string; currentPrice?: Money };
 const response = (value: PageData, status = 200) => data(value, { status, headers: privacyHeaders });
 
 function serialize(checkout: CheckoutView): PublicCheckoutResponse {
@@ -40,6 +43,16 @@ function serialize(checkout: CheckoutView): PublicCheckoutResponse {
   return parsed.data;
 }
 
+async function loadPayment(orderId: string): Promise<BuyerPaymentView> {
+  const payment = await orders.getBuyerPaymentView(orderId);
+  if (!payment.success) log.error({ event: "order_checkout_payment_unavailable", errorCode: payment.error.code }, "Checkout payment view unavailable");
+  const parsed = payment.success ? buyerPaymentViewSchema.safeParse(payment.data) : null;
+  if (parsed?.success) return parsed.data;
+  if (parsed) log.error({ event: "order_checkout_data_invalid", errorCode: "INVALID_PAYMENT_RESPONSE" }, "Invalid checkout payment response");
+  bindRequestOperation({ outcome: "technical_failure" });
+  throw new Response(retry, { status: 503, headers: privacyHeaders });
+}
+
 export async function loader({ params }: LoaderFunctionArgs) {
   bindRequestOperation({ operation: "get_checkout" });
   const path = checkoutPathSchema.safeParse(params);
@@ -50,6 +63,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
   const result = await orders.getCheckout(path.data as CheckoutAccess);
   if (!result.success) throw new Response(result.error.code === "CHECKOUT_UNAVAILABLE" ? unavailable : retry,
     { status: result.error.code === "CHECKOUT_UNAVAILABLE" ? 404 : 503, headers: privacyHeaders });
+  if (result.data.state.kind === "confirmed") return response({ checkout: serialize(result.data), payment: await loadPayment(path.data.orderId), message: null });
   if (result.data.state.kind !== "pending") return response({ checkout: serialize(result.data), message: null });
   const settings = await withTenantIsolation(path.data.companyId, () => deliverySettings.getForCompany(path.data.companyId));
   if (!settings.success) {
@@ -107,7 +121,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       delivery = { kind: "replace", selection: selection.data, expectedPrice: parsed.data.delivery.expectedPrice };
     }
     const result = await orders.confirmCheckoutDelivery({ buyer: buyer.data, expectedTotal: parsed.data.expectedTotal, delivery }, access);
-    if (result.success) return redirect(`/pago/${access.orderId}`, { headers: privacyHeaders });
+    if (result.success) return redirect(`/checkout/${access.companyId}/${access.orderId}`, { headers: privacyHeaders });
     if (result.error.code === "CHECKOUT_UNAVAILABLE") return response({ checkout: null, message: unavailable, unavailable: true }, 404);
     if (result.error.code === "TOTAL_CHANGED" || result.error.code === "ORDER_CANCELLED") {
       const latest = await orders.getCheckout(access);
@@ -138,7 +152,7 @@ export default function Checkout() {
   const initial = initialData.checkout!;
   const { orderId = "" } = useParams();
   const fetcher = useFetcher<typeof action>();
-  const checkout = fetcher.data?.checkout ?? initial;
+  const checkout = initial.state.kind === "confirmed" ? initial : fetcher.data?.checkout ?? initial;
   const buyerForm = useForm<{ name: string; phone: string }>({ resolver: zodResolver(checkoutBuyerSchema),
     defaultValues: { name: initial.buyer?.name ?? "", phone: initial.buyer?.phone ?? "" } });
   const name = useController({ name: "name", control: buyerForm.control });
@@ -169,6 +183,7 @@ export default function Checkout() {
       <CheckoutDeliveryFields orderId={orderId} checkout={checkout} options={initialData.deliveryOptions!} onChange={setDeliveryDraft} recoveryVersion={recoveryVersion} disabled={pending} />
       <Button type="submit" disabled={pending || !deliveryDraft || !total}>{pending ? "Confirmando…" : "Confirmar pedido"}</Button><p className="text-sm text-muted-foreground">Confirmas tu intención de compra. El pago se coordina por separado.</p>
     </fetcher.Form> : checkout.buyer && <section><h2 className="font-semibold">Datos del comprador</h2><p>{checkout.buyer.name}</p><p>{checkout.buyer.phone}</p></section>}
+    {checkout.state.kind === "confirmed" && initialData.payment && <section aria-label="Pago del pedido" className="flex flex-col gap-4"><BuyerPaymentContent view={initialData.payment} /></section>}
   </main>;
 }
 
