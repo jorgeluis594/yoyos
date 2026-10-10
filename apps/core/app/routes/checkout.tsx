@@ -50,10 +50,15 @@ function serialize(checkout: CheckoutView): PublicCheckoutResponse {
 /** The brand is decorative: any failure reading it falls back to the Yoyos look and never blocks the order. */
 async function loadAppearance(companyId: string): Promise<PublicCheckoutAppearance | null> {
   const id = parseCompanyId(companyId);
+  if (!id.success) {
+    log.error({ event: "order_checkout_appearance_failed", errorCode: id.error.code }, "Checkout appearance unavailable");
+    bindRequestOperation({ checkoutAppearance: "fallback" });
+    return null;
+  }
   let kind: "default" | "custom" | "fallback";
   let appearance: PublicCheckoutAppearance | null = null;
   try {
-    const result = id.success ? await checkoutAppearance.getPublic(id.data) : { kind: "fallback" as const };
+    const result = await checkoutAppearance.getPublic(id.data);
     kind = result.kind;
     if (result.kind === "custom") {
       const parsed = publicCheckoutAppearanceSchema.safeParse(result.appearance);

@@ -3,7 +3,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { action, headers, loader } from "@core/app/routes/checkout";
 import { orders } from "@core/src/features/orders/composition";
 import { deliverySettings } from "@core/src/features/delivery-settings";
-import { checkoutAppearance } from "@core/src/features/checkout-appearance";
+import { checkoutAppearance, parseCompanyId } from "@core/src/features/checkout-appearance";
 import { bindRequestOperation, log } from "@core/src/shared/infrastructure/logger";
 import { ok, err } from "@shared/functional";
 import type { CheckoutView, OrderNumber } from "@core/src/features/orders/domain/checkout";
@@ -12,6 +12,11 @@ import type { PositiveInteger } from "@core/src/features/orders/domain/order";
 vi.mock("@core/src/shared/infrastructure/logger", async (importOriginal) => ({
   ...await importOriginal<typeof import("@core/src/shared/infrastructure/logger")>(), bindRequestOperation: vi.fn(),
 }));
+
+vi.mock("@core/src/features/checkout-appearance", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@core/src/features/checkout-appearance")>();
+  return { ...actual, parseCompanyId: vi.fn(actual.parseCompanyId) };
+});
 
 const params = { companyId: "00000000-0000-4000-8000-000000000001", orderId: "00000000-0000-4000-8000-000000000002" };
 const total = { amount: 10, currency: "PEN" as const };
@@ -174,9 +179,23 @@ describe("checkout appearance", () => {
 
   test("exposes only logo, color and background", async () => {
     pendingSettings();
+    const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
     vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(view));
     vi.mocked(checkoutAppearance.getPublic).mockResolvedValue({ kind: "custom", appearance: { ...custom, logoImageId: "private" } as never });
     expect(await load()).toMatchObject({ data: { appearance: null } });
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "order_checkout_data_invalid", errorCode: "INVALID_APPEARANCE_RESPONSE" }), expect.any(String));
+    expect(bindRequestOperation).toHaveBeenCalledWith({ checkoutAppearance: "fallback" });
+  });
+
+  test("logs and falls back when the company id cannot be parsed", async () => {
+    pendingSettings();
+    const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
+    vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(view));
+    vi.mocked(parseCompanyId).mockReturnValueOnce(err({ code: "INVALID_CHECKOUT_APPEARANCE", message: "Invalid company id", invalidFields: ["companyId"] }));
+    expect(await load()).toMatchObject({ data: { checkout: view, appearance: null } });
+    expect(checkoutAppearance.getPublic).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "order_checkout_appearance_failed", errorCode: "INVALID_CHECKOUT_APPEARANCE" }), expect.any(String));
+    expect(bindRequestOperation).toHaveBeenCalledWith({ checkoutAppearance: "fallback" });
   });
 
   test("does not read the appearance for an unauthorized link", async () => {
