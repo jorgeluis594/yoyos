@@ -194,6 +194,26 @@ private final class ConnectionRuntime {
     return nil
   }
 
+  /// Serial, so a suspension is always followed by its own resumption and never overtaken; the
+  /// main thread only enqueues, because `lock` is held across native I/O by `initialize`.
+  let lifecycleQueue = DispatchQueue(label: "expo.modules.whatsapp.lifecycle")
+
+  /// The app left the foreground: Go ends the live socket and remembers that one was requested.
+  /// Pending entries, the stored session and image files are untouched. Nothing is received while
+  /// the process is suspended and nothing here asks iOS to keep it running or to wake it.
+  func suspend() {
+    lock.lock(); defer { lock.unlock() }
+    session?.suspend()
+  }
+
+  /// The app runs again: Go revalidates the request and starts one new attempt. A refusal is
+  /// reported as an error event; the stored session is not recreated or modified here.
+  func resume() {
+    lock.lock(); let current = session; lock.unlock()
+    guard let code = current?.resume(), !code.isEmpty else { return }
+    emit?("error", ["code": code, "message": "WhatsApp connection failed"])
+  }
+
   func stop() {
     if eventSink?.retire() == true { revoked = true }
     eventSink = nil
@@ -351,6 +371,22 @@ public class WhatsAppModule: Module {
         runtime.revoked = false
         return hadSession && !remote.isEmpty ? failure("REMOTE_LOGOUT_UNCONFIRMED") : success()
       } catch { return failure(publicError(error)) }
+    }
+
+    OnAppEntersBackground {
+      let runtime = ConnectionRuntime.shared
+      // iOS may freeze the process right after this callback; the task keeps it running long enough
+      // for the queued suspend to close the socket. It ends when suspend returns or when iOS says
+      // time is up (the expiration handler), whichever comes first, and exactly once.
+      let task = BackgroundTaskGuard.application(name: "WhatsAppSuspend")
+      runtime.lifecycleQueue.async {
+        runtime.suspend()
+        task.end()
+      }
+    }
+    OnAppEntersForeground {
+      let runtime = ConnectionRuntime.shared
+      runtime.lifecycleQueue.async { runtime.resume() }
     }
 
     OnDestroy {

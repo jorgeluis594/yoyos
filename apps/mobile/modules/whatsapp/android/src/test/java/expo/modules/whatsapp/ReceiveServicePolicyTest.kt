@@ -76,11 +76,22 @@ class ReceiveServicePolicyTest {
     assertEquals(ReceiveServicePolicy.EventEffect.NONE, ReceiveServicePolicy.eventEffect("qr", null))
   }
 
-  // WA-12 r1: errors are settled with requestActive: RECOVERY_BUFFER_FULL / informational errors keep the
-  // request (true), a failed rebuild after a pause ends it with no further state event (false).
-  @Test fun errorsAreSettledWithRequestActive() {
-    assertEquals(ReceiveServicePolicy.EventEffect.CHECK_REQUEST, ReceiveServicePolicy.eventEffect("error", null))
-    assertFalse(ReceiveServicePolicy.endsRequest(requestActive = true))  // RECOVERY_BUFFER_FULL, IDENTITY_UNAVAILABLE
-    assertTrue(ReceiveServicePolicy.endsRequest(requestActive = false))  // CONNECTION_FAILED after a failed resume
+  // WA-14 M1: the intent is withdrawn if and only if the request ended. Every error that is not informational is
+  // settled with requestActive, including FailLocal codes that end the request during a capacity pause.
+  @Test fun everyEndingErrorIsSettledWithRequestActive() {
+    for (code in listOf("CONNECTION_FAILED", "CONSUMER_UNAVAILABLE", "NATIVE_CALL_FAILED", "INVALID_INPUT", "SESSION_EXPIRED")) {
+      assertEquals(ReceiveServicePolicy.EventEffect.CHECK_REQUEST, ReceiveServicePolicy.eventEffect("error", null, code))
+    }
+    assertFalse(ReceiveServicePolicy.endsRequest(requestActive = true))  // active, or paused with the request held
+    assertTrue(ReceiveServicePolicy.endsRequest(requestActive = false))  // ended, FailLocal during a pause included
+  }
+
+  // WA-12 s1: informational errors can arrive with requestActive=false (IDENTITY_UNAVAILABLE after initialize()
+  // without connect()); they never settle the request, so a restored or armed intent is not withdrawn.
+  @Test fun informationalErrorsNeverSettleTheRequest() {
+    for (code in listOf("RECOVERY_BUFFER_FULL", "HISTORY_LIMIT_REACHED", "IDENTITY_UNAVAILABLE")) {
+      assertEquals(ReceiveServicePolicy.EventEffect.NONE, ReceiveServicePolicy.eventEffect("error", null, code))
+    }
+    assertEquals(ReceiveServicePolicy.EventEffect.END, ReceiveServicePolicy.eventEffect("connectionChanged", "sessionExpired", null)) // revoked
   }
 }

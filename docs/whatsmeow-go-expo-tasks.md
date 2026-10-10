@@ -103,7 +103,7 @@ Las dependencias indican capacidades necesarias para cerrar una tarea, no obliga
 **Aceptación y verificación:**
 
 - Admitir texto íntegro e imágenes con o sin caption/MIME, citas y reenvíos con su contenido propio, temporales sin borrado programado y mensaje normal ya editado presente en historial. No filtrar por antigüedad ni fecha de vinculación.
-- Excluir grupos, ediciones, eliminaciones, visualización única, reacciones y demás contenido fuera de alcance. Texto vacío sin imagen no emite; timestamp inválido detiene normalización sin inventar fecha y conserva recuperación disponible.
+- Excluir grupos, ediciones, eliminaciones, visualización única, reacciones y demás contenido fuera de alcance. Texto vacío sin imagen no emite; timestamp ausente o inválido (decisión del dueño, 2026-10-10) deja la fecha desconocida: el mensaje se entrega y confirma con normalidad, sin `timestamp` (nunca `0` ni la hora de recepción), sin detener la normalización ni el lote; orden de llegada y deduplicación por `message.id`. Redefine UT-MSG-07 e IT-MSG-07.
 - Canonicalizar cuenta y chat como LID sin dispositivo mediante correspondencias verificadas; conservar JIDs como strings e ID de protocolo exacto. No fabricar LID desde PN o username.
 - Generar `wa-message:v1:` desde la tupla JSON/Base64url definida; verificar independencia de texto, fecha, dirección, revisión y dispositivo. Generar `wa-delivery:v1:` con aleatoriedad criptográfica y comprobación de colisión; conservarlo en replay.
 - Emitir referencias serializables con cuenta e identidad coherentes y metadatos incompletos permitidos. No incluir bytes de imagen, credenciales, URLs arbitrarias ni descargas automáticas.

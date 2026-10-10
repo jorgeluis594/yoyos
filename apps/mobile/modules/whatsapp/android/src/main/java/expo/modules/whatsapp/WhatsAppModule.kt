@@ -202,13 +202,15 @@ internal object ConnectionRuntime {
    */
   fun startService(context: Context): String? = try {
     val intent = Intent(context, WhatsAppService::class.java).setAction(ReceiveServicePolicy.ACTION_START)
-    // Count the start before raising the flag: an old instance's onDestroy that runs in between sees a
-    // pending start and leaves serviceActive alone.
-    pendingStarts.incrementAndGet()
-    serviceActive = true
+    // Count the start and raise the flag under the same lock the service's onDestroy takes to decide whether
+    // it may clear the flag, so the check and the clear cannot interleave with a newer start (WA-12 r2).
+    synchronized(serviceFlagLock) { pendingStarts.incrementAndGet(); serviceActive = true }
     if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
     null
-  } catch (_: Exception) { pendingStarts.decrementAndGet(); serviceActive = false; "CONNECTION_FAILED" }
+  } catch (_: Exception) { synchronized(serviceFlagLock) { pendingStarts.decrementAndGet(); serviceActive = false }; "CONNECTION_FAILED" }
+
+  /** Guards the pair (`pendingStarts`, `serviceActive`) against the check-then-set of an old instance's onDestroy. */
+  val serviceFlagLock = Any()
 
   /**
    * START requests not yet seen by a service instance. An old instance's onDestroy must not clear
@@ -290,7 +292,7 @@ internal object ConnectionRuntime {
     val fault = event == "error" && ReceiveServicePolicy.isLocalFault(fields["code"] as? String ?: "")
     // Our own stops retire the sink first, so a `disconnected` seen here comes from Go. It may be a capacity
     // pause or a retry that Go resumes by itself (request still held): that keeps the service and the intent.
-    val effect = ReceiveServicePolicy.eventEffect(event, fields["state"] as? String)
+    val effect = ReceiveServicePolicy.eventEffect(event, fields["state"] as? String, fields["code"] as? String)
     if (!revokedNow && !fault && effect == ReceiveServicePolicy.EventEffect.NONE) return
     background.execute {
       synchronized(lock) {

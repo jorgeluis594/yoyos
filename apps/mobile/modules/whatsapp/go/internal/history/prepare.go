@@ -64,18 +64,19 @@ func Prepare(ctx context.Context, batch *waHistorySync.HistorySync, env Env) (Pr
 	}
 	var prepared Prepared
 	seen := map[string]bool{}
-	var times []int64
+	var times []sortKey
 	var used int64
 	for _, conversation := range batch.GetConversations() {
 		chat, ok := individual(conversation.GetID())
 		if !ok {
 			continue
 		}
+		first := len(times)
 		for _, item := range conversation.GetMessages() {
 			if err := ctx.Err(); err != nil {
 				return Prepared{}, err
 			}
-			insert, timestamp, included, err := prepareMessage(env, chat, item.GetMessage(), verified)
+			insert, key, included, err := prepareMessage(env, chat, item.GetMessage(), verified)
 			switch {
 			case err != nil:
 				return Prepared{}, err
@@ -92,9 +93,10 @@ func Prepare(ctx context.Context, batch *waHistorySync.HistorySync, env Env) (Pr
 				}
 				seen[insert.key] = true
 				prepared.Inserts = append(prepared.Inserts, insert.PendingInsert)
-				times = append(times, timestamp)
+				times = append(times, key)
 			}
 		}
+		inheritUnknown(times[first:])
 	}
 	sortChronologically(prepared.Inserts, times)
 	return prepared, nil
@@ -105,42 +107,42 @@ type keyed struct {
 	key string
 }
 
-func prepareMessage(env Env, chat types.JID, web *waWeb.WebMessageInfo, verified normalization.VerifiedLIDs) (keyed, int64, bool, error) {
+func prepareMessage(env Env, chat types.JID, web *waWeb.WebMessageInfo, verified normalization.VerifiedLIDs) (keyed, sortKey, bool, error) {
 	if web == nil {
-		return keyed{}, 0, false, nil
+		return keyed{}, sortKey{}, false, nil
 	}
 	event, err := env.Parse(chat, web)
 	if err != nil {
-		return keyed{}, 0, false, errors.Join(ErrInvalid, err)
+		return keyed{}, sortKey{}, false, errors.Join(ErrInvalid, err)
 	}
 	info := event.Info
 	state, message, err := identity.ClassifyWeb(&info, web, env.Own, env.OwnAlt, verified)
 	if err != nil {
-		return keyed{}, 0, false, errors.Join(ErrInvalid, err)
+		return keyed{}, sortKey{}, false, errors.Join(ErrInvalid, err)
 	}
 	if state == identity.Excluded {
-		return keyed{}, 0, false, nil
+		return keyed{}, sortKey{}, false, nil
 	}
 	if state == identity.Resolved && !belongs(message, env.Account) {
-		return keyed{}, 0, false, errors.Join(ErrInvalid, errors.New("message names another account"))
+		return keyed{}, sortKey{}, false, errors.Join(ErrInvalid, errors.New("message names another account"))
 	}
 	infoJSON, err := protocolstore.MarshalReceiveInfo(env.Account, &info)
 	if err != nil {
-		return keyed{}, 0, false, errors.Join(ErrInvalid, err)
+		return keyed{}, sortKey{}, false, errors.Join(ErrInvalid, err)
 	}
 	plaintext, err := proto.Marshal(web)
 	if err != nil || len(plaintext) == 0 {
-		return keyed{}, 0, false, errors.Join(ErrInvalid, errors.New("message cannot be preserved"))
+		return keyed{}, sortKey{}, false, errors.Join(ErrInvalid, errors.New("message cannot be preserved"))
 	}
 	id, err := newDeliveryID()
 	if err != nil {
-		return keyed{}, 0, false, err
+		return keyed{}, sortKey{}, false, err
 	}
 	insert := protocolstore.PendingInsert{
 		DeliveryID: id, AccountID: env.Account, Source: "history", IdentityState: string(state), Message: message,
 		Recovery: protocolstore.Recovery{MessageInfoJSON: infoJSON, Items: []protocolstore.RecoveryItem{{Format: "history", PlaintextBase64: base64.StdEncoding.EncodeToString(plaintext)}}},
 	}
-	return keyed{insert, chat.String() + "\x00" + string(info.ID)}, info.Timestamp.Unix(), true, nil
+	return keyed{insert, chat.String() + "\x00" + string(info.ID)}, sortKey{seconds: info.Timestamp.Unix(), known: normalization.ValidTimestamp(info.Timestamp)}, true, nil
 }
 
 func belongs(message []byte, account string) bool {
@@ -158,13 +160,43 @@ func newDeliveryID() (string, error) {
 	return "wa-delivery:v1:" + hex.EncodeToString(random[:]), nil
 }
 
-// sortChronologically keeps the protocol order of messages with the same second.
-func sortChronologically(inserts []protocolstore.PendingInsert, times []int64) {
+// sortKey orders a history message: WhatsApp's own second when its timestamp is valid. A message with an unknown
+// date has no usable second; it takes its place from its neighbours (inheritUnknown), never from the garbage value.
+type sortKey struct {
+	seconds int64
+	known   bool
+}
+
+// inheritUnknown gives each unknown-date message of one conversation the key of the closest preceding known one,
+// so it stays where the protocol delivered it; leading unknowns take the first known key after them, and a
+// conversation with no known date keeps its protocol order (every key is equal).
+func inheritUnknown(keys []sortKey) {
+	var previous *sortKey
+	for i := range keys {
+		if keys[i].known {
+			previous = &keys[i]
+		} else if previous != nil {
+			keys[i].seconds = previous.seconds
+		}
+	}
+	for i := range keys {
+		if !keys[i].known {
+			continue
+		}
+		for j := 0; j < i; j++ {
+			keys[j].seconds = keys[i].seconds
+		}
+		break
+	}
+}
+
+// sortChronologically keeps the protocol order of messages with the same second (and of unknown dates).
+func sortChronologically(inserts []protocolstore.PendingInsert, times []sortKey) {
 	order := make([]int, len(inserts))
 	for i := range order {
 		order[i] = i
 	}
-	sort.SliceStable(order, func(a, b int) bool { return times[order[a]] < times[order[b]] })
+	sort.SliceStable(order, func(a, b int) bool { return times[order[a]].seconds < times[order[b]].seconds })
 	sorted := make([]protocolstore.PendingInsert, len(inserts))
 	for i, from := range order {
 		sorted[i] = inserts[from]

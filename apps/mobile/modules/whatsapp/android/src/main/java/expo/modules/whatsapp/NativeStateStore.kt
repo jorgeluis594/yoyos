@@ -888,7 +888,9 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
   }
 
   private fun validateMessage(message: JSONObject, account: String) {
-    val fields = mutableListOf("id", "accountId", "whatsappMessageId", "chatId", "direction", "timestamp")
+    // `timestamp` is optional: Go omits it when WhatsApp's own time was missing or invalid (unknown date, IT-MSG-07).
+    val fields = mutableListOf("id", "accountId", "whatsappMessageId", "chatId", "direction")
+    if (message.has("timestamp")) fields.add("timestamp")
     if (message.has("text")) fields.add("text")
     if (message.has("image")) fields.add("image")
     exact(message, *fields.toTypedArray())
@@ -896,8 +898,11 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     val chat = message.getString("chatId")
     val whatsappId = message.getString("whatsappMessageId")
     if (message.getString("accountId") != account || !ACCOUNT.matches(chat) || whatsappId.isEmpty() || message.getString("direction") !in listOf("incoming", "outgoing")) throw StateFailure("SESSION_STATE_INVALID")
-    val timestamp = message.get("timestamp")
-    if (timestamp !is Number || !Regex("0|[1-9][0-9]*").matches(timestamp.toString()) || timestamp.toString().toLongOrNull()?.let { it <= 9007199254740991L } != true) throw StateFailure("SESSION_STATE_INVALID")
+    if (message.has("timestamp")) {
+      val timestamp = message.get("timestamp")
+      // A real date is a positive safe integer; 0 is never an "unknown" marker (it would read as 1970).
+      if (timestamp !is Number || !Regex("[1-9][0-9]*").matches(timestamp.toString()) || timestamp.toString().toLongOrNull()?.let { it <= 9007199254740991L } != true) throw StateFailure("SESSION_STATE_INVALID")
+    }
     if (message.has("text") && message.get("text") !is String) throw StateFailure("SESSION_STATE_INVALID")
     val id = message.getString("id")
     val prefix = "wa-message:v1:"

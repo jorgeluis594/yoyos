@@ -63,17 +63,29 @@ internal object ReceiveServicePolicy {
   enum class EventEffect { NONE, CHECK_REQUEST, END }
 
   /**
+   * Errors Go publishes without ever changing `requested`: content kept while an identity is unknown
+   * (`IDENTITY_UNAVAILABLE`), a history batch that hit its limit (`HISTORY_LIMIT_REACHED`) and a capacity pause
+   * (`RECOVERY_BUFFER_FULL`). They can arrive with no request at all (WA-12 s1: `IDENTITY_UNAVAILABLE` when
+   * `initialize()` opens the session without `connect()`), so they never withdraw the intent. Every other code
+   * `Controller.Notify` or `FailLocal` can publish is settled with Go's `requestActive`: `CONNECTION_FAILED`,
+   * `CONSUMER_UNAVAILABLE` and the `FailLocal` codes can end a request, and `NATIVE_CALL_FAILED` (also published by
+   * `Notify` for a refused history batch, which only runs while the request is active, so it withdraws nothing)
+   * is settled the same way rather than assumed harmless (WA-14 review M1/m1).
+   */
+  val INFORMATIONAL_ERRORS: Set<String> = setOf("RECOVERY_BUFFER_FULL", "HISTORY_LIMIT_REACHED", "IDENTITY_UNAVAILABLE")
+
+  /**
    * `disconnected` is ambiguous: Go publishes it for an ended request (unpaired failure, nothing left to
    * retry) and also for a RECOVERY_BUFFER_FULL pause that resumes by itself with the request still held.
-   * Only `sessionExpired` is final by itself; `disconnected` and errors must be settled with Go's own
-   * `requestActive` before the intent is withdrawn.
+   * Only `sessionExpired` is final by itself; `disconnected` and non-informational errors must be settled with
+   * Go's own `requestActive` before the intent is withdrawn.
    */
-  fun eventEffect(event: String, state: String?): EventEffect = when {
+  fun eventEffect(event: String, state: String?, errorCode: String? = null): EventEffect = when {
     event == "connectionChanged" && state == "sessionExpired" -> EventEffect.END
     event == "connectionChanged" && state == "disconnected" -> EventEffect.CHECK_REQUEST
     // A rebuild that fails after a capacity pause ends the request with only an error: the state was already
-    // `disconnected`, so no new state event follows. Any error is therefore settled with requestActive too.
-    event == "error" -> EventEffect.CHECK_REQUEST
+    // `disconnected`, so no new state event follows. The intent is withdrawn if and only if the request ended.
+    event == "error" && !INFORMATIONAL_ERRORS.contains(errorCode) -> EventEffect.CHECK_REQUEST
     else -> EventEffect.NONE
   }
 
