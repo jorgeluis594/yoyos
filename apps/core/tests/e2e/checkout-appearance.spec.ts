@@ -1,0 +1,179 @@
+import type { Page } from "@playwright/test";
+import { describe } from "vitest";
+import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
+import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+
+const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==", "base64");
+const editorPath = "/es-PE/settings/checkout-appearance";
+const origin = `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}`;
+
+async function openEditor(page: Page) {
+  const companyId = await prepareVerifiedCompany(page, { email: `appearance-${crypto.randomUUID()}@example.test`, name: "Vendedora", companyName: "Lima Studio", country: "PE" });
+  await page.goto(editorPath, { waitUntil: "networkidle" });
+  await browserExpect(page.getByRole("heading", { name: "Apariencia del checkout", level: 1 })).toBeVisible();
+  return companyId;
+}
+
+/** The upload endpoint answers with a stored public image, or with a failure. */
+async function stubUpload(page: Page, companyId: string, outcome: "stored" | "missing" | "fails") {
+  const id = crypto.randomUUID();
+  if (outcome === "stored") await withTenantIsolation(companyId, async () => { await prisma.image.create({ data: { id, storageKey: `test/${id}` } }); });
+  await page.route("**/test-images/*", (route) => route.fulfill({ status: 200, contentType: "image/png", body: png }));
+  await page.route("**/api/images", (route) => outcome === "fails"
+    ? route.fulfill({ status: 500, contentType: "application/json", body: "{}" })
+    : route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ id, url: `${origin}/test-images/test%2F${id}` }) }));
+  return id;
+}
+
+const stored = (companyId: string) => withTenantIsolation(companyId, async () => await prisma.companyCheckoutAppearance.findUnique({ where: { companyId } }));
+const uploadLogo = (page: Page) => page.getByTestId("logo-input").setInputFiles({ name: "logo.png", mimeType: "image/png", buffer: png });
+
+async function chooseColor(page: Page, name: string) {
+  await page.getByRole("button", { name: /Cambiar$/ }).last().click();
+  await page.getByRole("radio", { name }).click();
+  await page.getByRole("button", { name: `Usar ${name}` }).click();
+}
+
+describe("checkout appearance editor", () => {
+  test("publishes logo, color and background together when saving", async ({ page }) => {
+    const companyId = await openEditor(page);
+    const logoId = await stubUpload(page, companyId, "stored");
+    await uploadLogo(page);
+    await chooseColor(page, "Bosque");
+    await page.getByRole("radio", { name: "De marca" }).click();
+    expect(await stored(companyId)).toBeNull();
+    await page.getByRole("button", { name: "Guardar cambios" }).click();
+    await browserExpect(page.getByRole("status").filter({ hasText: "Apariencia actualizada" })).toBeVisible();
+    expect(await stored(companyId)).toMatchObject({ logoImageId: logoId, brandColor: "forest", background: "brand_tint" });
+    await page.reload();
+    await browserExpect(page.getByText("Bosque", { exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("radio", { name: "De marca" })).toBeChecked();
+    await browserExpect(page.getByText("Cambios sin guardar", { exact: true })).toHaveCount(0);
+  });
+
+  test("offers only the nine catalog colors, with no free color field", async ({ page }) => {
+    await openEditor(page);
+    await page.getByRole("button", { name: /Cambiar$/ }).last().click();
+    await browserExpect(page.getByRole("dialog").getByRole("radio")).toHaveCount(9);
+    await browserExpect(page.getByRole("dialog").locator("input[type=text], input[type=color]")).toHaveCount(0);
+  });
+
+  test("keeps the previous color when the dialog is cancelled, closed or dismissed with Escape", async ({ page }) => {
+    await openEditor(page);
+    const row = page.getByRole("button", { name: /Cambiar$/ }).last();
+    for (const dismiss of [() => page.getByRole("button", { name: "Cancelar" }).click(), () => page.getByRole("button", { name: "Cerrar" }).click(), () => page.keyboard.press("Escape")]) {
+      await row.click();
+      await page.getByRole("radio", { name: "Océano" }).click();
+      await dismiss();
+      await browserExpect(page.getByRole("dialog")).toHaveCount(0);
+      await browserExpect(row).toContainText("Yoyos");
+      await browserExpect(row).toBeFocused();
+    }
+    await browserExpect(page.getByText("Cambios sin guardar", { exact: true })).toHaveCount(0);
+  });
+
+  test("chooses a color with the keyboard and changes only the draft", async ({ page }) => {
+    const companyId = await openEditor(page);
+    await page.getByRole("button", { name: /Cambiar$/ }).last().focus();
+    await page.keyboard.press("Enter");
+    await browserExpect(page.getByRole("radio", { name: /Yoyos/ })).toBeFocused();
+    await page.keyboard.press("ArrowRight");
+    await browserExpect(page.getByRole("radio", { name: "Bosque" })).toBeFocused();
+    await page.keyboard.press("Space");
+    await page.getByRole("button", { name: "Usar Bosque" }).click();
+    await browserExpect(page.getByText("Cambios sin guardar", { exact: true })).toBeVisible();
+    expect(await stored(companyId)).toBeNull();
+  });
+
+  test("shows the swatch of the active preview mode in the row and the dialog", async ({ page }) => {
+    await openEditor(page);
+    await chooseColor(page, "Bosque");
+    const swatch = page.getByTestId("color-swatch");
+    await browserExpect(swatch).toHaveCSS("background-color", "rgb(47, 107, 79)");
+    await page.getByRole("button", { name: "Oscuro" }).click();
+    await browserExpect(swatch).toHaveCSS("background-color", "rgb(143, 203, 168)");
+    await browserExpect(page.getByText("Tono para modo oscuro")).toBeVisible();
+    await page.getByRole("button", { name: /Cambiar$/ }).last().click();
+    await browserExpect(page.getByTestId("swatch-forest")).toHaveCSS("background-color", "rgb(143, 203, 168)");
+    await browserExpect(page.getByTestId("swatch-forest")).toHaveCount(1);
+  });
+
+  test("restores the published appearance when discarding", async ({ page }) => {
+    await openEditor(page);
+    await chooseColor(page, "Ciruela");
+    await page.getByRole("radio", { name: "Blanco" }).click();
+    await page.getByRole("button", { name: "Descartar" }).click();
+    await browserExpect(page.getByText("Cambios sin guardar", { exact: true })).toHaveCount(0);
+    await browserExpect(page.getByRole("radio", { name: "Neutro" })).toBeChecked();
+    await browserExpect(page.getByRole("button", { name: /Cambiar$/ }).last()).toContainText("Yoyos");
+  });
+
+  test("requires saving to publish a reset", async ({ page }) => {
+    const companyId = await openEditor(page);
+    await chooseColor(page, "Bosque");
+    await page.getByRole("button", { name: "Guardar cambios" }).click();
+    await browserExpect(page.getByRole("status").filter({ hasText: "Apariencia actualizada" })).toBeVisible();
+    await page.getByRole("button", { name: "Restablecer apariencia" }).click();
+    await browserExpect(page.getByText("Cambios sin guardar", { exact: true })).toBeVisible();
+    expect(await stored(companyId)).toMatchObject({ brandColor: "forest" });
+    await page.getByRole("button", { name: "Guardar cambios" }).click();
+    await browserExpect(page.getByText("Cambios sin guardar", { exact: true })).toHaveCount(0);
+    expect(await stored(companyId)).toMatchObject({ logoImageId: null, brandColor: "yoyos", background: "neutral" });
+  });
+
+  test("keeps the draft and the published appearance when an upload fails", async ({ page }) => {
+    const companyId = await openEditor(page);
+    await chooseColor(page, "Bosque");
+    await stubUpload(page, companyId, "fails");
+    await uploadLogo(page);
+    await browserExpect(page.getByRole("alert").filter({ hasText: "No pudimos subir el logo" })).toBeVisible();
+    await browserExpect(page.getByRole("button", { name: /Cambiar$/ }).last()).toContainText("Bosque");
+    await browserExpect(page.getByRole("button", { name: "Guardar cambios" })).toBeEnabled();
+    expect(await stored(companyId)).toBeNull();
+  });
+
+  test("keeps the draft and the published appearance when saving fails", async ({ page }) => {
+    const companyId = await openEditor(page);
+    await stubUpload(page, companyId, "missing");
+    await uploadLogo(page);
+    await chooseColor(page, "Bosque");
+    await page.getByRole("button", { name: "Guardar cambios" }).click();
+    await browserExpect(page.getByRole("alert").filter({ hasText: "No pudimos usar ese logo" })).toBeVisible();
+    await browserExpect(page.getByText("Cambios sin guardar", { exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("button", { name: /Cambiar$/ }).last()).toContainText("Bosque");
+    expect(await stored(companyId)).toBeNull();
+  });
+
+  test("asks to keep editing or discard when leaving with changes", async ({ page }) => {
+    await openEditor(page);
+    await chooseColor(page, "Bosque");
+    await page.getByRole("link", { name: "Productos" }).first().click();
+    await browserExpect(page.getByRole("dialog", { name: "Tienes cambios sin guardar" })).toBeVisible();
+    await page.getByRole("button", { name: "Seguir editando" }).click();
+    await browserExpect(page).toHaveURL(/settings\/checkout-appearance/);
+    await browserExpect(page.getByText("Cambios sin guardar", { exact: true })).toBeVisible();
+    await page.getByRole("link", { name: "Productos" }).first().click();
+    await page.getByRole("button", { name: "Descartar y salir" }).click();
+    await browserExpect(page).toHaveURL(/\/products/);
+  });
+
+  test("can be completed with the keyboard on a phone screen", async ({ page }) => {
+    const companyId = await openEditor(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.getByRole("tab", { name: "Editar" }).focus();
+    await page.getByRole("button", { name: /Cambiar$/ }).last().focus();
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("Space");
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Enter");
+    await page.getByRole("radio", { name: "Blanco" }).focus();
+    await page.keyboard.press("ArrowRight");
+    await page.getByRole("button", { name: "Guardar cambios" }).focus();
+    await page.keyboard.press("Enter");
+    await browserExpect(page.getByRole("status").filter({ hasText: "Apariencia actualizada" })).toBeVisible();
+    expect(await stored(companyId)).toMatchObject({ brandColor: "forest", background: "neutral" });
+  });
+});

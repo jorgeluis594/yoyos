@@ -9,10 +9,13 @@ import { Button } from "@core/app/components/ui/button";
 import { ErrorState } from "@core/app/components/ui/error-state";
 import { resolvePublicImage } from "@core/src/shared/images";
 import { bindRequestOperation } from "@core/src/shared/infrastructure/logger";
+import { checkoutAppearance, defaultCheckoutAppearance, parseCompanyId, parseUserId } from "@core/src/features/checkout-appearance";
+// Client code imports the domain modules directly: the feature index also exports server-only composition.
 import {
-  checkoutAppearance, checkoutBackgrounds, checkoutBrandColorCatalog, defaultCheckoutAppearance, parseCompanyId, parseUserId,
-  type CheckoutAppearance, type CheckoutAppearanceFailure, type CheckoutBackground,
-} from "@core/src/features/checkout-appearance";
+  checkoutBackgrounds, type CheckoutAppearance, type CheckoutBackground,
+} from "@core/src/features/checkout-appearance/domain/checkout-appearance";
+import { checkoutBrandColorCatalog } from "@core/src/features/checkout-appearance/domain/checkout-colors";
+import type { CheckoutAppearanceFailure } from "@core/src/features/checkout-appearance/application/checkout-appearance";
 import { BrandColorDialog, swatchOf } from "@core/src/features/checkout-appearance/presentation/brand-color-dialog";
 import { CheckoutPreviewPlaceholder } from "@core/src/features/checkout-appearance/presentation/checkout-preview-placeholder";
 import { resetDraft, sameAppearance, type EditorDraft, type PreviewMode } from "@core/src/features/checkout-appearance/presentation/editor-draft";
