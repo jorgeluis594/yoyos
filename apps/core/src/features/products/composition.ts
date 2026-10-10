@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { err, map } from "@shared/functional";
 import { log } from "@core/src/shared/infrastructure/logger";
-import { getImage } from "@core/src/shared/images/application/images";
+import { getImage, getImages } from "@core/src/shared/images/application/images";
 import { imageRepository } from "@core/src/shared/images/infrastructure/image-repository";
 import { createR2ImageStorage } from "@core/src/shared/images/infrastructure/r2-image-storage";
 import { createProduct } from "@core/src/features/products/application/create";
 import type { ImageId } from "@core/src/features/products/domain/product";
 import { getProduct } from "@core/src/features/products/application/get";
-import { listProducts } from "@core/src/features/products/application/list";
+import { listProducts, type ListImageDependencies, type ListImageFailure } from "@core/src/features/products/application/list";
 import { updateProduct } from "@core/src/features/products/application/update";
 import { productRepository } from "@core/src/features/products/infrastructure/repository";
 
@@ -25,11 +25,25 @@ async function resolveImage(imageId: ImageId) {
   return { success: true as const, data: result.data ? { id: result.data.id as typeof imageId, url: result.data.url } : null };
 }
 
-async function resolveListImage(imageId: ImageId) {
-  const result = await resolveImage(imageId);
-  if (!result.success) log.error({ event: "product_list_image_unavailable", imageId, err: result.error }, "product_list_image_unavailable");
-  return result;
+async function resolveListImages(imageIds: readonly ImageId[]) {
+  return map(await getImages(imageIds, imageStorage, imageRepository), ({ images, failures }) => ({
+    images: images.map((image) => ({ id: image.id as ImageId, url: image.url })),
+    failures: failures.map(({ id, code, message }) => ({ imageId: id as ImageId, code, message })),
+  }));
 }
+
+function countByCode(failures: readonly ListImageFailure[]) {
+  return failures.reduce<Record<string, number>>((counts, { code }) => ({ ...counts, [code]: (counts[code] ?? 0) + 1 }), {});
+}
+
+/** One log entry per listing request, with failure kinds preserved; thumbnails are best effort. */
+function reportListImageFailures(failures: readonly ListImageFailure[]) {
+  log.error({ event: "product_list_images_unavailable", count: failures.length, codes: countByCode(failures), imageIds: failures.slice(0, 20).map(({ imageId }) => imageId) }, "product_list_images_unavailable");
+}
+
+const listImages: ListImageDependencies = { resolve: resolveListImages, report: reportListImageFailures };
+
+export type ListOptions = Readonly<{ includeImages?: boolean }>;
 
 async function findImage(imageId: ImageId) {
   return map(await imageRepository.find(imageId), (image) => image !== null && image.visibility !== "private");
@@ -42,6 +56,6 @@ export const products = {
     getProduct(id, { repository: productRepository, resolveImage }),
   update: (id: Parameters<typeof updateProduct>[0], input: Parameters<typeof updateProduct>[1]) =>
     updateProduct(id, input, { repository: productRepository, findImage, clock: () => new Date() }),
-  list: (input: Parameters<typeof listProducts>[0]) =>
-    listProducts(input, { repository: productRepository, resolveImage: resolveListImage }),
+  list: (input: Parameters<typeof listProducts>[0], options: ListOptions = {}) =>
+    listProducts(input, { repository: productRepository, ...(options.includeImages ? { images: listImages } : {}) }),
 };

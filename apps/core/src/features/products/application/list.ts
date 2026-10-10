@@ -12,20 +12,43 @@ export type ProductSummary = Summary & Readonly<{ imageId?: ImageId }>;
 export type ProductListItem = Summary & Readonly<{ image?: Readonly<{ id: ImageId; url: string }> }>;
 export type ListPage = Readonly<{ items: readonly ProductSummary[]; page: number; pageSize: number; total: number }>;
 export type ListOutput = Readonly<{ items: readonly ProductListItem[]; page: number; pageSize: number; total: number }>;
+export type ListImage = Readonly<{ id: ImageId; url: string }>;
+export type ListImageFailure = Readonly<{ imageId: ImageId; code: string; message: string }>;
+export type ListImages = Readonly<{ images: readonly ListImage[]; failures: readonly ListImageFailure[] }>;
+export type ListImageDependencies = Readonly<{
+  /** Resolves every requested thumbnail in one batch; IDs with no stored image are omitted. */
+  resolve: (imageIds: readonly ImageId[]) => Promise<Result<ListImages, ProductReadError>>;
+  /** Receives every thumbnail failure of one listing at once, so callers can report them together. */
+  report: (failures: readonly ListImageFailure[]) => void;
+}>;
 export type ListDependencies = Readonly<{
   repository: Pick<ProductRepository, "list">;
-  resolveImage: (imageId: ImageId) => Promise<Result<Readonly<{ id: ImageId; url: string }> | null, ProductReadError>>;
+  /** Thumbnails are opt-in: without this dependency, listings carry no images. */
+  images?: ListImageDependencies;
 }>;
 export type CriteriaField = "search" | "stock" | "sort" | "page" | "pageSize";
 export type CriteriaValidationReason = Readonly<{ reason: "INVALID_TYPE" | "INVALID_RANGE" | "UNSAFE_PAGINATION" }>;
 export type CriteriaIssue = Readonly<{ field: CriteriaField; message: string }> & CriteriaValidationReason;
 export type ListError = Readonly<{ code: "VALIDATION_ERROR"; issues: readonly [CriteriaIssue, ...CriteriaIssue[]]; message: string }> | ProductReadError;
 
-async function withImage({ imageId, ...summary }: ProductSummary, resolveImage: ListDependencies["resolveImage"]): Promise<ProductListItem> {
-  if (!imageId) return summary;
-  const image = await resolveImage(imageId);
-  // A thumbnail is optional in listings: an unavailable image must not hide the catalog.
-  return image.success && image.data ? { ...summary, image: image.data } : summary;
+const noImages: ReadonlyMap<ImageId, ListImage> = new Map();
+
+function toListItem({ imageId, ...summary }: ProductSummary, images: ReadonlyMap<ImageId, ListImage>): ProductListItem {
+  const image = imageId === undefined ? undefined : images.get(imageId);
+  return image ? { ...summary, image } : summary;
+}
+
+// A thumbnail is optional in listings: an unavailable image must not hide the catalog.
+async function withImages(items: readonly ProductSummary[], deps: ListImageDependencies): Promise<readonly ProductListItem[]> {
+  const imageIds = [...new Set(items.flatMap((item) => item.imageId === undefined ? [] : [item.imageId]))];
+  if (!imageIds.length) return items.map((item) => toListItem(item, noImages));
+  const resolved = await deps.resolve(imageIds);
+  const failures: readonly ListImageFailure[] = resolved.success
+    ? resolved.data.failures
+    : imageIds.map((imageId) => ({ imageId, code: resolved.error.code, message: resolved.error.message }));
+  if (failures.length) deps.report(failures);
+  const images = new Map(resolved.success ? resolved.data.images.map((image) => [image.id, image] as const) : []);
+  return items.map((item) => toListItem(item, images));
 }
 
 export async function listProducts(input: ListInput, deps: ListDependencies): Promise<Result<ListOutput, ListError>> {
@@ -43,6 +66,6 @@ export async function listProducts(input: ListInput, deps: ListDependencies): Pr
   const criteria: Criteria = { ...(search ? { search } : {}), ...(input.stock ? { stock: input.stock } : {}), sort: input.sort ?? "recent", page, pageSize };
   const listed = await deps.repository.list(criteria);
   if (!listed.success) return listed;
-  const items = await Promise.all(listed.data.items.map((item) => withImage(item, deps.resolveImage)));
+  const items = deps.images ? await withImages(listed.data.items, deps.images) : listed.data.items.map((item) => toListItem(item, noImages));
   return ok({ ...listed.data, items });
 }

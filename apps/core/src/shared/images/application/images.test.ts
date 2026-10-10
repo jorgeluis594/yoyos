@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
-import { findCompletedPrivateImageImport, getImage, importPrivateImage, uploadImage, type ImageRepository, type ImageStorage } from "@core/src/shared/images/application/images";
+import { findCompletedPrivateImageImport, getImage, getImages, importPrivateImage, uploadImage, type ImageRepository, type ImageStorage } from "@core/src/shared/images/application/images";
 
 const id = crypto.randomUUID();
 const companyId = crypto.randomUUID();
@@ -17,6 +17,7 @@ function setup() {
   const repository: ImageRepository = {
     create: vi.fn(async () => ({ success: true as const, data: { id } })),
     find: vi.fn(async () => ({ success: true as const, data: { id, storageKey: "remote" } })),
+    findMany: vi.fn(async () => ({ success: true as const, data: [] })),
     findCompletedImport: vi.fn(async () => ({ success: true as const, data: null })),
     reserveImport: vi.fn(async () => ({ success: true as const, data: { id, storageKey: "private/key" } })),
     completeImport: vi.fn(async () => ({ success: true as const, data: undefined })),
@@ -111,5 +112,48 @@ describe("images use cases", () => {
     repository.find = vi.fn(async () => ({ success: false as const, error: { code: "PERSISTENCE_UNAVAILABLE" as const, message: "database down" } }));
     expect(await getImage(id, storage, repository)).toEqual({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE", message: "database down" } });
     expect(storage.getUrl).not.toHaveBeenCalled();
+  });
+
+  it("resolves several images with one lookup and keeps each failure kind", async () => {
+    const { storage, repository } = setup();
+    const [shown, hidden, broken, missing] = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+    repository.findMany = vi.fn(async () => ({ success: true as const, data: [
+      { id: shown, storageKey: "shown" }, { id: hidden, storageKey: "hidden", visibility: "private" as const }, { id: broken, storageKey: "broken" },
+    ] }));
+    storage.getUrl = vi.fn(async (key: string) => key === "broken"
+      ? { success: false as const, error: { code: "IMAGE_STORAGE_CONFIG_ERROR", message: "Image storage is not configured" } }
+      : { success: true as const, data: `https://example.test/${key}` });
+    expect(await getImages([shown, hidden, shown, broken, missing], storage, repository)).toEqual({ success: true, data: {
+      images: [{ id: shown, url: "https://example.test/shown" }],
+      failures: [
+        { id: hidden, code: "PRIVATE_IMAGE", message: "Private image requires authorized streaming" },
+        { id: broken, code: "IMAGE_STORAGE_CONFIG_ERROR", message: "Image storage is not configured" },
+      ],
+    } });
+    expect(repository.findMany).toHaveBeenCalledOnce();
+    expect(repository.findMany).toHaveBeenCalledWith([shown, hidden, broken, missing]);
+    expect(repository.find).not.toHaveBeenCalled();
+  });
+
+  it("skips the lookup for no images and propagates batch lookup failures", async () => {
+    const { storage, repository } = setup();
+    expect(await getImages([], storage, repository)).toEqual({ success: true, data: { images: [], failures: [] } });
+    expect(repository.findMany).not.toHaveBeenCalled();
+    const failure = { code: "PERSISTENCE_UNAVAILABLE" as const, message: "database down" };
+    repository.findMany = vi.fn(async () => ({ success: false as const, error: failure }));
+    expect(await getImages([id], storage, repository)).toEqual({ success: false, error: failure });
+    expect(storage.getUrl).not.toHaveBeenCalled();
+  });
+
+  it("stops asking storage for URLs after a configuration failure", async () => {
+    const { storage, repository } = setup();
+    const ids = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+    repository.findMany = vi.fn(async () => ({ success: true as const, data: ids.map((imageId) => ({ id: imageId, storageKey: imageId })) }));
+    storage.getUrl = vi.fn(async () => ({ success: false as const, error: { code: "IMAGE_STORAGE_CONFIG_ERROR", message: "Image storage is not configured" } }));
+    expect(await getImages(ids, storage, repository)).toEqual({ success: true, data: {
+      images: [],
+      failures: ids.map((imageId) => ({ id: imageId, code: "IMAGE_STORAGE_CONFIG_ERROR", message: "Image storage is not configured" })),
+    } });
+    expect(storage.getUrl).toHaveBeenCalledOnce();
   });
 });
