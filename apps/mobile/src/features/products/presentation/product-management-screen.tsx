@@ -14,7 +14,7 @@ import { useTheme } from "@mobile/hooks/use-theme";
 import { products } from "@mobile/features/products/composition";
 import { useAccess } from "@/features/users/presentation/access-provider";
 import type { PhotoSelection, Product, ProductId, VariantId } from "../domain/product";
-import { ProductForm } from "./product-form";
+import { formEdges, ProductForm } from "./product-form";
 import { ProductTopBar } from "@mobile/features/products/presentation/product-top-bar";
 import type { ProductFormField, ProductFormValues } from "./product-form";
 import { productErrors, validateProductForm, valuesForProduct } from "./product-form-state";
@@ -213,7 +213,7 @@ export default function ProductManagementScreen() {
     else setChoosingVariant(true);
   };
 
-  return <ThemedView style={styles.page}><SafeAreaView style={styles.safe}>
+  return <ThemedView style={styles.page}><SafeAreaView edges={formEdges} style={styles.safe}>
     <ProductForm
       title={t('manageProduct')}
       headerAction={product.variants.length > 0 ? <Pressable accessibilityRole="button" accessibilityLabel={t('printLabel')}

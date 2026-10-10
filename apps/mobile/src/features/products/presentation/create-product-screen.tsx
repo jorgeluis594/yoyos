@@ -9,7 +9,7 @@ import { ThemedView } from "@/components/themed-view";
 import { products } from "@mobile/features/products/composition";
 import { useAccess } from "@/features/users/presentation/access-provider";
 import type { ProductId, PhotoSelection } from "../domain/product";
-import { ProductForm } from "./product-form";
+import { formEdges, ProductForm } from "./product-form";
 import type { ProductFormField, ProductFormValues } from "./product-form";
 import { emptyProductForm, productErrors, validateProductForm } from "./product-form-state";
 import { useProductNavigationGuard } from "./use-product-navigation-guard";
@@ -74,7 +74,7 @@ export default function CreateProductScreen() {
     router.replace({ pathname: "/products/[productId]", params: { productId: result.data } });
   };
 
-  return <ThemedView style={styles.page}><SafeAreaView style={styles.safe}>
+  return <ThemedView style={styles.page}><SafeAreaView edges={formEdges} style={styles.safe}>
     <ProductForm
       title={t('newProduct')}
       values={values}

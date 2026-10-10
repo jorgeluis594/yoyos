@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
+import { SafeAreaView, type Edge } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import type { Currency } from "@shared/money";
 import { Button } from "@mobile/components/ui/button";
@@ -17,6 +18,9 @@ import tokens from "../../../../../../docs/design-tokens.json";
 
 export type ProductFormValues = Readonly<{ name: string; description: string; sku: string; salePrice: string; purchasePrice: string; stock: string }>;
 export type ProductFormField = keyof ProductFormValues | "form";
+
+// The bottom inset is scrolled content, so the form uses the full height when the tab bar is hidden.
+export const formEdges: readonly Edge[] = ["top", "left", "right"];
 
 const amountPattern = /^\d+(?:\.\d{0,2})?$/;
 
@@ -139,6 +143,7 @@ export function ProductForm({
       </View>
       {conflict ? <Button variant="secondary" onPress={onReviewCatalog}>{t('backToCatalog')}</Button> : null}
       {uncertain && onCheckStatus ? <Button variant="secondary" onPress={onCheckStatus}>{t('checkProductStatus')}</Button> : null}
+      <SafeAreaView edges={["bottom"]} />
     </ScrollView>
   </View>;
 }
