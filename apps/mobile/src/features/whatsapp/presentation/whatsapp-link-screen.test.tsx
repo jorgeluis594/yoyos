@@ -14,6 +14,7 @@ const mockRuntime = {
 jest.mock("@mobile/features/whatsapp/presentation/whatsapp-provider", () => ({
   useWhatsApp: () => ({ runtime: mockRuntime, status: mockStatus, refresh: mockRefresh }),
 }));
+jest.mock("expo-router", () => ({ useRouter: () => ({ push: jest.fn() }) }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 
 const linked = (overrides: Partial<WhatsAppStatus> = {}): WhatsAppStatus => ({ ...initialWhatsAppStatus, link: "linked", ...overrides });

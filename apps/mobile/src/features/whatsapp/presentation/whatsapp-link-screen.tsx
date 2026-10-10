@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { ThemedText } from "@mobile/components/themed-text";
 import { ThemedView } from "@mobile/components/themed-view";
@@ -23,6 +24,7 @@ function useSecondsLeft(expiresAt: number | null): number | null {
 
 export default function WhatsAppLinkScreen() {
   const { t } = useTranslation();
+  const router = useRouter();
   const theme = useTheme();
   const { runtime, status, refresh } = useWhatsApp();
   const [busy, setBusy] = useState(false);
@@ -100,6 +102,7 @@ export default function WhatsAppLinkScreen() {
                 </View>
               ) : null}
               {status.unsynced > 0 ? <ThemedText type="small" themeColor="textSecondary">{t("whatsappUnsynced", { count: status.unsynced })}</ThemedText> : null}
+              <Button onPress={() => router.push("/whatsapp/chats")}>{t("whatsappOpenChats")}</Button>
               <Button variant="secondary" loading={busy} onPress={() => void unlink()}>{t("whatsappUnlink")}</Button>
             </>
           ) : null}
