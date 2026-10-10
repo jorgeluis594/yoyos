@@ -8,10 +8,10 @@ const mockListConversations = jest.fn();
 jest.mock("expo-router", () => ({ useRouter: () => ({ push: mockPush }) }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAccess: () => ({ state: { status: "ready", company: { id: "c1" } } }) }));
-const mockContext = { runtime: { store: { listConversations: (...args: unknown[]) => mockListConversations(...args) } }, status: { unsynced: 0, connection: "connected" }, refresh: jest.fn() };
+const mockContext = { runtime: { store: { listConversations: (...args: unknown[]) => mockListConversations(...args) } }, status: { unsynced: 0, connection: "connected" }, refresh: jest.fn(), messagesVersion: 0 };
 jest.mock("@mobile/features/whatsapp/presentation/whatsapp-provider", () => ({ useWhatsApp: () => mockContext }));
 
-beforeEach(async () => { jest.clearAllMocks(); await i18n.changeLanguage("es"); });
+beforeEach(async () => { jest.clearAllMocks(); mockContext.messagesVersion = 0; await i18n.changeLanguage("es"); });
 afterEach(cleanup);
 
 const summary = (chatId: string, overrides = {}) => ({
@@ -51,4 +51,15 @@ test("offers retry when conversations cannot be read", async () => {
   const screen = render(<ConversationsScreen />);
   fireEvent.press(await screen.findByRole("button", { name: "Reintentar" }));
   expect(await screen.findByText("…3456")).toBeTruthy();
+});
+
+test("reloads the list when stored messages change, without a connection change", async () => {
+  mockListConversations.mockResolvedValueOnce(ok([summary("123456@lid")]));
+  mockListConversations.mockResolvedValueOnce(ok([summary("123456@lid"), summary("777777@lid")]));
+  const screen = render(<ConversationsScreen />);
+  expect(await screen.findByText("…3456")).toBeTruthy();
+  mockContext.messagesVersion = 1;
+  screen.rerender(<ConversationsScreen />);
+  expect(await screen.findByText("…7777")).toBeTruthy();
+  expect(mockListConversations).toHaveBeenCalledTimes(2);
 });

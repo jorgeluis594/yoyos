@@ -19,13 +19,13 @@ export default function ConversationsScreen() {
   const { t, i18n } = useTranslation();
   const router = useRouter();
   const { state } = useAccess();
-  const { runtime, status } = useWhatsApp();
+  const { runtime, status, messagesVersion } = useWhatsApp();
   const companyId = state.status === "ready" ? state.company.id : null;
   const [load, setLoad] = useState<Load>({ kind: "loading" });
 
   const [version, setVersion] = useState(0);
 
-  // The unsynced counter changes whenever a message is stored or synced, so it doubles as the refresh signal.
+  // Reloads when messages are stored or synced (messagesVersion) and when the connection changes.
   useEffect(() => {
     if (!runtime || !companyId) return;
     let cancelled = false;
@@ -33,7 +33,7 @@ export default function ConversationsScreen() {
       if (!cancelled) setLoad(result.success ? { kind: "ready", items: result.data } : { kind: "error" });
     });
     return () => { cancelled = true; };
-  }, [runtime, companyId, status.unsynced, status.connection, version]);
+  }, [runtime, companyId, messagesVersion, status.connection, version]);
 
   if (load.kind === "loading") return <ScreenState status="loading" title={t("whatsappChats")} />;
   if (load.kind === "error") return <ScreenState status="error" title={t("whatsappLoadError")} onRetry={() => { setLoad({ kind: "loading" }); setVersion((value) => value + 1); }} />;

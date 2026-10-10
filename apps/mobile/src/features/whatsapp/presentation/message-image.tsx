@@ -19,10 +19,16 @@ export function MessageImage({ runtime, companyId, messageId }: Props) {
   const { t } = useTranslation();
   const [state, setState] = useState<State>({ kind: "idle" });
   const loaded = useRef(false);
+  const mounted = useRef(true);
 
   const show = async () => {
     setState({ kind: "loading" });
     const result = await runtime.viewImage(companyId as CompanyId, messageId);
+    if (!mounted.current) {
+      // The screen left while the download was running: nothing will display or release the file later.
+      if (result.success) void runtime.releaseImage(messageId);
+      return;
+    }
     if (result.success) {
       loaded.current = true;
       setState({ kind: "loaded", uri: result.data.uri });
@@ -32,7 +38,13 @@ export function MessageImage({ runtime, companyId, messageId }: Props) {
     setState({ kind: "failed", code: code === "IMAGE_UNAVAILABLE" || code === "IMAGE_DOWNLOAD_FAILED" || code === "STORAGE_LIMIT_REACHED" ? code : "OTHER" });
   };
 
-  useEffect(() => () => { if (loaded.current) void runtime.releaseImage(messageId); }, [runtime, messageId]);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (loaded.current) void runtime.releaseImage(messageId);
+    };
+  }, [runtime, messageId]);
 
   if (state.kind === "loaded") return <Image source={{ uri: state.uri }} accessibilityLabel={t("whatsappImage")} style={styles.image} contentFit="cover" />;
   return (

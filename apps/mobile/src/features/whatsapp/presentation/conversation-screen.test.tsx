@@ -1,8 +1,10 @@
+import { FlatList } from "react-native";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react-native";
 import { err, ok } from "@shared/functional";
-import ConversationScreen from "@mobile/features/whatsapp/presentation/conversation-screen";
+import ConversationScreen, { mergeLatest } from "@mobile/features/whatsapp/presentation/conversation-screen";
 import i18n from "@mobile/i18n";
 
+let mockVersion = 0;
 const mockListMessages = jest.fn();
 const mockViewImage = jest.fn();
 const mockReleaseImage = jest.fn(async () => ok(undefined));
@@ -11,9 +13,9 @@ jest.mock("expo-router", () => ({ useLocalSearchParams: () => ({ chatId: "123456
 jest.mock("expo-image", () => ({ Image: jest.requireActual("react-native").View }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAccess: () => ({ state: { status: "ready", company: { id: "c1" } } }) }));
-jest.mock("@mobile/features/whatsapp/presentation/whatsapp-provider", () => ({ useWhatsApp: () => ({ runtime, status: { unsynced: 0 }, refresh: jest.fn() }) }));
+jest.mock("@mobile/features/whatsapp/presentation/whatsapp-provider", () => ({ useWhatsApp: () => ({ runtime, status: { unsynced: 0 }, refresh: jest.fn(), messagesVersion: mockVersion }) }));
 
-beforeEach(async () => { jest.clearAllMocks(); await i18n.changeLanguage("es"); });
+beforeEach(async () => { jest.clearAllMocks(); mockVersion = 0; await i18n.changeLanguage("es"); });
 afterEach(cleanup);
 
 const text = (seq: number, sentAt: Date | null = new Date(1_700_000_000_000)) => ({
@@ -60,4 +62,27 @@ test("offers retry for IMAGE_DOWNLOAD_FAILED and shows IMAGE_UNAVAILABLE as fina
   expect(await screen.findByText("La imagen ya no está disponible en WhatsApp.")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Reintentar" })).toBeNull();
   expect(mockReleaseImage).not.toHaveBeenCalled();
+});
+
+test("a message change keeps the older pages already loaded and adds the new message", async () => {
+  const firstPage = Array.from({ length: 30 }, (_, index) => text(60 - index));
+  mockListMessages.mockResolvedValueOnce(ok(firstPage));
+  mockListMessages.mockResolvedValueOnce(ok([text(30), text(29)]));
+  const screen = render(<ConversationScreen />);
+  fireEvent.press(await screen.findByRole("button", { name: "Cargar mensajes anteriores" }));
+  const shown = () => screen.UNSAFE_getByType(FlatList).props.data.map((message: { arrivalSeq: number }) => message.arrivalSeq);
+  await waitFor(() => expect(shown()).toHaveLength(32));
+  mockListMessages.mockResolvedValueOnce(ok([text(61), ...firstPage.slice(0, 29)]));
+  mockVersion = 1;
+  screen.rerender(<ConversationScreen />);
+  await waitFor(() => expect(shown()).toHaveLength(33));
+  expect(shown()).toEqual([61, ...Array.from({ length: 32 }, (_, index) => 60 - index)]);
+});
+
+test("mergeLatest updates an existing message in place without duplicating it", () => {
+  const stale = { ...text(2), sync: { status: "pending" } } as never;
+  const synced = { ...text(2), sync: { status: "synced" } } as never;
+  const merged = mergeLatest([text(3), stale, text(1)] as never, [text(4), text(3), synced] as never);
+  expect(merged.map((message) => message.arrivalSeq)).toEqual([4, 3, 2, 1]);
+  expect(merged[2]).toBe(synced);
 });

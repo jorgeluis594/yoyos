@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FlatList, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams } from "expo-router";
@@ -17,12 +17,18 @@ import { useTheme } from "@mobile/hooks/use-theme";
 
 const pageSize = 30;
 
+/** Messages are newest first: the latest page replaces its copies by id (sync state may have changed) and keeps the older pages already loaded. */
+export function mergeLatest(previous: readonly StoredMessage[], latest: readonly StoredMessage[]): readonly StoredMessage[] {
+  const latestIds = new Set(latest.map((message) => message.id));
+  return [...latest, ...previous.filter((message) => !latestIds.has(message.id))];
+}
+
 export default function ConversationScreen() {
   const { t, i18n } = useTranslation();
   const theme = useTheme();
   const { chatId: rawChatId } = useLocalSearchParams<{ chatId: string }>();
   const { state } = useAccess();
-  const { runtime } = useWhatsApp();
+  const { runtime, messagesVersion } = useWhatsApp();
   const companyId = state.status === "ready" ? state.company.id : null;
   const chat = parseChatId(String(rawChatId ?? ""));
   const [messages, setMessages] = useState<readonly StoredMessage[]>([]);
@@ -44,6 +50,19 @@ export default function ConversationScreen() {
     });
     return () => { cancelled = true; };
   }, [runtime, companyId, chatId, reloads]);
+
+  // A change in any chat merges the newest page in place, so older pages the user loaded stay on screen.
+  const handledVersion = useRef(messagesVersion);
+  useEffect(() => {
+    if (handledVersion.current === messagesVersion) return;
+    handledVersion.current = messagesVersion;
+    if (!runtime || !companyId || chatId === null) return;
+    let cancelled = false;
+    void runtime.store.listMessages(companyId as CompanyId, chatId, { beforeArrivalSeq: null, limit: pageSize }).then((result) => {
+      if (!cancelled && result.success) setMessages((previous) => mergeLatest(previous, result.data));
+    });
+    return () => { cancelled = true; };
+  }, [runtime, companyId, chatId, messagesVersion]);
 
   const loadOlder = async (before: number | null) => {
     if (!runtime || !companyId || chatId === null) return;
