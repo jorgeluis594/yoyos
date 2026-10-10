@@ -78,4 +78,18 @@ describe("preview messages", () => {
     sendPreviewUpdate(frame, update);
     expect(frame.postMessage).toHaveBeenCalledWith(update, window.location.origin);
   });
+
+  test("does not send a draft that does not match the schema", () => {
+    const frame = { postMessage: vi.fn() } as unknown as Window;
+    const invalid = { ...update, appearance: { ...update.appearance, brandColor: "#ff0000" } } as unknown as CheckoutPreviewMessage;
+    expect(sendPreviewUpdate(frame, invalid).success).toBe(false);
+    expect(frame.postMessage).not.toHaveBeenCalled();
+  });
+
+  test("sends drafts whose logo is served from a local storage host", () => {
+    const frame = { postMessage: vi.fn() } as unknown as Window;
+    const local = { ...update, appearance: { ...update.appearance, logoUrl: "http://127.0.0.1:9000/b/x.png" } };
+    expect(sendPreviewUpdate(frame, local).success).toBe(true);
+    expect(frame.postMessage).toHaveBeenCalledTimes(1);
+  });
 });

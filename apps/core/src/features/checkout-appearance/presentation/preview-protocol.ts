@@ -1,4 +1,6 @@
 import type { z } from "zod";
+import { err, ok } from "@shared/functional";
+import type { Result } from "@shared/result";
 import {
   checkoutPreviewMessageSchema, checkoutPreviewReadySchema, type CheckoutPreviewMessage,
 } from "@core/src/features/checkout-appearance/presentation/checkout-appearance-schemas";
@@ -28,9 +30,14 @@ export function listenForPreviewUpdates(frame: Window, onUpdate: (message: Check
   return () => frame.removeEventListener("message", listener);
 }
 
-/** Editor side: sends the draft to the preview iframe. */
-export function sendPreviewUpdate(preview: Window, message: CheckoutPreviewMessage): void {
-  preview.postMessage(checkoutPreviewMessageSchema.parse(message), window.location.origin);
+type InvalidPreviewMessage = Readonly<{ code: "INVALID_PREVIEW_MESSAGE"; message: string }>;
+
+/** Editor side: sends the draft to the preview iframe. A draft that breaks the schema is not sent. */
+export function sendPreviewUpdate(preview: Window, message: CheckoutPreviewMessage): Result<null, InvalidPreviewMessage> {
+  const parsed = checkoutPreviewMessageSchema.safeParse(message);
+  if (!parsed.success) return err({ code: "INVALID_PREVIEW_MESSAGE", message: "The draft does not match the preview message schema" });
+  preview.postMessage(parsed.data, window.location.origin);
+  return ok(null);
 }
 
 /** Editor side: calls `onReady` when `preview()` announces it can receive updates. Returns the unsubscribe function. */
