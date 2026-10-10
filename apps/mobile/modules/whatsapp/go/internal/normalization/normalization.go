@@ -12,6 +12,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"go.mau.fi/whatsmeow/proto/waE2E"
@@ -20,7 +21,6 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-var ErrInvalidTimestamp = errors.New("invalid WhatsApp timestamp")
 var ErrInvalidIdentity = errors.New("invalid WhatsApp identity")
 var ErrRawEditInspectionExhausted = errors.New("WhatsApp raw edit inspection exhausted")
 
@@ -37,14 +37,16 @@ type Image struct {
 	Reference ImageReference `json:"reference"`
 }
 type ReceivedMessage struct {
-	ID                string  `json:"id"`
-	AccountID         string  `json:"accountId"`
-	WhatsAppMessageID string  `json:"whatsappMessageId"`
-	ChatID            string  `json:"chatId"`
-	Direction         string  `json:"direction"`
-	Timestamp         int64   `json:"timestamp"`
-	Text              *string `json:"text,omitempty"`
-	Image             *Image  `json:"image,omitempty"`
+	ID                string `json:"id"`
+	AccountID         string `json:"accountId"`
+	WhatsAppMessageID string `json:"whatsappMessageId"`
+	ChatID            string `json:"chatId"`
+	Direction         string `json:"direction"`
+	// Timestamp is Unix milliseconds, or nil when WhatsApp's own time is missing or invalid (decision 2026-10-10:
+	// the date is unknown, never 0 and never the reception time). Nil is omitted from the JSON.
+	Timestamp *int64  `json:"timestamp,omitempty"`
+	Text      *string `json:"text,omitempty"`
+	Image     *Image  `json:"image,omitempty"`
 }
 
 // Result has exactly one of Message, Unresolved, or neither (excluded content).
@@ -70,6 +72,12 @@ type imageDescriptor struct {
 }
 
 const maxSafeJSONInteger = 9007199254740991
+
+// ValidTimestamp reports whether t can be a public timestamp: after the Unix epoch, within year 9999 and a safe
+// JSON integer in milliseconds. Anything else is an unknown date (IT-MSG-07).
+func ValidTimestamp(t time.Time) bool {
+	return !t.IsZero() && t.Unix() > 0 && t.Year() <= 9999 && t.UnixMilli() <= maxSafeJSONInteger
+}
 
 // Normalize accepts an already unwrapped live event or ParseWebMessage result.
 // A missing chat LID is returned explicitly; its source event must be retained by the caller.
@@ -126,9 +134,6 @@ func Normalize(evt *events.Message, own, ownAlt types.JID, mappings VerifiedLIDs
 		return Result{}, fmt.Errorf("%w: invalid protocol message ID", ErrInvalidIdentity)
 	}
 	ts := evt.Info.Timestamp
-	if ts.IsZero() || ts.Unix() <= 0 || ts.Year() > 9999 || ts.UnixMilli() > maxSafeJSONInteger {
-		return Result{}, fmt.Errorf("%w: message %q", ErrInvalidTimestamp, evt.Info.ID)
-	}
 	account, err := canonicalLID(own, ownAlt, mappings)
 	if err != nil {
 		return Result{}, err
@@ -155,7 +160,11 @@ func Normalize(evt *events.Message, own, ownAlt types.JID, mappings VerifiedLIDs
 	if evt.Info.IsFromMe {
 		direction = "outgoing"
 	}
-	out := &ReceivedMessage{ID: id, AccountID: account, ChatID: chat, WhatsAppMessageID: evt.Info.ID, Direction: direction, Timestamp: ts.UnixMilli()}
+	out := &ReceivedMessage{ID: id, AccountID: account, ChatID: chat, WhatsAppMessageID: evt.Info.ID, Direction: direction}
+	if ValidTimestamp(ts) {
+		millis := ts.UnixMilli()
+		out.Timestamp = &millis
+	}
 	if content != "" {
 		out.Text = &content
 	}
@@ -284,6 +293,23 @@ func NewDeliveryID(random io.Reader, pending func(string) (bool, error)) (string
 	return "", errors.New("delivery ID collisions exhausted")
 }
 
+// ValidateMessageID accepts only a canonical public message ID.
+func ValidateMessageID(id string) error {
+	const prefix = "wa-message:v1:"
+	if !strings.HasPrefix(id, prefix) {
+		return ErrInvalidIdentity
+	}
+	tuple, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(id, prefix))
+	var parts [3]string
+	if err != nil || json.Unmarshal(tuple, &parts) != nil || !validLID(parts[0]) {
+		return ErrInvalidIdentity
+	}
+	if canonical, err := MessageID(parts[0], parts[1], parts[2]); err != nil || canonical != id {
+		return ErrInvalidIdentity
+	}
+	return nil
+}
+
 // ValidateImageReference enforces the descriptor contract before download.
 func ValidateImageReference(ref ImageReference) error {
 	const prefix = "wa-image:v1:"
@@ -375,8 +401,29 @@ func ValidateImageReference(ref ImageReference) error {
 			return ErrInvalidIdentity
 		}
 	}
-	if descriptor.DirectPath != "" && (!strings.HasPrefix(descriptor.DirectPath, "/") || strings.HasPrefix(descriptor.DirectPath, "//") || strings.ContainsAny(descriptor.DirectPath, "?#") || strings.Contains(descriptor.DirectPath, "://")) {
+	if descriptor.DirectPath != "" && !validDirectPath(descriptor.DirectPath) {
 		return ErrInvalidIdentity
 	}
 	return nil
+}
+
+// validDirectPath accepts the media path as the protocol emits it: absolute, with the query
+// (ccb, oh, oe…) the pinned client appends "&hash=" to. It never accepts a scheme, an authority,
+// a fragment, a dot segment, a backslash or a control character.
+func validDirectPath(path string) bool {
+	if !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") || strings.Contains(path, "#") || strings.Contains(path, "://") || strings.Contains(path, "\\") {
+		return false
+	}
+	for _, r := range path {
+		if r < 0x20 || r == 0x7f || r == ' ' {
+			return false
+		}
+	}
+	location, _, _ := strings.Cut(path, "?")
+	for _, segment := range strings.Split(location, "/") {
+		if segment == ".." || segment == "." {
+			return false
+		}
+	}
+	return true
 }

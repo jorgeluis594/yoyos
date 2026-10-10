@@ -168,7 +168,8 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     } finally { GLOBAL_LOCK.unlock() }
   }
 
-  fun beginSession(accountId: String, protocolBytes: ByteArray) {
+  /** [armReceive] publishes the receive intent in the same revision as the session (QR linking). */
+  fun beginSession(accountId: String, protocolBytes: ByteArray, armReceive: Boolean = false) {
     GLOBAL_LOCK.lock()
     try {
       registeredGeneration = null
@@ -193,11 +194,27 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
       val (nonce, ciphertext) = encrypt(id, protocolBytes, aad)
       val session = JSONObject().put("accountId", accountId).put("sessionKeyId", id).put("sessionRevision", nextRevision.toString())
         .put("nonceBase64", b64(nonce)).put("ciphertextBase64", b64(ciphertext))
-      commit(revision.toString()) { it.put("session", session) }
+      commit(revision.toString()) {
+        it.put("session", session)
+        if (armReceive) it.put("androidService", JSONObject().put("receiveRequested", true).put("accountId", accountId)) else it
+      }
       fault?.invoke("sessionPublished")
       val committedRecord = readRecord() ?: throw StateFailure("SESSION_STATE_INVALID")
       writeRecord(committedRecord.put("provisionalSessionKeyId", JSONObject.NULL))
     } finally { current = null; GLOBAL_LOCK.unlock() }
+  }
+
+  /**
+   * The reliable read bound of the container: the largest recovery budget it ever accepted. It never
+   * shrinks when the budget is reduced, so a snapshot that still holds the excess stays readable
+   * (and can be drained), while the bound stays finite. Go decodes responses against it.
+   */
+  fun recoveryReadBound(): Long {
+    GLOBAL_LOCK.lock()
+    try {
+      open()
+      return readBudget
+    } finally { GLOBAL_LOCK.unlock() }
   }
 
   fun canRestoreSession(): Boolean {
@@ -233,6 +250,39 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
   fun retireGeneration() {
     GLOBAL_LOCK.lock()
     try { registeredGeneration = null; registeredAccount = null } finally { GLOBAL_LOCK.unlock() }
+  }
+
+  /** The durable receive intent, or null when the container has none (never prepared, iOS-shaped or logged out). */
+  fun receiveIntent(): ReceiveIntent? {
+    GLOBAL_LOCK.lock()
+    try {
+      val service = open().optJSONObject("androidService") ?: return null
+      return ReceiveIntent(service.getBoolean("receiveRequested"), if (service.isNull("accountId")) null else service.getString("accountId"))
+    } finally { GLOBAL_LOCK.unlock() }
+  }
+
+  /** Arms reception for the stored session of [accountId]. Throws when the session is absent or belongs to another account. */
+  fun armReceiveIntent(accountId: String) {
+    GLOBAL_LOCK.lock()
+    try {
+      val snapshot = open()
+      if (!ACCOUNT.matches(accountId) || snapshot.optJSONObject("session")?.getString("accountId") != accountId) throw StateFailure("STALE_GENERATION")
+      val current = receiveIntent()
+      if (current?.receiveRequested == true && current.accountId == accountId) return
+      commit(revision.toString()) { it.put("androidService", JSONObject().put("receiveRequested", true).put("accountId", accountId)) }
+    } finally { GLOBAL_LOCK.unlock() }
+  }
+
+  /**
+   * Durably withdraws the intent. Returns normally only after the new revision is published (or when
+   * nothing was armed); a storage failure propagates so callers never claim a retirement that did not happen.
+   */
+  fun withdrawReceiveIntent() {
+    GLOBAL_LOCK.lock()
+    try {
+      if (receiveIntent()?.receiveRequested != true) return
+      commit(revision.toString()) { it.put("androidService", JSONObject().put("receiveRequested", false).put("accountId", JSONObject.NULL)) }
+    } finally { GLOBAL_LOCK.unlock() }
   }
 
   fun updateOptions(maxRecoveryBufferBytes: Long, maxImageStorageBytes: Long): String {
@@ -271,7 +321,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
       if (registeredGeneration != generation || (registeredAccount != null && registeredAccount != account)) throw StateFailure("STALE_GENERATION")
       val existing = open().optJSONObject("session")
       if (existing == null) {
-        try { beginSession(account, protocol.toString().toByteArray(Charsets.UTF_8)) }
+        try { beginSession(account, protocol.toString().toByteArray(Charsets.UTF_8), armReceive = true) }
         finally { registeredGeneration = generation; registeredAccount = null }
       }
       else {
@@ -304,6 +354,42 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
           .put("protocolSchemaVersion", 1).put("records", plain.getJSONArray("records")))
       }
       data
+    } finally { GLOBAL_LOCK.unlock() }
+  }
+
+  /** Pending entries need neither a generation nor a usable session: recovery works with any account. */
+  fun readPending(request: String): String = protocolResponse {
+    if (request.toByteArray(Charsets.UTF_8).size > 128) throw StateFailure("INVALID_REQUEST")
+    val input = parseProtocolRequest(request)
+    exact(input, "contractVersion")
+    if (input.get("contractVersion") !is Number || input.get("contractVersion").toString() != "1") throw StateFailure("INVALID_REQUEST")
+    GLOBAL_LOCK.lock()
+    try {
+      val snapshot = open()
+      JSONObject().put("revision", revision.toString()).put("pending", snapshot.getJSONArray("pending"))
+    } finally { GLOBAL_LOCK.unlock() }
+  }
+
+  /** Removes the whole entry durably; a valid identifier with no entry succeeds without publishing. */
+  fun retirePending(request: String): String = protocolResponse {
+    if (request.toByteArray(Charsets.UTF_8).size > 256) throw StateFailure("INVALID_REQUEST")
+    val input = parseProtocolRequest(request)
+    exact(input, "contractVersion", "deliveryId")
+    if (input.get("contractVersion") !is Number || input.get("contractVersion").toString() != "1" ||
+      input.get("deliveryId") !is String || !DELIVERY.matches(input.getString("deliveryId"))) throw StateFailure("INVALID_REQUEST")
+    val id = input.getString("deliveryId")
+    GLOBAL_LOCK.lock()
+    try {
+      val snapshot = open()
+      val existing = snapshot.getJSONArray("pending")
+      val kept = JSONArray()
+      var removed = false
+      for (i in 0 until existing.length()) {
+        val item = existing.getJSONObject(i)
+        if (item.getString("deliveryId") == id) removed = true else kept.put(item)
+      }
+      if (removed) commit(revision.toString()) { old -> old.put("pending", kept) }
+      JSONObject().put("revision", revision.toString()).put("removed", removed)
     } finally { GLOBAL_LOCK.unlock() }
   }
 
@@ -390,7 +476,12 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
         }
         if (!found) throw StateFailure("INVALID_REQUEST")
       }
-      val maxPending = snapshot.getJSONObject("options").getLong("maxRecoveryBufferBytes")
+      // Same rule as Go (protocolstore.Decide): only insertions are admitted against the budget. A
+      // publication that inserts nothing (identity resolution, protocol-only) must still go through when
+      // a reduced budget is already exceeded, or the excess could never drain; it stays bounded by the
+      // reliable read bound, which every snapshot must fit anyway.
+      val budget = snapshot.getJSONObject("options").getLong("maxRecoveryBufferBytes")
+      val maxPending = if (inserts.length() > 0) budget else maxOf(budget, readBudget)
       if (pending.toString().toByteArray(Charsets.UTF_8).size > maxPending) throw StateFailure("BUFFER_FULL")
       val nextRevision = revision + BigInteger.ONE
       val nextSession = if (changes.length() == 0) session else {
@@ -797,7 +888,9 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
   }
 
   private fun validateMessage(message: JSONObject, account: String) {
-    val fields = mutableListOf("id", "accountId", "whatsappMessageId", "chatId", "direction", "timestamp")
+    // `timestamp` is optional: Go omits it when WhatsApp's own time was missing or invalid (unknown date, IT-MSG-07).
+    val fields = mutableListOf("id", "accountId", "whatsappMessageId", "chatId", "direction")
+    if (message.has("timestamp")) fields.add("timestamp")
     if (message.has("text")) fields.add("text")
     if (message.has("image")) fields.add("image")
     exact(message, *fields.toTypedArray())
@@ -805,8 +898,11 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     val chat = message.getString("chatId")
     val whatsappId = message.getString("whatsappMessageId")
     if (message.getString("accountId") != account || !ACCOUNT.matches(chat) || whatsappId.isEmpty() || message.getString("direction") !in listOf("incoming", "outgoing")) throw StateFailure("SESSION_STATE_INVALID")
-    val timestamp = message.get("timestamp")
-    if (timestamp !is Number || !Regex("0|[1-9][0-9]*").matches(timestamp.toString()) || timestamp.toString().toLongOrNull()?.let { it <= 9007199254740991L } != true) throw StateFailure("SESSION_STATE_INVALID")
+    if (message.has("timestamp")) {
+      val timestamp = message.get("timestamp")
+      // A real date is a positive safe integer; 0 is never an "unknown" marker (it would read as 1970).
+      if (timestamp !is Number || !Regex("[1-9][0-9]*").matches(timestamp.toString()) || timestamp.toString().toLongOrNull()?.let { it <= 9007199254740991L } != true) throw StateFailure("SESSION_STATE_INVALID")
+    }
     if (message.has("text") && message.get("text") !is String) throw StateFailure("SESSION_STATE_INVALID")
     val id = message.getString("id")
     val prefix = "wa-message:v1:"
@@ -901,6 +997,9 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
   private fun removeTemp(file: File) {
     if (existsChecked(file) && (file.isDirectory || !file.delete())) throw StateFailure("STORAGE_FAILED")
   }
+
+  /** Private, persistent and outside backups and caches (it lives under noBackupFilesDir). */
+  fun imagesDirectory(): File = File(directory, "images")
 
   private fun ensureImagesDirectory() {
     val images = File(directory, "images")

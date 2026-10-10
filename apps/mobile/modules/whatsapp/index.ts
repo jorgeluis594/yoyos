@@ -3,6 +3,9 @@ import { z } from "zod";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 
+export { WhatsApp, createWhatsAppClient } from "@mobile/modules/whatsapp/client";
+export type { WhatsAppClient, WhatsAppOptions, WhatsAppError, WhatsAppErrorCode, ConnectionState, WhatsAppEvents, ReceivedMessage, ImageReference, DownloadedImage } from "@mobile/modules/whatsapp/types";
+
 type ProbeError = {
   code: "MODULE_UNAVAILABLE" | "INVALID_INPUT" | "INVALID_NATIVE_RESPONSE" | "NATIVE_CALL_FAILED";
   message: string;
