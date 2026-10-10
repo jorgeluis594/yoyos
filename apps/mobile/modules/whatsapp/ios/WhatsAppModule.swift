@@ -375,7 +375,14 @@ public class WhatsAppModule: Module {
 
     OnAppEntersBackground {
       let runtime = ConnectionRuntime.shared
-      runtime.lifecycleQueue.async { runtime.suspend() }
+      // iOS may freeze the process right after this callback; the task keeps it running long enough
+      // for the queued suspend to close the socket. It ends when suspend returns or when iOS says
+      // time is up (the expiration handler), whichever comes first, and exactly once.
+      let task = BackgroundTaskGuard.application(name: "WhatsAppSuspend")
+      runtime.lifecycleQueue.async {
+        runtime.suspend()
+        task.end()
+      }
     }
     OnAppEntersForeground {
       let runtime = ConnectionRuntime.shared

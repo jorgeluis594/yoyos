@@ -67,34 +67,37 @@ func (realClock) After(d time.Duration) <-chan time.Time { return time.After(d) 
 
 // Controller owns one requested connection; callbacks only describe the current generation.
 type Controller struct {
-	mu            sync.Mutex
-	id            uint64 // identifies this controller to media admissions
-	clock         Clock
-	create        func() (Transport, error)
-	emit          func(Event)
-	eventMu       sync.Mutex
-	eventReady    *sync.Cond
-	pendingEvents []Event
-	closed        bool
-	prepared      bool
-	paired        bool
-	requested     bool
-	paused        bool
-	suspended     bool // the process was suspended with a connection requested; Resume owes one attempt
-	expired       bool
-	localFault    Code
-	state         State
-	qr            Event
-	qrExpiry      time.Time
-	generation    uint64
-	cancel        context.CancelFunc
-	runCtx        context.Context // ends with the generation's transport run
-	retryCancel   chan struct{}
-	transport     Transport
-	retries       int
-	logout        *logoutCall               // the unlink in flight; admissions wait for it
-	unlinkCreate  func() (Transport, error) // builds a connection used only to unlink
-	loggedOut     bool                      // this session's credentials were handed to native retirement
+	mu              sync.Mutex
+	id              uint64 // identifies this controller to media admissions
+	clock           Clock
+	create          func() (Transport, error)
+	emit            func(Event)
+	eventMu         sync.Mutex
+	eventReady      *sync.Cond
+	pendingEvents   []Event
+	closed          bool
+	prepared        bool
+	paired          bool
+	requested       bool
+	paused          bool
+	suspended       bool // the process was suspended with a connection requested; Resume owes one attempt
+	suspendedPaused bool // that request was waiting for recovery capacity when it was suspended
+	capacityFreed   bool // capacity came back while suspended; Resume starts the attempt it deferred
+	resuming        bool // Resume is building its attempt; a Suspend in that window cancels it
+	expired         bool
+	localFault      Code
+	state           State
+	qr              Event
+	qrExpiry        time.Time
+	generation      uint64
+	cancel          context.CancelFunc
+	runCtx          context.Context // ends with the generation's transport run
+	retryCancel     chan struct{}
+	transport       Transport
+	retries         int
+	logout          *logoutCall               // the unlink in flight; admissions wait for it
+	unlinkCreate    func() (Transport, error) // builds a connection used only to unlink
+	loggedOut       bool                      // this session's credentials were handed to native retirement
 }
 
 func New(create func() (Transport, error), emit func(Event), clock Clock) *Controller {
@@ -272,6 +275,11 @@ func (c *Controller) pauseForCapacityLocked() {
 }
 func (c *Controller) ResumeCapacity() {
 	c.mu.Lock()
+	if c.suspended && c.suspendedPaused {
+		c.capacityFreed = true // Resume starts it; nothing connects while suspended
+		c.mu.Unlock()
+		return
+	}
 	if !c.paused || !c.requested || c.localFault != "" || c.expired {
 		c.mu.Unlock()
 		return
@@ -284,6 +292,7 @@ func (c *Controller) ResumeCapacity() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.generation != generation || !c.requested || c.localFault != "" || c.expired {
+		discardUnused(transport)
 		return // stopped or replaced while the attempt was being built
 	}
 	if err != nil {
@@ -303,7 +312,7 @@ func (c *Controller) retireLocked() {
 func (c *Controller) detachLocked() Transport {
 	c.requested = false
 	c.paused = false
-	c.suspended = false
+	c.suspended, c.suspendedPaused, c.capacityFreed, c.resuming = false, false, false, false
 	c.generation++
 	if c.retryCancel != nil {
 		close(c.retryCancel)

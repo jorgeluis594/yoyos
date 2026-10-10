@@ -1,6 +1,7 @@
 package connection
 
 import (
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -269,5 +270,138 @@ func TestITIOS01SuspendDuringBackoffCancelsTheRetry(t *testing.T) {
 	r.noEvent(t)
 	if r.createCount() != 1 {
 		t.Fatalf("backoff retry survived suspension: %d clients", r.createCount())
+	}
+}
+
+// Minor 1: a Suspend that arrives while Resume builds its attempt wins; the app is not connected.
+func TestITIOS01SuspendDuringResumeBuildKeepsTheAppSuspended(t *testing.T) {
+	building, release := make(chan struct{}), make(chan struct{})
+	var mu sync.Mutex
+	var made []*testTransport
+	c := New(func() (Transport, error) {
+		mu.Lock()
+		transport := newTransport()
+		made = append(made, transport)
+		n := len(made)
+		mu.Unlock()
+		if n == 2 {
+			close(building)
+			<-release
+		}
+		return transport, nil
+	}, func(Event) {}, nil)
+	defer c.Close()
+	c.Prepare(true)
+	c.Connect()
+	started(t, made[0])
+	c.Suspend()
+	done := make(chan Code, 1)
+	go func() { done <- c.Resume() }()
+	<-building
+	c.Suspend()
+	close(release)
+	<-done
+	mu.Lock()
+	late := made[1]
+	mu.Unlock()
+	select {
+	case <-late.stopped:
+	case <-time.After(time.Second):
+		t.Fatal("the attempt built before the second suspension stays open")
+	}
+	if c.State() != Disconnected {
+		t.Fatalf("a suspended app connected: %s", c.State())
+	}
+	if c.Resume() != "" {
+		t.Fatal("the second suspension was not owed a resume")
+	}
+	started(t, made[2])
+}
+
+// Minor 2: a failed attempt is reported once, as an event; Resume itself returns no code.
+func TestITIOS01ResumeCreateFailureIsReportedOnce(t *testing.T) {
+	events := make(chan Event, 16)
+	fail := false
+	c := New(func() (Transport, error) {
+		if fail {
+			return nil, errors.New("build failed")
+		}
+		return newTransport(), nil
+	}, func(e Event) { events <- e }, nil)
+	defer c.Close()
+	c.Prepare(true)
+	c.Connect()
+	c.Suspend()
+	fail = true
+	if code := c.Resume(); code != "" {
+		t.Fatalf("resume returned %q besides publishing the event", code)
+	}
+	failures := 0
+	for deadline := time.After(100 * time.Millisecond); ; {
+		select {
+		case e := <-events:
+			if e.Error == ConnectionFailed {
+				failures++
+			}
+			continue
+		case <-deadline:
+		}
+		break
+	}
+	if failures != 1 {
+		t.Fatalf("CONNECTION_FAILED published %d times", failures)
+	}
+}
+
+// Minor 3: a pause for recovery capacity survives suspension and ends only when capacity returns.
+func TestITIOS01ResumeRespectsTheCapacityPause(t *testing.T) {
+	r := newSuspendRig(t, true)
+	r.c.Connect()
+	started(t, r.transport(0))
+	r.c.PauseForCapacity()
+	r.c.Suspend()
+	if code := r.c.Resume(); code != "" || r.createCount() != 1 {
+		t.Fatalf("resume connected while the buffer is still full: %q creates=%d", code, r.createCount())
+	}
+	r.c.ResumeCapacity()
+	started(t, r.transport(1))
+	if r.createCount() != 2 {
+		t.Fatalf("creates=%d", r.createCount())
+	}
+}
+
+// Minor 5: an attempt built by ResumeCapacity that lost its generation is stopped.
+func TestResumeCapacityStopsADiscardedTransport(t *testing.T) {
+	building, release := make(chan struct{}), make(chan struct{})
+	var mu sync.Mutex
+	var made []*testTransport
+	c := New(func() (Transport, error) {
+		mu.Lock()
+		transport := newTransport()
+		made = append(made, transport)
+		n := len(made)
+		mu.Unlock()
+		if n == 2 {
+			close(building)
+			<-release
+		}
+		return transport, nil
+	}, func(Event) {}, nil)
+	defer c.Close()
+	c.Prepare(true)
+	c.Connect()
+	started(t, made[0])
+	c.PauseForCapacity()
+	go c.ResumeCapacity()
+	<-building
+	c.Disconnect()
+	close(release)
+	mu.Lock()
+	late := made[1]
+	mu.Unlock()
+	select {
+	case <-late.stopped:
+	case <-time.After(time.Second):
+		t.Fatal("discarded transport left open")
 	}
 }
