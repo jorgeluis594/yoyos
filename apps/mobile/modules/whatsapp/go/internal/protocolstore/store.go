@@ -516,7 +516,8 @@ func (s *Store) stage(ctx context.Context, mutate func(*txn) error) error {
 
 // PreparePendingInsert stages a complete recovery record with protocol writes.
 // Native assigns createdRevision/createdOrdinal and checks collisions under its writer.
-func (s *Store) PreparePendingInsert(ctx context.Context, p PendingInsert) error {
+// validateInsert applies the pending contract to one insert before anything is staged.
+func (s *Store) validateInsert(p PendingInsert) error {
 	if !validDeliveryID(p.DeliveryID) || p.AccountID != s.accountID {
 		return malformed("invalid pending identity")
 	}
@@ -537,6 +538,13 @@ func (s *Store) PreparePendingInsert(ctx context.Context, p PendingInsert) error
 	}
 	if !recoveryMatchesSource(p.Source, p.Recovery) {
 		return malformed("recovery source mismatch")
+	}
+	return nil
+}
+
+func (s *Store) PreparePendingInsert(ctx context.Context, p PendingInsert) error {
+	if err := s.validateInsert(p); err != nil {
+		return err
 	}
 	p.Message = append(json.RawMessage(nil), p.Message...)
 	p.Recovery.Items = append([]RecoveryItem(nil), p.Recovery.Items...)
