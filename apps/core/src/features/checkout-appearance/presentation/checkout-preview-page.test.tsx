@@ -67,4 +67,23 @@ describe("CheckoutPreviewPage", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     expect([...container.querySelectorAll("button")].find((button) => button.textContent === "Ya pagué")?.disabled).toBe(true);
   });
+
+  test("renders the confirmed checkout's own sections in the payment state", async () => {
+    const container = await mount("payment", own);
+    expect(container.textContent).toContain("Para solicitar cambios");
+    const details = [...container.querySelectorAll("h2")].find((heading) => heading.textContent === "Datos del comprador")?.parentElement;
+    expect(details?.textContent).toContain("Ana Pérez");
+    expect(container.querySelector("section[aria-label='Pago del pedido']")).not.toBeNull();
+    expect(container.querySelector("header")?.textContent).toContain("Lima Studio");
+    expect(container.querySelector("header")?.textContent).toContain("Pedido #1001");
+  });
+
+  test("enables confirmation once the sample delivery is selected, as the checkout does", async () => {
+    const container = await mount("review", null);
+    await act(async () => {});
+    const row = (label: string) => [...container.querySelectorAll("dt")].find((term) => term.textContent === label)?.nextElementSibling?.textContent;
+    expect(row("Entrega")).toBe("Gratis");
+    expect(row("Total a pagar")).toContain("118");
+    expect([...container.querySelectorAll("button")].find((button) => button.textContent === "Confirmar pedido")?.disabled).toBe(false);
+  });
 });

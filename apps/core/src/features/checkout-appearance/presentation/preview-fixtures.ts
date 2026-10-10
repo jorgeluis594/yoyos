@@ -21,7 +21,7 @@ export const previewDeliveryOptions: CheckoutDeliveryOptions = {
 export function previewCheckout(companyName: string, state: PreviewState): PublicCheckoutResponse {
   const pending = state === "review";
   return {
-    companyName, number: 1001, buyer: pending ? null : { name: "Ana Pérez", phone: "+51987654321" },
+    companyName, number: 1001, buyer: { name: "Ana Pérez", phone: "+51987654321" },
     items: [
       { productName: "Producto de ejemplo", variantAttributes: { Talla: "M" }, sku: null, quantity: 2, unitPrice: pen(49), subtotal: pen(98) },
       { productName: "Otro producto de ejemplo", variantAttributes: {}, sku: null, quantity: 1, unitPrice: pen(20), subtotal: pen(20) },
