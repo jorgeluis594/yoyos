@@ -259,6 +259,7 @@ model Product {
 
   @@unique([companyId, id])
   @@index([companyId])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
 model ProductVariant {
@@ -278,6 +279,7 @@ model ProductVariant {
 
   @@unique([companyId, id])
   @@index([companyId, productId])
+  @@index([sku(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
 model ProductStock {

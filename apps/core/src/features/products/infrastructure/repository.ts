@@ -59,10 +59,14 @@ function listOrder(sort: Criteria["sort"]): Prisma.Sql {
 }
 
 function listPredicates(criteria: Criteria): Prisma.Sql[] {
-  const predicates = [Prisma.sql`p."companyId" = ${getCompanyId()}::uuid`];
+  const companyId = getCompanyId();
+  const predicates = [Prisma.sql`p."companyId" = ${companyId}::uuid`];
   const search = criteria.search?.replace(/[\\%_]/g, "\\$&");
-  if (search) predicates.push(Prisma.sql`(p.name ILIKE ${`%${search}%`} OR EXISTS (SELECT 1 FROM "ProductVariant" v
-    WHERE v."productId" = p.id AND v."companyId" = p."companyId" AND v.sku ILIKE ${`%${search}%`}))`);
+  // UNION instead of OR so each branch can use its own trigram index.
+  if (search) predicates.push(Prisma.sql`p.id IN (SELECT n.id FROM "Product" n
+    WHERE n."companyId" = ${companyId}::uuid AND n.name ILIKE ${`%${search}%`}
+    UNION SELECT v."productId" FROM "ProductVariant" v
+    WHERE v."companyId" = ${companyId}::uuid AND v.sku ILIKE ${`%${search}%`})`);
   if (criteria.stock === "in_stock") predicates.push(Prisma.sql`EXISTS (SELECT 1 FROM "ProductVariant" v
     JOIN "ProductStock" s ON s."variantId" = v.id AND s."companyId" = v."companyId"
     WHERE v."productId" = p.id AND v."companyId" = p."companyId" AND s.quantity > 0)`);
