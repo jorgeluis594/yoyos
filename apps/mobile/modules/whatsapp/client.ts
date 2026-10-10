@@ -154,6 +154,7 @@ export function createWhatsAppClient(resolveNative: () => NativeWhatsApp | null 
     if (initializing) return effective === initializingOptions ? initializing : failureResult("INVALID_INPUT");
     if (prepared && effective === activeOptions) return ok(undefined);
     initializingOptions = effective;
+    const wasPrepared = prepared;
     initializing = (async () => {
       const result = await call("initialize", [options], (data) => {
         const parsed = z.object({ state: states, qr: eventSchemas.qr.optional() }).strict().safeParse(data);
@@ -168,6 +169,11 @@ export function createWhatsAppClient(resolveNative: () => NativeWhatsApp | null 
         if (consumer) { consumer.registered = false; void registerConsumer(consumer); }
         return ok(undefined);
       }
+      // INVALID_INPUT from a prepared module is native refusing different options while reception is
+      // requested (or the values themselves): it decides before it stops or publishes anything, so the
+      // running module is untouched and stays usable. Any other failure may have published the options
+      // without an answer, so the next initialize must reach native and reread the published state.
+      if (wasPrepared && result.error.code === "INVALID_INPUT") return result;
       prepared = false;
       activeOptions = "";
       if (result.error.code === "SESSION_STATE_INVALID") {
