@@ -2,8 +2,8 @@ import { log } from "@core/src/shared/infrastructure/logger";
 import { Prisma, type Product as DbProduct, type ProductVariant as DbVariant, type ProductStock as DbStock } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import { isCurrency } from "@shared/money";
-import { prisma, withinTransaction } from "@core/src/shared/infrastructure/persistance";
-import type { ProductRepository } from "@core/src/features/products/application/repository";
+import { getCompanyId, prisma, withinTransaction } from "@core/src/shared/infrastructure/persistance";
+import type { Criteria, ProductRepository } from "@core/src/features/products/application/repository";
 import type { ImageId, Product, ProductId, ProductVariant, VariantId } from "@core/src/features/products/domain/product";
 import { summarizeProduct } from "@core/src/features/products/domain/rules";
 
@@ -48,6 +48,28 @@ function isDuplicateProductId(error: unknown): boolean {
   const adapter = error.meta?.driverAdapterError as { cause?: { constraint?: { index?: string } } } | undefined;
   const constraint = adapter?.cause?.constraint?.index;
   return constraint === "Product_pkey" || constraint === "Product_id_key";
+}
+
+// ICU Spanish collation: case- and accent-insensitive at the primary level, with ñ after n.
+const nameOrder = Prisma.sql`name COLLATE "es-x-icu" ASC, id ASC`;
+const recentOrder = Prisma.sql`"createdAt" DESC, id ASC`;
+
+function listOrder(sort: Criteria["sort"]): Prisma.Sql {
+  return sort === "name" ? nameOrder : recentOrder;
+}
+
+function listPredicates(criteria: Criteria): Prisma.Sql[] {
+  const predicates = [Prisma.sql`p."companyId" = ${getCompanyId()}::uuid`];
+  const search = criteria.search?.replace(/[\\%_]/g, "\\$&");
+  if (search) predicates.push(Prisma.sql`(p.name ILIKE ${`%${search}%`} OR EXISTS (SELECT 1 FROM "ProductVariant" v
+    WHERE v."productId" = p.id AND v."companyId" = p."companyId" AND v.sku ILIKE ${`%${search}%`}))`);
+  if (criteria.stock === "in_stock") predicates.push(Prisma.sql`EXISTS (SELECT 1 FROM "ProductVariant" v
+    JOIN "ProductStock" s ON s."variantId" = v.id AND s."companyId" = v."companyId"
+    WHERE v."productId" = p.id AND v."companyId" = p."companyId" AND s.quantity > 0)`);
+  if (criteria.stock === "sold_out") predicates.push(Prisma.sql`NOT EXISTS (SELECT 1 FROM "ProductVariant" v
+    LEFT JOIN "ProductStock" s ON s."variantId" = v.id AND s."companyId" = v."companyId"
+    WHERE v."productId" = p.id AND v."companyId" = p."companyId" AND s.quantity IS DISTINCT FROM 0)`);
+  return predicates;
 }
 
 export const productRepository: ProductRepository = {
@@ -124,25 +146,18 @@ export const productRepository: ProductRepository = {
     }
   },
   async list(criteria) {
-    const search = criteria.search?.replace(/[\\%_]/g, "\\$&");
-    const stock: Prisma.ProductWhereInput = criteria.stock === "in_stock" ? { variants: { some: { stock: { is: { quantity: { gt: 0 } } } } } }
-      : criteria.stock === "sold_out" ? { variants: { every: { stock: { is: { quantity: 0 } } } } } : {};
-    const orderBy: Prisma.ProductOrderByWithRelationInput[] = criteria.sort === "name" ? [{ name: "asc" }, { id: "asc" }] : [{ createdAt: "desc" }, { id: "asc" }];
-    const where: Prisma.ProductWhereInput = {
-      ...stock,
-      ...(search ? { OR: [
-        { name: { contains: search, mode: "insensitive" } },
-        { variants: { some: { sku: { contains: search, mode: "insensitive" } } } },
-      ] } : {}),
-    };
     try {
-      const [rows, total] = await Promise.all([
-        prisma.product.findMany({ where, orderBy, skip: (criteria.page - 1) * criteria.pageSize, take: criteria.pageSize,
-          include: { variants: { include: { stock: true } } } }),
-        prisma.product.count({ where }),
-      ]);
+      const [page] = await prisma.$queryRaw<{ ids: string[]; total: number }[]>(Prisma.sql`
+        WITH matching AS (SELECT p.id, p.name, p."createdAt" FROM "Product" p
+          WHERE ${Prisma.join(listPredicates(criteria), " AND ")})
+        SELECT ARRAY(SELECT id FROM matching ORDER BY ${listOrder(criteria.sort)}
+          LIMIT ${criteria.pageSize} OFFSET ${(criteria.page - 1) * criteria.pageSize}) AS ids,
+          (SELECT count(*)::int FROM matching) AS total`);
+      const found = await prisma.product.findMany({ where: { id: { in: page.ids } }, include: { variants: { include: { stock: true } } } });
+      const byId = new Map(found.map((row) => [row.id, row]));
+      const rows = page.ids.flatMap((id) => byId.get(id) ?? []);
       try {
-        return ok({ page: criteria.page, pageSize: criteria.pageSize, total, items: rows.map((row) => summarizeProduct(mapProduct(row))) });
+        return ok({ page: criteria.page, pageSize: criteria.pageSize, total: page.total, items: rows.map((row) => summarizeProduct(mapProduct(row))) });
       } catch {
         return err({ code: "INVALID_STORED_DATA", message: "Stored product data is invalid" });
       }

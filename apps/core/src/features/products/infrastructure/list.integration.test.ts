@@ -105,3 +105,39 @@ test("catalog filters by total stock, sorts by name and keeps image references",
     });
   }
 });
+
+test("catalog sorts names case- and accent-insensitively for Spanish speakers with stable pages", async () => {
+  const company = randomUUID();
+  const when = new Date("2026-01-01T00:00:00.000Z");
+  const add = async (name: string) => {
+    const id = randomUUID();
+    await prisma.product.create({ data: { id, name, currency: "PEN", qrCode: randomUUID(), status: "active", createdAt: when, updatedAt: when } });
+    const variantId = randomUUID();
+    await prisma.productVariant.create({ data: { id: variantId, productId: id, attributes: {}, salePrice: 10, qrCode: randomUUID(), status: "active" } });
+    await prisma.productStock.create({ data: { variantId, quantity: 1n } });
+    return id;
+  };
+  try {
+    await withTenantIsolation(company, async () => await prisma.company.create({ data: { id: company, name: company, country: "PE" } }));
+    await withTenantIsolation(company, async () => {
+      for (const name of ["Zapato", "ñandú", "Bolso", "zapato", "Árbol", "nube", "anillo", "Bolso"]) await add(name);
+      const names = (input: ListInput) => listProducts(input).then((result) => result.success ? result.data.items.map((item) => item.name) : result);
+      const expected = ["anillo", "Árbol", "Bolso", "Bolso", "nube", "ñandú", "zapato", "Zapato"];
+      expect(await names({ sort: "name" })).toEqual(expected);
+      const pages = await Promise.all([1, 2, 3].map((page) => listProducts({ sort: "name", page, pageSize: 3 })));
+      expect(pages.map((page) => page.success && page.data.total)).toEqual([8, 8, 8]);
+      const paged = pages.flatMap((page) => page.success ? page.data.items : []);
+      expect(paged.map((item) => item.name)).toEqual(expected);
+      expect(new Set(paged.map((item) => item.id)).size).toBe(8);
+      const bolsos = paged.filter((item) => item.name === "Bolso").map((item) => item.id);
+      expect(bolsos).toEqual([...bolsos].sort());
+    });
+  } finally {
+    await withTenantIsolation(company, async () => {
+      await prisma.productStock.deleteMany({ where: { companyId: company } });
+      await prisma.productVariant.deleteMany({ where: { companyId: company } });
+      await prisma.product.deleteMany({ where: { companyId: company } });
+      await prisma.company.deleteMany({ where: { id: company } });
+    });
+  }
+});
