@@ -6786,8 +6786,8 @@
   {
     "id": "IT-SEG-01",
     "task": "WA-14",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Go y TypeScript se ejecutan con valores canario; Kotlin/Swift (logs) y la notificacion Android se comprueban solo leyendo el codigo fuente, sin observar un logcat ni una notificacion reales (no ejecutado).",
     "tests": [
       {
         "file": "go/bridge/security_test.go",
@@ -6934,8 +6934,8 @@
   {
     "id": "IT-SEG-02",
     "task": "WA-14",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Comprobacion estatica del codigo fuente y del manifest mas un recorrido con modulo nativo simulado; no se observa trafico de red real ni un receptor servidor ausente en un build.",
     "tests": [
       {
         "file": "wa14.contract.test.ts",
@@ -6977,8 +6977,8 @@
   {
     "id": "IT-SEG-03",
     "task": "WA-14",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Solo se mide la parte de Go contra un contenedor en memoria (latencia, bytes y heap); cifrado, fsync, reemplazo y espacio temporal nativos, heap Kotlin/Swift y RSS no se midieron.",
     "tests": [
       {
         "file": "go/internal/receive/measure_test.go",

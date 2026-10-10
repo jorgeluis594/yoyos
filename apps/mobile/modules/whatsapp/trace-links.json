@@ -2223,6 +2223,18 @@
    "note": "No hay prueba en MOD/go de la caida y reinicio; en parches: TestRecoveredProtocolReplayDoesNotDecryptOrDispatch, TestRecoveredFatalAppStateResponseStagesBeforePending, TestPrecommittedReceiveSkipsDuplicateSecretWrite (patches/pre-decrypt-context.patch); su resultado no entra a la matriz automatica."
   },
   {
+   "id": "IT-SEG-01",
+   "note": "Go y TypeScript se ejecutan con valores canario; Kotlin/Swift (logs) y la notificacion Android se comprueban solo leyendo el codigo fuente, sin observar un logcat ni una notificacion reales (no ejecutado)."
+  },
+  {
+   "id": "IT-SEG-02",
+   "note": "Comprobacion estatica del codigo fuente y del manifest mas un recorrido con modulo nativo simulado; no se observa trafico de red real ni un receptor servidor ausente en un build."
+  },
+  {
+   "id": "IT-SEG-03",
+   "note": "Solo se mide la parte de Go contra un contenedor en memoria (latencia, bytes y heap); cifrado, fsync, reemplazo y espacio temporal nativos, heap Kotlin/Swift y RSS no se midieron."
+  },
+  {
    "id": "IT-STO-01",
    "note": "La durabilidad se demuestra por inyeccion de fallos en cada fase y relectura; no hay prueba fisica de fsync. Nativo, no ejecutado aqui."
   },

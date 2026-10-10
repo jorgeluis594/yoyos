@@ -6,8 +6,8 @@
 
 | Status | Cases |
 | --- | ---: |
-| pasa | 116 |
-| parcial | 98 |
+| pasa | 113 |
+| parcial | 101 |
 | no ejecutado-nativo | 21 |
 | falla | 0 |
 | no implementado | 7 |
@@ -31,7 +31,7 @@
 | WA-11 | 6 | 5 | 0 | 0 | 0 |
 | WA-12 | 0 | 13 | 0 | 0 | 1 |
 | WA-13 | 0 | 1 | 0 | 0 | 0 |
-| WA-14 | 4 | 0 | 0 | 0 | 0 |
+| WA-14 | 1 | 3 | 0 | 0 | 0 |
 
 ## Cases
 
@@ -276,6 +276,6 @@
 | IT-BLD-06 | WA-01 | — | no implementado | Exige que Expo, Gradle o CocoaPods carguen el modulo: no se ejecuto. |
 | IT-BLD-07 | WA-01 | — | no implementado | Regla de proceso documentada en el README; no hay prueba automatizada. |
 | IT-BLD-08 | WA-01 | — | no implementado | build-info.txt y los .gitignore registran y excluyen artefactos; ninguna prueba lo comprueba. |
-| IT-SEG-01 | WA-14 | `go/bridge/security_test.go` (mención sin prueba)<br>`go/bridge/security_test.go` → `TestITSEG01EveryErrorEventIsAPublicCodeWithAFixedMessage`<br>`go/bridge/security_test.go` → `TestITSEG01StorageCodesMapOntoPublicOnes`<br>`go/bridge/security_test.go` → `TestITSEG01NativeStorageFailuresNeverReachTheOpenResult`<br>+19 more | pasa |  |
-| IT-SEG-02 | WA-14 | `wa14.contract.test.ts` (mención sin prueba)<br>`wa14.contract.test.ts` → `IT-SEG-02 credentials and reception stay on the phone the JavaScript module has no network client, core endpoint or upload path`<br>`wa14.contract.test.ts` → `IT-SEG-02 credentials and reception stay on the phone native Kotlin and Swift code opens no HTTP connection of its own`<br>`wa14.contract.test.ts` → `IT-SEG-02 credentials and reception stay on the phone Go reaches the network only through whatsmeow and listens on no port`<br>+2 more | pasa |  |
-| IT-SEG-03 | WA-14 | `go/internal/receive/measure_test.go` (mención sin prueba)<br>`go/internal/receive/measure_test.go` → `TestITSEG03SnapshotCostHarnessOnSmallLoads`<br>`go/internal/receive/measure_test.go` → `TestITSEG03MeasureSnapshotCost` (skip) | pasa |  |
+| IT-SEG-01 | WA-14 | `go/bridge/security_test.go` (mención sin prueba)<br>`go/bridge/security_test.go` → `TestITSEG01EveryErrorEventIsAPublicCodeWithAFixedMessage`<br>`go/bridge/security_test.go` → `TestITSEG01StorageCodesMapOntoPublicOnes`<br>`go/bridge/security_test.go` → `TestITSEG01NativeStorageFailuresNeverReachTheOpenResult`<br>+19 more | parcial | Go y TypeScript se ejecutan con valores canario; Kotlin/Swift (logs) y la notificacion Android se comprueban solo leyendo el codigo fuente, sin observar un logcat ni una notificacion reales (no ejecutado). |
+| IT-SEG-02 | WA-14 | `wa14.contract.test.ts` (mención sin prueba)<br>`wa14.contract.test.ts` → `IT-SEG-02 credentials and reception stay on the phone the JavaScript module has no network client, core endpoint or upload path`<br>`wa14.contract.test.ts` → `IT-SEG-02 credentials and reception stay on the phone native Kotlin and Swift code opens no HTTP connection of its own`<br>`wa14.contract.test.ts` → `IT-SEG-02 credentials and reception stay on the phone Go reaches the network only through whatsmeow and listens on no port`<br>+2 more | parcial | Comprobacion estatica del codigo fuente y del manifest mas un recorrido con modulo nativo simulado; no se observa trafico de red real ni un receptor servidor ausente en un build. |
+| IT-SEG-03 | WA-14 | `go/internal/receive/measure_test.go` (mención sin prueba)<br>`go/internal/receive/measure_test.go` → `TestITSEG03SnapshotCostHarnessOnSmallLoads`<br>`go/internal/receive/measure_test.go` → `TestITSEG03MeasureSnapshotCost` (skip) | parcial | Solo se mide la parte de Go contra un contenedor en memoria (latencia, bytes y heap); cifrado, fsync, reemplazo y espacio temporal nativos, heap Kotlin/Swift y RSS no se midieron. |
