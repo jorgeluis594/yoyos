@@ -20,7 +20,8 @@ const product = {
   variants: [{ id: "variant-1", qrCode: "qr-1", attributes: {}, sku: "CAM-1", salePrice: { amount: 20, currency: "PEN" }, stock: 1 }],
 };
 
-jest.mock("expo-router", () => ({ useLocalSearchParams: () => ({ productId }), useRouter: () => ({ replace: jest.fn() }) }));
+const mockReplace = jest.fn();
+jest.mock("expo-router", () => ({ useLocalSearchParams: () => ({ productId }), useRouter: () => ({ replace: mockReplace }) }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAccess: () => ({ state: { status: "ready" } }) }));
 jest.mock("@mobile/features/products/composition", () => ({
@@ -144,4 +145,11 @@ test('product management uses Portuguese labels', async () => {
   } finally {
     await i18n.changeLanguage('es');
   }
+});
+
+test("a product that fails to load can still be closed without the tab bar", async () => {
+  mockLoadProduct.mockResolvedValue(err({ code: "NETWORK_ERROR", message: "offline" }));
+  render(<ProductManagementScreen />);
+  fireEvent.press(await screen.findByRole("button", { name: "Cerrar" }));
+  expect(mockReplace).toHaveBeenCalledWith("/products");
 });

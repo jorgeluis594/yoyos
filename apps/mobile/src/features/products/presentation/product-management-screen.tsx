@@ -15,6 +15,7 @@ import { products } from "@mobile/features/products/composition";
 import { useAccess } from "@/features/users/presentation/access-provider";
 import type { PhotoSelection, Product, ProductId, VariantId } from "../domain/product";
 import { ProductForm } from "./product-form";
+import { ProductTopBar } from "@mobile/features/products/presentation/product-top-bar";
 import type { ProductFormField, ProductFormValues } from "./product-form";
 import { productErrors, validateProductForm, valuesForProduct } from "./product-form-state";
 import { useProductNavigationGuard } from "./use-product-navigation-guard";
@@ -23,6 +24,7 @@ import { usePrint } from "@mobile/features/printing/presentation/print-provider"
 import { makeCopyCount } from "@mobile/features/printing/composition";
 import { productPrintWork } from "./product-print-work";
 import translations from '@mobile/i18n';
+import tokens from "../../../../../../docs/design-tokens.json";
 
 function applySaved(current: Product, values: ProductFormValues, photo: PhotoSelection): Product {
   const variants = current.variants.length !== 1 ? current.variants : current.variants.map((variant) => ({
@@ -122,8 +124,13 @@ export default function ProductManagementScreen() {
   }, [productId, reloadKey, requestKey]);
 
   if (state.status !== "ready") return null;
-  if (loading) return <ThemedView style={styles.page}><ScreenState status="loading" title={t('loadingProduct')} /></ThemedView>;
+  const close = () => router.replace("/products");
+  if (loading) return <ThemedView style={styles.page}><SafeAreaView style={styles.safe}>
+    <ProductTopBar title={t('manageProduct')} onClose={close} />
+    <ScreenState status="loading" title={t('loadingProduct')} />
+  </SafeAreaView></ThemedView>;
   if (loadError || !product || !values) return <ThemedView style={styles.page}><SafeAreaView style={styles.safe}>
+    <ProductTopBar title={t('manageProduct')} onClose={close} />
     <ScreenState status="error" title={loadError ?? t('productNotFound')} onRetry={() => { setLoadError(null); setReloadKey((value) => value + 1); }} />
   </SafeAreaView></ThemedView>;
 
@@ -228,7 +235,7 @@ export default function ProductManagementScreen() {
       onSave={() => void save()}
       copies={copies}
       onCopiesChange={setCopies}
-      onClose={() => router.replace("/products")}
+      onClose={close}
       onReviewCatalog={() => { setDirty(false); router.replace("/products"); }}
       onCheckStatus={() => void checkStatus()}
       saving={saving}
@@ -250,7 +257,7 @@ export default function ProductManagementScreen() {
 
 const styles = StyleSheet.create({
   page: { flex: 1 }, safe: { flex: 1 },
-  printAction: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
+  printAction: { width: tokens.sizing.touchTargetMinSize, height: tokens.sizing.touchTargetMinSize, borderRadius: tokens.sizing.touchTargetMinSize / 2, alignItems: "center", justifyContent: "center" },
   scrim: { flex: 1, justifyContent: "center", padding: 24, backgroundColor: "#0008" },
   picker: { maxHeight: "75%", borderRadius: 12, padding: 20, gap: 16 }, variantChoices: { gap: 8 },
 });

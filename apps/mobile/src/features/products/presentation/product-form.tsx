@@ -1,8 +1,5 @@
-/** @jsxImportSource react */
-// Preserve native Pressable style callbacks outside NativeWind interop.
 import type { ReactNode } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { SymbolView } from "expo-symbols";
+import { ScrollView, StyleSheet, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import type { Currency } from "@shared/money";
 import { Button } from "@mobile/components/ui/button";
@@ -13,6 +10,7 @@ import { useTheme } from "@mobile/hooks/use-theme";
 import { products } from "@mobile/features/products/composition";
 import { productMargin } from "@mobile/features/products/domain/product-margin";
 import { ProductPhoto } from "@mobile/features/products/presentation/product-photo";
+import { ProductTopBar } from "@mobile/features/products/presentation/product-top-bar";
 import { StockStepper } from "@mobile/features/products/presentation/stock-stepper";
 import type { Product, PhotoSelection } from "@mobile/features/products/domain/product";
 import tokens from "../../../../../../docs/design-tokens.json";
@@ -61,18 +59,12 @@ export function ProductForm({
   const price = new Intl.NumberFormat(locale, { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const percent = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 });
   const margin = multiVariant ? null : marginFor(values, currency);
-  const closeBlocked = saving || photoBusy;
   const card = [styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }];
   return <View style={styles.layout}>
-    <View style={[styles.header, { borderBottomColor: theme.border }]}>
-      <Pressable accessibilityRole="button" accessibilityLabel={t('close')} accessibilityState={{ disabled: closeBlocked }} disabled={closeBlocked}
-        onPress={onClose} style={({ pressed }) => [styles.iconAction, { backgroundColor: pressed ? theme.accent : "transparent", opacity: closeBlocked ? 0.5 : 1 }]}>
-        <SymbolView name={{ ios: "xmark", android: "close" }} size={tokens.sizing.iconNavigation} tintColor={theme.text} />
-      </Pressable>
-      <ThemedText type="subtitle" accessibilityRole="header" numberOfLines={1} style={styles.title}>{title}</ThemedText>
+    <ProductTopBar title={title} onClose={onClose} closeDisabled={saving || photoBusy}>
       {headerAction}
       <Button onPress={onSave} loading={saving} disabled={disabled || photoBusy}>{t('save')}</Button>
-    </View>
+    </ProductTopBar>
     <ScrollView style={styles.scroll} contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
       {notice ? <ThemedText themeColor="textSecondary">{notice}</ThemedText> : null}
       {errors.form ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{errors.form}</ThemedText> : null}
@@ -153,9 +145,6 @@ export function ProductForm({
 
 const styles = StyleSheet.create({
   layout: { flex: 1 }, scroll: { flex: 1 },
-  header: { minHeight: 64, flexDirection: "row", alignItems: "center", gap: tokens.spacing["2"], paddingLeft: tokens.spacing["1"], paddingRight: tokens.spacing["4"], paddingVertical: tokens.spacing["1"], borderBottomWidth: tokens.sizing.borderWidth },
-  iconAction: { width: tokens.sizing.touchTargetMinSize, height: tokens.sizing.touchTargetMinSize, borderRadius: tokens.sizing.touchTargetMinSize / 2, alignItems: "center", justifyContent: "center" },
-  title: { flex: 1, minWidth: 0 },
   page: { gap: tokens.spacing["3"], padding: tokens.spacing["4"], paddingBottom: tokens.spacing["8"] },
   card: { borderWidth: tokens.sizing.borderWidth, borderRadius: tokens.radius.card, padding: tokens.spacing["4"], gap: tokens.spacing["4"] },
   cardTitle: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", gap: tokens.spacing["2"] },
