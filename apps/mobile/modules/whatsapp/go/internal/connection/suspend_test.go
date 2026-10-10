@@ -405,3 +405,191 @@ func TestResumeCapacityStopsADiscardedTransport(t *testing.T) {
 		t.Fatal("discarded transport left open")
 	}
 }
+
+// Every interleaving of two lifecycle operations, from each starting state, keeps the machine
+// coherent: at most one live client, a live client exactly while a connection is requested, and
+// the machine is never wedged (Disconnect always ends it, then Connect starts one client again).
+type modelOp string
+
+const (
+	opConnect    modelOp = "connect"
+	opDisconnect modelOp = "disconnect"
+	opSuspend    modelOp = "suspend"
+	opResume     modelOp = "resume"
+)
+
+type modelRig struct {
+	c       *Controller
+	mu      sync.Mutex
+	made    []*testTransport
+	gate    chan struct{} // when set, create blocks on it (after registering the transport)
+	entered chan struct{}
+}
+
+func (m *modelRig) live() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, transport := range m.made {
+		select {
+		case <-transport.stopped:
+		default:
+			n++
+		}
+	}
+	return n
+}
+
+func (m *modelRig) apply(op modelOp) {
+	switch op {
+	case opConnect:
+		m.c.Connect()
+	case opDisconnect:
+		m.c.Disconnect()
+	case opSuspend:
+		m.c.Suspend()
+	case opResume:
+		m.c.Resume()
+	}
+}
+
+func (m *modelRig) requested() bool {
+	m.c.mu.Lock()
+	defer m.c.mu.Unlock()
+	return m.c.requested
+}
+
+func newModelRig(t *testing.T) *modelRig {
+	m := &modelRig{}
+	m.c = New(func() (Transport, error) {
+		transport := newTransport()
+		m.mu.Lock()
+		m.made = append(m.made, transport)
+		gate, entered := m.gate, m.entered
+		m.mu.Unlock()
+		if gate != nil {
+			entered <- struct{}{}
+			<-gate
+		}
+		return transport, nil
+	}, func(Event) {}, nil)
+	t.Cleanup(func() { m.c.Close() })
+	m.c.Prepare(true)
+	return m
+}
+
+func (m *modelRig) check(t *testing.T, label string) {
+	t.Helper()
+	live, requested := m.live(), m.requested()
+	if live > 1 || (live == 1) != requested {
+		t.Fatalf("%s: live clients=%d requested=%v state=%s", label, live, requested, m.c.State())
+	}
+	m.c.Disconnect()
+	if m.live() != 0 || m.c.State() != Disconnected {
+		t.Fatalf("%s: disconnect did not end the machine (live=%d state=%s)", label, m.live(), m.c.State())
+	}
+	m.c.Connect()
+	if m.live() != 1 || !m.requested() {
+		t.Fatalf("%s: machine wedged, connect gives %d clients", label, m.live())
+	}
+}
+
+func TestITIOS01EveryPairOfLifecycleOperationsStaysCoherent(t *testing.T) {
+	ops := []modelOp{opConnect, opDisconnect, opSuspend, opResume}
+	for _, start := range []string{"idle", "connected", "suspended", "building"} {
+		for _, first := range ops {
+			for _, second := range ops {
+				label := start + "/" + string(first) + "+" + string(second)
+				t.Run(label, func(t *testing.T) {
+					m := newModelRig(t)
+					var building chan struct{}
+					switch start {
+					case "connected":
+						m.c.Connect()
+					case "suspended":
+						m.c.Connect()
+						m.c.Suspend()
+					case "building":
+						m.c.Connect()
+						m.c.Suspend()
+						m.mu.Lock()
+						m.gate, m.entered = make(chan struct{}), make(chan struct{}, 1)
+						building = m.gate
+						m.mu.Unlock()
+						go m.c.Resume()
+						<-m.entered
+						m.mu.Lock()
+						m.gate = nil // Resume holds its own copy; Connect builds under the controller lock
+						m.mu.Unlock()
+					}
+					m.apply(first)
+					m.apply(second)
+					if building != nil {
+						close(building)
+						// Resume finishes after both operations; give its locked tail time to run.
+						time.Sleep(20 * time.Millisecond)
+					}
+					m.check(t, label)
+				})
+			}
+		}
+	}
+}
+
+// The reported failure needs three operations (Resume building, Connect, Suspend): chain three.
+func TestITIOS01EveryTripleStartingFromABuildingResumeStaysCoherent(t *testing.T) {
+	ops := []modelOp{opConnect, opDisconnect, opSuspend, opResume}
+	for _, first := range ops {
+		for _, second := range ops {
+			for _, third := range ops {
+				label := "building/" + string(first) + "+" + string(second) + "+" + string(third)
+				t.Run(label, func(t *testing.T) {
+					m := newModelRig(t)
+					m.c.Connect()
+					m.c.Suspend()
+					gate := make(chan struct{})
+					m.mu.Lock()
+					m.gate, m.entered = gate, make(chan struct{}, 1)
+					m.mu.Unlock()
+					go m.c.Resume()
+					<-m.entered
+					m.mu.Lock()
+					m.gate = nil
+					m.mu.Unlock()
+					m.apply(first)
+					m.apply(second)
+					m.apply(third)
+					close(gate)
+					time.Sleep(20 * time.Millisecond)
+					m.check(t, label)
+				})
+			}
+		}
+	}
+}
+
+// The reported case: Connect wins while Resume builds, then the app is suspended again.
+func TestITIOS01ConnectDuringResumeBuildThenSuspendClosesTheSocket(t *testing.T) {
+	m := newModelRig(t)
+	m.c.Connect()
+	m.c.Suspend()
+	gate := make(chan struct{})
+	m.mu.Lock()
+	m.gate, m.entered = gate, make(chan struct{}, 1)
+	m.mu.Unlock()
+	go m.c.Resume()
+	<-m.entered
+	m.mu.Lock()
+	m.gate = nil
+	m.mu.Unlock()
+	m.c.Connect()
+	m.c.Suspend()
+	close(gate)
+	time.Sleep(20 * time.Millisecond)
+	if m.live() != 0 || m.requested() || m.c.State() != Disconnected {
+		t.Fatalf("socket left open in the background: live=%d state=%s", m.live(), m.c.State())
+	}
+	if m.c.Resume(); m.live() != 1 {
+		t.Fatalf("resume after the second suspension gives %d clients", m.live())
+	}
+}

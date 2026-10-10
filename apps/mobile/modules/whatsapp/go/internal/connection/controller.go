@@ -206,7 +206,7 @@ func (c *Controller) Connect() Code {
 		return ConnectionFailed
 	}
 	c.requested = true
-	c.suspended = false // an explicit request replaces the one a suspension was holding
+	c.suspended, c.resuming = false, false // an explicit request replaces the one a suspension held, and a Resume still building
 	c.retries = 0
 	c.startLocked(transport, Connecting)
 	return ""

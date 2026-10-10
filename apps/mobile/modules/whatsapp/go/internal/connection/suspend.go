@@ -8,23 +8,25 @@ package connection
 func (c *Controller) Suspend() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.resuming { // a Resume is building its attempt: cancel it and owe the resume again
+	switch {
+	case c.logout != nil:
+		return
+	case c.requested && !c.paused:
+		// A live or retrying connection, whoever started it (Connect may have won a Resume's build):
+		// retiring it also clears `resuming`, so that Resume's build is dropped when it returns.
+		c.retireLocked() // stops the transport and the pending retry; clears the QR and the flags
+		c.suspended = true
+		c.setState(Disconnected)
+	case c.resuming: // a Resume is building its attempt: cancel it and owe the resume again
 		c.resuming = false
 		c.generation++
 		c.suspended = true
+	case c.suspended || !c.paused:
 		return
-	}
-	if c.suspended || c.logout != nil || !(c.requested || c.paused) {
-		return
-	}
-	if c.paused { // waiting for capacity: no socket exists; keep waiting, but do not start while suspended
+	default: // waiting for capacity: no socket exists; keep waiting, but do not start while suspended
 		c.generation++
 		c.suspended, c.suspendedPaused = true, true
-		return
 	}
-	c.retireLocked() // stops the transport and the pending retry; clears the QR and the flags
-	c.suspended = true
-	c.setState(Disconnected)
 }
 
 // Resume revalidates a suspended request and starts one new attempt with fresh deadlines. It builds

@@ -14,7 +14,7 @@ public final class BackgroundTaskGuard {
   /// `begin` receives the expiration handler and returns the system's task identifier.
   public init(begin: (@escaping () -> Void) -> Int, end: @escaping (Int) -> Void) {
     endTask = end
-    let started = begin { [unowned self] in self.end() }
+    let started = begin { [weak self] in self?.end() }
     lock.lock()
     if finished {
       lock.unlock()
