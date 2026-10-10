@@ -1,5 +1,6 @@
 package expo.modules.whatsapp
 
+import expo.modules.kotlin.functions.Coroutine
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.whatsapp.go.bridge.Bridge
@@ -11,6 +12,7 @@ import expo.modules.whatsapp.go.bridge.ConnectionSession
 import expo.modules.whatsapp.go.bridge.DeliveryEvents
 import expo.modules.whatsapp.go.bridge.DeliverySession
 import expo.modules.whatsapp.go.bridge.DeliveryStorage
+import expo.modules.whatsapp.go.bridge.ImageOperation
 import expo.modules.whatsapp.go.bridge.ImageSession
 import android.net.Uri
 import java.io.File
