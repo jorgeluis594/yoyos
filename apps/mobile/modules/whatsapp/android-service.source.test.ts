@@ -83,6 +83,14 @@ describe("IT-AND-03 generic notification", () => {
     expect(service).toContain("PendingIntent.FLAG_IMMUTABLE");
     expect(service).toContain("setComponent(component)");
     expect(code(service)).not.toMatch(/addAction|setContentText|accountId|qr|session/i);
+    // m4/m5: a dedicated monochrome drawable and localizable, overridable texts.
+    expect(service).toContain("R.drawable.whatsapp_connection_icon");
+    expect(service).not.toContain("applicationInfo.icon");
+    expect(code(service)).not.toMatch(/"[^"]*(Conexi|connection)[^"]*"/i);
+    const res = join(__dirname, "android", "src", "main", "res");
+    expect(readFileSync(join(res, "values", "strings.xml"), "utf8")).toContain("whatsapp_connection_title");
+    expect(readFileSync(join(res, "values-es", "strings.xml"), "utf8")).toContain("whatsapp_connection_title");
+    expect(readFileSync(join(res, "drawable", "whatsapp_connection_icon.xml"), "utf8")).toContain("<vector");
   });
 });
 
@@ -95,7 +103,7 @@ describe("IT-AND-04 notification permission", () => {
 
 describe("IT-AND-05 refused start", () => {
   test("a synchronous refusal is a failed Result before any state change", () => {
-    expect(between(module, "fun startService", "fun stopService")).toContain('catch (_: Exception) { "CONNECTION_FAILED" }');
+    expect(between(module, "fun startService", "/** True from")).toContain('"CONNECTION_FAILED" }');
     const connect = body(module, 'AsyncFunction("connect")');
     expect(connect).toMatch(/startService\(context\)\?\.let \{ return@synchronized failure\(it\) \}/);
     expect(order(connect, "startService(context)", "armIntent")).toBe(true);
@@ -126,7 +134,10 @@ describe("IT-AND-07 and IT-AND-08 restoration", () => {
   test("one decision from the stored intent, session and revocation, under one lock hold", () => {
     expect(restore).toContain("ReceiveServicePolicy.decideRestore(store.receiveIntent()");
     expect(module).toMatch(/fun restoreFromService\(context: Context\): Boolean = synchronized\(lock\)/);
-    expect(restore).toContain("if (session != null) return true");
+    // M1: an already open session is adopted but still connected (Controller.Connect is idempotent).
+    expect(restore).not.toContain("if (session != null) return true");
+    expect(order(restore, "openConnection(context, snapshot)", "session?.connect()")).toBe(true);
+    expect(restore).not.toMatch(/session\s*(!=|==)\s*null\)\s*return true/);
     expect(order(restore, "decideRestore", "openConnection")).toBe(true);
   });
   test("never starts a QR or an old revision in the background", () => {
@@ -136,7 +147,7 @@ describe("IT-AND-07 and IT-AND-08 restoration", () => {
   });
   test("a failed restoration withdraws the intent instead of retrying through START_STICKY", () => {
     expect(restore).toMatch(/stopAndRetire\(\); return false/);
-    expect(body(service, "override fun onStartCommand")).toMatch(/restoreFromService\(applicationContext\)\) stopSelf\(\)/);
+    expect(body(service, "override fun onStartCommand")).toMatch(/restoreFromService\(applicationContext\)\) stopSelfResult\(startId\)/);
   });
   test("a revoked session or a local fault withdraws the intent without deleting credentials", () => {
     const observe = body(module, "private fun observeConnectionEvent");
@@ -192,5 +203,35 @@ describe("IT-INI-08 and IT-CFG-03 adoption and persisted options", () => {
   });
   test("neither the native service nor Go reads .env or bundle variables", () => {
     expect(allMainSources()).not.toMatch(/EXPO_PUBLIC|\.env\b|BuildConfig/);
+  });
+});
+
+describe("review M2 stopping a service that may not be promoted yet", () => {
+  test("no code path calls Context.stopService right after startForegroundService", () => {
+    const stop = between(module, "fun stopService", "/** Durably withdraws");
+    // Stops go to the service as ACTION_STOP; the direct stopService is only the fallback of a refused send.
+    expect(stop).toContain("ReceiveServicePolicy.ACTION_STOP");
+    expect(stop).toMatch(/catch \(_: Exception\) \{[\s\S]*context\.stopService/);
+    expect(stop).toContain("if (!serviceActive) return");
+    expect(code(module).match(/context\.stopService\(/g)).toHaveLength(1);
+  });
+  test("the service promotes first and then stops itself with the start id", () => {
+    const start = code(body(service, "override fun onStartCommand"));
+    expect(order(start, "promote()", "ACTION_STOP")).toBe(true);
+    expect(order(start, "ACTION_STOP", "stopSelfResult(startId)")).toBe(true);
+    expect(policy).toContain("did not then call");
+    expect(policy).toContain("bringDownServiceLocked");
+  });
+  test("a refused promotion cannot loop through a new STOP-started instance", () => {
+    expect(order(body(module, "fun serviceRefused"), "serviceActive = false", "stopAndRetire()")).toBe(true);
+  });
+});
+
+describe("review m2 ended request", () => {
+  test("Go ending the request without a fault withdraws the intent and stops the service", () => {
+    const observe = body(module, "private fun observeConnectionEvent");
+    expect(observe).toContain("endsReceiveRequest");
+    expect(observe).toContain("retireIntent()");
+    expect(policy).toMatch(/state == "sessionExpired" \|\| state == "disconnected"/);
   });
 });

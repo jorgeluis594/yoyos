@@ -443,18 +443,17 @@ func TestNotifyPublishesIdentityUnavailableWithoutChangingState(t *testing.T) {
 	c.Notify(IdentityUnavailable) // after close nothing is delivered and nothing blocks
 }
 
-// WA-12 / IT-AND-08: after the process is destroyed and recreated the native service restores a
-// fresh controller only while the intent is durable. If the server revoked the session, the new
-// controller sees the revocation once, stops without retrying and never touches the credentials;
-// the Go side has no way to delete them (RetiredSession is only called by an explicit logout).
-func TestWA12RecreatedControllerDoesNotRetryRevokedSession(t *testing.T) {
+// WA-12 regression (supports IT-AND-08, does not prove it): a controller that sees a revocation announces
+// it once, does not retry and keeps reporting sessionExpired. The durable intent and the recreation itself
+// live in the native layer and are covered by the Kotlin sources, which were not executed.
+func TestWA12RevokedControllerIsNotRetried(t *testing.T) {
 	transport := newTransport()
 	events := make(chan Event, 16)
 	creates := 0
 	c := New(func() (Transport, error) { creates++; return transport, nil }, func(e Event) { events <- e }, nil)
 	c.Prepare(true)
 	if c.Connect() != "" {
-		t.Fatal("recreated controller rejected the restore")
+		t.Fatal("connect rejected")
 	}
 	channel := started(t, transport)
 	receive(t, events)
@@ -470,7 +469,24 @@ func TestWA12RecreatedControllerDoesNotRetryRevokedSession(t *testing.T) {
 		t.Fatalf("unexpected event after revocation: %+v", extra)
 	case <-time.After(20 * time.Millisecond):
 	}
-	if c.State() != SessionExpired {
-		t.Fatal("revocation did not persist for the runtime")
+}
+
+// WA-12 review M1 core: a controller already prepared by initialize() (session open, nothing requested) is
+// connected by the recreated service, and a repeated connect (sticky redelivery) keeps one request, one transport.
+func TestWA12PreparedControllerConnectsOnceWhenRestoreAdoptsIt(t *testing.T) {
+	transport := newTransport()
+	events := make(chan Event, 16)
+	creates := 0
+	c := New(func() (Transport, error) { creates++; return transport, nil }, func(e Event) { events <- e }, nil)
+	c.Prepare(true) // initialize(): session opened, no connection requested
+	if creates != 0 || c.State() != Disconnected {
+		t.Fatal("prepare must not connect")
+	}
+	if c.Connect() != "" || c.Connect() != "" {
+		t.Fatal("restore connect rejected")
+	}
+	started(t, transport)
+	if creates != 1 || receive(t, events).State != Connecting {
+		t.Fatalf("expected one connecting generation, creates=%d", creates)
 	}
 }

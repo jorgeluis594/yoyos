@@ -201,12 +201,28 @@ internal object ConnectionRuntime {
    */
   fun startService(context: Context): String? = try {
     val intent = Intent(context, WhatsAppService::class.java).setAction(ReceiveServicePolicy.ACTION_START)
+    serviceActive = true
     if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
     null
-  } catch (_: Exception) { "CONNECTION_FAILED" }
+  } catch (_: Exception) { serviceActive = false; "CONNECTION_FAILED" }
 
+  /** True from a successful start request until the service is destroyed (set by the service itself). */
+  @Volatile var serviceActive = false
+
+  /**
+   * Asks the service to stop itself. Context.stopService right after startForegroundService could bring the
+   * service down before startForeground and crash the app (see ReceiveServicePolicy.ACTION_STOP); the service
+   * receives ACTION_STOP, promotes if it still has to, and then calls stopSelfResult(startId).
+   */
   fun stopService(context: Context) {
-    try { context.stopService(Intent(context, WhatsAppService::class.java)) } catch (_: Exception) { /* nothing left to stop */ }
+    if (!serviceActive) return
+    try {
+      val intent = Intent(context, WhatsAppService::class.java).setAction(ReceiveServicePolicy.ACTION_STOP)
+      if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
+    } catch (_: Exception) {
+      // A running, already promoted service can still be stopped directly; a refused start never ran.
+      try { context.stopService(Intent(context, WhatsAppService::class.java)) } catch (_: Exception) { /* nothing left to stop */ }
+    }
   }
 
   /** Durably withdraws the intent. Callers hold the runtime lock, so a recreation can never see a stale `true`. */
@@ -248,6 +264,8 @@ internal object ConnectionRuntime {
 
   /** The service was refused after `connect()` accepted: error, disconnected, intent withdrawn, data kept. */
   fun serviceRefused() {
+    // The service is stopping itself (stopSelf): a STOP request now would start a fresh instance and loop.
+    serviceActive = false
     synchronized(lock) {
       val hadSession = session != null // stop() announces `disconnected` itself in that case
       val code = stopAndRetire()
@@ -260,12 +278,15 @@ internal object ConnectionRuntime {
   private fun observeConnectionEvent(sink: PublicConnectionEvents, event: String, fields: Map<String, Any?>) {
     val revokedNow = event == "connectionChanged" && fields["state"] == "sessionExpired"
     val fault = event == "error" && ReceiveServicePolicy.isLocalFault(fields["code"] as? String ?: "")
-    if (!revokedNow && !fault) return
+    // Our own stops retire the sink first, so a `disconnected` seen here is Go ending the request
+    // (unpaired QR expiry, no retry left): nothing is left to receive, so the service must not linger.
+    val ended = ReceiveServicePolicy.endsReceiveRequest(event, fields["state"] as? String)
+    if (!revokedNow && !fault && !ended) return
     background.execute {
       synchronized(lock) {
         if (eventSink !== sink) return@synchronized
         if (revokedNow) revoked = true
-        // A revoked session or a local fault is not retried by START_STICKY; credentials stay.
+        // A revoked session, a local fault or an ended request is not retried by START_STICKY; credentials stay.
         retireIntent()
       }
     }
@@ -288,8 +309,10 @@ internal object ConnectionRuntime {
         if (decision.retireIntent) withdrawIntent()
         return false
       }
-      if (session != null) return true // already running (adopted or started): never a second generation
       val options = snapshot.getJSONObject("options")
+      // An already open session (initialize() got there first) is adopted, never duplicated, but it was
+      // opened without a connection request: connect() below is idempotent (Controller.Connect keeps one
+      // request), so recreation always ends with reception running or with the service stopped.
       if (ensureDelivery(store, options.getLong("maxRecoveryBufferBytes")) != null ||
         ensureImages(store, options.getLong("maxImageStorageBytes")) != null ||
         openConnection(context, snapshot) != null) { stopAndRetire(); return false }

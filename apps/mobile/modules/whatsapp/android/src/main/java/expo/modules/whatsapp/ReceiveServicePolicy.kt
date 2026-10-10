@@ -23,6 +23,14 @@ internal object ReceiveServicePolicy {
   /** Reserved for this service; the app must not reuse it for another notification. */
   const val NOTIFICATION_ID = 7301
   const val ACTION_START = "expo.modules.whatsapp.action.START_RECEIVING"
+  /**
+   * Stops are delivered to the service itself, never with Context.stopService right after
+   * startForegroundService: AOSP (ActiveServices.bringDownServiceLocked / "Bringing down service while
+   * still waiting for start foreground") raises "Context.startForegroundService() did not then call
+   * Service.startForeground()" when the service is brought down before it was promoted. The service
+   * promotes in onStartCommand first and then calls stopSelfResult(startId).
+   */
+  const val ACTION_STOP = "expo.modules.whatsapp.action.STOP_RECEIVING"
   const val SERVICE_CLASS = "expo.modules.whatsapp.WhatsAppService"
   /** `FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING` exists from API 34; earlier versions receive no type. */
   private const val FIRST_TYPED_API = 34
@@ -51,6 +59,7 @@ internal object ReceiveServicePolicy {
   fun isLocalFault(errorCode: String): Boolean =
     errorCode == "SESSION_STORAGE_FAILED" || errorCode == "SESSION_STORAGE_LIMIT_REACHED" || errorCode == "SESSION_STATE_INVALID"
 
-  /** Generic text: never a QR, account, credential or message. */
-  const val NOTIFICATION_TITLE = "Conexión de WhatsApp activa"
+  /** Terminal events that end the receive request without a fault: the service has nothing left to hold. */
+  fun endsReceiveRequest(event: String, state: String?): Boolean =
+    event == "connectionChanged" && (state == "sessionExpired" || state == "disconnected")
 }

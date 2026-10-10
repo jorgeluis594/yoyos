@@ -28,15 +28,22 @@ class WhatsAppService : Service() {
 
   override fun onCreate() {
     super.onCreate()
+    ConnectionRuntime.serviceActive = true
     promote()
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     if (!promote()) return START_NOT_STICKY
+    // Promotion has happened, so stopping now cannot trigger "did not then call startForeground()".
+    // stopSelfResult(startId) is a no-op when a newer start (a racing connect()) arrived meanwhile.
+    if (intent?.action == ReceiveServicePolicy.ACTION_STOP) {
+      stopSelfResult(startId)
+      return START_NOT_STICKY
+    }
     // ACTION_START comes from connect(), which prepares the client itself. A null intent is the
     // system's START_STICKY recreation: restore only a valid durable intent, with no JavaScript.
     if (intent?.action != ReceiveServicePolicy.ACTION_START) {
-      worker.execute { if (!ConnectionRuntime.restoreFromService(applicationContext)) stopSelf() }
+      worker.execute { if (!ConnectionRuntime.restoreFromService(applicationContext)) stopSelfResult(startId) }
     }
     return START_STICKY
   }
@@ -66,7 +73,7 @@ class WhatsAppService : Service() {
     if (Build.VERSION.SDK_INT < 26) return
     val manager = getSystemService(NotificationManager::class.java)
     manager.createNotificationChannel(
-      NotificationChannel(ReceiveServicePolicy.CHANNEL_ID, "Conexión de WhatsApp", NotificationManager.IMPORTANCE_LOW),
+      NotificationChannel(ReceiveServicePolicy.CHANNEL_ID, getString(R.string.whatsapp_connection_channel_name), NotificationManager.IMPORTANCE_LOW),
     )
   }
 
@@ -78,14 +85,15 @@ class WhatsAppService : Service() {
     val open = PendingIntent.getActivity(this, 0, launch, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, ReceiveServicePolicy.CHANNEL_ID) else Notification.Builder(this)
     return builder
-      .setContentTitle(ReceiveServicePolicy.NOTIFICATION_TITLE)
-      .setSmallIcon(applicationInfo.icon)
+      .setContentTitle(getString(R.string.whatsapp_connection_title))
+      .setSmallIcon(R.drawable.whatsapp_connection_icon)
       .setContentIntent(open)
       .setOngoing(true)
       .build()
   }
 
   override fun onDestroy() {
+    ConnectionRuntime.serviceActive = false
     worker.shutdown() // no persistence here: a killed process never reaches this method
     super.onDestroy()
   }

@@ -47,7 +47,7 @@ class ReceiveServicePolicyTest {
   @Test fun notificationConstantsAreStableAndGeneric() {
     assertEquals("whatsapp-connection", ReceiveServicePolicy.CHANNEL_ID)
     assertEquals(7301, ReceiveServicePolicy.NOTIFICATION_ID)
-    assertFalse(ReceiveServicePolicy.NOTIFICATION_TITLE.any { it.isDigit() })
+    assertEquals("expo.modules.whatsapp.action.STOP_RECEIVING", ReceiveServicePolicy.ACTION_STOP)
   }
 
   // IT-AND-05 / IT-AND-09: local faults withdraw the intent; transient network and buffer pauses do not.
@@ -56,5 +56,13 @@ class ReceiveServicePolicyTest {
     assertTrue(ReceiveServicePolicy.isLocalFault("SESSION_STATE_INVALID"))
     assertFalse(ReceiveServicePolicy.isLocalFault("CONNECTION_FAILED"))
     assertFalse(ReceiveServicePolicy.isLocalFault("RECOVERY_BUFFER_FULL"))
+  }
+
+  // WA-12 review m2: a request ended by Go without a fault (unpaired QR expiry) must not leave the service.
+  @Test fun endedRequestsStopTheService() {
+    assertTrue(ReceiveServicePolicy.endsReceiveRequest("connectionChanged", "disconnected"))
+    assertTrue(ReceiveServicePolicy.endsReceiveRequest("connectionChanged", "sessionExpired"))
+    assertFalse(ReceiveServicePolicy.endsReceiveRequest("connectionChanged", "reconnecting"))
+    assertFalse(ReceiveServicePolicy.endsReceiveRequest("qr", null))
   }
 }
