@@ -241,14 +241,14 @@ describe("review m2 and N1 ended request", () => {
   test("a paused or retried request keeps service and intent; only a missing session counts as ended", () => {
     expect(observe()).toContain("?: false");
   });
-  test("a request-ending error is settled the same way (a failed resume after a pause emits no new state)", () => {
-    expect(policy).toMatch(/event == "error" && endsRequestWithError\(errorCode\) -> EventEffect\.CHECK_REQUEST/);
+  test("an error is settled the same way (a failed resume after a pause emits no new state)", () => {
+    expect(policy).toMatch(/event == "error" && !INFORMATIONAL_ERRORS\.contains\(errorCode\) -> EventEffect\.CHECK_REQUEST/);
     expect(observe()).toContain("effect == ReceiveServicePolicy.EventEffect.NONE");
   });
   // WA-12 s1: informational errors (IDENTITY_UNAVAILABLE after initialize() without connect()) arrive with
   // requestActive=false and must not withdraw the durable intent.
-  test("s1: only CONNECTION_FAILED settles the request; the module passes the error code", () => {
-    expect(policy).toContain('fun endsRequestWithError(errorCode: String?): Boolean = errorCode == "CONNECTION_FAILED"');
+  test("s1: informational errors never settle the request; the module passes the error code", () => {
+    expect(policy).toContain('setOf("RECOVERY_BUFFER_FULL", "HISTORY_LIMIT_REACHED", "IDENTITY_UNAVAILABLE")');
     expect(policy).not.toMatch(/event == "error" -> EventEffect/);
     expect(observe()).toContain('fields["code"] as? String');
   });
@@ -266,5 +266,36 @@ describe("review n1 serviceActive race", () => {
     expect(start).toContain("synchronized(serviceFlagLock) { pendingStarts.incrementAndGet(); serviceActive = true }");
     expect(order(start, "pendingStarts.incrementAndGet()", "serviceActive = true")).toBe(true);
     expect(code(body(service, "override fun onStartCommand"))).toContain("pendingStarts.updateAndGet");
+  });
+});
+
+// WA-14 review M1: the intent is withdrawn if and only if the request ended. A FailLocal during a
+// RECOVERY_BUFFER_FULL pause ends the request with only an error event (the state was already `disconnected`),
+// so every error that can end a request must be settled with Go's requestActive. Only the codes that never
+// change `requested` are informational. This evaluates the policy exactly as written in Kotlin.
+describe("M1 intent withdrawal is decided by requestActive, not by the error code", () => {
+  const informational = () => {
+    const list = /INFORMATIONAL_ERRORS: Set<String> = setOf\(([^)]*)\)/.exec(policy)?.[1];
+    if (list === undefined) throw new Error("INFORMATIONAL_ERRORS is missing from ReceiveServicePolicy.kt");
+    return new Set([...list.matchAll(/"([A-Z_]+)"/g)].map((match) => match[1]));
+  };
+  // Mirrors eventEffect/endsRequest: an error is settled with requestActive unless its code is informational.
+  const withdraws = (code: string, requestActive: boolean) => !informational().has(code) && !requestActive;
+  const codes = ["CONNECTION_FAILED", "CONSUMER_UNAVAILABLE", "NATIVE_CALL_FAILED", "INVALID_INPUT", "SESSION_STORAGE_FAILED", "SESSION_STATE_INVALID", "SESSION_EXPIRED", "RECOVERY_BUFFER_FULL", "HISTORY_LIMIT_REACHED", "IDENTITY_UNAVAILABLE"];
+  const never = ["RECOVERY_BUFFER_FULL", "HISTORY_LIMIT_REACHED", "IDENTITY_UNAVAILABLE"]; // Go never changes `requested` for these
+
+  test("the informational codes are exactly the ones Go publishes without touching the request", () => {
+    expect([...informational()].sort()).toEqual([...never].sort());
+  });
+  test.each(codes)("%s: kept while the request is active or paused, withdrawn once it ended", (code) => {
+    expect(withdraws(code, true)).toBe(false); // active, or paused by RECOVERY_BUFFER_FULL with the request held
+    expect(withdraws(code, false)).toBe(!never.includes(code)); // ended (FailLocal in a pause included)
+  });
+  test("the Kotlin policy routes every non-informational error through requestActive", () => {
+    expect(policy).toMatch(/event == "error" && !INFORMATIONAL_ERRORS\.contains\(errorCode\) -> EventEffect\.CHECK_REQUEST/);
+    expect(policy).not.toContain("endsRequestWithError");
+  });
+  test("a revoked session is final by itself", () => {
+    expect(policy).toMatch(/event == "connectionChanged" && state == "sessionExpired" -> EventEffect\.END/);
   });
 });

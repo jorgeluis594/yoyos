@@ -165,3 +165,67 @@ func TestWA14S1InformationalErrorArrivesWithNoActiveRequest(t *testing.T) {
 		t.Fatal("IDENTITY_UNAVAILABLE was not published")
 	}
 }
+
+// WA-14 review M1. The Android intent is withdrawn if and only if the request ended, read from RequestActive.
+// This pins what Go does for every combination of error and state, which is what that rule relies on:
+// a local fault ends the request in any state and, in a capacity pause (state already `disconnected`),
+// publishes nothing but the error; the informational errors never change the request.
+func TestWA14M1EveryErrorAndStateLeavesRequestActiveAsTheIntentRuleExpects(t *testing.T) {
+	states := map[string]func(t *testing.T, c *Controller, ch chan<- TransportEvent){
+		"active": func(t *testing.T, c *Controller, ch chan<- TransportEvent) {},
+		"paused": func(t *testing.T, c *Controller, ch chan<- TransportEvent) { c.PauseForCapacity() },
+		"revoked": func(t *testing.T, c *Controller, ch chan<- TransportEvent) {
+			ch <- TransportEvent{Kind: "revoked"}
+			for c.State() != SessionExpired {
+				time.Sleep(time.Millisecond)
+			}
+		},
+	}
+	for name, enter := range states {
+		for _, code := range []Code{ConsumerUnavailable, NativeCallFailed, SessionStorageFailed, SessionStateInvalid} {
+			t.Run("fail-local/"+name+"/"+string(code), func(t *testing.T) {
+				transport := newTransport()
+				events := make(chan Event, 32)
+				c := New(func() (Transport, error) { return transport, nil }, func(e Event) { events <- e }, nil)
+				c.Prepare(true)
+				c.Connect()
+				channel := started(t, transport)
+				enter(t, c, channel)
+				time.Sleep(30 * time.Millisecond) // events are delivered asynchronously: let the setup ones arrive first
+				for len(events) > 0 {
+					<-events
+				}
+				c.FailLocal(code)
+				if c.RequestActive() {
+					t.Fatalf("%s/%s: the request is still active after a local fault", name, code)
+				}
+				time.Sleep(30 * time.Millisecond)
+				var seen []Event
+				for len(events) > 0 {
+					seen = append(seen, <-events)
+				}
+				if len(seen) == 0 || seen[0].Error != code {
+					t.Fatalf("%s/%s: the first event after FailLocal must be the error, got %+v", name, code, seen)
+				}
+				if name == "paused" && len(seen) != 1 {
+					t.Fatalf("a pause already was `disconnected`: only the error may follow, got %+v", seen)
+				}
+			})
+		}
+		for _, code := range []Code{RecoveryBufferFull, HistoryLimitReached, IdentityUnavailable} {
+			t.Run("notify/"+name+"/"+string(code), func(t *testing.T) {
+				transport := newTransport()
+				c := New(func() (Transport, error) { return transport, nil }, func(Event) {}, nil)
+				c.Prepare(true)
+				c.Connect()
+				channel := started(t, transport)
+				enter(t, c, channel)
+				before := c.RequestActive()
+				c.Notify(code)
+				if c.RequestActive() != before {
+					t.Fatalf("%s/%s: an informational error changed the request", name, code)
+				}
+			})
+		}
+	}
+}
