@@ -44,6 +44,10 @@ type Error struct {
 	Code    Code
 	Message string
 	native  bool
+	// Needed and Oversize qualify BufferFull: Oversize means the entry cannot fit even
+	// in an empty buffer, so freeing other pending entries will not admit it.
+	Needed   int64
+	Oversize bool
 }
 
 func (e *Error) Error() string                { return string(e.Code) + ": " + e.Message }
@@ -165,6 +169,14 @@ func decodeResponse[T any](raw string, limit uint64) (*T, error) {
 			if err := requireKeys(top["data"], "revision", "sessionRevision"); err != nil {
 				return nil, err
 			}
+		case pendingData:
+			if err := requireKeys(top["data"], "revision", "pending"); err != nil {
+				return nil, err
+			}
+		case retired:
+			if err := requireKeys(top["data"], "revision", "removed"); err != nil {
+				return nil, err
+			}
 		}
 		return out.Data, nil
 	}
@@ -281,6 +293,7 @@ type Store struct {
 	pending                             []PendingRecord
 	stopped                             error
 	readbackErr                         error
+	mappingHook                         func()
 }
 type txn struct {
 	owner       *Store
@@ -503,7 +516,8 @@ func (s *Store) stage(ctx context.Context, mutate func(*txn) error) error {
 
 // PreparePendingInsert stages a complete recovery record with protocol writes.
 // Native assigns createdRevision/createdOrdinal and checks collisions under its writer.
-func (s *Store) PreparePendingInsert(ctx context.Context, p PendingInsert) error {
+// validateInsert applies the pending contract to one insert before anything is staged.
+func (s *Store) validateInsert(p PendingInsert) error {
 	if !validDeliveryID(p.DeliveryID) || p.AccountID != s.accountID {
 		return malformed("invalid pending identity")
 	}
@@ -525,6 +539,13 @@ func (s *Store) PreparePendingInsert(ctx context.Context, p PendingInsert) error
 	if !recoveryMatchesSource(p.Source, p.Recovery) {
 		return malformed("recovery source mismatch")
 	}
+	return nil
+}
+
+func (s *Store) PreparePendingInsert(ctx context.Context, p PendingInsert) error {
+	if err := s.validateInsert(p); err != nil {
+		return err
+	}
 	p.Message = append(json.RawMessage(nil), p.Message...)
 	p.Recovery.Items = append([]RecoveryItem(nil), p.Recovery.Items...)
 	return s.stage(ctx, func(t *txn) error {
@@ -533,30 +554,116 @@ func (s *Store) PreparePendingInsert(ctx context.Context, p PendingInsert) error
 				return malformed("duplicate pending insert")
 			}
 		}
+		if err := s.admit(t, p); err != nil {
+			return err
+		}
 		t.pending = append(t.pending, p)
 		return nil
 	})
 }
-func (s *Store) PreparePendingIdentityUpdate(ctx context.Context, p PendingIdentityUpdate) error {
-	if !validDeliveryID(p.DeliveryID) || p.IdentityState != "resolved" || len(p.Message) == 0 || string(p.Message) == "null" || !json.Valid(p.Message) {
-		return malformed("invalid pending identity update")
+
+// admit applies the global recovery budget to the committed entries plus this transaction.
+func (s *Store) admit(t *txn, p PendingInsert) error {
+	size, err := EntrySize(p)
+	if err != nil {
+		return err
 	}
-	p.Message = append(json.RawMessage(nil), p.Message...)
+	used, err := s.usedBytes(t.pending)
+	if err != nil {
+		return err
+	}
+	switch Decide(s.newRecoveryBytes, used, size) {
+	case Wait:
+		return &Error{Code: BufferFull, Message: "recovery buffer is full", Needed: size}
+	case Reject:
+		return &Error{Code: BufferFull, Message: "entry exceeds recovery buffer", Needed: size, Oversize: true}
+	}
+	return nil
+}
+func (s *Store) usedBytes(staged []PendingInsert) (int64, error) {
+	var used int64
+	for _, record := range s.pending {
+		size, err := EntrySize(record.PendingInsert)
+		if err != nil {
+			return 0, err
+		}
+		used += size
+	}
+	for _, insert := range staged {
+		size, err := EntrySize(insert)
+		if err != nil {
+			return 0, err
+		}
+		used += size
+	}
+	return used, nil
+}
+func (s *Store) PreparePendingIdentityUpdate(ctx context.Context, p PendingIdentityUpdate) error {
+	return s.stage(ctx, func(t *txn) error { return stageIdentityUpdate(t, p) })
+}
+
+// PublishPendingIdentities completes several pendingLid entries in one native
+// publication: each gains its definitive message and identityState together, so a
+// reader sees every entry either unresolved or resolved, never in between.
+func (s *Store) PublishPendingIdentities(ctx context.Context, updates []PendingIdentityUpdate) error {
+	if len(updates) == 0 {
+		return nil
+	}
+	for _, update := range updates {
+		// Malformed input is the caller's mistake and must not latch the store as stopped.
+		if !validIdentityUpdate(update) {
+			return malformed("invalid pending identity update")
+		}
+	}
 	return s.stage(ctx, func(t *txn) error {
-		for _, insert := range t.pending {
-			if insert.DeliveryID == p.DeliveryID {
-				return malformed("identity update targets new pending insert")
+		for _, update := range updates {
+			if err := stageIdentityUpdate(t, update); err != nil {
+				return err
 			}
 		}
-		for _, other := range t.updates {
-			if other.DeliveryID == p.DeliveryID {
-				return malformed("duplicate pending identity update")
-			}
-		}
-		t.updates = append(t.updates, p)
 		return nil
 	})
 }
+
+func validIdentityUpdate(p PendingIdentityUpdate) bool {
+	return validDeliveryID(p.DeliveryID) && p.IdentityState == "resolved" && len(p.Message) > 0 && string(p.Message) != "null" && json.Valid(p.Message)
+}
+
+func stageIdentityUpdate(t *txn, p PendingIdentityUpdate) error {
+	if !validIdentityUpdate(p) {
+		return malformed("invalid pending identity update")
+	}
+	p.Message = append(json.RawMessage(nil), p.Message...)
+	for _, insert := range t.pending {
+		if insert.DeliveryID == p.DeliveryID {
+			return malformed("identity update targets new pending insert")
+		}
+	}
+	for _, other := range t.updates {
+		if other.DeliveryID == p.DeliveryID {
+			return malformed("duplicate pending identity update")
+		}
+	}
+	t.updates = append(t.updates, p)
+	return nil
+}
+
+// AccountID is the canonical LID this store reads and writes.
+func (s *Store) AccountID() string { return s.accountID }
+
+// SetMappingHook registers a callback run after a commit that stored LID mappings. It runs
+// while the store is locked: it must only signal, never call back into the store.
+func (s *Store) SetMappingHook(hook func()) {
+	s.mu.Lock()
+	s.mappingHook = hook
+	s.mu.Unlock()
+}
+func (s *Store) notifyMappings() {
+	if s.mappingHook != nil {
+		s.mappingHook()
+	}
+}
+
 func (s *Store) commit(t *txn) error {
 	if len(t.changes) == 0 && len(t.pending) == 0 && len(t.updates) == 0 {
 		return nil
@@ -580,16 +687,7 @@ func (s *Store) commit(t *txn) error {
 		s.stopped = storageError(err)
 		return s.stopped
 	}
-	request := ApplyRequest{1, s.generationID, s.accountID, strconv.FormatUint(s.sessionRevision, 10), t.changes, t.pending, t.updates}
-	if request.ProtocolChanges == nil {
-		request.ProtocolChanges = []Change{}
-	}
-	if request.PendingInserts == nil {
-		request.PendingInserts = []PendingInsert{}
-	}
-	if request.PendingIdentityUpdates == nil {
-		request.PendingIdentityUpdates = []PendingIdentityUpdate{}
-	}
+	request := s.applyRequest(t)
 	body, err := json.Marshal(request)
 	if err != nil {
 		return err
@@ -636,11 +734,38 @@ func (s *Store) commit(t *txn) error {
 	s.records = t.records
 	s.revision = rev
 	s.sessionRevision = sr
+	// Native assigns revision and ordinal; the budget ignores them, and the next read replaces this view.
+	for _, p := range t.pending {
+		s.pending = append(s.pending, PendingRecord{PendingInsert: p})
+	}
+	for _, update := range t.updates {
+		for i := range s.pending {
+			if s.pending[i].DeliveryID == update.DeliveryID {
+				s.pending[i].IdentityState, s.pending[i].Message = update.IdentityState, update.Message
+			}
+		}
+	}
 	for _, fn := range t.afterCommit {
 		fn()
 	}
 	return nil
 }
+
+// applyRequest is the binding payload of a staged transaction.
+func (s *Store) applyRequest(t *txn) ApplyRequest {
+	request := ApplyRequest{1, s.generationID, s.accountID, strconv.FormatUint(s.sessionRevision, 10), t.changes, t.pending, t.updates}
+	if request.ProtocolChanges == nil {
+		request.ProtocolChanges = []Change{}
+	}
+	if request.PendingInserts == nil {
+		request.PendingInserts = []PendingInsert{}
+	}
+	if request.PendingIdentityUpdates == nil {
+		request.PendingIdentityUpdates = []PendingIdentityUpdate{}
+	}
+	return request
+}
+
 func (s *Store) get(ctx context.Context, recordType string, parts ...string) (any, bool, error) {
 	key, err := protocolstate.EncodeKey(recordType, parts...)
 	if err != nil {
@@ -763,6 +888,12 @@ func (s *Store) DoDecryptionTxn(ctx context.Context, fn func(context.Context) er
 		}
 	}()
 	if err := fn(context.WithValue(ctx, txnKey{}, t)); err != nil {
+		var full *Error
+		if errors.As(err, &full) && full.Code == BufferFull {
+			// Nothing was published; keep the capacity cause so the controller pauses
+			// instead of reporting a storage failure. The generation is still rebuilt.
+			return err
+		}
 		if len(t.changes) > 0 || len(t.pending) > 0 || len(t.updates) > 0 {
 			return failure(StorageFailed, "decryption aborted after staged changes; rebuild client")
 		}
