@@ -900,6 +900,9 @@ public final class NativeStateStore {
     try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: url.path)
     #endif
   }
+  /// Private, persistent, protected and excluded from backups (see `ensureImagesDirectory`).
+  public var imagesDirectory: URL { directory.appendingPathComponent("images", isDirectory: true) }
+
   private func ensureImagesDirectory() throws {
     let images = directory.appendingPathComponent("images", isDirectory: true)
     try FileManager.default.createDirectory(at: images, withIntermediateDirectories: true)
