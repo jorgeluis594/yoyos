@@ -42,16 +42,52 @@ type ImageDownloadResult struct {
 	Code     string
 }
 
+// ImageOperation is an image call already admitted to the ordered queue. Native calls Begin* from
+// one serial context, so admission follows call order, and Wait from anywhere: the long wait for
+// the turn and the transfer happens outside the admitting context.
+type ImageOperation struct {
+	pending *images.Pending
+	code    string
+}
+
+// BeginDownload takes the queue position of a download without waiting for its turn.
+func (s *ImageSession) BeginDownload(messageID, downloadReference string) *ImageOperation {
+	if s == nil || s.service == nil {
+		return &ImageOperation{code: "NOT_INITIALIZED"}
+	}
+	return &ImageOperation{pending: s.service.BeginDownload(messageID, downloadReference)}
+}
+
+// BeginDelete takes the queue position of a deletion without waiting for its turn.
+func (s *ImageSession) BeginDelete(messageID string) *ImageOperation {
+	if s == nil || s.service == nil {
+		return &ImageOperation{code: "NOT_INITIALIZED"}
+	}
+	return &ImageOperation{pending: s.service.BeginDelete(messageID)}
+}
+
+// Wait runs the operation in its position. A deletion answers with Code only.
+func (o *ImageOperation) Wait() *ImageDownloadResult {
+	if o == nil || o.pending == nil {
+		code := "NOT_INITIALIZED"
+		if o != nil && o.code != "" {
+			code = o.code
+		}
+		return &ImageDownloadResult{Code: code}
+	}
+	image, err := o.pending.Wait()
+	if err != nil {
+		return &ImageDownloadResult{Code: imageCode(err.Code, "NATIVE_CALL_FAILED")}
+	}
+	return &ImageDownloadResult{Path: image.Path, MimeType: image.MIMEType, Size: image.Size}
+}
+
 // Download returns a verified image, reusing a complete file before any network.
 func (s *ImageSession) Download(messageID, downloadReference string) *ImageDownloadResult {
 	if s == nil || s.service == nil {
 		return &ImageDownloadResult{Code: "NOT_INITIALIZED"}
 	}
-	image, err := s.service.Download(messageID, downloadReference)
-	if err != nil {
-		return &ImageDownloadResult{Code: imageCode(err.Code, "NATIVE_CALL_FAILED")}
-	}
-	return &ImageDownloadResult{Path: image.Path, MimeType: image.MIMEType, Size: image.Size}
+	return s.BeginDownload(messageID, downloadReference).Wait()
 }
 
 // Delete removes the complete file; an absent file is success. It returns a public code or "".

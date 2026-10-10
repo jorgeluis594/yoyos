@@ -82,7 +82,8 @@ type Image struct {
 // Stats reports accounting, including what could not be removed.
 type Stats struct {
 	UsedBytes       int64
-	Files           int
+	Files           int // regular files only
+	Unreadable      int // foreign entries that could not be read at startup
 	CleanupFailures int
 	DeleteFailures  int
 }
@@ -100,6 +101,7 @@ type Service struct {
 	network         Network
 	cleanupFailures int
 	deleteFailures  int
+	unreadable      int
 }
 
 // Open prepares the directory, accounts every existing file and removes leftover partials. A
@@ -127,16 +129,15 @@ func Open(options Options) (*Service, *Error) {
 	}
 	for _, entry := range entries {
 		if entry.IsDir() {
-			size, err := s.directorySize(filepath.Join(s.dir, entry.Name()))
-			if err != nil {
-				return nil, fail(DownloadFailed, err)
-			}
+			size, unreadable := s.directorySize(filepath.Join(s.dir, entry.Name()))
+			s.unreadable += unreadable
 			s.budget.put(entry.Name()+"/", size) // never removed here, but it counts
 			continue
 		}
 		info, err := entry.Info()
 		if err != nil {
-			return nil, fail(DownloadFailed, err)
+			s.unreadable++ // a foreign entry that cannot be read must not stop the module
+			continue
 		}
 		name := entry.Name()
 		if strings.HasSuffix(name, partialSuffix) {
@@ -151,28 +152,27 @@ func Open(options Options) (*Service, *Error) {
 }
 
 // directorySize adds up the files below a directory so foreign leftovers count against the budget.
-func (s *Service) directorySize(path string) (int64, error) {
+// What cannot be read is skipped and reported, never fatal: one foreign entry must not stop the
+// module from initializing.
+func (s *Service) directorySize(path string) (total int64, unreadable int) {
 	entries, err := s.fs.ReadDir(path)
 	if err != nil {
-		return 0, err
+		return 0, 1
 	}
-	var total int64
 	for _, entry := range entries {
 		if entry.IsDir() {
-			size, err := s.directorySize(filepath.Join(path, entry.Name()))
-			if err != nil {
-				return 0, err
-			}
-			total += size
+			size, skipped := s.directorySize(filepath.Join(path, entry.Name()))
+			total, unreadable = total+size, unreadable+skipped
 			continue
 		}
 		info, err := entry.Info()
 		if err != nil {
-			return 0, err
+			unreadable++
+			continue
 		}
 		total += info.Size()
 	}
-	return total, nil
+	return total, unreadable
 }
 
 // SetNetwork connects the service to the current connection source; nil disconnects it.
@@ -195,11 +195,16 @@ func (s *Service) SetLimit(limit int64) bool {
 
 func (s *Service) Stats() Stats {
 	s.budget.mu.Lock()
-	used, files := s.budget.usedLocked(), len(s.budget.files)
+	used, files := s.budget.usedLocked(), 0
+	for name := range s.budget.files {
+		if !strings.HasSuffix(name, "/") {
+			files++
+		}
+	}
 	s.budget.mu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return Stats{UsedBytes: used, Files: files, CleanupFailures: s.cleanupFailures, DeleteFailures: s.deleteFailures}
+	return Stats{UsedBytes: used, Files: files, CleanupFailures: s.cleanupFailures, DeleteFailures: s.deleteFailures, Unreadable: s.unreadable}
 }
 
 type turn struct {
@@ -243,16 +248,57 @@ func fileName(messageID string) string {
 
 func (s *Service) path(name string) string { return filepath.Join(s.dir, name) }
 
-// Download returns the verified image for a descriptor, reusing a valid complete file first.
-func (s *Service) Download(messageID, downloadReference string) (Image, *Error) {
+// Pending is an operation already admitted to the queue. Admission order is fixed by the order of
+// the Begin calls; Wait may be called from any goroutine, in any order, and blocks until the
+// operation ran. A caller that needs FIFO semantics calls Begin from one ordered context and
+// waits elsewhere.
+type Pending struct {
+	run    func() (Image, *Error)
+	once   sync.Once
+	image  Image
+	failed *Error
+}
+
+// Wait runs the operation in its queue position and returns its result; it is idempotent.
+func (p *Pending) Wait() (Image, *Error) {
+	p.once.Do(func() { p.image, p.failed = p.run() })
+	return p.image, p.failed
+}
+
+func resolved(err *Error) *Pending {
+	return &Pending{run: func() (Image, *Error) { return Image{}, err }}
+}
+
+// BeginDownload validates the reference and takes a queue position without waiting for it.
+func (s *Service) BeginDownload(messageID, downloadReference string) *Pending {
 	d, perr := ParseDescriptor(messageID, downloadReference)
 	if perr != nil {
-		return Image{}, perr
+		return resolved(perr)
 	}
 	t := s.admit()
-	<-t.wait
-	defer close(t.done)
-	return s.download(d, t.admitted)
+	return &Pending{run: func() (Image, *Error) {
+		<-t.wait
+		defer close(t.done)
+		return s.download(d, t.admitted)
+	}}
+}
+
+// BeginDelete validates the message ID and takes a queue position without waiting for it.
+func (s *Service) BeginDelete(messageID string) *Pending {
+	if normalization.ValidateMessageID(messageID) != nil {
+		return resolved(fail(InvalidInput, nil))
+	}
+	t := s.admit()
+	return &Pending{run: func() (Image, *Error) {
+		<-t.wait
+		defer close(t.done)
+		return Image{}, s.remove(messageID)
+	}}
+}
+
+// Download returns the verified image for a descriptor, reusing a valid complete file first.
+func (s *Service) Download(messageID, downloadReference string) (Image, *Error) {
+	return s.BeginDownload(messageID, downloadReference).Wait()
 }
 
 func (s *Service) download(d Descriptor, admitted any) (Image, *Error) {
@@ -457,12 +503,11 @@ func (s *Service) withDeadline(parent context.Context) (context.Context, func())
 // Delete removes the complete file and any partial left for the message. An absent file is
 // success; any other failure is IMAGE_DELETE_FAILED and the bytes keep counting.
 func (s *Service) Delete(messageID string) *Error {
-	if normalization.ValidateMessageID(messageID) != nil {
-		return fail(InvalidInput, nil)
-	}
-	t := s.admit()
-	<-t.wait
-	defer close(t.done)
+	_, err := s.BeginDelete(messageID).Wait()
+	return err
+}
+
+func (s *Service) remove(messageID string) *Error {
 	base := fileName(messageID)
 	var failures []error
 	names := append([]string{base + completeSuffix}, s.budget.partialsOf(base)...)

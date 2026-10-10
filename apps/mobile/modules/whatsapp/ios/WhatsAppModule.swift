@@ -351,26 +351,33 @@ public class WhatsAppModule: Module {
       return success()
     }
     // Image calls can block for a whole download (60 s) and may wait in Go's own queue. Expo's default
-    // AsyncFunction queue is one serial queue shared by every function and module, so they run on
-    // ImageOperations.queue: confirmMessageStored, disconnect and logout never wait behind a
-    // download, and a disconnect cancels the transfer immediately. Go returns the published file
-    // path, never its bytes.
-    AsyncFunction("downloadImage") { (reference: [String: Any]) -> [String: Any] in
+    // AsyncFunction queue is one serial queue shared by every function and module, so the closures
+    // below only hop to ImageOperations and return: confirmMessageStored, disconnect and logout never
+    // wait behind a download, and a disconnect cancels the transfer immediately. Admission order,
+    // which Go fixes in beginDownload/beginDelete, follows call order because one serial queue
+    // admits. Go returns the published file path, never its bytes.
+    AsyncFunction("downloadImage") { (reference: [String: Any], promise: Promise) in
       let runtime = ConnectionRuntime.shared
       runtime.lock.lock(); let images = runtime.images; runtime.lock.unlock()
-      guard let images else { return failure("NOT_INITIALIZED") }
-      guard let messageId = reference["messageId"] as? String, let downloadReference = reference["downloadReference"] as? String else { return failure("INVALID_INPUT") }
-      guard let result = images.download(messageId, downloadReference: downloadReference) else { return failure("NATIVE_CALL_FAILED") }
-      if !result.code.isEmpty { return failure(imageCode(result.code)) }
-      return success(["uri": URL(fileURLWithPath: result.path).absoluteString, "mimeType": result.mimeType, "size": result.size])
-    }.runOnQueue(ImageOperations.queue)
-    AsyncFunction("deleteDownloadedImage") { (messageId: String) -> [String: Any] in
+      guard let images else { promise.resolve(failure("NOT_INITIALIZED")); return }
+      guard let messageId = reference["messageId"] as? String, let downloadReference = reference["downloadReference"] as? String else {
+        promise.resolve(failure("INVALID_INPUT")); return
+      }
+      ImageOperations.submit(begin: { images.beginDownload(messageId, downloadReference: downloadReference) }, wait: { operation -> [String: Any] in
+        guard let result = operation?.wait() else { return failure("NATIVE_CALL_FAILED") }
+        if !result.code.isEmpty { return failure(imageCode(result.code)) }
+        return success(["uri": URL(fileURLWithPath: result.path).absoluteString, "mimeType": result.mimeType, "size": result.size])
+      }, completion: { promise.resolve($0) })
+    }
+    AsyncFunction("deleteDownloadedImage") { (messageId: String, promise: Promise) in
       let runtime = ConnectionRuntime.shared
       runtime.lock.lock(); let images = runtime.images; runtime.lock.unlock()
-      guard let images else { return failure("NOT_INITIALIZED") }
-      let code = images.delete(messageId)
-      return code.isEmpty ? success() : failure(imageCode(code))
-    }.runOnQueue(ImageOperations.queue)
+      guard let images else { promise.resolve(failure("NOT_INITIALIZED")); return }
+      ImageOperations.submit(begin: { images.beginDelete(messageId) }, wait: { operation -> [String: Any] in
+        guard let code = operation?.wait()?.code else { return failure("NATIVE_CALL_FAILED") }
+        return code.isEmpty ? success() : failure(imageCode(code))
+      }, completion: { promise.resolve($0) })
+    }
 
     AsyncFunction("probe") { (value: String, failCallback: Bool) -> [String: String] in
       guard let result = YYWhatsAppGoBridgeProbe(ProbeStorage(fail: failCallback), value) else {

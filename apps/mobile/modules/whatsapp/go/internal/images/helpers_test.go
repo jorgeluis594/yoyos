@@ -255,6 +255,16 @@ type faultyFS struct {
 	removeError func(path string) error
 	renameError error
 	readError   error
+	dirError    func(path string) error
+}
+
+func (f *faultyFS) ReadDir(path string) ([]fs.DirEntry, error) {
+	if f.dirError != nil {
+		if err := f.dirError(path); err != nil {
+			return nil, err
+		}
+	}
+	return f.osFS.ReadDir(path)
 }
 
 func (f *faultyFS) Remove(path string) error {

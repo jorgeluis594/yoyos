@@ -336,10 +336,11 @@ class WhatsAppModule : Module() {
       success()
     }
     // Image calls can block for a whole download (60 s) and may wait in Go's own queue. Expo's default
-    // AsyncFunction queue is one thread shared by every function and module, so they run as
-    // coroutines on ImageOperations' dispatcher: confirmMessageStored, disconnect and logout never
-    // wait behind a download, and a disconnect cancels the transfer immediately. Go returns the
-    // published file path, never its bytes.
+    // AsyncFunction queue is one thread shared by every function and module, so the long wait runs
+    // elsewhere (ImageOperations): confirmMessageStored, disconnect and logout never wait behind a
+    // download, and a disconnect cancels the transfer immediately. Admission order, which Go fixes in
+    // beginDownload/beginDelete, follows call order because one dedicated thread admits. Go returns
+    // the published file path, never its bytes.
     AsyncFunction("downloadImage") Coroutine { reference: Map<String, Any?> ->
       val images = synchronized(ConnectionRuntime.lock) { ConnectionRuntime.images }
       val messageId = reference["messageId"] as? String
@@ -347,9 +348,9 @@ class WhatsAppModule : Module() {
       when {
         images == null -> failure("NOT_INITIALIZED")
         messageId == null || downloadReference == null -> failure("INVALID_INPUT")
-        else -> ImageOperations.run {
+        else -> ImageOperations.run({ images.beginDownload(messageId, downloadReference) }) { operation ->
           try {
-            val result = images.download(messageId, downloadReference)
+            val result = operation.wait()
             when {
               result == null -> failure("NATIVE_CALL_FAILED")
               result.code.isNotEmpty() -> failure(imageCode(result.code))
@@ -361,9 +362,9 @@ class WhatsAppModule : Module() {
     }
     AsyncFunction("deleteDownloadedImage") Coroutine { messageId: String ->
       val images = synchronized(ConnectionRuntime.lock) { ConnectionRuntime.images }
-      if (images == null) failure("NOT_INITIALIZED") else ImageOperations.run {
+      if (images == null) failure("NOT_INITIALIZED") else ImageOperations.run({ images.beginDelete(messageId) }) { operation ->
         try {
-          val code = images.delete(messageId)
+          val code = operation.wait().code
           if (code.isEmpty()) success() else failure(imageCode(code))
         } catch (_: Exception) { failure("NATIVE_CALL_FAILED") }
       }
