@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image } from "expo-image";
@@ -53,9 +53,11 @@ export default function CatalogScreen() {
   const itemsRef = useRef(items);
   const hasLoadedRef = useRef(false);
   const loadingMoreRef = useRef(false);
-  const query: Query = { search: search.trim(), stock, sort };
+  const query = useMemo<Query>(() => ({ search: search.trim(), stock, sort }), [search, stock, sort]);
+  const currentKey = queryKey(query);
   const queryRef = useRef(query);
-  useEffect(() => { itemsRef.current = items; queryRef.current = query; });
+  useEffect(() => { itemsRef.current = items; }, [items]);
+  useEffect(() => { queryRef.current = query; }, [query]);
   const invalidateRequests = useCallback(() => { requestId.current++; }, []);
 
   const reload = useCallback(async (current: Query, preserve: boolean) => {
@@ -65,7 +67,7 @@ export default function CatalogScreen() {
     setError(null);
     setRetryMode("refresh");
     if (!preserve) setLoading(true);
-    else setRefreshing(true);
+    setRefreshing(preserve);
     const pages: ProductListItem[] = [];
     let pageTotal = 0;
     for (let page = 1; page <= count; page++) {
@@ -94,10 +96,9 @@ export default function CatalogScreen() {
   }, []);
 
   useEffect(() => {
-    const current = { search: search.trim(), stock, sort };
-    const timer = setTimeout(() => { void reload(current, false); }, 250);
-    return () => { clearTimeout(timer); invalidateRequests(); };
-  }, [search, stock, sort, reload, invalidateRequests]);
+    const timer = setTimeout(() => { void reload(query, false); }, 250);
+    return () => { clearTimeout(timer); invalidateRequests(); setRefreshing(false); };
+  }, [query, reload, invalidateRequests]);
 
   useFocusEffect(useCallback(() => {
     if (hasLoadedRef.current) void reload(queryRef.current, true);
@@ -129,10 +130,10 @@ export default function CatalogScreen() {
   };
 
   if (state.status !== "ready") return null;
-  const pending = loading || loadedKey !== queryKey(query);
+  const pending = loading || loadedKey !== currentKey;
   const filtered = stock !== "all";
   const price = (item: ProductListItem) => formatMoney(item.price.amount, item.price.currency, locale);
-  const detail = (item: ProductListItem) => item.variantCount > 1 ? t('catalogVariants', { count: item.variantCount }) : item.sku ? `SKU ${item.sku}` : t('noSku');
+  const detail = (item: ProductListItem) => item.variantCount > 1 ? t('variantCount', { count: item.variantCount }) : item.sku ? `SKU ${item.sku}` : t('noSku');
 
   const header = <View style={styles.header}>
     <View style={styles.business}>
@@ -157,7 +158,7 @@ export default function CatalogScreen() {
       <Input value={search} onChangeText={setSearch} accessibilityLabel={t('searchProducts')} placeholder={t('nameOrSku')}
         returnKeyType="search" autoCapitalize="none" autoCorrect={false} style={styles.searchInput} />
       <View pointerEvents="none" style={styles.searchIcon}><SymbolView name={{ ios: "magnifyingglass", android: "search" }} size={22} tintColor={theme.textSecondary} /></View>
-      {search ? <Pressable accessibilityRole="button" accessibilityLabel={t('clearSearch')} onPress={() => setSearch("")} style={styles.clearSearch}>
+      {search ? <Pressable accessibilityRole="button" accessibilityLabel={t('clearSearchText')} onPress={() => setSearch("")} style={styles.clearSearch}>
         <SymbolView name={{ ios: "xmark.circle.fill", android: "cancel" }} size={20} tintColor={theme.textSecondary} />
       </Pressable> : null}
     </View>
@@ -186,6 +187,7 @@ export default function CatalogScreen() {
 
   const empty = pending ? <ScreenState status="loading" title={t('loadingProducts')} />
     : error ? <ScreenState status="error" title={t('catalogLoadTitle')} description={t('retryConnection')} onRetry={() => void reload(queryRef.current, false)} />
+    : query.search && filtered ? <ScreenState status="no-results" title={t('catalogSearchFilterEmpty')} description={t('catalogSearchFilterEmptyHint')} action={<Button variant="secondary" onPress={() => { setSearch(""); setStock("all"); }}>{t('catalogClearFilters')}</Button>} />
     : query.search ? <ScreenState status="no-results" title={t('noResults')} description={t('searchOtherProduct')} action={<Button variant="secondary" onPress={() => setSearch("")}>{t('clearSearch')}</Button>} />
     : filtered ? <ScreenState status="no-results" title={t('catalogFilterEmpty')} description={t('catalogFilterEmptyHint')} action={<Button variant="secondary" onPress={() => setStock("all")}>{t('catalogShowAll')}</Button>} />
     : <ScreenState status="empty" title={t('noProducts')} description={t('createFirstProduct')} />;

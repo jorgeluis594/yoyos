@@ -1,4 +1,5 @@
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { FlatList } from 'react-native';
 import { ok } from '@shared/functional';
 import CatalogScreen from '@mobile/features/products/presentation/catalog-screen';
 import i18n from '@mobile/i18n';
@@ -28,8 +29,8 @@ test('creation remains available with an empty catalog and without search result
   fireEvent.changeText(screen.getByLabelText('Buscar productos'), 'camisa');
   await screen.findByText('Sin resultados');
   expect(screen.getByRole('button', { name: 'Agregar producto' })).toBeTruthy();
-  expect(screen.getAllByRole('button', { name: 'Limpiar búsqueda' })).toHaveLength(2);
-  fireEvent.press(screen.getAllByRole('button', { name: 'Limpiar búsqueda' })[1]);
+  expect(screen.getByRole('button', { name: 'Borrar texto de búsqueda' })).toBeTruthy();
+  fireEvent.press(screen.getByRole('button', { name: 'Limpiar búsqueda' }));
   await screen.findByText('Aún no hay productos');
   expect(screen.getByLabelText('Buscar productos').props.value).toBe('');
 });
@@ -85,4 +86,43 @@ test('stock filters and sort reload the catalog and explain empty filtered resul
   fireEvent.press(screen.getByRole('button', { name: 'Ordenar por: Recientes' }));
   await waitFor(() => expect(mockLoadProducts).toHaveBeenLastCalledWith({ sort: 'name', page: 1, pageSize: 20 }));
   expect(await screen.findByRole('button', { name: 'Ordenar por: Nombre A–Z' })).toBeTruthy();
+});
+
+test('search combined with a stock filter offers clearing both when nothing matches', async () => {
+  mockLoadProducts.mockResolvedValue(ok({ items: [], total: 0 }));
+  const screen = render(<CatalogScreen />);
+  await screen.findByText('Aún no hay productos');
+  fireEvent.press(screen.getByRole('button', { name: 'Agotados' }));
+  fireEvent.changeText(screen.getByLabelText('Buscar productos'), 'camisa');
+  await screen.findByText('Sin resultados con esta búsqueda y filtro');
+  expect(mockLoadProducts).toHaveBeenLastCalledWith({ search: 'camisa', stock: 'sold_out', page: 1, pageSize: 20 });
+  expect(screen.queryByRole('button', { name: 'Limpiar búsqueda' })).toBeNull();
+
+  fireEvent.press(screen.getByRole('button', { name: 'Limpiar filtros' }));
+  await screen.findByText('Aún no hay productos');
+  expect(mockLoadProducts).toHaveBeenLastCalledWith({ page: 1, pageSize: 20 });
+  expect(screen.getByLabelText('Buscar productos').props.value).toBe('');
+  expect(screen.getByRole('button', { name: 'Todos' }).props.accessibilityState).toMatchObject({ selected: true });
+});
+
+test('a filter change clears a pull-to-refresh it supersedes', async () => {
+  mockLoadProducts.mockResolvedValue(ok({ items: [product], total: 1 }));
+  const screen = render(<CatalogScreen />);
+  await screen.findByText('Camisa de algodón de manga larga');
+  const list = () => screen.UNSAFE_getByType(FlatList);
+
+  mockLoadProducts.mockReturnValueOnce(new Promise(() => undefined));
+  act(() => { list().props.refreshControl.props.onRefresh(); });
+  expect(list().props.refreshControl.props.refreshing).toBe(true);
+
+  mockLoadProducts.mockResolvedValue(ok({ items: [], total: 0 }));
+  fireEvent.press(screen.getByRole('button', { name: 'Agotados' }));
+  await screen.findByText('No hay productos con este filtro');
+  expect(list().props.refreshControl.props.refreshing).toBe(false);
+});
+
+test('rows with several variants show the shared variant count', async () => {
+  mockLoadProducts.mockResolvedValue(ok({ items: [{ ...product, variantCount: 2 }], total: 1 }));
+  const screen = render(<CatalogScreen />);
+  expect(await screen.findByText('12 en stock · 2 variantes')).toBeTruthy();
 });
