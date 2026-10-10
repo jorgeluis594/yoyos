@@ -31,8 +31,8 @@
   {
     "id": "UT-API-06",
     "task": "WA-11",
-    "status": "parcial",
-    "reason": "La prueba principal (client.options.test.ts, test.each de opciones mal formadas) no la detecta el script; solo quedan enlazadas la validacion de ID de confirmacion y de referencias de imagen.",
+    "status": "pasa",
+    "reason": "",
     "tests": [
       {
         "file": "client.options.test.ts",
@@ -40,13 +40,6 @@
         "via": "cite",
         "native": false,
         "result": "pass"
-      },
-      {
-        "file": "scripts/trace-matrix.test.ts",
-        "test": "scanSource UT-API-06 rejects %s options",
-        "via": "cite",
-        "native": false,
-        "result": "none"
       },
       {
         "file": "client.test.ts",
@@ -614,20 +607,6 @@
     "reason": "No se varia la revision ni el cambio de dispositivo; el caso historico/vivo solo en normalizacion pura.",
     "tests": [
       {
-        "file": "scripts/trace-matrix.test.ts",
-        "test": "catalog and assignment (the 242 cases) 68 unit and 174 integration cases, each owned by exactly one task",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
-      },
-      {
-        "file": "scripts/trace-matrix.test.ts",
-        "test": "scanSource a leading comment attaches to the test below it, a body comment to its own test",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
-      },
-      {
         "file": "go/internal/normalization/normalization_test.go",
         "test": "TestStableMessageIdentityAndVerifiedLID",
         "via": "link",
@@ -1164,8 +1143,8 @@
   {
     "id": "UT-HIS-06",
     "task": "WA-08",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Auditoria WA-14: Solo se prueban los limites de entrada y descompresion; el limite de recuperacion (buffer) no se evalua por separado en las pruebas enlazadas.",
     "tests": [
       {
         "file": "go/internal/history/bounded_test.go",
@@ -1481,8 +1460,8 @@
   {
     "id": "UT-IMG-03",
     "task": "WA-10",
-    "status": "parcial",
-    "reason": "parte controlada pasa; el caso exige plataforma real",
+    "status": "pasa",
+    "reason": "",
     "tests": [
       {
         "file": "go/internal/images/service_test.go",
@@ -1684,55 +1663,6 @@
     "reason": "Solo con resolvedor de modulo nulo en Jest; no se ejecuta en un build real sin el modulo, Expo Go ni plataforma no soportada.",
     "tests": [
       {
-        "file": "scripts/trace-matrix.test.ts",
-        "test": "scanSource Kotlin counts only @Test functions",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
-      },
-      {
-        "file": "scripts/trace-matrix.test.ts",
-        "test": "evaluate pass, fail, missing result and no test map to distinct statuses",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
-      },
-      {
-        "file": "scripts/trace-matrix.test.ts",
-        "test": "evaluate a declared gap downgrades a passing case to partial",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
-      },
-      {
-        "file": "scripts/trace-matrix.test.ts",
-        "test": "evaluate a source-shape jest test never counts as a pass of the behaviour",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
-      },
-      {
-        "file": "scripts/trace-matrix.test.ts",
-        "test": "inputs links are validated at the JSON boundary",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
-      },
-      {
-        "file": "scripts/trace-matrix.test.ts",
-        "test": "inputs a link to a missing test or unknown case is a problem, not a silent gap",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
-      },
-      {
-        "file": "scripts/trace-matrix.test.ts",
-        "test": "inputs the markdown states that no results means nothing passes",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
-      },
-      {
         "file": "client.test.ts",
         "test": "private image files a call before initialization or without the module keeps its own error",
         "via": "link",
@@ -1762,20 +1692,6 @@
     "reason": "El retiro de listeners antes de inicializar no se prueba en esta prueba de NOT_INITIALIZED; solo con cliente TypeScript y modulo simulado, no se prueba en las fachadas nativas.",
     "tests": [
       {
-        "file": "scripts/trace-matrix.test.ts",
-        "test": "scanSource Kotlin counts only @Test functions",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
-      },
-      {
-        "file": "scripts/trace-matrix.test.ts",
-        "test": "evaluate pass, fail, missing result and no test map to distinct statuses",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
-      },
-      {
         "file": "client.test.ts",
         "test": "registers the consumer with native only once local storage is prepared",
         "via": "link",
@@ -1797,20 +1713,6 @@
     "status": "parcial",
     "reason": "Cadena completa Result/evento solo con piezas por separado (cliente simulado y controlador Go); no hay prueba nativa que una connect aceptado y su error posterior de punta a punta.",
     "tests": [
-      {
-        "file": "scripts/trace-matrix.test.ts",
-        "test": "scanSource Kotlin counts only @Test functions",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
-      },
-      {
-        "file": "scripts/trace-matrix.test.ts",
-        "test": "evaluate pass, fail, missing result and no test map to distinct statuses",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
-      },
       {
         "file": "client.test.ts",
         "test": "coalesces preparation, accepts connect before QR, and retries failed preparation",
@@ -1847,20 +1749,6 @@
     "status": "parcial",
     "reason": "Solo la fachada TypeScript con eventos simulados; el rechazo en Kotlin/Swift/Go de JSON o version incompatible y que un evento invalido no confirme la entrega ni borre estado no tiene prueba propia aqui.",
     "tests": [
-      {
-        "file": "scripts/trace-matrix.test.ts",
-        "test": "scanSource Kotlin counts only @Test functions",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
-      },
-      {
-        "file": "scripts/trace-matrix.test.ts",
-        "test": "evaluate pass, fail, missing result and no test map to distinct statuses",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
-      },
       {
         "file": "client.options.test.ts",
         "test": "an invalid native answer to initialize does not mark the options as applied",
@@ -1931,7 +1819,7 @@
     "id": "IT-API-06",
     "task": "WA-11",
     "status": "parcial",
-    "reason": "Kotlin/Swift no ejecutados aqui; no hay prueba que llame directamente a WhatsAppModule.initialize/confirm con opciones o IDs mal formados sin pasar por la fachada TypeScript. / La prueba de opciones en la fachada (test.each de client.options.test.ts) no la detecta el script; los limites nativos solo con almacen nativo (no ejecutado) y sin llamar a WhatsAppModule directamente.",
+    "reason": "Kotlin/Swift no ejecutados aqui; ninguna prueba llama a WhatsAppModule.initialize/confirm con opciones o IDs mal formados sin pasar por la fachada TypeScript (que si se prueba, incluido el test.each de opciones).",
     "tests": [
       {
         "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
@@ -2009,19 +1897,12 @@
   {
     "id": "IT-API-08",
     "task": "WA-06",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Auditoria WA-14: Nada ejecuta la afirmación de que red y disco no bloquean el hilo de interfaz (capa nativa Kotlin/Swift); solo se prueban sobre JSON, sin bytes y entrega de uno en uno.",
     "tests": [
       {
         "file": "client.test.ts",
         "test": "rejects a delivery carrying image bytes",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
-      },
-      {
-        "file": "client.test.ts",
-        "test": "a failed local retirement is reported and does not announce a disconnected account",
         "via": "cite",
         "native": false,
         "result": "pass"
@@ -2154,8 +2035,8 @@
   {
     "id": "IT-INI-05",
     "task": "WA-06",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Auditoria WA-14: No se afirma que la conexion quede bloqueada tras SESSION_STATE_INVALID (el test Go solo recupera y confirma; el de TS usa un mock nativo).",
     "tests": [
       {
         "file": "client.test.ts",
@@ -2176,8 +2057,8 @@
   {
     "id": "IT-INI-06",
     "task": "WA-05",
-    "status": "no ejecutado-nativo",
-    "reason": "solo código Kotlin/Swift sin ejecutar",
+    "status": "parcial",
+    "reason": "Las pruebas nativas solo demuestran que el almacen se niega a abrir (sin regenerar estado); no se prueba que eso bloquee recuperacion y connect ni que no se emitan datos ni se haga limpieza selectiva, y no estan ejecutadas.",
     "tests": [
       {
         "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
@@ -2199,6 +2080,20 @@
         "via": "link",
         "native": true,
         "result": "none"
+      },
+      {
+        "file": "client.test.ts",
+        "test": "keeps local confirmation available for invalid session and validates inputs before mutation",
+        "via": "link",
+        "native": false,
+        "result": "pass"
+      },
+      {
+        "file": "go/internal/protocolstore/store_test.go",
+        "test": "TestEmptyReadAndReadFailure",
+        "via": "link",
+        "native": false,
+        "result": "pass"
       },
       {
         "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
@@ -2226,8 +2121,8 @@
   {
     "id": "IT-INI-07",
     "task": "WA-09",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Auditoria WA-14: La prueba solo comprueba REMOTE_LOGOUT_UNCONFIRMED y que connect sigue bloqueado (SESSION_STATE_INVALID); no verifica la conservacion de pendientes ni que la nueva vinculacion quede habilitada tras la retirada local.",
     "tests": [
       {
         "file": "go/bridge/logout_test.go",
@@ -2268,13 +2163,6 @@
     "tests": [
       {
         "file": "../../src/composition/whatsapp-options.test.ts",
-        "test": "UT-CFG-02 fails on a %s value instead of using the default",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
-      },
-      {
-        "file": "../../src/composition/whatsapp-options.test.ts",
         "test": "IT-CFG-01 native and Go sources do not read the environment variable",
         "via": "cite",
         "native": false,
@@ -2307,7 +2195,7 @@
     "id": "IT-CFG-03",
     "task": "WA-12",
     "status": "parcial",
-    "reason": "parte controlada pasa; la parte nativa no se ejecutó",
+    "reason": "solo pruebas de forma sobre el código fuente",
     "tests": [
       {
         "file": "android/src/androidTest/java/expo/modules/whatsapp/ReceiveIntentInstrumentedTest.kt",
@@ -2329,21 +2217,14 @@
         "via": "cite",
         "native": false,
         "result": "pass"
-      },
-      {
-        "file": "scripts/trace-matrix.test.ts",
-        "test": "evaluate native-only evidence is not executed; native plus passing controlled evidence is partial",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
       }
     ]
   },
   {
     "id": "IT-CFG-04",
     "task": "WA-11",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Auditoria WA-14: Reinicio de iOS/Android, restauración de opciones publicadas sin sesión, no usar state.next, misma revisión sin borrar sesión/pendientes y relectura de state.bin son nativos y el test TS usa fakeNative; solo se prueba la lógica del cliente.",
     "tests": [
       {
         "file": "client.options.test.ts",
@@ -2364,8 +2245,8 @@
   {
     "id": "IT-CFG-05",
     "task": "WA-11",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Auditoria WA-14: El rechazo nativo se simula con un mock; la regla CanUpdateOptions no se ejecuta con cliente activo en conexion/QR/reconexion/pausa por buffer, y la idempotencia se prueba tras disconnect, no con cliente activo.",
     "tests": [
       {
         "file": "client.options.test.ts",
@@ -2430,7 +2311,7 @@
     "id": "IT-CFG-07",
     "task": "WA-11",
     "status": "parcial",
-    "reason": "La cota de lectura se prueba en Kotlin/Swift (no ejecutados aqui); no hay prueba que rechace longitudes arbitrarias por encima de la cota ni que una actualizacion de configuracion publique durante el drenado.",
+    "reason": "La cota de lectura y el rechazo de longitudes arbitrarias se prueban en Go (TestITCFG07ReducedBudgetKeepsTheReadBoundOfTheSnapshot) y en Kotlin/Swift (no ejecutados); falta una prueba que publique una actualizacion de configuracion mientras drena.",
     "tests": [
       {
         "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
@@ -2522,8 +2403,8 @@
   {
     "id": "IT-CFG-09",
     "task": "WA-11",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Auditoria WA-14: Solo se prueba que el presupuesto se comparte entre cuentas; la segunda afirmacion (aumentar recuperacion no sube los limites internos de historial/sesion ni garantiza recuperar recursos rechazados) no se ejecuta.",
     "tests": [
       {
         "file": "go/internal/receive/budget_reduction_test.go",
@@ -2625,7 +2506,7 @@
     "id": "IT-CON-04",
     "task": "WA-05",
     "status": "parcial",
-    "reason": "Reloj controlado y websockets locales falsos; no contra servidores reales de WhatsApp.",
+    "reason": "Reloj controlado y websockets locales falsos; no se prueba la frontera exacta de 30 s ni que un intento no emparejado no se reconecte por si mismo.",
     "tests": [
       {
         "file": "go/internal/connection/controller_test.go",
@@ -2805,13 +2686,20 @@
   {
     "id": "IT-CON-10",
     "task": "WA-09",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Solo el orden de admision y la retirada de generacion estan probados; no se asserta que parar no espere un commit futuro del consumidor. ",
     "tests": [
       {
         "file": "client.test.ts",
         "test": "connect and disconnect wait for a logout in flight",
         "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
+      {
+        "file": "go/internal/connection/logout_test.go",
+        "test": "TestUTCON10AdmissionOrderAndGenerationRetirement",
+        "via": "link",
         "native": false,
         "result": "pass"
       }
@@ -3013,6 +2901,20 @@
     "status": "parcial",
     "reason": "Solo unitario. identity.classifyEvent trata ErrInvalidTimestamp como Excluded (sin prueba), lo que parece contradecir 'detener conservando recuperacion'; no hay prueba de lote historico afectado.",
     "tests": [
+      {
+        "file": "go/internal/history/prepare_test.go",
+        "test": "TestITMSG07AnInvalidTimestampInHistoryFailsTheBatchInsteadOfExcludingIt",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
+      {
+        "file": "go/internal/receive/journey_test.go",
+        "test": "TestITMSG07LiveContentWithAnInvalidTimestampIsKeptAndNotAcknowledged",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
       {
         "file": "go/internal/normalization/normalization_test.go",
         "test": "TestTimestampFailurePreservesSource",
@@ -3277,28 +3179,14 @@
         "via": "cite",
         "native": false,
         "result": "pass"
-      },
-      {
-        "file": "scripts/trace-matrix.test.ts",
-        "test": "catalog and assignment (the 242 cases) 68 unit and 174 integration cases, each owned by exactly one task",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
-      },
-      {
-        "file": "scripts/trace-matrix.test.ts",
-        "test": "scanSource an ID folded into a Go test name is recognised",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
       }
     ]
   },
   {
     "id": "IT-ID-09",
     "task": "WA-09",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Auditoria WA-14: El test Go solo ejecuta logout con un mapeo disponible; no hay reinicio, no se prueba que los restantes no venzan ni que no se resuelvan con credenciales de otra cuenta.",
     "tests": [
       {
         "file": "go/bridge/logout_test.go",
@@ -3312,8 +3200,8 @@
   {
     "id": "IT-ID-10",
     "task": "WA-09",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Auditoria WA-14: No se prueba que disconnect() conserve la cuenta ni que cambiar de cuenta exija logout completado, ni la separacion de archivos de imagen anteriores; solo pendientes tras Logout con almacenamiento simulado.",
     "tests": [
       {
         "file": "go/bridge/logout_test.go",
@@ -3334,8 +3222,8 @@
   {
     "id": "IT-DEL-01",
     "task": "WA-06",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "parte controlada pasa; el caso exige plataforma real",
     "tests": [
       {
         "file": "go/internal/receive/ordering_test.go",
@@ -3356,8 +3244,8 @@
   {
     "id": "IT-DEL-02",
     "task": "WA-06",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Auditoria WA-14: El 'crash' se simula con un fake nativo que falla el apply (failApply); la atomicidad/descarte del commit nativo real y la posible reentrega remota segun protocolo no se ejecutan.",
     "tests": [
       {
         "file": "go/internal/receive/ordering_test.go",
@@ -3503,8 +3391,8 @@
   {
     "id": "IT-DEL-09",
     "task": "WA-06",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Auditoria WA-14: Solo se repite la confirmacion de la misma entrega; no se prueba la confirmacion de otra entrega ni que la repetida no libere el turno de la entrega actual.",
     "tests": [
       {
         "file": "go/internal/receive/recovery_test.go",
@@ -3518,8 +3406,8 @@
   {
     "id": "IT-DEL-10",
     "task": "WA-06",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Auditoria WA-14: No se verifica que confirmar conserve la imagen descargada (el test no incluye imagen); tampoco que no haya cuerpos en otra colección más allá de buscar el texto en state/pending.",
     "tests": [
       {
         "file": "go/internal/receive/recovery_test.go",
@@ -3650,8 +3538,8 @@
   {
     "id": "IT-SUB-05",
     "task": "WA-06",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Auditoria WA-14: El test de carrera solo comprueba que el pendiente queda retirado; no afirma ausencia de dos recorridos simultáneos ni de espera de una entrega ya retirada, y el confirmar 'justo antes' no se ordena de forma determinista.",
     "tests": [
       {
         "file": "go/bridge/delivery_test.go",
@@ -3694,8 +3582,8 @@
   {
     "id": "IT-SUB-07",
     "task": "WA-06",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Auditoria WA-14: El Go solo cubre fallo local de callback; disconnect/logout se prueban unicamente en TS contra un mock nativo (connect no llamado), asi que la parada explicita nativa tras disconnect/logout y la condicion 'almacenamiento sigue validado' no se ejecutan.",
     "tests": [
       {
         "file": "client.test.ts",
@@ -3738,8 +3626,8 @@
   {
     "id": "IT-BUF-01",
     "task": "WA-06",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Auditoria WA-14: Solo se mide que el texto cuente dos veces (mensaje y recovery); no se prueba que metadatos, codificación, cifrado y reservas de identidad cuenten, ni que los bytes de imágenes descargadas queden fuera.",
     "tests": [
       {
         "file": "go/internal/receive/buffer_test.go",
@@ -3782,8 +3670,8 @@
   {
     "id": "IT-BUF-03",
     "task": "WA-06",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Auditoria WA-14: Se prueba la reanudacion al caber la entrada rechazada, pero no 'solo si sigue solicitado', ni el respeto de parada explicita ni de expiracion.",
     "tests": [
       {
         "file": "go/bridge/capacity_test.go",
@@ -3826,8 +3714,8 @@
   {
     "id": "IT-HIS-01",
     "task": "WA-08",
-    "status": "parcial",
-    "reason": "parte controlada pasa; el caso exige plataforma real",
+    "status": "pasa",
+    "reason": "",
     "tests": [
       {
         "file": "go/internal/history/prepare_test.go",
@@ -3960,13 +3848,6 @@
     "reason": "",
     "tests": [
       {
-        "file": "client.test.ts",
-        "test": "identity unavailable is an informational error that does not change connection state",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
-      },
-      {
         "file": "go/internal/history/amplification_test.go",
         "test": "TestAmplificationOfUncountedRepeatedFieldsIsNotMaterialized",
         "via": "cite",
@@ -3995,13 +3876,6 @@
     "status": "pasa",
     "reason": "",
     "tests": [
-      {
-        "file": "client.test.ts",
-        "test": "identity unavailable is an informational error that does not change connection state",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
-      },
       {
         "file": "go/internal/protocolstore/history_test.go",
         "test": "TestAdmitHistoryBatchCapacityRules",
@@ -4079,8 +3953,8 @@
   {
     "id": "IT-HIS-09",
     "task": "WA-08",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Auditoria WA-14: Solo se mide heap de Go (inflate/decode/prepare/admit/snapshot); las copias del binding (cruce gomobile/nativo) y la RAM real del proceso/dispositivo no se miden, y los umbrales son techos de regresion.",
     "tests": [
       {
         "file": "go/internal/history/amplification_test.go",
@@ -4329,8 +4203,8 @@
   {
     "id": "IT-FMT-05",
     "task": "WA-02",
-    "status": "no ejecutado-nativo",
-    "reason": "solo código Kotlin/Swift sin ejecutar",
+    "status": "parcial",
+    "reason": "Solo se comprueba que dos nonces consecutivos difieren y que el ciphertext de sesion se conserva; no se prueba que el nonce no derive de la revision ni que sessionRevision <= revision. Nativo, no ejecutado aqui.",
     "tests": [
       {
         "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
@@ -4338,6 +4212,13 @@
         "via": "link",
         "native": true,
         "result": "none"
+      },
+      {
+        "file": "go/internal/protocolstore/store_test.go",
+        "test": "TestProtocolWriteAfterIndependentPendingConfirmation",
+        "via": "link",
+        "native": false,
+        "result": "pass"
       },
       {
         "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
@@ -4452,8 +4333,8 @@
   {
     "id": "IT-FMT-10",
     "task": "WA-02",
-    "status": "no ejecutado-nativo",
-    "reason": "solo código Kotlin/Swift sin ejecutar",
+    "status": "parcial",
+    "reason": "parte controlada pasa; la parte nativa no se ejecutó",
     "tests": [
       {
         "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
@@ -4468,6 +4349,13 @@
         "via": "link",
         "native": true,
         "result": "none"
+      },
+      {
+        "file": "go/internal/protocolstore/store_test.go",
+        "test": "TestProtocolWriteAfterIndependentPendingConfirmation",
+        "via": "link",
+        "native": false,
+        "result": "pass"
       },
       {
         "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
@@ -4491,20 +4379,6 @@
     "status": "parcial",
     "reason": "La durabilidad se demuestra por inyeccion de fallos en cada fase y relectura; no hay prueba fisica de fsync. Nativo, no ejecutado aqui.",
     "tests": [
-      {
-        "file": "scripts/trace-matrix.test.ts",
-        "test": "scanSource Kotlin counts only @Test functions",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
-      },
-      {
-        "file": "scripts/trace-matrix.test.ts",
-        "test": "evaluate a link adds a test that cites nothing; Android cases cap at partial",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
-      },
       {
         "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
         "test": "injectedPublicationFailuresPreserveAReadableRevision",
@@ -4955,8 +4829,8 @@
   {
     "id": "IT-KEY-05",
     "task": "WA-02",
-    "status": "no ejecutado-nativo",
-    "reason": "solo código Kotlin/Swift sin ejecutar",
+    "status": "parcial",
+    "reason": "No se asserta el codigo SESSION_STATE_INVALID (solo que lance); Android no prueba 'artefactos sin registro' (iOS si); IDs incoherentes sin prueba. Nativo no ejecutado aqui.",
     "tests": [
       {
         "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
@@ -4971,6 +4845,20 @@
         "via": "link",
         "native": true,
         "result": "none"
+      },
+      {
+        "file": "go/bridge/capacity_test.go",
+        "test": "TestStorageFailureDoesNotSilentlyRebuild",
+        "via": "link",
+        "native": false,
+        "result": "pass"
+      },
+      {
+        "file": "go/internal/protocolstore/store_test.go",
+        "test": "TestEmptyReadAndReadFailure",
+        "via": "link",
+        "native": false,
+        "result": "pass"
       },
       {
         "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
@@ -5104,6 +4992,13 @@
     "reason": "solo código Kotlin/Swift sin ejecutar",
     "tests": [
       {
+        "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+        "test": "revisionsAndAccountIdsRequireCanonicalForms",
+        "via": "link",
+        "native": true,
+        "result": "none"
+      },
+      {
         "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
         "test": "testPublishedStateSurvivesReopenAndIgnoresNextFile",
         "via": "link",
@@ -5122,8 +5017,8 @@
   {
     "id": "IT-OUT-01",
     "task": "WA-09",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Auditoria WA-14: Solo se prueba el controlador Go (unlink antes de cerrar); la secuencia nativa session null + clave pendiente de borrar, eliminar y retirar marcador, y el exito local solo tras completarla, no se ejecuta.",
     "tests": [
       {
         "file": "go/internal/connection/logout_test.go",
@@ -5144,8 +5039,8 @@
   {
     "id": "IT-OUT-02",
     "task": "WA-09",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Auditoria WA-14: Solo cubre el controlador Go (timeout de 15 s sin error); la retirada local de credenciales, no restaurarlas y el código REMOTE_LOGOUT_UNCONFIRMED hacia la app son nativos y no se ejecutan.",
     "tests": [
       {
         "file": "go/internal/connection/logout_test.go",
@@ -5160,14 +5055,28 @@
         "via": "cite",
         "native": false,
         "result": "pass"
+      },
+      {
+        "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+        "test": "interruptedRetirementCompletesBeforeAnotherSession",
+        "via": "link",
+        "native": true,
+        "result": "none"
+      },
+      {
+        "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+        "test": "testInterruptedRetirementCompletesBeforeAnotherSession",
+        "via": "link",
+        "native": true,
+        "result": "none"
       }
     ]
   },
   {
     "id": "IT-OUT-03",
     "task": "WA-09",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Auditoria WA-14: Solo se simula un fallo de preparacion en Go y un mock en TS; no se recorren fallo de publicacion, borrado de clave ni retiro del marcador, ni se comprueba que se bloquee la vinculacion nueva (el test solo verifica que Connect no devuelve SessionStateInvalid) ni la relectura de pasos comprometidos.",
     "tests": [
       {
         "file": "client.test.ts",
@@ -5239,8 +5148,8 @@
   {
     "id": "IT-OUT-06",
     "task": "WA-09",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Auditoria WA-14: Solo se verifican pendientes y mappings con almacenamiento nativo falso; no se comprueba que logout conserve mensajes del consumidor ni imagenes.",
     "tests": [
       {
         "file": "go/bridge/logout_test.go",
@@ -5480,20 +5389,6 @@
     "status": "parcial",
     "reason": "Solo con almacenamiento simulado en Go; la parte nativa de commit conjunto no se ejecuta aqui.",
     "tests": [
-      {
-        "file": "scripts/trace-matrix.test.ts",
-        "test": "catalog and assignment (the 242 cases) 68 unit and 174 integration cases, each owned by exactly one task",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
-      },
-      {
-        "file": "scripts/trace-matrix.test.ts",
-        "test": "scanSource a leading comment attaches to the test below it, a body comment to its own test",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
-      },
       {
         "file": "go/internal/protocolstore/receive_test.go",
         "test": "TestCapturedReceiveCommitsRecoveryWithSignalState",
@@ -5854,8 +5749,8 @@
   {
     "id": "IT-IMG-03",
     "task": "WA-10",
-    "status": "parcial",
-    "reason": "parte controlada pasa; el caso exige plataforma real",
+    "status": "pasa",
+    "reason": "",
     "tests": [
       {
         "file": "go/internal/images/service_test.go",
@@ -5913,8 +5808,8 @@
   {
     "id": "IT-IMG-06",
     "task": "WA-10",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Auditoria WA-14: No se ejecuta la verificación de integridad previa a publicar ni el no añadir a galería/sin permisos (nativo); el test TS solo valida forma de la respuesta con mock.",
     "tests": [
       {
         "file": "client.test.ts",
@@ -5980,6 +5875,13 @@
         "via": "cite",
         "native": false,
         "result": "pass"
+      },
+      {
+        "file": "go/bridge/images_test.go",
+        "test": "TestB1DisconnectAndLogoutDoNotWaitForADownload",
+        "via": "link",
+        "native": false,
+        "result": "pass"
       }
     ]
   },
@@ -6001,8 +5903,8 @@
   {
     "id": "IT-IMG-10",
     "task": "WA-10",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Auditoria WA-14: La prueba usa un fake de red en el servicio: los cambios de host internos compartiendo los 60 s no se ejercitan en este caso (solo en la prueba del cliente fijado, no asignada aqui).",
     "tests": [
       {
         "file": "go/internal/images/service_test.go",
@@ -6055,6 +5957,13 @@
         "via": "cite",
         "native": false,
         "result": "pass"
+      },
+      {
+        "file": "go/internal/images/service_test.go",
+        "test": "TestUTIMG14OrdersDownloadAndDeleteByAdmission",
+        "via": "link",
+        "native": false,
+        "result": "pass"
       }
     ]
   },
@@ -6097,8 +6006,8 @@
   {
     "id": "IT-IMG-15",
     "task": "WA-10",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Auditoria WA-14: Solo se simula disconnect del fake de red; no se recorren logout ni retirada de generacion reales ni la cancelacion sin esperar la cola con solicitudes encoladas.",
     "tests": [
       {
         "file": "go/internal/images/service_test.go",
@@ -6141,8 +6050,8 @@
   {
     "id": "IT-IMG-17",
     "task": "WA-10",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Auditoria WA-14: La supervivencia de archivos tras logout no se ejecuta con Logout real: el test de bridge usa Disconnect y el de servicio solo desconecta la red; el de TS es un mock.",
     "tests": [
       {
         "file": "client.test.ts",
@@ -6171,7 +6080,7 @@
     "id": "IT-AND-01",
     "task": "WA-12",
     "status": "parcial",
-    "reason": "parte controlada pasa; el caso exige plataforma real",
+    "reason": "solo pruebas de forma sobre el código fuente",
     "tests": [
       {
         "file": "android-service.source.test.ts",
@@ -6183,20 +6092,6 @@
       {
         "file": "android-service.source.test.ts",
         "test": "IT-AND-01 manifest the class named by the manifest exists",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
-      },
-      {
-        "file": "scripts/trace-matrix.test.ts",
-        "test": "scanSource Kotlin counts only @Test functions",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
-      },
-      {
-        "file": "scripts/trace-matrix.test.ts",
-        "test": "evaluate a link adds a test that cites nothing; Android cases cap at partial",
         "via": "cite",
         "native": false,
         "result": "pass"
@@ -6714,9 +6609,17 @@
   {
     "id": "IT-BLD-01",
     "task": "WA-01",
-    "status": "no implementado",
+    "status": "parcial",
     "reason": "build-go.sh fija Go 1.26.5, whatsmeow y x/mobile con GOTOOLCHAIN=local y GOPROXY=off, pero ninguna prueba lo ejerce; un test shell con go falso podria hacerlo sin toolchain nativa.",
-    "tests": []
+    "tests": [
+      {
+        "file": "scripts/test-build-go-contract.sh",
+        "test": "test-build-go-contract.sh",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      }
+    ]
   },
   {
     "id": "IT-BLD-02",
@@ -6724,6 +6627,13 @@
     "status": "parcial",
     "reason": "Parcial: solo se prueba que, con un go falso, los destinos fallan. No se prueba que Android no requiera Xcode ni que all no omita plataformas.",
     "tests": [
+      {
+        "file": "scripts/test-build-go-contract.sh",
+        "test": "test-build-go-contract.sh",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
       {
         "file": "scripts/test-build-go-cleanup.sh",
         "test": "test-build-go-cleanup.sh",
@@ -6736,9 +6646,17 @@
   {
     "id": "IT-BLD-03",
     "task": "WA-01",
-    "status": "no implementado",
+    "status": "parcial",
     "reason": "El parche se comprueba con git apply --check sobre una copia en scripts/test-go.sh (exige cache de modulos de Go); build-go.sh no tiene prueba propia del fallo de parche.",
-    "tests": []
+    "tests": [
+      {
+        "file": "scripts/test-build-go-contract.sh",
+        "test": "test-build-go-contract.sh",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      }
+    ]
   },
   {
     "id": "IT-BLD-04",
@@ -6746,6 +6664,13 @@
     "status": "parcial",
     "reason": "Parcial: se prueba el borrado de artefactos tras un fallo; no el aborto de build.gradle/WhatsApp.podspec sin artefacto (Gradle/CocoaPods, no ejecutados).",
     "tests": [
+      {
+        "file": "scripts/test-build-go-contract.sh",
+        "test": "test-build-go-contract.sh",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
       {
         "file": "scripts/test-build-go-cleanup.sh",
         "test": "test-build-go-cleanup.sh",
@@ -6758,16 +6683,53 @@
   {
     "id": "IT-BLD-05",
     "task": "WA-01",
-    "status": "no implementado",
+    "status": "parcial",
     "reason": "La verificacion de ABIs, prefijos y minimos esta en build-go.sh y exige gomobile/NDK/Xcode: no se ejecuto.",
-    "tests": []
+    "tests": [
+      {
+        "file": "scripts/test-build-go-contract.sh",
+        "test": "test-build-go-contract.sh",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      }
+    ]
   },
   {
     "id": "IT-BLD-06",
     "task": "WA-01",
-    "status": "no implementado",
+    "status": "parcial",
     "reason": "Exige que Expo, Gradle o CocoaPods carguen el modulo: no se ejecuto.",
-    "tests": []
+    "tests": [
+      {
+        "file": "build.contract.test.ts",
+        "test": "IT-BLD-06 the local module is integrated with the app's own packages Expo autolinking registers the Android module class and project",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
+      {
+        "file": "build.contract.test.ts",
+        "test": "IT-BLD-06 the local module is integrated with the app's own packages Expo autolinking registers the iOS pod and module class",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
+      {
+        "file": "build.contract.test.ts",
+        "test": "IT-BLD-06 the local module is integrated with the app's own packages the module brings no second React Native or package installation",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
+      {
+        "file": "build.contract.test.ts",
+        "test": "IT-BLD-06 the local module is integrated with the app's own packages the consuming builds vendor the local artifacts and stop when they are missing",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      }
+    ]
   },
   {
     "id": "IT-BLD-07",
@@ -6779,9 +6741,38 @@
   {
     "id": "IT-BLD-08",
     "task": "WA-01",
-    "status": "no implementado",
+    "status": "parcial",
     "reason": "build-info.txt y los .gitignore registran y excluyen artefactos; ninguna prueba lo comprueba.",
-    "tests": []
+    "tests": [
+      {
+        "file": "build.contract.test.ts",
+        "test": "IT-BLD-08 generated artifacts and tool output stay out of Git %s is ignored",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
+      {
+        "file": "build.contract.test.ts",
+        "test": "IT-BLD-08 generated artifacts and tool output stay out of Git nothing generated is tracked",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
+      {
+        "file": "build.contract.test.ts",
+        "test": "IT-BLD-08 generated artifacts and tool output stay out of Git the build records the effective sources and tools, not a claim about the binaries",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
+      {
+        "file": "scripts/test-build-go-contract.sh",
+        "test": "test-build-go-contract.sh",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      }
+    ]
   },
   {
     "id": "IT-SEG-01",
@@ -6841,20 +6832,6 @@
       {
         "file": "go/bridge/security_test.go",
         "test": "TestITSEG01GoSourcesNeverLogOrPrint",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
-      },
-      {
-        "file": "scripts/trace-matrix.test.ts",
-        "test": "scanSource Go tests key on their package, jest tests on their file and full title",
-        "via": "cite",
-        "native": false,
-        "result": "pass"
-      },
-      {
-        "file": "scripts/trace-matrix.test.ts",
-        "test": "scanSource a describe title cites for the tests inside it",
         "via": "cite",
         "native": false,
         "result": "pass"
@@ -6935,7 +6912,7 @@
     "id": "IT-SEG-02",
     "task": "WA-14",
     "status": "parcial",
-    "reason": "Comprobacion estatica del codigo fuente y del manifest mas un recorrido con modulo nativo simulado; no se observa trafico de red real ni un receptor servidor ausente en un build.",
+    "reason": "Comprobacion estatica del codigo fuente y del manifest; no se observa trafico de red real ni un build sin receptor servidor.",
     "tests": [
       {
         "file": "wa14.contract.test.ts",

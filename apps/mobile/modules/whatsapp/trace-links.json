@@ -525,6 +525,12 @@
    "test": "TestITIOS01SuspendStopsTheGenerationAndLateResultsAreDiscarded"
   },
   {
+   "id": "IT-CON-10",
+   "file": "go/internal/connection/logout_test.go",
+   "test": "TestUTCON10AdmissionOrderAndGenerationRetirement",
+   "note": "orden de admision y retirada de generacion"
+  },
+  {
    "id": "IT-EVT-01",
    "file": "client.test.ts",
    "test": "replays only current state and unexpired QR to each new listener"
@@ -730,6 +736,12 @@
   },
   {
    "id": "IT-FMT-05",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestProtocolWriteAfterIndependentPendingConfirmation",
+   "note": "una confirmacion no toca la sesion"
+  },
+  {
+   "id": "IT-FMT-05",
    "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
    "test": "testRecoveryOnlyCommitPreservesSessionCiphertext"
   },
@@ -803,6 +815,12 @@
   },
   {
    "id": "IT-FMT-10",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestProtocolWriteAfterIndependentPendingConfirmation",
+   "note": "token de revision esperado"
+  },
+  {
+   "id": "IT-FMT-10",
    "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
    "test": "testConcurrentStoreInstancesCannotOverwriteAnOlderSnapshot"
   },
@@ -831,6 +849,18 @@
    "id": "IT-ID-05",
    "file": "go/internal/receive/history_source_test.go",
    "test": "TestHistoryPendingIdentityResolvesLikeLiveContent"
+  },
+  {
+   "id": "IT-IMG-08",
+   "file": "go/bridge/images_test.go",
+   "test": "TestB1DisconnectAndLogoutDoNotWaitForADownload",
+   "note": "Logout y Disconnect no esperan una descarga"
+  },
+  {
+   "id": "IT-IMG-13",
+   "file": "go/internal/images/service_test.go",
+   "test": "TestUTIMG14OrdersDownloadAndDeleteByAdmission",
+   "note": "descargas y borrados ordenados por admision"
   },
   {
    "id": "IT-INI-01",
@@ -910,6 +940,17 @@
    "id": "IT-INI-06",
    "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
    "test": "malformedEnvelopeNeverPromotesTemporaryOrCreatesEmptyState"
+  },
+  {
+   "id": "IT-INI-06",
+   "file": "client.test.ts",
+   "test": "keeps local confirmation available for invalid session and validates inputs before mutation"
+  },
+  {
+   "id": "IT-INI-06",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestEmptyReadAndReadFailure",
+   "note": "una lectura fallida no es vacia"
   },
   {
    "id": "IT-INI-06",
@@ -998,6 +1039,16 @@
   },
   {
    "id": "IT-KEY-05",
+   "file": "go/bridge/capacity_test.go",
+   "test": "TestStorageFailureDoesNotSilentlyRebuild"
+  },
+  {
+   "id": "IT-KEY-05",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestEmptyReadAndReadFailure"
+  },
+  {
+   "id": "IT-KEY-05",
    "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
    "test": "testCorruptionNeverBecomesEmptyInstall"
   },
@@ -1060,6 +1111,11 @@
    "id": "IT-KEY-09",
    "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
    "test": "testPublishedStateSurvivesReopenAndIgnoresNextFile"
+  },
+  {
+   "id": "IT-KEY-10",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "revisionsAndAccountIdsRequireCanonicalForms"
   },
   {
    "id": "IT-KEY-10",
@@ -1134,6 +1190,18 @@
    "id": "IT-MSG-09",
    "file": "go/internal/receive/history_admission_test.go",
    "test": "TestITHIS01AdmitsTheWholeBatchAndItsChangesBeforeEmitting"
+  },
+  {
+   "id": "IT-OUT-02",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "interruptedRetirementCompletesBeforeAnotherSession",
+   "note": "retirada nativa de la sesion (no ejecutada)"
+  },
+  {
+   "id": "IT-OUT-02",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testInterruptedRetirementCompletesBeforeAnotherSession",
+   "note": "retirada nativa de la sesion (no ejecutada)"
   },
   {
    "id": "IT-OUT-04",
@@ -1948,7 +2016,11 @@
   },
   {
    "id": "IT-API-06",
-   "note": "Kotlin/Swift no ejecutados aqui; no hay prueba que llame directamente a WhatsAppModule.initialize/confirm con opciones o IDs mal formados sin pasar por la fachada TypeScript. / La prueba de opciones en la fachada (test.each de client.options.test.ts) no la detecta el script; los limites nativos solo con almacen nativo (no ejecutado) y sin llamar a WhatsAppModule directamente."
+   "note": "Kotlin/Swift no ejecutados aqui; ninguna prueba llama a WhatsAppModule.initialize/confirm con opciones o IDs mal formados sin pasar por la fachada TypeScript (que si se prueba, incluido el test.each de opciones)."
+  },
+  {
+   "id": "IT-API-08",
+   "note": "Auditoria WA-14: Nada ejecuta la afirmación de que red y disco no bloquean el hilo de interfaz (capa nativa Kotlin/Swift); solo se prueban sobre JSON, sin bytes y entrega de uno en uno."
   },
   {
    "id": "IT-BLD-01",
@@ -2023,16 +2095,36 @@
    "note": "No se prueba que el writer nativo no entre a Go/JS bajo su bloqueo, ni confirmar/detener con recepcion o historial bloqueados en el consumidor."
   },
   {
+   "id": "IT-BUF-01",
+   "note": "Auditoria WA-14: Solo se mide que el texto cuente dos veces (mensaje y recovery); no se prueba que metadatos, codificación, cifrado y reservas de identidad cuenten, ni que los bytes de imágenes descargadas queden fuera."
+  },
+  {
+   "id": "IT-BUF-03",
+   "note": "Auditoria WA-14: Se prueba la reanudacion al caber la entrada rechazada, pero no 'solo si sigue solicitado', ni el respeto de parada explicita ni de expiracion."
+  },
+  {
+   "id": "IT-CFG-04",
+   "note": "Auditoria WA-14: Reinicio de iOS/Android, restauración de opciones publicadas sin sesión, no usar state.next, misma revisión sin borrar sesión/pendientes y relectura de state.bin son nativos y el test TS usa fakeNative; solo se prueba la lógica del cliente."
+  },
+  {
+   "id": "IT-CFG-05",
+   "note": "Auditoria WA-14: El rechazo nativo se simula con un mock; la regla CanUpdateOptions no se ejecuta con cliente activo en conexion/QR/reconexion/pausa por buffer, y la idempotencia se prueba tras disconnect, no con cliente activo."
+  },
+  {
    "id": "IT-CFG-06",
    "note": "Cubre pendientes (Go receive, Kotlin, Swift) e imagenes (Go images), pero 'inicializar aceptara el nuevo limite' se prueba por separado; las partes nativas no se ejecutan aqui y la lectura de imagenes tras reinicio solo con sistema de archivos temporal de Go."
   },
   {
    "id": "IT-CFG-07",
-   "note": "La cota de lectura se prueba en Kotlin/Swift (no ejecutados aqui); no hay prueba que rechace longitudes arbitrarias por encima de la cota ni que una actualizacion de configuracion publique durante el drenado."
+   "note": "La cota de lectura y el rechazo de longitudes arbitrarias se prueban en Go (TestITCFG07ReducedBudgetKeepsTheReadBoundOfTheSnapshot) y en Kotlin/Swift (no ejecutados); falta una prueba que publique una actualizacion de configuracion mientras drena."
   },
   {
    "id": "IT-CFG-08",
    "note": "Serializacion en TypeScript y espera de descarga cancelada en Go; que un fallo de publicacion incierto se resuelva leyendo lo publicado solo esta en el almacen nativo (no ejecutado) y no en la ruta de limites de imagenes."
+  },
+  {
+   "id": "IT-CFG-09",
+   "note": "Auditoria WA-14: Solo se prueba que el presupuesto se comparte entre cuentas; la segunda afirmacion (aumentar recuperacion no sube los limites internos de historial/sesion ni garantiza recuperar recursos rechazados) no se ejecuta."
   },
   {
    "id": "IT-CON-01",
@@ -2048,7 +2140,7 @@
   },
   {
    "id": "IT-CON-04",
-   "note": "Reloj controlado y websockets locales falsos; no contra servidores reales de WhatsApp."
+   "note": "Reloj controlado y websockets locales falsos; no se prueba la frontera exacta de 30 s ni que un intento no emparejado no se reconecte por si mismo."
   },
   {
    "id": "IT-CON-05",
@@ -2069,6 +2161,22 @@
   {
    "id": "IT-CON-09",
    "note": "Reloj simulado; no se prueba una reanudacion real del dispositivo con tiempo monotonico del sistema ni que un timeout de E/S de almacenamiento no se interprete como rollback."
+  },
+  {
+   "id": "IT-CON-10",
+   "note": "Solo el orden de admision y la retirada de generacion estan probados; no se asserta que parar no espere un commit futuro del consumidor. "
+  },
+  {
+   "id": "IT-DEL-02",
+   "note": "Auditoria WA-14: El 'crash' se simula con un fake nativo que falla el apply (failApply); la atomicidad/descarte del commit nativo real y la posible reentrega remota segun protocolo no se ejecutan."
+  },
+  {
+   "id": "IT-DEL-09",
+   "note": "Auditoria WA-14: Solo se repite la confirmacion de la misma entrega; no se prueba la confirmacion de otra entrega ni que la repetida no libere el turno de la entrega actual."
+  },
+  {
+   "id": "IT-DEL-10",
+   "note": "Auditoria WA-14: No se verifica que confirmar conserve la imagen descargada (el test no incluye imagen); tampoco que no haya cuerpos en otra colección más allá de buscar el texto en state/pending."
   },
   {
    "id": "IT-EVT-01",
@@ -2123,6 +2231,34 @@
    "note": "Se prueba que retirar K_session no vuelve ilegibles los pendientes; no hay prueba de que Go/JS no reciban claves de almacenamiento. Nativo, no ejecutado aqui."
   },
   {
+   "id": "IT-HIS-09",
+   "note": "Auditoria WA-14: Solo se mide heap de Go (inflate/decode/prepare/admit/snapshot); las copias del binding (cruce gomobile/nativo) y la RAM real del proceso/dispositivo no se miden, y los umbrales son techos de regresion."
+  },
+  {
+   "id": "IT-ID-09",
+   "note": "Auditoria WA-14: El test Go solo ejecuta logout con un mapeo disponible; no hay reinicio, no se prueba que los restantes no venzan ni que no se resuelvan con credenciales de otra cuenta."
+  },
+  {
+   "id": "IT-ID-10",
+   "note": "Auditoria WA-14: No se prueba que disconnect() conserve la cuenta ni que cambiar de cuenta exija logout completado, ni la separacion de archivos de imagen anteriores; solo pendientes tras Logout con almacenamiento simulado."
+  },
+  {
+   "id": "IT-IMG-06",
+   "note": "Auditoria WA-14: No se ejecuta la verificación de integridad previa a publicar ni el no añadir a galería/sin permisos (nativo); el test TS solo valida forma de la respuesta con mock."
+  },
+  {
+   "id": "IT-IMG-10",
+   "note": "Auditoria WA-14: La prueba usa un fake de red en el servicio: los cambios de host internos compartiendo los 60 s no se ejercitan en este caso (solo en la prueba del cliente fijado, no asignada aqui)."
+  },
+  {
+   "id": "IT-IMG-15",
+   "note": "Auditoria WA-14: Solo se simula disconnect del fake de red; no se recorren logout ni retirada de generacion reales ni la cancelacion sin esperar la cola con solicitudes encoladas."
+  },
+  {
+   "id": "IT-IMG-17",
+   "note": "Auditoria WA-14: La supervivencia de archivos tras logout no se ejecuta con Logout real: el test de bridge usa Disconnect y el de servicio solo desconecta la red; el de TS es un mock."
+  },
+  {
    "id": "IT-INI-01",
    "note": "Preparacion nativa real del almacenamiento y de la recuperacion no ejecutada en dispositivo; el inicio real de vinculacion por QR tras connect no se prueba con whatsmeow real."
   },
@@ -2139,8 +2275,16 @@
    "note": "Solo se prueba que la fachada reintenta; la revalidacion del estado afectado y el descarte de memoria no confirmada en la capa nativa no estan probados."
   },
   {
+   "id": "IT-INI-05",
+   "note": "Auditoria WA-14: No se afirma que la conexion quede bloqueada tras SESSION_STATE_INVALID (el test Go solo recupera y confirma; el de TS usa un mock nativo)."
+  },
+  {
    "id": "IT-INI-06",
    "note": "Las pruebas nativas solo demuestran que el almacen se niega a abrir (sin regenerar estado); no se prueba que eso bloquee recuperacion y connect ni que no se emitan datos ni se haga limpieza selectiva, y no estan ejecutadas."
+  },
+  {
+   "id": "IT-INI-07",
+   "note": "Auditoria WA-14: La prueba solo comprueba REMOTE_LOGOUT_UNCONFIRMED y que connect sigue bloqueado (SESSION_STATE_INVALID); no verifica la conservacion de pendientes ni que la nueva vinculacion quede habilitada tras la retirada local."
   },
   {
    "id": "IT-KEY-01",
@@ -2168,7 +2312,7 @@
   },
   {
    "id": "IT-KEY-08",
-   "note": "Solo claves no exportables y sin autenticacion por uso, en emulador. Falta verificar almacenamiento protegido por credenciales (CE) y el comportamiento antes/despues del primer desbloqueo (requiere dispositivo)."
+   "note": "Solo claves no exportables y sin autenticacion por uso, en emulador. Falta verificar almacenamiento protegido por credenciales (CE) y el comportamiento antes/despues del primer desbloqueo (requiere dispositivo). Ninguna prueba, ni nativa, cubre el comportamiento antes del primer desbloqueo."
   },
   {
    "id": "IT-KEY-09",
@@ -2191,8 +2335,24 @@
    "note": "No hay prueba de ausencia de filtro por fecha de vinculacion."
   },
   {
+   "id": "IT-OUT-01",
+   "note": "Auditoria WA-14: Solo se prueba el controlador Go (unlink antes de cerrar); la secuencia nativa session null + clave pendiente de borrar, eliminar y retirar marcador, y el exito local solo tras completarla, no se ejecuta."
+  },
+  {
+   "id": "IT-OUT-02",
+   "note": "Auditoria WA-14: Solo cubre el controlador Go (timeout de 15 s sin error); la retirada local de credenciales, no restaurarlas y el código REMOTE_LOGOUT_UNCONFIRMED hacia la app son nativos y no se ejecutan."
+  },
+  {
+   "id": "IT-OUT-03",
+   "note": "Auditoria WA-14: Solo se simula un fallo de preparacion en Go y un mock en TS; no se recorren fallo de publicacion, borrado de clave ni retiro del marcador, ni se comprueba que se bloquee la vinculacion nueva (el test solo verifica que Connect no devuelve SessionStateInvalid) ni la relectura de pasos comprometidos."
+  },
+  {
    "id": "IT-OUT-04",
    "note": "No se asserta que la clave retirada aun presente no se reutilice ni que K_recovery o una clave de sesion activa no se retire; pruebas nativas no ejecutadas aqui."
+  },
+  {
+   "id": "IT-OUT-06",
+   "note": "Auditoria WA-14: Solo se verifican pendientes y mappings con almacenamiento nativo falso; no se comprueba que logout conserve mensajes del consumidor ni imagenes."
   },
   {
    "id": "IT-PRO-01",
@@ -2228,7 +2388,7 @@
   },
   {
    "id": "IT-SEG-02",
-   "note": "Comprobacion estatica del codigo fuente y del manifest mas un recorrido con modulo nativo simulado; no se observa trafico de red real ni un receptor servidor ausente en un build."
+   "note": "Comprobacion estatica del codigo fuente y del manifest; no se observa trafico de red real ni un build sin receptor servidor."
   },
   {
    "id": "IT-SEG-03",
@@ -2259,12 +2419,16 @@
    "note": "No se verifica que los temporales no contengan plaintext ni un error de lectura de temporal distinto de ausencia (salvo temporal-directorio no vacio en creacion). Nativo no ejecutado aqui."
   },
   {
-   "id": "UT-API-03",
-   "note": "La distincion aceptacion/finalizacion en el cliente solo se ve porque connect resuelve antes de cualquier evento; ninguna prueba TypeScript emite un error de evento posterior a un connect aceptado y comprueba que el resultado ya devuelto no cambia."
+   "id": "IT-SUB-05",
+   "note": "Auditoria WA-14: El test de carrera solo comprueba que el pendiente queda retirado; no afirma ausencia de dos recorridos simultáneos ni de espera de una entrega ya retirada, y el confirmar 'justo antes' no se ordena de forma determinista."
   },
   {
-   "id": "UT-API-06",
-   "note": "La prueba principal (client.options.test.ts, test.each de opciones mal formadas) no la detecta el script; solo quedan enlazadas la validacion de ID de confirmacion y de referencias de imagen."
+   "id": "IT-SUB-07",
+   "note": "Auditoria WA-14: El Go solo cubre fallo local de callback; disconnect/logout se prueban unicamente en TS contra un mock nativo (connect no llamado), asi que la parada explicita nativa tras disconnect/logout y la condicion 'almacenamiento sigue validado' no se ejecutan."
+  },
+  {
+   "id": "UT-API-03",
+   "note": "La distincion aceptacion/finalizacion en el cliente solo se ve porque connect resuelve antes de cualquier evento; ninguna prueba TypeScript emite un error de evento posterior a un connect aceptado y comprueba que el resultado ya devuelto no cambia."
   },
   {
    "id": "UT-BRG-04",
@@ -2313,6 +2477,10 @@
   {
    "id": "UT-FMT-08",
    "note": "No hay caso positivo de hijo historico sin hash ni rechazo explicito de pendingLid con ID de mensaje provisional; las pruebas de coherencia estan en nativo (no ejecutado aqui)."
+  },
+  {
+   "id": "UT-HIS-06",
+   "note": "Auditoria WA-14: Solo se prueban los limites de entrada y descompresion; el limite de recuperacion (buffer) no se evalua por separado en las pruebas enlazadas."
   },
   {
    "id": "UT-ID-01",

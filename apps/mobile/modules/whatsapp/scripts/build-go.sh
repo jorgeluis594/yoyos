@@ -27,6 +27,7 @@ test "$(cd "$module_dir/go" && go list -m -f '{{.Version}}' go.mau.fi/whatsmeow)
 test "$(cd "$module_dir/go" && go list -m -f '{{.Version}}' golang.org/x/mobile)" = "$expected_mobile" || fail 'x/mobile revision changed'
 test -f "$module_dir/patches/wa08-history-batch.patch" || fail 'required history batch patch missing'
 test -f "$module_dir/patches/pre-decrypt-context.patch" || fail 'required whatsmeow patch missing'
+test -f "$module_dir/patches/wa05-socket-ownership.patch" || fail 'required socket ownership patch missing'
 
 if test "$target" = android || test "$target" = all; then
   command -v javac >/dev/null 2>&1 || fail 'JDK required for Android'
@@ -63,6 +64,8 @@ test -f "$upstream_dir/go.mod" || fail 'pinned whatsmeow source missing from mod
 cp -R "$upstream_dir" "$build_dir/whatsmeow"
 chmod -R u+w "$build_dir/whatsmeow"
 cd "$build_dir/whatsmeow"
+# Apply as plain patches on the copy: never let git find the Yoyos repository above it and skip files it cannot resolve.
+export GIT_CEILING_DIRECTORIES="$build_dir"
 git apply --check "$module_dir/patches/pre-decrypt-context.patch" || fail 'patch does not match pinned revision'
 git apply "$module_dir/patches/pre-decrypt-context.patch"
 git apply --check "$module_dir/patches/wa05-socket-ownership.patch" || fail 'socket ownership patch does not match pinned revision'
@@ -73,17 +76,19 @@ cd "$module_dir/go"
 cp -R . "$build_dir/go"
 cd "$build_dir/go"
 go mod edit -replace="go.mau.fi/whatsmeow=$build_dir/whatsmeow"
-# gomobile init installs gobind@latest; bind only needs its work directory.
+# `gomobile init` would fetch gobind from the network at an unpinned revision; bind only needs a work directory.
 export GOMODCACHE="$(go env GOMODCACHE)"
 export GOPATH="$build_dir/gopath"
 mkdir -p "$GOPATH/pkg/gomobile"
 if test "$target" = android || test "$target" = all; then
+  android_bind='gomobile bind -target=android/arm64,android/amd64 -androidapi=24 -javapkg=expo.modules.whatsapp.go -o WhatsAppGo.aar ./bridge'
   gomobile bind -target=android/arm64,android/amd64 -androidapi=24 -javapkg=expo.modules.whatsapp.go -o "$build_dir/WhatsAppGo.aar" ./bridge
   test "$(unzip -Z1 "$build_dir/WhatsAppGo.aar" | awk -F/ '$1 == "jni" && $2 != "" { print $2 }' | sort -u)" = "$(printf 'arm64-v8a\nx86_64')" || fail 'unexpected Android ABI set'
   unzip -p "$build_dir/WhatsAppGo.aar" classes.jar > "$build_dir/classes.jar"
   jar tf "$build_dir/classes.jar" | grep -q '^expo/modules/whatsapp/go/bridge/Bridge.class$' || fail 'Java binding prefix missing'
 fi
 if test "$target" = ios || test "$target" = all; then
+  ios_bind='gomobile bind -target=ios/arm64,iossimulator/arm64,iossimulator/amd64 -iosversion=16.4 -prefix=YYWhatsAppGo -o WhatsAppGo.xcframework ./bridge'
   gomobile bind -target=ios/arm64,iossimulator/arm64,iossimulator/amd64 -iosversion=16.4 -prefix=YYWhatsAppGo -o "$build_dir/WhatsAppGo.xcframework" ./bridge
   test -f "$build_dir/WhatsAppGo.xcframework/Info.plist" || fail 'iOS framework incomplete'
   python3 - "$build_dir/WhatsAppGo.xcframework/Info.plist" <<'PY' || fail 'unexpected iOS architecture set'
@@ -111,7 +116,11 @@ fi
   echo "whatsmeow: $expected_meow"
   echo "x/mobile: $expected_mobile"
   echo "source: $(git -C "$module_dir" rev-parse HEAD)"
+  # A dirty tree means the artifacts do not correspond to a commit.
+  if test -n "$(git -C "$module_dir" status --porcelain -- . 2>/dev/null)"; then echo "source-tree: dirty"; else echo "source-tree: clean"; fi
   echo "target: $target"
+  test -z "${android_bind:-}" || echo "command: $android_bind"
+  test -z "${ios_bind:-}" || echo "command: $ios_bind"
   go version -m "$build_dir/gomobile"
   go version -m "$build_dir/gobind"
 } > "$module_dir/.generated/build-info.txt"

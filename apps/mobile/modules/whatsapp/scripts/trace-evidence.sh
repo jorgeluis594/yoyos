@@ -14,10 +14,10 @@ trap 'rm -rf "$work"' EXIT HUP INT TERM
 WA_GO_TEST_FLAGS=-json sh "$module_dir/scripts/test-go.sh" > "$work/go.json" || echo "go tests failed: the matrix will show the failing cases" >&2
 (cd "$mobile_dir" && pnpm exec jest modules/whatsapp src/composition/whatsapp-options --json --outputFile="$work/jest.json" > /dev/null 2>&1) || echo "jest failed: the matrix will show the failing cases" >&2
 cd "$module_dir"
-# Shell tests that need no native toolchain (fake `go`, fake adb): each script is one test, judged by its exit status.
+# Shell tests that need no native toolchain (fake gomobile/jar/xcodebuild/adb): each script is one test, judged by its exit status.
 printf '{' > "$work/sh.json"
 separator=''
-for script in scripts/test-build-go-cleanup.sh scripts/test-check-android-probe.sh; do
+for script in scripts/test-build-go-cleanup.sh scripts/test-build-go-contract.sh scripts/test-check-android-probe.sh; do
   if sh "$script" > /dev/null 2>&1; then result=pass; else result=fail; fi
   printf '%s"%s":"%s"' "$separator" "$script" "$result" >> "$work/sh.json"
   separator=','

@@ -116,6 +116,29 @@ describe("evaluate", () => {
   });
 });
 
+describe("classifier review fixes", () => {
+  const pass = (text: string) => {
+    const source = { file: "go/internal/p/p_test.go", text: "package p\n// IT-API-01\nfunc TestOne(t *testing.T) {}\n" };
+    const input = inputsFor(source, ["IT-API-01"], { "yoyos-whatsapp/internal/p::TestOne": "pass" });
+    input.catalog = [{ id: "IT-API-01", title: text }];
+    return evaluate(input)[0].status;
+  };
+  test("'iOS' only counts as a word: 'cambios' and 'arbitrarios' do not demand a platform", () => {
+    expect(pass("Aplica cambios arbitrarios sin tocar el almacen")).toBe("pasa");
+    expect(pass("Funciona en iOS con Keychain")).toBe("parcial");
+  });
+  test("a comment between tests belongs to no test, one inside a body to its test", () => {
+    const text = ["package p", "func TestOne(t *testing.T) {", "\t// IT-API-01 inside", "}", "// IT-API-02 between tests", "func helper() {}", "func TestTwo(t *testing.T) {}"].join("\n");
+    const owners = Object.fromEntries(scanSource("go/internal/p/p_test.go", text).citations.map((citation) => [citation.id, citation.decl?.name ?? null]));
+    expect(owners).toEqual({ "IT-API-01": "TestOne", "IT-API-02": null });
+  });
+  test("a describe closes at the first sibling, so later top-level tests do not inherit its IDs", () => {
+    const text = 'describe("IT-SEG-01 group", () => {\n  test("a", () => {});\n});\ntest("top level", () => {});\n';
+    const inherited = describeCitations("a.test.ts", text, scanSource("a.test.ts", text).decls);
+    expect(inherited.map((citation) => citation.decl?.name)).toEqual(["IT-SEG-01 group a"]);
+  });
+});
+
 describe("inputs", () => {
   test("go test -json is read among plain lines and subtests are ignored", () => {
     const out = [

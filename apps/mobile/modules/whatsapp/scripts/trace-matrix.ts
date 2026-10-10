@@ -23,14 +23,15 @@ export type Lang = "go" | "ts" | "kotlin" | "swift" | "sh";
 export type Result = "pass" | "fail" | "skip" | "none";
 
 export interface CatalogCase { id: string; title: string }
-export interface Decl { file: string; lang: Lang; name: string; line: number; key: string; each?: boolean }
+export interface Decl { file: string; lang: Lang; name: string; line: number; key: string; each?: boolean; indent?: number }
 export interface Citation { id: string; decl: Decl | null; file: string; line: number }
 export interface Evidence { decl: Decl | null; file: string; result: Result; via: "cite" | "link"; note?: string }
 export interface Row { id: string; task: string; title: string; status: Status; evidence: Evidence[]; reason: string }
 
 const ID_PATTERN = /(?:^|[^A-Za-z]|Test|test)(UT|IT)[-_]?([A-Z]{2,4})[-_]?(\d{2})(?!\d)/g;
 const CATALOG_LINE = /^- \[.\] \*\*((?:UT|IT)-[A-Z]+-\d+) — (.+?)\*\*/;
-const NATIVE_TEXT = /Android|iOS|Keystore|Keychain|manifest|Gradle|emulador|xcode|dispositivo real|teléfono/i;
+// Word boundaries: a bare /iOS/i also matched "cambios" and "arbitrarios" (WA-14 review minor 1).
+const NATIVE_TEXT = /\b(?:Android|iOS|Keystore|Keychain|manifest|Gradle|emulador|xcode|nativ[oa]s?|fsync)\b|dispositivo real|teléfono/i;
 const SOURCE_TEST = /\.source\.test\.ts$/;
 
 // ---------------------------------------------------------------------------------------------------------
@@ -165,7 +166,7 @@ export function scanSource(file: string, source: string): { decls: Decl[]; citat
   const decls = raw.filter((entry) => !entry.describe).map((entry, _, all) => {
     const position = raw.indexOf(entry);
     const name = qualify(lang, raw, position);
-    return { file, lang, name, line: entry.line, key: declKey(lang, file, name), each: entry.each } satisfies Decl;
+    return { file, lang, name, line: entry.line, key: declKey(lang, file, name), each: entry.each, indent: entry.indent } satisfies Decl;
   });
   const byLine = new Map(decls.map((decl) => [decl.line, decl]));
   const citations: Citation[] = [];
@@ -203,9 +204,12 @@ function attach(lang: Lang, lines: string[], raw: RawDecl[], byLine: Map<number,
     if (following) return following;
   }
   if (lang === "kotlin" || lang === "ts" || lang === "go" || lang === "swift") {
+    // Only a mention indented deeper than the declaration it follows sits inside that test; a column-0 or
+    // same-indent comment between tests belongs to no test (WA-14 review minor 4).
     let enclosing: Decl | null = null;
     for (const decl of decls) if (decl.line <= index + 1) enclosing = decl;
-    return enclosing;
+    const indent = lines[index].length - lines[index].trimStart().length;
+    return enclosing !== null && indent > (enclosing.indent ?? 0) ? enclosing : null;
   }
   return null;
 }
@@ -220,7 +224,7 @@ export function describeCitations(file: string, source: string, decls: Decl[]): 
     if (!entry.describe) return;
     const ids = [...entry.name.matchAll(ID_PATTERN)].map((found) => normalizeId(found[1], found[2], found[3]));
     if (ids.length === 0) return;
-    const end = raw.slice(position + 1).find((later) => later.indent <= entry.indent && later.describe) ?? null;
+    const end = raw.slice(position + 1).find((later) => later.indent <= entry.indent) ?? null; // the first sibling or outer declaration closes the block
     for (const decl of decls) {
       if (decl.line > entry.line && (!end || decl.line < end.line)) {
         for (const id of ids) inherited.push({ id, decl, file, line: entry.line });
@@ -242,7 +246,8 @@ function walk(dir: string, accept: (path: string) => boolean, out: string[] = []
 
 /** The module and the Yoyos composition tests that exercise it from outside (options, budgets). */
 export function scanModule(moduleDir: string, extraRoots: string[] = [join(moduleDir, "../../src/composition")]): { decls: Decl[]; citations: Citation[] } {
-  const accept = (path: string) => languageOf(relative(moduleDir, path)) !== null;
+  // The script's own tests quote case IDs as fixtures; they are not evidence of any case (WA-14 review minor 4).
+  const accept = (path: string) => languageOf(relative(moduleDir, path)) !== null && relative(moduleDir, path) !== "scripts/trace-matrix.test.ts";
   const files = [moduleDir, ...extraRoots.filter((root) => existsSync(root))].flatMap((root) => walk(root, accept));
   const decls: Decl[] = [];
   const citations: Citation[] = [];

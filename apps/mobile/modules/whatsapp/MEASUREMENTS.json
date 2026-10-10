@@ -16,25 +16,25 @@
       },
       "sessionBytes": 51539,
       "pendingBytes": 25985,
-      "openHeapPeakBytes": 1209232,
-      "pendingReadHeapPeakBytes": 218736,
-      "confirmAllHeapPeakBytes": 2304,
+      "openHeapPeakBytes": 1324520,
+      "pendingReadHeapPeakBytes": 496248,
+      "confirmAllHeapPeakBytes": 2640,
       "calls": {
         "ReadPending": {
           "count": 1,
           "requestBytesTotal": 21,
           "responseBytesMax": 26057,
-          "medianMicros": 69,
-          "p95Micros": 69,
-          "maxMicros": 69
+          "medianMicros": 97,
+          "p95Micros": 97,
+          "maxMicros": 97
         },
         "ReadState": {
           "count": 1,
           "requestBytesTotal": 21,
           "responseBytesMax": 77651,
-          "medianMicros": 95,
-          "p95Micros": 95,
-          "maxMicros": 95
+          "medianMicros": 99,
+          "p95Micros": 99,
+          "maxMicros": 99
         },
         "RetirePending": {
           "count": 40,
@@ -42,7 +42,7 @@
           "responseBytesMax": 77,
           "medianMicros": 1,
           "p95Micros": 2,
-          "maxMicros": 6
+          "maxMicros": 13
         }
       },
       "confirmed": 20
@@ -57,33 +57,33 @@
       },
       "sessionBytes": 2060039,
       "pendingBytes": 652069,
-      "openHeapPeakBytes": 11866392,
-      "pendingReadHeapPeakBytes": 4383552,
-      "confirmAllHeapPeakBytes": 1235800,
+      "openHeapPeakBytes": 12451256,
+      "pendingReadHeapPeakBytes": 4384424,
+      "confirmAllHeapPeakBytes": 1164968,
       "calls": {
         "ReadPending": {
           "count": 1,
           "requestBytesTotal": 21,
           "responseBytesMax": 652142,
-          "medianMicros": 2598,
-          "p95Micros": 2598,
-          "maxMicros": 2598
+          "medianMicros": 1565,
+          "p95Micros": 1565,
+          "maxMicros": 1565
         },
         "ReadState": {
           "count": 1,
           "requestBytesTotal": 21,
           "responseBytesMax": 2712236,
-          "medianMicros": 4026,
-          "p95Micros": 4026,
-          "maxMicros": 4026
+          "medianMicros": 4512,
+          "p95Micros": 4512,
+          "maxMicros": 4512
         },
         "RetirePending": {
           "count": 1000,
           "requestBytesTotal": 84000,
           "responseBytesMax": 79,
           "medianMicros": 1,
-          "p95Micros": 53,
-          "maxMicros": 404
+          "p95Micros": 50,
+          "maxMicros": 357
         }
       },
       "confirmed": 500
@@ -98,25 +98,25 @@
       },
       "sessionBytes": 16263039,
       "pendingBytes": 4,
-      "openHeapPeakBytes": 92485248,
-      "pendingReadHeapPeakBytes": 6640,
+      "openHeapPeakBytes": 92186216,
+      "pendingReadHeapPeakBytes": 10224,
       "confirmAllHeapPeakBytes": 272,
       "calls": {
         "ReadPending": {
           "count": 1,
           "requestBytesTotal": 21,
           "responseBytesMax": 73,
-          "medianMicros": 8,
-          "p95Micros": 8,
-          "maxMicros": 8
+          "medianMicros": 27,
+          "p95Micros": 27,
+          "maxMicros": 27
         },
         "ReadState": {
           "count": 1,
           "requestBytesTotal": 21,
           "responseBytesMax": 16263167,
-          "medianMicros": 22907,
-          "p95Micros": 22907,
-          "maxMicros": 22907
+          "medianMicros": 22841,
+          "p95Micros": 22841,
+          "maxMicros": 22841
         }
       },
       "confirmed": 0
@@ -131,33 +131,33 @@
       },
       "sessionBytes": 2060039,
       "pendingBytes": 10044674,
-      "openHeapPeakBytes": 47441208,
-      "pendingReadHeapPeakBytes": 58499032,
-      "confirmAllHeapPeakBytes": 6666152,
+      "openHeapPeakBytes": 47468328,
+      "pendingReadHeapPeakBytes": 58463128,
+      "confirmAllHeapPeakBytes": 6111256,
       "calls": {
         "ReadPending": {
           "count": 1,
           "requestBytesTotal": 21,
           "responseBytesMax": 10044748,
-          "medianMicros": 29575,
-          "p95Micros": 29575,
-          "maxMicros": 29575
+          "medianMicros": 22373,
+          "p95Micros": 22373,
+          "maxMicros": 22373
         },
         "ReadState": {
           "count": 1,
           "requestBytesTotal": 21,
           "responseBytesMax": 12104842,
-          "medianMicros": 25453,
-          "p95Micros": 25453,
-          "maxMicros": 25453
+          "medianMicros": 23727,
+          "p95Micros": 23727,
+          "maxMicros": 23727
         },
         "RetirePending": {
           "count": 10000,
           "requestBytesTotal": 840000,
           "responseBytesMax": 80,
-          "medianMicros": 4,
-          "p95Micros": 425,
-          "maxMicros": 12530
+          "medianMicros": 3,
+          "p95Micros": 344,
+          "maxMicros": 1290
         }
       },
       "confirmed": 5000
@@ -172,33 +172,33 @@
       },
       "sessionBytes": 2060039,
       "pendingBytes": 7650665,
-      "openHeapPeakBytes": 46359440,
-      "pendingReadHeapPeakBytes": 39091856,
-      "confirmAllHeapPeakBytes": 6288,
+      "openHeapPeakBytes": 46390896,
+      "pendingReadHeapPeakBytes": 30880928,
+      "confirmAllHeapPeakBytes": 2608,
       "calls": {
         "ReadPending": {
           "count": 1,
           "requestBytesTotal": 21,
           "responseBytesMax": 7650736,
-          "medianMicros": 18689,
-          "p95Micros": 18689,
-          "maxMicros": 18689
+          "medianMicros": 14844,
+          "p95Micros": 14844,
+          "maxMicros": 14844
         },
         "ReadState": {
           "count": 1,
           "requestBytesTotal": 21,
           "responseBytesMax": 9710830,
-          "medianMicros": 16900,
-          "p95Micros": 16900,
-          "maxMicros": 16900
+          "medianMicros": 17286,
+          "p95Micros": 17286,
+          "maxMicros": 17286
         },
         "RetirePending": {
           "count": 16,
           "requestBytesTotal": 1344,
           "responseBytesMax": 77,
           "medianMicros": 1,
-          "p95Micros": 35,
-          "maxMicros": 35
+          "p95Micros": 34,
+          "maxMicros": 34
         }
       },
       "confirmed": 8
@@ -213,33 +213,33 @@
       },
       "sessionBytes": 16263039,
       "pendingBytes": 10044674,
-      "openHeapPeakBytes": 115097640,
-      "pendingReadHeapPeakBytes": 58886304,
-      "confirmAllHeapPeakBytes": 7594040,
+      "openHeapPeakBytes": 108805600,
+      "pendingReadHeapPeakBytes": 59242248,
+      "confirmAllHeapPeakBytes": 8984160,
       "calls": {
         "ReadPending": {
           "count": 1,
           "requestBytesTotal": 21,
           "responseBytesMax": 10044748,
-          "medianMicros": 23567,
-          "p95Micros": 23567,
-          "maxMicros": 23567
+          "medianMicros": 21554,
+          "p95Micros": 21554,
+          "maxMicros": 21554
         },
         "ReadState": {
           "count": 1,
           "requestBytesTotal": 21,
           "responseBytesMax": 26307842,
-          "medianMicros": 48156,
-          "p95Micros": 48156,
-          "maxMicros": 48156
+          "medianMicros": 48011,
+          "p95Micros": 48011,
+          "maxMicros": 48011
         },
         "RetirePending": {
           "count": 10000,
           "requestBytesTotal": 840000,
           "responseBytesMax": 80,
-          "medianMicros": 4,
-          "p95Micros": 695,
-          "maxMicros": 15629
+          "medianMicros": 3,
+          "p95Micros": 662,
+          "maxMicros": 11102
         }
       },
       "confirmed": 5000
