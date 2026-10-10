@@ -1,7 +1,6 @@
 import { MenuView, type MenuAction } from '@expo/ui/community/menu';
 import { SymbolView } from 'expo-symbols';
-import { useState } from 'react';
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
 import { interStyle } from '@mobile/constants/typography';
@@ -27,7 +26,6 @@ export type OptionSelectorProps = {
 export function OptionSelector({ options, value, onValueChange, placeholder, testID }: OptionSelectorProps) {
   const { t } = useTranslation();
   const theme = useTheme();
-  const [focused, setFocused] = useState(false);
   const field = useFieldContext();
   const disabled = field?.disabled ?? false;
   const invalid = field?.invalid ?? false;
@@ -37,13 +35,12 @@ export function OptionSelector({ options, value, onValueChange, placeholder, tes
   const actions: MenuAction[] = [{ id: '-1', title: placeholder ?? t('selectOption') }, ...options.flatMap((option, index) => option.disabled ? [] : [{ id: String(index), title: option.description ? `${option.label} — ${option.description}` : option.label }])];
 
   const control = (
-    <Pressable testID={testID} accessibilityRole="button" accessibilityLabel={field?.label ? `${field.label}: ${label}` : label}
+    <View testID={testID} accessible accessibilityRole="button" accessibilityLabel={field?.label ? `${field.label}: ${label}` : label}
       accessibilityLabelledBy={field?.label ? field.labelId : undefined} accessibilityHint={hint || undefined} accessibilityState={{ disabled }}
-      disabled={disabled} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
-      style={[styles.control, { backgroundColor: disabled ? theme.secondary : theme.backgroundElement, borderColor: invalid ? theme.error : focused ? theme.ring : theme.input, borderWidth: focused ? tokens.sizing.focusWidth : tokens.sizing.borderWidth }]}>
+      style={[styles.control, { backgroundColor: disabled ? theme.secondary : theme.backgroundElement, borderColor: invalid ? theme.error : theme.input, borderWidth: tokens.sizing.borderWidth }]}>
       <Text numberOfLines={1} style={[styles.label, { color: disabled || !selected ? theme.textSecondary : theme.text }]}>{label}</Text>
       <SymbolView name={{ ios: 'chevron.down', android: 'expand_more' }} size={tokens.sizing.iconAction} tintColor={theme.textSecondary} />
-    </Pressable>
+    </View>
   );
 
   return disabled ? control : (

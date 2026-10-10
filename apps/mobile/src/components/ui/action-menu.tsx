@@ -1,5 +1,5 @@
 import { MenuView, type MenuAction } from '@expo/ui/community/menu';
-import { Pressable, StyleSheet, Text } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
 import tokens from '../../../../../docs/design-tokens.json';
@@ -28,9 +28,9 @@ export function ActionMenu({ actions }: ActionMenuProps) {
       actions={menuActions}
       onPressAction={({ nativeEvent }) => actions.find(({ id }) => id === nativeEvent.event)?.onSelect()}
     >
-      <Pressable accessibilityLabel={t('moreActions')} accessibilityRole="button" style={({ pressed }) => [styles.trigger, { backgroundColor: pressed ? theme.accent : 'transparent' }]}>
+      <View accessible accessibilityLabel={t('moreActions')} accessibilityRole="button" style={[styles.trigger, { backgroundColor: 'transparent' }]}>
         <Text style={[styles.label, { color: theme.text }]} accessibilityElementsHidden importantForAccessibility="no">•••</Text>
-      </Pressable>
+      </View>
     </MenuView>
   );
 }
