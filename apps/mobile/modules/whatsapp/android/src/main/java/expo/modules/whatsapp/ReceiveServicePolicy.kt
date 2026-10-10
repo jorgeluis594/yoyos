@@ -63,12 +63,14 @@ internal object ReceiveServicePolicy {
   enum class EventEffect { NONE, CHECK_REQUEST, END }
 
   /**
-   * Errors Go publishes without ever changing `requested` (`Controller.Notify`): content kept while an identity
-   * is unknown, a refused history batch, a capacity pause. They can arrive with no request at all (WA-12 s1:
-   * `IDENTITY_UNAVAILABLE` when `initialize()` opens the session without `connect()`), so they never withdraw
-   * the intent. Every other code can end a request (`CONNECTION_FAILED`, and `FailLocal` codes such as
-   * `CONSUMER_UNAVAILABLE`/`NATIVE_CALL_FAILED`, which end it with only an error when the state was already
-   * `disconnected` in a capacity pause), so it is settled with Go's `requestActive` (WA-14 review M1).
+   * Errors Go publishes without ever changing `requested`: content kept while an identity is unknown
+   * (`IDENTITY_UNAVAILABLE`), a history batch that hit its limit (`HISTORY_LIMIT_REACHED`) and a capacity pause
+   * (`RECOVERY_BUFFER_FULL`). They can arrive with no request at all (WA-12 s1: `IDENTITY_UNAVAILABLE` when
+   * `initialize()` opens the session without `connect()`), so they never withdraw the intent. Every other code
+   * `Controller.Notify` or `FailLocal` can publish is settled with Go's `requestActive`: `CONNECTION_FAILED`,
+   * `CONSUMER_UNAVAILABLE` and the `FailLocal` codes can end a request, and `NATIVE_CALL_FAILED` (also published by
+   * `Notify` for a refused history batch, which only runs while the request is active, so it withdraws nothing)
+   * is settled the same way rather than assumed harmless (WA-14 review M1/m1).
    */
   val INFORMATIONAL_ERRORS: Set<String> = setOf("RECOVERY_BUFFER_FULL", "HISTORY_LIMIT_REACHED", "IDENTITY_UNAVAILABLE")
 

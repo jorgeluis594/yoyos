@@ -1,17 +1,9 @@
 package receive
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"time"
-
-	waBinary "go.mau.fi/whatsmeow/binary"
-	"go.mau.fi/whatsmeow/proto/waE2E"
-	"go.mau.fi/whatsmeow/store"
-	"go.mau.fi/whatsmeow/types"
-	"go.mau.fi/whatsmeow/types/events"
-	"google.golang.org/protobuf/proto"
 )
 
 // WA-14 controlled journey on the Go side: live reception, a lost confirmation, a restart, a PN/LID identity that
@@ -124,49 +116,95 @@ func TestWA14JourneyDurableConsumerSurvivesLostConfirmationRestartLateIdentityAn
 	}
 }
 
-// IT-MSG-07 (WA-14 review M2): live content whose timestamp cannot become a public one (a zero or negative one is already refused at capture, undecrypted and unacknowledged) is never discarded with an ACK.
-// It stays as recoverable pending content, is not delivered, gets no ACK and invents no reception time.
-func TestITMSG07LiveContentWithAnInvalidTimestampIsKeptAndNotAcknowledged(t *testing.T) {
+// IT-MSG-07 (WA-14 reviews M2/M2a): a live message whose timestamp cannot become a public one is isolated, not
+// lost and not harmful: it is committed durably like any other, delivered once with the timestamp sanitized to 0
+// (the marker for "unknown"; no time is invented), acknowledged only after its confirmation, and it neither
+// fails the session nor stops reception. The invalid values range from a zero time through a negative one to a
+// year beyond 9999. Redelivery and a restart behave like for any other message.
+func TestITMSG07LiveMessageWithAnInvalidTimestampIsIsolatedDeliveredSanitizedAndNeverStopsReception(t *testing.T) {
+	for name, at := range map[string]time.Time{"zero time": {}, "epoch": time.Unix(0, 0), "negative": time.Unix(-5, 0), "year 11500": time.Unix(300000000000, 0)} {
+		t.Run(name, func(t *testing.T) {
+			n := newNative()
+			failures := 0
+			l := newLife(t, n, 1<<20)
+			l.recv.hooks.LocalFailure = func(error) { failures++ }
+			app := l.subscribe("a")
+			l.coord.Start()
+			bad := l.receiveAt("bad", "sin hora", at)
+			if bad.err != nil {
+				t.Fatalf("the descryption transaction failed for an invalid timestamp: %v", bad.err)
+			}
+			d := app.take(t)
+			var delivered struct {
+				ID        string `json:"id"`
+				Timestamp int64  `json:"timestamp"`
+				Text      string `json:"text"`
+			}
+			if err := jsonUnmarshal(d.Message, &delivered); err != nil || delivered.Timestamp != 0 || delivered.Text != "sin hora" {
+				t.Fatalf("delivery must carry the content with timestamp 0 (unknown): %s (%v)", d.Message, err)
+			}
+			// A valid message right after it flows normally: the invalid one did not stop or poison reception.
+			good := l.receive("good", "con hora")
+			bad.stillWaiting(t) // not acknowledged before its confirmation
+			app.persist(d)
+			if err := l.coord.Confirm(d.ID); err != nil {
+				t.Fatal(err)
+			}
+			if !bad.ack(t) {
+				t.Fatal("the isolated message must be acknowledged once it is confirmed")
+			}
+			next := app.take(t)
+			app.persist(next)
+			_ = l.coord.Confirm(next.ID)
+			if !good.ack(t) {
+				t.Fatal("reception stopped after the invalid timestamp")
+			}
+			if failures != 0 {
+				t.Fatalf("the session was failed %d times for an invalid timestamp", failures)
+			}
+			if n.pendingCount() != 0 {
+				t.Fatalf("pending = %d after both were confirmed", n.pendingCount())
+			}
+		})
+	}
+}
+
+// The same message survives a restart before its confirmation and is delivered again sanitized; a
+// repeated persist is a no-op.
+func TestITMSG07IsolatedMessageSurvivesRestartAndRedelivery(t *testing.T) {
 	n := newNative()
-	l := newLife(t, n, 1<<20)
-	app := l.subscribe("a")
-	l.coord.Start()
-	chat := types.JID{User: "555", Server: types.HiddenUserServer}
-	info := &types.MessageInfo{MessageSource: types.MessageSource{Chat: chat, Sender: chat}, ID: "nots", Timestamp: time.Unix(300000000000, 0)} // year ~11500: accepted by capture, invalid for a public timestamp
-	node := &waBinary.Node{Content: []waBinary.Node{{Tag: "enc", Attrs: waBinary.Attrs{"v": "2", "type": "msg"}, Content: []byte("cipher-nots")}}}
-	plain, _ := proto.Marshal(&waE2E.Message{Conversation: proto.String("sin hora")})
-	ctx, err := l.recv.PreDecrypt(context.Background(), info, node)
-	if err != nil {
-		t.Fatal(err)
+	one := newLife(t, n, 1<<20)
+	app := one.subscribe("a")
+	one.coord.Start()
+	first := one.receiveAt("bad", "sin hora", time.Unix(-5, 0))
+	if first.err != nil {
+		t.Fatal(first.err)
 	}
-	hash := [32]byte{}
-	copy(hash[:], "nots")
-	if _, err := l.store.GetBufferedEvent(ctx, hash); err != nil {
-		t.Fatal(err)
-	}
-	if err := l.store.DoDecryptionTxn(store.WithBufferedEventChild(ctx, 0), func(tx context.Context) error {
-		return l.store.PutBufferedEvent(tx, hash, plain, time.Unix(1700000001, 0))
-	}); err != nil {
-		t.Fatal(err)
-	}
-	granted := make(chan bool, 1)
-	go func() {
-		granted <- l.recv.Handle(ctx, &events.Message{Info: *info})
-		l.recv.Finished(ctx, info, nil)
-	}()
-	select {
-	case ok := <-granted:
-		if ok {
-			t.Fatal("content with an invalid timestamp was acknowledged")
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("handler did not finish")
-	}
+	d := app.take(t)
+	app.persist(d)
 	if n.pendingCount() != 1 {
-		t.Fatalf("pending = %d: the content must be kept for recovery", n.pendingCount())
+		t.Fatalf("pending = %d, want the isolated message kept", n.pendingCount())
 	}
-	if entry := n.entry(t, 0); entry.IdentityState == "resolved" || len(entry.Message) != 0 || len(entry.Recovery.Items) == 0 {
-		t.Fatalf("kept entry must be unresolved with its recovery data and no invented message: %+v", entry)
+	two := newLife(t, n, 1<<20) // restart before the confirmation
+	two.consumer = app
+	two.subscribe("b")
+	two.coord.Start()
+	again := app.take(t)
+	if again.ID != d.ID || !strings.Contains(string(again.Message), `"timestamp":0`) {
+		t.Fatalf("restart must redeliver the same isolated message: %s", again.Message)
 	}
-	app.none(t)
+	app.persist(again)
+	if app.effects != 1 {
+		t.Fatalf("effects = %d, want 1", app.effects)
+	}
+	if err := two.coord.Confirm(again.ID); err != nil {
+		t.Fatal(err)
+	}
+	// Reconnection redeliveries of the same message are recognised by whatsmeow's retry marker before the hooks run
+	// (outside this harness); here the durable consumer's idempotence is what keeps a repeat harmless.
+	app.persist(again)
+	if app.effects != 1 {
+		t.Fatalf("a repeated delivery produced %d effects", app.effects)
+	}
+	_ = first
 }

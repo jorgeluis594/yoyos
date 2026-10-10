@@ -6,6 +6,7 @@ package identity
 import (
 	"encoding/json"
 	"errors"
+	"time"
 
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waWeb"
@@ -41,7 +42,7 @@ func Classify(info *types.MessageInfo, format string, plaintext []byte, own, own
 			return HistoryNotification, nil, nil
 		}
 		event := (&events.Message{Info: *info, RawMessage: &message}).UnwrapRaw()
-		return classifyEvent(event, own, ownAlt, mappings, false)
+		return classifyEvent(event, own, ownAlt, mappings)
 	case "history":
 		var web waWeb.WebMessageInfo
 		if err := proto.Unmarshal(plaintext, &web); err != nil {
@@ -58,7 +59,7 @@ func Classify(info *types.MessageInfo, format string, plaintext []byte, own, own
 // later identity resolution use.
 func ClassifyWeb(info *types.MessageInfo, web *waWeb.WebMessageInfo, own, ownAlt types.JID, mappings normalization.VerifiedLIDs) (State, json.RawMessage, error) {
 	event := (&events.Message{Info: *info, RawMessage: web.GetMessage(), SourceWebMsg: web}).UnwrapRaw()
-	return classifyEvent(event, own, ownAlt, mappings, true)
+	return classifyEvent(event, own, ownAlt, mappings)
 }
 
 // isHistoryNotification recognizes the notification the phone sends to this companion; one
@@ -67,17 +68,28 @@ func isHistoryNotification(info *types.MessageInfo, message *waE2E.Message) bool
 	return info.IsFromMe && message.GetProtocolMessage().GetHistorySyncNotification() != nil
 }
 
-// classifyEvent applies IT-MSG-07 to an invalid timestamp: normalization stops, no reception time is invented
-// and the content is never discarded. A live message is kept as unresolved recoverable content (so it gets
-// no ACK and is never delivered); a history message fails its batch, which is then not declared complete.
-func classifyEvent(event *events.Message, own, ownAlt types.JID, mappings normalization.VerifiedLIDs, historical bool) (State, json.RawMessage, error) {
+// UnknownTimestamp is the sanitized timestamp of a message whose own one could not become a public timestamp
+// (missing, zero, negative or beyond year 9999). No valid message has it, so it marks "unknown" in band; no
+// reception time is invented.
+const UnknownTimestamp int64 = 0
+
+// sanitizedProbe is any valid instant: normalization is rerun with it only to build the rest of the message.
+var sanitizedProbe = time.Unix(1, 0)
+
+// classifyEvent applies IT-MSG-07 to an invalid timestamp: that one message is isolated, never discarded and
+// never allowed to affect another. Its content is normalized as usual and delivered with Timestamp ==
+// UnknownTimestamp (live and history alike), so it is kept, acknowledged only after the consumer confirmed it,
+// and a history batch stays atomic for its valid content.
+func classifyEvent(event *events.Message, own, ownAlt types.JID, mappings normalization.VerifiedLIDs) (State, json.RawMessage, error) {
 	result, err := normalization.Normalize(event, own, ownAlt, mappings)
+	sanitized := false
+	if errors.Is(err, normalization.ErrInvalidTimestamp) {
+		probe := *event
+		probe.Info.Timestamp = sanitizedProbe
+		result, err = normalization.Normalize(&probe, own, ownAlt, mappings)
+		sanitized = true
+	}
 	switch {
-	case errors.Is(err, normalization.ErrInvalidTimestamp):
-		if historical {
-			return "", nil, err
-		}
-		return PendingLID, nil, nil
 	case errors.Is(err, normalization.ErrInvalidIdentity), errors.Is(err, normalization.ErrRawEditInspectionExhausted):
 		// Content that cannot be given a valid public identity is never deliverable.
 		return Excluded, nil, nil
@@ -87,6 +99,9 @@ func classifyEvent(event *events.Message, own, ownAlt types.JID, mappings normal
 		return PendingLID, nil, nil
 	case result.Message == nil:
 		return Excluded, nil, nil
+	}
+	if sanitized {
+		result.Message.Timestamp = UnknownTimestamp
 	}
 	raw, err := json.Marshal(result.Message)
 	if err != nil {

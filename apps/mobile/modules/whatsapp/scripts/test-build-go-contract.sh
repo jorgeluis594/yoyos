@@ -29,6 +29,7 @@ new_module() { # fresh module copy: scripts, patches and the go.mod/go.sum of th
   cp -R "$source_dir/patches" "$work/module/patches"
   cp "$source_dir/go/go.mod" "$source_dir/go/go.sum" "$work/module/go/"
   mkdir -p "$work/module/go/bridge" && echo 'package bridge' > "$work/module/go/bridge/bridge.go"
+  cp "$source_dir/.gitignore" "$work/module/.gitignore"
   git -C "$work/module" init -q && git -C "$work/module" add -A && git -C "$work/module" -c user.email=t@t -c user.name=t commit -q -m seed
   : > "$work/calls.log"
 }
@@ -136,7 +137,9 @@ check 'IT-BLD-08 records the source commit' sh -c "grep -q \"^source: \$(git -C 
 check 'IT-BLD-08 records the target' grep -q '^target: all' "$info"
 check 'IT-BLD-08 records the effective tools (go version -m)' grep -q 'golang.org/x/mobile' "$info"
 check 'IT-BLD-08 records the bind commands' sh -c "grep -q '^command: gomobile bind -target=android/arm64,android/amd64' '$info' && grep -q '^command: gomobile bind -target=ios/arm64' '$info'"
-check 'IT-BLD-08 records that the tree was clean (build outputs are ignored)' sh -c "git -C '$work/module' status --porcelain >/dev/null; grep -q '^source-tree:' '$info'"
+check 'IT-BLD-08 records a clean tree: build outputs are ignored, so they do not make it dirty' grep -qx 'source-tree: clean' "$info"
+check 'IT-BLD-07 records a hash of the Go sources, patches and script' grep -Eq '^inputs-sha256: [0-9a-f]{64}$' "$info"
+clean_hash=$(grep '^inputs-sha256:' "$info")
 # IT-BLD-01: pinned toolchain, no implicit downloads or upgrades.
 check 'IT-BLD-01 every go call ran with GOTOOLCHAIN=local and GOPROXY=off' sh -c "! grep '^go ' '$work/calls.log' | grep -v 'GOTOOLCHAIN=local GOPROXY=off'"
 check 'IT-BLD-01 dependencies were verified' grep -q '^go mod verify' "$work/calls.log"
@@ -151,6 +154,16 @@ check 'IT-BLD-05 iOS binds the device arm64 and both simulators with 16.4 and th
 check 'IT-BLD-05 no extra target is requested' sh -c "! grep -E 'gomobile bind' '$work/calls.log' | grep -E 'armeabi|386|android/arm( |,)|ios/(amd64|x86)|macos|maccatalyst'"
 # IT-BLD-03: the cache is never written; patches apply to a copy.
 check 'IT-BLD-03 the module cache was not modified' sh -c "test -z \"\$(find '$upstream' -newer '$before_cache' | head -1)\""
+
+# --- IT-BLD-08 / IT-BLD-07: an uncommitted change is recorded as dirty and changes the input hash ---------------------
+new_module
+echo '// changed' >> "$work/module/go/bridge/bridge.go"
+check 'a build over a modified tree succeeds' run_build android
+check 'IT-BLD-08 a modified tree is recorded as dirty' grep -qx 'source-tree: dirty' "$work/module/.generated/build-info.txt"
+check 'IT-BLD-07 a changed input changes the recorded hash' sh -c "! grep -qx '$clean_hash' '$work/module/.generated/build-info.txt'"
+new_module
+check 'IT-BLD-07 the same inputs record the same hash' run_build android
+check 'IT-BLD-07 the hash is reproducible' grep -qx "$clean_hash" "$work/module/.generated/build-info.txt"
 
 # --- IT-BLD-03: a patch that does not apply stops the build without publishing anything -------------------------------
 new_module

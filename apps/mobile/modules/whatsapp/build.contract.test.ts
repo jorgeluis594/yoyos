@@ -68,3 +68,15 @@ describe("IT-BLD-08 generated artifacts and tool output stay out of Git", () => 
     for (const needle of ['echo "Go: $(go version)"', 'echo "whatsmeow: $expected_meow"', 'echo "x/mobile: $expected_mobile"', "source: $(git -C", 'echo "command: $android_bind"', "go version -m", "source-tree:"]) expect(script).toContain(needle);
   });
 });
+
+describe("IT-BLD-07 a native change always ships with a rebuilt app", () => {
+  test("the app cannot receive native code over the air: no expo-updates dependency or configuration", () => {
+    const manifest = JSON.parse(readFileSync(join(appDir, "package.json"), "utf8")) as { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
+    expect(Object.keys({ ...manifest.dependencies, ...manifest.devDependencies })).not.toContain("expo-updates");
+    const config = `${readFileSync(join(appDir, "app.json"), "utf8")}${readFileSync(join(appDir, "app.config.js"), "utf8")}`;
+    expect(config).not.toMatch(/expo-updates|"updates"|\bupdates\s*:/);
+  });
+  test("the build record carries a hash of the Go sources, patches and script", () => {
+    expect(read("scripts/build-go.sh")).toContain('echo "inputs-sha256: $(input_hash)"');
+  });
+});

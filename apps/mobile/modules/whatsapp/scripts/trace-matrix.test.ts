@@ -140,12 +140,21 @@ describe("classifier review fixes", () => {
 });
 
 describe("inputs", () => {
-  test("go test -json is read among plain lines and subtests are ignored", () => {
+  test("go test -json is read among plain lines", () => {
     const out = [
       "plain line", '{"Action":"run","Package":"p","Test":"TestA"}', '{"Action":"pass","Package":"p","Test":"TestA/sub"}',
       '{"Action":"pass","Package":"p","Test":"TestA"}', '{"Action":"fail","Package":"p","Test":"TestB"}', '{"Action":"pass","Package":"p"}', "{broken",
     ].join("\n");
     expect([...parseGoResults(out)]).toEqual([["p::TestA", "pass"], ["p::TestB", "fail"]]);
+  });
+  test("subtests are judged with their parent: a skipped one makes it skip, a failed one makes it fail", () => {
+    const line = (action: string, test: string) => JSON.stringify({ Action: action, Package: "p", Test: test });
+    const out = [
+      line("pass", "TestA/one"), line("skip", "TestA/two"), line("pass", "TestA"),
+      line("fail", "TestB/one"), line("pass", "TestB/two"), line("pass", "TestB"),
+      line("pass", "TestC/one"), line("pass", "TestC"),
+    ].join("\n");
+    expect([...parseGoResults(out)]).toEqual([["p::TestA", "skip"], ["p::TestB", "fail"], ["p::TestC", "pass"]]);
   });
   test("links are validated at the JSON boundary", () => {
     expect(parseLinks("not json").ok).toBe(false);

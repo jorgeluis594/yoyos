@@ -348,7 +348,18 @@ func (l *life) receive(id, text string) *received {
 // receiveFrom is receive for a chat addressed by the given JID, such as a phone number.
 func (l *life) receiveFrom(id, text string, chat types.JID) *received {
 	l.t.Helper()
-	info := &types.MessageInfo{MessageSource: types.MessageSource{Chat: chat, Sender: chat}, ID: id, Timestamp: time.Unix(1700000000, 0)}
+	return l.receiveFromAt(id, text, chat, time.Unix(1700000000, 0))
+}
+
+// receiveAt is receive for a message stamped with the given time, valid or not.
+func (l *life) receiveAt(id, text string, at time.Time) *received {
+	l.t.Helper()
+	return l.receiveFromAt(id, text, types.JID{User: "555", Server: types.HiddenUserServer}, at)
+}
+
+func (l *life) receiveFromAt(id, text string, chat types.JID, at time.Time) *received {
+	l.t.Helper()
+	info := &types.MessageInfo{MessageSource: types.MessageSource{Chat: chat, Sender: chat}, ID: id, Timestamp: at}
 	node := &waBinary.Node{Content: []waBinary.Node{{Tag: "enc", Attrs: waBinary.Attrs{"v": "2", "type": "msg"}, Content: []byte("cipher-" + id)}}}
 	plain, err := proto.Marshal(&waE2E.Message{Conversation: proto.String(text)})
 	if err != nil {

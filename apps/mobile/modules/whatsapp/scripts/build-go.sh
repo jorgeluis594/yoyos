@@ -111,6 +111,13 @@ if test "$target" = ios || test "$target" = all; then
   mkdir -p "$module_dir/ios/Frameworks"
   mv "$build_dir/WhatsAppGo.xcframework" "$module_dir/ios/Frameworks/WhatsAppGo.xcframework"
 fi
+# Hash of everything the binaries are built from (Go sources, patches and this script), so a rebuild after an
+# input change is visible in the record (IT-BLD-07).
+input_hash() {
+  (cd "$module_dir" && find go patches scripts/build-go.sh -type f 2>/dev/null | LC_ALL=C sort | while read -r file; do
+    if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$file"; else sha256sum "$file"; fi
+  done) | if command -v shasum >/dev/null 2>&1; then shasum -a 256; else sha256sum; fi | cut -d' ' -f1
+}
 {
   echo "Go: $(go version)"
   echo "whatsmeow: $expected_meow"
@@ -118,6 +125,7 @@ fi
   echo "source: $(git -C "$module_dir" rev-parse HEAD)"
   # A dirty tree means the artifacts do not correspond to a commit.
   if test -n "$(git -C "$module_dir" status --porcelain -- . 2>/dev/null)"; then echo "source-tree: dirty"; else echo "source-tree: clean"; fi
+  echo "inputs-sha256: $(input_hash)"
   echo "target: $target"
   test -z "${android_bind:-}" || echo "command: $android_bind"
   test -z "${ios_bind:-}" || echo "command: $ios_bind"

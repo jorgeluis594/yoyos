@@ -175,17 +175,41 @@ func TestPrepareDeduplicatesAndKeepsChronologicalOrder(t *testing.T) {
 	}
 }
 
-// IT-MSG-07 (WA-14 review M2): a supported history message with an invalid timestamp stops the batch
-// instead of being excluded, so the batch is never declared complete over lost content.
-func TestITMSG07AnInvalidTimestampInHistoryFailsTheBatchInsteadOfExcludingIt(t *testing.T) {
-	for _, at := range []uint64{0} {
-		b := batch(conversation("555@lid", text("ok1", "555@lid", 1700000001, "fine"), text("nots", "555@lid", at, "no time")))
-		got, err := Prepare(context.Background(), b, env(t, nil))
-		if !errors.Is(err, ErrInvalid) {
-			t.Fatalf("timestamp %d: want ErrInvalid, got %v (excluded=%d inserts=%d)", at, err, got.Excluded, len(got.Inserts))
+// IT-MSG-07 (WA-14 reviews M2/M2b): one history message with a missing or invalid timestamp is isolated, not the
+// cause of losing the batch: the valid messages are admitted atomically with it, the invalid one is kept with its
+// content and a sanitized timestamp of 0 ("unknown", nothing invented) and is never silently excluded.
+func TestITMSG07AnInvalidTimestampInHistoryIsolatesThatMessageAndKeepsTheBatch(t *testing.T) {
+	b := batch(conversation("555@lid",
+		text("ok1", "555@lid", 1700000001, "fine"),
+		text("nots", "555@lid", 0, "no time"),
+		text("ok2", "555@lid", 1700000003, "also fine")))
+	got, err := Prepare(context.Background(), b, env(t, nil))
+	if err != nil {
+		t.Fatalf("one invalid timestamp must not fail the batch: %v", err)
+	}
+	if got.Excluded != 0 || len(got.Inserts) != 3 {
+		t.Fatalf("excluded=%d inserts=%d, want all three kept", got.Excluded, len(got.Inserts))
+	}
+	zero := 0
+	for _, insert := range got.Inserts {
+		var m struct {
+			WhatsAppID string `json:"whatsappMessageId"`
+			Timestamp  int64  `json:"timestamp"`
+			Text       string `json:"text"`
 		}
-		if len(got.Inserts) != 0 {
-			t.Fatalf("a failed batch yields nothing to publish, got %d", len(got.Inserts))
+		if err := json.Unmarshal(insert.Message, &m); err != nil {
+			t.Fatal(err)
 		}
+		if m.WhatsAppID == "nots" {
+			zero++
+			if m.Timestamp != 0 || m.Text != "no time" || insert.IdentityState != "resolved" {
+				t.Fatalf("isolated message = %+v state=%s", m, insert.IdentityState)
+			}
+		} else if m.Timestamp == 0 {
+			t.Fatalf("a valid message lost its timestamp: %+v", m)
+		}
+	}
+	if zero != 1 {
+		t.Fatalf("the isolated message appears %d times", zero)
 	}
 }

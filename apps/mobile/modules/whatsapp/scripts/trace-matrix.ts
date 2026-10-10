@@ -295,19 +295,32 @@ const JestSchema = z.object({
   })),
 });
 
-/** `go test -json` output, possibly mixed with plain lines from vet and the other commands of test-go.sh. */
+/**
+ * `go test -json` output, possibly mixed with plain lines from vet and the other commands of test-go.sh.
+ * Subtests are judged with their parent: a failing subtest fails it (Go already does), and a parent that passed
+ * with a skipped subtest is reported as `skip`, not as a full pass (WA-14 review m4).
+ */
 export function parseGoResults(text: string): Map<string, Result> {
   const results = new Map<string, Result>();
+  const incomplete = new Set<string>();
   for (const line of text.split("\n")) {
     if (!line.startsWith("{")) continue;
     let json: unknown;
     try { json = JSON.parse(line); } catch { continue; }
     const event = GoEventSchema.safeParse(json);
-    if (!event.success || !event.data.Test || !event.data.Package || event.data.Test.includes("/")) continue;
+    if (!event.success || !event.data.Test || !event.data.Package) continue;
     const action = event.data.Action;
     if (action !== "pass" && action !== "fail" && action !== "skip") continue;
-    results.set(`${event.data.Package}::${event.data.Test}`, action);
+    const [parent] = event.data.Test.split("/");
+    const key = `${event.data.Package}::${parent}`;
+    if (parent !== event.data.Test) {
+      if (action === "skip") incomplete.add(key);
+      if (action === "fail") results.set(key, "fail");
+      continue;
+    }
+    if (results.get(key) !== "fail") results.set(key, action);
   }
+  for (const key of incomplete) if (results.get(key) === "pass") results.set(key, "skip");
   return results;
 }
 
@@ -386,7 +399,8 @@ function classify(item: CatalogCase, evidence: Evidence[], gap: string | undefin
   const failed = controlled.filter((entry) => entry.result === "fail");
   const passed = controlled.filter((entry) => entry.result === "pass");
   const behavioral = passed.filter((entry) => !SOURCE_TEST.test(entry.file));
-  const nativeText = NATIVE_TEXT.test(item.title) || /^IT-(AND|IOS|BLD)-/.test(item.id);
+  const mention = NATIVE_TEXT.exec(item.title)?.[0];
+  const nativeText = mention !== undefined || /^IT-(AND|IOS|BLD)-/.test(item.id);
   if (failed.length > 0) return { status: "falla", reason: `${failed.length} prueba(s) fallan` };
   if (named.length === 0) return { status: "no implementado", reason: gap ?? (evidence.length > 0 ? "solo menciones sin prueba" : "ninguna prueba lo cita ni lo enlaza") };
   if (passed.length === 0) {
@@ -397,7 +411,7 @@ function classify(item: CatalogCase, evidence: Evidence[], gap: string | undefin
   if (gap) return { status: "parcial", reason: gap };
   if (behavioral.length === 0) return { status: "parcial", reason: "solo pruebas de forma sobre el código fuente" };
   if (native.length > 0) return { status: "parcial", reason: "parte controlada pasa; la parte nativa no se ejecutó" };
-  if (nativeText) return { status: "parcial", reason: "parte controlada pasa; el caso exige plataforma real" };
+  if (nativeText) return { status: "parcial", reason: `parte controlada pasa; el caso exige plataforma real (${mention !== undefined ? `el titulo menciona "${mention}"` : "es un caso de plataforma"}), que no se ejecuto` };
   return { status: "pasa", reason: "" };
 }
 

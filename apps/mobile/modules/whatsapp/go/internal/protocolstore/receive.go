@@ -74,7 +74,9 @@ func MarshalReceiveInfo(accountID string, info *types.MessageInfo) (string, erro
 
 func parseReceiveInfo(raw, accountID string) (*types.MessageInfo, error) {
 	var metadata receiveMetadata
-	if err := json.Unmarshal([]byte(raw), &metadata); err != nil || metadata.Version != 1 || metadata.AccountID != accountID || metadata.ID == "" || metadata.TimestampSeconds <= 0 {
+	// Any instant, even a zero or negative one, is accepted: a message whose timestamp cannot become a public
+	// one is isolated and delivered sanitized by the identity layer (IT-MSG-07), not refused here.
+	if err := json.Unmarshal([]byte(raw), &metadata); err != nil || metadata.Version != 1 || metadata.AccountID != accountID || metadata.ID == "" {
 		return nil, failure(StateInvalid, "invalid replay metadata")
 	}
 	chat, err := types.ParseJID(metadata.Chat)

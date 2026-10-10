@@ -200,6 +200,13 @@
         "via": "link",
         "native": false,
         "result": "pass"
+      },
+      {
+        "file": "go/internal/connection/socket_ownership_test.go",
+        "test": "TestHandoffKeepsClientAndOriginalDeadline",
+        "via": "link",
+        "native": false,
+        "result": "pass"
       }
     ]
   },
@@ -2505,8 +2512,8 @@
   {
     "id": "IT-CON-04",
     "task": "WA-05",
-    "status": "parcial",
-    "reason": "Reloj controlado y websockets locales falsos; no se prueba la frontera exacta de 30 s ni que un intento no emparejado no se reconecte por si mismo.",
+    "status": "pasa",
+    "reason": "",
     "tests": [
       {
         "file": "go/internal/connection/controller_test.go",
@@ -2532,6 +2539,13 @@
       {
         "file": "go/internal/connection/request_end_test.go",
         "test": "TestWA12EndRoutePermanentFailureAndQRFinishedAndUnpairedNetwork",
+        "via": "link",
+        "native": false,
+        "result": "pass"
+      },
+      {
+        "file": "go/internal/connection/socket_ownership_test.go",
+        "test": "TestHandoffKeepsClientAndOriginalDeadline",
         "via": "link",
         "native": false,
         "result": "pass"
@@ -2899,18 +2913,25 @@
     "id": "IT-MSG-07",
     "task": "WA-04",
     "status": "parcial",
-    "reason": "Solo unitario. identity.classifyEvent trata ErrInvalidTimestamp como Excluded (sin prueba), lo que parece contradecir 'detener conservando recuperacion'; no hay prueba de lote historico afectado.",
+    "reason": "Aislado, no descartado: el contenido con timestamp invalido se entrega saneado (timestamp 0 = desconocido) en vivo y en historial, con reinicio, sin fallar la sesion; probado con transporte controlado. Si falta del todo el atributo t, whatsmeow rechaza el nodo antes de nuestros hooks (fuera de este codigo).",
     "tests": [
       {
         "file": "go/internal/history/prepare_test.go",
-        "test": "TestITMSG07AnInvalidTimestampInHistoryFailsTheBatchInsteadOfExcludingIt",
+        "test": "TestITMSG07AnInvalidTimestampInHistoryIsolatesThatMessageAndKeepsTheBatch",
         "via": "cite",
         "native": false,
         "result": "pass"
       },
       {
         "file": "go/internal/receive/journey_test.go",
-        "test": "TestITMSG07LiveContentWithAnInvalidTimestampIsKeptAndNotAcknowledged",
+        "test": "TestITMSG07LiveMessageWithAnInvalidTimestampIsIsolatedDeliveredSanitizedAndNeverStopsReception",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
+      {
+        "file": "go/internal/receive/journey_test.go",
+        "test": "TestITMSG07IsolatedMessageSurvivesRestartAndRedelivery",
         "via": "cite",
         "native": false,
         "result": "pass"
@@ -3223,7 +3244,7 @@
     "id": "IT-DEL-01",
     "task": "WA-06",
     "status": "parcial",
-    "reason": "parte controlada pasa; el caso exige plataforma real",
+    "reason": "parte controlada pasa; el caso exige plataforma real (el titulo menciona \"nativo\"), que no se ejecuto",
     "tests": [
       {
         "file": "go/internal/receive/ordering_test.go",
@@ -3259,8 +3280,8 @@
   {
     "id": "IT-DEL-03",
     "task": "WA-06",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "El reinicio reutiliza un nativo en memoria (fake): se prueba la reemision con los mismos IDs, no la durabilidad del almacen nativo real.",
     "tests": [
       {
         "file": "go/internal/receive/ordering_test.go",
@@ -3274,8 +3295,8 @@
   {
     "id": "IT-DEL-04",
     "task": "WA-06",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "El reinicio reutiliza un nativo en memoria (fake): se prueba que el consumidor no duplica el efecto, no la durabilidad del almacen nativo real.",
     "tests": [
       {
         "file": "go/internal/receive/ordering_test.go",
@@ -3391,13 +3412,20 @@
   {
     "id": "IT-DEL-09",
     "task": "WA-06",
-    "status": "parcial",
-    "reason": "Auditoria WA-14: Solo se repite la confirmacion de la misma entrega; no se prueba la confirmacion de otra entrega ni que la repetida no libere el turno de la entrega actual.",
+    "status": "pasa",
+    "reason": "",
     "tests": [
       {
         "file": "go/internal/receive/recovery_test.go",
         "test": "TestITDEL09ConfirmsForeignAccountWithoutCredentials",
         "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
+      {
+        "file": "go/internal/delivery/coordinator_test.go",
+        "test": "TestUTDEL09ForeignAndRepeatedConfirmationsKeepCurrentTurn",
+        "via": "link",
         "native": false,
         "result": "pass"
       }
@@ -3553,8 +3581,8 @@
   {
     "id": "IT-SUB-06",
     "task": "WA-06",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "El retiro del consumidor al destruir el runtime (OnDestroy) es nativo y no se ejecuto; Go y la fachada TypeScript solo cubren el retiro explicito.",
     "tests": [
       {
         "file": "client.test.ts",
@@ -3670,8 +3698,8 @@
   {
     "id": "IT-BUF-03",
     "task": "WA-06",
-    "status": "parcial",
-    "reason": "Auditoria WA-14: Se prueba la reanudacion al caber la entrada rechazada, pero no 'solo si sigue solicitado', ni el respeto de parada explicita ni de expiracion.",
+    "status": "pasa",
+    "reason": "",
     "tests": [
       {
         "file": "go/bridge/capacity_test.go",
@@ -3691,6 +3719,13 @@
         "file": "go/internal/receive/buffer_test.go",
         "test": "TestITBUF03ConfirmationBeforePauseStillResumes",
         "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
+      {
+        "file": "go/internal/connection/controller_test.go",
+        "test": "TestCapacityPauseResumesOnlyRequestedConnection",
+        "via": "link",
         "native": false,
         "result": "pass"
       }
@@ -6412,7 +6447,7 @@
     "id": "IT-AND-11",
     "task": "WA-12",
     "status": "no implementado",
-    "reason": "Doze, ahorro de bateria, perdida de red y muerte del proceso solo se observan en un dispositivo Android real: manual y fuera de alcance, sin prueba ni implementacion automatizada.",
+    "reason": "Doze, ahorro de bateria, perdida de red y muerte del proceso solo se observan en un dispositivo o emulador Android: manual y fuera de alcance, sin prueba automatizada.",
     "tests": []
   },
   {
@@ -6434,7 +6469,7 @@
     "id": "IT-IOS-01",
     "task": "WA-13",
     "status": "parcial",
-    "reason": "parte controlada pasa; el caso exige plataforma real",
+    "reason": "parte controlada pasa; el caso exige plataforma real (es un caso de plataforma), que no se ejecuto",
     "tests": [
       {
         "file": "client.resume.test.ts",
@@ -6610,7 +6645,7 @@
     "id": "IT-BLD-01",
     "task": "WA-01",
     "status": "parcial",
-    "reason": "build-go.sh fija Go 1.26.5, whatsmeow y x/mobile con GOTOOLCHAIN=local y GOPROXY=off, pero ninguna prueba lo ejerce; un test shell con go falso podria hacerlo sin toolchain nativa.",
+    "reason": "Cubierto con un go falso en test-build-go-contract.sh (versiones fijadas, GOTOOLCHAIN/GOPROXY, sin descargas); no se ejecuta gomobile real ni se comprueba el binario de las herramientas.",
     "tests": [
       {
         "file": "scripts/test-build-go-contract.sh",
@@ -6647,7 +6682,7 @@
     "id": "IT-BLD-03",
     "task": "WA-01",
     "status": "parcial",
-    "reason": "El parche se comprueba con git apply --check sobre una copia en scripts/test-go.sh (exige cache de modulos de Go); build-go.sh no tiene prueba propia del fallo de parche.",
+    "reason": "Parche aplicado y fallos (no aplica, falta) probados contra la fuente real del cache sin modificarla; el resultado no se compila con gomobile real.",
     "tests": [
       {
         "file": "scripts/test-build-go-contract.sh",
@@ -6684,7 +6719,7 @@
     "id": "IT-BLD-05",
     "task": "WA-01",
     "status": "parcial",
-    "reason": "La verificacion de ABIs, prefijos y minimos esta en build-go.sh y exige gomobile/NDK/Xcode: no se ejecuto.",
+    "reason": "ABIs, slices, prefijo Java y flags de bind verificados contra artefactos falsos; no se genera ni carga un binario real (NDK, Xcode y dispositivo no ejecutados).",
     "tests": [
       {
         "file": "scripts/test-build-go-contract.sh",
@@ -6699,7 +6734,7 @@
     "id": "IT-BLD-06",
     "task": "WA-01",
     "status": "parcial",
-    "reason": "Exige que Expo, Gradle o CocoaPods carguen el modulo: no se ejecuto.",
+    "reason": "El autolinking real de Expo resuelve el modulo y los builds se detienen sin artefactos; que Gradle y CocoaPods carguen el AAR/XCFramework no se ejecuto.",
     "tests": [
       {
         "file": "build.contract.test.ts",
@@ -6734,15 +6769,37 @@
   {
     "id": "IT-BLD-07",
     "task": "WA-01",
-    "status": "no implementado",
-    "reason": "Regla de proceso documentada en el README; no hay prueba automatizada.",
-    "tests": []
+    "status": "parcial",
+    "reason": "Regla de proceso: solo se comprueba que build-info.txt registra un hash de las entradas nativas y que la app no usa expo-updates; no se puede demostrar que la app se reconstruyo.",
+    "tests": [
+      {
+        "file": "build.contract.test.ts",
+        "test": "IT-BLD-07 a native change always ships with a rebuilt app the app cannot receive native code over the air: no expo-updates dependency or configuration",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
+      {
+        "file": "build.contract.test.ts",
+        "test": "IT-BLD-07 a native change always ships with a rebuilt app the build record carries a hash of the Go sources, patches and script",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
+      {
+        "file": "scripts/test-build-go-contract.sh",
+        "test": "test-build-go-contract.sh",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      }
+    ]
   },
   {
     "id": "IT-BLD-08",
     "task": "WA-01",
     "status": "parcial",
-    "reason": "build-info.txt y los .gitignore registran y excluyen artefactos; ninguna prueba lo comprueba.",
+    "reason": "build-info.txt (incluido el estado clean/dirty del arbol) y los .gitignore se verifican; los artefactos no se comparan byte a byte, como indica el caso.",
     "tests": [
       {
         "file": "build.contract.test.ts",

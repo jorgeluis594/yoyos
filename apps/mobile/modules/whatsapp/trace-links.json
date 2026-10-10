@@ -124,6 +124,12 @@
    "note": "un fallo borra AAR, XCFramework y build-info.txt; la parte de build.gradle/podspec que aborta sin artefacto no tiene prueba"
   },
   {
+   "id": "IT-BLD-07",
+   "file": "scripts/test-build-go-contract.sh",
+   "test": "test-build-go-contract.sh",
+   "note": "build-info registra el hash de las entradas (Go, parches, script) y cambia con ellas"
+  },
+  {
    "id": "IT-BRG-01",
    "file": "android/src/androidTest/java/expo/modules/whatsapp/BridgeInstrumentedTest.kt",
    "test": "goCallsNativeAndReturnsValue",
@@ -370,6 +376,12 @@
    "note": "lock del writer libre mientras espera confirmaciones"
   },
   {
+   "id": "IT-BUF-03",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestCapacityPauseResumesOnlyRequestedConnection",
+   "note": "reanuda solo si sigue solicitado"
+  },
+  {
    "id": "IT-CON-01",
    "file": "client.test.ts",
    "test": "coalesces preparation, accepts connect before QR, and retries failed preparation"
@@ -441,6 +453,12 @@
    "file": "go/internal/connection/request_end_test.go",
    "test": "TestWA12EndRoutePermanentFailureAndQRFinishedAndUnpairedNetwork",
    "note": "sin sesion vinculada no hay reconexion"
+  },
+  {
+   "id": "IT-CON-04",
+   "file": "go/internal/connection/socket_ownership_test.go",
+   "test": "TestHandoffKeepsClientAndOriginalDeadline",
+   "note": "frontera de 29 s y 31 s"
   },
   {
    "id": "IT-CON-05",
@@ -529,6 +547,12 @@
    "file": "go/internal/connection/logout_test.go",
    "test": "TestUTCON10AdmissionOrderAndGenerationRetirement",
    "note": "orden de admision y retirada de generacion"
+  },
+  {
+   "id": "IT-DEL-09",
+   "file": "go/internal/delivery/coordinator_test.go",
+   "test": "TestUTDEL09ForeignAndRepeatedConfirmationsKeepCurrentTurn",
+   "note": "confirmacion de otra entrega y repetida"
   },
   {
    "id": "IT-EVT-01",
@@ -1636,6 +1660,12 @@
    "test": "TestQRScanExcludesWaitFromAuthenticationDeadline"
   },
   {
+   "id": "UT-CON-04",
+   "file": "go/internal/connection/socket_ownership_test.go",
+   "test": "TestHandoffKeepsClientAndOriginalDeadline",
+   "note": "frontera de 29 s y 31 s"
+  },
+  {
    "id": "UT-CON-05",
    "file": "go/internal/connection/controller_test.go",
    "test": "TestBackoffSequenceCapsAndResetsAfterConnection"
@@ -1992,7 +2022,7 @@
  "gaps": [
   {
    "id": "IT-AND-11",
-   "note": "Doze, ahorro de bateria, perdida de red y muerte del proceso solo se observan en un dispositivo Android real: manual y fuera de alcance, sin prueba ni implementacion automatizada."
+   "note": "Doze, ahorro de bateria, perdida de red y muerte del proceso solo se observan en un dispositivo o emulador Android: manual y fuera de alcance, sin prueba automatizada."
   },
   {
    "id": "IT-API-01",
@@ -2024,7 +2054,7 @@
   },
   {
    "id": "IT-BLD-01",
-   "note": "build-go.sh fija Go 1.26.5, whatsmeow y x/mobile con GOTOOLCHAIN=local y GOPROXY=off, pero ninguna prueba lo ejerce; un test shell con go falso podria hacerlo sin toolchain nativa."
+   "note": "Cubierto con un go falso en test-build-go-contract.sh (versiones fijadas, GOTOOLCHAIN/GOPROXY, sin descargas); no se ejecuta gomobile real ni se comprueba el binario de las herramientas."
   },
   {
    "id": "IT-BLD-02",
@@ -2032,7 +2062,7 @@
   },
   {
    "id": "IT-BLD-03",
-   "note": "El parche se comprueba con git apply --check sobre una copia en scripts/test-go.sh (exige cache de modulos de Go); build-go.sh no tiene prueba propia del fallo de parche."
+   "note": "Parche aplicado y fallos (no aplica, falta) probados contra la fuente real del cache sin modificarla; el resultado no se compila con gomobile real."
   },
   {
    "id": "IT-BLD-04",
@@ -2040,19 +2070,19 @@
   },
   {
    "id": "IT-BLD-05",
-   "note": "La verificacion de ABIs, prefijos y minimos esta en build-go.sh y exige gomobile/NDK/Xcode: no se ejecuto."
+   "note": "ABIs, slices, prefijo Java y flags de bind verificados contra artefactos falsos; no se genera ni carga un binario real (NDK, Xcode y dispositivo no ejecutados)."
   },
   {
    "id": "IT-BLD-06",
-   "note": "Exige que Expo, Gradle o CocoaPods carguen el modulo: no se ejecuto."
+   "note": "El autolinking real de Expo resuelve el modulo y los builds se detienen sin artefactos; que Gradle y CocoaPods carguen el AAR/XCFramework no se ejecuto."
   },
   {
    "id": "IT-BLD-07",
-   "note": "Regla de proceso documentada en el README; no hay prueba automatizada."
+   "note": "Regla de proceso: solo se comprueba que build-info.txt registra un hash de las entradas nativas y que la app no usa expo-updates; no se puede demostrar que la app se reconstruyo."
   },
   {
    "id": "IT-BLD-08",
-   "note": "build-info.txt y los .gitignore registran y excluyen artefactos; ninguna prueba lo comprueba."
+   "note": "build-info.txt (incluido el estado clean/dirty del arbol) y los .gitignore se verifican; los artefactos no se comparan byte a byte, como indica el caso."
   },
   {
    "id": "IT-BRG-01",
@@ -2099,10 +2129,6 @@
    "note": "Auditoria WA-14: Solo se mide que el texto cuente dos veces (mensaje y recovery); no se prueba que metadatos, codificación, cifrado y reservas de identidad cuenten, ni que los bytes de imágenes descargadas queden fuera."
   },
   {
-   "id": "IT-BUF-03",
-   "note": "Auditoria WA-14: Se prueba la reanudacion al caber la entrada rechazada, pero no 'solo si sigue solicitado', ni el respeto de parada explicita ni de expiracion."
-  },
-  {
    "id": "IT-CFG-04",
    "note": "Auditoria WA-14: Reinicio de iOS/Android, restauración de opciones publicadas sin sesión, no usar state.next, misma revisión sin borrar sesión/pendientes y relectura de state.bin son nativos y el test TS usa fakeNative; solo se prueba la lógica del cliente."
   },
@@ -2139,10 +2165,6 @@
    "note": "No se asserta que tras qrFinished no se cree un nuevo transporte hasta otra solicitud explicita; solo transporte simulado, sin QR real de whatsmeow."
   },
   {
-   "id": "IT-CON-04",
-   "note": "Reloj controlado y websockets locales falsos; no se prueba la frontera exacta de 30 s ni que un intento no emparejado no se reconecte por si mismo."
-  },
-  {
    "id": "IT-CON-05",
    "note": "Perdida de red simulada con eventos y reloj controlado; no se prueba la fluctuacion real de red ni se asserta explicitamente que no existan intentos paralelos mas alla de crear un transporte por reintento."
   },
@@ -2171,8 +2193,12 @@
    "note": "Auditoria WA-14: El 'crash' se simula con un fake nativo que falla el apply (failApply); la atomicidad/descarte del commit nativo real y la posible reentrega remota segun protocolo no se ejecutan."
   },
   {
-   "id": "IT-DEL-09",
-   "note": "Auditoria WA-14: Solo se repite la confirmacion de la misma entrega; no se prueba la confirmacion de otra entrega ni que la repetida no libere el turno de la entrega actual."
+   "id": "IT-DEL-03",
+   "note": "El reinicio reutiliza un nativo en memoria (fake): se prueba la reemision con los mismos IDs, no la durabilidad del almacen nativo real."
+  },
+  {
+   "id": "IT-DEL-04",
+   "note": "El reinicio reutiliza un nativo en memoria (fake): se prueba que el consumidor no duplica el efecto, no la durabilidad del almacen nativo real."
   },
   {
    "id": "IT-DEL-10",
@@ -2328,7 +2354,7 @@
   },
   {
    "id": "IT-MSG-07",
-   "note": "Solo unitario. identity.classifyEvent trata ErrInvalidTimestamp como Excluded (sin prueba), lo que parece contradecir 'detener conservando recuperacion'; no hay prueba de lote historico afectado."
+   "note": "Aislado, no descartado: el contenido con timestamp invalido se entrega saneado (timestamp 0 = desconocido) en vivo y en historial, con reinicio, sin fallar la sesion; probado con transporte controlado. Si falta del todo el atributo t, whatsmeow rechaza el nodo antes de nuestros hooks (fuera de este codigo)."
   },
   {
    "id": "IT-MSG-09",
@@ -2421,6 +2447,10 @@
   {
    "id": "IT-SUB-05",
    "note": "Auditoria WA-14: El test de carrera solo comprueba que el pendiente queda retirado; no afirma ausencia de dos recorridos simultáneos ni de espera de una entrega ya retirada, y el confirmar 'justo antes' no se ordena de forma determinista."
+  },
+  {
+   "id": "IT-SUB-06",
+   "note": "El retiro del consumidor al destruir el runtime (OnDestroy) es nativo y no se ejecuto; Go y la fachada TypeScript solo cubren el retiro explicito."
   },
   {
    "id": "IT-SUB-07",
