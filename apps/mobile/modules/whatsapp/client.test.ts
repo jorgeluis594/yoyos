@@ -541,3 +541,38 @@ describe("private image files", () => {
     expect(await client.deleteDownloadedImage(messageId)).toMatchObject({ success: false, error: { code: "MODULE_UNAVAILABLE" } });
   });
 });
+
+// IT-MSG-07 (WA-14 review n2, decision 2026-10-10): an unknown date (absent or null) is valid and reaches the consumer
+// without a timestamp; a real date is kept; 0 and other non-dates are not an "unknown" marker and are rejected.
+describe("IT-MSG-07 a message with an unknown date", () => {
+  const withTimestamp = (timestamp: unknown, consumerToken?: string) => {
+    const base = received(consumerToken);
+    const { timestamp: _dropped, ...rest } = base.message;
+    return { ...base, message: timestamp === "absent" ? rest : { ...rest, timestamp } };
+  };
+  async function deliverOne(payload: unknown) {
+    const native = fakeNative();
+    const client = createWhatsAppClient(() => native);
+    await client.initialize();
+    const listener = jest.fn();
+    client.addListener("messageReceived", listener);
+    await flush();
+    native.handlers.get("messageReceived")?.(payload);
+    return listener;
+  }
+  test.each([["absent", "absent"], ["null", null]])("a %s timestamp passes validation and reaches the consumer with no date", async (_name, value) => {
+    const listener = await deliverOne(withTimestamp(value));
+    expect(listener).toHaveBeenCalledTimes(1);
+    const delivered = listener.mock.calls[0][0].message;
+    expect(delivered.text).toBe("hola");
+    expect("timestamp" in delivered && delivered.timestamp !== undefined).toBe(false);
+  });
+  test("a real timestamp is delivered unchanged", async () => {
+    const listener = await deliverOne(withTimestamp(1_700_000_000_000));
+    expect(listener.mock.calls[0][0].message.timestamp).toBe(1_700_000_000_000);
+  });
+  test.each([0, -1, 1.5, "1700", Number.MAX_SAFE_INTEGER + 2])("%p is not a date and not an unknown marker: the delivery is refused", async (value) => {
+    const listener = await deliverOne(withTimestamp(value));
+    expect(listener).not.toHaveBeenCalled();
+  });
+});

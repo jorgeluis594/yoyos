@@ -60,7 +60,7 @@ func TestLiveAndHistoricalFixturesShareContract(t *testing.T) {
 			if outgoing {
 				direction = "outgoing"
 			}
-			if got.Text == nil || *got.Text != "  intact  " || got.Timestamp != 1_600_000_000_000 || got.WhatsAppMessageID != "Ab:C/9" || got.AccountID != own.String() || got.ChatID != peer.String() || got.Direction != direction || (got.Image != nil) != image {
+			if got.Text == nil || *got.Text != "  intact  " || got.Timestamp == nil || *got.Timestamp != 1_600_000_000_000 || got.WhatsAppMessageID != "Ab:C/9" || got.AccountID != own.String() || got.ChatID != peer.String() || got.Direction != direction || (got.Image != nil) != image {
 				t.Fatalf("lost source content or identity: %#v", got)
 			}
 			after, _ := proto.Marshal(web)
@@ -233,16 +233,32 @@ func TestExcludedFixtures(t *testing.T) {
 	}
 }
 
-func TestTimestampFailurePreservesSource(t *testing.T) {
-	for _, timestamp := range []time.Time{{}, time.Unix(-1, 0), time.Date(10000, 1, 1, 0, 0, 0, 0, time.UTC)} {
+// UT-MSG-07 (decision 2026-10-10): a missing or invalid timestamp is an unknown date, not an error: the content is
+// still normalized, the source event is untouched and no date (neither 0 nor the reception time) is invented.
+func TestUTMSG07InvalidTimestampBecomesUnknownDateAndKeepsTheContent(t *testing.T) {
+	for _, timestamp := range []time.Time{{}, time.Unix(0, 0), time.Unix(-1, 0), time.Date(10000, 1, 1, 0, 0, 0, 0, time.UTC), time.Unix(1<<62, 0)} {
 		evt := fixture(&waE2E.Message{Conversation: proto.String("recover me")}, false)
 		evt.Info.Timestamp = timestamp
 		original := evt.Message
 		got, err := Normalize(evt, own, types.JID{}, nil)
-		if !errors.Is(err, ErrInvalidTimestamp) || got.Message != nil || evt.Message != original {
+		if err != nil || got.Message == nil || got.Message.Timestamp != nil || got.Message.Text == nil || *got.Message.Text != "recover me" || evt.Message != original {
 			t.Fatalf("timestamp=%v got=%#v err=%v", timestamp, got, err)
 		}
+		raw, err := json.Marshal(got.Message)
+		if err != nil || strings.Contains(string(raw), "timestamp") {
+			t.Fatalf("an unknown date must be absent from the JSON, got %s (%v)", raw, err)
+		}
+		if ValidTimestamp(timestamp) {
+			t.Fatalf("%v must not be a valid timestamp", timestamp)
+		}
 	}
+	if !ValidTimestamp(time.Unix(1, 0)) || !ValidTimestamp(time.Date(9999, 12, 31, 0, 0, 0, 0, time.UTC)) {
+		t.Fatal("the boundaries of the valid range were rejected")
+	}
+}
+
+// UT-MSG-09 / IT-MSG-09: a message from 1970 plus one second is real history and is not filtered by age.
+func TestOldHistoryIsNotFilteredByAge(t *testing.T) {
 	old := fixture(&waE2E.Message{Conversation: proto.String("old")}, false)
 	old.Info.Timestamp = time.Unix(1, 0)
 	if normalize(t, old).Message == nil {

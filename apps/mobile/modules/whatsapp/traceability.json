@@ -563,8 +563,8 @@
     "tests": [
       {
         "file": "go/internal/normalization/normalization_test.go",
-        "test": "TestTimestampFailurePreservesSource",
-        "via": "link",
+        "test": "TestUTMSG07InvalidTimestampBecomesUnknownDateAndKeepsTheContent",
+        "via": "cite",
         "native": false,
         "result": "pass"
       }
@@ -592,15 +592,15 @@
     "reason": "No hay prueba de no filtrar por fecha de vinculacion (solo por antiguedad absoluta).",
     "tests": [
       {
-        "file": "go/internal/history/prepare_test.go",
-        "test": "TestUTHIS02ExcludesOutOfScopeWithoutFailing",
-        "via": "link",
+        "file": "go/internal/normalization/normalization_test.go",
+        "test": "TestOldHistoryIsNotFilteredByAge",
+        "via": "cite",
         "native": false,
         "result": "pass"
       },
       {
-        "file": "go/internal/normalization/normalization_test.go",
-        "test": "TestTimestampFailurePreservesSource",
+        "file": "go/internal/history/prepare_test.go",
+        "test": "TestUTHIS02ExcludesOutOfScopeWithoutFailing",
         "via": "link",
         "native": false,
         "result": "pass"
@@ -2913,32 +2913,81 @@
     "id": "IT-MSG-07",
     "task": "WA-04",
     "status": "parcial",
-    "reason": "Aislado, no descartado: el contenido con timestamp invalido se entrega saneado (timestamp 0 = desconocido) en vivo y en historial, con reinicio, sin fallar la sesion; probado con transporte controlado. Si falta del todo el atributo t, whatsmeow rechaza el nodo antes de nuestros hooks (fuera de este codigo).",
+    "reason": "Fecha desconocida (clave ausente, nunca 0), decision del dueño 2026-10-10: probado con transporte controlado en vivo, historial (orden y deduplicacion), reinicio y reentrega, y en la validacion Zod. Los almacenes Kotlin/Swift aceptan la clave ausente solo por lectura del codigo (no compilados). Si falta del todo el atributo t, whatsmeow rechaza el nodo antes de nuestros hooks (fuera de este codigo).",
     "tests": [
       {
+        "file": "client.test.ts",
+        "test": "IT-MSG-07 a message with an unknown date a %s timestamp passes validation and reaches the consumer with no date",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
+      {
+        "file": "client.test.ts",
+        "test": "IT-MSG-07 a message with an unknown date a real timestamp is delivered unchanged",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
+      {
+        "file": "client.test.ts",
+        "test": "IT-MSG-07 a message with an unknown date %p is not a date and not an unknown marker: the delivery is refused",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
+      {
         "file": "go/internal/history/prepare_test.go",
-        "test": "TestITMSG07AnInvalidTimestampInHistoryIsolatesThatMessageAndKeepsTheBatch",
+        "test": "TestITMSG07AnInvalidTimestampInHistoryIsAnUnknownDateAndKeepsTheBatch",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
+      {
+        "file": "go/internal/history/prepare_test.go",
+        "test": "TestITMSG07UnknownDateKeepsItsProtocolPositionInTheBatchAndDeduplicatesByID",
         "via": "cite",
         "native": false,
         "result": "pass"
       },
       {
         "file": "go/internal/receive/journey_test.go",
-        "test": "TestITMSG07LiveMessageWithAnInvalidTimestampIsIsolatedDeliveredSanitizedAndNeverStopsReception",
+        "test": "TestITMSG07LiveMessageWithAnInvalidTimestampIsDeliveredWithAnUnknownDateAndNeverStopsReception",
         "via": "cite",
         "native": false,
         "result": "pass"
       },
       {
         "file": "go/internal/receive/journey_test.go",
-        "test": "TestITMSG07IsolatedMessageSurvivesRestartAndRedelivery",
+        "test": "TestITMSG07UnknownDateKeepsArrivalOrderAndIdentityComesFromTheMessageID",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
+      {
+        "file": "go/internal/receive/journey_test.go",
+        "test": "TestITMSG07UnknownDateMessageSurvivesRestartAndTheServerRedeliversIt",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
+      {
+        "file": "wa14.contract.test.ts",
+        "test": "IT-MSG-07 the native stores accept a message with no timestamp Kotlin lists the key only when present and requires a positive integer when it is",
+        "via": "cite",
+        "native": false,
+        "result": "pass"
+      },
+      {
+        "file": "wa14.contract.test.ts",
+        "test": "IT-MSG-07 the native stores accept a message with no timestamp Swift lists the key only when present and requires a positive integer when it is",
         "via": "cite",
         "native": false,
         "result": "pass"
       },
       {
         "file": "go/internal/normalization/normalization_test.go",
-        "test": "TestTimestampFailurePreservesSource",
+        "test": "TestUTMSG07InvalidTimestampBecomesUnknownDateAndKeepsTheContent",
         "via": "link",
         "native": false,
         "result": "pass"
@@ -2981,15 +3030,15 @@
     "reason": "No hay prueba de ausencia de filtro por fecha de vinculacion.",
     "tests": [
       {
-        "file": "go/internal/history/prepare_test.go",
-        "test": "TestUTHIS02ExcludesOutOfScopeWithoutFailing",
-        "via": "link",
+        "file": "go/internal/normalization/normalization_test.go",
+        "test": "TestOldHistoryIsNotFilteredByAge",
+        "via": "cite",
         "native": false,
         "result": "pass"
       },
       {
-        "file": "go/internal/normalization/normalization_test.go",
-        "test": "TestTimestampFailurePreservesSource",
+        "file": "go/internal/history/prepare_test.go",
+        "test": "TestUTHIS02ExcludesOutOfScopeWithoutFailing",
         "via": "link",
         "native": false,
         "result": "pass"
@@ -3698,8 +3747,8 @@
   {
     "id": "IT-BUF-03",
     "task": "WA-06",
-    "status": "pasa",
-    "reason": "",
+    "status": "parcial",
+    "reason": "Se prueba la reanudacion solo si sigue solicitada (parada explicita); la expiracion durante la pausa (c.expired en controller.go) no tiene prueba.",
     "tests": [
       {
         "file": "go/bridge/capacity_test.go",

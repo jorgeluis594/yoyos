@@ -431,3 +431,20 @@ describe("controlled journey with a durable, idempotent consumer", () => {
     expect(shape).toHaveLength(4);
   });
 });
+
+// IT-MSG-07 (decision 2026-10-10), read only: the Kotlin and Swift stores validate the delivered message with an
+// optional `timestamp` (absent = unknown date) and never accept 0 as a date. Neither was compiled or run here.
+describe("IT-MSG-07 the native stores accept a message with no timestamp", () => {
+  test("Kotlin lists the key only when present and requires a positive integer when it is", () => {
+    const kotlin = read("android/src/main/java/expo/modules/whatsapp/NativeStateStore.kt");
+    expect(kotlin).toContain('mutableListOf("id", "accountId", "whatsappMessageId", "chatId", "direction")');
+    expect(kotlin).toContain('if (message.has("timestamp")) fields.add("timestamp")');
+    expect(kotlin).toContain('Regex("[1-9][0-9]*").matches(timestamp.toString())');
+  });
+  test("Swift lists the key only when present and requires a positive integer when it is", () => {
+    const swift = read("ios/Storage/NativeStateStore.swift");
+    expect(swift).toContain('["id", "accountId", "whatsappMessageId", "chatId", "direction"]');
+    expect(swift).toContain('if message["timestamp"] != nil { fields.insert("timestamp") }');
+    expect(swift).toContain("timestamp > 0, timestamp <= 9_007_199_254_740_991");
+  });
+});

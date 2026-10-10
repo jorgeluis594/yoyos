@@ -6,7 +6,6 @@ package identity
 import (
 	"encoding/json"
 	"errors"
-	"time"
 
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waWeb"
@@ -68,27 +67,12 @@ func isHistoryNotification(info *types.MessageInfo, message *waE2E.Message) bool
 	return info.IsFromMe && message.GetProtocolMessage().GetHistorySyncNotification() != nil
 }
 
-// UnknownTimestamp is the sanitized timestamp of a message whose own one could not become a public timestamp
-// (missing, zero, negative or beyond year 9999). No valid message has it, so it marks "unknown" in band; no
-// reception time is invented.
-const UnknownTimestamp int64 = 0
-
-// sanitizedProbe is any valid instant: normalization is rerun with it only to build the rest of the message.
-var sanitizedProbe = time.Unix(1, 0)
-
-// classifyEvent applies IT-MSG-07 to an invalid timestamp: that one message is isolated, never discarded and
-// never allowed to affect another. Its content is normalized as usual and delivered with Timestamp ==
-// UnknownTimestamp (live and history alike), so it is kept, acknowledged only after the consumer confirmed it,
-// and a history batch stays atomic for its valid content.
+// classifyEvent applies IT-MSG-07 (decision 2026-10-10): a message whose own timestamp is missing or invalid is
+// still normalized, persisted, delivered and confirmed like any other; its public timestamp is simply absent
+// (unknown), never 0 and never the reception time. It neither stops reception nor affects another message, and a
+// history batch stays whole.
 func classifyEvent(event *events.Message, own, ownAlt types.JID, mappings normalization.VerifiedLIDs) (State, json.RawMessage, error) {
 	result, err := normalization.Normalize(event, own, ownAlt, mappings)
-	sanitized := false
-	if errors.Is(err, normalization.ErrInvalidTimestamp) {
-		probe := *event
-		probe.Info.Timestamp = sanitizedProbe
-		result, err = normalization.Normalize(&probe, own, ownAlt, mappings)
-		sanitized = true
-	}
 	switch {
 	case errors.Is(err, normalization.ErrInvalidIdentity), errors.Is(err, normalization.ErrRawEditInspectionExhausted):
 		// Content that cannot be given a valid public identity is never deliverable.
@@ -99,9 +83,6 @@ func classifyEvent(event *events.Message, own, ownAlt types.JID, mappings normal
 		return PendingLID, nil, nil
 	case result.Message == nil:
 		return Excluded, nil, nil
-	}
-	if sanitized {
-		result.Message.Timestamp = UnknownTimestamp
 	}
 	raw, err := json.Marshal(result.Message)
 	if err != nil {

@@ -1181,7 +1181,7 @@
   {
    "id": "IT-MSG-07",
    "file": "go/internal/normalization/normalization_test.go",
-   "test": "TestTimestampFailurePreservesSource"
+   "test": "TestUTMSG07InvalidTimestampBecomesUnknownDateAndKeepsTheContent"
   },
   {
    "id": "IT-MSG-08",
@@ -1208,7 +1208,7 @@
   {
    "id": "IT-MSG-09",
    "file": "go/internal/normalization/normalization_test.go",
-   "test": "TestTimestampFailurePreservesSource"
+   "test": "TestOldHistoryIsNotFilteredByAge"
   },
   {
    "id": "IT-MSG-09",
@@ -1997,8 +1997,8 @@
   {
    "id": "UT-MSG-07",
    "file": "go/internal/normalization/normalization_test.go",
-   "test": "TestTimestampFailurePreservesSource",
-   "note": "timestamp cero, negativo o fuera de rango -> ErrInvalidTimestamp"
+   "test": "TestUTMSG07InvalidTimestampBecomesUnknownDateAndKeepsTheContent",
+   "note": "timestamp cero, negativo o fuera de rango -> fecha desconocida (sin clave), contenido intacto"
   },
   {
    "id": "UT-MSG-08",
@@ -2015,8 +2015,19 @@
   {
    "id": "UT-MSG-09",
    "file": "go/internal/normalization/normalization_test.go",
-   "test": "TestTimestampFailurePreservesSource",
+   "test": "TestOldHistoryIsNotFilteredByAge",
    "note": "mensaje de 1970 no se filtra por antiguedad"
+  },
+  {
+   "id": "IT-MSG-07",
+   "file": "client.test.ts",
+   "test": "IT-MSG-07 a message with an unknown date a %s timestamp passes validation and reaches the consumer with no date",
+   "note": "Zod: ausente o null llega al consumidor sin fecha"
+  },
+  {
+   "id": "IT-MSG-07",
+   "file": "client.test.ts",
+   "test": "IT-MSG-07 a message with an unknown date %p is not a date and not an unknown marker: the delivery is refused"
   }
  ],
  "gaps": [
@@ -2127,6 +2138,10 @@
   {
    "id": "IT-BUF-01",
    "note": "Auditoria WA-14: Solo se mide que el texto cuente dos veces (mensaje y recovery); no se prueba que metadatos, codificación, cifrado y reservas de identidad cuenten, ni que los bytes de imágenes descargadas queden fuera."
+  },
+  {
+   "id": "IT-BUF-03",
+   "note": "Se prueba la reanudacion solo si sigue solicitada (parada explicita); la expiracion durante la pausa (c.expired en controller.go) no tiene prueba."
   },
   {
    "id": "IT-CFG-04",
@@ -2354,7 +2369,7 @@
   },
   {
    "id": "IT-MSG-07",
-   "note": "Aislado, no descartado: el contenido con timestamp invalido se entrega saneado (timestamp 0 = desconocido) en vivo y en historial, con reinicio, sin fallar la sesion; probado con transporte controlado. Si falta del todo el atributo t, whatsmeow rechaza el nodo antes de nuestros hooks (fuera de este codigo)."
+   "note": "Fecha desconocida (clave ausente, nunca 0), decision del dueño 2026-10-10: probado con transporte controlado en vivo, historial (orden y deduplicacion), reinicio y reentrega, y en la validacion Zod. Los almacenes Kotlin/Swift aceptan la clave ausente solo por lectura del codigo (no compilados). Si falta del todo el atributo t, whatsmeow rechaza el nodo antes de nuestros hooks (fuera de este codigo)."
   },
   {
    "id": "IT-MSG-09",

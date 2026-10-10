@@ -13,7 +13,10 @@ export type WhatsAppOptions = { maxImageStorageBytes?: number; maxRecoveryBuffer
 export type ImageReference = { messageId: string; downloadReference: string };
 export type ReceivedMessage = {
   id: string; accountId: string; whatsappMessageId: string; chatId: string;
-  direction: "incoming" | "outgoing"; timestamp: number /* 0 = unknown: WhatsApp's own time could not become a valid one (IT-MSG-07) */; text?: string;
+  direction: "incoming" | "outgoing"; text?: string;
+  /** Unix milliseconds. Absent when WhatsApp's own time was missing or invalid: the date is unknown (never 0 and never
+   * the reception time; IT-MSG-07, decision 2026-10-10). Order by arrival, deduplicate by `id`. */
+  timestamp?: number;
   image?: { mimeType?: string; size?: number; reference: ImageReference };
 };
 export type DownloadedImage = { uri: string; mimeType: string; size: number };

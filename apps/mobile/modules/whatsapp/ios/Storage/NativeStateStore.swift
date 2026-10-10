@@ -809,15 +809,20 @@ public final class NativeStateStore {
   }
 
   private static func validateMessage(_ message: [String: Any], account: String) throws {
-    var fields: Set<String> = ["id", "accountId", "whatsappMessageId", "chatId", "direction", "timestamp"]
+    // `timestamp` is optional: Go omits it when WhatsApp's own time was missing or invalid (unknown date, IT-MSG-07).
+    var fields: Set<String> = ["id", "accountId", "whatsappMessageId", "chatId", "direction"]
+    if message["timestamp"] != nil { fields.insert("timestamp") }
     if message["text"] != nil { fields.insert("text") }
     if message["image"] != nil { fields.insert("image") }
     try exact(message, fields)
     guard let chat = message["chatId"] as? String, validAccount(chat),
           message["accountId"] as? String == account,
           let whatsappId = message["whatsappMessageId"] as? String, !whatsappId.isEmpty,
-          let direction = message["direction"] as? String, ["incoming", "outgoing"].contains(direction),
-          let timestamp = safeInt(message["timestamp"]), timestamp >= 0, timestamp <= 9_007_199_254_740_991 else { throw StateStoreError.invalid }
+          let direction = message["direction"] as? String, ["incoming", "outgoing"].contains(direction) else { throw StateStoreError.invalid }
+    // A real date is a positive safe integer; 0 is never an "unknown" marker (it would read as 1970).
+    if message["timestamp"] != nil {
+      guard let timestamp = safeInt(message["timestamp"]), timestamp > 0, timestamp <= 9_007_199_254_740_991 else { throw StateStoreError.invalid }
+    }
     if message["text"] != nil && !(message["text"] is String) { throw StateStoreError.invalid }
     guard let id = message["id"] as? String, id.hasPrefix("wa-message:v1:") else { throw StateStoreError.invalid }
     let encoded = String(id.dropFirst("wa-message:v1:".count))
