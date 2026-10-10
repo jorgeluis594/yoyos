@@ -7,7 +7,7 @@ import {
   type AppearanceDependencies, type PreviewPaymentMethod,
 } from "@core/src/features/checkout-appearance/application/checkout-appearance";
 import {
-  isDefaultCheckoutAppearance, type CompanyId, type ImageId,
+  isDefaultCheckoutAppearance, type CompanyId, type ImageId, type UserId,
 } from "@core/src/features/checkout-appearance/domain/checkout-appearance";
 import {
   loadCheckoutAppearance, loadCompanyName, persistCheckoutAppearance,
@@ -47,7 +47,7 @@ async function paymentMethods(companyId: CompanyId) {
 
 export const checkoutAppearance = {
   get: (companyId: CompanyId) => getCheckoutAppearance(companyId, dependencies),
-  save: async (companyId: CompanyId, userId: string, value: unknown) => {
+  save: async (companyId: CompanyId, userId: UserId, value: unknown) => {
     const result = await saveCheckoutAppearance(companyId, value, dependencies);
     if (result.success) log.info({ event: "checkout_appearance_saved", companyId, userId,
       ...(result.data.logoImageId ? { logoImageId: result.data.logoImageId } : {}), hasLogo: result.data.logoImageId !== null,

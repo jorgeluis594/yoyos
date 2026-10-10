@@ -3,6 +3,7 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 
 export type CompanyId = string & { readonly __brand: "CompanyId" };
+export type UserId = string & { readonly __brand: "UserId" };
 export type ImageId = string & { readonly __brand: "ImageId" };
 export type HexColor = string & { readonly __brand: "HexColor" };
 
@@ -38,6 +39,13 @@ export function parseCompanyId(value: unknown): Result<CompanyId, CheckoutAppear
   return parsed.success
     ? ok(parsed.data as CompanyId)
     : err({ code: "INVALID_CHECKOUT_APPEARANCE", message: "Invalid company id", invalidFields: ["companyId"] });
+}
+
+export function parseUserId(value: unknown): Result<UserId, CheckoutAppearanceError> {
+  const parsed = z.string().min(1).safeParse(value);
+  return parsed.success
+    ? ok(parsed.data as UserId)
+    : err({ code: "INVALID_CHECKOUT_APPEARANCE", message: "Invalid user id", invalidFields: ["userId"] });
 }
 
 export function parseCheckoutAppearance(value: unknown): Result<CheckoutAppearance, CheckoutAppearanceError> {

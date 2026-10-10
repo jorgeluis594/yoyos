@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
-  checkoutBrandColors, defaultCheckoutAppearance, isDefaultCheckoutAppearance, parseCheckoutAppearance, parseCompanyId,
+  checkoutBrandColors, defaultCheckoutAppearance, isDefaultCheckoutAppearance, parseCheckoutAppearance, parseCompanyId, parseUserId,
 } from "@core/src/features/checkout-appearance/domain/checkout-appearance";
 
 const logoImageId = "0f4d2c3e-1b6a-4c5d-8e7f-9a0b1c2d3e4f";
@@ -63,5 +63,13 @@ describe("parseCompanyId", () => {
   test("accepts a UUID and rejects anything else", () => {
     expect(parseCompanyId(logoImageId)).toMatchObject({ success: true });
     expect(parseCompanyId("company")).toMatchObject({ success: false });
+  });
+});
+
+describe("parseUserId", () => {
+  test("accepts a non-empty id and rejects anything else", () => {
+    expect(parseUserId("user_1")).toMatchObject({ success: true });
+    expect(parseUserId("")).toMatchObject({ success: false });
+    expect(parseUserId(7)).toMatchObject({ success: false });
   });
 });
