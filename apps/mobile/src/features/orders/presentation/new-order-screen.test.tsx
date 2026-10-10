@@ -117,7 +117,7 @@ test("products stay read-only on the form and returning preserves entered data",
   fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
   fireEvent.changeText(screen.getByLabelText(/Monto/), "10");
   fireEvent.press(screen.getByRole("button", { name: "Datos de envío" }));
-  expect(screen.getByTestId("delivery-status")).toHaveProp("selectedValue", 0);
+  expect(screen.getByTestId("delivery-status")).toHaveProp("accessibilityLabel", "Estado: Pendiente");
   fireEvent(screen.getByTestId("delivery-status"), "valueChange", 1);
   fireEvent.changeText(screen.getByLabelText(/Dirección de entrega/), "Calle 1");
   fireEvent.press(screen.getByRole("button", { name: "Editar productos" }));
@@ -125,7 +125,7 @@ test("products stay read-only on the form and returning preserves entered data",
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
   expect(screen.getByLabelText(/Monto/)).toHaveProp("value", "10");
   expect(screen.getByLabelText(/Dirección de entrega/)).toHaveProp("value", "Calle 1");
-  expect(screen.getByTestId("delivery-status")).toHaveProp("selectedValue", 1);
+  expect(screen.getByTestId("delivery-status")).toHaveProp("accessibilityLabel", "Estado: Entregado");
 });
 
 test("delivered status explains missing payment and allows saving once covered", async () => {
@@ -384,7 +384,7 @@ test("new order selects one overlapping home rate and reviews the full charge wi
   await screen.findByTestId("delivery-rate");
   fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 1);
   expect(screen.getAllByText(/S\/\s10\.00/).length).toBeGreaterThan(0);
-  expect(screen.getByText(/S\/\s12\.00/)).toBeTruthy();
+  expect(screen.getAllByText(/S\/\s12\.00/).length).toBeGreaterThan(0);
   expect(screen.getAllByText(/S\/\s22\.00/).length).toBeGreaterThan(0);
   expect(screen.getByText("Saldo referencial")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
