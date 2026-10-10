@@ -334,3 +334,60 @@ func TestITHIS03ARetiredGenerationCannotAdmitLate(t *testing.T) {
 }
 
 var _ = identity.Resolved
+
+// IT-HIS-01: every kind of protocol effect of a batch (salt, push names, message secrets, settings and the
+// companion nonce) is staged inside the admission transaction and published with it, never before.
+func TestITHIS01EveryProtocolEffectPublishesWithTheBatch(t *testing.T) {
+	n := newNative()
+	remote := defaultRemote(n)
+	h := newHistoryLife(t, n, bigBuffer, remote)
+
+	withSecret := textMessage("s1", "77@lid", 1700000001, "secret holder")
+	withSecret.Message.MessageSecret = make([]byte, 32)
+	b := batchOf(conversationOf("77@lid", withSecret))
+	b.NctSalt = []byte("salt-0123456789")
+	b.CompanionMetaNonce = proto.String("nonce-1")
+	b.GlobalSettings = &waHistorySync.GlobalSettings{}
+	push := &waHistorySync.HistorySync{SyncType: waHistorySync.HistorySync_PUSH_NAME.Enum(),
+		Pushnames: []*waHistorySync.Pushname{{ID: proto.String("34600@s.whatsapp.net"), Pushname: proto.String("Ana")}}}
+
+	first, _ := h.capture("notif-1", remote.serve(t, "/v/full", b))
+	second, _ := h.capture("notif-2", remote.serve(t, "/v/push", push))
+	first.ack(t)
+	second.ack(t)
+	before := len(n.requests)
+	for _, kind := range []string{"nct-salt", "message-secret", "contact", "device"} {
+		if n.hasRecord(kind) {
+			t.Fatalf("%s must not be published before the batch is admitted", kind)
+		}
+	}
+	h.mustDrain()
+	if messages, captures := n.historyEntries(); messages != 1 || captures != 0 {
+		t.Fatalf("%d %d", messages, captures)
+	}
+	n.mu.Lock()
+	published := n.requests[before:]
+	n.mu.Unlock()
+	if len(published) != 2 {
+		t.Fatalf("one publication per batch, got %d", len(published))
+	}
+	kinds := map[string]bool{}
+	for _, change := range published[0].ProtocolChanges {
+		kinds[change.RecordType] = true
+	}
+	for _, kind := range []string{"nct-salt", "message-secret", "device", "retry-hash"} {
+		if !kinds[kind] {
+			t.Fatalf("the first batch publishes %s with its messages: %v", kind, kinds)
+		}
+	}
+	if len(published[0].PendingInserts) != 1 {
+		t.Fatal("and its message")
+	}
+	pushKinds := map[string]bool{}
+	for _, change := range published[1].ProtocolChanges {
+		pushKinds[change.RecordType] = true
+	}
+	if !pushKinds["contact"] || !pushKinds["retry-hash"] {
+		t.Fatalf("a push-name batch publishes its contacts with its marker: %v", pushKinds)
+	}
+}

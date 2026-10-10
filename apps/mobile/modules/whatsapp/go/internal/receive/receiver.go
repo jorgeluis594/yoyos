@@ -79,7 +79,11 @@ func (r *Receiver) EnableHistory(remote history.Remote, protocol history.Store, 
 }
 
 func (r *Receiver) historyEnv() history.Env {
-	return history.Env{Account: r.account(), Own: r.device.ID.ToNonAD(), OwnAlt: r.device.LID}
+	env := history.Env{Account: r.account(), OwnAlt: r.device.LID}
+	if r.device.ID != nil { // absent until the first link completes; no batch can arrive before then
+		env.Own = r.device.ID.ToNonAD()
+	}
+	return env
 }
 
 // RunHistory serves the history processor until ctx, the connection generation, ends.

@@ -12,6 +12,7 @@ import (
 
 	"go.mau.fi/whatsmeow"
 	waBinary "go.mau.fi/whatsmeow/binary"
+	"go.mau.fi/whatsmeow/proto/waAdv"
 	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waHistorySync"
@@ -19,6 +20,7 @@ import (
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+	"go.mau.fi/whatsmeow/util/keys"
 	"google.golang.org/protobuf/proto"
 	"yoyos-whatsapp/internal/delivery"
 	"yoyos-whatsapp/internal/history"
@@ -134,7 +136,7 @@ func newHistoryLife(t *testing.T, n *native, bufferLimit int64, remote *remoteSt
 	t.Helper()
 	l := newLife(t, n, bufferLimit)
 	h := &historyLife{life: l, remote: remote, rejected: make(chan history.Code, 8), admitted: make(chan bool, 8), failures: make(chan error, 8)}
-	device := &store.Device{ID: ownDevice.ID, LID: ownDevice.LID}
+	device := linkedDevice()
 	l.store.AttachDevice(device)
 	remote.mu.Lock()
 	remote.client = whatsmeow.NewClient(device, nil)
@@ -145,6 +147,20 @@ func newHistoryLife(t *testing.T, n *native, bufferLimit int64, remote *remoteSt
 	l.recv.EnableHistory(remote, l.store, remote.limits)
 	l.coord.Start()
 	return h
+}
+
+// linkedDevice has the credentials a restored device has, so saving it is accepted by the store.
+func linkedDevice() *store.Device {
+	var noise, identity, prekey [32]byte
+	noise[0], identity[0], prekey[0] = 1, 2, 3
+	var signature [64]byte
+	signature[0] = 4
+	details, _ := proto.Marshal(&waAdv.ADVDeviceIdentity{RawID: proto.Uint32(1)})
+	id := *ownDevice.ID
+	return &store.Device{NoiseKey: keys.NewKeyPairFromPrivateKey(noise), IdentityKey: keys.NewKeyPairFromPrivateKey(identity),
+		SignedPreKey: &keys.PreKey{KeyPair: *keys.NewKeyPairFromPrivateKey(prekey), KeyID: 7, Signature: &signature},
+		AdvSecretKey: bytes.Repeat([]byte{1}, 32), ID: &id, LID: ownDevice.LID,
+		Account: &waAdv.ADVSignedDeviceIdentity{Details: details, AccountSignatureKey: bytes.Repeat([]byte{1}, 32), AccountSignature: bytes.Repeat([]byte{1}, 64), DeviceSignature: bytes.Repeat([]byte{1}, 64)}}
 }
 
 func newRemote(log *eventLog, limits history.Limits) *remoteStub {
