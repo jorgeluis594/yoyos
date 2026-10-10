@@ -4,7 +4,7 @@ Estado: especificación de implementación; API, migración y pruebas todavía p
 
 ## 1. Objetivo y decisiones
 
-Implementar `POST /api/whatsapp/messages` en core para recibir un mensaje individual de la app móvil, validarlo, persistirlo bajo la empresa autenticada y hacer dispatch de `whatsapp_message_recorded` después del commit. El éxito HTTP confirma persistencia y aceptación del dispatch por el bus. No confirma ejecución de un consumidor.
+Implementar `POST /api/messages` en core para recibir un mensaje individual de la app móvil, validarlo, persistirlo bajo la empresa autenticada y hacer dispatch de `whatsapp_message_recorded` después del commit. El éxito HTTP confirma persistencia y aceptación del dispatch por el bus. No confirma ejecución de un consumidor.
 
 Incluye texto, imágenes con o sin caption, ambas direcciones, mensajes históricos y repeticiones. La imagen se registra como contenido de tipo imagen con sus metadatos disponibles: este endpoint no sube ni descarga su archivo. La referencia de descarga, que contiene material de descifrado, permanece en el móvil. Una respuesta exitosa no autoriza al móvil a eliminar esa referencia o el archivo pendiente de subida.
 
@@ -55,7 +55,7 @@ El directorio móvil `src/features/whatsapp` mencionado por la fuente no está p
 
 ### Autenticación y ruta
 
-`POST /api/whatsapp/messages`, `Content-Type: application/json`, autenticado mediante el mecanismo existente de sesión de Yoyos. Montar después de `loadApiAccess` y `requireApiCompany`, antes del fallback `/api`. Usar `Cache-Control: no-store` en éxitos y errores de esta ruta.
+`POST /api/messages`, `Content-Type: application/json`, autenticado mediante el mecanismo existente de sesión de Yoyos. Montar después de `loadApiAccess` y `requireApiCompany`, antes del fallback `/api`. Usar `Cache-Control: no-store` en éxitos y errores de esta ruta.
 
 El servidor toma `companyId` y `user.id` exclusivamente de `response.locals.auth` validado. Se admite cualquier usuario con acceso `ready`, igual que las APIs privadas actuales. No se aceptan `companyId`, `userId`, `source`, teléfonos ni credenciales de WhatsApp en el body, query o headers como sustitutos de autorización.
 
@@ -431,7 +431,7 @@ Extender `chats/infrastructure/chat-persistence.test.mjs` y las pruebas de persi
 
 ### E2E de la API desplegada localmente
 
-`apps/core/tests/e2e/mobile-whatsapp-messages.spec.ts`, usando las fixtures Vitest y el `APIRequestContext` de Playwright existentes. Ejecutar el servidor completo, autenticación real de prueba, PostgreSQL y arranque real del proveedor. E2E aquí significa cliente HTTP → auth → ruta → aplicación → PostgreSQL → dispatch; no certifica Go, WhatsApp real ni recepción Android/iOS.
+`apps/core/tests/e2e/mobile-messages.spec.ts`, usando las fixtures Vitest y el `APIRequestContext` de Playwright existentes. Ejecutar el servidor completo, autenticación real de prueba, PostgreSQL y arranque real del proveedor. E2E aquí significa cliente HTTP → auth → ruta → aplicación → PostgreSQL → dispatch; no certifica Go, WhatsApp real ni recepción Android/iOS.
 
 | ID | Recorrido y resultado |
 | --- | --- |

@@ -46,10 +46,10 @@ afterAll(async () => {
 test("E01–E03 stores text and image, and a lost response repeats the original row", async ({ page }) => {
   const { companyId } = await seller(page);
   const input = message();
-  const created = registerWhatsAppMessageResponseSchema.parse(await checked(await page.request.post("/api/whatsapp/messages", { data: input }), 201));
+  const created = registerWhatsAppMessageResponseSchema.parse(await checked(await page.request.post("/api/messages", { data: input }), 201));
   expect(created).toMatchObject({ status: "stored", eventId: created.messageId });
   expect((await rows(companyId))[0]).toMatchObject({ id: created.messageId, text: " Hola 👋\n", eventDispatchedAt: expect.any(Date) });
-  const repeated = registerWhatsAppMessageResponseSchema.parse(await checked(await page.request.post("/api/whatsapp/messages", {
+  const repeated = registerWhatsAppMessageResponseSchema.parse(await checked(await page.request.post("/api/messages", {
     data: { ...input, message: { ...input.message, content: { type: "text", text: "changed" } } },
   }), 200));
   expect(repeated).toEqual({ ...created, status: "duplicate" });
@@ -58,19 +58,19 @@ test("E01–E03 stores text and image, and a lost response repeats the original 
   const image = message(crypto.randomUUID(), { type: "image" });
   image.message.direction = "outgoing";
   image.message.timestamp = 0;
-  await checked(await page.request.post("/api/whatsapp/messages", { data: image }), 201);
+  await checked(await page.request.post("/api/messages", { data: image }), 201);
   expect((await rows(companyId)).find(row => row.whatsappMessageId === image.message.whatsappMessageId))
     .toMatchObject({ direction: "outgoing", source: "seller", imageStatus: "metadata_only", imageMimeType: null, imageSize: null, imageId: null });
 });
 
 test("E04 and E05 reject unauthorized, malformed and oversized requests without writing", async ({ page, request }) => {
   const input = message();
-  expect(apiErrorResponseSchema.parse(await checked(await request.post("/api/whatsapp/messages", { data: input }), 401)).code).toBe("UNAUTHENTICATED");
+  expect(apiErrorResponseSchema.parse(await checked(await request.post("/api/messages", { data: input }), 401)).code).toBe("UNAUTHENTICATED");
   const { email, companyId } = await seller(page);
   await systemPrisma.user.update({ where: { email }, data: { emailVerified: false } });
-  expect(apiErrorResponseSchema.parse(await checked(await page.request.post("/api/whatsapp/messages", { data: input }), 403)).code).toBe("EMAIL_VERIFICATION_REQUIRED");
+  expect(apiErrorResponseSchema.parse(await checked(await page.request.post("/api/messages", { data: input }), 403)).code).toBe("EMAIL_VERIFICATION_REQUIRED");
   await systemPrisma.user.update({ where: { email }, data: { emailVerified: true, companyId: null } });
-  expect(apiErrorResponseSchema.parse(await checked(await page.request.post("/api/whatsapp/messages", { data: input }), 409)).code).toBe("COMPANY_REQUIRED");
+  expect(apiErrorResponseSchema.parse(await checked(await page.request.post("/api/messages", { data: input }), 409)).code).toBe("COMPANY_REQUIRED");
   await systemPrisma.user.update({ where: { email }, data: { companyId } });
   for (const [body, headers, status, code] of [
     ["{", { "content-type": "application/json" }, 400, "INVALID_INPUT"],
@@ -78,20 +78,20 @@ test("E04 and E05 reject unauthorized, malformed and oversized requests without 
     [JSON.stringify(input), { "content-type": "text/plain" }, 415, "UNSUPPORTED_MEDIA_TYPE"],
     [JSON.stringify(input), { "content-type": "application/json", "content-encoding": "gzip" }, 415, "UNSUPPORTED_MEDIA_TYPE"],
     [" ".repeat(102401), { "content-type": "application/json" }, 413, "PAYLOAD_TOO_LARGE"],
-  ] as const) expect(apiErrorResponseSchema.parse(await checked(await page.request.post("/api/whatsapp/messages", { data: body, headers }), status)).code).toBe(code);
-  expect(apiErrorResponseSchema.parse(await checked(await page.request.post("/api/whatsapp/messages", { data: { ...input, companyId: crypto.randomUUID() } }), 400)).code).toBe("INVALID_INPUT");
+  ] as const) expect(apiErrorResponseSchema.parse(await checked(await page.request.post("/api/messages", { data: body, headers }), status)).code).toBe(code);
+  expect(apiErrorResponseSchema.parse(await checked(await page.request.post("/api/messages", { data: { ...input, companyId: crypto.randomUUID() } }), 400)).code).toBe("INVALID_INPUT");
   expect(await rows(companyId)).toHaveLength(0);
   const compact = JSON.stringify(input);
   const exact = compact + " ".repeat(102400 - Buffer.byteLength(compact));
   expect(Buffer.byteLength(exact)).toBe(102400);
-  await checked(await page.request.post("/api/whatsapp/messages", { data: exact, headers: { "content-type": "application/json" } }), 201);
+  await checked(await page.request.post("/api/messages", { data: exact, headers: { "content-type": "application/json" } }), 201);
   expect(await rows(companyId)).toHaveLength(1);
 });
 
 test("E04 isolates identical identities between companies", async ({ page }) => {
   const a = await seller(page);
   const input = message();
-  const first = registerWhatsAppMessageResponseSchema.parse(await checked(await page.request.post("/api/whatsapp/messages", { data: input }), 201));
+  const first = registerWhatsAppMessageResponseSchema.parse(await checked(await page.request.post("/api/messages", { data: input }), 201));
   const aUser = await systemPrisma.user.findUniqueOrThrow({ where: { email: a.email } });
   const aRow = (await rows(a.companyId))[0];
   expect(aRow).toMatchObject({ id: first.messageId, eventDispatchedAt: expect.any(Date) });
@@ -99,7 +99,7 @@ test("E04 isolates identical identities between companies", async ({ page }) => 
   const b = await seller(page);
   const bUser = await systemPrisma.user.findUniqueOrThrow({ where: { email: b.email } });
   const second = registerWhatsAppMessageResponseSchema.parse(await checked(await page.request.post(
-    `/api/whatsapp/messages?companyId=${a.companyId}&userId=${aUser.id}`,
+    `/api/messages?companyId=${a.companyId}&userId=${aUser.id}`,
     { data: { ...input, message: { ...input.message, content: { type: "text", text: "Only B" } } },
       headers: { "x-company-id": a.companyId, "x-user-id": aUser.id } },
   ), 201));
@@ -113,7 +113,7 @@ test("E04 isolates identical identities between companies", async ({ page }) => 
     messages: await prisma.chatMessage.findMany({ where: { companyId } }),
   }));
   const before = await Promise.all([state(a.companyId), state(b.companyId)]);
-  expect(apiErrorResponseSchema.parse(await checked(await page.request.post("/api/whatsapp/messages", {
+  expect(apiErrorResponseSchema.parse(await checked(await page.request.post("/api/messages", {
     data: { ...input, companyId: a.companyId, userId: aUser.id, source: "seller" },
   }), 400)).code).toBe("INVALID_INPUT");
   expect(await Promise.all([state(a.companyId), state(b.companyId)])).toEqual(before);
@@ -128,7 +128,7 @@ test("E06 recovers the same committed row after a real provider fails to start",
   await new Promise<void>(resolve => server.once("listening", resolve));
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Missing dedicated HTTP port");
-  const url = `http://127.0.0.1:${address.port}/api/whatsapp/messages`;
+  const url = `http://127.0.0.1:${address.port}/api/messages`;
   try {
     process.env.EVENT_BUS_DATABASE_URL = "postgresql://core:core@127.0.0.1:1/unavailable";
     runtime.__yoyosEvents = createEventBusRuntime();
@@ -153,7 +153,7 @@ test("E06 recovers the same committed row after a real provider fails to start",
 test("E07 concurrent HTTP requests create one message and preserve Cloud API routes", async ({ page, request }) => {
   const { companyId } = await seller(page);
   const input = message();
-  const results = await Promise.all(Array.from({ length: 10 }, () => page.request.post("/api/whatsapp/messages", { data: input })));
+  const results = await Promise.all(Array.from({ length: 10 }, () => page.request.post("/api/messages", { data: input })));
   const outputs = await Promise.all(results.map(async response => {
     expect([200, 201]).toContain(response.status());
     expect(response.headers()["cache-control"]).toBe("no-store");

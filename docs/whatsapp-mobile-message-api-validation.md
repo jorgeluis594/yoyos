@@ -29,7 +29,7 @@ The core Vitest configuration includes `src/**/*.{test,spec}.{ts,tsx}` in `unit`
 | I08 | `mobile-message-dispatch.integration.test.ts`: real pg-boss provider without subscribers, no retained job, stopped provider failure and restart recovery. |
 | I09 | `mobile-message-dispatch.integration.test.ts`: concurrent registration uses one row and one logical event ID while allowing repeated publish attempts. |
 | I10 | `contact-repository.integration.test.ts`: phone-free LID identity and sale exclusion. `chats/infrastructure/chat-persistence.test.mjs` and webhook tests: old ingestion and image states. |
-| E01 | `apps/core/tests/e2e/mobile-whatsapp-messages.spec.ts`: real authenticated POST returns 201 and tenant row with confirmed marker. |
+| E01 | `apps/core/tests/e2e/mobile-messages.spec.ts`: real authenticated POST returns 201 and tenant row with confirmed marker. |
 | E02 | The same E2E file: ignored-response retry returns 200 with same IDs/date and original content. |
 | E03 | The same E2E file: minimal historical outgoing image returns 201 with nullable metadata and no stored image ID; I01 also checks no Image row. |
 | E04 | The same E2E file: 401/403/409, no writes, distinct tenant rows, unchanged A row/marker despite B's forged query/headers, and rejected forged body. |
