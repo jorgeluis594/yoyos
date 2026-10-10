@@ -1,27 +1,26 @@
 /** @jsxImportSource react */
 // Preserve native Pressable style callbacks outside NativeWind interop.
 import { useEffect, useRef, useState } from "react";
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, Pressable, StyleSheet } from "react-native";
 import { SymbolView } from "expo-symbols";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ScreenState } from "@/components/ui/screen-state";
-import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
-import { Button } from "@/components/ui/button";
 import { useTheme } from "@mobile/hooks/use-theme";
 import { products } from "@mobile/features/products/composition";
 import { useAccess } from "@/features/users/presentation/access-provider";
 import type { PhotoSelection, Product, ProductId, VariantId } from "../domain/product";
 import { formEdges, ProductForm } from "./product-form";
 import { ProductTopBar } from "@mobile/features/products/presentation/product-top-bar";
+import { ProductPrintSheet } from "@mobile/features/products/presentation/product-print-sheet";
+import type { CopyCount } from "@mobile/features/printing/composition";
 import type { ProductFormField, ProductFormValues } from "./product-form";
 import { productErrors, validateProductForm, valuesForProduct } from "./product-form-state";
 import { useProductNavigationGuard } from "./use-product-navigation-guard";
 import { useProductDraft } from "./draft-guard";
 import { usePrint } from "@mobile/features/printing/presentation/print-provider";
-import { makeCopyCount } from "@mobile/features/printing/composition";
 import { productPrintWork } from "./product-print-work";
 import translations from '@mobile/i18n';
 import tokens from "../../../../../../docs/design-tokens.json";
@@ -84,8 +83,7 @@ export default function ProductManagementScreen() {
   const [photoBusy, setPhotoBusy] = useState(false);
   const [uncertain, setUncertain] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
-  const [copies, setCopies] = useState("1");
-  const [choosingVariant, setChoosingVariant] = useState(false);
+  const [printing, setPrinting] = useState(false);
   const { discardVersion } = useProductDraft();
   const discardVersionRef = useRef(discardVersion);
   const requestKey = `${productId}:${reloadKey}`;
@@ -126,11 +124,11 @@ export default function ProductManagementScreen() {
   if (state.status !== "ready") return null;
   const close = () => router.replace("/products");
   if (loading) return <ThemedView style={styles.page}><SafeAreaView style={styles.safe}>
-    <ProductTopBar title={t('manageProduct')} onClose={close} />
+    <ProductTopBar title={t('editProduct')} onClose={close} />
     <ScreenState status="loading" title={t('loadingProduct')} />
   </SafeAreaView></ThemedView>;
   if (loadError || !product || !values) return <ThemedView style={styles.page}><SafeAreaView style={styles.safe}>
-    <ProductTopBar title={t('manageProduct')} onClose={close} />
+    <ProductTopBar title={t('editProduct')} onClose={close} />
     <ScreenState status="error" title={loadError ?? t('productNotFound')} onRetry={() => { setLoadError(null); setReloadKey((value) => value + 1); }} />
   </SafeAreaView></ThemedView>;
 
@@ -202,26 +200,19 @@ export default function ProductManagementScreen() {
     }
     setUncertain(false);
   };
-  const printVariant = (variantId: VariantId) => {
-    const quantity = makeCopyCount(Number(copies));
-    if (!quantity.success || quantity.data > 99) { setErrors((current) => ({ ...current, form: t('copyCountError') })); Alert.alert(t('copyCountError')); return; }
-    startAttempt(productPrintWork({ kind: "saved-product", product, variantId }, quantity.data));
-    setChoosingVariant(false);
-  };
-  const print = () => {
-    if (product.variants.length === 1) printVariant(product.variants[0].id);
-    else setChoosingVariant(true);
+  const printVariant = (variantId: VariantId, copies: CopyCount) => {
+    startAttempt(productPrintWork({ kind: "saved-product", product, variantId }, copies));
+    setPrinting(false);
   };
 
   return <ThemedView style={styles.page}><SafeAreaView edges={formEdges} style={styles.safe}>
     <ProductForm
-      title={t('manageProduct')}
+      title={t('editProduct')}
       headerAction={product.variants.length > 0 ? <Pressable accessibilityRole="button" accessibilityLabel={t('printLabel')}
         accessibilityState={{ disabled: saving || photoBusy || uncertain }} disabled={saving || photoBusy || uncertain}
-        onPress={print} style={({ pressed }) => [styles.printAction, { backgroundColor: pressed ? theme.accent : "transparent", opacity: saving || photoBusy || uncertain ? 0.5 : 1 }]}>
+        onPress={() => setPrinting(true)} style={({ pressed }) => [styles.printAction, { backgroundColor: pressed ? theme.accent : "transparent", opacity: saving || photoBusy || uncertain ? 0.5 : 1 }]}>
         <SymbolView name={{ ios: "printer", android: "print" }} size={24} tintColor={theme.text} />
       </Pressable> : undefined}
-      notice={dirty ? t('printSavedDataHint') : undefined}
       values={values}
       setValue={setValue}
       currency={product.currency}
@@ -233,31 +224,17 @@ export default function ProductManagementScreen() {
       photoBusy={photoBusy}
       onPhotoBusy={setPhotoBusy}
       onSave={() => void save()}
-      copies={copies}
-      onCopiesChange={setCopies}
       onClose={close}
       onReviewCatalog={() => { setDirty(false); router.replace("/products"); }}
       onCheckStatus={() => void checkStatus()}
       saving={saving}
       uncertain={uncertain}
     />
-    <Modal visible={choosingVariant} transparent animationType="fade" onRequestClose={() => setChoosingVariant(false)}>
-      <View style={styles.scrim}><View style={[styles.picker, { backgroundColor: theme.backgroundElement }]}>
-        <ThemedText type="subtitle">{t('selectVariantToPrint')}</ThemedText>
-        <ScrollView contentContainerStyle={styles.variantChoices}>
-          {product.variants.map((variant, index) => <Button key={variant.id} variant="secondary" onPress={() => printVariant(variant.id)}>
-            {Object.entries(variant.attributes).map(([key, value]) => `${key}: ${value}`).join(" · ") || t('numberedVariant', { count: index + 1 })}
-          </Button>)}
-        </ScrollView>
-        <Button variant="ghost" onPress={() => setChoosingVariant(false)}>{t('cancel')}</Button>
-      </View></View>
-    </Modal>
+    {printing ? <ProductPrintSheet visible product={product} unsavedChanges={dirty} onClose={() => setPrinting(false)} onPrint={printVariant} /> : null}
   </SafeAreaView></ThemedView>;
 }
 
 const styles = StyleSheet.create({
   page: { flex: 1 }, safe: { flex: 1 },
   printAction: { width: tokens.sizing.touchTargetMinSize, height: tokens.sizing.touchTargetMinSize, borderRadius: tokens.sizing.touchTargetMinSize / 2, alignItems: "center", justifyContent: "center" },
-  scrim: { flex: 1, justifyContent: "center", padding: 24, backgroundColor: "#0008" },
-  picker: { maxHeight: "75%", borderRadius: 12, padding: 20, gap: 16 }, variantChoices: { gap: 8 },
 });

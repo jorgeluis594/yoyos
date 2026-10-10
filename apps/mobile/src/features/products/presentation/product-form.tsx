@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
 import { SafeAreaView, type Edge } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import type { Currency } from "@shared/money";
 import { Button } from "@mobile/components/ui/button";
-import { Field, FieldError, FieldGroup, FieldLabel } from "@mobile/components/ui/field";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@mobile/components/ui/field";
 import { Input } from "@mobile/components/ui/input";
 import { ThemedText } from "@mobile/components/themed-text";
 import { useTheme } from "@mobile/hooks/use-theme";
@@ -12,7 +12,7 @@ import { products } from "@mobile/features/products/composition";
 import { productMargin } from "@mobile/features/products/domain/product-margin";
 import { ProductPhoto } from "@mobile/features/products/presentation/product-photo";
 import { ProductTopBar } from "@mobile/features/products/presentation/product-top-bar";
-import { StockStepper } from "@mobile/features/products/presentation/stock-stepper";
+import { QuantityStepper } from "@mobile/features/products/presentation/quantity-stepper";
 import type { Product, PhotoSelection } from "@mobile/features/products/domain/product";
 import tokens from "../../../../../../docs/design-tokens.json";
 
@@ -31,11 +31,10 @@ function marginFor(values: ProductFormValues, currency: Currency) {
 }
 
 export function ProductForm({
-  title, headerAction, notice, values, setValue, currency, current, photo, onPhotoChange, errors, disabled, photoBusy, onPhotoBusy, onSave, onClose, onReviewCatalog, onCheckStatus, saving, conflict, uncertain, copies, onCopiesChange,
+  title, headerAction, values, setValue, currency, current, photo, onPhotoChange, errors, disabled, photoBusy, onPhotoBusy, onSave, onClose, onReviewCatalog, onCheckStatus, saving, conflict, uncertain,
 }: {
   title: string;
   headerAction?: ReactNode;
-  notice?: string;
   values: ProductFormValues;
   setValue: (field: keyof ProductFormValues, value: string) => void;
   currency: Currency;
@@ -53,12 +52,13 @@ export function ProductForm({
   saving: boolean;
   conflict?: boolean;
   uncertain?: boolean;
-  copies?: string;
-  onCopiesChange?: (value: string) => void;
 }) {
   const multiVariant = (current?.variants.length ?? 1) > 1;
   const { t, i18n } = useTranslation();
   const theme = useTheme();
+  // Paired fields wrap their labels under enlarged text, so they stack to keep each input aligned with its label.
+  const { fontScale } = useWindowDimensions();
+  const fieldColumn = [styles.column, fontScale > 1.15 && styles.stacked];
   const locale = i18n.language === 'pt-BR' ? 'pt-BR' : 'es-PE';
   const price = new Intl.NumberFormat(locale, { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const percent = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 });
@@ -70,7 +70,6 @@ export function ProductForm({
       <Button onPress={onSave} loading={saving} disabled={disabled || photoBusy}>{t('save')}</Button>
     </ProductTopBar>
     <ScrollView style={styles.scroll} contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
-      {notice ? <ThemedText themeColor="textSecondary">{notice}</ThemedText> : null}
       {errors.form ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{errors.form}</ThemedText> : null}
       <ProductPhoto
         value={photo}
@@ -96,11 +95,11 @@ export function ProductForm({
           <ThemedText type="small" themeColor="textSecondary">{currency}</ThemedText>
         </View>
         <FieldGroup style={styles.columns}>
-          <Field style={styles.column} required invalid={!!errors.salePrice} disabled={disabled}>
+          <Field style={fieldColumn} required invalid={!!errors.salePrice} disabled={disabled}>
             <FieldLabel>{t('salePrice')}</FieldLabel><Input value={values.salePrice} onChangeText={(value) => setValue("salePrice", value)} keyboardType="decimal-pad" placeholder="0.00" accessibilityLabel={t('salePriceLabel', { currency })} style={styles.amount} />
             {errors.salePrice ? <FieldError>{errors.salePrice}</FieldError> : null}
           </Field>
-          <Field style={styles.column} invalid={!!errors.purchasePrice} disabled={disabled}>
+          <Field style={fieldColumn} invalid={!!errors.purchasePrice} disabled={disabled}>
             <FieldLabel>{t('costShort')}</FieldLabel><Input value={values.purchasePrice} onChangeText={(value) => setValue("purchasePrice", value)} keyboardType="decimal-pad" placeholder="0.00" accessibilityLabel={t('purchasePriceLabel', { currency })} style={styles.amount} />
             {errors.purchasePrice ? <FieldError>{errors.purchasePrice}</FieldError> : null}
           </Field>
@@ -126,20 +125,22 @@ export function ProductForm({
             <ThemedText themeColor="textSecondary">{t('stockCount', { count: variant.stock })}</ThemedText>
           </View>)}
         </View> : <FieldGroup style={styles.columns}>
-          <Field style={styles.column} invalid={!!errors.sku} disabled={disabled}>
+          <Field style={fieldColumn} invalid={!!errors.sku} disabled={disabled}>
             <FieldLabel>SKU</FieldLabel><Input value={values.sku} onChangeText={(value) => setValue("sku", value)} maxLength={100} placeholder={t('optional')} accessibilityLabel={t('optionalSku')} autoCapitalize="characters" />
             {errors.sku ? <FieldError>{errors.sku}</FieldError> : null}
           </Field>
-          {current ? <Field style={styles.column} disabled>
-            <FieldLabel>{t('stockReadOnly')}</FieldLabel><Input value={String(current.variants[0]?.stock ?? 0)} onChangeText={() => {}} accessibilityLabel={t('readonlyStock', { count: current.variants[0]?.stock ?? 0 })} style={styles.amount} />
-          </Field> : <Field style={styles.column} invalid={!!errors.stock} disabled={disabled}>
+          {current ? <Field style={fieldColumn} disabled>
+            <FieldLabel>{t('stock')}</FieldLabel>
+            <QuantityStepper value={String(current.variants[0]?.stock ?? 0)} onChange={() => {}} disabled
+              accessibilityLabel={t('readonlyStock', { count: current.variants[0]?.stock ?? 0 })} decreaseLabel={t('decreaseStock')} increaseLabel={t('increaseStock')} />
+            <FieldDescription>{t('stockLockedHint')}</FieldDescription>
+          </Field> : <Field style={fieldColumn} invalid={!!errors.stock} disabled={disabled}>
             <FieldLabel>{t('initialStock')}</FieldLabel>
-            <StockStepper value={values.stock} onChange={(value) => setValue("stock", value)} disabled={disabled}
+            <QuantityStepper value={values.stock} onChange={(value) => setValue("stock", value)} disabled={disabled}
               accessibilityLabel={t('optionalInitialStock')} decreaseLabel={t('decreaseStock')} increaseLabel={t('increaseStock')} />
             {errors.stock ? <FieldError>{errors.stock}</FieldError> : null}
           </Field>}
         </FieldGroup>}
-        {onCopiesChange ? <Field><FieldLabel>{t('labelCopies')}</FieldLabel><Input value={copies ?? "1"} onChangeText={onCopiesChange} keyboardType="number-pad" accessibilityLabel={t('labelCopies')} /></Field> : null}
       </View>
       {conflict ? <Button variant="secondary" onPress={onReviewCatalog}>{t('backToCatalog')}</Button> : null}
       {uncertain && onCheckStatus ? <Button variant="secondary" onPress={onCheckStatus}>{t('checkProductStatus')}</Button> : null}
@@ -157,6 +158,7 @@ const styles = StyleSheet.create({
   descriptionInput: { minHeight: 88, textAlignVertical: "top" },
   columns: { flexDirection: "row", flexWrap: "wrap", gap: tokens.spacing["3"] },
   column: { flexGrow: 1, flexBasis: 136, minWidth: 0 },
+  stacked: { flexBasis: "100%" },
   amount: { fontVariant: ["tabular-nums"] },
   margin: { flexDirection: "row", gap: tokens.spacing["3"], borderRadius: tokens.radius.control, paddingHorizontal: tokens.spacing["3"], paddingVertical: tokens.spacing["2"] },
   figure: { fontSize: tokens.typography.roles.body.size, lineHeight: tokens.typography.roles.body.lineHeight, fontVariant: ["tabular-nums"] },
