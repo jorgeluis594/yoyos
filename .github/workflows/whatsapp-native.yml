@@ -1,7 +1,7 @@
 name: WhatsApp native bridge
 
 on:
-  pull_request:
+  # Skipped on pull requests: too slow for CI. Run it manually from the Actions tab.
   workflow_dispatch:
 
 permissions:
