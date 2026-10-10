@@ -414,7 +414,7 @@ Solo hay esquemas donde hay una frontera JSON que no cubre el dominio:
 ```ts
 // Servidor → comprador: solo datos visuales
 export const publicCheckoutAppearanceSchema = z.strictObject({
-  logoUrl: httpUrl.nullable(),
+  logoUrl: z.url({ protocol: /^https?$/ }).nullable(),
   brandColor: z.enum(checkoutBrandColors),
   background: z.enum(["white", "neutral", "brand_tint"]),
 });
@@ -432,6 +432,7 @@ export const checkoutPreviewReadySchema = z.strictObject({ type: z.literal("chec
 ```
 
 - **Entrada del editor:** no tiene esquema de transporte propio. La action pasa el JSON como `unknown` a `checkoutAppearance.save`, y `parseCheckoutAppearance` del dominio lo valida y normaliza. Un segundo esquema solo duplicaría esa regla.
+- **`logoUrl`:** el esquema solo valida la forma: `http` o `https` y nunca `javascript:` ni `data:`. Acepta hosts IP y `localhost`, que usan el almacenamiento local y los E2E; `z.httpUrl()` los rechaza. La política de URLs públicas la impone el adaptador R2 (`r2-image-storage.ts`): exige HTTPS con `NODE_ENV=production` y rechaza credenciales, query y fragmento.
 - Los tipos se infieren con `z.infer`; no hay DTOs escritos a mano.
 - La apariencia pública **no** se agrega a `publicCheckoutSchema`. Viaja en un campo propio de los datos del loader del checkout (`PageData.appearance`), porque las respuestas de la action de confirmación no la necesitan.
 - `postMessage` es una frontera JSON. Ambos lados validan con `safeParse` y descartan cualquier mensaje cuyo `event.origin` no sea `window.location.origin`.
