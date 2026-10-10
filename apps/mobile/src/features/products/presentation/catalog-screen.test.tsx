@@ -71,12 +71,12 @@ test('stock filters and sort reload the catalog and explain empty filtered resul
   mockLoadProducts.mockResolvedValue(ok({ items: [product], total: 1 }));
   const screen = render(<CatalogScreen />);
   await screen.findByText('Camisa de algodón de manga larga');
-  expect(mockLoadProducts).toHaveBeenLastCalledWith({ sort: 'recent', page: 1, pageSize: 20 });
+  expect(mockLoadProducts).toHaveBeenLastCalledWith({ page: 1, pageSize: 20 });
 
   mockLoadProducts.mockResolvedValue(ok({ items: [], total: 0 }));
   fireEvent.press(screen.getByRole('button', { name: 'Agotados' }));
   await screen.findByText('No hay productos con este filtro');
-  expect(mockLoadProducts).toHaveBeenLastCalledWith({ stock: 'sold_out', sort: 'recent', page: 1, pageSize: 20 });
+  expect(mockLoadProducts).toHaveBeenLastCalledWith({ stock: 'sold_out', page: 1, pageSize: 20 });
   expect(screen.getByRole('button', { name: 'Agotados' }).props.accessibilityState).toMatchObject({ selected: true });
 
   mockLoadProducts.mockResolvedValue(ok({ items: [product], total: 1 }));

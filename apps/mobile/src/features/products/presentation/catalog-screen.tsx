@@ -26,7 +26,8 @@ const queryKey = (query: Query) => `${query.stock}:${query.sort}:${query.search}
 const criteriaOf = (query: Query, page: number) => ({
   ...(query.search ? { search: query.search } : {}),
   ...(query.stock === "all" ? {} : { stock: query.stock as StockFilter }),
-  sort: query.sort, page, pageSize: PAGE_SIZE,
+  ...(query.sort === "recent" ? {} : { sort: query.sort }),
+  page, pageSize: PAGE_SIZE,
 } as const);
 const formatMoney = (amount: number, currency: string, locale: string) => new Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
 

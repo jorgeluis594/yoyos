@@ -29,7 +29,7 @@ The user chose full implementation (app + server) and removed "Stock bajo"; quic
 
 ## Deployment note
 
-The mobile app always sends `sort`; core's query schema is strict, so the server change must be deployed before this mobile build reaches users.
+Core's query schema is strict. The default list omits `stock` and `sort`, so it works against an older server, but the filters and name sort require the server change to be deployed first.
 
 ## Review limits
 
