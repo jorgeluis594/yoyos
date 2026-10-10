@@ -8,6 +8,10 @@ import expo.modules.whatsapp.go.bridge.ProtocolStorage
 import expo.modules.whatsapp.go.bridge.ProtocolSession
 import expo.modules.whatsapp.go.bridge.ConnectionEvents
 import expo.modules.whatsapp.go.bridge.ConnectionSession
+import expo.modules.whatsapp.go.bridge.DeliveryEvents
+import expo.modules.whatsapp.go.bridge.DeliverySession
+import expo.modules.whatsapp.go.bridge.DeliveryStorage
+import org.json.JSONArray
 import android.content.Context
 import org.json.JSONObject
 import java.util.UUID
@@ -49,6 +53,31 @@ private class PublicConnectionEvents(private val forward: (String, Map<String, A
   fun retire(): Boolean = synchronized(this) { active = false; revoked }
 }
 
+private fun jsonValue(value: Any?): Any? = when (value) {
+  is JSONObject -> value.keys().asSequence().filter { !value.isNull(it) }.associateWith { jsonValue(value.get(it)) }
+  is JSONArray -> (0 until value.length()).map { jsonValue(value.get(it)) }
+  JSONObject.NULL -> null
+  else -> value
+}
+
+/**
+ * Receives Go deliveries on the coordinator's thread. Throwing tells Go the callback failed, which keeps
+ * the pending entry and stops reception; a destroyed JavaScript runtime is such a failure.
+ */
+private class PublicDeliveryEvents(private val forward: () -> ((String, Map<String, Any?>) -> Unit)?) : DeliveryEvents {
+  override fun onDelivery(value: String) {
+    val emit = forward() ?: throw IllegalStateException("JavaScript runtime unavailable")
+    val envelope = JSONObject(value)
+    if (envelope.getInt("contractVersion") != 1 || envelope.getString("event") != "messageReceived") throw IllegalArgumentException("invalid delivery")
+    val payload = envelope.getJSONObject("payload")
+    emit("messageReceived", mapOf(
+      "deliveryId" to payload.getString("deliveryId"),
+      "message" to jsonValue(payload.getJSONObject("message")),
+      "consumer" to envelope.getString("consumer"),
+    ))
+  }
+}
+
 private object ConnectionRuntime {
   val lock = Any()
   var writer: NativeStateStore? = null
@@ -57,6 +86,32 @@ private object ConnectionRuntime {
   var prepared = false
   var revoked = false
   var emit: ((String, Map<String, Any?>) -> Unit)? = null
+  var delivery: DeliverySession? = null
+  var deliveryBudget = 0L
+  var consumerToken: String? = null
+
+  /** Recovery and confirmation need only the container, so this is open even when the session is invalid. */
+  fun ensureDelivery(store: NativeStateStore, recoveryBytes: Long): String? {
+    if (delivery != null && deliveryBudget == recoveryBytes) return null
+    delivery?.close()
+    delivery = null
+    val result = Bridge.openDelivery(object : DeliveryStorage {
+      override fun readPending(request: String): String = store.readPending(request)
+      override fun retirePending(request: String): String = store.retirePending(request)
+    }, PublicDeliveryEvents { emit }, recoveryBytes)
+    val opened = result?.session ?: return bridgeCode(result?.code ?: "")
+    delivery = opened
+    deliveryBudget = recoveryBytes
+    consumerToken?.let { opened.setConsumer(it) }
+    opened.start()
+    return null
+  }
+
+  fun runtimeDestroyed() {
+    emit = null
+    consumerToken?.let { delivery?.removeConsumer(it) }
+    consumerToken = null
+  }
 
   fun openConnection(context: Context, snapshot: JSONObject): String? {
     if (revoked) return "SESSION_EXPIRED"
@@ -70,11 +125,11 @@ private object ConnectionRuntime {
     try {
       if (account.isEmpty()) store.registerFreshGeneration(generation) else store.registerGeneration(generation, account)
       val sink = PublicConnectionEvents { event, fields -> emit?.invoke(event, fields) }
-      val result = Bridge.openConnection(object : ProtocolStorage {
+      val result = Bridge.openConnectionWithDelivery(object : ProtocolStorage {
         override fun readState(request: String): String = store.readProtocolState(request)
         override fun applyChanges(request: String): String = store.applyProtocolChanges(request)
         override fun beginFreshSession(request: String): String = store.beginFreshProtocolSession(request)
-      }, sink, generation, account, recovery, recovery)
+      }, sink, delivery, generation, account, recovery, recovery)
       if (result?.session == null) {
         sink.retire()
         store.retireGeneration()
@@ -109,7 +164,7 @@ private fun publicError(error: Exception): String = when ((error as? StateFailur
   else -> "NATIVE_CALL_FAILED"
 }
 private fun bridgeCode(code: String): String = when (code) {
-  "INVALID_INPUT", "SESSION_STATE_INVALID", "SESSION_STORAGE_FAILED", "SESSION_STORAGE_LIMIT_REACHED", "RECOVERY_BUFFER_FULL" -> code
+  "INVALID_INPUT", "NOT_INITIALIZED", "SESSION_STATE_INVALID", "SESSION_STORAGE_FAILED", "SESSION_STORAGE_LIMIT_REACHED", "RECOVERY_BUFFER_FULL" -> code
   else -> "NATIVE_CALL_FAILED"
 }
 private fun failure(code: String): Map<String, Any?> = mapOf("success" to false, "error" to mapOf("code" to code))
@@ -148,6 +203,7 @@ class WhatsAppModule : Module() {
             snapshot = writer.open()
           }
           ConnectionRuntime.prepared = true
+          ConnectionRuntime.ensureDelivery(writer, recovery)?.let { return@synchronized failure(it) }
           if (ConnectionRuntime.revoked) return@synchronized success(mapOf("state" to "sessionExpired"))
           ConnectionRuntime.openConnection(context, snapshot)?.let { return@synchronized failure(it) }
           val session = ConnectionRuntime.session ?: return@synchronized failure("NATIVE_CALL_FAILED")
@@ -197,7 +253,36 @@ class WhatsAppModule : Module() {
       }
     }
 
-    AsyncFunction("confirmMessageStored") { _: String -> failure("NATIVE_CALL_FAILED") }
+    OnDestroy { synchronized(ConnectionRuntime.lock) { ConnectionRuntime.runtimeDestroyed() } }
+
+    AsyncFunction("confirmMessageStored") { id: String ->
+      // The durable write runs on this background thread and outside the runtime lock.
+      val delivery = synchronized(ConnectionRuntime.lock) { ConnectionRuntime.delivery }
+      if (delivery == null) failure("NOT_INITIALIZED") else {
+        try {
+          val code = delivery.confirm(id)
+          if (code.isEmpty()) success() else failure(bridgeCode(code))
+        } catch (_: Exception) { failure("NATIVE_CALL_FAILED") }
+      }
+    }
+    AsyncFunction("setMessageConsumer") { token: String ->
+      val delivery = synchronized(ConnectionRuntime.lock) {
+        ConnectionRuntime.consumerToken = token
+        ConnectionRuntime.delivery
+      }
+      if (delivery == null) failure("NOT_INITIALIZED") else {
+        val code = delivery.setConsumer(token)
+        if (code.isEmpty()) success() else failure(bridgeCode(code))
+      }
+    }
+    AsyncFunction("removeMessageConsumer") { token: String ->
+      val delivery = synchronized(ConnectionRuntime.lock) {
+        if (ConnectionRuntime.consumerToken == token) ConnectionRuntime.consumerToken = null
+        ConnectionRuntime.delivery
+      }
+      delivery?.removeConsumer(token)
+      success()
+    }
     AsyncFunction("downloadImage") { _: Map<String, Any?> -> failure("NATIVE_CALL_FAILED") }
     AsyncFunction("deleteDownloadedImage") { _: String -> failure("NATIVE_CALL_FAILED") }
 

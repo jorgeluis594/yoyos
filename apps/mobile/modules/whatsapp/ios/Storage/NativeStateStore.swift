@@ -273,6 +273,43 @@ public final class NativeStateStore {
     }
   }
 
+  /// Pending entries need neither a generation nor a usable session: recovery works with any account.
+  public func readPending(_ request: String) -> String {
+    protocolResponse {
+      guard request.utf8.count <= 128 else { throw StateStoreError.invalidRequest }
+      let input = try Self.parseProtocolRequest(request)
+      try Self.exact(input, ["contractVersion"])
+      guard Self.safeInt(input["contractVersion"]) == 1 else { throw StateStoreError.invalidRequest }
+      lock.lock(); defer { lock.unlock() }
+      let snapshot = try open()
+      return ["revision": String(revision), "pending": snapshot["pending"] ?? [[String: Any]]()]
+    }
+  }
+
+  /// Removes the whole entry durably; a valid identifier with no entry succeeds without publishing.
+  public func retirePending(_ request: String) -> String {
+    protocolResponse {
+      guard request.utf8.count <= 256 else { throw StateStoreError.invalidRequest }
+      let input = try Self.parseProtocolRequest(request)
+      try Self.exact(input, ["contractVersion", "deliveryId"])
+      guard Self.safeInt(input["contractVersion"]) == 1, let id = input["deliveryId"] as? String,
+            id.range(of: "^wa-delivery:v1:[0-9a-f]{32}\\z", options: .regularExpression) != nil else { throw StateStoreError.invalidRequest }
+      lock.lock(); defer { lock.unlock() }
+      let snapshot = try open()
+      let existing = snapshot["pending"] as? [[String: Any]] ?? []
+      let kept = existing.filter { $0["deliveryId"] as? String != id }
+      let removed = kept.count != existing.count
+      if removed {
+        try commit(expectedRevision: String(revision)) { old in
+          var next = old
+          next["pending"] = kept
+          return next
+        }
+      }
+      return ["revision": String(revision), "removed": removed]
+    }
+  }
+
   public func applyProtocolChanges(_ request: String) -> String {
     protocolResponse {
       guard request.utf8.count <= Self.maxSession + readBudget + 12_340 else { throw StateStoreError.invalidRequest }

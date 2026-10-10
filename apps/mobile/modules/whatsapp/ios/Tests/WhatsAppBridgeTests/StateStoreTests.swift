@@ -1018,4 +1018,61 @@ final class StateStoreTests: XCTestCase {
     let options = try XCTUnwrap(reopened["options"] as? [String: Any])
     XCTAssertEqual(options["maxRecoveryBufferBytes"] as? Int, 12 * 1024 * 1024)
   }
+
+  private func pendingEntry(_ letter: String, ordinal: Int) -> [String: Any] {
+    ["deliveryId": "wa-delivery:v1:" + String(repeating: letter, count: 32), "accountId": "123@lid",
+     "createdRevision": "2", "createdOrdinal": ordinal, "source": "live", "identityState": "pendingLid",
+     "recovery": ["messageInfoJson": "{}", "items": [[String: Any]]()]]
+  }
+
+  private func response(_ text: String) throws -> [String: Any] {
+    try XCTUnwrap(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+  }
+
+  // IT-DEL-07 / IT-DEL-08 / IT-DEL-11: durable idempotent retirement, no session key or generation needed.
+  func testRetirePendingIsDurableIdempotentAndNeedsNoSessionKey() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let writer = try makeStore(root)
+    _ = try writer.open()
+    try writer.beginSession(accountId: "123@lid", protocolBytes: Data("{\"protocolSchemaVersion\":1,\"records\":[]}".utf8))
+    let keyId = try XCTUnwrap((writer.open()["session"] as? [String: Any])?["sessionKeyId"] as? String)
+    _ = try writer.commit(expectedRevision: "1") { current in
+      var next = current
+      next["pending"] = [pendingEntry("a", ordinal: 0), pendingEntry("b", ordinal: 1)]
+      return next
+    }
+    let service = "com.yoyos.whatsapp.state.test." + root.lastPathComponent.replacingOccurrences(of: "-", with: "").lowercased()
+    let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
+                                kSecAttrAccount as String: keyId, kSecUseDataProtectionKeychain as String: true]
+    XCTAssertEqual(SecItemDelete(query as CFDictionary), errSecSuccess)
+    let recovered = try makeStore(root) // session unusable, buffer intact
+    let read = try response(recovered.readPending("{\"contractVersion\":1}"))
+    XCTAssertEqual(read["success"] as? Bool, true)
+    XCTAssertEqual(((read["data"] as? [String: Any])?["pending"] as? [[String: Any]])?.count, 2)
+    let request = "{\"contractVersion\":1,\"deliveryId\":\"wa-delivery:v1:" + String(repeating: "a", count: 32) + "\"}"
+    let first = try XCTUnwrap(try response(recovered.retirePending(request))["data"] as? [String: Any])
+    XCTAssertEqual(first["removed"] as? Bool, true)
+    let again = try XCTUnwrap(try response(recovered.retirePending(request))["data"] as? [String: Any])
+    XCTAssertEqual(again["removed"] as? Bool, false) // a lost reply is repeatable
+    XCTAssertEqual(again["revision"] as? String, first["revision"] as? String) // and publishes nothing
+    let remaining = try XCTUnwrap(try makeStore(root).open()["pending"] as? [[String: Any]])
+    XCTAssertEqual(remaining.count, 1)
+    XCTAssertEqual(remaining[0]["deliveryId"] as? String, "wa-delivery:v1:" + String(repeating: "b", count: 32))
+  }
+
+  func testRetirePendingRejectsMalformedRequestsWithoutMutation() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let writer = try makeStore(root)
+    _ = try writer.open()
+    let id = "wa-delivery:v1:" + String(repeating: "a", count: 32)
+    for bad in ["{\"contractVersion\":1,\"deliveryId\":\"nope\"}", "{\"contractVersion\":2,\"deliveryId\":\"" + id + "\"}",
+                "{\"contractVersion\":1}", "{\"contractVersion\":1,\"deliveryId\":\"" + id + "\",\"extra\":1}"] {
+      let result = try response(writer.retirePending(bad))
+      XCTAssertEqual(result["success"] as? Bool, false)
+      XCTAssertEqual((result["error"] as? [String: Any])?["code"] as? String, "INVALID_REQUEST")
+    }
+    XCTAssertEqual(try response(writer.readPending("{\"contractVersion\":2}"))["success"] as? Bool, false)
+  }
 }

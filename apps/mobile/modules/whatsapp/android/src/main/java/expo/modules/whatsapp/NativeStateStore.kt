@@ -307,6 +307,42 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     } finally { GLOBAL_LOCK.unlock() }
   }
 
+  /** Pending entries need neither a generation nor a usable session: recovery works with any account. */
+  fun readPending(request: String): String = protocolResponse {
+    if (request.toByteArray(Charsets.UTF_8).size > 128) throw StateFailure("INVALID_REQUEST")
+    val input = parseProtocolRequest(request)
+    exact(input, "contractVersion")
+    if (input.get("contractVersion") !is Number || input.get("contractVersion").toString() != "1") throw StateFailure("INVALID_REQUEST")
+    GLOBAL_LOCK.lock()
+    try {
+      val snapshot = open()
+      JSONObject().put("revision", revision.toString()).put("pending", snapshot.getJSONArray("pending"))
+    } finally { GLOBAL_LOCK.unlock() }
+  }
+
+  /** Removes the whole entry durably; a valid identifier with no entry succeeds without publishing. */
+  fun retirePending(request: String): String = protocolResponse {
+    if (request.toByteArray(Charsets.UTF_8).size > 256) throw StateFailure("INVALID_REQUEST")
+    val input = parseProtocolRequest(request)
+    exact(input, "contractVersion", "deliveryId")
+    if (input.get("contractVersion") !is Number || input.get("contractVersion").toString() != "1" ||
+      input.get("deliveryId") !is String || !DELIVERY.matches(input.getString("deliveryId"))) throw StateFailure("INVALID_REQUEST")
+    val id = input.getString("deliveryId")
+    GLOBAL_LOCK.lock()
+    try {
+      val snapshot = open()
+      val existing = snapshot.getJSONArray("pending")
+      val kept = JSONArray()
+      var removed = false
+      for (i in 0 until existing.length()) {
+        val item = existing.getJSONObject(i)
+        if (item.getString("deliveryId") == id) removed = true else kept.put(item)
+      }
+      if (removed) commit(revision.toString()) { old -> old.put("pending", kept) }
+      JSONObject().put("revision", revision.toString()).put("removed", removed)
+    } finally { GLOBAL_LOCK.unlock() }
+  }
+
   fun applyProtocolChanges(request: String): String = protocolResponse {
     if (request.toByteArray(Charsets.UTF_8).size > SESSION_LIMIT.toLong() + readBudget + 12340L) throw StateFailure("INVALID_REQUEST")
     val input = parseProtocolRequest(request)

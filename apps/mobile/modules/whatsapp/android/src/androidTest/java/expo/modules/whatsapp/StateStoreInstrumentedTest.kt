@@ -918,4 +918,53 @@ class StateStoreInstrumentedTest {
     assertEquals("1", writer.updateOptions(12L * 1024 * 1024, 60L * 1024 * 1024))
     assertEquals(12L * 1024 * 1024, makeStore(root).open().getJSONObject("options").getLong("maxRecoveryBufferBytes"))
   }
+
+  private fun pendingEntry(letter: String, ordinal: Int) = org.json.JSONObject()
+    .put("deliveryId", "wa-delivery:v1:" + letter.repeat(32)).put("accountId", "123@lid")
+    .put("createdRevision", "2").put("createdOrdinal", ordinal).put("source", "live")
+    .put("identityState", "pendingLid")
+    .put("recovery", org.json.JSONObject().put("messageInfoJson", "{}").put("items", org.json.JSONArray()))
+
+  // IT-DEL-07 / IT-DEL-08 / IT-DEL-11: durable idempotent retirement, no session key or generation needed.
+  @Test fun retirePendingIsDurableIdempotentAndNeedsNoSessionKey() {
+    val root = freshRoot
+    val writer = makeStore(root)
+    writer.open()
+    writer.beginSession("123@lid", "{\"protocolSchemaVersion\":1,\"records\":[]}".toByteArray())
+    val keyId = writer.open().getJSONObject("session").getString("sessionKeyId")
+    writer.commit("1") { state -> state.put("pending", org.json.JSONArray().put(pendingEntry("a", 0)).put(pendingEntry("b", 1))) }
+    val keyStore = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+    keyStore.deleteEntry("yoyos.whatsapp.test.${root.name.removePrefix("state-test-").replace("-", "")}.key.$keyId")
+    val recovered = makeStore(root) // session unusable, buffer intact
+    val read = org.json.JSONObject(recovered.readPending("{\"contractVersion\":1}"))
+    assertTrue(read.getBoolean("success"))
+    assertEquals(2, read.getJSONObject("data").getJSONArray("pending").length())
+    val request = "{\"contractVersion\":1,\"deliveryId\":\"wa-delivery:v1:${"a".repeat(32)}\"}"
+    val first = org.json.JSONObject(recovered.retirePending(request)).getJSONObject("data")
+    assertTrue(first.getBoolean("removed"))
+    val revision = first.getString("revision")
+    val again = org.json.JSONObject(recovered.retirePending(request)).getJSONObject("data")
+    assertFalse(again.getBoolean("removed")) // a lost reply is repeatable
+    assertEquals(revision, again.getString("revision")) // and publishes nothing
+    val remaining = makeStore(root).open().getJSONArray("pending")
+    assertEquals(1, remaining.length())
+    assertEquals("wa-delivery:v1:" + "b".repeat(32), remaining.getJSONObject(0).getString("deliveryId"))
+  }
+
+  @Test fun retirePendingRejectsMalformedRequestsWithoutMutation() {
+    val root = freshRoot
+    val writer = makeStore(root)
+    writer.open()
+    for (bad in listOf(
+      "{\"contractVersion\":1,\"deliveryId\":\"nope\"}",
+      "{\"contractVersion\":2,\"deliveryId\":\"wa-delivery:v1:${"a".repeat(32)}\"}",
+      "{\"contractVersion\":1}",
+      "{\"contractVersion\":1,\"deliveryId\":\"wa-delivery:v1:${"a".repeat(32)}\",\"extra\":1}",
+    )) {
+      val response = org.json.JSONObject(writer.retirePending(bad))
+      assertFalse(response.getBoolean("success"))
+      assertEquals("INVALID_REQUEST", response.getJSONObject("error").getString("code"))
+    }
+    assertFalse(org.json.JSONObject(writer.readPending("{\"contractVersion\":2}")).getBoolean("success"))
+  }
 }

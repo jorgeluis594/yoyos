@@ -43,6 +43,38 @@ func openProtocolSession(writer: NativeStateStore, generationId: String, account
   return session
 }
 
+private final class NativeDeliveryStorage: NSObject, YYWhatsAppGoBridgeDeliveryStorageProtocol {
+  let writer: NativeStateStore
+  init(writer: NativeStateStore) { self.writer = writer }
+  func readPending(_ request: String?, error: NSErrorPointer) -> String { writer.readPending(request ?? "") }
+  func retirePending(_ request: String?, error: NSErrorPointer) -> String { writer.retirePending(request ?? "") }
+}
+
+private func jsonValue(_ value: Any) -> Any? {
+  if value is NSNull { return nil }
+  if let object = value as? [String: Any] { return object.compactMapValues(jsonValue) }
+  if let list = value as? [Any] { return list.compactMap(jsonValue) }
+  return value
+}
+
+/// Receives Go deliveries on the coordinator's thread. Throwing tells Go the callback failed, which keeps
+/// the pending entry and stops reception; a destroyed JavaScript runtime is such a failure.
+private final class NativeDeliveryEvents: NSObject, YYWhatsAppGoBridgeDeliveryEventsProtocol {
+  func onDelivery(_ value: String?) throws {
+    guard let emit = ConnectionRuntime.shared.emit,
+          let value, let data = value.data(using: .utf8),
+          let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          envelope["contractVersion"] as? Int == 1, envelope["event"] as? String == "messageReceived",
+          let consumer = envelope["consumer"] as? String,
+          let payload = envelope["payload"] as? [String: Any],
+          let deliveryId = payload["deliveryId"] as? String,
+          let message = payload["message"].flatMap(jsonValue) else {
+      throw NSError(domain: "WhatsAppDelivery", code: 1)
+    }
+    emit("messageReceived", ["deliveryId": deliveryId, "message": message, "consumer": consumer])
+  }
+}
+
 private final class NativeConnectionEvents: NSObject, YYWhatsAppGoBridgeConnectionEventsProtocol {
   private let lock = NSLock()
   private var active = true
@@ -77,6 +109,29 @@ private final class ConnectionRuntime {
   var prepared = false
   var revoked = false
   var emit: ((String, [String: Any]) -> Void)?
+  var delivery: YYWhatsAppGoBridgeDeliverySession?
+  var deliveryBudget: Int64 = 0
+  var consumerToken: String?
+
+  /// Recovery and confirmation need only the container, so this is open even when the session is invalid.
+  func ensureDelivery(writer: NativeStateStore, recoveryBytes: Int64) -> String? {
+    if delivery != nil && deliveryBudget == recoveryBytes { return nil }
+    delivery?.close()
+    delivery = nil
+    let result = YYWhatsAppGoBridgeOpenDelivery(NativeDeliveryStorage(writer: writer), NativeDeliveryEvents(), recoveryBytes)
+    guard let opened = result?.session, result?.code.isEmpty ?? false else { return bridgeCode(result?.code ?? "") }
+    delivery = opened
+    deliveryBudget = recoveryBytes
+    if let consumerToken { _ = opened.setConsumer(consumerToken) }
+    opened.start()
+    return nil
+  }
+
+  func runtimeDestroyed() {
+    emit = nil
+    if let consumerToken { delivery?.removeConsumer(consumerToken) }
+    consumerToken = nil
+  }
 
   func openConnection(snapshot: [String: Any]) throws -> String? {
     if revoked { return "SESSION_EXPIRED" }
@@ -90,7 +145,7 @@ private final class ConnectionRuntime {
     if account.isEmpty { try writer.registerFreshGeneration(generation) }
     else { try writer.registerGeneration(generation, accountId: account) }
     let sink = NativeConnectionEvents()
-    let result = YYWhatsAppGoBridgeOpenConnection(NativeProtocolStorage(writer: writer), sink, generation,
+    let result = YYWhatsAppGoBridgeOpenConnectionWithDelivery(NativeProtocolStorage(writer: writer), sink, delivery, generation,
                                                   account, Int64(recovery), Int64(recovery))
     guard let result, result.code.isEmpty, let opened = result.session else {
       sink.retire()
@@ -115,7 +170,7 @@ private final class ConnectionRuntime {
 
 private func bridgeCode(_ code: String) -> String {
   switch code {
-  case "INVALID_INPUT", "SESSION_STATE_INVALID", "SESSION_STORAGE_FAILED", "SESSION_STORAGE_LIMIT_REACHED", "RECOVERY_BUFFER_FULL": return code
+  case "INVALID_INPUT", "NOT_INITIALIZED", "SESSION_STATE_INVALID", "SESSION_STORAGE_FAILED", "SESSION_STORAGE_LIMIT_REACHED", "RECOVERY_BUFFER_FULL": return code
   default: return "NATIVE_CALL_FAILED"
   }
 }
@@ -168,6 +223,7 @@ public class WhatsAppModule: Module {
           snapshot = try writer.open()
         }
         runtime.prepared = true
+        if let code = runtime.ensureDelivery(writer: writer, recoveryBytes: recovery) { return failure(code) }
         if runtime.revoked { return success(["state": "sessionExpired"]) }
         if let code = try runtime.openConnection(snapshot: snapshot) { return failure(code) }
         guard let session = runtime.session else { return failure("NATIVE_CALL_FAILED") }
@@ -210,7 +266,36 @@ public class WhatsAppModule: Module {
       } catch { return failure(publicError(error)) }
     }
 
-    AsyncFunction("confirmMessageStored") { (_: String) -> [String: Any] in failure("NATIVE_CALL_FAILED") }
+    OnDestroy {
+      let runtime = ConnectionRuntime.shared
+      runtime.lock.lock(); defer { runtime.lock.unlock() }
+      runtime.runtimeDestroyed()
+    }
+
+    AsyncFunction("confirmMessageStored") { (id: String) -> [String: Any] in
+      // The durable write runs on this background thread and outside the runtime lock.
+      let runtime = ConnectionRuntime.shared
+      runtime.lock.lock(); let delivery = runtime.delivery; runtime.lock.unlock()
+      guard let delivery else { return failure("NOT_INITIALIZED") }
+      let code = delivery.confirm(id)
+      return code.isEmpty ? success() : failure(bridgeCode(code))
+    }
+    AsyncFunction("setMessageConsumer") { (token: String) -> [String: Any] in
+      let runtime = ConnectionRuntime.shared
+      runtime.lock.lock(); runtime.consumerToken = token; let delivery = runtime.delivery; runtime.lock.unlock()
+      guard let delivery else { return failure("NOT_INITIALIZED") }
+      let code = delivery.setConsumer(token)
+      return code.isEmpty ? success() : failure(bridgeCode(code))
+    }
+    AsyncFunction("removeMessageConsumer") { (token: String) -> [String: Any] in
+      let runtime = ConnectionRuntime.shared
+      runtime.lock.lock()
+      if runtime.consumerToken == token { runtime.consumerToken = nil }
+      let delivery = runtime.delivery
+      runtime.lock.unlock()
+      delivery?.removeConsumer(token)
+      return success()
+    }
     AsyncFunction("downloadImage") { (_: [String: Any]) -> [String: Any] in failure("NATIVE_CALL_FAILED") }
     AsyncFunction("deleteDownloadedImage") { (_: String) -> [String: Any] in failure("NATIVE_CALL_FAILED") }
 
