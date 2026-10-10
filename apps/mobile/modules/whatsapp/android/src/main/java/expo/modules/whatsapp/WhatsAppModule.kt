@@ -91,9 +91,12 @@ private object ConnectionRuntime {
   @Volatile var emit: ((String, Map<String, Any?>) -> Unit)? = null
   var delivery: DeliverySession? = null
   var deliveryBudget = 0L
+  var deliveryReadBound = 0L
   var consumerToken: String? = null
   var images: ImageSession? = null
   var imageBudget = 0L
+  /** A limit change admitted to Go's image queue; `initialize` waits for it after it released the runtime lock. */
+  var pendingImageLimit: ImageOperation? = null
 
   /**
    * The private image directory and its byte budget exist apart from any session, so complete
@@ -103,7 +106,9 @@ private object ConnectionRuntime {
     val current = images
     if (current != null) {
       if (imageBudget == imageBytes) return null
-      if (!current.setLimit(imageBytes)) return "INVALID_INPUT"
+      // The change is ordered behind the cleanup of a cancelled download (Go's image queue) and must
+      // not be awaited here: this runs under the runtime lock, which confirmations and disconnects share.
+      pendingImageLimit = current.beginSetLimit(imageBytes)
       imageBudget = imageBytes
       return null
     }
@@ -116,16 +121,18 @@ private object ConnectionRuntime {
 
   /** Recovery and confirmation need only the container, so this is open even when the session is invalid. */
   fun ensureDelivery(store: NativeStateStore, recoveryBytes: Long): String? {
-    if (delivery != null && deliveryBudget == recoveryBytes) return null
+    val readBound = store.recoveryReadBound()
+    if (delivery != null && deliveryBudget == recoveryBytes && deliveryReadBound == readBound) return null
     delivery?.close()
     delivery = null
     val result = Bridge.openDelivery(object : DeliveryStorage {
       override fun readPending(request: String): String = store.readPending(request)
       override fun retirePending(request: String): String = store.retirePending(request)
-    }, PublicDeliveryEvents { emit }, recoveryBytes)
+    }, PublicDeliveryEvents { emit }, readBound, recoveryBytes)
     val opened = result?.session ?: return bridgeCode(result?.code ?: "")
     delivery = opened
     deliveryBudget = recoveryBytes
+    deliveryReadBound = readBound
     consumerToken?.let { opened.setConsumer(it) }
     opened.start()
     return null
@@ -154,7 +161,7 @@ private object ConnectionRuntime {
         override fun readState(request: String): String = store.readProtocolState(request)
         override fun applyChanges(request: String): String = store.applyProtocolChanges(request)
         override fun beginFreshSession(request: String): String = store.beginFreshProtocolSession(request)
-      }, sink, delivery, generation, account, recovery, recovery)
+      }, sink, delivery, generation, account, store.recoveryReadBound(), recovery)
       if (result?.session == null) {
         sink.retire()
         store.retireGeneration()
@@ -209,7 +216,7 @@ class WhatsAppModule : Module() {
     ConnectionRuntime.emit = { event, payload -> this@WhatsAppModule.sendEvent(event, payload) }
 
     AsyncFunction("initialize") { options: Map<String, Any?> ->
-      synchronized(ConnectionRuntime.lock) {
+      val initialized = synchronized(ConnectionRuntime.lock) {
         try {
           val context = appContext.reactContext ?: return@synchronized failure("MODULE_UNAVAILABLE")
           val writer = ConnectionRuntime.writer ?: NativeStateStore(context).also { ConnectionRuntime.writer = it }
@@ -248,6 +255,11 @@ class WhatsAppModule : Module() {
           success(state)
         } catch (error: Exception) { ConnectionRuntime.stop(); failure(publicError(error)) }
       }
+      // Success is reported only after a reduced or raised image limit took effect, i.e. after the
+      // cancelled download's cleanup; the writer and the runtime lock are free while this waits.
+      val limit = synchronized(ConnectionRuntime.lock) { ConnectionRuntime.pendingImageLimit.also { ConnectionRuntime.pendingImageLimit = null } }
+      val code = try { limit?.outcome()?.code ?: "" } catch (_: Exception) { "NATIVE_CALL_FAILED" }
+      if (initialized["success"] == true && code.isNotEmpty()) failure(imageCode(code)) else initialized
     }
 
     AsyncFunction("connect") {

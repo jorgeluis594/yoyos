@@ -119,16 +119,20 @@ private final class ConnectionRuntime {
   }
   var delivery: YYWhatsAppGoBridgeDeliverySession?
   var deliveryBudget: Int64 = 0
+  var deliveryReadBound: Int64 = 0
   var consumerToken: String?
   var images: YYWhatsAppGoBridgeImageSession?
   var imageBudget: Int64 = 0
+  /// A limit change admitted to Go's image queue; `initialize` waits for it after it released the runtime lock.
+  var pendingImageLimit: YYWhatsAppGoBridgeImageOperation?
 
   /// The private image directory and its byte budget exist apart from any session, so complete
   /// files stay reusable and deletable after disconnect or logout.
   func ensureImages(writer: NativeStateStore, imageBytes: Int64) -> String? {
     if let images {
       if imageBudget == imageBytes { return nil }
-      guard images.setLimit(imageBytes) else { return "INVALID_INPUT" }
+      // Ordered behind the cleanup of a cancelled download; never awaited under the runtime lock.
+      pendingImageLimit = images.beginSetLimit(imageBytes)
       imageBudget = imageBytes
       return nil
     }
@@ -141,13 +145,15 @@ private final class ConnectionRuntime {
 
   /// Recovery and confirmation need only the container, so this is open even when the session is invalid.
   func ensureDelivery(writer: NativeStateStore, recoveryBytes: Int64) -> String? {
-    if delivery != nil && deliveryBudget == recoveryBytes { return nil }
+    guard let readBound = try? writer.recoveryReadBound() else { return "SESSION_STATE_INVALID" }
+    if delivery != nil && deliveryBudget == recoveryBytes && deliveryReadBound == readBound { return nil }
     delivery?.close()
     delivery = nil
-    let result = YYWhatsAppGoBridgeOpenDelivery(NativeDeliveryStorage(writer: writer), NativeDeliveryEvents(), recoveryBytes)
+    let result = YYWhatsAppGoBridgeOpenDelivery(NativeDeliveryStorage(writer: writer), NativeDeliveryEvents(), readBound, recoveryBytes)
     guard let opened = result?.session, result?.code.isEmpty ?? false else { return bridgeCode(result?.code ?? "") }
     delivery = opened
     deliveryBudget = recoveryBytes
+    deliveryReadBound = readBound
     if let consumerToken { _ = opened.setConsumer(consumerToken) }
     opened.start()
     return nil
@@ -172,8 +178,9 @@ private final class ConnectionRuntime {
     if account.isEmpty { try writer.registerFreshGeneration(generation) }
     else { try writer.registerGeneration(generation, accountId: account) }
     let sink = NativeConnectionEvents()
+    let readBound = try writer.recoveryReadBound()
     let result = YYWhatsAppGoBridgeOpenConnectionWithDelivery(NativeProtocolStorage(writer: writer), sink, delivery, generation,
-                                                  account, Int64(recovery), Int64(recovery))
+                                                  account, readBound, Int64(recovery))
     guard let result, result.code.isEmpty, let opened = result.session else {
       sink.retire()
       writer.retireGeneration()
@@ -230,8 +237,8 @@ public class WhatsAppModule: Module {
     Events("qr", "connectionChanged", "messageReceived", "error")
     ConnectionRuntime.shared.emit = { [weak self] event, payload in self?.sendEvent(event, payload) }
 
-    AsyncFunction("initialize") { (options: [String: Any]) -> [String: Any] in
-      let runtime = ConnectionRuntime.shared
+    /// The part of `initialize` that holds the runtime lock; the image limit is awaited after it.
+    func initializeLocked(_ runtime: ConnectionRuntime, _ options: [String: Any]) -> [String: Any] {
       runtime.lock.lock(); defer { runtime.lock.unlock() }
       do {
         if runtime.writer == nil { runtime.writer = try NativeStateStore() }
@@ -269,6 +276,20 @@ public class WhatsAppModule: Module {
            let qr = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any] { data["qr"] = qr }
         return success(data)
       } catch { runtime.stop(); return failure(publicError(error)) }
+    }
+
+    AsyncFunction("initialize") { (options: [String: Any]) -> [String: Any] in
+      let runtime = ConnectionRuntime.shared
+      let initialized = initializeLocked(runtime, options)
+      // Success is reported only after the image limit took effect, i.e. after the cancelled download's
+      // cleanup; the writer and the runtime lock are free while this waits.
+      runtime.lock.lock()
+      let limit = runtime.pendingImageLimit
+      runtime.pendingImageLimit = nil
+      runtime.lock.unlock()
+      let code = limit?.outcome()?.code ?? ""
+      if initialized["success"] as? Bool == true, !code.isEmpty { return failure(imageCode(code)) }
+      return initialized
     }
 
     AsyncFunction("connect") { () -> [String: Any] in
