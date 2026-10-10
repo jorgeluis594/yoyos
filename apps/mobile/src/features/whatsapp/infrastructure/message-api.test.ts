@@ -14,16 +14,13 @@ const coreId = "00000000-0000-4000-8000-000000000001";
 const response = { status: "stored", messageId: coreId, eventId: coreId, receivedAt: "2026-10-10T00:00:00.000Z" };
 
 test("builds a text request that passes registerWhatsAppMessageRequestSchema", () => {
-  const request = toRegisterRequest(text);
-  expect(request.success && registerWhatsAppMessageRequestSchema.safeParse(request.data).success).toBe(true);
+  expect(registerWhatsAppMessageRequestSchema.safeParse(toRegisterRequest(text)).success).toBe(true);
 });
 
 test("builds an image request with only caption, mimeType and size", () => {
   const request = toRegisterRequest(image);
-  expect(request).toMatchObject({ success: true, data: { message: { content: { type: "image", caption: "cap", mimeType: "image/png", size: 12 } } } });
-  expect(request.success && Object.keys(request.data.message.content).sort()).toEqual(["caption", "mimeType", "size", "type"]);
-  const bare = toRegisterRequest({ ...image, content: { ...image.content, caption: null, mimeType: null, size: null } as never });
-  expect(bare.success && bare.data.message.content).toEqual({ type: "image" });
+  expect(request.message.content).toEqual({ type: "image", caption: "cap", mimeType: "image/png", size: 12 });
+  expect(toRegisterRequest({ ...image, content: { ...image.content, caption: null, mimeType: null, size: null } as never }).message.content).toEqual({ type: "image" });
 });
 
 test("never includes the image download reference, deliveryId or local URIs", () => {
@@ -31,11 +28,13 @@ test("never includes the image download reference, deliveryId or local URIs", ()
 });
 
 test("sends sentAt as Unix milliseconds", () => {
-  expect(toRegisterRequest(text)).toMatchObject({ data: { message: { timestamp: 1_700_000_000_000 } } });
+  expect(toRegisterRequest(text).message.timestamp).toBe(1_700_000_000_000);
 });
 
-test("returns UNKNOWN_DATE when sentAt is null", () => {
-  expect(toRegisterRequest({ ...text, sentAt: null })).toMatchObject({ success: false, error: { code: "UNKNOWN_DATE" } });
+test("omits the timestamp when sentAt is null instead of inventing a date", () => {
+  const request = toRegisterRequest({ ...text, sentAt: null });
+  expect("timestamp" in request.message).toBe(false);
+  expect(registerWhatsAppMessageRequestSchema.safeParse(request).success).toBe(true);
 });
 
 test("posts the request to /api/messages", async () => {
@@ -45,7 +44,7 @@ test("posts the request to /api/messages", async () => {
   const [path, init] = request.mock.calls[0] ?? [];
   expect(path).toBe("/api/messages");
   expect(init?.method).toBe("POST");
-  expect(JSON.parse(String(init?.body))).toEqual(toRegisterRequest(text).success ? (toRegisterRequest(text) as { data: unknown }).data : null);
+  expect(JSON.parse(String(init?.body))).toEqual(toRegisterRequest(text));
 });
 
 test("returns stored for 201 and duplicate for 200 responses", async () => {
@@ -67,10 +66,4 @@ test("passes transport errors through with their codes", async () => {
 
 test("returns NETWORK_ERROR when the request cannot be sent", async () => {
   expect(await createMessageApi(async () => err({ code: "NETWORK_ERROR", message: "x" })).register(text)).toMatchObject({ error: { code: "NETWORK_ERROR" } });
-});
-
-test("does not send a message without date", async () => {
-  const request = jest.fn();
-  expect(await createMessageApi(request).register({ ...text, sentAt: null })).toMatchObject({ error: { code: "UNKNOWN_DATE" } });
-  expect(request).not.toHaveBeenCalled();
 });

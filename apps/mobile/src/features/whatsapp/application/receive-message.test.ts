@@ -28,8 +28,7 @@ function setup(options: { links?: WhatsAppLink[]; failLinks?: boolean; failSave?
       placements.push(placement);
       const existing = saved.get(message.id);
       if (existing) return ok<SaveOutcome>({ status: "duplicate", message: existing });
-      const state = placement.kind === "orphan" ? { state: "orphaned" as const }
-        : placement.initial === "pending" ? { state: "pending" as const, attempts: 0, nextAttemptAt: at } : { state: "held_unknown_date" as const };
+      const state = placement.kind === "orphan" ? { state: "orphaned" as const } : { state: "pending" as const, attempts: 0, nextAttemptAt: at };
       const stored: StoredMessage = { ...message, linkId: placement.kind === "linked" ? placement.link.id : null,
         companyId: placement.kind === "linked" ? placement.link.companyId : null, arrivalSeq: saved.size + 1, storedAt: at, sync: state };
       saved.set(message.id, stored);
@@ -108,11 +107,11 @@ test("stores a message of an unknown account as orphaned, confirms it and does n
   expect(wakeSync).not.toHaveBeenCalled();
 });
 
-test("stores a message without timestamp as held_unknown_date and does not wake sync", async () => {
+test("stores a message without timestamp with an unknown date and syncs it", async () => {
   const { receive, saved, wakeSync } = setup();
   expect(await receive(event({ timestamp: undefined }))).toEqual({ success: true, data: { status: "stored" } });
-  expect([...saved.values()][0]).toMatchObject({ sentAt: null, sync: { state: "held_unknown_date" } });
-  expect(wakeSync).not.toHaveBeenCalled();
+  expect([...saved.values()][0]).toMatchObject({ sentAt: null, sync: { state: "pending" } });
+  expect(wakeSync).toHaveBeenCalledTimes(1);
 });
 
 test("claims the active link with the account of the first message", async () => {

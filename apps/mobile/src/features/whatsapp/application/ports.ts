@@ -10,7 +10,7 @@ import type { RejectCode } from "@mobile/features/whatsapp/domain/sync-policy";
 export type StoreError = Readonly<{ code: "LOCAL_STORAGE_FAILED"; message: string }>;
 
 export type Placement =
-  | Readonly<{ kind: "linked"; link: WhatsAppLink; claim: boolean; initial: "pending" | "held_unknown_date" }>
+  | Readonly<{ kind: "linked"; link: WhatsAppLink; claim: boolean }>
   | Readonly<{ kind: "orphan" }>;
 
 export type SaveOutcome = Readonly<{ status: "stored" | "duplicate"; message: StoredMessage }>;
@@ -47,7 +47,7 @@ export type GatewayConfigurationError = Readonly<{ code: "INVALID_WHATSAPP_RECOV
 export type Session = Readonly<{ companyId: CompanyId; userId: UserId; generation: number }>;
 
 export type RegistrationOutcome = Readonly<{ status: "stored" | "duplicate"; messageId: CoreMessageId }>;
-export type MessageApiError = TransportError | Readonly<{ code: "UNKNOWN_DATE"; message: string }>;
+export type MessageApiError = TransportError;
 export type MessageApi = Readonly<{
   register(message: InboundMessage): Promise<Result<RegistrationOutcome, MessageApiError>>;
 }>;

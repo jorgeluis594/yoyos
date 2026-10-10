@@ -66,7 +66,7 @@ const schemaV2 = `
     image_mime_type TEXT,
     image_size INTEGER,
     image_reference TEXT,
-    sync_state TEXT NOT NULL CHECK (sync_state IN ('pending','synced','rejected','held_unknown_date','orphaned')),
+    sync_state TEXT NOT NULL CHECK (sync_state IN ('pending','synced','rejected','orphaned')),
     sync_attempts INTEGER NOT NULL DEFAULT 0,
     next_attempt_at INTEGER,
     core_message_id TEXT,

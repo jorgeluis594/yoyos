@@ -7,16 +7,14 @@ import type { InboundMessage } from "@mobile/features/whatsapp/domain/inbound-me
 import type { TransportError } from "@mobile/shared/application/transport-error";
 
 type Request = (path: string, init?: RequestInit) => Promise<Result<unknown, TransportError>>;
-export type UnknownDate = Readonly<{ code: "UNKNOWN_DATE"; message: string }>;
 
 /**
  * Builds the exact contract body field by field. The image download reference, the delivery id and local URIs
  * are never part of it.
  */
-export function toRegisterRequest(message: InboundMessage): Result<RegisterWhatsAppMessageRequest, UnknownDate> {
-  if (message.sentAt === null) return err({ code: "UNKNOWN_DATE", message: "Core requires the message date" });
+export function toRegisterRequest(message: InboundMessage): RegisterWhatsAppMessageRequest {
   const content = message.content;
-  return ok({
+  return {
     version: 1,
     message: {
       id: message.id,
@@ -24,7 +22,8 @@ export function toRegisterRequest(message: InboundMessage): Result<RegisterWhats
       chatId: message.chatId,
       whatsappMessageId: message.whatsappMessageId,
       direction: message.direction,
-      timestamp: message.sentAt.getTime(),
+      // An unknown date is sent as no timestamp; the reception time is never substituted.
+      ...(message.sentAt === null ? {} : { timestamp: message.sentAt.getTime() }),
       content: content.type === "text"
         ? { type: "text", text: content.text }
         : {
@@ -34,15 +33,13 @@ export function toRegisterRequest(message: InboundMessage): Result<RegisterWhats
           ...(content.size === null ? {} : { size: content.size }),
         },
     },
-  });
+  };
 }
 
 export function createMessageApi(request: Request): MessageApi {
   return {
     register: async (message) => {
-      const body = toRegisterRequest(message);
-      if (!body.success) return body;
-      const validated = registerWhatsAppMessageRequestSchema.safeParse(body.data);
+      const validated = registerWhatsAppMessageRequestSchema.safeParse(toRegisterRequest(message));
       if (!validated.success) return err({ code: "INVALID_RESPONSE", message: "Message does not satisfy the core contract" });
       const response = await request("/api/messages", {
         method: "POST",

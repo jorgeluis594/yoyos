@@ -3,7 +3,7 @@ import type { Result } from "@shared/result";
 
 export type RejectCode = "INVALID_INPUT" | "PAYLOAD_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE";
 
-export type SyncStateName = "pending" | "synced" | "rejected" | "held_unknown_date" | "orphaned";
+export type SyncStateName = "pending" | "synced" | "rejected" | "orphaned";
 
 /** Failure of a registration attempt, reduced to what the policy needs. */
 export type SyncFailure = Readonly<{ code: string; httpStatus: number | null }>;
@@ -40,7 +40,6 @@ export function retryDelayMs(attempts: number, random: number): number {
 
 const allowedTransitions: Readonly<Record<SyncStateName, readonly SyncStateName[]>> = {
   pending: ["synced", "rejected", "pending"],
-  held_unknown_date: ["pending"],
   synced: [],
   rejected: [],
   orphaned: [],

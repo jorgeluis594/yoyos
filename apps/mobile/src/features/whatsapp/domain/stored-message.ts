@@ -6,7 +6,6 @@ export type SyncState =
   | Readonly<{ state: "pending"; attempts: number; nextAttemptAt: Date }>
   | Readonly<{ state: "synced"; coreMessageId: CoreMessageId; syncedAt: Date }>
   | Readonly<{ state: "rejected"; code: RejectCode; at: Date }>
-  | Readonly<{ state: "held_unknown_date" }>
   | Readonly<{ state: "orphaned" }>;
 
 export type StoredMessage = InboundMessage & Readonly<{
@@ -23,7 +22,7 @@ export type ConversationSummary = Readonly<{
   chatId: WhatsAppChatId;
   lastMessage: Readonly<{ preview: string | null; type: "text" | "image"; sentAt: Date | null; direction: "incoming" | "outgoing" }>;
   messageCount: number;
-  /** Messages not yet registered in core and still eligible (pending or held). */
+  /** Messages not yet registered in core and still eligible (pending). */
   unsynced: number;
 }>;
 

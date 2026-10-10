@@ -37,7 +37,7 @@ export function receiveMessage(deps: ReceiveMessageDeps): (event: ReceivedEvent)
     const assignment = assignLink(links.data, message.accountId);
     const placement: Placement = assignment.kind === "orphan"
       ? { kind: "orphan" }
-      : { kind: "linked", link: assignment.link, claim: assignment.kind === "claim", initial: message.sentAt === null ? "held_unknown_date" : "pending" };
+      : { kind: "linked", link: assignment.link, claim: assignment.kind === "claim" };
 
     const saved = await deps.store.saveOnce(message, placement, deps.now());
     if (!saved.success) return err(saved.error);

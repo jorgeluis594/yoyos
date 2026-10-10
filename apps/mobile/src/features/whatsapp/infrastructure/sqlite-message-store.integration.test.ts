@@ -33,7 +33,7 @@ async function setup() {
     return started.data;
   };
   const linked = async (companyId = company, claim = false): Promise<Placement> =>
-    ({ kind: "linked", link: await start(companyId), claim, initial: "pending" });
+    ({ kind: "linked", link: await start(companyId), claim });
   return { database, store, links, linked };
 }
 
@@ -161,7 +161,7 @@ test("listConversations groups by chat for the company with last message, count 
   const { database, store, linked } = await setup();
   const placement = await linked();
   await store.saveOnce(text(1, "2@lid"), placement, now);
-  await store.saveOnce(text(2, "3@lid", null), { ...placement, initial: "held_unknown_date" } as Placement, now);
+  await store.saveOnce(text(2, "3@lid", null), placement, now);
   await store.saveOnce(image(3), placement, now);
   await store.markSynced(text(1).id, "c" as CoreMessageId, now);
   const result = await store.listConversations(company);

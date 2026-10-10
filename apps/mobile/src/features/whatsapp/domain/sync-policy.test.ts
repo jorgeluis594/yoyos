@@ -49,13 +49,12 @@ test("keeps the jitter within 20 percent of the backoff", () => {
   expect(retryDelayMs(5, 0.999999)).toBeGreaterThan(38_000);
 });
 
-test("allows pending to synced, rejected or pending and held_unknown_date to pending", () => {
+test("allows pending to synced, rejected or pending", () => {
   for (const to of ["synced", "rejected", "pending"] as const) expect(transition("pending", to)).toEqual({ success: true, data: to });
-  expect(transition("held_unknown_date", "pending")).toEqual({ success: true, data: "pending" });
 });
 
 test("rejects any transition out of synced, rejected or orphaned", () => {
-  const all: SyncStateName[] = ["pending", "synced", "rejected", "held_unknown_date", "orphaned"];
+  const all: SyncStateName[] = ["pending", "synced", "rejected", "orphaned"];
   for (const from of ["synced", "rejected", "orphaned"] as const)
     for (const to of all) expect(transition(from, to)).toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
 });

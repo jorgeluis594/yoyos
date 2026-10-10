@@ -80,7 +80,7 @@ async function insertMessage(tx: SqlTransaction, message: InboundMessage, placem
   const seq = await tx.first<{ next: number }>("SELECT COALESCE(MAX(arrival_seq), 0) + 1 AS next FROM whatsapp_messages");
   if (!seq) throw new Error("Arrival sequence unavailable");
   const linked = placement.kind === "linked";
-  const state = linked ? placement.initial : "orphaned";
+  const state = linked ? "pending" : "orphaned";
   const content = message.content;
   await tx.run(
     `INSERT INTO whatsapp_messages (id, link_id, company_id, account_id, chat_id, whatsapp_message_id, direction, sent_at, arrival_seq, stored_at,
@@ -142,7 +142,7 @@ export function createSqliteMessageStore(sql: LocalSql): MessageStore {
       }>(
         `SELECT m.chat_id, m.content_type, m.text, m.sent_at, m.direction, s.message_count, s.unsynced
          FROM (SELECT MAX(arrival_seq) AS last_seq, COUNT(*) AS message_count,
-                      SUM(sync_state IN ('pending', 'held_unknown_date')) AS unsynced
+                      SUM(sync_state = 'pending') AS unsynced
                FROM whatsapp_messages WHERE company_id = ? GROUP BY chat_id) s
          JOIN whatsapp_messages m ON m.arrival_seq = s.last_seq
          ORDER BY s.last_seq DESC`,
