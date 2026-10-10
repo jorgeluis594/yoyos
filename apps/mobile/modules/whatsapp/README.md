@@ -58,3 +58,49 @@ Native layer (written, **not compiled or run** here: no gradle, xcodebuild, simu
 - `NativeStateStore.readPending` / `retirePending` (Kotlin and Swift) implement `DeliveryStorage` on the same writer: `ReadPending({"contractVersion":1})` → `{contractVersion:1,success:true,data:{revision,pending:[...]}}` and `RetirePending({"contractVersion":1,"deliveryId"})` → `data:{revision,removed}`. Success means durable publication, a valid absent ID succeeds with `removed:false` and publishes nothing, and neither needs a generation, session key or network.
 - `WhatsAppModule` (both platforms) opens `OpenDelivery`/`Start` from `initialize` even when the session is invalid, passes the delivery session to `OpenConnectionWithDelivery`, and implements `confirmMessageStored`, `setMessageConsumer` and `removeMessageConsumer`. `OnDelivery(json)` forwards `messageReceived` (with its `consumer` token) and throws when the JavaScript runtime is gone, which keeps the entry and stops reception once; `OnDestroy` removes the consumer. Replacing a consumer is one `setMessageConsumer` with the new token; `client.ts` never calls `removeMessageConsumer` first.
 - Source tests: `StateStoreInstrumentedTest` (Android) and `StateStoreTests` (iOS) cover retirement, idempotence, invalid requests and the missing session key.
+
+## WA-08 history by atomic batch
+
+A history sync is announced by an encrypted notification from the account's own phone. Everything is built on the existing buffer: no second queue, no spool.
+
+**Order of one batch** (each step starts after the previous one is durable; the tests record every step where it happens):
+
+1. *Capture.* In the decryption transaction, the notification plaintext is committed with the Signal state that consumed its ciphertext, as a pending entry that nobody delivers (`source: history`, `pendingLid`, no `message`, `messageType: history-notification`; `protocolstore.IsHistoryNotification`). It reuses the pending contract, so native storage needs no new kind. It costs no identity reserve.
+2. *Notification ACK.* The handler grants it as soon as the capture is durable (`receive.Handle`); it does not wait for the batch or for the consumer. The capture is now the recoverable source, and the remote batch has not been touched.
+3. *Download and inflate*, one batch at a time (`history.Processor`, serialized): input is cut at 16 MiB **while it is received** (`whatsmeow.WithMediaDownloadLimit`, declared sizes only shorten the wait), inline payloads count against the same limit, inflation is cut at 32 MiB **while it is produced**, before any parser.
+4. *Decode* (`history.Decode`): counts and record sizes are checked on the wire without building objects, unread top-level fields (status messages, call logs, …) are dropped before parsing, and nesting is limited by the parser.
+5. *Prepare* (`history.Prepare`, no writes): the batch's PN→LID mappings are processed first and are what dependent messages are normalized with (`identity.ClassifyWeb`, the same rules as live content). Out-of-scope content is excluded; a supported message that cannot be normalized, an unreadable store or a mapping the store would refuse fails the whole batch. Preparation stops as soon as the entries exceed the recovery budget.
+6. *Admission* (`protocolstore.AdmitHistoryBatch`): the protocol changes (`client.StageHistorySync`: mappings, secrets, salt, settings), every pending insert and a batch marker are one native commit or none. If the batch fits the budget only after confirmations it waits (`delivery.Coordinator.AwaitCapacity`) holding no store or writer lock and ending with the connection generation; if it cannot fit beside its own capture entry it is refused as `RECOVERY_BUFFER_FULL` without a retry.
+7. *Release.* Only after the commit: the `hist_sync` receipt, then the remote deletion (best effort), then the capture's retirement. A failed receipt keeps the capture; the marker makes the retry skip the admission, so nothing is published twice.
+
+`ManualHistorySyncDownload` and `DisableManualHistorySyncReceipt` only switch the dependency's automatic path off. The patch test `TestManualHistoryFlagsLeaveTheReceiptAndTheDownloadToTheCaller` checks, with controls, that the dependency neither queues the download nor sends the receipt; the order above is what protects the batch.
+
+**Refusals** never stop live reception: the notification was acknowledged once it was durable and the capture is retired, so nothing retries it. They are reported as `error` events: `HISTORY_LIMIT_REACHED` (input, inflated size, depth, counts or a record over its bound), `RECOVERY_BUFFER_FULL` (the batch exceeds the buffer), and `NATIVE_CALL_FAILED` (invalid or permanently unavailable batch). Storage failures stop the generation as for live messages and leave the capture. Rejected batches are not recoverable from the server by this version.
+
+**Limits** (`history.DefaultLimits`; internal v1 constants, not WhatsApp limits and not configurable by environment):
+
+| Bound | Value | Why |
+| --- | --- | --- |
+| Input (downloaded or inline) | 16 MiB | contract |
+| Inflated protobuf | 32 MiB | contract |
+| Nesting depth | 16 | a text or image message needs 5 levels and each wrapper adds 2, so 16 admits up to 5 wrappers; the parser refuses deeper input (not checked against real history) |
+| Conversations | 2048 | checked on the wire |
+| Messages (all conversations) | 20000 | each parsed message costs about 2–8 KiB of heap, so this bound, not the byte limit, governs the parser's peak for small messages; the default 10 MiB buffer holds fewer than 15000 entries |
+| Mappings / push names | 20000 each | checked on the wire |
+| One message record | 1 MiB | checked on the wire |
+
+The recovery budget is separate: a batch inside 16 MiB / 32 MiB can still be refused by a 10 MiB buffer, and raising the buffer changes none of the history limits.
+
+**Measured peaks** (`TestITHIS09MeasuresTheRealPeakOfHistoryProcessing`, Go heap above baseline with a tight GC percentage; the test fails if a stage exceeds a ceiling set above these numbers). They are a regression guard and a measurement, not a bound on process memory, and they were taken on a development machine with in-memory test doubles for the native writer:
+
+| Stage | Short texts (4800 entries) | 9000 tiny messages | 8 records near 900 KiB | Nested wrappers (out of scope) |
+| --- | --- | --- | --- | --- |
+| inflate | ~0× inflated | 0.4× | 1.7× | 0.5× |
+| decode | 30× inflated | 61× | 1.0× | ~120× |
+| prepare | 16× inflated | 27× | 3.2× | 7× |
+| admit (binding payload + commit) | 0.8× of budget bytes | 0.7× | 2.8× | — |
+| snapshot read (`ReadPending`) | 5.0× of budget bytes | 5.1× | 6.0× | — |
+
+Parsed objects, not bytes, dominate: 32 MiB of protobuf is not 32 MiB of RAM. The snapshot read decodes every pending entry on each coordinator pass, so a full 10 MiB buffer costs roughly 50–60 MiB while read; that cost already existed and is now measured. Native peaks (Kotlin/Swift) were not measured.
+
+**Not executed here:** Android/iOS builds, native tests, a device or phone, manual QA, and anything against the real WhatsApp service. Nothing in this section claims compatibility with real history syncs; the shape of real chunks and the limits above still need measuring on devices (the proposal stays open to adjustment, which must be documented here).

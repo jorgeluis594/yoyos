@@ -151,6 +151,27 @@ test("identity unavailable is an informational error that does not change connec
   expect(status).toHaveBeenLastCalledWith({ state: "connected" });
 });
 
+// IT-HIS-05 / IT-HIS-06: a refused history batch reaches listeners as a sanitized informational error and leaves the connection running.
+test.each([
+  ["HISTORY_LIMIT_REACHED", "WhatsApp history limit reached"],
+  ["RECOVERY_BUFFER_FULL", "WhatsApp recovery buffer is full"],
+])("%s from a rejected history batch does not change connection state", async (code, message) => {
+  const native = fakeNative();
+  const client = createWhatsAppClient(() => native);
+  await client.initialize();
+  const status = jest.fn();
+  const error = jest.fn();
+  client.addListener("connectionChanged", status);
+  client.addListener("error", error);
+  native.handlers.get("connectionChanged")?.({ state: "connected" });
+  native.handlers.get("error")?.({ code, message: "batch /v/t62/secret-path had 40000 messages" });
+  await Promise.resolve();
+  expect(error).toHaveBeenCalledTimes(1);
+  expect(error).toHaveBeenCalledWith({ code, message });
+  expect(status).toHaveBeenCalledTimes(1);
+  expect(status).toHaveBeenLastCalledWith({ state: "connected" });
+});
+
 test("remote logout uncertainty still permits a new explicit link request", async () => {
   const native = fakeNative();
   const client = createWhatsAppClient(() => native);
