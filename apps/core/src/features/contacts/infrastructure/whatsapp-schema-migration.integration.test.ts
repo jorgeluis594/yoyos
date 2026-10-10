@@ -134,6 +134,8 @@ test("fresh schema enforces identity and message variants with explicit NULL gua
     const index = (await db.query("SELECT pg_get_indexdef(indexrelid) AS definition FROM pg_index WHERE indexrelid = 'public.\"ChatMessage_cloud_external_id_key\"'::regclass")).rows[0].definition;
     expect(index).toContain('UNIQUE INDEX "ChatMessage_cloud_external_id_key"');
     expect(index).toContain('WHERE ("whatsappMessageId" IS NULL)');
+    for (const name of (await readdir(migrations)).filter((name) => /^\d/.test(name) && name > schemaMigration).sort())
+      psql(url, `${migrations}${name}/migration.sql`);
     const diff = execFileSync("pnpm", ["exec", "prisma", "migrate", "diff", "--from-config-datasource", "--to-schema", "prisma/schema.prisma", "--script"],
       { cwd: core, env: { ...process.env, DATABASE_URL: url }, encoding: "utf8" });
     expect(diff.trim()).toBe("-- This is an empty migration.");
