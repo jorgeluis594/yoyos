@@ -20,6 +20,7 @@ import (
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	"yoyos-whatsapp/internal/delivery"
+	"yoyos-whatsapp/internal/history"
 	"yoyos-whatsapp/internal/identity"
 	"yoyos-whatsapp/internal/protocolstore"
 )
@@ -34,6 +35,12 @@ type Hooks struct {
 	IdentityPending func()
 	// LocalFailure stops reception for a local persistence failure.
 	LocalFailure func(error)
+	// HistoryRejected reports a history batch refused for good (HISTORY_LIMIT_REACHED,
+	// RECOVERY_BUFFER_FULL or an invalid batch). Reception continues.
+	HistoryRejected func(history.Code)
+	// HistoryAdmitted runs after a history batch was published and is ready to be delivered;
+	// identityPending says that part of it still waits for a mapping.
+	HistoryAdmitted func(identityPending bool)
 }
 
 type Receiver struct {
@@ -42,6 +49,7 @@ type Receiver struct {
 	coordinator *delivery.Coordinator
 	hooks       Hooks
 	processor   protocolstore.RecoveryProcessor
+	history     *history.Processor
 }
 
 func New(device *store.Device, ledger delivery.Ledger, coordinator *delivery.Coordinator, hooks Hooks) *Receiver {
@@ -50,6 +58,44 @@ func New(device *store.Device, ledger delivery.Ledger, coordinator *delivery.Coo
 
 // SetProcessor supplies the client that replays protocol effects of recovered content.
 func (r *Receiver) SetProcessor(processor protocolstore.RecoveryProcessor) { r.processor = processor }
+
+// EnableHistory attaches the history processor, built over the account's store and the network
+// side of this connection. Without it, notifications are still captured durably and wait.
+func (r *Receiver) EnableHistory(remote history.Remote, protocol history.Store, limits history.Limits) {
+	r.history = history.NewProcessor(r.account, r.historyEnv, limits, remote, protocol, r.ledger, r.coordinator, history.Hooks{
+		Rejected: r.hooks.HistoryRejected,
+		Admitted: func(identityPending bool) {
+			r.coordinator.Refresh()
+			if r.hooks.HistoryAdmitted != nil {
+				r.hooks.HistoryAdmitted(identityPending)
+			}
+		},
+		Failure: func(err error) {
+			if r.hooks.LocalFailure != nil {
+				r.hooks.LocalFailure(err)
+			}
+		},
+	})
+}
+
+func (r *Receiver) historyEnv() history.Env {
+	return history.Env{Account: r.account(), Own: r.device.ID.ToNonAD(), OwnAlt: r.device.LID}
+}
+
+// RunHistory serves the history processor until ctx, the connection generation, ends.
+func (r *Receiver) RunHistory(ctx context.Context) {
+	if r.history != nil {
+		r.history.Trigger() // captured notifications of an earlier life are resumed
+		r.history.Run(ctx)
+	}
+}
+
+// Connected is called when the connection is established: captures left by an interruption resume.
+func (r *Receiver) Connected() {
+	if r.history != nil {
+		r.history.Trigger()
+	}
+}
 
 func (r *Receiver) account() string {
 	if r.device == nil || r.device.LID.IsEmpty() {
@@ -97,6 +143,14 @@ func (r *Receiver) Handle(ctx context.Context, event any) bool {
 	if !found {
 		return true
 	}
+	if protocolstore.IsHistoryNotification(record.PendingInsert) {
+		// The notification is durable: that, and not the batch, is what the acknowledgement
+		// needs. The hist_sync receipt and the remote deletion follow the batch's admission.
+		if r.history != nil {
+			r.history.Trigger()
+		}
+		return true
+	}
 	if record.IdentityState != "resolved" {
 		// No ACK for content without a definitive identity; a resolution pass completes it
 		// when its mapping arrives. The protocol ACK is only sent when the protocol redelivers the
@@ -118,7 +172,7 @@ func (r *Receiver) find(info types.MessageInfo) (protocolstore.PendingRecord, bo
 	var best *protocolstore.PendingRecord
 	for i := range pending {
 		candidate := &pending[i]
-		if candidate.AccountID != account || candidate.Source != "live" || !matches(candidate, info) {
+		if candidate.AccountID != account || !(candidate.Source == "live" || protocolstore.IsHistoryNotification(candidate.PendingInsert)) || !matches(candidate, info) {
 			continue
 		}
 		if best == nil || later(candidate, best) {

@@ -8,6 +8,7 @@ import (
 
 	"go.mau.fi/whatsmeow/store"
 	"yoyos-whatsapp/internal/connection"
+	"yoyos-whatsapp/internal/history"
 	"yoyos-whatsapp/internal/identity"
 	"yoyos-whatsapp/internal/protocolstore"
 	"yoyos-whatsapp/internal/receive"
@@ -142,6 +143,14 @@ func (s *ConnectionSession) newTransport() (connection.Transport, error) {
 		Oversize:        func() { s.controller.FailLocal(connection.RecoveryBufferFull) },
 		IdentityPending: s.identityTrigger,
 		LocalFailure:    func(err error) { s.controller.FailLocal(connection.Code(publicCode(err))) },
+		// A refused history batch is reported and the connection keeps receiving: the
+		// notification was acknowledged once it was durable, and nothing retries the batch.
+		HistoryRejected: func(code history.Code) { s.controller.Notify(connection.Code(code)) },
+		HistoryAdmitted: func(identityPending bool) {
+			if identityPending {
+				s.identityTrigger()
+			}
+		},
 	})
 	return connection.NewWhatsmeowTransport(device, stopReason, receiver), nil
 }

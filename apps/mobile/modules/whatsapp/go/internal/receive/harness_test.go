@@ -30,12 +30,13 @@ type native struct {
 	records    map[string]protocolstate.Record
 	pending    []protocolstore.PendingRecord
 	log        *eventLog
-	failApply  error  // returned by ApplyChanges before anything is published
-	failIdent  error  // like failApply, only for publications that complete an identity
-	failRead   error  // returned by ReadPending
-	failRetire error  // returned by RetirePending before anything is published
-	loseRetire bool   // publishes the retirement but loses the reply
-	applyGate  func() // runs inside ApplyChanges, before publication
+	failApply  error                        // returned by ApplyChanges before anything is published
+	failIdent  error                        // like failApply, only for publications that complete an identity
+	failRead   error                        // returned by ReadPending
+	failRetire error                        // returned by RetirePending before anything is published
+	loseRetire bool                         // publishes the retirement but loses the reply
+	applyGate  func()                       // runs inside ApplyChanges, before publication
+	requests   []protocolstore.ApplyRequest // every publication that was accepted, in order
 }
 
 type eventLog struct {
@@ -114,6 +115,7 @@ func (n *native) ApplyChanges(request string) (string, error) {
 			delete(n.records, key)
 		}
 	}
+	n.requests = append(n.requests, a)
 	n.revision++
 	if len(a.ProtocolChanges) > 0 {
 		n.sessionRev = n.revision

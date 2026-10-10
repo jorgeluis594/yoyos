@@ -29,6 +29,8 @@ const (
 	RecoveryBufferFull         Code = "RECOVERY_BUFFER_FULL"
 	ConsumerUnavailable        Code = "CONSUMER_UNAVAILABLE"
 	IdentityUnavailable        Code = "IDENTITY_UNAVAILABLE"
+	HistoryLimitReached        Code = "HISTORY_LIMIT_REACHED"
+	NativeCallFailed           Code = "NATIVE_CALL_FAILED"
 )
 
 type Event struct {

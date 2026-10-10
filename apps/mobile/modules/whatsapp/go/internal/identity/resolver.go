@@ -49,7 +49,7 @@ func Resolve(ctx context.Context, ledger Ledger, account Account, device *store.
 	unresolved, invalid := 0, 0
 	for i := range pending {
 		record := &pending[i]
-		if record.AccountID != account.AccountID() || record.IdentityState != string(PendingLID) {
+		if record.AccountID != account.AccountID() || record.IdentityState != string(PendingLID) || protocolstore.IsHistoryNotification(record.PendingInsert) {
 			continue
 		}
 		update, found, err := resolveOne(ctx, record, account, device)

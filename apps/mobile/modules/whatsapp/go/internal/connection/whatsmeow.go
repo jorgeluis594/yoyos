@@ -13,6 +13,7 @@ import (
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+	"yoyos-whatsapp/internal/history"
 	"yoyos-whatsapp/internal/protocolstore"
 )
 
@@ -43,7 +44,18 @@ func NewWhatsmeowTransport(device *store.Device, localFailure func() Code, recei
 		client.SynchronousAck = true
 		client.PreDecryptMessage = receive.PreDecrypt
 		client.MessageReceiveFinished = receive.Finished
+		// History is downloaded, admitted and acknowledged by this module, step by step: the
+		// automatic path would send the hist_sync receipt and delete the remote batch before
+		// anything is durable. These flags only switch that path off; the processor's order is
+		// what protects the batch, and the tests instrument each step.
+		client.ManualHistorySyncDownload = true
+		client.DisableManualHistorySyncReceipt = true
 		receive.SetProcessor(client)
+		if enabler, ok := receive.(interface {
+			EnableHistory(history.Remote, history.Store, history.Limits)
+		}); ok {
+			enabler.EnableHistory(&whatsmeowHistory{client: client, limits: history.DefaultLimits()}, linkedStore{device}, history.DefaultLimits())
+		}
 	}
 	return &whatsmeowTransport{receive: receive, client: client, dial: client.ConnectContext, socketConnected: client.IsConnected, socketID: client.CurrentSocketID, loginReconnect: make(chan struct{}, 1), localFailure: localFailure}
 }
@@ -109,6 +121,11 @@ func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent)
 				return
 			}
 		}
+		if _, connected := event.(*events.Connected); connected && t.stopped() == "" {
+			if notifier, ok := t.receive.(interface{ Connected() }); ok {
+				notifier.Connected()
+			}
+		}
 		if code := t.stopped(); code != "" {
 			select {
 			case out <- TransportEvent{Kind: "localFailure", Error: code}:
@@ -129,6 +146,9 @@ func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent)
 	if t.receive != nil {
 		receiver := client.AddEventHandlerWithSuccessStatus(func(event any) bool { return t.receive.Handle(ctx, event) })
 		defer client.RemoveEventHandler(receiver)
+		if runner, ok := t.receive.(interface{ RunHistory(context.Context) }); ok {
+			go runner.RunHistory(ctx)
+		}
 	}
 	var qr <-chan whatsmeow.QRChannelItem
 	if client.Store.ID == nil {
