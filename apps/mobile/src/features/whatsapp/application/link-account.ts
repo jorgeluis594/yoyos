@@ -1,7 +1,7 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { WhatsAppError } from "@mobile/modules/whatsapp/types";
-import type { Clock, LinkStore, Session, StoreError, WhatsAppGateway } from "@mobile/features/whatsapp/application/ports";
+import type { Clock, GatewayConfigurationError, LinkStore, Session, StoreError } from "@mobile/features/whatsapp/application/ports";
 import type { ReceptionHandle, StartError } from "@mobile/features/whatsapp/application/reception-lifecycle";
 import type { WhatsAppLink } from "@mobile/features/whatsapp/domain/link";
 
@@ -40,11 +40,12 @@ export function linkAccount(deps: LinkAccountDeps): () => Promise<Result<WhatsAp
 }
 
 export type UnlinkOutcome = Readonly<{ remoteLogoutConfirmed: boolean }>;
-export type UnlinkError = StoreError | WhatsAppError | Readonly<{ code: "NOT_LINKED"; message: string }>;
+export type UnlinkError = StoreError | WhatsAppError | GatewayConfigurationError | Readonly<{ code: "NOT_LINKED"; message: string }>;
 
 export type UnlinkAccountDeps = Readonly<{
   links: LinkStore;
-  whatsapp: Pick<WhatsAppGateway, "logout">;
+  /** Stops reception, initializes the client if needed and logs out of WhatsApp. */
+  logout: () => Promise<Result<void, WhatsAppError | GatewayConfigurationError>>;
   now: Clock;
 }>;
 
@@ -55,7 +56,7 @@ export function unlinkAccount(deps: UnlinkAccountDeps): () => Promise<Result<Unl
     if (!active.success) return active;
     if (!active.data) return err({ code: "NOT_LINKED", message: "No active WhatsApp link" });
 
-    const loggedOut = await deps.whatsapp.logout();
+    const loggedOut = await deps.logout();
     if (!loggedOut.success && loggedOut.error.code !== "REMOTE_LOGOUT_UNCONFIRMED") return loggedOut;
 
     const ended = await deps.links.end(active.data.id, deps.now());

@@ -2,6 +2,7 @@ import type { Result } from "@shared/result";
 import type { Clock, GatewayConfigurationError, Session, WhatsAppGateway } from "@mobile/features/whatsapp/application/ports";
 import { linkAccount, unlinkAccount } from "@mobile/features/whatsapp/application/link-account";
 import { createReceptionLifecycle } from "@mobile/features/whatsapp/application/reception-lifecycle";
+import { createMessageChanges, withChangeNotifications } from "@mobile/features/whatsapp/application/message-changes";
 import { receiveMessage } from "@mobile/features/whatsapp/application/receive-message";
 import { createSyncWorker } from "@mobile/features/whatsapp/application/sync-messages";
 import { releaseImage, viewImage } from "@mobile/features/whatsapp/application/view-image";
@@ -30,7 +31,8 @@ export type SessionIdentity = Readonly<{ companyId: string; userId: string }>;
 /** Wires the feature's use cases to concrete adapters. The identity of the signed-in user is supplied by presentation. */
 export function createWhatsAppRuntime(deps: WhatsAppRuntimeDeps) {
   const sql = createLocalSql(deps.database);
-  const store = createSqliteMessageStore(sql);
+  const changes = createMessageChanges();
+  const store = withChangeNotifications(createSqliteMessageStore(sql), changes);
   const links = createSqliteLinkStore(sql, deps.newId);
   let identity: SessionIdentity | null = null;
   const session = (): Session | null => identity === null ? null : {
@@ -43,13 +45,14 @@ export function createWhatsAppRuntime(deps: WhatsAppRuntimeDeps) {
 
   return {
     store,
+    changes,
     links,
     sync,
     reception,
     session,
     setIdentity(next: SessionIdentity | null) { identity = next; },
     linkAccount: linkAccount({ links, session, now: deps.now, startReception: reception.start }),
-    unlinkAccount: unlinkAccount({ links, whatsapp: deps.gateway, now: deps.now }),
+    unlinkAccount: unlinkAccount({ links, logout: reception.logout, now: deps.now }),
     viewImage: viewImage({ store, whatsapp: deps.gateway }),
     releaseImage: releaseImage({ whatsapp: deps.gateway }),
   } as const;

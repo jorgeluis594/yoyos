@@ -6,7 +6,7 @@ import type { ReceiveError, ReceiveOutcome } from "@mobile/features/whatsapp/app
 
 export type ReceptionHandle = Readonly<{ stop(): void }>;
 export type StartError =
-  | Readonly<{ code: "NO_SESSION" | "NO_ACTIVE_LINK" | "LINK_OF_OTHER_COMPANY"; message: string }>
+  | Readonly<{ code: "NO_SESSION" | "NO_ACTIVE_LINK" | "LINK_OF_OTHER_COMPANY" | "CANCELLED"; message: string }>
   | WhatsAppError | GatewayConfigurationError | StoreError;
 
 /** Errors the library reports without cutting the connection; shown as a non-blocking notice. */
@@ -20,7 +20,7 @@ export type ReceptionStatus = Readonly<{
 }>;
 
 export type ReceptionDeps = Readonly<{
-  whatsapp: Pick<WhatsAppGateway, "initialize" | "connect" | "disconnect" | "addListener">;
+  whatsapp: Pick<WhatsAppGateway, "initialize" | "connect" | "disconnect" | "logout" | "addListener">;
   links: LinkStore;
   session: () => Session | null;
   receive: (event: WhatsAppEvents["messageReceived"]) => Promise<Result<ReceiveOutcome, ReceiveError>>;
@@ -40,9 +40,20 @@ export function createReceptionLifecycle(deps: ReceptionDeps) {
     listeners.forEach((listener) => listener(status));
   };
 
-  const stop = () => {
+  // Concurrent start() calls share one attempt; stop() bumps the generation so an attempt in flight gives up.
+  let starting: Promise<Result<ReceptionHandle, StartError>> | null = null;
+  let generation = 0;
+
+  const removeSubscriptions = () => {
     subscriptions.forEach((subscription) => subscription.remove());
     subscriptions = [];
+  };
+
+  const stop = () => {
+    generation += 1;
+    starting = null; // an attempt in flight is cancelled; a start() right after must begin its own
+    removeSubscriptions();
+    publish({ connection: "disconnected", qr: null, notice: null, lastError: null });
   };
 
   const listen = () => [
@@ -51,12 +62,13 @@ export function createReceptionLifecycle(deps: ReceptionDeps) {
       void deps.receive(event).then((result) => {
         debug("message_processed", result.success ? { status: result.data.status } : { errorCode: result.error.code });
         if (!result.success) publish({ lastError: { code: result.error.code, message: result.error.message } });
+        else if (status.lastError !== null) publish({ lastError: null });
       });
     }),
     deps.whatsapp.addListener("qr", (qr) => { debug("qr", { expiresAt: qr.expiresAt }); publish({ qr }); }),
     deps.whatsapp.addListener("connectionChanged", ({ state }) => {
       debug("connection_changed", { state });
-      publish(state === "connected" ? { connection: state, qr: null } : { connection: state });
+      publish(state === "connected" ? { connection: state, qr: null, lastError: null } : { connection: state });
     }),
     deps.whatsapp.addListener("error", (error) => {
       debug("library_error", { code: error.code });
@@ -65,26 +77,47 @@ export function createReceptionLifecycle(deps: ReceptionDeps) {
     }),
   ];
 
-  async function start(): Promise<Result<ReceptionHandle, StartError>> {
+  const cancelled = (): Result<never, StartError> => err({ code: "CANCELLED", message: "Reception was stopped while starting" });
+
+  async function doStart(): Promise<Result<ReceptionHandle, StartError>> {
     const handle: ReceptionHandle = { stop };
-    if (subscriptions.length > 0) return ok(handle);
+    const startedGeneration = generation;
+    const isStale = () => startedGeneration !== generation;
 
     const session = deps.session();
     if (!session) return err({ code: "NO_SESSION", message: "No Yoyos session" });
     const active = await deps.links.active();
+    if (isStale()) return cancelled();
     if (!active.success) return active;
     if (!active.data) return err({ code: "NO_ACTIVE_LINK", message: "No active WhatsApp link" });
     if (active.data.companyId !== session.companyId) return err({ code: "LINK_OF_OTHER_COMPANY", message: "WhatsApp is linked to another company" });
 
     // The consumer goes first so recovered pending deliveries find it.
-    subscriptions = listen();
+    const mine = listen();
+    subscriptions = mine;
+    // A stop() that ran meanwhile already removed its subscriptions; only this attempt's own are dropped.
+    const abandon = () => {
+      mine.forEach((subscription) => subscription.remove());
+      if (subscriptions === mine) subscriptions = [];
+    };
     const initialized = await deps.whatsapp.initialize();
     debug("initialize", { ok: initialized.success, errorCode: initialized.success ? null : initialized.error.code });
-    if (!initialized.success) { stop(); return initialized; }
+    if (isStale()) { abandon(); return cancelled(); }
+    if (!initialized.success) { abandon(); return initialized; }
     const connected = await deps.whatsapp.connect();
     debug("connect", { ok: connected.success, errorCode: connected.success ? null : connected.error.code });
-    if (!connected.success) { stop(); return connected; }
+    if (isStale()) { abandon(); return cancelled(); }
+    if (!connected.success) { abandon(); return connected; }
+    if (status.lastError !== null) publish({ lastError: null });
     return ok(handle);
+  }
+
+  function start(): Promise<Result<ReceptionHandle, StartError>> {
+    if (subscriptions.length > 0) return Promise.resolve(ok({ stop }));
+    if (starting !== null) return starting;
+    const attempt = doStart().finally(() => { if (starting === attempt) starting = null; });
+    starting = attempt;
+    return attempt;
   }
 
   return {
@@ -96,6 +129,16 @@ export function createReceptionLifecycle(deps: ReceptionDeps) {
     subscribe(listener: (status: ReceptionStatus) => void) {
       listeners.add(listener);
       return () => { listeners.delete(listener); };
+    },
+    /**
+     * Ends the WhatsApp session. Reception stops but pending messages keep syncing (UC-06); the client is
+     * initialized first because logout needs it and the link may belong to another company (never started).
+     */
+    async logout(): Promise<Result<void, WhatsAppError | GatewayConfigurationError>> {
+      stop();
+      const initialized = await deps.whatsapp.initialize();
+      if (!initialized.success) return initialized;
+      return deps.whatsapp.logout();
     },
     /** Yoyos sign-out: stops work but neither logs out of WhatsApp nor deletes local data. */
     async signedOut(): Promise<Result<void, WhatsAppError>> {

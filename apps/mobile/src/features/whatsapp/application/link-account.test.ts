@@ -47,26 +47,39 @@ test("ends the new link when initialize or connect fails so linking can be retri
 
 test("logs out and then ends the active link", async () => {
   const { links, calls } = setup({ active: link() });
-  const whatsapp = { logout: async () => { calls.push("logout"); return ok(undefined); } };
-  expect(await unlinkAccount({ links, whatsapp, now: () => now })()).toEqual({ success: true, data: { remoteLogoutConfirmed: true } });
+  const logout = async () => { calls.push("logout"); return ok(undefined); };
+  expect(await unlinkAccount({ links, logout, now: () => now })()).toEqual({ success: true, data: { remoteLogoutConfirmed: true } });
   expect(calls).toEqual(["logout", "end:l1:7"]);
 });
 
 test("ends the link and reports REMOTE_LOGOUT_UNCONFIRMED when remote logout is not confirmed", async () => {
   const { links, calls } = setup({ active: link() });
-  const whatsapp = { logout: async () => err({ code: "REMOTE_LOGOUT_UNCONFIRMED" as const, message: "x" }) };
-  expect(await unlinkAccount({ links, whatsapp, now: () => now })()).toEqual({ success: true, data: { remoteLogoutConfirmed: false } });
+  const logout = async () => err({ code: "REMOTE_LOGOUT_UNCONFIRMED" as const, message: "x" });
+  expect(await unlinkAccount({ links, logout, now: () => now })()).toEqual({ success: true, data: { remoteLogoutConfirmed: false } });
   expect(calls).toEqual(["end:l1:7"]);
 });
 
 test("keeps the link when logout fails for another reason", async () => {
   const { links, calls } = setup({ active: link() });
-  const whatsapp = { logout: async () => err({ code: "NATIVE_CALL_FAILED" as const, message: "x" }) };
-  expect(await unlinkAccount({ links, whatsapp, now: () => now })()).toMatchObject({ success: false, error: { code: "NATIVE_CALL_FAILED" } });
+  const logout = async () => err({ code: "NATIVE_CALL_FAILED" as const, message: "x" });
+  expect(await unlinkAccount({ links, logout, now: () => now })()).toMatchObject({ success: false, error: { code: "NATIVE_CALL_FAILED" } });
   expect(calls).toEqual([]);
 });
 
 test("returns NOT_LINKED when there is no active link", async () => {
   const { links } = setup();
-  expect(await unlinkAccount({ links, whatsapp: { logout: jest.fn() }, now: () => now })()).toMatchObject({ success: false, error: { code: "NOT_LINKED" } });
+  expect(await unlinkAccount({ links, logout: jest.fn(), now: () => now })()).toMatchObject({ success: false, error: { code: "NOT_LINKED" } });
+});
+
+test("linking again after unlinking starts reception again", async () => {
+  const { links } = setup({ active: link() });
+  let running = false;
+  const startReception = jest.fn(async () => { running = true; return ok({ stop: () => undefined }); });
+  const logout = async () => { running = false; return ok(undefined); };
+  await unlinkAccount({ links, logout, now: () => now })();
+  expect(running).toBe(false);
+  (links as { active: unknown }).active = async () => ok(null);
+  await linkAccount({ links, session: () => session, now: () => now, startReception })();
+  expect(startReception).toHaveBeenCalledTimes(1);
+  expect(running).toBe(true);
 });

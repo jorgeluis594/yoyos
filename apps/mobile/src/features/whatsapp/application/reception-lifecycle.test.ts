@@ -8,7 +8,7 @@ import type { WhatsAppErrorCode, WhatsAppEvents } from "@mobile/modules/whatsapp
 const session: Session = { companyId: "c1" as CompanyId, userId: "u1" as UserId, generation: 1 };
 const link = (companyId: string): WhatsAppLink => ({ id: "l1" as LinkId, companyId: companyId as CompanyId, linkedByUserId: "u1" as UserId, accountId: null, startedAt: new Date(0), endedAt: null });
 
-function setup(options: { active?: WhatsAppLink | null; session?: Session | null; connectFails?: boolean } = {}) {
+function setup(options: { active?: WhatsAppLink | null; session?: Session | null; connectFails?: boolean; activeGate?: Promise<void> } = {}) {
   const calls: string[] = [];
   const listeners: Record<string, ((payload: never) => void)[]> = {};
   let removed = 0;
@@ -21,8 +21,10 @@ function setup(options: { active?: WhatsAppLink | null; session?: Session | null
     initialize: async () => { calls.push("initialize"); return ok(undefined); },
     connect: async () => { calls.push("connect"); return options.connectFails ? err({ code: "CONNECTION_FAILED" as const, message: "x" }) : ok(undefined); },
     disconnect: async () => { calls.push("disconnect"); return ok(undefined); },
+    logout: async () => { calls.push("logout"); return ok(undefined); },
   };
-  const links = { active: async () => ok("active" in options ? options.active ?? null : link("c1")) } as unknown as LinkStore;
+  const activeLink = "active" in options ? options.active ?? null : link("c1");
+  const links = { active: async () => { await options.activeGate; return ok(activeLink); } } as unknown as LinkStore;
   const sync = { wake: jest.fn(() => { calls.push("wake"); }), stop: jest.fn(() => { calls.push("stop-sync"); }) };
   const receive = jest.fn(async (_event: WhatsAppEvents["messageReceived"]) => ok({ status: "stored" as const }));
   const lifecycle = createReceptionLifecycle({ whatsapp, links, session: () => "session" in options ? options.session ?? null : session, receive, sync });
@@ -138,4 +140,88 @@ test("publishes the QR until the connection is established", async () => {
   expect(lifecycle.status().qr).toEqual({ value: "qr-1", expiresAt: 123 });
   emit("connectionChanged", { state: "connected" });
   expect(lifecycle.status()).toMatchObject({ connection: "connected", qr: null });
+});
+
+test("concurrent starts share one attempt and register listeners once", async () => {
+  const { lifecycle, calls, listenerCount } = setup();
+  const [first, second] = await Promise.all([lifecycle.start(), lifecycle.start()]);
+  expect(first).toMatchObject({ success: true });
+  expect(second).toMatchObject({ success: true });
+  for (const name of ["messageReceived", "qr", "connectionChanged", "error"]) expect(listenerCount(name)).toBe(1);
+  expect(calls.filter((call) => call === "initialize")).toHaveLength(1);
+  expect(calls.filter((call) => call === "connect")).toHaveLength(1);
+});
+
+test("sign-out while start waits for the active link cancels it", async () => {
+  let open = () => undefined as void;
+  const activeGate = new Promise<void>((resolve) => { open = resolve; });
+  const { lifecycle, calls, listenerCount } = setup({ activeGate });
+  const starting = lifecycle.start();
+  await lifecycle.signedOut();
+  open();
+  expect(await starting).toMatchObject({ success: false, error: { code: "CANCELLED" } });
+  expect(listenerCount("messageReceived")).toBe(0);
+  expect(calls).not.toContain("connect");
+  expect(calls).not.toContain("initialize");
+});
+
+test("logout after start stops reception, initializes and logs out", async () => {
+  const { lifecycle, calls, listenerCount, sync } = setup();
+  await lifecycle.start();
+  calls.length = 0;
+  expect(await lifecycle.logout()).toEqual({ success: true, data: undefined });
+  expect(listenerCount("messageReceived")).toBe(0);
+  expect(calls).toEqual(["initialize", "logout"]);
+  expect(sync.stop).not.toHaveBeenCalled();
+});
+
+test("logout without a previous start initializes before logging out", async () => {
+  const { lifecycle, calls } = setup({ active: link("c2") });
+  expect(await lifecycle.start()).toMatchObject({ success: false, error: { code: "LINK_OF_OTHER_COMPANY" } });
+  expect(await lifecycle.logout()).toEqual({ success: true, data: undefined });
+  expect(calls).toEqual(["initialize", "logout"]);
+});
+
+test("start after logout initializes and connects again", async () => {
+  const { lifecycle, calls } = setup();
+  await lifecycle.start();
+  await lifecycle.logout();
+  calls.length = 0;
+  expect(await lifecycle.start()).toMatchObject({ success: true });
+  expect(calls.filter((call) => call === "initialize" || call === "connect")).toEqual(["initialize", "connect"]);
+});
+
+test("clears the last error when the connection is established again", async () => {
+  const { lifecycle, emit } = setup();
+  await lifecycle.start();
+  emit("error", { code: "CONNECTION_FAILED", message: "boom" });
+  expect(lifecycle.status().lastError).not.toBeNull();
+  emit("connectionChanged", { state: "connected" });
+  expect(lifecycle.status().lastError).toBeNull();
+});
+
+test("clears the last error after a message is received successfully", async () => {
+  const { lifecycle, emit, receive } = setup();
+  receive.mockResolvedValueOnce(err({ code: "LOCAL_STORAGE_FAILED", message: "x" }) as never);
+  await lifecycle.start();
+  emit("messageReceived", { deliveryId: "d", message: { direction: "incoming" } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(lifecycle.status().lastError).not.toBeNull();
+  emit("messageReceived", { deliveryId: "d2", message: { direction: "incoming" } });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(lifecycle.status().lastError).toBeNull();
+});
+
+test("a start right after stop runs its own attempt while the cancelled one gives up", async () => {
+  let open = () => undefined as void;
+  const activeGate = new Promise<void>((resolve) => { open = resolve; });
+  const { lifecycle, calls, listenerCount } = setup({ activeGate });
+  const first = lifecycle.start();
+  lifecycle.stop();
+  const second = lifecycle.start();
+  open();
+  expect(await first).toMatchObject({ success: false, error: { code: "CANCELLED" } });
+  expect(await second).toMatchObject({ success: true });
+  expect(calls.filter((call) => call === "initialize" || call === "connect")).toEqual(["initialize", "connect"]);
+  for (const name of ["messageReceived", "qr", "connectionChanged", "error"]) expect(listenerCount(name)).toBe(1);
 });
