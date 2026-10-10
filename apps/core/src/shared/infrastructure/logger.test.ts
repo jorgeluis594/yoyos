@@ -160,6 +160,30 @@ it("normalizes the checkout preview route with an explicit outcome", () => {
   ]);
 });
 
+it("normalizes the checkout appearance editor route without capturing the preview", () => {
+  const output = execFileSync(process.execPath, ["--import", "tsx", "-e", `
+    import express from "express";
+    import { requestLogging, bindRequestOperation } from "./src/shared/infrastructure/logger.ts";
+    const app = express();
+    app.use(requestLogging);
+    app.all("/{*splat}", (req, res) => {
+      bindRequestOperation({ operation: req.query.op, outcome: req.query.o });
+      res.sendStatus(200);
+    });
+    const server = app.listen(0);
+    const base = "http://127.0.0.1:" + server.address().port;
+    await fetch(base + "/es-PE/settings/checkout-appearance?op=get_checkout_appearance&o=loaded");
+    await fetch(base + "/es-PE/settings/checkout-appearance.data?op=save_checkout_appearance&o=saved", { method: "POST" });
+    await fetch(base + "/es-PE/settings/checkout-appearance/preview?op=get_checkout_preview&o=rendered");
+    server.close();
+  `], { cwd: process.cwd(), encoding: "utf8" });
+  expect(output.trim().split("\n").map((line) => JSON.parse(line)).filter((entry) => entry.event === "http_request_completed")).toEqual([
+    expect.objectContaining({ route: "/settings/checkout-appearance", operation: "get_checkout_appearance", outcome: "loaded", statusCode: 200 }),
+    expect.objectContaining({ route: "/settings/checkout-appearance", operation: "save_checkout_appearance", outcome: "saved", statusCode: 200 }),
+    expect.objectContaining({ route: "/settings/checkout-appearance/preview", operation: "get_checkout_preview", outcome: "rendered", statusCode: 200 }),
+  ]);
+});
+
 it("shares context between independently loaded source and server-bundled modules", () => {
   const output = execFileSync(process.execPath, ["--import", "tsx", "-e", `
     import express from 'express';
