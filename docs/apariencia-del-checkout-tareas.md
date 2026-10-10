@@ -39,7 +39,7 @@ flowchart LR
 | `app/locales.ts` | texto de `orders.buyerPaymentLink` | — | textos del editor | textos de la barra de vista previa |
 | `logger.ts` y `newrelic.cjs` | regla de `/pago/:orderId` | — | regla de `/settings/checkout-appearance` | regla de `.../preview` |
 
-T3 y T4 se encuentran en un solo punto: el editor renderiza `<CheckoutPreviewFrame>`, que construye T4. Hasta que T4 se integre, T3 muestra un espacio reservado del mismo tamaño.
+T3 y T4 se encuentran en un solo punto: el editor renderiza `<CheckoutPreviewFrame>`, que construye T4. T5 reemplazó el espacio reservado de T3 por ese componente.
 
 ## T0 · Base de la feature y componentes de marca
 
