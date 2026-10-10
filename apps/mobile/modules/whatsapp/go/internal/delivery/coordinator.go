@@ -58,6 +58,12 @@ const (
 
 var ErrInvalidDeliveryID = errors.New("invalid delivery ID")
 
+// ErrClosed ends a capacity wait of a coordinator that was closed.
+var ErrClosed = errors.New("delivery coordinator closed")
+
+// ErrTooLarge ends a capacity wait that no amount of freed space can satisfy.
+var ErrTooLarge = errors.New("entry exceeds the recovery buffer")
+
 type flight struct {
 	id        string
 	message   json.RawMessage
@@ -82,6 +88,7 @@ type Coordinator struct {
 	waitFor   int64
 	retires   uint64 // counts durable retirements so a read taken before one is never trusted after it
 	stopped   map[Cause]bool
+	capacity  chan struct{} // closed and replaced whenever space may have been freed
 	wake      chan struct{}
 	done      chan struct{}
 }
@@ -89,7 +96,7 @@ type Coordinator struct {
 // New starts the coordinator's single traversal goroutine. It does nothing until Start.
 func New(ledger Ledger, limit int64, hooks Hooks) *Coordinator {
 	c := &Coordinator{ledger: ledger, limit: limit, hooks: hooks, waiters: map[string][]chan Outcome{},
-		stopped: map[Cause]bool{}, wake: make(chan struct{}, 1), done: make(chan struct{})}
+		stopped: map[Cause]bool{}, capacity: make(chan struct{}), wake: make(chan struct{}, 1), done: make(chan struct{})}
 	go c.run()
 	return c
 }
@@ -172,6 +179,10 @@ func (c *Coordinator) ClearCapacityWait() {
 	c.mu.Unlock()
 }
 
+// Refresh asks the traversal to look again, for entries that became deliverable
+// without a confirmation, such as a pending identity that was completed.
+func (c *Coordinator) Refresh() { c.kick() }
+
 // Confirm durably retires a delivery by ID, whichever consumer persisted it.
 func (c *Coordinator) Confirm(id string) error {
 	if !protocolstore.ValidDeliveryID(id) {
@@ -197,10 +208,60 @@ func (c *Coordinator) Confirm(id string) error {
 	if err == nil {
 		c.retires++
 		c.releaseLocked(id, Retired)
+		c.freedLocked()
 	}
 	c.mu.Unlock()
 	c.kick()
 	return err
+}
+
+// freedLocked wakes every capacity waiter: a retirement may have made room.
+func (c *Coordinator) freedLocked() {
+	close(c.capacity)
+	c.capacity = make(chan struct{})
+}
+
+// CapacityFreed announces a retirement that did not go through Confirm, such as a rejected batch.
+func (c *Coordinator) CapacityFreed() {
+	c.mu.Lock()
+	c.freedLocked()
+	c.mu.Unlock()
+	c.kick()
+}
+
+// AwaitCapacity blocks, holding no store or writer lock, until an admission of the given
+// size would fit beside the current entries. It wakes on retirements, never by polling, and ends
+// with ctx when the generation that wants the admission is retired.
+func (c *Coordinator) AwaitCapacity(ctx context.Context, needed int64) error {
+	for {
+		c.mu.Lock()
+		changed, closed := c.capacity, c.closed
+		c.mu.Unlock()
+		if closed {
+			return ErrClosed
+		}
+		pending, err := c.ledger.Pending()
+		if err != nil {
+			return err
+		}
+		used, err := protocolstore.UsedBytes(pending)
+		if err != nil {
+			return err
+		}
+		switch protocolstore.Decide(c.limit, used, needed) {
+		case protocolstore.Admit:
+			return nil
+		case protocolstore.Reject:
+			return ErrTooLarge
+		}
+		select {
+		case <-changed:
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-c.done:
+			return ErrClosed
+		}
+	}
 }
 
 // Await blocks a protocol handler until its delivery is retired or the wait is cut short.

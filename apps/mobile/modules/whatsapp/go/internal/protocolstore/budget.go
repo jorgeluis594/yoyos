@@ -17,6 +17,9 @@ const (
 	// IdentityReserveBytes bounds the normalized message a pendingLid entry may
 	// later gain: a 16 KiB image descriptor plus identifiers and fixed fields.
 	IdentityReserveBytes int64 = 18 * 1024
+	// jsonEscapeFactor is the most JSON serialization multiplies a text byte: control
+	// characters, '<', '>' and '&' become six-byte \u00XX escapes.
+	jsonEscapeFactor int64 = 6
 )
 
 // Decision is the outcome of checking an admission against the budget.
@@ -60,17 +63,18 @@ func EntrySize(p PendingInsert) (int64, error) {
 		return 0, failure(StateInvalid, "pending entry cannot be measured")
 	}
 	size := int64(len(raw)) + EncryptionOverheadBytes + RecordSeparatorBytes
-	if p.IdentityState == "pendingLid" {
+	if p.IdentityState == "pendingLid" && !IsHistoryNotification(p) {
 		size += IdentityReserveBytes + plaintextBytes(p.Recovery)
 	}
 	return size, nil
 }
 
-// plaintextBytes bounds the text a later normalized message can carry.
+// plaintextBytes bounds the serialized text a later normalized message can carry:
+// the plaintext length at its worst-case JSON escaping.
 func plaintextBytes(r Recovery) int64 {
 	var total int64
 	for _, item := range r.Items {
-		total += int64(base64.StdEncoding.DecodedLen(len(item.PlaintextBase64)))
+		total += int64(base64.StdEncoding.DecodedLen(len(item.PlaintextBase64))) * jsonEscapeFactor
 	}
 	return total
 }

@@ -1,9 +1,12 @@
 package delivery
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
+
+	"yoyos-whatsapp/internal/protocolstore"
 )
 
 // UT-DEL-06: one delivery at a time, by numeric revision then ordinal, skipping unresolved identities.
@@ -403,5 +406,61 @@ func TestStartWithoutConsumerWaitsWithoutStoppingReception(t *testing.T) {
 	c.SetConsumer(out.consumer("a"))
 	if got := out.next(t); got != "a:"+did(1) {
 		t.Fatalf("got %s", got)
+	}
+}
+
+// IT-HIS-03: a capacity wait wakes on a retirement, not on a timer, holds nothing, and ends with its context.
+func TestAwaitCapacityWakesOnRetirementAndEndsWithItsContext(t *testing.T) {
+	ledger := &fakeLedger{}
+	ledger.add(record(1, "1", 0, "resolved"), record(2, "1", 1, "resolved"), record(3, "1", 2, "resolved"))
+	size, err := protocolstore.EntrySize(ledger.records[0].PendingInsert)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, _ := started(t, ledger, 3*size)
+	if protocolstore.Decide(3*size, 3*size, size) != protocolstore.Wait {
+		t.Fatal("fixture: the buffer must be full")
+	}
+	done := make(chan error, 1)
+	go func() { done <- c.AwaitCapacity(context.Background(), size) }()
+	select {
+	case err := <-done:
+		t.Fatalf("a full buffer must not admit: %v", err)
+	case <-time.After(150 * time.Millisecond):
+	}
+	reads := ledger.readCount()
+	time.Sleep(150 * time.Millisecond)
+	if ledger.readCount() != reads {
+		t.Fatal("waiting for capacity must not poll the ledger")
+	}
+	if err := c.Confirm(did(1)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a retirement must wake the waiter")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	waiting := make(chan error, 1)
+	go func() { waiting <- c.AwaitCapacity(ctx, 3*size) }()
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	if err := <-waiting; !errors.Is(err, context.Canceled) {
+		t.Fatalf("a retired generation ends the wait: %v", err)
+	}
+	if err := c.AwaitCapacity(context.Background(), 100*size); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("a request no space can satisfy is refused: %v", err)
+	}
+	closing := make(chan error, 1)
+	go func() { closing <- c.AwaitCapacity(context.Background(), 3*size) }()
+	time.Sleep(50 * time.Millisecond)
+	c.Close()
+	if err := <-closing; !errors.Is(err, ErrClosed) {
+		t.Fatalf("closing releases the waiter: %v", err)
 	}
 }

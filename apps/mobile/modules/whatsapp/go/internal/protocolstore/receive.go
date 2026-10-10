@@ -43,22 +43,40 @@ type RecoveryProcessor interface {
 	ReplayRecoveredProtocol(context.Context, *types.MessageInfo, string, []byte) error
 }
 
-func parseReceiveInfo(raw, accountID string) (*types.MessageInfo, error) {
-	var metadata struct {
-		Version          int    `json:"version"`
-		AccountID        string `json:"accountId"`
-		ID               string `json:"id"`
-		Chat             string `json:"chat"`
-		Sender           string `json:"sender"`
-		SenderAlt        string `json:"senderAlt"`
-		RecipientAlt     string `json:"recipientAlt"`
-		IsFromMe         bool   `json:"isFromMe"`
-		IsGroup          bool   `json:"isGroup"`
-		TimestampSeconds int64  `json:"timestampSeconds"`
-		Category         string `json:"category"`
-		MessageType      string `json:"messageType"`
+// receiveMetadata is the replay metadata of one received message, version 1.
+type receiveMetadata struct {
+	Version          int    `json:"version"`
+	AccountID        string `json:"accountId"`
+	ID               string `json:"id"`
+	Chat             string `json:"chat"`
+	Sender           string `json:"sender"`
+	SenderAlt        string `json:"senderAlt"`
+	RecipientAlt     string `json:"recipientAlt"`
+	IsFromMe         bool   `json:"isFromMe"`
+	IsGroup          bool   `json:"isGroup"`
+	TimestampSeconds int64  `json:"timestampSeconds"`
+	Category         string `json:"category"`
+	MessageType      string `json:"messageType"`
+}
+
+// MarshalReceiveInfo is the replay metadata that ParseReceiveInfo reads back; live capture
+// and the historical admission share it so one resolver can re-evaluate both.
+func MarshalReceiveInfo(accountID string, info *types.MessageInfo) (string, error) {
+	if info == nil || accountID == "" {
+		return "", malformed("receive metadata missing")
 	}
-	if err := json.Unmarshal([]byte(raw), &metadata); err != nil || metadata.Version != 1 || metadata.AccountID != accountID || metadata.ID == "" || metadata.TimestampSeconds <= 0 {
+	raw, err := json.Marshal(receiveMetadata{1, accountID, string(info.ID), info.Chat.String(), info.Sender.String(), info.SenderAlt.String(), info.RecipientAlt.String(), info.IsFromMe, info.IsGroup, info.Timestamp.Unix(), info.Category, info.Type})
+	if err != nil {
+		return "", malformed("invalid receive metadata")
+	}
+	return string(raw), nil
+}
+
+func parseReceiveInfo(raw, accountID string) (*types.MessageInfo, error) {
+	var metadata receiveMetadata
+	// Any instant, even a zero or negative one, is accepted: a message whose timestamp cannot become a public
+	// one is isolated and delivered sanitized by the identity layer (IT-MSG-07), not refused here.
+	if err := json.Unmarshal([]byte(raw), &metadata); err != nil || metadata.Version != 1 || metadata.AccountID != accountID || metadata.ID == "" {
 		return nil, failure(StateInvalid, "invalid replay metadata")
 	}
 	chat, err := types.ParseJID(metadata.Chat)
@@ -94,25 +112,11 @@ func CaptureReceive(ctx context.Context, accountID string, info *types.MessageIn
 	if ctx == nil || info == nil || node == nil || build == nil || processor == nil || accountID == "" {
 		return nil, malformed("receive context missing")
 	}
-	metadata := struct {
-		Version          int    `json:"version"`
-		AccountID        string `json:"accountId"`
-		ID               string `json:"id"`
-		Chat             string `json:"chat"`
-		Sender           string `json:"sender"`
-		SenderAlt        string `json:"senderAlt"`
-		RecipientAlt     string `json:"recipientAlt"`
-		IsFromMe         bool   `json:"isFromMe"`
-		IsGroup          bool   `json:"isGroup"`
-		TimestampSeconds int64  `json:"timestampSeconds"`
-		Category         string `json:"category"`
-		MessageType      string `json:"messageType"`
-	}{1, accountID, string(info.ID), info.Chat.String(), info.Sender.String(), info.SenderAlt.String(), info.RecipientAlt.String(), info.IsFromMe, info.IsGroup, info.Timestamp.Unix(), info.Category, info.Type}
-	infoJSON, err := json.Marshal(metadata)
+	infoJSON, err := MarshalReceiveInfo(accountID, info)
 	if err != nil {
-		return nil, malformed("invalid receive metadata")
+		return nil, err
 	}
-	captured := CapturedReceive{AccountID: accountID, MessageInfoJSON: string(infoJSON)}
+	captured := CapturedReceive{AccountID: accountID, MessageInfoJSON: infoJSON}
 	for index, child := range node.GetChildren() {
 		if child.Tag != "enc" {
 			continue
@@ -196,6 +200,9 @@ func (s *Store) prepareBufferedEvent(ctx context.Context, hash [32]byte, plainte
 		// Unsupported content leaves only the metadata-only retry marker so a
 		// redelivery is acknowledged without a pending entry.
 		return s.putRetryHash(ctx, hash, serverTime)
+	}
+	if identity == HistoryNotificationState {
+		return s.captureHistoryNotification(ctx, value.captured, plaintext, hash, serverTime)
 	}
 	if identity != "resolved" && identity != "pendingLid" {
 		return malformed("invalid receive identity state")

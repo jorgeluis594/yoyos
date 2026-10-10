@@ -40,7 +40,7 @@ func TestITDEL01OrdersCommitEmitConsumerCommitRetireAndAck(t *testing.T) {
 // IT-DEL-02: a crash before the native commit emits nothing, confirms nothing and leaves no pending state.
 func TestITDEL02CrashBeforeNativeCommitDiscardsUnconfirmedState(t *testing.T) {
 	n := newNative()
-	n.failApply = errBoom
+	n.set(func() { n.failApply = errBoom })
 	l := newLife(t, n, 1<<20)
 	app := l.subscribe("a")
 	l.coord.Start()
@@ -53,7 +53,7 @@ func TestITDEL02CrashBeforeNativeCommitDiscardsUnconfirmedState(t *testing.T) {
 		t.Fatal("unconfirmed state survived")
 	}
 	// The next life neither emits nor retires anything for it.
-	n.failApply = nil
+	n.set(func() { n.failApply = nil })
 	again := newLife(t, n, 1<<20)
 	again.subscribe("a").none(t)
 	again.coord.Start()

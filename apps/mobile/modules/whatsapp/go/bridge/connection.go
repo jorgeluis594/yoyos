@@ -8,6 +8,8 @@ import (
 
 	"go.mau.fi/whatsmeow/store"
 	"yoyos-whatsapp/internal/connection"
+	"yoyos-whatsapp/internal/history"
+	"yoyos-whatsapp/internal/identity"
 	"yoyos-whatsapp/internal/protocolstore"
 	"yoyos-whatsapp/internal/receive"
 )
@@ -25,7 +27,16 @@ type ConnectionSession struct {
 	store      *protocolstore.Store
 	device     *store.Device
 	delivery   *DeliverySession
+	identity   *identity.Service
+	firstLink  firstLink
 	reopen     func() (*protocolstore.Store, *store.Device, error)
+	images     *ImageSession
+}
+
+// firstLink is the container of a device that is not paired yet; it hands out the store pairing creates.
+type firstLink interface {
+	LinkedStore() *protocolstore.Store
+	SetMappingHook(func())
 }
 type ConnectionOpenResult struct {
 	Session *ConnectionSession
@@ -60,6 +71,9 @@ func OpenConnectionWithDelivery(storage ProtocolStorage, sink ConnectionEvents, 
 		return &ConnectionOpenResult{Code: publicCode(err)}
 	}
 	session := &ConnectionSession{store: protocol, device: device, delivery: delivery}
+	if protocol == nil {
+		session.firstLink, _ = device.Container.(firstLink)
+	}
 	session.reopen = func() (*protocolstore.Store, *store.Device, error) {
 		account := accountID
 		if account == "" {
@@ -91,9 +105,11 @@ func OpenConnectionWithDelivery(storage ProtocolStorage, sink ConnectionEvents, 
 		}()
 		sink.OnConnectionEvent(string(raw))
 	}, nil)
+	session.controller.SetUnlinkTransport(session.newUnlinkTransport)
 	session.controller.Prepare(accountID != "")
 	if delivery != nil {
 		delivery.attach(session)
+		session.startIdentity(delivery)
 	}
 	return &ConnectionOpenResult{Session: session}
 }
@@ -121,12 +137,36 @@ func (s *ConnectionSession) newTransport() (connection.Transport, error) {
 	if s.delivery == nil {
 		return connection.NewWhatsmeowTransport(device, stopReason), nil
 	}
+	if s.identity != nil {
+		s.watchMappings()
+	}
 	receiver := receive.New(device, s.delivery.ledger, s.delivery.coordinator, receive.Hooks{
-		Capacity:     s.controller.PauseForCapacity,
-		Oversize:     func() { s.controller.FailLocal(connection.RecoveryBufferFull) },
-		LocalFailure: func(err error) { s.controller.FailLocal(connection.Code(publicCode(err))) },
+		Capacity:        s.controller.PauseForCapacity,
+		Oversize:        func() { s.controller.FailLocal(connection.RecoveryBufferFull) },
+		IdentityPending: s.identityTrigger,
+		LocalFailure:    func(err error) { s.controller.FailLocal(connection.Code(publicCode(err))) },
+		// A refused history batch is reported and the connection keeps receiving: the
+		// notification was acknowledged once it was durable, and nothing retries the batch.
+		HistoryRejected: func(code history.Code) { s.controller.Notify(connection.Code(code)) },
+		HistoryAdmitted: func(identityPending bool) {
+			if identityPending {
+				s.identityTrigger()
+			}
+		},
 	})
 	return connection.NewWhatsmeowTransport(device, stopReason, receiver), nil
+}
+
+// newUnlinkTransport builds a client that connects only to unlink: it decrypts and acknowledges
+// nothing (see connection.NewUnlinkTransport).
+func (s *ConnectionSession) newUnlinkTransport() (connection.Transport, error) {
+	s.mu.Lock()
+	device := s.device
+	s.mu.Unlock()
+	if device == nil {
+		return nil, errors.New("device unknown")
+	}
+	return connection.NewUnlinkTransport(device, func() connection.Code { return connection.Code(s.StopReason()) }), nil
 }
 
 func (s *ConnectionSession) resumeCapacity() {
@@ -178,6 +218,11 @@ func (s *ConnectionSession) Connect() string {
 	if s == nil || s.controller == nil {
 		return "NOT_INITIALIZED"
 	}
+	if s.identity != nil {
+		// A new request is a new listener scope: unresolved content is reported again, once.
+		s.identity.Rearm()
+		s.identity.Trigger()
+	}
 	return publicConnectCode(s.controller.Connect())
 }
 
@@ -194,7 +239,84 @@ func (s *ConnectionSession) Disconnect() {
 		s.controller.Disconnect()
 	}
 }
+
+// Suspend ends the live connection before iOS suspends the process and remembers that one was
+// requested. Pending entries, the stored session and downloaded images are untouched; a QR, a
+// connection result or a download that arrives late is discarded. There is no reception while
+// suspended and nothing wakes the app: only Resume, called when the app runs again, reconnects.
+func (s *ConnectionSession) Suspend() {
+	if s != nil && s.controller != nil {
+		s.controller.Suspend()
+	}
+}
+
+// Resume starts one new attempt after Suspend, with fresh deadlines. It returns "" when there was
+// nothing to resume or the attempt started, and a public code when the session can no longer connect.
+func (s *ConnectionSession) Resume() string {
+	if s == nil || s.controller == nil {
+		return "NOT_INITIALIZED"
+	}
+	return publicConnectCode(s.controller.Resume())
+}
+
+// Logout stops reception and generation, completes the identity mappings that are still
+// verifiable and asks WhatsApp to unlink within 15 seconds. It returns "" only when the
+// remote unlink was confirmed, "REMOTE_LOGOUT_UNCONFIRMED" when it was not, and a public
+// error code when the mappings could not be made durable; then nothing was retired. A repeat
+// after a finished logout is a local success that certifies nothing remote. Native
+// retires the session and its key afterwards, in every case but the last.
+func (s *ConnectionSession) Logout() string {
+	if s == nil || s.controller == nil {
+		return "NOT_INITIALIZED"
+	}
+	result := s.controller.Logout(s.resolveBeforeLogout)
+	if result.Err == nil {
+		s.retireHistoryCaptures()
+	}
+	switch {
+	case result.Err != nil:
+		return publicCode(result.Err)
+	case !result.Confirmed && !result.Repeat:
+		return "REMOTE_LOGOUT_UNCONFIRMED"
+	}
+	return ""
+}
+
+// retireHistoryCaptures drops the history captures of the account being unlinked. The credentials
+// that could process them go with the session, so they would hold the recovery budget forever.
+// Failing to retire is not a logout failure: the next session purges every capture that is not its
+// own account's (history.Processor.Drain). Real messages are never touched.
+func (s *ConnectionSession) retireHistoryCaptures() {
+	account := s.account()
+	if s.delivery == nil || account == "" {
+		return
+	}
+	_, _ = history.RetireCaptures(s.delivery.ledger, s.delivery.coordinator, func(owner string) bool { return owner == account })
+}
+
+// MarkRevoked tells a session reopened only to log out that the server already revoked it, so
+// no connection is made to unlink it. It changes no state and publishes nothing.
+func (s *ConnectionSession) MarkRevoked() {
+	if s != nil && s.controller != nil {
+		s.controller.MarkRevoked()
+	}
+}
+
+func (s *ConnectionSession) resolveBeforeLogout() error {
+	if s.identity == nil {
+		return nil
+	}
+	_, err := s.identity.Resolve(context.Background())
+	return err
+}
+
 func (s *ConnectionSession) Close() bool {
+	if s != nil {
+		s.detachImages()
+	}
+	if s != nil && s.identity != nil {
+		s.identity.Close()
+	}
 	if s != nil && s.delivery != nil {
 		s.delivery.detach(s)
 	}
@@ -211,6 +333,11 @@ func (s *ConnectionSession) State() string {
 }
 func (s *ConnectionSession) CanUpdateOptions() bool {
 	return s != nil && s.controller != nil && s.controller.CanUpdateOptions()
+}
+// RequestActive tells native whether Go still holds the connection request, so a transient `disconnected`
+// (capacity pause) is told apart from an ended request.
+func (s *ConnectionSession) RequestActive() bool {
+	return s != nil && s.controller != nil && s.controller.RequestActive()
 }
 func (s *ConnectionSession) CurrentQR() string {
 	if s == nil || s.controller == nil {

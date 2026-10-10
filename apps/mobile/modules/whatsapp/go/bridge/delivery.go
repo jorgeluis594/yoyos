@@ -45,11 +45,13 @@ type DeliveryOpenResult struct {
 }
 
 // OpenDelivery validates the budget and prepares recovery. Start releases it once storage is prepared.
-func OpenDelivery(storage DeliveryStorage, sink DeliveryEvents, recoveryBytes int64) *DeliveryOpenResult {
+// readRecoveryBytes is the container's reliable read bound (the largest budget it ever accepted) and
+// recoveryBytes the configured one; the bound is never below the budget and does not shrink with it.
+func OpenDelivery(storage DeliveryStorage, sink DeliveryEvents, readRecoveryBytes, recoveryBytes int64) *DeliveryOpenResult {
 	if storage == nil || sink == nil {
 		return &DeliveryOpenResult{Code: "INVALID_INPUT"}
 	}
-	ledger, err := protocolstore.NewLedger(storage, recoveryBytes)
+	ledger, err := protocolstore.NewLedger(storage, readRecoveryBytes, recoveryBytes)
 	if err != nil {
 		return &DeliveryOpenResult{Code: publicCode(err)}
 	}

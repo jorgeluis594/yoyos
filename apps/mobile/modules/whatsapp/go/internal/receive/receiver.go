@@ -16,13 +16,12 @@ import (
 	"errors"
 
 	waBinary "go.mau.fi/whatsmeow/binary"
-	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
-	"google.golang.org/protobuf/proto"
 	"yoyos-whatsapp/internal/delivery"
-	"yoyos-whatsapp/internal/normalization"
+	"yoyos-whatsapp/internal/history"
+	"yoyos-whatsapp/internal/identity"
 	"yoyos-whatsapp/internal/protocolstore"
 )
 
@@ -32,8 +31,16 @@ type Hooks struct {
 	Capacity func()
 	// Oversize stops reception: no amount of freed space admits the entry.
 	Oversize func()
+	// IdentityPending reports that content was kept without a definitive identity.
+	IdentityPending func()
 	// LocalFailure stops reception for a local persistence failure.
 	LocalFailure func(error)
+	// HistoryRejected reports a history batch refused for good (HISTORY_LIMIT_REACHED,
+	// RECOVERY_BUFFER_FULL or an invalid batch). Reception continues.
+	HistoryRejected func(history.Code)
+	// HistoryAdmitted runs after a history batch was published and is ready to be delivered;
+	// identityPending says that part of it still waits for a mapping.
+	HistoryAdmitted func(identityPending bool)
 }
 
 type Receiver struct {
@@ -42,6 +49,7 @@ type Receiver struct {
 	coordinator *delivery.Coordinator
 	hooks       Hooks
 	processor   protocolstore.RecoveryProcessor
+	history     *history.Processor
 }
 
 func New(device *store.Device, ledger delivery.Ledger, coordinator *delivery.Coordinator, hooks Hooks) *Receiver {
@@ -50,6 +58,48 @@ func New(device *store.Device, ledger delivery.Ledger, coordinator *delivery.Coo
 
 // SetProcessor supplies the client that replays protocol effects of recovered content.
 func (r *Receiver) SetProcessor(processor protocolstore.RecoveryProcessor) { r.processor = processor }
+
+// EnableHistory attaches the history processor, built over the account's store and the network
+// side of this connection. Without it, notifications are still captured durably and wait.
+func (r *Receiver) EnableHistory(remote history.Remote, protocol history.Store, limits history.Limits) {
+	r.history = history.NewProcessor(r.account, r.historyEnv, limits, remote, protocol, r.ledger, r.coordinator, history.Hooks{
+		Rejected: r.hooks.HistoryRejected,
+		Admitted: func(identityPending bool) {
+			r.coordinator.Refresh()
+			if r.hooks.HistoryAdmitted != nil {
+				r.hooks.HistoryAdmitted(identityPending)
+			}
+		},
+		Failure: func(err error) {
+			if r.hooks.LocalFailure != nil {
+				r.hooks.LocalFailure(err)
+			}
+		},
+	})
+}
+
+func (r *Receiver) historyEnv() history.Env {
+	env := history.Env{Account: r.account(), OwnAlt: r.device.LID}
+	if r.device.ID != nil { // absent until the first link completes; no batch can arrive before then
+		env.Own = r.device.ID.ToNonAD()
+	}
+	return env
+}
+
+// RunHistory serves the history processor until ctx, the connection generation, ends.
+func (r *Receiver) RunHistory(ctx context.Context) {
+	if r.history != nil {
+		r.history.Trigger() // captured notifications of an earlier life are resumed
+		r.history.Run(ctx)
+	}
+}
+
+// Connected is called when the connection is established: captures left by an interruption resume.
+func (r *Receiver) Connected() {
+	if r.history != nil {
+		r.history.Trigger()
+	}
+}
 
 func (r *Receiver) account() string {
 	if r.device == nil || r.device.LID.IsEmpty() {
@@ -69,34 +119,14 @@ func (r *Receiver) PreDecrypt(ctx context.Context, info *types.MessageInfo, node
 // build runs inside the decryption transaction and must not touch the store.
 func (r *Receiver) build(captured protocolstore.CapturedReceive, child protocolstore.CapturedChild, plaintext []byte) (string, json.RawMessage, error) {
 	if child.Format != "v2" {
-		return "excluded", nil, nil
-	}
-	var message waE2E.Message
-	if err := proto.Unmarshal(plaintext, &message); err != nil {
-		return "excluded", nil, nil
+		return string(identity.Excluded), nil, nil
 	}
 	info, err := protocolstore.ParseReceiveInfo(captured)
 	if err != nil {
 		return "", nil, err
 	}
-	event := (&events.Message{Info: *info, RawMessage: &message}).UnwrapRaw()
-	result, err := normalization.Normalize(event, r.device.ID.ToNonAD(), r.device.LID, nil)
-	switch {
-	case errors.Is(err, normalization.ErrInvalidTimestamp), errors.Is(err, normalization.ErrInvalidIdentity), errors.Is(err, normalization.ErrRawEditInspectionExhausted):
-		// Content that cannot be given a valid public identity is never deliverable.
-		return "excluded", nil, nil
-	case err != nil:
-		return "", nil, err
-	case result.Unresolved != nil:
-		return "pendingLid", nil, nil
-	case result.Message == nil:
-		return "excluded", nil, nil
-	}
-	raw, err := json.Marshal(result.Message)
-	if err != nil {
-		return "", nil, err
-	}
-	return "resolved", raw, nil
+	state, message, err := identity.Classify(info, child.Format, plaintext, r.device.ID.ToNonAD(), r.device.LID, nil)
+	return string(state), message, err
 }
 
 // Handle is the protocol handler: true allows the acknowledgement. It waits
@@ -117,7 +147,19 @@ func (r *Receiver) Handle(ctx context.Context, event any) bool {
 	if !found {
 		return true
 	}
+	if protocolstore.IsHistoryNotification(record.PendingInsert) {
+		// The notification is durable: that, and not the batch, is what the acknowledgement
+		// needs. The hist_sync receipt and the remote deletion follow the batch's admission.
+		if r.history != nil {
+			r.history.Trigger()
+		}
+		return true
+	}
 	if record.IdentityState != "resolved" {
+		// No ACK for content without a definitive identity; a resolution pass completes it
+		// when its mapping arrives. The protocol ACK is only sent when the protocol redelivers the
+		// message (normally after reconnecting), never earlier.
+		callAsync(r.hooks.IdentityPending)
 		return false
 	}
 	return r.coordinator.Await(ctx, record.DeliveryID) == delivery.Retired
@@ -134,7 +176,7 @@ func (r *Receiver) find(info types.MessageInfo) (protocolstore.PendingRecord, bo
 	var best *protocolstore.PendingRecord
 	for i := range pending {
 		candidate := &pending[i]
-		if candidate.AccountID != account || candidate.Source != "live" || !matches(candidate, info) {
+		if candidate.AccountID != account || !(candidate.Source == "live" || protocolstore.IsHistoryNotification(candidate.PendingInsert)) || !matches(candidate, info) {
 			continue
 		}
 		if best == nil || later(candidate, best) {
