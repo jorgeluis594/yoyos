@@ -2,7 +2,7 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { isOrderId } from "@core/src/features/orders/domain/order";
 import { readCancellationOrder, verifyCancellation, cancellationMessage, type CancelOrderActionError, type CancellationClientResult, type CancellationUiState } from "@core/src/features/orders/presentation/cancellation-client";
-import { cancelOrderResponseSchema, type CancelOrderResponse } from "@shared/contracts/orders";
+import { cancelOrderResponseSchema, type CancelOrderResponse, type OrderAggregateResponse } from "@shared/contracts/orders";
 import { fulfillmentBlock } from "@shared/orders-fulfillment";
 import { PaymentFields, type PaymentDraft } from "@core/src/features/orders/presentation/payment-fields";
 import { useRef, useState } from "react";
@@ -107,6 +107,12 @@ export async function clientAction({ request, params, serverAction }: ClientActi
   return { operation: "cancellation", orderId: id, outcome: { kind: "failed", error: result.error } } satisfies CancellationClientResult;
 }
 
+type BuyerLink = Readonly<{ href: string; label: "orders.buyerPaymentLink" | "orders.legacyPaymentLink" }>;
+export function buyerLink(order: Pick<OrderAggregateResponse, "id" | "companyId" | "cancelled" | "checkoutEnabledAt">): BuyerLink | null {
+  if (!order.checkoutEnabledAt) return { href: `/pago/${order.id}`, label: "orders.legacyPaymentLink" };
+  return order.cancelled ? null : { href: `/checkout/${order.companyId}/${order.id}`, label: "orders.buyerPaymentLink" };
+}
+
 export function shouldRevalidate({ actionResult, defaultShouldRevalidate }: { actionResult: unknown; defaultShouldRevalidate: boolean }) {
   // Cancellation already reads the detail once; retain confirmed/uncertain evidence if that read fails.
   return actionResult && typeof actionResult === "object" && "operation" in actionResult && actionResult.operation === "cancellation"
@@ -189,6 +195,7 @@ export default function OrderDetail() {
   const navigation = useNavigation();
   const editable = !order.cancelled && order.deliveryStatus === "pending" && order.completedAt === null;
   const [editingDelivery, setEditingDelivery] = useState(false);
+  const link = buyerLink(order);
   const checkout = useFetcher<typeof action>();
   const checkoutData = checkout.data && !("result" in checkout.data) ? checkout.data : undefined;
   const cancellationState: CancellationUiState = navigation.state !== "idle" && navigation.formData?.get("operation") === "cancel"
@@ -297,7 +304,7 @@ export default function OrderDetail() {
             <p className="text-sm text-muted-foreground">{t(order.cancelled ? "orders.checkoutCancelled" : order.checkoutConfirmedAt ? "orders.checkoutConfirmed" : order.checkoutEnabledAt ? "orders.checkoutPending" : "orders.checkoutDisabled")}</p>
             {checkoutData?.error && <p role="alert" className="text-sm text-destructive">{t("orders.checkoutLinkError")}</p>}
             {!order.cancelled && checkoutData?.url && <><Field><FieldLabel htmlFor="checkout-link">{t("orders.checkoutLink")}</FieldLabel><Input id="checkout-link" readOnly value={checkoutData.url} onFocus={event => event.target.select()} /></Field><Button type="button" variant="outline" className="self-start" onClick={copyLink}>{t("orders.copyCheckoutLink")}</Button>{copyMessage && <p role="status" className="text-sm">{t(`orders.${copyMessage}`)}</p>}</>}
-            <a href={`/pago/${order.id}`} target="_blank" rel="noreferrer" className="flex min-h-control items-center justify-between gap-3 border-t pt-3 text-sm text-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring max-md:min-h-touch">{t("orders.buyerPaymentLink")}<ExternalLink className="size-icon-inline shrink-0" aria-hidden="true" /></a>
+            {link && <a href={link.href} target="_blank" rel="noreferrer" className="flex min-h-control items-center justify-between gap-3 border-t pt-3 text-sm text-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring max-md:min-h-touch">{t(link.label)}<ExternalLink className="size-icon-inline shrink-0" aria-hidden="true" /></a>}
           </div>
         </Card>
       </div>
