@@ -125,7 +125,11 @@ export const productRepository: ProductRepository = {
   },
   async list(criteria) {
     const search = criteria.search?.replace(/[\\%_]/g, "\\$&");
+    const stock: Prisma.ProductWhereInput = criteria.stock === "in_stock" ? { variants: { some: { stock: { is: { quantity: { gt: 0 } } } } } }
+      : criteria.stock === "sold_out" ? { variants: { every: { stock: { is: { quantity: 0 } } } } } : {};
+    const orderBy: Prisma.ProductOrderByWithRelationInput[] = criteria.sort === "name" ? [{ name: "asc" }, { id: "asc" }] : [{ createdAt: "desc" }, { id: "asc" }];
     const where: Prisma.ProductWhereInput = {
+      ...stock,
       ...(search ? { OR: [
         { name: { contains: search, mode: "insensitive" } },
         { variants: { some: { sku: { contains: search, mode: "insensitive" } } } },
@@ -133,7 +137,7 @@ export const productRepository: ProductRepository = {
     };
     try {
       const [rows, total] = await Promise.all([
-        prisma.product.findMany({ where, orderBy: [{ createdAt: "desc" }, { id: "asc" }], skip: (criteria.page - 1) * criteria.pageSize, take: criteria.pageSize,
+        prisma.product.findMany({ where, orderBy, skip: (criteria.page - 1) * criteria.pageSize, take: criteria.pageSize,
           include: { variants: { include: { stock: true } } } }),
         prisma.product.count({ where }),
       ]);

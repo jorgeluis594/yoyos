@@ -35,6 +35,8 @@ export const updateProductRequestSchema = z.object({
 
 export const productListQuerySchema = z.object({
   search: z.string().optional(),
+  stock: z.enum(["in_stock", "sold_out"]).optional(),
+  sort: z.enum(["recent", "name"]).optional(),
   page: z.string().regex(/^-?\d+$/).transform(Number).optional(),
   pageSize: z.string().regex(/^-?\d+$/).transform(Number).optional(),
 }).strict();

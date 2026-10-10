@@ -62,3 +62,47 @@ test("catalog searches distinct products and summarizes all variants within the 
     });
   }
 });
+
+test("catalog filters by total stock, sorts by name and keeps image references", async () => {
+  const company = randomUUID();
+  const when = new Date("2026-01-01T00:00:00.000Z");
+  const add = async (name: string, stocks: number[], createdAt: Date, imageId?: string) => {
+    const id = randomUUID();
+    await prisma.product.create({ data: { id, name, imageId, currency: "PEN", qrCode: randomUUID(), status: "active", createdAt, updatedAt: createdAt } });
+    for (const quantity of stocks) {
+      const variantId = randomUUID();
+      await prisma.productVariant.create({ data: { id: variantId, productId: id, attributes: {}, salePrice: 10, qrCode: randomUUID(), status: "active" } });
+      await prisma.productStock.create({ data: { variantId, quantity: BigInt(quantity) } });
+    }
+    return id;
+  };
+  try {
+    await withTenantIsolation(company, async () => await prisma.company.create({ data: { id: company, name: company, country: "PE" } }));
+    const imageId = randomUUID();
+    const ids = await withTenantIsolation(company, async () => {
+      await prisma.image.create({ data: { id: imageId, storageKey: `test/${imageId}.webp` } });
+      return {
+        bolso: await add("Bolso", [0, 0], when),
+        anillo: await add("Anillo", [0, 4], new Date(when.getTime() + 1000), imageId),
+        casaca: await add("Casaca", [3], new Date(when.getTime() + 2000)),
+      };
+    });
+    await withTenantIsolation(company, async () => {
+      const idsOf = (input: ListInput) => listProducts(input).then((result) => result.success ? result.data.items.map((item) => item.id) : result);
+      expect(await idsOf({})).toEqual([ids.casaca, ids.anillo, ids.bolso]);
+      expect(await idsOf({ sort: "name" })).toEqual([ids.anillo, ids.bolso, ids.casaca]);
+      expect(await idsOf({ stock: "in_stock", sort: "name" })).toEqual([ids.anillo, ids.casaca]);
+      expect(await listProducts({ stock: "sold_out" })).toMatchObject({ success: true, data: { total: 1, items: [{ id: ids.bolso, totalStock: 0 }] } });
+      const page = await productRepository.list({ search: "anillo", sort: "recent", page: 1, pageSize: 20 });
+      expect(page).toMatchObject({ success: true, data: { items: [{ id: ids.anillo, imageId }] } });
+    });
+  } finally {
+    await withTenantIsolation(company, async () => {
+      await prisma.productStock.deleteMany({ where: { companyId: company } });
+      await prisma.productVariant.deleteMany({ where: { companyId: company } });
+      await prisma.product.deleteMany({ where: { companyId: company } });
+      await prisma.image.deleteMany({ where: { companyId: company } });
+      await prisma.company.deleteMany({ where: { id: company } });
+    });
+  }
+});

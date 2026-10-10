@@ -14,9 +14,15 @@ test("normalizes search and pagination without changing the input", async () => 
   const list = vi.fn(async () => ok(output));
   const input = Object.freeze({ search: "  blue  shirt  " });
   expect(await listProducts(input, { repository: { list }, resolveImage: noImage })).toEqual({ success: true, data: output });
-  expect(list).toHaveBeenCalledWith({ search: "blue  shirt", page: 1, pageSize: 20 });
+  expect(list).toHaveBeenCalledWith({ search: "blue  shirt", sort: "recent", page: 1, pageSize: 20 });
   await listProducts({ search: "  " }, { repository: { list }, resolveImage: noImage });
-  expect(list).toHaveBeenLastCalledWith({ page: 1, pageSize: 20 });
+  expect(list).toHaveBeenLastCalledWith({ sort: "recent", page: 1, pageSize: 20 });
+});
+
+test("passes explicit stock filter and sort", async () => {
+  const list = vi.fn(async () => ok(output));
+  await listProducts({ stock: "sold_out", sort: "name", page: 2 }, { repository: { list }, resolveImage: noImage });
+  expect(list).toHaveBeenCalledWith({ stock: "sold_out", sort: "name", page: 2, pageSize: 20 });
 });
 
 test("rejects invalid explicit criteria before querying", async () => {
@@ -24,6 +30,7 @@ test("rejects invalid explicit criteria before querying", async () => {
   for (const input of [
     { page: 0, pageSize: 101 }, { page: 1.5 }, { pageSize: NaN },
     { page: Number.MAX_SAFE_INTEGER, pageSize: 100 }, { search: 12 as unknown as string },
+    { stock: "low" as unknown as "in_stock" }, { sort: "price" as unknown as "name" },
   ]) {
     expect(await listProducts(input, { repository: { list }, resolveImage: noImage })).toMatchObject({ success: false, error: { code: "VALIDATION_ERROR" } });
   }
