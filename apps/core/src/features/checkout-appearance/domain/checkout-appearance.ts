@@ -41,6 +41,13 @@ export function parseCompanyId(value: unknown): Result<CompanyId, CheckoutAppear
     : err({ code: "INVALID_CHECKOUT_APPEARANCE", message: "Invalid company id", invalidFields: ["companyId"] });
 }
 
+export function parseImageId(value: unknown): Result<ImageId, CheckoutAppearanceError> {
+  const parsed = uuid.safeParse(value);
+  return parsed.success
+    ? ok(parsed.data as ImageId)
+    : err({ code: "INVALID_CHECKOUT_APPEARANCE", message: "Invalid image id", invalidFields: ["imageId"] });
+}
+
 export function parseUserId(value: unknown): Result<UserId, CheckoutAppearanceError> {
   const parsed = z.string().min(1).safeParse(value);
   return parsed.success

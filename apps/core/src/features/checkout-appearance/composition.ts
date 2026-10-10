@@ -7,16 +7,16 @@ import {
   type AppearanceDependencies, type PreviewPaymentMethod,
 } from "@core/src/features/checkout-appearance/application/checkout-appearance";
 import {
-  isDefaultCheckoutAppearance, type CompanyId, type ImageId, type UserId,
+  isDefaultCheckoutAppearance, parseImageId, type CompanyId, type ImageId, type UserId,
 } from "@core/src/features/checkout-appearance/domain/checkout-appearance";
 import {
   loadCheckoutAppearance, loadCompanyName, persistCheckoutAppearance,
 } from "@core/src/features/checkout-appearance/infrastructure/checkout-appearance-repository";
 
-async function imageUrl(imageId: string): ReturnType<AppearanceDependencies["imageUrl"]> {
+const imageUrl: AppearanceDependencies["imageUrl"] = async (imageId) => {
   const resolved = await resolvePublicImage(imageId);
   return resolved.success ? { success: true, data: resolved.data?.url ?? null } : { success: false, error: { message: resolved.error.message } };
-}
+};
 
 const dependencies: AppearanceDependencies = {
   load: loadCheckoutAppearance,
@@ -30,18 +30,23 @@ const dependencies: AppearanceDependencies = {
   imageUrl,
 };
 
+/** Payment image URLs are decorative in the preview; a missing or unresolvable one must not hide the method. */
+async function paymentImageUrl(imageId: string | null): Promise<string | null> {
+  const id = imageId ? parseImageId(imageId) : null;
+  if (!id?.success) return null;
+  const resolved = await imageUrl(id.data);
+  return resolved.success ? resolved.data : null;
+}
+
 async function paymentMethods(companyId: CompanyId) {
   const settings = await companyPaymentSettings.get(companyId);
   if (!settings.success) return { success: false as const, error: { code: "PERSISTENCE_UNAVAILABLE" as const, message: "Payment settings unavailable" } };
-  const methods: PreviewPaymentMethod[] = [];
-  for (const item of settings.data) {
-    // Payment image URLs are decorative in the preview; a missing one must not hide the method.
-    const resolved = item.imageId ? await imageUrl(item.imageId) : null;
-    const url = resolved?.success ? resolved.data : null;
-    methods.push(item.method === "digital_wallet"
+  const methods = await Promise.all(settings.data.map(async (item): Promise<PreviewPaymentMethod> => {
+    const url = await paymentImageUrl(item.imageId);
+    return item.method === "digital_wallet"
       ? { method: item.method, provider: item.provider, holder: item.holder, imageUrl: url }
-      : { method: item.method, bank: item.bank, holder: item.holder, accountNumber: item.accountNumber, cci: item.cci, imageUrl: url });
-  }
+      : { method: item.method, bank: item.bank, holder: item.holder, accountNumber: item.accountNumber, cci: item.cci, imageUrl: url };
+  }));
   return { success: true as const, data: methods };
 }
 
