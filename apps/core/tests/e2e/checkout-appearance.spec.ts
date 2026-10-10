@@ -245,4 +245,18 @@ describe("checkout appearance editor", () => {
     await browserExpect(page.getByRole("button", { name: /Cambiar$/ }).last()).toBeVisible();
     await browserExpect(page.getByTestId("checkout-preview-slot")).toBeVisible();
   });
+
+  test("shows the desktop layout before hydration on a wide screen", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await openEditor(page);
+    await page.route(/\.m?js(\?|$)/, (route) => route.abort());
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await browserExpect(page.getByRole("tablist")).toHaveCount(0);
+    const preview = page.getByTestId("checkout-preview-slot");
+    const changeColor = page.getByRole("button", { name: /Cambiar$/ }).last();
+    await browserExpect(preview).toBeVisible();
+    await browserExpect(changeColor).toBeVisible();
+    const [previewBox, colorBox] = [await preview.boundingBox(), await changeColor.boundingBox()];
+    expect(colorBox!.x).toBeGreaterThan(previewBox!.x + previewBox!.width);
+  });
 });

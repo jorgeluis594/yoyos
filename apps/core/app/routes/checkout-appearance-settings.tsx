@@ -69,7 +69,7 @@ export function ErrorBoundary() {
 type EditorTab = "edit" | "preview";
 const wideLayout = "(min-width: 64rem)"; // Tailwind `lg`
 
-/** The server and the hydration pass render the phone layout. */
+/** The server and the hydration pass render the phone layout; its `lg:` classes already look like the wide one. */
 function useWideLayout(): boolean {
   return useSyncExternalStore(
     (change) => { const media = window.matchMedia(wideLayout); media.addEventListener("change", change); return () => media.removeEventListener("change", change); },
@@ -247,13 +247,13 @@ export default function CheckoutAppearanceSettings() {
         <section className="min-w-0 lg:order-1">{previewPanel}</section>
         <section className="flex flex-col divide-y rounded-md border lg:order-2">{editPanel}</section>
       </div>
-      : <Tabs.Root value={tab} onValueChange={(value) => setTab(value as EditorTab)} className="grid gap-6">
-        <Tabs.List aria-label={t("checkoutAppearance.tabsLabel")} className="flex gap-1 rounded-md border p-1">
+      : <Tabs.Root value={tab} onValueChange={(value) => setTab(value as EditorTab)} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <Tabs.List aria-label={t("checkoutAppearance.tabsLabel")} className="flex gap-1 rounded-md border p-1 lg:hidden">
           <Tabs.Trigger value="edit" className={tabClass}>{t("checkoutAppearance.tabEdit")}</Tabs.Trigger>
           <Tabs.Trigger value="preview" className={tabClass}>{t("checkoutAppearance.tabPreview")}</Tabs.Trigger>
         </Tabs.List>
-        <Tabs.Content value="preview" forceMount className="min-w-0 outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=inactive]:hidden">{previewPanel}</Tabs.Content>
-        <Tabs.Content value="edit" forceMount className="flex flex-col divide-y rounded-md border outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=inactive]:hidden">{editPanel}</Tabs.Content>
+        <Tabs.Content value="preview" forceMount className="min-w-0 outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=inactive]:hidden lg:data-[state=inactive]:block lg:order-1">{previewPanel}</Tabs.Content>
+        <Tabs.Content value="edit" forceMount className="flex flex-col divide-y rounded-md border outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=inactive]:hidden lg:data-[state=inactive]:flex lg:order-2">{editPanel}</Tabs.Content>
       </Tabs.Root>}
 
     <Dialog.Root open={blocker.state === "blocked"} onOpenChange={(open) => { if (!open && blocker.state === "blocked") blocker.reset(); }}>
