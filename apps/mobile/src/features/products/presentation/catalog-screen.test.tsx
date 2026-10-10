@@ -28,18 +28,27 @@ test('creation remains available with an empty catalog and without search result
   fireEvent.changeText(screen.getByLabelText('Buscar productos'), 'camisa');
   await screen.findByText('Sin resultados');
   expect(screen.getByRole('button', { name: 'Agregar producto' })).toBeTruthy();
-  fireEvent.press(screen.getByRole('button', { name: 'Limpiar búsqueda' }));
+  expect(screen.getAllByRole('button', { name: 'Limpiar búsqueda' })).toHaveLength(2);
+  fireEvent.press(screen.getAllByRole('button', { name: 'Limpiar búsqueda' })[1]);
   await screen.findByText('Aún no hay productos');
   expect(screen.getByLabelText('Buscar productos').props.value).toBe('');
 });
 
+const product = { id: 'product-1', name: 'Camisa de algodón de manga larga', sku: 'CAM-01', variantCount: 1, stock: 12, price: { amount: 59.9, currency: 'PEN' }, priceFrom: false };
+
 test('product rows expose price, SKU and stock and open the product', async () => {
-  mockLoadProducts.mockResolvedValue(ok({ items: [{ id: 'product-1', name: 'Camisa de algodón de manga larga', sku: 'CAM-01', variantCount: 1, stock: 12, price: { amount: 59.9, currency: 'PEN' }, priceFrom: false }], total: 1 }));
+  mockLoadProducts.mockResolvedValue(ok({ items: [
+    product,
+    { ...product, id: 'product-2', name: 'Casaca denim', sku: undefined, variantCount: 3, stock: 0, priceFrom: true, photo: { id: 'image-1', url: 'https://cdn.example/casaca.webp' } },
+  ], total: 2 }));
   const screen = render(<CatalogScreen />);
   await screen.findByText('Camisa de algodón de manga larga');
-  expect(screen.getByText('SKU CAM-01')).toBeTruthy();
-  expect(screen.getByText('Stock: 12')).toBeTruthy();
-  expect(screen.getByText(/59[.,]90/)).toBeTruthy();
+  expect(screen.getByText('2 productos')).toBeTruthy();
+  expect(screen.getByText('12 en stock · SKU CAM-01')).toBeTruthy();
+  expect(screen.getByText('Agotado')).toBeTruthy();
+  expect(screen.getByText(/3 variantes/)).toBeTruthy();
+  expect(screen.getByText('desde')).toBeTruthy();
+  expect(screen.getAllByText(/59[.,]90/)).toHaveLength(2);
   fireEvent.press(screen.getByRole('button', { name: /Camisa de algodón/ }));
   await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/products/product-1'));
 });
@@ -56,4 +65,24 @@ test('catalog translates empty state and search to Portuguese', async () => {
   } finally {
     await i18n.changeLanguage('es');
   }
+});
+
+test('stock filters and sort reload the catalog and explain empty filtered results', async () => {
+  mockLoadProducts.mockResolvedValue(ok({ items: [product], total: 1 }));
+  const screen = render(<CatalogScreen />);
+  await screen.findByText('Camisa de algodón de manga larga');
+  expect(mockLoadProducts).toHaveBeenLastCalledWith({ sort: 'recent', page: 1, pageSize: 20 });
+
+  mockLoadProducts.mockResolvedValue(ok({ items: [], total: 0 }));
+  fireEvent.press(screen.getByRole('button', { name: 'Agotados' }));
+  await screen.findByText('No hay productos con este filtro');
+  expect(mockLoadProducts).toHaveBeenLastCalledWith({ stock: 'sold_out', sort: 'recent', page: 1, pageSize: 20 });
+  expect(screen.getByRole('button', { name: 'Agotados' }).props.accessibilityState).toMatchObject({ selected: true });
+
+  mockLoadProducts.mockResolvedValue(ok({ items: [product], total: 1 }));
+  fireEvent.press(screen.getByRole('button', { name: 'Ver todos' }));
+  await screen.findByText('Camisa de algodón de manga larga');
+  fireEvent.press(screen.getByRole('button', { name: 'Ordenar por: Recientes' }));
+  await waitFor(() => expect(mockLoadProducts).toHaveBeenLastCalledWith({ sort: 'name', page: 1, pageSize: 20 }));
+  expect(await screen.findByRole('button', { name: 'Ordenar por: Nombre A–Z' })).toBeTruthy();
 });
