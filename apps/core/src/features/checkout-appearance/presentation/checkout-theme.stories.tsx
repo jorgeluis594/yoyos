@@ -51,6 +51,8 @@ const meta = {
   title: "Checkout/Apariencia",
   component: CheckoutSample,
   parameters: { layout: "fullscreen" },
+  // The color stories show every background of one color; these controls would change nothing.
+  argTypes: { brandColor: { table: { disable: true } }, background: { table: { disable: true } } },
 } satisfies Meta<typeof CheckoutSample>;
 export default meta;
 
