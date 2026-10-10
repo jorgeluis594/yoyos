@@ -38,8 +38,18 @@ test("buyer reports a receipt and sees the seller confirmed balance", async ({ p
     const orderId = crypto.randomUUID();
     expect((await page.request.post("/api/orders/pending", { data: { id: orderId, contactId: null,
       items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
-    expect((await request.get(`/pago/${crypto.randomUUID()}`)).status()).toBe(404);
+    const unknown = await page.goto(`/pago/${crypto.randomUUID()}`);
+    expect(unknown?.status()).toBe(404);
+    await browserExpect(page.getByRole("heading", { name: "Pedido no encontrado" })).toBeVisible();
     expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 0, home: { enabled: true }, agency: { enabled: false }, couriers: [], store: { enabled: true, pickupPoint: { name: "Tienda", address: "Av. Arequipa 123, Lima", instructions: null } } } })).ok()).toBe(true);
+    await page.goto(`/es-PE/orders/${orderId}`);
+    await browserExpect(page.getByRole("link", { name: "Abrir enlace de pago" })).toHaveAttribute("href", `/pago/${orderId}`);
+    await browserExpect(page.getByRole("link", { name: "Abrir checkout del pedido" })).toHaveCount(0);
+    expect((await request.get(`/pago/${orderId}`, { maxRedirects: 0 })).status()).toBe(200);
+    await page.goto(`/pago/${orderId}`);
+    await browserExpect(page).toHaveURL(new RegExp(`/pago/${orderId}$`));
+    await browserExpect(page.getByRole("heading", { name: "Pago del pedido", level: 1 })).toBeVisible();
+    await browserExpect(page.getByRole("radio", { name: "Yape" })).toBeVisible();
     await withTenantIsolation(tenantId, async () => { await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: new Date() } }); });
     const checkoutPath = `/checkout/${tenantId}/${orderId}`;
     await page.goto(checkoutPath);
@@ -115,6 +125,7 @@ test("buyer reports a receipt and sees the seller confirmed balance", async ({ p
     expect(payment.amount).toBeNull();
     await page.goto(`/es-PE/orders/${orderId}`);
     await browserExpect(page.getByRole("link", { name: "Abrir checkout del pedido" })).toHaveAttribute("href", checkoutPath);
+    await browserExpect(page.getByRole("link", { name: "Abrir enlace de pago" })).toHaveCount(0);
     await browserExpect(page.getByRole("link", { name: "Ver captura" })).toBeVisible();
     const report = page.getByRole("listitem").filter({ hasText: "Pago reportado, pendiente de revisión" });
     await report.getByLabel("Medio de pago").selectOption("bank_transfer");

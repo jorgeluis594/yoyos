@@ -45,8 +45,10 @@ function serialize(checkout: CheckoutView): PublicCheckoutResponse {
 
 async function loadPayment(orderId: string): Promise<BuyerPaymentView> {
   const payment = await orders.getBuyerPaymentView(orderId);
+  if (!payment.success) log.error({ event: "order_checkout_payment_unavailable", errorCode: payment.error.code }, "Checkout payment view unavailable");
   const parsed = payment.success ? buyerPaymentViewSchema.safeParse(payment.data) : null;
   if (parsed?.success) return parsed.data;
+  if (parsed) log.error({ event: "order_checkout_data_invalid", errorCode: "INVALID_PAYMENT_RESPONSE" }, "Invalid checkout payment response");
   bindRequestOperation({ outcome: "technical_failure" });
   throw new Response(retry, { status: 503, headers: privacyHeaders });
 }
@@ -181,7 +183,7 @@ export default function Checkout() {
       <CheckoutDeliveryFields orderId={orderId} checkout={checkout} options={initialData.deliveryOptions!} onChange={setDeliveryDraft} recoveryVersion={recoveryVersion} disabled={pending} />
       <Button type="submit" disabled={pending || !deliveryDraft || !total}>{pending ? "Confirmando…" : "Confirmar pedido"}</Button><p className="text-sm text-muted-foreground">Confirmas tu intención de compra. El pago se coordina por separado.</p>
     </fetcher.Form> : checkout.buyer && <section><h2 className="font-semibold">Datos del comprador</h2><p>{checkout.buyer.name}</p><p>{checkout.buyer.phone}</p></section>}
-    {checkout.state.kind === "confirmed" && initialData.payment && <section aria-labelledby="payment-title" className="flex flex-col gap-4"><h2 id="payment-title" className="text-xl font-semibold">Pago del pedido</h2><BuyerPaymentContent view={initialData.payment} /></section>}
+    {checkout.state.kind === "confirmed" && initialData.payment && <section aria-label="Pago del pedido" className="flex flex-col gap-4"><BuyerPaymentContent view={initialData.payment} /></section>}
   </main>;
 }
 

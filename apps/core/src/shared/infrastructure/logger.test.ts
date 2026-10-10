@@ -121,17 +121,20 @@ it("normalizes legacy buyer payment URLs with an explicit outcome", () => {
     import { requestLogging, bindRequestOperation } from "./src/shared/infrastructure/logger.ts";
     const app = express();
     app.use(requestLogging);
-    app.get("/{*splat}", (_req, res) => {
-      bindRequestOperation({ outcome: "redirected" });
-      res.sendStatus(301);
+    app.get("/{*splat}", (req, res) => {
+      bindRequestOperation({ outcome: req.query.o });
+      res.sendStatus(req.query.o === "rendered" ? 200 : 301);
     });
     const server = app.listen(0);
-    await fetch("http://127.0.0.1:" + server.address().port + "/pago/secret-order-uuid", { redirect: "manual" });
+    const base = "http://127.0.0.1:" + server.address().port;
+    await fetch(base + "/pago/secret-order-uuid?o=redirected", { redirect: "manual" });
+    await fetch(base + "/pago/secret-order-uuid?o=rendered", { redirect: "manual" });
     server.close();
   `], { cwd: process.cwd(), encoding: "utf8" });
   expect(output).not.toContain("secret-order-uuid");
   expect(output.trim().split("\n").map((line) => JSON.parse(line)).filter((entry) => entry.event === "http_request_completed")).toEqual([
     expect.objectContaining({ route: "/pago/:orderId", operation: "redirect_buyer_payment", outcome: "redirected", statusCode: 301 }),
+    expect.objectContaining({ route: "/pago/:orderId", operation: "redirect_buyer_payment", outcome: "rendered", statusCode: 200 }),
   ]);
 });
 

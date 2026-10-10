@@ -137,8 +137,18 @@ test("confirmed checkout keeps its saved summary and loads the payment view with
   expect(settings).not.toHaveBeenCalled();
 });
 
-test("confirmed checkout answers 503 when the payment view cannot be loaded", async () => {
+test("confirmed checkout logs and answers 503 when the payment view cannot be loaded", async () => {
+  const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
   vi.spyOn(orders, "getCheckout").mockResolvedValue(confirmed);
   vi.spyOn(orders, "getBuyerPaymentView").mockResolvedValue(err({ code: "PERSISTENCE_UNAVAILABLE", message: "Database down" }));
   await expect(loader({ params } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 503 });
+  expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "order_checkout_payment_unavailable", errorCode: "PERSISTENCE_UNAVAILABLE" }), expect.any(String));
+});
+
+test("confirmed checkout logs and answers 503 for an invalid payment view", async () => {
+  const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  vi.spyOn(orders, "getCheckout").mockResolvedValue(confirmed);
+  vi.spyOn(orders, "getBuyerPaymentView").mockResolvedValue(ok({ ...paymentView, orderId: "bad" }));
+  await expect(loader({ params } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 503 });
+  expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "order_checkout_data_invalid" }), expect.any(String));
 });

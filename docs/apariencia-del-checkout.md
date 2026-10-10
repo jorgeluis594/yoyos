@@ -127,7 +127,7 @@ El vendedor elige un solo color; no configura por separado los tonos claro y osc
 
 ## Experiencia del comprador
 
-La identidad se aplica a `/checkout/:companyId/:orderId`, siempre después de resolver y autorizar el acceso al pedido. La página independiente de pago `/pago/:orderId` se retira en esta entrega: el checkout ya muestra el pago tras confirmar, y los enlaces de pago compartidos redirigen al checkout del pedido.
+La identidad se aplica a `/checkout/:companyId/:orderId`, siempre después de resolver y autorizar el acceso al pedido. Los enlaces de pago `/pago/:orderId` de pedidos con checkout habilitado redirigen al checkout del pedido, que ya muestra el pago tras confirmar. Los pedidos sin checkout (históricos, POS o manuales) conservan la página de pago.
 
 | Estado | Resultado esperado |
 | --- | --- |
