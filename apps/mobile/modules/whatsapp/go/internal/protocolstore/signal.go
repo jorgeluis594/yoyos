@@ -202,11 +202,20 @@ func (s *Store) PutManyLIDMappings(ctx context.Context, mappings []store.LIDMapp
 				return e
 			}
 		}
+		if len(mappings) > 0 {
+			t.afterCommit = append(t.afterCommit, s.notifyMappings)
+		}
 		return nil
 	})
 }
 func (s *Store) PutLIDMapping(ctx context.Context, lid, pn types.JID) error {
-	return s.stage(ctx, func(t *txn) error { return putLID(t, lid, pn) })
+	return s.stage(ctx, func(t *txn) error {
+		if e := putLID(t, lid, pn); e != nil {
+			return e
+		}
+		t.afterCommit = append(t.afterCommit, s.notifyMappings)
+		return nil
+	})
 }
 func putLID(t *txn, lid, pn types.JID) error {
 	lid, pn = lid.ToNonAD(), pn.ToNonAD()

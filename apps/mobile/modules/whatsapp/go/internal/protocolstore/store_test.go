@@ -576,3 +576,55 @@ func TestReadRejectsMissingPendingOrdinal(t *testing.T) {
 	_, err := Open(missingOrdinalRead{}, "gen", "123@lid", 1024, 1024)
 	codeIs(t, err, StateInvalid)
 }
+
+// IT-ID-08: several identities are completed in one native publication, and an invalid one publishes none.
+func TestPublishPendingIdentitiesIsOneAtomicPublication(t *testing.T) {
+	n := &controlledStorage{}
+	s := openTest(t, n)
+	ctx := context.Background()
+	recovery := Recovery{MessageInfoJSON: `{"id":"m"}`, Items: []RecoveryItem{{Format: "v2", PlaintextBase64: "AQ==", CiphertextHashBase64: base64.StdEncoding.EncodeToString(make([]byte, 32))}}}
+	ids := []string{"wa-delivery:v1:00112233445566778899aabbccddeeff", "wa-delivery:v1:ffeeddccbbaa99887766554433221100"}
+	for _, id := range ids {
+		if e := s.PreparePendingInsert(ctx, PendingInsert{DeliveryID: id, AccountID: "123@lid", Source: "live", IdentityState: "pendingLid", Recovery: recovery}); e != nil {
+			t.Fatal(e)
+		}
+	}
+	calls := len(n.calls)
+	bad := []PendingIdentityUpdate{{DeliveryID: ids[0], IdentityState: "resolved", Message: json.RawMessage(`{"id":"a"}`)}, {DeliveryID: ids[1], IdentityState: "resolved"}}
+	codeIs(t, s.PublishPendingIdentities(ctx, bad), InvalidRequest)
+	if len(n.calls) != calls {
+		t.Fatal("an invalid batch reached native storage")
+	}
+	good := []PendingIdentityUpdate{bad[0], {DeliveryID: ids[1], IdentityState: "resolved", Message: json.RawMessage(`{"id":"b"}`)}}
+	if e := s.PublishPendingIdentities(ctx, good); e != nil {
+		t.Fatal(e)
+	}
+	if len(n.calls) != calls+1 || len(n.calls[calls].PendingIdentityUpdates) != 2 {
+		t.Fatal("identities were not one native publication")
+	}
+	if e := s.PublishPendingIdentities(ctx, nil); e != nil || len(n.calls) != calls+1 {
+		t.Fatal("an empty batch published something")
+	}
+}
+
+// IT-ID-08: the mapping hook runs after a mapping is committed, not for other writes or failed ones.
+func TestMappingHookRunsAfterMappingCommit(t *testing.T) {
+	n := &controlledStorage{}
+	s := openTest(t, n)
+	var runs int
+	s.SetMappingHook(func() { runs++ })
+	pn, _ := types.ParseJID("123@s.whatsapp.net")
+	lid, _ := types.ParseJID("456@lid")
+	if e := s.PutNCTSalt(context.Background(), []byte{1}); e != nil || runs != 0 {
+		t.Fatalf("hook ran for an unrelated write: %v %d", e, runs)
+	}
+	if e := s.PutLIDMapping(context.Background(), lid, pn); e != nil || runs != 1 {
+		t.Fatalf("hook after single mapping: %v %d", e, runs)
+	}
+	if e := s.PutManyLIDMappings(context.Background(), nil); e != nil || runs != 1 {
+		t.Fatalf("hook for an empty batch: %v %d", e, runs)
+	}
+	if s.AccountID() != "123@lid" {
+		t.Fatal("account")
+	}
+}

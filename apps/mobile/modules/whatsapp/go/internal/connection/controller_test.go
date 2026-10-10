@@ -421,3 +421,24 @@ func TestBackoffSequenceCapsAndResetsAfterConnection(t *testing.T) {
 	}
 	c.Disconnect()
 }
+
+// IT-ID-07: IDENTITY_UNAVAILABLE informs the consumer without stopping or changing the connection.
+func TestNotifyPublishesIdentityUnavailableWithoutChangingState(t *testing.T) {
+	events := make(chan Event, 8)
+	transport := newTransport()
+	c := New(func() (Transport, error) { return transport, nil }, func(e Event) { events <- e }, nil)
+	c.Prepare(true)
+	c.Connect()
+	started(t, transport)
+	receive(t, events) // reconnecting
+	before := c.State()
+	c.Notify(IdentityUnavailable)
+	if event := receive(t, events); event.Error != IdentityUnavailable || event.State != "" {
+		t.Fatalf("unexpected event %+v", event)
+	}
+	if c.State() != before {
+		t.Fatal("informational error changed the connection")
+	}
+	c.Close()
+	c.Notify(IdentityUnavailable) // after close nothing is delivered and nothing blocks
+}

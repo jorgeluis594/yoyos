@@ -8,6 +8,7 @@ import (
 
 	"go.mau.fi/whatsmeow/store"
 	"yoyos-whatsapp/internal/connection"
+	"yoyos-whatsapp/internal/identity"
 	"yoyos-whatsapp/internal/protocolstore"
 	"yoyos-whatsapp/internal/receive"
 )
@@ -25,6 +26,7 @@ type ConnectionSession struct {
 	store      *protocolstore.Store
 	device     *store.Device
 	delivery   *DeliverySession
+	identity   *identity.Service
 	reopen     func() (*protocolstore.Store, *store.Device, error)
 }
 type ConnectionOpenResult struct {
@@ -94,6 +96,7 @@ func OpenConnectionWithDelivery(storage ProtocolStorage, sink ConnectionEvents, 
 	session.controller.Prepare(accountID != "")
 	if delivery != nil {
 		delivery.attach(session)
+		session.startIdentity(delivery)
 	}
 	return &ConnectionOpenResult{Session: session}
 }
@@ -121,10 +124,14 @@ func (s *ConnectionSession) newTransport() (connection.Transport, error) {
 	if s.delivery == nil {
 		return connection.NewWhatsmeowTransport(device, stopReason), nil
 	}
+	if s.identity != nil {
+		s.watchMappings()
+	}
 	receiver := receive.New(device, s.delivery.ledger, s.delivery.coordinator, receive.Hooks{
-		Capacity:     s.controller.PauseForCapacity,
-		Oversize:     func() { s.controller.FailLocal(connection.RecoveryBufferFull) },
-		LocalFailure: func(err error) { s.controller.FailLocal(connection.Code(publicCode(err))) },
+		Capacity:        s.controller.PauseForCapacity,
+		Oversize:        func() { s.controller.FailLocal(connection.RecoveryBufferFull) },
+		IdentityPending: s.identityTrigger,
+		LocalFailure:    func(err error) { s.controller.FailLocal(connection.Code(publicCode(err))) },
 	})
 	return connection.NewWhatsmeowTransport(device, stopReason, receiver), nil
 }
@@ -178,6 +185,11 @@ func (s *ConnectionSession) Connect() string {
 	if s == nil || s.controller == nil {
 		return "NOT_INITIALIZED"
 	}
+	if s.identity != nil {
+		// A new request is a new listener scope: unresolved content is reported again, once.
+		s.identity.Rearm()
+		s.identity.Trigger()
+	}
 	return publicConnectCode(s.controller.Connect())
 }
 
@@ -195,6 +207,9 @@ func (s *ConnectionSession) Disconnect() {
 	}
 }
 func (s *ConnectionSession) Close() bool {
+	if s != nil && s.identity != nil {
+		s.identity.Close()
+	}
 	if s != nil && s.delivery != nil {
 		s.delivery.detach(s)
 	}

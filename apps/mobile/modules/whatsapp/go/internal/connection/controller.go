@@ -28,6 +28,7 @@ const (
 	SessionStateInvalid        Code = "SESSION_STATE_INVALID"
 	RecoveryBufferFull         Code = "RECOVERY_BUFFER_FULL"
 	ConsumerUnavailable        Code = "CONSUMER_UNAVAILABLE"
+	IdentityUnavailable        Code = "IDENTITY_UNAVAILABLE"
 )
 
 type Event struct {
@@ -220,6 +221,14 @@ func (c *Controller) failLocalLocked(code Code) {
 	c.localFault = code
 	c.publish(Event{Error: code})
 	c.setState(Disconnected)
+}
+
+// Notify publishes an informational error that neither stops reception nor
+// changes state, such as content kept while its identity is still unknown.
+func (c *Controller) Notify(code Code) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.publish(Event{Error: code})
 }
 func (c *Controller) PauseForCapacity() {
 	c.mu.Lock()

@@ -172,6 +172,10 @@ func (c *Coordinator) ClearCapacityWait() {
 	c.mu.Unlock()
 }
 
+// Refresh asks the traversal to look again, for entries that became deliverable
+// without a confirmation, such as a pending identity that was completed.
+func (c *Coordinator) Refresh() { c.kick() }
+
 // Confirm durably retires a delivery by ID, whichever consumer persisted it.
 func (c *Coordinator) Confirm(id string) error {
 	if !protocolstore.ValidDeliveryID(id) {

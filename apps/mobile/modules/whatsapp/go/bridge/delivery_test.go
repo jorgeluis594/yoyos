@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"yoyos-whatsapp/internal/connection"
 	"yoyos-whatsapp/internal/protocolstore"
 )
 
@@ -323,5 +324,36 @@ func (e *errorSink) OnConnectionEvent(value string) {
 	}
 	if json.Unmarshal([]byte(value), &decoded) == nil && decoded.Event == "error" {
 		e.events <- decoded.Payload.Code
+	}
+}
+
+// IT-ID-07: the public connection error keeps its contract code and is not mapped to a native failure.
+func TestIdentityUnavailableIsAPublicConnectionError(t *testing.T) {
+	raw, err := json.Marshal(connectionEvent(connection.Event{Error: connection.IdentityUnavailable}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Event   string `json:"event"`
+		Payload struct{ Code string }
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil || decoded.Event != "error" || decoded.Payload.Code != "IDENTITY_UNAVAILABLE" {
+		t.Fatalf("%s %v", raw, err)
+	}
+}
+
+// IT-ID-08: resolving before credentials are retired needs no account store to answer; a first link has no pending identity.
+func TestResolveIdentitiesBeforeAccountExistsIsEmptySuccess(t *testing.T) {
+	session, _ := openDelivery(t, &pendingStorage{})
+	opened := OpenConnectionWithDelivery(connectionStorage{}, connectionSink{}, session, "g", "", 10<<20, 10<<20)
+	if opened.Code != "" {
+		t.Fatal(opened.Code)
+	}
+	defer opened.Session.Close()
+	if code := opened.Session.ResolveIdentities(); code != "" {
+		t.Fatalf("code %q", code)
+	}
+	if code := (*ConnectionSession)(nil).ResolveIdentities(); code != "NOT_INITIALIZED" {
+		t.Fatalf("code %q", code)
 	}
 }

@@ -16,13 +16,11 @@ import (
 	"errors"
 
 	waBinary "go.mau.fi/whatsmeow/binary"
-	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
-	"google.golang.org/protobuf/proto"
 	"yoyos-whatsapp/internal/delivery"
-	"yoyos-whatsapp/internal/normalization"
+	"yoyos-whatsapp/internal/identity"
 	"yoyos-whatsapp/internal/protocolstore"
 )
 
@@ -32,6 +30,8 @@ type Hooks struct {
 	Capacity func()
 	// Oversize stops reception: no amount of freed space admits the entry.
 	Oversize func()
+	// IdentityPending reports that content was kept without a definitive identity.
+	IdentityPending func()
 	// LocalFailure stops reception for a local persistence failure.
 	LocalFailure func(error)
 }
@@ -69,34 +69,14 @@ func (r *Receiver) PreDecrypt(ctx context.Context, info *types.MessageInfo, node
 // build runs inside the decryption transaction and must not touch the store.
 func (r *Receiver) build(captured protocolstore.CapturedReceive, child protocolstore.CapturedChild, plaintext []byte) (string, json.RawMessage, error) {
 	if child.Format != "v2" {
-		return "excluded", nil, nil
-	}
-	var message waE2E.Message
-	if err := proto.Unmarshal(plaintext, &message); err != nil {
-		return "excluded", nil, nil
+		return string(identity.Excluded), nil, nil
 	}
 	info, err := protocolstore.ParseReceiveInfo(captured)
 	if err != nil {
 		return "", nil, err
 	}
-	event := (&events.Message{Info: *info, RawMessage: &message}).UnwrapRaw()
-	result, err := normalization.Normalize(event, r.device.ID.ToNonAD(), r.device.LID, nil)
-	switch {
-	case errors.Is(err, normalization.ErrInvalidTimestamp), errors.Is(err, normalization.ErrInvalidIdentity), errors.Is(err, normalization.ErrRawEditInspectionExhausted):
-		// Content that cannot be given a valid public identity is never deliverable.
-		return "excluded", nil, nil
-	case err != nil:
-		return "", nil, err
-	case result.Unresolved != nil:
-		return "pendingLid", nil, nil
-	case result.Message == nil:
-		return "excluded", nil, nil
-	}
-	raw, err := json.Marshal(result.Message)
-	if err != nil {
-		return "", nil, err
-	}
-	return "resolved", raw, nil
+	state, message, err := identity.Classify(info, child.Format, plaintext, r.device.ID.ToNonAD(), r.device.LID, nil)
+	return string(state), message, err
 }
 
 // Handle is the protocol handler: true allows the acknowledgement. It waits
@@ -118,6 +98,9 @@ func (r *Receiver) Handle(ctx context.Context, event any) bool {
 		return true
 	}
 	if record.IdentityState != "resolved" {
+		// No ACK for content without a definitive identity; a resolution pass completes it
+		// when its mapping arrives, and a later redelivery of the protocol message is acknowledged.
+		callAsync(r.hooks.IdentityPending)
 		return false
 	}
 	return r.coordinator.Await(ctx, record.DeliveryID) == delivery.Retired

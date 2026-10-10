@@ -31,6 +31,7 @@ type native struct {
 	pending    []protocolstore.PendingRecord
 	log        *eventLog
 	failApply  error  // returned by ApplyChanges before anything is published
+	failIdent  error  // like failApply, only for publications that complete an identity
 	failRead   error  // returned by ReadPending
 	failRetire error  // returned by RetirePending before anything is published
 	loseRetire bool   // publishes the retirement but loses the reply
@@ -102,6 +103,9 @@ func (n *native) ApplyChanges(request string) (string, error) {
 	if n.failApply != nil {
 		return "", n.failApply
 	}
+	if n.failIdent != nil && len(a.PendingIdentityUpdates) > 0 {
+		return "", n.failIdent
+	}
 	for _, c := range a.ProtocolChanges {
 		key := c.RecordType + "\x00" + c.RecordKey
 		if c.Operation == "put" {
@@ -120,6 +124,14 @@ func (n *native) ApplyChanges(request string) (string, error) {
 	}
 	if len(a.PendingInserts) > 0 {
 		n.log.add("commit")
+	}
+	for _, u := range a.PendingIdentityUpdates {
+		for i := range n.pending {
+			if n.pending[i].DeliveryID == u.DeliveryID {
+				n.pending[i].IdentityState, n.pending[i].Message = u.IdentityState, u.Message
+				n.log.add("identity")
+			}
+		}
 	}
 	return ok(map[string]string{"revision": fmt.Sprint(n.revision), "sessionRevision": fmt.Sprint(n.sessionRev)}), nil
 }
@@ -288,7 +300,13 @@ type received struct {
 // receive mirrors whatsmeow's order: capture, buffered decryption transaction, then the handler.
 func (l *life) receive(id, text string) *received {
 	l.t.Helper()
-	info := &types.MessageInfo{MessageSource: types.MessageSource{Chat: types.JID{User: "555", Server: types.HiddenUserServer}, Sender: types.JID{User: "555", Server: types.HiddenUserServer}}, ID: id, Timestamp: time.Unix(1700000000, 0)}
+	return l.receiveFrom(id, text, types.JID{User: "555", Server: types.HiddenUserServer})
+}
+
+// receiveFrom is receive for a chat addressed by the given JID, such as a phone number.
+func (l *life) receiveFrom(id, text string, chat types.JID) *received {
+	l.t.Helper()
+	info := &types.MessageInfo{MessageSource: types.MessageSource{Chat: chat, Sender: chat}, ID: id, Timestamp: time.Unix(1700000000, 0)}
 	node := &waBinary.Node{Content: []waBinary.Node{{Tag: "enc", Attrs: waBinary.Attrs{"v": "2", "type": "msg"}, Content: []byte("cipher-" + id)}}}
 	plain, err := proto.Marshal(&waE2E.Message{Conversation: proto.String(text)})
 	if err != nil {

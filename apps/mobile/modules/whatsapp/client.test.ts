@@ -133,6 +133,24 @@ test("drops stale queued replay and rejects malformed events", async () => {
   expect(error).toHaveBeenCalledWith({ code: "INVALID_NATIVE_RESPONSE", message: "Invalid WhatsApp native response" });
 });
 
+// IT-ID-07: IDENTITY_UNAVAILABLE reaches error listeners with a sanitized message and leaves the connection untouched.
+test("identity unavailable is an informational error that does not change connection state", async () => {
+  const native = fakeNative();
+  const client = createWhatsAppClient(() => native);
+  await client.initialize();
+  const status = jest.fn();
+  const error = jest.fn();
+  client.addListener("connectionChanged", status);
+  client.addListener("error", error);
+  native.handlers.get("connectionChanged")?.({ state: "connected" });
+  native.handlers.get("error")?.({ code: "IDENTITY_UNAVAILABLE", message: "secret 34600@s.whatsapp.net" });
+  await Promise.resolve();
+  expect(error).toHaveBeenCalledTimes(1);
+  expect(error).toHaveBeenCalledWith({ code: "IDENTITY_UNAVAILABLE", message: "WhatsApp identity is unavailable" });
+  expect(status).toHaveBeenCalledTimes(1);
+  expect(status).toHaveBeenLastCalledWith({ state: "connected" });
+});
+
 test("remote logout uncertainty still permits a new explicit link request", async () => {
   const native = fakeNative();
   const client = createWhatsAppClient(() => native);
