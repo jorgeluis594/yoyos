@@ -18,9 +18,10 @@ describe("CheckoutPreviewFrame", () => {
   let root: Root | undefined;
   let container: HTMLElement;
   beforeEach(() => { container = document.body.appendChild(document.createElement("div")); });
+  const onModeChange = vi.fn();
+  beforeEach(() => onModeChange.mockClear());
   afterEach(() => { act(() => root?.unmount()); root = undefined; document.body.innerHTML = ""; vi.restoreAllMocks(); });
 
-  const onModeChange = vi.fn();
   function mount(appearance: PublicCheckoutAppearance, mode: CheckoutPreviewMode = "light") {
     root = createRoot(container);
     render(appearance, mode);

@@ -849,6 +849,6 @@ describe("legacy payment link")
 
 ## Estado
 
-**Nada construido.** Al 10 de octubre de 2026 no existen en el repositorio la migración ni la feature `checkout-appearance`. El paso 1 construido con HEX y paleta derivada se revirtió al cambiar a colores predefinidos, así que no hay datos ni migraciones que adaptar desde ese modelo.
+**Construido:** T0 a T5 de [apariencia-del-checkout-tareas.md](apariencia-del-checkout-tareas.md) están integradas en la rama de la feature (`jorgeluis594/checkout-editable`). Incluye la migración `20261010142043_add_company_checkout_appearance`, el editor con vista previa en vivo, el checkout con marca y la redirección de `/pago/:orderId`.
 
-**Pendiente:** las tareas T0 a T5 de [apariencia-del-checkout-tareas.md](apariencia-del-checkout-tareas.md).
+**Pendiente:** la verificación en staging de logs y transacciones de New Relic de las cuatro rutas, a cargo del equipo que despliega. El detalle está en el criterio de T5 de [apariencia-del-checkout-tareas.md](apariencia-del-checkout-tareas.md#t5--cierre-del-lanzamiento).
