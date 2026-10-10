@@ -206,7 +206,9 @@ func TestUnresolvedIdentityNeverGrantsAck(t *testing.T) {
 	l.coord.Start()
 	// A PN-addressed chat with no verified LID mapping is unresolved.
 	seed(n, 1, account, "1", 0, "pendingLid", 0)
-	n.pending[0].Recovery.MessageInfoJSON = `{"version":1,"accountId":"123@lid","id":"u1","chat":"777@s.whatsapp.net","sender":"777@s.whatsapp.net","timestampSeconds":100}`
+	n.set(func() { // the coordinator is already running: write under the container lock (PR #49 n1)
+		n.pending[0].Recovery.MessageInfoJSON = `{"version":1,"accountId":"123@lid","id":"u1","chat":"777@s.whatsapp.net","sender":"777@s.whatsapp.net","timestampSeconds":100}`
+	})
 	if _, found, err := l.recv.find(infoFor("u1", "777@s.whatsapp.net")); err != nil || !found {
 		t.Fatalf("lookup %v %v", found, err)
 	}

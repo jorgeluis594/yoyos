@@ -98,7 +98,7 @@ class WhatsAppService : Service() {
 
   override fun onDestroy() {
     // A newer connect() may already have requested a start; its flag must survive this instance's destruction.
-    if (ConnectionRuntime.pendingStarts.get() == 0) ConnectionRuntime.serviceActive = false
+    synchronized(ConnectionRuntime.serviceFlagLock) { if (ConnectionRuntime.pendingStarts.get() == 0) ConnectionRuntime.serviceActive = false }
     worker.shutdown() // no persistence here: a killed process never reaches this method
     super.onDestroy()
   }

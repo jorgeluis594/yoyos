@@ -580,17 +580,17 @@ func TestITIOS01EveryPairWhileAResumeIsBuildingStaysCoherent(t *testing.T) {
 				t.Run(label, func(t *testing.T) {
 					m := newModelRig(t)
 					release := m.startBuildingResume()
-					var wait func()
+					// WA-14 (PR #53 m1): Resume finishes completely before the next operation, so the interleaving the
+					// label names is the one that runs, not whatever the scheduler picks.
 					for i, op := range []modelOp{first, second} {
 						if i == released {
-							wait = release()
+							release()()
 						}
 						m.apply(op)
 					}
 					if released == 2 {
-						wait = release()
+						release()()
 					}
-					wait()
 					m.check(t, label)
 				})
 			}
@@ -608,17 +608,15 @@ func TestITIOS01EveryTripleStartingFromABuildingResumeStaysCoherent(t *testing.T
 					t.Run(label, func(t *testing.T) {
 						m := newModelRig(t)
 						release := m.startBuildingResume()
-						var wait func()
 						for i, op := range []modelOp{first, second, third} {
 							if i == released {
-								wait = release()
+								release()() // Resume finishes completely before the next operation (PR #53 m1)
 							}
 							m.apply(op)
 						}
 						if released == 3 {
-							wait = release()
+							release()()
 						}
-						wait()
 						m.check(t, label)
 					})
 				}

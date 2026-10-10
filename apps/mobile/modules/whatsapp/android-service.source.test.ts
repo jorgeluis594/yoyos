@@ -260,10 +260,11 @@ describe("review m2 and N1 ended request", () => {
 
 describe("review n1 serviceActive race", () => {
   test("an old instance's destroy cannot clear the flag of a newer start", () => {
-    expect(body(service, "override fun onDestroy")).toContain("if (ConnectionRuntime.pendingStarts.get() == 0) ConnectionRuntime.serviceActive = false");
+    // WA-14 (r2): the check-then-set of onDestroy and the increment-then-set of a start share one lock.
+    expect(body(service, "override fun onDestroy")).toContain("synchronized(ConnectionRuntime.serviceFlagLock) { if (ConnectionRuntime.pendingStarts.get() == 0) ConnectionRuntime.serviceActive = false }");
     const start = body(module, "fun startService");
-    expect(start).toContain("pendingStarts.incrementAndGet()");
-    expect(order(start, "pendingStarts.incrementAndGet()", "serviceActive = true")).toBe(true); // r2
+    expect(start).toContain("synchronized(serviceFlagLock) { pendingStarts.incrementAndGet(); serviceActive = true }");
+    expect(order(start, "pendingStarts.incrementAndGet()", "serviceActive = true")).toBe(true);
     expect(code(body(service, "override fun onStartCommand"))).toContain("pendingStarts.updateAndGet");
   });
 });
