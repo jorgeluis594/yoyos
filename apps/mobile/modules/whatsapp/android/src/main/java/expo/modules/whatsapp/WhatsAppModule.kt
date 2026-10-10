@@ -350,7 +350,7 @@ class WhatsAppModule : Module() {
         messageId == null || downloadReference == null -> failure("INVALID_INPUT")
         else -> ImageOperations.run({ images.beginDownload(messageId, downloadReference) }) { operation ->
           try {
-            val result = operation.wait()
+            val result = operation.outcome()
             when {
               result == null -> failure("NATIVE_CALL_FAILED")
               result.code.isNotEmpty() -> failure(imageCode(result.code))
@@ -364,7 +364,7 @@ class WhatsAppModule : Module() {
       val images = synchronized(ConnectionRuntime.lock) { ConnectionRuntime.images }
       if (images == null) failure("NOT_INITIALIZED") else ImageOperations.run({ images.beginDelete(messageId) }) { operation ->
         try {
-          val code = operation.wait().code
+          val code = operation.outcome().code
           if (code.isEmpty()) success() else failure(imageCode(code))
         } catch (_: Exception) { failure("NATIVE_CALL_FAILED") }
       }

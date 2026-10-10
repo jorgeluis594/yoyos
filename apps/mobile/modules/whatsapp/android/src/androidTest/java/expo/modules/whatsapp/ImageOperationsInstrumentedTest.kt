@@ -34,7 +34,7 @@ class ImageOperationsInstrumentedTest {
         }
       }
     }
-    assertEquals(listOf(1, 2), calls.map { it.await() })
+    assertEquals(listOf(1, 2), calls.map { it.outcome() })
     assertEquals(listOf(1, 2), admitted.toList())
   }
 
@@ -53,7 +53,7 @@ class ImageOperationsInstrumentedTest {
           Thread.currentThread() to value
         }
       }
-    }.map { it.await() }
+    }.map { it.outcome() }
     assertTrue(peak.get() <= ImageOperations.MAX_WAITERS)
     results.forEach { assertNotEquals(caller, it.first) }
   }
@@ -65,8 +65,8 @@ class ImageOperationsInstrumentedTest {
     assertEquals("", opened.code)
     val session = opened.session
     assertNotNull(session)
-    assertEquals("INVALID_INPUT", session.beginDownload("wa-message:v1:x", "wa-image:v1:AAAA").wait().code)
-    assertEquals("INVALID_INPUT", session.beginDelete("../../etc/passwd").wait().code)
+    assertEquals("INVALID_INPUT", session.beginDownload("wa-message:v1:x", "wa-image:v1:AAAA").outcome().code)
+    assertEquals("INVALID_INPUT", session.beginDelete("../../etc/passwd").outcome().code)
     dir.deleteRecursively()
   }
 }

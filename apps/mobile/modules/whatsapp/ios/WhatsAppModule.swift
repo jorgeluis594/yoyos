@@ -364,7 +364,7 @@ public class WhatsAppModule: Module {
         promise.resolve(failure("INVALID_INPUT")); return
       }
       ImageOperations.submit(begin: { images.beginDownload(messageId, downloadReference: downloadReference) }, wait: { operation -> [String: Any] in
-        guard let result = operation?.wait() else { return failure("NATIVE_CALL_FAILED") }
+        guard let result = operation?.outcome() else { return failure("NATIVE_CALL_FAILED") }
         if !result.code.isEmpty { return failure(imageCode(result.code)) }
         return success(["uri": URL(fileURLWithPath: result.path).absoluteString, "mimeType": result.mimeType, "size": result.size])
       }, completion: { promise.resolve($0) })
@@ -374,7 +374,7 @@ public class WhatsAppModule: Module {
       runtime.lock.lock(); let images = runtime.images; runtime.lock.unlock()
       guard let images else { promise.resolve(failure("NOT_INITIALIZED")); return }
       ImageOperations.submit(begin: { images.beginDelete(messageId) }, wait: { operation -> [String: Any] in
-        guard let code = operation?.wait()?.code else { return failure("NATIVE_CALL_FAILED") }
+        guard let code = operation?.outcome()?.code else { return failure("NATIVE_CALL_FAILED") }
         return code.isEmpty ? success() : failure(imageCode(code))
       }, completion: { promise.resolve($0) })
     }

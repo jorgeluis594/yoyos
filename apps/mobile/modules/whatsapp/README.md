@@ -115,3 +115,8 @@ Native layer (`logout` in `WhatsAppModule.kt` / `.swift` now calls `session.logo
 - **m6:** at most `maxWaiters` (4) threads wait for Go's queue, whatever the number of pending calls (`waitersAreBounded` / `testWaitersAreBounded`, not run).
 - **m7:** an unreadable foreign entry (directory or file) at startup is skipped and counted in `Stats().Unreadable` instead of failing `initialize`; `Stats().Files` counts regular files only.
 - Every operation returned by `Begin*` must be waited for, or the queue stops; native always submits its wait.
+
+### WA-10 third review fixes
+
+- **B2 – reserved binding names:** `ImageOperation.Wait` was generated as Java `wait()`, which clashes with the final `Object.wait()`; the method is now `Outcome` (Kotlin, Swift and the native source tests updated). `bridge/binding_names_test.go` walks every exported method, interface method, package function and struct field of the package and fails on a name that, after gobind lower-cases it, collides with `java.lang.Object` (`wait`, `notify`, `notifyAll`, `getClass`, `hashCode`, `equals`, `toString`, `clone`, `finalize`, and `get/set/is<Field>` accessors), with `NSObject` (`description`, `hash`, `class`, `retain`, `release`, …) or starts an Objective-C ARC family (`init*`, `new*`, `copy*`, `mutableCopy*`, `alloc*`). The only collision in the package was `Wait`; no earlier-task name collided.
+- **m9:** `Begin*` starts the operation's goroutine, which runs at its turn; `Wait` only reads the result. Progress no longer depends on the native pool calling `Wait` in order (`TestM9…`).

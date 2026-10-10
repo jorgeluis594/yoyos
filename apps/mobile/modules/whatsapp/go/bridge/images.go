@@ -66,8 +66,10 @@ func (s *ImageSession) BeginDelete(messageID string) *ImageOperation {
 	return &ImageOperation{pending: s.service.BeginDelete(messageID)}
 }
 
-// Wait runs the operation in its position. A deletion answers with Code only.
-func (o *ImageOperation) Wait() *ImageDownloadResult {
+// Outcome returns the operation's result once it ran in its position. A deletion answers with Code
+// only. It is not called Wait: gobind would generate Java's wait(), which clashes with the final
+// Object.wait() (see binding_names_test.go).
+func (o *ImageOperation) Outcome() *ImageDownloadResult {
 	if o == nil || o.pending == nil {
 		code := "NOT_INITIALIZED"
 		if o != nil && o.code != "" {
@@ -87,7 +89,7 @@ func (s *ImageSession) Download(messageID, downloadReference string) *ImageDownl
 	if s == nil || s.service == nil {
 		return &ImageDownloadResult{Code: "NOT_INITIALIZED"}
 	}
-	return s.BeginDownload(messageID, downloadReference).Wait()
+	return s.BeginDownload(messageID, downloadReference).Outcome()
 }
 
 // Delete removes the complete file; an absent file is success. It returns a public code or "".

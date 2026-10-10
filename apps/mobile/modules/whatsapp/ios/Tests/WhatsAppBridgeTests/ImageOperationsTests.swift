@@ -51,7 +51,7 @@ final class ImageOperationsTests: XCTestCase {
     let opened = YYWhatsAppGoBridgeOpenImages(dir.path, 1024)
     XCTAssertEqual(opened?.code, "")
     let session = try XCTUnwrap(opened?.session)
-    XCTAssertEqual(session.beginDownload("wa-message:v1:x", downloadReference: "wa-image:v1:AAAA")?.wait()?.code, "INVALID_INPUT")
-    XCTAssertEqual(session.beginDelete("../../etc/passwd")?.wait()?.code, "INVALID_INPUT")
+    XCTAssertEqual(session.beginDownload("wa-message:v1:x", downloadReference: "wa-image:v1:AAAA")?.outcome()?.code, "INVALID_INPUT")
+    XCTAssertEqual(session.beginDelete("../../etc/passwd")?.outcome()?.code, "INVALID_INPUT")
   }
 }

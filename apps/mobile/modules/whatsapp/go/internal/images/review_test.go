@@ -158,3 +158,40 @@ func TestM7UnreadableForeignEntriesDoNotFailOpen(t *testing.T) {
 		t.Fatalf("%+v", stats)
 	}
 }
+
+// m9: an operation makes progress without anybody calling Wait, and a later Wait never has to
+// run before an earlier one for the queue to move.
+func TestM9OperationsProgressWithoutWaitAndInAnyWaitOrder(t *testing.T) {
+	plain := payload(128)
+	idA, refA, _ := reference(t, spec{wid: "a", plain: plain})
+	idB, refB, _ := reference(t, spec{wid: "b", plain: plain})
+	dir := t.TempDir()
+	service := openService(t, dir, 1<<20, nil, nil, newNetwork(serving(plain)))
+	first := service.BeginDownload(idA, refA)
+	second := service.BeginDownload(idB, refB)
+	third := service.BeginDelete(idA)
+	// Only the last one is waited for, and nobody waits for the first two.
+	if _, err := third.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := second.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if names := files(t, dir); len(names) != 1 || names[0] != fileName(idB)+completeSuffix {
+		t.Fatalf("expected only B to stay published: %v", names)
+	}
+	// Never waited at all: the operation still runs.
+	service2 := openService(t, t.TempDir(), 1<<20, nil, nil, newNetwork(serving(plain)))
+	service2.BeginDownload(idA, refA)
+	deadline := time.After(5 * time.Second)
+	for service2.Stats().Files == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("an operation nobody waited for never ran")
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+}

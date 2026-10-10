@@ -249,24 +249,38 @@ func fileName(messageID string) string {
 func (s *Service) path(name string) string { return filepath.Join(s.dir, name) }
 
 // Pending is an operation already admitted to the queue. Admission order is fixed by the order of
-// the Begin calls; Wait may be called from any goroutine, in any order, and blocks until the
-// operation ran. A caller that needs FIFO semantics calls Begin from one ordered context and
-// waits elsewhere.
+// the Begin calls. The operation runs on its own goroutine, started by Begin, as soon as its turn
+// comes: progress never depends on anybody calling Wait, nor on the order in which waiters are
+// scheduled. Wait only reads the result.
 type Pending struct {
-	run    func() (Image, *Error)
-	once   sync.Once
+	done   chan struct{}
 	image  Image
 	failed *Error
 }
 
-// Wait runs the operation in its queue position and returns its result; it is idempotent.
+// Wait blocks until the operation finished and returns its result; it may be called any number of
+// times, from any goroutine, or never.
 func (p *Pending) Wait() (Image, *Error) {
-	p.once.Do(func() { p.image, p.failed = p.run() })
+	<-p.done
 	return p.image, p.failed
 }
 
 func resolved(err *Error) *Pending {
-	return &Pending{run: func() (Image, *Error) { return Image{}, err }}
+	p := &Pending{done: make(chan struct{}), failed: err}
+	close(p.done)
+	return p
+}
+
+// start runs the operation at its turn on a new goroutine.
+func (s *Service) start(t turn, run func() (Image, *Error)) *Pending {
+	p := &Pending{done: make(chan struct{})}
+	go func() {
+		defer close(p.done)
+		<-t.wait
+		defer close(t.done)
+		p.image, p.failed = run()
+	}()
+	return p
 }
 
 // BeginDownload validates the reference and takes a queue position without waiting for it.
@@ -276,11 +290,7 @@ func (s *Service) BeginDownload(messageID, downloadReference string) *Pending {
 		return resolved(perr)
 	}
 	t := s.admit()
-	return &Pending{run: func() (Image, *Error) {
-		<-t.wait
-		defer close(t.done)
-		return s.download(d, t.admitted)
-	}}
+	return s.start(t, func() (Image, *Error) { return s.download(d, t.admitted) })
 }
 
 // BeginDelete validates the message ID and takes a queue position without waiting for it.
@@ -289,11 +299,7 @@ func (s *Service) BeginDelete(messageID string) *Pending {
 		return resolved(fail(InvalidInput, nil))
 	}
 	t := s.admit()
-	return &Pending{run: func() (Image, *Error) {
-		<-t.wait
-		defer close(t.done)
-		return Image{}, s.remove(messageID)
-	}}
+	return s.start(t, func() (Image, *Error) { return Image{}, s.remove(messageID) })
 }
 
 // Download returns the verified image for a descriptor, reusing a valid complete file first.
