@@ -23,6 +23,18 @@ type LogoutResult struct {
 	Err       error
 }
 
+// Quieter is implemented by a transport that can stop acknowledging deliveries while it
+// stays connected, so nothing is confirmed without the receive path once logout began.
+type Quieter interface{ Quiesce() }
+
+// SetUnlinkTransport sets how to build a connection used only to request the unlink when
+// no live socket exists. It must not receive or acknowledge messages.
+func (c *Controller) SetUnlinkTransport(create func() (Transport, error)) {
+	c.mu.Lock()
+	c.unlinkCreate = create
+	c.mu.Unlock()
+}
+
 type logoutCall struct {
 	done   chan struct{}
 	result LogoutResult
@@ -45,10 +57,14 @@ func (c *Controller) Logout(prepare func() error) LogoutResult {
 	call := &logoutCall{done: make(chan struct{})}
 	c.logout = call
 	transport := c.detachLocked()
+	revoked, create := c.expired, c.unlinkCreate
 	c.setState(Disconnected)
 	c.mu.Unlock()
+	if quiet, ok := transport.(Quieter); ok {
+		quiet.Quiesce()
+	}
 
-	call.result = c.unlink(transport, prepare)
+	call.result = c.unlink(transport, revoked, create, prepare)
 
 	c.mu.Lock()
 	c.logout = nil
@@ -58,13 +74,20 @@ func (c *Controller) Logout(prepare func() error) LogoutResult {
 	return call.result
 }
 
-func (c *Controller) unlink(transport Transport, prepare func() error) LogoutResult {
+func (c *Controller) unlink(transport Transport, revoked bool, create func() (Transport, error), prepare func() error) LogoutResult {
 	if transport != nil {
 		defer transport.Stop()
 	}
 	if prepare != nil {
 		if err := prepare(); err != nil {
 			return LogoutResult{Err: err}
+		}
+	}
+	if transport == nil && !revoked && create != nil {
+		// No live socket (never connected, restart, backoff, disconnect): connect only to unlink.
+		if made, err := create(); err == nil && made != nil {
+			transport = made
+			defer transport.Stop()
 		}
 	}
 	return LogoutResult{Confirmed: c.requestUnlink(transport)}

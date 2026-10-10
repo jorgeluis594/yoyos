@@ -141,8 +141,9 @@ private final class ConnectionRuntime {
     consumerToken = nil
   }
 
-  func openConnection(snapshot: [String: Any]) throws -> String? {
-    if revoked { return "SESSION_EXPIRED" }
+  /// forLogout opens the stored session without network even after disconnect or revocation.
+  func openConnection(snapshot: [String: Any], forLogout: Bool = false) throws -> String? {
+    if revoked && !forLogout { return "SESSION_EXPIRED" }
     guard let writer else { return "NOT_INITIALIZED" }
     if snapshot["session"] is [String: Any] && (try !writer.canRestoreSession()) { stop(); return "SESSION_STATE_INVALID" }
     if session != nil { return nil }
@@ -266,6 +267,14 @@ public class WhatsAppModule: Module {
       runtime.lock.lock(); defer { runtime.lock.unlock() }
       guard runtime.prepared, let writer = runtime.writer else { return failure("NOT_INITIALIZED") }
       do {
+        // After disconnect or revocation there is no Go session: open the stored one (no network)
+        // so its verifiable mappings are completed before the credentials go. Unreadable credentials
+        // (SESSION_STATE_INVALID) cannot be resolved and still allow retirement; any other failure keeps them.
+        if runtime.session == nil, try writer.open()["session"] is [String: Any] {
+          if let opened = try runtime.openConnection(snapshot: try writer.open(), forLogout: true), opened != "SESSION_STATE_INVALID" {
+            return failure(opened)
+          }
+        }
         // Go stops reception, completes verifiable mappings and asks WhatsApp to unlink (15 s).
         let remote = runtime.session?.logout() ?? "REMOTE_LOGOUT_UNCONFIRMED"
         runtime.stop()

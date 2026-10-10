@@ -87,8 +87,9 @@ type Controller struct {
 	retryCancel   chan struct{}
 	transport     Transport
 	retries       int
-	logout        *logoutCall // the unlink in flight; admissions wait for it
-	loggedOut     bool        // this session's credentials were handed to native retirement
+	logout        *logoutCall               // the unlink in flight; admissions wait for it
+	unlinkCreate  func() (Transport, error) // builds a connection used only to unlink
+	loggedOut     bool                      // this session's credentials were handed to native retirement
 }
 
 func New(create func() (Transport, error), emit func(Event), clock Clock) *Controller {

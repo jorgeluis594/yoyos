@@ -43,6 +43,8 @@ func connectedController(t *testing.T, transport Transport) (*Controller, *testC
 	switch tr := transport.(type) {
 	case *unlinkTransport:
 		channel = started(t, tr.testTransport)
+	case *quietTransport:
+		channel = started(t, tr.testTransport)
 	case *testTransport:
 		channel = started(t, tr)
 	}
@@ -269,4 +271,93 @@ func (c *testClock) hasWait(d time.Duration) bool {
 		}
 	}
 	return false
+}
+
+// M2: without a live socket (never connected, after a restart, backing off, after disconnect) the
+// unlink is still requested, through a connection made for it within the same 15 seconds.
+func TestM2UnlinkIsRequestedThroughAConnectionMadeForIt(t *testing.T) {
+	transport := newUnlinkTransport(func(context.Context) error { return nil })
+	clock := &testClock{now: time.Unix(0, 0), created: make(chan struct{}, 16)}
+	c := New(func() (Transport, error) {
+		t.Error("the receiving transport must not be built to unlink")
+		return nil, errors.New("no")
+	}, func(Event) {}, clock)
+	t.Cleanup(func() { c.Close() })
+	c.SetUnlinkTransport(func() (Transport, error) { return transport, nil })
+	c.Prepare(true)
+	result := c.Logout(nil)
+	if result.Err != nil || !result.Confirmed || transport.calls.Load() != 1 {
+		t.Fatalf("%+v calls=%d", result, transport.calls.Load())
+	}
+	select {
+	case <-transport.stopped:
+	default:
+		t.Fatal("the unlink connection was left open")
+	}
+}
+
+// M2: a connection that cannot be made or authenticated in time is unconfirmed, not an error.
+func TestM2UnlinkConnectionFailureOrTimeoutIsUnconfirmed(t *testing.T) {
+	c := New(func() (Transport, error) { return nil, errors.New("no") }, func(Event) {}, nil)
+	t.Cleanup(func() { c.Close() })
+	c.SetUnlinkTransport(func() (Transport, error) { return nil, errors.New("cannot build") })
+	c.Prepare(true)
+	if result := c.Logout(nil); result.Err != nil || result.Confirmed || result.Repeat {
+		t.Fatalf("%+v", result)
+	}
+	hang := newUnlinkTransport(func(ctx context.Context) error { <-ctx.Done(); return ctx.Err() })
+	clock := &testClock{now: time.Unix(0, 0), created: make(chan struct{}, 16)}
+	c = New(func() (Transport, error) { return nil, errors.New("no") }, func(Event) {}, clock)
+	t.Cleanup(func() { c.Close() })
+	c.SetUnlinkTransport(func() (Transport, error) { return hang, nil })
+	c.Prepare(true)
+	done := logoutAsync(c, nil)
+	for !clock.hasWait(LogoutTimeout) {
+		time.Sleep(time.Millisecond)
+	}
+	clock.Advance(LogoutTimeout)
+	if result := resultOf(t, done); result.Err != nil || result.Confirmed {
+		t.Fatalf("%+v", result)
+	}
+}
+
+// M2: a session the server already revoked is not reconnected just to unlink it.
+func TestM2RevokedSessionDoesNotReconnectToUnlink(t *testing.T) {
+	transport := newUnlinkTransport(func(context.Context) error { return nil })
+	c, _, _, channel := connectedController(t, transport)
+	c.SetUnlinkTransport(func() (Transport, error) { t.Error("revoked session reconnected"); return nil, errors.New("no") })
+	channel <- TransportEvent{Kind: "revoked"}
+	for c.State() != SessionExpired {
+		time.Sleep(time.Millisecond)
+	}
+	if result := c.Logout(nil); result.Confirmed || result.Err != nil {
+		t.Fatalf("%+v", result)
+	}
+}
+
+type quietTransport struct {
+	*unlinkTransport
+	quiesced atomic.Int32
+}
+
+func (q *quietTransport) Quiesce() { q.quiesced.Add(1) }
+
+// m1: while the unlink is pending the live socket stops acknowledging; the transport is told first.
+func TestM1LiveTransportIsQuiescedBeforeMappingsAndUnlink(t *testing.T) {
+	var transport *quietTransport
+	transport = &quietTransport{unlinkTransport: newUnlinkTransport(func(context.Context) error {
+		if transport.quiesced.Load() != 1 {
+			t.Error("unlink requested before the transport stopped acknowledging")
+		}
+		return nil
+	})}
+	c, _, _, _ := connectedController(t, transport)
+	prepared := false
+	result := c.Logout(func() error {
+		prepared = transport.quiesced.Load() == 1
+		return nil
+	})
+	if result.Err != nil || !prepared {
+		t.Fatalf("%+v prepared=%v", result, prepared)
+	}
 }

@@ -103,6 +103,7 @@ func OpenConnectionWithDelivery(storage ProtocolStorage, sink ConnectionEvents, 
 		}()
 		sink.OnConnectionEvent(string(raw))
 	}, nil)
+	session.controller.SetUnlinkTransport(session.newUnlinkTransport)
 	session.controller.Prepare(accountID != "")
 	if delivery != nil {
 		delivery.attach(session)
@@ -144,6 +145,18 @@ func (s *ConnectionSession) newTransport() (connection.Transport, error) {
 		LocalFailure:    func(err error) { s.controller.FailLocal(connection.Code(publicCode(err))) },
 	})
 	return connection.NewWhatsmeowTransport(device, stopReason, receiver), nil
+}
+
+// newUnlinkTransport builds a client without a receive path: it connects only to unlink, so it
+// captures and acknowledges nothing.
+func (s *ConnectionSession) newUnlinkTransport() (connection.Transport, error) {
+	s.mu.Lock()
+	device := s.device
+	s.mu.Unlock()
+	if device == nil {
+		return nil, errors.New("device unknown")
+	}
+	return connection.NewWhatsmeowTransport(device, func() connection.Code { return connection.Code(s.StopReason()) }), nil
 }
 
 func (s *ConnectionSession) resumeCapacity() {

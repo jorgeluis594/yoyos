@@ -2,9 +2,13 @@ package bridge
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 
 	"go.mau.fi/whatsmeow/types"
+	"yoyos-whatsapp/internal/connection"
 	"yoyos-whatsapp/internal/protocolstate"
 )
 
@@ -19,6 +23,7 @@ func pairedSession(t *testing.T) (*ConnectionSession, *linkStorage, *DeliverySes
 		t.Fatal(opened.Code)
 	}
 	t.Cleanup(func() { opened.Session.Close() })
+	opened.Session.controller.SetUnlinkTransport(func() (connection.Transport, error) { return &offlineUnlink{}, nil })
 	device := pairedDevice(opened.Session.device)
 	if err := device.Container.PutDevice(context.Background(), device); err != nil {
 		t.Fatal(err)
@@ -111,5 +116,99 @@ func TestITID10PreviousAccountEntriesRecoverAndConfirmAfterLogout(t *testing.T) 
 	defer native.mu.Unlock()
 	if native.revision != revision {
 		t.Fatal("recovery or confirmation wrote protocol state")
+	}
+}
+
+// offlineUnlink stands for a connection that cannot reach WhatsApp: tests never use the network.
+type offlineUnlink struct {
+	asked   int
+	confirm bool
+}
+
+func (o *offlineUnlink) Run(ctx context.Context, _ chan<- connection.TransportEvent) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+func (o *offlineUnlink) Stop() {}
+func (o *offlineUnlink) Logout(context.Context) error {
+	o.asked++
+	if o.confirm {
+		return nil
+	}
+	return errors.New("offline")
+}
+
+// M2: with no live socket the unlink is still requested, through a connection made for it.
+func TestM2LogoutWithoutLiveSocketRequestsUnlinkThroughOwnConnection(t *testing.T) {
+	session, _, _, _ := pairedSession(t)
+	unlink := &offlineUnlink{confirm: true}
+	session.controller.SetUnlinkTransport(func() (connection.Transport, error) { return unlink, nil })
+	if code := session.Logout(); code != "" || unlink.asked != 1 {
+		t.Fatalf("code %q asked %d", code, unlink.asked)
+	}
+}
+
+// M1: after disconnect the Go session is closed. Native logout opens the stored session again
+// (no network) and resolves the verifiable mappings before retiring credentials.
+func TestM1LogoutAfterDisconnectReopensStoredSessionAndResolvesMappings(t *testing.T) {
+	session, native, delivery, _ := pairedSession(t)
+	storeMapping(t, session, "9001", "34600")
+	session.Close() // what disconnect() does natively
+	if native.state(0) != "pendingLid" {
+		t.Fatal("the closed session still resolved")
+	}
+	reopened := OpenConnectionWithDelivery(native, connectionSink{}, delivery, "gen-logout", "123@lid", 10<<20, 10<<20)
+	if reopened.Code != "" {
+		t.Fatalf("reopen: %s", reopened.Code)
+	}
+	defer reopened.Session.Close()
+	unlink := &offlineUnlink{}
+	reopened.Session.controller.SetUnlinkTransport(func() (connection.Transport, error) { return unlink, nil })
+	if code := reopened.Session.Logout(); code != "REMOTE_LOGOUT_UNCONFIRMED" || unlink.asked != 1 {
+		t.Fatalf("code %q asked %d", code, unlink.asked)
+	}
+	if native.state(0) != "resolved" || native.state(1) != "pendingLid" {
+		t.Fatalf("states %q %q", native.state(0), native.state(1))
+	}
+}
+
+// IT-ID-10 with another account active: the previous account's entries are neither resolved with
+// the new account's data nor confirmed through its connection.
+func TestITID10OtherActiveAccountNeitherResolvesNorWritesForPreviousEntries(t *testing.T) {
+	session, native, delivery, sink := pairedSession(t) // the active account is 123@lid
+	native.mu.Lock()
+	native.pending = nil
+	for _, id := range []int{1, 2} {
+		entry := pendingEntry(t, id, "cuenta anterior")
+		entry.AccountID = "999@lid" // the previous account
+		entry.Recovery.MessageInfoJSON = strings.Replace(entry.Recovery.MessageInfoJSON, "123@lid", "999@lid", 1)
+		native.pending = append(native.pending, entry)
+	}
+	native.pending[0].IdentityState = "resolved"
+	native.pending[0].Message = json.RawMessage(`{"id":"wa-message:v1:m1","accountId":"999@lid","whatsappMessageId":"m1","chatId":"555@lid","direction":"incoming","timestamp":1,"text":"hola"}`)
+	native.mu.Unlock()
+	storeMapping(t, session, "9001", "34600")
+	if code := session.ResolveIdentities(); code != "" {
+		t.Fatal(code)
+	}
+	if native.state(1) != "pendingLid" {
+		t.Fatal("an entry of another account was resolved with the active account")
+	}
+	native.mu.Lock()
+	revision := native.revision
+	native.mu.Unlock()
+	delivery.SetConsumer("b")
+	delivery.Start()
+	d := sink.next(t)
+	if d.Payload.DeliveryID != deliveryID(1) {
+		t.Fatalf("delivered %q", d.Payload.DeliveryID)
+	}
+	if code := delivery.Confirm(d.Payload.DeliveryID); code != "" {
+		t.Fatal(code)
+	}
+	native.mu.Lock()
+	defer native.mu.Unlock()
+	if native.revision != revision {
+		t.Fatal("confirming the previous account's entry wrote through the active account")
 	}
 }

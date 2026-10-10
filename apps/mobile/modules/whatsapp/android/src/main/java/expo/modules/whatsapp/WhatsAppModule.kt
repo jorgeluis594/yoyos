@@ -113,8 +113,9 @@ private object ConnectionRuntime {
     consumerToken = null
   }
 
-  fun openConnection(context: Context, snapshot: JSONObject): String? {
-    if (revoked) return "SESSION_EXPIRED"
+  /** forLogout opens the stored session without network even after disconnect or revocation. */
+  fun openConnection(context: Context, snapshot: JSONObject, forLogout: Boolean = false): String? {
+    if (revoked && !forLogout) return "SESSION_EXPIRED"
     val store = writer ?: NativeStateStore(context).also { writer = it }
     if (snapshot.optJSONObject("session") != null && !store.canRestoreSession()) { stop(); return "SESSION_STATE_INVALID" }
     if (session != null) return null
@@ -243,6 +244,14 @@ class WhatsAppModule : Module() {
         if (!ConnectionRuntime.prepared) failure("NOT_INITIALIZED") else {
           try {
             val writer = ConnectionRuntime.writer ?: return@synchronized failure("NOT_INITIALIZED")
+            // After disconnect or revocation there is no Go session: open the stored one (no network)
+            // so its verifiable mappings are completed before the credentials go. Unreadable credentials
+            // (SESSION_STATE_INVALID) cannot be resolved and still allow retirement; any other failure keeps them.
+            if (ConnectionRuntime.session == null && writer.open().optJSONObject("session") != null) {
+              val context = appContext.reactContext ?: return@synchronized failure("MODULE_UNAVAILABLE")
+              val opened = ConnectionRuntime.openConnection(context, writer.open(), forLogout = true)
+              if (opened != null && opened != "SESSION_STATE_INVALID") return@synchronized failure(opened)
+            }
             // Go stops reception, completes verifiable mappings and asks WhatsApp to unlink (15 s).
             val remote = ConnectionRuntime.session?.logout() ?: "REMOTE_LOGOUT_UNCONFIRMED"
             ConnectionRuntime.stop()

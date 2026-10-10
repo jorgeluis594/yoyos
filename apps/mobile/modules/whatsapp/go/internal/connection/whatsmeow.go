@@ -74,7 +74,51 @@ func (t *whatsmeowTransport) Stop() { t.client.Disconnect() }
 // the container refuses that deletion with NativeLogoutRequired (native owns retirement), and
 // that refusal comes only after the server accepted the request, so it counts as confirmation.
 func (t *whatsmeowTransport) Logout(ctx context.Context) error {
+	if t.client != nil && t.client.Store.ID == nil {
+		return whatsmeow.ErrNotLoggedIn // nothing linked: there is no login to wait for
+	}
+	if t.client != nil {
+		if err := t.authenticated(ctx); err != nil {
+			return err
+		}
+	}
 	return confirmedUnlink(t.unlink(ctx))
+}
+
+// authenticated connects when needed and waits for the login to complete, so the unlink
+// request is not sent over a socket the server has not accepted yet.
+func (t *whatsmeowTransport) authenticated(ctx context.Context) error {
+	ready := make(chan struct{}, 1)
+	handler := t.client.AddEventHandler(func(event any) {
+		switch event.(type) {
+		case *events.Connected:
+			select {
+			case ready <- struct{}{}:
+			default:
+			}
+		}
+	})
+	defer t.client.RemoveEventHandler(handler)
+	if t.client.IsLoggedIn() {
+		return nil
+	}
+	if !t.socketConnected() {
+		if err := t.dial(ctx); err != nil {
+			return err
+		}
+	}
+	select {
+	case <-ready:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// Quiesce makes the connected client withhold acknowledgements: with no handler left after
+// the run ended, the pinned client would confirm deliveries that never reached the receiver.
+func (t *whatsmeowTransport) Quiesce() {
+	t.client.AddEventHandlerWithSuccessStatus(func(any) bool { return false })
 }
 
 func confirmedUnlink(err error) error {
