@@ -3,6 +3,7 @@ package connection
 import (
 	"context"
 	"errors"
+	"sync"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
@@ -20,6 +21,10 @@ import (
 type whatsmeowHistory struct {
 	client *whatsmeow.Client
 	limits history.Limits
+
+	mu     sync.Mutex
+	nonce  string
+	staged bool
 }
 
 func (h *whatsmeowHistory) Fetch(ctx context.Context, notification *waE2E.HistorySyncNotification) ([]byte, error) {
@@ -48,14 +53,23 @@ func (h *whatsmeowHistory) Parse(chat types.JID, web *waWeb.WebMessageInfo) (*ev
 	return h.client.ParseWebMessage(chat, web)
 }
 func (h *whatsmeowHistory) Stage(ctx context.Context, batch *waHistorySync.HistorySync) error {
-	// The dependency records the companion nonce in memory before saving it; a refused batch
-	// must not leave a nonce that was never made durable.
-	nonce := h.client.Store.CompanionMetaNonce
-	err := h.client.StageHistorySync(ctx, batch)
-	if err != nil {
-		h.client.Store.CompanionMetaNonce = nonce
+	// The dependency records the companion nonce in memory before saving it; a batch that ends up
+	// refused or unpublished must not leave a nonce that was never made durable (see Rollback).
+	h.mu.Lock()
+	h.nonce = h.client.Store.CompanionMetaNonce
+	h.staged = true
+	h.mu.Unlock()
+	return h.client.StageHistorySync(ctx, batch)
+}
+
+// Rollback restores what Stage changed in memory.
+func (h *whatsmeowHistory) Rollback() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.staged {
+		h.client.Store.CompanionMetaNonce = h.nonce
+		h.staged = false
 	}
-	return err
 }
 func (h *whatsmeowHistory) Receipt(ctx context.Context, id types.MessageID) error {
 	return h.client.SendProtocolMessageReceipt(ctx, id, types.ReceiptTypeHistorySync)

@@ -84,7 +84,7 @@ func TestAmplificationInsideMessageRecordsIsRefusedByTheElementBound(t *testing.
 	var decodeErr error
 	objects, bytes := allocations(func() { _, decodeErr = Decode(raw, DefaultLimits()) })
 	t.Logf("%d KiB, %d objects, %d KiB allocated, err=%v", len(raw)>>10, objects, bytes>>10, decodeErr)
-	isLimit(t, decodeErr, "elements")
+	isLimit(t, decodeErr, "estimated memory")
 	if objects > 50_000 || bytes > uint64(len(raw))/2 {
 		t.Fatalf("refusal must come before materialization: %d objects, %d KiB", objects, bytes>>10)
 	}

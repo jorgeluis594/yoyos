@@ -13,10 +13,10 @@ import (
 // historyFields are the wire numbers, read from the generated descriptors, that this
 // package either needs or counts. Everything else in a batch is dropped before parsing.
 var historyFields = func() (f struct {
-	conversations, pushnames, mappings protowire.Number
-	keep                               map[protowire.Number]bool
-	messages                           protowire.Number
-	keepConversation                   map[protowire.Number]bool
+	conversations, pushnames, mappings, syncType protowire.Number
+	keep                                         map[protowire.Number]bool
+	messages                                     protowire.Number
+	keepConversation                             map[protowire.Number]bool
 }) {
 	history := (&waHistorySync.HistorySync{}).ProtoReflect().Descriptor().Fields()
 	conversation := (&waHistorySync.Conversation{}).ProtoReflect().Descriptor().Fields()
@@ -28,6 +28,7 @@ var historyFields = func() (f struct {
 		return field.Number()
 	}
 	f.conversations, f.pushnames = number(history, "conversations"), number(history, "pushnames")
+	f.syncType = number(history, "syncType")
 	f.mappings = number(history, "phoneNumberToLidMappings")
 	f.messages = number(conversation, "messages")
 	f.keep = map[protowire.Number]bool{}
@@ -60,16 +61,15 @@ func kept(md protoreflect.MessageDescriptor, number protowire.Number) bool {
 
 // Decode parses a decompressed history protobuf. Before the parser allocates anything, the wire
 // is checked without building objects: repeated records are counted, each message record is
-// bounded, and the total number of elements and the nesting depth of everything that will be
-// parsed are bounded by walking the schema, so unknown and uncounted repeated fields cannot
-// amplify. Everything the admission never reads (status messages, call logs, group
+// bounded, and the estimated heap and the nesting depth of everything that will be parsed
+// are bounded by walking the schema, so no field, counted or not, can amplify. Everything the admission never reads (status messages, call logs, group
 // participants, …) is neither counted nor parsed.
 func Decode(raw []byte, l Limits) (*waHistorySync.HistorySync, error) {
 	if err := scan(raw, l); err != nil {
 		return nil, err
 	}
-	elements := 0
-	if err := walk(raw, historyDescriptor, 1, &elements, l); err != nil {
+	var cost int64
+	if err := walk(raw, historyDescriptor, 1, &cost, l); err != nil {
 		return nil, err
 	}
 	var history waHistorySync.HistorySync
@@ -80,8 +80,8 @@ func Decode(raw []byte, l Limits) (*waHistorySync.HistorySync, error) {
 }
 
 // walk visits every field that will be parsed and, by the schema, those of its submessages,
-// counting elements and depth. It allocates nothing, so a bomb costs one read to refuse.
-func walk(raw []byte, md protoreflect.MessageDescriptor, depth int, elements *int, l Limits) error {
+// charging the estimated heap of each and checking depth. It allocates nothing, so a bomb costs one read to refuse.
+func walk(raw []byte, md protoreflect.MessageDescriptor, depth int, cost *int64, l Limits) error {
 	if depth > l.MaxDepth {
 		return limit("nesting depth", int64(l.MaxDepth))
 	}
@@ -96,12 +96,13 @@ func walk(raw []byte, md protoreflect.MessageDescriptor, depth int, elements *in
 			return errors.Join(ErrInvalid, protowire.ParseError(size))
 		}
 		if kept(md, number) {
-			if *elements++; *elements > l.MaxElements {
-				return limit("elements", int64(l.MaxElements))
+			field := fields.ByNumber(number)
+			payload, _ := protowire.ConsumeBytes(rest[tag:])
+			if *cost += int64(elementCost(field, kind, len(payload))); *cost > l.MaxEstimatedBytes {
+				return limit("estimated memory", l.MaxEstimatedBytes)
 			}
-			if field := fields.ByNumber(number); field != nil && kind == protowire.BytesType && field.Message() != nil && !field.IsMap() {
-				payload, _ := protowire.ConsumeBytes(rest[tag:])
-				if err := walk(payload, field.Message(), depth+1, elements, l); err != nil {
+			if field != nil && kind == protowire.BytesType && field.Message() != nil && !field.IsMap() {
+				if err := walk(payload, field.Message(), depth+1, cost, l); err != nil {
 					return err
 				}
 			}

@@ -2,7 +2,6 @@ package history
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -188,6 +187,11 @@ func (p *Processor) admit(ctx context.Context, capture protocolstore.PendingReco
 	batch := protocolstore.HistoryBatch{
 		Marker: marker, Capture: capture.DeliveryID, Inserts: prepared.Inserts,
 		Stage: func(ctx context.Context) error { return p.remote.Stage(ctx, history) },
+		Rollback: func() {
+			if r, ok := p.remote.(interface{ Rollback() }); ok {
+				r.Rollback()
+			}
+		},
 	}
 	for {
 		if err := ctx.Err(); err != nil {
@@ -334,16 +338,5 @@ func decodeCapture(capture protocolstore.PendingRecord) (*waE2E.HistorySyncNotif
 // markerOf identifies the batch a notification points at, independent of the message that
 // carried it: the same remote batch announced again is recognized as already admitted.
 func markerOf(account string, notification *waE2E.HistorySyncNotification) [32]byte {
-	reduced := proto.Clone(notification).(*waE2E.HistorySyncNotification)
-	if inline := reduced.GetInitialHistBootstrapInlinePayload(); inline != nil {
-		digest := sha256.Sum256(inline)
-		reduced.InitialHistBootstrapInlinePayload = digest[:]
-	}
-	raw, _ := proto.MarshalOptions{Deterministic: true}.Marshal(reduced)
-	hash := sha256.New()
-	hash.Write([]byte("wa-history-batch:v1\x00" + account + "\x00"))
-	hash.Write(raw)
-	var marker [32]byte
-	copy(marker[:], hash.Sum(nil))
-	return marker
+	return protocolstore.HistoryMarker(account, notification)
 }

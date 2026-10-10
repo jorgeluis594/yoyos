@@ -2,6 +2,7 @@ package protocolstore
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,8 +11,10 @@ import (
 	"time"
 
 	waBinary "go.mau.fi/whatsmeow/binary"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
+	"google.golang.org/protobuf/proto"
 	"yoyos-whatsapp/internal/protocolstate"
 )
 
@@ -261,34 +264,88 @@ func TestCheckLIDMappingsRefusesWhatPutWouldRefuse(t *testing.T) {
 	codeIs(t, s.PutManyLIDMappings(context.Background(), conflict), InvalidRequest)
 }
 
-// A batch marker must outlive the usual retry-hash retention while its capture waits to be released.
-func TestMarkersAreNotPurgedWhileACaptureWaits(t *testing.T) {
+func notificationFor(path string) []byte {
+	raw, _ := proto.Marshal(&waE2E.Message{ProtocolMessage: &waE2E.ProtocolMessage{
+		Type:                    waE2E.ProtocolMessage_HISTORY_SYNC_NOTIFICATION.Enum(),
+		HistorySyncNotification: &waE2E.HistorySyncNotification{DirectPath: proto.String(path)},
+	}})
+	return raw
+}
+
+func captureWith(n int, account, path string) PendingInsert {
+	p := captureInsert(n)
+	p.AccountID = account
+	p.Recovery.Items[0].PlaintextBase64 = base64.StdEncoding.EncodeToString(notificationFor(path))
+	return p
+}
+
+func markerKey(account, path string) string {
+	m := HistoryMarker(account, &waE2E.HistorySyncNotification{DirectPath: proto.String(path)})
+	return base64.StdEncoding.EncodeToString(m[:])
+}
+
+// The purge is scoped by capture and account: only the markers that live captures of the current
+// account reference are kept past the retention, so session growth stays bounded however many captures
+// of other accounts, or stuck ones, exist.
+func TestPurgeKeepsOnlyTheMarkersOfLiveCapturesOfTheCurrentAccount(t *testing.T) {
 	native := &controlledStorage{}
 	s := openTest(t, native)
 	old := time.Now().Add(-30 * 24 * time.Hour).UnixMilli()
-	if err := s.put(context.Background(), "retry-hash", protocolstate.RetryHash{Version: 1, InsertTimeMS: old, ServerTimeSeconds: 1}, "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="); err != nil {
-		t.Fatal(err)
+	put := func(key string) {
+		if err := s.put(context.Background(), "retry-hash", protocolstate.RetryHash{Version: 1, InsertTimeMS: old, ServerTimeSeconds: 1}, key); err != nil {
+			t.Fatal(err)
+		}
 	}
+	// a long-lived session accumulates one retry hash per decrypted message
+	for i := 0; i < 200; i++ {
+		put(base64.StdEncoding.EncodeToString(append([]byte{byte(i), byte(i >> 8)}, make([]byte, 30)...)))
+	}
+	put(markerKey("123@lid", "/v/live"))
+	put(markerKey("123@lid", "/v/other-batch"))
+	put(markerKey("999@lid", "/v/live")) // the marker an unreleased capture of another account would have had
 	ordinal := uint32(0)
+	other := captureWith(2, "999@lid", "/v/live")
 	native.mu.Lock()
-	native.pending = []PendingRecord{{PendingInsert: captureInsert(1), CreatedRevision: "1", CreatedOrdinal: &ordinal}}
+	native.pending = []PendingRecord{
+		{PendingInsert: captureWith(1, "123@lid", "/v/live"), CreatedRevision: "1", CreatedOrdinal: &ordinal},
+		{PendingInsert: other, CreatedRevision: "1", CreatedOrdinal: func() *uint32 { o := uint32(1); return &o }()},
+	}
 	native.mu.Unlock()
 	reopened := openTest(t, native)
 	if err := reopened.DeleteOldBufferedHashes(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(scanMap(reopened.records, "retry-hash")); got != 1 {
-		t.Fatalf("the old marker must survive while a capture waits: %d", got)
+	kept := scanMap(reopened.records, "retry-hash")
+	if len(kept) != 1 {
+		t.Fatalf("only the live capture's marker survives, %d records remain", len(kept))
 	}
-	native.mu.Lock()
-	native.pending = nil
-	native.revision++
-	native.mu.Unlock()
-	released := openTest(t, native)
-	if err := released.DeleteOldBufferedHashes(context.Background()); err != nil {
-		t.Fatal(err)
+	want, _ := protocolstate.EncodeKey("retry-hash", markerKey("123@lid", "/v/live"))
+	if kept[0].RecordKey != want {
+		t.Fatal("the surviving record is not the marker of the live capture")
 	}
-	if got := len(scanMap(released.records, "retry-hash")); got != 0 {
-		t.Fatalf("with nothing waiting the usual retention applies: %d", got)
+}
+
+// Rollback runs when a batch whose Stage ran does not publish, whatever the reason, and never otherwise.
+func TestRollbackRunsWheneverAStagedBatchIsNotPublished(t *testing.T) {
+	native := &controlledStorage{}
+	s := openTest(t, native)
+	rolled := 0
+	batch := func(stage func(context.Context) error) HistoryBatch {
+		return HistoryBatch{Marker: [32]byte{byte(rolled + 1)}, Inserts: []PendingInsert{historyInsert(1, "a")}, Stage: stage, Rollback: func() { rolled++ }}
+	}
+	if err := s.AdmitHistoryBatch(context.Background(), batch(func(context.Context) error { return errors.New("refused") })); !errors.Is(err, ErrHistoryContent) || rolled != 1 {
+		t.Fatalf("a refused stage rolls back: %v %d", err, rolled)
+	}
+	oversize := func(ctx context.Context) error { return s.PutNCTSalt(ctx, make([]byte, 1)) }
+	large := batch(oversize)
+	large.Inserts[0].Message = json.RawMessage(`{"id":"` + strings.Repeat("x", 11<<20) + `","accountId":"123@lid"}`)
+	large.Inserts[0].Recovery.Items[0].PlaintextBase64 = "AA=="
+	if err := s.AdmitHistoryBatch(context.Background(), large); err == nil || rolled != 1 {
+		t.Fatalf("a batch refused before Stage never ran it, so nothing to roll back: %v %d", err, rolled)
+	}
+	ok := batch(oversize)
+	ok.Marker = [32]byte{42}
+	if err := s.AdmitHistoryBatch(context.Background(), ok); err != nil || rolled != 1 {
+		t.Fatalf("a published batch is not rolled back: %v %d", err, rolled)
 	}
 }

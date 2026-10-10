@@ -79,10 +79,10 @@ func memoryShapes() []memoryShape {
 				conversations = append(conversations, conversationOf(chat, numbered("m", chat, 40, "short chat text of an ordinary message")...))
 			}
 			return batchOf(conversations...)
-		}, 4, 45, 25, 3, 8, false},
+		}, 4, 45, 25, 5, 8, false},
 		{"adversarial: many tiny messages", func() *waHistorySync.HistorySync {
 			return batchOf(conversationOf("901@lid", numbered("t", "901@lid", 9000, "x")...))
-		}, 5, 80, 45, 3, 8, false},
+		}, 5, 80, 45, 5, 8, false},
 		{"adversarial: records near the size cap", func() *waHistorySync.HistorySync {
 			return batchOf(conversationOf("902@lid", numbered("b", "902@lid", 8, strings.Repeat("y", 900<<10))...))
 		}, 3, 3, 5, 5, 9, false},

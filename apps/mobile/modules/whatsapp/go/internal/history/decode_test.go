@@ -15,7 +15,7 @@ import (
 
 func tight() Limits {
 	l := DefaultLimits()
-	l.MaxConversations, l.MaxMessages, l.MaxMappings, l.MaxPushNames, l.MaxRecordBytes, l.MaxDepth, l.MaxElements = 3, 5, 2, 2, 512, 8, 100000
+	l.MaxConversations, l.MaxMessages, l.MaxMappings, l.MaxPushNames, l.MaxRecordBytes, l.MaxDepth, l.MaxEstimatedBytes = 3, 5, 2, 2, 512, 8, 64<<20
 	return l
 }
 
