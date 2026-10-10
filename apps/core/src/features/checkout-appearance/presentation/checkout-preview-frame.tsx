@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@core/app/lib/utils";
-import type { CheckoutPreviewMessage, PublicCheckoutAppearance } from "@core/src/features/checkout-appearance/presentation/checkout-appearance-schemas";
+import type { CheckoutPreviewMessage, CheckoutPreviewMode, PublicCheckoutAppearance } from "@core/src/features/checkout-appearance/presentation/checkout-appearance-schemas";
 import { listenForPreviewReady, sendPreviewUpdate } from "@core/src/features/checkout-appearance/presentation/preview-protocol";
 
 type Device = "phone" | "desktop";
-type CheckoutPreviewFrameProps = Readonly<{
+export type CheckoutPreviewFrameProps = Readonly<{
   /** The draft, applied to the preview as it changes. */
   appearance: PublicCheckoutAppearance;
+  /** Active preview mode; owned by the editor so its swatches follow it. */
+  mode: CheckoutPreviewMode;
+  onModeChange: (mode: CheckoutPreviewMode) => void;
   /** Path of the preview page; the private-access middleware completes the locale. */
   src?: string;
 }>;
@@ -40,14 +43,12 @@ function useWidth() {
   return [ref, width] as const;
 }
 
-export function CheckoutPreviewFrame({ appearance, src = "/settings/checkout-appearance/preview" }: CheckoutPreviewFrameProps) {
+export function CheckoutPreviewFrame({ appearance, mode, onModeChange, src = "/settings/checkout-appearance/preview" }: CheckoutPreviewFrameProps) {
   const { t } = useTranslation();
   const [device, setDevice] = useState<Device>("phone");
-  const [mode, setMode] = useState<CheckoutPreviewMessage["mode"]>("light");
   const [state, setState] = useState<CheckoutPreviewMessage["state"]>("review");
   const [canvas, canvasWidth] = useWidth();
   const frame = useRef<HTMLIFrameElement>(null);
-  const loaded = useRef(false);
   const titleId = useId();
   const { logoUrl, brandColor, background } = appearance;
   const message = useMemo<CheckoutPreviewMessage>(() => ({
@@ -57,12 +58,13 @@ export function CheckoutPreviewFrame({ appearance, src = "/settings/checkout-app
 
   const send = useCallback(() => {
     const target = frame.current?.contentWindow;
+    // An invalid draft is not sent, so the preview keeps its last valid view.
     if (target) sendPreviewUpdate(target, latest.current);
   }, []);
-  useEffect(() => listenForPreviewReady(window, () => frame.current?.contentWindow ?? null, () => { loaded.current = true; send(); }), [send]);
+  useEffect(() => listenForPreviewReady(window, () => frame.current?.contentWindow ?? null, send), [send]);
   useEffect(() => {
     latest.current = message;
-    if (loaded.current) send();
+    send();
   }, [message, send]);
 
   const size = deviceSizes[device];
@@ -72,7 +74,7 @@ export function CheckoutPreviewFrame({ appearance, src = "/settings/checkout-app
     <div className="flex flex-wrap items-center gap-3">
       <Segmented label={t("checkoutPreview.device")} value={device} onChange={setDevice}
         options={[["phone", t("checkoutPreview.phone")], ["desktop", t("checkoutPreview.desktop")]]} />
-      <Segmented label={t("checkoutPreview.mode")} value={mode} onChange={setMode}
+      <Segmented label={t("checkoutPreview.mode")} value={mode} onChange={onModeChange}
         options={[["light", t("checkoutPreview.light")], ["dark", t("checkoutPreview.dark")]]} />
       <Segmented label={t("checkoutPreview.state")} value={state} onChange={setState}
         options={[["review", t("checkoutPreview.review")], ["payment", t("checkoutPreview.payment")]]} />
