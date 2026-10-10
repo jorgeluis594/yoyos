@@ -206,14 +206,18 @@ func (l *life) ReplayRecoveredProtocol(context.Context, *types.MessageInfo, stri
 	return nil
 }
 
-func newLife(t *testing.T, n *native, limit int64) *life {
+func newLife(t *testing.T, n *native, limit int64) *life { return newLifeBound(t, n, limit, limit) }
+
+// newLifeBound is a life whose budget is limit while the container's reliable read bound is read:
+// the situation after the budget was reduced below what is stored.
+func newLifeBound(t *testing.T, n *native, read, limit int64) *life {
 	t.Helper()
 	l := &life{t: t, native: n, stops: make(chan delivery.Cause, 8), resumes: make(chan struct{}, 8)}
 	var err error
-	if l.store, err = protocolstore.Open(n, "gen", account, limit, limit); err != nil {
+	if l.store, err = protocolstore.Open(n, "gen", account, read, limit); err != nil {
 		t.Fatal(err)
 	}
-	if l.ledger, err = protocolstore.NewLedger(n, limit, limit); err != nil {
+	if l.ledger, err = protocolstore.NewLedger(n, read, limit); err != nil {
 		t.Fatal(err)
 	}
 	l.coord = delivery.New(l.ledger, limit, delivery.Hooks{

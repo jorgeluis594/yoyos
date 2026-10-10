@@ -120,7 +120,7 @@ func TestITDEL09ConfirmsForeignAccountWithoutCredentials(t *testing.T) {
 	n := newNative()
 	seed(n, 1, "999@lid", "5", 0, "resolved", 1)
 	seed(n, 2, "999@lid", "5", 1, "resolved", 1)
-	ledger, err := protocolstore.NewLedger(n, 1<<20)
+	ledger, err := protocolstore.NewLedger(n, 1<<20, 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestITDEL11RecoversWithoutSessionOrNetwork(t *testing.T) {
 	if _, err := protocolstore.Open(n, "gen", account, 1<<20, 1<<20); err == nil {
 		t.Fatal("expected an exclusive session failure")
 	}
-	ledger, err := protocolstore.NewLedger(n, 1<<20)
+	ledger, err := protocolstore.NewLedger(n, 1<<20, 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -47,7 +48,7 @@ func ledgerRecord(n int, revision string, ordinal uint32) PendingRecord {
 // UT-DEL-06 / IT-DEL-06: order is numeric by revision then ordinal ("10" follows "9", not "1").
 func TestLedgerOrdersByNumericRevisionThenOrdinal(t *testing.T) {
 	fake := &fakeDelivery{read: pendingJSON(t, "12", ledgerRecord(1, "10", 0), ledgerRecord(2, "9", 1), ledgerRecord(3, "9", 0), ledgerRecord(4, "2", 5))}
-	ledger, err := NewLedger(fake, 1<<20)
+	ledger, err := NewLedger(fake, 1<<20, 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +73,7 @@ func TestLedgerReadFailureIsNeverAnEmptyList(t *testing.T) {
 		"missing list":   {read: `{"contractVersion":1,"success":true,"data":{"revision":"1","pending":null}}`},
 		"extra member":   {read: `{"contractVersion":1,"success":true,"data":{"revision":"1","pending":[],"x":1}}`},
 	} {
-		ledger, _ := NewLedger(fake, 1<<20)
+		ledger, _ := NewLedger(fake, 1<<20, 1<<20)
 		if got, err := ledger.Pending(); err == nil || got != nil {
 			t.Errorf("%s: %v %v", name, got, err)
 		}
@@ -83,7 +84,7 @@ func TestLedgerReadFailureIsNeverAnEmptyList(t *testing.T) {
 func TestLedgerRetireContract(t *testing.T) {
 	id := "wa-delivery:v1:" + "00000000000000000000000000000001"
 	fake := &fakeDelivery{retire: `{"contractVersion":1,"success":true,"data":{"revision":"7","removed":true}}`}
-	ledger, _ := NewLedger(fake, 1<<20)
+	ledger, _ := NewLedger(fake, 1<<20, 1<<20)
 	removed, err := ledger.Retire(id)
 	if err != nil || !removed || fake.lastRetire != `{"contractVersion":1,"deliveryId":"`+id+`"}` {
 		t.Fatalf("%v %v %q", removed, err, fake.lastRetire)
@@ -164,4 +165,43 @@ type stagingProcessorNoop struct{}
 
 func (stagingProcessorNoop) ReplayRecoveredProtocol(context.Context, *types.MessageInfo, string, []byte) error {
 	return nil
+}
+
+// IT-CFG-07: reducing the budget below what is stored keeps the read bound of the earlier budget,
+// so the snapshot holding the excess still decodes (and can be drained); the bound is finite, so a
+// response of arbitrary length is still refused.
+func TestITCFG07ReducedBudgetKeepsTheReadBoundOfTheSnapshot(t *testing.T) {
+	const oldBudget, reduced = int64(32 << 20), int64(1 << 20)
+	var records []PendingRecord
+	for i := 0; i < 20; i++ { // ~20 MiB: over the reduced budget and over what the reduced bound alone admits
+		record := ledgerRecord(i+1, "1", uint32(i))
+		record.Message = json.RawMessage(`{"id":"m","padding":"` + strings.Repeat("A", 1<<20) + `"}`)
+		records = append(records, record)
+	}
+	fake := &fakeDelivery{read: pendingJSON(t, "1", records...)}
+
+	if int64(len(fake.read)) <= int64(payloadLimit(reduced)) {
+		t.Fatalf("fixture must exceed the bound derived from the reduced budget: %d", len(fake.read))
+	}
+	control, _ := NewLedger(fake, reduced, reduced)
+	if _, err := control.Pending(); err == nil {
+		t.Fatal("control: a read bound equal to the reduced budget cannot decode the older snapshot")
+	}
+	ledger, err := NewLedger(fake, oldBudget, reduced)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := ledger.Pending()
+	if err != nil || len(got) != 20 {
+		t.Fatalf("the older snapshot stays readable: %d %v", len(got), err)
+	}
+	// Arbitrary lengths are still refused: the bound is the earlier budget, not unlimited.
+	huge := &fakeDelivery{read: strings.Repeat(" ", int(payloadLimit(oldBudget))+1)}
+	bounded, _ := NewLedger(huge, oldBudget, reduced)
+	if _, err := bounded.Pending(); err == nil {
+		t.Fatal("a response beyond the read bound is refused")
+	}
+	if _, err := NewLedger(fake, reduced-1, reduced); err == nil {
+		t.Fatal("a read bound below the budget is invalid")
+	}
 }

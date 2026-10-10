@@ -164,7 +164,7 @@ func TestITID08LateMappingAfterFirstLinkResolves(t *testing.T) {
 func openDeliveryOn(t *testing.T, storage DeliveryStorage) (*DeliverySession, *deliverySink) {
 	t.Helper()
 	sink := newDeliverySink()
-	result := OpenDelivery(storage, sink, 10<<20)
+	result := OpenDelivery(storage, sink, 10<<20, 10<<20)
 	if result.Code != "" || result.Session == nil {
 		t.Fatalf("open failed: %+v", result)
 	}

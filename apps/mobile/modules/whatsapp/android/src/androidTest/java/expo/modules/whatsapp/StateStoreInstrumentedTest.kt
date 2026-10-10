@@ -919,6 +919,21 @@ class StateStoreInstrumentedTest {
     assertEquals(12L * 1024 * 1024, makeStore(root).open().getJSONObject("options").getLong("maxRecoveryBufferBytes"))
   }
 
+  // IT-CFG-07 (Go reads with this bound): reducing the budget never reduces the read bound that is handed
+  // to Go, and it survives a restart, so the snapshot holding the excess stays decodable while it drains.
+  @Test fun recoveryReadBoundSurvivesReductionAndRestart() {
+    val root = freshRoot
+    val writer = makeStore(root)
+    writer.open()
+    assertEquals(10L * 1024 * 1024, writer.recoveryReadBound())
+    writer.updateOptions(12L * 1024 * 1024, 60L * 1024 * 1024)
+    assertEquals(12L * 1024 * 1024, writer.recoveryReadBound())
+    writer.updateOptions(1024L, 60L * 1024 * 1024)
+    assertEquals(1024L, makeStore(root).open().getJSONObject("options").getLong("maxRecoveryBufferBytes"))
+    assertEquals(12L * 1024 * 1024, writer.recoveryReadBound())
+    assertEquals(12L * 1024 * 1024, makeStore(root).recoveryReadBound())
+  }
+
   private fun pendingEntry(letter: String, ordinal: Int) = org.json.JSONObject()
     .put("deliveryId", "wa-delivery:v1:" + letter.repeat(32)).put("accountId", "123@lid")
     .put("createdRevision", "2").put("createdOrdinal", ordinal).put("source", "live")

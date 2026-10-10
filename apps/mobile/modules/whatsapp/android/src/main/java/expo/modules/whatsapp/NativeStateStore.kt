@@ -200,6 +200,19 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     } finally { current = null; GLOBAL_LOCK.unlock() }
   }
 
+  /**
+   * The reliable read bound of the container: the largest recovery budget it ever accepted. It never
+   * shrinks when the budget is reduced, so a snapshot that still holds the excess stays readable
+   * (and can be drained), while the bound stays finite. Go decodes responses against it.
+   */
+  fun recoveryReadBound(): Long {
+    GLOBAL_LOCK.lock()
+    try {
+      open()
+      return readBudget
+    } finally { GLOBAL_LOCK.unlock() }
+  }
+
   fun canRestoreSession(): Boolean {
     GLOBAL_LOCK.lock()
     try {

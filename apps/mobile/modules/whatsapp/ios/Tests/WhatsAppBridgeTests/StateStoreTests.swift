@@ -1019,6 +1019,22 @@ final class StateStoreTests: XCTestCase {
     XCTAssertEqual(options["maxRecoveryBufferBytes"] as? Int, 12 * 1024 * 1024)
   }
 
+  // IT-CFG-07 (Go reads with this bound): reducing the budget never reduces the read bound that is handed
+  // to Go, and it survives a restart, so the snapshot holding the excess stays decodable while it drains.
+  func testRecoveryReadBoundSurvivesReductionAndRestart() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let writer = try makeStore(root)
+    _ = try writer.open()
+    XCTAssertEqual(try writer.recoveryReadBound(), 10 * 1024 * 1024)
+    _ = try writer.updateOptions(maxRecoveryBufferBytes: 12 * 1024 * 1024, maxImageStorageBytes: 60 * 1024 * 1024)
+    XCTAssertEqual(try writer.recoveryReadBound(), 12 * 1024 * 1024)
+    _ = try writer.updateOptions(maxRecoveryBufferBytes: 1024, maxImageStorageBytes: 60 * 1024 * 1024)
+    XCTAssertEqual(((try makeStore(root).open())["options"] as? [String: Any])?["maxRecoveryBufferBytes"] as? Int, 1024)
+    XCTAssertEqual(try writer.recoveryReadBound(), 12 * 1024 * 1024)
+    XCTAssertEqual(try makeStore(root).recoveryReadBound(), 12 * 1024 * 1024)
+  }
+
   private func pendingEntry(_ letter: String, ordinal: Int) -> [String: Any] {
     ["deliveryId": "wa-delivery:v1:" + String(repeating: letter, count: 32), "accountId": "123@lid",
      "createdRevision": "2", "createdOrdinal": ordinal, "source": "live", "identityState": "pendingLid",

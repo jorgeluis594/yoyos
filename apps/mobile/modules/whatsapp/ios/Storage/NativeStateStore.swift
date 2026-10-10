@@ -164,6 +164,14 @@ public final class NativeStateStore {
     committedRecord["provisionalSessionKeyId"] = NSNull(); try writeRecord(committedRecord)
   }
 
+  /// The reliable read bound: the largest recovery budget the container ever accepted. It does not
+  /// shrink when the budget is reduced, so a snapshot holding the excess stays readable and drainable.
+  public func recoveryReadBound() throws -> Int64 {
+    lock.lock(); defer { lock.unlock() }
+    _ = try open()
+    return Int64(readBudget)
+  }
+
   public func canRestoreSession() throws -> Bool {
     lock.lock(); defer { lock.unlock() }
     _ = try open()
