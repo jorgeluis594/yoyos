@@ -216,6 +216,35 @@ func (s *ConnectionSession) Disconnect() {
 		s.controller.Disconnect()
 	}
 }
+
+// Logout stops reception and generation, completes the identity mappings that are still
+// verifiable and asks WhatsApp to unlink within 15 seconds. It returns "" only when the
+// remote unlink was confirmed, "REMOTE_LOGOUT_UNCONFIRMED" when it was not, and a public
+// error code when the mappings could not be made durable; then nothing was retired. A repeat
+// after a finished logout is a local success that certifies nothing remote. Native
+// retires the session and its key afterwards, in every case but the last.
+func (s *ConnectionSession) Logout() string {
+	if s == nil || s.controller == nil {
+		return "NOT_INITIALIZED"
+	}
+	result := s.controller.Logout(s.resolveBeforeLogout)
+	switch {
+	case result.Err != nil:
+		return publicCode(result.Err)
+	case !result.Confirmed && !result.Repeat:
+		return "REMOTE_LOGOUT_UNCONFIRMED"
+	}
+	return ""
+}
+
+func (s *ConnectionSession) resolveBeforeLogout() error {
+	if s.identity == nil {
+		return nil
+	}
+	_, err := s.identity.Resolve(context.Background())
+	return err
+}
+
 func (s *ConnectionSession) Close() bool {
 	if s != nil && s.identity != nil {
 		s.identity.Close()

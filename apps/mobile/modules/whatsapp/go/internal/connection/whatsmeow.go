@@ -45,13 +45,14 @@ func NewWhatsmeowTransport(device *store.Device, localFailure func() Code, recei
 		client.MessageReceiveFinished = receive.Finished
 		receive.SetProcessor(client)
 	}
-	return &whatsmeowTransport{receive: receive, client: client, dial: client.ConnectContext, socketConnected: client.IsConnected, socketID: client.CurrentSocketID, loginReconnect: make(chan struct{}, 1), localFailure: localFailure}
+	return &whatsmeowTransport{receive: receive, client: client, dial: client.ConnectContext, unlink: client.Logout, socketConnected: client.IsConnected, socketID: client.CurrentSocketID, loginReconnect: make(chan struct{}, 1), localFailure: localFailure}
 }
 
 type whatsmeowTransport struct {
 	receive         Receiving
 	client          *whatsmeow.Client
 	dial            func(context.Context) error
+	unlink          func(context.Context) error
 	socketConnected func() bool
 	socketID        func() uint64
 	loginReconnect  chan struct{}
@@ -68,6 +69,21 @@ func (t *whatsmeowTransport) stopped() Code {
 }
 
 func (t *whatsmeowTransport) Stop() { t.client.Disconnect() }
+
+// Logout asks WhatsApp to unlink this device. The pinned client deletes its own store afterwards;
+// the container refuses that deletion with NativeLogoutRequired (native owns retirement), and
+// that refusal comes only after the server accepted the request, so it counts as confirmation.
+func (t *whatsmeowTransport) Logout(ctx context.Context) error {
+	return confirmedUnlink(t.unlink(ctx))
+}
+
+func confirmedUnlink(err error) error {
+	var failure *protocolstore.Error
+	if errors.As(err, &failure) && failure.Code == protocolstore.NativeLogoutRequired {
+		return nil
+	}
+	return err
+}
 func (t *whatsmeowTransport) Reconnect() {
 	select {
 	case t.loginReconnect <- struct{}{}:

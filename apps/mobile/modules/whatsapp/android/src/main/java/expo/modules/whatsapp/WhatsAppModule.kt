@@ -243,11 +243,15 @@ class WhatsAppModule : Module() {
         if (!ConnectionRuntime.prepared) failure("NOT_INITIALIZED") else {
           try {
             val writer = ConnectionRuntime.writer ?: return@synchronized failure("NOT_INITIALIZED")
+            // Go stops reception, completes verifiable mappings and asks WhatsApp to unlink (15 s).
+            val remote = ConnectionRuntime.session?.logout() ?: "REMOTE_LOGOUT_UNCONFIRMED"
             ConnectionRuntime.stop()
+            // Any other code means nothing was unlinked or retired; credentials stay.
+            if (remote.isNotEmpty() && remote != "REMOTE_LOGOUT_UNCONFIRMED") return@synchronized failure(bridgeCode(remote))
             val hadSession = writer.open().optJSONObject("session") != null
             writer.endSession()
             ConnectionRuntime.revoked = false
-            if (hadSession) failure("REMOTE_LOGOUT_UNCONFIRMED") else success()
+            if (hadSession && remote.isNotEmpty()) failure("REMOTE_LOGOUT_UNCONFIRMED") else success()
           } catch (error: Exception) { failure(publicError(error)) }
         }
       }

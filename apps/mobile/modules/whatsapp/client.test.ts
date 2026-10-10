@@ -356,3 +356,56 @@ test("removing the active consumer unregisters it natively", async () => {
   native.handlers.get("messageReceived")?.(received(token));
   expect(listener).not.toHaveBeenCalled();
 });
+
+// IT-OUT-05: simultaneous logouts share one native call and one result; a repeat is requested again and stays local.
+test("simultaneous logout calls share one native call and result", async () => {
+  const native = fakeNative();
+  const client = createWhatsAppClient(() => native);
+  await client.initialize();
+  let release: (value: unknown) => void = () => {};
+  native.logout.mockReturnValueOnce(new Promise((resolve) => { release = resolve; }));
+  const first = client.logout();
+  const second = client.logout();
+  release({ success: false, error: { code: "REMOTE_LOGOUT_UNCONFIRMED" } });
+  const results = await Promise.all([first, second]);
+  expect(native.logout).toHaveBeenCalledTimes(1);
+  expect(results[0]).toEqual(results[1]);
+  expect(results[0]).toMatchObject({ success: false, error: { code: "REMOTE_LOGOUT_UNCONFIRMED" } });
+  expect(await client.logout()).toEqual({ success: true, data: undefined });
+  expect(native.logout).toHaveBeenCalledTimes(2);
+});
+
+// UT-CON-10 / IT-CON-10: connect and disconnect requested during a logout are admitted after it.
+test("connect and disconnect wait for a logout in flight", async () => {
+  const native = fakeNative();
+  const client = createWhatsAppClient(() => native);
+  await client.initialize();
+  const order: string[] = [];
+  let release: (value: unknown) => void = () => {};
+  native.logout.mockImplementationOnce(() => new Promise((resolve) => { release = (value) => { order.push("logout"); resolve(value); }; }));
+  native.connect.mockImplementationOnce(async () => { order.push("connect"); return { success: true }; });
+  native.disconnect.mockImplementationOnce(async () => { order.push("disconnect"); return { success: true }; });
+  const logout = client.logout();
+  const connect = client.connect();
+  const disconnect = client.disconnect();
+  await flush();
+  expect(order).toEqual([]);
+  release({ success: true });
+  await Promise.all([logout, connect, disconnect]);
+  expect(order).toEqual(["logout", "connect", "disconnect"]);
+});
+
+// IT-OUT-03: a local failure while retiring keeps the instance's session state and reports the storage error.
+test("a failed local retirement is reported and does not announce a disconnected account", async () => {
+  const native = fakeNative();
+  const client = createWhatsAppClient(() => native);
+  await client.initialize();
+  const states = jest.fn();
+  client.addListener("connectionChanged", states);
+  await flush();
+  states.mockClear();
+  native.logout.mockResolvedValueOnce({ success: false, error: { code: "SESSION_STORAGE_FAILED" } });
+  expect(await client.logout()).toMatchObject({ success: false, error: { code: "SESSION_STORAGE_FAILED" } });
+  await flush();
+  expect(states).not.toHaveBeenCalled();
+});

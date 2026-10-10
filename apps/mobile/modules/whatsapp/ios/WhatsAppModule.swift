@@ -266,11 +266,15 @@ public class WhatsAppModule: Module {
       runtime.lock.lock(); defer { runtime.lock.unlock() }
       guard runtime.prepared, let writer = runtime.writer else { return failure("NOT_INITIALIZED") }
       do {
+        // Go stops reception, completes verifiable mappings and asks WhatsApp to unlink (15 s).
+        let remote = runtime.session?.logout() ?? "REMOTE_LOGOUT_UNCONFIRMED"
         runtime.stop()
+        // Any other code means nothing was unlinked or retired; credentials stay.
+        if !remote.isEmpty && remote != "REMOTE_LOGOUT_UNCONFIRMED" { return failure(bridgeCode(remote)) }
         let hadSession = try writer.open()["session"] is [String: Any]
         try writer.endSession()
         runtime.revoked = false
-        return hadSession ? failure("REMOTE_LOGOUT_UNCONFIRMED") : success()
+        return hadSession && !remote.isEmpty ? failure("REMOTE_LOGOUT_UNCONFIRMED") : success()
       } catch { return failure(publicError(error)) }
     }
 

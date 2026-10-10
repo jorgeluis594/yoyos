@@ -87,6 +87,8 @@ type Controller struct {
 	retryCancel   chan struct{}
 	transport     Transport
 	retries       int
+	logout        *logoutCall // the unlink in flight; admissions wait for it
+	loggedOut     bool        // this session's credentials were handed to native retirement
 }
 
 func New(create func() (Transport, error), emit func(Event), clock Clock) *Controller {
@@ -174,6 +176,10 @@ func (c *Controller) PrepareInvalidSession() {
 func (c *Controller) Connect() Code {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.awaitLogoutLocked()
+	if c.loggedOut {
+		return SessionStateInvalid // a new account needs a session opened after retirement
+	}
 	if !c.prepared {
 		return SessionStateInvalid
 	}
@@ -198,6 +204,7 @@ func (c *Controller) Connect() Code {
 func (c *Controller) Disconnect() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.awaitLogoutLocked()
 	c.retireLocked()
 	c.setState(Disconnected)
 }
@@ -280,6 +287,13 @@ func (c *Controller) ResumeCapacity() {
 	c.startLocked(transport, Reconnecting)
 }
 func (c *Controller) retireLocked() {
+	if transport := c.detachLocked(); transport != nil {
+		transport.Stop()
+	}
+}
+
+// detachLocked invalidates the generation and hands back its transport without stopping it.
+func (c *Controller) detachLocked() Transport {
 	c.requested = false
 	c.paused = false
 	c.generation++
@@ -291,12 +305,11 @@ func (c *Controller) retireLocked() {
 		c.cancel()
 		c.cancel = nil
 	}
-	if c.transport != nil {
-		c.transport.Stop()
-		c.transport = nil
-	}
+	transport := c.transport
+	c.transport = nil
 	c.qr = Event{}
 	c.qrExpiry = time.Time{}
+	return transport
 }
 func (c *Controller) setState(state State) {
 	if state != AwaitingQR {
