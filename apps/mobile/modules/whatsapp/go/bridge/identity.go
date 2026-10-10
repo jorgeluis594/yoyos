@@ -47,10 +47,19 @@ func (s *ConnectionSession) identitySource() (identity.Account, *store.Device) {
 	return protocol, device
 }
 
-// watchMappings points the current store's mapping commits at the resolution service.
+// watchMappings points the mapping commits of the current store, or of the store the
+// first link will create, at the resolution service.
 func (s *ConnectionSession) watchMappings() {
-	if protocol, _ := s.accountStore(); protocol != nil {
-		protocol.SetMappingHook(s.identity.Trigger)
+	s.mu.Lock()
+	var source any
+	if s.store != nil {
+		source = s.store
+	} else if s.device != nil {
+		source = s.device.Container
+	}
+	s.mu.Unlock()
+	if watched, ok := source.(interface{ SetMappingHook(func()) }); ok {
+		watched.SetMappingHook(s.identity.Trigger)
 	}
 }
 

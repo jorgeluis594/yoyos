@@ -26,6 +26,18 @@ type firstLinkContainer struct {
 	readRecoveryBytes, newRecoveryBytes int64
 	linked                              *Store
 	failure                             error
+	mappingHook                         func()
+}
+
+// SetMappingHook registers the callback for LID mappings; it is applied to the store
+// that pairing creates, so mappings arriving after the first link are observed too.
+func (c *firstLinkContainer) SetMappingHook(hook func()) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.mappingHook = hook
+	if c.linked != nil {
+		c.linked.SetMappingHook(hook)
+	}
 }
 
 // NewFirstLinkDevice mirrors pinned sqlstore.NewDevice's credential generation.
@@ -110,6 +122,7 @@ func (c *firstLinkContainer) PutDevice(ctx context.Context, device *store.Device
 	if linked.sessionRevision == 0 || len(linked.records) != 1 || linked.records[recordID(record.RecordType, record.RecordKey)] != record {
 		return failure(StateInvalid, "first-link device not published")
 	}
+	linked.SetMappingHook(c.mappingHook)
 	linked.AttachDevice(device)
 	c.linked = linked
 	return nil
