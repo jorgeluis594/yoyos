@@ -20,7 +20,7 @@ export function mapMobileMessage(row: MessageRow): Result<MobileMessage, Registe
   };
   const valid = registerWhatsAppMessageRequestSchema.safeParse({ version: 1, message: {
     id: row.externalId, accountId: row.chat.contact.whatsappAccountId, chatId: row.chat.contact.whatsappLid,
-    whatsappMessageId: row.whatsappMessageId, direction: row.direction, timestamp: row.sentAt.getTime(),
+    whatsappMessageId: row.whatsappMessageId, direction: row.direction, ...(row.sentAt === null ? {} : { timestamp: row.sentAt.getTime() }),
     content: row.type === "text" ? content : { type: "image", ...(row.caption === null ? {} : { caption: row.caption }),
       ...(row.imageMimeType === null ? {} : { mimeType: row.imageMimeType }), ...(row.imageSize === null ? {} : { size }) },
   } });
@@ -35,7 +35,7 @@ export function mapMobileMessage(row: MessageRow): Result<MobileMessage, Registe
     || row.whatsappMediaId !== null || row.imageId !== null || row.imageFailureCode !== null || row.imageFailureMessage !== null
     || (row.type === "text" && (row.caption !== null || row.imageStatus !== null || row.imageMimeType !== null || row.imageSize !== null))
     || (row.type === "image" && (row.text !== null || row.imageStatus !== "metadata_only"))
-    || !Number.isFinite(row.sentAt.getTime())) return err(invalidStoredData);
+    || (row.sentAt !== null && !Number.isFinite(row.sentAt.getTime()))) return err(invalidStoredData);
   return ok({
     id: row.id as MobileMessage["id"], companyId: row.companyId as MobileMessage["companyId"], chatId: row.chatId,
     externalId: valid.data.message.id as MobileMessage["externalId"],

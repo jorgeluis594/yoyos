@@ -110,3 +110,11 @@ test("response contract is strict", () => {
   expect(registerWhatsAppMessageResponseSchema.safeParse(body).success).toBe(true);
   expect(registerWhatsAppMessageResponseSchema.safeParse({ ...body, secret: "x" }).success).toBe(false);
 });
+
+test("accepts a request without timestamp as an unknown date and still rejects an invalid timestamp", () => {
+  const withoutTimestamp: Record<string, unknown> = { ...request().message };
+  delete withoutTimestamp.timestamp;
+  const parsed = parseMobileMessage({ version: 1, message: withoutTimestamp });
+  expect(parsed).toMatchObject({ sentAt: null });
+  expect(parseMobileMessage({ version: 1, message: { ...withoutTimestamp, timestamp: -1 } })).toBeNull();
+});

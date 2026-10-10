@@ -339,7 +339,7 @@ model ChatMessage {
   type                MessageType
   text                String?
   caption             String?
-  sentAt              DateTime
+  sentAt              DateTime?
   receivedAt          DateTime
   whatsappMediaId     String?
   imageId             String?                   @db.Uuid
