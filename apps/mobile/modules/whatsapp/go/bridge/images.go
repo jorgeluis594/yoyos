@@ -156,7 +156,10 @@ func (l mediaLease) Publish(publish func() error) error {
 }
 
 // classifyDownload separates "the resource is gone" and "the content is corrupt" from transient
-// failures; the pinned client reports both with its own sentinels.
+// failures; the pinned client reports both with its own sentinels. A bad HMAC or a too-short file
+// is deliberately not "corrupt": after a failed host the pinned client appends the next host's
+// body to the previous partial data without rewinding, so those errors can follow a transient
+// failure and must stay retryable (IMAGE_DOWNLOAD_FAILED) instead of becoming permanent.
 func classifyDownload(err error) error {
 	switch {
 	case err == nil:
@@ -164,8 +167,7 @@ func classifyDownload(err error) error {
 	case errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith403), errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith404),
 		errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith410), errors.Is(err, whatsmeow.ErrNoURLPresent):
 		return errors.Join(images.ErrGone, err)
-	case errors.Is(err, whatsmeow.ErrInvalidMediaSHA256), errors.Is(err, whatsmeow.ErrInvalidMediaEncSHA256),
-		errors.Is(err, whatsmeow.ErrInvalidMediaHMAC), errors.Is(err, whatsmeow.ErrTooShortFile):
+	case errors.Is(err, whatsmeow.ErrInvalidMediaSHA256), errors.Is(err, whatsmeow.ErrInvalidMediaEncSHA256):
 		return errors.Join(images.ErrCorrupt, err)
 	}
 	return err

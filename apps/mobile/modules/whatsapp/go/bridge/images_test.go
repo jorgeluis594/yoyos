@@ -209,7 +209,12 @@ func TestClassifyDownloadSeparatesGoneCorruptAndTransient(t *testing.T) {
 			t.Fatalf("%v is not gone", gone)
 		}
 	}
-	for _, corrupt := range []error{whatsmeow.ErrInvalidMediaSHA256, whatsmeow.ErrInvalidMediaEncSHA256, whatsmeow.ErrInvalidMediaHMAC, whatsmeow.ErrTooShortFile} {
+	for _, afterHostChange := range []error{whatsmeow.ErrInvalidMediaHMAC, whatsmeow.ErrTooShortFile} {
+		if err := classifyDownload(afterHostChange); errors.Is(err, images.ErrCorrupt) || errors.Is(err, images.ErrGone) {
+			t.Fatalf("%v can follow a transient host failure and must stay retryable", afterHostChange)
+		}
+	}
+	for _, corrupt := range []error{whatsmeow.ErrInvalidMediaSHA256, whatsmeow.ErrInvalidMediaEncSHA256} {
 		if !errors.Is(classifyDownload(corrupt), images.ErrCorrupt) {
 			t.Fatalf("%v is not corrupt", corrupt)
 		}
@@ -217,5 +222,129 @@ func TestClassifyDownloadSeparatesGoneCorruptAndTransient(t *testing.T) {
 	transient := errors.New("connection reset")
 	if got := classifyDownload(transient); got != transient || classifyDownload(nil) != nil {
 		t.Fatal("transient failures must pass through")
+	}
+}
+
+// M2 through the bridge: the media path reaches the pinned client as emitted, query included.
+func TestBridgePassesTheMediaPathWithItsQuery(t *testing.T) {
+	plain := jpeg(300)
+	id, _ := imageReference(t, "q", plain)
+	sum := sha256.Sum256(plain)
+	path := "/v/t62.7118-24/123_n.enc?ccb=11-4&oh=01_x&oe=6612A1B2&_nc_sid=5e03e0"
+	raw, _ := json.Marshal(map[string]string{
+		"accountId": imageAccount, "messageId": id, "directPath": path,
+		"mediaKey": base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{3}, 32)), "fileSha256": base64.StdEncoding.EncodeToString(sum[:]),
+		"fileEncSha256": base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{4}, 32)),
+	})
+	reference := "wa-image:v1:" + base64.RawURLEncoding.EncodeToString(raw)
+	imageSession, _ := openImageSession(t, 1<<20)
+	var seen string
+	transport := &mediaTransport{download: func(_ context.Context, request connection.MediaRequest, file connection.MediaFile) error {
+		seen = request.DirectPath
+		_, err := file.Write(plain)
+		return err
+	}}
+	connectedImageSession(t, transport, imageSession)
+	if result := imageSession.Download(id, reference); result.Code != "" || seen != path {
+		t.Fatalf("%+v path=%q", result, seen)
+	}
+}
+
+// IT-IMG-16 (M1): a request queued under session S1 never starts network on session S2, even
+// when both controllers are at the same generation number.
+func TestITIMG16QueuedRequestNeverCrossesIntoANewSession(t *testing.T) {
+	plain := jpeg(256)
+	idA, refA := imageReference(t, "a", plain)
+	idB, refB := imageReference(t, "b", plain)
+	imageSession, _ := openImageSession(t, 1<<20)
+	release, started := make(chan struct{}), make(chan struct{})
+	first := &mediaTransport{download: func(ctx context.Context, _ connection.MediaRequest, _ connection.MediaFile) error {
+		close(started)
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+		return ctx.Err()
+	}}
+	s1 := connectedImageSession(t, first, imageSession)
+	blocked := make(chan *ImageDownloadResult, 1)
+	go func() { blocked <- imageSession.Download(idA, refA) }()
+	<-started
+	queued := make(chan *ImageDownloadResult, 1)
+	go func() { queued <- imageSession.Download(idB, refB) }()
+	time.Sleep(30 * time.Millisecond) // B is admitted under S1
+	s1.Disconnect()
+	s1.Close()
+	second := &mediaTransport{download: writeAll(plain)}
+	connectedImageSession(t, second, imageSession)
+	close(release)
+	<-blocked
+	if result := <-queued; result.Code != "ACCOUNT_NOT_CONNECTED" || second.networkCalls() != 0 {
+		t.Fatalf("queued request used the new session: %+v calls=%d", result, second.networkCalls())
+	}
+}
+
+// B1 (Go side): neither confirmations nor disconnect/logout wait for a stalled download, and the
+// cancellation reaches the transfer at once.
+func TestB1DisconnectAndLogoutDoNotWaitForADownload(t *testing.T) {
+	plain := jpeg(256)
+	id, ref := imageReference(t, "stall", plain)
+	imageSession, _ := openImageSession(t, 1<<20)
+	started := make(chan struct{})
+	transport := &mediaTransport{download: func(ctx context.Context, _ connection.MediaRequest, _ connection.MediaFile) error {
+		close(started)
+		<-ctx.Done()
+		return ctx.Err()
+	}}
+	session := connectedImageSession(t, transport, imageSession)
+	storage := &pendingStorage{}
+	storage.add(1)
+	delivery, _ := openDelivery(t, storage)
+	result := make(chan *ImageDownloadResult, 1)
+	go func() { result <- imageSession.Download(id, ref) }()
+	<-started
+	done := make(chan string, 2)
+	go func() { done <- "confirm:" + delivery.Confirm(deliveryID(1)) }()
+	select {
+	case got := <-done:
+		if got != "confirm:" {
+			t.Fatal(got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("confirm waited for the download")
+	}
+	go func() { session.Disconnect(); done <- "disconnect" }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("disconnect waited for the download")
+	}
+	select {
+	case r := <-result:
+		if r.Code != "IMAGE_DOWNLOAD_FAILED" {
+			t.Fatalf("%+v", r)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the transfer was not cancelled by the disconnect")
+	}
+	// Logout during a download: the same guarantee.
+	transport2 := &mediaTransport{download: transport.download}
+	started = make(chan struct{})
+	transport2.download = func(ctx context.Context, _ connection.MediaRequest, _ connection.MediaFile) error {
+		close(started)
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	session2 := connectedImageSession(t, transport2, imageSession)
+	go func() { result <- imageSession.Download(id, ref) }()
+	<-started
+	go func() { _ = session2.Logout(); done <- "logout" }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("logout waited for the download")
+	}
+	if r := <-result; r.Code != "IMAGE_DOWNLOAD_FAILED" {
+		t.Fatalf("%+v", r)
 	}
 }

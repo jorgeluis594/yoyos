@@ -58,7 +58,7 @@ func TestUTIMG02RejectsMalformedAndIncoherentDescriptors(t *testing.T) {
 // UT-IMG-03 / IT-IMG-03: only media paths of the client are accepted.
 func TestUTIMG03RejectsArbitraryPathsAndHosts(t *testing.T) {
 	id := messageID(t, "a")
-	for _, path := range []string{"https://evil.example/v/x", "//evil.example/v/x", "v/t62/x", "/v/x#frag", "/v/x?a=1#frag", "file:///etc/passwd", "/../../etc/passwd://x"} {
+	for _, path := range []string{"https://evil.example/v/x", "//evil.example/v/x", "v/t62/x", "/v/x#frag", "/v/x?a=1#frag", "file:///etc/passwd", "/../../etc/passwd://x", "/v/../x", "/v/./x", "/v\\x", "/v/x\n", "/v/x y", "/v/x?a=1#f"} {
 		ref := encode(t, map[string]string{"accountId": testAccount, "messageId": id, "directPath": path})
 		_, err := ParseDescriptor(id, ref)
 		if path == "/../../etc/passwd://x" || err != nil {
@@ -66,6 +66,12 @@ func TestUTIMG03RejectsArbitraryPathsAndHosts(t *testing.T) {
 			continue
 		}
 		t.Fatalf("%q was accepted", path)
+	}
+	// M2: the form the pinned client expects carries its query; "&hash=" is appended to it.
+	query := "/v/t62.7118-24/123_n.enc?ccb=11-4&oh=01_x&oe=6612A1B2&_nc_sid=5e03e0"
+	_, withQuery, _ := reference(t, spec{wid: "q", plain: payload(30), directPath: query})
+	if d, err := ParseDescriptor(messageID(t, "q"), withQuery); err != nil || d.DirectPath != query {
+		t.Fatalf("real path form rejected: %v", err)
 	}
 	_, ref, _ := reference(t, spec{wid: "ok", plain: payload(30)})
 	_, err := ParseDescriptor(messageID(t, "ok"), ref)

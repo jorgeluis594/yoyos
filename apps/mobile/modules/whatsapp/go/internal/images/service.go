@@ -3,6 +3,7 @@ package images
 import (
 	"context"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -126,6 +127,11 @@ func Open(options Options) (*Service, *Error) {
 	}
 	for _, entry := range entries {
 		if entry.IsDir() {
+			size, err := s.directorySize(filepath.Join(s.dir, entry.Name()))
+			if err != nil {
+				return nil, fail(DownloadFailed, err)
+			}
+			s.budget.put(entry.Name()+"/", size) // never removed here, but it counts
 			continue
 		}
 		info, err := entry.Info()
@@ -142,6 +148,31 @@ func Open(options Options) (*Service, *Error) {
 		s.budget.put(name, info.Size())
 	}
 	return s, nil
+}
+
+// directorySize adds up the files below a directory so foreign leftovers count against the budget.
+func (s *Service) directorySize(path string) (int64, error) {
+	entries, err := s.fs.ReadDir(path)
+	if err != nil {
+		return 0, err
+	}
+	var total int64
+	for _, entry := range entries {
+		if entry.IsDir() {
+			size, err := s.directorySize(filepath.Join(path, entry.Name()))
+			if err != nil {
+				return 0, err
+			}
+			total += size
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return 0, err
+		}
+		total += info.Size()
+	}
+	return total, nil
 }
 
 // SetNetwork connects the service to the current connection source; nil disconnects it.
@@ -284,7 +315,7 @@ func (s *Service) verify(name string, d Descriptor) (Image, error) {
 	}
 	defer file.Close()
 	hasher := sha256.New()
-	head := make([]byte, 16)
+	head := make([]byte, 32)
 	filled, err := io.ReadFull(file, head)
 	if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) && !errors.Is(err, io.EOF) {
 		return Image{}, err
@@ -320,11 +351,11 @@ func (s *Service) fetch(d Descriptor, lease Lease, base string) (Image, *Error) 
 		}
 		forecast = encrypted
 	}
-	part, final := base+partialSuffix, base+completeSuffix
-	if err := s.fs.Remove(s.path(part)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	nonce := make([]byte, 8)
+	if _, err := rand.Read(nonce); err != nil {
 		return Image{}, fail(DownloadFailed, err)
 	}
-	s.budget.drop(part)
+	part, final := base+"."+hex.EncodeToString(nonce)+partialSuffix, base+completeSuffix
 	if !s.budget.reserve(forecast) {
 		return Image{}, fail(StorageLimitReached, nil)
 	}
@@ -434,7 +465,8 @@ func (s *Service) Delete(messageID string) *Error {
 	defer close(t.done)
 	base := fileName(messageID)
 	var failures []error
-	for _, name := range []string{base + completeSuffix, base + partialSuffix} {
+	names := append([]string{base + completeSuffix}, s.budget.partialsOf(base)...)
+	for _, name := range names {
 		err := s.fs.Remove(s.path(name))
 		if err == nil || errors.Is(err, fs.ErrNotExist) {
 			s.budget.drop(name)

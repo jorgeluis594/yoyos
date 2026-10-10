@@ -392,8 +392,29 @@ func ValidateImageReference(ref ImageReference) error {
 			return ErrInvalidIdentity
 		}
 	}
-	if descriptor.DirectPath != "" && (!strings.HasPrefix(descriptor.DirectPath, "/") || strings.HasPrefix(descriptor.DirectPath, "//") || strings.ContainsAny(descriptor.DirectPath, "?#") || strings.Contains(descriptor.DirectPath, "://")) {
+	if descriptor.DirectPath != "" && !validDirectPath(descriptor.DirectPath) {
 		return ErrInvalidIdentity
 	}
 	return nil
+}
+
+// validDirectPath accepts the media path as the protocol emits it: absolute, with the query
+// (ccb, oh, oe…) the pinned client appends "&hash=" to. It never accepts a scheme, an authority,
+// a fragment, a dot segment, a backslash or a control character.
+func validDirectPath(path string) bool {
+	if !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") || strings.Contains(path, "#") || strings.Contains(path, "://") || strings.Contains(path, "\\") {
+		return false
+	}
+	for _, r := range path {
+		if r < 0x20 || r == 0x7f || r == ' ' {
+			return false
+		}
+	}
+	location, _, _ := strings.Cut(path, "?")
+	for _, segment := range strings.Split(location, "/") {
+		if segment == ".." || segment == "." {
+			return false
+		}
+	}
+	return true
 }

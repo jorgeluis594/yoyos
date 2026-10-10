@@ -1,6 +1,10 @@
 package images
 
-import "sync"
+import (
+	"sort"
+	"strings"
+	"sync"
+)
 
 // budget is the global image byte account: every file in the directory (complete, foreign or a
 // partial whose removal failed) plus the single active download, counted at the larger of its
@@ -94,4 +98,18 @@ func (b *budget) size(name string) (int64, bool) {
 	defer b.mu.Unlock()
 	size, ok := b.files[name]
 	return size, ok
+}
+
+// partialsOf lists the partials of one message that could not be removed and still count.
+func (b *budget) partialsOf(base string) []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var names []string
+	for name := range b.files {
+		if strings.HasPrefix(name, base+".") && strings.HasSuffix(name, partialSuffix) {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
 }

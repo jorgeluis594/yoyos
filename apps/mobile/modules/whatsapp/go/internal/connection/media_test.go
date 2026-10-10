@@ -3,6 +3,8 @@ package connection
 import (
 	"context"
 	"errors"
+	"io"
+	"io/fs"
 	"sync"
 	"testing"
 	"time"
@@ -163,3 +165,59 @@ func TestMediaAdmissionBindsToItsGeneration(t *testing.T) {
 		t.Fatalf("admitted while disconnected may use the connected generation: %v", err)
 	}
 }
+
+// IT-IMG-16 (M1): a request admitted under one controller never gets another controller's
+// generation, even when both are at the same generation number.
+func TestMediaAdmissionBindsToItsController(t *testing.T) {
+	first, _, _ := connectedMedia(t)
+	admitted := first.AdmitMedia()
+	first.Disconnect()
+	second, _, _ := connectedMedia(t)
+	if _, err := second.AcquireMedia(admitted); !errors.Is(err, ErrMediaUnavailable) {
+		t.Fatalf("a queued request crossed into a new session: %v", err)
+	}
+	if _, err := second.AcquireMedia(second.AdmitMedia()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// memoryFile is a MediaFile in memory, enough for the transfers these tests stop early.
+type memoryFile struct {
+	data   []byte
+	offset int64
+}
+
+func newMemoryFile() *memoryFile { return &memoryFile{} }
+func (f *memoryFile) Read(p []byte) (int, error) {
+	if f.offset >= int64(len(f.data)) {
+		return 0, io.EOF
+	}
+	n := copy(p, f.data[f.offset:])
+	f.offset += int64(n)
+	return n, nil
+}
+func (f *memoryFile) Write(p []byte) (int, error) {
+	n, err := f.WriteAt(p, f.offset)
+	f.offset += int64(n)
+	return n, err
+}
+func (f *memoryFile) WriteAt(p []byte, off int64) (int, error) {
+	if end := off + int64(len(p)); end > int64(len(f.data)) {
+		f.data = append(f.data, make([]byte, end-int64(len(f.data)))...)
+	}
+	return copy(f.data[off:], p), nil
+}
+func (f *memoryFile) ReadAt(p []byte, off int64) (int, error) {
+	if off >= int64(len(f.data)) {
+		return 0, io.EOF
+	}
+	return copy(p, f.data[off:]), nil
+}
+func (f *memoryFile) Seek(offset int64, whence int) (int64, error) {
+	if whence == io.SeekStart {
+		f.offset = offset
+	}
+	return f.offset, nil
+}
+func (f *memoryFile) Truncate(size int64) error  { f.data = f.data[:size]; return nil }
+func (f *memoryFile) Stat() (fs.FileInfo, error) { return nil, errors.New("unused") }

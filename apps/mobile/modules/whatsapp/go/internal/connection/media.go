@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"sync/atomic"
 
 	"go.mau.fi/whatsmeow"
 )
@@ -42,15 +43,18 @@ var ErrMediaRetired = errors.New("generation retired")
 
 // MediaAdmission is the generation observed when a download was admitted.
 type MediaAdmission struct {
+	Controller uint64 // unique per controller, never reused across sessions
 	Generation uint64
 	Connected  bool
 }
+
+var controllerSequence atomic.Uint64
 
 // AdmitMedia records the current generation without holding anything.
 func (c *Controller) AdmitMedia() MediaAdmission {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return MediaAdmission{Generation: c.generation, Connected: c.mediaReadyLocked() != nil}
+	return MediaAdmission{Controller: c.id, Generation: c.generation, Connected: c.mediaReadyLocked() != nil}
 }
 
 func (c *Controller) mediaReadyLocked() MediaTransport {
@@ -71,7 +75,7 @@ func (c *Controller) AcquireMedia(admitted MediaAdmission) (*MediaLease, error) 
 	if transport == nil {
 		return nil, ErrMediaUnavailable
 	}
-	if admitted.Connected && admitted.Generation != c.generation {
+	if admitted.Connected && (admitted.Controller != c.id || admitted.Generation != c.generation) {
 		return nil, ErrMediaUnavailable
 	}
 	return &MediaLease{controller: c, generation: c.generation, ctx: c.runCtx, transport: transport}, nil

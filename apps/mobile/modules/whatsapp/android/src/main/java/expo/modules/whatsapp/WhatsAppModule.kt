@@ -335,31 +335,38 @@ class WhatsAppModule : Module() {
       delivery?.removeConsumer(token)
       success()
     }
-    // Image calls run on this background thread, outside the runtime lock: a download never blocks
-    // the session writer or confirmations. Go returns the published file path, never its bytes.
-    AsyncFunction("downloadImage") { reference: Map<String, Any?> ->
+    // Image calls can block for a whole download (60 s) and may wait in Go's own queue. Expo's default
+    // AsyncFunction queue is one thread shared by every function and module, so they run as
+    // coroutines on ImageOperations' dispatcher: confirmMessageStored, disconnect and logout never
+    // wait behind a download, and a disconnect cancels the transfer immediately. Go returns the
+    // published file path, never its bytes.
+    AsyncFunction("downloadImage") Coroutine { reference: Map<String, Any?> ->
       val images = synchronized(ConnectionRuntime.lock) { ConnectionRuntime.images }
       val messageId = reference["messageId"] as? String
       val downloadReference = reference["downloadReference"] as? String
       when {
         images == null -> failure("NOT_INITIALIZED")
         messageId == null || downloadReference == null -> failure("INVALID_INPUT")
-        else -> try {
-          val result = images.download(messageId, downloadReference)
-          when {
-            result == null -> failure("NATIVE_CALL_FAILED")
-            result.code.isNotEmpty() -> failure(imageCode(result.code))
-            else -> success(mapOf("uri" to Uri.fromFile(File(result.path)).toString(), "mimeType" to result.mimeType, "size" to result.size))
-          }
-        } catch (_: Exception) { failure("NATIVE_CALL_FAILED") }
+        else -> ImageOperations.run {
+          try {
+            val result = images.download(messageId, downloadReference)
+            when {
+              result == null -> failure("NATIVE_CALL_FAILED")
+              result.code.isNotEmpty() -> failure(imageCode(result.code))
+              else -> success(mapOf("uri" to Uri.fromFile(File(result.path)).toString(), "mimeType" to result.mimeType, "size" to result.size))
+            }
+          } catch (_: Exception) { failure("NATIVE_CALL_FAILED") }
+        }
       }
     }
-    AsyncFunction("deleteDownloadedImage") { messageId: String ->
+    AsyncFunction("deleteDownloadedImage") Coroutine { messageId: String ->
       val images = synchronized(ConnectionRuntime.lock) { ConnectionRuntime.images }
-      if (images == null) failure("NOT_INITIALIZED") else try {
-        val code = images.delete(messageId)
-        if (code.isEmpty()) success() else failure(imageCode(code))
-      } catch (_: Exception) { failure("NATIVE_CALL_FAILED") }
+      if (images == null) failure("NOT_INITIALIZED") else ImageOperations.run {
+        try {
+          val code = images.delete(messageId)
+          if (code.isEmpty()) success() else failure(imageCode(code))
+        } catch (_: Exception) { failure("NATIVE_CALL_FAILED") }
+      }
     }
 
     AsyncFunction("probe") { value: String, failCallback: Boolean ->

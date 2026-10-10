@@ -350,8 +350,11 @@ public class WhatsAppModule: Module {
       delivery?.removeConsumer(token)
       return success()
     }
-    // Image calls run outside the runtime lock: a download never blocks the session writer or
-    // confirmations. Go returns the published file path, never its bytes.
+    // Image calls can block for a whole download (60 s) and may wait in Go's own queue. Expo's default
+    // AsyncFunction queue is one serial queue shared by every function and module, so they run on
+    // ImageOperations.queue: confirmMessageStored, disconnect and logout never wait behind a
+    // download, and a disconnect cancels the transfer immediately. Go returns the published file
+    // path, never its bytes.
     AsyncFunction("downloadImage") { (reference: [String: Any]) -> [String: Any] in
       let runtime = ConnectionRuntime.shared
       runtime.lock.lock(); let images = runtime.images; runtime.lock.unlock()
@@ -360,14 +363,14 @@ public class WhatsAppModule: Module {
       guard let result = images.download(messageId, downloadReference: downloadReference) else { return failure("NATIVE_CALL_FAILED") }
       if !result.code.isEmpty { return failure(imageCode(result.code)) }
       return success(["uri": URL(fileURLWithPath: result.path).absoluteString, "mimeType": result.mimeType, "size": result.size])
-    }
+    }.runOnQueue(ImageOperations.queue)
     AsyncFunction("deleteDownloadedImage") { (messageId: String) -> [String: Any] in
       let runtime = ConnectionRuntime.shared
       runtime.lock.lock(); let images = runtime.images; runtime.lock.unlock()
       guard let images else { return failure("NOT_INITIALIZED") }
       let code = images.delete(messageId)
       return code.isEmpty ? success() : failure(imageCode(code))
-    }
+    }.runOnQueue(ImageOperations.queue)
 
     AsyncFunction("probe") { (value: String, failCallback: Bool) -> [String: String] in
       guard let result = YYWhatsAppGoBridgeProbe(ProbeStorage(fail: failCallback), value) else {

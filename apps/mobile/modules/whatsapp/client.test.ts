@@ -504,6 +504,16 @@ describe("private image files", () => {
     expect(await client.downloadImage(reference)).toMatchObject({ success: true });
   });
 
+  test("B1: disconnect and logout reach native while a download is still pending", async () => {
+    const { native, client } = await ready();
+    native.downloadImage.mockImplementationOnce(() => new Promise(() => { /* never settles: a stalled transfer */ }));
+    void client.downloadImage(reference);
+    expect(await client.disconnect()).toMatchObject({ success: true });
+    expect(await client.logout()).toMatchObject({ success: true });
+    expect(native.disconnect).toHaveBeenCalledTimes(1);
+    expect(native.logout).toHaveBeenCalledTimes(1);
+  });
+
   test("a call before initialization or without the module keeps its own error", async () => {
     const client = createWhatsAppClient(() => null);
     expect(await client.downloadImage(reference)).toMatchObject({ success: false, error: { code: "MODULE_UNAVAILABLE" } });
