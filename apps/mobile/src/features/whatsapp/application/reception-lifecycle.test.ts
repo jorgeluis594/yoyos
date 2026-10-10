@@ -101,7 +101,7 @@ test("publishes a local storage failure while receiving as the last error", asyn
   const { lifecycle, emit, receive } = setup();
   receive.mockResolvedValueOnce(err({ code: "LOCAL_STORAGE_FAILED", message: "Local storage failed" }) as never);
   await lifecycle.start();
-  emit("messageReceived", {});
+  emit("messageReceived", { deliveryId: "d", message: { direction: "incoming", text: "x" } });
   await Promise.resolve();
   await Promise.resolve();
   expect(lifecycle.status().lastError).toEqual({ code: "LOCAL_STORAGE_FAILED", message: "Local storage failed" });

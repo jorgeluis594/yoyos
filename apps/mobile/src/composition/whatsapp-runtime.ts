@@ -29,6 +29,7 @@ export function getWhatsAppRuntime(): Promise<WhatsAppRuntime> {
     newId: () => Crypto.randomUUID(),
     now: () => new Date(),
     random: Math.random,
+    debug: __DEV__ ? (event, detail) => console.log(`[whatsapp] ${event}`, detail ?? "") : undefined,
     schedule: (ms, run) => { const handle = setTimeout(run, ms); return () => clearTimeout(handle); },
   })).catch((error: unknown) => {
     runtime = undefined;

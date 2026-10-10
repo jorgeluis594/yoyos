@@ -25,6 +25,8 @@ export type ReceptionDeps = Readonly<{
   session: () => Session | null;
   receive: (event: WhatsAppEvents["messageReceived"]) => Promise<Result<ReceiveOutcome, ReceiveError>>;
   sync: Readonly<{ wake(): void; stop(): void }>;
+  /** Development diagnostics: event names and codes only, never message content, ids or LIDs. */
+  debug?: (event: string, detail?: Readonly<Record<string, string | number | boolean | null>>) => void;
 }>;
 
 export function createReceptionLifecycle(deps: ReceptionDeps) {
@@ -32,6 +34,7 @@ export function createReceptionLifecycle(deps: ReceptionDeps) {
   let status: ReceptionStatus = { connection: "disconnected", qr: null, notice: null, lastError: null };
   const listeners = new Set<(status: ReceptionStatus) => void>();
 
+  const debug = deps.debug ?? (() => undefined);
   const publish = (next: Partial<ReceptionStatus>) => {
     status = { ...status, ...next };
     listeners.forEach((listener) => listener(status));
@@ -44,13 +47,19 @@ export function createReceptionLifecycle(deps: ReceptionDeps) {
 
   const listen = () => [
     deps.whatsapp.addListener("messageReceived", (event) => {
+      debug("message_received", { direction: event.message.direction, hasText: event.message.text !== undefined, hasImage: event.message.image !== undefined, hasTimestamp: event.message.timestamp !== undefined });
       void deps.receive(event).then((result) => {
+        debug("message_processed", result.success ? { status: result.data.status } : { errorCode: result.error.code });
         if (!result.success) publish({ lastError: { code: result.error.code, message: result.error.message } });
       });
     }),
-    deps.whatsapp.addListener("qr", (qr) => publish({ qr })),
-    deps.whatsapp.addListener("connectionChanged", ({ state }) => publish(state === "connected" ? { connection: state, qr: null } : { connection: state })),
+    deps.whatsapp.addListener("qr", (qr) => { debug("qr", { expiresAt: qr.expiresAt }); publish({ qr }); }),
+    deps.whatsapp.addListener("connectionChanged", ({ state }) => {
+      debug("connection_changed", { state });
+      publish(state === "connected" ? { connection: state, qr: null } : { connection: state });
+    }),
     deps.whatsapp.addListener("error", (error) => {
+      debug("library_error", { code: error.code });
       if (informationalErrorCodes.includes(error.code)) publish({ notice: error.code });
       else publish({ lastError: { code: error.code, message: error.message } });
     }),
@@ -70,8 +79,10 @@ export function createReceptionLifecycle(deps: ReceptionDeps) {
     // The consumer goes first so recovered pending deliveries find it.
     subscriptions = listen();
     const initialized = await deps.whatsapp.initialize();
+    debug("initialize", { ok: initialized.success, errorCode: initialized.success ? null : initialized.error.code });
     if (!initialized.success) { stop(); return initialized; }
     const connected = await deps.whatsapp.connect();
+    debug("connect", { ok: connected.success, errorCode: connected.success ? null : connected.error.code });
     if (!connected.success) { stop(); return connected; }
     return ok(handle);
   }

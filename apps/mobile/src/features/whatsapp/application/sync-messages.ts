@@ -14,6 +14,7 @@ export type SyncWorkerDeps = Readonly<{
   /** A value in [0, 1) used for backoff jitter. */
   random: () => number;
   schedule: (ms: number, run: () => void) => () => void;
+  debug?: (event: string, detail?: Readonly<Record<string, string | number | boolean | null>>) => void;
 }>;
 
 const batchSize = 20;
@@ -75,11 +76,13 @@ export function createSyncWorker(deps: SyncWorkerDeps) {
   }
 
   async function drain(): Promise<void> {
+    const debug = deps.debug ?? (() => undefined);
     running = true;
     try {
       do {
         rerun = false;
         const result = await runOnce();
+        debug("sync_run", result.success ? { ...result.data } : { errorCode: result.error.code });
         if (!result.success) rerun = false;
       } while (rerun);
     } finally {

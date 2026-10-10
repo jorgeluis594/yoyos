@@ -22,6 +22,7 @@ export type WhatsAppRuntimeDeps = Readonly<{
   now: Clock;
   random: () => number;
   schedule: (ms: number, run: () => void) => () => void;
+  debug?: (event: string, detail?: Readonly<Record<string, string | number | boolean | null>>) => void;
 }>;
 
 export type SessionIdentity = Readonly<{ companyId: string; userId: string }>;
@@ -36,9 +37,9 @@ export function createWhatsAppRuntime(deps: WhatsAppRuntimeDeps) {
     companyId: identity.companyId as CompanyId, userId: identity.userId as UserId, generation: deps.generation(),
   };
 
-  const sync = createSyncWorker({ store, api: createMessageApi(deps.request), session, now: deps.now, random: deps.random, schedule: deps.schedule });
+  const sync = createSyncWorker({ store, api: createMessageApi(deps.request), session, now: deps.now, random: deps.random, schedule: deps.schedule, debug: deps.debug });
   const receive = receiveMessage({ store, links, whatsapp: deps.gateway, now: deps.now, wakeSync: sync.wake });
-  const reception = createReceptionLifecycle({ whatsapp: deps.gateway, links, session, receive, sync });
+  const reception = createReceptionLifecycle({ whatsapp: deps.gateway, links, session, receive, sync, debug: deps.debug });
 
   return {
     store,
