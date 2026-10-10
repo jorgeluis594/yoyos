@@ -47,6 +47,11 @@ jest.mock("@mobile/features/delivery-settings/composition", () => {
   return { deliverySettings: { get: () => createDeliverySettingsApi(mockRequest).get(),
     createQuotation: (districtCode: string) => createQuotationApi(mockRequest)(districtCode) } };
 });
+jest.mock("@expo/ui/community/menu", () => {
+  const { View } = jest.requireActual<typeof import("react-native")>("react-native");
+  return { MenuView: ({ children, onPressAction }: { children: React.ReactNode; onPressAction: (event: { nativeEvent: { event: string } }) => void }) =>
+    <View {...{ onValueChange: (index: number) => onPressAction({ nativeEvent: { event: String(index) } }) }}>{children}</View> };
+});
 jest.mock("@expo/ui", () => {
   const { View } = jest.requireActual<typeof import("react-native")>("react-native");
   const Picker = ({ children, testID, onValueChange }: { children: React.ReactNode; testID?: string; onValueChange: (value: number) => void }) =>
@@ -129,7 +134,7 @@ test("mobile interface creates a pending order without payments or stock changes
 
 test("mobile interface creates an immediate sale with payment, stock deduction and delivery", async () => {
   const screen = await review();
-  fireEvent.press(screen.getByRole("button", { name: "Agregar pago" }));
+  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
   fireEvent.changeText(screen.getByLabelText(/Monto/), "10");
   fireEvent(screen.getByTestId("delivery-status"), "valueChange", 1);
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
@@ -191,7 +196,7 @@ async function ratedReview(method: "home" | "agency" = "home", rateIndex = 0) {
 test("mobile creates a rated home order and payment atomically with the full selected charge", async () => {
   const screen = await ratedReview();
   expect(screen.getAllByText(/S\/\s18\.00/).length).toBeGreaterThan(0);
-  fireEvent.press(screen.getByRole("button", { name: "Agregar pago" }));
+  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
   fireEvent.changeText(screen.getByLabelText(/Monto/), "18");
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   await waitFor(() => expect(mockReplace).toHaveBeenCalledTimes(1));

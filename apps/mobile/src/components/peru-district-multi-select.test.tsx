@@ -4,6 +4,11 @@ import { PeruDistrictMultiSelect } from "@mobile/components/peru-district-multi-
 import { getPeruDistrict, getPeruProvinces, peruDepartments, type PeruDistrictCode } from "@shared/peru-geography";
 import i18n from "@mobile/i18n";
 
+jest.mock("@expo/ui/community/menu", () => {
+  const { View } = jest.requireActual<typeof import("react-native")>("react-native");
+  return { MenuView: ({ children, onPressAction }: { children: React.ReactNode; onPressAction: (event: { nativeEvent: { event: string } }) => void }) =>
+    <View {...{ onValueChange: (index: number) => onPressAction({ nativeEvent: { event: String(index) } }) }}>{children}</View> };
+});
 jest.mock("@expo/ui", () => {
   const { View } = jest.requireActual<typeof import("react-native")>("react-native");
   const Picker = ({ onValueChange, children, testID, enabled }: { onValueChange: (value: number) => void; children: React.ReactNode; testID?: string; enabled: boolean }) =>

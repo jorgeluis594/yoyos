@@ -1,25 +1,19 @@
 import i18n from '@mobile/i18n';
 import { fireEvent, render } from '@testing-library/react-native';
-import { View } from 'react-native';
 
 import { OptionSelector } from './option-selector';
 import { Field, FieldError, FieldLabel } from './field';
 
-jest.mock('@expo/ui', () => {
-  const React = require('react');
-  const { Text, View } = require('react-native');
-  const Item = () => null;
-  const Picker = ({ children, selectedValue, onValueChange, testID }: any) => (
-    <View testID={testID} accessibilityRole="adjustable" accessibilityValue={{ text: String(selectedValue) }} onValueChange={onValueChange}>
-      {React.Children.map(children, (child: any) => child.type === Item ? <Text>{child.props.label}</Text> : null)}
-    </View>
-  );
-  Picker.Item = Item;
-  return { Host: ({ children }: any) => {
-    if (children.type !== Picker) throw new Error('Host must contain the native Picker directly');
-    return <View>{children}</View>;
-  }, Picker };
-});
+jest.mock('@expo/ui/community/menu', () => ({
+  MenuView: ({ actions, onPressAction, children }: { actions: { id: string; title: string }[]; onPressAction: (event: { nativeEvent: { event: string } }) => void; children: import('react').ReactNode }) => {
+    const mockReact = jest.requireActual('react');
+    const mockRN = jest.requireActual('react-native');
+    return mockReact.createElement(mockReact.Fragment, null, children, ...actions.map(action => mockReact.createElement(
+      mockRN.Pressable,
+      { key: action.id, accessibilityRole: 'menuitem', accessibilityLabel: action.title, onPress: () => onPressAction({ nativeEvent: { event: action.id } }) },
+    )));
+  },
+}));
 
 const options = [
   { value: 'one', label: 'Uno' },
@@ -28,36 +22,29 @@ const options = [
   { value: 'four', label: 'Cuatro' },
 ];
 
-test('four options use the native picker, report selection, and reflect its controlled value', async () => {
+test('shows the current choice, skips disabled options, and changes or clears the value', () => {
   const change = jest.fn();
-  const screen = await render(<OptionSelector options={options} value="one" onValueChange={change} testID="selector" />);
-  expect(screen.queryByRole('radio')).toBeNull();
-  expect(screen.getByTestId('selector').props.accessibilityValue.text).toBe('0');
-  expect(screen.getByText('Dos — Segunda opción')).toBeTruthy();
-  expect(screen.queryByText('Tres')).toBeNull();
-  await fireEvent(screen.getByTestId('selector'), 'valueChange', 1);
+  const screen = render(<OptionSelector options={options} value="one" onValueChange={change} testID="selector" />);
+  expect(screen.getByTestId('selector').props.accessibilityLabel).toBe('Uno');
+  expect(screen.queryByRole('menuitem', { name: 'Tres' })).toBeNull();
+  fireEvent.press(screen.getByRole('menuitem', { name: 'Dos — Segunda opción' }));
   expect(change).toHaveBeenCalledWith('two');
-  await screen.rerender(<OptionSelector options={options} value="two" onValueChange={change} testID="selector" />);
-  expect(screen.getByTestId('selector').props.accessibilityValue.text).toBe('1');
+  screen.rerender(<OptionSelector options={options} value="two" onValueChange={change} testID="selector" />);
+  expect(screen.getByTestId('selector').props.accessibilityLabel).toBe('Dos — Segunda opción');
+  fireEvent.press(screen.getByRole('menuitem', { name: 'Selecciona una opción' }));
+  expect(change).toHaveBeenCalledWith(null);
 });
 
-test('five options also use the native picker with a null placeholder', async () => {
-  const screen = await render(<OptionSelector options={[...options, { value: 'five', label: 'Cinco' }]} value={null} onValueChange={() => {}} testID="picker" />);
-  expect(screen.getByTestId('picker').props.accessibilityValue.text).toBe('-1');
-  expect(screen.getByText('Selecciona una opción')).toBeTruthy();
-  expect(screen.queryByText('Tres')).toBeNull();
+test('connects the field label and error, and disables the menu with the field', () => {
+  const screen = render(<Field invalid disabled><FieldLabel>Plan</FieldLabel><OptionSelector options={options} value={null} onValueChange={() => {}} testID="selector" /><FieldError>Elige un plan</FieldError></Field>);
+  const selector = screen.getByTestId('selector');
+  expect(selector.props.accessibilityLabel).toBe('Plan: Selecciona una opción');
+  expect(selector.props.accessibilityHint).toBe('Elige un plan');
+  expect(selector.props.accessibilityState.disabled).toBe(true);
+  expect(screen.queryByRole('menuitem')).toBeNull();
 });
 
-test('field label and error are connected to the selector', async () => {
-  const screen = await render(<Field invalid><FieldLabel>Plan</FieldLabel><OptionSelector options={options.slice(0, 2)} value={null} onValueChange={() => {}} /><FieldError>Elige un plan</FieldError></Field>);
-  const selector = screen.UNSAFE_getByType(View);
-  const group = selector.findAll((node) => node.props.accessibilityRole === 'radiogroup')[0];
-  expect(group.props.accessibilityLabel).toBe('Plan');
-  expect(group.props.accessibilityHint).toBe('Elige un plan');
-  expect(screen.getByText('Elige un plan')).toBeTruthy();
-});
-
-test('default picker prompt follows the selected language', async () => {
+test('default prompt follows the selected language', async () => {
   await i18n.changeLanguage('pt-BR');
   try {
     const selector = render(<OptionSelector options={options} value={null} onValueChange={() => {}} />);
