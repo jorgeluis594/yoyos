@@ -400,8 +400,13 @@ public final class NativeStateStore {
         pending[position]["identityState"] = "resolved"
         pending[position]["message"] = update["message"]
       }
-      guard let options = snapshot["options"] as? [String: Any], let capacity = Self.safeInt(options["maxRecoveryBufferBytes"]),
-            try Self.json(pending).count <= capacity else { throw StateStoreError.bufferFull }
+      // Same rule as Go (protocolstore.Decide): only insertions are admitted against the budget. A
+      // publication that inserts nothing (identity resolution, protocol-only) must still go through when
+      // a reduced budget is already exceeded, or the excess could never drain; it stays bounded by the
+      // reliable read bound, which every snapshot must fit anyway.
+      guard let options = snapshot["options"] as? [String: Any], let budget = Self.safeInt(options["maxRecoveryBufferBytes"]) else { throw StateStoreError.bufferFull }
+      let capacity = inserts.isEmpty ? max(budget, readBudget) : budget
+      guard try Self.json(pending).count <= capacity else { throw StateStoreError.bufferFull }
       var nextSession = session
       if !changes.isEmpty {
         guard let id = session["sessionKeyId"] as? String else { throw StateStoreError.invalid }

@@ -940,6 +940,34 @@ class StateStoreInstrumentedTest {
     .put("identityState", "pendingLid")
     .put("recovery", org.json.JSONObject().put("messageInfoJson", "{}").put("items", org.json.JSONArray()))
 
+  // M1 / IT-CFG-06 / IT-CFG-07: with a reduced budget already exceeded, only insertions are refused;
+  // identity resolution and protocol-only publications still go through so the excess can drain.
+  @Test fun reducedBudgetRefusesOnlyInsertions() {
+    val root = freshRoot
+    val writer = makeStore(root)
+    writer.open()
+    writer.beginSession("123@lid", "{\"protocolSchemaVersion\":1,\"records\":[]}".toByteArray())
+    val padding = "{\"padding\":\"${"A".repeat(2000)}\"}"
+    fun padded(letter: String, ordinal: Int) = pendingEntry(letter, ordinal)
+      .put("recovery", org.json.JSONObject().put("messageInfoJson", padding).put("items", org.json.JSONArray()))
+    writer.commit("1") { state -> state.put("pending", org.json.JSONArray().put(padded("a", 0)).put(padded("b", 1))) }
+    writer.updateOptions(1024L, 50L * 1024 * 1024) // far below the ~4 KB stored
+    writer.registerGeneration("generation", "123@lid")
+    val sessionRevision = writer.open().getJSONObject("session").getString("sessionRevision")
+    fun request(inserts: org.json.JSONArray, updates: org.json.JSONArray) = org.json.JSONObject()
+      .put("contractVersion", 1).put("generationId", "generation").put("accountId", "123@lid")
+      .put("expectedSessionRevision", sessionRevision).put("protocolChanges", org.json.JSONArray())
+      .put("pendingInserts", inserts).put("pendingIdentityUpdates", updates).toString()
+    val insert = org.json.JSONObject(writer.applyProtocolChanges(request(org.json.JSONArray().put(padded("c", 0)), org.json.JSONArray())))
+    assertFalse(insert.getBoolean("success"))
+    assertEquals("BUFFER_FULL", insert.getJSONObject("error").getString("code"))
+    val update = org.json.JSONObject().put("deliveryId", "wa-delivery:v1:" + "a".repeat(32)).put("identityState", "resolved")
+      .put("message", org.json.JSONObject().put("id", "wa-message:v1:YQ"))
+    assertTrue(org.json.JSONObject(writer.applyProtocolChanges(request(org.json.JSONArray(), org.json.JSONArray().put(update)))).getBoolean("success"))
+    assertEquals("resolved", writer.open().getJSONArray("pending").getJSONObject(0).getString("identityState"))
+    assertEquals(2, writer.open().getJSONArray("pending").length()) // nothing was discarded
+  }
+
   // IT-DEL-07 / IT-DEL-08 / IT-DEL-11: durable idempotent retirement, no session key or generation needed.
   @Test fun retirePendingIsDurableIdempotentAndNeedsNoSessionKey() {
     val root = freshRoot

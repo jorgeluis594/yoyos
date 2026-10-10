@@ -37,6 +37,35 @@ type native struct {
 	loseRetire bool                         // publishes the retirement but loses the reply
 	applyGate  func()                       // runs inside ApplyChanges, before publication
 	requests   []protocolstore.ApplyRequest // every publication that was accepted, in order
+	// Native budget rule (NativeStateStore.kt / .swift applyProtocolChanges); zero budget disables it.
+	budget, readBound int64
+}
+
+// nativeBudgetAllows is the rule of the real native stores: a publication that inserts entries
+// must keep the whole pending set within the configured budget; one that inserts nothing
+// (identity resolution, protocol-only) only has to stay within the reliable read bound, so an
+// excess left by a reduced budget can still drain.
+func (n *native) nativeBudgetAllows(a protocolstore.ApplyRequest) bool {
+	if n.budget == 0 {
+		return true
+	}
+	next := append([]protocolstore.PendingRecord{}, n.pending...)
+	for _, p := range a.PendingInserts {
+		next = append(next, protocolstore.PendingRecord{PendingInsert: p})
+	}
+	for _, u := range a.PendingIdentityUpdates {
+		for i := range next {
+			if next[i].DeliveryID == u.DeliveryID {
+				next[i].IdentityState, next[i].Message = u.IdentityState, u.Message
+			}
+		}
+	}
+	raw, _ := json.Marshal(next)
+	limit := max(n.budget, n.readBound)
+	if len(a.PendingInserts) > 0 {
+		limit = n.budget
+	}
+	return int64(len(raw)) <= limit
 }
 
 type eventLog struct {
@@ -106,6 +135,9 @@ func (n *native) ApplyChanges(request string) (string, error) {
 	}
 	if n.failIdent != nil && len(a.PendingIdentityUpdates) > 0 {
 		return "", n.failIdent
+	}
+	if !n.nativeBudgetAllows(a) {
+		return rejected("BUFFER_FULL"), nil
 	}
 	for _, c := range a.ProtocolChanges {
 		key := c.RecordType + "\x00" + c.RecordKey

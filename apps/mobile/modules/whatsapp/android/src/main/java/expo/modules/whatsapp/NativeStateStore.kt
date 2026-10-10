@@ -439,7 +439,12 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
         }
         if (!found) throw StateFailure("INVALID_REQUEST")
       }
-      val maxPending = snapshot.getJSONObject("options").getLong("maxRecoveryBufferBytes")
+      // Same rule as Go (protocolstore.Decide): only insertions are admitted against the budget. A
+      // publication that inserts nothing (identity resolution, protocol-only) must still go through when
+      // a reduced budget is already exceeded, or the excess could never drain; it stays bounded by the
+      // reliable read bound, which every snapshot must fit anyway.
+      val budget = snapshot.getJSONObject("options").getLong("maxRecoveryBufferBytes")
+      val maxPending = if (inserts.length() > 0) budget else maxOf(budget, readBudget)
       if (pending.toString().toByteArray(Charsets.UTF_8).size > maxPending) throw StateFailure("BUFFER_FULL")
       val nextRevision = revision + BigInteger.ONE
       val nextSession = if (changes.length() == 0) session else {

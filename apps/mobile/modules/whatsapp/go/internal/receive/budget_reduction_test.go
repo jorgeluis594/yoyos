@@ -3,6 +3,7 @@ package receive
 import (
 	"testing"
 	"time"
+	"yoyos-whatsapp/internal/protocolstore"
 )
 
 // IT-CFG-06: after the budget is reduced below what is stored, the stored entries survive a
@@ -86,5 +87,64 @@ func TestITCFG09BudgetIsSharedAcrossAccounts(t *testing.T) {
 	app.persist(d)
 	if err := l.coord.Confirm(d.ID); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// M1 (review of PR #52) / IT-CFG-06 / IT-CFG-07: after the budget is reduced below what is stored,
+// pendingLid entries still resolve when their mapping arrives, are delivered and drain. The fake
+// native applies the same rule as Kotlin and Swift, which used to refuse every publication whose
+// resulting pending set exceeded the reduced budget, identity resolution included.
+func TestM1PendingLidAboveAReducedBudgetResolvesDeliversAndDrains(t *testing.T) {
+	n := newNative()
+	roomy := newLife(t, n, 1<<20)
+	for _, id := range []string{"p1", "p2", "p3"} {
+		if r := roomy.receiveFrom(id, "hola", phone); r.err != nil {
+			t.Fatal(r.err)
+		}
+	}
+	roomy.coord.Close()
+	reserved, _ := protocolstore.EntrySize(n.entry(t, 0).PendingInsert)
+
+	n.set(func() { n.budget, n.readBound = 300, 1<<20 }) // native: far below what three entries occupy
+	l := newLifeBound(t, n, 1<<20, reserved)
+	il := l.withIdentity()
+	app := l.subscribe("a")
+	l.coord.Start()
+	app.none(t) // unresolved entries are not deliverable yet
+	if n.pendingCount() != 3 {
+		t.Fatalf("a reduction discards nothing: %d", n.pendingCount())
+	}
+
+	l.storeMapping()
+	for i := 0; i < 3; i++ {
+		d := app.take(t) // resolved by the mapping, delivered in order
+		app.persist(d)
+		if err := l.coord.Confirm(d.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	select {
+	case err := <-il.failures:
+		t.Fatalf("the identity publication was refused: %v", err)
+	default:
+	}
+	if n.pendingCount() != 0 {
+		t.Fatalf("everything drained: %d", n.pendingCount())
+	}
+}
+
+// The same native rule still refuses growth: an insertion above the reduced budget is rejected.
+func TestM1NativeRuleStillRefusesInsertionsAboveTheBudget(t *testing.T) {
+	n := newNative()
+	roomy := newLife(t, n, 1<<20)
+	roomy.receive("s1", "a").ack(t)
+	n.set(func() { n.budget, n.readBound = 300, 1<<20 })
+	l := newLifeBound(t, n, 1<<20, 1<<20) // Go would admit; the native store must still refuse growth
+	l.coord.Start()
+	if r := l.receive("s2", "a"); r.err == nil {
+		t.Fatal("an insertion above the budget must be refused natively")
+	}
+	if n.pendingCount() != 1 {
+		t.Fatal("rejected insertion left an entry")
 	}
 }
