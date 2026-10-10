@@ -3,12 +3,16 @@ import CryptoKit
 import Security
 import CoreFoundation
 import Darwin
+import WhatsAppGo
 
 public enum StateStoreError: Error {
   case invalid
   case storage
   case revision
   case sessionLimit
+  case staleGeneration
+  case invalidRequest
+  case bufferFull
 }
 
 /** Native-only writer. Every mutation starts from the last authenticated published revision. */
@@ -30,6 +34,8 @@ public final class NativeStateStore {
   private var state: [String: Any]?
   private var uncertain = false
   private var sessionUsable = true
+  private var registeredGeneration: String?
+  private var registeredAccount: String?
   private var observedPublication: UInt64?
   private let lock = NativeStateStore.writerLock
 
@@ -125,6 +131,7 @@ public final class NativeStateStore {
   }
 
   public func beginSession(accountId: String, protocolBytes: Data) throws {
+    retireGeneration()
     lock.lock(); defer { state = nil; lock.unlock() }
     state = nil
     let existing = try open()
@@ -157,13 +164,460 @@ public final class NativeStateStore {
     committedRecord["provisionalSessionKeyId"] = NSNull(); try writeRecord(committedRecord)
   }
 
+  /// The reliable read bound: the largest recovery budget the container ever accepted. It does not
+  /// shrink when the budget is reduced, so a snapshot holding the excess stays readable and drainable.
+  public func recoveryReadBound() throws -> Int64 {
+    lock.lock(); defer { lock.unlock() }
+    _ = try open()
+    return Int64(readBudget)
+  }
+
   public func canRestoreSession() throws -> Bool {
     lock.lock(); defer { lock.unlock() }
     _ = try open()
     return sessionUsable
   }
 
+  public func registerGeneration(_ generationId: String, accountId: String) throws {
+    lock.lock(); defer { lock.unlock() }
+    let snapshot = try open()
+    guard !generationId.isEmpty, Self.validAccount(accountId),
+          (snapshot["session"] as? [String: Any])?["accountId"] as? String == accountId else { throw StateStoreError.staleGeneration }
+    registeredGeneration = generationId
+    registeredAccount = accountId
+  }
+
+  public func registerFreshGeneration(_ generationId: String) throws {
+    lock.lock(); defer { lock.unlock() }
+    let snapshot = try open()
+    guard !generationId.isEmpty, snapshot["session"] is NSNull else { throw StateStoreError.staleGeneration }
+    registeredGeneration = generationId
+    registeredAccount = nil
+  }
+
+  public func retireGeneration() {
+    lock.lock(); defer { lock.unlock() }
+    registeredGeneration = nil
+    registeredAccount = nil
+  }
+
+  @discardableResult public func updateOptions(maxRecoveryBufferBytes: Int64, maxImageStorageBytes: Int64) throws -> String {
+    lock.lock(); defer { lock.unlock() }
+    guard maxRecoveryBufferBytes > 0, maxImageStorageBytes > 0,
+          maxRecoveryBufferBytes <= 9_007_199_254_740_991, maxImageStorageBytes <= 9_007_199_254_740_991 else { throw StateStoreError.invalidRequest }
+    let snapshot = try open()
+    guard let options = snapshot["options"] as? [String: Any] else { throw StateStoreError.invalid }
+    if Self.safeInt(options["maxRecoveryBufferBytes"]) == Int(maxRecoveryBufferBytes) &&
+       Self.safeInt(options["maxImageStorageBytes"]) == Int(maxImageStorageBytes) { return String(revision) }
+    _ = try commit(expectedRevision: String(revision)) { old in
+      var next = old
+      next["options"] = ["maxRecoveryBufferBytes": maxRecoveryBufferBytes, "maxImageStorageBytes": maxImageStorageBytes]
+      return next
+    }
+    return String(revision)
+  }
+
+  public func beginFreshProtocolSession(_ request: String) -> String {
+    protocolResponse {
+      guard request.utf8.count <= Self.maxSession + 1024 else { throw StateStoreError.invalidRequest }
+      let input = try Self.parseProtocolRequest(request)
+      try Self.exact(input, ["contractVersion", "generationId", "accountId", "device"])
+      guard Self.safeInt(input["contractVersion"]) == 1,
+            let generation = input["generationId"] as? String, !generation.isEmpty,
+            let account = input["accountId"] as? String, Self.validAccount(account),
+            let device = input["device"] as? [String: Any], device["recordType"] as? String == "device" else { throw StateStoreError.invalidRequest }
+      try Self.exact(device, ["recordType", "recordKey", "valueBase64"])
+      var change = device; change["operation"] = "put"
+      try Self.validateProtocolChange(change)
+      guard YYWhatsAppGoBridgeValidateProtocolChange("put", "device", device["recordKey"] as? String ?? "", device["valueBase64"] as? String ?? "") else { throw StateStoreError.invalidRequest }
+      guard let encoded = device["valueBase64"] as? String,
+            let value = Self.decode(encoded, max: Self.maxSession),
+            let body = try? Self.parseObject(value), let lid = body["lid"] as? String, Self.deviceAccount(lid) == account,
+            let id = body["id"] as? String, !id.isEmpty else { throw StateStoreError.invalidRequest }
+      let protocolState: [String: Any] = ["protocolSchemaVersion": 1, "records": [device]]
+      try Self.validateProtocolRecords([device], account: account)
+      lock.lock(); defer { lock.unlock() }
+      guard registeredGeneration == generation,
+            registeredAccount == nil || registeredAccount == account else { throw StateStoreError.staleGeneration }
+      let existing = try open()
+      if existing["session"] is NSNull {
+        defer { registeredGeneration = generation; registeredAccount = nil }
+        try beginSession(accountId: account, protocolBytes: Self.json(protocolState))
+      }
+      else {
+        guard sessionUsable, let session = existing["session"] as? [String: Any], session["accountId"] as? String == account,
+              let records = try decryptProtocol(session)["records"] as? [[String: Any]],
+              try Self.json(records) == Self.json([device]) else { throw StateStoreError.staleGeneration }
+      }
+      try registerGeneration(generation, accountId: account)
+      let final = try open()
+      guard let session = final["session"] as? [String: Any], let sessionRevision = session["sessionRevision"] as? String else { throw StateStoreError.invalid }
+      return ["revision": String(revision), "sessionRevision": sessionRevision]
+    }
+  }
+
+  public func readProtocolState(_ request: String) -> String {
+    protocolResponse {
+      guard request.utf8.count <= 128 else { throw StateStoreError.invalidRequest }
+      let input = try Self.parseProtocolRequest(request)
+      try Self.exact(input, ["contractVersion"])
+      guard Self.safeInt(input["contractVersion"]) == 1 else { throw StateStoreError.invalidRequest }
+      lock.lock(); defer { lock.unlock() }
+      let snapshot = try open()
+      var data: [String: Any] = ["revision": String(revision), "pending": snapshot["pending"] ?? [[String: Any]]()]
+      if let session = snapshot["session"] as? [String: Any] {
+        guard sessionUsable, let account = session["accountId"] as? String,
+              let sessionRevision = session["sessionRevision"] as? String else { throw StateStoreError.invalid }
+        let protocolState = try decryptProtocol(session)
+        guard let records = protocolState["records"] as? [[String: Any]] else { throw StateStoreError.invalid }
+        try Self.validateProtocolRecords(records, account: account)
+        data["sessionRevision"] = sessionRevision
+        data["session"] = ["accountId": account, "protocolSchemaVersion": 1, "records": protocolState["records"] ?? [[String: Any]]()]
+      } else {
+        data["sessionRevision"] = "0"
+        data["session"] = NSNull()
+      }
+      return data
+    }
+  }
+
+  /// Pending entries need neither a generation nor a usable session: recovery works with any account.
+  public func readPending(_ request: String) -> String {
+    protocolResponse {
+      guard request.utf8.count <= 128 else { throw StateStoreError.invalidRequest }
+      let input = try Self.parseProtocolRequest(request)
+      try Self.exact(input, ["contractVersion"])
+      guard Self.safeInt(input["contractVersion"]) == 1 else { throw StateStoreError.invalidRequest }
+      lock.lock(); defer { lock.unlock() }
+      let snapshot = try open()
+      return ["revision": String(revision), "pending": snapshot["pending"] ?? [[String: Any]]()]
+    }
+  }
+
+  /// Removes the whole entry durably; a valid identifier with no entry succeeds without publishing.
+  public func retirePending(_ request: String) -> String {
+    protocolResponse {
+      guard request.utf8.count <= 256 else { throw StateStoreError.invalidRequest }
+      let input = try Self.parseProtocolRequest(request)
+      try Self.exact(input, ["contractVersion", "deliveryId"])
+      guard Self.safeInt(input["contractVersion"]) == 1, let id = input["deliveryId"] as? String,
+            id.range(of: "^wa-delivery:v1:[0-9a-f]{32}\\z", options: .regularExpression) != nil else { throw StateStoreError.invalidRequest }
+      lock.lock(); defer { lock.unlock() }
+      let snapshot = try open()
+      let existing = snapshot["pending"] as? [[String: Any]] ?? []
+      let kept = existing.filter { $0["deliveryId"] as? String != id }
+      let removed = kept.count != existing.count
+      if removed {
+        try commit(expectedRevision: String(revision)) { old in
+          var next = old
+          next["pending"] = kept
+          return next
+        }
+      }
+      return ["revision": String(revision), "removed": removed]
+    }
+  }
+
+  public func applyProtocolChanges(_ request: String) -> String {
+    protocolResponse {
+      guard request.utf8.count <= Self.maxSession + readBudget + 12_340 else { throw StateStoreError.invalidRequest }
+      let input = try Self.parseProtocolRequest(request)
+      try Self.exact(input, ["contractVersion", "generationId", "accountId", "expectedSessionRevision", "protocolChanges", "pendingInserts", "pendingIdentityUpdates"])
+      guard Self.safeInt(input["contractVersion"]) == 1,
+            let generation = input["generationId"] as? String, let account = input["accountId"] as? String,
+            let expectedText = input["expectedSessionRevision"] as? String, let expected = Self.parseRevision(expectedText),
+            let changes = input["protocolChanges"] as? [[String: Any]],
+            let inserts = input["pendingInserts"] as? [[String: Any]],
+            let updates = input["pendingIdentityUpdates"] as? [[String: Any]] else { throw StateStoreError.invalidRequest }
+      guard !changes.isEmpty || !inserts.isEmpty || !updates.isEmpty else { throw StateStoreError.invalidRequest }
+      for change in changes {
+        try Self.validateProtocolChange(change)
+        guard YYWhatsAppGoBridgeValidateProtocolChange(change["operation"] as? String ?? "", change["recordType"] as? String ?? "",
+                                                     change["recordKey"] as? String ?? "", change["valueBase64"] as? String ?? "") else { throw StateStoreError.invalidRequest }
+      }
+      for item in inserts {
+        var fields: Set<String> = ["deliveryId", "accountId", "source", "identityState", "recovery"]
+        if item["message"] != nil { fields.insert("message") }
+        try Self.exact(item, fields)
+        guard item["accountId"] as? String == account,
+              let delivery = item["deliveryId"] as? String,
+              delivery.range(of: "^wa-delivery:v1:[0-9a-f]{32}\\z", options: .regularExpression) != nil else { throw StateStoreError.invalidRequest }
+      }
+      for update in updates {
+        try Self.exact(update, ["deliveryId", "identityState", "message"])
+        guard update["identityState"] as? String == "resolved", update["message"] is [String: Any] else { throw StateStoreError.invalidRequest }
+      }
+      lock.lock(); defer { lock.unlock() }
+      guard registeredGeneration == generation, registeredAccount == account else { throw StateStoreError.staleGeneration }
+      let snapshot = try open()
+      guard let session = snapshot["session"] as? [String: Any], session["accountId"] as? String == account,
+            let currentText = session["sessionRevision"] as? String,
+            let current = Self.parseRevision(currentText) else { throw StateStoreError.staleGeneration }
+      guard current == expected else { throw StateStoreError.revision }
+      let oldProtocol = try decryptProtocol(session)
+      guard let records = oldProtocol["records"] as? [[String: Any]] else { throw StateStoreError.invalid }
+      var ordered = [(String, [String: Any])]()
+      for record in records {
+        guard let kind = record["recordType"] as? String, let key = record["recordKey"] as? String else { throw StateStoreError.invalid }
+        ordered.append((kind + "\u{0}" + key, record))
+      }
+      for change in changes {
+        let kind = change["recordType"] as! String
+        let key = change["recordKey"] as! String
+        let id = kind + "\u{0}" + key
+        ordered.removeAll { $0.0 == id }
+        if change["operation"] as? String == "put" {
+          ordered.append((id, ["recordType": kind, "recordKey": key, "valueBase64": change["valueBase64"] as! String]))
+        }
+      }
+      let protocolState: [String: Any] = ["protocolSchemaVersion": 1, "records": ordered.map { $0.1 }]
+      try Self.validateProtocolRecords(ordered.map { $0.1 }, account: account)
+      if let oldDevice = records.first(where: { $0["recordType"] as? String == "device" }) {
+        guard let nextDevice = ordered.map({ $0.1 }).first(where: { $0["recordType"] as? String == "device" }),
+              let oldEncoded = oldDevice["valueBase64"] as? String, let nextEncoded = nextDevice["valueBase64"] as? String,
+              let oldBytes = Self.decode(oldEncoded, max: Self.maxSession), let nextBytes = Self.decode(nextEncoded, max: Self.maxSession) else { throw StateStoreError.invalidRequest }
+        let oldBody = try Self.parseObject(oldBytes)
+        let nextBody = try Self.parseObject(nextBytes)
+        guard oldBody["id"] as? String == nextBody["id"] as? String else { throw StateStoreError.invalidRequest }
+      }
+      let plain = try Self.json(protocolState)
+      guard plain.count <= Self.maxSession else { throw StateStoreError.sessionLimit }
+      guard let existing = snapshot["pending"] as? [[String: Any]] else { throw StateStoreError.invalid }
+      var pending = existing
+      var ids = Set(existing.compactMap { $0["deliveryId"] as? String })
+      let nextRevision = revision + 1
+      for (ordinal, insert) in inserts.enumerated() {
+        guard let id = insert["deliveryId"] as? String, ids.insert(id).inserted else { throw StateStoreError.invalidRequest }
+        var item = insert
+        item["createdRevision"] = String(nextRevision)
+        item["createdOrdinal"] = ordinal
+        pending.append(item)
+      }
+      for update in updates {
+        guard let id = update["deliveryId"] as? String,
+              let position = existing.firstIndex(where: { $0["deliveryId"] as? String == id }),
+              pending[position]["identityState"] as? String == "pendingLid" else { throw StateStoreError.invalidRequest }
+        pending[position]["identityState"] = "resolved"
+        pending[position]["message"] = update["message"]
+      }
+      // Same rule as Go (protocolstore.Decide): only insertions are admitted against the budget. A
+      // publication that inserts nothing (identity resolution, protocol-only) must still go through when
+      // a reduced budget is already exceeded, or the excess could never drain; it stays bounded by the
+      // reliable read bound, which every snapshot must fit anyway.
+      guard let options = snapshot["options"] as? [String: Any], let budget = Self.safeInt(options["maxRecoveryBufferBytes"]) else { throw StateStoreError.bufferFull }
+      let capacity = inserts.isEmpty ? max(budget, readBudget) : budget
+      guard try Self.json(pending).count <= capacity else { throw StateStoreError.bufferFull }
+      var nextSession = session
+      if !changes.isEmpty {
+        guard let id = session["sessionKeyId"] as? String else { throw StateStoreError.invalid }
+        let nonce = AES.GCM.Nonce()
+        let sealed = try AES.GCM.seal(plain, using: try keychain.key(id), nonce: nonce,
+                                      authenticating: Self.sessionAAD(storeId, account, id, String(nextRevision)))
+        nextSession["sessionRevision"] = String(nextRevision)
+        nextSession["nonceBase64"] = Data(nonce).base64EncodedString()
+        nextSession["ciphertextBase64"] = sealed.ciphertext.appended(sealed.tag).base64EncodedString()
+      }
+      let committed = try commit(expectedRevision: String(revision)) { old in
+        var next = old; next["session"] = nextSession; next["pending"] = pending; return next
+      }
+      guard let finalSession = committed["session"] as? [String: Any],
+            let finalRevision = finalSession["sessionRevision"] as? String else { throw StateStoreError.invalid }
+      return ["revision": String(revision), "sessionRevision": finalRevision]
+    }
+  }
+
+  private func decryptProtocol(_ session: [String: Any]) throws -> [String: Any] {
+    guard let id = session["sessionKeyId"] as? String, let account = session["accountId"] as? String,
+          let revision = session["sessionRevision"] as? String,
+          let nonceText = session["nonceBase64"] as? String, let nonceData = Self.decode(nonceText, max: 12),
+          let cipherText = session["ciphertextBase64"] as? String,
+          let ciphertext = Self.decode(cipherText, max: Self.maxSession), ciphertext.count >= 16 else { throw StateStoreError.invalid }
+    let nonce = try AES.GCM.Nonce(data: nonceData)
+    let sealed = try AES.GCM.SealedBox(nonce: nonce, ciphertext: ciphertext.dropLast(16), tag: ciphertext.suffix(16))
+    let plain = try AES.GCM.open(sealed, using: try keychain.key(id), authenticating: Self.sessionAAD(storeId, account, id, revision))
+    return try Self.parseObject(plain)
+  }
+
+  private static func parseProtocolRequest(_ text: String) throws -> [String: Any] {
+    do { return try parseObject(Data(text.utf8)) }
+    catch { throw StateStoreError.invalidRequest }
+  }
+
+  private func protocolResponse(_ action: () throws -> [String: Any]) -> String {
+    let response: [String: Any]
+    do { response = ["contractVersion": 1, "success": true, "data": try action()] }
+    catch {
+      let code: String
+      switch error {
+      case StateStoreError.staleGeneration: code = "STALE_GENERATION"
+      case StateStoreError.revision: code = "SESSION_REVISION_MISMATCH"
+      case StateStoreError.invalidRequest: code = "INVALID_REQUEST"
+      case StateStoreError.bufferFull: code = "BUFFER_FULL"
+      case StateStoreError.sessionLimit: code = "SESSION_FULL"
+      case StateStoreError.invalid: code = "STATE_INVALID"
+      default: code = "STORAGE_FAILED"
+      }
+      response = ["contractVersion": 1, "success": false, "error": ["code": code, "message": code]]
+    }
+    return String(data: (try? Self.json(response)) ?? Data(), encoding: .utf8) ?? ""
+  }
+
+  private static func validateProtocolChange(_ change: [String: Any]) throws {
+    guard let operation = change["operation"] as? String, ["put", "delete"].contains(operation),
+          let kind = change["recordType"] as? String, let key = change["recordKey"] as? String else { throw StateStoreError.invalidRequest }
+    var fields: Set<String> = ["operation", "recordType", "recordKey"]
+    if operation == "put" { fields.insert("valueBase64") }
+    guard Set(change.keys) == fields else { throw StateStoreError.invalidRequest }
+    if kind == "device" && operation != "put" { throw StateStoreError.invalidRequest }
+    let arity: Int
+    switch kind {
+    case "device", "prekey-state", "nct-salt": arity = 0
+    case "identity", "signal-session", "prekey", "app-state-key", "app-state-version", "contact", "chat-setting", "privacy-token", "lid-mapping", "retry-hash": arity = 1
+    case "sender-key", "app-state-mac": arity = 2
+    case "message-secret": arity = 3
+    default: throw StateStoreError.invalidRequest
+    }
+    guard key.utf8.count <= 2048, let bytes = decodeURL(key),
+          let tuple = try JSONSerialization.jsonObject(with: bytes) as? [String], tuple.count == arity,
+          tuple.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 512 }),
+          try json(tuple) == bytes else { throw StateStoreError.invalidRequest }
+    func decimal(_ text: String, max: UInt64, allowZero: Bool = true) -> Bool {
+      guard let value = UInt64(text), String(value) == text, value <= max else { return false }
+      return allowZero || value > 0
+    }
+    func binary(_ text: String, min: Int, max: Int) -> Bool {
+      guard let bytes = decode(text, max: max) else { return false }
+      return bytes.count >= min
+    }
+    switch kind {
+    case "prekey": guard decimal(tuple[0], max: UInt64(UInt32.max), allowZero: false) else { throw StateStoreError.invalidRequest }
+    case "identity", "signal-session": guard validSignalAddress(tuple[0]) else { throw StateStoreError.invalidRequest }
+    case "sender-key": guard validSignalAddress(tuple[1]) else { throw StateStoreError.invalidRequest }
+    case "app-state-key": guard binary(tuple[0], min: 1, max: 256) else { throw StateStoreError.invalidRequest }
+    case "app-state-mac", "retry-hash": guard binary(tuple[kind == "app-state-mac" ? 1 : 0], min: 32, max: 32) else { throw StateStoreError.invalidRequest }
+    case "lid-mapping": guard tuple[0].range(of: "^[0-9]+@s\\.whatsapp\\.net$", options: .regularExpression) != nil else { throw StateStoreError.invalidRequest }
+    default: break
+    }
+    if operation == "put" {
+      guard let encoded = change["valueBase64"] as? String, encoded.utf8.count <= Self.maxSession,
+            let value = decode(encoded, max: Self.maxSession),
+            let object = try? parseObject(value), safeInt(object["version"]) == 1 else { throw StateStoreError.invalidRequest }
+      try validateProtocolValue(kind, object)
+    }
+  }
+
+  private static func validSignalAddress(_ value: String) -> Bool {
+    guard let cut = value.lastIndex(of: ":"), cut != value.startIndex else { return false }
+    let user = value[..<cut]
+    let device = value[value.index(after: cut)...]
+    return !user.contains(where: { "@/\\".contains($0) }) &&
+      UInt64(device).map { String($0) == String(device) && $0 <= UInt64(UInt32.max) } == true
+  }
+
+  private static func validateProtocolValue(_ kind: String, _ value: [String: Any]) throws {
+    func fields(_ expected: Set<String>) throws {
+      guard Set(value.keys) == expected else { throw StateStoreError.invalidRequest }
+    }
+    func bytes(_ name: String, min: Int, max: Int) throws {
+      guard let encoded = value[name] as? String, let data = decode(encoded, max: max), data.count >= min else { throw StateStoreError.invalidRequest }
+    }
+    func number(_ name: String, max: Int = Int.max, allowZero: Bool = true) throws -> Int {
+      guard let value = safeInt(value[name]), value >= 0, value <= max, allowZero || value > 0 else { throw StateStoreError.invalidRequest }
+      return value
+    }
+    switch kind {
+    case "device":
+      try fields(["version", "noisePrivateKey", "identityPrivateKey", "signedPreKeyPrivate", "signedPreKeyId", "signedPreKeySignature", "registrationId", "advSecretKey", "id", "lid", "account", "platform", "businessName", "pushName", "facebookUuid", "lidMigrationTimestamp", "companionMetaNonce"])
+      for name in ["noisePrivateKey", "identityPrivateKey", "signedPreKeyPrivate", "advSecretKey"] { try bytes(name, min: 32, max: 32) }
+      try bytes("signedPreKeySignature", min: 64, max: 64)
+      try bytes("account", min: 1, max: maxSession)
+      _ = try number("signedPreKeyId", max: Int(UInt32.max)); _ = try number("registrationId", max: Int(UInt32.max))
+      for name in ["id", "lid", "platform", "businessName", "pushName", "facebookUuid", "companionMetaNonce"] {
+        guard value[name] is String else { throw StateStoreError.invalidRequest }
+      }
+      guard let id = value["id"] as? String, id.range(of: "^[0-9]+(?:_[0-9]+)?(?::[0-9]+)?@s\\.whatsapp\\.net$", options: .regularExpression) != nil,
+            let lid = value["lid"] as? String, deviceAccount(lid) != nil,
+            safeInt(value["lidMigrationTimestamp"]) != nil else { throw StateStoreError.invalidRequest }
+    case "identity", "signal-session", "sender-key", "message-secret", "nct-salt":
+      try fields(["version", "data"]); try bytes("data", min: kind == "identity" ? 32 : 1, max: kind == "identity" ? 32 : maxSession)
+    case "prekey":
+      try fields(["version", "privateKey", "uploaded"]); try bytes("privateKey", min: 32, max: 32)
+      guard value["uploaded"] is Bool else { throw StateStoreError.invalidRequest }
+    case "prekey-state":
+      try fields(["version", "nextId", "uploadedThrough"])
+      let next = try number("nextId", max: Int(UInt32.max) + 1, allowZero: false)
+      guard try number("uploadedThrough", max: Int(UInt32.max)) < next else { throw StateStoreError.invalidRequest }
+    case "app-state-key":
+      try fields(["version", "data", "fingerprint", "timestamp"])
+      try bytes("data", min: 1, max: maxSession); try bytes("fingerprint", min: 0, max: maxSession); _ = try number("timestamp")
+    case "app-state-version":
+      try fields(["version", "number", "hash"]); _ = try number("number", allowZero: false); try bytes("hash", min: 128, max: 128)
+    case "app-state-mac":
+      try fields(["version", "mutationVersion", "valueMac"]); _ = try number("mutationVersion", allowZero: false); try bytes("valueMac", min: 32, max: 32)
+    case "contact":
+      try fields(["version", "firstName", "fullName", "pushName", "businessName", "redactedPhone"])
+      for name in ["firstName", "fullName", "pushName", "businessName", "redactedPhone"] { guard value[name] is String else { throw StateStoreError.invalidRequest } }
+    case "chat-setting":
+      try fields(["version", "mutedUntil", "pinned", "archived", "wasaRootSecretId"])
+      guard value["mutedUntil"] is String, value["pinned"] is Bool, value["archived"] is Bool, value["wasaRootSecretId"] is String else { throw StateStoreError.invalidRequest }
+    case "privacy-token":
+      try fields(["version", "token", "timestamp", "senderTimestamp"])
+      try bytes("token", min: 1, max: maxSession); _ = try number("timestamp")
+      if !(value["senderTimestamp"] is NSNull) { _ = try number("senderTimestamp") }
+    case "lid-mapping":
+      try fields(["version", "lid"])
+      guard let lid = value["lid"] as? String, validAccount(lid) else { throw StateStoreError.invalidRequest }
+    case "retry-hash":
+      try fields(["version", "insertTimeMs", "serverTimeSeconds"])
+      _ = try number("insertTimeMs"); _ = try number("serverTimeSeconds")
+    default: throw StateStoreError.invalidRequest
+    }
+  }
+
+  private static func validateProtocolRecords(_ records: [[String: Any]], account: String) throws {
+    var seen = Set<String>()
+    var inverse = [String: String]()
+    var devices = 0
+    for record in records {
+      try exact(record, ["recordType", "recordKey", "valueBase64"])
+      var change = record; change["operation"] = "put"
+      try validateProtocolChange(change)
+      guard let kind = record["recordType"] as? String, let key = record["recordKey"] as? String,
+            seen.insert(kind + "\u{0}" + key).inserted,
+            let encoded = record["valueBase64"] as? String,
+            let value = decode(encoded, max: maxSession), let body = try? parseObject(value) else { throw StateStoreError.invalidRequest }
+      if kind == "device" {
+        devices += 1
+        guard let lid = body["lid"] as? String, Self.deviceAccount(lid) == account,
+              let id = body["id"] as? String, !id.isEmpty else { throw StateStoreError.invalidRequest }
+      }
+      if kind == "lid-mapping" {
+        guard let keyBytes = decodeURL(key), let tuple = try? JSONSerialization.jsonObject(with: keyBytes) as? [String],
+              let pn = tuple.first, pn.range(of: "^[0-9]+@s\\.whatsapp\\.net\\z", options: .regularExpression) != nil,
+              let lid = body["lid"] as? String, validAccount(lid),
+              inverse[lid] == nil || inverse[lid] == pn else { throw StateStoreError.invalidRequest }
+        inverse[lid] = pn
+      }
+    }
+    guard devices == 1 else { throw StateStoreError.invalidRequest }
+  }
+
+  private static func deviceAccount(_ jid: String) -> String? {
+    guard let match = jid.range(of: "^([0-9]+)(?:_[0-9]+)?(?::[0-9]+)?@lid$", options: .regularExpression) else { return nil }
+    let digits = jid[match].prefix { $0.isNumber }
+    return String(digits) + "@lid"
+  }
+
+  private static func decodeURL(_ text: String) -> Data? {
+    let standard = text.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+    let padded = standard + String(repeating: "=", count: (4 - standard.count % 4) % 4)
+    guard let bytes = Data(base64Encoded: padded),
+          bytes.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "") == text else { return nil }
+    return bytes
+  }
+
   public func endSession() throws {
+    retireGeneration()
     lock.lock(); defer { state = nil; lock.unlock() }
     var old = try open()
     if let session = old["session"] as? [String: Any], let id = session["sessionKeyId"] as? String {
@@ -355,15 +809,20 @@ public final class NativeStateStore {
   }
 
   private static func validateMessage(_ message: [String: Any], account: String) throws {
-    var fields: Set<String> = ["id", "accountId", "whatsappMessageId", "chatId", "direction", "timestamp"]
+    // `timestamp` is optional: Go omits it when WhatsApp's own time was missing or invalid (unknown date, IT-MSG-07).
+    var fields: Set<String> = ["id", "accountId", "whatsappMessageId", "chatId", "direction"]
+    if message["timestamp"] != nil { fields.insert("timestamp") }
     if message["text"] != nil { fields.insert("text") }
     if message["image"] != nil { fields.insert("image") }
     try exact(message, fields)
     guard let chat = message["chatId"] as? String, validAccount(chat),
           message["accountId"] as? String == account,
           let whatsappId = message["whatsappMessageId"] as? String, !whatsappId.isEmpty,
-          let direction = message["direction"] as? String, ["incoming", "outgoing"].contains(direction),
-          let timestamp = safeInt(message["timestamp"]), timestamp >= 0, timestamp <= 9_007_199_254_740_991 else { throw StateStoreError.invalid }
+          let direction = message["direction"] as? String, ["incoming", "outgoing"].contains(direction) else { throw StateStoreError.invalid }
+    // A real date is a positive safe integer; 0 is never an "unknown" marker (it would read as 1970).
+    if message["timestamp"] != nil {
+      guard let timestamp = safeInt(message["timestamp"]), timestamp > 0, timestamp <= 9_007_199_254_740_991 else { throw StateStoreError.invalid }
+    }
     if message["text"] != nil && !(message["text"] is String) { throw StateStoreError.invalid }
     guard let id = message["id"] as? String, id.hasPrefix("wa-message:v1:") else { throw StateStoreError.invalid }
     let encoded = String(id.dropFirst("wa-message:v1:".count))
@@ -459,6 +918,9 @@ public final class NativeStateStore {
     try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: url.path)
     #endif
   }
+  /// Private, persistent, protected and excluded from backups (see `ensureImagesDirectory`).
+  public var imagesDirectory: URL { directory.appendingPathComponent("images", isDirectory: true) }
+
   private func ensureImagesDirectory() throws {
     let images = directory.appendingPathComponent("images", isDirectory: true)
     try FileManager.default.createDirectory(at: images, withIntermediateDirectories: true)

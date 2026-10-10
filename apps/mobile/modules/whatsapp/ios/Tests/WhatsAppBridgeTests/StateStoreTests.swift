@@ -945,4 +945,189 @@ final class StateStoreTests: XCTestCase {
       XCTAssertNoThrow(try makeStore(root).open())
     }
   }
+
+  func testProtocolCallbackUsesRegisteredGenerationAndDurableRevision() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let writer = try makeStore(root)
+    _ = try writer.open()
+    try writer.registerFreshGeneration("generation")
+    func response(_ raw: String) throws -> [String: Any] {
+      try XCTUnwrap(JSONSerialization.jsonObject(with: Data(raw.utf8)) as? [String: Any])
+    }
+    func b64(_ value: Data) -> String { value.base64EncodedString() }
+    let account = Data([10, 2, 8, 1, 18, 32]) + Data(repeating: 1, count: 32) +
+      Data([26, 64]) + Data(repeating: 1, count: 64) + Data([34, 64]) + Data(repeating: 1, count: 64)
+    let value = "{\"version\":1,\"noisePrivateKey\":\"\(b64(Data(repeating: 1, count: 32)))\",\"identityPrivateKey\":\"\(b64(Data(repeating: 2, count: 32)))\",\"signedPreKeyPrivate\":\"\(b64(Data(repeating: 3, count: 32)))\",\"signedPreKeyId\":7,\"signedPreKeySignature\":\"\(b64(Data(repeating: 4, count: 64)))\",\"registrationId\":9,\"advSecretKey\":\"\(b64(Data(repeating: 1, count: 32)))\",\"id\":\"123:2@s.whatsapp.net\",\"lid\":\"123:2@lid\",\"account\":\"\(b64(account))\",\"platform\":\"\",\"businessName\":\"\",\"pushName\":\"\",\"facebookUuid\":\"\",\"lidMigrationTimestamp\":0,\"companionMetaNonce\":\"\"}"
+    let first = "{\"contractVersion\":1,\"generationId\":\"generation\",\"accountId\":\"123@lid\",\"device\":{\"recordType\":\"device\",\"recordKey\":\"W10\",\"valueBase64\":\"\(b64(Data(value.utf8)))\"}}"
+    XCTAssertEqual(try response(writer.beginFreshProtocolSession(first))["success"] as? Bool, true)
+    let prekeyState = Data("{\"version\":1,\"nextId\":1,\"uploadedThrough\":0}".utf8).base64EncodedString()
+    func request(_ generation: String, _ expected: String) throws -> String {
+      let body: [String: Any] = ["contractVersion": 1, "generationId": generation, "accountId": "123@lid",
+        "expectedSessionRevision": expected, "protocolChanges": [["operation": "put", "recordType": "prekey-state",
+          "recordKey": "W10", "valueBase64": prekeyState]], "pendingInserts": [Any](), "pendingIdentityUpdates": [Any]()]
+      return try XCTUnwrap(String(data: JSONSerialization.data(withJSONObject: body), encoding: .utf8))
+    }
+    XCTAssertEqual(try response(writer.applyProtocolChanges(request("other", "1")))["success"] as? Bool, false)
+    XCTAssertEqual(try response(writer.applyProtocolChanges(request("generation", "0")))["success"] as? Bool, false)
+    XCTAssertEqual(try response(writer.applyProtocolChanges(request("generation", "1")))["success"] as? Bool, true)
+    let disk = try makeStore(root)
+    let read = try response(disk.readProtocolState("{\"contractVersion\":1}"))
+    let data = try XCTUnwrap(read["data"] as? [String: Any])
+    let session = try XCTUnwrap(data["session"] as? [String: Any])
+    XCTAssertEqual((session["records"] as? [[String: Any]])?.count, 2)
+    XCTAssertEqual(data["sessionRevision"] as? String, "2")
+    let invalidPrekey: [String: Any] = ["operation": "put", "recordType": "prekey", "recordKey": "WyIwMSJd",
+      "valueBase64": "eyJ2ZXJzaW9uIjoxfQ=="]
+    let invalidRequest: [String: Any] = ["contractVersion": 1, "generationId": "generation", "accountId": "123@lid",
+      "expectedSessionRevision": "2", "protocolChanges": [invalidPrekey], "pendingInserts": [Any](), "pendingIdentityUpdates": [Any]()]
+    let invalidRaw = try XCTUnwrap(String(data: JSONSerialization.data(withJSONObject: invalidRequest), encoding: .utf8))
+    XCTAssertEqual(try response(writer.applyProtocolChanges(invalidRaw))["success"] as? Bool, false)
+    XCTAssertEqual(try makeStore(root).open()["revision"] as? String, "2")
+    let whitespaceTuple = "WyAiMTIzOjIiIF0"
+    let noncanonical: [String: Any] = ["contractVersion": 1, "generationId": "generation", "accountId": "123@lid",
+      "expectedSessionRevision": "2", "protocolChanges": [["operation": "put", "recordType": "signal-session",
+        "recordKey": whitespaceTuple, "valueBase64": "eyJ2ZXJzaW9uIjoxLCJkYXRhIjoiQVE9PSJ9"]],
+      "pendingInserts": [Any](), "pendingIdentityUpdates": [Any]()]
+    let noncanonicalRaw = try XCTUnwrap(String(data: JSONSerialization.data(withJSONObject: noncanonical), encoding: .utf8))
+    XCTAssertEqual(try response(writer.applyProtocolChanges(noncanonicalRaw))["success"] as? Bool, false)
+    writer.retireGeneration()
+    XCTAssertEqual(try response(writer.applyProtocolChanges(request("generation", "2")))["success"] as? Bool, false)
+  }
+
+  func testFreshProtocolRejectsIncompleteDeviceWithoutPublishing() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let writer = try makeStore(root)
+    _ = try writer.open()
+    try writer.registerFreshGeneration("fresh-generation")
+    let request = #"{"contractVersion":1,"generationId":"fresh-generation","accountId":"123@lid","device":{"recordType":"device","recordKey":"W10","valueBase64":"eyJ2ZXJzaW9uIjoxLCJpZCI6IjEyMzoyQHMud2hhdHNhcHAubmV0IiwibGlkIjoiMTIzQGxpZCJ9"}}"#
+    let response = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(writer.beginFreshProtocolSession(request).utf8)) as? [String: Any])
+    XCTAssertEqual(response["success"] as? Bool, false)
+    XCTAssertTrue(try writer.open()["session"] is NSNull)
+  }
+
+  func testOptionsUpdateUsesCurrentWriterRevisionWithoutSession() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let writer = try makeStore(root)
+    _ = try writer.open()
+    XCTAssertEqual(try writer.updateOptions(maxRecoveryBufferBytes: 12 * 1024 * 1024, maxImageStorageBytes: 60 * 1024 * 1024), "1")
+    XCTAssertEqual(try writer.updateOptions(maxRecoveryBufferBytes: 12 * 1024 * 1024, maxImageStorageBytes: 60 * 1024 * 1024), "1")
+    let reopened = try makeStore(root).open()
+    let options = try XCTUnwrap(reopened["options"] as? [String: Any])
+    XCTAssertEqual(options["maxRecoveryBufferBytes"] as? Int, 12 * 1024 * 1024)
+  }
+
+  // IT-CFG-07 (Go reads with this bound): reducing the budget never reduces the read bound that is handed
+  // to Go, and it survives a restart, so the snapshot holding the excess stays decodable while it drains.
+  func testRecoveryReadBoundSurvivesReductionAndRestart() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let writer = try makeStore(root)
+    _ = try writer.open()
+    XCTAssertEqual(try writer.recoveryReadBound(), 10 * 1024 * 1024)
+    _ = try writer.updateOptions(maxRecoveryBufferBytes: 12 * 1024 * 1024, maxImageStorageBytes: 60 * 1024 * 1024)
+    XCTAssertEqual(try writer.recoveryReadBound(), 12 * 1024 * 1024)
+    _ = try writer.updateOptions(maxRecoveryBufferBytes: 1024, maxImageStorageBytes: 60 * 1024 * 1024)
+    XCTAssertEqual(((try makeStore(root).open())["options"] as? [String: Any])?["maxRecoveryBufferBytes"] as? Int, 1024)
+    XCTAssertEqual(try writer.recoveryReadBound(), 12 * 1024 * 1024)
+    XCTAssertEqual(try makeStore(root).recoveryReadBound(), 12 * 1024 * 1024)
+  }
+
+  private func pendingEntry(_ letter: String, ordinal: Int) -> [String: Any] {
+    ["deliveryId": "wa-delivery:v1:" + String(repeating: letter, count: 32), "accountId": "123@lid",
+     "createdRevision": "2", "createdOrdinal": ordinal, "source": "live", "identityState": "pendingLid",
+     "recovery": ["messageInfoJson": "{}", "items": [[String: Any]]()]]
+  }
+
+  private func response(_ text: String) throws -> [String: Any] {
+    try XCTUnwrap(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+  }
+
+  // M1 / IT-CFG-06 / IT-CFG-07: with a reduced budget already exceeded, only insertions are refused;
+  // identity resolution and protocol-only publications still go through so the excess can drain.
+  func testReducedBudgetRefusesOnlyInsertions() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let writer = try makeStore(root)
+    _ = try writer.open()
+    try writer.beginSession(accountId: "123@lid", protocolBytes: Data("{\"protocolSchemaVersion\":1,\"records\":[]}".utf8))
+    let padding = "{\"padding\":\"" + String(repeating: "A", count: 2000) + "\"}"
+    func padded(_ letter: String, _ ordinal: Int) -> [String: Any] {
+      var entry = pendingEntry(letter, ordinal: ordinal)
+      entry["recovery"] = ["messageInfoJson": padding, "items": [[String: Any]]()]
+      return entry
+    }
+    _ = try writer.commit(expectedRevision: "1") { current in
+      var next = current
+      next["pending"] = [padded("a", 0), padded("b", 1)]
+      return next
+    }
+    _ = try writer.updateOptions(maxRecoveryBufferBytes: 1024, maxImageStorageBytes: 50 * 1024 * 1024) // far below the ~4 KB stored
+    try writer.registerGeneration("generation", accountId: "123@lid")
+    let sessionRevision = try XCTUnwrap((writer.open()["session"] as? [String: Any])?["sessionRevision"] as? String)
+    func request(inserts: [[String: Any]], updates: [[String: Any]]) throws -> String {
+      let body: [String: Any] = ["contractVersion": 1, "generationId": "generation", "accountId": "123@lid",
+        "expectedSessionRevision": sessionRevision, "protocolChanges": [[String: Any]](),
+        "pendingInserts": inserts, "pendingIdentityUpdates": updates]
+      return try XCTUnwrap(String(data: JSONSerialization.data(withJSONObject: body), encoding: .utf8))
+    }
+    let insert = try response(writer.applyProtocolChanges(request(inserts: [padded("c", 0)], updates: [])))
+    XCTAssertEqual(insert["success"] as? Bool, false)
+    XCTAssertEqual((insert["error"] as? [String: Any])?["code"] as? String, "BUFFER_FULL")
+    let update: [String: Any] = ["deliveryId": "wa-delivery:v1:" + String(repeating: "a", count: 32), "identityState": "resolved",
+                                 "message": ["id": "wa-message:v1:YQ"]]
+    XCTAssertEqual(try response(writer.applyProtocolChanges(request(inserts: [], updates: [update])))["success"] as? Bool, true)
+    let pending = try XCTUnwrap(try writer.open()["pending"] as? [[String: Any]])
+    XCTAssertEqual(pending.count, 2) // nothing was discarded
+    XCTAssertEqual(pending[0]["identityState"] as? String, "resolved")
+  }
+
+  // IT-DEL-07 / IT-DEL-08 / IT-DEL-11: durable idempotent retirement, no session key or generation needed.
+  func testRetirePendingIsDurableIdempotentAndNeedsNoSessionKey() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let writer = try makeStore(root)
+    _ = try writer.open()
+    try writer.beginSession(accountId: "123@lid", protocolBytes: Data("{\"protocolSchemaVersion\":1,\"records\":[]}".utf8))
+    let keyId = try XCTUnwrap((writer.open()["session"] as? [String: Any])?["sessionKeyId"] as? String)
+    _ = try writer.commit(expectedRevision: "1") { current in
+      var next = current
+      next["pending"] = [pendingEntry("a", ordinal: 0), pendingEntry("b", ordinal: 1)]
+      return next
+    }
+    let service = "com.yoyos.whatsapp.state.test." + root.lastPathComponent.replacingOccurrences(of: "-", with: "").lowercased()
+    let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
+                                kSecAttrAccount as String: keyId, kSecUseDataProtectionKeychain as String: true]
+    XCTAssertEqual(SecItemDelete(query as CFDictionary), errSecSuccess)
+    let recovered = try makeStore(root) // session unusable, buffer intact
+    let read = try response(recovered.readPending("{\"contractVersion\":1}"))
+    XCTAssertEqual(read["success"] as? Bool, true)
+    XCTAssertEqual(((read["data"] as? [String: Any])?["pending"] as? [[String: Any]])?.count, 2)
+    let request = "{\"contractVersion\":1,\"deliveryId\":\"wa-delivery:v1:" + String(repeating: "a", count: 32) + "\"}"
+    let first = try XCTUnwrap(try response(recovered.retirePending(request))["data"] as? [String: Any])
+    XCTAssertEqual(first["removed"] as? Bool, true)
+    let again = try XCTUnwrap(try response(recovered.retirePending(request))["data"] as? [String: Any])
+    XCTAssertEqual(again["removed"] as? Bool, false) // a lost reply is repeatable
+    XCTAssertEqual(again["revision"] as? String, first["revision"] as? String) // and publishes nothing
+    let remaining = try XCTUnwrap(try makeStore(root).open()["pending"] as? [[String: Any]])
+    XCTAssertEqual(remaining.count, 1)
+    XCTAssertEqual(remaining[0]["deliveryId"] as? String, "wa-delivery:v1:" + String(repeating: "b", count: 32))
+  }
+
+  func testRetirePendingRejectsMalformedRequestsWithoutMutation() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let writer = try makeStore(root)
+    _ = try writer.open()
+    let id = "wa-delivery:v1:" + String(repeating: "a", count: 32)
+    for bad in ["{\"contractVersion\":1,\"deliveryId\":\"nope\"}", "{\"contractVersion\":2,\"deliveryId\":\"" + id + "\"}",
+                "{\"contractVersion\":1}", "{\"contractVersion\":1,\"deliveryId\":\"" + id + "\",\"extra\":1}"] {
+      let result = try response(writer.retirePending(bad))
+      XCTAssertEqual(result["success"] as? Bool, false)
+      XCTAssertEqual((result["error"] as? [String: Any])?["code"] as? String, "INVALID_REQUEST")
+    }
+    XCTAssertEqual(try response(writer.readPending("{\"contractVersion\":2}"))["success"] as? Bool, false)
+  }
 }

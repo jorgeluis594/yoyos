@@ -856,4 +856,158 @@ class StateStoreInstrumentedTest {
     val length = java.nio.ByteBuffer.wrap(bytes, 8, 4).int
     return org.json.JSONObject(String(bytes, 12, length, Charsets.UTF_8)).getString("revision")
   }
+
+  @Test fun protocolCallbackRequiresRegisteredGenerationAndPublishesRevision() {
+    val root = freshRoot
+    val writer = makeStore(root)
+    writer.open()
+    writer.registerFreshGeneration("generation")
+    fun b64(bytes: ByteArray) = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+    val account = byteArrayOf(10, 2, 8, 1, 18, 32) + ByteArray(32) { 1 } +
+      byteArrayOf(26, 64) + ByteArray(64) { 1 } + byteArrayOf(34, 64) + ByteArray(64) { 1 }
+    val device = org.json.JSONObject().put("version", 1)
+      .put("noisePrivateKey", b64(ByteArray(32) { 1 })).put("identityPrivateKey", b64(ByteArray(32) { 2 }))
+      .put("signedPreKeyPrivate", b64(ByteArray(32) { 3 })).put("signedPreKeyId", 7)
+      .put("signedPreKeySignature", b64(ByteArray(64) { 4 })).put("registrationId", 9)
+      .put("advSecretKey", b64(ByteArray(32) { 1 })).put("id", "123:2@s.whatsapp.net")
+      .put("lid", "123:2@lid").put("account", b64(account)).put("platform", "")
+      .put("businessName", "").put("pushName", "").put("facebookUuid", "")
+      .put("lidMigrationTimestamp", 0).put("companionMetaNonce", "")
+    val first = org.json.JSONObject().put("contractVersion", 1).put("generationId", "generation")
+      .put("accountId", "123@lid").put("device", org.json.JSONObject().put("recordType", "device")
+        .put("recordKey", "W10").put("valueBase64", b64(device.toString().toByteArray()))).toString()
+    assertTrue(org.json.JSONObject(writer.beginFreshProtocolSession(first)).getBoolean("success"))
+    val value = android.util.Base64.encodeToString("{\"version\":1,\"nextId\":1,\"uploadedThrough\":0}".toByteArray(), android.util.Base64.NO_WRAP)
+    fun request(generation: String, expected: String) = org.json.JSONObject()
+      .put("contractVersion", 1).put("generationId", generation).put("accountId", "123@lid")
+      .put("expectedSessionRevision", expected)
+      .put("protocolChanges", org.json.JSONArray().put(org.json.JSONObject()
+        .put("operation", "put").put("recordType", "prekey-state").put("recordKey", "W10").put("valueBase64", value)))
+      .put("pendingInserts", org.json.JSONArray()).put("pendingIdentityUpdates", org.json.JSONArray()).toString()
+    assertFalse(org.json.JSONObject(writer.applyProtocolChanges(request("other", "1"))).getBoolean("success"))
+    assertFalse(org.json.JSONObject(writer.applyProtocolChanges(request("generation", "0"))).getBoolean("success"))
+    assertTrue(org.json.JSONObject(writer.applyProtocolChanges(request("generation", "1"))).getBoolean("success"))
+    val data = org.json.JSONObject(makeStore(root).readProtocolState("{\"contractVersion\":1}")).getJSONObject("data")
+    assertEquals("2", data.getString("sessionRevision"))
+    assertEquals(2, data.getJSONObject("session").getJSONArray("records").length())
+    val invalidPrekey = org.json.JSONObject().put("operation", "put").put("recordType", "prekey")
+      .put("recordKey", "WyIwMSJd").put("valueBase64", "eyJ2ZXJzaW9uIjoxfQ==")
+    val invalidRequest = org.json.JSONObject(request("generation", "2"))
+      .put("protocolChanges", org.json.JSONArray().put(invalidPrekey)).toString()
+    assertFalse(org.json.JSONObject(writer.applyProtocolChanges(invalidRequest)).getBoolean("success"))
+    assertEquals("2", currentRevision(root))
+    writer.retireGeneration()
+    assertFalse(org.json.JSONObject(writer.applyProtocolChanges(request("generation", "2"))).getBoolean("success"))
+  }
+
+  @Test fun freshProtocolRejectsIncompleteDeviceWithoutPublishing() {
+    val root = freshRoot
+    val writer = makeStore(root)
+    writer.open()
+    writer.registerFreshGeneration("fresh-generation")
+    val request = """{"contractVersion":1,"generationId":"fresh-generation","accountId":"123@lid","device":{"recordType":"device","recordKey":"W10","valueBase64":"eyJ2ZXJzaW9uIjoxLCJpZCI6IjEyMzoyQHMud2hhdHNhcHAubmV0IiwibGlkIjoiMTIzQGxpZCJ9"}}"""
+    assertFalse(org.json.JSONObject(writer.beginFreshProtocolSession(request)).getBoolean("success"))
+    assertEquals("0", currentRevision(root))
+  }
+
+  @Test fun optionsUpdateUsesCurrentWriterRevisionWithoutSession() {
+    val root = freshRoot
+    val writer = makeStore(root)
+    writer.open()
+    assertEquals("1", writer.updateOptions(12L * 1024 * 1024, 60L * 1024 * 1024))
+    assertEquals("1", writer.updateOptions(12L * 1024 * 1024, 60L * 1024 * 1024))
+    assertEquals(12L * 1024 * 1024, makeStore(root).open().getJSONObject("options").getLong("maxRecoveryBufferBytes"))
+  }
+
+  // IT-CFG-07 (Go reads with this bound): reducing the budget never reduces the read bound that is handed
+  // to Go, and it survives a restart, so the snapshot holding the excess stays decodable while it drains.
+  @Test fun recoveryReadBoundSurvivesReductionAndRestart() {
+    val root = freshRoot
+    val writer = makeStore(root)
+    writer.open()
+    assertEquals(10L * 1024 * 1024, writer.recoveryReadBound())
+    writer.updateOptions(12L * 1024 * 1024, 60L * 1024 * 1024)
+    assertEquals(12L * 1024 * 1024, writer.recoveryReadBound())
+    writer.updateOptions(1024L, 60L * 1024 * 1024)
+    assertEquals(1024L, makeStore(root).open().getJSONObject("options").getLong("maxRecoveryBufferBytes"))
+    assertEquals(12L * 1024 * 1024, writer.recoveryReadBound())
+    assertEquals(12L * 1024 * 1024, makeStore(root).recoveryReadBound())
+  }
+
+  private fun pendingEntry(letter: String, ordinal: Int) = org.json.JSONObject()
+    .put("deliveryId", "wa-delivery:v1:" + letter.repeat(32)).put("accountId", "123@lid")
+    .put("createdRevision", "2").put("createdOrdinal", ordinal).put("source", "live")
+    .put("identityState", "pendingLid")
+    .put("recovery", org.json.JSONObject().put("messageInfoJson", "{}").put("items", org.json.JSONArray()))
+
+  // M1 / IT-CFG-06 / IT-CFG-07: with a reduced budget already exceeded, only insertions are refused;
+  // identity resolution and protocol-only publications still go through so the excess can drain.
+  @Test fun reducedBudgetRefusesOnlyInsertions() {
+    val root = freshRoot
+    val writer = makeStore(root)
+    writer.open()
+    writer.beginSession("123@lid", "{\"protocolSchemaVersion\":1,\"records\":[]}".toByteArray())
+    val padding = "{\"padding\":\"${"A".repeat(2000)}\"}"
+    fun padded(letter: String, ordinal: Int) = pendingEntry(letter, ordinal)
+      .put("recovery", org.json.JSONObject().put("messageInfoJson", padding).put("items", org.json.JSONArray()))
+    writer.commit("1") { state -> state.put("pending", org.json.JSONArray().put(padded("a", 0)).put(padded("b", 1))) }
+    writer.updateOptions(1024L, 50L * 1024 * 1024) // far below the ~4 KB stored
+    writer.registerGeneration("generation", "123@lid")
+    val sessionRevision = writer.open().getJSONObject("session").getString("sessionRevision")
+    fun request(inserts: org.json.JSONArray, updates: org.json.JSONArray) = org.json.JSONObject()
+      .put("contractVersion", 1).put("generationId", "generation").put("accountId", "123@lid")
+      .put("expectedSessionRevision", sessionRevision).put("protocolChanges", org.json.JSONArray())
+      .put("pendingInserts", inserts).put("pendingIdentityUpdates", updates).toString()
+    val insert = org.json.JSONObject(writer.applyProtocolChanges(request(org.json.JSONArray().put(padded("c", 0)), org.json.JSONArray())))
+    assertFalse(insert.getBoolean("success"))
+    assertEquals("BUFFER_FULL", insert.getJSONObject("error").getString("code"))
+    val update = org.json.JSONObject().put("deliveryId", "wa-delivery:v1:" + "a".repeat(32)).put("identityState", "resolved")
+      .put("message", org.json.JSONObject().put("id", "wa-message:v1:YQ"))
+    assertTrue(org.json.JSONObject(writer.applyProtocolChanges(request(org.json.JSONArray(), org.json.JSONArray().put(update)))).getBoolean("success"))
+    assertEquals("resolved", writer.open().getJSONArray("pending").getJSONObject(0).getString("identityState"))
+    assertEquals(2, writer.open().getJSONArray("pending").length()) // nothing was discarded
+  }
+
+  // IT-DEL-07 / IT-DEL-08 / IT-DEL-11: durable idempotent retirement, no session key or generation needed.
+  @Test fun retirePendingIsDurableIdempotentAndNeedsNoSessionKey() {
+    val root = freshRoot
+    val writer = makeStore(root)
+    writer.open()
+    writer.beginSession("123@lid", "{\"protocolSchemaVersion\":1,\"records\":[]}".toByteArray())
+    val keyId = writer.open().getJSONObject("session").getString("sessionKeyId")
+    writer.commit("1") { state -> state.put("pending", org.json.JSONArray().put(pendingEntry("a", 0)).put(pendingEntry("b", 1))) }
+    val keyStore = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+    keyStore.deleteEntry("yoyos.whatsapp.test.${root.name.removePrefix("state-test-").replace("-", "")}.key.$keyId")
+    val recovered = makeStore(root) // session unusable, buffer intact
+    val read = org.json.JSONObject(recovered.readPending("{\"contractVersion\":1}"))
+    assertTrue(read.getBoolean("success"))
+    assertEquals(2, read.getJSONObject("data").getJSONArray("pending").length())
+    val request = "{\"contractVersion\":1,\"deliveryId\":\"wa-delivery:v1:${"a".repeat(32)}\"}"
+    val first = org.json.JSONObject(recovered.retirePending(request)).getJSONObject("data")
+    assertTrue(first.getBoolean("removed"))
+    val revision = first.getString("revision")
+    val again = org.json.JSONObject(recovered.retirePending(request)).getJSONObject("data")
+    assertFalse(again.getBoolean("removed")) // a lost reply is repeatable
+    assertEquals(revision, again.getString("revision")) // and publishes nothing
+    val remaining = makeStore(root).open().getJSONArray("pending")
+    assertEquals(1, remaining.length())
+    assertEquals("wa-delivery:v1:" + "b".repeat(32), remaining.getJSONObject(0).getString("deliveryId"))
+  }
+
+  @Test fun retirePendingRejectsMalformedRequestsWithoutMutation() {
+    val root = freshRoot
+    val writer = makeStore(root)
+    writer.open()
+    for (bad in listOf(
+      "{\"contractVersion\":1,\"deliveryId\":\"nope\"}",
+      "{\"contractVersion\":2,\"deliveryId\":\"wa-delivery:v1:${"a".repeat(32)}\"}",
+      "{\"contractVersion\":1}",
+      "{\"contractVersion\":1,\"deliveryId\":\"wa-delivery:v1:${"a".repeat(32)}\",\"extra\":1}",
+    )) {
+      val response = org.json.JSONObject(writer.retirePending(bad))
+      assertFalse(response.getBoolean("success"))
+      assertEquals("INVALID_REQUEST", response.getJSONObject("error").getString("code"))
+    }
+    assertFalse(org.json.JSONObject(writer.readPending("{\"contractVersion\":2}")).getBoolean("success"))
+  }
 }
