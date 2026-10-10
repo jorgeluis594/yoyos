@@ -3,7 +3,8 @@ import { checkoutBackgrounds, checkoutBrandColors } from "@core/src/features/che
 
 // Server → buyer: visual data only, no identifiers or dates.
 export const publicCheckoutAppearanceSchema = z.strictObject({
-  logoUrl: z.httpUrl().nullable(),
+  // `z.httpUrl()` rejects IP and localhost hosts, which local storage endpoints use.
+  logoUrl: z.url({ protocol: /^https?$/ }).nullable(),
   brandColor: z.enum(checkoutBrandColors),
   background: z.enum(checkoutBackgrounds),
 });
