@@ -88,7 +88,7 @@ test("anonymous mobile buyer reviews fixed products, corrects prefilled data and
     await browserExpect(page.getByRole("heading", { name: "Pedido confirmado", exact: true })).toBeVisible();
     const replay = await page.request.post(f.path, { maxRedirects: 0, data: { delivery: { kind: "keep" }, buyer: { name: "Replacement", phone: "+51999999999" }, expectedTotal: { amount: 1, currency: "USD" } } });
     expect(replay.status()).toBe(302);
-    expect(replay.headers().location).toBe(`/pago/${f.orderId}`);
+    expect(replay.headers().location).toBe(f.path);
     expect(await f.read()).toEqual(stored);
     expect(await withTenantIsolation(f.companyId, async () => (await prisma.contact.findFirstOrThrow()).name)).toBeNull();
     await f.cancel();

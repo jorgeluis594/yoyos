@@ -73,7 +73,7 @@ test("delivery confirmation constructs domain selection and redirects to payment
   const delivery = { kind: "replace", selection: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } }, expectedPrice: { amount: 0, currency: "PEN" } };
   const result = await action(args({ ...body, delivery }));
   expect(result).toBeInstanceOf(Response);
-  expect((result as Response).headers.get("Location")).toBe(`/pago/${params.orderId}`);
+  expect((result as Response).headers.get("Location")).toBe(`/checkout/${params.companyId}/${params.orderId}`);
   expect((result as Response).headers.get("Cache-Control")).toBe("no-store");
   expect(confirm).toHaveBeenCalledWith({ ...body, delivery }, params);
 });
@@ -123,9 +123,22 @@ test("failed current configuration does not manufacture free shipping or enabled
   await expect(loader({ params } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 503 });
 });
 
-test("confirmed checkout keeps its saved summary without requiring current delivery settings", async () => {
-  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok({ ...view, buyer: body.buyer, state: { kind: "confirmed", confirmedAt: new Date("2026-10-05T00:00:00Z") } }));
+const paymentView = { orderId: params.orderId, total, deliveryCharge: { amount: 0, currency: "PEN" as const }, availability: "available" as const,
+  paidAmount: { amount: 0, currency: "PEN" as const }, balanceDue: total, paymentStatus: "pending" as const, settings: [], payments: [] };
+const confirmed = ok({ ...view, buyer: body.buyer, state: { kind: "confirmed" as const, confirmedAt: new Date("2026-10-05T00:00:00Z") } });
+
+test("confirmed checkout keeps its saved summary and loads the payment view without requiring current delivery settings", async () => {
+  vi.spyOn(orders, "getCheckout").mockResolvedValue(confirmed);
+  const payment = vi.spyOn(orders, "getBuyerPaymentView").mockResolvedValue(ok(paymentView));
   const settings = vi.spyOn(deliverySettings, "getForCompany");
-  expect(await loader({ params } as unknown as LoaderFunctionArgs)).toMatchObject({ data: { checkout: { total, state: { kind: "confirmed" } } } });
+  expect(await loader({ params } as unknown as LoaderFunctionArgs)).toMatchObject({
+    data: { checkout: { total, state: { kind: "confirmed" } }, payment: paymentView }, init: { headers: headers() } });
+  expect(payment).toHaveBeenCalledWith(params.orderId);
   expect(settings).not.toHaveBeenCalled();
+});
+
+test("confirmed checkout answers 503 when the payment view cannot be loaded", async () => {
+  vi.spyOn(orders, "getCheckout").mockResolvedValue(confirmed);
+  vi.spyOn(orders, "getBuyerPaymentView").mockResolvedValue(err({ code: "PERSISTENCE_UNAVAILABLE", message: "Database down" }));
+  await expect(loader({ params } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 503 });
 });

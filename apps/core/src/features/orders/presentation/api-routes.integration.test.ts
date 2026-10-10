@@ -721,7 +721,7 @@ test("public checkout delivery action persists buyer pickup and redirects to exi
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input),
   }) } as unknown as ActionFunctionArgs);
   expect(result).toBeInstanceOf(Response);
-  expect((result as Response).headers.get("Location")).toBe(`/pago/${orderId}`);
+  expect((result as Response).headers.get("Location")).toBe(`/checkout/${seller.companyId}/${orderId}`);
   expect((await call(`/api/buyer/orders/${orderId}/payment`)).status).toBe(200);
   await withTenantIsolation(seller.companyId, async () => {
     expect(await prisma.order.findUnique({ where: { id: orderId } })).toMatchObject({ stockDeducted: false,

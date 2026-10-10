@@ -1,23 +1,20 @@
-import { redirect, isRouteErrorResponse, useLoaderData, type LoaderFunctionArgs } from "react-router";
-import { buyerPaymentViewSchema } from "@shared/contracts/orders";
+import { redirect, isRouteErrorResponse, type LoaderFunctionArgs } from "react-router";
 import { orders } from "@core/src/features/orders/composition";
-import { BuyerPaymentContent } from "@core/src/features/orders/presentation/buyer-payment-content";
-export const headers = () => ({ "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
-export const meta = () => [{ title: "Pago del pedido" }, { name: "robots", content: "noindex, nofollow" }];
-export async function loader({ params }: LoaderFunctionArgs) {
-  const result = await orders.getBuyerPaymentView(params.orderId ?? "");
-  if (!result.success && result.error.code === "CHECKOUT_UNAVAILABLE") {
-    const access = await orders.resolveBuyerAccess(params.orderId ?? "");
-    if (access.success) throw redirect(`/checkout/${access.data.companyId}/${access.data.orderId}`);
-  }
-  if (!result.success) throw new Response("Pedido no disponible", { status: result.error.code === "ORDER_NOT_FOUND" ? 404 :
-    result.error.code === "INVALID_ORDER" ? 400 : result.error.code === "ORDER_CANCELLED" ? 409 : 503 });
-  return buyerPaymentViewSchema.parse(result.data);
-}
+import { bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 
-export default function BuyerPayment() {
-  const view = useLoaderData<typeof loader>();
-  return <main className="mx-auto flex min-h-screen max-w-xl flex-col gap-6 px-5 py-8"><header><h1 className="text-2xl font-semibold">Pago del pedido</h1><p className="mt-2 text-muted-foreground">Elige cómo pagar y adjunta tu comprobante.</p></header><BuyerPaymentContent view={view} /></main>;
+const privacyHeaders = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
+export const headers = () => privacyHeaders;
+export const meta = () => [{ title: "Pago del pedido" }, { name: "robots", content: "noindex, nofollow" }];
+
+export async function loader({ params }: LoaderFunctionArgs) {
+  const access = await orders.resolveBuyerAccess(params.orderId ?? "");
+  if (access.success) {
+    bindRequestOperation({ operation: "redirect_buyer_payment", outcome: "redirected" });
+    throw redirect(`/checkout/${access.data.companyId}/${access.data.orderId}`, { status: 301, headers: privacyHeaders });
+  }
+  const unavailable = access.error.code === "PERSISTENCE_UNAVAILABLE";
+  bindRequestOperation({ operation: "redirect_buyer_payment", outcome: unavailable ? "technical_failure" : "unavailable" });
+  throw new Response("Pedido no disponible", { status: unavailable ? 503 : 404, headers: privacyHeaders });
 }
 
 export function ErrorBoundary({ error }: { error: unknown }) {

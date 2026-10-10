@@ -50,11 +50,16 @@ test("buyer reports a receipt and sees the seller confirmed balance", async ({ p
     await page.getByLabel("Nombre del destinatario").fill("Ana Torres");
     await page.getByLabel("Teléfono del destinatario").fill("+51987654321");
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
-    await browserExpect(page.getByRole("heading", { name: "Pago del pedido", exact: true })).toBeVisible();
+    await browserExpect(page).toHaveURL(new RegExp(`${checkoutPath}$`));
+    await browserExpect(page.getByRole("heading", { name: "Pedido confirmado" })).toBeVisible();
     const opened = await page.goto(checkoutPath);
     expect(opened?.status()).toBe(200);
     await browserExpect(page.getByRole("heading", { name: "Pedido confirmado" })).toBeVisible();
+    const legacy = await request.get(`/pago/${orderId}`, { maxRedirects: 0 });
+    expect(legacy.status()).toBe(301);
+    expect(legacy.headers().location).toBe(checkoutPath);
     await page.goto(`/pago/${orderId}`);
+    await browserExpect(page).toHaveURL(new RegExp(`${checkoutPath}$`));
     await browserExpect(page.getByRole("radio", { name: "Yape" })).toBeVisible();
     await browserExpect(page.getByRole("img", { name: "Instrucciones de billetera digital" })).toBeVisible();
     await page.getByRole("radio", { name: "Transferencia", exact: true }).check();
@@ -109,14 +114,14 @@ test("buyer reports a receipt and sees the seller confirmed balance", async ({ p
     expect(payment.status).toBe("reported");
     expect(payment.amount).toBeNull();
     await page.goto(`/es-PE/orders/${orderId}`);
-    await browserExpect(page.getByRole("link", { name: "Abrir enlace de pago" })).toHaveAttribute("href", `/pago/${orderId}`);
+    await browserExpect(page.getByRole("link", { name: "Abrir checkout del pedido" })).toHaveAttribute("href", checkoutPath);
     await browserExpect(page.getByRole("link", { name: "Ver captura" })).toBeVisible();
     const report = page.getByRole("listitem").filter({ hasText: "Pago reportado, pendiente de revisión" });
     await report.getByLabel("Medio de pago").selectOption("bank_transfer");
     await report.getByRole("button", { name: "Confirmar pago" }).click();
     await browserExpect(page.getByText("Pago actualizado.")).toBeVisible();
     expect((await withTenantIsolation(tenantId, async () => await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } }))).status).toBe("confirmed");
-    await page.goto(`/pago/${orderId}`);
+    await page.goto(checkoutPath);
     await browserExpect(page.getByRole("heading", { name: "Pedido pagado" })).toBeVisible();
     expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(1n);
     await page.goto(`/es-PE/orders/${orderId}`);
@@ -129,7 +134,7 @@ test("buyer reports a receipt and sees the seller confirmed balance", async ({ p
     await manualResponse;
     expect(await withTenantIsolation(tenantId, async () => await prisma.payment.count({ where: { orderId, status: "confirmed" } }))).toBe(1);
     await browserExpect(page.getByText("Pago actualizado.")).toBeVisible();
-    await page.goto(`/pago/${orderId}`);
+    await page.goto(checkoutPath);
     await browserExpect(page.getByRole("heading", { name: "Pedido pagado" })).toBeVisible();
     expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(1n);
   } finally {
