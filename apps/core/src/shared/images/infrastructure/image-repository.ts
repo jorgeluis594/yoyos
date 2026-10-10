@@ -29,6 +29,16 @@ export const imageRepository: ImageRepository = {
       return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to find image record" });
     }
   },
+  async findMany(ids) {
+    if (!ids.length) return ok([]);
+    try {
+      return ok(await prisma.image.findMany({ where: { id: { in: [...ids] }, OR: [{ sourceKey: null }, { importStatus: "ready" }] }, select: { id: true, storageKey: true, visibility: true } }));
+    } catch (cause) {
+      if (!isPersistenceFailure(cause)) throw cause;
+      log.error({ event: "unable_to_find_image_records", count: ids.length, err: cause }, "unable_to_find_image_records");
+      return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to find image records" });
+    }
+  },
   async findCompletedImport(companyId, sourceKey) {
     try {
       return ok(await prisma.image.findFirst({ where: { companyId, sourceKey, visibility: "private", importStatus: "ready" }, select: { id: true } }));

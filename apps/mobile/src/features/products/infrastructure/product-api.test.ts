@@ -49,3 +49,17 @@ test("does not share a pending detail read across sessions", async () => {
   finish(ok(detail));
   expect((await formerSession).success).toBe(true);
 });
+
+test("requests stock filter and sort, and maps listing thumbnails", async () => {
+  const imageId = "00000000-0000-4000-8000-000000000005";
+  const item = { id: productId, name: "Camisa", variantCount: 1, minSalePrice: { amount: 20, currency: "PEN" }, hasDifferentPrices: false, totalStock: 0 };
+  const request = jest.fn().mockResolvedValue(ok({ page: 1, pageSize: 20, total: 2, items: [
+    { ...item, image: { id: imageId, url: "https://cdn.example/camisa.webp" } },
+    { ...item, id: "00000000-0000-4000-8000-000000000006" },
+  ] }));
+  const result = await createProductApi(request, () => 0).list({ search: " camisa ", stock: "sold_out", sort: "name", page: 1, pageSize: 20 });
+  expect(request.mock.calls[0][0]).toBe("/api/products?page=1&pageSize=20&search=camisa&stock=sold_out&sort=name");
+  expect(result).toMatchObject({ success: true, data: { total: 2 } });
+  if (!result.success) return;
+  expect(result.data.items.map((product) => product.photo ?? null)).toEqual([{ id: imageId, url: "https://cdn.example/camisa.webp" }, null]);
+});

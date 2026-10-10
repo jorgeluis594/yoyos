@@ -12,9 +12,13 @@ export interface ImageStorage {
 
 export type ImageLookupError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 
+export type StoredImage = Readonly<{ id: string; storageKey: string; visibility?: "public" | "private" }>;
+
 export type ImageRepository = {
   create(storageKey: string): Promise<Result<{ id: string }>>;
-  find(id: string): Promise<Result<{ id: string; storageKey: string; visibility?: "public" | "private" } | null, ImageLookupError>>;
+  find(id: string): Promise<Result<StoredImage | null, ImageLookupError>>;
+  /** Looks up several images in one query; missing IDs are simply absent from the result. */
+  findMany(ids: readonly string[]): Promise<Result<readonly StoredImage[], ImageLookupError>>;
   findCompletedImport(companyId: string, sourceKey: string): Promise<Result<{ id: string } | null, ImageLookupError>>;
   reserveImport(companyId: string, sourceKey: string): Promise<Result<{ id: string; storageKey: string }>>;
   completeImport(companyId: string, id: string): Promise<Result<void>>;
@@ -99,6 +103,43 @@ export async function getImage(
   return url.success
     ? { success: true, data: { id: image.data.id, url: url.data } }
     : url;
+}
+
+export type ImageUrl = Readonly<{ id: string; url: string }>;
+export type ImageUrlFailure = Readonly<{ id: string; code: string; message: string }>;
+export type ResolvedImages = Readonly<{ images: readonly ImageUrl[]; failures: readonly ImageUrlFailure[] }>;
+
+async function publicUrl(image: StoredImage, storage: ImageStorage): Promise<Result<ImageUrl, ImageUrlFailure>> {
+  if (image.visibility === "private") return { success: false, error: { id: image.id, code: "PRIVATE_IMAGE", message: "Private image requires authorized streaming" } };
+  const url = await storage.getUrl(image.storageKey);
+  return url.success
+    ? { success: true, data: { id: image.id, url: url.data } }
+    : { success: false, error: { id: image.id, code: url.error.code ?? "IMAGE_STORAGE_UNAVAILABLE", message: url.error.message } };
+}
+
+/** Resolves public URLs for several images with one repository lookup; per-image failures keep their own code. */
+export async function getImages(ids: readonly string[], storage: ImageStorage, repository: ImageRepository): Promise<Result<ResolvedImages, ImageLookupError>> {
+  const unique = [...new Set(ids)];
+  if (!unique.length) return { success: true, data: { images: [], failures: [] } };
+  const found = await repository.findMany(unique);
+  if (!found.success) return found;
+  const resolved: Result<ImageUrl, ImageUrlFailure>[] = [];
+  let configFailure: ImageUrlFailure | undefined;
+  for (const image of found.data) {
+    // A storage configuration error applies to every public image; asking again would only repeat it.
+    const result = configFailure && image.visibility !== "private"
+      ? { success: false as const, error: { ...configFailure, id: image.id } }
+      : await publicUrl(image, storage);
+    if (!result.success && result.error.code === "IMAGE_STORAGE_CONFIG_ERROR") configFailure = result.error;
+    resolved.push(result);
+  }
+  return {
+    success: true,
+    data: {
+      images: resolved.flatMap((result) => result.success ? [result.data] : []),
+      failures: resolved.flatMap((result) => result.success ? [] : [result.error]),
+    },
+  };
 }
 
 export async function readPrivateImage(id: string, storage: ImageStorage, repository: ImageRepository) {

@@ -26,6 +26,7 @@ export function summarizeProduct(product: Product) {
     ...(product.variants.length === 1 && product.variants[0].sku ? { sku: product.variants[0].sku } : {}),
     minSalePrice: { amount: amounts.reduce((lowest, amount) => Math.min(lowest, amount)), currency: product.currency },
     hasDifferentPrices: amounts.some((amount) => amount !== amounts[0]), totalStock,
+    ...(product.imageId === undefined ? {} : { imageId: product.imageId }),
   };
 }
 

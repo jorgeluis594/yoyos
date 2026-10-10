@@ -17,6 +17,7 @@ export function toProductListResponse(output: ListOutput): ProductListResponse {
       id: item.id, name: item.name, variantCount: item.variantCount,
       ...(item.sku === undefined ? {} : { sku: item.sku }),
       minSalePrice: item.minSalePrice, hasDifferentPrices: item.hasDifferentPrices, totalStock: item.totalStock,
+      ...(item.image === undefined ? {} : { image: item.image }),
     })),
   });
 }
