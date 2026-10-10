@@ -1,0 +1,11 @@
+{
+  "name": "whatsapp-native-app",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.js",
+  "dependencies": {
+    "expo": "~57.0.24",
+    "react": "19.2.3",
+    "react-native": "0.86.3"
+  }
+}

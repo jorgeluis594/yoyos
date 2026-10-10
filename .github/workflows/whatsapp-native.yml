@@ -1,0 +1,102 @@
+name: WhatsApp native bridge
+
+on:
+  # Skipped on pull requests: too slow for CI. Run it manually from the Actions tab.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GOTOOLCHAIN: local
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v6
+        with:
+          version: '12.5.1'
+      - uses: actions/setup-go@v7
+        with:
+          go-version: '1.26.5'
+          check-latest: false
+          cache-dependency-path: apps/mobile/modules/whatsapp/go/go.sum
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install pinned Android SDK parts
+        run: |
+          test -d "$ANDROID_HOME/cmdline-tools"
+          sdkmanager=$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' -type f | sort -V | tail -1)
+          test -n "$sdkmanager"
+          yes | "$sdkmanager" --licenses >/dev/null || true
+          "$sdkmanager" 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.1.12297006' 'emulator' 'system-images;android-35;google_apis;x86_64'
+      - run: pnpm --dir apps/mobile install --frozen-lockfile
+      - name: Prepare pinned Go dependencies
+        run: sh scripts/prepare-go-dependencies.sh
+        working-directory: apps/mobile/modules/whatsapp
+      - name: Test and vet Go bridge against patched whatsmeow
+        run: sh scripts/test-go.sh
+        working-directory: apps/mobile/modules/whatsapp
+      - run: sh scripts/test-build-go-cleanup.sh
+        working-directory: apps/mobile/modules/whatsapp
+      - run: sh scripts/test-check-android-probe.sh
+        working-directory: apps/mobile/modules/whatsapp
+      - run: sh scripts/build-go.sh android
+        working-directory: apps/mobile/modules/whatsapp
+      - name: Link WhatsApp into isolated Expo probe app
+        run: |
+          ln -s ../../node_modules tests/whatsapp-native-app/node_modules
+          mkdir -p tests/whatsapp-native-app/modules
+          ln -s ../../../modules/whatsapp tests/whatsapp-native-app/modules/whatsapp
+        working-directory: apps/mobile
+      - run: pnpm exec expo prebuild tests/whatsapp-native-app --platform android --no-install
+        working-directory: apps/mobile
+      - run: ./gradlew :app:assembleRelease
+        working-directory: apps/mobile/tests/whatsapp-native-app/android
+      - name: Record effective Android matrix
+        run: |
+          cat > "$RUNNER_TEMP/whatsapp-matrix.gradle" <<'GRADLE'
+          gradle.projectsEvaluated {
+            [':app', ':yoyos-whatsapp'].each { name ->
+              def project = gradle.rootProject.findProject(name)
+              if (project != null) {
+                def android = project.extensions.getByName('android')
+                println("${name}: compileSdk=${android.compileSdkVersion}, buildTools=${android.buildToolsVersion}, ndk=${android.ndkVersion}, minSdk=${android.defaultConfig.minSdkVersion?.apiLevel}, targetSdk=${android.defaultConfig.targetSdkVersion?.apiLevel}, abiFilters=${android.defaultConfig.ndk.abiFilters}")
+              }
+            }
+          }
+          GRADLE
+          {
+            java -version 2>&1
+            ./gradlew --version
+            ./gradlew -q -I "$RUNNER_TEMP/whatsapp-matrix.gradle" help
+            "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging app/build/outputs/apk/release/app-release.apk | grep -E "^(sdkVersion|targetSdkVersion|native-code):"
+            unzip -Z1 app/build/outputs/apk/release/app-release.apk | awk -F/ '$1 == "lib" { print $2 }' | sort -u
+          } >> ../../../modules/whatsapp/.generated/build-info.txt
+        working-directory: apps/mobile/tests/whatsapp-native-app/android
+      - name: Enable KVM for emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        timeout-minutes: 30
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          working-directory: apps/mobile/tests/whatsapp-native-app/android
+          script: sh ../../../modules/whatsapp/scripts/check-android-probe.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: whatsapp-android-build-info
+          path: apps/mobile/modules/whatsapp/.generated/build-info.txt

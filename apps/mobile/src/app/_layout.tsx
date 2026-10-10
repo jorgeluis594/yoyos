@@ -12,6 +12,7 @@ import { OrderDraftProvider } from '@mobile/features/orders/presentation/order-d
 import { AccessGate } from '@/composition/access-gate';
 import * as auth from '@/composition/auth';
 import i18n, { languageForLocale } from '@mobile/i18n';
+import { openWhatsAppDatabase } from '@mobile/features/whatsapp/infrastructure/local-database';
 
 import '../global.css';
 
@@ -20,6 +21,7 @@ SplashScreen.preventAutoHideAsync();
 export default function TabLayout() {
   useEffect(() => {
     if (Platform.OS === 'web') void i18n.changeLanguage(languageForLocale(Intl.DateTimeFormat().resolvedOptions().locale));
+    else void openWhatsAppDatabase().catch(() => console.error('WhatsApp database initialization failed'));
   }, []);
   const colorScheme = useColorScheme();
   const [fontsLoaded, fontError] = useFonts({
