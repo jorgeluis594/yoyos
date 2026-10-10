@@ -109,17 +109,15 @@ func TestUTDEL08RereadsPublishedStateAfterUncertainRetire(t *testing.T) {
 	c.SetConsumer(out.consumer("a"))
 	c.Start()
 	out.next(t)
+	// The write lands and only its reply fails. The record is gone before Confirm runs, so the
+	// reread that follows the failure always sees the published state.
 	ledger.mu.Lock()
 	ledger.retireErr = errors.New("response lost")
+	ledger.records = ledger.records[1:]
 	ledger.mu.Unlock()
 	if c.Confirm(did(1)) == nil {
 		t.Fatal("expected the failure to be reported")
 	}
-	// The write actually landed: the reread releases the next delivery without a second confirmation.
-	ledger.mu.Lock()
-	ledger.records = ledger.records[1:]
-	ledger.mu.Unlock()
-	c.kick()
 	if got := out.next(t); got != "a:"+did(2) {
 		t.Fatalf("got %s", got)
 	}

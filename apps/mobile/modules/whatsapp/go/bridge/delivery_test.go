@@ -264,7 +264,7 @@ func TestITSUB06And08FailedCallbackKeepsPendingAndStopsReception(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("no error event for the failed callback")
 	}
-	if code := opened.Session.Connect(); code != "CONSUMER_UNAVAILABLE" {
+	if code := opened.Session.Connect(); code != "NATIVE_CALL_FAILED" {
 		t.Fatalf("reception was not stopped by the callback failure: %q", code)
 	}
 	select {
@@ -284,7 +284,7 @@ func TestITSUB06And08FailedCallbackKeepsPendingAndStopsReception(t *testing.T) {
 		t.Fatalf("got %+v", e)
 	}
 	// IT-SUB-07: the new subscription did not clear the explicit local stop and requested no network.
-	if code := opened.Session.Connect(); code != "CONSUMER_UNAVAILABLE" {
+	if code := opened.Session.Connect(); code != "NATIVE_CALL_FAILED" {
 		t.Fatalf("subscription cleared the stop: %q", code)
 	}
 }

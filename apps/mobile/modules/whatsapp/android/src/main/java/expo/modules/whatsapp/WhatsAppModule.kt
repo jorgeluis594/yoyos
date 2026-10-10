@@ -85,7 +85,7 @@ private object ConnectionRuntime {
   var eventSink: PublicConnectionEvents? = null
   var prepared = false
   var revoked = false
-  var emit: ((String, Map<String, Any?>) -> Unit)? = null
+  @Volatile var emit: ((String, Map<String, Any?>) -> Unit)? = null
   var delivery: DeliverySession? = null
   var deliveryBudget = 0L
   var consumerToken: String? = null

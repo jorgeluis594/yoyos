@@ -178,7 +178,16 @@ func (s *ConnectionSession) Connect() string {
 	if s == nil || s.controller == nil {
 		return "NOT_INITIALIZED"
 	}
-	return string(s.controller.Connect())
+	return publicConnectCode(s.controller.Connect())
+}
+
+// publicConnectCode keeps connect() inside the public error codes; the local consumer
+// fault is reported like the same fault in connectionEvent.
+func publicConnectCode(code connection.Code) string {
+	if code == connection.ConsumerUnavailable {
+		return "NATIVE_CALL_FAILED"
+	}
+	return string(code)
 }
 func (s *ConnectionSession) Disconnect() {
 	if s != nil && s.controller != nil {

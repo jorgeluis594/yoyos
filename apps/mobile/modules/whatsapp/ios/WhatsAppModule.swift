@@ -61,7 +61,10 @@ private func jsonValue(_ value: Any) -> Any? {
 /// the pending entry and stops reception; a destroyed JavaScript runtime is such a failure.
 private final class NativeDeliveryEvents: NSObject, YYWhatsAppGoBridgeDeliveryEventsProtocol {
   func onDelivery(_ value: String?) throws {
-    guard let emit = ConnectionRuntime.shared.emit,
+    // emit is cleared by OnDestroy under the runtime lock; read it under the same lock.
+    let runtime = ConnectionRuntime.shared
+    runtime.lock.lock(); let emit = runtime.emit; runtime.lock.unlock()
+    guard let emit,
           let value, let data = value.data(using: .utf8),
           let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
           envelope["contractVersion"] as? Int == 1, envelope["event"] as? String == "messageReceived",
