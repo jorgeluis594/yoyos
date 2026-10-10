@@ -31,6 +31,6 @@ The user chose full implementation (app + server) and removed "Stock bajo"; quic
 
 Core's query schema is strict. The default list omits `stock` and `sort`, so it works against an older server, but the filters and name sort require the server change to be deployed first.
 
-## Review limits
+## Review evidence and limits
 
-Verified with mobile Jest tests, core unit tests and core product integration tests. No device or simulator screenshots were captured for this implementation.
+2026-10-10, Android (Expo Go, connected device) against a local core from this branch with sample products and locally served thumbnails: dark and light themes, Agotados filter, Con stock with Nombre A–Z sort, and font scale 1.5. Captures: `.impeccable/review/products-list-{dark,light,sold-out,in-stock-name,large-text}.png`. The large-text pass showed names truncated at two lines; names now wrap fully. At 1.5 scale the third chip scrolls horizontally and the price column narrows the name, both readable. iOS and tablet layouts remain unverified. Sample photos are placeholders, not product data.
