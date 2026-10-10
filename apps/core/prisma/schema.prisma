@@ -104,6 +104,7 @@ model Company {
   payments Payment[]
   deliverySettings CompanyDeliverySettings?
   paymentSettings CompanyPaymentSettings?
+  checkoutAppearance CompanyCheckoutAppearance?
   couriers CompanyCourier[]
   deliveryZones DeliveryZone[]
   deliveryZoneDistricts DeliveryZoneDistrict[]
@@ -198,6 +199,34 @@ model CompanyPaymentSettings {
   settings Json
 }
 
+enum CheckoutBrandColor {
+  yoyos
+  forest
+  petrol
+  ocean
+  plum
+  raspberry
+  terracotta
+  mustard
+  graphite
+}
+
+enum CheckoutBackground {
+  white
+  neutral
+  brand_tint
+}
+
+model CompanyCheckoutAppearance {
+  companyId   String             @id @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company     Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  logoImageId String?            @db.Uuid
+  logoImage   Image?             @relation(fields: [companyId, logoImageId], references: [companyId, id], onDelete: Restrict)
+  brandColor  CheckoutBrandColor
+  background  CheckoutBackground
+  updatedAt   DateTime           @updatedAt
+}
+
 enum ImageVisibility {
   public
   private
@@ -236,6 +265,7 @@ model Image {
   createdAt          DateTime           @default(now())
   messages           ChatMessage[]
   products Product[]
+  checkoutAppearances CompanyCheckoutAppearance[]
 
   @@unique([companyId, sourceKey])
   @@index([companyId])
