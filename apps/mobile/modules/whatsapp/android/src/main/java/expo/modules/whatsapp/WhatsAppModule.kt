@@ -95,8 +95,9 @@ private object ConnectionRuntime {
   var consumerToken: String? = null
   var images: ImageSession? = null
   var imageBudget = 0L
-  /** A limit change admitted to Go's image queue; `initialize` waits for it after it released the runtime lock. */
-  var pendingImageLimit: ImageOperation? = null
+  /** A limit change admitted to Go's image queue; `initialize` takes it under the same lock hold and awaits it after releasing the lock. */
+  class PendingImageLimit(val operation: ImageOperation, val bytes: Long)
+  var pendingImageLimit: PendingImageLimit? = null
 
   /**
    * The private image directory and its byte budget exist apart from any session, so complete
@@ -108,8 +109,8 @@ private object ConnectionRuntime {
       if (imageBudget == imageBytes) return null
       // The change is ordered behind the cleanup of a cancelled download (Go's image queue) and must
       // not be awaited here: this runs under the runtime lock, which confirmations and disconnects share.
-      pendingImageLimit = current.beginSetLimit(imageBytes)
-      imageBudget = imageBytes
+      // `imageBudget` is only updated once Go confirmed the change (initialize), so a failure retries.
+      pendingImageLimit = PendingImageLimit(current.beginSetLimit(imageBytes), imageBytes)
       return null
     }
     val result = Bridge.openImages(store.imagesDirectory().path, imageBytes)
@@ -216,37 +217,44 @@ class WhatsAppModule : Module() {
     ConnectionRuntime.emit = { event, payload -> this@WhatsAppModule.sendEvent(event, payload) }
 
     AsyncFunction("initialize") { options: Map<String, Any?> ->
+      var limit: ConnectionRuntime.PendingImageLimit? = null
+      var mutated = false
       val initialized = synchronized(ConnectionRuntime.lock) {
+        ConnectionRuntime.pendingImageLimit = null
+        // Taken under the same lock hold as the work that created it, so an interleaved initialize
+        // can neither overwrite it nor await another call's operation.
+        val result = run {
         try {
-          val context = appContext.reactContext ?: return@synchronized failure("MODULE_UNAVAILABLE")
+          val context = appContext.reactContext ?: return@run failure("MODULE_UNAVAILABLE")
           val writer = ConnectionRuntime.writer ?: NativeStateStore(context).also { ConnectionRuntime.writer = it }
           var snapshot = writer.open()
-          if (options.keys.any { it !in setOf("maxRecoveryBufferBytes", "maxImageStorageBytes") }) return@synchronized failure("INVALID_INPUT")
+          if (options.keys.any { it !in setOf("maxRecoveryBufferBytes", "maxImageStorageBytes") }) return@run failure("INVALID_INPUT")
           val saved = snapshot.getJSONObject("options")
           val requested = mapOf(
             "maxRecoveryBufferBytes" to (options["maxRecoveryBufferBytes"] ?: 10L * 1024 * 1024),
             "maxImageStorageBytes" to (options["maxImageStorageBytes"] ?: 50L * 1024 * 1024),
           )
           for ((key, raw) in requested) {
-            val value = raw as? Number ?: return@synchronized failure("INVALID_INPUT")
+            val value = raw as? Number ?: return@run failure("INVALID_INPUT")
             val integer = value.toLong()
-            if (integer <= 0 || integer > 9007199254740991L || integer.toDouble() != value.toDouble()) return@synchronized failure("INVALID_INPUT")
+            if (integer <= 0 || integer > 9007199254740991L || integer.toDouble() != value.toDouble()) return@run failure("INVALID_INPUT")
           }
           val recovery = (requested["maxRecoveryBufferBytes"] as Number).toLong()
           val image = (requested["maxImageStorageBytes"] as Number).toLong()
           if (recovery != saved.getLong("maxRecoveryBufferBytes") || image != saved.getLong("maxImageStorageBytes")) {
-            if (ConnectionRuntime.revoked) return@synchronized failure("INVALID_INPUT")
-            if (ConnectionRuntime.session?.canUpdateOptions() == false) return@synchronized failure("INVALID_INPUT")
+            if (ConnectionRuntime.revoked) return@run failure("INVALID_INPUT")
+            if (ConnectionRuntime.session?.canUpdateOptions() == false) return@run failure("INVALID_INPUT")
+            mutated = true // from here a failure may already have published: never report it as a refusal
             ConnectionRuntime.stop()
             writer.updateOptions(recovery, image)
             snapshot = writer.open()
           }
           ConnectionRuntime.prepared = true
-          ConnectionRuntime.ensureDelivery(writer, recovery)?.let { return@synchronized failure(it) }
-          ConnectionRuntime.ensureImages(writer, image)?.let { return@synchronized failure(it) }
-          if (ConnectionRuntime.revoked) return@synchronized success(mapOf("state" to "sessionExpired"))
-          ConnectionRuntime.openConnection(context, snapshot)?.let { return@synchronized failure(it) }
-          val session = ConnectionRuntime.session ?: return@synchronized failure("NATIVE_CALL_FAILED")
+          ConnectionRuntime.ensureDelivery(writer, recovery)?.let { return@run failure(it) }
+          ConnectionRuntime.ensureImages(writer, image)?.let { return@run failure(it) }
+          if (ConnectionRuntime.revoked) return@run success(mapOf("state" to "sessionExpired"))
+          ConnectionRuntime.openConnection(context, snapshot)?.let { return@run failure(it) }
+          val session = ConnectionRuntime.session ?: return@run failure("NATIVE_CALL_FAILED")
           val state = mutableMapOf<String, Any?>("state" to session.state())
           session.currentQR().takeIf { it.isNotEmpty() }?.let { qr ->
             val value = JSONObject(qr)
@@ -254,12 +262,24 @@ class WhatsAppModule : Module() {
           }
           success(state)
         } catch (error: Exception) { ConnectionRuntime.stop(); failure(publicError(error)) }
+        }
+        limit = ConnectionRuntime.pendingImageLimit
+        ConnectionRuntime.pendingImageLimit = null
+        result
       }
       // Success is reported only after a reduced or raised image limit took effect, i.e. after the
       // cancelled download's cleanup; the writer and the runtime lock are free while this waits.
-      val limit = synchronized(ConnectionRuntime.lock) { ConnectionRuntime.pendingImageLimit.also { ConnectionRuntime.pendingImageLimit = null } }
-      val code = try { limit?.outcome()?.code ?: "" } catch (_: Exception) { "NATIVE_CALL_FAILED" }
-      if (initialized["success"] == true && code.isNotEmpty()) failure(imageCode(code)) else initialized
+      val code = try { limit?.operation?.outcome()?.code ?: "" } catch (_: Exception) { "NATIVE_CALL_FAILED" }
+      if (initialized["success"] == true && limit != null && code.isEmpty()) {
+        synchronized(ConnectionRuntime.lock) { ConnectionRuntime.imageBudget = limit.bytes }
+      }
+      when {
+        initialized["success"] == true && code.isNotEmpty() -> failure(imageCode(code))
+        // INVALID_INPUT means "refused before anything changed"; after the options were published or
+        // the session stopped it would make the client keep believing in the old options.
+        mutated && ((initialized["error"] as? Map<*, *>)?.get("code") == "INVALID_INPUT") -> failure("NATIVE_CALL_FAILED")
+        else -> initialized
+      }
     }
 
     AsyncFunction("connect") {

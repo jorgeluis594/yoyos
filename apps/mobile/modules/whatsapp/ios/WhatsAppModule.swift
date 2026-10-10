@@ -123,8 +123,9 @@ private final class ConnectionRuntime {
   var consumerToken: String?
   var images: YYWhatsAppGoBridgeImageSession?
   var imageBudget: Int64 = 0
-  /// A limit change admitted to Go's image queue; `initialize` waits for it after it released the runtime lock.
-  var pendingImageLimit: YYWhatsAppGoBridgeImageOperation?
+  /// A limit change admitted to Go's image queue; `initialize` takes it under the same lock hold and awaits it after releasing the lock.
+  struct PendingImageLimit { let operation: YYWhatsAppGoBridgeImageOperation?; let bytes: Int64 }
+  var pendingImageLimit: PendingImageLimit?
 
   /// The private image directory and its byte budget exist apart from any session, so complete
   /// files stay reusable and deletable after disconnect or logout.
@@ -132,8 +133,8 @@ private final class ConnectionRuntime {
     if let images {
       if imageBudget == imageBytes { return nil }
       // Ordered behind the cleanup of a cancelled download; never awaited under the runtime lock.
-      pendingImageLimit = images.beginSetLimit(imageBytes)
-      imageBudget = imageBytes
+      // `imageBudget` is only updated once Go confirmed the change (initialize), so a failure retries.
+      pendingImageLimit = PendingImageLimit(operation: images.beginSetLimit(imageBytes), bytes: imageBytes)
       return nil
     }
     let result = YYWhatsAppGoBridgeOpenImages(writer.imagesDirectory.path, imageBytes)
@@ -238,8 +239,7 @@ public class WhatsAppModule: Module {
     ConnectionRuntime.shared.emit = { [weak self] event, payload in self?.sendEvent(event, payload) }
 
     /// The part of `initialize` that holds the runtime lock; the image limit is awaited after it.
-    func initializeLocked(_ runtime: ConnectionRuntime, _ options: [String: Any]) -> [String: Any] {
-      runtime.lock.lock(); defer { runtime.lock.unlock() }
+    func initializeLocked(_ runtime: ConnectionRuntime, _ options: [String: Any], _ mutated: inout Bool) -> [String: Any] {
       do {
         if runtime.writer == nil { runtime.writer = try NativeStateStore() }
         guard let writer = runtime.writer else { return failure("MODULE_UNAVAILABLE") }
@@ -261,6 +261,7 @@ public class WhatsAppModule: Module {
            image != (saved["maxImageStorageBytes"] as? NSNumber)?.int64Value {
           if runtime.revoked { return failure("INVALID_INPUT") }
           if runtime.session?.canUpdateOptions() == false { return failure("INVALID_INPUT") }
+          mutated = true // from here a failure may already have published: never report it as a refusal
           runtime.stop()
           _ = try writer.updateOptions(maxRecoveryBufferBytes: recovery, maxImageStorageBytes: image)
           snapshot = try writer.open()
@@ -280,15 +281,26 @@ public class WhatsAppModule: Module {
 
     AsyncFunction("initialize") { (options: [String: Any]) -> [String: Any] in
       let runtime = ConnectionRuntime.shared
-      let initialized = initializeLocked(runtime, options)
-      // Success is reported only after the image limit took effect, i.e. after the cancelled download's
-      // cleanup; the writer and the runtime lock are free while this waits.
+      var mutated = false
+      // The limit is taken under the same lock hold as the work that created it, so an interleaved
+      // initialize can neither overwrite it nor await another call's operation.
       runtime.lock.lock()
+      runtime.pendingImageLimit = nil
+      let initialized = initializeLocked(runtime, options, &mutated)
       let limit = runtime.pendingImageLimit
       runtime.pendingImageLimit = nil
       runtime.lock.unlock()
-      let code = limit?.outcome()?.code ?? ""
-      if initialized["success"] as? Bool == true, !code.isEmpty { return failure(imageCode(code)) }
+      // Success is reported only after the image limit took effect, i.e. after the cancelled download's
+      // cleanup; the writer and the runtime lock are free while this waits.
+      let code = limit?.operation?.outcome()?.code ?? ""
+      let succeeded = initialized["success"] as? Bool == true
+      if succeeded, let limit, code.isEmpty {
+        runtime.lock.lock(); runtime.imageBudget = limit.bytes; runtime.lock.unlock()
+      }
+      if succeeded, !code.isEmpty { return failure(imageCode(code)) }
+      // INVALID_INPUT means "refused before anything changed"; after the options were published or the
+      // session stopped it would make the client keep believing in the old options.
+      if mutated, ((initialized["error"] as? [String: Any])?["code"] as? String) == "INVALID_INPUT" { return failure("NATIVE_CALL_FAILED") }
       return initialized
     }
 
