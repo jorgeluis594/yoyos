@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { FrameLocator, Page } from "@playwright/test";
 import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
 import { systemPrisma } from "@core/src/shared/infrastructure/persistance";
 
@@ -8,9 +8,12 @@ const update = (overrides: object = {}) => ({
   appearance: { logoUrl: null, brandColor: "forest", background: "brand_tint" }, ...overrides,
 });
 
+const ready = (scope: Page | FrameLocator) => scope.locator("html[data-checkout-preview=ready]");
+
 async function openPreview(page: Page) {
   await page.goto(previewPath);
   await browserExpect(page.getByText("Vista previa · Datos de ejemplo")).toBeVisible();
+  await browserExpect(ready(page)).toBeAttached();
 }
 const primary = (page: Page) => page.getByRole("button", { name: "Confirmar pedido" }).evaluate((node) => getComputedStyle(node).backgroundColor);
 const post = (page: Page, data: unknown, origin?: string) => page.evaluate(([message, from]) =>
@@ -44,6 +47,8 @@ test("shows the checkout with sample data and labelled sample payment methods", 
     await browserExpect(page.getByRole("heading", { name: "Cómo pagar" })).toBeVisible();
     await browserExpect(page.getByRole("note")).toContainText("datos de ejemplo");
     await browserExpect(page.getByRole("radio", { name: "Billetera de ejemplo" })).toBeVisible();
+    await browserExpect(page.getByRole("region", { name: "Pago del pedido" })).toBeVisible();
+    await browserExpect(page.getByText("Datos del comprador")).toBeVisible();
   }, page);
 });
 
@@ -91,6 +96,7 @@ test("never confirms orders, registers payments or submits forms from the previe
     const requests: string[] = [];
     page.on("request", (request) => { if (request.method() !== "GET") requests.push(`${request.method()} ${request.url()}`); });
     const url = page.url();
+    await browserExpect(page.getByRole("button", { name: "Confirmar pedido" })).toBeEnabled();
     await page.getByRole("button", { name: "Confirmar pedido" }).click();
     await page.getByLabel("Nombre", { exact: true }).press("Enter");
     await post(page, update({ state: "payment" }));
@@ -119,6 +125,7 @@ test("embedded at 390 px the preview activates the phone breakpoints and cannot 
     const viewport = await page.locator("#preview").evaluate((frame: HTMLIFrameElement) => ({
       width: frame.contentWindow!.innerWidth, phone: frame.contentWindow!.matchMedia("(max-width: 767px)").matches }));
     expect(viewport).toEqual({ width: 390, phone: true });
+    await browserExpect(ready(preview)).toBeAttached();
     await page.evaluate(() => {
       const frame = document.querySelector<HTMLIFrameElement>("#preview")!;
       frame.contentWindow!.postMessage({ type: "checkout-appearance:update", mode: "dark", state: "payment",
