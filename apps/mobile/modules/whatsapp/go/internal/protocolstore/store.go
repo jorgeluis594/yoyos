@@ -688,6 +688,10 @@ func (s *Store) commit(t *txn) error {
 	s.records = t.records
 	s.revision = rev
 	s.sessionRevision = sr
+	// Native assigns revision and ordinal; the budget ignores them, and the next read replaces this view.
+	for _, p := range t.pending {
+		s.pending = append(s.pending, PendingRecord{PendingInsert: p})
+	}
 	for _, fn := range t.afterCommit {
 		fn()
 	}

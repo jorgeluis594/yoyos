@@ -103,7 +103,7 @@ func OpenConnectionWithDelivery(storage ProtocolStorage, sink ConnectionEvents, 
 func (s *ConnectionSession) newTransport() (connection.Transport, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.stoppedLocked() != "" && s.reopen != nil {
+	if s.stoppedLocked() == "RECOVERY_BUFFER_FULL" && s.reopen != nil {
 		reopened, device, err := s.reopen()
 		if err != nil {
 			return nil, err

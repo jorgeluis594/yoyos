@@ -34,16 +34,27 @@ type fakeLedger struct {
 	retireGate  chan struct{}
 	retireEnter chan string
 	retired     []string
+	readGate    chan struct{} // when set, a read returns its snapshot only after the gate opens
+	readEnter   chan struct{}
 }
 
 func (l *fakeLedger) Pending() ([]protocolstore.PendingRecord, error) {
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	l.reads++
 	if l.readErr != nil {
+		defer l.mu.Unlock()
 		return nil, l.readErr
 	}
-	return append([]protocolstore.PendingRecord(nil), l.records...), nil
+	snapshot := append([]protocolstore.PendingRecord(nil), l.records...)
+	gate, enter := l.readGate, l.readEnter
+	l.mu.Unlock()
+	if enter != nil {
+		enter <- struct{}{}
+	}
+	if gate != nil {
+		<-gate
+	}
+	return snapshot, nil
 }
 
 func (l *fakeLedger) Retire(id string) (bool, error) {
@@ -154,4 +165,8 @@ func started(t *testing.T, ledger Ledger, limit int64) (*Coordinator, *hookLog) 
 
 var errRead = errors.New("read failed")
 
-func waitCtx() context.Context { ctx, _ := context.WithTimeout(context.Background(), 2*time.Second); return ctx }
+func waitCtx(t *testing.T) context.Context {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	t.Cleanup(cancel)
+	return ctx
+}

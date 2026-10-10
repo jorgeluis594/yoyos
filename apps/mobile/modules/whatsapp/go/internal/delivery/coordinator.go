@@ -80,6 +80,7 @@ type Coordinator struct {
 	inFlight  *flight
 	waiters   map[string][]chan Outcome
 	waitFor   int64
+	retires   uint64 // counts durable retirements so a read taken before one is never trusted after it
 	stopped   map[Cause]bool
 	wake      chan struct{}
 	done      chan struct{}
@@ -192,6 +193,7 @@ func (c *Coordinator) Confirm(id string) error {
 		}
 	}
 	if err == nil {
+		c.retires++
 		c.releaseLocked(id, Retired)
 	}
 	c.mu.Unlock()
@@ -288,6 +290,7 @@ func (c *Coordinator) step() {
 	}
 	flightNow := c.inFlight
 	needRead := flightNow == nil || flightNow.uncertain || c.waitFor > 0
+	retiresBefore := c.retires
 	c.mu.Unlock()
 	var pending []protocolstore.PendingRecord
 	if needRead {
@@ -301,6 +304,12 @@ func (c *Coordinator) step() {
 	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()
+		return
+	}
+	if needRead && c.retires != retiresBefore {
+		// A retirement completed during the read: the list may still hold the retired entry.
+		c.mu.Unlock()
+		c.kick()
 		return
 	}
 	if needRead {

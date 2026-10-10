@@ -341,3 +341,29 @@ func TestReadFailureStopsReceptionWithoutEmptyingBuffer(t *testing.T) {
 	eventually(t, "read failure", func() bool { s, _ := logs.snapshot(); return len(s) == 1 && s[0] == ReadFailed })
 	out.quiet(t)
 }
+
+// UT-SUB-05 (stale read): a list read before a retirement completes never resurrects the retired delivery.
+func TestUTSUB05ReadTakenBeforeRetirementDoesNotResurrectRetiredDelivery(t *testing.T) {
+	ledger := &fakeLedger{}
+	ledger.add(record(1, "5", 0, "resolved"), record(2, "5", 1, "resolved"))
+	c, _ := started(t, ledger, 1<<20)
+	out := newSink()
+	c.SetConsumer(out.consumer("a"))
+	c.Start()
+	out.next(t)
+	c.WaitForCapacity(1 << 40) // forces the traversal to reread while a delivery is in flight
+	ledger.mu.Lock()
+	ledger.readGate, ledger.readEnter = make(chan struct{}), make(chan struct{}, 4)
+	gate, entered := ledger.readGate, ledger.readEnter
+	ledger.mu.Unlock()
+	c.kick()
+	<-entered // the traversal holds a snapshot that still lists both entries
+	if err := c.Confirm(did(1)); err != nil {
+		t.Fatal(err)
+	}
+	close(gate)
+	if got := out.next(t); got != "a:"+did(2) {
+		t.Fatalf("the retired delivery came back: %s", got)
+	}
+	out.quiet(t)
+}
