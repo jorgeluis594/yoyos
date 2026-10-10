@@ -8,6 +8,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -34,7 +35,7 @@ class ImageOperationsInstrumentedTest {
         }
       }
     }
-    assertEquals(listOf(1, 2), calls.map { it.outcome() })
+    assertEquals(listOf(1, 2), calls.awaitAll())
     assertEquals(listOf(1, 2), admitted.toList())
   }
 
@@ -53,7 +54,7 @@ class ImageOperationsInstrumentedTest {
           Thread.currentThread() to value
         }
       }
-    }.map { it.outcome() }
+    }.awaitAll()
     assertTrue(peak.get() <= ImageOperations.MAX_WAITERS)
     results.forEach { assertNotEquals(caller, it.first) }
   }
