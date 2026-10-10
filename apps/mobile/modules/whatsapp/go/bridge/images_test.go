@@ -412,3 +412,107 @@ func TestITCFG08LimitChangeWaitsForACancelledDownloadWithoutBlockingConfirmation
 		t.Fatalf("%+v", invalid)
 	}
 }
+
+// IT-IOS-01 through the bridge: an image download in flight when the app is suspended is cancelled
+// and publishes nothing; after resuming there is one new generation and the same image downloads.
+func TestITIOS01SuspendCancelsAnInFlightDownloadAndResumeServesTheNextOne(t *testing.T) {
+	plain := jpeg(1024)
+	id, ref := imageReference(t, "ios", plain)
+	imageSession, dir := openImageSession(t, 1<<20)
+	transport := &mediaTransport{}
+	started := make(chan struct{})
+	transport.download = func(ctx context.Context, _ connection.MediaRequest, _ connection.MediaFile) error {
+		close(started)
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	var mu sync.Mutex
+	creates := 0
+	session := &ConnectionSession{device: &store.Device{LID: types.JID{User: "123", Device: 1, Server: types.HiddenUserServer}}}
+	session.controller = connection.New(func() (connection.Transport, error) {
+		mu.Lock()
+		creates++
+		mu.Unlock()
+		return transport, nil
+	}, func(connection.Event) {}, nil)
+	session.controller.Prepare(true)
+	t.Cleanup(func() { session.Close() })
+	session.AttachImages(imageSession)
+	if code := session.Connect(); code != "" {
+		t.Fatal(code)
+	}
+	waitState := func(want string) {
+		t.Helper()
+		for deadline := time.Now().Add(2 * time.Second); session.State() != want; {
+			if time.Now().After(deadline) {
+				t.Fatalf("state %s, want %s", session.State(), want)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+	waitState("connected")
+	finished := make(chan *ImageDownloadResult, 1)
+	go func() { finished <- imageSession.Download(id, ref) }()
+	<-started
+	session.Suspend()
+	select {
+	case result := <-finished:
+		if result.Code != "IMAGE_DOWNLOAD_FAILED" || result.Path != "" {
+			t.Fatalf("download cancelled by suspension: %+v", result)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("suspension left the download running")
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf("a suspended download left %d files", len(entries))
+	}
+	if result := imageSession.Download(id, ref); result.Code != "ACCOUNT_NOT_CONNECTED" {
+		t.Fatalf("download while suspended: %+v", result)
+	}
+	transport.download = writeAll(plain)
+	if code := session.Resume(); code != "" || session.Resume() != "" {
+		t.Fatalf("resume: %q", code)
+	}
+	waitState("connected")
+	if result := imageSession.Download(id, ref); result.Code != "" || result.Size != 1024 {
+		t.Fatalf("download after resuming: %+v", result)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if creates != 2 {
+		t.Fatalf("clients built: %d, want the initial one plus one resume", creates)
+	}
+}
+
+func TestITIOS01SuspendResumeOnAnUnopenedSession(t *testing.T) {
+	var session *ConnectionSession
+	session.Suspend()
+	if got := session.Resume(); got != "NOT_INITIALIZED" {
+		t.Fatal(got)
+	}
+}
+
+// IT-IOS-01: suspending and resuming keep pending entries intact and confirmable, and a stopped
+// connection does not need a consumer or a session to confirm.
+func TestITIOS01PendingEntriesSurviveSuspendAndResume(t *testing.T) {
+	storage := &pendingStorage{}
+	storage.add(1)
+	delivery, _ := openDelivery(t, storage)
+	session := &ConnectionSession{device: &store.Device{LID: types.JID{User: "123", Device: 1, Server: types.HiddenUserServer}}}
+	session.controller = connection.New(func() (connection.Transport, error) { return &mediaTransport{}, nil }, func(connection.Event) {}, nil)
+	session.controller.Prepare(true)
+	t.Cleanup(func() { session.Close() })
+	if code := session.Connect(); code != "" {
+		t.Fatal(code)
+	}
+	session.Suspend()
+	if storage.count() != 1 {
+		t.Fatalf("suspension changed the pending entries: %d", storage.count())
+	}
+	if code := session.Resume(); code != "" {
+		t.Fatal(code)
+	}
+	if code := delivery.Confirm(deliveryID(1)); code != "" || storage.count() != 0 {
+		t.Fatalf("confirmation after resuming: %q pending=%d", code, storage.count())
+	}
+}
