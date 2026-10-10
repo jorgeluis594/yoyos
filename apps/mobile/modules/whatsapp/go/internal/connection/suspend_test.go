@@ -2,6 +2,7 @@ package connection
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -406,9 +407,11 @@ func TestResumeCapacityStopsADiscardedTransport(t *testing.T) {
 	}
 }
 
-// Every interleaving of two lifecycle operations, from each starting state, keeps the machine
-// coherent: at most one live client, a live client exactly while a connection is requested, and
-// the machine is never wedged (Disconnect always ends it, then Connect starts one client again).
+// Lifecycle matrices. A reference model (what the app asked for) is replayed next to the controller:
+// connect and disconnect set/clear the request and the suspension, suspend marks a requested
+// connection suspended, resume lifts the suspension. After every sequence the client is live IF AND
+// ONLY IF a connection is requested and not suspended, the published state agrees, and the machine
+// is not wedged: connect/resume bring a client back and suspend/disconnect always remove it.
 type modelOp string
 
 const (
@@ -418,12 +421,15 @@ const (
 	opResume     modelOp = "resume"
 )
 
+var allOps = []modelOp{opConnect, opDisconnect, opSuspend, opResume}
+
 type modelRig struct {
-	c       *Controller
-	mu      sync.Mutex
-	made    []*testTransport
-	gate    chan struct{} // when set, create blocks on it (after registering the transport)
-	entered chan struct{}
+	c                 *Controller
+	mu                sync.Mutex
+	made              []*testTransport
+	gate              chan struct{} // when set, create registers its transport, announces itself and blocks
+	entered           chan struct{}
+	wanted, suspended bool // the reference model
 }
 
 func (m *modelRig) live() int {
@@ -440,23 +446,24 @@ func (m *modelRig) live() int {
 	return n
 }
 
+// apply runs op on the controller and on the model.
 func (m *modelRig) apply(op modelOp) {
 	switch op {
 	case opConnect:
 		m.c.Connect()
+		m.wanted, m.suspended = true, false
 	case opDisconnect:
 		m.c.Disconnect()
+		m.wanted, m.suspended = false, false
 	case opSuspend:
 		m.c.Suspend()
+		if m.wanted {
+			m.suspended = true
+		}
 	case opResume:
 		m.c.Resume()
+		m.suspended = false
 	}
-}
-
-func (m *modelRig) requested() bool {
-	m.c.mu.Lock()
-	defer m.c.mu.Unlock()
-	return m.c.requested
 }
 
 func newModelRig(t *testing.T) *modelRig {
@@ -478,57 +485,112 @@ func newModelRig(t *testing.T) *modelRig {
 	return m
 }
 
+// startBuildingResume leaves the controller suspended with a Resume blocked inside create. The
+// gate is cleared right after, because Resume holds its own copy and Connect builds under the lock.
+func (m *modelRig) startBuildingResume() (release func() (wait func())) {
+	m.apply(opConnect)
+	m.apply(opSuspend)
+	gate := make(chan struct{})
+	m.mu.Lock()
+	m.gate, m.entered = gate, make(chan struct{}, 1)
+	m.mu.Unlock()
+	done := make(chan struct{})
+	go func() { m.c.Resume(); close(done) }()
+	<-m.entered
+	m.mu.Lock()
+	m.gate = nil
+	m.mu.Unlock()
+	m.suspended = false // Resume lifted the suspension when it began
+	var once sync.Once
+	return func() func() {
+		once.Do(func() { close(gate) })
+		return func() { <-done }
+	}
+}
+
 func (m *modelRig) check(t *testing.T, label string) {
 	t.Helper()
-	live, requested := m.live(), m.requested()
-	if live > 1 || (live == 1) != requested {
-		t.Fatalf("%s: live clients=%d requested=%v state=%s", label, live, requested, m.c.State())
+	live := m.live()
+	expected := 0
+	if m.wanted && !m.suspended {
+		expected = 1
+	}
+	state := m.c.State()
+	if live != expected {
+		t.Fatalf("%s: live clients=%d, want %d (requested=%v suspended=%v, state=%s)", label, live, expected, m.wanted, m.suspended, state)
+	}
+	if running := state == Connecting || state == Reconnecting || state == Connected; running != (expected == 1) {
+		t.Fatalf("%s: published state %s disagrees with %d live clients", label, state, live)
+	}
+	// Not wedged: the one way back to a client works, and suspension/disconnect remove it again.
+	switch {
+	case expected == 1:
+		m.c.Suspend()
+		if m.live() != 0 || m.c.State() != Disconnected {
+			t.Fatalf("%s: suspend left live=%d state=%s", label, m.live(), m.c.State())
+		}
+		m.c.Resume()
+	case m.wanted: // suspended
+		m.c.Resume()
+	default:
+		m.c.Connect()
+	}
+	if m.live() != 1 {
+		t.Fatalf("%s: machine wedged, recovery gives %d clients", label, m.live())
 	}
 	m.c.Disconnect()
 	if m.live() != 0 || m.c.State() != Disconnected {
-		t.Fatalf("%s: disconnect did not end the machine (live=%d state=%s)", label, m.live(), m.c.State())
+		t.Fatalf("%s: disconnect left live=%d state=%s", label, m.live(), m.c.State())
 	}
-	m.c.Connect()
-	if m.live() != 1 || !m.requested() {
-		t.Fatalf("%s: machine wedged, connect gives %d clients", label, m.live())
+}
+
+func startState(m *modelRig, start string) {
+	switch start {
+	case "connected":
+		m.apply(opConnect)
+	case "suspended":
+		m.apply(opConnect)
+		m.apply(opSuspend)
 	}
 }
 
 func TestITIOS01EveryPairOfLifecycleOperationsStaysCoherent(t *testing.T) {
-	ops := []modelOp{opConnect, opDisconnect, opSuspend, opResume}
-	for _, start := range []string{"idle", "connected", "suspended", "building"} {
-		for _, first := range ops {
-			for _, second := range ops {
+	for _, start := range []string{"idle", "connected", "suspended"} {
+		for _, first := range allOps {
+			for _, second := range allOps {
 				label := start + "/" + string(first) + "+" + string(second)
 				t.Run(label, func(t *testing.T) {
 					m := newModelRig(t)
-					var building chan struct{}
-					switch start {
-					case "connected":
-						m.c.Connect()
-					case "suspended":
-						m.c.Connect()
-						m.c.Suspend()
-					case "building":
-						m.c.Connect()
-						m.c.Suspend()
-						m.mu.Lock()
-						m.gate, m.entered = make(chan struct{}), make(chan struct{}, 1)
-						building = m.gate
-						m.mu.Unlock()
-						go m.c.Resume()
-						<-m.entered
-						m.mu.Lock()
-						m.gate = nil // Resume holds its own copy; Connect builds under the controller lock
-						m.mu.Unlock()
-					}
+					startState(m, start)
 					m.apply(first)
 					m.apply(second)
-					if building != nil {
-						close(building)
-						// Resume finishes after both operations; give its locked tail time to run.
-						time.Sleep(20 * time.Millisecond)
+					m.check(t, label)
+				})
+			}
+		}
+	}
+}
+
+// A Resume still building when the operations run, finished after 0, 1 or 2 of them.
+func TestITIOS01EveryPairWhileAResumeIsBuildingStaysCoherent(t *testing.T) {
+	for _, first := range allOps {
+		for _, second := range allOps {
+			for released := 0; released <= 2; released++ {
+				label := fmt.Sprintf("building/%s+%s/release-after-%d", first, second, released)
+				t.Run(label, func(t *testing.T) {
+					m := newModelRig(t)
+					release := m.startBuildingResume()
+					var wait func()
+					for i, op := range []modelOp{first, second} {
+						if i == released {
+							wait = release()
+						}
+						m.apply(op)
 					}
+					if released == 2 {
+						wait = release()
+					}
+					wait()
 					m.check(t, label)
 				})
 			}
@@ -538,31 +600,28 @@ func TestITIOS01EveryPairOfLifecycleOperationsStaysCoherent(t *testing.T) {
 
 // The reported failure needs three operations (Resume building, Connect, Suspend): chain three.
 func TestITIOS01EveryTripleStartingFromABuildingResumeStaysCoherent(t *testing.T) {
-	ops := []modelOp{opConnect, opDisconnect, opSuspend, opResume}
-	for _, first := range ops {
-		for _, second := range ops {
-			for _, third := range ops {
-				label := "building/" + string(first) + "+" + string(second) + "+" + string(third)
-				t.Run(label, func(t *testing.T) {
-					m := newModelRig(t)
-					m.c.Connect()
-					m.c.Suspend()
-					gate := make(chan struct{})
-					m.mu.Lock()
-					m.gate, m.entered = gate, make(chan struct{}, 1)
-					m.mu.Unlock()
-					go m.c.Resume()
-					<-m.entered
-					m.mu.Lock()
-					m.gate = nil
-					m.mu.Unlock()
-					m.apply(first)
-					m.apply(second)
-					m.apply(third)
-					close(gate)
-					time.Sleep(20 * time.Millisecond)
-					m.check(t, label)
-				})
+	for _, first := range allOps {
+		for _, second := range allOps {
+			for _, third := range allOps {
+				for released := 0; released <= 3; released++ {
+					label := fmt.Sprintf("building/%s+%s+%s/release-after-%d", first, second, third, released)
+					t.Run(label, func(t *testing.T) {
+						m := newModelRig(t)
+						release := m.startBuildingResume()
+						var wait func()
+						for i, op := range []modelOp{first, second, third} {
+							if i == released {
+								wait = release()
+							}
+							m.apply(op)
+						}
+						if released == 3 {
+							wait = release()
+						}
+						wait()
+						m.check(t, label)
+					})
+				}
 			}
 		}
 	}
@@ -571,25 +630,15 @@ func TestITIOS01EveryTripleStartingFromABuildingResumeStaysCoherent(t *testing.T
 // The reported case: Connect wins while Resume builds, then the app is suspended again.
 func TestITIOS01ConnectDuringResumeBuildThenSuspendClosesTheSocket(t *testing.T) {
 	m := newModelRig(t)
-	m.c.Connect()
-	m.c.Suspend()
-	gate := make(chan struct{})
-	m.mu.Lock()
-	m.gate, m.entered = gate, make(chan struct{}, 1)
-	m.mu.Unlock()
-	go m.c.Resume()
-	<-m.entered
-	m.mu.Lock()
-	m.gate = nil
-	m.mu.Unlock()
-	m.c.Connect()
-	m.c.Suspend()
-	close(gate)
-	time.Sleep(20 * time.Millisecond)
-	if m.live() != 0 || m.requested() || m.c.State() != Disconnected {
+	release := m.startBuildingResume()
+	m.apply(opConnect)
+	m.apply(opSuspend)
+	release()()
+	if m.live() != 0 || m.c.State() != Disconnected {
 		t.Fatalf("socket left open in the background: live=%d state=%s", m.live(), m.c.State())
 	}
-	if m.c.Resume(); m.live() != 1 {
+	m.apply(opResume)
+	if m.live() != 1 {
 		t.Fatalf("resume after the second suspension gives %d clients", m.live())
 	}
 }
