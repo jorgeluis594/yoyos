@@ -1,3 +1,4 @@
+import type { TransportError } from "@mobile/shared/application/transport-error";
 import type { WhatsAppClient, WhatsAppError } from "@mobile/modules/whatsapp/types";
 import type { Result } from "@shared/result";
 import type { CompanyId, CoreMessageId, LinkId, NativeMessageId, UserId, WhatsAppChatId } from "@mobile/features/whatsapp/domain/ids";
@@ -44,3 +45,9 @@ export type WhatsAppGateway = Pick<WhatsAppClient,
 export type GatewayConfigurationError = Readonly<{ code: "INVALID_WHATSAPP_RECOVERY_BUFFER_MIB"; message: string }>;
 
 export type Session = Readonly<{ companyId: CompanyId; userId: UserId; generation: number }>;
+
+export type RegistrationOutcome = Readonly<{ status: "stored" | "duplicate"; messageId: CoreMessageId }>;
+export type MessageApiError = TransportError | Readonly<{ code: "UNKNOWN_DATE"; message: string }>;
+export type MessageApi = Readonly<{
+  register(message: InboundMessage): Promise<Result<RegistrationOutcome, MessageApiError>>;
+}>;
