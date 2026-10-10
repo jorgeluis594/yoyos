@@ -371,7 +371,9 @@ func (c *Coordinator) nextLocked() *emission {
 		return nil
 	}
 	if c.consumer == nil {
-		return &emission{missing: true}
+		// Recovery waits for a consumer without stopping reception: the stop is raised only
+		// when a live message needs one (Await), so registering shortly after Start is safe.
+		return nil
 	}
 	if fl.emittedTo == c.consumer.Token || c.failed == c.consumer.Token {
 		return nil
@@ -382,15 +384,10 @@ func (c *Coordinator) nextLocked() *emission {
 type emission struct {
 	consumer Consumer
 	delivery Delivery
-	missing  bool
 }
 
 func (c *Coordinator) emit(e *emission) {
 	if e == nil {
-		return
-	}
-	if e.missing {
-		c.stop(NoConsumer, nil)
 		return
 	}
 	c.mu.Lock()
