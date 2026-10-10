@@ -168,7 +168,8 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     } finally { GLOBAL_LOCK.unlock() }
   }
 
-  fun beginSession(accountId: String, protocolBytes: ByteArray) {
+  /** [armReceive] publishes the receive intent in the same revision as the session (QR linking). */
+  fun beginSession(accountId: String, protocolBytes: ByteArray, armReceive: Boolean = false) {
     GLOBAL_LOCK.lock()
     try {
       registeredGeneration = null
@@ -193,7 +194,10 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
       val (nonce, ciphertext) = encrypt(id, protocolBytes, aad)
       val session = JSONObject().put("accountId", accountId).put("sessionKeyId", id).put("sessionRevision", nextRevision.toString())
         .put("nonceBase64", b64(nonce)).put("ciphertextBase64", b64(ciphertext))
-      commit(revision.toString()) { it.put("session", session) }
+      commit(revision.toString()) {
+        it.put("session", session)
+        if (armReceive) it.put("androidService", JSONObject().put("receiveRequested", true).put("accountId", accountId)) else it
+      }
       fault?.invoke("sessionPublished")
       val committedRecord = readRecord() ?: throw StateFailure("SESSION_STATE_INVALID")
       writeRecord(committedRecord.put("provisionalSessionKeyId", JSONObject.NULL))
@@ -248,6 +252,39 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     try { registeredGeneration = null; registeredAccount = null } finally { GLOBAL_LOCK.unlock() }
   }
 
+  /** The durable receive intent, or null when the container has none (never prepared, iOS-shaped or logged out). */
+  fun receiveIntent(): ReceiveIntent? {
+    GLOBAL_LOCK.lock()
+    try {
+      val service = open().optJSONObject("androidService") ?: return null
+      return ReceiveIntent(service.getBoolean("receiveRequested"), if (service.isNull("accountId")) null else service.getString("accountId"))
+    } finally { GLOBAL_LOCK.unlock() }
+  }
+
+  /** Arms reception for the stored session of [accountId]. Throws when the session is absent or belongs to another account. */
+  fun armReceiveIntent(accountId: String) {
+    GLOBAL_LOCK.lock()
+    try {
+      val snapshot = open()
+      if (!ACCOUNT.matches(accountId) || snapshot.optJSONObject("session")?.getString("accountId") != accountId) throw StateFailure("STALE_GENERATION")
+      val current = receiveIntent()
+      if (current?.receiveRequested == true && current.accountId == accountId) return
+      commit(revision.toString()) { it.put("androidService", JSONObject().put("receiveRequested", true).put("accountId", accountId)) }
+    } finally { GLOBAL_LOCK.unlock() }
+  }
+
+  /**
+   * Durably withdraws the intent. Returns normally only after the new revision is published (or when
+   * nothing was armed); a storage failure propagates so callers never claim a retirement that did not happen.
+   */
+  fun withdrawReceiveIntent() {
+    GLOBAL_LOCK.lock()
+    try {
+      if (receiveIntent()?.receiveRequested != true) return
+      commit(revision.toString()) { it.put("androidService", JSONObject().put("receiveRequested", false).put("accountId", JSONObject.NULL)) }
+    } finally { GLOBAL_LOCK.unlock() }
+  }
+
   fun updateOptions(maxRecoveryBufferBytes: Long, maxImageStorageBytes: Long): String {
     GLOBAL_LOCK.lock()
     try {
@@ -284,7 +321,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
       if (registeredGeneration != generation || (registeredAccount != null && registeredAccount != account)) throw StateFailure("STALE_GENERATION")
       val existing = open().optJSONObject("session")
       if (existing == null) {
-        try { beginSession(account, protocol.toString().toByteArray(Charsets.UTF_8)) }
+        try { beginSession(account, protocol.toString().toByteArray(Charsets.UTF_8), armReceive = true) }
         finally { registeredGeneration = generation; registeredAccount = null }
       }
       else {

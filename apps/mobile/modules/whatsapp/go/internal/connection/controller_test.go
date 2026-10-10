@@ -442,3 +442,35 @@ func TestNotifyPublishesIdentityUnavailableWithoutChangingState(t *testing.T) {
 	c.Close()
 	c.Notify(IdentityUnavailable) // after close nothing is delivered and nothing blocks
 }
+
+// WA-12 / IT-AND-08: after the process is destroyed and recreated the native service restores a
+// fresh controller only while the intent is durable. If the server revoked the session, the new
+// controller sees the revocation once, stops without retrying and never touches the credentials;
+// the Go side has no way to delete them (RetiredSession is only called by an explicit logout).
+func TestWA12RecreatedControllerDoesNotRetryRevokedSession(t *testing.T) {
+	transport := newTransport()
+	events := make(chan Event, 16)
+	creates := 0
+	c := New(func() (Transport, error) { creates++; return transport, nil }, func(e Event) { events <- e }, nil)
+	c.Prepare(true)
+	if c.Connect() != "" {
+		t.Fatal("recreated controller rejected the restore")
+	}
+	channel := started(t, transport)
+	receive(t, events)
+	channel <- TransportEvent{Kind: "revoked"}
+	if receive(t, events).State != SessionExpired || receive(t, events).Error != SessionExpiredError {
+		t.Fatal("revocation not announced once")
+	}
+	if c.Connect() != SessionExpiredError || creates != 1 {
+		t.Fatalf("revoked session retried: creates=%d", creates)
+	}
+	select {
+	case extra := <-events:
+		t.Fatalf("unexpected event after revocation: %+v", extra)
+	case <-time.After(20 * time.Millisecond):
+	}
+	if c.State() != SessionExpired {
+		t.Fatal("revocation did not persist for the runtime")
+	}
+}
