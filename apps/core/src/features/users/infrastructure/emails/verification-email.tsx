@@ -1,7 +1,16 @@
 import { EmailLayout } from "@core/src/shared/emails/components/email-layout";
+import { EmailButton, EmailDetails, EmailText, EmailTitle } from "@core/src/shared/emails/components/email-content";
 import { useTranslation } from "react-i18next";
 
-export function VerificationEmail({ url }: { url: string }) {
+export function VerificationEmail({ to, url }: { to: string; url: string }) {
   const { t } = useTranslation();
-  return <EmailLayout preview={t("emails.verificationPreview")}><h1 style={{ fontSize: 24 }}>{t("emails.verificationTitle")}</h1><p>{t("emails.verificationBody")}</p><a href={url} style={{ backgroundColor: "#166534", borderRadius: 6, color: "#ffffff", display: "inline-block", padding: "12px 20px", textDecoration: "none" }}>{t("emails.verificationAction")}</a><p>{t("emails.verificationExpiry")}</p></EmailLayout>;
+  return <EmailLayout preview={t("emails.verificationPreview")} category={t("emails.accountCategory")} fallbackUrl={url}>
+    <EmailTitle>{t("emails.verificationTitle")}</EmailTitle>
+    <EmailText>{t("emails.verificationBody")}</EmailText>
+    <EmailDetails rows={[
+      { label: t("emails.verificationEmailLabel"), value: to },
+      { label: t("emails.verificationExpiryLabel"), value: t("emails.verificationExpiryValue") },
+    ]} />
+    <EmailButton href={url}>{t("emails.verificationAction")}</EmailButton>
+  </EmailLayout>;
 }

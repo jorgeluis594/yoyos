@@ -26,3 +26,5 @@ export const themeCss = `:root{${cssVariables({
   "icon-inline-size": rem(tokens.sizing.iconInline),
   "icon-navigation-size": rem(tokens.sizing.iconNavigation),
 })}}.dark{${cssVariables(tokens.colors.dark)}}`;
+
+export const designTokens = tokens;

@@ -20,7 +20,11 @@ test("account messages select the right subject and escape template content", as
   expect(sent[0].html).toContain("/api/auth/verify-email?token=abc&amp;callbackURL=");
   expect(sent[0].html).toContain("Verificar correo");
   expect(sent[0].text).toContain("http://localhost:3000/api/auth/verify-email?token=abc&callbackURL=");
+  expect(sent[0].text).toContain("ana+ventas@example.com");
+  expect(sent[0].text).toContain("Tu cuenta");
   expect(sent[1].html).toContain("Cambiar contraseña");
+  expect(sent[1].text).toContain("Seguridad");
+  expect(sent[1].text).toContain("¿El botón no funciona?");
   expect(sent[1].text).toContain("30 minutos");
 });
 
@@ -33,7 +37,8 @@ test("account emails use the language in the verification and reset callbacks", 
   expect(await emails.sendPasswordResetEmail({ to, resetUrl: reset, idempotencyKey: "reset-pt" })).toEqual(ok(undefined));
   expect(sent[0].subject).toBe("Verifique seu e-mail do Yoyos");
   expect(sent[0].html).toContain('<html lang="pt-BR"');
-  expect(sent[0].text).toContain("O link expira em 24 horas.");
+  expect(sent[0].text).toContain("O link expira");
+  expect(sent[0].text).toContain("em 24 horas");
   expect(sent[1].subject).toBe("Recupere sua senha do Yoyos");
   expect(sent[1].text).toContain("O link expira em 30 minutos.");
 });
