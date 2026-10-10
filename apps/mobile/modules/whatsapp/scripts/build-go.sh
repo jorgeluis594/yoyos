@@ -25,6 +25,7 @@ test "$(go version | awk '{print $3}')" = "$expected_go" || fail "expected $expe
 command -v git >/dev/null 2>&1 || fail 'git is required for patch validation'
 test "$(cd "$module_dir/go" && go list -m -f '{{.Version}}' go.mau.fi/whatsmeow)" = "$expected_meow" || fail 'whatsmeow revision changed'
 test "$(cd "$module_dir/go" && go list -m -f '{{.Version}}' golang.org/x/mobile)" = "$expected_mobile" || fail 'x/mobile revision changed'
+test -f "$module_dir/patches/wa08-history-batch.patch" || fail 'required history batch patch missing'
 test -f "$module_dir/patches/pre-decrypt-context.patch" || fail 'required whatsmeow patch missing'
 
 if test "$target" = android || test "$target" = all; then
@@ -66,6 +67,8 @@ git apply --check "$module_dir/patches/pre-decrypt-context.patch" || fail 'patch
 git apply "$module_dir/patches/pre-decrypt-context.patch"
 git apply --check "$module_dir/patches/wa05-socket-ownership.patch" || fail 'socket ownership patch does not match pinned revision'
 git apply "$module_dir/patches/wa05-socket-ownership.patch"
+git apply --check "$module_dir/patches/wa08-history-batch.patch" || fail 'history batch patch does not match pinned revision'
+git apply "$module_dir/patches/wa08-history-batch.patch"
 cd "$module_dir/go"
 cp -R . "$build_dir/go"
 cd "$build_dir/go"

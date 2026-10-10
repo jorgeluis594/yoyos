@@ -14,11 +14,13 @@ git -C "$work/whatsmeow" apply --check "$module_dir/patches/pre-decrypt-context.
 git -C "$work/whatsmeow" apply "$module_dir/patches/pre-decrypt-context.patch"
 git -C "$work/whatsmeow" apply --check "$module_dir/patches/wa05-socket-ownership.patch"
 git -C "$work/whatsmeow" apply "$module_dir/patches/wa05-socket-ownership.patch"
+git -C "$work/whatsmeow" apply --check "$module_dir/patches/wa08-history-batch.patch"
+git -C "$work/whatsmeow" apply "$module_dir/patches/wa08-history-batch.patch"
 cp -R "$module_dir/go" "$work/go"
 cd "$work/go"
 go mod edit -replace="go.mau.fi/whatsmeow=$work/whatsmeow"
 go test -race ./... -count=1
 go vet ./...
 cd "$work/whatsmeow"
-go test . -run 'TestRecoveryContextHook|TestRecoveryStorageFailure|TestControlledTransportAttempt|TestQRDeadlineIsFixed|TestHistoricalIndividualProtobuf|TestNotificationLocalStorageFailure|TestDeviceNotificationMappingFailure|TestBotSecretLookupFailure|TestPendingMarkerWithholdsTransport|TestAuxiliarySyncStorageFailuresPropagate|TestRecoveredProtocolReplay|TestRecoveredFatalAppState|TestPrecommittedReceive' -count=1
+go test . -run 'TestRecoveryContextHook|TestRecoveryStorageFailure|TestControlledTransportAttempt|TestQRDeadlineIsFixed|TestHistoricalIndividualProtobuf|TestNotificationLocalStorageFailure|TestDeviceNotificationMappingFailure|TestBotSecretLookupFailure|TestPendingMarkerWithholdsTransport|TestAuxiliarySyncStorageFailuresPropagate|TestRecoveredProtocolReplay|TestRecoveredFatalAppState|TestPrecommittedReceive|TestMediaDownloadLimit|TestManualHistoryFlags' -count=1
 go test ./appstate -run 'TestWA03AppStateMACPublicationUsesOneTransaction|TestWA03FatalRecoveryResetIsAtomic' -count=1

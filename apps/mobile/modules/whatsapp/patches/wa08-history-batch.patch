@@ -1,0 +1,266 @@
+diff --git a/download.go b/download.go
+index 0f29f62..4653100 100644
+--- a/download.go
++++ b/download.go
+@@ -389,9 +389,23 @@ func (cli *Client) downloadMedia(ctx context.Context, url string) ([]byte, error
+ 	if err != nil {
+ 		return nil, err
+ 	}
+-	data, err := io.ReadAll(resp.Body)
+-	_ = resp.Body.Close()
+-	return data, err
++	defer resp.Body.Close()
++	limit, limited := MediaDownloadLimit(ctx)
++	if !limited {
++		return io.ReadAll(resp.Body)
++	}
++	// The declared length is only a shortcut: the bytes actually received decide.
++	if resp.ContentLength > limit {
++		return nil, ErrMediaDownloadLimit
++	}
++	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
++	if err != nil {
++		return nil, err
++	}
++	if int64(len(data)) > limit {
++		return nil, ErrMediaDownloadLimit
++	}
++	return data, nil
+ }
+ 
+ const mediaHMACLength = 10
+diff --git a/history_bounded.go b/history_bounded.go
+new file mode 100644
+index 0000000..e02fac2
+--- /dev/null
++++ b/history_bounded.go
+@@ -0,0 +1,22 @@
++package whatsmeow
++
++import (
++	"context"
++	"errors"
++)
++
++// ErrMediaDownloadLimit reports a download that exceeded the limit carried by its context.
++var ErrMediaDownloadLimit = errors.New("media download exceeds its byte limit")
++
++type mediaDownloadLimitKey struct{}
++
++// WithMediaDownloadLimit bounds the bytes a download may receive. The limit counts the bytes
++// actually read from the connection, whatever the server or the notification declares.
++func WithMediaDownloadLimit(ctx context.Context, limit int64) context.Context {
++	return context.WithValue(ctx, mediaDownloadLimitKey{}, limit)
++}
++
++func MediaDownloadLimit(ctx context.Context) (int64, bool) {
++	limit, ok := ctx.Value(mediaDownloadLimitKey{}).(int64)
++	return limit, ok
++}
+diff --git a/message.go b/message.go
+index 9ca532f..d4b9902 100644
+--- a/message.go
++++ b/message.go
+@@ -832,6 +832,40 @@ func (cli *Client) SendHistorySyncServerErrorReceipt(ctx context.Context, msgID
+ 	return nil
+ }
+ 
++// StageHistorySync applies the protocol effects of a history batch with the stores of ctx.
++// Inside a decryption transaction every write joins it, so the effects publish together with
++// the batch's pending entries or not at all.
++func (cli *Client) StageHistorySync(ctx context.Context, historySync *waHistorySync.HistorySync) error {
++	if err := cli.storeNCTSalt(ctx, historySync.GetNctSalt()); err != nil {
++		return errors.Join(store.ErrLocalStorage, err)
++	}
++	if len(historySync.GetPhoneNumberToLidMappings()) > 0 {
++		if err := cli.storeHistoricalPNLIDMappings(ctx, historySync.GetPhoneNumberToLidMappings()); err != nil {
++			return err
++		}
++	}
++	if historySync.GetSyncType() == waHistorySync.HistorySync_PUSH_NAME {
++		if err := cli.handleHistoricalPushNames(ctx, historySync.GetPushnames()); err != nil {
++			return err
++		}
++	} else if len(historySync.GetConversations()) > 0 {
++		if err := cli.storeHistoricalMessageSecrets(ctx, historySync.GetConversations()); err != nil {
++			return err
++		}
++	}
++	if historySync.GlobalSettings != nil {
++		if err := cli.storeGlobalSettings(ctx, historySync.GlobalSettings); err != nil {
++			return err
++		}
++	}
++	if historySync.CompanionMetaNonce != nil {
++		if err := cli.storeCompanionMetaNonce(ctx, historySync.GetCompanionMetaNonce()); err != nil {
++			return err
++		}
++	}
++	return nil
++}
++
+ // DownloadHistorySync will download and parse the history sync blob from the given history sync notification.
+ //
+ // You only need to call this manually if you set [Client.ManualHistorySyncDownload] to true.
+@@ -853,36 +887,7 @@ func (cli *Client) DownloadHistorySync(ctx context.Context, notif *waE2E.History
+ 		return nil, fmt.Errorf("failed to unmarshal: %w", err)
+ 	}
+ 	cli.Log.Debugf("Received history sync (type %s, chunk %d, progress %d)", historySync.GetSyncType(), historySync.GetChunkOrder(), historySync.GetProgress())
+-	doStorage := func(ctx context.Context) error {
+-		if err := cli.storeNCTSalt(ctx, historySync.GetNctSalt()); err != nil {
+-			return errors.Join(store.ErrLocalStorage, err)
+-		}
+-		if len(historySync.GetPhoneNumberToLidMappings()) > 0 {
+-			if err := cli.storeHistoricalPNLIDMappings(ctx, historySync.GetPhoneNumberToLidMappings()); err != nil {
+-				return err
+-			}
+-		}
+-		if historySync.GetSyncType() == waHistorySync.HistorySync_PUSH_NAME {
+-			if err := cli.handleHistoricalPushNames(ctx, historySync.GetPushnames()); err != nil {
+-				return err
+-			}
+-		} else if len(historySync.GetConversations()) > 0 {
+-			if err := cli.storeHistoricalMessageSecrets(ctx, historySync.GetConversations()); err != nil {
+-				return err
+-			}
+-		}
+-		if historySync.GlobalSettings != nil {
+-			if err := cli.storeGlobalSettings(ctx, historySync.GlobalSettings); err != nil {
+-				return err
+-			}
+-		}
+-		if historySync.CompanionMetaNonce != nil {
+-			if err := cli.storeCompanionMetaNonce(ctx, historySync.GetCompanionMetaNonce()); err != nil {
+-				return err
+-			}
+-		}
+-		return nil
+-	}
++	doStorage := func(ctx context.Context) error { return cli.StageHistorySync(ctx, &historySync) }
+ 	if synchronousStorage {
+ 		if err := doStorage(ctx); err != nil {
+ 			return nil, err
+diff --git a/wa08_history_test.go b/wa08_history_test.go
+new file mode 100644
+index 0000000..1783a45
+--- /dev/null
++++ b/wa08_history_test.go
+@@ -0,0 +1,118 @@
++package whatsmeow
++
++import (
++	"bytes"
++	"context"
++	"errors"
++	"fmt"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"sync"
++	"testing"
++	"time"
++
++	"go.mau.fi/whatsmeow/proto/waE2E"
++	"go.mau.fi/whatsmeow/types"
++	waLog "go.mau.fi/whatsmeow/util/log"
++	"google.golang.org/protobuf/proto"
++)
++
++// TestMediaDownloadLimit covers IT-HIS-05 at the whatsmeow boundary: the bytes actually
++// received decide, a false declared length neither widens nor narrows the limit, and an
++// unlimited context keeps the dependency behavior.
++func TestMediaDownloadLimit(t *testing.T) {
++	body := bytes.Repeat([]byte{7}, 1000)
++	chunked := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
++		w.Write(body[:500])
++		w.(http.Flusher).Flush()
++		w.Write(body[500:])
++	}))
++	defer chunked.Close()
++	declared := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
++		w.Header().Set("Content-Length", "1000")
++		w.Write(body)
++	}))
++	defer declared.Close()
++	cli := &Client{mediaHTTP: http.DefaultClient}
++	for name, server := range map[string]*httptest.Server{"chunked": chunked, "declared": declared} {
++		t.Run(name, func(t *testing.T) {
++			got, err := cli.downloadMedia(WithMediaDownloadLimit(context.Background(), 1000), server.URL)
++			if err != nil || len(got) != 1000 {
++				t.Fatalf("exact limit must pass: %d %v", len(got), err)
++			}
++			if got, err := cli.downloadMedia(WithMediaDownloadLimit(context.Background(), 999), server.URL); !errors.Is(err, ErrMediaDownloadLimit) || got != nil {
++				t.Fatalf("one byte over must fail without data: %d %v", len(got), err)
++			}
++			if got, err := cli.downloadMedia(context.Background(), server.URL); err != nil || len(got) != 1000 {
++				t.Fatalf("unlimited context: %d %v", len(got), err)
++			}
++		})
++	}
++}
++
++type recordingLog struct {
++	mu    sync.Mutex
++	warns []string
++}
++
++func (l *recordingLog) Warnf(msg string, args ...any) {
++	l.mu.Lock()
++	l.warns = append(l.warns, fmt.Sprintf(msg, args...))
++	l.mu.Unlock()
++}
++func (*recordingLog) Errorf(string, ...any)     {}
++func (*recordingLog) Infof(string, ...any)      {}
++func (*recordingLog) Debugf(string, ...any)     {}
++func (l *recordingLog) Sub(string) waLog.Logger { return l }
++func (l *recordingLog) acknowledgements() (n int) {
++	l.mu.Lock()
++	defer l.mu.Unlock()
++	for _, warn := range l.warns {
++		if strings.Contains(warn, "acknowledgement for protocol message") {
++			n++
++		}
++	}
++	return
++}
++
++// TestManualHistoryFlagsLeaveTheReceiptAndTheDownloadToTheCaller covers IT-HIS-07 at the dependency
++// boundary. Two controls prove the probes see the automatic queueing and the automatic receipt; with
++// both flags the dependency does neither, so any receipt that exists is the caller's.
++func TestManualHistoryFlagsLeaveTheReceiptAndTheDownloadToTheCaller(t *testing.T) {
++	notification := &waE2E.Message{ProtocolMessage: &waE2E.ProtocolMessage{
++		Type:                    waE2E.ProtocolMessage_HISTORY_SYNC_NOTIFICATION.Enum(),
++		HistorySyncNotification: &waE2E.HistorySyncNotification{DirectPath: proto.String("/v/batch")},
++	}}
++	// run reports whether the handler queued the download (the full queue makes that visible as
++	// a blocked send) and how many receipts it tried to send.
++	run := func(manual, disableReceipt bool) (queued bool, receipts int) {
++		log := &recordingLog{}
++		queue := make(chan *waE2E.HistorySyncNotification, 1)
++		queue <- nil // full: an automatic enqueue cannot complete
++		cli := &Client{Log: log, ManualHistorySyncDownload: manual, DisableManualHistorySyncReceipt: disableReceipt, historySyncNotifications: queue}
++		done := make(chan struct{})
++		go func() {
++			defer close(done)
++			_, _ = cli.handleProtocolMessage(context.Background(), &types.MessageInfo{MessageSource: types.MessageSource{IsFromMe: true}, ID: "n1"}, notification)
++		}()
++		select {
++		case <-done:
++		case <-time.After(150 * time.Millisecond):
++			queued = true
++			<-queue // release the blocked send so the handler can finish
++			<-done
++		}
++		time.Sleep(100 * time.Millisecond)
++		return queued, log.acknowledgements()
++	}
++	if queued, receipts := run(false, false); !queued || receipts != 1 {
++		t.Fatalf("control: the automatic path queues the download and sends its receipt (%v, %d)", queued, receipts)
++	}
++	if queued, receipts := run(true, false); queued || receipts != 1 {
++		t.Fatalf("control: a manual download alone still sends the receipt (%v, %d)", queued, receipts)
++	}
++	if queued, receipts := run(true, true); queued || receipts != 0 {
++		t.Fatalf("flagged: the dependency neither queues the download nor sends the receipt (%v, %d)", queued, receipts)
++	}
++}
