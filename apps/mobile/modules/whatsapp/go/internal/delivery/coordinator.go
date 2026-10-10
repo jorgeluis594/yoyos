@@ -142,7 +142,8 @@ func (c *Coordinator) SetConsumer(consumer Consumer) {
 	c.kick()
 }
 
-// RemoveConsumer ignores a token that was already replaced.
+// RemoveConsumer ignores a token that was already replaced. It keeps pending entries and
+// releases live waiters; the stop for a missing consumer is raised lazily by the next need.
 func (c *Coordinator) RemoveConsumer(token string) {
 	c.mu.Lock()
 	if c.consumer == nil || c.consumer.Token != token {
@@ -152,7 +153,8 @@ func (c *Coordinator) RemoveConsumer(token string) {
 	c.consumer = nil
 	c.interruptLocked()
 	c.mu.Unlock()
-	c.stop(NoConsumer, nil)
+	// Reception stops only when a delivery actually needs a consumer (Await or step), so
+	// remove() followed by a new subscription, or a replacement, never stops it.
 }
 
 // WaitForCapacity records the entry size whose admission was rejected so that a

@@ -217,8 +217,7 @@ test("replaces the consumer and ignores the replaced subscription's remove and q
   await flush();
   const newToken = native.setMessageConsumer.mock.calls[1][0];
   expect(newToken).not.toBe(oldToken);
-  expect(native.removeMessageConsumer).toHaveBeenCalledWith(oldToken);
-  native.removeMessageConsumer.mockClear();
+  expect(native.removeMessageConsumer).not.toHaveBeenCalled(); // replacement is atomic: no remove-then-set window
   oldSubscription.remove(); // stale: must not retire the current consumer
   expect(native.removeMessageConsumer).not.toHaveBeenCalled();
   native.handlers.get("messageReceived")?.(received(oldToken)); // queued for the replaced consumer

@@ -102,24 +102,31 @@ func OpenConnectionWithDelivery(storage ProtocolStorage, sink ConnectionEvents, 
 // latched, so the attempt starts again from the last confirmed revision.
 func (s *ConnectionSession) newTransport() (connection.Transport, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.stoppedLocked() == "RECOVERY_BUFFER_FULL" && s.reopen != nil {
+	rebuild := s.stoppedLocked() == "RECOVERY_BUFFER_FULL" && s.reopen != nil
+	s.mu.Unlock()
+	if rebuild {
+		// Reading native state happens outside every lock.
 		reopened, device, err := s.reopen()
 		if err != nil {
 			return nil, err
 		}
+		s.mu.Lock()
 		s.store, s.device = reopened, device
+		s.mu.Unlock()
 	}
+	s.mu.Lock()
+	device := s.device
+	s.mu.Unlock()
 	stopReason := func() connection.Code { return connection.Code(s.StopReason()) }
 	if s.delivery == nil {
-		return connection.NewWhatsmeowTransport(s.device, stopReason), nil
+		return connection.NewWhatsmeowTransport(device, stopReason), nil
 	}
-	receiver := receive.New(s.device, s.delivery.ledger, s.delivery.coordinator, receive.Hooks{
+	receiver := receive.New(device, s.delivery.ledger, s.delivery.coordinator, receive.Hooks{
 		Capacity:     s.controller.PauseForCapacity,
 		Oversize:     func() { s.controller.FailLocal(connection.RecoveryBufferFull) },
 		LocalFailure: func(err error) { s.controller.FailLocal(connection.Code(publicCode(err))) },
 	})
-	return connection.NewWhatsmeowTransport(s.device, stopReason, receiver), nil
+	return connection.NewWhatsmeowTransport(device, stopReason, receiver), nil
 }
 
 func (s *ConnectionSession) resumeCapacity() {

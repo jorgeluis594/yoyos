@@ -3,7 +3,9 @@ package receive
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"go.mau.fi/whatsmeow/types/events"
 	"strings"
 	"testing"
 	"time"
@@ -209,4 +211,26 @@ func TestUnresolvedIdentityNeverGrantsAck(t *testing.T) {
 		t.Fatalf("lookup %v %v", found, err)
 	}
 	l.consumer.none(t) // pendingLid is skipped, not emitted
+}
+
+// m2: an unreadable ledger while deciding the ACK is a storage failure, and the ACK stays withheld.
+func TestHandleReadFailureIsReportedAsStorageFailure(t *testing.T) {
+	n := newNative()
+	l := newLife(t, n, 1<<20)
+	failures := make(chan error, 1)
+	l.recv.hooks.LocalFailure = func(err error) { failures <- err }
+	n.failRead = errBoom
+	info := infoFor("m1", "555@lid")
+	if l.recv.Handle(t.Context(), &events.Message{Info: info}) {
+		t.Fatal("ACK permitted although the ledger could not be read")
+	}
+	select {
+	case err := <-failures:
+		var typed *protocolstore.Error
+		if !errors.As(err, &typed) || typed.Code != protocolstore.StorageFailed {
+			t.Fatalf("unclassified failure: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("read failure not reported")
+	}
 }

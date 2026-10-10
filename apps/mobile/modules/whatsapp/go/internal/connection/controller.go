@@ -249,12 +249,20 @@ func (c *Controller) pauseForCapacityLocked() {
 }
 func (c *Controller) ResumeCapacity() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if !c.paused || !c.requested || c.localFault != "" || c.expired {
+		c.mu.Unlock()
 		return
 	}
 	c.paused = false
+	generation := c.generation
+	c.mu.Unlock()
+	// Rebuilding reads native state; do it without holding the controller lock.
 	transport, err := c.create()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.generation != generation || !c.requested || c.localFault != "" || c.expired {
+		return // stopped or replaced while the attempt was being built
+	}
 	if err != nil {
 		c.requested = false
 		c.publish(Event{Error: ConnectionFailed})

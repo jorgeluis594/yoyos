@@ -108,6 +108,10 @@ func (r *Receiver) Handle(ctx context.Context, event any) bool {
 	}
 	record, found, err := r.find(message.Info)
 	if err != nil {
+		// The ACK stays withheld and the unreadable ledger is a storage failure, not absence.
+		if r.hooks.LocalFailure != nil {
+			go r.hooks.LocalFailure(err)
+		}
 		return false
 	}
 	if !found {
@@ -169,11 +173,16 @@ func (r *Receiver) Finished(_ context.Context, _ *types.MessageInfo, err error) 
 	if errors.As(err, &typed) && typed.Code == protocolstore.BufferFull {
 		if typed.Oversize {
 			r.coordinator.ClearCapacityWait()
-			call(r.hooks.Oversize)
+			callAsync(r.hooks.Oversize)
 			return
 		}
-		r.coordinator.WaitForCapacity(typed.Needed)
-		call(r.hooks.Capacity)
+		// Pause first, then register the wait: a confirmation that frees space in between
+		// would otherwise ask to resume a connection that is not paused yet and be lost.
+		needed := typed.Needed
+		go func() {
+			call(r.hooks.Capacity)
+			r.coordinator.WaitForCapacity(needed)
+		}()
 		return
 	}
 	if errors.Is(err, store.ErrLocalStorage) && r.hooks.LocalFailure != nil {
@@ -184,6 +193,13 @@ func (r *Receiver) Finished(_ context.Context, _ *types.MessageInfo, err error) 
 // call runs a connection decision off the receive goroutine: stopping the client
 // waits for the handler queue, which this very goroutine is still draining.
 func call(fn func()) {
+	if fn != nil {
+		fn()
+	}
+}
+
+// callAsync runs a connection decision off the receive goroutine.
+func callAsync(fn func()) {
 	if fn != nil {
 		go fn()
 	}

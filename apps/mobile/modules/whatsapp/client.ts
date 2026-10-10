@@ -219,10 +219,10 @@ export function createWhatsAppClient(resolveNative: () => NativeWhatsApp | null 
       if (event === "messageReceived") {
         // The latest subscription becomes the only consumer and activates local recovery.
         const entry: Consumer = { token: `consumer-${instance}-${++consumerCount}`, listener: listener as Consumer["listener"], registered: false };
-        const previous = consumer;
+        // Registering the new token replaces the old one atomically in native; removing the old
+        // one first would leave a window with no consumer that stops reception.
         consumer = entry;
         module();
-        if (previous?.registered) void call("removeMessageConsumer", [previous.token], empty);
         void registerConsumer(entry);
         return { remove: () => removeConsumer(entry) };
       }

@@ -175,6 +175,7 @@ type life struct {
 	replayed int
 	capacity atomic.Int32
 	oversize atomic.Int32
+	paused   atomic.Bool
 	consumer *consumerApp
 	stops    chan delivery.Cause
 	resumes  chan struct{}
@@ -198,12 +199,16 @@ func newLife(t *testing.T, n *native, limit int64) *life {
 		t.Fatal(err)
 	}
 	l.coord = delivery.New(l.ledger, limit, delivery.Hooks{
-		Stop:   func(c delivery.Cause, _ error) { l.stops <- c },
-		Resume: func() { l.resumes <- struct{}{} },
+		Stop: func(c delivery.Cause, _ error) { l.stops <- c },
+		Resume: func() { // like the controller, resuming does nothing unless it is paused
+			if l.paused.Swap(false) {
+				l.resumes <- struct{}{}
+			}
+		},
 	})
 	t.Cleanup(l.coord.Close)
 	l.recv = New(ownDevice, l.ledger, l.coord, Hooks{
-		Capacity:     func() { l.capacity.Add(1) },
+		Capacity:     func() { l.capacity.Add(1); l.paused.Store(true) },
 		Oversize:     func() { l.oversize.Add(1) },
 		LocalFailure: func(error) {},
 	})

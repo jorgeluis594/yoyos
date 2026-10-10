@@ -175,3 +175,32 @@ func eventually(t *testing.T, what string, ok func() bool) {
 	}
 	t.Fatalf("timed out: %s", what)
 }
+
+// M3: space freed before the connection is paused must still resume it afterwards.
+func TestITBUF03ConfirmationBeforePauseStillResumes(t *testing.T) {
+	small := measure(t, "s1", "a")
+	big := measure(t, "bg", strings.Repeat("b", 3000))
+	n := newNative()
+	l := newLife(t, n, small+big-1)
+	app := l.subscribe("a")
+	l.coord.Start()
+	if r := l.receive("s1", "a"); r.err != nil {
+		t.Fatal(r.err)
+	}
+	gate := make(chan struct{})
+	paused := make(chan struct{})
+	l.recv.hooks.Capacity = func() { <-gate; l.paused.Store(true); close(paused) } // the controller pauses late
+	l.receive("bg", strings.Repeat("b", 3000))
+	d := app.take(t)
+	if err := l.coord.Confirm(d.ID); err != nil { // capacity is freed before the pause lands
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	close(gate)
+	<-paused
+	select {
+	case <-l.resumes:
+	case <-time.After(2 * time.Second):
+		t.Fatal("reception stayed paused after capacity was freed")
+	}
+}

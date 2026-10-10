@@ -317,6 +317,9 @@ func TestITSUB06RemovingActiveConsumerKeepsDeliveryAndRecoversOnResubscribe(t *t
 	c.Start()
 	out.next(t)
 	c.RemoveConsumer("a")
+	if c.Await(waitCtx(t), did(1)) != Interrupted { // a live reception now needs a consumer
+		t.Fatal("wait was not interrupted")
+	}
 	eventually(t, "reception stopped for the missing consumer", func() bool { s, _ := logs.snapshot(); return len(s) == 1 && s[0] == NoConsumer })
 	time.Sleep(60 * time.Millisecond)
 	if len(ledger.records) != 1 {
@@ -364,4 +367,24 @@ func TestUTSUB05ReadTakenBeforeRetirementDoesNotResurrectRetiredDelivery(t *test
 		t.Fatalf("the retired delivery came back: %s", got)
 	}
 	out.quiet(t)
+}
+
+// M2: remove() followed by a new subscription (unmount/mount, StrictMode) never stops reception.
+func TestRemoveThenResubscribeDoesNotStopReception(t *testing.T) {
+	ledger := &fakeLedger{}
+	ledger.add(record(1, "5", 0, "resolved"))
+	c, logs := started(t, ledger, 1<<20)
+	out := newSink()
+	c.SetConsumer(out.consumer("old"))
+	c.Start()
+	out.next(t)
+	c.RemoveConsumer("old")
+	c.SetConsumer(out.consumer("new"))
+	if got := out.next(t); got != "new:"+did(1) {
+		t.Fatalf("got %s", got)
+	}
+	time.Sleep(80 * time.Millisecond)
+	if stops, _ := logs.snapshot(); len(stops) != 0 {
+		t.Fatalf("reception was stopped: %v", stops)
+	}
 }
