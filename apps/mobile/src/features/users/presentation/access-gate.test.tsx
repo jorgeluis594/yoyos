@@ -5,6 +5,7 @@ import { Pressable } from 'react-native';
 import { AccessGate } from '@/composition/access-gate';
 import { createAuthOperations } from '@/composition/create-auth-operations';
 
+jest.mock('@mobile/composition/whatsapp-runtime', () => ({ getWhatsAppRuntime: jest.fn(() => new Promise(() => undefined)) }));
 jest.mock('@mobile/components/root-stack', () => {
   const { Text: MockText } = jest.requireActual('react-native');
   return function RootStack() { return <MockText>Private tabs</MockText>; };

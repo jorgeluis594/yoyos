@@ -79,6 +79,8 @@ export function createReceptionLifecycle(deps: ReceptionDeps) {
   return {
     start,
     stop,
+    /** Asks the library for a fresh QR (or a new connection attempt) while reception is running. */
+    connect: () => deps.whatsapp.connect(),
     status: () => status,
     subscribe(listener: (status: ReceptionStatus) => void) {
       listeners.add(listener);

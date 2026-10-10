@@ -8,6 +8,7 @@ import { translations as orderTranslations } from '@mobile/features/orders/prese
 import { orderDetailTranslations } from '@mobile/features/orders/presentation/order-detail-translations';
 import { translations as productTranslations } from '@mobile/features/products/presentation/translations';
 import { translations as deliverySettingsTranslations } from '@mobile/features/delivery-settings/presentation/translations';
+import { translations as whatsappTranslations } from '@mobile/features/whatsapp/presentation/translations';
 import { translations as printTranslations } from '@mobile/features/printing/presentation/translations';
 
 const i18n = createInstance();
@@ -24,6 +25,7 @@ const resources = {
     ...productTranslations.es,
     ...printTranslations.es,
     ...deliverySettingsTranslations.es,
+    ...whatsappTranslations.es,
   } },
   'pt-BR': { translation: {
     ...commonTranslations['pt-BR'],
@@ -35,6 +37,7 @@ const resources = {
     ...productTranslations['pt-BR'],
     ...printTranslations['pt-BR'],
     ...deliverySettingsTranslations['pt-BR'],
+    ...whatsappTranslations['pt-BR'],
   } },
 } as const;
 
