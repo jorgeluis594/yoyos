@@ -13,6 +13,7 @@ import (
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+	"yoyos-whatsapp/internal/history"
 	"yoyos-whatsapp/internal/protocolstore"
 )
 
@@ -43,15 +44,27 @@ func NewWhatsmeowTransport(device *store.Device, localFailure func() Code, recei
 		client.SynchronousAck = true
 		client.PreDecryptMessage = receive.PreDecrypt
 		client.MessageReceiveFinished = receive.Finished
+		// History is downloaded, admitted and acknowledged by this module, step by step: the
+		// automatic path would send the hist_sync receipt and delete the remote batch before
+		// anything is durable. These flags only switch that path off; the processor's order is
+		// what protects the batch, and the tests instrument each step.
+		client.ManualHistorySyncDownload = true
+		client.DisableManualHistorySyncReceipt = true
 		receive.SetProcessor(client)
+		if enabler, ok := receive.(interface {
+			EnableHistory(history.Remote, history.Store, history.Limits)
+		}); ok {
+			enabler.EnableHistory(&whatsmeowHistory{client: client, limits: history.DefaultLimits()}, linkedStore{device}, history.DefaultLimits())
+		}
 	}
-	return &whatsmeowTransport{receive: receive, client: client, dial: client.ConnectContext, socketConnected: client.IsConnected, socketID: client.CurrentSocketID, loginReconnect: make(chan struct{}, 1), localFailure: localFailure}
+	return &whatsmeowTransport{receive: receive, client: client, dial: client.ConnectContext, unlink: client.Logout, socketConnected: client.IsConnected, socketID: client.CurrentSocketID, loginReconnect: make(chan struct{}, 1), localFailure: localFailure}
 }
 
 type whatsmeowTransport struct {
 	receive         Receiving
 	client          *whatsmeow.Client
 	dial            func(context.Context) error
+	unlink          func(context.Context) error
 	socketConnected func() bool
 	socketID        func() uint64
 	loginReconnect  chan struct{}
@@ -68,6 +81,72 @@ func (t *whatsmeowTransport) stopped() Code {
 }
 
 func (t *whatsmeowTransport) Stop() { t.client.Disconnect() }
+
+// Logout asks WhatsApp to unlink this device. The pinned client deletes its own store afterwards;
+// the container refuses that deletion with NativeLogoutRequired (native owns retirement), and
+// that refusal comes only after the server accepted the request, so it counts as confirmation.
+func (t *whatsmeowTransport) Logout(ctx context.Context) error {
+	if t.client != nil && t.client.Store.ID == nil {
+		return whatsmeow.ErrNotLoggedIn // nothing linked: there is no login to wait for
+	}
+	if t.client != nil {
+		if err := t.authenticated(ctx); err != nil {
+			return err
+		}
+	}
+	return confirmedUnlink(t.unlink(ctx))
+}
+
+// authenticated connects when needed and waits for the login to complete, so the unlink
+// request is not sent over a socket the server has not accepted yet.
+func (t *whatsmeowTransport) authenticated(ctx context.Context) error {
+	ready, refused := make(chan struct{}, 1), make(chan struct{}, 1)
+	handler := t.client.AddEventHandler(func(event any) {
+		switch event.(type) {
+		case *events.Connected:
+			select {
+			case ready <- struct{}{}:
+			default:
+			}
+		case *events.LoggedOut, *events.ConnectFailure, *events.Disconnected, *events.StreamReplaced:
+			select {
+			case refused <- struct{}{}:
+			default:
+			}
+		}
+	})
+	defer t.client.RemoveEventHandler(handler)
+	if t.client.IsLoggedIn() {
+		return nil
+	}
+	if !t.socketConnected() {
+		if err := t.dial(ctx); err != nil {
+			return err
+		}
+	}
+	select {
+	case <-ready:
+		return nil
+	case <-refused:
+		return errors.New("connection closed before the login completed")
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// Quiesce makes the connected client withhold acknowledgements: with no handler left after
+// the run ended, the pinned client would confirm deliveries that never reached the receiver.
+func (t *whatsmeowTransport) Quiesce() {
+	t.client.AddEventHandlerWithSuccessStatus(rejectDeliveries)
+}
+
+func confirmedUnlink(err error) error {
+	var failure *protocolstore.Error
+	if errors.As(err, &failure) && failure.Code == protocolstore.NativeLogoutRequired {
+		return nil
+	}
+	return err
+}
 func (t *whatsmeowTransport) Reconnect() {
 	select {
 	case t.loginReconnect <- struct{}{}:
@@ -109,6 +188,11 @@ func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent)
 				return
 			}
 		}
+		if _, connected := event.(*events.Connected); connected && t.stopped() == "" {
+			if notifier, ok := t.receive.(interface{ Connected() }); ok {
+				notifier.Connected()
+			}
+		}
 		if code := t.stopped(); code != "" {
 			select {
 			case out <- TransportEvent{Kind: "localFailure", Error: code}:
@@ -129,6 +213,9 @@ func (t *whatsmeowTransport) Run(ctx context.Context, out chan<- TransportEvent)
 	if t.receive != nil {
 		receiver := client.AddEventHandlerWithSuccessStatus(func(event any) bool { return t.receive.Handle(ctx, event) })
 		defer client.RemoveEventHandler(receiver)
+		if runner, ok := t.receive.(interface{ RunHistory(context.Context) }); ok {
+			go runner.RunHistory(ctx)
+		}
 	}
 	var qr <-chan whatsmeow.QRChannelItem
 	if client.Store.ID == nil {
@@ -258,4 +345,41 @@ func classify(event any) string {
 	default:
 		return ""
 	}
+}
+
+// NewUnlinkTransport builds the client that connects only to request the unlink. The server
+// starts the offline queue as soon as the client is active, before the request can be sent, and
+// this client has no durable receive path. It therefore processes nothing: the pre-decrypt hook
+// rejects every message before any decryption or Signal state change, synchronous acknowledgements
+// wait for handlers, and a handler rejects them all. Encrypted messages are neither decrypted nor
+// acknowledged, but after a successful logout the device is unlinked and the server discards that
+// queue: it is lost to Yoyos and is not redelivered. Only if the local retirement then fails and the
+// session survives can a later connection receive it again. Notifications and the paths that run
+// before the hook may still write to the store being retired or be acknowledged. Whatsmeow offers
+// no way to stay passive, which would avoid the queue altogether.
+func NewUnlinkTransport(device *store.Device, localFailure func() Code) Transport {
+	transport := NewWhatsmeowTransport(device, localFailure).(*whatsmeowTransport)
+	client := transport.client
+	client.SynchronousAck = true
+	client.EnableDecryptedEventBuffer = true // a panic while receiving then withholds the acknowledgement
+	client.PreDecryptMessage = func(context.Context, *types.MessageInfo, *waBinary.Node) (context.Context, error) {
+		return nil, errUnlinkOnly
+	}
+	client.AddEventHandlerWithSuccessStatus(rejectDeliveries)
+	return transport
+}
+
+var errUnlinkOnly = errors.New("this connection only unlinks the device")
+
+// rejectDeliveries fails every event that carries content to acknowledge. The dispatcher stops at
+// the first handler that fails, so connection lifecycle events pass: the handlers that watch the
+// login, the logout and the socket must still run.
+func rejectDeliveries(event any) bool {
+	switch event.(type) {
+	case *events.Connected, *events.Disconnected, *events.LoggedOut, *events.ConnectFailure, *events.StreamReplaced,
+		*events.ClientOutdated, *events.ManualLoginReconnect, *events.PairSuccess, *events.StreamError, *events.TemporaryBan,
+		*events.KeepAliveTimeout, *events.KeepAliveRestored:
+		return true
+	}
+	return false
 }

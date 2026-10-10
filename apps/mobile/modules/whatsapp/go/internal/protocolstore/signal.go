@@ -197,16 +197,89 @@ func (s *Store) DeleteDevice(context.Context, *store.Device) error {
 }
 func (s *Store) PutManyLIDMappings(ctx context.Context, mappings []store.LIDMapping) error {
 	return s.stage(ctx, func(t *txn) error {
+		if len(mappings) == 0 {
+			return nil
+		}
+		// One index for the whole batch: a history sync carries thousands of mappings.
+		index, e := lidIndexOf(t)
+		if e != nil {
+			return e
+		}
 		for _, m := range mappings {
-			if e := putLID(t, m.LID, m.PN); e != nil {
+			if e := index.put(t, m.LID, m.PN); e != nil {
 				return e
 			}
 		}
-		if len(mappings) > 0 {
-			t.afterCommit = append(t.afterCommit, s.notifyMappings)
-		}
+		t.afterCommit = append(t.afterCommit, s.notifyMappings)
 		return nil
 	})
+}
+
+// CheckLIDMappings reports, without staging anything, the refusal that PutManyLIDMappings would
+// raise for the same mappings, so a hostile batch can be rejected before it latches the store.
+func (s *Store) CheckLIDMappings(ctx context.Context, mappings []store.LIDMapping) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stopped != nil {
+		return s.stopped
+	}
+	t := &txn{owner: s, active: true, records: s.records}
+	index, e := lidIndexOf(t)
+	if e != nil {
+		return e
+	}
+	for _, m := range mappings {
+		if e := index.check(m.LID, m.PN); e != nil {
+			return e
+		}
+	}
+	return nil
+}
+
+// lidIndex mirrors the stored PN-to-LID records in both directions.
+type lidIndex struct{ byPN, byLID map[string]string }
+
+func lidIndexOf(t *txn) (*lidIndex, error) {
+	index := &lidIndex{byPN: map[string]string{}, byLID: map[string]string{}}
+	for _, r := range scanMap(t.records, "lid-mapping") {
+		b, _ := base64.StdEncoding.DecodeString(r.ValueBase64)
+		v, e := protocolstate.DecodeValue("lid-mapping", b)
+		if e != nil {
+			return nil, e
+		}
+		p, e := protocolstate.DecodeKey("lid-mapping", r.RecordKey)
+		if e != nil {
+			return nil, e
+		}
+		lid := v.(*protocolstate.LIDMapping).LID
+		index.byPN[p[0]], index.byLID[lid] = lid, p[0]
+	}
+	return index, nil
+}
+
+// check applies one mapping to the index with putLID's rules and refuses an inverse conflict.
+func (x *lidIndex) check(lid, pn types.JID) error {
+	lid, pn = lid.ToNonAD(), pn.ToNonAD()
+	if other, ok := x.byLID[lid.String()]; ok && other != pn.String() {
+		return malformed("inverse LID mapping conflict")
+	}
+	if previous, ok := x.byPN[pn.String()]; ok {
+		delete(x.byLID, previous)
+	}
+	x.byPN[pn.String()], x.byLID[lid.String()] = lid.String(), pn.String()
+	return nil
+}
+
+func (x *lidIndex) put(t *txn, lid, pn types.JID) error {
+	if e := x.check(lid, pn); e != nil {
+		return e
+	}
+	lid, pn = lid.ToNonAD(), pn.ToNonAD()
+	v := protocolstate.LIDMapping{Version: 1, LID: lid.String()}
+	if _, e := protocolstate.EncodeValue("lid-mapping", v); e != nil {
+		return e
+	}
+	return t.put("lid-mapping", v, pn.String())
 }
 func (s *Store) PutLIDMapping(ctx context.Context, lid, pn types.JID) error {
 	return s.stage(ctx, func(t *txn) error {

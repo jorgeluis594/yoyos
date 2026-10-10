@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	waBinary "go.mau.fi/whatsmeow/binary"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"yoyos-whatsapp/internal/identity"
@@ -92,8 +93,15 @@ func TestITID06WithoutOwnLIDAdmitsNothing(t *testing.T) {
 	n := newNative()
 	l := newLife(t, n, 1<<20)
 	l.recv.device = &store.Device{ID: ownDevice.ID}
-	if _, err := l.recv.PreDecrypt(context.Background(), nil, nil); err == nil {
+	// A well-formed message and node: the only thing missing is the own LID (the account), so that must be the reason.
+	info := &types.MessageInfo{MessageSource: types.MessageSource{Chat: phone, Sender: phone}, ID: "p-nolid", Timestamp: time.Unix(1700000000, 0)}
+	node := &waBinary.Node{Content: []waBinary.Node{{Tag: "enc", Attrs: waBinary.Attrs{"v": "2", "type": "msg"}, Content: []byte("cipher-p-nolid")}}}
+	if _, err := l.recv.PreDecrypt(context.Background(), info, node); err == nil {
 		t.Fatal("receive admitted without own LID")
+	}
+	withLID := newLife(t, newNative(), 1<<20) // control: the same message is admitted when the own LID is known
+	if _, err := withLID.recv.PreDecrypt(context.Background(), info, node); err != nil {
+		t.Fatalf("the same message must be admitted with the own LID: %v", err)
 	}
 	if n.pendingCount() != 0 {
 		t.Fatal("pending entry created without own LID")
@@ -161,9 +169,7 @@ func TestITID07StoreFailureIsNotAbsence(t *testing.T) {
 	l.coord.Start()
 	l.receiveFrom("p1", "uno", phone).ack(t)
 	eventually(t, "first report", func() bool { return il.unavailable.Load() == 1 })
-	n.mu.Lock()
-	n.failRead = errBoom
-	n.mu.Unlock()
+	n.set(func() { n.failRead = errBoom })
 	if _, err := il.service.Resolve(context.Background()); err == nil {
 		t.Fatal("unreadable ledger treated as no pending entries")
 	}
@@ -177,10 +183,7 @@ func TestITID07StoreFailureIsNotAbsence(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("store failure not reported")
 	}
-	n.mu.Lock()
-	n.failRead = nil
-	n.failIdent = errBoom
-	n.mu.Unlock()
+	n.set(func() { n.failRead, n.failIdent = nil, errBoom })
 	l.storeMapping() // the mapping commits, but publishing the identity fails
 	select {
 	case err := <-il.failures:

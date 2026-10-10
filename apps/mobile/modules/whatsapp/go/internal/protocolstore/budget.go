@@ -63,7 +63,7 @@ func EntrySize(p PendingInsert) (int64, error) {
 		return 0, failure(StateInvalid, "pending entry cannot be measured")
 	}
 	size := int64(len(raw)) + EncryptionOverheadBytes + RecordSeparatorBytes
-	if p.IdentityState == "pendingLid" {
+	if p.IdentityState == "pendingLid" && !IsHistoryNotification(p) {
 		size += IdentityReserveBytes + plaintextBytes(p.Recovery)
 	}
 	return size, nil

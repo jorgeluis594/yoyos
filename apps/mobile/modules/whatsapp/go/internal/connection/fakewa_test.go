@@ -311,7 +311,10 @@ func (c *fakeConn) answer(ctx context.Context, node *waBinary.Node) {
 		return
 	}
 	var children []waBinary.Node
-	if node.GetChildByTag("count").Tag == "count" {
+	if node.GetChildByTag("media_conn").Tag == "media_conn" {
+		children = []waBinary.Node{{Tag: "media_conn", Attrs: waBinary.Attrs{"auth": "token", "ttl": "300", "auth_ttl": "300", "max_buckets": "1"},
+			Content: []waBinary.Node{{Tag: "host", Attrs: waBinary.Attrs{"hostname": "media-a.invalid"}}, {Tag: "host", Attrs: waBinary.Attrs{"hostname": "media-b.invalid"}}}}}
+	} else if node.GetChildByTag("count").Tag == "count" {
 		children = []waBinary.Node{{Tag: "count", Attrs: waBinary.Attrs{"value": "100"}}}
 	}
 	_ = c.sendNode(ctx, waBinary.Node{Tag: "iq", Attrs: waBinary.Attrs{"id": id, "type": "result"}, Content: children})

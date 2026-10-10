@@ -26,14 +26,19 @@ type retired struct {
 // Ledger reads and retires pending deliveries of any account.
 type Ledger struct {
 	storage DeliveryStorage
-	bytes   int64
+	bytes   int64 // reliable read bound: never below the budget, and never reduced with it
 }
 
-func NewLedger(storage DeliveryStorage, recoveryBytes int64) (*Ledger, error) {
-	if storage == nil || recoveryBytes < 1 || recoveryBytes > 9007199254740991 {
-		return nil, failure(InvalidRequest, "delivery storage and budget required")
+// NewLedger reads with readBytes, the largest budget the container ever accepted, and admits
+// against recoveryBytes, the configured one. Reducing the budget below what is stored must not
+// reduce the read bound, or the snapshot that holds the excess could no longer be decoded and the
+// excess could never be drained; the bound stays finite, so a response of arbitrary length is
+// still refused.
+func NewLedger(storage DeliveryStorage, readBytes, recoveryBytes int64) (*Ledger, error) {
+	if storage == nil || recoveryBytes < 1 || readBytes < recoveryBytes || readBytes > 9007199254740991 {
+		return nil, failure(InvalidRequest, "delivery storage, budget and a read bound not below it required")
 	}
-	return &Ledger{storage: storage, bytes: recoveryBytes}, nil
+	return &Ledger{storage: storage, bytes: readBytes}, nil
 }
 
 // ValidDeliveryID reports whether a public delivery identifier is well formed.

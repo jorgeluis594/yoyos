@@ -214,6 +214,11 @@ func (s *Store) DeleteOldBufferedHashes(ctx context.Context) error {
 	}
 	protected := map[string]bool{}
 	for _, pending := range s.pending {
+		// Only the batch markers that live captures of this account still need are kept past the
+		// usual retention; captures of other accounts and everything else age out normally.
+		if marker, ok := s.captureMarker(pending.PendingInsert); ok {
+			protected[marker] = true
+		}
 		for _, item := range pending.Recovery.Items {
 			if item.CiphertextHashBase64 != "" {
 				protected[item.CiphertextHashBase64] = true

@@ -164,6 +164,14 @@ public final class NativeStateStore {
     committedRecord["provisionalSessionKeyId"] = NSNull(); try writeRecord(committedRecord)
   }
 
+  /// The reliable read bound: the largest recovery budget the container ever accepted. It does not
+  /// shrink when the budget is reduced, so a snapshot holding the excess stays readable and drainable.
+  public func recoveryReadBound() throws -> Int64 {
+    lock.lock(); defer { lock.unlock() }
+    _ = try open()
+    return Int64(readBudget)
+  }
+
   public func canRestoreSession() throws -> Bool {
     lock.lock(); defer { lock.unlock() }
     _ = try open()
@@ -392,8 +400,13 @@ public final class NativeStateStore {
         pending[position]["identityState"] = "resolved"
         pending[position]["message"] = update["message"]
       }
-      guard let options = snapshot["options"] as? [String: Any], let capacity = Self.safeInt(options["maxRecoveryBufferBytes"]),
-            try Self.json(pending).count <= capacity else { throw StateStoreError.bufferFull }
+      // Same rule as Go (protocolstore.Decide): only insertions are admitted against the budget. A
+      // publication that inserts nothing (identity resolution, protocol-only) must still go through when
+      // a reduced budget is already exceeded, or the excess could never drain; it stays bounded by the
+      // reliable read bound, which every snapshot must fit anyway.
+      guard let options = snapshot["options"] as? [String: Any], let budget = Self.safeInt(options["maxRecoveryBufferBytes"]) else { throw StateStoreError.bufferFull }
+      let capacity = inserts.isEmpty ? max(budget, readBudget) : budget
+      guard try Self.json(pending).count <= capacity else { throw StateStoreError.bufferFull }
       var nextSession = session
       if !changes.isEmpty {
         guard let id = session["sessionKeyId"] as? String else { throw StateStoreError.invalid }
@@ -796,15 +809,20 @@ public final class NativeStateStore {
   }
 
   private static func validateMessage(_ message: [String: Any], account: String) throws {
-    var fields: Set<String> = ["id", "accountId", "whatsappMessageId", "chatId", "direction", "timestamp"]
+    // `timestamp` is optional: Go omits it when WhatsApp's own time was missing or invalid (unknown date, IT-MSG-07).
+    var fields: Set<String> = ["id", "accountId", "whatsappMessageId", "chatId", "direction"]
+    if message["timestamp"] != nil { fields.insert("timestamp") }
     if message["text"] != nil { fields.insert("text") }
     if message["image"] != nil { fields.insert("image") }
     try exact(message, fields)
     guard let chat = message["chatId"] as? String, validAccount(chat),
           message["accountId"] as? String == account,
           let whatsappId = message["whatsappMessageId"] as? String, !whatsappId.isEmpty,
-          let direction = message["direction"] as? String, ["incoming", "outgoing"].contains(direction),
-          let timestamp = safeInt(message["timestamp"]), timestamp >= 0, timestamp <= 9_007_199_254_740_991 else { throw StateStoreError.invalid }
+          let direction = message["direction"] as? String, ["incoming", "outgoing"].contains(direction) else { throw StateStoreError.invalid }
+    // A real date is a positive safe integer; 0 is never an "unknown" marker (it would read as 1970).
+    if message["timestamp"] != nil {
+      guard let timestamp = safeInt(message["timestamp"]), timestamp > 0, timestamp <= 9_007_199_254_740_991 else { throw StateStoreError.invalid }
+    }
     if message["text"] != nil && !(message["text"] is String) { throw StateStoreError.invalid }
     guard let id = message["id"] as? String, id.hasPrefix("wa-message:v1:") else { throw StateStoreError.invalid }
     let encoded = String(id.dropFirst("wa-message:v1:".count))
@@ -900,6 +918,9 @@ public final class NativeStateStore {
     try FileManager.default.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication], ofItemAtPath: url.path)
     #endif
   }
+  /// Private, persistent, protected and excluded from backups (see `ensureImagesDirectory`).
+  public var imagesDirectory: URL { directory.appendingPathComponent("images", isDirectory: true) }
+
   private func ensureImagesDirectory() throws {
     let images = directory.appendingPathComponent("images", isDirectory: true)
     try FileManager.default.createDirectory(at: images, withIntermediateDirectories: true)
