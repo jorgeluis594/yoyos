@@ -241,6 +241,10 @@ describe("review m2 and N1 ended request", () => {
   test("a paused or retried request keeps service and intent; only a missing session counts as ended", () => {
     expect(observe()).toContain("?: false");
   });
+  test("an error alone is settled the same way (a failed resume after a pause emits no new state)", () => {
+    expect(policy).toMatch(/event == "error" -> EventEffect\.CHECK_REQUEST/);
+    expect(observe()).toContain("effect == ReceiveServicePolicy.EventEffect.NONE");
+  });
   test("Go exposes the request state through the bridge", () => {
     const bridge = readFileSync(join(__dirname, "go", "bridge", "connection.go"), "utf8");
     expect(bridge).toContain("func (s *ConnectionSession) RequestActive() bool");
@@ -250,7 +254,9 @@ describe("review m2 and N1 ended request", () => {
 describe("review n1 serviceActive race", () => {
   test("an old instance's destroy cannot clear the flag of a newer start", () => {
     expect(body(service, "override fun onDestroy")).toContain("if (ConnectionRuntime.pendingStarts.get() == 0) ConnectionRuntime.serviceActive = false");
-    expect(body(module, "fun startService")).toContain("pendingStarts.incrementAndGet()");
+    const start = body(module, "fun startService");
+    expect(start).toContain("pendingStarts.incrementAndGet()");
+    expect(order(start, "pendingStarts.incrementAndGet()", "serviceActive = true")).toBe(true); // r2
     expect(code(body(service, "override fun onStartCommand"))).toContain("pendingStarts.updateAndGet");
   });
 });

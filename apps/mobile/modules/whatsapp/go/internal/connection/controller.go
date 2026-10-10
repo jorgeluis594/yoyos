@@ -293,11 +293,19 @@ func (c *Controller) ResumeCapacity() {
 		return // stopped or replaced while the attempt was being built
 	}
 	if err != nil {
-		c.requested = false
-		c.publish(Event{Error: ConnectionFailed})
+		c.endRequestLocked(ConnectionFailed)
 		return
 	}
 	c.startLocked(transport, Reconnecting)
+}
+// endRequestLocked is how a request ends on its own (no retry left, or a rebuild failed). `requested` is
+// cleared before the error and the state are published, and the error is published even when the state was
+// already Disconnected (a capacity pause), so a consumer reading RequestActive on either event sees the end.
+func (c *Controller) endRequestLocked(code Code) {
+	c.requested = false
+	c.paused = false
+	c.publish(Event{Error: code})
+	c.setState(Disconnected)
 }
 func (c *Controller) retireLocked() {
 	if transport := c.detachLocked(); transport != nil {
@@ -479,12 +487,11 @@ func (c *Controller) finish(generation uint64, code Code, retry bool) {
 	}
 	c.qr = Event{}
 	c.qrExpiry = time.Time{}
-	c.publish(Event{Error: code})
 	if !retry || !c.paired {
-		c.requested = false
-		c.setState(Disconnected)
+		c.endRequestLocked(code)
 		return
 	}
+	c.publish(Event{Error: code})
 	c.generation++
 	next := c.generation
 	c.setState(Reconnecting)
@@ -518,9 +525,7 @@ func (c *Controller) finish(generation uint64, code Code, retry bool) {
 			c.retryCancel = nil
 			transport, err := c.create()
 			if err != nil {
-				c.requested = false
-				c.publish(Event{Error: ConnectionFailed})
-				c.setState(Disconnected)
+				c.endRequestLocked(ConnectionFailed)
 				c.mu.Unlock()
 				return
 			}

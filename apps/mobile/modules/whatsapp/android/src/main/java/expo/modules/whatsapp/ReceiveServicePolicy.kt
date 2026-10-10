@@ -65,12 +65,15 @@ internal object ReceiveServicePolicy {
   /**
    * `disconnected` is ambiguous: Go publishes it for an ended request (unpaired failure, nothing left to
    * retry) and also for a RECOVERY_BUFFER_FULL pause that resumes by itself with the request still held.
-   * Only `sessionExpired` is final by itself; `disconnected` must be settled with Go's own
+   * Only `sessionExpired` is final by itself; `disconnected` and errors must be settled with Go's own
    * `requestActive` before the intent is withdrawn.
    */
   fun eventEffect(event: String, state: String?): EventEffect = when {
     event == "connectionChanged" && state == "sessionExpired" -> EventEffect.END
     event == "connectionChanged" && state == "disconnected" -> EventEffect.CHECK_REQUEST
+    // A rebuild that fails after a capacity pause ends the request with only an error: the state was already
+    // `disconnected`, so no new state event follows. Any error is therefore settled with requestActive too.
+    event == "error" -> EventEffect.CHECK_REQUEST
     else -> EventEffect.NONE
   }
 

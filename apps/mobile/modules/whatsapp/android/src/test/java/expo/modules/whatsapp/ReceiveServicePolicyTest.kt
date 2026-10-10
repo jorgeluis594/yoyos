@@ -73,7 +73,14 @@ class ReceiveServicePolicyTest {
     for (state in listOf("connecting", "awaitingQr", "connected", "reconnecting")) {
       assertEquals(ReceiveServicePolicy.EventEffect.NONE, ReceiveServicePolicy.eventEffect("connectionChanged", state))
     }
-    assertEquals(ReceiveServicePolicy.EventEffect.NONE, ReceiveServicePolicy.eventEffect("error", null)) // RECOVERY_BUFFER_FULL is an error event
     assertEquals(ReceiveServicePolicy.EventEffect.NONE, ReceiveServicePolicy.eventEffect("qr", null))
+  }
+
+  // WA-12 r1: errors are settled with requestActive: RECOVERY_BUFFER_FULL / informational errors keep the
+  // request (true), a failed rebuild after a pause ends it with no further state event (false).
+  @Test fun errorsAreSettledWithRequestActive() {
+    assertEquals(ReceiveServicePolicy.EventEffect.CHECK_REQUEST, ReceiveServicePolicy.eventEffect("error", null))
+    assertFalse(ReceiveServicePolicy.endsRequest(requestActive = true))  // RECOVERY_BUFFER_FULL, IDENTITY_UNAVAILABLE
+    assertTrue(ReceiveServicePolicy.endsRequest(requestActive = false))  // CONNECTION_FAILED after a failed resume
   }
 }

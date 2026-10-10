@@ -202,8 +202,10 @@ internal object ConnectionRuntime {
    */
   fun startService(context: Context): String? = try {
     val intent = Intent(context, WhatsAppService::class.java).setAction(ReceiveServicePolicy.ACTION_START)
-    serviceActive = true
+    // Count the start before raising the flag: an old instance's onDestroy that runs in between sees a
+    // pending start and leaves serviceActive alone.
     pendingStarts.incrementAndGet()
+    serviceActive = true
     if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
     null
   } catch (_: Exception) { pendingStarts.decrementAndGet(); serviceActive = false; "CONNECTION_FAILED" }
