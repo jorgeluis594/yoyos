@@ -66,6 +66,81 @@ func fieldAccessorProblem(field string) string {
 	return bindingNameProblem(field)
 }
 
+// A Go type becomes a Java class and an Objective-C class named after it. A type that shares its
+// simple name with a java.lang class the generated code uses unqualified (Object, String, Error,
+// Exception, ...) shadows it inside the generated package, and one named like a Foundation root
+// class cannot coexist with it once the prefix is stripped.
+var reservedTypes = map[string]string{
+	"Object": "java.lang.Object", "String": "java.lang.String", "Class": "java.lang.Class", "Error": "java.lang.Error",
+	"Exception": "java.lang.Exception", "Throwable": "java.lang.Throwable", "Runnable": "java.lang.Runnable",
+	"Thread": "java.lang.Thread", "Integer": "java.lang.Integer", "Long": "java.lang.Long", "Boolean": "java.lang.Boolean",
+	"Number": "java.lang.Number", "Void": "java.lang.Void", "System": "java.lang.System", "Math": "java.lang.Math",
+	"NSObject": "Foundation.NSObject", "NSString": "Foundation.NSString", "NSError": "Foundation.NSError",
+	"Protocol": "the Objective-C Protocol class", "Seq": "the gomobile runtime class Seq",
+}
+
+// typeNameProblem reports why a generated class name is unusable, or "".
+func typeNameProblem(name string) string {
+	if owner, ok := reservedTypes[name]; ok {
+		return name + " collides with " + owner
+	}
+	if strings.HasPrefix(name, "NS") && len(name) > 2 && unicode.IsUpper([]rune(name)[2]) {
+		return name + " imitates the Foundation NS prefix"
+	}
+	return ""
+}
+
+func exportedBridgeTypes(t *testing.T) []string {
+	t.Helper()
+	files, err := parser.ParseDir(token.NewFileSet(), ".", func(info fs.FileInfo) bool {
+		return !strings.HasSuffix(info.Name(), "_test.go")
+	}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, pkg := range files {
+		for _, file := range pkg.Files {
+			for _, decl := range file.Decls {
+				if d, ok := decl.(*ast.GenDecl); ok {
+					for _, spec := range d.Specs {
+						if typeSpec, ok := spec.(*ast.TypeSpec); ok && typeSpec.Name.IsExported() {
+							names = append(names, typeSpec.Name.Name)
+						}
+					}
+				}
+			}
+		}
+	}
+	return names
+}
+
+// m10 (WA-10 review): the walk above checked members only; type names generate classes too.
+func TestExportedBridgeTypeNamesDoNotCollideWithJavaOrObjectiveC(t *testing.T) {
+	names := exportedBridgeTypes(t)
+	if len(names) < 10 {
+		t.Fatalf("the walk found too few types: %v", names)
+	}
+	for _, name := range names {
+		if problem := typeNameProblem(name); problem != "" {
+			t.Errorf("type %s: %s", name, problem)
+		}
+	}
+}
+
+func TestTypeNameCheckerRecognizesTheKnownCollisions(t *testing.T) {
+	for _, name := range []string{"Object", "String", "Error", "Exception", "NSObject", "NSThing", "Seq"} {
+		if typeNameProblem(name) == "" {
+			t.Errorf("%s was not flagged", name)
+		}
+	}
+	for _, name := range []string{"ImageSession", "ImageOperation", "DeliverySession", "ConnectionSession", "Nsfw", "NS"} {
+		if problem := typeNameProblem(name); problem != "" {
+			t.Errorf("%s flagged: %s", name, problem)
+		}
+	}
+}
+
 func exportedBridgeMembers(t *testing.T) (members, fields []string) {
 	t.Helper()
 	files, err := parser.ParseDir(token.NewFileSet(), ".", func(info fs.FileInfo) bool {
