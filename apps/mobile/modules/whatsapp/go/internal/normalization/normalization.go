@@ -284,6 +284,23 @@ func NewDeliveryID(random io.Reader, pending func(string) (bool, error)) (string
 	return "", errors.New("delivery ID collisions exhausted")
 }
 
+// ValidateMessageID accepts only a canonical public message ID.
+func ValidateMessageID(id string) error {
+	const prefix = "wa-message:v1:"
+	if !strings.HasPrefix(id, prefix) {
+		return ErrInvalidIdentity
+	}
+	tuple, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(id, prefix))
+	var parts [3]string
+	if err != nil || json.Unmarshal(tuple, &parts) != nil || !validLID(parts[0]) {
+		return ErrInvalidIdentity
+	}
+	if canonical, err := MessageID(parts[0], parts[1], parts[2]); err != nil || canonical != id {
+		return ErrInvalidIdentity
+	}
+	return nil
+}
+
 // ValidateImageReference enforces the descriptor contract before download.
 func ValidateImageReference(ref ImageReference) error {
 	const prefix = "wa-image:v1:"

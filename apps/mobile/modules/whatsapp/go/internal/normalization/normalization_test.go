@@ -410,3 +410,16 @@ func TestImageDescriptorStrictSchema(t *testing.T) {
 		t.Fatalf("valid reordered fields rejected: %v", err)
 	}
 }
+
+// UT-IMG-02: only canonical public message IDs name files and deletions.
+func TestValidateMessageIDAcceptsOnlyCanonicalIDs(t *testing.T) {
+	id, err := MessageID("123@lid", "456@lid", "ABC")
+	if err != nil || ValidateMessageID(id) != nil {
+		t.Fatalf("canonical id rejected: %v", err)
+	}
+	for _, bad := range []string{"", "wa-message:v1:", "wa-message:v1:***", "../../etc/passwd", id + "=", "wa-message:v2:" + id[len("wa-message:v1:"):], "wa-message:v1:" + base64.RawURLEncoding.EncodeToString([]byte(`["x@s.whatsapp.net","456@lid","a"]`))} {
+		if ValidateMessageID(bad) == nil {
+			t.Fatalf("%q was accepted", bad)
+		}
+	}
+}

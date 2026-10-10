@@ -84,6 +84,7 @@ type Controller struct {
 	qrExpiry      time.Time
 	generation    uint64
 	cancel        context.CancelFunc
+	runCtx        context.Context // ends with the generation's transport run
 	retryCancel   chan struct{}
 	transport     Transport
 	retries       int
@@ -326,7 +327,7 @@ func (c *Controller) startLocked(transport Transport, state State) {
 	c.generation++
 	generation := c.generation
 	ctx, cancel := context.WithCancel(context.Background())
-	c.cancel, c.transport = cancel, transport
+	c.cancel, c.transport, c.runCtx = cancel, transport, ctx
 	c.setState(state)
 	go c.run(ctx, generation, transport)
 }
