@@ -56,6 +56,7 @@ export function requestLogging(request: Request, response: Response, next: NextF
   const started = performance.now();
   const pathname = request.path;
   const checkout = /^\/checkout(?:\/|$)/.test(pathname);
+  const preview = /^(?:\/[a-z]{2}-[A-Z]{2})?\/settings\/checkout-appearance\/preview\/?(?:\.data)?$/.test(pathname);
   const enable = /^\/api\/orders\/[^/]+\/checkout-link\/?$/.test(pathname);
   const operation = checkout ? request.method === "POST" ? "confirm_checkout" : "get_checkout" : enable ? "enable_checkout" : undefined;
   response.set("x-request-id", requestId);
@@ -67,7 +68,7 @@ export function requestLogging(request: Request, response: Response, next: NextF
     log.info({
       event: "http_request_completed",
       method: request.method,
-      route: checkout ? "/checkout/:companyId/:orderId" : enable ? "/api/orders/:orderId/checkout-link"
+      route: checkout ? "/checkout/:companyId/:orderId" : preview ? "/settings/checkout-appearance/preview" : enable ? "/api/orders/:orderId/checkout-link"
         : request.route?.path ? `${request.baseUrl}${request.route.path}` : "unmatched",
       statusCode: response.statusCode,
       durationMs: Math.round(performance.now() - started),
