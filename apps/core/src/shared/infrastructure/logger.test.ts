@@ -1,5 +1,6 @@
 import express from "express";
 import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { afterEach, expect, it, vi } from "vitest";
 import { log, requestLogging, safeError } from "@core/src/shared/infrastructure/logger";
 
@@ -182,6 +183,39 @@ it("normalizes the checkout appearance editor route without capturing the previe
     expect.objectContaining({ route: "/settings/checkout-appearance", operation: "save_checkout_appearance", outcome: "saved", statusCode: 200 }),
     expect.objectContaining({ route: "/settings/checkout-appearance/preview", operation: "get_checkout_preview", outcome: "rendered", statusCode: 200 }),
   ]);
+});
+
+it("keeps the checkout appearance label and normalizes the buyer checkout route", () => {
+  const output = execFileSync(process.execPath, ["--import", "tsx", "-e", `
+    import express from "express";
+    import { requestLogging, bindRequestOperation } from "./src/shared/infrastructure/logger.ts";
+    const app = express();
+    app.use(requestLogging);
+    app.get("/checkout/:companyId/:orderId", (req, res) => {
+      bindRequestOperation({ outcome: "pending", checkoutAppearance: req.query.a });
+      res.sendStatus(200);
+    });
+    const server = app.listen(0);
+    const base = "http://127.0.0.1:" + server.address().port;
+    for (const kind of ["custom", "default", "fallback"]) await fetch(base + "/checkout/company-secret/order-secret?a=" + kind);
+    server.close();
+  `], { cwd: process.cwd(), encoding: "utf8" });
+  expect(output).not.toContain("order-secret");
+  const completed = output.trim().split("\n").map((line) => JSON.parse(line)).filter((entry) => entry.event === "http_request_completed");
+  expect(completed.map((entry) => entry.checkoutAppearance)).toEqual(["custom", "default", "fallback"]);
+  for (const entry of completed) expect(entry).toMatchObject({ route: "/checkout/:companyId/:orderId", operation: "get_checkout", outcome: "pending", statusCode: 200 });
+});
+
+it("names the four routes of the feature in New Relic without capturing one another", () => {
+  const require = createRequire(import.meta.url);
+  const rules: { pattern: string; name: string }[] = require("../../../newrelic.cjs").config.rules.name;
+  const nameOf = (path: string) => rules.find((rule) => new RegExp(rule.pattern).test(path))?.name;
+  expect(nameOf("/pago/0b6f3a5e-0000-4000-8000-000000000000")).toBe("pago");
+  expect(nameOf("/checkout/6d2a7c1e-0000-4000-8000-000000000000/0b6f3a5e-0000-4000-8000-000000000000")).toBe("checkout");
+  expect(nameOf("/es-PE/settings/checkout-appearance")).toBe("settings/checkout-appearance");
+  expect(nameOf("/es-PE/settings/checkout-appearance.data")).toBe("settings/checkout-appearance");
+  expect(nameOf("/es-PE/settings/checkout-appearance/preview")).toBe("settings/checkout-appearance/preview");
+  expect(nameOf("/settings/checkout-appearance/preview.data")).toBe("settings/checkout-appearance/preview");
 });
 
 it("shares context between independently loaded source and server-bundled modules", () => {

@@ -17,7 +17,7 @@ import {
 import { checkoutBrandColorCatalog } from "@core/src/features/checkout-appearance/domain/checkout-colors";
 import type { CheckoutAppearanceFailure } from "@core/src/features/checkout-appearance/application/checkout-appearance";
 import { BrandColorDialog, swatchOf } from "@core/src/features/checkout-appearance/presentation/brand-color-dialog";
-import { CheckoutPreviewPlaceholder } from "@core/src/features/checkout-appearance/presentation/checkout-preview-placeholder";
+import { CheckoutPreviewFrame } from "@core/src/features/checkout-appearance/presentation/checkout-preview-frame";
 import type { CheckoutPreviewMode } from "@core/src/features/checkout-appearance/presentation/checkout-appearance-schemas";
 import { resetDraft, sameAppearance, type EditorDraft } from "@core/src/features/checkout-appearance/presentation/editor-draft";
 
@@ -161,8 +161,7 @@ export default function CheckoutAppearanceSettings() {
     : saveFailure === "INVALID_CHECKOUT_APPEARANCE" ? "checkoutAppearance.invalidAppearance" : "checkoutAppearance.saveError");
 
   const tabClass = "min-h-touch flex-1 rounded-sm px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=active]:bg-accent data-[state=active]:text-accent-foreground";
-  // Single integration point: T5 replaces the placeholder with <CheckoutPreviewFrame> (same props).
-  const previewPanel = <CheckoutPreviewPlaceholder mode={mode} onModeChange={setMode}
+  const previewPanel = <CheckoutPreviewFrame mode={mode} onModeChange={setMode}
         appearance={{ logoUrl: draft.logoUrl, brandColor: draft.appearance.brandColor, background: draft.appearance.background }} />;
   const editPanel = <>
         <div className="flex flex-col gap-3 p-5">
@@ -208,7 +207,7 @@ export default function CheckoutAppearanceSettings() {
           <RadioGroup.Root aria-labelledby="appearance-background-label" value={draft.appearance.background} onValueChange={(background) => update({ background: background as CheckoutBackground })}
             className="grid grid-cols-3 gap-1 rounded-md border p-1">
             {checkoutBackgrounds.map((background) => <RadioGroup.Item key={background} value={background}
-              className="flex min-h-touch items-center justify-center gap-1 rounded-sm px-2 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=checked]:bg-accent data-[state=checked]:text-accent-foreground">
+              className="flex min-h-touch items-center justify-center gap-1 whitespace-nowrap rounded-sm px-1 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=checked]:bg-accent data-[state=checked]:text-accent-foreground">
               <RadioGroup.Indicator><Check className="size-3.5" aria-hidden="true" /></RadioGroup.Indicator>{backgrounds[background]}
             </RadioGroup.Item>)}
           </RadioGroup.Root>

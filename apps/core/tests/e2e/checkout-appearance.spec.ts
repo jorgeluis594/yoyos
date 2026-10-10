@@ -1,14 +1,18 @@
 import type { Locator, Page } from "@playwright/test";
 import { describe } from "vitest";
 import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
-import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { products } from "@core/src/features/products/composition";
+import { orders } from "@core/src/features/orders/composition";
+import type { ContactId, OrderId, PositiveInteger, UserId, CompanyId } from "@core/src/features/orders/domain/order";
+import type { VariantId } from "@core/src/features/products/domain/product";
+import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==", "base64");
 const editorPath = "/es-PE/settings/checkout-appearance";
 const origin = `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}`;
 
-async function openEditor(page: Page) {
-  const companyId = await prepareVerifiedCompany(page, { email: `appearance-${crypto.randomUUID()}@example.test`, name: "Vendedora", companyName: "Lima Studio", country: "PE" });
+async function openEditor(page: Page, email = `appearance-${crypto.randomUUID()}@example.test`) {
+  const companyId = await prepareVerifiedCompany(page, { email, name: "Vendedora", companyName: "Lima Studio", country: "PE" });
   await page.goto(editorPath, { waitUntil: "networkidle" });
   await browserExpect(page.getByRole("heading", { name: "Apariencia del checkout", level: 1 })).toBeVisible();
   return companyId;
@@ -236,14 +240,14 @@ describe("checkout appearance editor", () => {
     await page.keyboard.press("ArrowRight");
     await browserExpect(previewTab).toBeFocused();
     await browserExpect(previewTab).toHaveAttribute("aria-selected", "true");
-    await browserExpect(page.getByTestId("checkout-preview-slot")).toBeVisible();
+    await browserExpect(page.getByRole("region", { name: "Vista previa del checkout" })).toBeVisible();
     await page.keyboard.press("Tab");
     await browserExpect(editTab).not.toBeFocused();
     await page.setViewportSize({ width: 1280, height: 800 });
     await browserExpect(page.getByRole("tablist")).toHaveCount(0);
     await browserExpect(page.getByRole("tabpanel")).toHaveCount(0);
     await browserExpect(page.getByRole("button", { name: /Cambiar$/ }).last()).toBeVisible();
-    await browserExpect(page.getByTestId("checkout-preview-slot")).toBeVisible();
+    await browserExpect(page.getByRole("region", { name: "Vista previa del checkout" })).toBeVisible();
   });
 
   test("shows the desktop layout before hydration on a wide screen", async ({ page }) => {
@@ -252,11 +256,86 @@ describe("checkout appearance editor", () => {
     await page.route(/\.m?js(\?|$)/, (route) => route.abort());
     await page.reload({ waitUntil: "domcontentloaded" });
     await browserExpect(page.getByRole("tablist")).toHaveCount(0);
-    const preview = page.getByTestId("checkout-preview-slot");
+    const preview = page.getByRole("region", { name: "Vista previa del checkout" });
     const changeColor = page.getByRole("button", { name: /Cambiar$/ }).last();
     await browserExpect(preview).toBeVisible();
     await browserExpect(changeColor).toBeVisible();
     const [previewBox, colorBox] = [await preview.boundingBox(), await changeColor.boundingBox()];
     expect(colorBox!.x).toBeGreaterThan(previewBox!.x + previewBox!.width);
+  });
+});
+
+/** A pending order of the company with its checkout enabled, as the seller shares it with a buyer. */
+async function sharedCheckoutPath(companyId: string, email: string) {
+  const user = await systemPrisma.user.findUniqueOrThrow({ where: { email }, select: { id: true } });
+  const [tenant, userId, orderId, contactId] = [companyId as CompanyId, user.id as UserId, crypto.randomUUID() as OrderId, crypto.randomUUID() as ContactId];
+  await withTenantIsolation(tenant, async () => {
+    const product = await products.create({ name: "Cuaderno", currency: "PEN", variants: [{ attributes: { Color: "Azul" }, salePrice: 10, initialStock: 3 }] });
+    if (!product.success) throw new Error("Product fixture failed");
+    const variant = await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } });
+    await prisma.contact.create({ data: { id: contactId, name: "Ana", phone: "+51987654321" } });
+    const created = await orders.create({ id: orderId, contactId, items: [{ variantId: variant.id as VariantId, quantity: 1 as PositiveInteger }] }, { companyId: tenant, userId });
+    if (!created.success) throw new Error("Order fixture failed");
+    expect(await orders.enableCheckout(orderId, { companyId: tenant, userId })).toMatchObject({ success: true });
+  });
+  return `/checkout/${companyId}/${orderId}`;
+}
+
+describe("checkout appearance editor with the live preview", () => {
+  const previewFrame = (page: Page) => page.frameLocator('iframe[title="Vista previa del checkout"]');
+  const confirmColor = (page: Page) => previewFrame(page).getByRole("button", { name: "Confirmar pedido" }).evaluate((node) => getComputedStyle(node).backgroundColor);
+
+  test("shows the published appearance and a preview with sample data", async ({ page }) => {
+    await openEditor(page);
+    await browserExpect(previewFrame(page).getByText("Vista previa · Datos de ejemplo")).toBeVisible();
+    await browserExpect(previewFrame(page).getByRole("heading", { name: "Pedido #1001" })).toBeVisible();
+    await browserExpect(page.getByRole("button", { name: /Cambiar$/ }).last()).toContainText("Yoyos");
+  });
+
+  test("updates the preview without changing the public checkout", async ({ page }) => {
+    const email = `appearance-${crypto.randomUUID()}@example.test`;
+    const companyId = await openEditor(page, email);
+    const path = await sharedCheckoutPath(companyId, email);
+    const before = await confirmColor(page);
+    await chooseColor(page, "Bosque");
+    await browserExpect.poll(() => confirmColor(page)).toBe("rgb(47, 107, 79)");
+    expect(await stored(companyId)).toBeNull();
+    const buyer = await page.context().newPage();
+    await buyer.goto(path);
+    await browserExpect(buyer.getByRole("button", { name: "Confirmar pedido" })).toHaveCSS("background-color", before);
+  });
+
+  test("applies the new appearance to a previously shared link on reload", async ({ page }) => {
+    const email = `appearance-${crypto.randomUUID()}@example.test`;
+    const companyId = await openEditor(page, email);
+    const path = await sharedCheckoutPath(companyId, email);
+    const buyer = await page.context().newPage();
+    await buyer.goto(path);
+    const confirm = buyer.getByRole("button", { name: "Confirmar pedido" });
+    await browserExpect(confirm).not.toHaveCSS("background-color", "rgb(47, 107, 79)");
+    await chooseColor(page, "Bosque");
+    await page.getByRole("button", { name: "Guardar cambios" }).click();
+    await browserExpect(page.getByRole("status").filter({ hasText: "Apariencia actualizada" })).toBeVisible();
+    await buyer.reload();
+    await browserExpect(confirm).toHaveCSS("background-color", "rgb(47, 107, 79)");
+    await buyer.goto(`/pago/${path.split("/").at(-1)}`);
+    await browserExpect(buyer).toHaveURL(new RegExp(`${path}$`));
+    await browserExpect(confirm).toHaveCSS("background-color", "rgb(47, 107, 79)");
+  });
+
+  test("switches the preview between phone and desktop, light and dark, review and payment", async ({ page }) => {
+    await openEditor(page);
+    const frame = page.locator('iframe[title="Vista previa del checkout"]');
+    await browserExpect(frame).toHaveAttribute("data-device", "phone");
+    await page.getByRole("button", { name: "Escritorio" }).click();
+    await browserExpect(frame).toHaveAttribute("data-device", "desktop");
+    await page.getByRole("button", { name: "Oscuro", exact: true }).click();
+    await browserExpect(previewFrame(page).locator("html.dark")).toBeAttached();
+    await page.getByRole("button", { name: "Claro", exact: true }).click();
+    await browserExpect(previewFrame(page).locator("html.dark")).toHaveCount(0);
+    await page.getByRole("button", { name: "Pago", exact: true }).click();
+    await browserExpect(previewFrame(page).getByRole("heading", { name: "Cómo pagar" })).toBeVisible();
+    await page.getByRole("button", { name: "Revisión", exact: true }).click();
+    await browserExpect(previewFrame(page).getByRole("heading", { name: "Tus datos" })).toBeVisible();
   });
 });
