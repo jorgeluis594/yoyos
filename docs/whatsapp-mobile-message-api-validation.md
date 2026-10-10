@@ -22,13 +22,13 @@ The core Vitest configuration includes `src/**/*.{test,spec}.{ts,tsx}` in `unit`
 | I01 | `apps/core/src/features/chats/infrastructure/mobile-message-repository.integration.test.ts`: six direction/content combinations, nullable metadata, safe integer, dates, Unicode, reused Contact/Chat and no Image row. |
 | I02 | `mobile-message-repository.integration.test.ts`: sequential retries and 12 simultaneous first registrations, one creator and identical persisted winner. |
 | I03 | `mobile-message-repository.integration.test.ts`: account/chat/protocol/company independence, uploader independence and Cloud API external-ID coexistence. |
-| I04 | `mobile-message-repository.integration.test.ts` and `apps/core/src/features/contacts/infrastructure/whatsapp-schema-migration.integration.test.ts`: tenant reads/writes/foreign links, RLS policies, role grants, defaults and composite FKs. |
+| I04 | `mobile-message-repository.integration.test.ts`: tenant reads/writes/foreign links, RLS policies, role grants, defaults and composite FKs. |
 | I05 | The same repository and migration tests: insert and deferred commit rollback, unrelated UUID collision, and real SQL CHECK failures. |
 | I06 | `apps/core/src/features/chats/infrastructure/mobile-message-dispatch.integration.test.ts`: tenant-scoped first marker, missing row and failed marker retaining the message. |
 | I07 | `mobile-message-dispatch.integration.test.ts`: new composition/runtime recovers the persisted pending row and stable event after retry. |
 | I08 | `mobile-message-dispatch.integration.test.ts`: real pg-boss provider without subscribers, no retained job, stopped provider failure and restart recovery. |
 | I09 | `mobile-message-dispatch.integration.test.ts`: concurrent registration uses one row and one logical event ID while allowing repeated publish attempts. |
-| I10 | `whatsapp-schema-migration.integration.test.ts`: fresh and historical database replay, preserved Cloud API rows/images, index, schema drift and SQL constraints. `contact-repository.integration.test.ts`: phone-free LID identity and sale exclusion. `chats/infrastructure/chat-persistence.test.mjs` and webhook tests: old ingestion and image states. |
+| I10 | `contact-repository.integration.test.ts`: phone-free LID identity and sale exclusion. `chats/infrastructure/chat-persistence.test.mjs` and webhook tests: old ingestion and image states. |
 | E01 | `apps/core/tests/e2e/mobile-whatsapp-messages.spec.ts`: real authenticated POST returns 201 and tenant row with confirmed marker. |
 | E02 | The same E2E file: ignored-response retry returns 200 with same IDs/date and original content. |
 | E03 | The same E2E file: minimal historical outgoing image returns 201 with nullable metadata and no stored image ID; I01 also checks no Image row. |
