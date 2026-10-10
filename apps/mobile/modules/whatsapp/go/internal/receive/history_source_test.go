@@ -127,9 +127,7 @@ func TestITHIS08InterruptedCaptureLeavesNothingAndIsRedelivered(t *testing.T) {
 	remote := defaultRemote(n)
 	h := newHistoryLife(t, n, bigBuffer, remote)
 	notification := remote.serve(t, "/v/batch", supportedBatch())
-	n.mu.Lock()
-	n.failApply = errBoom
-	n.mu.Unlock()
+	n.set(func() { n.failApply = errBoom })
 	failed, _ := h.capture("notif-1", notification)
 	if failed.err == nil {
 		t.Fatal("the interrupted capture reports its failure and is not acknowledged")
@@ -137,9 +135,7 @@ func TestITHIS08InterruptedCaptureLeavesNothingAndIsRedelivered(t *testing.T) {
 	if n.pendingCount() != 0 {
 		t.Fatal("an interrupted capture publishes nothing")
 	}
-	n.mu.Lock()
-	n.failApply = nil
-	n.mu.Unlock()
+	n.set(func() { n.failApply = nil })
 	next := newHistoryLife(t, n, bigBuffer, remote)
 	grant, _ := next.capture("notif-1", notification)
 	if !grant.ack(t) {
@@ -200,13 +196,9 @@ func TestITHIS08RecoversAfterInterruptionsAtEachStage(t *testing.T) {
 		h := newHistoryLife(t, n, bigBuffer, remote)
 		grant, _ := h.capture("notif-1", remote.serve(t, "/v/batch", supportedBatch()))
 		grant.ack(t)
-		n.mu.Lock()
-		n.failApply = errBoom
-		n.mu.Unlock()
+		n.set(func() { n.failApply = errBoom })
 		_ = h.drain(context.Background())
-		n.mu.Lock()
-		n.failApply = nil
-		n.mu.Unlock()
+		n.set(func() { n.failApply = nil })
 		if messages, captures := n.historyEntries(); messages != 0 || captures != 1 || n.hasRecord("lid-mapping") {
 			t.Fatalf("nothing partial: %d %d", messages, captures)
 		}

@@ -174,3 +174,90 @@ func TestPrepareDeduplicatesAndKeepsChronologicalOrder(t *testing.T) {
 		seen[insert.DeliveryID] = true
 	}
 }
+
+// idsOf lists the WhatsApp IDs of the prepared inserts in order, with whether each carries a timestamp key.
+func idsOf(t *testing.T, inserts []protocolstore.PendingInsert) (ids []string, dated map[string]bool) {
+	t.Helper()
+	dated = map[string]bool{}
+	for _, insert := range inserts {
+		var m struct {
+			WhatsAppID string `json:"whatsappMessageId"`
+			Timestamp  *int64 `json:"timestamp"`
+		}
+		if err := json.Unmarshal(insert.Message, &m); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, m.WhatsAppID)
+		dated[m.WhatsAppID] = m.Timestamp != nil
+	}
+	return ids, dated
+}
+
+// IT-MSG-07 (decision 2026-10-10): one history message with a missing or invalid timestamp has an unknown date;
+// it is prepared and kept with its content like the rest, the batch is neither failed nor split, and nothing is
+// excluded. The unknown date is absent from the message, never 0.
+func TestITMSG07AnInvalidTimestampInHistoryIsAnUnknownDateAndKeepsTheBatch(t *testing.T) {
+	for name, at := range map[string]uint64{"zero": 0, "year 11500": 300000000000, "overflow": 1<<63 + 5} {
+		t.Run(name, func(t *testing.T) {
+			b := batch(conversation("555@lid",
+				text("ok1", "555@lid", 1700000001, "fine"),
+				text("nots", "555@lid", at, "no time"),
+				text("ok2", "555@lid", 1700000003, "also fine")))
+			got, err := Prepare(context.Background(), b, env(t, nil))
+			if err != nil {
+				t.Fatalf("one invalid timestamp must not fail the batch: %v", err)
+			}
+			if got.Excluded != 0 || len(got.Inserts) != 3 {
+				t.Fatalf("excluded=%d inserts=%d, want all three kept", got.Excluded, len(got.Inserts))
+			}
+			_, dated := idsOf(t, got.Inserts)
+			if dated["nots"] || !dated["ok1"] || !dated["ok2"] {
+				t.Fatalf("dates present: %v, want only the invalid one unknown", dated)
+			}
+			for _, insert := range got.Inserts {
+				if insert.IdentityState != "resolved" {
+					t.Fatalf("state %s", insert.IdentityState)
+				}
+			}
+		})
+	}
+}
+
+// An unknown date keeps the protocol position of the message instead of being sorted by its garbage value, and
+// deduplication still goes by chat and message ID, not by date (n1, IT-MSG-07).
+func TestITMSG07UnknownDateKeepsItsProtocolPositionInTheBatchAndDeduplicatesByID(t *testing.T) {
+	b := batch(
+		conversation("555@lid",
+			text("a", "555@lid", 1700000001, "a"),
+			text("u1", "555@lid", 0, "unknown after a"),
+			text("b", "555@lid", 1700000005, "b"),
+			text("u2", "555@lid", 300000000000, "unknown after b"),
+			text("a", "555@lid", 0, "a again with no date")), // same ID: a duplicate, whatever its date
+		conversation("666@lid",
+			text("lead", "666@lid", 0, "leading unknown"),
+			text("c", "666@lid", 1700000003, "c")),
+		conversation("777@lid", text("only", "777@lid", 0, "no known date at all")),
+	)
+	got, err := Prepare(context.Background(), b, env(t, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids, _ := idsOf(t, got.Inserts)
+	// Conversations merge by date; the unknown ones follow their neighbours. The repeated ID is one message.
+	if len(ids) != 7 {
+		t.Fatalf("ids %v, want 7 messages", ids)
+	}
+	pos := map[string]int{}
+	for i, id := range ids {
+		pos[id] = i
+	}
+	if !(pos["a"] < pos["u1"] && pos["u1"] < pos["b"] && pos["b"] < pos["u2"]) {
+		t.Fatalf("unknown dates left their protocol position: %v", ids)
+	}
+	if !(pos["lead"] < pos["c"]) {
+		t.Fatalf("a leading unknown must stay before its known neighbour: %v", ids)
+	}
+	if pos["u1"] != pos["a"]+1 {
+		t.Fatalf("u1 must stay right after a: %v", ids)
+	}
+}

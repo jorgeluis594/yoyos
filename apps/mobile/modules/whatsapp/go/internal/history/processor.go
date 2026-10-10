@@ -111,14 +111,24 @@ func (p *Processor) Run(ctx context.Context) {
 
 // Drain processes the captured notifications of the account oldest first, stopping at the
 // first one that could not finish: it stays captured and is retried by the next trigger.
+// Captures left by another account are retired first (RetireCaptures): they cannot be completed
+// without that account's credentials and would hold the recovery budget for good.
 func (p *Processor) Drain(ctx context.Context) error {
 	p.run.Lock()
 	defer p.run.Unlock()
+	// The purge already read the ledger; the first search reuses that read instead of decoding the
+	// whole snapshot a second time (it is the costly part of every pass).
+	known, err := p.retireForeign()
+	if err != nil {
+		p.fail(err)
+		return err
+	}
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		capture, found, err := p.next()
+		capture, found, err := p.next(known)
+		known = nil
 		if err != nil {
 			p.fail(err)
 			return err
@@ -132,10 +142,26 @@ func (p *Processor) Drain(ctx context.Context) error {
 	}
 }
 
-func (p *Processor) next() (protocolstore.PendingRecord, bool, error) {
-	pending, err := p.ledger.Pending()
-	if err != nil {
-		return protocolstore.PendingRecord{}, false, err
+// retireForeign drops the captures of every account but the current one. Without a known
+// account nothing is retired: a capture is never judged against an unlinked session.
+// It returns the entries that remain (nil when it did not read the ledger).
+func (p *Processor) retireForeign() ([]protocolstore.PendingRecord, error) {
+	current := p.account()
+	if current == "" {
+		return nil, nil
+	}
+	_, remaining, err := retireCaptures(p.ledger, p.capacity, func(account string) bool { return account != current })
+	return remaining, err
+}
+
+// next finds the oldest capture of the account in known, or in a fresh read when known is nil.
+func (p *Processor) next(known []protocolstore.PendingRecord) (protocolstore.PendingRecord, bool, error) {
+	pending := known
+	if pending == nil {
+		var err error
+		if pending, err = p.ledger.Pending(); err != nil {
+			return protocolstore.PendingRecord{}, false, err
+		}
 	}
 	for _, record := range pending {
 		if record.AccountID == p.account() && protocolstore.IsHistoryNotification(record.PendingInsert) {
@@ -339,4 +365,43 @@ func decodeCapture(capture protocolstore.PendingRecord) (*waE2E.HistorySyncNotif
 // carried it: the same remote batch announced again is recognized as already admitted.
 func markerOf(account string, notification *waE2E.HistorySyncNotification) [32]byte {
 	return protocolstore.HistoryMarker(account, notification)
+}
+
+// RetireCaptures retires the captured history notifications whose account is selected and returns
+// how many it removed. It is the only exit for a capture that can no longer be processed: the
+// download needs the account's connection and the batch its store, both gone after a logout or an
+// account change. Entries are matched by their own account, so captures of other accounts and
+// every real message, whatever its account, are never touched. A capture that cannot be retired
+// stays captured and the error is returned; the next pass tries again.
+func RetireCaptures(ledger Ledger, capacity Capacity, selected func(account string) bool) (int, error) {
+	retired, _, err := retireCaptures(ledger, capacity, selected)
+	return retired, err
+}
+
+// retireCaptures also returns the entries that were read and not retired, in ledger order, so a
+// caller that goes on to search them does not read the ledger again. The slice is non-nil.
+func retireCaptures(ledger Ledger, capacity Capacity, selected func(account string) bool) (int, []protocolstore.PendingRecord, error) {
+	pending, err := ledger.Pending()
+	if err != nil {
+		return 0, nil, err
+	}
+	retired := 0
+	remaining := make([]protocolstore.PendingRecord, 0, len(pending))
+	for _, record := range pending {
+		if !protocolstore.IsHistoryNotification(record.PendingInsert) || !selected(record.AccountID) {
+			remaining = append(remaining, record)
+			continue
+		}
+		removed, err := ledger.Retire(record.DeliveryID)
+		if err != nil {
+			return retired, nil, err
+		}
+		if removed {
+			retired++
+		}
+	}
+	if retired > 0 && capacity != nil {
+		capacity.CapacityFreed()
+	}
+	return retired, remaining, nil
 }

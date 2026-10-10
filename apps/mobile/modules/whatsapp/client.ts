@@ -9,9 +9,13 @@ const codeSchema = z.enum(codes);
 const states = z.enum(["disconnected", "connecting", "awaitingQr", "connected", "reconnecting", "sessionExpired"]);
 const messageId = z.string().regex(/^wa-message:v1:[A-Za-z0-9_-]+$/);
 const imageReference = z.object({ messageId, downloadReference: z.string().max(16384).regex(/^wa-image:v1:[A-Za-z0-9_-]+$/) }).strict();
+// Unix milliseconds, or absent/null when WhatsApp's own time was missing or invalid (decision 2026-10-10, IT-MSG-07).
+// Native omits the key; null is accepted and normalized away so the consumer sees only "number or absent". A present
+// value is a real date (> 0): 0 is never an "unknown" marker and would read as 1970.
+const unknownDate = z.number().int().positive().safe().nullish().transform((value) => value ?? undefined);
 const message = z.object({
   id: messageId, accountId: z.string().regex(/^[0-9]+@lid$/), whatsappMessageId: z.string().min(1), chatId: z.string().regex(/^[0-9]+@lid$/),
-  direction: z.enum(["incoming", "outgoing"]), timestamp: z.number().int().nonnegative().safe(), text: z.string().optional(),
+  direction: z.enum(["incoming", "outgoing"]), timestamp: unknownDate, text: z.string().optional(),
   image: z.object({ mimeType: z.string().min(1).optional(), size: z.number().int().nonnegative().optional(), reference: imageReference }).strict().optional(),
 }).strict();
 const eventSchemas = {
@@ -22,7 +26,8 @@ const eventSchemas = {
   error: z.object({ code: codeSchema, message: z.string() }).strict(),
 };
 const optionsSchema = z.object({ maxImageStorageBytes: z.number().int().positive().safe().optional(), maxRecoveryBufferBytes: z.number().int().positive().safe().optional() }).strict();
-const imageSchema = z.object({ uri: z.string().min(1), mimeType: z.string().min(1), size: z.number().int().nonnegative() }).strict();
+// A downloaded image is a private file URI plus its verified MIME and size; never bytes or base64.
+const imageSchema = z.object({ uri: z.string().startsWith("file://").max(4096), mimeType: z.string().regex(/^image\/[A-Za-z0-9.+-]+$/), size: z.number().int().positive().safe() }).strict();
 const success = z.object({ success: z.literal(true), data: z.unknown().optional() }).strict();
 const failure = z.object({ success: z.literal(false), error: z.object({ code: codeSchema, message: z.string().optional() }).strict() }).strict();
 const nativeResult = z.union([success, failure]);
@@ -153,6 +158,7 @@ export function createWhatsAppClient(resolveNative: () => NativeWhatsApp | null 
     if (initializing) return effective === initializingOptions ? initializing : failureResult("INVALID_INPUT");
     if (prepared && effective === activeOptions) return ok(undefined);
     initializingOptions = effective;
+    const wasPrepared = prepared;
     initializing = (async () => {
       const result = await call("initialize", [options], (data) => {
         const parsed = z.object({ state: states, qr: eventSchemas.qr.optional() }).strict().safeParse(data);
@@ -167,6 +173,11 @@ export function createWhatsAppClient(resolveNative: () => NativeWhatsApp | null 
         if (consumer) { consumer.registered = false; void registerConsumer(consumer); }
         return ok(undefined);
       }
+      // INVALID_INPUT from a prepared module is native refusing different options while reception is
+      // requested (or the values themselves): it decides before it stops or publishes anything, so the
+      // running module is untouched and stays usable. Any other failure may have published the options
+      // without an answer, so the next initialize must reach native and reread the published state.
+      if (wasPrepared && result.error.code === "INVALID_INPUT") return result;
       prepared = false;
       activeOptions = "";
       if (result.error.code === "SESSION_STATE_INVALID") {
@@ -182,12 +193,22 @@ export function createWhatsAppClient(resolveNative: () => NativeWhatsApp | null 
     initializingOptions = "";
     return result;
   }
-  async function operation(method: "connect" | "disconnect" | "logout") {
+  /** Simultaneous logouts share one native call and its result; later admissions wait for it. */
+  let loggingOut: Promise<Result<void, WhatsAppError>> | null = null;
+  async function operation(method: "connect" | "disconnect" | "logout"): Promise<Result<void, WhatsAppError>> {
     if (!module()) return failureResult("MODULE_UNAVAILABLE");
+    if (method === "logout" && loggingOut) return loggingOut;
+    if (loggingOut) await loggingOut;
     if (method === "connect" && sessionInvalid) return failureResult("SESSION_STATE_INVALID");
     if (!prepared && !(method !== "connect" && localReady)) return failureResult("NOT_INITIALIZED");
-    const result = await call(method, [], empty);
-    if (method === "logout" && (result.success || result.error.code === "REMOTE_LOGOUT_UNCONFIRMED")) {
+    if (method !== "logout") return call(method, [], empty);
+    loggingOut = logout();
+    try { return await loggingOut; } finally { loggingOut = null; }
+  }
+  /** Unconfirmed remote unlink still retired the local session; any other failure kept it. */
+  async function logout(): Promise<Result<void, WhatsAppError>> {
+    const result = await call("logout", [], empty);
+    if (result.success || result.error.code === "REMOTE_LOGOUT_UNCONFIRMED") {
       prepared = localReady = true;
       sessionInvalid = false;
       receive("connectionChanged", { state: "disconnected" });

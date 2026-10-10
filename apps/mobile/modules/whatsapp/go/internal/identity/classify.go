@@ -67,10 +67,14 @@ func isHistoryNotification(info *types.MessageInfo, message *waE2E.Message) bool
 	return info.IsFromMe && message.GetProtocolMessage().GetHistorySyncNotification() != nil
 }
 
+// classifyEvent applies IT-MSG-07 (decision 2026-10-10): a message whose own timestamp is missing or invalid is
+// still normalized, persisted, delivered and confirmed like any other; its public timestamp is simply absent
+// (unknown), never 0 and never the reception time. It neither stops reception nor affects another message, and a
+// history batch stays whole.
 func classifyEvent(event *events.Message, own, ownAlt types.JID, mappings normalization.VerifiedLIDs) (State, json.RawMessage, error) {
 	result, err := normalization.Normalize(event, own, ownAlt, mappings)
 	switch {
-	case errors.Is(err, normalization.ErrInvalidTimestamp), errors.Is(err, normalization.ErrInvalidIdentity), errors.Is(err, normalization.ErrRawEditInspectionExhausted):
+	case errors.Is(err, normalization.ErrInvalidIdentity), errors.Is(err, normalization.ErrRawEditInspectionExhausted):
 		// Content that cannot be given a valid public identity is never deliverable.
 		return Excluded, nil, nil
 	case err != nil:

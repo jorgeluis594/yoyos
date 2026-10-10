@@ -1019,6 +1019,22 @@ final class StateStoreTests: XCTestCase {
     XCTAssertEqual(options["maxRecoveryBufferBytes"] as? Int, 12 * 1024 * 1024)
   }
 
+  // IT-CFG-07 (Go reads with this bound): reducing the budget never reduces the read bound that is handed
+  // to Go, and it survives a restart, so the snapshot holding the excess stays decodable while it drains.
+  func testRecoveryReadBoundSurvivesReductionAndRestart() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let writer = try makeStore(root)
+    _ = try writer.open()
+    XCTAssertEqual(try writer.recoveryReadBound(), 10 * 1024 * 1024)
+    _ = try writer.updateOptions(maxRecoveryBufferBytes: 12 * 1024 * 1024, maxImageStorageBytes: 60 * 1024 * 1024)
+    XCTAssertEqual(try writer.recoveryReadBound(), 12 * 1024 * 1024)
+    _ = try writer.updateOptions(maxRecoveryBufferBytes: 1024, maxImageStorageBytes: 60 * 1024 * 1024)
+    XCTAssertEqual(((try makeStore(root).open())["options"] as? [String: Any])?["maxRecoveryBufferBytes"] as? Int, 1024)
+    XCTAssertEqual(try writer.recoveryReadBound(), 12 * 1024 * 1024)
+    XCTAssertEqual(try makeStore(root).recoveryReadBound(), 12 * 1024 * 1024)
+  }
+
   private func pendingEntry(_ letter: String, ordinal: Int) -> [String: Any] {
     ["deliveryId": "wa-delivery:v1:" + String(repeating: letter, count: 32), "accountId": "123@lid",
      "createdRevision": "2", "createdOrdinal": ordinal, "source": "live", "identityState": "pendingLid",
@@ -1027,6 +1043,45 @@ final class StateStoreTests: XCTestCase {
 
   private func response(_ text: String) throws -> [String: Any] {
     try XCTUnwrap(JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+  }
+
+  // M1 / IT-CFG-06 / IT-CFG-07: with a reduced budget already exceeded, only insertions are refused;
+  // identity resolution and protocol-only publications still go through so the excess can drain.
+  func testReducedBudgetRefusesOnlyInsertions() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let writer = try makeStore(root)
+    _ = try writer.open()
+    try writer.beginSession(accountId: "123@lid", protocolBytes: Data("{\"protocolSchemaVersion\":1,\"records\":[]}".utf8))
+    let padding = "{\"padding\":\"" + String(repeating: "A", count: 2000) + "\"}"
+    func padded(_ letter: String, _ ordinal: Int) -> [String: Any] {
+      var entry = pendingEntry(letter, ordinal: ordinal)
+      entry["recovery"] = ["messageInfoJson": padding, "items": [[String: Any]]()]
+      return entry
+    }
+    _ = try writer.commit(expectedRevision: "1") { current in
+      var next = current
+      next["pending"] = [padded("a", 0), padded("b", 1)]
+      return next
+    }
+    _ = try writer.updateOptions(maxRecoveryBufferBytes: 1024, maxImageStorageBytes: 50 * 1024 * 1024) // far below the ~4 KB stored
+    try writer.registerGeneration("generation", accountId: "123@lid")
+    let sessionRevision = try XCTUnwrap((writer.open()["session"] as? [String: Any])?["sessionRevision"] as? String)
+    func request(inserts: [[String: Any]], updates: [[String: Any]]) throws -> String {
+      let body: [String: Any] = ["contractVersion": 1, "generationId": "generation", "accountId": "123@lid",
+        "expectedSessionRevision": sessionRevision, "protocolChanges": [[String: Any]](),
+        "pendingInserts": inserts, "pendingIdentityUpdates": updates]
+      return try XCTUnwrap(String(data: JSONSerialization.data(withJSONObject: body), encoding: .utf8))
+    }
+    let insert = try response(writer.applyProtocolChanges(request(inserts: [padded("c", 0)], updates: [])))
+    XCTAssertEqual(insert["success"] as? Bool, false)
+    XCTAssertEqual((insert["error"] as? [String: Any])?["code"] as? String, "BUFFER_FULL")
+    let update: [String: Any] = ["deliveryId": "wa-delivery:v1:" + String(repeating: "a", count: 32), "identityState": "resolved",
+                                 "message": ["id": "wa-message:v1:YQ"]]
+    XCTAssertEqual(try response(writer.applyProtocolChanges(request(inserts: [], updates: [update])))["success"] as? Bool, true)
+    let pending = try XCTUnwrap(try writer.open()["pending"] as? [[String: Any]])
+    XCTAssertEqual(pending.count, 2) // nothing was discarded
+    XCTAssertEqual(pending[0]["identityState"] as? String, "resolved")
   }
 
   // IT-DEL-07 / IT-DEL-08 / IT-DEL-11: durable idempotent retirement, no session key or generation needed.

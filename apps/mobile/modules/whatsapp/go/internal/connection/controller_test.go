@@ -442,3 +442,94 @@ func TestNotifyPublishesIdentityUnavailableWithoutChangingState(t *testing.T) {
 	c.Close()
 	c.Notify(IdentityUnavailable) // after close nothing is delivered and nothing blocks
 }
+
+// WA-12 regression (supports IT-AND-08, does not prove it): a controller that sees a revocation announces
+// it once, does not retry and keeps reporting sessionExpired. The durable intent and the recreation itself
+// live in the native layer and are covered by the Kotlin sources, which were not executed.
+func TestWA12RevokedControllerIsNotRetried(t *testing.T) {
+	transport := newTransport()
+	events := make(chan Event, 16)
+	creates := 0
+	c := New(func() (Transport, error) { creates++; return transport, nil }, func(e Event) { events <- e }, nil)
+	c.Prepare(true)
+	if c.Connect() != "" {
+		t.Fatal("connect rejected")
+	}
+	channel := started(t, transport)
+	receive(t, events)
+	channel <- TransportEvent{Kind: "revoked"}
+	if receive(t, events).State != SessionExpired || receive(t, events).Error != SessionExpiredError {
+		t.Fatal("revocation not announced once")
+	}
+	if c.Connect() != SessionExpiredError || creates != 1 {
+		t.Fatalf("revoked session retried: creates=%d", creates)
+	}
+	select {
+	case extra := <-events:
+		t.Fatalf("unexpected event after revocation: %+v", extra)
+	case <-time.After(20 * time.Millisecond):
+	}
+}
+
+// WA-12 review M1 core: a controller already prepared by initialize() (session open, nothing requested) is
+// connected by the recreated service, and a repeated connect (sticky redelivery) keeps one request, one transport.
+func TestWA12PreparedControllerConnectsOnceWhenRestoreAdoptsIt(t *testing.T) {
+	transport := newTransport()
+	events := make(chan Event, 16)
+	creates := 0
+	c := New(func() (Transport, error) { creates++; return transport, nil }, func(e Event) { events <- e }, nil)
+	c.Prepare(true) // initialize(): session opened, no connection requested
+	if creates != 0 || c.State() != Disconnected {
+		t.Fatal("prepare must not connect")
+	}
+	if c.Connect() != "" || c.Connect() != "" {
+		t.Fatal("restore connect rejected")
+	}
+	started(t, transport)
+	if creates != 1 || receive(t, events).State != Connecting {
+		t.Fatalf("expected one connecting generation, creates=%d", creates)
+	}
+}
+
+// WA-12 N1: `disconnected` alone does not say whether the request ended. RequestActive stays true through a
+// capacity pause (Go resumes it) and is already false when an unpaired attempt really ends.
+func TestWA12RequestActiveDistinguishesPauseFromEnd(t *testing.T) {
+	first := newTransport()
+	events := make(chan Event, 16)
+	c := New(func() (Transport, error) { return first, nil }, func(e Event) { events <- e }, nil)
+	c.Prepare(true)
+	if c.RequestActive() {
+		t.Fatal("nothing requested yet")
+	}
+	c.Connect()
+	started(t, first)
+	receive(t, events)
+	c.PauseForCapacity()
+	if receive(t, events).Error != RecoveryBufferFull || receive(t, events).State != Disconnected {
+		t.Fatal("pause not announced")
+	}
+	if !c.RequestActive() {
+		t.Fatal("a capacity pause ended the request")
+	}
+	c.Disconnect()
+	if c.RequestActive() {
+		t.Fatal("disconnect left the request")
+	}
+
+	unpaired := newTransport()
+	events2 := make(chan Event, 16)
+	u := New(func() (Transport, error) { return unpaired, nil }, func(e Event) { events2 <- e }, nil)
+	u.Prepare(false)
+	u.Connect()
+	channel := started(t, unpaired)
+	receive(t, events2)
+	channel <- TransportEvent{Kind: "networkFailure"}
+	for {
+		if e := receive(t, events2); e.State == Disconnected {
+			break
+		}
+	}
+	if u.RequestActive() {
+		t.Fatal("request still active when disconnected was announced")
+	}
+}

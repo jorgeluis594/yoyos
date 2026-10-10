@@ -129,7 +129,7 @@ func (d *deliverySink) quiet(t *testing.T) {
 func openDelivery(t *testing.T, storage *pendingStorage) (*DeliverySession, *deliverySink) {
 	t.Helper()
 	sink := newDeliverySink()
-	result := OpenDelivery(storage, sink, 10<<20)
+	result := OpenDelivery(storage, sink, 10<<20, 10<<20)
 	if result.Code != "" || result.Session == nil {
 		t.Fatalf("open failed: %+v", result)
 	}

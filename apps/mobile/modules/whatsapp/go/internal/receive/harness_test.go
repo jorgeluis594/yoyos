@@ -37,6 +37,35 @@ type native struct {
 	loseRetire bool                         // publishes the retirement but loses the reply
 	applyGate  func()                       // runs inside ApplyChanges, before publication
 	requests   []protocolstore.ApplyRequest // every publication that was accepted, in order
+	// Native budget rule (NativeStateStore.kt / .swift applyProtocolChanges); zero budget disables it.
+	budget, readBound int64
+}
+
+// nativeBudgetAllows is the rule of the real native stores: a publication that inserts entries
+// must keep the whole pending set within the configured budget; one that inserts nothing
+// (identity resolution, protocol-only) only has to stay within the reliable read bound, so an
+// excess left by a reduced budget can still drain.
+func (n *native) nativeBudgetAllows(a protocolstore.ApplyRequest) bool {
+	if n.budget == 0 {
+		return true
+	}
+	next := append([]protocolstore.PendingRecord{}, n.pending...)
+	for _, p := range a.PendingInserts {
+		next = append(next, protocolstore.PendingRecord{PendingInsert: p})
+	}
+	for _, u := range a.PendingIdentityUpdates {
+		for i := range next {
+			if next[i].DeliveryID == u.DeliveryID {
+				next[i].IdentityState, next[i].Message = u.IdentityState, u.Message
+			}
+		}
+	}
+	raw, _ := json.Marshal(next)
+	limit := max(n.budget, n.readBound)
+	if len(a.PendingInserts) > 0 {
+		limit = n.budget
+	}
+	return int64(len(raw)) <= limit
 }
 
 type eventLog struct {
@@ -107,6 +136,9 @@ func (n *native) ApplyChanges(request string) (string, error) {
 	if n.failIdent != nil && len(a.PendingIdentityUpdates) > 0 {
 		return "", n.failIdent
 	}
+	if !n.nativeBudgetAllows(a) {
+		return rejected("BUFFER_FULL"), nil
+	}
 	for _, c := range a.ProtocolChanges {
 		key := c.RecordType + "\x00" + c.RecordKey
 		if c.Operation == "put" {
@@ -176,6 +208,10 @@ func (n *native) RetirePending(request string) (string, error) {
 	return ok(map[string]any{"revision": fmt.Sprint(n.revision), "removed": removed}), nil
 }
 
+// set changes failure-injection fields under the container lock: the receive goroutines read
+// them while a test arms or disarms a failure.
+func (n *native) set(change func()) { n.mu.Lock(); change(); n.mu.Unlock() }
+
 func (n *native) pendingCount() int { n.mu.Lock(); defer n.mu.Unlock(); return len(n.pending) }
 
 // life is one process life: store, coordinator and receiver over the same container.
@@ -202,14 +238,18 @@ func (l *life) ReplayRecoveredProtocol(context.Context, *types.MessageInfo, stri
 	return nil
 }
 
-func newLife(t *testing.T, n *native, limit int64) *life {
+func newLife(t *testing.T, n *native, limit int64) *life { return newLifeBound(t, n, limit, limit) }
+
+// newLifeBound is a life whose budget is limit while the container's reliable read bound is read:
+// the situation after the budget was reduced below what is stored.
+func newLifeBound(t *testing.T, n *native, read, limit int64) *life {
 	t.Helper()
 	l := &life{t: t, native: n, stops: make(chan delivery.Cause, 8), resumes: make(chan struct{}, 8)}
 	var err error
-	if l.store, err = protocolstore.Open(n, "gen", account, limit, limit); err != nil {
+	if l.store, err = protocolstore.Open(n, "gen", account, read, limit); err != nil {
 		t.Fatal(err)
 	}
-	if l.ledger, err = protocolstore.NewLedger(n, limit); err != nil {
+	if l.ledger, err = protocolstore.NewLedger(n, read, limit); err != nil {
 		t.Fatal(err)
 	}
 	l.coord = delivery.New(l.ledger, limit, delivery.Hooks{
@@ -308,7 +348,18 @@ func (l *life) receive(id, text string) *received {
 // receiveFrom is receive for a chat addressed by the given JID, such as a phone number.
 func (l *life) receiveFrom(id, text string, chat types.JID) *received {
 	l.t.Helper()
-	info := &types.MessageInfo{MessageSource: types.MessageSource{Chat: chat, Sender: chat}, ID: id, Timestamp: time.Unix(1700000000, 0)}
+	return l.receiveFromAt(id, text, chat, time.Unix(1700000000, 0))
+}
+
+// receiveAt is receive for a message stamped with the given time, valid or not.
+func (l *life) receiveAt(id, text string, at time.Time) *received {
+	l.t.Helper()
+	return l.receiveFromAt(id, text, types.JID{User: "555", Server: types.HiddenUserServer}, at)
+}
+
+func (l *life) receiveFromAt(id, text string, chat types.JID, at time.Time) *received {
+	l.t.Helper()
+	info := &types.MessageInfo{MessageSource: types.MessageSource{Chat: chat, Sender: chat}, ID: id, Timestamp: at}
 	node := &waBinary.Node{Content: []waBinary.Node{{Tag: "enc", Attrs: waBinary.Attrs{"v": "2", "type": "msg"}, Content: []byte("cipher-" + id)}}}
 	plain, err := proto.Marshal(&waE2E.Message{Conversation: proto.String(text)})
 	if err != nil {

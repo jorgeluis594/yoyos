@@ -83,7 +83,7 @@ func TestITDEL07And08RetireIdempotentAndLostReplyRepeatable(t *testing.T) {
 	seed(n, 1, account, "5", 0, "resolved", 1)
 	seed(n, 2, account, "5", 1, "resolved", 1)
 	l := newLife(t, n, 1<<20)
-	n.loseRetire = true
+	n.set(func() { n.loseRetire = true })
 	if err := l.coord.Confirm(did(1)); err == nil {
 		t.Fatal("a lost reply must surface as an error")
 	}
@@ -102,11 +102,11 @@ func TestITDEL07And08RetireIdempotentAndLostReplyRepeatable(t *testing.T) {
 	if err := l.coord.Confirm("wa-delivery:v1:zz"); err == nil {
 		t.Fatal("malformed ID accepted")
 	}
-	n.failRetire = errBoom
+	n.set(func() { n.failRetire = errBoom })
 	if err := l.coord.Confirm(did(2)); err == nil || n.pendingCount() != 1 {
 		t.Fatal("a failed write was reported as success or removed content")
 	}
-	n.failRetire, n.failRead = nil, errBoom
+	n.set(func() { n.failRetire, n.failRead = nil, errBoom })
 	if _, err := l.ledger.Retire(did(2)); err != nil { // retirement does not read the list
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestITDEL09ConfirmsForeignAccountWithoutCredentials(t *testing.T) {
 	n := newNative()
 	seed(n, 1, "999@lid", "5", 0, "resolved", 1)
 	seed(n, 2, "999@lid", "5", 1, "resolved", 1)
-	ledger, err := protocolstore.NewLedger(n, 1<<20)
+	ledger, err := protocolstore.NewLedger(n, 1<<20, 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestITDEL11RecoversWithoutSessionOrNetwork(t *testing.T) {
 	if _, err := protocolstore.Open(n, "gen", account, 1<<20, 1<<20); err == nil {
 		t.Fatal("expected an exclusive session failure")
 	}
-	ledger, err := protocolstore.NewLedger(n, 1<<20)
+	ledger, err := protocolstore.NewLedger(n, 1<<20, 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +206,9 @@ func TestUnresolvedIdentityNeverGrantsAck(t *testing.T) {
 	l.coord.Start()
 	// A PN-addressed chat with no verified LID mapping is unresolved.
 	seed(n, 1, account, "1", 0, "pendingLid", 0)
-	n.pending[0].Recovery.MessageInfoJSON = `{"version":1,"accountId":"123@lid","id":"u1","chat":"777@s.whatsapp.net","sender":"777@s.whatsapp.net","timestampSeconds":100}`
+	n.set(func() { // the coordinator is already running: write under the container lock (PR #49 n1)
+		n.pending[0].Recovery.MessageInfoJSON = `{"version":1,"accountId":"123@lid","id":"u1","chat":"777@s.whatsapp.net","sender":"777@s.whatsapp.net","timestampSeconds":100}`
+	})
 	if _, found, err := l.recv.find(infoFor("u1", "777@s.whatsapp.net")); err != nil || !found {
 		t.Fatalf("lookup %v %v", found, err)
 	}
@@ -219,7 +221,7 @@ func TestHandleReadFailureIsReportedAsStorageFailure(t *testing.T) {
 	l := newLife(t, n, 1<<20)
 	failures := make(chan error, 1)
 	l.recv.hooks.LocalFailure = func(err error) { failures <- err }
-	n.failRead = errBoom
+	n.set(func() { n.failRead = errBoom })
 	info := infoFor("m1", "555@lid")
 	if l.recv.Handle(t.Context(), &events.Message{Info: info}) {
 		t.Fatal("ACK permitted although the ledger could not be read")
