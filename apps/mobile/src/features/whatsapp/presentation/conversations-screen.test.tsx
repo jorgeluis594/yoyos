@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react-native";
+import { cleanup, fireEvent, render } from "@testing-library/react-native";
 import { ok } from "@shared/functional";
 import ConversationsScreen from "@mobile/features/whatsapp/presentation/conversations-screen";
 import i18n from "@mobile/i18n";
