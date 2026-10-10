@@ -43,6 +43,8 @@ export default function CreateProductScreen() {
   }, [discardVersion]);
 
   if (state.status !== "ready") return null;
+  // The form opens above the tabs; going back returns to wherever it was opened from.
+  const close = () => router.canGoBack() ? router.back() : router.replace("/products");
   const setValue = (field: keyof ProductFormValues, value: string) => {
     setValues((current) => ({ ...current, [field]: value }));
     setErrors((current) => ({ ...current, [field]: undefined, form: undefined }));
@@ -87,7 +89,7 @@ export default function CreateProductScreen() {
       photoBusy={photoBusy}
       onPhotoBusy={setPhotoBusy}
       onSave={() => void save()}
-      onClose={() => router.replace("/products")}
+      onClose={close}
       onReviewCatalog={() => { setDirty(false); router.replace("/products"); }}
       saving={saving}
       conflict={conflict}

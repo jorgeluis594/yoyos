@@ -33,8 +33,6 @@ export default function AppTabs() {
 
   return (
     <NativeTabs
-      // Product create and edit forms own the full screen, with close and save in their top bar.
-      hidden={pathname.startsWith('/products/')}
       backgroundColor={colors.background}
       tintColor={colors.primary}
       iconColor={{ default: colors.textSecondary, selected: colors.primary }}

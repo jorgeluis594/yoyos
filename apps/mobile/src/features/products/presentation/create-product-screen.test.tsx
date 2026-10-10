@@ -8,7 +8,7 @@ const mockCreate = jest.fn();
 const mockStartAttempt = jest.fn();
 const productId = "00000000-0000-4000-8000-000000000001";
 
-jest.mock("expo-router", () => ({ useRouter: () => ({ replace: mockReplace }) }));
+jest.mock("expo-router", () => ({ useRouter: () => ({ replace: mockReplace, canGoBack: () => false, back: jest.fn() }) }));
 jest.mock("expo-crypto", () => ({ randomUUID: () => productId }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({

@@ -122,7 +122,8 @@ export default function ProductManagementScreen() {
   }, [productId, reloadKey, requestKey]);
 
   if (state.status !== "ready") return null;
-  const close = () => router.replace("/products");
+  // The form opens above the tabs; going back returns to wherever it was opened from.
+  const close = () => router.canGoBack() ? router.back() : router.replace("/products");
   if (loading) return <ThemedView style={styles.page}><SafeAreaView style={styles.safe}>
     <ProductTopBar title={t('editProduct')} onClose={close} />
     <ScreenState status="loading" title={t('loadingProduct')} />
