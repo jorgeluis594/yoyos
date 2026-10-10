@@ -26,18 +26,21 @@ type Limits struct {
 	MaxPushNames     int
 	// MaxRecordBytes bounds one conversation message record on the wire.
 	MaxRecordBytes int
+	// MaxElements bounds every field occurrence of everything that will be parsed, whatever its kind.
+	MaxElements int
 }
 
 func DefaultLimits() Limits {
 	return Limits{
 		MaxInput:         16 << 20,
 		MaxInflated:      32 << 20,
-		MaxDepth:         16,
+		MaxDepth:         32,
 		MaxConversations: 2048,
 		MaxMessages:      20000,
 		MaxMappings:      20000,
 		MaxPushNames:     20000,
 		MaxRecordBytes:   1 << 20,
+		MaxElements:      1_500_000,
 	}
 }
 

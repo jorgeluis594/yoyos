@@ -214,6 +214,12 @@ func (s *Store) DeleteOldBufferedHashes(ctx context.Context) error {
 	}
 	protected := map[string]bool{}
 	for _, pending := range s.pending {
+		if IsHistoryNotification(pending.PendingInsert) {
+			// A captured notification may still need its batch marker to avoid a second admission:
+			// nothing is purged while one waits to be released.
+			s.mu.Unlock()
+			return nil
+		}
 		for _, item := range pending.Recovery.Items {
 			if item.CiphertextHashBase64 != "" {
 				protected[item.CiphertextHashBase64] = true

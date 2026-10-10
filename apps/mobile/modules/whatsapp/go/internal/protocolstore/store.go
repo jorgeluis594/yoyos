@@ -687,16 +687,7 @@ func (s *Store) commit(t *txn) error {
 		s.stopped = storageError(err)
 		return s.stopped
 	}
-	request := ApplyRequest{1, s.generationID, s.accountID, strconv.FormatUint(s.sessionRevision, 10), t.changes, t.pending, t.updates}
-	if request.ProtocolChanges == nil {
-		request.ProtocolChanges = []Change{}
-	}
-	if request.PendingInserts == nil {
-		request.PendingInserts = []PendingInsert{}
-	}
-	if request.PendingIdentityUpdates == nil {
-		request.PendingIdentityUpdates = []PendingIdentityUpdate{}
-	}
+	request := s.applyRequest(t)
 	body, err := json.Marshal(request)
 	if err != nil {
 		return err
@@ -759,6 +750,22 @@ func (s *Store) commit(t *txn) error {
 	}
 	return nil
 }
+
+// applyRequest is the binding payload of a staged transaction.
+func (s *Store) applyRequest(t *txn) ApplyRequest {
+	request := ApplyRequest{1, s.generationID, s.accountID, strconv.FormatUint(s.sessionRevision, 10), t.changes, t.pending, t.updates}
+	if request.ProtocolChanges == nil {
+		request.ProtocolChanges = []Change{}
+	}
+	if request.PendingInserts == nil {
+		request.PendingInserts = []PendingInsert{}
+	}
+	if request.PendingIdentityUpdates == nil {
+		request.PendingIdentityUpdates = []PendingIdentityUpdate{}
+	}
+	return request
+}
+
 func (s *Store) get(ctx context.Context, recordType string, parts ...string) (any, bool, error) {
 	key, err := protocolstate.EncodeKey(recordType, parts...)
 	if err != nil {

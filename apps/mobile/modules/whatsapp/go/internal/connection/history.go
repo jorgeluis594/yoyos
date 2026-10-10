@@ -48,7 +48,14 @@ func (h *whatsmeowHistory) Parse(chat types.JID, web *waWeb.WebMessageInfo) (*ev
 	return h.client.ParseWebMessage(chat, web)
 }
 func (h *whatsmeowHistory) Stage(ctx context.Context, batch *waHistorySync.HistorySync) error {
-	return h.client.StageHistorySync(ctx, batch)
+	// The dependency records the companion nonce in memory before saving it; a refused batch
+	// must not leave a nonce that was never made durable.
+	nonce := h.client.Store.CompanionMetaNonce
+	err := h.client.StageHistorySync(ctx, batch)
+	if err != nil {
+		h.client.Store.CompanionMetaNonce = nonce
+	}
+	return err
 }
 func (h *whatsmeowHistory) Receipt(ctx context.Context, id types.MessageID) error {
 	return h.client.SendProtocolMessageReceipt(ctx, id, types.ReceiptTypeHistorySync)

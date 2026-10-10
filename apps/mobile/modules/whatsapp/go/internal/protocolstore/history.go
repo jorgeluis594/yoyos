@@ -62,6 +62,14 @@ func (s *Store) captureHistoryNotification(ctx context.Context, captured Capture
 // ErrHistoryAdmitted reports that the batch was already published: nothing is written again.
 var ErrHistoryAdmitted = errors.New("history batch already admitted")
 
+// ErrHistoryContent wraps a refusal caused by the content of a batch: staging its protocol effects
+// failed deterministically (an oversize key, an incomplete secret…). Staging runs on a disposable
+// transaction, so nothing was published and the store is left untouched and usable.
+var ErrHistoryContent = errors.New("history batch content refused by the store")
+
+// ErrHistoryTooLarge wraps a batch whose effects would exceed the session or binding limits.
+var ErrHistoryTooLarge = errors.New("history batch exceeds the session storage limits")
+
 // HistoryBatch is everything one history sync publishes together.
 type HistoryBatch struct {
 	// Marker identifies the notification's batch; it is committed with the batch so that
@@ -119,8 +127,12 @@ func (s *Store) AdmitHistoryBatch(ctx context.Context, batch HistoryBatch) error
 	tctx := context.WithValue(ctx, txnKey{}, t)
 	if batch.Stage != nil {
 		if err := batch.Stage(tctx); err != nil {
-			s.stopped = storageError(err)
-			return s.stopped
+			// The transaction is disposable and Stage only stages in memory, so a failure is a
+			// verdict on the batch (or the end of the context), never a storage fault.
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return ctxErr
+			}
+			return errors.Join(ErrHistoryContent, err)
 		}
 	}
 	for _, insert := range batch.Inserts {
@@ -129,8 +141,10 @@ func (s *Store) AdmitHistoryBatch(ctx context.Context, batch HistoryBatch) error
 		t.pending = append(t.pending, insert)
 	}
 	if err := t.put("retry-hash", protocolstate.RetryHash{Version: 1, InsertTimeMS: time.Now().UnixMilli(), ServerTimeSeconds: time.Now().Unix()}, marker); err != nil {
-		s.stopped = storageError(err)
-		return s.stopped
+		return errors.Join(ErrHistoryContent, err)
+	}
+	if err := s.checkCommitLimits(t); err != nil {
+		return err
 	}
 	t.active = false
 	return s.commit(t)
@@ -178,6 +192,32 @@ func (s *Store) historyCapacityLocked(batch HistoryBatch) error {
 	}
 	if Decide(s.newRecoveryBytes, used, sizes...) != Admit {
 		return &Error{Code: BufferFull, Message: "recovery buffer is full", Needed: total}
+	}
+	return nil
+}
+
+// checkCommitLimits refuses, without latching the store, the batches whose staged state commit
+// would stop the generation for: a session over its record limit or a payload over the binding limit.
+func (s *Store) checkCommitLimits(t *txn) error {
+	records := make([]protocolstate.Record, 0, len(t.records))
+	for _, r := range t.records {
+		records = append(records, r)
+	}
+	if _, err := protocolstate.Encode(records); err != nil {
+		if errors.Is(err, protocolstate.ErrSessionTooLarge) {
+			return errors.Join(ErrHistoryTooLarge, err)
+		}
+		return errors.Join(ErrHistoryContent, err)
+	}
+	if err := validatePrekeyRecords(t.records); err != nil {
+		return errors.Join(ErrHistoryContent, err)
+	}
+	body, err := json.Marshal(s.applyRequest(t))
+	if err != nil {
+		return errors.Join(ErrHistoryContent, err)
+	}
+	if uint64(len(body)) > payloadLimit(s.newRecoveryBytes) {
+		return errors.Join(ErrHistoryTooLarge, errors.New("binding payload too large"))
 	}
 	return nil
 }

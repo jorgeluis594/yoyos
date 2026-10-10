@@ -15,7 +15,7 @@ import (
 
 func tight() Limits {
 	l := DefaultLimits()
-	l.MaxConversations, l.MaxMessages, l.MaxMappings, l.MaxPushNames, l.MaxRecordBytes, l.MaxDepth = 3, 5, 2, 2, 512, 8
+	l.MaxConversations, l.MaxMessages, l.MaxMappings, l.MaxPushNames, l.MaxRecordBytes, l.MaxDepth, l.MaxElements = 3, 5, 2, 2, 512, 8, 100000
 	return l
 }
 
@@ -27,8 +27,8 @@ func messages(n int) []*waHistorySync.HistorySyncMsg {
 	return out
 }
 
-// nested wraps a text message in n ephemeral layers.
-func nested(n int) *waE2E.Message {
+// deepMessage wraps a text message in n ephemeral layers.
+func deepMessage(n int) *waE2E.Message {
 	message := &waE2E.Message{Conversation: proto.String("deep")}
 	for i := 0; i < n; i++ {
 		message = &waE2E.Message{EphemeralMessage: &waE2E.FutureProofMessage{Message: message}}
@@ -96,7 +96,7 @@ func TestDecodeBoundsRecordsDepthAndSizes(t *testing.T) {
 	t.Run("depth", func(t *testing.T) {
 		build := func(depth int) []byte {
 			m := text("d", "1@lid", 1700000000, "")
-			m.Message.Message = nested(depth)
+			m.Message.Message = deepMessage(depth)
 			return wire(t, batch(conversation("1@lid", m)))
 		}
 		// HistorySync > Conversation > HistorySyncMsg > WebMessageInfo > Message = 5 levels; each wrapper adds 2

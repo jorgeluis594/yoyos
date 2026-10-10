@@ -207,6 +207,10 @@ func (p *Processor) admit(ctx context.Context, capture protocolstore.PendingReco
 			if err := p.capacity.AwaitCapacity(ctx, typed.Needed); err != nil {
 				return false, err
 			}
+		case errors.Is(err, protocolstore.ErrHistoryTooLarge):
+			return true, p.reject(capture, CodeLimit)
+		case errors.Is(err, protocolstore.ErrHistoryContent):
+			return true, p.reject(capture, CodeInvalid)
 		case isCancel(err):
 			return false, err
 		default:

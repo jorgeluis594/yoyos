@@ -3,6 +3,7 @@ package receive
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -389,5 +390,72 @@ func TestITHIS01EveryProtocolEffectPublishesWithTheBatch(t *testing.T) {
 	}
 	if !pushKinds["contact"] || !pushKinds["retry-hash"] {
 		t.Fatalf("a push-name batch publishes its contacts with its marker: %v", pushKinds)
+	}
+}
+
+// hostileStageBatch is valid for Prepare — the group is out of scope — but staging its message
+// secret fails in the store: the key exceeds the record key limit.
+func hostileStageBatch() *waHistorySync.HistorySync {
+	group := textMessage(strings.Repeat("g", 3000), "99-1@g.us", 1700000004, "group")
+	group.Message.Key.FromMe = proto.Bool(true)
+	group.Message.MessageSecret = make([]byte, 32)
+	phone := "34600@s.whatsapp.net"
+	b := batchOf(conversationOf(phone, textMessage("a1", phone, 1700000001, "fine")), conversationOf("99-1@g.us", group))
+	b.PhoneNumberToLidMappings = []*waHistorySync.PhoneNumberToLIDMapping{lidMapping(phone, "600@lid")}
+	return b
+}
+
+// IT-HIS-02: content the store refuses while staging rejects that batch cleanly and durably: the
+// capture is released, the store is not latched, live reception is not stopped, and a restart does not repeat it.
+func TestITHIS02AContentRefusedWhileStagingRejectsTheBatchCleanly(t *testing.T) {
+	n := newNative()
+	remote := defaultRemote(n)
+	h := newHistoryLife(t, n, bigBuffer, remote)
+	app := h.subscribe("c1")
+	grant, _ := h.capture("notif-1", remote.serve(t, "/v/hostile", hostileStageBatch()))
+	grant.ack(t)
+
+	if err := h.drain(context.Background()); err != nil {
+		t.Fatalf("a rejected batch is not a failed pass: %v", err)
+	}
+	select {
+	case code := <-h.rejected:
+		if code != history.CodeInvalid {
+			t.Fatalf("want an invalid-batch rejection, got %s", code)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("the rejection is reported")
+	}
+	select {
+	case err := <-h.failures:
+		t.Fatalf("a rejected batch must not stop live reception: %v", err)
+	default:
+	}
+	if reason := h.store.StopReason(); reason != nil {
+		t.Fatalf("the store must not be latched: %v", reason)
+	}
+	if messages, captures := n.historyEntries(); messages != 0 || captures != 0 || n.hasRecord("lid-mapping") || n.hasRecord("message-secret") {
+		t.Fatalf("nothing of the batch survives and the capture is released: %d %d", messages, captures)
+	}
+	if _, _, _, receipts, deletes := remote.counts(); receipts != 0 || deletes != 0 {
+		t.Fatalf("the remote batch is left alone: %d %d", receipts, deletes)
+	}
+	// live reception still works in the same store
+	live := h.receive("live-after", "still here")
+	d := app.take(t)
+	if err := h.coord.Confirm(d.ID); err != nil || !live.ack(t) {
+		t.Fatalf("live content after the rejection: %v", err)
+	}
+	// and a restart does not repeat the failure
+	fetches, _, _, _, _ := remote.counts()
+	next := newHistoryLife(t, n, bigBuffer, remote)
+	next.mustDrain()
+	if after, _, _, _, _ := remote.counts(); after != fetches {
+		t.Fatalf("the rejected batch is not processed again: %d -> %d", fetches, after)
+	}
+	select {
+	case err := <-next.failures:
+		t.Fatalf("the next life must not fail: %v", err)
+	default:
 	}
 }

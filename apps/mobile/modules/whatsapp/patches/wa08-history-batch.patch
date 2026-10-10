@@ -1,8 +1,16 @@
 diff --git a/download.go b/download.go
-index 0f29f62..4653100 100644
+index 0f29f62..adbf35a 100644
 --- a/download.go
 +++ b/download.go
-@@ -389,9 +389,23 @@ func (cli *Client) downloadMedia(ctx context.Context, url string) ([]byte, error
+@@ -278,6 +278,7 @@ func (cli *Client) DownloadMediaWithPath(
+ 		data, err = cli.downloadAndDecrypt(ctx, mediaURL, mediaKey, mediaType, encFileHash, fileHash)
+ 		if err == nil ||
+ 			errors.Is(err, ErrInvalidMediaSHA256) ||
++			errors.Is(err, ErrMediaDownloadLimit) ||
+ 			errors.Is(err, ErrMediaDownloadFailedWith403) ||
+ 			errors.Is(err, ErrMediaDownloadFailedWith404) ||
+ 			errors.Is(err, ErrMediaDownloadFailedWith410) ||
+@@ -389,9 +390,23 @@ func (cli *Client) downloadMedia(ctx context.Context, url string) ([]byte, error
  	if err != nil {
  		return nil, err
  	}
@@ -142,21 +150,24 @@ index 9ca532f..d4b9902 100644
  			return nil, err
 diff --git a/wa08_history_test.go b/wa08_history_test.go
 new file mode 100644
-index 0000000..1783a45
+index 0000000..161938d
 --- /dev/null
 +++ b/wa08_history_test.go
-@@ -0,0 +1,118 @@
+@@ -0,0 +1,144 @@
 +package whatsmeow
 +
 +import (
 +	"bytes"
 +	"context"
++	"crypto/tls"
++	"crypto/x509"
 +	"errors"
 +	"fmt"
 +	"net/http"
 +	"net/http/httptest"
 +	"strings"
 +	"sync"
++	"sync/atomic"
 +	"testing"
 +	"time"
 +
@@ -262,5 +273,28 @@ index 0000000..1783a45
 +	}
 +	if queued, receipts := run(true, true); queued || receipts != 0 {
 +		t.Fatalf("flagged: the dependency neither queues the download nor sends the receipt (%v, %d)", queued, receipts)
++	}
++}
++
++// TestDownloadLimitDoesNotTryTheNextHost: exceeding the byte limit is a verdict on the batch, not on a host,
++// so the other hosts are not asked for up to the limit again.
++func TestDownloadLimitDoesNotTryTheNextHost(t *testing.T) {
++	var hits atomic.Int32
++	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
++		hits.Add(1)
++		w.Write(bytes.Repeat([]byte{7}, 1000))
++	})
++	first, second := httptest.NewTLSServer(handler), httptest.NewTLSServer(handler)
++	defer first.Close()
++	defer second.Close()
++	pool := x509.NewCertPool()
++	pool.AddCert(first.Certificate())
++	pool.AddCert(second.Certificate())
++	cli := &Client{Log: waLog.Noop, mediaHTTP: &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool}}}}
++	cli.mediaConnCache = &MediaConn{TTL: 3600, FetchedAt: time.Now(), Hosts: []MediaConnHost{
++		{Hostname: strings.TrimPrefix(first.URL, "https://")}, {Hostname: strings.TrimPrefix(second.URL, "https://")}}}
++	_, err := cli.DownloadMediaWithPath(WithMediaDownloadLimit(context.Background(), 999), "/v/t", nil, nil, nil, MediaHistory, "md-msg-hist", true)
++	if !errors.Is(err, ErrMediaDownloadLimit) || hits.Load() != 1 {
++		t.Fatalf("one host is asked once: %v, %d requests", err, hits.Load())
 +	}
 +}

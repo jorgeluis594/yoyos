@@ -68,14 +68,14 @@ A history sync is announced by an encrypted notification from the account's own 
 1. *Capture.* In the decryption transaction, the notification plaintext is committed with the Signal state that consumed its ciphertext, as a pending entry that nobody delivers (`source: history`, `pendingLid`, no `message`, `messageType: history-notification`; `protocolstore.IsHistoryNotification`). It reuses the pending contract, so native storage needs no new kind. It costs no identity reserve.
 2. *Notification ACK.* The handler grants it as soon as the capture is durable (`receive.Handle`); it does not wait for the batch or for the consumer. The capture is now the recoverable source, and the remote batch has not been touched.
 3. *Download and inflate*, one batch at a time (`history.Processor`, serialized): input is cut at 16 MiB **while it is received** (`whatsmeow.WithMediaDownloadLimit`, declared sizes only shorten the wait), inline payloads count against the same limit, inflation is cut at 32 MiB **while it is produced**, before any parser.
-4. *Decode* (`history.Decode`): counts and record sizes are checked on the wire without building objects, unread top-level fields (status messages, call logs, …) are dropped before parsing, and nesting is limited by the parser.
+4. *Decode* (`history.Decode`): counts, record sizes, total elements and depth are checked on the wire by walking the schema, without building objects. Fields the admission never reads (status messages, call logs, and everything in a conversation but its ID, messages and privacy token, such as group participants) are neither counted nor parsed.
 5. *Prepare* (`history.Prepare`, no writes): the batch's PN→LID mappings are processed first and are what dependent messages are normalized with (`identity.ClassifyWeb`, the same rules as live content). Out-of-scope content is excluded; a supported message that cannot be normalized, an unreadable store or a mapping the store would refuse fails the whole batch. Preparation stops as soon as the entries exceed the recovery budget.
 6. *Admission* (`protocolstore.AdmitHistoryBatch`): the protocol changes (`client.StageHistorySync`: mappings, secrets, salt, settings), every pending insert and a batch marker are one native commit or none. If the batch fits the budget only after confirmations it waits (`delivery.Coordinator.AwaitCapacity`) holding no store or writer lock and ending with the connection generation; if it cannot fit beside its own capture entry it is refused as `RECOVERY_BUFFER_FULL` without a retry.
 7. *Release.* Only after the commit: the `hist_sync` receipt, then the remote deletion (best effort), then the capture's retirement. A failed receipt keeps the capture; the marker makes the retry skip the admission, so nothing is published twice.
 
 `ManualHistorySyncDownload` and `DisableManualHistorySyncReceipt` only switch the dependency's automatic path off. The patch test `TestManualHistoryFlagsLeaveTheReceiptAndTheDownloadToTheCaller` checks, with controls, that the dependency neither queues the download nor sends the receipt; the order above is what protects the batch.
 
-**Refusals** never stop live reception: the notification was acknowledged once it was durable and the capture is retired, so nothing retries it. They are reported as `error` events: `HISTORY_LIMIT_REACHED` (input, inflated size, depth, counts or a record over its bound), `RECOVERY_BUFFER_FULL` (the batch exceeds the buffer), and `NATIVE_CALL_FAILED` (invalid or permanently unavailable batch). Storage failures stop the generation as for live messages and leave the capture. Rejected batches are not recoverable from the server by this version.
+**Refusals** never stop live reception: the notification was acknowledged once it was durable and the capture is retired, so nothing retries it. They are reported as `error` events: `HISTORY_LIMIT_REACHED` (input, inflated size, depth, counts or a record over its bound), `RECOVERY_BUFFER_FULL` (the batch exceeds the buffer), and `NATIVE_CALL_FAILED` (invalid or permanently unavailable batch). Content that the store refuses while staging the batch's protocol effects (an oversize key, an incomplete secret) or that would exceed the session/binding limits is also a rejection: staging runs on a disposable transaction, so the store is not latched, live reception is not stopped, the capture is released and nothing repeats after a restart. Real storage failures stop the generation as for live messages and leave the capture. While a capture waits, batch markers are not purged by the 14-day retention. A capture of a previous account has no release path here; WA-09 owns that. Rejected batches are not recoverable from the server by this version.
 
 **Limits** (`history.DefaultLimits`; internal v1 constants, not WhatsApp limits and not configurable by environment):
 
@@ -83,11 +83,12 @@ A history sync is announced by an encrypted notification from the account's own 
 | --- | --- | --- |
 | Input (downloaded or inline) | 16 MiB | contract |
 | Inflated protobuf | 32 MiB | contract |
-| Nesting depth | 16 | a text or image message needs 5 levels and each wrapper adds 2, so 16 admits up to 5 wrappers; the parser refuses deeper input (not checked against real history) |
+| Nesting depth | 32 | a text or image message needs 5 levels and each wrapper adds 2, so 32 admits up to 13 wrappers; checked on the wire by walking the schema before the parser runs (real history was not checked) |
+| Elements | 1 500 000 | every field occurrence that will be parsed, at any depth and of any kind; this is what stops amplification through repeated fields nobody counts (a measured 31 MiB bomb of group participants used to build 6.5 M objects) |
 | Conversations | 2048 | checked on the wire |
 | Messages (all conversations) | 20000 | each parsed message costs about 2–8 KiB of heap, so this bound, not the byte limit, governs the parser's peak for small messages; the default 10 MiB buffer holds fewer than 15000 entries |
 | Mappings / push names | 20000 each | checked on the wire |
-| One message record | 1 MiB | checked on the wire |
+| One message record | 1 MiB | exact payload length, checked on the wire |
 
 The recovery budget is separate: a batch inside 16 MiB / 32 MiB can still be refused by a 10 MiB buffer, and raising the buffer changes none of the history limits.
 

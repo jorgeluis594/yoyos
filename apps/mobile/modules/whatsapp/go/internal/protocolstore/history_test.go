@@ -12,6 +12,7 @@ import (
 	waBinary "go.mau.fi/whatsmeow/binary"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
+	"yoyos-whatsapp/internal/protocolstate"
 )
 
 func historyInsert(n int, body string) PendingInsert {
@@ -258,4 +259,36 @@ func TestCheckLIDMappingsRefusesWhatPutWouldRefuse(t *testing.T) {
 	inBatch := []store.LIDMapping{{LID: lid("5"), PN: pn("50")}, {LID: lid("5"), PN: pn("51")}}
 	codeIs(t, s.CheckLIDMappings(context.Background(), inBatch), InvalidRequest)
 	codeIs(t, s.PutManyLIDMappings(context.Background(), conflict), InvalidRequest)
+}
+
+// A batch marker must outlive the usual retry-hash retention while its capture waits to be released.
+func TestMarkersAreNotPurgedWhileACaptureWaits(t *testing.T) {
+	native := &controlledStorage{}
+	s := openTest(t, native)
+	old := time.Now().Add(-30 * 24 * time.Hour).UnixMilli()
+	if err := s.put(context.Background(), "retry-hash", protocolstate.RetryHash{Version: 1, InsertTimeMS: old, ServerTimeSeconds: 1}, "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="); err != nil {
+		t.Fatal(err)
+	}
+	ordinal := uint32(0)
+	native.mu.Lock()
+	native.pending = []PendingRecord{{PendingInsert: captureInsert(1), CreatedRevision: "1", CreatedOrdinal: &ordinal}}
+	native.mu.Unlock()
+	reopened := openTest(t, native)
+	if err := reopened.DeleteOldBufferedHashes(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(scanMap(reopened.records, "retry-hash")); got != 1 {
+		t.Fatalf("the old marker must survive while a capture waits: %d", got)
+	}
+	native.mu.Lock()
+	native.pending = nil
+	native.revision++
+	native.mu.Unlock()
+	released := openTest(t, native)
+	if err := released.DeleteOldBufferedHashes(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(scanMap(released.records, "retry-hash")); got != 0 {
+		t.Fatalf("with nothing waiting the usual retention applies: %d", got)
+	}
 }
