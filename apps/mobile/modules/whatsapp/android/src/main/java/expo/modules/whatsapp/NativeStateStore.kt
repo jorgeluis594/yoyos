@@ -546,8 +546,9 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     val bytes = Base64.decode(key, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
     if (Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING) != key) throw StateFailure("INVALID_REQUEST")
     StrictJson.check(bytes.toString(Charsets.UTF_8))
+    // Canonical layout is checked on the raw text: re-serializing with org.json escapes differently from Go.
     val tuple = JSONArray(bytes.toString(Charsets.UTF_8))
-    if (tuple.length() != arity || (0 until arity).any { tuple.get(it) !is String || tuple.getString(it).isEmpty() || tuple.getString(it).length > 512 } || tuple.toString() != bytes.toString(Charsets.UTF_8)) throw StateFailure("INVALID_REQUEST")
+    if (tuple.length() != arity || (0 until arity).any { tuple.get(it) !is String || tuple.getString(it).isEmpty() || tuple.getString(it).length > 512 } || !StrictJson.isCompactArray(bytes.toString(Charsets.UTF_8))) throw StateFailure("INVALID_REQUEST")
     val parts = (0 until arity).map { tuple.getString(it) }
     fun decimal(text: String, max: Long, allowZero: Boolean): Boolean =
       Regex(if (allowZero) "0|[1-9][0-9]*" else "[1-9][0-9]*").matches(text) && (text.toLongOrNull()?.let { it <= max } == true)

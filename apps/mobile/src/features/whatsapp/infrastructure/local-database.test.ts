@@ -7,7 +7,7 @@ jest.mock("expo-crypto", () => ({ getRandomBytesAsync: jest.fn() }));
 jest.mock("expo-secure-store", () => ({ getItemAsync: jest.fn(), setItemAsync: jest.fn() }));
 jest.mock("expo-sqlite", () => ({ openDatabaseAsync: jest.fn() }));
 
-test("opens an encrypted WhatsApp database before creating durable auth and outbox tables", async () => {
+test("opens an encrypted WhatsApp database before creating the durable links and messages tables", async () => {
   const statements: string[] = [];
   const database = {
     execAsync: jest.fn(async (sql: string) => { statements.push(sql); }),
@@ -25,8 +25,9 @@ test("opens an encrypted WhatsApp database before creating durable auth and outb
   expect(SQLite.openDatabaseAsync).toHaveBeenCalledTimes(1);
   expect(SecureStore.setItemAsync).toHaveBeenCalledWith("yoyos_whatsapp_database_key_v1", "0a".repeat(32));
   expect(statements[0]).toBe(`PRAGMA key = "x'${"0a".repeat(32)}'"`);
-  expect(statements[1]).toContain("CREATE TABLE whatsapp_auth_entries");
-  expect(statements[1]).toContain("CREATE TABLE whatsapp_outbox");
-  expect(statements[1]).toContain("COMMIT;");
+  expect(statements[1]).toBe("BEGIN IMMEDIATE");
+  expect(statements[2]).toContain("CREATE TABLE whatsapp_messages");
+  expect(statements[2]).toContain("CREATE TABLE whatsapp_links");
+  expect(statements[3]).toBe("COMMIT");
   expect(database.closeAsync).not.toHaveBeenCalled();
 });

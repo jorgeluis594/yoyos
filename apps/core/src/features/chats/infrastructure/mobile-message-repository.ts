@@ -2,7 +2,7 @@ import { type ChatMessage, type Contact } from "@prisma/client";
 import { z } from "zod";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import { registerWhatsAppMessageRequestSchema, registerWhatsAppMessageResponseSchema } from "@shared/contracts/whatsapp-messages";
+import { registerWhatsAppMessageRequestSchema } from "@shared/contracts/whatsapp-messages";
 import type { NewMobileMessage, MobileMessage, RegisterMobileMessageError, StoreOutcome } from "@core/src/features/chats/domain/mobile-message";
 import { prisma } from "@core/src/shared/infrastructure/persistance";
 import { log } from "@core/src/shared/infrastructure/logger";
@@ -12,30 +12,49 @@ const invalidStoredData = { code: "INVALID_STORED_DATA", message: "Invalid store
 const unavailable = { code: "PERSISTENCE_UNAVAILABLE", message: "Unable to persist message" } as const;
 type MessageRow = ChatMessage & { chat: { companyId: string; contact: Contact } };
 
+const validDate = (date: Date) => Number.isFinite(date.getTime()) && z.iso.datetime({ offset: false }).safeParse(date.toISOString()).success;
+const storedDate = z.date().refine(validDate);
+
+// Invariants of a mobile row as stored: no Cloud API or media columns, a seller or contact source matching the
+// direction, and content columns that belong to the message type.
+const storedRowBase = z.object({
+  id: z.uuid(),
+  companyId: z.uuid(),
+  chatId: z.uuid(),
+  direction: z.enum(["incoming", "outgoing"]),
+  source: z.enum(["contact", "seller"]),
+  sentAt: storedDate.nullable(),
+  receivedAt: storedDate,
+  eventDispatchedAt: storedDate.nullable(),
+  uploadedByUserId: z.string().min(1),
+  userId: z.null(),
+  whatsappMediaId: z.null(),
+  imageId: z.null(),
+  imageFailureCode: z.null(),
+  imageFailureMessage: z.null(),
+  chat: z.object({ companyId: z.string(), contact: z.object({ companyId: z.string() }) }),
+});
+const storedRowSchema = z.discriminatedUnion("type", [
+  storedRowBase.extend({ type: z.literal("text"), caption: z.null(), imageStatus: z.null(), imageMimeType: z.null(), imageSize: z.null() }),
+  storedRowBase.extend({ type: z.literal("image"), text: z.null(), imageStatus: z.literal("metadata_only"),
+    imageSize: z.bigint().min(0n).max(BigInt(Number.MAX_SAFE_INTEGER)).nullable() }),
+]).refine((row) => row.source === (row.direction === "incoming" ? "contact" : "seller")
+  && row.chat.companyId === row.companyId && row.chat.contact.companyId === row.companyId);
+
 export function mapMobileMessage(row: MessageRow): Result<MobileMessage, RegisterMobileMessageError> {
-  if (row.imageSize !== null && (row.imageSize < 0n || row.imageSize > BigInt(Number.MAX_SAFE_INTEGER))) return err(invalidStoredData);
+  const stored = storedRowSchema.safeParse(row);
+  if (!stored.success) return err(invalidStoredData);
   const size = row.imageSize === null ? null : Number(row.imageSize);
   const content = row.type === "text" ? { type: "text" as const, text: row.text } : {
     type: "image" as const, caption: row.caption, mimeType: row.imageMimeType, size,
   };
   const valid = registerWhatsAppMessageRequestSchema.safeParse({ version: 1, message: {
     id: row.externalId, accountId: row.chat.contact.whatsappAccountId, chatId: row.chat.contact.whatsappLid,
-    whatsappMessageId: row.whatsappMessageId, direction: row.direction, timestamp: row.sentAt.getTime(),
+    whatsappMessageId: row.whatsappMessageId, direction: row.direction, ...(row.sentAt === null ? {} : { timestamp: row.sentAt.getTime() }),
     content: row.type === "text" ? content : { type: "image", ...(row.caption === null ? {} : { caption: row.caption }),
       ...(row.imageMimeType === null ? {} : { mimeType: row.imageMimeType }), ...(row.imageSize === null ? {} : { size }) },
   } });
-  const validDate = (date: Date) => Number.isFinite(date.getTime()) && z.iso.datetime({ offset: false }).safeParse(date.toISOString()).success;
-  const validResponse = validDate(row.receivedAt) && registerWhatsAppMessageResponseSchema.safeParse({
-    status: "stored", messageId: row.id, eventId: row.id, receivedAt: row.receivedAt.toISOString(),
-  }).success;
-  if (!valid.success || !validResponse || !z.uuid().safeParse(row.companyId).success || !z.uuid().safeParse(row.chatId).success
-    || (row.eventDispatchedAt !== null && !validDate(row.eventDispatchedAt))
-    || row.chat.companyId !== row.companyId || row.chat.contact.companyId !== row.companyId
-    || !row.uploadedByUserId || row.userId !== null || row.source !== (row.direction === "incoming" ? "contact" : "seller")
-    || row.whatsappMediaId !== null || row.imageId !== null || row.imageFailureCode !== null || row.imageFailureMessage !== null
-    || (row.type === "text" && (row.caption !== null || row.imageStatus !== null || row.imageMimeType !== null || row.imageSize !== null))
-    || (row.type === "image" && (row.text !== null || row.imageStatus !== "metadata_only"))
-    || !Number.isFinite(row.sentAt.getTime())) return err(invalidStoredData);
+  if (!valid.success) return err(invalidStoredData);
   return ok({
     id: row.id as MobileMessage["id"], companyId: row.companyId as MobileMessage["companyId"], chatId: row.chatId,
     externalId: valid.data.message.id as MobileMessage["externalId"],
@@ -43,7 +62,7 @@ export function mapMobileMessage(row: MessageRow): Result<MobileMessage, Registe
     remoteChatId: valid.data.message.chatId as MobileMessage["remoteChatId"],
     whatsappMessageId: valid.data.message.whatsappMessageId as MobileMessage["whatsappMessageId"],
     direction: valid.data.message.direction, sentAt: row.sentAt, receivedAt: row.receivedAt,
-    uploadedByUserId: row.uploadedByUserId, content: valid.data.message.content.type === "text"
+    uploadedByUserId: stored.data.uploadedByUserId, content: valid.data.message.content.type === "text"
       ? { type: "text", text: valid.data.message.content.text }
       : { type: "image", caption: row.caption, mimeType: row.imageMimeType, size },
     eventDispatchedAt: row.eventDispatchedAt,

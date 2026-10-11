@@ -14,7 +14,7 @@ export function toMobileMessageInput(request: RegisterWhatsAppMessageRequest): M
     remoteChatId: message.chatId as WhatsAppChatId,
     whatsappMessageId: message.whatsappMessageId as ProtocolMessageId,
     direction: message.direction,
-    sentAt: new Date(message.timestamp),
+    sentAt: message.timestamp === undefined ? null : new Date(message.timestamp),
     content: message.content.type === "text" ? { type: "text", text: message.content.text } : {
       type: "image", caption: message.content.caption ?? null, mimeType: message.content.mimeType ?? null, size: message.content.size ?? null,
     },

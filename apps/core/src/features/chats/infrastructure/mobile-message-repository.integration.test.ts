@@ -9,11 +9,12 @@ import type { NewMobileMessage } from "@core/src/features/chats/domain/mobile-me
 const nativeId = (accountId: string, chatId: string, protocolId: string) => `wa-message:v1:${Buffer.from(JSON.stringify([accountId, chatId, protocolId])).toString("base64url")}`;
 const accountId = "123@lid";
 const remoteChatId = "456@lid";
-function message(companyId: string, protocolId: string, content: object, direction: "incoming" | "outgoing" = "incoming", uploader = "test-user", externalId = nativeId(accountId, remoteChatId, protocolId)): NewMobileMessage {
+type DatedMessage = NewMobileMessage & { sentAt: Date };
+function message(companyId: string, protocolId: string, content: object, direction: "incoming" | "outgoing" = "incoming", uploader = "test-user", externalId = nativeId(accountId, remoteChatId, protocolId)): DatedMessage {
   const parsed = parseMobileMessage({ version: 1, message: { id: externalId, accountId, chatId: remoteChatId, whatsappMessageId: protocolId,
     direction, timestamp: 1791417600123, content } });
   expect(parsed).not.toBeNull();
-  return { ...parsed!, companyId: companyId as NewMobileMessage["companyId"], uploadedByUserId: uploader,
+  return { ...parsed!, sentAt: parsed!.sentAt as Date, companyId: companyId as NewMobileMessage["companyId"], uploadedByUserId: uploader,
     id: randomUUID() as NewMobileMessage["id"], receivedAt: new Date("2026-10-08T12:00:00.456Z") };
 }
 async function fixture() {
@@ -253,6 +254,50 @@ test("Cloud API and mobile may share an externalId without capturing each other'
     });
     await withTenantIsolation(f.companyId, async () => {
       expect(await prisma.chatMessage.count({ where: { companyId: f.companyId, externalId: input.externalId } })).toBe(2);
+    });
+  } finally { await f.cleanup(); }
+});
+
+function undated(companyId: string, protocolId: string): NewMobileMessage {
+  const parsed = parseMobileMessage({ version: 1, message: { id: nativeId(accountId, remoteChatId, protocolId), accountId, chatId: remoteChatId,
+    whatsappMessageId: protocolId, direction: "incoming", content: { type: "text", text: "no date" } } });
+  expect(parsed).not.toBeNull();
+  return { ...parsed!, companyId: companyId as NewMobileMessage["companyId"], uploadedByUserId: "test-user",
+    id: randomUUID() as NewMobileMessage["id"], receivedAt: new Date("2026-10-08T12:00:00.456Z") };
+}
+
+test("stores a mobile message without sentAt", async () => {
+  const f = await fixture();
+  try {
+    const result = await storeOnce(undated(f.companyId, "undated"));
+    expect(result).toMatchObject({ success: true, data: { created: true, message: { sentAt: null } } });
+    await withTenantIsolation(f.companyId, async () => {
+      expect((await prisma.chatMessage.findFirstOrThrow({ where: { companyId: f.companyId } })).sentAt).toBeNull();
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("rejects a message without sentAt outside mobile rows", async () => {
+  const f = await fixture();
+  try {
+    await expect(withTenantIsolation(f.companyId, async () => {
+      const contact = await prisma.contact.create({ data: { companyId: f.companyId, phone: "+51912345678" } });
+      const chat = await prisma.chat.create({ data: { companyId: f.companyId, contactId: contact.id } });
+      await prisma.chatMessage.create({ data: { companyId: f.companyId, chatId: chat.id, externalId: "wamid.cloud",
+        direction: "incoming", source: "contact", type: "text", text: "cloud", sentAt: null, receivedAt: new Date() } });
+    })).rejects.toThrow(/ChatMessage_sentAt_required_outside_mobile_check|sentAt/);
+  } finally { await f.cleanup(); }
+});
+
+test("deduplicates a mobile message without sentAt by company, chat and WhatsApp id", async () => {
+  const f = await fixture();
+  try {
+    const first = await storeOnce(undated(f.companyId, "undated-repeat"));
+    const repeat = await storeOnce(undated(f.companyId, "undated-repeat"));
+    expect(first).toMatchObject({ success: true, data: { created: true } });
+    expect(repeat).toMatchObject({ success: true, data: { created: false, message: { sentAt: null } } });
+    await withTenantIsolation(f.companyId, async () => {
+      expect(await prisma.chatMessage.count({ where: { companyId: f.companyId } })).toBe(1);
     });
   } finally { await f.cleanup(); }
 });
