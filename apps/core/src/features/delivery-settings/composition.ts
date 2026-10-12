@@ -4,8 +4,8 @@ import { err } from "@shared/functional";
 import type { AppError, Result } from "@shared/result";
 import { afterTransactionCommit, getCompanyId, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { log } from "@core/src/shared/infrastructure/logger";
-import { getDeliverySettings, saveDeliverySettings, type DeliverySettingsAccess, type SaveDeliverySettingsInput } from "@core/src/features/delivery-settings/application/delivery-settings";
-import { readDeliverySettings, writeDeliverySettings } from "@core/src/features/delivery-settings/infrastructure/delivery-settings-repository";
+import { getCourierCatalog, getDeliverySettings, saveDeliverySettings, type DeliverySettingsAccess, type SaveDeliverySettingsInput } from "@core/src/features/delivery-settings/application/delivery-settings";
+import { readCourierCatalog, readDeliverySettings, writeDeliverySettings } from "@core/src/features/delivery-settings/infrastructure/delivery-settings-repository";
 import type { CourierId, DeliverySettingsReadError } from "@core/src/features/delivery-settings/domain/delivery-settings";
 import { getDeliveryZones, saveDeliveryZones, type SaveDeliveryZonesInput } from "@core/src/features/delivery-settings/application/delivery-zones";
 import { readDeliveryConfiguration, writeDeliveryZones } from "@core/src/features/delivery-settings/infrastructure/delivery-zones-repository";
@@ -57,12 +57,14 @@ export const deliverySettings = {
   }),
   get: (context: DeliverySettingsAccess, operation = "get_delivery_settings") => settingsTransaction(context, operation, undefined,
     () => getDeliverySettings(context, (companyId) => readDeliverySettings(companyId, "shared", undefined, operation))),
+  getCourierCatalog: (context: DeliverySettingsAccess) => settingsTransaction(context, "get_courier_catalog", undefined, () => getCourierCatalog(readCourierCatalog)),
   async save(input: SaveDeliverySettingsInput, context: DeliverySettingsAccess) {
     const started = performance.now();
     const result = await saveDeliverySettings(input, context, {
       transaction: (_companyId, work) => settingsTransaction(context, "save_delivery_settings", input.expectedVersion, work),
       findForUpdate: (companyId) => readDeliverySettings(companyId, "exclusive", input.expectedVersion),
       save: writeDeliverySettings,
+      readCourierCatalog,
       generateCourierId: () => randomUUID() as CourierId,
     });
     const durationMs = Math.round(performance.now() - started);

@@ -190,12 +190,12 @@ model CompanyCourier {
   companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
   company   Company @relation(fields: [companyId], references: [id])
   settings  CompanyDeliverySettings @relation(fields: [companyId], references: [companyId], map: "CompanyCourier_settings_fkey")
-  name      String
-  courierId String? @db.Uuid
-  courier   Courier? @relation(fields: [courierId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  courierId String @db.Uuid
+  courier   Courier @relation(fields: [courierId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   enabled   Boolean
 
   @@unique([companyId, id])
+  @@unique([companyId, courierId])
   @@index([companyId])
 }
 

@@ -28,17 +28,15 @@ test("rated agency requires a document, preserves its snapshot and recovers conc
     await page.getByRole("link", { name: "Configurar modalidades de entrega" }).click();
     await page.getByRole("tab", { name: "Agencia", exact: false }).click();
     await page.getByLabel("Ofrecer envío a agencia").check();
-    for (const [index, name] of ["Courier original", "Courier alternativo", "Courier inactivo"].entries()) {
+    for (const name of ["Shalom", "Olva Courier"]) {
+      await page.getByLabel("Courier disponible", { exact: true }).selectOption({ label: name });
       await page.getByRole("button", { name: "Agregar courier" }).click();
-      await page.getByLabel(`Nombre del courier ${index + 1}`, { exact: true }).fill(name);
     }
-    await page.getByLabel("Habilitar courier 3", { exact: true }).uncheck();
+    await page.getByLabel("Habilitar Olva Courier", { exact: true }).uncheck();
     await page.getByRole("button", { name: "Guardar configuración" }).click();
     await browserExpect(page.getByRole("status").filter({ hasText: "Configuración guardada." })).toHaveText("Configuración guardada.");
     const config = deliverySettingsSchema.parse(await (await page.request.get("/api/delivery-settings")).json());
-    const courier = config.couriers.find(courier => courier.name === "Courier original");
-    const alternate = config.couriers.find(courier => courier.name === "Courier alternativo");
-    if (!courier || !alternate) throw new Error("Expected configured couriers");
+    expect(config.couriers.map(courier => courier.name).sort()).toEqual(["Olva Courier", "Shalom"]);
     expect((await page.request.put("/api/delivery-settings/zones", { data: { method: "agency", expectedVersion: config.version,
       zones: [{ kind: "new", name: "Agency", enabled: true, districtCodes: ["040110"], price: { amount: 3, currency: "PEN" } }] } })).ok()).toBe(true);
     await page.goto(`/es-PE/orders/${orderId}`);
@@ -83,7 +81,7 @@ test("rated agency requires a document, preserves its snapshot and recovers conc
     await chooseRate();
     await page.getByLabel("Nombre del destinatario").fill("Preserved recipient");
     expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: config.version + 1, home: config.home, store: config.store, agency: { enabled: false },
-      couriers: config.couriers.map(value => ({ ...value, kind: "existing", enabled: false })) } })).ok()).toBe(true);
+      couriers: config.couriers.map(value => ({ kind: "existing", id: value.id, enabled: false })) } })).ok()).toBe(true);
     await save();
     await browserExpect(page.getByRole("alert")).toContainText("La tarifa ya no está disponible");
     await browserExpect(page.getByLabel("Número de documento")).toHaveValue("00-A-001");

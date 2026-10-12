@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
+import { seededCourier } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
 import { expect, test } from "vitest";
 import { ok } from "@shared/functional";
 import pg from "pg";
-import { prisma, systemPrisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
+import { prisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 
 const destination = { country: "PE", districtCode: "150122", address: null, instructions: null };
 async function fixture() {
@@ -127,11 +128,6 @@ test("failed rate insertion rolls back the quotation and all previously inserted
 });
 
 const optionData = (zoneId: string, method = "home") => ({ id: randomUUID(), zoneId, method, name: "Standard", enabled: true, priceAmount: 8, priceCurrency: "PEN" });
-const seededCourier = async (code = "shalom") => {
-  const courier = await systemPrisma.courier.findUnique({ where: { code } });
-  if (!courier) throw new Error(`Courier ${code} missing: run sh scripts/run-tests.sh integration`);
-  return courier;
-};
 // The app role cannot write catalogs, so test agencies are created with the migration role.
 async function withAgency<T>(courierId: string, work: (agencyId: string) => Promise<T>) {
   const admin = new pg.Client({ connectionString: process.env.MIGRATION_TEST_DATABASE_URL });

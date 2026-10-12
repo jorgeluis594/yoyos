@@ -7,7 +7,7 @@ import { validateSelectedDeliveryRate } from "@core/src/features/delivery-settin
 import { parseDeliveryZone } from "@core/src/features/delivery-settings/domain/delivery-zone";
 import type { UserId } from "@shared/identity";
 import type { CourierId } from "@core/src/features/delivery-settings";
-import { initialDeliverySettings } from "@core/src/features/delivery-settings/domain/delivery-settings";
+import { initialDeliverySettings, type CourierCatalogId } from "@core/src/features/delivery-settings/domain/delivery-settings";
 
 const money = (amount: number) => ({ amount, currency: "PEN" as const });
 function fixture(method: "home" | "agency" = "home") {
@@ -15,7 +15,7 @@ function fixture(method: "home" | "agency" = "home") {
   const zone = parseDeliveryZone({ id: id(1), method, name: "Zone", enabled: true, districtCodes: ["150122"], price: money(8) }, "PEN");
   if (!zone.success) throw new Error(zone.error.message);
   const settings = { ...initialDeliverySettings(), version: 2, home: { enabled: true }, agency: { enabled: method === "agency" },
-    couriers: method === "agency" ? [{ id: id(5) as CourierId, name: "Courier", enabled: true }] : [],
+    couriers: method === "agency" ? [{ id: id(5) as CourierId, catalogId: id(6) as CourierCatalogId, name: "Courier", enabled: true, catalogEnabled: true }] : [],
     store: { enabled: true as const, pickupPoint: { name: "Shop", address: "Street", instructions: null } } };
   const built = buildQuotationWithRates({ id: id(2), companyId: id(3), createdAt: new Date(), destination: { country: "PE", districtCode: "150122" },
     settings, zones: [zone.data], rateIds: [id(4)] }, "PEN");

@@ -71,7 +71,7 @@ test("agency rates require an enabled courier in addition to active agency cover
     settings: { ...f.configuration.settings, agency: { enabled: true } } };
   const deps = { readConfigurationForShare: async () => ok(configuration), findRateWithQuotation: async () => ok(value) };
   expect(await resolveSelectedDeliveryRate(input, deps)).toMatchObject({ success: false, error: { code: "RATE_UNAVAILABLE" } });
-  const courier = { id: f.zone.id as unknown as typeof configuration.settings.couriers[number]["id"], name: "Courier", enabled: false };
+  const courier = { id: f.zone.id as unknown as typeof configuration.settings.couriers[number]["id"], catalogId: f.zone.id as unknown as typeof configuration.settings.couriers[number]["catalogId"], name: "Courier", enabled: false, catalogEnabled: true };
   expect(await resolveSelectedDeliveryRate(input, { ...deps, readConfigurationForShare: async () => ok({ ...configuration,
     settings: { ...configuration.settings, couriers: [courier] } }) })).toMatchObject({ success: false, error: { code: "RATE_UNAVAILABLE" } });
   expect(await resolveSelectedDeliveryRate(input, { ...deps, readConfigurationForShare: async () => ok({ ...configuration,

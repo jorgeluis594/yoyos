@@ -38,7 +38,7 @@ test("only active covered zones of enabled shipping methods apply; pickup is not
   const result = buildQuotationWithRates(input(zones, [id(30)]), "PEN");
   expect(result).toMatchObject({ success: true, data: { rates: [{ method: "home", price: { amount: 0, currency: "PEN" } }] } });
   const courierSettings: DeliverySettings = { ...settings, agency: { enabled: true },
-    couriers: [{ id: id(50) as DeliverySettings["couriers"][number]["id"], name: "Courier", enabled: true }] };
+    couriers: [{ id: id(50) as DeliverySettings["couriers"][number]["id"], catalogId: id(51) as DeliverySettings["couriers"][number]["catalogId"], name: "Courier", enabled: true, catalogEnabled: true }] };
   expect(buildQuotationWithRates({ ...input(zones, [id(30), id(31)]), settings: courierSettings }, "PEN"))
     .toMatchObject({ success: true, data: { rates: [{ method: "home" }, { method: "agency" }] } });
 });

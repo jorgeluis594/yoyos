@@ -1,9 +1,9 @@
-import { parseCourierInputs } from "@core/src/features/delivery-settings/domain/delivery-settings";
 import express, { type Response } from "express";
-import { deliverySettingsSchema, saveDeliverySettingsSchema, deliveryZonesSchema, saveDeliveryZonesSchema, deliveryZonesApiErrorSchema } from "@shared/contracts/delivery-settings";
+import { courierCatalogSchema, saveDeliverySettingsSchema, deliveryZonesSchema, saveDeliveryZonesSchema, deliveryZonesApiErrorSchema } from "@shared/contracts/delivery-settings";
 import { apiError, type PrivateLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
+import { toCourierInputs, toDeliverySettingsResponse } from "@core/src/features/delivery-settings/presentation/settings-response";
 import type { DeliverySettingsError } from "@core/src/features/delivery-settings/domain/delivery-settings";
 import type { DeliveryZonesError, DeliveryZonesState } from "@core/src/features/delivery-settings/application/delivery-zones";
 
@@ -37,6 +37,17 @@ function deliverySettingsHttpError(response: Response, error: DeliverySettingsEr
 }
 
 export const deliverySettingsRoutes = express.Router();
+deliverySettingsRoutes.get("/courier-catalog", async (_request, response: Response<unknown, PrivateLocals>) => {
+  const context = { companyId: response.locals.auth.company.id, userId: response.locals.auth.user.id };
+  try {
+    const result = await deliverySettings.getCourierCatalog(context);
+    return result.success ? response.json(courierCatalogSchema.parse({ couriers: result.data })) : deliverySettingsHttpError(response, result.error);
+  } catch (cause) {
+    log.error({ event: "delivery_settings_request_failed", operation: "get_courier_catalog", entryPoint: "api", userId: context.userId,
+      errorCode: "INTERNAL_ERROR", err: cause }, "Unable to handle courier catalog request");
+    return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
+  }
+});
 deliverySettingsRoutes.get("/zones", async (_request, response: Response<unknown, PrivateLocals>) => {
   const context = { companyId: response.locals.auth.company.id, userId: response.locals.auth.user.id };
   try {
@@ -66,7 +77,7 @@ deliverySettingsRoutes.get("/", async (_request, response: Response<unknown, Pri
   const context = { companyId: response.locals.auth.company.id, userId: response.locals.auth.user.id };
   try {
     const result = await deliverySettings.get(context);
-    return result.success ? response.json(deliverySettingsSchema.parse(result.data)) : deliverySettingsHttpError(response, result.error);
+    return result.success ? response.json(toDeliverySettingsResponse(result.data)) : deliverySettingsHttpError(response, result.error);
   } catch (cause) {
     log.error({ event: "delivery_settings_request_failed", operation: "get_delivery_settings", entryPoint: "api", userId: context.userId,
       errorCode: "INTERNAL_ERROR", err: cause }, "Unable to handle delivery settings request");
@@ -79,10 +90,10 @@ deliverySettingsRoutes.put("/", async (request, response: Response<unknown, Priv
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid delivery settings input");
   const context = { companyId: response.locals.auth.company.id, userId: response.locals.auth.user.id };
   try {
-    const couriers = parseCourierInputs(parsed.data.couriers);
+    const couriers = toCourierInputs(parsed.data.couriers);
     if (!couriers.success) return deliverySettingsHttpError(response, couriers.error);
     const result = await deliverySettings.save({ ...parsed.data, couriers: couriers.data }, context);
-    return result.success ? response.json(deliverySettingsSchema.parse(result.data)) : deliverySettingsHttpError(response, result.error);
+    return result.success ? response.json(toDeliverySettingsResponse(result.data)) : deliverySettingsHttpError(response, result.error);
   } catch (cause) {
     log.error({ event: "delivery_settings_request_failed", operation: "save_delivery_settings", entryPoint: "api", userId: context.userId,
       errorCode: "INTERNAL_ERROR", err: cause }, "Unable to handle delivery settings request");

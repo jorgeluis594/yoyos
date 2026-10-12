@@ -80,3 +80,12 @@ test("zone adapter preserves conflict and field details, checks HTTP status and 
   expect(await createDeliverySettingsApi(offline).saveZones(zoneInput)).toMatchObject({ error: { code: "NETWORK_ERROR" } });
   expect(offline).toHaveBeenCalledTimes(1);
 });
+
+test("reads the courier catalog and rejects malformed catalog responses", async () => {
+  const catalog = { couriers: [{ id: "00000000-0000-4000-8000-000000000101", code: "shalom", name: "Shalom" }] };
+  const request = jest.fn(async () => ok(catalog));
+  expect(await createDeliverySettingsApi(request).getCourierCatalog()).toEqual(ok(catalog));
+  expect(request).toHaveBeenCalledWith("/api/delivery-settings/courier-catalog");
+  expect(await createDeliverySettingsApi(async () => ok({ couriers: [{ id: "not-a-uuid", code: "x", name: "X" }] })).getCourierCatalog())
+    .toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+});

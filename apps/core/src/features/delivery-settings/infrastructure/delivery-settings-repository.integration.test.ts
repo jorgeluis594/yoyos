@@ -1,12 +1,16 @@
-import type { CourierId } from "@core/src/features/delivery-settings/domain/delivery-settings";
+import type { CourierCatalogId, CourierId } from "@core/src/features/delivery-settings/domain/delivery-settings";
+import { seededCatalogId, seededCourier } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
 import { randomUUID } from "node:crypto";
 import { expect, test, vi } from "vitest";
 import { err, ok } from "@shared/functional";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
 import { saveDeliverySettings } from "@core/src/features/delivery-settings/application/delivery-settings";
-import { readDeliverySettings, writeDeliverySettings } from "@core/src/features/delivery-settings/infrastructure/delivery-settings-repository";
+import { readCourierCatalog, readDeliverySettings, writeDeliverySettings } from "@core/src/features/delivery-settings/infrastructure/delivery-settings-repository";
 import { prisma, systemPrisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { log } from "@core/src/shared/infrastructure/logger";
+
+const shalomId = await seededCatalogId("shalom");
+const olvaId = await seededCatalogId("olva");
 
 const point = { name: "Tienda principal", address: "Av. Lima 123", instructions: "Puerta azul" };
 const store = { enabled: true as const, pickupPoint: point };
@@ -43,12 +47,13 @@ test("reads an absent configuration without writes, versions edits and preserves
 
 test("serializes two initial creations and same-version edits with no duplicate rows", async () => {
   const f = await fixture();
+  const catalogId = shalomId;
   try {
     let arrived = 0;
     let release!: () => void;
     const bothRead = new Promise<void>((resolve) => { release = resolve; });
-    const firstSave = () => f.run(() => saveDeliverySettings({ expectedVersion: 0, agency: { enabled: true }, couriers: [{ kind: "new", name: "Courier", enabled: true }], home: { enabled: false }, store }, f.context, {
-      generateCourierId: () => randomUUID() as CourierId,
+    const firstSave = () => f.run(() => saveDeliverySettings({ expectedVersion: 0, agency: { enabled: true }, couriers: [{ kind: "new", catalogId, enabled: true }], home: { enabled: false }, store }, f.context, {
+      readCourierCatalog, generateCourierId: () => randomUUID() as CourierId,
       transaction: (_companyId, work) => withinTransaction(work),
       findForUpdate: async (companyId) => {
         const found = await readDeliverySettings(companyId, "exclusive");
@@ -63,7 +68,7 @@ test("serializes two initial creations and same-version edits with no duplicate 
     expect(created.find((result) => !result.success)).toMatchObject({ error: { code: "DELIVERY_SETTINGS_CONFLICT", reason: "concurrent_creation" } });
     const winner = created.find(result => result.success);
     if (!winner?.success) throw new Error("Expected a successful initial save");
-    const couriers = winner.data.couriers.map(courier => ({ ...courier, kind: "existing" as const }));
+    const couriers = winner.data.couriers.map(courier => ({ kind: "existing" as const, id: courier.id, enabled: courier.enabled }));
     const edits = await Promise.all([0, 1].map((index) => f.run(() => deliverySettings.save({ expectedVersion: 1,
       agency: { enabled: true }, couriers, home: { enabled: false }, store: { enabled: true, pickupPoint: { ...point, address: `Dirección ${index}` } } }, f.context))));
     expect(edits.filter((result) => result.success)).toHaveLength(1);
@@ -133,21 +138,24 @@ test("enforces relational constraints and keeps another company's settings inacc
   } finally { await Promise.all([a.cleanup(), b.cleanup()]); }
 });
 
-test("courier storage requires configuration and retains deactivated records under the application role", async () => {
+test("courier storage requires configuration and catalog, is unique per company and retains deactivated records under the application role", async () => {
   const f = await fixture();
   const id = randomUUID();
+  const shalom = await seededCourier("shalom");
+  const olva = await seededCourier("olva");
   try {
     await f.run(async () => {
-      await expect(prisma.companyCourier.create({ data: { id, name: "Courier", enabled: true } })).rejects.toMatchObject({ code: "P2003" });
+      await expect(prisma.companyCourier.create({ data: { id, courierId: shalom.id, enabled: true } })).rejects.toMatchObject({ code: "P2003" });
       const settings = await prisma.companyDeliverySettings.create({ data: { storeEnabled: false, version: 1 } });
       expect(settings).toMatchObject({ companyId: f.context.companyId, agencyEnabled: false, homeEnabled: false });
-      const courier = await prisma.companyCourier.create({ data: { id, name: "Courier", enabled: true } });
-      expect(courier).toEqual({ id, companyId: f.context.companyId, name: "Courier", courierId: null, enabled: true });
-      await prisma.companyCourier.update({ where: { id }, data: { name: "Renamed", enabled: false } });
-      expect(await prisma.companyCourier.findMany()).toEqual([{ ...courier, name: "Renamed", enabled: false }]);
-      await expect(prisma.companyCourier.create({ data: { id: randomUUID(), name: " ", enabled: true } })).rejects.toThrow();
-      await expect(prisma.companyCourier.create({ data: { id: randomUUID(), name: "n".repeat(121), enabled: true } })).rejects.toThrow();
-      expect(await prisma.companyCourier.count()).toBe(1);
+      await expect(prisma.companyCourier.create({ data: { id: randomUUID(), courierId: randomUUID(), enabled: true } })).rejects.toMatchObject({ code: "P2003" });
+      const courier = await prisma.companyCourier.create({ data: { id, courierId: shalom.id, enabled: true } });
+      expect(courier).toEqual({ id, companyId: f.context.companyId, courierId: shalom.id, enabled: true });
+      await expect(prisma.companyCourier.create({ data: { id: randomUUID(), courierId: shalom.id, enabled: true } })).rejects.toMatchObject({ code: "P2002" });
+      await prisma.companyCourier.update({ where: { id }, data: { enabled: false } });
+      await prisma.companyCourier.create({ data: { id: randomUUID(), courierId: olva.id, enabled: true } });
+      expect(await prisma.companyCourier.findFirst({ where: { id } })).toEqual({ ...courier, enabled: false });
+      expect(await prisma.companyCourier.count()).toBe(2);
     });
   } finally {
     await f.run(() => prisma.companyCourier.deleteMany());
@@ -161,14 +169,15 @@ test("courier write failure rolls back settings and earlier courier edits; inval
   const summary = vi.spyOn(log, "info").mockImplementation(() => {});
   const failure = vi.spyOn(log, "error").mockImplementation(() => {});
   const id = randomUUID() as CourierId;
+  const shalom = await seededCourier("shalom");
   try {
     await f.run(async () => {
       await prisma.companyDeliverySettings.create({ data: { version: 1, storeEnabled: false } });
-      await prisma.companyCourier.create({ data: { id, name: "Original", enabled: true } });
+      await prisma.companyCourier.create({ data: { id, courierId: shalom.id, enabled: true } });
       const result = await withinTransaction(() => writeDeliverySettings(f.context.companyId, { version: 2, home: { enabled: true }, store: { enabled: false, pickupPoint: null }, agency: { enabled: true },
-        couriers: [{ id, name: "Renamed", enabled: true }, { id: randomUUID() as CourierId, name: "New courier", enabled: true }, { id: randomUUID() as CourierId, name: " ", enabled: true }] }));
+        couriers: [{ id, catalogId: shalom.id as CourierCatalogId, name: "Shalom", enabled: false, catalogEnabled: true }, { id: randomUUID() as CourierId, catalogId: randomUUID() as CourierCatalogId, name: "Unknown", enabled: true, catalogEnabled: true }] }));
       expect(result).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
-      expect(await deliverySettings.get(f.context)).toMatchObject({ success: true, data: { version: 1, home: { enabled: false }, agency: { enabled: false }, couriers: [{ id, name: "Original" }] } });
+      expect(await deliverySettings.get(f.context)).toMatchObject({ success: true, data: { version: 1, home: { enabled: false }, agency: { enabled: false }, couriers: [{ id, name: "Shalom", enabled: true }] } });
       expect(summary).not.toHaveBeenCalled();
       expect(failure).toHaveBeenCalledOnce();
       expect(failure.mock.calls[0][0]).toMatchObject({ event: "delivery_settings_write_failed", stage: "save_couriers" });
@@ -187,15 +196,15 @@ test("a reader during a settings write receives one complete version including c
   const hold = new Promise<void>(resolve => { release = resolve; });
   const partialWrite = new Promise<void>(resolve => { written = resolve; });
   try {
-    const created = await f.run(() => deliverySettings.save({ expectedVersion: 0, agency: { enabled: true }, couriers: [{ kind: "new", name: "Original", enabled: true }], home: { enabled: false }, store }, f.context));
+    const created = await f.run(() => deliverySettings.save({ expectedVersion: 0, agency: { enabled: true }, couriers: [{ kind: "new", catalogId: shalomId, enabled: true }], home: { enabled: false }, store }, f.context));
     if (!created.success) throw new Error("Expected initial configuration");
     const courier = created.data.couriers[0];
     const writer = f.run(() => withinTransaction(async () => {
       expect((await readDeliverySettings(f.context.companyId, "exclusive")).success).toBe(true);
-      await prisma.companyDeliverySettings.update({ where: { companyId: f.context.companyId }, data: { version: 2, homeEnabled: true, pickupAddress: "New address" } });
+      await prisma.companyDeliverySettings.update({ where: { companyId: f.context.companyId }, data: { version: 2, homeEnabled: true, agencyEnabled: false, pickupAddress: "New address" } });
       written();
       await hold;
-      await prisma.companyCourier.update({ where: { id: courier.id }, data: { name: "New name" } });
+      await prisma.companyCourier.update({ where: { id: courier.id }, data: { enabled: false } });
       return ok(null);
     }));
     await partialWrite;
@@ -207,7 +216,7 @@ test("a reader during a settings write receives one complete version including c
       });
     } finally { release(); }
     expect(await writer).toEqual(ok(null));
-    expect(await reader).toEqual(ok({ ...created.data, version: 2, home: { enabled: true }, store: { enabled: true, pickupPoint: { ...point, address: "New address" } }, couriers: [{ ...courier, name: "New name" }] }));
+    expect(await reader).toEqual(ok({ ...created.data, version: 2, home: { enabled: true }, agency: { enabled: false }, store: { enabled: true, pickupPoint: { ...point, address: "New address" } }, couriers: [{ ...courier, enabled: false }] }));
   } finally { release?.(); await f.cleanup(); }
 });
 
@@ -216,7 +225,7 @@ test("courier RLS blocks foreign reads, writes and company moves with a restrict
   const courierId = randomUUID();
   try {
     await a.run(async () => {
-      expect(await deliverySettings.save({ expectedVersion: 0, agency: { enabled: true }, couriers: [{ kind: "new", name: "Own courier", enabled: true }], home: { enabled: false }, store }, a.context)).toMatchObject({ success: true });
+      expect(await deliverySettings.save({ expectedVersion: 0, agency: { enabled: true }, couriers: [{ kind: "new", catalogId: shalomId, enabled: true }], home: { enabled: false }, store }, a.context)).toMatchObject({ success: true });
       const own = await prisma.companyCourier.findFirstOrThrow();
       await expect(prisma.companyCourier.update({ where: { id: own.id }, data: { companyId: b.context.companyId } })).rejects.toThrow();
       const role = await prisma.$queryRaw<{ superuser: boolean; bypass: boolean; owns: boolean; forced: boolean }[]>`SELECT r.rolsuper AS superuser, r.rolbypassrls AS bypass, c.relowner = r.oid AS owns, c.relforcerowsecurity AS forced FROM pg_roles r CROSS JOIN pg_class c WHERE r.rolname = current_user AND c.oid = '"CompanyCourier"'::regclass`;
@@ -225,14 +234,14 @@ test("courier RLS blocks foreign reads, writes and company moves with a restrict
     await b.run(async () => {
       expect(await deliverySettings.get(b.context)).toMatchObject({ success: true, data: { version: 0, couriers: [] } });
       expect(await prisma.companyCourier.findMany()).toEqual([]);
-      expect(await prisma.companyCourier.updateMany({ where: { companyId: a.context.companyId }, data: { name: "Foreign overwrite" } })).toMatchObject({ count: 0 });
+      expect(await prisma.companyCourier.updateMany({ where: { companyId: a.context.companyId }, data: { enabled: false } })).toMatchObject({ count: 0 });
       expect(await prisma.companyCourier.deleteMany({ where: { companyId: a.context.companyId } })).toMatchObject({ count: 0 });
-      await expect(prisma.companyCourier.create({ data: { id: courierId, companyId: a.context.companyId, name: "Foreign courier", enabled: true } })).rejects.toThrow();
+      await expect(prisma.companyCourier.create({ data: { id: courierId, companyId: a.context.companyId, courierId: olvaId, enabled: true } })).rejects.toThrow();
       expect(await prisma.$queryRaw`SELECT * FROM "CompanyCourier" WHERE "companyId" = ${a.context.companyId}::uuid`).toEqual([]);
     });
     await a.run(async () => {
       expect(await prisma.companyCourier.count()).toBe(1);
-      expect(await prisma.companyCourier.findFirst()).toMatchObject({ name: "Own courier", companyId: a.context.companyId });
+      expect(await prisma.companyCourier.findFirst()).toMatchObject({ enabled: true, companyId: a.context.companyId });
     });
   } finally { await Promise.all([a.cleanup(), b.cleanup()]); }
 });

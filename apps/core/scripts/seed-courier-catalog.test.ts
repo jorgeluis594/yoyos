@@ -35,11 +35,19 @@ test("courier catalog seed is idempotent by code and fails loudly on invalid fil
     expect(run().status).toBe(0);
     expect(await read()).toEqual(seeded);
 
+    // Order snapshots carry their own courier data: renaming the catalog must not rewrite them.
+    const snapshot = { method: "agency", courier: { id: randomUUID(), name: "Olva Courier" } };
+    const companyId = randomUUID();
+    await db.query('INSERT INTO "Company" (id, name, country) VALUES ($1, $2, $3)', [companyId, "Seed test", "PE"]);
+    await db.query('INSERT INTO "user" (id, name, email, "emailVerified", "createdAt", "updatedAt", "companyId") VALUES ($1, $2, $3, true, now(), now(), $4)', ["seed-seller", "Seller", "seed-seller@example.test", companyId]);
+    await db.query('INSERT INTO "Order" (number, id, "companyId", "sellerId", currency, total, "itemsTotal", delivery, "createdAt") VALUES (1001, $1, $2, $3, $4, 1, 1, $5, now())', [randomUUID(), companyId, "seed-seller", "PEN", JSON.stringify(snapshot)]);
+
     const dir = await mkdtemp(join(tmpdir(), "courier-seed-"));
     const renamed = join(dir, "renamed.json");
     await writeFile(renamed, JSON.stringify([{ code: "olva", name: "Olva", enabled: false }]));
     expect(run(renamed).status).toBe(0);
     expect(await read()).toEqual(seeded.map((row) => row.code === "olva" ? { ...row, name: "Olva", enabled: false } : row));
+    expect((await db.query('SELECT delivery FROM "Order" WHERE "companyId" = $1', [companyId])).rows).toEqual([{ delivery: snapshot }]);
 
     for (const [name, content] of [["malformed", "{"], ["duplicate", JSON.stringify([{ code: "a", name: "A", enabled: true }, { code: "a", name: "B", enabled: true }])],
       ["badcode", JSON.stringify([{ code: "Bad Code", name: "A", enabled: true }])]] as const) {

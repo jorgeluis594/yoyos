@@ -1,6 +1,6 @@
 import { getPeruDistrict } from "@shared/peru-geography";
-import { deliveryZonesApiErrorSchema, deliveryZonesSchema, saveDeliveryZonesSchema, type DeliveryZonesResponse, type SaveDeliveryZonesRequest, deliverySettingsApiErrorSchema, deliverySettingsSchema, saveDeliverySettingsSchema,
-  type DeliverySettingsResponse, type SaveDeliverySettingsRequest } from "@shared/contracts/delivery-settings";
+import { courierCatalogSchema, deliveryZonesApiErrorSchema, deliveryZonesSchema, saveDeliveryZonesSchema, type DeliveryZonesResponse, type SaveDeliveryZonesRequest, deliverySettingsApiErrorSchema, deliverySettingsSchema, saveDeliverySettingsSchema,
+  type CourierCatalogResponse, type DeliverySettingsResponse, type SaveDeliverySettingsRequest } from "@shared/contracts/delivery-settings";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { TransportError } from "@mobile/shared/application/transport-error";
@@ -22,6 +22,15 @@ function response(raw: Result<unknown, TransportError>, saving: boolean): Result
       (!saving && !["SERVICE_UNAVAILABLE", "INTERNAL_ERROR"].includes(parsed.data.code)))
     return err({ code: "INVALID_RESPONSE", message: "Unexpected delivery settings error" });
   return err({ code: parsed.data.code === "INTERNAL_ERROR" ? "SERVER_ERROR" : parsed.data.code, message: parsed.data.error });
+}
+
+function catalogResponse(raw: Result<unknown, TransportError>): Result<CourierCatalogResponse, DeliverySettingsError> {
+  if (raw.success) {
+    const parsed = courierCatalogSchema.safeParse(raw.data);
+    return parsed.success ? ok(parsed.data) : err({ code: "INVALID_RESPONSE", message: "Invalid courier catalog response" });
+  }
+  const failed = response(raw, false);
+  return failed.success ? err({ code: "INVALID_RESPONSE", message: "Unexpected courier catalog error" }) : failed;
 }
 
 const zoneStatusByCode = { ...statusByCode, INVALID_DELIVERY_ZONE: 422, UNSUPPORTED_COUNTRY: 422 };
@@ -60,6 +69,7 @@ export function createDeliverySettingsApi(request: Request) {
       return result.success && result.data.version !== parsed.data.expectedVersion + 1
         ? err({ code: "INVALID_RESPONSE", message: "Unexpected saved zones version" }) : result;
     },
+    getCourierCatalog: async (): Promise<Result<CourierCatalogResponse, DeliverySettingsError>> => catalogResponse(await request("/api/delivery-settings/courier-catalog")),
     get: async (): Promise<Result<DeliverySettingsResponse, DeliverySettingsError>> => response(await request("/api/delivery-settings"), false),
     save: async (input: SaveDeliverySettingsRequest): Promise<Result<DeliverySettingsResponse, DeliverySettingsError>> => {
       const parsed = saveDeliverySettingsSchema.safeParse(input);

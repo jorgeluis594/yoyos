@@ -4,8 +4,9 @@ import { afterAll, expect, test } from "vitest";
 import { err, ok } from "@shared/functional";
 import { createDeliverySettingsApi } from "@mobile/features/delivery-settings/infrastructure/delivery-settings-api";
 import { createQuotationApi } from "@mobile/features/delivery-settings/infrastructure/quotation-api";
-import { deliverySettingsSchema, deliveryZonesSchema } from "@shared/contracts/delivery-settings";
+import { courierCatalogSchema, deliverySettingsSchema, deliveryZonesSchema } from "@shared/contracts/delivery-settings";
 import { app } from "@core/src/app";
+import { seededCourier, withCatalogAdmin } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
 const server = app.listen(0, "127.0.0.1");
@@ -15,6 +16,16 @@ if (!address || typeof address === "string") throw new Error("No test port");
 const base = `http://127.0.0.1:${address.port}`;
 const origin = process.env.BETTER_AUTH_URL ?? "http://localhost:3000";
 const fixtures: { cleanup: () => Promise<void> }[] = [];
+const temporaryCouriers: string[] = [];
+const shalomId = (await seededCourier("shalom")).id;
+
+// Throwaway catalog entries keep tests from mutating the seeded couriers other files rely on.
+async function temporaryCourier(enabled: boolean, name = "Temporary courier") {
+  const id = randomUUID();
+  await withCatalogAdmin(query => query('INSERT INTO "Courier" (id, code, name, enabled) VALUES ($1, $2, $3, $4)', [id, `t2_${id.replaceAll("-", "")}`, name, enabled]));
+  temporaryCouriers.push(id);
+  return { id };
+}
 
 async function request(path: string, cookie?: string, body?: unknown, method?: string) {
   return fetch(`${base}${path}`, { method: method ?? (body === undefined ? "GET" : "POST"),
@@ -55,6 +66,7 @@ async function fixture(withCompany = true, country = "PE") {
 
 afterAll(async () => {
   for (const f of fixtures.reverse()) await f.cleanup();
+  await withCatalogAdmin(query => query('DELETE FROM "Courier" WHERE id = ANY($1::uuid[])', [temporaryCouriers]));
   await new Promise<void>((resolve) => server.close(() => resolve()));
   await systemPrisma.$disconnect();
 });
@@ -113,17 +125,18 @@ test("mobile settings adapter exchanges authenticated settings and preserves a r
 
 test("courier HTTP generates IDs, rejects omission and foreign IDs, and retains deactivated couriers through the mobile adapter", async () => {
   const [seller, other] = await Promise.all([fixture(), fixture()]);
-  const input = { expectedVersion: 0, home: { enabled: false }, store: { enabled: false as const, pickupPoint: null }, agency: { enabled: true }, couriers: [{ kind: "new" as const, name: " Courier ", enabled: true }] };
+  const input = { expectedVersion: 0, home: { enabled: false }, store: { enabled: false as const, pickupPoint: null }, agency: { enabled: true }, couriers: [{ kind: "new" as const, courierId: shalomId, enabled: true }] };
   expect((await request("/api/delivery-settings", seller.cookie, { ...input, couriers: [{ ...input.couriers[0], id: randomUUID() }] }, "PUT")).status).toBe(400);
+  expect((await request("/api/delivery-settings", seller.cookie, { ...input, couriers: [{ ...input.couriers[0], name: "Forged" }] }, "PUT")).status).toBe(400);
   const saved = await request("/api/delivery-settings", seller.cookie, input, "PUT");
   expect(saved.status).toBe(200);
   const first = deliverySettingsSchema.parse(await saved.json());
-  expect(first).toMatchObject({ version: 1, agency: { enabled: true }, couriers: [{ name: "Courier", enabled: true }] });
+  expect(first).toMatchObject({ version: 1, agency: { enabled: true }, couriers: [{ courierId: shalomId, name: "Shalom", enabled: true }] });
   const courier = first.couriers[0];
   expect(courier.id).toMatch(/^[0-9a-f-]{36}$/);
   expect((await request("/api/delivery-settings", seller.cookie, input, "PUT")).status).toBe(409);
   expect(await (await request("/api/delivery-settings", seller.cookie)).json()).toEqual(first);
-  const edit = { ...input, expectedVersion: 1, couriers: [{ ...courier, kind: "existing", name: "Renamed", enabled: false }] };
+  const edit = { ...input, expectedVersion: 1, couriers: [{ kind: "existing", id: courier.id, enabled: false }] };
   for (const couriers of [[], [edit.couriers[0], edit.couriers[0]], [{ ...edit.couriers[0], id: randomUUID() }]]) {
     expect((await request("/api/delivery-settings", seller.cookie, { ...edit, agency: { enabled: false }, couriers }, "PUT")).status).toBe(422);
   }
@@ -131,7 +144,7 @@ test("courier HTTP generates IDs, rejects omission and foreign IDs, and retains 
   expect((await request("/api/delivery-settings", seller.cookie, edit, "PUT")).status).toBe(422);
   const disabled = await request("/api/delivery-settings", seller.cookie, { ...edit, agency: { enabled: false } }, "PUT");
   expect(disabled.status).toBe(200);
-  expect(await disabled.json()).toMatchObject({ version: 2, agency: { enabled: false }, couriers: [{ id: courier.id, name: "Renamed", enabled: false }] });
+  expect(await disabled.json()).toMatchObject({ version: 2, agency: { enabled: false }, couriers: [{ id: courier.id, courierId: shalomId, name: "Shalom", enabled: false }] });
   expect(await withTenantIsolation(seller.companyId ?? "", async () => await prisma.companyCourier.count())).toBe(1);
 });
 
@@ -149,10 +162,10 @@ test("a lost settings response after commit recovers persisted courier IDs witho
     const body: unknown = await response.json();
     return response.ok ? ok(body) : err({ code: "API_ERROR", message: "HTTP failure", http: { status: response.status, body } });
   });
-  const input = { expectedVersion: 0, home: { enabled: false }, store: { enabled: false as const, pickupPoint: null }, agency: { enabled: true }, couriers: [{ kind: "new" as const, name: "Courier", enabled: true }] };
+  const input = { expectedVersion: 0, home: { enabled: false }, store: { enabled: false as const, pickupPoint: null }, agency: { enabled: true }, couriers: [{ kind: "new" as const, courierId: shalomId, enabled: true }] };
   expect(await mobile.save(input)).toMatchObject({ success: false, error: { code: "NETWORK_ERROR" } });
   const confirmed = await mobile.get();
-  expect(confirmed).toMatchObject({ success: true, data: { version: 1, couriers: [{ name: "Courier" }] } });
+  expect(confirmed).toMatchObject({ success: true, data: { version: 1, couriers: [{ name: "Shalom" }] } });
   expect(await mobile.save(input)).toMatchObject({ success: false, error: { code: "DELIVERY_SETTINGS_CONFLICT" } });
   expect(await mobile.get()).toEqual(confirmed);
   expect(await withTenantIsolation(seller.companyId ?? "", async () => await prisma.companyCourier.count())).toBe(1);
@@ -274,7 +287,7 @@ test("mobile zone adapter consumes real authenticated saves and preserves confli
 test("mobile seller quotation adapter consumes overlapping real rates, empty coverage and new IDs per request", async () => {
   const seller = await fixture();
   expect((await request("/api/delivery-settings", seller.cookie, { expectedVersion: 0, home: { enabled: true },
-    agency: { enabled: true }, couriers: [{ kind: "new", name: "Courier", enabled: true }],
+    agency: { enabled: true }, couriers: [{ kind: "new", courierId: shalomId, enabled: true }],
     store: { enabled: false, pickupPoint: null } }, "PUT")).status).toBe(200);
   const zone = { kind: "new", enabled: true, districtCodes: ["150122"], price: { amount: 8, currency: "PEN" } };
   expect((await request("/api/delivery-settings/zones", seller.cookie, { expectedVersion: 1, method: "home",
@@ -302,4 +315,56 @@ test("mobile seller quotation adapter consumes overlapping real rates, empty cov
     expect(await prisma.deliveryRate.count()).toBe(6);
     expect(await prisma.companyDeliverySettings.findUnique({ where: { companyId: seller.companyId ?? "" } })).toMatchObject({ version: 3 });
   });
+});
+
+test("courier catalog endpoint lists enabled catalog couriers by name for authenticated companies only", async () => {
+  const [seller, noCompany] = await Promise.all([fixture(), fixture(false)]);
+  const disabled = await temporaryCourier(false, "Disabled courier");
+  expect((await request("/api/delivery-settings/courier-catalog")).status).toBe(401);
+  expect((await request("/api/delivery-settings/courier-catalog", noCompany.cookie)).status).toBe(409);
+  const response = await request("/api/delivery-settings/courier-catalog", seller.cookie);
+  expect(response.status).toBe(200);
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  const { couriers } = courierCatalogSchema.parse(await response.json());
+  expect(couriers).toEqual(expect.arrayContaining([{ id: shalomId, code: "shalom", name: "Shalom" }]));
+  expect(couriers.map(courier => courier.id)).not.toContain(disabled.id);
+  expect(couriers.map(courier => courier.name)).toEqual([...couriers.map(courier => courier.name)].sort((a, b) => a.localeCompare(b, "en")));
+});
+
+test("courier saves reject missing, disabled and duplicated catalog couriers, keep existing ones and show renamed catalog names", async () => {
+  const seller = await fixture();
+  const disabled = await temporaryCourier(false);
+  const renamed = await temporaryCourier(true, "Before rename");
+  const base = { expectedVersion: 0, home: { enabled: false }, store: { enabled: false as const, pickupPoint: null }, agency: { enabled: false } };
+  for (const courierId of [randomUUID(), disabled.id]) {
+    expect((await request("/api/delivery-settings", seller.cookie, { ...base, couriers: [{ kind: "new", courierId, enabled: true }] }, "PUT")).status).toBe(422);
+  }
+  expect((await request("/api/delivery-settings", seller.cookie, { ...base, couriers: [{ kind: "new", courierId: shalomId, enabled: true }, { kind: "new", courierId: shalomId, enabled: false }] }, "PUT")).status).toBe(422);
+  const created = await request("/api/delivery-settings", seller.cookie, { ...base, couriers: [{ kind: "new", courierId: shalomId, enabled: true }, { kind: "new", courierId: renamed.id, enabled: true }] }, "PUT");
+  expect(created.status).toBe(200);
+  const first = deliverySettingsSchema.parse(await created.json());
+  expect(first.couriers.map(courier => courier.name).sort()).toEqual(["Before rename", "Shalom"]);
+  const existing = first.couriers.map(courier => ({ kind: "existing" as const, id: courier.id, enabled: courier.enabled }));
+  expect((await request("/api/delivery-settings", seller.cookie, { ...base, expectedVersion: 1, couriers: [...existing, { kind: "new", courierId: shalomId, enabled: true }] }, "PUT")).status).toBe(422);
+  expect((await request("/api/delivery-settings", seller.cookie, { ...base, expectedVersion: 1, couriers: existing.slice(0, 1) }, "PUT")).status).toBe(422);
+  // A catalog rename (what repeating the seed does) changes the displayed name without a settings write.
+  await withCatalogAdmin(query => query('UPDATE "Courier" SET name = $1 WHERE id = $2', ["After rename", renamed.id]));
+  const reloaded = deliverySettingsSchema.parse(await (await request("/api/delivery-settings", seller.cookie)).json());
+  expect(reloaded).toEqual({ ...first, couriers: expect.arrayContaining(first.couriers.map(courier => courier.courierId === renamed.id ? { ...courier, name: "After rename" } : courier)) });
+  expect(reloaded.couriers).toHaveLength(2);
+  // Delisted catalog couriers stay configured and can be disabled.
+  await withCatalogAdmin(query => query('UPDATE "Courier" SET enabled = false WHERE id = $1', [renamed.id]));
+  const disabledResponse = await request("/api/delivery-settings", seller.cookie, { ...base, expectedVersion: 1, couriers: existing.map(courier => ({ ...courier, enabled: false })) }, "PUT");
+  expect(disabledResponse.status).toBe(200);
+  expect(deliverySettingsSchema.parse(await disabledResponse.json()).couriers).toHaveLength(2);
+});
+
+test("two courier saves with the same version produce one 409 DELIVERY_SETTINGS_CONFLICT", async () => {
+  const seller = await fixture();
+  const input = { expectedVersion: 0, home: { enabled: false }, store: { enabled: false as const, pickupPoint: null }, agency: { enabled: false }, couriers: [{ kind: "new", courierId: shalomId, enabled: true }] };
+  const responses = await Promise.all([request("/api/delivery-settings", seller.cookie, input, "PUT"), request("/api/delivery-settings", seller.cookie, input, "PUT")]);
+  expect(responses.map(response => response.status).sort()).toEqual([200, 409]);
+  const conflict = responses.find(response => response.status === 409);
+  expect(await conflict?.json()).toMatchObject({ code: "DELIVERY_SETTINGS_CONFLICT" });
+  expect(await withTenantIsolation(seller.companyId ?? "", async () => await prisma.companyCourier.count())).toBe(1);
 });

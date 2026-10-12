@@ -19,8 +19,7 @@ import { companyPath } from "@core/app/locale";
 import { formatCurrency } from "@core/app/format-currency";
 import { Form, useActionData, data, isRouteErrorResponse, Link, useFetcher, useFetchers, useNavigation, useLoaderData, type ClientActionFunctionArgs, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
 import { privateUserContext } from "@core/app/private-user-context";
-import { deliverySettingsSchema } from "@shared/contracts/delivery-settings";
-import { deliverySettings } from "@core/src/features/delivery-settings";
+import { deliverySettings, toDeliverySettingsResponse } from "@core/src/features/delivery-settings";
 import { RatedDeliveryForm } from "@core/src/features/orders/presentation/rated-delivery-form";
 import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { setConfiguredOrderDelivery } from "@core/src/features/orders/composition";
@@ -48,7 +47,7 @@ export async function loader({ params, context, request }: LoaderFunctionArgs) {
   const settings = await deliverySettings.get({ companyId: access.company.id, userId: access.user.id });
   return { ...orderDetailLoaderSchema.parse({ order: toOrderAggregateJson(result.data), base: companyPath(new URL(request.url).pathname, access.company.country, "/orders"),
     manualPaymentId: randomUUID(), receiptUrls }),
-    settings: settings.success ? deliverySettingsSchema.parse(settings.data) : null,
+    settings: settings.success ? toDeliverySettingsResponse(settings.data) : null,
     settingsPath: companyPath(new URL(request.url).pathname, access.company.country, "/settings/delivery") };
 }
 

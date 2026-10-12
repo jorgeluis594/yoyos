@@ -4,4 +4,4 @@ import { createDeliverySettingsApi } from "@mobile/features/delivery-settings/in
 import { createQuotationApi } from "@mobile/features/delivery-settings/infrastructure/quotation-api";
 
 const api = createDeliverySettingsApi(request);
-export const deliverySettings = { get: api.get, getZones: api.getZones, saveZones: api.saveZones, createQuotation: createQuotationApi(request), save: (draft: DeliverySettingsDraft) => saveDeliverySettings(draft, api.save) };
+export const deliverySettings = { get: api.get, getCourierCatalog: api.getCourierCatalog, getZones: api.getZones, saveZones: api.saveZones, createQuotation: createQuotationApi(request), save: (draft: DeliverySettingsDraft) => saveDeliverySettings(draft, api.save) };

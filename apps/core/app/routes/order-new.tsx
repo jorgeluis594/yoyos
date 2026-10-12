@@ -4,8 +4,7 @@ import { RatedDeliveryForm, type RatedDeliveryReview } from "@core/src/features/
 import { add as addMoney, multiply, subtract, isCurrency, type Money, type MoneyError } from "@shared/money";
 import { andThen, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import { deliverySettings } from "@core/src/features/delivery-settings";
-import { deliverySettingsSchema } from "@shared/contracts/delivery-settings";
+import { deliverySettings, toDeliverySettingsResponse } from "@core/src/features/delivery-settings";
 import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { useTranslation } from "react-i18next";
 import { companyPath } from "@core/app/locale";
@@ -32,7 +31,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
   ]);
   if (!products.success || !contacts.success) throw new Response("No se pudo cargar el catálogo.", { status: 503 });
   const company = context.get(privateUserContext).company;
-  return { ...newOrderLoaderSchema.parse({ products: products.data, contacts: contacts.data, base: companyPath(new URL(request.url).pathname, company.country, "/orders") }), settings: settings.success ? deliverySettingsSchema.parse(settings.data) : null };
+  return { ...newOrderLoaderSchema.parse({ products: products.data, contacts: contacts.data, base: companyPath(new URL(request.url).pathname, company.country, "/orders") }), settings: settings.success ? toDeliverySettingsResponse(settings.data) : null };
 }
 
 export async function action({ request, context }: ActionFunctionArgs) {

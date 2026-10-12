@@ -155,7 +155,7 @@ test("returning from configuration refreshes availability and point without eras
   expect(load).toHaveBeenCalledTimes(1);
 });
 
-const allMethods = { version: 1, agency: { enabled: true }, couriers: [{ id: "00000000-0000-4000-8000-000000000011", name: "Courier", enabled: true }],
+const allMethods = { version: 1, agency: { enabled: true }, couriers: [{ id: "00000000-0000-4000-8000-000000000011", courierId: "00000000-0000-4000-8000-000000000101", name: "Courier", enabled: true }],
   home: { enabled: true }, store: { enabled: true as const, pickupPoint: point } };
 function selectDistrict(screen: ReturnType<typeof render>, code = "150122") {
   const edit = screen.queryByRole("button", { name: /^Distrito:/ });

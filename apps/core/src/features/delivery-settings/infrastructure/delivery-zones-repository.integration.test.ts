@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { seededCatalogId } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
 import { expect, test } from "vitest";
 import { ok } from "@shared/functional";
 import type { DeliveryZone } from "@core/src/features/delivery-settings/domain/delivery-zone";
@@ -27,6 +28,7 @@ async function fixture() {
 
 test("zone saves preserve independent methods and general settings, retain disabled coverage and never generate rates", async () => {
   const f = await fixture();
+  const catalogId = await seededCatalogId();
   try {
     await f.run(async () => {
       expect(await deliverySettings.getZones(f.context)).toEqual(ok({ home: { enabled: false }, agency: { enabled: false }, version: 0, currency: "PEN", zones: [] }));
@@ -38,7 +40,7 @@ test("zone saves preserve independent methods and general settings, retain disab
       expect(home.data).toMatchObject({ version: 1, home: { enabled: false }, agency: { enabled: false }, zones: [{ name: "Nearby" }, { name: "Free" }] });
       expect(await prisma.deliveryZoneDistrict.count({ where: { districtCode: "150122" } })).toBe(2);
       expect(await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: true },
-        couriers: [{ kind: "new", name: "Courier", enabled: true }], store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } }, f.context))
+        couriers: [{ kind: "new", catalogId, enabled: true }], store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } }, f.context))
         .toMatchObject({ success: true, data: { version: 2 } });
       const agency = await deliverySettings.saveZones({ method: "agency", expectedVersion: 2, zones: [{ kind: "new", ...fields, name: "Agency", price: { amount: 5, currency: "PEN" } }] }, f.context);
       if (!agency.success) throw new Error(agency.error.message);
@@ -51,7 +53,7 @@ test("zone saves preserve independent methods and general settings, retain disab
       expect(changed.data.zones.find(zone => zone.method === "agency")).toEqual(agencyZone);
       expect(changed.data.zones.filter(zone => zone.method === "home").every(zone => !zone.enabled && zone.districtCodes.some(code => code === "150122"))).toBe(true);
       expect(await deliverySettings.get(f.context)).toMatchObject({ success: true, data: { version: 4, home: { enabled: true }, agency: { enabled: true },
-        couriers: [{ name: "Courier", enabled: true }], store: { enabled: true, pickupPoint: { name: "Shop", address: "Street" } } } });
+        couriers: [{ name: "Shalom", enabled: true }], store: { enabled: true, pickupPoint: { name: "Shop", address: "Street" } } } });
       expect(await prisma.quotation.count()).toBe(0);
       expect(await prisma.deliveryRate.count()).toBe(0);
       expect(await deliverySettings.saveZones({ method: "home", expectedVersion: 4, zones: [] }, f.context)).toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_ZONE" } });

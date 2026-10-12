@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
 import { products } from "@core/src/features/products/composition";
 import { deliverySettings } from "@core/src/features/delivery-settings";
+import { seededCatalogId } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
 import { orders } from "@core/src/features/orders/composition";
 import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
@@ -416,7 +417,7 @@ test("buyer chooses an agency rate and reaches payment without choosing an opera
       expect((await deliverySettings.saveZones({ method: "agency", expectedVersion: 0,
         zones: [{ kind: "new", name: "Agency zone", enabled: true, districtCodes: ["150122"], price: { amount: 8, currency: "PEN" } }] }, access)).success).toBe(true);
       expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: false }, agency: { enabled: true },
-        couriers: [{ kind: "new", name: "Operational courier", enabled: true }], store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
+        couriers: [{ kind: "new", catalogId: await seededCatalogId(), enabled: true }], store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
     });
     await page.goto(f.path);
     await page.getByLabel("Departamento", { exact: true }).selectOption("15");
@@ -434,7 +435,7 @@ test("buyer chooses an agency rate and reaches payment without choosing an opera
     await page.getByLabel("Documento del destinatario").fill("12345678");
     await browserExpect(page.getByText("La agencia y el courier se asignarán después. No necesitas elegirlos para confirmar.", { exact: true })).toBeVisible();
     await browserExpect(page.getByLabel("Dirección de entrega", { exact: true })).toHaveCount(0);
-    await browserExpect(page.getByRole("combobox").filter({ hasText: "Operational courier" })).toHaveCount(0);
+    await browserExpect(page.getByRole("combobox").filter({ hasText: "Shalom" })).toHaveCount(0);
     const total = page.locator("dl > div").filter({ has: page.getByText("Total a pagar", { exact: true }) });
     await browserExpect(total).toContainText(/18[.,]00/);
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();

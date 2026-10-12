@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { seededCourier } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
 import { expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
@@ -17,7 +18,7 @@ test("mobile creation screen integrates with real order API, database and persis
       return (await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } })).id;
     });
     expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 0, home: { enabled: true }, agency: { enabled: true },
-      couriers: [{ kind: "new", name: "Journey courier", enabled: true }], store: { enabled: true, pickupPoint: { name: "Journey pickup", address: "Pickup street", instructions: null } },
+      couriers: [{ kind: "new", courierId: (await seededCourier()).id, enabled: true }], store: { enabled: true, pickupPoint: { name: "Journey pickup", address: "Pickup street", instructions: null } },
     } })).status()).toBe(200);
     const zone = { kind: "new", enabled: true, districtCodes: ["150122"], price: { amount: 8, currency: "PEN" } };
     expect((await page.request.put("/api/delivery-settings/zones", { data: { method: "home", expectedVersion: 1,
