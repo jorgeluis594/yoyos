@@ -49,6 +49,7 @@ export type OrderAggregate = Readonly<{
   buyer: OrderBuyer | null;
   /** Chat que originó la orden; ausente o null en órdenes manuales. */
   chatId?: ChatId | null;
+  source?: "manual" | "whatsapp";
   checkoutEnabledAt: Date | null;
   checkoutConfirmedAt: Date | null;
   checkoutDeliveryRequest: DeliverySnapshot | null;
