@@ -5,7 +5,11 @@ import { z } from "zod";
 import { useTranslation } from "react-i18next";
 import { Button } from "@core/app/components/ui/button";
 import { Input } from "@core/app/components/ui/input";
-import { Field, FieldLabel, FieldError, controlClass } from "@core/app/components/ui/field";
+import { Field, FieldLabel, FieldError, FieldDescription, FieldLegend, FieldSet } from "@core/app/components/ui/field";
+import { Card, CardContent, CardHeader, CardTitle } from "@core/app/components/ui/card";
+import { Checkbox } from "@core/app/components/ui/checkbox";
+import { Alert, AlertDescription } from "@core/app/components/ui/alert";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@core/app/components/ui/select";
 import { PeruDistrictMultiSelect } from "@core/app/components/peru-district-multi-select";
 import { getPeruDistrict, type PeruDistrictCode } from "@shared/peru-geography";
 import { parseDeliveryPrice } from "@core/src/features/delivery-settings/domain/delivery-price";
@@ -75,12 +79,13 @@ export function DeliveryZonesSection({ state, couriers, pending, error, saved, o
     onSave({ expectedVersion: state.version, zones: inputs });
   };
   const price = (amount: number, currency: Zone["options"][number]["price"]["currency"]) => amount === 0 ? t("deliveryZones.free") : formatCurrency(amount, currency, "es");
-  return <section className="flex min-w-0 flex-col gap-4" aria-labelledby={`${id}-title`}>
-    <h3 id={`${id}-title`} className="text-lg font-semibold">{t("deliveryZones.title")}</h3>
-    <p className="text-sm text-muted-foreground">{t("deliveryZones.hint")}</p>
+  return <Card className="min-w-0" role="region" aria-labelledby={`${id}-title`}>
+    <CardHeader><CardTitle id={`${id}-title`}>{t("deliveryZones.title")}</CardTitle></CardHeader>
+    <CardContent className="flex min-w-0 flex-col gap-4">
+    <FieldDescription>{t("deliveryZones.hint")}</FieldDescription>
     {(["home", "agency"] as const).filter(method => state[method].enabled && !zones.some(zone => zone.enabled && zone.options.some(option => option.enabled && option.method === method))).map(method =>
-      <p key={method} className="text-sm text-muted-foreground">{t(`deliveryZones.missing.${method}`)}</p>)}
-    {zones.length === 0 && <p className="text-sm text-muted-foreground">{t("deliveryZones.empty")}</p>}
+      <FieldDescription key={method}>{t(`deliveryZones.missing.${method}`)}</FieldDescription>)}
+    {zones.length === 0 && <FieldDescription>{t("deliveryZones.empty")}</FieldDescription>}
     <ul className="divide-y divide-border">{zones.map(zone => <li key={zone.id} className="flex min-w-0 flex-col gap-2 py-4">
       <strong className="break-words">{zone.name}</strong>
       <p className="break-words text-sm text-muted-foreground">{zone.districtCodes.map(code => { const district = getPeruDistrict(code); return district ? `${district.name} · ${code}` : code; }).join(", ")}</p>
@@ -95,10 +100,10 @@ export function DeliveryZonesSection({ state, couriers, pending, error, saved, o
         <Button type="button" variant="ghost" disabled={pending || blocked || editing !== undefined} onClick={() => write(undefined, zone.id)}>{t(zone.enabled ? "deliveryZones.disable" : "deliveryZones.enable", { name: zone.name })}</Button></div>
     </li>)}</ul>
     {editing === undefined ? <Button type="button" variant="outline" className="self-start max-md:min-h-touch" disabled={pending || blocked} onClick={() => { reset(empty); setEditing(null); }}>{t("deliveryZones.add")}</Button> :
-      <fieldset disabled={pending || blocked} className="flex min-w-0 flex-col gap-4 border-t border-border pt-4" onKeyDown={event => {
+      <FieldSet disabled={pending || blocked} className="border-t border-border pt-4" onKeyDown={event => {
         if (event.key === "Enter" && event.target instanceof HTMLInputElement) { event.preventDefault(); void form.handleSubmit(draft => write(draft))(); }
       }}>
-        <legend className="font-semibold">{t(editing === null ? "deliveryZones.add" : "deliveryZones.editor")}</legend>
+        <FieldLegend>{t(editing === null ? "deliveryZones.add" : "deliveryZones.editor")}</FieldLegend>
         <Controller name="name" control={form.control} render={({ field, fieldState }) => <Field>
           <FieldLabel htmlFor={`${id}-name`}>{t("deliveryZones.name")}</FieldLabel><Input {...field} name={undefined} id={`${id}-name`} maxLength={120} aria-invalid={fieldState.invalid} />
           {fieldState.error && <FieldError>{t("deliveryZones.invalidName")}</FieldError>}
@@ -107,19 +112,20 @@ export function DeliveryZonesSection({ state, couriers, pending, error, saved, o
           <PeruDistrictMultiSelect value={field.value as PeruDistrictCode[]} onChange={field.onChange} />
           {fieldState.error && <FieldError>{t("deliveryZones.invalidDistricts")}</FieldError>}
         </Field>} />
-        <Controller name="enabled" control={form.control} render={({ field }) => <label className="flex min-h-touch items-center gap-3">
-          <input type="checkbox" checked={field.value} onChange={event => field.onChange(event.target.checked)} className="size-4 accent-primary" />{t("deliveryZones.active")}
-        </label>} />
+        <Controller name="enabled" control={form.control} render={({ field }) => <Field orientation="horizontal">
+          <Checkbox id={`${id}-active`} checked={field.value} onCheckedChange={checked => field.onChange(checked === true)} /><FieldLabel htmlFor={`${id}-active`}>{t("deliveryZones.active")}</FieldLabel>
+        </Field>} />
         <div className="flex flex-col gap-4">
           <h4 className="font-semibold">{t("deliveryZones.options")}</h4>
-          {fields.length === 0 && <p className="text-sm text-muted-foreground">{t("deliveryZones.noOptions")}</p>}
+          {fields.length === 0 && <FieldDescription>{t("deliveryZones.noOptions")}</FieldDescription>}
           {fields.map((option, index) => <div key={option.fieldKey} className="flex min-w-0 flex-col gap-3 border-l-2 border-border pl-3">
             <Controller name={`options.${index}.method`} control={form.control} render={({ field }) => <Field>
               <FieldLabel htmlFor={`${id}-method-${index}`}>{t("deliveryZones.optionMethod")}</FieldLabel>
               {/* A saved option keeps its method: changing it would be rejected by the server. */}
-              <select id={`${id}-method-${index}`} className={controlClass} value={field.value} disabled={Boolean(option.id)} onChange={field.onChange} onBlur={field.onBlur}>
-                {(["home", "agency"] as const).map(method => <option key={method} value={method}>{t(`deliveryZones.method.${method}`)}</option>)}
-              </select>
+              <Select value={field.value} disabled={Boolean(option.id)} onValueChange={field.onChange} items={(["home", "agency"] as const).map(method => ({ value: method, label: t(`deliveryZones.method.${method}`) }))}>
+                <SelectTrigger id={`${id}-method-${index}`} onBlur={field.onBlur}><SelectValue /></SelectTrigger>
+                <SelectContent>{(["home", "agency"] as const).map(method => <SelectItem key={method} value={method}>{t(`deliveryZones.method.${method}`)}</SelectItem>)}</SelectContent>
+              </Select>
             </Field>} />
             <Controller name={`options.${index}.name`} control={form.control} render={({ field, fieldState }) => <Field>
               <FieldLabel htmlFor={`${id}-option-name-${index}`}>{t("deliveryZones.optionName")}</FieldLabel><Input {...field} name={undefined} id={`${id}-option-name-${index}`} maxLength={120} aria-invalid={fieldState.invalid} />
@@ -127,14 +133,14 @@ export function DeliveryZonesSection({ state, couriers, pending, error, saved, o
             </Field>} />
             <Controller name={`options.${index}.amount`} control={form.control} render={({ field, fieldState }) => <Field>
               <FieldLabel htmlFor={`${id}-amount-${index}`}>{t("deliveryZones.price")}</FieldLabel><Input {...field} name={undefined} id={`${id}-amount-${index}`} inputMode="decimal" aria-invalid={fieldState.invalid} />
-              <p className="text-sm text-muted-foreground">{t("deliveryZones.priceHint")}</p>
+              <FieldDescription>{t("deliveryZones.priceHint")}</FieldDescription>
               {fieldState.error && <FieldError>{t("deliveryZones.invalidPrice")}</FieldError>}
             </Field>} />
             {methods?.[index]?.method === "agency" && <Controller name={`options.${index}.agencyIds`} control={form.control} render={({ field }) =>
               <AgencyPicker id={`${id}-agencies-${index}`} couriers={couriers} known={state.agencies} value={field.value} onChange={field.onChange} />} />}
-            <Controller name={`options.${index}.enabled`} control={form.control} render={({ field }) => <label className="flex min-h-touch items-center gap-3">
-              <input type="checkbox" checked={field.value} onChange={event => field.onChange(event.target.checked)} className="size-4 accent-primary" />{t("deliveryZones.optionActive")}
-            </label>} />
+            <Controller name={`options.${index}.enabled`} control={form.control} render={({ field }) => <Field orientation="horizontal">
+              <Checkbox id={`${id}-option-active-${index}`} checked={field.value} onCheckedChange={checked => field.onChange(checked === true)} /><FieldLabel htmlFor={`${id}-option-active-${index}`}>{t("deliveryZones.optionActive")}</FieldLabel>
+            </Field>} />
             {!option.id && <Button type="button" variant="ghost" className="self-start max-md:min-h-touch" onClick={() => remove(index)}>{t("deliveryZones.removeOption")}</Button>}
           </div>)}
           {form.formState.errors.options?.root && <FieldError>{t("deliveryZones.duplicateOption")}</FieldError>}
@@ -142,9 +148,10 @@ export function DeliveryZonesSection({ state, couriers, pending, error, saved, o
         </div>
         <div className="flex flex-wrap gap-3"><Button type="button" disabled={pending || blocked} onClick={form.handleSubmit(draft => write(draft))}>{t(pending ? "deliverySettings.saving" : "deliveryZones.save")}</Button>
           <Button type="button" variant="ghost" disabled={pending} onClick={() => { reset(empty); setEditing(undefined); }}>{t("deliveryZones.cancel")}</Button></div>
-      </fieldset>}
-    {error && <p role="alert" className="text-sm text-destructive">{t(blocked ? "deliveryZones.reloadRequired" : "deliveryZones.invalid")}</p>}
+      </FieldSet>}
+    {error && <Alert variant="destructive"><AlertDescription>{t(blocked ? "deliveryZones.reloadRequired" : "deliveryZones.invalid")}</AlertDescription></Alert>}
     {blocked && <Button asChild variant="outline" className="self-start"><a href="">{t("deliverySettings.reload")}</a></Button>}
-    {saved && !error && editing === undefined && <p role="status">{t("deliveryZones.saved")}</p>}
-  </section>;
+    {saved && !error && editing === undefined && <Alert variant="success"><AlertDescription>{t("deliveryZones.saved")}</AlertDescription></Alert>}
+    </CardContent>
+  </Card>;
 }
