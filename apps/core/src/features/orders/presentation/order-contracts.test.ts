@@ -138,7 +138,7 @@ test("current creation rejects old deliveries while archived requests remain rea
   }
 });
 
-test("order buyer and contact customer accept a null phone", () => {
+test("accepts orders whose buyer and contact customer have a null phone", () => {
   const contactId = "00000000-0000-4000-8000-000000000001";
   expect(orderBuyerSchema.safeParse({ contactId, name: null, phone: null }).success).toBe(true);
   expect(orderCustomerSchema.safeParse({ kind: "contact", contactId, name: null, phone: null }).success).toBe(true);

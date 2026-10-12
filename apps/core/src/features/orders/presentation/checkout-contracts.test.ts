@@ -52,7 +52,7 @@ test("delivery confirmation requires explicit change, rate identity and independ
   expect(confirmCheckoutDeliverySchema.safeParse(valid).success).toBe(false);
 });
 
-test("public response accepts a buyer without a phone while confirmation still requires one", () => {
+test("accepts a checkout buyer with a null phone", () => {
   const view = { companyName: "Store", number: 1001, buyer: { name: null, phone: null }, delivery: null, deliveryCharge: { amount: 0, currency: "PEN" }, itemsTotal: valid.expectedTotal, total: valid.expectedTotal,
     items: [{ productName: "Product", variantAttributes: {}, sku: null, quantity: 1, unitPrice: valid.expectedTotal, subtotal: valid.expectedTotal }], state: { kind: "pending" } };
   expect(publicCheckoutSchema.safeParse(view).success).toBe(true);

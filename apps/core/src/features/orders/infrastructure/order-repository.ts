@@ -340,7 +340,7 @@ export async function findOrders(criteria: OrderCriteria) {
       prisma.order.count({ where }),
     ]);
     return ok({ items: rows.map((row) => {
-      if (!row.completedAt || !isCurrency(row.currency) )
+      if (!row.completedAt || !isCurrency(row.currency))
         throw new InvalidStoredOrderError("Invalid stored order summary");
       return { number: storedNumber(row.number), id: row.id, completedAt: row.completedAt, sellerId: row.sellerId,
         buyer: row.buyer ? { contactId: row.buyer.contactId, name: row.buyer.name, phone: row.buyer.phone } : null,
