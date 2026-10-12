@@ -3,6 +3,7 @@ import { checkoutState, parseOrderNumber, type OrderNumber } from "@core/src/fea
 import { log } from "@core/src/shared/infrastructure/logger";
 import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
+import type { Result } from "@shared/result";
 import { isCurrency } from "@shared/money";
 import { getCompanyId, prisma, systemPrisma, requireActiveTransaction } from "@core/src/shared/infrastructure/persistance";
 import { buildOrder, type OrderItemId, type OrderId, type ContactId, type CompanyId, type UserId, type PositiveInteger } from "@core/src/features/orders/domain/order";
@@ -11,6 +12,9 @@ import { parsePayment } from "@core/src/features/orders/domain/payment";
 import type { OrderCriteria } from "@core/src/features/orders/application/read-orders";
 import type { AggregateCriteria, AggregatePage } from "@core/src/features/orders/application/list-order-aggregates";
 import type { VariantId } from "@core/src/features/products/domain/product";
+import type { ChatId } from "@core/src/features/orders/domain/message-order";
+import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
+import type { OrderChatSource } from "@core/src/features/orders/application/add-message-products-to-order";
 
 const aggregateInclude = { buyer: true, items: { orderBy: { id: "asc" as const } }, payments: { orderBy: { id: "asc" as const } } };
 type DbAggregate = Prisma.OrderGetPayload<{ include: typeof aggregateInclude }>;
@@ -113,6 +117,7 @@ function mapAggregate(row: DbAggregate, operation = "get_order_aggregate"): Orde
   if (!number.success) throw new InvalidStoredOrderError("Invalid stored order number");
   const order: OrderAggregate = { number: number.data, id: row.id as OrderId, companyId: row.companyId as CompanyId, sellerId: row.sellerId as UserId,
     buyer: row.buyer ? { contactId: row.buyer.contactId as ContactId | null, name: row.buyer.name, phone: row.buyer.phone } : null,
+    ...(row.chatId ? { chatId: row.chatId as ChatId } : {}),
     checkoutEnabledAt: row.checkoutEnabledAt, checkoutConfirmedAt: row.checkoutConfirmedAt,
     checkoutDeliveryRequest: readRequestedDelivery(row.checkoutDeliveryRequest),
     createdAt: row.createdAt, deliveredAt: row.deliveredAt, completedAt: row.completedAt, cancelled: row.cancelled, items, payments,
@@ -131,9 +136,15 @@ function mapAggregate(row: DbAggregate, operation = "get_order_aggregate"): Orde
   return order;
 }
 
-export async function savePendingOrder(order: OrderAggregate) {
+type PendingOrderFailure = Readonly<{ code: "PERSISTENCE_UNAVAILABLE" | "ORDER_ALREADY_EXISTS"; message: string }>;
+type SellerUnavailable = Readonly<{ code: "SELLER_UNAVAILABLE"; message: string }>;
+
+export function savePendingOrder(order: OrderAggregate): Promise<Result<null, PendingOrderFailure>>;
+export function savePendingOrder(order: OrderAggregate, source: OrderChatSource): Promise<Result<null, Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }> | SellerUnavailable>>;
+export async function savePendingOrder(order: OrderAggregate, source?: OrderChatSource): Promise<Result<null, PendingOrderFailure | SellerUnavailable>> {
   try {
     await prisma.order.create({ data: { number: BigInt(order.number), id: order.id, companyId: order.companyId, sellerId: order.sellerId,
+      ...(source ? { chatId: source.chatId, customerId: source.customerId } : {}),
       buyer: order.buyer ? { create: { contactId: order.buyer.contactId, name: order.buyer.name, phone: order.buyer.phone } } : undefined,
       checkoutEnabledAt: order.checkoutEnabledAt, checkoutConfirmedAt: order.checkoutConfirmedAt,
       currency: order.total.currency, total: new Prisma.Decimal(order.total.amount.toString()),
@@ -150,6 +161,8 @@ export async function savePendingOrder(order: OrderAggregate) {
     return ok<null>(null);
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
+    if (source && cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2003" && JSON.stringify(cause.meta ?? {}).includes("Order_companyId_sellerId_fkey"))
+      return err({ code: "SELLER_UNAVAILABLE" as const, message: "Seller is not available" });
     if (cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2002") {
       const target = cause.meta?.target;
       const adapterConstraint = z.object({ driverAdapterError: z.object({ cause: z.object({
@@ -160,7 +173,8 @@ export async function savePendingOrder(order: OrderAggregate) {
         log.error({ event: "unable_to_save_pending_order", operation: "create_order", errorCode: "ORDER_NUMBER_CONFLICT", err: cause }, "Unable to save pending order");
         return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save order" });
       }
-      return err({ code: "ORDER_ALREADY_EXISTS" as const, message: "Order already exists" });
+      // Un ID generado por el caso de uso no colisiona: tratarlo como fallo reintentable.
+      return source ? err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save order" }) : err({ code: "ORDER_ALREADY_EXISTS" as const, message: "Order already exists" });
     }
     log.error({ event: "unable_to_save_pending_order", err: cause }, "unable_to_save_pending_order");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save pending order" });
@@ -415,5 +429,73 @@ export async function allocateOrderNumber(companyId: CompanyId) {
     if (!knownFailure(cause) && !(cause instanceof InvalidStoredOrderError)) throw cause;
     log.error({ event: "unable_to_allocate_order_number", operation: "create_order", errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "Unable to allocate order number");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to allocate order number" });
+  }
+}
+
+export async function findProcessedMessage(messageId: ChatMessageId) {
+  try {
+    const row = await prisma.orderMessage.findFirst({ where: { companyId: getCompanyId(), messageId }, select: { orderId: true } });
+    return ok(row ? row.orderId as OrderId : null);
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_find_processed_message", err: cause }, "unable_to_find_processed_message");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read processed message" });
+  }
+}
+
+/** Most recent order of the chat that still accepts items; mirrors `isOpenForMessageItems` and is re-checked after locking. */
+export async function findOpenChatOrderCandidate(chatId: ChatId) {
+  const companyId = getCompanyId();
+  try {
+    const rows = await prisma.$queryRaw<Array<{ id: string }>>`SELECT o.id FROM "Order" o
+      WHERE o."companyId" = ${companyId}::uuid AND o."chatId" = ${chatId}::uuid
+        AND o.cancelled = false AND o."completedAt" IS NULL AND o."checkoutConfirmedAt" IS NULL
+        AND o."deliveryStatus" = 'pending' AND o."stockDeducted" = false
+        AND NOT EXISTS (SELECT 1 FROM "Payment" p WHERE p."orderId" = o.id AND p."companyId" = o."companyId" AND p.status IN ('confirmed', 'reported'))
+      ORDER BY o."createdAt" DESC, o.number DESC LIMIT 1`;
+    return ok(rows[0] ? rows[0].id as OrderId : null);
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_find_open_chat_order", err: cause }, "unable_to_find_open_chat_order");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to find open chat order" });
+  }
+}
+
+export async function saveAddedItems(order: OrderAggregate, previous: OrderAggregate) {
+  requireActiveTransaction(order.companyId);
+  const money = (value: number) => new Prisma.Decimal(value.toString());
+  const before = new Map(previous.items.map((item) => [item.id, item]));
+  try {
+    for (const item of order.items) {
+      const old = before.get(item.id);
+      if (!old) await prisma.orderItem.create({ data: { id: item.id, orderId: order.id, variantId: item.variantId, productName: item.productName,
+        variantAttributes: item.variantAttributes as Prisma.InputJsonObject, sku: item.sku, quantity: BigInt(item.quantity),
+        unitPrice: money(item.unitPrice.amount), subtotal: money(item.subtotal.amount) } });
+      else if (old.quantity !== item.quantity) await prisma.orderItem.update({ where: { id: item.id },
+        data: { quantity: BigInt(item.quantity), subtotal: money(item.subtotal.amount) } });
+    }
+    const updated = await prisma.order.updateMany({ where: { id: order.id, companyId: order.companyId, cancelled: false },
+      data: { itemsTotal: money(order.itemsTotal.amount), total: money(order.total.amount) } });
+    if (updated.count !== 1) throw new Error("Locked order was not available for item changes");
+    return ok<null>(null);
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_save_added_items", orderId: order.id, err: cause }, "unable_to_save_added_items");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save added items" });
+  }
+}
+
+export async function recordProcessedMessage(orderId: OrderId, messageId: ChatMessageId) {
+  const companyId = getCompanyId();
+  requireActiveTransaction(companyId);
+  try {
+    await prisma.orderMessage.create({ data: { companyId, orderId, messageId, createdAt: new Date() } });
+    return ok<null>(null);
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    if (cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2002")
+      return err({ code: "MESSAGE_ALREADY_PROCESSED" as const, message: "Message already processed" });
+    log.error({ event: "unable_to_record_processed_message", orderId, err: cause }, "unable_to_record_processed_message");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to record processed message" });
   }
 }
