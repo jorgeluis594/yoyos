@@ -90,6 +90,7 @@ function readRequestedDelivery(value: unknown) {
 }
 
 function mapAggregate(row: DbAggregate, operation = "get_order_aggregate"): OrderAggregate {
+  // The guard keeps phone non-null until T0b makes the domain accept a null phone; it removes the guard and the casts.
   if (!isCurrency(row.currency) || !row.items.length || (row.buyer && !row.buyer.phone) ||
     row.items.some((item) => item.quantity <= 0n || item.quantity > BigInt(Number.MAX_SAFE_INTEGER)))
     throw new InvalidStoredOrderError("Invalid stored order identity or items");
@@ -112,7 +113,7 @@ function mapAggregate(row: DbAggregate, operation = "get_order_aggregate"): Orde
   const number = parseOrderNumber(Number(row.number));
   if (!number.success) throw new InvalidStoredOrderError("Invalid stored order number");
   const order: OrderAggregate = { number: number.data, id: row.id as OrderId, companyId: row.companyId as CompanyId, sellerId: row.sellerId as UserId,
-    buyer: row.buyer ? { contactId: row.buyer.contactId as ContactId | null, name: row.buyer.name, phone: row.buyer.phone } : null,
+    buyer: row.buyer ? { contactId: row.buyer.contactId as ContactId | null, name: row.buyer.name, phone: row.buyer.phone as string } : null,
     checkoutEnabledAt: row.checkoutEnabledAt, checkoutConfirmedAt: row.checkoutConfirmedAt,
     checkoutDeliveryRequest: readRequestedDelivery(row.checkoutDeliveryRequest),
     createdAt: row.createdAt, deliveredAt: row.deliveredAt, completedAt: row.completedAt, cancelled: row.cancelled, items, payments,
@@ -342,7 +343,7 @@ export async function findOrders(criteria: OrderCriteria) {
       if (!row.completedAt || !isCurrency(row.currency) || (row.buyer && !row.buyer.phone))
         throw new InvalidStoredOrderError("Invalid stored order summary");
       return { number: storedNumber(row.number), id: row.id, completedAt: row.completedAt, sellerId: row.sellerId,
-        buyer: row.buyer ? { contactId: row.buyer.contactId, name: row.buyer.name, phone: row.buyer.phone } : null,
+        buyer: row.buyer ? { contactId: row.buyer.contactId, name: row.buyer.name, phone: row.buyer.phone as string } : null,
         total: { amount: row.total.toNumber(), currency: row.currency } };
     }), page: criteria.page, pageSize: 20, total });
   } catch (cause) {
