@@ -15,9 +15,9 @@ test("quotation input is strict and never accepts client-owned identities or pri
 test("quotation output preserves every same-method rate and explicitly allows an empty quotation", () => {
   const base = { id, destination, createdAt: "2026-10-07T16:00:00.000Z" };
   expect(quotationResponseSchema.parse({ ...base, rates: [] }).rates).toEqual([]);
-  const rates = [0, 8, 8].map((amount, index) => ({ id: id.slice(0, -1) + (index + 2), method: "home", label: "Entrega a domicilio", price: { amount, currency: "PEN" } }));
+  const rates = [0, 8, 8].map((amount, index) => ({ id: id.slice(0, -1) + (index + 2), method: "home", optionId: id, name: "Option", zoneName: "Zone", price: { amount, currency: "PEN" } }));
   expect(quotationResponseSchema.parse({ ...base, rates }).rates).toHaveLength(3);
-  for (const change of [{ method: "store" }, { label: "Internal zone" }, { zoneId: id }, { quotationId: id },
+  for (const change of [{ method: "store" }, { label: "Internal zone" }, { name: "" }, { zoneName: " " }, { optionId: "bad" }, { zoneId: id }, { quotationId: id },
     { price: { amount: -1, currency: "PEN" } }, { price: { amount: 8.001, currency: "PEN" } }]) {
     expect(quotationResponseSchema.safeParse({ ...base, rates: [{ ...rates[0], ...change }] }).success).toBe(false);
   }

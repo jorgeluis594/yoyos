@@ -24,7 +24,7 @@ export function createQuotationApi(request: Request): CreateDeliveryQuotation {
         parsed.data.rates.some(rate => rate.price.currency !== "PEN"))
         return err({ code: "INVALID_RESPONSE", message: "Invalid delivery quotation response" });
       return ok({ id: parsed.data.id, districtCode: parsed.data.destination.districtCode,
-        rates: parsed.data.rates.map(({ id, method, price }) => ({ id, method, price })) });
+        rates: parsed.data.rates.map(({ id, method, name, zoneName, price }) => ({ id, method, name, zoneName, price })) });
     }
     const error = result.error;
     if (!error.http || ["UNAUTHENTICATED", "COMPANY_REQUIRED", "RATE_LIMITED"].includes(error.code))

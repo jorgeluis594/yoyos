@@ -51,8 +51,8 @@ quotationRoutes.post("/", (request, response, next) => {
       ...("field" in error ? { field: error.field } : {}), ...("districtCode" in error ? { districtCode: error.districtCode } : {}) }));
   }
   const output = quotationResponseSchema.safeParse({ id: result.data.quotation.id, destination: result.data.quotation.destination,
-    createdAt: result.data.quotation.createdAt.toISOString(), rates: result.data.rates.map(rate => ({ id: rate.id, method: rate.method,
-      label: rate.method === "home" ? "Entrega a domicilio" : "Retiro en agencia", price: rate.price })) });
+    createdAt: result.data.quotation.createdAt.toISOString(), rates: result.data.rates.map(({ rate, name, zoneName }) => ({ id: rate.id, method: rate.method,
+      optionId: rate.optionId, name, zoneName, price: rate.price })) });
   if (!output.success) {
     log.error({ event: "quotation_response_invalid", companyId }, "Invalid quotation response");
     return apiError(response, 500, "INTERNAL_ERROR", "Internal error");

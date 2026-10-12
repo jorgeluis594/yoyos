@@ -13,6 +13,7 @@ import type { Money } from "@shared/money";
 import type { Result } from "@shared/result";
 import { checkoutDeliveryChangeSchema, type CheckoutDeliveryOptions, type ConfirmCheckoutDeliveryRequest, type PublicCheckoutResponse } from "@shared/contracts/order-checkout";
 import type { QuotationResponse } from "@shared/contracts/quotations";
+import { rateLabel } from "@core/app/rate-label";
 import { requestDeliveryQuotation, type QuotationRequestError } from "@core/src/features/delivery-settings/infrastructure/quotation-api";
 
 const draftSchema = z.object({ mode: z.enum(["", "keep", "ship", "store"]), districtCode: z.string().nullable(), rateId: z.string(),
@@ -84,7 +85,7 @@ export function CheckoutDeliveryFields({ orderId, checkout, options, onChange, r
       {current && !current.success && <div><p role="alert">No se pudieron cargar las tarifas. Tus datos siguen aquí.</p><Button type="button" variant="outline" onClick={() => setRevision(value => value + 1)}>Reintentar tarifas</Button></div>}
       {current?.success && rates.length === 0 && <p role="status">No hay opciones de envío para este distrito. Elige otro distrito{options.store.enabled ? " o recojo en tienda" : ""}.</p>}
       {rates.length > 0 && <Controller name="rateId" control={form.control} render={({ field }) => <Field><FieldLabel htmlFor="delivery-rate">Tarifa de envío</FieldLabel><select id="delivery-rate" className={controlClass} value={field.value} onBlur={field.onBlur} onChange={field.onChange}>
-        <option value="">Selecciona una tarifa</option>{rates.map((item, index) => <option key={item.id} value={item.id}>{item.label} · {amount(item.price)} · Opción {index + 1}</option>)}</select></Field>} />}
+        <option value="">Selecciona una tarifa</option>{rates.map(item => <option key={item.id} value={item.id}>{rateLabel(item, rates)} · {amount(item.price)}</option>)}</select></Field>} />}
     </>}
     {draft.mode && draft.mode !== "keep" && <>
       {input("name", "Nombre del destinatario", true)}{input("phone", "Teléfono del destinatario", true)}

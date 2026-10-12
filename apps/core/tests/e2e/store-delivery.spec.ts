@@ -93,8 +93,8 @@ test("rated pickup freezes its point and replacement preserves author and stock 
     await page.getByLabel("Dirección de entrega", { exact: true }).fill("Calle Destino 789");
     await browserExpect(page.getByRole("button", { name: "Guardar entrega" })).toBeDisabled();
     expect((await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json()).delivery.method).toBe("store");
-    expect((await page.request.put("/api/delivery-settings/zones", { data: { method: "home", expectedVersion: 3,
-      zones: [{ kind: "new", name: "Free home", enabled: true, districtCodes: ["040110"], price: { amount: 0, currency: "PEN" } }] } })).ok()).toBe(true);
+    expect((await page.request.put("/api/delivery-settings/zones", { data: { expectedVersion: 3,
+      zones: [{ kind: "new", name: "Free home", enabled: true, districtCodes: ["040110"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount: 0, currency: "PEN" } }] }] } })).ok()).toBe(true);
     await page.getByLabel("Departamento", { exact: true }).selectOption("04");
     await page.getByLabel("Provincia", { exact: true }).selectOption("0401");
     await page.getByLabel("Distrito", { exact: true }).selectOption("040110");
@@ -135,7 +135,7 @@ test("rated pickup freezes its point and replacement preserves author and stock 
       await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
       await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
       await prisma.deliveryRate.deleteMany(); await prisma.quotation.deleteMany();
-      await prisma.deliveryZoneDistrict.deleteMany(); await prisma.deliveryZone.deleteMany();
+      await prisma.deliveryZoneDistrict.deleteMany(); await prisma.deliveryOptionAgency.deleteMany(); await prisma.deliveryOption.deleteMany(); await prisma.deliveryZone.deleteMany();
       await prisma.companyDeliverySettings.deleteMany();
       await systemPrisma.user.deleteMany({ where: { email: { in: [email, otherEmail] } } });
       await prisma.company.delete({ where: { id: companyId } });

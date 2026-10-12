@@ -16,13 +16,14 @@ test("web creation rejects a stale rate atomically and retries the same order wi
     });
     expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 0, home: { enabled: true }, agency: { enabled: false },
       store: { enabled: false, pickupPoint: null }, couriers: [] } })).ok()).toBe(true);
-    const zone = { kind: "new", name: "Zone", enabled: true, districtCodes: ["040110"], price: { amount: 8, currency: "PEN" } };
-    expect((await page.request.put("/api/delivery-settings/zones", { data: { method: "home", expectedVersion: 1, zones: [zone] } })).ok()).toBe(true);
+    const zone = { kind: "new", name: "Zone", enabled: true, districtCodes: ["040110"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount: 8, currency: "PEN" } }] };
+    expect((await page.request.put("/api/delivery-settings/zones", { data: { expectedVersion: 1, zones: [zone] } })).ok()).toBe(true);
     const quoted = await page.request.post("/api/quotations", { data: { destination: { country: "PE", districtCode: "040110" } } });
     const rate = (await quoted.json()).rates[0];
     const zones = await (await page.request.get("/api/delivery-settings/zones")).json();
-    expect((await page.request.put("/api/delivery-settings/zones", { data: { method: "home", expectedVersion: 2,
-      zones: [{ ...zone, kind: "existing", id: zones.zones[0].id, price: { amount: 10, currency: "PEN" } }] } })).ok()).toBe(true);
+    expect((await page.request.put("/api/delivery-settings/zones", { data: { expectedVersion: 2,
+      zones: [{ ...zone, kind: "existing", id: zones.zones[0].id,
+        options: [{ kind: "existing", id: zones.zones[0].options[0].id, method: "home", name: "Home", enabled: true, price: { amount: 10, currency: "PEN" } }] }] } })).ok()).toBe(true);
     const id = crypto.randomUUID();
     const paymentId = crypto.randomUUID();
     const request = { id, contactId: null, items: [{ variantId, quantity: 1 }],
@@ -61,7 +62,7 @@ test("web creation rejects a stale rate atomically and retries the same order wi
       await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
       await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
       await prisma.deliveryRate.deleteMany(); await prisma.quotation.deleteMany();
-      await prisma.deliveryZoneDistrict.deleteMany(); await prisma.deliveryZone.deleteMany(); await prisma.companyDeliverySettings.deleteMany();
+      await prisma.deliveryZoneDistrict.deleteMany(); await prisma.deliveryOptionAgency.deleteMany(); await prisma.deliveryOption.deleteMany(); await prisma.deliveryZone.deleteMany(); await prisma.companyDeliverySettings.deleteMany();
       await systemPrisma.user.deleteMany({ where: { email } }); await prisma.company.delete({ where: { id: companyId } });
     });
   }

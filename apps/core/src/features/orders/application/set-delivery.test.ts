@@ -34,7 +34,7 @@ function dependencies(current: OrderAggregate | null, amount = 3) {
     const { rateId, ...details } = selection;
     const snapshot = parseDeliverySnapshot({ ...details,
       destination: { ...selection.destination, country: "PE", district: "MIRAFLORES", province: "LIMA METROPOLITANA", department: "LIMA" },
-      pricing: { rateId, quotationId: id(7), zoneId: id(8), settingsVersion: 1 },
+      pricing: { rateId, quotationId: id(7), optionId: id(8), settingsVersion: 1 },
       recordedBy: { kind: "seller", userId: access.userId } });
     if (!snapshot.success) throw new Error(snapshot.error.message);
     return ok({ delivery: snapshot.data, cost: money(amount) });

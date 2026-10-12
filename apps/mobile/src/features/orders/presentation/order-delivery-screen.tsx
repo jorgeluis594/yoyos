@@ -24,7 +24,7 @@ import { getPeruDistrict, getPeruProvinces, peruDepartments } from "@shared/peru
 import { add, type Money } from "@shared/money";
 import type { DeliveryQuotation } from "@mobile/features/delivery-settings";
 import { useTheme } from "@mobile/hooks/use-theme";
-import { documentTypeLabel, orderLanguage } from "@mobile/features/orders/presentation/order-labels";
+import { documentTypeLabel, orderLanguage, rateLabel } from "@mobile/features/orders/presentation/order-labels";
 import { orderDeliveryFormSchema, type OrderDeliveryFormValues } from "@mobile/features/orders/presentation/order-delivery-form";
 
 export default function OrderDeliveryScreen() {
@@ -177,7 +177,7 @@ export default function OrderDeliveryScreen() {
           {!quoting && quotation && rates.length === 0 ? <ThemedText>{t("orderQuotationEmpty")}</ThemedText> : null}
           {rates.length > 0 ? <Field disabled={busy || quoting} required><FieldLabel>{t("orderDeliveryRate")}</FieldLabel>
             <OptionSelector testID="delivery-rate" value={selectedRate?.id ?? null} options={rates.map(rate => ({ value: rate.id,
-              label: rate.price.amount === 0 ? t("zonesFree") : formatPrice(rate.price) }))}
+              label: rateLabel(rate, rates, rate.price.amount === 0 ? t("zonesFree") : formatPrice(rate.price)) }))}
               onValueChange={id => { const rate = rates.find(rate => rate.id === id); setValue("rateId", rate?.id ?? ""); setValue("price", rate?.price ?? null); }} />
           </Field> : null}
           {districtCode && !quoting ? <Button variant="ghost" disabled={busy} onPress={() => setQuoteAttempt(value => value + 1)}>{t("orderQuotationRetry")}</Button> : null}

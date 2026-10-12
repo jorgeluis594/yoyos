@@ -253,8 +253,8 @@ test("new order saves partial payments, paid pending delivery and configured del
     expect(product.success).toBe(true);
     expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 0, home: { enabled: true },
       store: { enabled: false, pickupPoint: null }, agency: { enabled: false }, couriers: [] } })).ok()).toBe(true);
-    expect((await page.request.put("/api/delivery-settings/zones", { data: { method: "home", expectedVersion: 1,
-      zones: [{ kind: "new", name: "Creation zone", enabled: true, districtCodes: ["040110"], price: { amount: 3, currency: "PEN" } }] } })).ok()).toBe(true);
+    expect((await page.request.put("/api/delivery-settings/zones", { data: { expectedVersion: 1,
+      zones: [{ kind: "new", name: "Creation zone", enabled: true, districtCodes: ["040110"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount: 3, currency: "PEN" } }] }] } })).ok()).toBe(true);
     for (const scenario of ["partial", "paid", "delivery", "no-stock"] as const) {
       if (scenario === "no-stock") await withTenantIsolation(companyId, async () => await prisma.productStock.updateMany({ data: { quantity: 0n } }));
       await page.goto("/es-PE/orders/new");
@@ -299,8 +299,9 @@ test("new order saves partial payments, paid pending delivery and configured del
         await browserExpect(page.locator("#resumen strong")).toHaveText(formatCurrency(13, "PEN", "es"));
         const countBefore = await withTenantIsolation(companyId, async () => await prisma.order.count());
         const stateBefore = await (await page.request.get("/api/delivery-settings/zones")).json();
-        expect((await page.request.put("/api/delivery-settings/zones", { data: { method: "home", expectedVersion: stateBefore.version,
-          zones: stateBefore.zones.map((zone: { id: string; name: string; enabled: boolean; districtCodes: string[] }) => ({ ...zone, method: undefined, kind: "existing", price: { amount: 4, currency: "PEN" } })) } })).ok()).toBe(true);
+        expect((await page.request.put("/api/delivery-settings/zones", { data: { expectedVersion: stateBefore.version,
+          zones: stateBefore.zones.map((zone: { id: string; name: string; enabled: boolean; districtCodes: string[]; options: { price: unknown }[] }) => ({ ...zone, kind: "existing",
+            options: zone.options.map(option => ({ ...option, kind: "existing", price: { amount: 4, currency: "PEN" } })) })) } })).ok()).toBe(true);
         await page.getByRole("button", { name: "Guardar pedido" }).click();
         await browserExpect(page.getByRole("alert")).toContainText("La tarifa cambió");
         expect(await withTenantIsolation(companyId, async () => await prisma.order.count())).toBe(countBefore);
@@ -340,7 +341,7 @@ test("new order saves partial payments, paid pending delivery and configured del
       await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
       await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
       await prisma.deliveryRate.deleteMany(); await prisma.quotation.deleteMany();
-      await prisma.deliveryZoneDistrict.deleteMany(); await prisma.deliveryZone.deleteMany();
+      await prisma.deliveryZoneDistrict.deleteMany(); await prisma.deliveryOptionAgency.deleteMany(); await prisma.deliveryOption.deleteMany(); await prisma.deliveryZone.deleteMany();
       await prisma.companyDeliverySettings.deleteMany();
     });
     await systemPrisma.user.deleteMany({ where: { email } });

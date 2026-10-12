@@ -53,7 +53,7 @@ export const deliverySettings = {
   saveZones: (input: SaveDeliveryZonesInput, context: DeliverySettingsAccess) => saveDeliveryZones(input, context, {
     transaction: (_companyId, work) => settingsTransaction(context, "save_delivery_zones", input.expectedVersion, work),
     readForUpdate: companyId => readDeliveryConfiguration(companyId, "exclusive"),
-    saveSettings: writeDeliverySettings, saveZones: writeDeliveryZones, generateZoneId: randomUUID,
+    saveSettings: writeDeliverySettings, saveZones: writeDeliveryZones, generateZoneId: randomUUID, generateOptionId: randomUUID,
   }),
   get: (context: DeliverySettingsAccess, operation = "get_delivery_settings") => settingsTransaction(context, operation, undefined,
     () => getDeliverySettings(context, (companyId) => readDeliverySettings(companyId, "shared", undefined, operation))),

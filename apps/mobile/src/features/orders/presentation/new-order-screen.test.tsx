@@ -71,7 +71,7 @@ jest.mock("@mobile/features/orders/presentation/order-result", () => ({ useOrder
 jest.mock("react-native-screens/experimental", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 
-const firstRate = { id: mockId(30), method: "home" as const, price: { amount: 8, currency: "PEN" as const } };
+const firstRate = { id: mockId(30), method: "home" as const, name: "Standard", zoneName: "Lima", price: { amount: 8, currency: "PEN" as const } };
 const secondRate = { ...firstRate, id: mockId(31), price: { amount: 12, currency: "PEN" as const } };
 const freeAgency = { ...firstRate, id: mockId(32), method: "agency" as const, price: { amount: 0, currency: "PEN" as const } };
 const quotation = { id: mockId(33), districtCode: "150122", rates: [firstRate, secondRate, freeAgency] };

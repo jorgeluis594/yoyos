@@ -2,23 +2,25 @@ import { err, ok } from "@shared/functional";
 import type { Currency } from "@shared/money";
 import type { Result } from "@shared/result";
 import { initialDeliverySettings, parseDeliverySettings, type DeliverySettings, type DeliverySettingsError } from "@core/src/features/delivery-settings/domain/delivery-settings";
-import { prepareDeliveryZones, type DeliveryZone, type DeliveryZoneInput, type DeliveryZoneError, type ZonedDeliveryMethod } from "@core/src/features/delivery-settings/domain/delivery-zone";
+import { prepareDeliveryZones, type DeliveryZone, type DeliveryZoneInput, type DeliveryZoneError } from "@core/src/features/delivery-settings/domain/delivery-zone";
 import type { DeliverySettingsAccess } from "@core/src/features/delivery-settings/application/delivery-settings";
-import type { DeliveryConfiguration, QuotationStorageError } from "@core/src/features/delivery-settings/application/create-quotation";
+import type { QuotationStorageError } from "@core/src/features/delivery-settings/application/create-quotation";
+import type { DeliveryConfiguration } from "@core/src/features/delivery-settings/domain/quotation";
 
 export type DeliveryZonesState = Readonly<{
   home: DeliverySettings["home"]; agency: DeliverySettings["agency"]; version: number; currency: Currency; zones: readonly DeliveryZone[];
 }>;
 export type DeliveryZonesError = DeliveryZoneError | DeliverySettingsError | QuotationStorageError
   | Readonly<{ code: "UNSUPPORTED_COUNTRY"; message: string }>;
-export type SaveDeliveryZonesInput = Readonly<{ method: ZonedDeliveryMethod; expectedVersion: number; zones: readonly DeliveryZoneInput[] }>;
+export type SaveDeliveryZonesInput = Readonly<{ expectedVersion: number; zones: readonly DeliveryZoneInput[] }>;
 export type ReadDeliveryConfiguration = (companyId: string) => Promise<Result<DeliveryConfiguration, QuotationStorageError>>;
 export type SaveDeliveryZonesDependencies = Readonly<{
   transaction: <T>(companyId: string, work: () => Promise<Result<T, DeliveryZonesError>>) => Promise<Result<T, DeliveryZonesError>>;
   readForUpdate: ReadDeliveryConfiguration;
   saveSettings: (companyId: string, settings: DeliverySettings) => Promise<Result<null, DeliverySettingsError>>;
-  saveZones: (companyId: string, method: ZonedDeliveryMethod, zones: readonly DeliveryZone[]) => Promise<Result<null, QuotationStorageError>>;
+  saveZones: (companyId: string, zones: readonly DeliveryZone[]) => Promise<Result<null, QuotationStorageError>>;
   generateZoneId: () => string;
+  generateOptionId: () => string;
 }>;
 
 function zonesState(configuration: DeliveryConfiguration): DeliveryZonesState {
@@ -46,12 +48,13 @@ export async function saveDeliveryZones(input: SaveDeliveryZonesInput, context: 
     if (configuration.currency !== "PEN") return err({ code: "INVALID_DELIVERY_SETTINGS", message: "Peru delivery settings must use PEN" });
     if (configuration.settings.version !== input.expectedVersion)
       return err({ code: "DELIVERY_SETTINGS_CONFLICT", reason: "stale_version", currentVersion: configuration.settings.version, message: "Settings changed since they were loaded" });
-    const zones = prepareDeliveryZones({ method: input.method, zones: input.zones }, configuration.zones, configuration.currency, deps.generateZoneId);
+    const zones = prepareDeliveryZones(input.zones, { current: configuration.zones, agencies: configuration.agencies, couriers: configuration.settings.couriers,
+      currency: configuration.currency, generateZoneId: deps.generateZoneId, generateOptionId: deps.generateOptionId });
     if (!zones.success) return zones;
     const settings: DeliverySettings = { ...configuration.settings, version: input.expectedVersion + 1 };
     const savedSettings = await deps.saveSettings(context.companyId, settings);
     if (!savedSettings.success) return savedSettings;
-    const savedZones = await deps.saveZones(context.companyId, input.method, zones.data.filter(zone => zone.method === input.method));
+    const savedZones = await deps.saveZones(context.companyId, zones.data);
     return savedZones.success ? ok(zonesState({ ...configuration, settings, zones: zones.data })) : savedZones;
   });
 }

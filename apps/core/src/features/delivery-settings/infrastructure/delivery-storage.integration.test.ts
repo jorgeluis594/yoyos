@@ -11,41 +11,47 @@ async function fixture() {
   const run = <T>(work: () => Promise<T>) => withTenantIsolation(companyId, async () => await work());
   await run(() => prisma.company.create({ data: { id: companyId, name: "Delivery storage test", country: "PE" } }));
   return { companyId, run, cleanup: () => run(async () => {
-    await prisma.deliveryOptionAgency.deleteMany();
-    await prisma.deliveryOption.deleteMany();
     await prisma.deliveryRate.deleteMany();
     await prisma.quotation.deleteMany();
+    await prisma.deliveryOptionAgency.deleteMany();
+    await prisma.deliveryOption.deleteMany();
     await prisma.deliveryZoneDistrict.deleteMany();
     await prisma.deliveryZone.deleteMany();
     await prisma.company.delete({ where: { id: companyId } });
   }) };
 }
-const zoneData = () => ({ id: randomUUID(), method: "home", name: "Nearby", enabled: true, priceAmount: 8, priceCurrency: "PEN" });
+const zoneData = () => ({ id: randomUUID(), name: "Nearby", enabled: true });
+const optionData = (zoneId: string, method = "home") => ({ id: randomUUID(), zoneId, method, name: "Standard", enabled: true, priceAmount: 8, priceCurrency: "PEN" });
 const quotationData = () => ({ id: randomUUID(), destination, createdAt: new Date("2026-10-07T16:00:00Z") });
-const rateData = (quotationId: string, zoneId: string) => ({ id: randomUUID(), quotationId, zoneId, method: "home", districtCode: "150122",
+const rateData = (quotationId: string, optionId: string) => ({ id: randomUUID(), quotationId, optionId, method: "home", districtCode: "150122",
   priceAmount: 8, priceCurrency: "PEN", settingsVersion: 1, createdAt: new Date("2026-10-07T16:00:00Z") });
+const zoneWithOption = async () => {
+  const zone = await prisma.deliveryZone.create({ data: zoneData() });
+  return { zone, option: await prisma.deliveryOption.create({ data: optionData(zone.id) }) };
+};
 
 test("storage allows overlapping zones and multiple quotations while retaining generated prices after configuration changes", async () => {
   const f = await fixture();
   try {
     await f.run(async () => {
-      const [first, second] = await Promise.all([prisma.deliveryZone.create({ data: zoneData() }), prisma.deliveryZone.create({ data: zoneData() })]);
-      for (const zone of [first, second]) {
+      const [first, second] = [await zoneWithOption(), await zoneWithOption()];
+      for (const { zone } of [first, second]) {
         expect(zone.companyId).toBe(f.companyId);
-        await prisma.deliveryZoneDistrict.create({ data: { method: "home", zoneId: zone.id, districtCode: "150122" } });
+        await prisma.deliveryZoneDistrict.create({ data: { zoneId: zone.id, districtCode: "150122" } });
       }
       expect(await prisma.deliveryZoneDistrict.count({ where: { districtCode: "150122" } })).toBe(2);
-      await expect(prisma.deliveryZoneDistrict.create({ data: { method: "home", zoneId: first.id, districtCode: "150122" } })).rejects.toMatchObject({ code: "P2002" });
+      await expect(prisma.deliveryZoneDistrict.create({ data: { zoneId: first.zone.id, districtCode: "150122" } })).rejects.toMatchObject({ code: "P2002" });
       const quotation = await prisma.quotation.create({ data: quotationData() });
       const rates = [];
-      for (const zone of [first, second]) rates.push(await prisma.deliveryRate.create({ data: rateData(quotation.id, zone.id) }));
+      for (const { option } of [first, second]) rates.push(await prisma.deliveryRate.create({ data: rateData(quotation.id, option.id) }));
       expect(rates.map(rate => rate.companyId)).toEqual([f.companyId, f.companyId]);
-      await expect(prisma.deliveryRate.create({ data: rateData(quotation.id, first.id) })).rejects.toMatchObject({ code: "P2002" });
+      await expect(prisma.deliveryRate.create({ data: rateData(quotation.id, first.option.id) })).rejects.toMatchObject({ code: "P2002" });
       const next = await prisma.quotation.create({ data: quotationData() });
-      await prisma.deliveryRate.create({ data: rateData(next.id, first.id) });
-      await prisma.deliveryZone.update({ where: { id: first.id }, data: { enabled: false, priceAmount: 10 } });
-      await prisma.deliveryZoneDistrict.deleteMany({ where: { zoneId: first.id } });
-      const persisted = await prisma.deliveryRate.findMany({ where: { quotationId: quotation.id }, orderBy: { zoneId: "asc" } });
+      await prisma.deliveryRate.create({ data: rateData(next.id, first.option.id) });
+      await prisma.deliveryZone.update({ where: { id: first.zone.id }, data: { enabled: false } });
+      await prisma.deliveryOption.update({ where: { id: first.option.id }, data: { enabled: false, priceAmount: 10 } });
+      await prisma.deliveryZoneDistrict.deleteMany({ where: { zoneId: first.zone.id } });
+      const persisted = await prisma.deliveryRate.findMany({ where: { quotationId: quotation.id }, orderBy: { optionId: "asc" } });
       expect(persisted).toHaveLength(2);
       expect(persisted.every(rate => rate.priceAmount.toNumber() === 8 && rate.districtCode === "150122")).toBe(true);
       expect(await prisma.quotation.findUnique({ where: { id: quotation.id } })).toEqual(quotation);
@@ -54,56 +60,57 @@ test("storage allows overlapping zones and multiple quotations while retaining g
   } finally { await f.cleanup(); }
 });
 
-test("zone and rate constraints reject invalid prices, methods, versions and malformed destination JSON", async () => {
+test("option and rate constraints reject invalid prices, methods, versions and malformed destination JSON", async () => {
   const f = await fixture();
   try {
     await f.run(async () => {
+      for (const invalid of [{ name: " " }]) await expect(prisma.deliveryZone.create({ data: { ...zoneData(), ...invalid } })).rejects.toThrow();
+      const { zone, option } = await zoneWithOption();
       for (const invalid of [{ method: "store" }, { name: " " }, { priceAmount: -1 }, { priceAmount: "NaN" }, { priceCurrency: "INVALID" }]) {
-        await expect(prisma.deliveryZone.create({ data: { ...zoneData(), ...invalid } })).rejects.toThrow();
+        await expect(prisma.deliveryOption.create({ data: { ...optionData(zone.id), ...invalid } })).rejects.toThrow();
       }
-      const zone = await prisma.deliveryZone.create({ data: { ...zoneData(), priceAmount: 0 } });
-      expect(zone.priceAmount.toNumber()).toBe(0);
-      for (const invalid of [{ method: "agency", districtCode: "150122" }, { method: "home", districtCode: "abc" }]) {
-        await expect(prisma.deliveryZoneDistrict.create({ data: { ...invalid, zoneId: zone.id } })).rejects.toThrow();
-      }
+      expect((await prisma.deliveryOption.create({ data: { ...optionData(zone.id), priceAmount: 0 } })).priceAmount.toNumber()).toBe(0);
+      await expect(prisma.deliveryZoneDistrict.create({ data: { districtCode: "abc", zoneId: zone.id } })).rejects.toThrow();
       for (const invalid of [{}, { ...destination, country: null }, { ...destination, country: "US" },
         { ...destination, kind: "home" }, { ...destination, districtCode: 150122 }, { ...destination, address: 123 }]) {
         await expect(prisma.quotation.create({ data: { ...quotationData(), destination: invalid } })).rejects.toThrow();
       }
       const quotation = await prisma.quotation.create({ data: quotationData() });
+      // The composite (companyId, method, optionId) key rejects a rate whose method differs from its option's.
       for (const invalid of [{ method: "store" }, { method: "agency" }, { districtCode: "abc" }, { priceAmount: -1 },
         { settingsVersion: -1 }, { priceCurrency: "INVALID" }]) {
-        await expect(prisma.deliveryRate.create({ data: { ...rateData(quotation.id, zone.id), ...invalid } })).rejects.toThrow();
+        await expect(prisma.deliveryRate.create({ data: { ...rateData(quotation.id, option.id), ...invalid } })).rejects.toThrow();
       }
       expect(await prisma.deliveryRate.count()).toBe(0);
     });
   } finally { await f.cleanup(); }
 });
 
-test("restricted tenant access and composite relationships prevent cross-company quotations, zones and rates", async () => {
+test("restricted tenant access and composite relationships prevent cross-company quotations, options and rates", async () => {
   const [a, b] = await Promise.all([fixture(), fixture()]);
   try {
     const own = await a.run(async () => {
-      const zone = await prisma.deliveryZone.create({ data: zoneData() });
-      await prisma.deliveryZoneDistrict.create({ data: { method: "home", zoneId: zone.id, districtCode: "150122" } });
+      const { zone, option } = await zoneWithOption();
+      await prisma.deliveryZoneDistrict.create({ data: { zoneId: zone.id, districtCode: "150122" } });
       const quotation = await prisma.quotation.create({ data: quotationData() });
-      const rate = await prisma.deliveryRate.create({ data: rateData(quotation.id, zone.id) });
+      const rate = await prisma.deliveryRate.create({ data: rateData(quotation.id, option.id) });
       const role = await prisma.$queryRaw<{ superuser: boolean; bypass: boolean }[]>`SELECT rolsuper AS superuser, rolbypassrls AS bypass FROM pg_roles WHERE rolname = current_user`;
       expect(role).toEqual([{ superuser: false, bypass: false }]);
-      return { zone, quotation, rate };
+      return { zone, option, quotation, rate };
     });
     await b.run(async () => {
       expect(await prisma.deliveryZone.findMany()).toEqual([]);
+      expect(await prisma.deliveryOption.findMany()).toEqual([]);
       expect(await prisma.deliveryZoneDistrict.findMany()).toEqual([]);
       expect(await prisma.quotation.findMany()).toEqual([]);
       expect(await prisma.deliveryRate.findMany()).toEqual([]);
       expect(await prisma.deliveryRate.updateMany({ where: { id: own.rate.id }, data: { priceAmount: 0 } })).toMatchObject({ count: 0 });
       await expect(prisma.deliveryZone.create({ data: { ...zoneData(), companyId: a.companyId } })).rejects.toThrow();
-      const zone = await prisma.deliveryZone.create({ data: zoneData() });
+      const mine = await zoneWithOption();
       const quotation = await prisma.quotation.create({ data: quotationData() });
-      await expect(prisma.deliveryZoneDistrict.create({ data: { method: "home", zoneId: own.zone.id, districtCode: "150122" } })).rejects.toMatchObject({ code: "P2003" });
-      await expect(prisma.deliveryRate.create({ data: rateData(own.quotation.id, zone.id) })).rejects.toMatchObject({ code: "P2003" });
-      await expect(prisma.deliveryRate.create({ data: rateData(quotation.id, own.zone.id) })).rejects.toMatchObject({ code: "P2003" });
+      await expect(prisma.deliveryZoneDistrict.create({ data: { zoneId: own.zone.id, districtCode: "150122" } })).rejects.toMatchObject({ code: "P2003" });
+      await expect(prisma.deliveryRate.create({ data: rateData(own.quotation.id, mine.option.id) })).rejects.toMatchObject({ code: "P2003" });
+      await expect(prisma.deliveryRate.create({ data: rateData(quotation.id, own.option.id) })).rejects.toMatchObject({ code: "P2003" });
       await expect(prisma.quotation.create({ data: { ...quotationData(), companyId: a.companyId } })).rejects.toThrow();
     });
   } finally { await Promise.all([a.cleanup(), b.cleanup()]); }
@@ -113,11 +120,11 @@ test("failed rate insertion rolls back the quotation and all previously inserted
   const f = await fixture();
   try {
     await f.run(async () => {
-      const zone = await prisma.deliveryZone.create({ data: zoneData() });
+      const { option } = await zoneWithOption();
       await expect(withinTransaction(async () => {
         const quotation = await prisma.quotation.create({ data: quotationData() });
-        await prisma.deliveryRate.create({ data: rateData(quotation.id, zone.id) });
-        await prisma.deliveryRate.create({ data: rateData(quotation.id, zone.id) });
+        await prisma.deliveryRate.create({ data: rateData(quotation.id, option.id) });
+        await prisma.deliveryRate.create({ data: rateData(quotation.id, option.id) });
         return ok(null);
       })).rejects.toMatchObject({ code: "P2002" });
       expect(await prisma.quotation.count()).toBe(0);
@@ -127,7 +134,6 @@ test("failed rate insertion rolls back the quotation and all previously inserted
   } finally { await f.cleanup(); }
 });
 
-const optionData = (zoneId: string, method = "home") => ({ id: randomUUID(), zoneId, method, name: "Standard", enabled: true, priceAmount: 8, priceCurrency: "PEN" });
 // The app role cannot write catalogs, so test agencies are created with the migration role.
 async function withAgency<T>(courierId: string, work: (agencyId: string) => Promise<T>) {
   const admin = new pg.Client({ connectionString: process.env.MIGRATION_TEST_DATABASE_URL });

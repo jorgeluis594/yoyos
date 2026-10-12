@@ -1,5 +1,6 @@
 import express, { type Response } from "express";
-import { courierCatalogSchema, saveDeliverySettingsSchema, deliveryZonesSchema, saveDeliveryZonesSchema, deliveryZonesApiErrorSchema } from "@shared/contracts/delivery-settings";
+import { parseDeliveryZonesResponse } from "@core/src/features/delivery-settings/presentation/zones-response";
+import { courierCatalogSchema, saveDeliverySettingsSchema, saveDeliveryZonesSchema, deliveryZonesApiErrorSchema } from "@shared/contracts/delivery-settings";
 import { apiError, type PrivateLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
@@ -9,8 +10,10 @@ import type { DeliveryZonesError, DeliveryZonesState } from "@core/src/features/
 
 function deliveryZonesHttpError(response: Response, error: DeliveryZonesError) {
   switch (error.code) {
-    case "INVALID_DELIVERY_ZONE": return response.status(422).json(deliveryZonesApiErrorSchema.parse({ code: error.code,
-      error: "Invalid delivery zone", field: error.field, index: error.index }));
+    case "INVALID_DELIVERY_ZONE":
+    case "INVALID_DELIVERY_OPTION": return response.status(422).json(deliveryZonesApiErrorSchema.parse({ code: error.code,
+      error: error.code === "INVALID_DELIVERY_ZONE" ? "Invalid delivery zone" : "Invalid delivery option",
+      field: error.field, index: error.index, optionIndex: error.optionIndex }));
     case "DELIVERY_SETTINGS_CONFLICT": return response.status(409).json(deliveryZonesApiErrorSchema.parse({ code: error.code,
       error: "Delivery settings changed; reload before saving again", currentVersion: error.currentVersion, reason: error.reason }));
     case "UNSUPPORTED_COUNTRY": return apiError(response, 422, error.code, "Delivery zones are available only in Peru");
@@ -23,7 +26,7 @@ function deliveryZonesHttpError(response: Response, error: DeliveryZonesError) {
 }
 
 function deliveryZonesJson(response: Response, state: DeliveryZonesState) {
-  const parsed = deliveryZonesSchema.safeParse(state);
+  const parsed = parseDeliveryZonesResponse(state);
   return parsed.success ? response.json(parsed.data) : apiError(response, 500, "INTERNAL_ERROR", "Internal error");
 }
 

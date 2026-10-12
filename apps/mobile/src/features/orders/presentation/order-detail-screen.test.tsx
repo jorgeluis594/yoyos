@@ -219,7 +219,7 @@ test("a failed refetch after returning hides obsolete details and offers retry",
 
 test("home details show historical address, district, instructions and seller alongside cost and charge", async () => {
   mockOrder = { ...initialOrder, status: "active", completedAt: null, deliveryStatus: "pending", deliveryCost: { amount: 3, currency: "PEN" },
-    delivery: { method: "home", recipient: { name: "Recipient", phone: "555", identity: { kind: "absent" } }, destination: { address: "Historic destination", country: "PE" as const, districtCode: "150101", province: "Lima", department: "Lima", district: "Historic district", instructions: "Historic instructions" }, pricing: { quotationId: "00000000-0000-4000-8000-000000000020", rateId: "00000000-0000-4000-8000-000000000021", zoneId: "00000000-0000-4000-8000-000000000022", settingsVersion: 1 }, recordedBy: { kind: "seller", userId: "second-seller" } } };
+    delivery: { method: "home", recipient: { name: "Recipient", phone: "555", identity: { kind: "absent" } }, destination: { address: "Historic destination", country: "PE" as const, districtCode: "150101", province: "Lima", department: "Lima", district: "Historic district", instructions: "Historic instructions" }, pricing: { quotationId: "00000000-0000-4000-8000-000000000020", rateId: "00000000-0000-4000-8000-000000000021", optionId: "00000000-0000-4000-8000-000000000022", settingsVersion: 1 }, recordedBy: { kind: "seller", userId: "second-seller" } } };
   const screen = render(<OrderDetailScreen />);
   await screen.findByRole("button", { name: "Domicilio" });
   fireEvent.press(screen.getByRole("button", { name: "Domicilio" }));
@@ -384,7 +384,7 @@ test('rated agency delivery shows its district and pending operational assignmen
   mockOrder = { ...initialOrder, delivery: { method: 'agency',
     recipient: { name: 'Ana', phone: '999', identity: { kind: 'document', documentType: 'national_id', document: '12345678' } },
     destination: { country: 'PE', districtCode: '150122', district: 'Miraflores', province: 'Lima', department: 'Lima' },
-    pricing: { quotationId: mockId, rateId: mockId, zoneId: mockId, settingsVersion: 3 },
+    pricing: { quotationId: mockId, rateId: mockId, optionId: mockId, settingsVersion: 3 },
     courier: null, agency: null, recordedBy: { kind: 'buyer' } } };
   const screen = render(<OrderDetailScreen />);
   fireEvent.press(await screen.findByRole('button', { name: /Agencia/ }));

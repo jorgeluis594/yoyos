@@ -6,7 +6,7 @@ import { z } from "zod";
 import { buildOrder, type BuildOrderInput, type BuildOrderError, type CompanyId, type OrderId, type OrderItem, type UserId } from "@core/src/features/orders/domain/order";
 import { parsePayment, voidPayment, type ConfirmedPayment, type Payment, type ReportedPayment } from "@core/src/features/orders/domain/payment";
 import { getPeruDistrict, getPeruProvinces, peruDepartments, parsePeruDistrictCode, type PeruDistrictCode, type PeruDistrictError } from "@shared/peru-geography";
-import type { QuotationId, DeliveryRateId, DeliveryZoneId, DeliverySettingsVersion, ResolvedDeliveryRate } from "@core/src/features/delivery-settings";
+import type { QuotationId, DeliveryRateId, DeliveryOptionId, DeliverySettingsVersion, ResolvedDeliveryRate } from "@core/src/features/delivery-settings";
 import type { PickupPoint } from "@core/src/features/delivery-settings";
 
 export type OrderStatus = "active" | "cancelled" | "completed";
@@ -24,7 +24,7 @@ export type RatedDeliverySelection =
       destination: Readonly<{ districtCode: PeruDistrictCode; address: string; instructions: string | null }> }>
   | Readonly<{ method: "agency"; recipient: AgencyRecipient; rateId: DeliveryRateId; districtCode: PeruDistrictCode }>
   | Readonly<{ method: "store"; recipient: Recipient }>;
-export type DeliveryPricing = Readonly<{ quotationId: QuotationId; rateId: DeliveryRateId; zoneId: DeliveryZoneId; settingsVersion: DeliverySettingsVersion }>;
+export type DeliveryPricing = Readonly<{ quotationId: QuotationId; rateId: DeliveryRateId; optionId: DeliveryOptionId; settingsVersion: DeliverySettingsVersion }>;
 export type PeruDeliveryDistrict = Readonly<{ country: "PE"; districtCode: PeruDistrictCode; district: string; province: string; department: string }>;
 export type DeliverySnapshot = Readonly<{ recordedBy: DeliveryAuthor }> & (
   | Readonly<{ method: "home"; recipient: Recipient; destination: HomeDestination & PeruDeliveryDistrict; pricing: DeliveryPricing }>
@@ -129,7 +129,7 @@ export function buildRatedDeliverySnapshot(selection: Exclude<RatedDeliverySelec
   const province = district && getPeruProvinces(district.departmentCode).find(value => value.code === district.provinceCode);
   if (!district || !department || !province) return err({ code: "INVALID_DISTRICT", message: "Select a district from the Peru catalog" });
   const destination: PeruDeliveryDistrict = { country: "PE", districtCode: district.code, district: district.name, province: province.name, department: department.name };
-  const pricing: DeliveryPricing = { quotationId: rate.quotationId, rateId: rate.rateId, zoneId: rate.zoneId, settingsVersion: rate.settingsVersion };
+  const pricing: DeliveryPricing = { quotationId: rate.quotationId, rateId: rate.rateId, optionId: rate.optionId, settingsVersion: rate.settingsVersion };
   return parseDeliverySnapshot(selection.method === "home"
     ? { method: "home", recipient: selection.recipient, destination: { ...destination, address: selection.destination.address, instructions: selection.destination.instructions }, pricing, recordedBy: author }
     : { method: "agency", recipient: selection.recipient, destination, courier: null, agency: null, pricing, recordedBy: author });
@@ -137,7 +137,7 @@ export function buildRatedDeliverySnapshot(selection: Exclude<RatedDeliverySelec
 
 const settingsVersion = z.number().int().min(0).max(2147483647).transform(value => value as DeliverySettingsVersion);
 const pricing = z.strictObject({ quotationId: z.uuid().transform(value => value as QuotationId),
-  rateId: z.uuid().transform(value => value as DeliveryRateId), zoneId: z.uuid().transform(value => value as DeliveryZoneId), settingsVersion });
+  rateId: z.uuid().transform(value => value as DeliveryRateId), optionId: z.uuid().transform(value => value as DeliveryOptionId), settingsVersion });
 const peruDistrict = z.strictObject({ country: z.literal("PE"),
   districtCode: z.string().refine(value => parsePeruDistrictCode(value).success).transform(value => value as PeruDistrictCode),
   district: requiredText.max(120), province: requiredText.max(120), department: requiredText.max(120) });

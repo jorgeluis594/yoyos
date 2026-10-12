@@ -32,7 +32,7 @@ test("payment and delivery contracts reject invented fields and incomplete agenc
   const id = "00000000-0000-4000-8000-000000000002";
   const agency = { method: "agency", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
     destination: { country: "PE", districtCode: "150122", district: "Miraflores", province: "Lima", department: "Lima" },
-    pricing: { quotationId: id, rateId: id, zoneId: id, settingsVersion: 1 }, courier: null, agency: null, recordedBy: { kind: "seller", userId: "seller" } };
+    pricing: { quotationId: id, rateId: id, optionId: id, settingsVersion: 1 }, courier: null, agency: null, recordedBy: { kind: "seller", userId: "seller" } };
   expect(deliverySnapshotSchema.safeParse(agency).success).toBe(false);
   const documented = { ...agency, recipient: { ...agency.recipient, identity: { kind: "document", documentType: "passport", document: "A-001" } } };
   expect(deliverySnapshotSchema.safeParse(documented).success).toBe(true);
@@ -69,7 +69,7 @@ test("delivery text boundaries accept their limits and reject excess without lim
 test("rated snapshots require complete pricing and geographic references and reject free-text agencies and snapshots without pricing", () => {
   const id = "00000000-0000-4000-8000-000000000001";
   const recipient = { name: "Ana", phone: "999", identity: { kind: "document", documentType: "national_id", document: "12345678" } };
-  const pricing = { quotationId: id, rateId: id, zoneId: id, settingsVersion: 2 };
+  const pricing = { quotationId: id, rateId: id, optionId: id, settingsVersion: 2 };
   const district = { country: "PE", districtCode: "150122", district: "Miraflores", province: "Lima", department: "Lima" };
   const author = { kind: "buyer" };
   const home = { method: "home", recipient, destination: { ...district, address: "Street", instructions: null }, pricing, recordedBy: author };

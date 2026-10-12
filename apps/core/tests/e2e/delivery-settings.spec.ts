@@ -163,38 +163,35 @@ test("seller configures store pickup, preserves a conflicting draft and explicit
   }
 });
 
-test("seller manages overlapping home zones and preserves an edit on a shared-version conflict", async ({ page }) => {
+test("seller manages overlapping zones with delivery options and preserves an edit on a shared-version conflict", async ({ page }) => {
   const email = `delivery-zones-${crypto.randomUUID()}@example.test`;
   let companyId: string | undefined;
-  const panel = page.getByRole("tabpanel");
   const buyer = await page.context().browser()!.newContext({ baseURL: `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}` });
   try {
     companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "Zones store", country: "PE" });
     await page.goto("/es-PE/settings/delivery");
     await page.getByRole("tab", { name: "Domicilio", exact: false }).click();
-    await panel.getByLabel("Ofrecer entrega a domicilio").check();
+    await page.getByRole("tabpanel").getByLabel("Ofrecer entrega a domicilio").check();
     await page.getByRole("button", { name: "Guardar configuración", exact: true }).click();
     await browserExpect(page.getByText("Configuración guardada.", { exact: true })).toBeVisible();
-    await browserExpect(page.getByText("Falta configurar cobertura", { exact: true })).toBeVisible();
-    for (const [name, price] of [["Cercana", "8"], ["Extendida", "12"]]) {
+    await browserExpect(page.getByText("Falta una opción de domicilio activa con cobertura", { exact: true })).toBeVisible();
+    for (const [name, option, price] of [["Cercana", "Moto", "8"], ["Extendida", "Camión", "12"]]) {
       await page.getByRole("button", { name: "Agregar zona", exact: true }).click();
-      await panel.getByLabel("Nombre de la zona", { exact: true }).fill(name);
-      await panel.getByLabel("Departamento", { exact: true }).selectOption("15");
-      await panel.getByLabel("Provincia", { exact: true }).selectOption("1501");
-      await panel.getByLabel("Buscar distrito", { exact: true }).fill("150122");
+      await page.getByLabel("Nombre de la zona", { exact: true }).fill(name);
+      await page.getByLabel("Departamento", { exact: true }).selectOption("15");
+      await page.getByLabel("Provincia", { exact: true }).selectOption("1501");
+      await page.getByLabel("Buscar distrito", { exact: true }).fill("150122");
       await page.getByRole("checkbox", { name: "MIRAFLORES · 150122", exact: true }).check();
       if (name === "Cercana") {
-        await panel.getByLabel("Departamento", { exact: true }).selectOption("04");
-        await panel.getByLabel("Provincia", { exact: true }).selectOption("0401");
-        await panel.getByLabel("Buscar distrito", { exact: true }).fill("040110");
+        await page.getByLabel("Departamento", { exact: true }).selectOption("04");
+        await page.getByLabel("Provincia", { exact: true }).selectOption("0401");
+        await page.getByLabel("Buscar distrito", { exact: true }).fill("040110");
         await page.getByRole("checkbox", { name: "MIRAFLORES · 040110", exact: true }).check();
         await browserExpect(page.getByText("2 distritos seleccionados", { exact: true })).toBeVisible();
-        await panel.getByLabel("Departamento", { exact: true }).selectOption("15");
-        await panel.getByLabel("Provincia", { exact: true }).selectOption("1501");
-        await panel.getByLabel("Buscar distrito", { exact: true }).fill("150122");
-        await browserExpect(page.getByRole("checkbox", { name: "MIRAFLORES · 150122", exact: true })).toBeChecked();
       }
-      await panel.getByLabel("Tarifa por pedido (S/)", { exact: true }).fill(price);
+      await page.getByRole("button", { name: "Agregar opción", exact: true }).click();
+      await page.getByLabel("Nombre de la opción", { exact: true }).fill(option);
+      await page.getByLabel("Tarifa de la opción (S/)", { exact: true }).fill(price);
       if (name === "Cercana") {
         await page.setViewportSize({ width: 1280, height: 900 });
         await page.screenshot({ path: "test-results/delivery-zones-desktop.png", fullPage: true });
@@ -204,7 +201,7 @@ test("seller manages overlapping home zones and preserves an edit on a shared-ve
       }
       await page.getByRole("button", { name: "Guardar zona", exact: true }).click();
       await browserExpect(page.getByRole("button", { name: `Editar ${name}`, exact: true })).toBeVisible();
-      await browserExpect(panel.getByLabel("Nombre de la zona", { exact: true })).toHaveCount(0);
+      await browserExpect(page.getByLabel("Nombre de la zona", { exact: true })).toHaveCount(0);
     }
     const variantId = await withTenantIsolation(companyId, async () => {
       const created = await products.create({ name: "Coverage product", currency: "PEN", variants: [{ attributes: {}, salePrice: 10, initialStock: 3 }] });
@@ -222,81 +219,47 @@ test("seller manages overlapping home zones and preserves an edit on a shared-ve
     await buyerPage.getByLabel("Distrito", { exact: true }).selectOption("150122");
     const buyerRates = buyerPage.getByLabel("Tarifa de envío");
     await browserExpect(buyerRates.locator("option")).toHaveCount(3);
-    await browserExpect(buyerRates).toContainText(/8[.,]00/);
-    await browserExpect(buyerRates).toContainText(/12[.,]00/);
+    await browserExpect(buyerRates).toContainText(/Moto · S\/\s?8[.,]00/);
+    await browserExpect(buyerRates).toContainText(/Camión · S\/\s?12[.,]00/);
     await page.getByRole("button", { name: "Desactivar Cercana", exact: true }).click();
     await browserExpect(page.getByRole("button", { name: "Reactivar Cercana", exact: true })).toBeVisible();
     await buyerPage.getByLabel("Distrito", { exact: true }).selectOption("");
     await buyerPage.getByLabel("Distrito", { exact: true }).selectOption("150122");
     await browserExpect(buyerRates.locator("option")).toHaveCount(2);
-    await browserExpect(buyerRates).toContainText(/12[.,]00/);
-    await browserExpect(buyerRates).not.toContainText(/8[.,]00/);
+    await browserExpect(buyerRates).toContainText(/Camión/);
+    await browserExpect(buyerRates).not.toContainText(/Moto/);
     const current = await (await page.request.get("/api/delivery-settings")).json();
     const concurrent = await page.request.put("/api/delivery-settings", { data: {
       expectedVersion: current.version, home: current.home, agency: current.agency, store: current.store, couriers: [],
     } });
     expect(concurrent.status()).toBe(200);
     await page.getByRole("button", { name: "Editar Extendida", exact: true }).click();
-    await panel.getByLabel("Nombre de la zona", { exact: true }).fill("Mi borrador");
+    await page.getByLabel("Nombre de la zona", { exact: true }).fill("Mi borrador");
     await page.getByRole("button", { name: "Guardar zona", exact: true }).click();
     await browserExpect(page.getByRole("alert")).toContainText("Conservamos el borrador");
-    await browserExpect(panel.getByLabel("Nombre de la zona", { exact: true })).toHaveValue("Mi borrador");
-    await browserExpect(panel.getByLabel("Tarifa por pedido (S/)", { exact: true })).toHaveValue("12");
+    await browserExpect(page.getByLabel("Nombre de la zona", { exact: true })).toHaveValue("Mi borrador");
+    await browserExpect(page.getByLabel("Tarifa de la opción (S/)", { exact: true })).toHaveValue("12");
     await browserExpect(page.getByRole("button", { name: "Guardar zona", exact: true })).toBeDisabled();
     const stored = await (await page.request.get("/api/delivery-settings/zones")).json();
     expect(stored.zones.map((zone: { name: string }) => zone.name).sort()).toEqual(["Cercana", "Extendida"]);
-    expect(stored.zones.find((zone: { name: string }) => zone.name === "Cercana")).toMatchObject({ enabled: false, districtCodes: ["040110", "150122"] });
+    expect(stored.zones.find((zone: { name: string }) => zone.name === "Cercana")).toMatchObject({
+      enabled: false, districtCodes: ["040110", "150122"], options: [{ method: "home", name: "Moto", price: { amount: 8, currency: "PEN" } }],
+    });
     await page.getByRole("link", { name: "Recargar configuración", exact: true }).click();
-    await page.getByRole("tab", { name: "Domicilio", exact: false }).click();
     await browserExpect(page.getByRole("button", { name: "Editar Extendida", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Reactivar Cercana", exact: true }).click();
     await browserExpect(page.getByRole("button", { name: "Desactivar Cercana", exact: true })).toBeVisible();
-    await page.getByRole("tab", { name: "Agencia", exact: false }).click();
-    await panel.getByLabel("Courier disponible", { exact: true }).selectOption({ label: "Shalom" });
-    await page.getByRole("button", { name: "Agregar courier", exact: true }).click();
-    await panel.getByLabel("Ofrecer envío a agencia", { exact: true }).check();
-    await page.getByRole("button", { name: "Guardar configuración", exact: true }).click();
-    await browserExpect(page.getByText("Falta configurar cobertura", { exact: true })).toBeVisible();
-    const beforeAgency = await (await page.request.get("/api/delivery-settings/zones")).json();
-    await page.getByRole("tab", { name: "Domicilio", exact: false }).click();
+    // An agency option can be configured, but without associated agencies it never produces a rate.
     await page.getByRole("button", { name: "Editar Extendida", exact: true }).click();
-    await panel.getByLabel("Nombre de la zona", { exact: true }).fill("Borrador de domicilio");
-    await page.getByRole("tab", { name: "Agencia", exact: false }).click();
-    await page.getByRole("button", { name: "Agregar zona", exact: true }).click();
-    await panel.getByLabel("Nombre de la zona", { exact: true }).fill("Agencia gratis");
-    await panel.getByLabel("Departamento", { exact: true }).selectOption("15");
-    await panel.getByLabel("Provincia", { exact: true }).selectOption("1501");
-    await panel.getByLabel("Buscar distrito", { exact: true }).fill("150122");
-    await page.getByRole("checkbox", { name: "MIRAFLORES · 150122", exact: true }).check();
+    await page.getByRole("button", { name: "Agregar opción", exact: true }).click();
+    await page.getByLabel("Modalidad", { exact: true }).last().selectOption("agency");
+    await page.getByLabel("Nombre de la opción", { exact: true }).last().fill("Agencia");
+    await page.getByLabel("Tarifa de la opción (S/)", { exact: true }).last().fill("0");
     await page.getByRole("button", { name: "Guardar zona", exact: true }).click();
-    await browserExpect(page.getByText("Ingresa un importe no negativo con hasta dos decimales.", { exact: true })).toBeVisible();
-    expect((await (await page.request.get("/api/delivery-settings/zones")).json()).version).toBe(beforeAgency.version);
-    await panel.getByLabel("Tarifa por pedido (S/)", { exact: true }).fill("0");
-    await page.getByRole("button", { name: "Guardar zona", exact: true }).click();
-    await browserExpect(page.getByRole("button", { name: "Editar Agencia gratis", exact: true })).toBeVisible();
-    await browserExpect(page.getByText("Entrega gratis", { exact: true })).toBeVisible();
-    const afterAgency = await (await page.request.get("/api/delivery-settings/zones")).json();
-    expect(afterAgency.zones.filter((zone: { method: string }) => zone.method === "home")).toEqual(beforeAgency.zones);
-    expect(afterAgency.zones.find((zone: { method: string }) => zone.method === "agency")).toMatchObject({
-      enabled: true, districtCodes: ["150122"], price: { amount: 0, currency: "PEN" },
-    });
-    const withAgency = await page.request.post("/api/quotations", { data: { destination: { country: "PE", districtCode: "150122" } } });
-    expect(withAgency.status()).toBe(201);
-    const rates = (await withAgency.json()).rates;
-    expect(rates).toHaveLength(3);
-    expect(rates).toEqual(expect.arrayContaining([expect.objectContaining({ method: "agency", price: { amount: 0, currency: "PEN" } })]));
-    await page.getByRole("button", { name: "Desactivar Agencia gratis", exact: true }).click();
-    await browserExpect(page.getByRole("button", { name: "Reactivar Agencia gratis", exact: true })).toBeVisible();
-    const withoutAgency = await page.request.post("/api/quotations", { data: { destination: { country: "PE", districtCode: "150122" } } });
-    expect((await withoutAgency.json()).rates.map((rate: { method: string }) => rate.method)).toEqual(["home", "home"]);
-    await page.getByRole("button", { name: "Reactivar Agencia gratis", exact: true }).click();
-    await browserExpect(page.getByRole("button", { name: "Desactivar Agencia gratis", exact: true })).toBeVisible();
-    const reactivated = await (await page.request.get("/api/delivery-settings/zones")).json();
-    expect(reactivated.zones).toEqual(afterAgency.zones);
-    await page.getByRole("tab", { name: "Domicilio", exact: false }).click();
-    await browserExpect(panel.getByLabel("Nombre de la zona", { exact: true })).toHaveValue("Borrador de domicilio");
-    await browserExpect(panel.getByLabel("Tarifa por pedido (S/)", { exact: true })).toHaveValue("12");
-    await page.getByRole("button", { name: "Cancelar edición", exact: true }).click();
+    await browserExpect(page.getByText("Agencia · Agencia", { exact: true })).toBeVisible();
+    const quoted = await page.request.post("/api/quotations", { data: { destination: { country: "PE", districtCode: "150122" } } });
+    expect(quoted.status()).toBe(201);
+    expect((await quoted.json()).rates).toMatchObject([{ method: "home", name: "Moto", zoneName: "Cercana" }, { method: "home", name: "Camión", zoneName: "Extendida" }]);
   } finally {
     await buyer.close();
     if (companyId) await withTenantIsolation(companyId, async () => {
@@ -304,6 +267,8 @@ test("seller manages overlapping home zones and preserves an edit on a shared-ve
       await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
       await prisma.deliveryRate.deleteMany();
       await prisma.quotation.deleteMany();
+      await prisma.deliveryOptionAgency.deleteMany();
+      await prisma.deliveryOption.deleteMany();
       await prisma.deliveryZoneDistrict.deleteMany();
       await prisma.deliveryZone.deleteMany();
       await prisma.companyCourier.deleteMany();

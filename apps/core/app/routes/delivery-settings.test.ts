@@ -35,21 +35,22 @@ test("reports unexpected failures safely", async () => {
   expect(failure.mock.calls[0][0]).toMatchObject({ event: "delivery_settings_request_failed", entryPoint: "web_action", operation: "save_delivery_settings", userId: access.user.id, errorCode: "INTERNAL_ERROR" });
 });
 
-const zoneInput = { intent: "zones", method: "home", expectedVersion: 0, zones: [{ kind: "new", name: "Lima",
-  enabled: true, districtCodes: ["150122"], price: { amount: 8, currency: "PEN" } }] };
+const zoneInput = { intent: "zones", expectedVersion: 0, zones: [{ kind: "new", name: "Lima", enabled: true, districtCodes: ["150122"],
+  options: [{ kind: "new", method: "home", name: "Standard", enabled: true, price: { amount: 8, currency: "PEN" } }] }] };
 
-test("zone action validates the request and persists only the selected method under session authority", async () => {
+test("zone action validates the request and persists the complete zones with options under session authority", async () => {
   const write = vi.spyOn(deliverySettings, "saveZones").mockResolvedValue({ success: true, data: {
     version: 1, currency: "PEN", home: { enabled: false }, agency: { enabled: false }, zones: [],
   } });
   for (const invalid of [{ ...zoneInput, companyId: "forged" }, { ...zoneInput, intent: "other" },
-    { ...zoneInput, method: "store" }, { ...zoneInput, expectedVersion: -1 },
-    { ...zoneInput, zones: [{ ...zoneInput.zones[0], price: null }] }]) {
+    { ...zoneInput, method: "home" }, { ...zoneInput, expectedVersion: -1 },
+    { ...zoneInput, zones: [{ ...zoneInput.zones[0], options: [{ kind: "new", method: "home", name: "Standard", enabled: true, price: null }] }] },
+    { ...zoneInput, zones: [{ ...zoneInput.zones[0], options: [{ kind: "new", method: "home", name: "Standard", enabled: true, price: { amount: 8, currency: "PEN" }, agencyIds: [] }] }] }]) {
     expect(await save(invalid)).toEqual({ zonesError: { code: "INVALID_INPUT" } });
   }
   expect(write).not.toHaveBeenCalled();
   expect(await save(zoneInput)).toMatchObject({ zonesSaved: { version: 1 } });
-  const expected = { method: zoneInput.method, expectedVersion: zoneInput.expectedVersion, zones: zoneInput.zones };
+  const expected = { expectedVersion: zoneInput.expectedVersion, zones: zoneInput.zones };
   expect(write).toHaveBeenCalledWith(expected, { companyId: access.company.id, userId: access.user.id });
 });
 
@@ -60,6 +61,8 @@ test("zone conflict and validation preserve typed recovery details without retry
   expect(write).toHaveBeenCalledOnce();
   write.mockResolvedValue({ success: false, error: { code: "INVALID_DELIVERY_ZONE", message: "Private detail", field: "districtCodes", index: 0 } });
   expect(await save(zoneInput)).toEqual({ zonesError: { code: "INVALID_DELIVERY_ZONE", field: "districtCodes", index: 0 } });
+  write.mockResolvedValue({ success: false, error: { code: "INVALID_DELIVERY_OPTION", message: "Private detail", field: "price", index: 0, optionIndex: 1 } });
+  expect(await save(zoneInput)).toEqual({ zonesError: { code: "INVALID_DELIVERY_OPTION", field: "price", index: 0, optionIndex: 1 } });
 });
 
 test("zone technical failure never returns a saved configuration", async () => {

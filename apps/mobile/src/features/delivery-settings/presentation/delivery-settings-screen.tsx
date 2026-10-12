@@ -81,7 +81,7 @@ export default function DeliverySettingsScreen() {
       setZones(result.data);
       setDraft(previous => previous ? { ...previous, expectedVersion: result.data.version } : null);
       setZoneConflict(false);
-    } else setZoneConflict(!["INVALID_INPUT", "INVALID_DELIVERY_ZONE"].includes(result.error.code));
+    } else setZoneConflict(!["INVALID_INPUT", "INVALID_DELIVERY_ZONE", "INVALID_DELIVERY_OPTION"].includes(result.error.code));
     inFlight.current = false; setBusy(false);
     return result;
   };
@@ -107,7 +107,6 @@ export default function DeliverySettingsScreen() {
           <ThemedText type="small" themeColor="textSecondary">{t("homeDeliveryEnabled")}</ThemedText></View><Switch accessibilityLabel={t("homeDeliveryEnabled")}
           value={draft.homeEnabled} disabled={busy} hitSlop={10} trackColor={{ true: theme.primary }}
           onValueChange={value => { setDraft({ ...draft, homeEnabled: value }); setSaved(false); }} /></View>
-        {zones ? <DeliveryZonesSection key={`home-${generation}`} method="home" state={zones} disabled={busy} blocked={zoneConflict || conflict} onSave={saveZones} onReload={() => void load()} /> : null}
       </View>
       <View style={[styles.section, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}><View style={styles.toggle}><View style={[styles.label, styles.heading]}><ThemedText type="subtitle" accessibilityRole="header">{t("agencyDeliveryTitle")}</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">{t("agencyDeliveryEnabled")}</ThemedText></View><Switch accessibilityLabel={t("agencyDeliveryEnabled")}
@@ -129,8 +128,8 @@ export default function DeliverySettingsScreen() {
         {catalog.filter(entry => !draft.couriers.some(courier => courier.courierId === entry.id)).map(entry =>
           <Button key={entry.id} variant="secondary" disabled={busy} accessibilityLabel={t("addCourierNamed", { name: entry.name })}
             onPress={() => { setDraft({ ...draft, couriers: [...draft.couriers, { kind: "new", localKey: ++nextCourierKey.current, courierId: entry.id, name: entry.name, enabled: true }] }); setSaved(false); }}>{t("addCourierNamed", { name: entry.name })}</Button>)}
-        {zones ? <DeliveryZonesSection key={`agency-${generation}`} method="agency" state={zones} disabled={busy} blocked={zoneConflict || conflict} onSave={saveZones} onReload={() => void load()} /> : null}
       </View>
+      {zones ? <View style={[styles.section, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}><DeliveryZonesSection key={`zones-${generation}`} state={zones} disabled={busy} blocked={zoneConflict || conflict} onSave={saveZones} onReload={() => void load()} /></View> : null}
     </ScrollView>
     <View style={[styles.footer, { backgroundColor: theme.background, borderColor: theme.border }]}>
       {error ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t(error)}</ThemedText> : null}

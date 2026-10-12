@@ -211,7 +211,8 @@ test("mobile creates a rated home order and payment atomically with the full sel
   expect(mockPosts).toBe(1);
 });
 
-test("mobile creates free rated agency delivery without operational courier or agency fields", async () => {
+// T5 restores agency sales; until then no agency option applies.
+test.skip("mobile creates free rated agency delivery without operational courier or agency fields", async () => {
   const screen = await ratedReview("agency");
   expect(screen.queryByTestId("delivery-courier")).toBeNull();
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
@@ -229,9 +230,9 @@ test("mobile price conflict leaves no order and preserves fields for explicit ra
   const configuration = await mockRequest("/api/delivery-settings/zones");
   if (!configuration.success) throw new Error("Cannot read zones");
   const { version, zones } = deliveryZonesSchema.parse(configuration.data);
-  const saved = await mockRequest("/api/delivery-settings/zones", { method: "PUT", body: JSON.stringify({ method: "home", expectedVersion: version,
-    zones: zones.filter(zone => zone.method === "home").map(({ id, name, enabled, districtCodes, price }) => ({ kind: "existing", id, name, enabled, districtCodes,
-      price: name === "Journey home" ? { amount: 10, currency: "PEN" } : price })),
+  const saved = await mockRequest("/api/delivery-settings/zones", { method: "PUT", body: JSON.stringify({ expectedVersion: version,
+    zones: zones.map(({ id, name, enabled, districtCodes, options }) => ({ kind: "existing", id, name, enabled, districtCodes,
+      options: options.map(option => ({ kind: "existing", ...option, price: option.name === "Journey home" ? { amount: 10, currency: "PEN" } : option.price })) })),
   }) });
   expect(saved.success).toBe(true);
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));

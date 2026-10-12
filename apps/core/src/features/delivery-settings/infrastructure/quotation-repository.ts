@@ -13,8 +13,8 @@ export async function insertQuotationWithRates(value: QuotationWithRates): Promi
   try {
     const quotation = value.quotation;
     await prisma.quotation.create({ data: { id: quotation.id, companyId: quotation.companyId, destination: { ...quotation.destination }, createdAt: quotation.createdAt } });
-    await prisma.deliveryRate.createMany({ data: value.rates.map(rate => ({ id: rate.id, companyId: rate.companyId, quotationId: rate.quotationId,
-      method: rate.method, zoneId: rate.zoneId, districtCode: rate.districtCode, priceAmount: rate.price.amount, priceCurrency: rate.price.currency,
+    await prisma.deliveryRate.createMany({ data: value.rates.map(({ rate }) => ({ id: rate.id, companyId: rate.companyId, quotationId: rate.quotationId,
+      method: rate.method, optionId: rate.optionId, districtCode: rate.districtCode, priceAmount: rate.price.amount, priceCurrency: rate.price.currency,
       settingsVersion: rate.settingsVersion, createdAt: rate.createdAt })) });
     return ok(null);
   } catch (cause) {
@@ -32,7 +32,7 @@ export async function findRateWithQuotation(companyId: CompanyId, rateId: Delive
     if (!isCurrency(row.priceCurrency)) return err({ code: "INTERNAL_ERROR", message: "Invalid stored delivery rate currency" });
     const parsed = parseRateWithQuotation({ quotation: { id: row.quotation.id, companyId: row.quotation.companyId,
       destination: row.quotation.destination, createdAt: row.quotation.createdAt }, rate: { id: row.id, companyId: row.companyId, quotationId: row.quotationId,
-      method: row.method, zoneId: row.zoneId, districtCode: row.districtCode, price: { amount: row.priceAmount.toNumber(), currency: row.priceCurrency },
+      method: row.method, optionId: row.optionId, districtCode: row.districtCode, price: { amount: row.priceAmount.toNumber(), currency: row.priceCurrency },
       settingsVersion: row.settingsVersion, createdAt: row.createdAt } }, row.priceCurrency);
     if (!parsed.success) {
       log.error({ event: "quotation_stored_data_invalid", companyId, rateId }, "Invalid stored quotation or delivery rate");

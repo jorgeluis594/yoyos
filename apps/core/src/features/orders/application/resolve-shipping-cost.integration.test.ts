@@ -14,15 +14,16 @@ test("shipping resolution reads persisted rates under the configuration transact
   try {
     await run(async () => {
       await prisma.company.create({ data: { id: companyId, name: "Shipping resolution", country: "PE" } });
-      const saved = await deliverySettings.saveZones({ method: "home", expectedVersion: 0, zones: [0, 8].map(amount => ({
-        kind: "new" as const, name: "Zone", enabled: true, districtCodes: ["150122"], price: { amount, currency: "PEN" as const },
+      const saved = await deliverySettings.saveZones({ expectedVersion: 0, zones: [0, 8].map(amount => ({
+        kind: "new" as const, name: "Zone", enabled: true, districtCodes: ["150122"],
+        options: [{ kind: "new" as const, method: "home" as const, name: "Home", enabled: true, price: { amount, currency: "PEN" as const } }],
       })) }, context);
       if (!saved.success) throw new Error(saved.error.message);
       expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [],
         store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } }, context)).success).toBe(true);
       const quote = await deliverySettings.createQuotation({ companyId, country: "PE", districtCode: "150122", address: null, instructions: null });
       if (!quote.success) throw new Error(quote.error.message);
-      const rate = quote.data.rates.find(value => value.price.amount === 8);
+      const rate = quote.data.rates.find(value => value.rate.price.amount === 8)?.rate;
       if (!rate) throw new Error("Expected paid option");
       const recipient = { name: "Ana", phone: "999", identity: { kind: "absent" } };
       const input = { method: "home", rateId: rate.id, recipient, destination: { districtCode: "150122", address: "Street", instructions: null } };
@@ -35,22 +36,23 @@ test("shipping resolution reads persisted rates under the configuration transact
           resolveSelectedDeliveryRate: deliverySettings.resolveSelectedDeliveryRate,
         }));
       expect(await resolve(input, 8)).toMatchObject({ success: true, data: { cost: { amount: 8 }, delivery: {
-        pricing: { quotationId: quote.data.quotation.id, rateId: rate.id, zoneId: rate.zoneId, settingsVersion: 2 },
+        pricing: { quotationId: quote.data.quotation.id, rateId: rate.id, optionId: rate.optionId, settingsVersion: 2 },
         destination: { districtCode: "150122", district: "MIRAFLORES", province: "LIMA METROPOLITANA" }, recordedBy: { kind: "buyer" },
       } } });
       expect(await resolve({ method: "store", recipient }, 0)).toMatchObject({ success: true, data: { cost: { amount: 0 }, delivery: {
         method: "store", settingsVersion: 2, pickupPoint: { name: "Shop" },
       } } });
       expect(await resolve(input, 7)).toMatchObject({ success: false, error: { code: "TOTAL_CHANGED", currentPrice: { amount: 8 } } });
-      const zones = saved.data.zones.map(zone => ({ kind: "existing" as const, id: zone.id, name: zone.name, enabled: true,
-        districtCodes: zone.districtCodes, price: { amount: zone.id === rate.zoneId ? 8 : 1, currency: "PEN" as const } }));
-      expect((await deliverySettings.saveZones({ method: "home", expectedVersion: 2, zones }, context)).success).toBe(true);
+      const zones = (price: (optionId: string) => number, enabled: (optionId: string) => boolean = () => true) => saved.data.zones.map(zone => ({
+        kind: "existing" as const, id: zone.id, name: zone.name, enabled: true, districtCodes: zone.districtCodes,
+        options: zone.options.map(option => ({ kind: "existing" as const, id: option.id, method: "home" as const, name: option.name,
+          enabled: enabled(option.id), price: { amount: price(option.id), currency: "PEN" as const } })),
+      }));
+      expect((await deliverySettings.saveZones({ expectedVersion: 2, zones: zones(id => id === rate.optionId ? 8 : 1) }, context)).success).toBe(true);
       expect(await resolve(input, 8)).toMatchObject({ success: true, data: { delivery: { pricing: { settingsVersion: 2 } } } });
-      const changed = zones.map(zone => ({ ...zone, price: { ...zone.price, amount: zone.id === rate.zoneId ? 10 : 1 } }));
-      expect((await deliverySettings.saveZones({ method: "home", expectedVersion: 3, zones: changed }, context)).success).toBe(true);
+      expect((await deliverySettings.saveZones({ expectedVersion: 3, zones: zones(id => id === rate.optionId ? 10 : 1) }, context)).success).toBe(true);
       expect(await resolve(input, 8)).toMatchObject({ success: false, error: { code: "TOTAL_CHANGED", currentPrice: { amount: 10 } } });
-      expect((await deliverySettings.saveZones({ method: "home", expectedVersion: 4,
-        zones: changed.map(zone => ({ ...zone, enabled: zone.id !== rate.zoneId })) }, context)).success).toBe(true);
+      expect((await deliverySettings.saveZones({ expectedVersion: 4, zones: zones(id => id === rate.optionId ? 10 : 1, id => id !== rate.optionId) }, context)).success).toBe(true);
       expect(await resolve(input, 8)).toMatchObject({ success: false, error: { code: "RATE_UNAVAILABLE" } });
       expect(await prisma.quotation.count()).toBe(1);
       expect(await prisma.deliveryRate.count()).toBe(2);
@@ -60,6 +62,7 @@ test("shipping resolution reads persisted rates under the configuration transact
     await run(async () => {
       await prisma.deliveryRate.deleteMany();
       await prisma.quotation.deleteMany();
+      await prisma.deliveryOption.deleteMany();
       await prisma.deliveryZoneDistrict.deleteMany();
       await prisma.deliveryZone.deleteMany();
       await prisma.companyDeliverySettings.deleteMany();

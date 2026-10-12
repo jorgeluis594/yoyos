@@ -20,7 +20,7 @@ const order = (): OrderAggregate => ({
 const payment = (n: number, amount: number): ConfirmedPayment => ({ id: id(n) as PaymentId, orderId: id(1) as OrderId,
   status: "confirmed", amount: money(amount), method: "digital_wallet",
   data: { confirmedAt: paymentAt, confirmedBy: { kind: "seller", userId: "seller" as UserId }, evidence: { kind: "manual" } } });
-const pricing = { quotationId: id(20), rateId: id(21), zoneId: id(22), settingsVersion: 1 } as DeliveryPricing;
+const pricing = { quotationId: id(20), rateId: id(21), optionId: id(22), settingsVersion: 1 } as DeliveryPricing;
 const limaDistrict = { country: "PE", districtCode: "150101", district: "Lima", province: "Lima", department: "Lima" } as unknown as PeruDeliveryDistrict;
 const home: DeliverySnapshot = { method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
   destination: { ...limaDistrict, address: "Av. Lima 123", instructions: null }, pricing, recordedBy: { kind: "seller", userId: "seller" as UserId } };

@@ -33,15 +33,16 @@ function catalogResponse(raw: Result<unknown, TransportError>): Result<CourierCa
   return failed.success ? err({ code: "INVALID_RESPONSE", message: "Unexpected courier catalog error" }) : failed;
 }
 
-const zoneStatusByCode = { ...statusByCode, INVALID_DELIVERY_ZONE: 422, UNSUPPORTED_COUNTRY: 422 };
+const zoneStatusByCode = { ...statusByCode, INVALID_DELIVERY_ZONE: 422, INVALID_DELIVERY_OPTION: 422, UNSUPPORTED_COUNTRY: 422 };
 
 function zonesResponse(raw: Result<unknown, TransportError>, saving: boolean): Result<DeliveryZonesResponse, DeliveryZonesError> {
   if (raw.success) {
     const parsed = deliveryZonesSchema.safeParse(raw.data);
     if (!parsed.success || parsed.data.currency !== "PEN" ||
       new Set(parsed.data.zones.map(zone => zone.id)).size !== parsed.data.zones.length ||
-      parsed.data.zones.some(zone => zone.price.currency !== parsed.data.currency || zone.price.amount < 0 ||
-        zone.price.amount > 9999999999999.99 || !/^\d+(?:\.\d{1,2})?$/.test(String(zone.price.amount)) ||
+      parsed.data.zones.some(zone => zone.options.some(option => option.price.currency !== parsed.data.currency || option.price.amount < 0 ||
+        option.price.amount > 9999999999999.99 || !/^\d+(?:\.\d{1,2})?$/.test(String(option.price.amount))) ||
+        new Set(zone.options.map(option => option.id)).size !== zone.options.length ||
         new Set(zone.districtCodes).size !== zone.districtCodes.length || zone.districtCodes.some(code => !getPeruDistrict(code))))
       return err({ code: "INVALID_RESPONSE", message: "Invalid delivery zones response" });
     return ok(parsed.data);

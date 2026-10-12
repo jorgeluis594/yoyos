@@ -72,6 +72,7 @@ async function fixture(country: "PE" | "CL") {
       await prisma.product.deleteMany();
       await prisma.deliveryRate.deleteMany();
       await prisma.quotation.deleteMany();
+      await prisma.deliveryOption.deleteMany();
       await prisma.deliveryZoneDistrict.deleteMany();
       await prisma.deliveryZone.deleteMany();
       await prisma.companyCourier.deleteMany();
@@ -384,8 +385,8 @@ test("home HTTP uses persisted enablement, requires district and replaces store 
   expect((await call(`/api/orders/${orderId}/delivery`, seller.cookie, { ...home, delivery: { ...home.delivery, destination: { address: "Street" } } }, "PUT")).status).toBe(400);
   const before = await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json();
   expect(before).toMatchObject({ delivery: null, total: { amount: 10 } });
-  expect((await call("/api/delivery-settings/zones", seller.cookie, { method: "home", expectedVersion: 1,
-    zones: [{ kind: "new", name: "Home", enabled: true, districtCodes: ["040110"], price: home.expectedPrice }] }, "PUT")).status).toBe(200);
+  expect((await call("/api/delivery-settings/zones", seller.cookie, { expectedVersion: 1,
+    zones: [{ kind: "new", name: "Home", enabled: true, districtCodes: ["040110"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: home.expectedPrice }] }] }, "PUT")).status).toBe(200);
   const quotation = await (await call("/api/quotations", seller.cookie, { destination: { country: "PE", districtCode: "040110" } })).json();
   home.delivery.rateId = quotation.rates[0].id;
   expect((await call(`/api/orders/${orderId}/delivery`, seller.cookie, { delivery: { method: "store", recipient }, expectedPrice: { amount: 0, currency: "PEN" } }, "PUT")).status).toBe(200);
@@ -410,7 +411,8 @@ test("home HTTP uses persisted enablement, requires district and replaces store 
 });
 
 
-test("rated agency adapters preserve snapshots and reject unavailable or foreign rates", async () => {
+// Agency selection needs catalog agencies associated with options; T5 rewrites this test.
+test.skip("rated agency adapters preserve snapshots and reject unavailable or foreign rates", async () => {
   const summary = vi.spyOn(log, "info").mockImplementation(() => {});
   const rejection = vi.spyOn(log, "debug").mockImplementation(() => {});
   const seller = await fixture("PE");
@@ -553,12 +555,10 @@ test("quotation HTTP uses the checkout order tenant even with a foreign seller s
     items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
   expect((await call("/api/quotations", foreign.cookie, input)).status).toBe(404);
   expect((await call(`/api/orders/${orderId}/checkout-link`, seller.cookie, {})).status).toBe(200);
-  expect((await call("/api/delivery-settings/zones", seller.cookie, { method: "home", expectedVersion: 0,
-    zones: [0, 8, 8].map(amount => ({ kind: "new", name: "Private zone", enabled: true, districtCodes: ["150122"], price: { amount, currency: "PEN" } })) }, "PUT")).status).toBe(200);
+  expect((await call("/api/delivery-settings/zones", seller.cookie, { expectedVersion: 0,
+    zones: [0, 8, 8].map(amount => ({ kind: "new", name: "Private zone", enabled: true, districtCodes: ["150122"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount, currency: "PEN" } }] })) }, "PUT")).status).toBe(200);
   expect((await call("/api/delivery-settings", seller.cookie, { expectedVersion: 1, home: { enabled: true }, agency: { enabled: true },
     couriers: [{ kind: "new", courierId: shalomId, enabled: true }], store: { enabled: false, pickupPoint: null } }, "PUT")).status).toBe(200);
-  expect((await call("/api/delivery-settings/zones", seller.cookie, { method: "agency", expectedVersion: 2,
-    zones: [{ kind: "new", name: "Agency zone", enabled: true, districtCodes: ["150122"], price: { amount: 5, currency: "PEN" } }] }, "PUT")).status).toBe(200);
   const orderBefore = await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json();
   const browserFetch: typeof fetch = (url, init) => fetch(new URL(String(url), base), {
     ...init, headers: { ...Object.fromEntries(new Headers(init?.headers)), origin },
@@ -572,14 +572,14 @@ test("quotation HTTP uses the checkout order tenant even with a foreign seller s
   const first = a.data;
   const second = quotationResponseSchema.parse(await b.json());
   expect(first.id).not.toBe(second.id);
-  expect(first.rates.map(rate => [rate.method, rate.price.amount])).toEqual([["home", 0], ["home", 8], ["home", 8], ["agency", 5]]);
+  expect(first.rates.map(rate => [rate.method, rate.price.amount])).toEqual([["home", 0], ["home", 8], ["home", 8]]);
   expect(second.rates.map(rate => [rate.method, rate.price.amount])).toEqual(first.rates.map(rate => [rate.method, rate.price.amount]));
-  expect(new Set([...first.rates, ...second.rates].map(rate => rate.id)).size).toBe(8);
+  expect(new Set([...first.rates, ...second.rates].map(rate => rate.id)).size).toBe(6);
   await withTenantIsolation(seller.companyId, async () => {
     expect(await prisma.quotation.count()).toBe(2);
-    expect(await prisma.deliveryRate.count()).toBe(8);
+    expect(await prisma.deliveryRate.count()).toBe(6);
     expect(await prisma.productStock.findUnique({ where: { variantId: seller.variantId } })).toMatchObject({ quantity: 3n });
-    expect(await prisma.companyDeliverySettings.findUnique({ where: { companyId: seller.companyId } })).toMatchObject({ version: 3 });
+    expect(await prisma.companyDeliverySettings.findUnique({ where: { companyId: seller.companyId } })).toMatchObject({ version: 2 });
   });
   await withTenantIsolation(foreign.companyId, async () => {
     expect(await prisma.quotation.count()).toBe(0);
@@ -602,7 +602,7 @@ test("aggregate reads preserve rated delivery snapshots without consulting curre
   expect((await call("/api/orders/pending", seller.cookie, { id: orderId, contactId: null,
     items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
   const recipient = { name: "Ana", phone: "999", identity: { kind: "document", documentType: "national_id", document: "12345678" } };
-  const pricing = { quotationId: randomUUID(), rateId: randomUUID(), zoneId: randomUUID(), settingsVersion: 3 };
+  const pricing = { quotationId: randomUUID(), rateId: randomUUID(), optionId: randomUUID(), settingsVersion: 3 };
   const district = { country: "PE", districtCode: "150122", district: "Miraflores", province: "Lima", department: "Lima" };
   const recordedBy = { kind: "buyer" };
   const home = { method: "home", recipient, destination: { ...district, address: "Street", instructions: null }, pricing, recordedBy };
@@ -631,22 +631,19 @@ test("rated delivery HTTP assigns the selected option, reports price conflicts a
   const recipient = { name: "Ana", phone: "999", identity: { kind: "document", documentType: "national_id", document: "12345678" } };
   const destination = { country: "PE", districtCode: "150122", address: null, instructions: null };
   async function configure(owner: typeof seller, amounts: number[]) {
-    expect((await call("/api/delivery-settings/zones", owner.cookie, { method: "home", expectedVersion: 0,
-      zones: amounts.map(amount => ({ kind: "new", name: "Zone", enabled: true, districtCodes: ["150122"], price: { amount, currency: "PEN" } })) }, "PUT")).status).toBe(200);
+    expect((await call("/api/delivery-settings/zones", owner.cookie, { expectedVersion: 0,
+      zones: amounts.map(amount => ({ kind: "new", name: "Zone", enabled: true, districtCodes: ["150122"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount, currency: "PEN" } }] })) }, "PUT")).status).toBe(200);
     expect((await call("/api/delivery-settings", owner.cookie, { expectedVersion: 1, home: { enabled: true }, agency: { enabled: true },
       couriers: [{ kind: "new", courierId: shalomId, enabled: true }], store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } }, "PUT")).status).toBe(200);
   }
   await configure(seller, [0, 8]);
   await configure(foreign, [10]);
-  expect((await call("/api/delivery-settings/zones", seller.cookie, { method: "agency", expectedVersion: 2,
-    zones: [{ kind: "new", name: "Agency", enabled: true, districtCodes: ["150122"], price: { amount: 5, currency: "PEN" } }] }, "PUT")).status).toBe(200);
   const quoteResponse = await call("/api/quotations", seller.cookie, { destination });
   expect(quoteResponse.status).toBe(201);
   const quote = quotationResponseSchema.parse(await quoteResponse.json());
   const foreignQuote = quotationResponseSchema.parse(await (await call("/api/quotations", foreign.cookie, { destination })).json());
   const home = quote.rates.find(rate => rate.method === "home" && rate.price.amount === 8)!;
   const free = quote.rates.find(rate => rate.method === "home" && rate.price.amount === 0)!;
-  const agency = quote.rates.find(rate => rate.method === "agency")!;
   const orderId = randomUUID();
   expect((await call("/api/orders/pending", seller.cookie, { id: orderId, contactId: null, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
   const path = `/api/orders/${orderId}/delivery`;
@@ -656,7 +653,7 @@ test("rated delivery HTTP assigns the selected option, reports price conflicts a
   const before = orderAggregateSchema.parse(await saved.json());
   expect(before).toMatchObject({ deliveryCost: home.price, deliveryCharge: home.price, total: { amount: 18 },
     delivery: { destination: { district: "MIRAFLORES", province: "LIMA METROPOLITANA", address: "Final street" },
-      pricing: { rateId: home.id, quotationId: quote.id, settingsVersion: 3 }, recordedBy: { kind: "seller", userId: seller.userId } } });
+      pricing: { rateId: home.id, quotationId: quote.id, optionId: home.optionId, settingsVersion: 2 }, recordedBy: { kind: "seller", userId: seller.userId } } });
   const otherRate = await call(path, seller.cookie, { ...input, delivery: { ...input.delivery, rateId: foreignQuote.rates[0].id } }, "PUT");
   expect(otherRate.status).toBe(422);
   expect(await otherRate.json()).toMatchObject({ code: "RATE_UNAVAILABLE" });
@@ -675,10 +672,7 @@ test("rated delivery HTTP assigns the selected option, reports price conflicts a
   const store = await call(path, seller.cookie, { delivery: { method: "store", recipient }, expectedPrice: { amount: 0, currency: "PEN" } }, "PUT");
   expect(store.status).toBe(200);
   expect(await store.json()).toMatchObject({ total: { amount: 10 }, deliveryCost: { amount: 0 }, deliveryCharge: { amount: 0 },
-    delivery: { method: "store", settingsVersion: 3, pickupPoint: { name: "Shop" } } });
-  const agencySaved = await call(path, seller.cookie, { delivery: { method: "agency", recipient, rateId: agency.id, districtCode: "150122" }, expectedPrice: agency.price }, "PUT");
-  expect(agencySaved.status).toBe(200);
-  expect(await agencySaved.json()).toMatchObject({ total: { amount: 15 }, delivery: { method: "agency", courier: null, agency: null, pricing: { rateId: agency.id } } });
+    delivery: { method: "store", settingsVersion: 2, pickupPoint: { name: "Shop" } } });
   const paidId = randomUUID();
   const paymentId = randomUUID();
   const paidInput = { id: paidId, contactId: null, items: [{ variantId: seller.variantId, quantity: 1 }], delivery: input,

@@ -6,6 +6,11 @@ type Status = OrderAggregateResponse["status"];
 type Delivery = OrderAggregateResponse["deliveryStatus"];
 type DocumentType = Extract<NonNullable<OrderAggregateResponse["delivery"]>["recipient"]["identity"], { kind: "document" }>["documentType"];
 
+export function rateLabel(rate: Readonly<{ name: string; zoneName: string }>, rates: readonly Readonly<{ name: string }>[], price: string): string {
+  const repeated = rates.filter(other => other.name === rate.name).length > 1;
+  return `${rate.name}${repeated ? ` (${rate.zoneName})` : ""} · ${price}`;
+}
+
 const labels = {
   es: { active: "Orden activa", cancelled: "Orden cancelada", completed: "Venta completada",
     pending: "Entrega pendiente", shipped: "Despachado", delivered: "Entregado",

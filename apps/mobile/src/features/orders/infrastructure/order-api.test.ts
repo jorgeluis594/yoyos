@@ -137,7 +137,7 @@ test("delivery API validates the complete authored snapshot and updated aggregat
   const ratedHome = { delivery: { method: "home" as const, recipient: delivery.recipient, rateId: id(5),
     destination: { districtCode: "150122", address: "Street", instructions: null } }, expectedPrice: { amount: 8, currency: "PEN" as const } };
   const homeSnapshot = { method: "home", recipient: delivery.recipient, recordedBy: delivery.recordedBy,
-    pricing: { rateId: id(5), quotationId: id(6), zoneId: id(7), settingsVersion: 2 },
+    pricing: { rateId: id(5), quotationId: id(6), optionId: id(7), settingsVersion: 2 },
     destination: { country: "PE", districtCode: "150122", district: "MIRAFLORES", province: "LIMA METROPOLITANA", department: "LIMA", address: "Street", instructions: null } };
   const homeOrder = { ...order, delivery: homeSnapshot, deliveryCost: ratedHome.expectedPrice, deliveryCharge: ratedHome.expectedPrice,
     total: { amount: 18, currency: "PEN" }, balanceDue: { amount: 18, currency: "PEN" } };

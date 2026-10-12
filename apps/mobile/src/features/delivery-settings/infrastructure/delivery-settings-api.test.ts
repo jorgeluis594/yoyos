@@ -38,12 +38,14 @@ test("preserves save conflicts without retry and checks error status and operati
 });
 
 const zoneId = "00000000-0000-4000-8000-000000000010";
-const zoneInput = { method: "home" as const, expectedVersion: 0, zones: [{ kind: "new" as const, name: "Lima",
-  enabled: true, districtCodes: ["150122"], price: { amount: 0, currency: "PEN" as const } }] };
+const optionId = "00000000-0000-4000-8000-000000000011";
+const zoneInput = { expectedVersion: 0, zones: [{ kind: "new" as const, name: "Lima", enabled: true, districtCodes: ["150122"],
+  options: [{ kind: "new" as const, method: "home" as const, name: "Standard", enabled: true, price: { amount: 0, currency: "PEN" as const } }] }] };
+const homeOption = { id: optionId, method: "home", name: "Standard", enabled: true, price: { amount: 0, currency: "PEN" } };
 const zoneState = { version: 1, currency: "PEN", home: { enabled: true }, agency: { enabled: false },
-  zones: [{ id: zoneId, method: "home", name: "Lima", enabled: true, districtCodes: ["150122"], price: { amount: 0, currency: "PEN" } }] };
+  zones: [{ id: zoneId, name: "Lima", enabled: true, districtCodes: ["150122"], options: [homeOption] }] };
 
-test("zone adapter returns definitive identities, validates the complete response and saves only a strict method request", async () => {
+test("zone adapter returns definitive identities, validates the complete response and saves only a strict request", async () => {
   const request = jest.fn<ReturnType<Parameters<typeof createDeliverySettingsApi>[0]>, Parameters<Parameters<typeof createDeliverySettingsApi>[0]>>(async () => ok(zoneState));
   const api = createDeliverySettingsApi(request);
   expect(await api.getZones()).toEqual(ok(zoneState));
@@ -55,8 +57,9 @@ test("zone adapter returns definitive identities, validates the complete respons
   expect(request).toHaveBeenCalledTimes(2);
   for (const zone of [{ ...zoneState.zones[0], districtCodes: ["000000"] },
     { ...zoneState.zones[0], districtCodes: ["150122", "150122"] },
-    { ...zoneState.zones[0], price: { amount: -1, currency: "PEN" } },
-    { ...zoneState.zones[0], price: { amount: 0, currency: "USD" } }]) {
+    { ...zoneState.zones[0], options: [{ ...homeOption, price: { amount: -1, currency: "PEN" } }] },
+    { ...zoneState.zones[0], options: [{ ...homeOption, price: { amount: 0, currency: "USD" } }] },
+    { ...zoneState.zones[0], options: [homeOption, homeOption] }]) {
     expect(await createDeliverySettingsApi(async () => ok({ ...zoneState, zones: [zone] })).getZones()).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
   }
   expect(await createDeliverySettingsApi(async () => ok({ ...zoneState, zones: [zoneState.zones[0], zoneState.zones[0]] })).getZones())
@@ -73,6 +76,9 @@ test("zone adapter preserves conflict and field details, checks HTTP status and 
   expect(request).toHaveBeenCalledTimes(1);
   expect(await createDeliverySettingsApi(async () => err({ code: "API_ERROR", message: "Failed", http: { status: 422, body: conflict } })).saveZones(zoneInput))
     .toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+  expect(await createDeliverySettingsApi(async () => err({ code: "API_ERROR", message: "Failed", http: {
+    status: 422, body: { code: "INVALID_DELIVERY_OPTION", error: "Invalid option", field: "price", index: 0, optionIndex: 1 },
+  } })).saveZones(zoneInput)).toMatchObject({ error: { code: "INVALID_DELIVERY_OPTION", field: "price", index: 0, optionIndex: 1 } });
   expect(await createDeliverySettingsApi(async () => err({ code: "API_ERROR", message: "Failed", http: {
     status: 422, body: { code: "INVALID_DELIVERY_ZONE", error: "Invalid zone", field: "districtCodes", index: 0 },
   } })).saveZones(zoneInput)).toMatchObject({ error: { code: "INVALID_DELIVERY_ZONE", field: "districtCodes", index: 0 } });

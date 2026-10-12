@@ -2,16 +2,16 @@ import { err, ok } from "@shared/functional";
 import { createQuotationApi } from "@mobile/features/delivery-settings/infrastructure/quotation-api";
 
 const id = "00000000-0000-4000-8000-000000000001";
-const rate = { id: "00000000-0000-4000-8000-000000000002", method: "home", label: "Entrega a domicilio", price: { amount: 8, currency: "PEN" } };
+const rate = { id: "00000000-0000-4000-8000-000000000002", method: "home", optionId: "00000000-0000-4000-8000-000000000012", name: "Standard", zoneName: "Lima", price: { amount: 8, currency: "PEN" } };
 const quotation = { id, destination: { country: "PE", districtCode: "150122", address: null, instructions: null },
   createdAt: "2026-10-08T00:00:00.000Z", rates: [rate] };
 
 test("seller lookup sends only a district and preserves every option, equal prices and explicit zero", async () => {
   const rates = [rate, { ...rate, id: "00000000-0000-4000-8000-000000000003" },
-    { ...rate, id: "00000000-0000-4000-8000-000000000004", method: "agency", label: "Retiro en agencia", price: { amount: 0, currency: "PEN" } }];
+    { ...rate, id: "00000000-0000-4000-8000-000000000004", method: "agency", name: "Agency", price: { amount: 0, currency: "PEN" } }];
   const request = jest.fn(async () => ok({ ...quotation, rates }));
   expect(await createQuotationApi(request)("150122")).toEqual(ok({ id, districtCode: "150122",
-    rates: rates.map(({ id, method, price }) => ({ id, method, price })) }));
+    rates: rates.map(({ id, method, name, zoneName, price }) => ({ id, method, name, zoneName, price })) }));
   expect(request).toHaveBeenCalledTimes(1);
   expect(request).toHaveBeenCalledWith("/api/quotations", { method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ destination: { country: "PE", districtCode: "150122" } }) });

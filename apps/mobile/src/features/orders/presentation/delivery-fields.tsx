@@ -11,7 +11,7 @@ import { getPeruDistrict } from "@shared/peru-geography";
 import type { DeliveryQuotation } from "@mobile/features/delivery-settings";
 import type { OrderDeliveryFormValues } from "@mobile/features/orders/presentation/order-delivery-form";
 import { Button } from "@mobile/components/ui/button";
-import { documentTypeLabel, orderLanguage } from "@mobile/features/orders/presentation/order-labels";
+import { documentTypeLabel, orderLanguage, rateLabel } from "@mobile/features/orders/presentation/order-labels";
 
 export function deliveryDraftFromOrder(order: Pick<OrderAggregateResponse, "buyer" | "delivery" | "deliveryCharge">, settings: DeliverySettingsResponse): OrderDeliveryFormValues {
   const recipient = order.delivery?.recipient;
@@ -55,7 +55,7 @@ export function DeliveryFields({ value, onChange, settings, busy, language, rate
           {!quoting && districtCode && !quoteError && rates.length === 0 ? <ThemedText>{t("orderQuotationEmpty")}</ThemedText> : null}
           {rates.length > 0 ? <Field required disabled={busy || quoting}><FieldLabel>{t("orderDeliveryRate")}</FieldLabel>
             <OptionSelector testID="delivery-rate" value={rates.some(rate => rate.id === rateId) ? rateId : null}
-              options={rates.map(rate => ({ value: rate.id, label: rate.price.amount === 0 ? t("zonesFree") : formatPrice(rate.price.amount, rate.price.currency) }))}
+              options={rates.map(rate => ({ value: rate.id, label: rateLabel(rate, rates, rate.price.amount === 0 ? t("zonesFree") : formatPrice(rate.price.amount, rate.price.currency)) }))}
               onValueChange={id => { const rate = rates.find(rate => rate.id === id); onChange({ ...value, rateId: rate?.id ?? "", price: rate?.price ?? null }); }} />
           </Field> : null}
           {districtCode && !quoting ? <Button variant="secondary" disabled={busy} onPress={onRetry}>{t("orderQuotationRetry")}</Button> : null}

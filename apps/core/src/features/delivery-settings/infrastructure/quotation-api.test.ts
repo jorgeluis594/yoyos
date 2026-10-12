@@ -2,7 +2,7 @@ import { expect, test, vi } from "vitest";
 import { requestDeliveryQuotation } from "@core/src/features/delivery-settings/infrastructure/quotation-api";
 
 const id = "00000000-0000-4000-8000-000000000001";
-const option = { id, method: "home", label: "Entrega a domicilio", price: { amount: 8, currency: "PEN" } };
+const option = { id, method: "home", optionId: id, name: "Standard", zoneName: "Lima", price: { amount: 8, currency: "PEN" } };
 const quote = { id, createdAt: "2026-10-07T00:00:00Z", destination: { country: "PE", districtCode: "150122", address: null, instructions: null }, rates: [option] };
 const response = (body: unknown, status = 201) => new Response(JSON.stringify(body), { status });
 

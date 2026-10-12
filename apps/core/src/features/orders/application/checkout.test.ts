@@ -156,7 +156,7 @@ test("checkout keep requires an existing delivery and preserves historical price
   const historical = { ...f.order, deliveryCost: { amount: 30, currency: "PEN" as const },
     deliveryCharge: { amount: 0, currency: "PEN" as const }, delivery: { method: "home" as const,
       recipient: f.input.delivery.selection.recipient, destination: { address: "Old street", country: "PE" as const, districtCode: "150101", district: "Old district", province: "Lima", department: "Lima", instructions: null },
-      pricing: { quotationId: "00000000-0000-4000-8000-000000000020", rateId: "00000000-0000-4000-8000-000000000021", zoneId: "00000000-0000-4000-8000-000000000022", settingsVersion: 1 },
+      pricing: { quotationId: "00000000-0000-4000-8000-000000000020", rateId: "00000000-0000-4000-8000-000000000021", optionId: "00000000-0000-4000-8000-000000000022", settingsVersion: 1 },
       recordedBy: { kind: "seller" as const, userId: seller.userId } } };
   f.deps = { ...f.deps, findOrderForUpdate: async () => ok(historical as unknown as typeof f.order) };
   expect(await confirmCheckoutDelivery({ ...input, expectedTotal: historical.total }, access, now, f.deps))
@@ -182,7 +182,7 @@ test("checkout confirmation replay preserves buyer and delivery without resolvin
 test("checkout exposes the saved delivery and customer charge without seller identity or repricing", async () => {
   const parsed = parseDeliverySnapshot({ method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
     destination: { address: "Historical street", country: "PE", districtCode: "150101", district: "Historical district", province: "Lima", department: "Lima", instructions: null },
-    pricing: { quotationId: "00000000-0000-4000-8000-000000000020", rateId: "00000000-0000-4000-8000-000000000021", zoneId: "00000000-0000-4000-8000-000000000022", settingsVersion: 1 }, recordedBy: { kind: "seller", userId: seller.userId } });
+    pricing: { quotationId: "00000000-0000-4000-8000-000000000020", rateId: "00000000-0000-4000-8000-000000000021", optionId: "00000000-0000-4000-8000-000000000022", settingsVersion: 1 }, recordedBy: { kind: "seller", userId: seller.userId } });
   if (!parsed.success) throw new Error("Invalid delivery fixture");
   const f = fixture({ ...base, delivery: parsed.data });
   const result = await getOrderCheckout(access, f.deps);

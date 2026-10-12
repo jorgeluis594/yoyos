@@ -20,12 +20,10 @@ test("mobile creation screen integrates with real order API, database and persis
     expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 0, home: { enabled: true }, agency: { enabled: true },
       couriers: [{ kind: "new", courierId: (await seededCourier()).id, enabled: true }], store: { enabled: true, pickupPoint: { name: "Journey pickup", address: "Pickup street", instructions: null } },
     } })).status()).toBe(200);
-    const zone = { kind: "new", enabled: true, districtCodes: ["150122"], price: { amount: 8, currency: "PEN" } };
-    expect((await page.request.put("/api/delivery-settings/zones", { data: { method: "home", expectedVersion: 1,
-      zones: [{ ...zone, name: "Journey home" }, { ...zone, name: "Overlapping home", price: { amount: 12, currency: "PEN" } }],
-    } })).status()).toBe(200);
-    expect((await page.request.put("/api/delivery-settings/zones", { data: { method: "agency", expectedVersion: 2,
-      zones: [{ ...zone, name: "Journey free agency", price: { amount: 0, currency: "PEN" } }],
+    const zone = (name: string, amount: number) => ({ kind: "new", name, enabled: true, districtCodes: ["150122"],
+      options: [{ kind: "new", method: "home", name, enabled: true, price: { amount, currency: "PEN" } }] });
+    expect((await page.request.put("/api/delivery-settings/zones", { data: { expectedVersion: 1,
+      zones: [zone("Journey home", 8), zone("Overlapping home", 12)],
     } })).status()).toBe(200);
     const cookie = (await page.context().cookies()).map(value => `${value.name}=${value.value}`).join("; ");
     try {
@@ -40,8 +38,8 @@ test("mobile creation screen integrates with real order API, database and persis
     }
     await withTenantIsolation(tenantId, async () => {
       const saved = await prisma.order.findMany({ include: { payments: true } });
-      expect(saved).toHaveLength(9);
-      expect(saved.filter(order => order.completedAt === null)).toHaveLength(8);
+      expect(saved).toHaveLength(8);
+      expect(saved.filter(order => order.completedAt === null)).toHaveLength(7);
       for (const pending of saved.filter(order => order.completedAt === null && order.payments.length === 0))
         expect(pending).toMatchObject({ payments: [], stockDeducted: false, deliveryStatus: "pending", cancelled: false });
       expect(saved.find(order => order.completedAt !== null)).toMatchObject({ stockDeducted: true, deliveryStatus: "delivered", payments: [expect.any(Object)] });
@@ -51,8 +49,8 @@ test("mobile creation screen integrates with real order API, database and persis
       expect(saved.find(order => order.payments.some(payment => String(payment.amount) === "40"))).toMatchObject({ stockDeducted: true, delivery: null });
       expect(saved.find(order => order.payments.some(payment => String(payment.amount) === "4.5"))).toMatchObject({ stockDeducted: false });
       const rated = saved.filter(order => order.delivery !== null);
-      expect(rated).toHaveLength(5);
-      expect(rated.map(order => String(order.deliveryCharge)).sort()).toEqual(["0", "10", "12", "12", "8"]);
+      expect(rated).toHaveLength(4);
+      expect(rated.map(order => String(order.deliveryCharge)).sort()).toEqual(["10", "12", "12", "8"]);
       expect(await prisma.payment.count()).toBe(4);
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity).toBe(2n);
     });
@@ -61,7 +59,7 @@ test("mobile creation screen integrates with real order API, database and persis
       await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
       await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
       await prisma.deliveryRate.deleteMany(); await prisma.quotation.deleteMany();
-      await prisma.deliveryZoneDistrict.deleteMany(); await prisma.deliveryZone.deleteMany();
+      await prisma.deliveryZoneDistrict.deleteMany(); await prisma.deliveryOption.deleteMany(); await prisma.deliveryZone.deleteMany();
       await prisma.companyCourier.deleteMany(); await prisma.companyDeliverySettings.deleteMany();
       await systemPrisma.user.deleteMany({ where: { email } }); await prisma.company.delete({ where: { id: companyId } });
     });

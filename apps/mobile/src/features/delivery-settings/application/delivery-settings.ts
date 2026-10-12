@@ -8,13 +8,17 @@ export type DeliverySettingsError = Readonly<{
   message: string;
 }>;
 export type DeliveryZonesError = Readonly<{
-  code: DeliverySettingsError["code"] | "INVALID_DELIVERY_ZONE" | "UNSUPPORTED_COUNTRY" | "UNSUPPORTED_MEDIA_TYPE";
+  code: DeliverySettingsError["code"] | "INVALID_DELIVERY_ZONE" | "INVALID_DELIVERY_OPTION" | "UNSUPPORTED_COUNTRY" | "UNSUPPORTED_MEDIA_TYPE";
   message: string;
   currentVersion?: number;
   reason?: "stale_version" | "concurrent_creation";
-  field?: "id" | "method" | "name" | "enabled" | "districtCodes" | "price" | "zones";
+  field?: "id" | "name" | "enabled" | "districtCodes" | "zones" | "options" | "method" | "price" | "agencyIds";
   index?: number;
+  optionIndex?: number;
 }>;
+export type DeliveryOptionDraft = Readonly<{ name: string; amount: string; enabled: boolean }>
+  & ({ kind: "existing"; id: string } | { kind: "new"; localKey: number })
+  & ({ method: "home" } | { method: "agency"; agencyIds: readonly string[] });
 type CourierName = Readonly<{ name: string }>;
 export type CourierDraft = (Extract<SaveDeliverySettingsRequest["couriers"][number], { kind: "existing" }> & CourierName & Readonly<{ courierId: string }>)
   | (Extract<SaveDeliverySettingsRequest["couriers"][number], { kind: "new" }> & CourierName & Readonly<{ localKey: number }>);

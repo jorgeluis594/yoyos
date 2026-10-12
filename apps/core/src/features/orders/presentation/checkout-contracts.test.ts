@@ -26,7 +26,7 @@ test("public response validates confirmed buyers and excludes private aggregate 
 test("public delivery keeps rated snapshots, rejects obsolete shapes and excludes author identity", () => {
   const recipient = { name: "Ana", phone: "999", identity: { kind: "absent" } };
   const pricing = { quotationId: "00000000-0000-4000-8000-000000000001", rateId: "00000000-0000-4000-8000-000000000002",
-    zoneId: "00000000-0000-4000-8000-000000000003", settingsVersion: 2 };
+    optionId: "00000000-0000-4000-8000-000000000003", settingsVersion: 2 };
   const district = { country: "PE", districtCode: "150122", district: "MIRAFLORES", province: "LIMA METROPOLITANA", department: "LIMA" };
   const home = { method: "home", recipient, destination: { ...district, address: "Street", instructions: null }, pricing };
   expect(publicCheckoutDeliverySchema.safeParse(home).success).toBe(true);
@@ -35,7 +35,7 @@ test("public delivery keeps rated snapshots, rejects obsolete shapes and exclude
   const agency = { method: "agency", recipient: { ...recipient, identity: { kind: "document", documentType: "passport", document: "001" } },
     destination: district, pricing, courier: null, agency: null };
   expect(publicCheckoutDeliverySchema.safeParse(agency).success).toBe(true);
-  expect(publicCheckoutDeliverySchema.safeParse({ ...agency, courier: { id: pricing.zoneId, name: "Courier" }, agency: "Office" }).success).toBe(false);
+  expect(publicCheckoutDeliverySchema.safeParse({ ...agency, courier: { id: pricing.optionId, name: "Courier" }, agency: "Office" }).success).toBe(false);
   const store = { method: "store", recipient, pickupPoint: { name: "Shop", address: "Street", instructions: null }, settingsVersion: 2 };
   expect(publicCheckoutDeliverySchema.safeParse(store).success).toBe(true);
   expect(publicCheckoutDeliverySchema.safeParse({ ...store, settingsVersion: undefined }).success).toBe(false);

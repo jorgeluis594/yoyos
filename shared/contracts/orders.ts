@@ -62,7 +62,7 @@ export const createOrderSchema = z.union([
 ]);
 export type CreateOrderRequest = z.infer<typeof createOrderSchema>;
 const settingsVersionSchema = z.number().int().min(0).max(2147483647);
-const deliveryPricingSchema = z.strictObject({ quotationId: z.uuid(), rateId: z.uuid(), zoneId: z.uuid(), settingsVersion: settingsVersionSchema });
+const deliveryPricingSchema = z.strictObject({ quotationId: z.uuid(), rateId: z.uuid(), optionId: z.uuid(), settingsVersion: settingsVersionSchema });
 export const homeDeliverySnapshotSchema = z.strictObject({ method: z.literal("home"), recipient: recipientSchema,
   destination: homeDestinationSchema.extend(peruDeliveryDistrictSchema.shape), pricing: deliveryPricingSchema, recordedBy: deliveryAuthorSchema });
 // T5 replaces the pending-agency variant (courier: null, agency: null) with courier and catalog agency.

@@ -11,6 +11,7 @@ import { add, type Money } from "@shared/money";
 import { getPeruDistrict } from "@shared/peru-geography";
 import { requestDeliveryQuotation } from "@core/src/features/delivery-settings/infrastructure/quotation-api";
 import { PeruDistrictSelect } from "@core/app/components/peru-district-select";
+import { rateLabel } from "@core/app/rate-label";
 import { useClientReady } from "@core/app/use-client-ready";
 import { formatCurrency } from "@core/app/format-currency";
 import { Button } from "@core/app/components/ui/button";
@@ -81,7 +82,7 @@ export function RatedDeliveryForm({ order, settings, pending, active, recovery, 
       {enabled && draft.districtCode && !current && <p role="status">{t("orderDelivery.quoting")}</p>}
       {current && !current.quotation && <div><p role="alert">{t("orderDelivery.quoteError")}</p><Button type="button" variant="outline" onClick={() => setRevision(value => value + 1)}>{t("orderDelivery.retryRates")}</Button></div>}
       {current?.quotation && rates.length === 0 && <p role="status">{t("orderDelivery.noRates")}</p>}
-      {rates.length > 0 && <Controller name="rateId" control={form.control} render={({ field }) => <Field><FieldLabel htmlFor="rated-rate">{t("orderDelivery.rate")}</FieldLabel><select {...field} value={rate ? field.value : ""} id="rated-rate" className={controlClass}><option value="">{t("orderDelivery.chooseRate")}</option>{rates.map((item, index) => <option key={item.id} value={item.id}>{t(`deliverySettings.${item.method}`)} · {item.price.amount === 0 ? t("deliveryZones.free") : formatCurrency(item.price.amount, item.price.currency, i18n.language)} · {index + 1}</option>)}</select></Field>} />}
+      {rates.length > 0 && <Controller name="rateId" control={form.control} render={({ field }) => <Field><FieldLabel htmlFor="rated-rate">{t("orderDelivery.rate")}</FieldLabel><select {...field} value={rate ? field.value : ""} id="rated-rate" className={controlClass}><option value="">{t("orderDelivery.chooseRate")}</option>{rates.map(item => <option key={item.id} value={item.id}>{rateLabel(item, rates)} · {item.price.amount === 0 ? t("deliveryZones.free") : formatCurrency(item.price.amount, item.price.currency, i18n.language)}</option>)}</select></Field>} />}
     </>}
     {input("name", t("orderDelivery.recipientName"), true)}{input("phone", t("orderDelivery.recipientPhone"), true)}
     {draft.method === "home" && <>{input("address", t("orderDelivery.address"), true)}{input("instructions", t("orderDelivery.instructions"))}</>}

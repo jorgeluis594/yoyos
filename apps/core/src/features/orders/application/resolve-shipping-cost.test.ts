@@ -6,23 +6,29 @@ import { buildQuotationWithRates } from "@core/src/features/delivery-settings/do
 import { validateSelectedDeliveryRate } from "@core/src/features/delivery-settings/domain/selected-delivery-rate";
 import { parseDeliveryZone } from "@core/src/features/delivery-settings/domain/delivery-zone";
 import type { UserId } from "@shared/identity";
+import type { PeruDistrictCode } from "@shared/peru-geography";
+import type { DeliveryAgencyId } from "@core/src/features/delivery-settings/domain/delivery-agency";
 import type { CourierId } from "@core/src/features/delivery-settings";
 import { initialDeliverySettings, type CourierCatalogId } from "@core/src/features/delivery-settings/domain/delivery-settings";
 
 const money = (amount: number) => ({ amount, currency: "PEN" as const });
 function fixture(method: "home" | "agency" = "home") {
   const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
-  const zone = parseDeliveryZone({ id: id(1), method, name: "Zone", enabled: true, districtCodes: ["150122"], price: money(8) }, "PEN");
+  const zone = parseDeliveryZone({ id: id(1), name: "Zone", enabled: true, districtCodes: ["150122"], options: [{ id: id(7), method, name: "Option",
+    enabled: true, price: money(8), ...(method === "agency" ? { agencyIds: [id(8)] } : {}) }] }, "PEN");
   if (!zone.success) throw new Error(zone.error.message);
   const settings = { ...initialDeliverySettings(), version: 2, home: { enabled: true }, agency: { enabled: method === "agency" },
     couriers: method === "agency" ? [{ id: id(5) as CourierId, catalogId: id(6) as CourierCatalogId, name: "Courier", enabled: true, catalogEnabled: true }] : [],
     store: { enabled: true as const, pickupPoint: { name: "Shop", address: "Street", instructions: null } } };
+  const agencies = method === "agency" ? [{ id: id(8) as DeliveryAgencyId, courierId: id(6) as CourierCatalogId, name: "Agency", address: "Street",
+    districtCode: "150122" as PeruDistrictCode, enabled: true, courierEnabled: true }] : [];
+  const configuration = { country: "PE", currency: "PEN" as const, settings, zones: [zone.data], agencies };
   const built = buildQuotationWithRates({ id: id(2), companyId: id(3), createdAt: new Date(), destination: { country: "PE", districtCode: "150122" },
-    settings, zones: [zone.data], rateIds: [id(4)] }, "PEN");
+    configuration, rateIds: [id(4)] });
   if (!built.success) throw new Error(built.error.message);
-  const saved = built.data.rates[0];
+  const saved = built.data.rates[0].rate;
   const rate = validateSelectedDeliveryRate({ companyId: saved.companyId, rateId: saved.id, method, districtCode: saved.districtCode },
-    { quotation: built.data.quotation, rate: saved }, settings, [zone.data], "PEN");
+    { quotation: built.data.quotation, rate: saved }, configuration);
   if (!rate.success) throw new Error(rate.error.message);
   const recipient = { name: "Ana", phone: "999", identity: { kind: "document", documentType: "national_id", document: "12345678" } };
   const input = method === "home" ? { method, recipient, rateId: saved.id, destination: { districtCode: "150122", address: " Street ", instructions: " " } }
@@ -37,7 +43,7 @@ test("shipping uses the chosen rate's price and references and obtains geographi
     const f = fixture(method);
     const result = await resolveShippingCost(f.input, f.context, "PEN", money(8), f.deps);
     expect(result).toMatchObject({ success: true, data: { cost: money(8), delivery: { method, recipient: f.recipient,
-      pricing: { rateId: f.rate.rateId, quotationId: f.rate.quotationId, zoneId: f.rate.zoneId, settingsVersion: 2 }, recordedBy: { kind: "buyer" },
+      pricing: { rateId: f.rate.rateId, quotationId: f.rate.quotationId, optionId: f.rate.optionId, settingsVersion: 2 }, recordedBy: { kind: "buyer" },
       destination: { country: "PE", districtCode: "150122", district: "MIRAFLORES", province: "LIMA METROPOLITANA", department: "LIMA" } } } });
     expect(await resolveShippingCost(f.input, { ...f.context, author: { kind: "seller", userId: "seller" as UserId } }, "PEN", money(0),
       { ...f.deps, resolveSelectedDeliveryRate: async () => ok({ ...f.rate, price: money(0) }) })).toMatchObject({ success: true, data: {

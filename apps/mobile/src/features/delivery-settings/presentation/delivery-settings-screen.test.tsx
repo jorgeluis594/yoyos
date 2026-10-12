@@ -1,4 +1,4 @@
-import { act, fireEvent, render, waitFor, within } from "@testing-library/react-native";
+import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 import { err, ok } from "@shared/functional";
 import { deliverySettings } from "@mobile/features/delivery-settings/composition";
 import DeliverySettingsScreen from "@mobile/features/delivery-settings/presentation/delivery-settings-screen";
@@ -168,21 +168,21 @@ test("courier configuration conflict retains new and existing rows and flags unt
 
 
 const zoneId = "00000000-0000-4000-8000-000000000010";
-const homeZone = { id: zoneId, method: "home" as const, name: "Lima", enabled: true,
-  districtCodes: ["150122"], price: { amount: 8, currency: "PEN" as const } };
+const optionId = "00000000-0000-4000-8000-000000000011";
+const homeOption = { id: optionId, method: "home" as const, name: "Standard", enabled: true, price: { amount: 8, currency: "PEN" as const } };
+const homeZone = { id: zoneId, name: "Lima", enabled: true, districtCodes: ["150122"], options: [homeOption] };
 const zonesState = { version: 5, currency: "PEN" as const, home: { enabled: true }, agency: { enabled: false }, zones: [homeZone] };
 
 test("mobile zone edit validates explicit zero, preserves pickup edits and advances the shared version", async () => {
   getZones.mockResolvedValue(ok(zonesState));
   get.mockResolvedValue(ok({ version: 5, home: { enabled: true }, agency: { enabled: false }, couriers: [], store: { enabled: true, pickupPoint: point } }));
-  saveZones.mockResolvedValue(ok({ ...zonesState, version: 6, zones: [{ ...homeZone, price: { amount: 0, currency: "PEN" } }] }));
+  saveZones.mockResolvedValue(ok({ ...zonesState, version: 6, zones: [{ ...homeZone, options: [{ ...homeOption, price: { amount: 0, currency: "PEN" } }] }] }));
   save.mockResolvedValue(ok({ version: 7, home: { enabled: true }, agency: { enabled: false }, couriers: [], store: { enabled: true, pickupPoint: { ...point, address: "Pickup draft" } } }));
   const screen = render(<DeliverySettingsScreen />);
   await screen.findByText("Lima");
   await waitFor(() => expect(screen.getByRole("button", { name: "Editar Lima" }).props.accessibilityState.disabled).toBe(false));
   fireEvent.changeText(screen.getByLabelText("Dirección"), "Pickup draft");
-  const home = within(screen.getByTestId("delivery-zones-home"));
-  fireEvent.press(home.getByText("Editar Lima"));
+  fireEvent.press(screen.getByText("Editar Lima"));
   fireEvent.changeText(screen.getByLabelText("Tarifa por pedido (S/) *"), "");
   fireEvent.press(screen.getByText("Guardar zona"));
   await screen.findByText(/Ingresa nombre, distritos/);
@@ -190,14 +190,34 @@ test("mobile zone edit validates explicit zero, preserves pickup edits and advan
   fireEvent.changeText(screen.getByLabelText("Tarifa por pedido (S/) *"), "0");
   fireEvent.press(screen.getByText("Guardar zona"));
   await screen.findByText("Zona guardada.");
-  expect(saveZones).toHaveBeenCalledWith({ method: "home", expectedVersion: 5, zones: [{
-    kind: "existing", id: zoneId, name: "Lima", enabled: true, districtCodes: ["150122"], price: { amount: 0, currency: "PEN" },
+  expect(saveZones).toHaveBeenCalledWith({ expectedVersion: 5, zones: [{
+    kind: "existing", id: zoneId, name: "Lima", enabled: true, districtCodes: ["150122"],
+    options: [{ kind: "existing", id: optionId, method: "home", name: "Standard", enabled: true, price: { amount: 0, currency: "PEN" } }],
   }] });
-  expect(screen.getByText("Entrega gratis")).toBeTruthy();
+  expect(screen.getByText(/Standard · Domicilio · Entrega gratis/)).toBeTruthy();
   expect(screen.getByLabelText("Dirección").props.value).toBe("Pickup draft");
   fireEvent.press(screen.getByText("Guardar configuración"));
   await screen.findByText("Configuración guardada.");
   expect(save).toHaveBeenCalledWith(expect.objectContaining({ expectedVersion: 6, pickupAddress: "Pickup draft" }));
+});
+
+test("a new zone sends its options and rejects duplicate option names before the request", async () => {
+  getZones.mockResolvedValue(ok({ ...zonesState, zones: [] }));
+  get.mockResolvedValue(ok({ version: 5, home: { enabled: true }, agency: { enabled: false }, couriers: [], store: { enabled: false, pickupPoint: null } }));
+  const screen = render(<DeliverySettingsScreen />);
+  await screen.findByText("Agregar zona");
+  await waitFor(() => expect(screen.getByRole("button", { name: "Agregar zona" }).props.accessibilityState.disabled).toBe(false));
+  fireEvent.press(screen.getByText("Agregar zona"));
+  fireEvent.changeText(screen.getByLabelText("Nombre de la zona *"), "Lima");
+  fireEvent.press(screen.getByText("Agregar opción a domicilio"));
+  fireEvent.press(screen.getByText("Agregar opción a domicilio"));
+  fireEvent.changeText(screen.getAllByLabelText("Nombre de la opción *")[0], "Standard");
+  fireEvent.changeText(screen.getAllByLabelText("Nombre de la opción *")[1], " standard ");
+  fireEvent.changeText(screen.getAllByLabelText("Tarifa por pedido (S/) *")[0], "8");
+  fireEvent.changeText(screen.getAllByLabelText("Tarifa por pedido (S/) *")[1], "9");
+  fireEvent.press(screen.getByText("Guardar zona"));
+  await screen.findByText(/Ingresa nombre, distritos/);
+  expect(saveZones).not.toHaveBeenCalled();
 });
 
 test("uncertain zone save preserves the draft and blocks all saves until explicit reload", async () => {
@@ -206,8 +226,7 @@ test("uncertain zone save preserves the draft and blocks all saves until explici
   const screen = render(<DeliverySettingsScreen />);
   await screen.findByText("Lima");
   await waitFor(() => expect(screen.getByRole("button", { name: "Editar Lima" }).props.accessibilityState.disabled).toBe(false));
-  let home = within(screen.getByTestId("delivery-zones-home"));
-  fireEvent.press(home.getByText("Editar Lima"));
+  fireEvent.press(screen.getByText("Editar Lima"));
   fireEvent.changeText(screen.getByLabelText("Nombre de la zona *"), "My draft");
   fireEvent.press(screen.getByText("Guardar zona"));
   await screen.findByText(/No pudimos confirmar el guardado/);
@@ -221,8 +240,7 @@ test("uncertain zone save preserves the draft and blocks all saves until explici
   fireEvent.press(screen.getByText("Recargar configuración"));
   await waitFor(() => expect(getZones).toHaveBeenCalledTimes(2));
   await waitFor(() => {
-    home = within(screen.getByTestId("delivery-zones-home"));
-    expect(home.getByText("Editar Lima")).toBeTruthy();
+    expect(screen.getByText("Editar Lima")).toBeTruthy();
     expect(screen.queryByLabelText("Nombre de la zona *")).toBeNull();
   });
 });

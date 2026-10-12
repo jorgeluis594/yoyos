@@ -81,7 +81,8 @@ test("configuration JSON contracts reject partial points and authoritative clien
 });
 
 const zoneState = { home: { enabled: false }, agency: { enabled: false }, version: 0, currency: "PEN" as const, zones: [] };
-const zoneInput = { method: "home", expectedVersion: 0, zones: [{ kind: "new", name: "Nearby", enabled: true, districtCodes: ["150122"], price: { amount: 8, currency: "PEN" } }] };
+const optionInput = { kind: "new", method: "home", name: "Standard", enabled: true, price: { amount: 8, currency: "PEN" } };
+const zoneInput = { expectedVersion: 0, zones: [{ kind: "new", name: "Nearby", enabled: true, districtCodes: ["150122"], options: [optionInput] }] };
 
 test("zone HTTP uses tenant context and rejects server-owned fields, missing prices and incompatible input shapes", async () => {
   const get = vi.spyOn(deliverySettings, "getZones").mockResolvedValue({ success: true, data: zoneState });
@@ -90,9 +91,11 @@ test("zone HTTP uses tenant context and rejects server-owned fields, missing pri
   expect(initial).toMatchObject({ status: 200, body: zoneState });
   expect(deliveryZonesSchema.safeParse(initial.body).success).toBe(true);
   expect(get).toHaveBeenCalledWith(context);
-  for (const body of [{ ...zoneInput, companyId: "other" }, { ...zoneInput, method: "store" },
+  for (const body of [{ ...zoneInput, companyId: "other" }, { ...zoneInput, method: "home" }, { ...zoneInput, zones: [{ ...zoneInput.zones[0], options: [{ ...optionInput, method: "store" }] }] },
+    { ...zoneInput, zones: [{ ...zoneInput.zones[0], options: [{ ...optionInput, agencyIds: [] }] }] },
     { ...zoneInput, zones: [{ ...zoneInput.zones[0], id: context.companyId }] },
-    { ...zoneInput, zones: [{ ...zoneInput.zones[0], price: undefined }] },
+    { ...zoneInput, zones: [{ ...zoneInput.zones[0], price: optionInput.price }] },
+    { ...zoneInput, zones: [{ ...zoneInput.zones[0], options: [{ ...optionInput, price: undefined }] }] },
     { ...zoneInput, zones: [{ ...zoneInput.zones[0], rateId: context.companyId }] }]) {
     expect(await request(put(body), "/zones")).toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
   }
@@ -107,6 +110,8 @@ test("zone validation identifies the row and conflicts return the current versio
   const save = vi.spyOn(deliverySettings, "saveZones");
   save.mockResolvedValueOnce({ success: false, error: { code: "INVALID_DELIVERY_ZONE", field: "districtCodes", index: 1, message: "Private data" } });
   expect(await request(put(zoneInput), "/zones")).toEqual({ status: 422, body: { code: "INVALID_DELIVERY_ZONE", error: "Invalid delivery zone", field: "districtCodes", index: 1 } });
+  save.mockResolvedValueOnce({ success: false, error: { code: "INVALID_DELIVERY_OPTION", field: "method", index: 0, optionIndex: 2, message: "Private data" } });
+  expect(await request(put(zoneInput), "/zones")).toEqual({ status: 422, body: { code: "INVALID_DELIVERY_OPTION", error: "Invalid delivery option", field: "method", index: 0, optionIndex: 2 } });
   save.mockResolvedValueOnce({ success: false, error: { code: "DELIVERY_SETTINGS_CONFLICT", currentVersion: 3, reason: "stale_version", message: "Private data" } });
   expect(await request(put(zoneInput), "/zones")).toMatchObject({ status: 409, body: { code: "DELIVERY_SETTINGS_CONFLICT", currentVersion: 3, reason: "stale_version" } });
 });

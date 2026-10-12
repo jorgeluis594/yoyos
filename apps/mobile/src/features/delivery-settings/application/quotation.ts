@@ -5,7 +5,7 @@ import type { TransportError } from "@mobile/shared/application/transport-error"
 export type DeliveryQuotation = Readonly<{
   id: string;
   districtCode: string;
-  rates: readonly Readonly<{ id: string; method: "home" | "agency"; price: Money }>[];
+  rates: readonly Readonly<{ id: string; method: "home" | "agency"; name: string; zoneName: string; price: Money }>[];
 }>;
 export type QuotationError = Readonly<{
   code: TransportError["code"] | "INVALID_INPUT" | "INVALID_DESTINATION" | "INVALID_DISTRICT"
