@@ -337,6 +337,7 @@ export type AddMessageProductsError = Readonly<{
 
 type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 type ContactNotFound = Readonly<{ code: "CONTACT_NOT_FOUND"; message: string }>;
+type InvalidStoredOrder = Readonly<{ code: "INVALID_ORDER"; message: string }>;
 type MessageAlreadyProcessed = Readonly<{ code: "MESSAGE_ALREADY_PROCESSED"; message: string }>;
 
 export type OrderChatSource = Readonly<{ chatId: ChatId; customerId: CustomerId }>;
@@ -354,7 +355,7 @@ export type AddMessageProductsDependencies = Readonly<{
   // Las siguientes requieren transacción activa.
   ensureCustomerForContact: (contactId: ContactId) => Promise<Result<MessageCustomer, PersistenceError | ContactNotFound>>;
   findOpenChatOrderCandidate: (chatId: ChatId) => Promise<Result<OrderId | null, PersistenceError>>;
-  findOrderForUpdate: (orderId: OrderId) => Promise<Result<OrderAggregate | null, PersistenceError>>;
+  findOrderForUpdate: (orderId: OrderId) => Promise<Result<OrderAggregate | null, PersistenceError | InvalidStoredOrder>>;
   allocateNumber: (companyId: CompanyId) => Promise<Result<OrderNumber, PersistenceError>>;
   saveNewOrder: (order: OrderAggregate, source: OrderChatSource) => Promise<Result<null, PersistenceError>>;
   saveAddedItems: (order: OrderAggregate, previous: OrderAggregate) => Promise<Result<null, PersistenceError>>;

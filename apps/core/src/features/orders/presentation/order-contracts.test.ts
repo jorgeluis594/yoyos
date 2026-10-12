@@ -1,3 +1,4 @@
+import type { ChatId } from "@core/src/features/orders/domain/message-order";
 import type { CompanyId, OrderId, OrderItemId, UserId } from "@core/src/features/orders/domain/order";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { VariantId } from "@core/src/features/products/domain/product";
@@ -154,7 +155,7 @@ test("serializes the order source and defaults to manual", () => {
     customer: { kind: "general_public" }, createdAt: new Date("2026-10-01"), items: [{ id: id(3) as OrderItemId, variantId: id(4) as VariantId,
       productName: "Item", variantAttributes: {}, sku: null, quantity: 1, unitPrice: { amount: 10, currency: "PEN" } }] });
   if (!built.success) throw new Error("Invalid fixture");
-  expect(toOrderAggregateJson({ ...built.data, source: "whatsapp" }).source).toBe("whatsapp");
+  expect(toOrderAggregateJson({ ...built.data, chatId: id(5) as ChatId }).source).toBe("whatsapp");
   expect(toOrderAggregateJson(built.data).source).toBe("manual");
   expect(orderSchema.shape.source.safeParse("telegram").success).toBe(false);
 });

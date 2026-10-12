@@ -50,6 +50,7 @@ export type AddMessageProductsError = Readonly<{
 
 type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 type ContactNotFound = Readonly<{ code: "CONTACT_NOT_FOUND"; message: string }>;
+type InvalidStoredOrder = Readonly<{ code: "INVALID_ORDER"; message: string }>;
 type SellerUnavailable = Readonly<{ code: "SELLER_UNAVAILABLE"; message: string }>;
 type MessageAlreadyProcessed = Readonly<{ code: "MESSAGE_ALREADY_PROCESSED"; message: string }>;
 
@@ -68,7 +69,7 @@ export type AddMessageProductsDependencies = Readonly<{
   // Las siguientes requieren transacción activa.
   ensureCustomerForContact: (contactId: ContactId) => Promise<Result<MessageCustomer, PersistenceError | ContactNotFound>>;
   findOpenChatOrderCandidate: (chatId: ChatId) => Promise<Result<OrderId | null, PersistenceError>>;
-  findOrderForUpdate: (orderId: OrderId) => Promise<Result<OrderAggregate | null, PersistenceError>>;
+  findOrderForUpdate: (orderId: OrderId) => Promise<Result<OrderAggregate | null, PersistenceError | InvalidStoredOrder>>;
   allocateNumber: (companyId: CompanyId) => Promise<Result<OrderNumber, PersistenceError>>;
   // Desviación: la FK del vendedor es la única señal de SELLER_UNAVAILABLE (§6), así que el puerto puede devolverla.
   saveNewOrder: (order: OrderAggregate, source: OrderChatSource) => Promise<Result<null, PersistenceError | SellerUnavailable>>;
