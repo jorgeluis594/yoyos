@@ -11,6 +11,7 @@ const mockCompleteOrder = jest.fn();
 const mockQuotation = jest.fn();
 const mockSettingsGet = jest.fn();
 const mockReadPending = jest.fn();
+const mockDiscardPending = jest.fn();
 const mockResolvePending = jest.fn();
 const mockResendPending = jest.fn();
 const mockReviewPending = jest.fn();
@@ -35,8 +36,9 @@ jest.mock("expo-network", () => ({ useNetworkState: () => ({ isConnected: !mockO
   getNetworkStateAsync: async () => ({ isConnected: !mockOffline, isInternetReachable: !mockOffline }) }));
 jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   readPendingOrderConfirmation: (...args: unknown[]) => mockReadPending(...args),
+  discardPendingOrderConfirmation: (...args: unknown[]) => mockDiscardPending(...args),
   resendPendingOrder: (...args: unknown[]) => mockResendPending(...args),
-  reviewLegacyPendingDelivery: (...args: unknown[]) => mockReviewPending(...args),
+  reviewPendingDelivery: (...args: unknown[]) => mockReviewPending(...args),
   loadPendingOrderReview: (...args: unknown[]) => mockLoadReview(...args),
   reviewPendingOrder: (...args: unknown[]) => mockReviewOrder(...args),
   resolvePendingOrderConfirmation: (...args: unknown[]) => mockResolvePending(...args),
@@ -69,9 +71,11 @@ jest.mock("@mobile/features/orders/presentation/order-result", () => ({ useOrder
 jest.mock("react-native-screens/experimental", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 
-const firstRate = { id: mockId(30), method: "home" as const, price: { amount: 8, currency: "PEN" as const } };
+const firstRate = { id: mockId(30), method: "home" as const, name: "Standard", zoneName: "Lima", price: { amount: 8, currency: "PEN" as const } };
 const secondRate = { ...firstRate, id: mockId(31), price: { amount: 12, currency: "PEN" as const } };
-const freeAgency = { ...firstRate, id: mockId(32), method: "agency" as const, price: { amount: 0, currency: "PEN" as const } };
+const branch = { id: mockId(40), name: "Branch", address: "Av. Test 123", courier: { id: mockId(41), name: "Shalom" },
+  location: { country: "PE" as const, districtCode: "150122", district: "MIRAFLORES", province: "LIMA METROPOLITANA", department: "LIMA" } };
+const freeAgency = { ...firstRate, id: mockId(32), method: "agency" as const, price: { amount: 0, currency: "PEN" as const }, agencies: [branch] };
 const quotation = { id: mockId(33), districtCode: "150122", rates: [firstRate, secondRate, freeAgency] };
 const allMethods: DeliverySettingsResponse = { version: 1, home: { enabled: true }, agency: { enabled: true }, couriers: [],
   store: { enabled: true, pickupPoint: { name: "Pickup", address: "Current pickup", instructions: null } } };
@@ -156,6 +160,17 @@ test("Chile seller selects a variant, reviews the amount, and opens the complete
   await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledWith(expect.objectContaining({ id: mockId(3) }), mockId(1)));
   expect(mockShow).toHaveBeenCalledWith({ id: mockId(3), shownTotal: { amount: 10, currency: "PEN" } });
   expect(mockReplace).toHaveBeenCalledWith(`/orders/${mockId(3)}`);
+});
+
+test("an attempt saved in an older format cannot be read and is discarded to continue selling", async () => {
+  mockReadPending.mockResolvedValue(err({ code: "INVALID_PENDING_DATA", message: "Invalid pending order" }));
+  mockDiscardPending.mockResolvedValue(ok(undefined));
+  const screen = render(<NewOrderScreen />);
+  await screen.findByText("No se pudo leer el intento pendiente");
+  fireEvent.press(screen.getByRole("button", { name: "Descartar intento pendiente" }));
+  await waitFor(() => expect(mockDiscardPending).toHaveBeenCalledWith(mockId(1)));
+  await screen.findByText("Camisa");
+  expect(screen.queryByText("No se pudo leer el intento pendiente")).toBeNull();
 });
 
 test("known stock rejection after uncertain resend returns to the editable cart", async () => {
@@ -331,12 +346,12 @@ test("restart verifies and resends a saved request without rebuilding another or
   expect(mockCompleteOrder).not.toHaveBeenCalled();
 });
 
-test("legacy recovery reviews an explicit rate while retaining recipient and original payment identities", async () => {
-  const pending = { version: 2, companyId: mockId(1), id: mockId(3), shownTotal: { amount: 10, currency: "PEN" },
+test("saved-delivery recovery reviews an explicit rate while retaining recipient and original payment identities", async () => {
+  const pending = { version: 2, companyId: mockId(1), id: mockId(3), shownTotal: { amount: 18, currency: "PEN" },
     request: { id: mockId(3), contactId: null, items: [{ variantId: mockId(2), quantity: 1 }],
       payments: [{ paymentId: mockId(8), amount: { amount: 4.5, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false }],
-      delivery: { chargeDeliveryToCustomer: false, delivery: { method: "home", recipient: { name: "Ana", phone: "999001", identity: { kind: "absent" } },
-        destination: { address: "Original street", district: "Miraflores", instructions: "Door 2" } } } } };
+      delivery: { expectedPrice: { amount: 8, currency: "PEN" }, delivery: { method: "home", rateId: mockId(9), recipient: { name: "Ana", phone: "999001", identity: { kind: "absent" } },
+        destination: { districtCode: "150122", address: "Original street", instructions: "Door 2" } } } } };
   mockReadPending.mockResolvedValue(ok(pending));
   const screen = render(<NewOrderScreen />);
   fireEvent.press(await screen.findByRole("button", { name: "Revisar entrega guardada" }));
@@ -446,13 +461,13 @@ test("agency creation uses an explicit zero rate and requires identity without o
   fireEvent.changeText(screen.getByLabelText(/Teléfono del destinatario/), "999001");
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
   expect(screen.queryByTestId("delivery-courier")).toBeNull();
-  expect(screen.queryByLabelText("Agencia de destino *")).toBeNull();
+  expect(screen.getByTestId("delivery-agency")).toBeTruthy();
   fireEvent(screen.getByTestId("delivery-document-type"), "valueChange", 0);
   fireEvent.changeText(screen.getByLabelText(/Número de documento/), "00123456");
   expect(screen.getAllByText(/S\/\s10\.00/).length).toBeGreaterThan(0);
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledWith(expect.objectContaining({ ratedDelivery: {
-    expectedPrice: freeAgency.price, delivery: { method: "agency", rateId: freeAgency.id, districtCode: "150122",
+    expectedPrice: freeAgency.price, delivery: { method: "agency", rateId: freeAgency.id, districtCode: "150122", agencyId: branch.id,
       recipient: { name: "Ana", phone: "999001", identity: { kind: "document", documentType: "national_id", document: "00123456" } },
     },
   } }), mockId(1)));

@@ -39,7 +39,7 @@ jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   resendPendingOrder: (...args: Parameters<typeof mockOrders.resendPendingOrder>) => mockOrders.resendPendingOrder(...args),
   loadPendingOrderReview: (...args: Parameters<typeof mockOrders.loadPendingOrderReview>) => mockOrders.loadPendingOrderReview(...args),
   reviewPendingOrder: (...args: Parameters<typeof mockOrders.reviewPendingOrder>) => mockOrders.reviewPendingOrder(...args),
-  reviewLegacyPendingDelivery: (...args: Parameters<typeof mockOrders.reviewLegacyPendingDelivery>) => mockOrders.reviewLegacyPendingDelivery(...args),
+  reviewPendingDelivery: (...args: Parameters<typeof mockOrders.reviewPendingDelivery>) => mockOrders.reviewPendingDelivery(...args),
 } }));
 jest.mock("@mobile/features/delivery-settings/composition", () => {
   const { createDeliverySettingsApi } = jest.requireActual<typeof import("@mobile/features/delivery-settings/infrastructure/delivery-settings-api")>("@mobile/features/delivery-settings/infrastructure/delivery-settings-api");
@@ -211,15 +211,16 @@ test("mobile creates a rated home order and payment atomically with the full sel
   expect(mockPosts).toBe(1);
 });
 
-test("mobile creates free rated agency delivery without operational courier or agency fields", async () => {
+test("mobile creates free rated agency delivery with the courier and catalog agency of the rate", async () => {
   const screen = await ratedReview("agency");
   expect(screen.queryByTestId("delivery-courier")).toBeNull();
+  expect(screen.getByTestId("delivery-agency")).toBeTruthy();
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   await waitFor(() => expect(mockReplace).toHaveBeenCalledTimes(1));
   const id = mockReplace.mock.calls[0][0].split("/").at(-1);
   expect(await mockOrders.loadOrder(id)).toMatchObject({ success: true, data: {
     total: { amount: 10, currency: "PEN" }, deliveryCharge: { amount: 0, currency: "PEN" }, stockDeducted: false,
-    delivery: { method: "agency", courier: null, agency: null, destination: { districtCode: "150122" },
+    delivery: { method: "agency", courier: { name: "Shalom" }, agency: { name: "Journey branch" }, destination: { districtCode: "150122" },
       recipient: { identity: { kind: "document", document: "00123456" } }, pricing: { rateId: expect.any(String) } },
   } });
 });
@@ -229,9 +230,9 @@ test("mobile price conflict leaves no order and preserves fields for explicit ra
   const configuration = await mockRequest("/api/delivery-settings/zones");
   if (!configuration.success) throw new Error("Cannot read zones");
   const { version, zones } = deliveryZonesSchema.parse(configuration.data);
-  const saved = await mockRequest("/api/delivery-settings/zones", { method: "PUT", body: JSON.stringify({ method: "home", expectedVersion: version,
-    zones: zones.filter(zone => zone.method === "home").map(({ id, name, enabled, districtCodes, price }) => ({ kind: "existing", id, name, enabled, districtCodes,
-      price: name === "Journey home" ? { amount: 10, currency: "PEN" } : price })),
+  const saved = await mockRequest("/api/delivery-settings/zones", { method: "PUT", body: JSON.stringify({ expectedVersion: version,
+    zones: zones.map(({ id, name, enabled, districtCodes, options }) => ({ kind: "existing", id, name, enabled, districtCodes,
+      options: options.map(option => ({ kind: "existing", ...option, price: option.name === "Journey home" ? { amount: 10, currency: "PEN" } : option.price })) })),
   }) });
   expect(saved.success).toBe(true);
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
@@ -272,18 +273,18 @@ test("rated mobile creation recovers the same charge after a lost response and r
   expect(mockPosts).toBe(1);
 });
 
-test("legacy recovery reviews a current rate and resends the same order and payments through the real API", async () => {
+test("saved-delivery recovery reviews a current rate and resends the same order and payments through the real API", async () => {
   const catalog = await mockOrders.searchOrderCatalog("Journey product");
   if (!catalog.success || !catalog.data[0]?.variants[0]) throw new Error("Missing recovery product");
   const orderId = randomUUID();
   const paymentId = randomUUID();
   const companyId = process.env.ORDER_JOURNEY_COMPANY!;
-  const pending = { version: 2, companyId, id: orderId, shownTotal: { amount: 10, currency: "PEN" },
+  const pending = { version: 2, companyId, id: orderId, shownTotal: { amount: 18, currency: "PEN" },
     request: { id: orderId, contactId: null, items: [{ variantId: catalog.data[0].variants[0].id, quantity: 1 }],
       payments: [{ paymentId, amount: { amount: 4.5, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false }],
-      delivery: { chargeDeliveryToCustomer: false, delivery: { method: "home",
+      delivery: { expectedPrice: { amount: 8, currency: "PEN" }, delivery: { method: "home", rateId: randomUUID(),
         recipient: { name: "Recovery recipient", phone: "999123456", identity: { kind: "absent" } },
-        destination: { address: "Recovery street", district: "Miraflores", instructions: "Door 2" } } } } };
+        destination: { districtCode: "150122", address: "Recovery street", instructions: "Door 2" } } } } };
   writeFileSync(join(directory, `yoyos_pending_order_${companyId}`), JSON.stringify(pending));
   restartOperations();
   const screen = render(<NewOrderScreen />);

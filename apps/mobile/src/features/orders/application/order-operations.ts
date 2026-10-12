@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { listOrderAggregatesResponseSchema, listOrderAggregatesSchema, listOrdersResponseSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema,
-  type LegacyCompleteOrderRequest, type ListOrderAggregatesRequest, type ListOrdersRequest, type OrderAggregateResponse, type OrderApiError, type OrderApiIssue } from "@shared/contracts/orders";
+  type ListOrderAggregatesRequest, type ListOrdersRequest, type OrderAggregateResponse, type OrderApiError, type OrderApiIssue } from "@shared/contracts/orders";
 import { err, ok } from "@shared/functional";
 import { add, subtract, type Money } from "@shared/money";
 import { limaMidnightUtc, nextCalendarDay } from "@shared/orders-date";
@@ -12,7 +12,9 @@ export type PendingOrderConfirmation = Readonly<{
   companyId: OrderAggregateResponse["companyId"];
   id: string;
   shownTotal: Money;
-}> & ({ version?: never; request?: never } | { version: 2; request: OrderSubmission | LegacyCompleteOrderRequest });
+  version: 2;
+  request: OrderSubmission;
+}>;
 export type PendingOrderStoreError = Readonly<{
   code: "PENDING_CONFIRMATION" | "PENDING_STORAGE_UNAVAILABLE" | "INVALID_PENDING_DATA";
   message: string;
@@ -61,6 +63,7 @@ type PendingStore = Readonly<{
   read: (companyId: string) => Promise<Result<PendingOrderConfirmation | null, PendingOrderStoreError>>;
   save: (pending: PendingOrderConfirmation) => Promise<Result<PendingOrderConfirmation, PendingOrderStoreError>>;
   clear: (companyId: string, id: string) => Promise<Result<void, PendingOrderStoreError>>;
+  discard: (companyId: string) => Promise<Result<void, PendingOrderStoreError>>;
   replace: (previous: PendingOrderConfirmation, next: PendingOrderConfirmation) => Promise<Result<PendingOrderConfirmation, PendingOrderStoreError>>;
 }>;
 
@@ -94,7 +97,7 @@ function mixedListRequest(criteria: OrderListCriteria): Result<ListOrderAggregat
 const definitive = new Set<OrderRequestError["code"]>(["INVALID_INPUT", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE",
   "INVALID_ORDER", "CURRENCY_MISMATCH", "CONTACT_NOT_FOUND", "VARIANT_NOT_FOUND", "INSUFFICIENT_STOCK",
   "INVALID_PAYMENT", "PAYMENT_CONFLICT", "PAYMENT_REQUIRED", "INVALID_TRANSITION", "STOCK_NOT_DEDUCTED",
-  "DELIVERY_UNAVAILABLE", "DELIVERY_METHOD_DISABLED", "COURIER_UNAVAILABLE", "RATE_UNAVAILABLE", "TOTAL_CHANGED", "INVALID_DISTRICT", "INVALID_DELIVERY_RATE"]);
+  "DELIVERY_UNAVAILABLE", "DELIVERY_METHOD_DISABLED", "RATE_UNAVAILABLE", "TOTAL_CHANGED", "INVALID_DISTRICT", "INVALID_DELIVERY_RATE"]);
 export function createOrderOperations(api: Api, pendingStore: PendingStore) {
   const inFlight = new Map<string, { id?: string; promise: Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>> }>();
   const confirmed = (order: OrderAggregateResponse, pending: PendingOrderConfirmation): Result<ConfirmOrderOutcome, ConfirmOrderError> => {
@@ -113,12 +116,7 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
     return confirmed(found.data, pending.data);
   };
   const post = async (pending: PendingOrderConfirmation, retainRejectedAttempt = false): Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>> => {
-    if (!pending.request) return err({ code: "PENDING_CONFIRMATION", message: "Legacy attempt can only be verified; original request is unavailable" });
-    const { delivery, ...selection } = pending.request;
-    if (delivery && "chargeDeliveryToCustomer" in delivery)
-      return err({ code: "INVALID_INPUT", message: "Legacy delivery requires review of a current rate" });
-    const request: OrderSubmission = delivery ? { ...selection, delivery } : selection;
-    const result = await api.create(request);
+    const result = await api.create(pending.request);
     if (result.success) return confirmed(result.data, pending);
     if (definitive.has(result.error.code)) {
       if (retainRejectedAttempt) return result;
@@ -173,6 +171,7 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
     searchOrderContacts: api.searchContacts,
     loadOrderContact: api.findContact,
     readPendingOrderConfirmation: pendingStore.read,
+    discardPendingOrderConfirmation: pendingStore.discard,
     resolvePendingOrderConfirmation,
     clearPendingOrderConfirmation: pendingStore.clear,
     completeOrder: (draft: OrderDraft, companyId: string) => run(companyId, draft.kind === "items" ? draft.id : undefined, () => send(draft, companyId)),
@@ -228,10 +227,10 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
       const saved = await pendingStore.replace(pending.data, next);
       return saved.success ? ok({ kind: "uncertain", pending: saved.data }) : saved;
     }),
-    reviewLegacyPendingDelivery: (companyId: string, delivery: RatedDeliveryAssignment) => run(companyId, undefined, async () => {
+    reviewPendingDelivery: (companyId: string, delivery: RatedDeliveryAssignment) => run(companyId, undefined, async () => {
       const pending = await pendingStore.read(companyId);
       if (!pending.success) return pending;
-      if (!pending.data?.request?.delivery)
+      if (!pending.data?.request.delivery)
         return err({ code: "PENDING_CONFIRMATION", message: "No delivery attempt to review" });
       const found = await api.get(pending.data.id);
       if (found.success) return confirmed(found.data, pending.data);

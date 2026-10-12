@@ -4,8 +4,10 @@ import resources from "@core/app/locales";
 import { formatCurrency } from "@core/app/format-currency";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { isRouteErrorResponse, Link, useActionData, useLoaderData, useNavigation, useSubmit, useLocation, redirect, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DescriptionDetails, DescriptionItem, DescriptionList, DescriptionTerm } from "@/components/ui/description-list";
 import { ErrorState } from "@/components/ui/error-state";
 import { PageContainer } from "@/components/ui/page-container";
 import { PageHeader } from "@/components/ui/page-header";
@@ -96,18 +98,20 @@ export default function ProductDetail() {
       </PageHeader.Heading>
       <PageHeader.Actions><Button asChild variant="outline"><Link to={catalog}>{t("products.backProducts")}</Link></Button></PageHeader.Actions>
     </PageHeader>
-    {saved && <p role="status" className="mt-5 text-sm">{t("products.saved")}</p>}
+    {saved && <Alert variant="success" className="mt-5"><AlertDescription>{t("products.saved")}</AlertDescription></Alert>}
     <ProductForm currency={product.currency} cancelTo={catalog} errors={errors} pending={pending} values={values} variantFields={variantId ? "editable" : "hidden"} stock={stock} submitLabel={t("products.saveChanges")} imageUrl={imageUrl} onSave={save} variants={variantId ? undefined : <section aria-labelledby="variants-heading">
       <h2 id="variants-heading" className="text-base font-semibold">{t("products.variants")}</h2>
-      <div className="mt-3 grid gap-3">{product.variants.map((variant, index) => <Card key={variant.id} role="article" className="p-4">
-        <h3 className="font-medium">{t("products.variant", { number: index + 1 })}</h3>
-        <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
-          {Object.entries(variant.attributes).map(([name, value]) => <div key={name}><dt className="text-muted-foreground">{name}</dt><dd>{value}</dd></div>)}
-          <div><dt className="text-muted-foreground">SKU</dt><dd>{variant.sku ?? t("products.noSku")}</dd></div>
-          <div><dt className="text-muted-foreground">{t("products.salePrice")}</dt><dd>{formatCurrency(variant.salePrice.amount, variant.salePrice.currency, i18n.language)}</dd></div>
-          <div><dt className="text-muted-foreground">{t("products.purchasePrice")}</dt><dd>{variant.purchasePrice ? formatCurrency(variant.purchasePrice.amount, variant.purchasePrice.currency, i18n.language) : t("products.noPrice")}</dd></div>
-          <div><dt className="text-muted-foreground">{t("products.stock")}</dt><dd>{variant.stock.quantity}</dd></div>
-        </dl>
+      <div className="mt-3 grid gap-3">{product.variants.map((variant, index) => <Card key={variant.id} role="article">
+        <CardHeader><CardTitle className="text-base font-medium">{t("products.variant", { number: index + 1 })}</CardTitle></CardHeader>
+        <CardContent>
+          <DescriptionList orientation="vertical" className="grid gap-3 sm:grid-cols-2">
+            {Object.entries(variant.attributes).map(([name, value]) => <DescriptionItem key={name}><DescriptionTerm>{name}</DescriptionTerm><DescriptionDetails>{value}</DescriptionDetails></DescriptionItem>)}
+            <DescriptionItem><DescriptionTerm>SKU</DescriptionTerm><DescriptionDetails>{variant.sku ?? t("products.noSku")}</DescriptionDetails></DescriptionItem>
+            <DescriptionItem><DescriptionTerm>{t("products.salePrice")}</DescriptionTerm><DescriptionDetails>{formatCurrency(variant.salePrice.amount, variant.salePrice.currency, i18n.language)}</DescriptionDetails></DescriptionItem>
+            <DescriptionItem><DescriptionTerm>{t("products.purchasePrice")}</DescriptionTerm><DescriptionDetails>{variant.purchasePrice ? formatCurrency(variant.purchasePrice.amount, variant.purchasePrice.currency, i18n.language) : t("products.noPrice")}</DescriptionDetails></DescriptionItem>
+            <DescriptionItem><DescriptionTerm>{t("products.stock")}</DescriptionTerm><DescriptionDetails>{variant.stock.quantity}</DescriptionDetails></DescriptionItem>
+          </DescriptionList>
+        </CardContent>
       </Card>)}</div>
     </section>} />
   </PageContainer>;

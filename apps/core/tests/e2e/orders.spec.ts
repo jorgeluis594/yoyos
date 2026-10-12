@@ -1,5 +1,5 @@
 import { formatCurrency } from "@core/app/format-currency";
-import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
+import { browserExpect, chooseOption, expect, openOptions, prepareVerifiedCompany, selectedValue, test } from "@core/tests/e2e/fixtures";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { products } from "@core/src/features/products/composition";
@@ -93,8 +93,8 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     await page.getByRole("link", { name: "Ver ventas" }).click();
     await page.getByRole("button", { name: "Filtros" }).click();
     await browserExpect(page.getByRole("dialog", { name: "Filtros de ventas" })).toBeVisible();
-    await page.getByLabel("Cliente", { exact: true }).selectOption("contact");
-    await page.getByLabel("Contacto", { exact: true }).selectOption(contactId);
+    await chooseOption(page, "Cliente", "Contacto");
+    await chooseOption(page, "Contacto", "912345678");
     await page.getByRole("button", { name: "Aplicar filtros" }).click();
     await browserExpect(page.getByRole("heading", { name: /Ventas/ }).locator('[data-slot="page-header-count"]')).toHaveText("1");
     await page.getByRole("searchbox", { name: "Buscar por nombre, teléfono o número de pedido" }).fill("912345678");
@@ -253,8 +253,8 @@ test("new order saves partial payments, paid pending delivery and configured del
     expect(product.success).toBe(true);
     expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 0, home: { enabled: true },
       store: { enabled: false, pickupPoint: null }, agency: { enabled: false }, couriers: [] } })).ok()).toBe(true);
-    expect((await page.request.put("/api/delivery-settings/zones", { data: { method: "home", expectedVersion: 1,
-      zones: [{ kind: "new", name: "Creation zone", enabled: true, districtCodes: ["040110"], price: { amount: 3, currency: "PEN" } }] } })).ok()).toBe(true);
+    expect((await page.request.put("/api/delivery-settings/zones", { data: { expectedVersion: 1,
+      zones: [{ kind: "new", name: "Creation zone", enabled: true, districtCodes: ["040110"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount: 3, currency: "PEN" } }] }] } })).ok()).toBe(true);
     for (const scenario of ["partial", "paid", "delivery", "no-stock"] as const) {
       if (scenario === "no-stock") await withTenantIsolation(companyId, async () => await prisma.productStock.updateMany({ data: { quantity: 0n } }));
       await page.goto("/es-PE/orders/new");
@@ -276,31 +276,34 @@ test("new order saves partial payments, paid pending delivery and configured del
         await page.getByLabel("Departamento", { exact: true }).selectOption("04");
         await page.getByLabel("Provincia", { exact: true }).selectOption("0401");
         await page.getByLabel("Distrito", { exact: true }).selectOption("040110");
-        const tariff = page.getByLabel("Tarifa de entrega", { exact: true });
-        await browserExpect(tariff.locator("option")).toHaveCount(2);
-        let rateId = await tariff.locator("option").nth(1).getAttribute("value");
+        const tariff = selectedValue(page, "rateId");
+        const chooseRate = async () => {
+          const rates = await openOptions(page, "Tarifa de entrega");
+          await browserExpect(rates).toHaveCount(1);
+          await rates.first().click();
+          return await tariff.inputValue();
+        };
+        let rateId = await chooseRate();
         if (!rateId) throw new Error("Expected delivery rate");
-        await tariff.selectOption(rateId);
         await page.getByLabel("Distrito", { exact: true }).selectOption("040101");
         await browserExpect(page.getByRole("status").filter({ hasText: "No hay tarifas para esta modalidad y distrito." })).toBeVisible();
         await browserExpect(page.locator("#resumen strong")).toHaveText("—");
         await browserExpect(page.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
         await page.getByLabel("Distrito", { exact: true }).selectOption("040110");
-        await browserExpect(tariff.locator("option")).toHaveCount(2);
         await browserExpect(tariff).toHaveValue("");
-        const reselectedRate = await tariff.locator("option").nth(1).getAttribute("value");
+        const reselectedRate = await chooseRate();
         if (!reselectedRate) throw new Error("Expected new quotation after district change");
         expect(reselectedRate).not.toBe(rateId);
         rateId = reselectedRate;
-        await tariff.selectOption(rateId);
         await page.getByLabel("Indicaciones de entrega (opcional)").fill("Puerta 2");
         await page.getByLabel("Nombre del destinatario").fill("Ana");
         await page.getByLabel("Teléfono del destinatario").fill("999001");
         await browserExpect(page.locator("#resumen strong")).toHaveText(formatCurrency(13, "PEN", "es"));
         const countBefore = await withTenantIsolation(companyId, async () => await prisma.order.count());
         const stateBefore = await (await page.request.get("/api/delivery-settings/zones")).json();
-        expect((await page.request.put("/api/delivery-settings/zones", { data: { method: "home", expectedVersion: stateBefore.version,
-          zones: stateBefore.zones.map((zone: { id: string; name: string; enabled: boolean; districtCodes: string[] }) => ({ ...zone, method: undefined, kind: "existing", price: { amount: 4, currency: "PEN" } })) } })).ok()).toBe(true);
+        expect((await page.request.put("/api/delivery-settings/zones", { data: { expectedVersion: stateBefore.version,
+          zones: stateBefore.zones.map((zone: { id: string; name: string; enabled: boolean; districtCodes: string[]; options: { price: unknown }[] }) => ({ ...zone, kind: "existing",
+            options: zone.options.map(option => ({ ...option, kind: "existing", price: { amount: 4, currency: "PEN" } })) })) } })).ok()).toBe(true);
         await page.getByRole("button", { name: "Guardar pedido" }).click();
         await browserExpect(page.getByRole("alert")).toContainText("La tarifa cambió");
         expect(await withTenantIsolation(companyId, async () => await prisma.order.count())).toBe(countBefore);
@@ -308,11 +311,9 @@ test("new order saves partial payments, paid pending delivery and configured del
         await browserExpect(page.getByLabel("Importe recibido").nth(1)).toHaveValue("3");
         await browserExpect(tariff).toHaveValue("");
         await browserExpect(page.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
-        await browserExpect(tariff.locator("option")).toHaveCount(2);
-        const refreshedRate = await tariff.locator("option").nth(1).getAttribute("value");
+        const refreshedRate = await chooseRate();
         if (!refreshedRate) throw new Error("Expected refreshed rate");
         expect(refreshedRate).not.toBe(rateId);
-        await tariff.selectOption(refreshedRate);
         await page.getByLabel("Importe recibido").nth(1).fill("4");
         await browserExpect(page.locator("#resumen strong")).toHaveText(formatCurrency(14, "PEN", "es"));
         await page.setViewportSize({ width: 1280, height: 900 });
@@ -340,7 +341,7 @@ test("new order saves partial payments, paid pending delivery and configured del
       await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
       await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
       await prisma.deliveryRate.deleteMany(); await prisma.quotation.deleteMany();
-      await prisma.deliveryZoneDistrict.deleteMany(); await prisma.deliveryZone.deleteMany();
+      await prisma.deliveryZoneDistrict.deleteMany(); await prisma.deliveryOptionAgency.deleteMany(); await prisma.deliveryOption.deleteMany(); await prisma.deliveryZone.deleteMany();
       await prisma.companyDeliverySettings.deleteMany();
     });
     await systemPrisma.user.deleteMany({ where: { email } });

@@ -7,7 +7,9 @@ import { Button } from "@core/app/components/ui/button";
 import { DataTable, type TableColumn } from "@core/app/components/ui/data-table";
 import { ErrorState } from "@core/app/components/ui/error-state";
 import { FilterBar } from "@core/app/components/ui/filter-bar";
+import { Pagination, PaginationContent, PaginationItem, PaginationLink } from "@core/app/components/ui/pagination";
 import { PageHeader } from "@core/app/components/ui/page-header";
+import { TextLink } from "@core/app/components/ui/text-link";
 import { privateUserContext } from "@core/app/private-user-context";
 import { products } from "@core/src/features/products/composition";
 
@@ -45,9 +47,7 @@ export default function ProductList() {
       header: t("products.name"),
       mobile: "title",
       cell: (item) => (
-        <Link to={`${base}/${item.id}`} className="font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring">
-          {item.name}
-        </Link>
+        <TextLink asChild><Link to={`${base}/${item.id}`}>{item.name}</Link></TextLink>
       ),
     },
     {
@@ -93,11 +93,15 @@ export default function ProductList() {
       data={list.items}
       emptyMessage={search
         ? t("products.emptySearch")
-        : <>{t("products.empty")}<Link to={`${base}/new`} className="font-medium text-primary underline underline-offset-4">{t("products.createFirst")}</Link>.</>}
+        : <>{t("products.empty")}<TextLink asChild><Link to={`${base}/new`}>{t("products.createFirst")}</Link></TextLink>.</>}
     />
-    {pages > 1 && <nav aria-label={t("products.pages")} className="mt-6 flex flex-wrap items-center gap-2">
-      {Array.from({ length: pages }, (_, index) => index + 1).map((page) => <Button key={page} asChild variant={page === list.page ? "default" : "outline"} size="sm"><Link to={pageUrl(page)} aria-label={t("products.page", { page })} aria-current={page === list.page ? "page" : undefined}>{page}</Link></Button>)}
-    </nav>}
+    {pages > 1 && <Pagination aria-label={t("products.pages")} className="mt-6">
+      <PaginationContent>
+        {Array.from({ length: pages }, (_, index) => index + 1).map((page) => <PaginationItem key={page}>
+          <PaginationLink asChild isActive={page === list.page}><Link to={pageUrl(page)} aria-label={t("products.page", { page })}>{page}</Link></PaginationLink>
+        </PaginationItem>)}
+      </PaginationContent>
+    </Pagination>}
   </section>;
 }
 

@@ -108,6 +108,8 @@ model Company {
   couriers CompanyCourier[]
   deliveryZones DeliveryZone[]
   deliveryZoneDistricts DeliveryZoneDistrict[]
+  deliveryOptions DeliveryOption[]
+  deliveryOptionAgencies DeliveryOptionAgency[]
   quotations Quotation[]
   deliveryRates DeliveryRate[]
 }
@@ -116,27 +118,23 @@ model DeliveryZone {
   id String @id @db.Uuid
   companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
   company Company @relation(fields: [companyId], references: [id])
-  method String
   name String @db.VarChar(120)
   enabled Boolean
-  priceAmount Decimal @db.Decimal(15, 2)
-  priceCurrency String
   districts DeliveryZoneDistrict[]
-  rates DeliveryRate[]
+  options DeliveryOption[]
 
-  @@unique([companyId, method, id])
+  @@unique([companyId, id])
 }
 
 model DeliveryZoneDistrict {
   companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
   company Company @relation(fields: [companyId], references: [id])
-  method String
   districtCode String @db.VarChar(6)
   zoneId String @db.Uuid
-  zone DeliveryZone @relation(fields: [companyId, method, zoneId], references: [companyId, method, id], onDelete: Restrict, onUpdate: NoAction)
+  zone DeliveryZone @relation(fields: [companyId, zoneId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
 
   @@id([companyId, zoneId, districtCode])
-  @@index([companyId, method, districtCode])
+  @@index([companyId, districtCode])
 }
 
 model Quotation {
@@ -157,8 +155,8 @@ model DeliveryRate {
   quotationId String @db.Uuid
   quotation Quotation @relation(fields: [companyId, quotationId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
   method String
-  zoneId String @db.Uuid
-  zone DeliveryZone @relation(fields: [companyId, method, zoneId], references: [companyId, method, id], onDelete: Restrict, onUpdate: NoAction)
+  optionId String @db.Uuid
+  option DeliveryOption @relation(fields: [companyId, method, optionId], references: [companyId, method, id], onDelete: Restrict, onUpdate: NoAction)
   districtCode String @db.VarChar(6)
   priceAmount Decimal @db.Decimal(15, 2)
   priceCurrency String
@@ -166,7 +164,7 @@ model DeliveryRate {
   createdAt DateTime @db.Timestamptz(6)
 
   @@unique([companyId, id])
-  @@unique([companyId, quotationId, zoneId])
+  @@unique([companyId, quotationId, optionId])
 }
 
 model CompanyDeliverySettings {
@@ -187,10 +185,67 @@ model CompanyCourier {
   companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
   company   Company @relation(fields: [companyId], references: [id])
   settings  CompanyDeliverySettings @relation(fields: [companyId], references: [companyId], map: "CompanyCourier_settings_fkey")
-  name      String
+  courierId String @db.Uuid
+  courier   Courier @relation(fields: [courierId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   enabled   Boolean
 
+  @@unique([companyId, id])
+  @@unique([companyId, courierId])
   @@index([companyId])
+}
+
+model Courier {
+  id        String @id @db.Uuid
+  code      String @unique @db.VarChar(40)
+  name      String @db.VarChar(120)
+  enabled   Boolean
+  companies CompanyCourier[]
+  agencies  DeliveryAgency[]
+}
+
+model DeliveryOption {
+  id            String @id @db.Uuid
+  companyId     String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company       Company @relation(fields: [companyId], references: [id])
+  zoneId        String @db.Uuid
+  zone          DeliveryZone @relation(fields: [companyId, zoneId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
+  method        String
+  name          String @db.VarChar(120)
+  enabled       Boolean
+  priceAmount   Decimal @db.Decimal(15, 2)
+  priceCurrency String
+  agencies      DeliveryOptionAgency[]
+  rates         DeliveryRate[]
+
+  @@unique([companyId, id])
+  @@unique([companyId, method, id])
+  @@index([companyId, zoneId])
+}
+
+model DeliveryAgency {
+  id           String @id @db.Uuid
+  courierId    String @db.Uuid
+  courier      Courier @relation(fields: [courierId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  name         String @db.VarChar(120)
+  address      String @db.VarChar(500)
+  districtCode String @db.VarChar(6)
+  enabled      Boolean
+  options      DeliveryOptionAgency[]
+
+  @@index([courierId])
+}
+
+model DeliveryOptionAgency {
+  companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company   Company @relation(fields: [companyId], references: [id])
+  optionId  String @db.Uuid
+  method    String @default("agency")
+  option    DeliveryOption @relation(fields: [companyId, method, optionId], references: [companyId, method, id], onDelete: Restrict, onUpdate: NoAction)
+  agencyId  String @db.Uuid
+  agency    DeliveryAgency @relation(fields: [agencyId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@id([companyId, optionId, agencyId])
+  @@index([companyId, agencyId])
 }
 
 model CompanyPaymentSettings {
@@ -398,7 +453,6 @@ model Order {
   buyer OrderBuyer?
   checkoutEnabledAt DateTime?
   checkoutConfirmedAt DateTime?
-  checkoutDeliveryRequest Json?
   currency String
   total Decimal @db.Decimal(15, 2)
   itemsTotal Decimal @db.Decimal(15, 2)

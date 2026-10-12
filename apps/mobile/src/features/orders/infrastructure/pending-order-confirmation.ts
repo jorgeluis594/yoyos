@@ -1,17 +1,15 @@
-import { legacyCompleteOrderSchema, createRatedOrderSchema } from "@shared/contracts/orders";
+import { completeOrderSchema } from "@shared/contracts/orders";
 import { z } from "zod";
 import { currencies } from "@shared/money";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { PendingOrderConfirmation, PendingOrderStoreError } from "@mobile/features/orders/application/order-operations";
 
-const legacyPendingSchema = z.strictObject({
+const pendingSchema = z.strictObject({
   companyId: z.uuid(), id: z.uuid(),
   shownTotal: z.strictObject({ amount: z.number().positive().finite(), currency: z.enum(currencies) }),
-});
-
-const pendingSchema = z.union([legacyPendingSchema.extend({ version: z.literal(2), request: z.union([createRatedOrderSchema, legacyCompleteOrderSchema]) })
-  .refine(value => value.request.id === value.id, { message: "Pending order identity mismatch" }), legacyPendingSchema]);
+  version: z.literal(2), request: completeOrderSchema,
+}).refine(value => value.request.id === value.id, { message: "Pending order identity mismatch" });
 
 type Storage = Readonly<{
   getItemAsync: (key: string) => Promise<string | null>;
@@ -57,6 +55,11 @@ export function createPendingOrderConfirmationStore(storage: Storage) {
       try { await storage.setItemAsync(key(pending.companyId), JSON.stringify(parsed.data)); }
       catch { return err({ code: "PENDING_STORAGE_UNAVAILABLE", message: "Cannot save pending order" }); }
       return ok(parsed.data);
+    },
+    discard: async (companyId: string): Promise<Result<void, PendingOrderStoreError>> => {
+      try { await storage.deleteItemAsync(key(companyId)); }
+      catch { return err({ code: "PENDING_STORAGE_UNAVAILABLE", message: "Cannot discard pending order" }); }
+      return ok(undefined);
     },
     clear: async (companyId: string, id: string): Promise<Result<void, PendingOrderStoreError>> => {
       const existing = await read(companyId);

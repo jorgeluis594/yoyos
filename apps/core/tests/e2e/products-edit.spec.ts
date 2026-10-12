@@ -42,7 +42,7 @@ test("edit products from the private form, preserve unchanged data, and enforce 
     await page.getByRole("button", { name: "Abrir menú" }).click();
     await page.getByRole("button", { name: "Alternar tema" }).click();
     await browserExpect(page.locator("html")).not.toHaveClass(/dark/);
-    await page.getByRole("button", { name: "Cerrar menú" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Cerrar", exact: true }).click();
     await page.getByLabel("Nombre *").focus();
     await page.keyboard.press("Tab");
     await browserExpect(page.getByLabel("Descripción")).toBeFocused();

@@ -1,11 +1,13 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import { initialDeliverySettings, parseDeliverySettings, parseCourierInputs, prepareCouriers, type CourierId, type CourierInput, type DeliverySettings, type DeliverySettingsError, type DeliverySettingsReadError } from "@core/src/features/delivery-settings/domain/delivery-settings";
+import { initialDeliverySettings, parseDeliverySettings, parseCourierInputs, prepareCouriers, type CourierCatalogEntry, type CourierId, type CourierInput, type DeliverySettings, type DeliverySettingsError, type DeliverySettingsReadError } from "@core/src/features/delivery-settings/domain/delivery-settings";
 
 export type DeliverySettingsAccess = Readonly<{ companyId: string; userId: string }>;
 export type SaveDeliverySettingsInput = Readonly<{ expectedVersion: number; home: DeliverySettings["home"]; agency: DeliverySettings["agency"]; couriers: readonly CourierInput[]; store: DeliverySettings["store"] }>;
 export type ReadDeliverySettings = (companyId: string) => Promise<Result<DeliverySettings | null, DeliverySettingsReadError>>;
+export type ReadCourierCatalog = () => Promise<Result<readonly CourierCatalogEntry[], DeliverySettingsReadError>>;
 export type SaveDeliverySettingsDependencies = Readonly<{
+  readCourierCatalog: ReadCourierCatalog;
   generateCourierId: () => CourierId;
   transaction: <T>(companyId: string, work: () => Promise<Result<T, DeliverySettingsError>>) => Promise<Result<T, DeliverySettingsError>>;
   findForUpdate: ReadDeliverySettings;
@@ -15,6 +17,10 @@ export type SaveDeliverySettingsDependencies = Readonly<{
 export async function getDeliverySettings(context: Pick<DeliverySettingsAccess, "companyId">, read: ReadDeliverySettings): Promise<Result<DeliverySettings, DeliverySettingsReadError>> {
   const found = await read(context.companyId);
   return found.success ? ok(found.data ?? initialDeliverySettings()) : found;
+}
+
+export function getCourierCatalog(read: ReadCourierCatalog): Promise<Result<readonly CourierCatalogEntry[], DeliverySettingsReadError>> {
+  return read();
 }
 
 export async function saveDeliverySettings(input: SaveDeliverySettingsInput, context: DeliverySettingsAccess, deps: SaveDeliverySettingsDependencies): Promise<Result<DeliverySettings, DeliverySettingsError>> {
@@ -29,7 +35,9 @@ export async function saveDeliverySettings(input: SaveDeliverySettingsInput, con
     if (!found.success) return found;
     const currentVersion = found.data?.version ?? 0;
     if (currentVersion !== input.expectedVersion) return err({ code: "DELIVERY_SETTINGS_CONFLICT", message: "Settings changed since they were loaded", currentVersion, reason: "stale_version" });
-    const couriers = prepareCouriers({ agencyEnabled: input.agency.enabled, couriers: courierInputs.data }, found.data?.couriers ?? [], deps.generateCourierId);
+    const catalog = await deps.readCourierCatalog();
+    if (!catalog.success) return catalog;
+    const couriers = prepareCouriers({ agencyEnabled: input.agency.enabled, couriers: courierInputs.data }, found.data?.couriers ?? [], catalog.data, deps.generateCourierId);
     if (!couriers.success) return couriers;
     const next: DeliverySettings = { ...validated.data, agency: input.agency, couriers: couriers.data, version: currentVersion + 1 };
     const complete = parseDeliverySettings(next);

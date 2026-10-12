@@ -20,15 +20,15 @@ test("order API sends only validated creation fields and validates the reply", a
   expect(JSON.parse(String(calls[1][1]?.body))).toEqual(complete);
 });
 
-test.each(["home", "agency", "store"] as const)("creation refuses legacy %s delivery before HTTP", async (method) => {
+test.each(["home", "agency", "store"] as const)("creation refuses obsolete %s delivery before HTTP", async (method) => {
   const request = jest.fn(async () => ok({ unexpected: true }));
   const api = createOrderApi(request);
   const recipient = { name: "Ana", phone: "999", identity: { kind: "document" as const, documentType: "national_id" as const, document: "00123456" } };
   const delivery = method === "home" ? { method, recipient, destination: { address: "Street", district: "Lima", instructions: null } }
     : method === "agency" ? { method, recipient, courierId: id(4), agency: "Old agency" } : { method, recipient };
-  for (const chargeDeliveryToCustomer of [true, false]) {
+  for (const obsoleteCharge of [true, false]) {
     expect(await api.create({ id: id(1), contactId: null, items: [{ variantId: id(2), quantity: 1 }],
-      delivery: { delivery, chargeDeliveryToCustomer } } as unknown as Parameters<typeof api.create>[0])).toMatchObject({ error: { code: "INVALID_INPUT" } });
+      delivery: { delivery, obsoleteCharge } } as unknown as Parameters<typeof api.create>[0])).toMatchObject({ error: { code: "INVALID_INPUT" } });
   }
   expect(request).not.toHaveBeenCalled();
 });
@@ -105,9 +105,9 @@ test("delivery API rejects forged snapshots and preserves applicable errors with
   expect(await api.setDelivery(id(1), { ...input, delivery: { ...input.delivery, recordedBy: { kind: "buyer" } } } as typeof input))
     .toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
   expect(request).not.toHaveBeenCalled();
-  for (const chargeDeliveryToCustomer of [true, false]) {
-    expect(await api.setDelivery(id(1), { ...input, chargeDeliveryToCustomer } as typeof input)).toMatchObject({ error: { code: "INVALID_INPUT" } });
-    expect(await api.setDelivery(id(1), { delivery: input.delivery, chargeDeliveryToCustomer } as unknown as typeof input)).toMatchObject({ error: { code: "INVALID_INPUT" } });
+  for (const obsoleteCharge of [true, false]) {
+    expect(await api.setDelivery(id(1), { ...input, obsoleteCharge } as typeof input)).toMatchObject({ error: { code: "INVALID_INPUT" } });
+    expect(await api.setDelivery(id(1), { delivery: input.delivery, obsoleteCharge } as unknown as typeof input)).toMatchObject({ error: { code: "INVALID_INPUT" } });
   }
   expect(request).not.toHaveBeenCalled();
   expect(await api.setDelivery(id(1), input)).toMatchObject({ success: false, error: { code: "DELIVERY_METHOD_DISABLED" } });
@@ -121,15 +121,15 @@ test("delivery API validates the complete authored snapshot and updated aggregat
   const total = { amount: 10, currency: "PEN" as const };
   const zero = { amount: 0, currency: "PEN" as const };
   const delivery = { method: "store" as const, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } },
-    pickupPoint: { name: "Store", address: "Lima", instructions: null }, recordedBy: { kind: "seller" as const, userId: "current-editor" } };
+    pickupPoint: { name: "Store", address: "Lima", instructions: null }, settingsVersion: 1, recordedBy: { kind: "seller" as const, userId: "current-editor" } };
   const input = { delivery: { method: "store" as const, recipient: delivery.recipient }, expectedPrice: zero };
-  const order = { id: id(1), companyId: id(2), sellerId: "original-seller", number: 1001, buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, checkoutDeliveryRequest: null, deliveredAt: null, createdAt: "2026-10-05T12:00:00.000Z", completedAt: null,
+  const order = { id: id(1), companyId: id(2), sellerId: "original-seller", number: 1001, buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, deliveredAt: null, createdAt: "2026-10-05T12:00:00.000Z", completedAt: null,
     status: "active", paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false, total, paidAmount: zero, balanceDue: total, overpaidAmount: zero,
     cancelled: false, delivery, payments: [], itemsTotal: total, deliveryCost: { amount: 3, currency: "PEN" }, deliveryCharge: zero,
     items: [{ id: id(3), variantId: id(4), productName: "Item", variantAttributes: {}, sku: null, quantity: 1, unitPrice: total, subtotal: total }] };
   expect(await createOrderApi(async () => ok(order)).get(id(1))).toMatchObject({ success: true, data: { delivery, total } });
   const ratedPickup = { delivery: input.delivery, expectedPrice: zero };
-  expect(await createOrderApi(async () => ok({ ...order, deliveryCost: zero })).setDelivery(id(1), ratedPickup)).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+  expect(await createOrderApi(async () => ok(order)).setDelivery(id(1), ratedPickup)).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
   expect(await createOrderApi(async () => ok({ ...order, delivery: { ...delivery, settingsVersion: 2 } })).setDelivery(id(1), ratedPickup))
     .toMatchObject({ error: { code: "INVALID_RESPONSE" } });
   expect(await createOrderApi(async () => ok({ ...order, deliveryCost: zero, delivery: { ...delivery, settingsVersion: 2 } })).setDelivery(id(1), ratedPickup))
@@ -137,7 +137,7 @@ test("delivery API validates the complete authored snapshot and updated aggregat
   const ratedHome = { delivery: { method: "home" as const, recipient: delivery.recipient, rateId: id(5),
     destination: { districtCode: "150122", address: "Street", instructions: null } }, expectedPrice: { amount: 8, currency: "PEN" as const } };
   const homeSnapshot = { method: "home", recipient: delivery.recipient, recordedBy: delivery.recordedBy,
-    pricing: { rateId: id(5), quotationId: id(6), zoneId: id(7), settingsVersion: 2 },
+    pricing: { rateId: id(5), quotationId: id(6), optionId: id(7), settingsVersion: 2 },
     destination: { country: "PE", districtCode: "150122", district: "MIRAFLORES", province: "LIMA METROPOLITANA", department: "LIMA", address: "Street", instructions: null } };
   const homeOrder = { ...order, delivery: homeSnapshot, deliveryCost: ratedHome.expectedPrice, deliveryCharge: ratedHome.expectedPrice,
     total: { amount: 18, currency: "PEN" }, balanceDue: { amount: 18, currency: "PEN" } };
@@ -246,7 +246,7 @@ function cancellationFixture() {
   const total = { amount: 10, currency: "PEN" as const };
   const zero = { amount: 0, currency: "PEN" as const };
   return { id: id(1), companyId: id(2), sellerId: "seller", number: 1001, buyer: null,
-    checkoutEnabledAt: null, checkoutConfirmedAt: null, checkoutDeliveryRequest: null, deliveredAt: null, completedAt: null,
+    checkoutEnabledAt: null, checkoutConfirmedAt: null, deliveredAt: null, completedAt: null,
     createdAt: "2026-10-05T12:00:00.000Z", status: "cancelled", paymentStatus: "pending",
     deliveryStatus: "pending", cancelled: true, stockDeducted: true, delivery: null, payments: [],
     total, paidAmount: zero, balanceDue: total, overpaidAmount: zero, itemsTotal: total, deliveryCost: zero, deliveryCharge: zero,

@@ -1,7 +1,9 @@
 import { useTranslation } from "react-i18next";
 import { Fragment, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { Link } from "react-router";
+import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Button } from "@core/app/components/ui/button";
+import { FileUploadPreview } from "@core/app/components/ui/file-upload";
 import { Field, FieldError, FieldLabel } from "@core/app/components/ui/field";
 import { Input } from "@core/app/components/ui/input";
 import { Textarea } from "@core/app/components/ui/textarea";
@@ -102,7 +104,7 @@ export function ProductForm({ currency, cancelTo, errors, pending, onSave, value
           {photo && <Button type="button" variant="outline" onClick={removePhoto}>{t("products.removePhoto")}</Button>}
         </div>
         {uploading && <p role="status" className="text-sm text-muted-foreground">{t("products.uploading")}</p>}
-        {photo && <img src={photo.url} alt={t("products.preview")} className="max-h-48 rounded-md border border-border object-contain" />}
+        {photo && <FileUploadPreview src={photo.url} alt={t("products.preview")} />}
         {photoError && <FieldError id="photo-error">{photoError}</FieldError>}
       </Field>
       {stock === undefined ? <Field data-invalid={Boolean(errors.initialStock)}>
@@ -112,7 +114,7 @@ export function ProductForm({ currency, cancelTo, errors, pending, onSave, value
       </Field> : <Field><FieldLabel htmlFor="initialStock">{t("products.stock")}</FieldLabel><Input id="initialStock" name="initialStock" value={stock} readOnly aria-readonly="true" className="bg-muted text-muted-foreground" /></Field>}
       </aside>
     </div>
-    {errors.form && <p role="alert" className="text-sm text-destructive">{errors.form}</p>}
+    {errors.form && <Alert variant="destructive"><AlertDescription>{errors.form}</AlertDescription></Alert>}
     <div className="flex flex-wrap gap-3 border-t border-border pt-5">
       <Button type="submit" disabled={pending || uploading}>{pending ? t("products.saving") : submitLabel ?? t("products.save")}</Button>
       <Button asChild variant="outline"><Link to={cancelTo}>{t("products.cancel")}</Link></Button>

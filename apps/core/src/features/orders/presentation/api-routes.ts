@@ -55,7 +55,6 @@ function operationError(response: Response, error: { code: string; variantId?: s
     case "ORDER_CANCELLED": return apiError(response, 409, "ORDER_CANCELLED", "Order is cancelled");
     case "DELIVERY_UNAVAILABLE": return apiError(response, 422, "DELIVERY_UNAVAILABLE", "Delivery is unavailable");
     case "DELIVERY_METHOD_DISABLED": return apiError(response, 422, "DELIVERY_METHOD_DISABLED", "Delivery method is disabled");
-    case "COURIER_UNAVAILABLE": return apiError(response, 422, "COURIER_UNAVAILABLE", "Courier is unavailable");
     case "RATE_UNAVAILABLE": return apiError(response, 422, "RATE_UNAVAILABLE", "Selected delivery rate is unavailable");
     case "INVALID_DISTRICT": return apiError(response, 422, "INVALID_DISTRICT", "Select a valid district");
     case "INVALID_DELIVERY_RATE": return apiError(response, 422, "INVALID_DELIVERY_RATE", "Invalid delivery rate");

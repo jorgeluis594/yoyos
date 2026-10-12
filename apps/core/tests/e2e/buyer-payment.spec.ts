@@ -27,7 +27,9 @@ test("buyer reports a receipt and sees the seller confirmed balance", async ({ p
     await page.route("**/test-images/*", (route) => route.fulfill({ status: 200, contentType: "image/png", body: png }));
     await page.route("**/api/images", (route) => route.fulfill({ status: 201, contentType: "application/json",
       body: JSON.stringify({ id: walletImageId, url: `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}/test-images/test%2F${walletImageId}` }) }));
-    await page.getByLabel("Imagen opcional").first().setInputFiles({ name: "yape.png", mimeType: "image/png", buffer: png });
+    const chooser = page.waitForEvent("filechooser");
+    await page.getByRole("button", { name: "Imagen opcional" }).first().click();
+    await (await chooser).setFiles({ name: "yape.png", mimeType: "image/png", buffer: png });
     await browserExpect(page.getByRole("img", { name: "Imagen de instrucciones de pago" })).toBeVisible();
     await page.getByLabel("Ofrecer transferencia bancaria").check();
     await page.getByLabel("Banco", { exact: true }).fill("BCP");
@@ -128,7 +130,8 @@ test("buyer reports a receipt and sees the seller confirmed balance", async ({ p
     await browserExpect(page.getByRole("link", { name: "Abrir enlace de pago" })).toHaveCount(0);
     await browserExpect(page.getByRole("link", { name: "Ver captura" })).toBeVisible();
     const report = page.getByRole("listitem").filter({ hasText: "Pago reportado, pendiente de revisión" });
-    await report.getByLabel("Medio de pago").selectOption("bank_transfer");
+    await report.getByRole("combobox", { name: "Medio de pago" }).click();
+    await page.getByRole("listbox").getByRole("option", { name: "Transferencia bancaria" }).click();
     await report.getByRole("button", { name: "Confirmar pago" }).click();
     await browserExpect(page.getByText("Pago actualizado.")).toBeVisible();
     expect((await withTenantIsolation(tenantId, async () => await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } }))).status).toBe("confirmed");

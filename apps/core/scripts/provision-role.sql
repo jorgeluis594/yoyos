@@ -15,8 +15,11 @@ REVOKE ALL ON DATABASE :"dbname" FROM core_app;
 GRANT CONNECT ON DATABASE :"dbname" TO core_app;
 GRANT USAGE ON SCHEMA public TO core_app;
 -- Application tables share DML permissions; Prisma's migration history stays private.
+-- System catalogs (Courier, DeliveryAgency) are maintained outside the app: read-only.
 SELECT format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I.%I TO core_app', schemaname, tablename)
-FROM pg_tables WHERE schemaname = 'public' AND tablename <> '_prisma_migrations' \gexec
+FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('_prisma_migrations', 'Courier', 'DeliveryAgency') \gexec
+SELECT format('GRANT SELECT ON TABLE %I.%I TO core_app', schemaname, tablename)
+FROM pg_tables WHERE schemaname = 'public' AND tablename IN ('Courier', 'DeliveryAgency') \gexec
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO core_app;
 -- Functions require explicit grants, especially those using SECURITY DEFINER.

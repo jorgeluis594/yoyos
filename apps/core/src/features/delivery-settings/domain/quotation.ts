@@ -4,8 +4,10 @@ import type { CompanyId } from "@shared/identity";
 import { compare, type Currency, type Money } from "@shared/money";
 import { parsePeruDistrictCode, type PeruDistrictCode } from "@shared/peru-geography";
 import type { Result } from "@shared/result";
-import { parseDeliverySettings, type DeliverySettings } from "@core/src/features/delivery-settings/domain/delivery-settings";
-import { parseDeliveryZone, type DeliveryZone, type DeliveryZoneId, type ZonedDeliveryMethod } from "@core/src/features/delivery-settings/domain/delivery-zone";
+import { parseDeliverySettings, type Courier, type DeliverySettings } from "@core/src/features/delivery-settings/domain/delivery-settings";
+import { parseDeliveryZone, type AgencyDeliveryOption, type DeliveryMethodWithRate, type DeliveryOptionId, type DeliveryZone,
+  type HomeDeliveryOption } from "@core/src/features/delivery-settings/domain/delivery-zone";
+import type { DeliveryAgency } from "@core/src/features/delivery-settings/domain/delivery-agency";
 import { parseDeliveryPrice } from "@core/src/features/delivery-settings/domain/delivery-price";
 
 export type QuotationId = string & { readonly __brand: "QuotationId" };
@@ -15,10 +17,22 @@ export type QuotationDestination = Readonly<{ country: "PE"; districtCode: PeruD
 export type Quotation = Readonly<{ id: QuotationId; companyId: CompanyId; destination: QuotationDestination; createdAt: Date }>;
 export type DeliveryRate = Readonly<{
   id: DeliveryRateId; companyId: CompanyId; quotationId: QuotationId; price: Money;
-  settingsVersion: DeliverySettingsVersion; createdAt: Date; method: ZonedDeliveryMethod;
-  zoneId: DeliveryZoneId; districtCode: PeruDistrictCode;
+  settingsVersion: DeliverySettingsVersion; createdAt: Date; method: DeliveryMethodWithRate;
+  optionId: DeliveryOptionId; districtCode: PeruDistrictCode;
 }>;
-export type QuotationWithRates = Readonly<{ quotation: Quotation; rates: readonly DeliveryRate[] }>;
+type NonEmpty<T> = readonly [T, ...T[]];
+export type DeliveryConfiguration = Readonly<{
+  country: string; currency: Currency; settings: DeliverySettings; zones: readonly DeliveryZone[];
+  agencies: readonly DeliveryAgency[]; // catalog agencies associated with any option of the company
+}>;
+export type EligibleAgency = Readonly<{ agency: DeliveryAgency; courier: Courier }>;
+export type ApplicableDeliveryOption =
+  | Readonly<{ zone: DeliveryZone; option: HomeDeliveryOption }>
+  | Readonly<{ zone: DeliveryZone; option: AgencyDeliveryOption; agencies: NonEmpty<EligibleAgency> }>;
+export type QuotedDeliveryRate =
+  | Readonly<{ rate: DeliveryRate & Readonly<{ method: "home" }>; name: string; zoneName: string }>
+  | Readonly<{ rate: DeliveryRate & Readonly<{ method: "agency" }>; name: string; zoneName: string; agencies: NonEmpty<EligibleAgency> }>;
+export type QuotationWithRates = Readonly<{ quotation: Quotation; rates: readonly QuotedDeliveryRate[] }>;
 export type RateWithQuotation = Readonly<{ quotation: Quotation; rate: DeliveryRate }>;
 export type QuotationDestinationError =
   | Readonly<{ code: "INVALID_DESTINATION"; message: string; field: "destination" | "address" | "instructions" }>
@@ -47,7 +61,7 @@ export function parseQuotation(value: unknown): Result<Quotation, QuotationError
 export function parseDeliveryRate(value: unknown, currency: Currency): Result<DeliveryRate, QuotationError> {
   const parsed = z.strictObject({ id: z.uuid().transform(value => value as DeliveryRateId), companyId: companyIdSchema,
     quotationId: z.uuid().transform(value => value as QuotationId), method: z.enum(["home", "agency"]),
-    zoneId: z.uuid().transform(value => value as DeliveryZoneId), districtCode: districtCodeSchema, price: z.unknown(),
+    optionId: z.uuid().transform(value => value as DeliveryOptionId), districtCode: districtCodeSchema, price: z.unknown(),
     settingsVersion: z.number().int().min(0).max(2147483647).transform(value => value as DeliverySettingsVersion), createdAt: z.date() }).safeParse(value);
   if (!parsed.success) return err({ code: "INVALID_DELIVERY_RATE", message: "Invalid persisted delivery rate" });
   const price = parseDeliveryPrice(parsed.data.price, currency);
@@ -82,46 +96,65 @@ export function parseQuotationDestination(value: unknown): Result<QuotationDesti
     : err({ ...district.error, districtCode: parsed.data.districtCode });
 }
 
-export function applicableDeliveryZones(settings: DeliverySettings, zones: readonly DeliveryZone[], districtCode: PeruDistrictCode): readonly DeliveryZone[] {
-  return zones.filter(zone => zone.enabled && zone.districtCodes.includes(districtCode) &&
-    (zone.method === "home" ? settings.home.enabled : settings.agency.enabled && settings.couriers.some(courier => courier.enabled)))
-    .sort((left, right) => {
-      const price = compare(right.price)(left.price);
-      return (left.method === right.method ? 0 : left.method === "home" ? -1 : 1) ||
-        (price.success ? price.data : 0) || left.id.localeCompare(right.id);
-    });
+function eligibleAgencies(configuration: DeliveryConfiguration, option: AgencyDeliveryOption): readonly EligibleAgency[] {
+  const agencies = new Map(configuration.agencies.map(agency => [agency.id as string, agency]));
+  return option.agencyIds.flatMap(id => {
+    const agency = agencies.get(id);
+    const courier = agency && configuration.settings.couriers.find(value => value.catalogId === agency.courierId);
+    return agency?.enabled && agency.courierEnabled && courier?.enabled && courier.catalogEnabled ? [{ agency, courier }] : [];
+  });
+}
+
+export function applicableDeliveryOptions(configuration: DeliveryConfiguration, districtCode: PeruDistrictCode): readonly ApplicableDeliveryOption[] {
+  const { settings } = configuration;
+  const applicable = configuration.zones.filter(zone => zone.enabled && zone.districtCodes.includes(districtCode)).flatMap((zone): ApplicableDeliveryOption[] =>
+    zone.options.flatMap((option): ApplicableDeliveryOption[] => {
+      if (!option.enabled) return [];
+      if (option.method === "home") return settings.home.enabled ? [{ zone, option }] : [];
+      const [first, ...rest] = settings.agency.enabled ? eligibleAgencies(configuration, option) : [];
+      return first ? [{ zone, option, agencies: [first, ...rest] }] : [];
+    }));
+  return applicable.sort((left, right) => {
+    const price = compare(right.option.price)(left.option.price);
+    return (left.option.method === right.option.method ? 0 : left.option.method === "home" ? -1 : 1) ||
+      (price.success ? price.data : 0) || left.option.id.localeCompare(right.option.id);
+  });
 }
 
 export type BuildQuotationInput = Readonly<{
-  id: string; companyId: string; createdAt: Date; destination: unknown;
-  settings: DeliverySettings; zones: readonly DeliveryZone[]; rateIds: readonly string[];
+  id: string; companyId: string; createdAt: Date; destination: unknown; configuration: DeliveryConfiguration; rateIds: readonly string[];
 }>;
 
-export function buildQuotationWithRates(input: BuildQuotationInput, currency: Currency): Result<QuotationWithRates, QuotationError> {
+export function buildQuotationWithRates(input: BuildQuotationInput): Result<QuotationWithRates, QuotationError> {
   const destination = parseQuotationDestination(input.destination);
   if (!destination.success) return destination;
   const header = z.strictObject({ id: z.uuid(), companyId: companyIdSchema, createdAt: z.date(), rateIds: z.array(z.uuid()) }).safeParse({
     id: input.id, companyId: input.companyId, createdAt: input.createdAt, rateIds: input.rateIds,
   });
   if (!header.success) return err({ code: "INVALID_INPUT", message: "Quotation identities and timestamp must be valid" });
-  const settings = parseDeliverySettings(input.settings);
+  const settings = parseDeliverySettings(input.configuration.settings);
   if (!settings.success) return err({ code: "INVALID_DELIVERY_SETTINGS", message: settings.error.message });
   const zones: DeliveryZone[] = [];
-  for (const value of input.zones) {
-    const zone = parseDeliveryZone(value, currency);
+  for (const value of input.configuration.zones) {
+    const zone = parseDeliveryZone(value, input.configuration.currency);
     if (!zone.success) return err({ code: zone.error.field === "price" ? "INVALID_DELIVERY_RATE" : "INVALID_DELIVERY_SETTINGS", message: zone.error.message });
     zones.push(zone.data);
   }
-  if (new Set(zones.map(zone => zone.id)).size !== zones.length)
-    return err({ code: "INVALID_DELIVERY_SETTINGS", message: "Zone identities must be unique" });
-  const applicable = applicableDeliveryZones(settings.data, zones, destination.data.districtCode);
+  const options = zones.flatMap(zone => zone.options);
+  if (new Set(zones.map(zone => zone.id)).size !== zones.length || new Set(options.map(option => option.id)).size !== options.length)
+    return err({ code: "INVALID_DELIVERY_SETTINGS", message: "Zone and option identities must be unique" });
+  const applicable = applicableDeliveryOptions({ ...input.configuration, settings: settings.data, zones }, destination.data.districtCode);
   if (input.rateIds.length !== applicable.length || new Set(input.rateIds).size !== input.rateIds.length)
-    return err({ code: "INVALID_INPUT", message: "Provide exactly one unique rate identity per applicable zone" });
+    return err({ code: "INVALID_INPUT", message: "Provide exactly one unique rate identity per applicable option" });
   const quotation: Quotation = { id: header.data.id as QuotationId, companyId: header.data.companyId as CompanyId,
     destination: destination.data, createdAt: new Date(header.data.createdAt) };
-  return ok({ quotation, rates: applicable.map((zone, index): DeliveryRate => ({
-    id: header.data.rateIds[index] as DeliveryRateId, companyId: quotation.companyId, quotationId: quotation.id,
-    price: { ...zone.price }, settingsVersion: settings.data.version as DeliverySettingsVersion,
-    createdAt: new Date(quotation.createdAt), method: zone.method, zoneId: zone.id, districtCode: destination.data.districtCode,
-  })) });
+  return ok({ quotation, rates: applicable.map((entry, index): QuotedDeliveryRate => {
+    const rate = {
+      id: header.data.rateIds[index] as DeliveryRateId, companyId: quotation.companyId, quotationId: quotation.id,
+      price: { ...entry.option.price }, settingsVersion: settings.data.version as DeliverySettingsVersion,
+      createdAt: new Date(quotation.createdAt), optionId: entry.option.id, districtCode: destination.data.districtCode,
+    };
+    return "agencies" in entry ? { rate: { ...rate, method: "agency" }, name: entry.option.name, zoneName: entry.zone.name, agencies: entry.agencies }
+      : { rate: { ...rate, method: "home" }, name: entry.option.name, zoneName: entry.zone.name };
+  }) });
 }

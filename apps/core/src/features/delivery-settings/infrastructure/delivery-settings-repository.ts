@@ -4,7 +4,7 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { prisma, requireActiveTransaction } from "@core/src/shared/infrastructure/persistance";
-import { parseDeliverySettings, type DeliverySettings, type DeliverySettingsError, type DeliverySettingsReadError } from "@core/src/features/delivery-settings/domain/delivery-settings";
+import { parseCourierCatalogEntry, parseDeliverySettings, type CourierCatalogEntry, type DeliverySettings, type DeliverySettingsError, type DeliverySettingsReadError } from "@core/src/features/delivery-settings/domain/delivery-settings";
 
 
 export async function readDeliverySettings(companyId: string, lockMode: "shared" | "exclusive", expectedVersion?: number, operation = lockMode === "exclusive" ? "save_delivery_settings" : "get_delivery_settings"): Promise<Result<DeliverySettings | null, DeliverySettingsReadError>> {
@@ -19,7 +19,8 @@ export async function readDeliverySettings(companyId: string, lockMode: "shared"
     log.debug({ event: "delivery_lock_acquired", operation, companyId, lockTarget: "delivery_settings", lockMode, lockWaitMs: Math.round(performance.now() - started) }, "Delivery settings lock acquired");
     const row = rows[0];
     stage = "load_settings";
-    const parsed = parseDeliverySettings({ version: row.version, agency: { enabled: row.agencyEnabled }, couriers: await prisma.companyCourier.findMany({ where: { companyId }, select: { id: true, name: true, enabled: true }, orderBy: { id: "asc" } }), home: { enabled: row.homeEnabled }, store: { enabled: row.storeEnabled,
+    const parsed = parseDeliverySettings({ version: row.version, agency: { enabled: row.agencyEnabled }, couriers: (await prisma.companyCourier.findMany({ where: { companyId }, select: { id: true, courierId: true, enabled: true, courier: { select: { name: true, enabled: true } } }, orderBy: { id: "asc" } }))
+      .map(courier => ({ id: courier.id, catalogId: courier.courierId, name: courier.courier.name, enabled: courier.enabled, catalogEnabled: courier.courier.enabled })), home: { enabled: row.homeEnabled }, store: { enabled: row.storeEnabled,
       pickupPoint: row.pickupName === null && row.pickupAddress === null && row.pickupInstructions === null ? null
         : { name: row.pickupName, address: row.pickupAddress, instructions: row.pickupInstructions } } });
     if (!parsed.success || row.version <= 0) {
@@ -50,15 +51,35 @@ export async function writeDeliverySettings(companyId: string, settings: Deliver
     }
     stage = "save_couriers";
     for (const courier of settings.couriers) {
-      const updated = await prisma.companyCourier.updateMany({ where: { id: courier.id, companyId }, data: { name: courier.name, enabled: courier.enabled } });
-      if (updated.count === 0) await prisma.companyCourier.create({ data: { ...courier, companyId } });
+      const updated = await prisma.companyCourier.updateMany({ where: { id: courier.id, companyId }, data: { enabled: courier.enabled } });
+      if (updated.count === 0) await prisma.companyCourier.create({ data: { id: courier.id, courierId: courier.catalogId, enabled: courier.enabled, companyId } });
     }
     return ok(null);
   } catch (cause) {
     if (!isPersistenceFailure(cause)) throw cause;
-    if (stage === "save_settings" && expectedVersion === 0 && cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2002")
+    if ((stage === "save_couriers" || (stage === "save_settings" && expectedVersion === 0)) && cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2002")
       return err({ code: "DELIVERY_SETTINGS_CONFLICT", reason: "concurrent_creation", message: "Settings were created concurrently" });
     log.error({ event: "delivery_settings_write_failed", operation: "save_delivery_settings", companyId, stage, expectedVersion, errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "Unable to save delivery settings");
     return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to save delivery settings" });
+  }
+}
+
+export async function readCourierCatalog(): Promise<Result<readonly CourierCatalogEntry[], DeliverySettingsReadError>> {
+  try {
+    const rows = await prisma.courier.findMany({ where: { enabled: true }, select: { id: true, code: true, name: true }, orderBy: [{ name: "asc" }, { id: "asc" }] });
+    const catalog: CourierCatalogEntry[] = [];
+    for (const row of rows) {
+      const parsed = parseCourierCatalogEntry(row);
+      if (!parsed.success) {
+        log.error({ event: "courier_catalog_stored_data_invalid", courierId: row.id }, "Stored courier catalog entry is invalid");
+        return parsed;
+      }
+      catalog.push(parsed.data);
+    }
+    return ok(catalog);
+  } catch (cause) {
+    if (!isPersistenceFailure(cause)) throw cause;
+    log.error({ event: "courier_catalog_read_failed", errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "Unable to read courier catalog");
+    return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to read courier catalog" });
   }
 }

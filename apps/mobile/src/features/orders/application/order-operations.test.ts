@@ -86,7 +86,7 @@ test.each([
   ["INVALID_INPUT", 400],
   ["INVALID_PAYMENT", 422], ["PAYMENT_CONFLICT", 409], ["PAYMENT_REQUIRED", 409],
   ["INVALID_TRANSITION", 409], ["STOCK_NOT_DEDUCTED", 409],
-  ["DELIVERY_UNAVAILABLE", 422], ["DELIVERY_METHOD_DISABLED", 422], ["COURIER_UNAVAILABLE", 422],
+  ["DELIVERY_UNAVAILABLE", 422], ["DELIVERY_METHOD_DISABLED", 422],
   ["RATE_UNAVAILABLE", 422], ["TOTAL_CHANGED", 409], ["INVALID_DISTRICT", 422], ["INVALID_DELIVERY_RATE", 422],
 ] as const)("recovery preserves a definitively rejected creation (%s)", async (code, status) => {
   const store = storage();
@@ -116,7 +116,7 @@ test.each([
 test("recovery keeps the amount first shown and returns the core total", async () => {
   const amount = { amount: 12, currency: "PEN" as const };
   const zero = { amount: 0, currency: "PEN" as const };
-  const order: OrderAggregateResponse = { number: 1001, id: id(3), companyId, sellerId: "seller", buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, checkoutDeliveryRequest: null,
+  const order: OrderAggregateResponse = { number: 1001, id: id(3), companyId, sellerId: "seller", buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null,
     createdAt: "2026-09-29T12:00:00.000Z", deliveredAt: "2026-09-29T12:00:00.000Z", completedAt: "2026-09-29T12:00:00.000Z",
     status: "completed", paymentStatus: "paid", paidAmount: amount, balanceDue: zero, overpaidAmount: zero,
     cancelled: false, delivery: null, deliveryStatus: "delivered", stockDeducted: true,
@@ -142,7 +142,8 @@ test("recovery keeps the amount first shown and returns the core total", async (
   const pending = { ...order, status: "active" as const, paymentStatus: "pending" as const,
     completedAt: null, deliveredAt: null, deliveryStatus: "pending" as const, stockDeducted: false, payments: [], paidAmount: zero, balanceDue: amount };
   const pendingStore = storage();
-  await pendingStore.save({ companyId, id: id(3), shownTotal: { amount: 10, currency: "PEN" } });
+  await pendingStore.save({ version: 2, companyId, id: id(3), shownTotal: { amount: 10, currency: "PEN" },
+    request: { id: id(3), contactId: null, items: [{ variantId: id(2), quantity: 1 }] } });
   const pendingOperations = createOrderOperations(createOrderApi(async () => ok(pending)), pendingStore);
   expect(await pendingOperations.resolvePendingOrderConfirmation(companyId)).toMatchObject({ success: true,
     data: { kind: "completed", order: { status: "active", paymentStatus: "pending" } } });
@@ -217,45 +218,21 @@ test("restart resends the exact stored payments and delivery only after querying
   expect(bodies).toHaveLength(3);
 });
 
-test("legacy attempt without a saved request remains blocked instead of reconstructing a different order", async () => {
-  const store = storage();
-  await store.save({ companyId, id: id(3), shownTotal: { amount: 10, currency: "PEN" } });
+test("an attempt saved in an older format is invalid and never resent or replaced", async () => {
+  const values = new Map([[`yoyos_pending_order_${companyId}`, JSON.stringify({ companyId, id: id(3), shownTotal: { amount: 10, currency: "PEN" } })]]);
+  const store = createPendingOrderConfirmationStore({ getItemAsync: async (key) => values.get(key) ?? null,
+    setItemAsync: async (key, value) => { values.set(key, value); }, deleteItemAsync: async (key) => { values.delete(key); } });
   let sends = 0;
   const api = createOrderApi(async (_path, init) => {
     if (init?.method === "POST") sends++;
     return err({ code: "API_ERROR", message: "Absent", http: { status: 404, body: { code: "ORDER_NOT_FOUND", error: "Absent" } } });
   });
   const operations = createOrderOperations(api, store);
-  expect(await operations.resendPendingOrder(companyId)).toMatchObject({ success: false, error: { code: "PENDING_CONFIRMATION" } });
-  expect(await operations.completeOrder(draft(), companyId)).toMatchObject({ success: false, error: { code: "PENDING_CONFIRMATION" } });
+  expect(await operations.resendPendingOrder(companyId)).toMatchObject({ success: false, error: { code: "INVALID_PENDING_DATA" } });
+  expect(await operations.completeOrder(draft(), companyId)).toMatchObject({ success: false, error: { code: "INVALID_PENDING_DATA" } });
   expect(sends).toBe(0);
-  expect(await store.read(companyId)).toMatchObject({ success: true, data: { id: id(3) } });
-});
-
-test.each([true, false])("rejected legacy delivery retains the original recovery request (customer charge: %s)", async (chargeDeliveryToCustomer) => {
-  const store = storage();
-  const pending = { version: 2 as const, companyId, id: id(3), shownTotal: { amount: 10, currency: "PEN" as const },
-    request: { id: id(3), contactId: id(7), items: [{ variantId: id(2), quantity: 1 }],
-      payments: [{ paymentId: id(8), amount: { amount: 4.5, currency: "PEN" as const }, method: "bank_transfer" as const, deductStockIfPartial: false }],
-      delivery: { chargeDeliveryToCustomer, delivery: { method: "home" as const,
-        recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } },
-        destination: { address: "Original address", district: "Lima", instructions: "Door 2" } } } } };
-  expect(await store.save(pending)).toEqual(ok(pending));
-  const paths: string[] = [];
-  const api = createOrderApi(async (path, init) => {
-    paths.push(path);
-    if (init?.method === "POST") throw new Error("Legacy request must not reach HTTP");
-    return err({ code: "API_ERROR", message: "Missing", http: { status: 404, body: { code: "ORDER_NOT_FOUND", error: "Missing" } } });
-  });
-  const restarted = createOrderOperations(api, store);
-  expect(await restarted.resendPendingOrder(companyId)).toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
-  expect(paths).toEqual([`/api/orders/${id(3)}/aggregate`]);
-  expect(await store.read(companyId)).toEqual(ok(pending));
-  expect(await restarted.resolvePendingOrderConfirmation(companyId)).toEqual(ok({ kind: "uncertain", pending }));
-  const other = addDraftItem(emptyOrderDraft(), item, () => id(9));
-  if (!other.success) throw new Error("Invalid second cart");
-  expect(await restarted.completeOrder(other.data, companyId)).toMatchObject({ success: false, error: { code: "PENDING_CONFIRMATION" } });
-  expect(paths).toHaveLength(2);
+  expect(await operations.discardPendingOrderConfirmation(companyId)).toEqual(ok(undefined));
+  expect(await operations.readPendingOrderConfirmation(companyId)).toEqual(ok(null));
 });
 
 test("in-flight outcomes never cross company boundaries", async () => {
@@ -266,12 +243,12 @@ test("in-flight outcomes never cross company boundaries", async () => {
   expect(second).toMatchObject({ success: true, data: { kind: "uncertain", pending: { companyId: id(9) } } });
 });
 
-test("reviewing a legacy delivery keeps order and payment identities and saves before any resend", async () => {
+test("reviewing a saved delivery keeps order and payment identities and saves before any resend", async () => {
   const store = storage();
   const pending = { version: 2 as const, companyId, id: id(3), shownTotal: { amount: 10, currency: "PEN" as const },
     request: { id: id(3), contactId: id(7), items: [{ variantId: id(2), quantity: 1 }],
       payments: [{ paymentId: id(8), amount: { amount: 4.5, currency: "PEN" as const }, method: "bank_transfer" as const, deductStockIfPartial: false }],
-      delivery: { chargeDeliveryToCustomer: false, delivery: { method: "store" as const,
+      delivery: { expectedPrice: { amount: 0, currency: "PEN" as const }, delivery: { method: "store" as const,
         recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } } } }, deliverImmediately: false } };
   await store.save(pending);
   const delivery = { expectedPrice: { amount: 8, currency: "PEN" as const }, delivery: {
@@ -286,16 +263,16 @@ test("reviewing a legacy delivery keeps order and payment identities and saves b
       : err({ code: "API_ERROR", message: "Missing", http: { status: 404, body: { code: "ORDER_NOT_FOUND", error: "Missing" } } });
   });
   const operations = createOrderOperations(api, store);
-  expect(await operations.reviewLegacyPendingDelivery(companyId, delivery)).toMatchObject({ success: false, error: { code: "NETWORK_ERROR" } });
+  expect(await operations.reviewPendingDelivery(companyId, delivery)).toMatchObject({ success: false, error: { code: "NETWORK_ERROR" } });
   expect(await store.read(companyId)).toEqual(ok(pending));
   offline = false;
   const next = { ...pending, shownTotal: { amount: 18, currency: "PEN" }, request: { ...pending.request, delivery } };
-  expect(await operations.reviewLegacyPendingDelivery(companyId, delivery)).toEqual(ok({ kind: "uncertain", pending: next }));
+  expect(await operations.reviewPendingDelivery(companyId, delivery)).toEqual(ok({ kind: "uncertain", pending: next }));
   expect(await store.read(companyId)).toEqual(ok(next));
   expect(calls).toEqual([`/api/orders/${id(3)}/aggregate`, `/api/orders/${id(3)}/aggregate`]);
   const replacement = { ...delivery, expectedPrice: { amount: 12, currency: "PEN" as const }, delivery: { ...delivery.delivery, rateId: id(9) } };
   const reviewed = { ...next, shownTotal: { amount: 22, currency: "PEN" }, request: { ...next.request, delivery: replacement } };
-  expect(await operations.reviewLegacyPendingDelivery(companyId, replacement)).toEqual(ok({ kind: "uncertain", pending: reviewed }));
+  expect(await operations.reviewPendingDelivery(companyId, replacement)).toEqual(ok({ kind: "uncertain", pending: reviewed }));
   expect(await store.read(companyId)).toEqual(ok(reviewed));
   expect(reviewed.request.payments).toEqual(pending.request.payments);
   expect(reviewed.request.items).toEqual(pending.request.items);
@@ -329,7 +306,7 @@ test.each(["TOTAL_CHANGED", "RATE_UNAVAILABLE", "DELIVERY_METHOD_DISABLED"] as c
   expect(await store.read(companyId)).toEqual(saved);
   expect(selected.ratedDelivery.expectedPrice.amount).toBe(8);
   const pickup = { expectedPrice: { amount: 0, currency: "PEN" as const }, delivery: { method: "store" as const, recipient: selected.ratedDelivery.delivery.recipient } };
-  expect(await createOrderOperations(api, store).reviewLegacyPendingDelivery(companyId, pickup)).toMatchObject({ success: true,
+  expect(await createOrderOperations(api, store).reviewPendingDelivery(companyId, pickup)).toMatchObject({ success: true,
     data: { kind: "uncertain", pending: { id: id(3), shownTotal: { amount: 10, currency: "PEN" }, request: { delivery: pickup } } } });
   expect(bodies).toHaveLength(2);
 });

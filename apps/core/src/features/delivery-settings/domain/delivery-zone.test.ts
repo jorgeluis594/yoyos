@@ -1,66 +1,126 @@
 import { expect, test } from "vitest";
-import { parseDeliveryZone, prepareDeliveryZones, type DeliveryZoneInput } from "@core/src/features/delivery-settings/domain/delivery-zone";
+import type { Courier } from "@core/src/features/delivery-settings/domain/delivery-settings";
+import type { DeliveryAgency } from "@core/src/features/delivery-settings/domain/delivery-agency";
+import { parseDeliveryZone, prepareDeliveryZones, type DeliveryZone, type DeliveryZoneInput, type PrepareDeliveryZonesContext } from "@core/src/features/delivery-settings/domain/delivery-zone";
 
-const id = "00000000-0000-4000-8000-000000000001";
-const secondId = "00000000-0000-4000-8000-000000000002";
-const thirdId = "00000000-0000-4000-8000-000000000003";
-const fields = { name: " Nearby ", enabled: true, districtCodes: ["150122"], price: { amount: 8, currency: "PEN" as const } };
-const home = () => {
-  const parsed = parseDeliveryZone({ id, method: "home", ...fields }, "PEN");
+const id = (value: number) => `00000000-0000-4000-8000-${String(value).padStart(12, "0")}`;
+const price = (amount: number) => ({ amount, currency: "PEN" as const });
+const homeOption = (value: number, name = "Standard", amount = 8) => ({ id: id(value), method: "home" as const, name, enabled: true, price: price(amount) });
+const zoneValue = (value: number, options: readonly unknown[] = [homeOption(value + 100)]) =>
+  ({ id: id(value), name: " Nearby ", enabled: true, districtCodes: ["150122"], options });
+const zone = (value: number, options?: readonly unknown[]) => {
+  const parsed = parseDeliveryZone(zoneValue(value, options), "PEN");
   if (!parsed.success) throw new Error(parsed.error.message);
   return parsed.data;
 };
-const agency = () => {
-  const parsed = parseDeliveryZone({ id: secondId, method: "agency", ...fields }, "PEN");
-  if (!parsed.success) throw new Error(parsed.error.message);
-  return parsed.data;
-};
+const courier = { id: id(60), catalogId: id(61), name: "Shalom", enabled: true, catalogEnabled: true } as unknown as Courier;
+const agency = (courierId = courier.catalogId) => ({ id: id(70), courierId, name: "Agency", address: "Street", districtCode: "150122",
+  enabled: true, courierEnabled: true }) as unknown as DeliveryAgency;
+let sequence = 200;
+const context = (overrides: Partial<PrepareDeliveryZonesContext> = {}): PrepareDeliveryZonesContext => ({
+  current: [], agencies: [], couriers: [courier], currency: "PEN",
+  generateZoneId: () => id(sequence++), generateOptionId: () => id(sequence++), ...overrides,
+});
+const fields = { name: "Nearby", enabled: true, districtCodes: ["150122"] };
+const newHome = { kind: "new" as const, method: "home" as const, name: "Standard", enabled: true, price: price(8) };
 
-test("zones normalize names, allow districts across provinces and explicit zero prices", () => {
-  expect(parseDeliveryZone({ id, method: "home", ...fields, districtCodes: ["150122", "040110"], price: { amount: 0, currency: "PEN" } }, "PEN"))
-    .toMatchObject({ success: true, data: { name: "Nearby", districtCodes: ["150122", "040110"], price: { amount: 0, currency: "PEN" } } });
+test("zones normalize names and allow districts across provinces; options carry method, name and explicit zero prices", () => {
+  expect(parseDeliveryZone({ ...zoneValue(1, [homeOption(2, " Free ", 0)]), districtCodes: ["150122", "040110"] }, "PEN"))
+    .toMatchObject({ success: true, data: { name: "Nearby", districtCodes: ["150122", "040110"],
+      options: [{ id: id(2), zoneId: id(1), method: "home", name: "Free", price: { amount: 0, currency: "PEN" } }] } });
+  expect(parseDeliveryZone({ ...zoneValue(1, [{ ...homeOption(2), method: "agency", agencyIds: [id(70)] }]) }, "PEN"))
+    .toMatchObject({ success: true, data: { options: [{ method: "agency", agencyIds: [id(70)] }] } });
 });
 
-test("zone requires a name, shipping method, real unique districts and a valid business price", () => {
-  const valid = { id, method: "home", ...fields };
-  for (const change of [{ id: "bad" }, { method: "store" }, { name: " " }, { name: "n".repeat(121) }, { districtCodes: [] },
-    { districtCodes: ["999999"] }, { districtCodes: ["150122", "150122"] }, { price: null }, { price: { amount: 8.001, currency: "PEN" } },
-    { price: { amount: 8, currency: "USD" } }, { enabled: "true" }, { companyId: id }]) {
-    expect(parseDeliveryZone({ ...valid, ...change }, "PEN")).toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_ZONE" } });
+test("zone and option parsing rejects invalid names, districts, methods, prices and agency lists", () => {
+  for (const change of [{ id: "bad" }, { name: " " }, { name: "n".repeat(121) }, { districtCodes: [] }, { districtCodes: ["999999"] },
+    { districtCodes: ["150122", "150122"] }, { enabled: "true" }, { companyId: id(1) }, { price: price(8) }, { method: "home" }]) {
+    expect(parseDeliveryZone({ ...zoneValue(1), ...change }, "PEN")).toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_ZONE" } });
   }
-  expect(parseDeliveryZone({ ...valid, name: "n".repeat(120) }, "PEN").success).toBe(true);
+  for (const change of [{ method: "store" }, { name: " " }, { enabled: "yes" }, { agencyIds: [id(70)] }, { id: "bad" }]) {
+    expect(parseDeliveryZone(zoneValue(1, [{ ...homeOption(2), ...change }]), "PEN"))
+      .toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_OPTION", optionIndex: 0 } });
+  }
+  expect(parseDeliveryZone(zoneValue(1, [{ ...homeOption(2), method: "agency", agencyIds: [id(70), id(70)] }]), "PEN").success).toBe(false);
+  for (const value of [null, { amount: 8.001, currency: "PEN" }, { amount: 8, currency: "USD" }, { amount: -1, currency: "PEN" }]) {
+    expect(parseDeliveryZone(zoneValue(1, [{ ...homeOption(2), price: value }]), "PEN"))
+      .toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_OPTION", field: "price", optionIndex: 0 } });
+  }
 });
 
-test("overlapping home zones retain every district and independently preserve agency configuration", () => {
-  const current = [home(), agency()];
-  const result = prepareDeliveryZones({ method: "home", zones: [
-    { kind: "existing", id, ...fields, enabled: false }, { kind: "new", ...fields, price: { amount: 12, currency: "PEN" } },
-  ] }, current, "PEN", () => thirdId);
-  expect(result).toMatchObject({ success: true, data: [agency(),
-    { id, method: "home", enabled: false, districtCodes: ["150122"], price: { amount: 8, currency: "PEN" } },
-    { id: thirdId, method: "home", enabled: true, districtCodes: ["150122"], price: { amount: 12, currency: "PEN" } },
+test("saving retains every zone and option, generates server identities and keeps input order", () => {
+  const current = [zone(1, [homeOption(2)]), zone(3, [homeOption(4)])];
+  const input: DeliveryZoneInput[] = [
+    { kind: "existing", id: id(3), ...fields, enabled: false, options: [{ kind: "existing", id: id(4), method: "home", name: "Renamed", enabled: false, price: price(9) }] },
+    { kind: "existing", id: id(1), ...fields, options: [{ kind: "existing", id: id(2), method: "home", name: "Standard", enabled: true, price: price(8) }, { ...newHome, name: "Express" }] },
+    { kind: "new", ...fields, options: [] },
+  ];
+  const result = prepareDeliveryZones(input, context({ current, generateZoneId: () => id(90), generateOptionId: () => id(91) }));
+  expect(result).toMatchObject({ success: true, data: [
+    { id: id(3), enabled: false, options: [{ id: id(4), zoneId: id(3), name: "Renamed", enabled: false, price: { amount: 9, currency: "PEN" } }] },
+    { id: id(1), options: [{ id: id(2) }, { id: id(91), zoneId: id(1), method: "home", name: "Express" }] },
+    { id: id(90), options: [] },
   ] });
-  expect(current).toEqual([home(), agency()]);
 });
 
-test("saved zones cannot be omitted, repeated, moved to another method or referenced by foreign identity", () => {
-  const retained: DeliveryZoneInput = { kind: "existing", id, ...fields };
-  for (const zones of [[], [retained, retained], [{ ...retained, id: secondId }], [{ ...retained, id: thirdId }]]) {
-    expect(prepareDeliveryZones({ method: "home", zones }, [home(), agency()], "PEN", () => thirdId).success).toBe(false);
-  }
+test("existing zones and options cannot be omitted, repeated or referenced by a foreign identity", () => {
+  const current = [zone(1, [homeOption(2)])];
+  const keep = { kind: "existing" as const, id: id(2), method: "home" as const, name: "Standard", enabled: true, price: price(8) };
+  const existing = (options: readonly (typeof keep)[]) => ({ kind: "existing" as const, id: id(1), ...fields, options });
+  expect(prepareDeliveryZones([], context({ current }))).toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_ZONE", field: "zones" } });
+  expect(prepareDeliveryZones([existing([])], context({ current }))).toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_OPTION", field: "options" } });
+  expect(prepareDeliveryZones([existing([keep, keep])], context({ current })))
+    .toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_OPTION", field: "id", index: 0, optionIndex: 1 } });
+  expect(prepareDeliveryZones([existing([{ ...keep, id: id(9) }])], context({ current })))
+    .toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_OPTION", field: "id", index: 0, optionIndex: 0 } });
+  expect(prepareDeliveryZones([existing([keep]), existing([])], context({ current })))
+    .toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_ZONE", field: "id", index: 1 } });
 });
 
-test("validation identifies a new zone's row without inventing an ID", () => {
-  expect(prepareDeliveryZones({ method: "home", zones: [{ kind: "new", ...fields, districtCodes: ["150122", "150122"] }] }, [], "PEN", () => thirdId))
+test("an existing option cannot move to another zone or change its method", () => {
+  const current = [zone(1, [homeOption(2)]), zone(3, [])];
+  const moved = { kind: "existing" as const, id: id(2), method: "home" as const, name: "Standard", enabled: true, price: price(8) };
+  expect(prepareDeliveryZones([{ kind: "existing", id: id(1), ...fields, options: [] },
+    { kind: "existing", id: id(3), ...fields, options: [moved] }], context({ current })))
+    .toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_OPTION", field: "id", index: 1, optionIndex: 0 } });
+  expect(prepareDeliveryZones([{ kind: "existing", id: id(1), ...fields, options: [{ ...moved, method: "agency", agencyIds: [] }] },
+    { kind: "existing", id: id(3), ...fields, options: [] }], context({ current })))
+    .toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_OPTION", field: "method", index: 0, optionIndex: 0 } });
+});
+
+test("option names are unique per zone ignoring case, but may repeat across zones", () => {
+  const duplicated = prepareDeliveryZones([{ kind: "new", ...fields, options: [newHome, { ...newHome, name: " STANDARD " }] }], context());
+  expect(duplicated).toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_OPTION", field: "name", index: 0, optionIndex: 1 } });
+  expect(prepareDeliveryZones([{ kind: "new", ...fields, options: [newHome] }, { kind: "new", ...fields, options: [newHome] }], context()).success).toBe(true);
+});
+
+test("prices must use the business currency and report their option row", () => {
+  expect(prepareDeliveryZones([{ kind: "new", ...fields, options: [newHome, { ...newHome, name: "Other", price: { amount: 8, currency: "USD" } }] }], context()))
+    .toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_OPTION", field: "price", index: 0, optionIndex: 1 } });
+  expect(prepareDeliveryZones([{ kind: "new", ...fields, districtCodes: ["150122", "150122"], options: [] }], context()))
     .toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_ZONE", field: "districtCodes", index: 0 } });
-  expect(prepareDeliveryZones({ method: "home", zones: [{ kind: "new", ...fields, price: { amount: -1, currency: "PEN" } }] }, [], "PEN", () => thirdId))
-    .toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_ZONE", field: "price", index: 0 } });
 });
 
-test("generated IDs must be valid and globally unique, including zones of the other method", () => {
-  for (const generated of ["bad", id, secondId]) {
-    expect(prepareDeliveryZones({ method: "home", zones: [{ kind: "existing", id, ...fields }, { kind: "new", ...fields }] },
-      [home(), agency()], "PEN", () => generated).success).toBe(false);
+test("agency options accept only catalog agencies of the company's couriers, including disabled ones", () => {
+  const input = (agencyIds: string[]): DeliveryZoneInput[] => [{ kind: "new", ...fields,
+    options: [{ kind: "new", method: "agency", name: "Agency", enabled: true, price: price(10), agencyIds }] }];
+  expect(prepareDeliveryZones(input([]), context()).success).toBe(true);
+  expect(prepareDeliveryZones(input([id(70)]), context())).toMatchObject({ success: false, error: { field: "agencyIds", optionIndex: 0 } });
+  expect(prepareDeliveryZones(input([id(70)]), context({ agencies: [agency()] })).success).toBe(true);
+  expect(prepareDeliveryZones(input([id(70)]), context({ agencies: [{ ...agency(), enabled: false }] })).success).toBe(true);
+  expect(prepareDeliveryZones(input([id(70)]), context({ agencies: [agency(id(99) as typeof courier.catalogId)] })))
+    .toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_OPTION", field: "agencyIds" } });
+  expect(prepareDeliveryZones(input([id(70), id(70)]), context({ agencies: [agency()] })).success).toBe(false);
+});
+
+test("generated identities must be valid and unique across the configuration", () => {
+  const current: DeliveryZone[] = [zone(1, [homeOption(2)])];
+  const retained = { kind: "existing" as const, id: id(1), ...fields, options: [{ kind: "existing" as const, id: id(2), method: "home" as const, name: "Standard", enabled: true, price: price(8) }] };
+  for (const generated of ["bad", id(1)]) {
+    expect(prepareDeliveryZones([retained, { kind: "new", ...fields, options: [] }], context({ current, generateZoneId: () => generated })).success).toBe(false);
   }
-  expect(prepareDeliveryZones({ method: "home", zones: [{ kind: "new", ...fields }, { kind: "new", ...fields }] }, [], "PEN", () => thirdId).success).toBe(false);
+  for (const generated of ["bad", id(2)]) {
+    expect(prepareDeliveryZones([{ ...retained, options: [...retained.options, { ...newHome, name: "Express" }] }], context({ current, generateOptionId: () => generated })).success).toBe(false);
+  }
+  expect(prepareDeliveryZones([{ kind: "new", ...fields, options: [newHome, { ...newHome, name: "Other" }] }], context({ generateOptionId: () => id(300) })).success).toBe(false);
 });

@@ -3,10 +3,10 @@ import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Switch, View } 
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import { err, ok } from "@shared/functional";
-import type { DeliveryZonesResponse, SaveDeliveryZonesRequest, DeliverySettingsResponse } from "@shared/contracts/delivery-settings";
+import type { CourierCatalogResponse, DeliveryZonesResponse, SaveDeliveryZonesRequest, DeliverySettingsResponse } from "@shared/contracts/delivery-settings";
 import { deliverySettings } from "@mobile/features/delivery-settings/composition";
 import { DeliveryZonesSection } from "@mobile/features/delivery-settings/presentation/delivery-zones-section";
-import type { CourierDraft, DeliverySettingsDraft } from "@mobile/features/delivery-settings/application/delivery-settings";
+import type { DeliverySettingsDraft } from "@mobile/features/delivery-settings/application/delivery-settings";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { ThemedText } from "@mobile/components/themed-text";
 import { ThemedView } from "@mobile/components/themed-view";
@@ -28,6 +28,8 @@ export default function DeliverySettingsScreen() {
   const companyId = state.status === "ready" ? state.company.id : "";
   const [draft, setDraft] = useState<DeliverySettingsDraft | null>(null);
   const country = state.status === "ready" ? state.company.country : "";
+  const [catalog, setCatalog] = useState<CourierCatalogResponse["couriers"]>([]);
+  const [savedCouriers, setSavedCouriers] = useState<DeliverySettingsResponse["couriers"]>([]);
   const [zones, setZones] = useState<DeliveryZonesResponse | null>(null);
   const [zoneConflict, setZoneConflict] = useState(false);
   const [generation, setGeneration] = useState(0);
@@ -42,10 +44,10 @@ export default function DeliverySettingsScreen() {
     if (!companyId || inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
-    const [result, zoneResult] = await Promise.all([deliverySettings.get(),
+    const [result, catalogResult, zoneResult] = await Promise.all([deliverySettings.get(), deliverySettings.getCourierCatalog(),
       country === "PE" ? deliverySettings.getZones() : Promise.resolve(ok(null))]);
-    if (result.success && zoneResult.success) { setZones(zoneResult.data); setZoneConflict(false); setGeneration(value => value + 1); }
-    if (result.success && zoneResult.success) { setDraft(draftFrom(result.data)); setError(""); setConflict(false); setSaved(false); }
+    if (result.success && catalogResult.success && zoneResult.success) { setCatalog(catalogResult.data.couriers); setZones(zoneResult.data); setZoneConflict(false); setGeneration(value => value + 1); }
+    if (result.success && catalogResult.success && zoneResult.success) { setDraft(draftFrom(result.data)); setSavedCouriers(result.data.couriers); setError(""); setConflict(false); setSaved(false); }
     else setError("deliverySettingsLoadError");
     inFlight.current = false;
     setBusy(false);
@@ -61,7 +63,7 @@ export default function DeliverySettingsScreen() {
     setSaved(false);
     const result = await deliverySettings.save(draft);
     if (result.success) {
-      setDraft(draftFrom(result.data)); setError(""); setSaved(true);
+      setDraft(draftFrom(result.data)); setSavedCouriers(result.data.couriers); setError(""); setSaved(true);
       setZones(previous => previous ? { ...previous, version: result.data.version, home: result.data.home, agency: result.data.agency } : null);
     }
     else {
@@ -80,7 +82,7 @@ export default function DeliverySettingsScreen() {
       setZones(result.data);
       setDraft(previous => previous ? { ...previous, expectedVersion: result.data.version } : null);
       setZoneConflict(false);
-    } else setZoneConflict(!["INVALID_INPUT", "INVALID_DELIVERY_ZONE"].includes(result.error.code));
+    } else setZoneConflict(!["INVALID_INPUT", "INVALID_DELIVERY_ZONE", "INVALID_DELIVERY_OPTION"].includes(result.error.code));
     inFlight.current = false; setBusy(false);
     return result;
   };
@@ -106,7 +108,6 @@ export default function DeliverySettingsScreen() {
           <ThemedText type="small" themeColor="textSecondary">{t("homeDeliveryEnabled")}</ThemedText></View><Switch accessibilityLabel={t("homeDeliveryEnabled")}
           value={draft.homeEnabled} disabled={busy} hitSlop={10} trackColor={{ true: theme.primary }}
           onValueChange={value => { setDraft({ ...draft, homeEnabled: value }); setSaved(false); }} /></View>
-        {zones ? <DeliveryZonesSection key={`home-${generation}`} method="home" state={zones} disabled={busy} blocked={zoneConflict || conflict} onSave={saveZones} onReload={() => void load()} /> : null}
       </View>
       <View style={[styles.section, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}><View style={styles.toggle}><View style={[styles.label, styles.heading]}><ThemedText type="subtitle" accessibilityRole="header">{t("agencyDeliveryTitle")}</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">{t("agencyDeliveryEnabled")}</ThemedText></View><Switch accessibilityLabel={t("agencyDeliveryEnabled")}
@@ -114,21 +115,23 @@ export default function DeliverySettingsScreen() {
           onValueChange={value => { setDraft({ ...draft, agencyEnabled: value }); setSaved(false); }} /></View>
         <ThemedText type="small" themeColor="textSecondary">{t("courierHint")}</ThemedText>
         {draft.couriers.length === 0 ? <ThemedText themeColor="textSecondary">{t("noCouriers")}</ThemedText> : null}
-        {draft.couriers.map((courier, index) => {
+        {draft.couriers.map(courier => {
           const key = courier.kind === "existing" ? courier.id : `new-${courier.localKey}`;
-          const label = t("courierName", { number: index + 1 });
-          const update = (change: Partial<Pick<CourierDraft, "name" | "enabled">>) => { setDraft({ ...draft, couriers: draft.couriers.map((row, rowIndex) => rowIndex === index ? { ...row, ...change } : row) }); setSaved(false); };
+          const update = (enabled: boolean) => { setDraft({ ...draft, couriers: draft.couriers.map(row => row === courier ? { ...row, enabled } : row) }); setSaved(false); };
           return <View key={key} style={[styles.courier, { borderColor: theme.input }]}>
-            <Field disabled={busy} required><FieldLabel>{label}</FieldLabel><Input value={courier.name} maxLength={120} accessibilityLabel={label} onChangeText={name => update({ name })} /></Field>
-            <View style={styles.toggle}><ThemedText style={styles.label}>{t("courierEnabled", { number: index + 1 })}</ThemedText><Switch accessibilityLabel={t("courierEnabled", { number: index + 1 })}
-              value={courier.enabled} disabled={busy} hitSlop={10} trackColor={{ true: theme.primary }} onValueChange={enabled => update({ enabled })} /></View>
-            {courier.kind === "new" ? <Button variant="ghost" disabled={busy} accessibilityLabel={t("removeCourierLabel", { number: index + 1 })}
+            <ThemedText type="subtitle">{courier.name}</ThemedText>
+            <View style={styles.toggle}><ThemedText style={styles.label}>{t("courierEnabled", { name: courier.name })}</ThemedText><Switch accessibilityLabel={t("courierEnabled", { name: courier.name })}
+              value={courier.enabled} disabled={busy} hitSlop={10} trackColor={{ true: theme.primary }} onValueChange={update} /></View>
+            {courier.kind === "new" ? <Button variant="ghost" disabled={busy} accessibilityLabel={t("removeCourierLabel", { name: courier.name })}
               onPress={() => { setDraft({ ...draft, couriers: draft.couriers.filter(row => row !== courier) }); setSaved(false); }}>{t("removeCourier")}</Button> : null}
           </View>;
         })}
-        <Button variant="secondary" disabled={busy} onPress={() => { setDraft({ ...draft, couriers: [...draft.couriers, { kind: "new", localKey: ++nextCourierKey.current, name: "", enabled: true }] }); setSaved(false); }}>{t("addCourier")}</Button>
-        {zones ? <DeliveryZonesSection key={`agency-${generation}`} method="agency" state={zones} disabled={busy} blocked={zoneConflict || conflict} onSave={saveZones} onReload={() => void load()} /> : null}
+        {catalog.filter(entry => !draft.couriers.some(courier => courier.courierId === entry.id)).map(entry =>
+          <Button key={entry.id} variant="secondary" disabled={busy} accessibilityLabel={t("addCourierNamed", { name: entry.name })}
+            onPress={() => { setDraft({ ...draft, couriers: [...draft.couriers, { kind: "new", localKey: ++nextCourierKey.current, courierId: entry.id, name: entry.name, enabled: true }] }); setSaved(false); }}>{t("addCourierNamed", { name: entry.name })}</Button>)}
       </View>
+      {zones ? <View style={[styles.section, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}><DeliveryZonesSection key={`zones-${generation}`} state={zones} loadAgencies={deliverySettings.getAgencyCatalog}
+        couriers={savedCouriers} disabled={busy} blocked={zoneConflict || conflict} onSave={saveZones} onReload={() => void load()} /></View> : null}
     </ScrollView>
     <View style={[styles.footer, { backgroundColor: theme.background, borderColor: theme.border }]}>
       {error ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t(error)}</ThemedText> : null}

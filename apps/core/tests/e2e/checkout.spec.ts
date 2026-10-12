@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
 import { products } from "@core/src/features/products/composition";
 import { deliverySettings } from "@core/src/features/delivery-settings";
+import { deleteAgencies, insertAgency, seededCatalogId } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
 import { orders } from "@core/src/features/orders/composition";
 import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
@@ -32,7 +33,7 @@ async function fixture(prefill: "none" | "phone" | "full" = "none", enabled = tr
     const created = await orders.create({ id: orderId, contactId: prefill === "none" ? null : contactId, items: [{ variantId: variant.id as VariantId, quantity: 1 as PositiveInteger }] }, { companyId, userId });
     if (!created.success) throw new Error("Order fixture failed");
     if (assigned) await prisma.order.update({ where: { id: orderId }, data: { delivery: { method: "home",
-      recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } }, destination: { address: "Historical address", district: "Lima", instructions: null },
+      recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } }, destination: { address: "Historical address", country: "PE", districtCode: "150101", district: "Lima", province: "Lima", department: "Lima", instructions: null }, pricing: { quotationId: randomUUID(), rateId: randomUUID(), optionId: randomUUID(), settingsVersion: 1 },
       recordedBy: { kind: "seller", userId } } } });
     if (enabled) expect(await orders.enableCheckout(orderId, { companyId, userId })).toMatchObject({ success: true });
   });
@@ -44,7 +45,7 @@ async function fixture(prefill: "none" | "phone" | "full" = "none", enabled = tr
         await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
         await prisma.contact.deleteMany(); await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
         await prisma.deliveryRate.deleteMany(); await prisma.quotation.deleteMany(); await prisma.deliveryZoneDistrict.deleteMany();
-        await prisma.deliveryZone.deleteMany(); await prisma.companyCourier.deleteMany(); await prisma.companyDeliverySettings.deleteMany();
+        await prisma.deliveryOptionAgency.deleteMany(); await prisma.deliveryOption.deleteMany(); await prisma.deliveryZone.deleteMany(); await prisma.companyCourier.deleteMany(); await prisma.companyDeliverySettings.deleteMany();
         await systemPrisma.user.delete({ where: { id: userId } }); await prisma.company.delete({ where: { id: companyId } });
       });
     },
@@ -107,7 +108,7 @@ test("changed total preserves buyer input and needs an explicit new confirmation
     await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
     await withTenantIsolation(f.companyId, async () => {
       await prisma.order.update({ where: { id: f.orderId }, data: { total: 12, deliveryCost: 2, deliveryCharge: 2,
-        delivery: { method: "home", recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } }, destination: { address: "Address", district: "Lima", instructions: null }, recordedBy: { kind: "seller", userId: f.userId } } } });
+        delivery: { method: "home", recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } }, destination: { address: "Address", country: "PE", districtCode: "150101", district: "Lima", province: "Lima", department: "Lima", instructions: null }, pricing: { quotationId: randomUUID(), rateId: randomUUID(), optionId: randomUUID(), settingsVersion: 1 }, recordedBy: { kind: "seller", userId: f.userId } } } });
     });
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
     await browserExpect(page.getByRole("alert")).toContainText("El total cambió");
@@ -198,7 +199,7 @@ test("seller copies a stable link and sees buyer confirmation separately from pa
     await withTenantIsolation(companyId, async () => {
       const stored = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
       await prisma.order.update({ where: { id: orderId }, data: { delivery: { method: "home", recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } },
-        destination: { address: "Historical address", district: "Lima", instructions: null }, recordedBy: { kind: "seller", userId: stored.sellerId } } } });
+        destination: { address: "Historical address", country: "PE", districtCode: "150101", district: "Lima", province: "Lima", department: "Lima", instructions: null }, pricing: { quotationId: randomUUID(), rateId: randomUUID(), optionId: randomUUID(), settingsVersion: 1 }, recordedBy: { kind: "seller", userId: stored.sellerId } } } });
     });
     await page.goto(`/es-PE/orders/${orderId}`);
     await browserExpect(page.getByRole("heading", { name: "Pedido #10000" })).toBeVisible();
@@ -310,7 +311,8 @@ test("buyer selects a district rate, preserves the form on price conflict and co
   try {
     const zones = await withTenantIsolation(f.companyId, async () => {
       const access = { companyId: f.companyId, userId: f.userId };
-      const saved = await deliverySettings.saveZones({ method: "home", expectedVersion: 0, zones: [8, 8].map(amount => ({ kind: "new", name: "Zone", enabled: true, districtCodes: ["150122"], price: { amount, currency: "PEN" } })) }, access);
+      const saved = await deliverySettings.saveZones({ expectedVersion: 0, zones: [8, 8].map(amount => ({ kind: "new", name: "Zone", enabled: true, districtCodes: ["150122"],
+        options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount, currency: "PEN" } }] })) }, access);
       if (!saved.success) throw new Error(saved.error.message);
       expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [],
         store: { enabled: true, pickupPoint: { name: "Shop", address: "Pickup address", instructions: "Door 2" } } }, access)).success).toBe(true);
@@ -347,8 +349,9 @@ test("buyer selects a district rate, preserves the form on price conflict and co
     await page.screenshot({ path: "test-results/checkout-delivery-desktop.png", fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
     await withTenantIsolation(f.companyId, async () => {
-      expect((await deliverySettings.saveZones({ method: "home", expectedVersion: 2, zones: zones.map(zone => ({ kind: "existing", id: zone.id,
-        name: zone.name, enabled: true, districtCodes: zone.districtCodes, price: { amount: 10, currency: "PEN" } })) }, { companyId: f.companyId, userId: f.userId })).success).toBe(true);
+      expect((await deliverySettings.saveZones({ expectedVersion: 2, zones: zones.map(zone => ({ kind: "existing", id: zone.id,
+        name: zone.name, enabled: true, districtCodes: zone.districtCodes,
+        options: zone.options.map(option => ({ kind: "existing", id: option.id, method: "home", name: option.name, enabled: true, price: { amount: 10, currency: "PEN" } })) })) }, { companyId: f.companyId, userId: f.userId })).success).toBe(true);
     });
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
     await browserExpect(page.getByRole("alert")).toContainText("El total cambió");
@@ -408,15 +411,19 @@ test("buyer pickup confirms explicit zero without district or quotation", async 
 });
 
 
-test("buyer chooses an agency rate and reaches payment without choosing an operational courier", async ({ page }) => {
+test("buyer chooses an agency rate and its catalog agency and reaches payment with courier and agency in the snapshot", async ({ page }) => {
   const f = await fixture("none", true, false);
+  const catalogId = await seededCatalogId();
+  const agencies = await Promise.all([insertAgency({ courierId: catalogId, name: "Sucursal Centro", districtCode: "150101" }),
+    insertAgency({ courierId: catalogId, name: "Sucursal Miraflores", districtCode: "150122" })]);
   try {
     await withTenantIsolation(f.companyId, async () => {
       const access = { companyId: f.companyId, userId: f.userId };
-      expect((await deliverySettings.saveZones({ method: "agency", expectedVersion: 0,
-        zones: [{ kind: "new", name: "Agency zone", enabled: true, districtCodes: ["150122"], price: { amount: 8, currency: "PEN" } }] }, access)).success).toBe(true);
-      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: false }, agency: { enabled: true },
-        couriers: [{ kind: "new", name: "Operational courier", enabled: true }], store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
+      expect((await deliverySettings.save({ expectedVersion: 0, home: { enabled: false }, agency: { enabled: true },
+        couriers: [{ kind: "new", catalogId, enabled: true }], store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
+      expect((await deliverySettings.saveZones({ expectedVersion: 1,
+        zones: [{ kind: "new", name: "Agency zone", enabled: true, districtCodes: ["150122"], options: [
+          { kind: "new", method: "agency", name: "Retiro en agencia", enabled: true, price: { amount: 8, currency: "PEN" }, agencyIds: agencies }] }] }, access)).success).toBe(true);
     });
     await page.goto(f.path);
     await page.getByLabel("Departamento", { exact: true }).selectOption("15");
@@ -430,11 +437,14 @@ test("buyer chooses an agency rate and reaches payment without choosing an opera
     await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
     await page.getByLabel("Nombre del destinatario").fill("Recipient");
     await page.getByLabel("Teléfono del destinatario").fill("999");
-    await browserExpect(page.getByRole("button", { name: "Confirmar pedido", exact: true })).toBeDisabled();
     await page.getByLabel("Documento del destinatario").fill("12345678");
-    await browserExpect(page.getByText("La agencia y el courier se asignarán después. No necesitas elegirlos para confirmar.", { exact: true })).toBeVisible();
+    // Two agencies are eligible: the buyer must choose one before confirming.
+    const agency = page.getByLabel("Agencia de destino");
+    await browserExpect(agency.locator("option")).toHaveCount(3);
+    await browserExpect(agency.locator("option").nth(1)).toContainText("Shalom");
+    await browserExpect(page.getByRole("button", { name: "Confirmar pedido", exact: true })).toBeDisabled();
+    await agency.selectOption(agencies[1]);
     await browserExpect(page.getByLabel("Dirección de entrega", { exact: true })).toHaveCount(0);
-    await browserExpect(page.getByRole("combobox").filter({ hasText: "Operational courier" })).toHaveCount(0);
     const total = page.locator("dl > div").filter({ has: page.getByText("Total a pagar", { exact: true }) });
     await browserExpect(total).toContainText(/18[.,]00/);
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
@@ -444,13 +454,14 @@ test("buyer chooses an agency rate and reaches payment without choosing an opera
     const stored = await f.read();
     expect(stored.total.toNumber()).toBe(18);
     expect(stored.deliveryCharge.toNumber()).toBe(8);
-    expect(stored.delivery).toMatchObject({ method: "agency", agency: null, courier: null,
+    expect(stored.delivery).toMatchObject({ method: "agency", courier: { name: "Shalom" },
+      agency: { id: agencies[1], name: "Sucursal Miraflores", address: "Av. Test 123", location: { districtCode: "150122" } },
       recipient: { identity: { kind: "document", documentType: "national_id", document: "12345678" } },
       destination: { districtCode: "150122" }, recordedBy: { kind: "buyer" } });
     expect(stored.checkoutConfirmedAt).not.toBeNull();
     expect(stored.payments).toEqual([]);
     expect(stored.stockDeducted).toBe(false);
-  } finally { await f.cleanup(); }
+  } finally { await f.cleanup(); await deleteAgencies(agencies); }
 });
 
 
@@ -462,8 +473,8 @@ test("buyer waits for a district and recovers a failed quotation without losing 
   try {
     await withTenantIsolation(f.companyId, async () => {
       const access = { companyId: f.companyId, userId: f.userId };
-      expect((await deliverySettings.saveZones({ method: "home", expectedVersion: 0,
-        zones: [{ kind: "new", name: "Home", enabled: true, districtCodes: ["150122"], price: { amount: 8, currency: "PEN" } }] }, access)).success).toBe(true);
+      expect((await deliverySettings.saveZones({ expectedVersion: 0,
+        zones: [{ kind: "new", name: "Home", enabled: true, districtCodes: ["150122"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount: 8, currency: "PEN" } }] }] }, access)).success).toBe(true);
       expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [],
         store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
     });
@@ -515,8 +526,8 @@ test("buyer distinguishes uncovered shipping from an explicit free home rate", a
   try {
     await withTenantIsolation(f.companyId, async () => {
       const access = { companyId: f.companyId, userId: f.userId };
-      expect((await deliverySettings.saveZones({ method: "home", expectedVersion: 0,
-        zones: [{ kind: "new", name: "Free home", enabled: true, districtCodes: ["150122"], price: { amount: 0, currency: "PEN" } }] }, access)).success).toBe(true);
+      expect((await deliverySettings.saveZones({ expectedVersion: 0,
+        zones: [{ kind: "new", name: "Free home", enabled: true, districtCodes: ["150122"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount: 0, currency: "PEN" } }] }] }, access)).success).toBe(true);
       expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [],
         store: { enabled: true, pickupPoint: { name: "Shop", address: "Pickup address", instructions: "Door 2" } } }, access)).success).toBe(true);
     });
@@ -571,9 +582,9 @@ test("buyer keeps the selected district rate when an earlier real quotation arri
   try {
     await withTenantIsolation(f.companyId, async () => {
       const access = { companyId: f.companyId, userId: f.userId };
-      expect((await deliverySettings.saveZones({ method: "home", expectedVersion: 0, zones: [
-        { kind: "new", name: "District A", enabled: true, districtCodes: ["150122"], price: { amount: 8, currency: "PEN" } },
-        { kind: "new", name: "District B", enabled: true, districtCodes: ["040110"], price: { amount: 12, currency: "PEN" } },
+      expect((await deliverySettings.saveZones({ expectedVersion: 0, zones: [
+        { kind: "new", name: "District A", enabled: true, districtCodes: ["150122"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount: 8, currency: "PEN" } }] },
+        { kind: "new", name: "District B", enabled: true, districtCodes: ["040110"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount: 12, currency: "PEN" } }] },
       ] }, access)).success).toBe(true);
       expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [],
         store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
@@ -632,8 +643,8 @@ test("buyer pickup removes the shipping rate and ignores a quotation still in fl
   try {
     await withTenantIsolation(f.companyId, async () => {
       const access = { companyId: f.companyId, userId: f.userId };
-      expect((await deliverySettings.saveZones({ method: "home", expectedVersion: 0,
-        zones: [{ kind: "new", name: "Home", enabled: true, districtCodes: ["150122"], price: { amount: 8, currency: "PEN" } }] }, access)).success).toBe(true);
+      expect((await deliverySettings.saveZones({ expectedVersion: 0,
+        zones: [{ kind: "new", name: "Home", enabled: true, districtCodes: ["150122"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount: 8, currency: "PEN" } }] }] }, access)).success).toBe(true);
       expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [],
         store: { enabled: true, pickupPoint: { name: "Shop", address: "Pickup address", instructions: "Door 2" } } }, access)).success).toBe(true);
     });
@@ -734,23 +745,24 @@ test("buyer keeps a historical rate after its zone changes or replaces it with a
     try {
       const original = await withTenantIsolation(f.companyId, async () => {
         const access = { companyId: f.companyId, userId: f.userId };
-        const saved = await deliverySettings.saveZones({ method: "home", expectedVersion: 0,
-          zones: [{ kind: "new", name: "Original", enabled: true, districtCodes: ["150122"], price: { amount: 8, currency: "PEN" } }] }, access);
+        const saved = await deliverySettings.saveZones({ expectedVersion: 0,
+          zones: [{ kind: "new", name: "Original", enabled: true, districtCodes: ["150122"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount: 8, currency: "PEN" } }] }] }, access);
         if (!saved.success) throw new Error(saved.error.message);
         expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [],
           store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
         const quote = await deliverySettings.createQuotation({ companyId: f.companyId, country: "PE", districtCode: "150122", address: null, instructions: null });
         if (!quote.success) throw new Error(quote.error.message);
-        const selection = parseRatedDeliverySelection({ method: "home", rateId: quote.data.rates[0].id,
+        const selection = parseRatedDeliverySelection({ method: "home", rateId: quote.data.rates[0].rate.id,
           recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } },
           destination: { districtCode: "150122", address: "Historical street", instructions: null } });
         if (!selection.success) throw new Error(selection.error.message);
         expect((await orders.setDelivery({ orderId: f.orderId, delivery: selection.data, expectedPrice: { amount: 8, currency: "PEN" } }, access)).success).toBe(true);
-        expect((await deliverySettings.saveZones({ method: "home", expectedVersion: 2, zones: [
-          { kind: "existing", id: saved.data.zones[0].id, name: "Original", enabled: false, districtCodes: ["150122"], price: { amount: 10, currency: "PEN" } },
-          { kind: "new", name: "Current", enabled: true, districtCodes: ["150122"], price: { amount: 12, currency: "PEN" } },
+        expect((await deliverySettings.saveZones({ expectedVersion: 2, zones: [
+          { kind: "existing", id: saved.data.zones[0].id, name: "Original", enabled: false, districtCodes: ["150122"],
+            options: [{ kind: "existing", id: saved.data.zones[0].options[0].id, method: "home", name: "Home", enabled: true, price: { amount: 10, currency: "PEN" } }] },
+          { kind: "new", name: "Current", enabled: true, districtCodes: ["150122"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount: 12, currency: "PEN" } }] },
         ] }, access)).success).toBe(true);
-        return quote.data.rates[0].id;
+        return quote.data.rates[0].rate.id;
       });
       const before = await f.read();
       let quotations = 0;

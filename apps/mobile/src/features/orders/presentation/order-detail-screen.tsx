@@ -331,7 +331,7 @@ export default function OrderDetailScreen() {
           <View style={styles.deliverySummary}>
             <View style={styles.deliveryIdentity}>
             {order.delivery ? <Disclosure label={deliveryMethodLabel(order.delivery.method, language)} open={deliveryOpen} onPress={() => setDeliveryOpen(!deliveryOpen)}
-              description={`${order.delivery.method === "agency" ? order.delivery.courier?.name ?? ("destination" in order.delivery ? order.delivery.destination.district : "") : order.delivery.method === "store" ? order.delivery.pickupPoint.name : order.delivery.destination.district} · ${order.delivery.recipient.name}`} />
+              description={`${order.delivery.method === "agency" ? `${order.delivery.courier.name} · ${order.delivery.agency.name}` : order.delivery.method === "store" ? order.delivery.pickupPoint.name : order.delivery.destination.district} · ${order.delivery.recipient.name}`} />
               : canEditDelivery ? <ThemedText themeColor="textSecondary">{t('orderDeliveryUndefined')}</ThemedText> : null}
             </View>
             {canEditDelivery ? <Button disabled={writeBusy} variant="ghost" onPress={() => router.push({ pathname: "/orders/delivery", params: { id: order.id } })}>{t(order.delivery ? 'editOrderDeliveryData' : 'assignOrderDeliveryData')}</Button> : null}
@@ -353,9 +353,10 @@ export default function OrderDetailScreen() {
                 {order.delivery.destination.instructions ? <ThemedText themeColor="textSecondary">{order.delivery.destination.instructions}</ThemedText> : null}
               </> : null}
               {order.delivery.method === "agency" ? <>
-                {order.delivery.courier === null ? <>
-                  <ThemedText>{order.delivery.destination.district}</ThemedText><ThemedText themeColor="textSecondary">{t('detailAgencyAssignmentPending')}</ThemedText>
-                </> : <><ThemedText>{order.delivery.courier.name}</ThemedText><ThemedText>{order.delivery.agency}</ThemedText></>}
+                <ThemedText type="small" themeColor="textSecondary">{t('detailCourier')}</ThemedText><ThemedText selectable>{order.delivery.courier.name}</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">{t('detailAgency')}</ThemedText>
+                <ThemedText selectable>{order.delivery.agency.name}</ThemedText><ThemedText selectable>{order.delivery.agency.address}</ThemedText>
+                <ThemedText>{order.delivery.agency.location.district}, {order.delivery.agency.location.province}</ThemedText>
               </> : null}
               <ThemedText type="small">{t('orderDeliveryCharge', { amount: format(order.deliveryCharge) })}</ThemedText>
               {!canEditDelivery ? <ThemedText type="small" themeColor="textSecondary">{t('orderDeliveryLocked')}</ThemedText> : null}

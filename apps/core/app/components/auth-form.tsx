@@ -2,6 +2,9 @@ import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useLocation, useNavigate } from "react-router";
 import { localizedPath } from "@core/app/locale";
+import { Alert, AlertDescription } from "@core/app/components/ui/alert";
+import { AuthLayout, AuthLayoutDescription, AuthLayoutFooter, AuthLayoutHeader, AuthLayoutTitle } from "@core/app/components/ui/auth-layout";
+import { TextLink } from "@core/app/components/ui/text-link";
 import { Button } from "@core/app/components/ui/button";
 import { Field, FieldLabel } from "@core/app/components/ui/field";
 import { Input } from "@core/app/components/ui/input";
@@ -62,11 +65,13 @@ export function AuthForm({ mode, pendingCompany = false }: { mode: "login" | "re
     } finally { setPending(false); }
   }
 
-  return <main className="flex min-h-screen items-center justify-center px-4 py-12"><div className="w-full max-w-sm rounded-xl border border-border bg-card p-6 sm:p-8">
-    <Link to={path("/")} className="text-sm font-semibold text-primary">Yoyos</Link>
-    <h1 className="mt-6 text-2xl font-semibold">{pendingCompany ? t("auth.companyTitle") : isRegister ? t("auth.createAccount") : t("common.login")}</h1>
-    <p className="mt-2 text-sm text-muted-foreground">{pendingCompany ? t("auth.companyDescription") : isRegister ? t("auth.registerDescription") : t("auth.loginDescription")}</p>
-    <form onSubmit={submit} className="mt-6 flex flex-col gap-4">
+  return <AuthLayout>
+    <AuthLayoutHeader>
+      <Link to={path("/")} className="text-sm font-semibold text-primary">Yoyos</Link>
+      <AuthLayoutTitle>{pendingCompany ? t("auth.companyTitle") : isRegister ? t("auth.createAccount") : t("common.login")}</AuthLayoutTitle>
+      <AuthLayoutDescription>{pendingCompany ? t("auth.companyDescription") : isRegister ? t("auth.registerDescription") : t("auth.loginDescription")}</AuthLayoutDescription>
+    </AuthLayoutHeader>
+    <form onSubmit={submit} className="flex flex-col gap-4">
       {isRegister && <Field><FieldLabel htmlFor="name">{t("common.name")}</FieldLabel><Input id="name" name="name" autoComplete="name" required /></Field>}
       {!pendingCompany && <>
         <Field><FieldLabel htmlFor="email">{t("common.email")}</FieldLabel><Input id="email" name="email" type="email" autoComplete="email" required /></Field>
@@ -76,10 +81,12 @@ export function AuthForm({ mode, pendingCompany = false }: { mode: "login" | "re
         <Field><FieldLabel htmlFor="companyName">{t("auth.companyName")}</FieldLabel><Input id="companyName" name="companyName" required maxLength={120} /></Field>
         <Field><FieldLabel htmlFor="country">{t("auth.country")}</FieldLabel><Select name="country" required items={countryItems} defaultValue={null}><SelectTrigger id="country"><SelectValue placeholder={t("auth.selectCountry")} /></SelectTrigger><SelectContent><SelectGroup>{countryItems.map((item) => <SelectItem key={item.value ?? "placeholder"} value={item.value} disabled={item.value === null}>{item.label}</SelectItem>)}</SelectGroup></SelectContent></Select></Field>
       </>}
-      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+      {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
       <Button type="submit" disabled={pending}>{pending ? t("auth.wait") : pendingCompany ? t("auth.createCompany") : isRegister ? t("auth.createAccount") : t("auth.enter")}</Button>
     </form>
-    {!pendingCompany && <p className="mt-6 text-center text-sm text-muted-foreground">{isRegister ? t("auth.hasAccount") : t("auth.noAccount")}<Link to={path(isRegister ? "/login" : "/register")} className="font-medium text-primary underline underline-offset-4">{isRegister ? t("auth.loginLink") : t("auth.register")}</Link></p>}
-    {!pendingCompany && !isRegister && <Link to={path("/forgot-password")} className="mt-3 block text-center text-sm font-medium text-primary underline underline-offset-4">{t("auth.forgotLink")}</Link>}
-  </div></main>;
+    {!pendingCompany && <AuthLayoutFooter>
+      <p>{isRegister ? t("auth.hasAccount") : t("auth.noAccount")}<TextLink asChild><Link to={path(isRegister ? "/login" : "/register")}>{isRegister ? t("auth.loginLink") : t("auth.register")}</Link></TextLink></p>
+      {!isRegister && <TextLink asChild><Link to={path("/forgot-password")}>{t("auth.forgotLink")}</Link></TextLink>}
+    </AuthLayoutFooter>}
+  </AuthLayout>;
 }

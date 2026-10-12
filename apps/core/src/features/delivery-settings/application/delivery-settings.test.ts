@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { err, ok } from "@shared/functional";
-import { initialDeliverySettings, parseDeliverySettings, type DeliverySettings, type CourierId } from "@core/src/features/delivery-settings/domain/delivery-settings";
+import { initialDeliverySettings, parseDeliverySettings, type DeliverySettings, type CourierCatalogEntry, type CourierCatalogId, type CourierCode, type CourierId } from "@core/src/features/delivery-settings/domain/delivery-settings";
 import { getDeliverySettings, saveDeliverySettings, type SaveDeliverySettingsDependencies } from "@core/src/features/delivery-settings/application/delivery-settings";
 
 const context = { companyId: "company", userId: "seller" };
+const catalogId = "00000000-0000-4000-8000-000000000101" as CourierCatalogId;
+const catalog: readonly CourierCatalogEntry[] = [{ id: catalogId, code: "shalom" as CourierCode, name: "Shalom" }];
+const readCourierCatalog = async () => ok(catalog);
 const point = { name: "Tienda", address: "Av. Lima 123", instructions: null };
 const store = { enabled: true as const, pickupPoint: point };
 
@@ -36,7 +39,7 @@ describe("store delivery configuration", () => {
   function repository(initial: DeliverySettings | null) {
     let persisted = initial;
     const deps: SaveDeliverySettingsDependencies = {
-      generateCourierId: () => "00000000-0000-4000-8000-000000000003" as CourierId,
+      readCourierCatalog, generateCourierId: () => "00000000-0000-4000-8000-000000000003" as CourierId,
       transaction: async (companyId, work) => { expect(companyId).toBe(context.companyId); return work(); },
       findForUpdate: async () => ok(persisted),
       save: async (_companyId, next) => { persisted = next; return ok(null); },
@@ -69,7 +72,7 @@ describe("store delivery configuration", () => {
 it("home enablement changes independently without losing the retained pickup point", async () => {
   let persisted: DeliverySettings = { version: 1, agency: { enabled: false }, couriers: [], home: { enabled: false }, store };
   const deps: SaveDeliverySettingsDependencies = {
-    generateCourierId: () => "00000000-0000-4000-8000-000000000003" as CourierId,
+    readCourierCatalog, generateCourierId: () => "00000000-0000-4000-8000-000000000003" as CourierId,
     transaction: async (_companyId, work) => work(), findForUpdate: async () => ok(persisted),
     save: async (_companyId, next) => { persisted = next; return ok(null); },
   };
@@ -87,17 +90,17 @@ it("saves courier edits and server IDs under the settings lock; a stale retry ne
   let persisted: DeliverySettings | null = null;
   const generateCourierId = vi.fn(() => id);
   const deps: SaveDeliverySettingsDependencies = {
-    generateCourierId, transaction: async (_companyId, work) => work(), findForUpdate: async () => ok(persisted),
+    readCourierCatalog, generateCourierId, transaction: async (_companyId, work) => work(), findForUpdate: async () => ok(persisted),
     save: async (_companyId, next) => { persisted = next; return ok(null); },
   };
-  const input = { expectedVersion: 0, home: { enabled: false }, store, agency: { enabled: true }, couriers: [{ kind: "new" as const, name: " Courier ", enabled: true }] };
-  expect(await saveDeliverySettings(input, context, deps)).toMatchObject({ success: true, data: { version: 1, agency: { enabled: true }, couriers: [{ id, name: "Courier", enabled: true }] } });
+  const input = { expectedVersion: 0, home: { enabled: false }, store, agency: { enabled: true }, couriers: [{ kind: "new" as const, catalogId, enabled: true }] };
+  expect(await saveDeliverySettings(input, context, deps)).toMatchObject({ success: true, data: { version: 1, agency: { enabled: true }, couriers: [{ id, catalogId, name: "Shalom", enabled: true, catalogEnabled: true }] } });
   expect(await saveDeliverySettings(input, context, deps)).toMatchObject({ success: false, error: { code: "DELIVERY_SETTINGS_CONFLICT" } });
   expect(generateCourierId).toHaveBeenCalledOnce();
-  const edit = { ...input, expectedVersion: 1, couriers: [{ kind: "existing" as const, id, name: "Renamed", enabled: false }] };
+  const edit = { ...input, expectedVersion: 1, couriers: [{ kind: "existing" as const, id, enabled: false }] };
   expect(await saveDeliverySettings(edit, context, deps)).toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_SETTINGS" } });
   expect(await saveDeliverySettings({ ...edit, agency: { enabled: false } }, context, deps))
-    .toMatchObject({ success: true, data: { version: 2, agency: { enabled: false }, couriers: [{ id, name: "Renamed", enabled: false }] } });
+    .toMatchObject({ success: true, data: { version: 2, agency: { enabled: false }, couriers: [{ id, catalogId, name: "Shalom", enabled: false, catalogEnabled: true }] } });
   expect(await saveDeliverySettings({ ...edit, expectedVersion: 2, agency: { enabled: false }, couriers: [] }, context, deps)).toMatchObject({ success: false });
   expect(persisted).toMatchObject({ version: 2, couriers: [{ id }] });
 });
