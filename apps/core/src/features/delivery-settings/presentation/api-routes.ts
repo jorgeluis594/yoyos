@@ -1,9 +1,12 @@
 import express, { type Response } from "express";
 import { parseDeliveryZonesResponse } from "@core/src/features/delivery-settings/presentation/zones-response";
-import { courierCatalogSchema, saveDeliverySettingsSchema, saveDeliveryZonesSchema, deliveryZonesApiErrorSchema } from "@shared/contracts/delivery-settings";
+import { agencyCatalogRequestSchema, courierCatalogSchema, saveDeliverySettingsSchema, saveDeliveryZonesSchema, deliveryZonesApiErrorSchema } from "@shared/contracts/delivery-settings";
 import { apiError, type PrivateLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
+import { parseAgencyCatalogResponse } from "@core/src/features/delivery-settings/presentation/agency-catalog-response";
+import type { AgencyCatalogError } from "@core/src/features/delivery-settings/application/agency-catalog";
+import type { CourierCatalogId } from "@core/src/features/delivery-settings/domain/delivery-settings";
 import { toCourierInputs, toDeliverySettingsResponse } from "@core/src/features/delivery-settings/presentation/settings-response";
 import type { DeliverySettingsError } from "@core/src/features/delivery-settings/domain/delivery-settings";
 import type { DeliveryZonesError, DeliveryZonesState } from "@core/src/features/delivery-settings/application/delivery-zones";
@@ -39,6 +42,14 @@ function deliverySettingsHttpError(response: Response, error: DeliverySettingsEr
   }
 }
 
+function agencyCatalogHttpError(response: Response, error: AgencyCatalogError) {
+  switch (error.code) {
+    case "NOT_FOUND": return apiError(response, 404, "NOT_FOUND", "Courier not found");
+    case "PERSISTENCE_UNAVAILABLE": return apiError(response, 503, "SERVICE_UNAVAILABLE", "Service unavailable");
+    case "INVALID_STORED_DATA": return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
+  }
+}
+
 export const deliverySettingsRoutes = express.Router();
 deliverySettingsRoutes.get("/courier-catalog", async (_request, response: Response<unknown, PrivateLocals>) => {
   const context = { companyId: response.locals.auth.company.id, userId: response.locals.auth.user.id };
@@ -48,6 +59,23 @@ deliverySettingsRoutes.get("/courier-catalog", async (_request, response: Respon
   } catch (cause) {
     log.error({ event: "delivery_settings_request_failed", operation: "get_courier_catalog", entryPoint: "api", userId: context.userId,
       errorCode: "INTERNAL_ERROR", err: cause }, "Unable to handle courier catalog request");
+    return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
+  }
+});
+deliverySettingsRoutes.get("/agency-catalog", async (request, response: Response<unknown, PrivateLocals>) => {
+  const parsed = agencyCatalogRequestSchema.safeParse(request.query);
+  if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid agency catalog request");
+  const context = { companyId: response.locals.auth.company.id, userId: response.locals.auth.user.id };
+  try {
+    const result = await deliverySettings.getAgencyCatalog(parsed.data.courierId as CourierCatalogId, context);
+    if (!result.success) return agencyCatalogHttpError(response, result.error);
+    const body = parseAgencyCatalogResponse(result.data);
+    if (body.success) return response.json(body.data);
+    log.error({ event: "agency_catalog_response_invalid", operation: "get_agency_catalog", entryPoint: "api", userId: context.userId, errorCode: "INTERNAL_ERROR" }, "Agency catalog response is invalid");
+    return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
+  } catch (cause) {
+    log.error({ event: "delivery_settings_request_failed", operation: "get_agency_catalog", entryPoint: "api", userId: context.userId,
+      errorCode: "INTERNAL_ERROR", err: cause }, "Unable to handle agency catalog request");
     return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
   }
 });

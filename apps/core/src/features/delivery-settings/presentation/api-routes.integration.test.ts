@@ -1,10 +1,11 @@
 import { quotationResponseSchema } from "@shared/contracts/quotations";
 import { randomUUID } from "node:crypto";
-import { afterAll, expect, test } from "vitest";
+import { afterAll, expect, test, vi } from "vitest";
 import { err, ok } from "@shared/functional";
 import { createDeliverySettingsApi } from "@mobile/features/delivery-settings/infrastructure/delivery-settings-api";
 import { createQuotationApi } from "@mobile/features/delivery-settings/infrastructure/quotation-api";
-import { courierCatalogSchema, deliverySettingsSchema, deliveryZonesSchema } from "@shared/contracts/delivery-settings";
+import { log } from "@core/src/shared/infrastructure/logger";
+import { agencyCatalogSchema, courierCatalogSchema, deliverySettingsSchema, deliveryZonesSchema } from "@shared/contracts/delivery-settings";
 import { app } from "@core/src/app";
 import { seededCourier, withCatalogAdmin } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
@@ -25,6 +26,21 @@ async function temporaryCourier(enabled: boolean, name = "Temporary courier") {
   await withCatalogAdmin(query => query('INSERT INTO "Courier" (id, code, name, enabled) VALUES ($1, $2, $3, $4)', [id, `t2_${id.replaceAll("-", "")}`, name, enabled]));
   temporaryCouriers.push(id);
   return { id };
+}
+
+async function catalogAgency(courierId: string, name: string, districtCode: string, enabled = true) {
+  const id = randomUUID();
+  await withCatalogAdmin(query => query('INSERT INTO "DeliveryAgency" (id, "courierId", name, address, "districtCode", enabled) VALUES ($1, $2, $3, $4, $5, $6)',
+    [id, courierId, name, "Av. Test 123", districtCode, enabled]));
+  return id;
+}
+
+async function withCourier(f: { companyId: string | null }, courierId: string, enabled = true) {
+  if (!f.companyId) throw new Error("Company required");
+  await withTenantIsolation(f.companyId, async () => {
+    await prisma.companyDeliverySettings.create({ data: { agencyEnabled: false, homeEnabled: false, storeEnabled: false, version: 1 } });
+    await prisma.companyCourier.create({ data: { id: randomUUID(), courierId, enabled } });
+  });
 }
 
 async function request(path: string, cookie?: string, body?: unknown, method?: string) {
@@ -68,7 +84,10 @@ async function fixture(withCompany = true, country = "PE") {
 
 afterAll(async () => {
   for (const f of fixtures.reverse()) await f.cleanup();
-  await withCatalogAdmin(query => query('DELETE FROM "Courier" WHERE id = ANY($1::uuid[])', [temporaryCouriers]));
+  await withCatalogAdmin(async query => {
+    await query('DELETE FROM "DeliveryAgency" WHERE "courierId" = ANY($1::uuid[])', [temporaryCouriers]);
+    await query('DELETE FROM "Courier" WHERE id = ANY($1::uuid[])', [temporaryCouriers]);
+  });
   await new Promise<void>((resolve) => server.close(() => resolve()));
   await systemPrisma.$disconnect();
 });
@@ -395,4 +414,50 @@ test("two courier saves with the same version produce one 409 DELIVERY_SETTINGS_
   const conflict = responses.find(response => response.status === 409);
   expect(await conflict?.json()).toMatchObject({ code: "DELIVERY_SETTINGS_CONFLICT" });
   expect(await withTenantIsolation(seller.companyId ?? "", async () => await prisma.companyCourier.count())).toBe(1);
+});
+
+test("agency catalog lists enabled agencies of a courier the company has, shared across companies and hidden from others", async () => {
+  const [seller, second, outsider, noCompany] = await Promise.all([fixture(), fixture(), fixture(), fixture(false)]);
+  const courier = await temporaryCourier(true, "Agency courier");
+  const other = await temporaryCourier(true, "Other courier");
+  const miraflores = await catalogAgency(courier.id, "Beta", "150122");
+  const lima = await catalogAgency(courier.id, "Alpha", "150101");
+  const lambayeque = await catalogAgency(courier.id, "Gamma", "140101");
+  await catalogAgency(courier.id, "Disabled", "150101", false);
+  await catalogAgency(other.id, "Other courier agency", "150101");
+  await withCourier(seller, courier.id, false);
+  await withCourier(second, courier.id);
+  const path = (courierId: string) => `/api/delivery-settings/agency-catalog?courierId=${courierId}`;
+  expect((await request(path(courier.id))).status).toBe(401);
+  expect((await request(path(courier.id), noCompany.cookie)).status).toBe(409);
+  expect((await request("/api/delivery-settings/agency-catalog", seller.cookie)).status).toBe(400);
+  expect((await request(path("not-a-uuid"), seller.cookie)).status).toBe(400);
+  expect((await request(`${path(courier.id)}&companyId=${outsider.companyId}`, seller.cookie)).status).toBe(400);
+  const foreign = await request(path(courier.id), outsider.cookie);
+  expect(foreign.status).toBe(404);
+  expect(await foreign.json()).toMatchObject({ code: "NOT_FOUND" });
+  expect((await request(path(randomUUID()), seller.cookie)).status).toBe(404);
+  const [first, again] = await Promise.all([request(path(courier.id), seller.cookie), request(path(courier.id), second.cookie)]);
+  expect(first.status).toBe(200);
+  expect(first.headers.get("cache-control")).toBe("no-store");
+  const listed = agencyCatalogSchema.parse(await first.json());
+  expect(listed.agencies.map(agency => agency.id)).toEqual([lambayeque, lima, miraflores]);
+  expect(listed.agencies[1]).toEqual({ id: lima, courierId: courier.id, name: "Alpha", address: "Av. Test 123", enabled: true,
+    location: { country: "PE", districtCode: "150101", district: "LIMA", province: "LIMA METROPOLITANA", department: "LIMA" } });
+  expect(agencyCatalogSchema.parse(await again.json())).toEqual(listed);
+});
+
+test("an agency with a district missing from the Peru catalog answers 500 INTERNAL_ERROR with a log and no partial list", async () => {
+  const seller = await fixture();
+  const courier = await temporaryCourier(true, "Broken courier");
+  await catalogAgency(courier.id, "Valid", "150101");
+  const broken = await catalogAgency(courier.id, "Broken", "999999");
+  await withCourier(seller, courier.id);
+  const error = vi.spyOn(log, "error");
+  try {
+    const response = await request(`/api/delivery-settings/agency-catalog?courierId=${courier.id}`, seller.cookie);
+    expect(response.status).toBe(500);
+    expect(await response.json()).toMatchObject({ code: "INTERNAL_ERROR" });
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "agency_catalog_stored_data_invalid", agencyId: broken }), expect.any(String));
+  } finally { error.mockRestore(); }
 });

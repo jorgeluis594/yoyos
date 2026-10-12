@@ -6,7 +6,9 @@ import { afterTransactionCommit, getCompanyId, withinTransaction } from "@core/s
 import { log } from "@core/src/shared/infrastructure/logger";
 import { getCourierCatalog, getDeliverySettings, saveDeliverySettings, type DeliverySettingsAccess, type SaveDeliverySettingsInput } from "@core/src/features/delivery-settings/application/delivery-settings";
 import { readCourierCatalog, readDeliverySettings, writeDeliverySettings } from "@core/src/features/delivery-settings/infrastructure/delivery-settings-repository";
-import type { CourierId, DeliverySettingsReadError } from "@core/src/features/delivery-settings/domain/delivery-settings";
+import type { CourierCatalogId, CourierId, DeliverySettingsReadError } from "@core/src/features/delivery-settings/domain/delivery-settings";
+import { getAgencyCatalog } from "@core/src/features/delivery-settings/application/agency-catalog";
+import { readAgencyCatalog } from "@core/src/features/delivery-settings/infrastructure/agency-catalog-repository";
 import { getDeliveryZones, saveDeliveryZones, type SaveDeliveryZonesInput } from "@core/src/features/delivery-settings/application/delivery-zones";
 import { readDeliveryConfiguration, writeDeliveryZones } from "@core/src/features/delivery-settings/infrastructure/delivery-zones-repository";
 import { createQuotation, type CreateQuotationInput, type QuotationStorageError } from "@core/src/features/delivery-settings/application/create-quotation";
@@ -58,6 +60,8 @@ export const deliverySettings = {
   get: (context: DeliverySettingsAccess, operation = "get_delivery_settings") => settingsTransaction(context, operation, undefined,
     () => getDeliverySettings(context, (companyId) => readDeliverySettings(companyId, "shared", undefined, operation))),
   getCourierCatalog: (context: DeliverySettingsAccess) => settingsTransaction(context, "get_courier_catalog", undefined, () => getCourierCatalog(readCourierCatalog)),
+  getAgencyCatalog: (courierId: CourierCatalogId, context: DeliverySettingsAccess) => settingsTransaction(context, "get_agency_catalog", undefined,
+    () => getAgencyCatalog(courierId, context, { readSettings: companyId => readDeliverySettings(companyId, "shared", undefined, "get_agency_catalog"), readAgencyCatalog })),
   async save(input: SaveDeliverySettingsInput, context: DeliverySettingsAccess) {
     const started = performance.now();
     const result = await saveDeliverySettings(input, context, {
