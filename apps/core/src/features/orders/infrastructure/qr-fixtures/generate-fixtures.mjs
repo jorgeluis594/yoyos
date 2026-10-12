@@ -40,21 +40,25 @@ await save("non-uuid-qr", sharp(white(800, 600)).composite([{ input: url, left: 
 // Needs the mobile dependencies installed (qrcode is not a core dependency).
 const QRCode = createRequire(join(out, "../../../../../../mobile/package.json"))("qrcode");
 const dpi = 203;
-const [widthPx, heightPx] = [Math.round(50 / 25.4 * dpi), Math.round(25 / 25.4 * dpi)];
-const modules = QRCode.create(VARIANT_ID, { errorCorrectionLevel: "M" }).modules;
-const margin = Math.ceil(dpi / 25.4);
-const modulePx = Math.floor(Math.min(heightPx - 2 * margin, Math.floor(widthPx * 0.39)) / (modules.size + 8));
-const qrSize = modulePx * (modules.size + 8);
-const qrY = Math.floor((heightPx - qrSize) / 2);
-const textX = margin + qrSize + margin;
-const rects = [];
-for (let row = 0; row < modules.size; row++) for (let col = 0; col < modules.size; col++) {
-  if (modules.get(row, col)) rects.push(`<rect x="${margin + (col + 4) * modulePx}" y="${qrY + (row + 4) * modulePx}" width="${modulePx}" height="${modulePx}"/>`);
+async function printedLabel(file, id, name, sku) {
+  const [widthPx, heightPx] = [Math.round(50 / 25.4 * dpi), Math.round(25 / 25.4 * dpi)];
+  const modules = QRCode.create(id, { errorCorrectionLevel: "M" }).modules;
+  const margin = Math.ceil(dpi / 25.4);
+  const modulePx = Math.floor(Math.min(heightPx - 2 * margin, Math.floor(widthPx * 0.39)) / (modules.size + 8));
+  const qrSize = modulePx * (modules.size + 8);
+  const qrY = Math.floor((heightPx - qrSize) / 2);
+  const textX = margin + qrSize + margin;
+  const rects = [];
+  for (let row = 0; row < modules.size; row++) for (let col = 0; col < modules.size; col++) {
+    if (modules.get(row, col)) rects.push(`<rect x="${margin + (col + 4) * modulePx}" y="${qrY + (row + 4) * modulePx}" width="${modulePx}" height="${modulePx}"/>`);
 }
 const label = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${widthPx}" height="${heightPx}"><rect width="100%" height="100%" fill="#fff"/>${rects.join("")}
-<text x="${textX}" y="${margin + 26}" font-family="sans-serif" font-size="${9 * dpi / 72}" font-weight="bold">Camisa lino</text>
-<text x="${textX}" y="${margin + 60}" font-family="sans-serif" font-size="${8 * dpi / 72}">CAM-001-AZ</text></svg>`);
+<text x="${textX}" y="${margin + 26}" font-family="sans-serif" font-size="${9 * dpi / 72}" font-weight="bold">${name}</text>
+<text x="${textX}" y="${margin + 60}" font-family="sans-serif" font-size="${8 * dpi / 72}">${sku}</text></svg>`);
 // Photographed: label enlarged 3x, slightly rotated, on a table.
 const photo = await sharp(label).resize(widthPx * 3, heightPx * 3, { kernel: "nearest" }).rotate(4, { background: "#d8d2c4" }).png().toBuffer();
-await save("label", sharp({ create: { width: 1600, height: 1000, channels: 3, background: "#d8d2c4" } }).composite([{ input: photo, left: 150, top: 150 }]));
-console.log(`label QR encodes ${VARIANT_ID}`);
+await save(file, sharp({ create: { width: 1600, height: 1000, channels: 3, background: "#d8d2c4" } }).composite([{ input: photo, left: 150, top: 150 }]));
+}
+await printedLabel("label", VARIANT_ID, "Camisa lino", "CAM-001-AZ");
+await printedLabel("label-second", SECOND_ID, "Pantalon lino", "PAN-001-NG");
+console.log(`label QR encodes ${VARIANT_ID}; label-second encodes ${SECOND_ID}`);

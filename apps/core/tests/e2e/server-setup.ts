@@ -14,7 +14,7 @@ export async function setup() {
   server = spawn("node", ["--import", "tsx", "tests/e2e/server.ts"], { env: {
     ...process.env, PORT: port, WHATSAPP_CONNECTIONS_JSON: JSON.stringify([{ companyId, phoneNumberId: "e2e-phone", businessAccountId: "e2e-waba", connectedAt, accessToken: "e2e-only-token" }]),
     WHATSAPP_APP_SECRET: "e2e-app-secret", WHATSAPP_VERIFY_TOKEN: "e2e-verify-token",
-    R2_ENDPOINT: process.env.R2_ENDPOINT ?? "http://127.0.0.1:9000",
+    R2_ENDPOINT: process.env.R2_ENDPOINT ?? `http://127.0.0.1:${Number(port) + 1000}`, // message-to-order.spec.ts serves a fake S3 here
     R2_BUCKET: process.env.R2_BUCKET ?? "test-images",
     R2_ACCESS_KEY_ID: process.env.R2_ACCESS_KEY_ID ?? "test",
     R2_SECRET_ACCESS_KEY: process.env.R2_SECRET_ACCESS_KEY ?? "test",
