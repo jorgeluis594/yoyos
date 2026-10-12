@@ -17,6 +17,8 @@ SET LOCAL lock_timeout = '5s';
 DELETE FROM "DeliveryRate";
 DELETE FROM "Quotation";
 DELETE FROM "DeliveryZoneDistrict";
+DELETE FROM "DeliveryOptionAgency";
+DELETE FROM "DeliveryOption";
 DELETE FROM "DeliveryZone";
 
 -- DropForeignKey
