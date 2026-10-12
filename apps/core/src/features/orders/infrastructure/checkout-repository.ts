@@ -4,7 +4,7 @@ import type { Result } from "@shared/result";
 import { prisma, requireActiveTransaction } from "@core/src/shared/infrastructure/persistance";
 import { bindCompanyToRequest, bindRequestOperation, log } from "@core/src/shared/infrastructure/logger";
 import { findOrderAggregate, findOrderForUpdate } from "@core/src/features/orders/infrastructure/order-repository";
-import type { CheckoutAccess, CheckoutError, CheckoutOrder, OrderBuyer } from "@core/src/features/orders/domain/checkout";
+import type { CheckoutAccess, CheckoutError, CheckoutOrder, ConfirmedBuyer } from "@core/src/features/orders/domain/checkout";
 import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 
 const failure = (cause: unknown, event: string): Result<never, CheckoutError> => {
@@ -39,7 +39,7 @@ export async function saveCheckoutEnabled(access: CheckoutAccess, at: Date): Pro
   } catch (cause) { return failure(cause, "unable_to_save_checkout_enabled"); }
 }
 
-export async function saveCheckoutBuyer(access: CheckoutAccess, buyer: OrderBuyer): Promise<Result<null, CheckoutError>> {
+export async function saveCheckoutBuyer(access: CheckoutAccess, buyer: ConfirmedBuyer): Promise<Result<null, CheckoutError>> {
   requireActiveTransaction(access.companyId);
   try {
     await prisma.orderBuyer.upsert({ where: { companyId_orderId: access },

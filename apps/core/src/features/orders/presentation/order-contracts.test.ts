@@ -1,6 +1,6 @@
 import { parseDeliverySelection, parseDeliverySnapshot } from "@core/src/features/orders/domain/order-state-machine";
 import { expect, test } from "vitest";
-import { completeOrderSchema, legacyCompleteOrderSchema, deliverySnapshotSchema, deliverySelectionSchema, setOrderDeliverySchema, listOrdersSchema, orderApiErrorSchema, registerPaymentSchema, stockOutcomeSchema } from "@shared/contracts/orders";
+import { orderBuyerSchema, orderCustomerSchema, completeOrderSchema, legacyCompleteOrderSchema, deliverySnapshotSchema, deliverySelectionSchema, setOrderDeliverySchema, listOrdersSchema, orderApiErrorSchema, registerPaymentSchema, stockOutcomeSchema } from "@shared/contracts/orders";
 import { limaMidnightUtc, nextCalendarDay } from "@shared/orders-date";
 
 test("a Lima calendar day has its own UTC bounds across an offset change", () => {
@@ -136,4 +136,10 @@ test("current creation rejects old deliveries while archived requests remain rea
     expect(completeOrderSchema.safeParse(archived).success).toBe(false);
     expect(legacyCompleteOrderSchema.safeParse(archived).success).toBe(true);
   }
+});
+
+test("order buyer and contact customer accept a null phone", () => {
+  const contactId = "00000000-0000-4000-8000-000000000001";
+  expect(orderBuyerSchema.safeParse({ contactId, name: null, phone: null }).success).toBe(true);
+  expect(orderCustomerSchema.safeParse({ kind: "contact", contactId, name: null, phone: null }).success).toBe(true);
 });

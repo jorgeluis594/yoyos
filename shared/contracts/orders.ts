@@ -12,9 +12,9 @@ export type OrderSelectionRequest = z.infer<typeof orderSelectionSchema>;
 
 export const orderCustomerSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("general_public") }),
-  z.strictObject({ kind: z.literal("contact"), contactId: z.uuid(), name: z.string().nullable(), phone: z.string() }),
+  z.strictObject({ kind: z.literal("contact"), contactId: z.uuid(), name: z.string().nullable(), phone: z.string().nullable() }),
 ]);
-export const orderBuyerSchema = z.strictObject({ contactId: z.uuid().nullable(), name: z.string().nullable(), phone: z.string() });
+export const orderBuyerSchema = z.strictObject({ contactId: z.uuid().nullable(), name: z.string().nullable(), phone: z.string().nullable() });
 export const orderItemSchema = z.strictObject({ id: z.uuid(), variantId: z.uuid(), productName: z.string(), variantAttributes: z.record(z.string(), z.string()), sku: z.string().nullable(), quantity: z.number().int().positive().safe(), unitPrice: z.number().positive(), subtotal: z.number().positive() });
 export const orderSchema = z.strictObject({ number: z.number().int().safe().min(1001), id: z.uuid(), companyId: z.uuid(), sellerId: z.string(), buyer: orderBuyerSchema.nullable(), paymentMethod: z.literal("digital_wallet"), completedAt: z.iso.datetime(), currency: z.enum(currencies), items: z.array(orderItemSchema).min(1), total: z.number().positive() });
 export type OrderResponse = z.infer<typeof orderSchema>;

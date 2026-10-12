@@ -312,7 +312,7 @@ export default function OrderDetail() {
       <div className="contents xl:flex xl:min-w-0 xl:flex-col xl:gap-4">
         <Card role="region" aria-labelledby="order-customer-title" className="min-w-0 max-xl:order-3">
           <h2 id="order-customer-title" className="p-4 text-lg font-semibold">{t("orders.customer")}</h2>
-          <div className="flex flex-col gap-2 px-4 pb-4"><p className="break-words font-medium">{order.buyer !== null ? order.buyer.name ?? order.buyer.phone : t("orders.generalPublic")}</p>{order.buyer !== null && <dl className="text-sm"><dt className="text-muted-foreground">{t("orders.phoneAtSale")}</dt><dd className="mt-1 break-words">{order.buyer.phone}</dd></dl>}</div>
+          <div className="flex flex-col gap-2 px-4 pb-4"><p className="break-words font-medium">{order.buyer !== null ? order.buyer.name ?? order.buyer.phone ?? "—" : t("orders.generalPublic")}</p>{order.buyer?.phone && <dl className="text-sm"><dt className="text-muted-foreground">{t("orders.phoneAtSale")}</dt><dd className="mt-1 break-words">{order.buyer.phone}</dd></dl>}</div>
         </Card>
 
         <Card role="region" aria-labelledby="order-delivery-title" className="min-w-0 max-xl:order-4">

@@ -245,10 +245,10 @@ export default function OrderDetailScreen() {
             </ThemedText>
             <StatusBadge label={title} tone={order.status === "cancelled" ? "neutral" : "success"} />
           </View>
-          <ThemedText accessibilityLabel={`${t('detailBuyer')}: ${order.buyer !== null ? order.buyer.name ?? order.buyer.phone : t('generalPublic')}`}>
-            {order.buyer !== null ? order.buyer.name ?? order.buyer.phone : t('generalPublic')}
+          <ThemedText accessibilityLabel={`${t('detailBuyer')}: ${order.buyer !== null ? order.buyer.name ?? order.buyer.phone ?? "—" : t('generalPublic')}`}>
+            {order.buyer !== null ? order.buyer.name ?? order.buyer.phone ?? "—" : t('generalPublic')}
           </ThemedText>
-          {order.buyer?.name ? <ThemedText type="small" themeColor="textSecondary" selectable>{order.buyer.phone}</ThemedText> : null}
+          {order.buyer?.name && order.buyer.phone ? <ThemedText type="small" themeColor="textSecondary" selectable>{order.buyer.phone}</ThemedText> : null}
         </View>
         {order.cancelled ? <ThemedText accessibilityRole="alert">{t("orderCancellation.cancelled")}</ThemedText> : null}
         {cancellationBusy ? <ThemedText accessibilityRole="alert">{t(cancellation.kind === "verifying" ? "orderCancellation.verifying" : "orderCancellation.submitting")}</ThemedText> : null}
