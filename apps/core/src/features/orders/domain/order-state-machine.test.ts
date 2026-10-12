@@ -216,3 +216,51 @@ test.each([true, false])("new delivery transitions reject the obsolete charge de
   expect(current.delivery).toBeNull();
   expect(current.total).toEqual(money(10));
 });
+
+describe("appendItems", () => {
+  const variant = (n: number, amount: number, currency: "PEN" | "USD" = "PEN") => ({ variantId: id(n) as VariantId, productName: `Variant ${n}`,
+    variantAttributes: { Size: "M" }, sku: null, unitPrice: { amount, currency } });
+  const newItemId = () => id(90) as OrderItemId;
+
+  test("appendItems adds a new variant with quantity 1 at its current price", () => {
+    const result = orderStateMachine.appendItems(order(), [variant(5, 7)], newItemId);
+    expect(result).toMatchObject({ success: true, data: { itemsTotal: money(17), total: money(17) } });
+    if (!result.success) return;
+    expect(result.data.items).toEqual([order().items[0], { id: id(90), variantId: id(5), productName: "Variant 5", variantAttributes: { Size: "M" },
+      sku: null, quantity: 1, unitPrice: money(7), subtotal: money(7) }]);
+  });
+
+  test("appendItems increments the quantity of a variant already in the order", () => {
+    const result = orderStateMachine.appendItems(order(), [variant(4, 10)], newItemId);
+    expect(result).toMatchObject({ success: true, data: { itemsTotal: money(20), total: money(20),
+      items: [{ id: id(3), quantity: 2, subtotal: money(20) }] } });
+  });
+
+  test("appendItems keeps the price of existing items when the catalog price changed", () => {
+    const result = orderStateMachine.appendItems(order(), [variant(4, 99)], newItemId);
+    expect(result).toMatchObject({ success: true, data: { total: money(20), items: [{ quantity: 2, unitPrice: money(10) }] } });
+  });
+
+  test("appendItems recalculates items total and total including delivery", () => {
+    const withDelivery: OrderAggregate = { ...order(), delivery: home, deliveryCost: money(5), deliveryCharge: money(5), total: money(15) };
+    const result = orderStateMachine.appendItems(withDelivery, [variant(5, 7)], newItemId);
+    expect(result).toMatchObject({ success: true, data: { itemsTotal: money(17), deliveryCharge: money(5), total: money(22) } });
+  });
+
+  test("appendItems rejects a variant in another currency with CURRENCY_MISMATCH", () => {
+    expect(orderStateMachine.appendItems(order(), [variant(5, 7, "USD")], newItemId)).toMatchObject({ success: false, error: { code: "CURRENCY_MISMATCH" } });
+  });
+
+  test("appendItems rejects totals beyond the money limit with INVALID_ORDER", () => {
+    const large: OrderAggregate = { ...order(), items: [{ ...order().items[0], unitPrice: money(9999999999.99), subtotal: money(9999999999.99) }],
+      itemsTotal: money(9999999999.99), total: money(9999999999.99) };
+    const result = orderStateMachine.appendItems({ ...large, items: [{ ...large.items[0], quantity: 99999 as PositiveInteger, subtotal: money(999999999999999) }],
+      itemsTotal: money(999999999999999), total: money(999999999999999) }, [variant(4, 9999999999.99)], newItemId);
+    expect(result).toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
+  });
+
+  test("appendItems adds variants without stock", () => {
+    const result = orderStateMachine.appendItems({ ...order(), stockDeducted: false }, [variant(5, 7), variant(6, 3)], (() => { let n = 90; return () => id(n++) as OrderItemId; })());
+    expect(result).toMatchObject({ success: true, data: { total: money(20), items: [{}, { id: id(90) }, { id: id(91) }] } });
+  });
+});
