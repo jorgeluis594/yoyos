@@ -706,7 +706,6 @@ async function waitForDeliveryLock() {
   });
 }
 
-// Agency assignment is unavailable until agencies are associated with options (T5).
 test("store assignment and disabling configuration serialize in both orders", async () => {
   const f = await fixture();
   const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
