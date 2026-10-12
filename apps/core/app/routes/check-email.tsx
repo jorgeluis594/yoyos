@@ -3,6 +3,9 @@ import { localizedPath } from "@core/app/locale";
 import { useState, type FormEvent } from "react";
 import { Link, useLocation } from "react-router";
 import { authClient } from "@core/src/shared/infrastructure/auth-client";
+import { Alert, AlertDescription } from "@core/app/components/ui/alert";
+import { AuthLayout, AuthLayoutDescription, AuthLayoutFooter, AuthLayoutHeader, AuthLayoutTitle } from "@core/app/components/ui/auth-layout";
+import { TextLink } from "@core/app/components/ui/text-link";
 import { Button } from "@core/app/components/ui/button";
 import { Field, FieldLabel } from "@core/app/components/ui/field";
 import { Input } from "@core/app/components/ui/input";
@@ -25,5 +28,14 @@ export default function CheckEmail() {
     } catch { setError(t("auth.requestError")); }
     finally { setPending(false); }
   }
-  return <main className="mx-auto flex min-h-screen max-w-lg flex-col justify-center px-4"><h1 className="text-2xl font-semibold">{t("auth.checkEmailTitle")}</h1><p className="mt-3 text-muted-foreground">{t("auth.checkEmailDescription")}</p><form onSubmit={resend} className="mt-6 flex flex-col gap-4"><Field><FieldLabel htmlFor="email">{t("common.email")}</FieldLabel><Input id="email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></Field>{message && <p role="status">{message}</p>}{error && <p role="alert">{error}</p>}<Button type="submit" disabled={pending}>{pending ? t("common.sending") : t("auth.resendVerification")}</Button></form><div className="mt-5 flex gap-4 text-sm"><Link to={path("/login")} className="underline">{t("common.login")}</Link><Link to={path("/forgot-password")} className="underline">{t("common.forgotPassword")}</Link></div></main>;
+  return <AuthLayout>
+    <AuthLayoutHeader><AuthLayoutTitle>{t("auth.checkEmailTitle")}</AuthLayoutTitle><AuthLayoutDescription>{t("auth.checkEmailDescription")}</AuthLayoutDescription></AuthLayoutHeader>
+    <form onSubmit={resend} className="flex flex-col gap-4">
+      <Field><FieldLabel htmlFor="email">{t("common.email")}</FieldLabel><Input id="email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></Field>
+      {message && <Alert variant="success"><AlertDescription>{message}</AlertDescription></Alert>}
+      {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+      <Button type="submit" disabled={pending}>{pending ? t("common.sending") : t("auth.resendVerification")}</Button>
+    </form>
+    <AuthLayoutFooter><TextLink asChild><Link to={path("/login")}>{t("common.login")}</Link></TextLink><TextLink asChild><Link to={path("/forgot-password")}>{t("common.forgotPassword")}</Link></TextLink></AuthLayoutFooter>
+  </AuthLayout>;
 }
