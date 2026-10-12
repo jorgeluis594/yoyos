@@ -8,4 +8,4 @@ export function ensureWhatsAppContact(input: EnsureWhatsAppContactInput) {
 export type { ContactError, EnsureContactInput } from "@core/src/features/contacts/application/ensure-contact";
 export type { Contact, PhoneContact, WhatsAppContact } from "@core/src/features/contacts/domain/contact";
 export { normalizePhone } from "@core/src/features/contacts/domain/contact";
-export { findContactById, searchSaleContacts } from "@core/src/features/contacts/infrastructure/contact-repository";
+export { ensureCustomerForContact, findContactById, searchSaleContacts } from "@core/src/features/contacts/infrastructure/contact-repository";
