@@ -71,8 +71,8 @@ export default function OrderList() {
       {item.checkoutEnabledAt && <span className="text-xs font-normal text-muted-foreground">{t(item.status === "cancelled" ? "orders.checkoutCancelled" : item.checkoutConfirmedAt ? "orders.checkoutConfirmed" : "orders.checkoutPending")}</span>}
     </div> },
     { id: "customer", header: t("orders.customer"), mobile: "description", cell: (item) => <div className="flex flex-col gap-1">
-      <Link to={`${base}/${item.id}`} className="font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">{item.buyer !== null ? item.buyer.name ?? item.buyer.phone : t("orders.generalPublic")}</Link>
-      {item.buyer?.name && <span className="text-xs font-normal text-muted-foreground">{item.buyer.phone}</span>}
+      <Link to={`${base}/${item.id}`} className="font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">{item.buyer !== null ? item.buyer.name ?? item.buyer.phone ?? "—" : t("orders.generalPublic")}</Link>
+      {item.buyer?.name && item.buyer.phone && <span className="text-xs font-normal text-muted-foreground">{item.buyer.phone}</span>}
     </div> },
     { id: "createdAt", header: t("orders.listDate"), mobile: "description", cell: (item) => <time dateTime={item.createdAt} className="flex flex-col gap-1">
       <span>{new Date(item.createdAt).toLocaleDateString(i18n.language === "pt" ? "pt-BR" : "es-PE", { dateStyle: "medium", timeZone: salesTimeZone })}</span>
