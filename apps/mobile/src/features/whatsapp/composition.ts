@@ -11,6 +11,7 @@ import { createLocalSql, type SqlDatabase } from "@mobile/features/whatsapp/infr
 import { createMessageApi } from "@mobile/features/whatsapp/infrastructure/message-api";
 import { createSqliteLinkStore } from "@mobile/features/whatsapp/infrastructure/sqlite-link-store";
 import { createSqliteMessageStore } from "@mobile/features/whatsapp/infrastructure/sqlite-message-store";
+import { uploadImage } from "@mobile/shared/infrastructure/image-api";
 import type { TransportError } from "@mobile/shared/application/transport-error";
 
 export type WhatsAppRuntimeDeps = Readonly<{
@@ -39,7 +40,7 @@ export function createWhatsAppRuntime(deps: WhatsAppRuntimeDeps) {
     companyId: identity.companyId as CompanyId, userId: identity.userId as UserId, generation: deps.generation(),
   };
 
-  const sync = createSyncWorker({ store, api: createMessageApi(deps.request), session, now: deps.now, random: deps.random, schedule: deps.schedule, debug: deps.debug });
+  const sync = createSyncWorker({ store, api: createMessageApi(deps.request), images: deps.gateway, uploadImage: (uri, mimeType) => uploadImage(deps.request, uri, mimeType), session, now: deps.now, random: deps.random, schedule: deps.schedule, debug: deps.debug });
   const receive = receiveMessage({ store, links, whatsapp: deps.gateway, now: deps.now, wakeSync: sync.wake });
   const reception = createReceptionLifecycle({ whatsapp: deps.gateway, links, session, receive, sync, debug: deps.debug });
 

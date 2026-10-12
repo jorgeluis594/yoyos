@@ -1,22 +1,49 @@
 import { expect, test } from "vitest";
-import { registerWhatsAppMessageRequestSchema, registerWhatsAppMessageResponseSchema } from "@shared/contracts/whatsapp-messages";
+import { registerWhatsAppMessageRequestSchema, registerWhatsAppMessageResponseSchema, whatsAppMessageIdentitySchema } from "@shared/contracts/whatsapp-messages";
 import { parseMobileMessage } from "@core/src/features/chats/presentation/mobile-message-schemas";
 
 const nativeId = (account = "1@lid", chat = "2@lid", protocol = "ABC") =>
   `wa-message:v1:${Buffer.from(JSON.stringify([account, chat, protocol])).toString("base64url")}`;
 const request = () => ({ version: 1, message: { id: nativeId(), accountId: "1@lid", chatId: "2@lid", whatsappMessageId: "ABC", direction: "incoming", timestamp: 1791417600000, content: { type: "text", text: " Hola 👋\n" } } });
+const imageId = "00000000-0000-4000-8000-000000000009";
 const valid = (value: unknown) => registerWhatsAppMessageRequestSchema.safeParse(value).success;
+
+test("accepts an image message with imageId and an optional caption", () => {
+  const message = (content: object) => ({ ...request(), message: { ...request().message, content } });
+  expect(valid(message({ type: "image", imageId }))).toBe(true);
+  expect(valid(message({ type: "image", imageId, caption: "Foto" }))).toBe(true);
+});
+
+test("rejects an image message without imageId or with a non-UUID imageId", () => {
+  const message = (content: object) => ({ ...request(), message: { ...request().message, content } });
+  for (const content of [{ type: "image" }, { type: "image", caption: "Foto" }, { type: "image", imageId: "not-a-uuid" }, { type: "image", imageId: null }, { type: "image", imageId: 1 }])
+    expect(valid(message(content))).toBe(false);
+});
+
+test("rejects mimeType and size in image content", () => {
+  const message = (content: object) => ({ ...request(), message: { ...request().message, content } });
+  expect(valid(message({ type: "image", imageId, mimeType: "image/jpeg" }))).toBe(false);
+  expect(valid(message({ type: "image", imageId, size: 1 }))).toBe(false);
+});
+
+test("whatsAppMessageIdentitySchema validates the message identity without content", () => {
+  const { content, ...identity } = request().message;
+  void content;
+  expect(whatsAppMessageIdentitySchema.safeParse(identity).success).toBe(true);
+  expect(whatsAppMessageIdentitySchema.safeParse({ ...identity, id: nativeId("3@lid") }).success).toBe(false);
+  expect(whatsAppMessageIdentitySchema.safeParse({ ...identity, content: { type: "text", text: "x" } }).success).toBe(false);
+});
 
 test("maps native text and image messages without changing identity or content", () => {
   const text = parseMobileMessage(request());
   expect(text).toMatchObject({ externalId: nativeId(), accountId: "1@lid", remoteChatId: "2@lid", whatsappMessageId: "ABC", direction: "incoming", sentAt: new Date(1791417600000), content: { type: "text", text: " Hola 👋\n" } });
-  const image = { ...request(), message: { ...request().message, direction: "outgoing", content: { type: "image", caption: " 👋\n", mimeType: "image/jpeg", size: 0 } } };
-  expect(parseMobileMessage(image)).toMatchObject({ externalId: nativeId(), direction: "outgoing", content: { type: "image", caption: " 👋\n", mimeType: "image/jpeg", size: 0 } });
+  const image = { ...request(), message: { ...request().message, direction: "outgoing", content: { type: "image", imageId, caption: " 👋\n" } } };
+  expect(parseMobileMessage(image)).toMatchObject({ externalId: nativeId(), direction: "outgoing", content: { type: "image", imageId, caption: " 👋\n" } });
   for (const direction of ["incoming", "outgoing"] as const) {
     expect(parseMobileMessage({ ...image, message: { ...image.message, direction } }))
-      .toMatchObject({ externalId: nativeId(), direction, content: { type: "image", caption: " 👋\n", mimeType: "image/jpeg", size: 0 } });
-    expect(parseMobileMessage({ ...image, message: { ...image.message, direction, content: { type: "image" } } }))
-      .toMatchObject({ externalId: nativeId(), accountId: "1@lid", remoteChatId: "2@lid", direction, content: { type: "image", caption: null, mimeType: null, size: null } });
+      .toMatchObject({ externalId: nativeId(), direction, content: { type: "image", imageId, caption: " 👋\n" } });
+    expect(parseMobileMessage({ ...image, message: { ...image.message, direction, content: { type: "image", imageId } } }))
+      .toMatchObject({ externalId: nativeId(), accountId: "1@lid", remoteChatId: "2@lid", direction, content: { type: "image", imageId, caption: null } });
     expect(parseMobileMessage({ ...request(), message: { ...request().message, direction } }))
       .toMatchObject({ direction, content: { type: "text", text: " Hola 👋\n" } });
   }
@@ -27,8 +54,9 @@ test("maps ReceivedMessage fixtures without sending local delivery or image refe
     text: " caption 👋\n", deliveryId: "local-delivery", image: { mimeType: "image/png", size: 7, reference: "private-key", localUri: "file:///private" } };
   const { image, text, deliveryId, ...identity } = received;
   void deliveryId;
-  const dto = { version: 1, message: { ...identity, content: { type: "image", caption: text, mimeType: image.mimeType, size: image.size } } };
-  expect(parseMobileMessage(dto)).toMatchObject({ externalId: received.id, content: { type: "image", caption: text, mimeType: "image/png", size: 7 } });
+  void image;
+  const dto = { version: 1, message: { ...identity, content: { type: "image", caption: text, imageId } } };
+  expect(parseMobileMessage(dto)).toMatchObject({ externalId: received.id, content: { type: "image", caption: text, imageId } });
   expect(JSON.stringify(dto)).not.toMatch(/private-key|local-delivery|file:\/\/\/private|reference|localUri/);
   const textOnly = { version: 1, message: { ...identity, content: { type: "text", text } } };
   expect(parseMobileMessage(textOnly)?.content).toEqual({ type: "text", text });
@@ -41,11 +69,11 @@ test("rejects unknown, null, mixed, missing and coerced transport fields", () =>
     { ...base, message: { ...base.message, content: undefined } },
     { ...base, message: { ...base.message, content: null } }, { ...base, message: { ...base.message, content: { type: "text", text: "" } } },
     { ...base, message: { ...base.message, content: { type: "text", text: "x", caption: "x" } } },
-    { ...base, message: { ...base.message, content: { type: "image", caption: null } } },
-    { ...base, message: { ...base.message, content: { type: "image", mimeType: null } } },
-    { ...base, message: { ...base.message, content: { type: "image", size: null } } },
+    { ...base, message: { ...base.message, content: { type: "image", imageId, caption: null } } },
+    { ...base, message: { ...base.message, content: { type: "image", imageId, mimeType: null } } },
+    { ...base, message: { ...base.message, content: { type: "image", imageId, size: null } } },
     { ...base, message: { ...base.message, content: { type: "video" } } },
-    { ...base, message: { ...base.message, content: { type: "image", reference: "secret" } } },
+    { ...base, message: { ...base.message, content: { type: "image", imageId, reference: "secret" } } },
     { ...base, message: { ...base.message, timestamp: "1791417600000" } },
   ]) expect(valid(candidate)).toBe(false);
 });
@@ -90,13 +118,9 @@ test("enforces scalar byte boundaries and preserves valid Unicode and whitespace
   expect(accepted({ content: { type: "text", text: "😀".repeat(16384) + "x" } })).toBe(false);
   for (const text of ["\u0000", "\ud800", "\udc00", ""]) expect(accepted({ content: { type: "text", text } })).toBe(false);
   expect(accepted({ content: { type: "text", text: " \n" } })).toBe(true);
-  expect(accepted({ content: { type: "image", caption: "😀".repeat(16384) } })).toBe(true);
-  expect(accepted({ content: { type: "image", caption: "😀".repeat(16384) + "x" } })).toBe(false);
-  for (const caption of ["\u0000", "\ud800", "\udc00", ""]) expect(accepted({ content: { type: "image", caption } })).toBe(false);
-  expect(accepted({ content: { type: "image", mimeType: `image/${"a".repeat(121)}` } })).toBe(true);
-  expect(accepted({ content: { type: "image", mimeType: `image/${"a".repeat(122)}` } })).toBe(false);
-  for (const size of [0, Number.MAX_SAFE_INTEGER]) expect(accepted({ content: { type: "image", size } })).toBe(true);
-  for (const size of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity, "1"]) expect(accepted({ content: { type: "image", size } })).toBe(false);
+  expect(accepted({ content: { type: "image", imageId, caption: "😀".repeat(16384) } })).toBe(true);
+  expect(accepted({ content: { type: "image", imageId, caption: "😀".repeat(16384) + "x" } })).toBe(false);
+  for (const caption of ["\u0000", "\ud800", "\udc00", ""]) expect(accepted({ content: { type: "image", imageId, caption } })).toBe(false);
 });
 
 test("accepts safe millisecond endpoints and rejects invalid dates", () => {

@@ -1,5 +1,5 @@
 import { registerWhatsAppMessageRequestSchema, type RegisterWhatsAppMessageRequest } from "@shared/contracts/whatsapp-messages";
-import type { MobileMessageInput, NativeMessageId, WhatsAppAccountId, WhatsAppChatId, ProtocolMessageId } from "@core/src/features/chats/domain/mobile-message";
+import type { ImageId, MobileMessageInput, NativeMessageId, WhatsAppAccountId, WhatsAppChatId, ProtocolMessageId } from "@core/src/features/chats/domain/mobile-message";
 
 export function parseMobileMessage(input: unknown): MobileMessageInput | null {
   const parsed = registerWhatsAppMessageRequestSchema.safeParse(input);
@@ -16,7 +16,7 @@ export function toMobileMessageInput(request: RegisterWhatsAppMessageRequest): M
     direction: message.direction,
     sentAt: message.timestamp === undefined ? null : new Date(message.timestamp),
     content: message.content.type === "text" ? { type: "text", text: message.content.text } : {
-      type: "image", caption: message.content.caption ?? null, mimeType: message.content.mimeType ?? null, size: message.content.size ?? null,
+      type: "image", imageId: message.content.imageId as ImageId, caption: message.content.caption ?? null,
     },
   };
 }

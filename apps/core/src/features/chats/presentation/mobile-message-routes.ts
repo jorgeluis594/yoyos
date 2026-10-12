@@ -52,6 +52,7 @@ export function mobileMessageRoutes(register: RegisterMobileMessage) {
         companyId: response.locals.auth.company.id as CompanyId,
         uploadedByUserId: response.locals.auth.user.id,
       });
+      if (!result.success && result.error.code === "IMAGE_NOT_FOUND") return apiError(response, 404, "IMAGE_NOT_FOUND", "Image not found");
       if (!result.success) return result.error.code === "PERSISTENCE_UNAVAILABLE" || result.error.code === "EVENT_BUS_UNAVAILABLE"
         ? apiError(response, 503, "SERVICE_UNAVAILABLE", "Service unavailable")
         : apiError(response, 500, "INTERNAL_ERROR", "Internal error");

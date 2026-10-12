@@ -8,9 +8,9 @@ import {
   type CreateProductRequest,
   type UpdateProductRequest,
 } from "@shared/contracts/products";
-import { imageResponseSchema } from "@shared/contracts/images";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
+import { uploadImage, type UploadImageError } from "@mobile/shared/infrastructure/image-api";
 import type { TransportError } from "@mobile/shared/application/transport-error";
 import type { ImageId, Product, ProductId, ProductListCriteria, ProductPage, VariantId, VariantQrCode } from "@mobile/features/products/domain/product";
 import type { GetProductError } from "@mobile/features/products/application/product-printing";
@@ -37,7 +37,7 @@ export type ListProductsError = ProductTransportFailure
   | Readonly<{ code: "VALIDATION_ERROR"; message: string; issues: readonly [ProductListCriteriaIssue, ...ProductListCriteriaIssue[]] }>;
 export type CreateProductError = ProductTransportFailure | Extract<ApiFailure, { code: "INVALID_INPUT" | "VALIDATION_ERROR" | "DUPLICATE_SKU" | "PRODUCT_ID_CONFLICT" | "IMAGE_NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" }>;
 export type UpdateProductError = ProductTransportFailure | Extract<ApiFailure, { code: "INVALID_INPUT" | "VALIDATION_ERROR" | "DUPLICATE_SKU" | "PRODUCT_NOT_FOUND" | "IMAGE_NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" }>;
-export type UploadProductImageError = ProductTransportFailure | Extract<ApiFailure, { code: "INVALID_IMAGE" | "IMAGE_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" | "IMAGE_STORAGE_UNAVAILABLE" }>;
+export type UploadProductImageError = UploadImageError;
 
 type Request = (path: string, init?: RequestInit) => Promise<Result<unknown, TransportError>>;
 
@@ -186,21 +186,8 @@ export function createProductApi(request: Request, sessionGeneration: () => numb
       return parsed.success ? ok(parsed.data.id as ProductId) : err(fieldFailure("INVALID_RESPONSE", "Server returned invalid product ID"));
     },
     async uploadImage(uri: string): Promise<Result<Readonly<{ id: ImageId; url: string }>, UploadProductImageError>> {
-      let file: Blob;
-      try {
-        const source = await fetch(uri).then((response) => response.blob());
-        file = new Blob([source], { type: "image/jpeg" });
-      } catch {
-        return err(fieldFailure("NETWORK_ERROR", "Could not prepare the photo"));
-      }
-      const form = new FormData();
-      form.append("file", file, "product.jpg");
-      const result = restrictFailure(await run("/api/images", { method: "POST", body: form }, ["INVALID_IMAGE", "IMAGE_TOO_LARGE", "UNSUPPORTED_MEDIA_TYPE", "IMAGE_STORAGE_UNAVAILABLE", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR", "UNAUTHENTICATED", "COMPANY_REQUIRED"]), ["INVALID_IMAGE", "IMAGE_TOO_LARGE", "UNSUPPORTED_MEDIA_TYPE", "IMAGE_STORAGE_UNAVAILABLE"] as const);
-      if (!result.success) return result;
-      const parsed = imageResponseSchema.safeParse(result.data);
-      return parsed.success
-        ? ok({ id: parsed.data.id as ImageId, url: parsed.data.url })
-        : err(fieldFailure("INVALID_RESPONSE", "Server returned invalid image data"));
+      const result = await uploadImage(request, uri, "image/jpeg");
+      return result.success ? ok({ id: result.data.id as ImageId, url: result.data.url }) : result;
     },
     async update(id: ProductId, input: UpdateProductRequest): Promise<Result<ProductId, UpdateProductError>> {
       const body = updateProductRequestSchema.safeParse(input);

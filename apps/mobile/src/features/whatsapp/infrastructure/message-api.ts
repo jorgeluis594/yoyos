@@ -12,7 +12,7 @@ type Request = (path: string, init?: RequestInit) => Promise<Result<unknown, Tra
  * Builds the exact contract body field by field. The image download reference, the delivery id and local URIs
  * are never part of it.
  */
-export function toRegisterRequest(message: InboundMessage): RegisterWhatsAppMessageRequest {
+export function toRegisterRequest(message: InboundMessage & Readonly<{ coreImageId: string | null }>): RegisterWhatsAppMessageRequest {
   const content = message.content;
   return {
     version: 1,
@@ -28,9 +28,9 @@ export function toRegisterRequest(message: InboundMessage): RegisterWhatsAppMess
         ? { type: "text", text: content.text }
         : {
           type: "image",
+          // An image not uploaded yet fails the contract check and is never sent.
+          imageId: message.coreImageId ?? "",
           ...(content.caption === null ? {} : { caption: content.caption }),
-          ...(content.mimeType === null ? {} : { mimeType: content.mimeType }),
-          ...(content.size === null ? {} : { size: content.size }),
         },
     },
   };
