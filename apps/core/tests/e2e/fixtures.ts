@@ -18,6 +18,19 @@ export async function prepareVerifiedCompany(page: Page, input: { email: string;
   return result.companyId as string;
 }
 
+// Design-system selects are Base UI comboboxes: open the trigger, then pick an option by name or position.
+export async function openOptions(page: Page, label: string) {
+  await page.getByRole("combobox", { name: label, exact: true }).click();
+  return page.getByRole("listbox").getByRole("option");
+}
+
+export async function chooseOption(page: Page, label: string, option: string | RegExp | number) {
+  const options = await openOptions(page, label);
+  await (typeof option === "number" ? options.nth(option) : options.filter({ hasText: option })).click();
+}
+
+export const selectedValue = (page: Page, name: string) => page.locator(`input[name="${name}"]`);
+
 const test = base.extend<{ page: Page; request: APIRequestContext }>({
   page: async ({ task }, runFixture) => {
     void task;

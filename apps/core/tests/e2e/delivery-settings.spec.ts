@@ -96,6 +96,7 @@ test("seller configures store pickup, preserves a conflicting draft and explicit
     await choose("Shalom");
     await page.getByRole("button", { name: "Adicionar transportadora" }).click();
     await catalog.click();
+    await browserExpect(page.getByRole("listbox")).toBeVisible();
     await browserExpect(page.getByRole("option", { name: "Shalom", exact: true })).toHaveCount(0);
     await page.keyboard.press("Escape");
     await page.getByRole("button", { name: "Remover Shalom não salva" }).click();

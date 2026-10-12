@@ -1,4 +1,4 @@
-import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
+import { browserExpect, chooseOption, expect, openOptions, prepareVerifiedCompany, selectedValue, test } from "@core/tests/e2e/fixtures";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { products } from "@core/src/features/products/composition";
 import { orders } from "@core/src/features/orders/composition";
@@ -44,15 +44,16 @@ test("private web rated pickup rejects an obsolete price without writes and retu
     expect((await page.request.put("/api/delivery-settings/zones", { data: { expectedVersion: 2, zones } })).ok()).toBe(true);
     await page.goto(url);
     await page.getByRole("button", { name: "Editar entrega", exact: true }).click();
-    await page.getByLabel("Modalidad de entrega", { exact: true }).selectOption("home");
+    await chooseOption(page, "Modalidad de entrega", "Entrega a domicilio");
     await page.getByLabel("Departamento", { exact: true }).selectOption("04");
     await page.getByLabel("Provincia", { exact: true }).selectOption("0401");
     await page.getByLabel("Distrito", { exact: true }).selectOption("040110");
-    const tariff = page.getByLabel("Tarifa de entrega", { exact: true });
-    await browserExpect(tariff.locator("option")).toHaveCount(3);
-    const rateId = await tariff.locator("option").nth(1).getAttribute("value");
+    const tariff = selectedValue(page, "rateId");
+    const rates = await openOptions(page, "Tarifa de entrega");
+    await browserExpect(rates).toHaveCount(2);
+    await rates.first().click();
+    const rateId = await tariff.inputValue();
     if (!rateId) throw new Error("Expected explicit rate");
-    await tariff.selectOption(rateId);
     await page.getByLabel("Dirección de entrega", { exact: true }).fill("Preserved street");
     const storedZones = await (await page.request.get("/api/delivery-settings/zones")).json();
     expect((await page.request.put("/api/delivery-settings/zones", { data: { expectedVersion: storedZones.version,
@@ -66,11 +67,12 @@ test("private web rated pickup rejects an obsolete price without writes and retu
     await browserExpect(page.getByRole("button", { name: "Guardar entrega", exact: true })).toBeDisabled();
     const afterConflict = await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json();
     expect(afterConflict).toMatchObject({ delivery: { method: "store" }, total: { amount: 10 } });
-    await browserExpect(tariff.locator("option")).toHaveCount(3);
-    const refreshedRate = await tariff.locator("option").nth(1).getAttribute("value");
+    const refreshedRates = await openOptions(page, "Tarifa de entrega");
+    await browserExpect(refreshedRates).toHaveCount(2);
+    await refreshedRates.first().click();
+    const refreshedRate = await tariff.inputValue();
     if (!refreshedRate) throw new Error("Expected fresh rate");
     expect(refreshedRate).not.toBe(rateId);
-    await tariff.selectOption(refreshedRate);
     for (const [width, height, label] of [[1280, 900, "desktop"], [390, 844, "mobile"]] as const) {
       await page.setViewportSize({ width, height });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

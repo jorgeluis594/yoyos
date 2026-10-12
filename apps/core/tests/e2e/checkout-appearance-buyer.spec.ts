@@ -36,9 +36,9 @@ async function fixture({ delivery = true }: { delivery?: boolean } = {}) {
     await prisma.contact.create({ data: { id: contactId, name: "Ana", phone: "+51987654321" } });
     const created = await orders.create({ id: orderId, contactId, items: [{ variantId: variant.id as VariantId, quantity: 1 as PositiveInteger }] }, { companyId, userId });
     if (!created.success) throw new Error("Order fixture failed");
-    if (delivery) await prisma.order.update({ where: { id: orderId }, data: { delivery: { method: "home",
-      recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } }, destination: { address: "Historical address", district: "Lima", instructions: null },
-      recordedBy: { kind: "seller", userId } } } });
+    if (delivery) await prisma.order.update({ where: { id: orderId }, data: { delivery: { method: "store",
+      recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } }, pickupPoint: { name: "Tienda", address: "Historical address", instructions: null },
+      settingsVersion: 0, recordedBy: { kind: "seller", userId } } } });
     expect(await orders.enableCheckout(orderId, { companyId, userId })).toMatchObject({ success: true });
   });
   return { companyId, userId, orderId, path: `/checkout/${companyId}/${orderId}`,
@@ -49,7 +49,7 @@ async function fixture({ delivery = true }: { delivery?: boolean } = {}) {
         await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
         await prisma.contact.deleteMany(); await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
         await prisma.deliveryRate.deleteMany(); await prisma.quotation.deleteMany(); await prisma.deliveryZoneDistrict.deleteMany();
-        await prisma.deliveryZone.deleteMany(); await prisma.companyCourier.deleteMany(); await prisma.companyDeliverySettings.deleteMany();
+        await prisma.deliveryOptionAgency.deleteMany(); await prisma.deliveryOption.deleteMany(); await prisma.deliveryZone.deleteMany(); await prisma.companyCourier.deleteMany(); await prisma.companyDeliverySettings.deleteMany();
         await prisma.companyPaymentSettings.deleteMany();
       });
       await removeCompanyAppearance(companyId);

@@ -1,5 +1,5 @@
 import { mkdir } from "node:fs/promises";
-import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
+import { browserExpect, chooseOption, expect, openOptions, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
 import { deliverySettingsSchema } from "@shared/contracts/delivery-settings";
 import { orderAggregateSchema } from "@shared/contracts/orders";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
@@ -50,30 +50,29 @@ test("rated agency requires a document and a catalog agency, preserves its snaps
     await page.getByRole("button", { name: "Asignar entrega", exact: true }).focus();
     await page.keyboard.press("Enter");
     await browserExpect(page.getByRole("button", { name: "Cerrar edición" })).toHaveAttribute("aria-expanded", "true");
-    await browserExpect(page.getByLabel("Modalidad de entrega")).toHaveValue("agency");
+    await browserExpect(page.getByRole("combobox", { name: "Modalidad de entrega" })).toHaveText("Envío a agencia");
     await browserExpect(page.getByLabel("Courier", { exact: true })).toHaveCount(0);
     await page.getByLabel("Nombre del destinatario").fill("Destinataria");
     await page.getByLabel("Teléfono del destinatario").fill("00123");
     await page.getByLabel("Departamento", { exact: true }).selectOption("04");
     await page.getByLabel("Provincia", { exact: true }).selectOption("0401");
     await page.getByLabel("Distrito", { exact: true }).selectOption("040110");
-    const tariff = page.getByLabel("Tarifa de entrega", { exact: true });
     const chooseRate = async () => {
-      await browserExpect(tariff.locator("option")).toHaveCount(2);
-      const rateId = await tariff.locator("option").nth(1).getAttribute("value");
-      if (!rateId) throw new Error("Expected agency rate");
-      await tariff.selectOption(rateId);
+      const rates = await openOptions(page, "Tarifa de entrega");
+      await browserExpect(rates).toHaveCount(1);
+      await rates.first().click();
     };
     await chooseRate();
-    await browserExpect(page.getByLabel("Agencia de destino").locator("option")).toHaveCount(3);
+    await browserExpect(await openOptions(page, "Agencia de destino")).toHaveCount(2);
+    await page.keyboard.press("Escape");
     await browserExpect(page.getByRole("button", { name: "Guardar entrega" })).toBeDisabled();
-    await page.getByLabel("Documento de identidad (obligatorio)").selectOption("passport");
+    await chooseOption(page, "Documento de identidad (obligatorio)", "Pasaporte");
     await page.getByLabel("Número de documento").fill("00-A-001");
     await page.getByRole("button", { name: "Cerrar edición" }).click();
     await page.getByRole("button", { name: "Asignar entrega", exact: true }).click();
     await browserExpect(page.getByLabel("Número de documento")).toHaveValue("00-A-001");
     await chooseRate();
-    await page.getByLabel("Agencia de destino").selectOption(agencyIds[0]);
+    await chooseOption(page, "Agencia de destino", "Sucursal Arequipa");
     const save = async () => {
       const response = page.waitForResponse(value => value.request().method() === "POST" && new URL(value.url()).pathname.includes(`/orders/${orderId}`));
       await page.getByRole("button", { name: "Guardar entrega" }).click();
@@ -86,7 +85,7 @@ test("rated agency requires a document and a catalog agency, preserves its snaps
       recipient: { name: "Destinataria", phone: "00123", identity: { documentType: "passport", document: "00-A-001" } }, recordedBy: { kind: "seller", userId: sellerId } },
       deliveryCost: { amount: 3 }, deliveryCharge: { amount: 3 }, total: { amount: 13 }, stockDeducted: false });
     await chooseRate();
-    await page.getByLabel("Agencia de destino").selectOption(agencyIds[1]);
+    await chooseOption(page, "Agencia de destino", "Sucursal Cercado");
     await page.getByLabel("Nombre del destinatario").fill("Preserved recipient");
     expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: config.version + 1, home: config.home, store: config.store, agency: { enabled: false },
       couriers: config.couriers.map(value => ({ kind: "existing", id: value.id, enabled: false })) } })).ok()).toBe(true);

@@ -222,7 +222,10 @@ describe("checkout appearance editor", () => {
     await browserExpect(page.getByText("Cambios sin guardar", { exact: true })).toBeVisible();
     await page.keyboard.press("Tab");
     await browserExpect(page.getByRole("radio", { name: "Neutro" })).toBeFocused();
-    await page.keyboard.press("ArrowRight", { delay: 50 });
+    // The background picker is a toggle group: arrows move focus and Space selects.
+    await page.keyboard.press("ArrowRight");
+    await browserExpect(page.getByRole("radio", { name: "De marca" })).toBeFocused();
+    await page.keyboard.press("Space");
     await browserExpect(page.getByRole("radio", { name: "De marca" })).toBeChecked();
     await tabTo(page, page.getByRole("button", { name: "Guardar cambios" }), "Shift+Tab");
     await page.keyboard.press("Enter");

@@ -136,7 +136,7 @@ export default function OrderNew() {
       <section className="flex min-w-0 flex-col gap-4" aria-labelledby="products-heading">
         <div><h2 id="products-heading" className="text-lg font-semibold">{t("orders.addProducts")}</h2><p className="text-sm text-muted-foreground">{t("orders.addDescription")}</p></div>
         <productSearch.Form method="get" className="flex gap-2" onSubmit={() => setSearchedProduct(true)}>
-          <Field className="min-w-0 flex-1"><FieldLabel className="sr-only">{t("orders.searchProducts")}</FieldLabel><Input name="search" type="search" placeholder={t("orders.productName")} value={productQuery} onChange={(event) => setProductQuery(event.target.value)} /></Field>
+          <Field className="min-w-0 flex-1"><FieldLabel htmlFor="order-product-search" className="sr-only">{t("orders.searchProducts")}</FieldLabel><Input id="order-product-search" name="search" type="search" placeholder={t("orders.productName")} value={productQuery} onChange={(event) => setProductQuery(event.target.value)} /></Field>
           <Button type="submit" variant="outline"><Search aria-hidden="true" data-icon="inline-start" />{t("orders.search")}</Button>
         </productSearch.Form>
         <Card aria-live="polite">
