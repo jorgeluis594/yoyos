@@ -24,7 +24,8 @@ export function AgencyPicker({ couriers, known, value, disabled, loadCatalog, on
 }>) {
   const { t } = useTranslation();
   const theme = useTheme();
-  const [courierId, setCourierId] = useState<string | null>(couriers[0]?.courierId ?? null);
+  const [chosenCourierId, setCourierId] = useState<string | null>(couriers[0]?.courierId ?? null);
+  const courierId = couriers.some(courier => courier.courierId === chosenCourierId) ? chosenCourierId : couriers[0]?.courierId ?? null;
   const [query, setQuery] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [loaded, setLoaded] = useState<{ key: string; agencies: readonly CatalogAgencyContract[] | null }>();

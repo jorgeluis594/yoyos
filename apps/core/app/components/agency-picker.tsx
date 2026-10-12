@@ -18,7 +18,8 @@ export function AgencyPicker({ id, couriers, known, value, onChange }: Readonly<
   id: string; couriers: readonly Courier[]; known: readonly CatalogAgencyContract[]; value: readonly string[]; onChange: (agencyIds: string[]) => void;
 }>) {
   const { t } = useTranslation();
-  const [courierId, setCourierId] = useState(couriers[0]?.courierId ?? "");
+  const [chosenCourierId, setCourierId] = useState(couriers[0]?.courierId ?? "");
+  const courierId = couriers.some(courier => courier.courierId === chosenCourierId) ? chosenCourierId : couriers[0]?.courierId ?? "";
   const [query, setQuery] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [loaded, setLoaded] = useState<{ key: string; agencies: readonly CatalogAgencyContract[] | null; error: AgencyCatalogClientError | null }>();
