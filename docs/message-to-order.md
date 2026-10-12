@@ -694,6 +694,7 @@ Títulos de las pruebas, escritas antes de implementar (TDD). Siguen el estilo d
 - skips outgoing messages as outgoing_message
 - skips photos without QR codes as no_qr_code
 - skips photos with only non-product QR codes as unrecognized_qr_code
+- skips unreadable images as unreadable_image
 - skips as product_not_found when no code matches a sellable variant
 - returns already_processed before reading the image
 - returns already_processed when the message was processed while waiting for the lock
