@@ -89,7 +89,7 @@ test("real provider recovers pending dispatch after restart and concurrent regis
     const rows = await withTenantIsolation(f.companyId, async () => await prisma.chatMessage.findMany({ where: { companyId: f.companyId } }));
     expect(rows).toHaveLength(2);
     expect(rows.every(result => result.eventDispatchedAt !== null)).toBe(true);
-    expect((await pool.query("SELECT id FROM pgboss.job WHERE data->>'name' = 'whatsapp_message_recorded'")).rowCount).toBe(0);
+    expect((await pool.query("SELECT id FROM pgboss.job WHERE data->>'name' = 'message_created'")).rowCount).toBe(0);
     await runtime.provider.stop();
     const stopped = await registerMobileMessage(input("stopped"), f.context);
     expect(stopped).toMatchObject({ success: false, error: { code: "EVENT_BUS_UNAVAILABLE" } });

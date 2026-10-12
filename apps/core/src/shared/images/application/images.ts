@@ -142,6 +142,23 @@ export async function getImages(ids: readonly string[], storage: ImageStorage, r
   };
 }
 
+export type ImageReadError = Readonly<{
+  code: "IMAGE_NOT_FOUND" | "IMAGE_STORAGE_UNAVAILABLE" | "PERSISTENCE_UNAVAILABLE";
+  message: string;
+}>;
+
+export type ReadImageBytes = (
+  imageId: string,
+  storage: ImageStorage,
+  repository: ImageRepository,
+) => Promise<Result<Readonly<{ bytes: Uint8Array; contentType: string }>, ImageReadError>>;
+
+/** Reads the bytes of a company image, from the public or private bucket by visibility. Implemented by T1. */
+export const readImageBytes: ReadImageBytes = async () => ({
+  success: false,
+  error: { code: "IMAGE_STORAGE_UNAVAILABLE", message: "readImageBytes not implemented" },
+});
+
 export async function readPrivateImage(id: string, storage: ImageStorage, repository: ImageRepository) {
   const image = await repository.find(id);
   if (!image.success) return image;
