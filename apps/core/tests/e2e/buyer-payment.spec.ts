@@ -130,7 +130,8 @@ test("buyer reports a receipt and sees the seller confirmed balance", async ({ p
     await browserExpect(page.getByRole("link", { name: "Abrir enlace de pago" })).toHaveCount(0);
     await browserExpect(page.getByRole("link", { name: "Ver captura" })).toBeVisible();
     const report = page.getByRole("listitem").filter({ hasText: "Pago reportado, pendiente de revisión" });
-    await report.getByLabel("Medio de pago").selectOption("bank_transfer");
+    await report.getByRole("combobox", { name: "Medio de pago" }).click();
+    await page.getByRole("listbox").getByRole("option", { name: "Transferencia bancaria" }).click();
     await report.getByRole("button", { name: "Confirmar pago" }).click();
     await browserExpect(page.getByText("Pago actualizado.")).toBeVisible();
     expect((await withTenantIsolation(tenantId, async () => await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } }))).status).toBe("confirmed");

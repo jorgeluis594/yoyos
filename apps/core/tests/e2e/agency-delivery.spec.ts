@@ -50,7 +50,7 @@ test("rated agency requires a document and a catalog agency, preserves its snaps
     await page.getByRole("button", { name: "Asignar entrega", exact: true }).focus();
     await page.keyboard.press("Enter");
     await browserExpect(page.getByRole("button", { name: "Cerrar edición" })).toHaveAttribute("aria-expanded", "true");
-    await browserExpect(page.getByRole("combobox", { name: "Modalidad de entrega" })).toHaveText("Envío a agencia");
+    await browserExpect(page.getByRole("combobox", { name: "Modalidad de entrega" })).toContainText("Envío a agencia");
     await browserExpect(page.getByLabel("Courier", { exact: true })).toHaveCount(0);
     await page.getByLabel("Nombre del destinatario").fill("Destinataria");
     await page.getByLabel("Teléfono del destinatario").fill("00123");
