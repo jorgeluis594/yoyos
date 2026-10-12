@@ -49,11 +49,13 @@ const zoneStatusByCode = { ...statusByCode, INVALID_DELIVERY_ZONE: 422, INVALID_
 function zonesResponse(raw: Result<unknown, TransportError>, saving: boolean): Result<DeliveryZonesResponse, DeliveryZonesError> {
   if (raw.success) {
     const parsed = deliveryZonesSchema.safeParse(raw.data);
-    if (!parsed.success || parsed.data.currency !== "PEN" ||
+    const known = new Set(parsed.success ? parsed.data.agencies.map(agency => agency.id) : []);
+    if (!parsed.success || parsed.data.currency !== "PEN" || known.size !== parsed.data.agencies.length ||
       new Set(parsed.data.zones.map(zone => zone.id)).size !== parsed.data.zones.length ||
       parsed.data.zones.some(zone => zone.options.some(option => option.price.currency !== parsed.data.currency || option.price.amount < 0 ||
         option.price.amount > 9999999999999.99 || !/^\d+(?:\.\d{1,2})?$/.test(String(option.price.amount))) ||
         new Set(zone.options.map(option => option.id)).size !== zone.options.length ||
+        zone.options.some(option => option.method === "agency" && (new Set(option.agencyIds).size !== option.agencyIds.length || !option.agencyIds.every(id => known.has(id)))) ||
         new Set(zone.districtCodes).size !== zone.districtCodes.length || zone.districtCodes.some(code => !getPeruDistrict(code))))
       return err({ code: "INVALID_RESPONSE", message: "Invalid delivery zones response" });
     return ok(parsed.data);

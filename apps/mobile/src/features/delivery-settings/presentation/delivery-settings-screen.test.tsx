@@ -29,7 +29,7 @@ const point = { name: "Store", address: "Original", instructions: null };
 beforeEach(() => {
   get.mockReset(); getCourierCatalog.mockReset(); save.mockReset();
   getCourierCatalog.mockResolvedValue(ok(catalog)); getZones.mockReset(); saveZones.mockReset();
-  getZones.mockResolvedValue(ok({ version: 0, currency: "PEN", zones: [], home: { enabled: false }, agency: { enabled: false } }));
+  getZones.mockResolvedValue(ok({ version: 0, currency: "PEN", zones: [], agencies: [], home: { enabled: false }, agency: { enabled: false } }));
   get.mockResolvedValue(ok({ version: 0, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: false, pickupPoint: null } }));
 });
 
@@ -171,7 +171,7 @@ const zoneId = "00000000-0000-4000-8000-000000000010";
 const optionId = "00000000-0000-4000-8000-000000000011";
 const homeOption = { id: optionId, method: "home" as const, name: "Standard", enabled: true, price: { amount: 8, currency: "PEN" as const } };
 const homeZone = { id: zoneId, name: "Lima", enabled: true, districtCodes: ["150122"], options: [homeOption] };
-const zonesState = { version: 5, currency: "PEN" as const, home: { enabled: true }, agency: { enabled: false }, zones: [homeZone] };
+const zonesState = { version: 5, currency: "PEN" as const, home: { enabled: true }, agency: { enabled: false }, agencies: [], zones: [homeZone] };
 
 test("mobile zone edit validates explicit zero, preserves pickup edits and advances the shared version", async () => {
   getZones.mockResolvedValue(ok(zonesState));

@@ -69,6 +69,7 @@ export const deliveryZoneSchema = z.strictObject({
 export const deliveryZonesSchema = z.strictObject({
   home: z.strictObject({ enabled: z.boolean() }), agency: z.strictObject({ enabled: z.boolean() }),
   version: z.number().int().min(0).max(2147483647), currency: z.enum(currencies), zones: z.array(deliveryZoneSchema),
+  agencies: z.array(catalogAgencySchema), // referenced by the options' agencyIds, including disabled ones
 });
 const optionInputFields = { name: z.string(), enabled: z.boolean(), price: moneySchema };
 const homeOptionInput = { method: z.literal("home"), ...optionInputFields };

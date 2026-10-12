@@ -6,9 +6,11 @@ import { prepareDeliveryZones, type DeliveryZone, type DeliveryZoneInput, type D
 import type { DeliverySettingsAccess } from "@core/src/features/delivery-settings/application/delivery-settings";
 import type { QuotationStorageError } from "@core/src/features/delivery-settings/application/create-quotation";
 import type { DeliveryConfiguration } from "@core/src/features/delivery-settings/domain/quotation";
+import type { DeliveryAgency } from "@core/src/features/delivery-settings/domain/delivery-agency";
 
 export type DeliveryZonesState = Readonly<{
   home: DeliverySettings["home"]; agency: DeliverySettings["agency"]; version: number; currency: Currency; zones: readonly DeliveryZone[];
+  agencies: readonly DeliveryAgency[]; // catalog agencies referenced by the zones' options, enabled or not
 }>;
 export type DeliveryZonesError = DeliveryZoneError | DeliverySettingsError | QuotationStorageError
   | Readonly<{ code: "UNSUPPORTED_COUNTRY"; message: string }>;
@@ -18,6 +20,7 @@ export type SaveDeliveryZonesDependencies = Readonly<{
   transaction: <T>(companyId: string, work: () => Promise<Result<T, DeliveryZonesError>>) => Promise<Result<T, DeliveryZonesError>>;
   readForUpdate: ReadDeliveryConfiguration;
   saveSettings: (companyId: string, settings: DeliverySettings) => Promise<Result<null, DeliverySettingsError>>;
+  readAgencies: (ids: readonly string[]) => Promise<Result<readonly DeliveryAgency[], QuotationStorageError>>;
   saveZones: (companyId: string, zones: readonly DeliveryZone[]) => Promise<Result<null, QuotationStorageError>>;
   generateZoneId: () => string;
   generateOptionId: () => string;
@@ -25,7 +28,7 @@ export type SaveDeliveryZonesDependencies = Readonly<{
 
 function zonesState(configuration: DeliveryConfiguration): DeliveryZonesState {
   return { home: configuration.settings.home, agency: configuration.settings.agency, version: configuration.settings.version,
-    currency: configuration.currency, zones: configuration.zones };
+    currency: configuration.currency, zones: configuration.zones, agencies: configuration.agencies };
 }
 
 export async function getDeliveryZones(context: DeliverySettingsAccess, read: ReadDeliveryConfiguration): Promise<Result<DeliveryZonesState, DeliveryZonesError>> {
@@ -48,13 +51,16 @@ export async function saveDeliveryZones(input: SaveDeliveryZonesInput, context: 
     if (configuration.currency !== "PEN") return err({ code: "INVALID_DELIVERY_SETTINGS", message: "Peru delivery settings must use PEN" });
     if (configuration.settings.version !== input.expectedVersion)
       return err({ code: "DELIVERY_SETTINGS_CONFLICT", reason: "stale_version", currentVersion: configuration.settings.version, message: "Settings changed since they were loaded" });
-    const zones = prepareDeliveryZones(input.zones, { current: configuration.zones, agencies: configuration.agencies, couriers: configuration.settings.couriers,
+    const requested = [...new Set(input.zones.flatMap(zone => zone.options.flatMap(option => option.method === "agency" ? option.agencyIds : [])))];
+    const agencies = await deps.readAgencies(requested);
+    if (!agencies.success) return agencies;
+    const zones = prepareDeliveryZones(input.zones, { current: configuration.zones, agencies: agencies.data, couriers: configuration.settings.couriers,
       currency: configuration.currency, generateZoneId: deps.generateZoneId, generateOptionId: deps.generateOptionId });
     if (!zones.success) return zones;
     const settings: DeliverySettings = { ...configuration.settings, version: input.expectedVersion + 1 };
     const savedSettings = await deps.saveSettings(context.companyId, settings);
     if (!savedSettings.success) return savedSettings;
     const savedZones = await deps.saveZones(context.companyId, zones.data);
-    return savedZones.success ? ok(zonesState({ ...configuration, settings, zones: zones.data })) : savedZones;
+    return savedZones.success ? ok(zonesState({ ...configuration, settings, zones: zones.data, agencies: agencies.data })) : savedZones;
   });
 }

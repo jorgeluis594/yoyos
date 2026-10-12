@@ -101,7 +101,7 @@ function eligibleAgencies(configuration: DeliveryConfiguration, option: AgencyDe
   return option.agencyIds.flatMap(id => {
     const agency = agencies.get(id);
     const courier = agency && configuration.settings.couriers.find(value => value.catalogId === agency.courierId);
-    return agency?.enabled && agency.courierEnabled && courier?.enabled ? [{ agency, courier }] : [];
+    return agency?.enabled && agency.courierEnabled && courier?.enabled && courier.catalogEnabled ? [{ agency, courier }] : [];
   });
 }
 

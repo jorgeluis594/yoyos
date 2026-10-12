@@ -80,7 +80,7 @@ test("configuration JSON contracts reject partial points and authoritative clien
   expect(saveDeliverySettingsSchema.safeParse({ ...input, recordedBy: { kind: "buyer" } }).success).toBe(false);
 });
 
-const zoneState = { home: { enabled: false }, agency: { enabled: false }, version: 0, currency: "PEN" as const, zones: [] };
+const zoneState = { home: { enabled: false }, agency: { enabled: false }, version: 0, currency: "PEN" as const, zones: [], agencies: [] };
 const optionInput = { kind: "new", method: "home", name: "Standard", enabled: true, price: { amount: 8, currency: "PEN" } };
 const zoneInput = { expectedVersion: 0, zones: [{ kind: "new", name: "Nearby", enabled: true, districtCodes: ["150122"], options: [optionInput] }] };
 

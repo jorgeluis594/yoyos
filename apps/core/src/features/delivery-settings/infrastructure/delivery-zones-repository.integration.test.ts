@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { seededCatalogId } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
+import { deleteAgencies, insertAgency, seededCatalogId, seededCourier } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
 import { expect, test } from "vitest";
 import { ok } from "@shared/functional";
 import type { DeliveryZone } from "@core/src/features/delivery-settings/domain/delivery-zone";
@@ -36,7 +36,7 @@ test("zone saves keep general settings, retain disabled zones and options and ne
   const catalogId = await seededCatalogId();
   try {
     await f.run(async () => {
-      expect(await deliverySettings.getZones(f.context)).toEqual(ok({ home: { enabled: false }, agency: { enabled: false }, version: 0, currency: "PEN", zones: [] }));
+      expect(await deliverySettings.getZones(f.context)).toEqual(ok({ home: { enabled: false }, agency: { enabled: false }, version: 0, currency: "PEN", zones: [], agencies: [] }));
       expect(await prisma.companyDeliverySettings.count()).toBe(0);
       const saved = await deliverySettings.saveZones({ expectedVersion: 0, zones: [
         { kind: "new", ...fields },
@@ -158,4 +158,33 @@ test("stored zones are validated and foreign identities cannot be edited or move
       expect(await deliverySettings.getZones(a.context)).toMatchObject({ success: false, error: { code: "INTERNAL_ERROR" } });
     });
   } finally { await Promise.all([a.cleanup(), b.cleanup()]); }
+});
+
+test("agency options keep their catalog associations, replace them on save and return disabled agencies", async () => {
+  const f = await fixture();
+  const courier = await seededCourier();
+  const [first, second, other] = await Promise.all([insertAgency({ courierId: courier.id, name: "First" }),
+    insertAgency({ courierId: courier.id, name: "Second", enabled: false }), insertAgency({ courierId: (await seededCourier("olva")).id, name: "Other" })]);
+  const agencyOption = (agencyIds: string[]) => ({ kind: "new" as const, method: "agency" as const, name: "Agency", enabled: true, price: { amount: 5, currency: "PEN" as const }, agencyIds });
+  try {
+    await f.run(async () => {
+      expect(await deliverySettings.save({ expectedVersion: 0, home: { enabled: false }, agency: { enabled: true },
+        couriers: [{ kind: "new", catalogId: courier.id as never, enabled: true }], store: { enabled: false, pickupPoint: null } }, f.context)).toMatchObject({ success: true });
+      // The company has Shalom only: an Olva agency is rejected and nothing is written.
+      expect(await deliverySettings.saveZones({ expectedVersion: 1, zones: [{ kind: "new", ...fields, options: [agencyOption([first, other])] }] }, f.context))
+        .toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_OPTION", field: "agencyIds", optionIndex: 0 } });
+      expect(await prisma.deliveryZone.count()).toBe(0);
+      const saved = await deliverySettings.saveZones({ expectedVersion: 1, zones: [{ kind: "new", ...fields, options: [agencyOption([first, second])] }] }, f.context);
+      if (!saved.success) throw new Error(saved.error.message);
+      expect(saved.data.agencies.map(agency => [agency.id, agency.enabled])).toEqual([[first, true], [second, false]]);
+      expect(await prisma.deliveryOptionAgency.count()).toBe(2);
+      const zone = saved.data.zones[0];
+      const replaced = await deliverySettings.saveZones({ expectedVersion: 2, zones: [{ ...existing(zone), options: [{ kind: "existing", id: zone.options[0].id, method: "agency", name: "Agency", enabled: true, price: { amount: 5, currency: "PEN" }, agencyIds: [second] }] }] }, f.context);
+      if (!replaced.success) throw new Error(replaced.error.message);
+      expect(replaced.data.agencies.map(agency => agency.id)).toEqual([second]);
+      expect((await prisma.deliveryOptionAgency.findMany()).map(row => row.agencyId)).toEqual([second]);
+      const loaded = await deliverySettings.getZones(f.context);
+      expect(loaded).toMatchObject({ success: true, data: { agencies: [{ id: second, enabled: false }], zones: [{ options: [{ agencyIds: [second] }] }] } });
+    });
+  } finally { await f.cleanup(); await deleteAgencies([first, second, other]); }
 });

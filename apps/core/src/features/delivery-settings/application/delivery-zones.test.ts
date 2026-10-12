@@ -3,6 +3,7 @@ import { err, ok } from "@shared/functional";
 import { initialDeliverySettings } from "@core/src/features/delivery-settings/domain/delivery-settings";
 import { parseDeliveryZone, type DeliveryZone } from "@core/src/features/delivery-settings/domain/delivery-zone";
 import { getDeliveryZones, saveDeliveryZones, type SaveDeliveryZonesDependencies } from "@core/src/features/delivery-settings/application/delivery-zones";
+import type { DeliveryAgency } from "@core/src/features/delivery-settings/domain/delivery-agency";
 import type { DeliveryConfiguration } from "@core/src/features/delivery-settings/domain/quotation";
 
 const id = (value: number) => `00000000-0000-4000-8000-${String(value).padStart(12, "0")}`;
@@ -25,6 +26,7 @@ function repository(configuration = initial()) {
     generateZoneId: () => id(sequence++), generateOptionId: () => id(sequence++),
     saveSettings: async (_companyId, settings) => { stored = { ...stored, settings }; return ok(null); },
     saveZones: async (_companyId, zones) => { stored = { ...stored, zones }; return ok(null); },
+    readAgencies: async ids => ok(stored.agencies.filter(agency => ids.includes(agency.id))),
   };
   return { deps, read: () => stored };
 }
@@ -71,7 +73,7 @@ test("stale versions, omitted zones or options and invalid prices reject without
 
 test("configuration reads propagate storage errors and reject businesses outside the Peru pilot", async () => {
   expect(await getDeliveryZones(context, async () => ok(initial())))
-    .toEqual(ok({ home: { enabled: false }, agency: { enabled: false }, version: 0, currency: "PEN", zones: [] }));
+    .toEqual(ok({ home: { enabled: false }, agency: { enabled: false }, version: 0, currency: "PEN", zones: [], agencies: [] }));
   const failure = err({ code: "SERVICE_UNAVAILABLE" as const, message: "Database unavailable" });
   expect(await getDeliveryZones(context, async () => failure)).toEqual(failure);
   expect(await getDeliveryZones(context, async () => ok({ ...initial(), country: "US" })))
@@ -80,4 +82,20 @@ test("configuration reads propagate storage errors and reject businesses outside
   expect(await saveDeliveryZones({ expectedVersion: 0, zones: [] }, context, repo.deps))
     .toMatchObject({ success: false, error: { code: "UNSUPPORTED_COUNTRY" } });
   expect(repo.read().settings.version).toBe(0);
+});
+
+test("agency options reference catalog agencies read for the request, including disabled ones, and the response returns them", async () => {
+  const catalogId = id(500);
+  const agency = (value: number, enabled: boolean) => ({ id: id(value), courierId: catalogId, name: `Agency ${value}`, address: "Street", districtCode: "150122",
+    enabled, courierEnabled: true }) as unknown as DeliveryAgency;
+  const settings = { ...initialDeliverySettings(), agency: { enabled: true }, couriers: [{ id: id(501), catalogId, name: "Courier", enabled: true, catalogEnabled: true }] } as never;
+  const repo = repository({ ...initial(), settings, agencies: [agency(60, true), agency(61, false), agency(62, true)] });
+  const option = (agencyIds: string[]) => ({ kind: "new" as const, method: "agency" as const, name: "Agency", enabled: true, price: price(5), agencyIds });
+  const saved = await saveDeliveryZones({ expectedVersion: 0, zones: [{ kind: "new", ...fields, options: [option([id(60), id(61)])] }] }, context, repo.deps);
+  expect(saved).toMatchObject({ success: true, data: { agencies: [{ id: id(60) }, { id: id(61), enabled: false }] } });
+  expect(repo.read().zones[0].options[0]).toMatchObject({ method: "agency", agencyIds: [id(60), id(61)] });
+  const rejected = await saveDeliveryZones({ expectedVersion: 1, zones: [{ kind: "existing", id: id(10), ...fields, options: [
+    { kind: "existing", id: id(11), method: "agency", name: "Agency", enabled: true, price: price(5), agencyIds: [id(99)] }] }] }, context, repo.deps);
+  expect(rejected).toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_OPTION", field: "agencyIds" } });
+  expect(repo.read().zones[0].options[0]).toMatchObject({ agencyIds: [id(60), id(61)] });
 });

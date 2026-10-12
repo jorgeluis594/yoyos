@@ -42,7 +42,7 @@ const optionId = "00000000-0000-4000-8000-000000000011";
 const zoneInput = { expectedVersion: 0, zones: [{ kind: "new" as const, name: "Lima", enabled: true, districtCodes: ["150122"],
   options: [{ kind: "new" as const, method: "home" as const, name: "Standard", enabled: true, price: { amount: 0, currency: "PEN" as const } }] }] };
 const homeOption = { id: optionId, method: "home", name: "Standard", enabled: true, price: { amount: 0, currency: "PEN" } };
-const zoneState = { version: 1, currency: "PEN", home: { enabled: true }, agency: { enabled: false },
+const zoneState = { version: 1, currency: "PEN", home: { enabled: true }, agency: { enabled: false }, agencies: [],
   zones: [{ id: zoneId, name: "Lima", enabled: true, districtCodes: ["150122"], options: [homeOption] }] };
 
 test("zone adapter returns definitive identities, validates the complete response and saves only a strict request", async () => {
@@ -59,7 +59,8 @@ test("zone adapter returns definitive identities, validates the complete respons
     { ...zoneState.zones[0], districtCodes: ["150122", "150122"] },
     { ...zoneState.zones[0], options: [{ ...homeOption, price: { amount: -1, currency: "PEN" } }] },
     { ...zoneState.zones[0], options: [{ ...homeOption, price: { amount: 0, currency: "USD" } }] },
-    { ...zoneState.zones[0], options: [homeOption, homeOption] }]) {
+    { ...zoneState.zones[0], options: [homeOption, homeOption] },
+    { ...zoneState.zones[0], options: [{ ...homeOption, method: "agency", agencyIds: ["00000000-0000-4000-8000-000000000099"] }] }]) {
     expect(await createDeliverySettingsApi(async () => ok({ ...zoneState, zones: [zone] })).getZones()).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
   }
   expect(await createDeliverySettingsApi(async () => ok({ ...zoneState, zones: [zoneState.zones[0], zoneState.zones[0]] })).getZones())

@@ -40,7 +40,7 @@ const zoneInput = { intent: "zones", expectedVersion: 0, zones: [{ kind: "new", 
 
 test("zone action validates the request and persists the complete zones with options under session authority", async () => {
   const write = vi.spyOn(deliverySettings, "saveZones").mockResolvedValue({ success: true, data: {
-    version: 1, currency: "PEN", home: { enabled: false }, agency: { enabled: false }, zones: [],
+    version: 1, currency: "PEN", home: { enabled: false }, agency: { enabled: false }, zones: [], agencies: [],
   } });
   for (const invalid of [{ ...zoneInput, companyId: "forged" }, { ...zoneInput, intent: "other" },
     { ...zoneInput, method: "home" }, { ...zoneInput, expectedVersion: -1 },

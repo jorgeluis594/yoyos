@@ -6,6 +6,7 @@ import { parseDeliveryZone, type DeliveryZone } from "@core/src/features/deliver
 import type { DeliveryConfiguration } from "@core/src/features/delivery-settings/domain/quotation";
 import type { QuotationStorageError } from "@core/src/features/delivery-settings/application/create-quotation";
 import { readDeliverySettings } from "@core/src/features/delivery-settings/infrastructure/delivery-settings-repository";
+import { readAgencies } from "@core/src/features/delivery-settings/infrastructure/agency-catalog-repository";
 import { prisma, requireActiveTransaction } from "@core/src/shared/infrastructure/persistance";
 import { isPersistenceFailure } from "@core/src/shared/infrastructure/persistence-error";
 import { log } from "@core/src/shared/infrastructure/logger";
@@ -35,7 +36,10 @@ export async function readDeliveryConfiguration(companyId: string, lockMode: "sh
       }
       zones.push(parsed.data);
     }
-    return ok({ country: company.country, currency, settings: settings.data, zones, agencies: [] });
+    const agencyIds = [...new Set(zones.flatMap(zone => zone.options.flatMap(option => option.method === "agency" ? option.agencyIds : [])))];
+    const agencies = await readAgencies(agencyIds);
+    if (!agencies.success) return err({ code: agencies.error.code === "PERSISTENCE_UNAVAILABLE" ? "SERVICE_UNAVAILABLE" : "INTERNAL_ERROR", message: agencies.error.message });
+    return ok({ country: company.country, currency, settings: settings.data, zones, agencies: agencies.data });
   } catch (cause) {
     if (!isPersistenceFailure(cause)) throw cause;
     log.error({ event: "delivery_zones_read_failed", companyId, err: cause }, "Unable to read delivery zones");

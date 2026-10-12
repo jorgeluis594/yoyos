@@ -198,7 +198,7 @@ test("zone HTTP persists zones with options, retains existing ones and returns m
   const first = await request(path, seller.cookie);
   expect(first.status).toBe(200);
   expect(first.headers.get("cache-control")).toBe("no-store");
-  expect(await first.json()).toEqual({ home: { enabled: false }, agency: { enabled: false }, version: 0, currency: "PEN", zones: [] });
+  expect(await first.json()).toEqual({ home: { enabled: false }, agency: { enabled: false }, version: 0, currency: "PEN", zones: [], agencies: [] });
   const option = { kind: "new", method: "home", name: "Standard", enabled: true, price: { amount: 8, currency: "PEN" } };
   const fields = { kind: "new", name: " Nearby ", enabled: true, districtCodes: ["150122"], options: [option] };
   const free = { ...fields, name: "Free", options: [{ ...option, name: "Free", price: { amount: 0, currency: "PEN" } },

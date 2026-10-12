@@ -58,7 +58,7 @@ test("agency options require agency delivery and at least one eligible agency wh
   expect(options.map(value => [value.option.method, value.option.id])).toEqual([["home", id(12)], ["agency", id(11)]]);
   expect(options[1]).toMatchObject({ agencies: [{ agency: { id: id(60) }, courier: { id: id(50) } }] });
   for (const change of [{ settings: { ...agencySettings(), agency: { enabled: false } } }, { agencies: [] }, { agencies: [catalogAgency(false)] },
-    { agencies: [catalogAgency(true, false)] }, { settings: agencySettings({ enabled: false }) },
+    { agencies: [catalogAgency(true, false)] }, { settings: agencySettings({ enabled: false }) }, { settings: agencySettings({ catalogEnabled: false }) },
     { settings: { ...settings, agency: { enabled: true }, couriers: [{ ...courier, catalogId: id(99) } as unknown as Courier] } }]) {
     expect(applicableDeliveryOptions(configuration(zones, { ...base, ...change }), district).map(value => value.option.method)).toEqual(["home"]);
   }
