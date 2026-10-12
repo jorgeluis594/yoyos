@@ -29,6 +29,7 @@ export default function DeliverySettingsScreen() {
   const [draft, setDraft] = useState<DeliverySettingsDraft | null>(null);
   const country = state.status === "ready" ? state.company.country : "";
   const [catalog, setCatalog] = useState<CourierCatalogResponse["couriers"]>([]);
+  const [savedCouriers, setSavedCouriers] = useState<DeliverySettingsResponse["couriers"]>([]);
   const [zones, setZones] = useState<DeliveryZonesResponse | null>(null);
   const [zoneConflict, setZoneConflict] = useState(false);
   const [generation, setGeneration] = useState(0);
@@ -46,7 +47,7 @@ export default function DeliverySettingsScreen() {
     const [result, catalogResult, zoneResult] = await Promise.all([deliverySettings.get(), deliverySettings.getCourierCatalog(),
       country === "PE" ? deliverySettings.getZones() : Promise.resolve(ok(null))]);
     if (result.success && catalogResult.success && zoneResult.success) { setCatalog(catalogResult.data.couriers); setZones(zoneResult.data); setZoneConflict(false); setGeneration(value => value + 1); }
-    if (result.success && catalogResult.success && zoneResult.success) { setDraft(draftFrom(result.data)); setError(""); setConflict(false); setSaved(false); }
+    if (result.success && catalogResult.success && zoneResult.success) { setDraft(draftFrom(result.data)); setSavedCouriers(result.data.couriers); setError(""); setConflict(false); setSaved(false); }
     else setError("deliverySettingsLoadError");
     inFlight.current = false;
     setBusy(false);
@@ -62,7 +63,7 @@ export default function DeliverySettingsScreen() {
     setSaved(false);
     const result = await deliverySettings.save(draft);
     if (result.success) {
-      setDraft(draftFrom(result.data)); setError(""); setSaved(true);
+      setDraft(draftFrom(result.data)); setSavedCouriers(result.data.couriers); setError(""); setSaved(true);
       setZones(previous => previous ? { ...previous, version: result.data.version, home: result.data.home, agency: result.data.agency } : null);
     }
     else {
@@ -130,7 +131,7 @@ export default function DeliverySettingsScreen() {
             onPress={() => { setDraft({ ...draft, couriers: [...draft.couriers, { kind: "new", localKey: ++nextCourierKey.current, courierId: entry.id, name: entry.name, enabled: true }] }); setSaved(false); }}>{t("addCourierNamed", { name: entry.name })}</Button>)}
       </View>
       {zones ? <View style={[styles.section, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}><DeliveryZonesSection key={`zones-${generation}`} state={zones} loadAgencies={deliverySettings.getAgencyCatalog}
-        couriers={draft.couriers.flatMap(courier => courier.kind === "existing" ? [{ courierId: courier.courierId, name: courier.name, enabled: courier.enabled }] : [])} disabled={busy} blocked={zoneConflict || conflict} onSave={saveZones} onReload={() => void load()} /></View> : null}
+        couriers={savedCouriers} disabled={busy} blocked={zoneConflict || conflict} onSave={saveZones} onReload={() => void load()} /></View> : null}
     </ScrollView>
     <View style={[styles.footer, { backgroundColor: theme.background, borderColor: theme.border }]}>
       {error ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t(error)}</ThemedText> : null}

@@ -39,7 +39,7 @@ const optionInput = (option: DeliveryOptionDraft, currency: DeliveryZonesRespons
 };
 
 type ZoneOption = DeliveryZonesResponse["zones"][number]["options"][number];
-// An agency option is only offered while an associated agency is enabled and so is its (saved) courier.
+// An agency option is only offered while an associated agency is enabled and so is its courier; callers pass the saved couriers.
 export const hasEligibleAgency = (option: ZoneOption, state: DeliveryZonesResponse, couriers: readonly (AgencyCourier & Readonly<{ enabled: boolean }>)[]) =>
   option.method === "agency" && option.agencyIds.some(id => {
     const agency = state.agencies.find(value => value.id === id);
