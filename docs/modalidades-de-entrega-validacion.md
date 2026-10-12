@@ -2,6 +2,8 @@
 
 Revisión del 6 de octubre de 2026. Los tres incrementos están implementados en servidor, web y móvil. Los recorridos E01–E12 se ejecutaron en Android físico y web según la matriz. La revisión visual Android emitió `ship` en su alcance de teléfono con Expo Go. El usuario difirió expresamente iOS el 6/10/2026. El incidente de navegación observado se conserva como riesgo conocido, sin afirmar que esté corregido ni aprobar la estabilidad de una compilación distribuida. Las pruebas de pantalla y del adaptador móvil no se cuentan como E2E nativos.
 
+Nota del refactor de zonas, opciones y agencias: couriers y agencias son catálogos del sistema (las agencias se mantienen por SQL), las tarifas dependen de la opción de entrega y la venta por agencia exige `agencyId`. U06, U13, E09 y E10 describen ese estado; los textos de evidencia Android más abajo corresponden al modelo anterior y no se repitieron.
+
 La configuración funciona sin tarifas. La composición normal rechaza la asignación con `DELIVERY_UNAVAILABLE`; los recorridos de asignación que confirman una entrega sustituyen exclusivamente la capacidad de costo. No se habilita esa sustitución mediante una petición pública.
 
 ## Fuentes de evidencia
@@ -40,14 +42,14 @@ Las abreviaturas de las tablas apuntan a pruebas ejecutables, no a estimaciones 
 | U03 | Config, Couriers, JSON y Resolver: normalización, vacíos y límites/excesos. Nombre/teléfono/documento del destinatario no reciben máximos arbitrarios. |
 | U04 | Config y Config DB: indicadores independientes y datos retenidos al deshabilitar. |
 | U05 | Config: versión nueva y conflicto sin sobrescritura. |
-| U06 | Couriers y Config: último courier y agencia se deshabilitan juntos. |
+| U06 | Couriers y Config: el courier se elige del catálogo del sistema (sin nombre propio); no se repite ni se acepta uno inexistente o deshabilitado. Agencia habilitada exige algún courier habilitado; una opción de agencia sin agencias elegibles simplemente no aplica. |
 | U07 | Couriers y Config: IDs del servidor; rechazo de repetidos, desconocidos, ajenos y omitidos, incluidos inactivos. |
 | U08 | Estado, Resolver y JSON: destinatario requerido, documento obligatorio en agencia, tipos admitidos y ceros iniciales. |
 | U09 | Resolver y JSON: variantes estrictas sin campos residuales ni autoridad del cliente. |
 | U10 | Resolver y Config DB: modalidad deshabilitada y configuración corrupta fallan explícitamente. |
 | U11 | Resolver: copia independiente del punto y destinatario. |
 | U12 | Resolver: domicilio escrito, distrito requerido e indicaciones opcionales. |
-| U13 | Resolver: courier activo autorizado, copia histórica y rechazo antes de calcular costo. |
+| U13 | Resolver (`resolve-selected-delivery-rate`): la agencia elegida debe estar asociada a la opción de la tarifa, habilitada y con courier habilitado de la empresa; si no, `RATE_UNAVAILABLE` antes de comparar el precio. El snapshot guarda `courier {id, name}` y `agency {id, name, address, location}` del catálogo, no texto libre. |
 | U14 | Estado y Pedido DB: creación pendiente con entrega nula e importes existentes. |
 | U15 | Asignar, Estado y Pedido HTTP: reemplazo único y cambio de variante completo. |
 | U16 | Asignar y Estado: inexistente, cancelado, enviado y entregado sin escritura válida. |
@@ -107,8 +109,8 @@ Los [contratos estáticos](../apps/core/src/features/orders/domain/type-contract
 | E06 | Web Tienda/Agencia: traslado/absorción, pagos previos y descuento único. | Android: pago previo preparado por API; absorber el costo desde controles nativos bajó total de 13 a 10, saldo a 0 y descontó una unidad. Otro guardado mantuvo stock 2 e importes/pago. Reapertura posterior desde Ventas mostró total 10, pago cubierto, stock descontado, costo 3 y cargo 0. El pedido ya estaba entregado en esa reapertura. iOS diferido por solicitud del usuario. |
 | E07 | Web Tienda/Agencia: indisponibilidad controlada conserva borrador y entrega anterior, corrección explícita posterior. | Android: rechazo controlado con `Unavailable` conservó formulario y agregado anterior completo, comprobado por API. Corregir a `CorrectedRecipient` y guardar explícitamente confirmó la entrega. Se repitió rechazo, vuelta al detalle con destinatario anterior y guardado corregido explícito (`RecoveryConfirmed`). iOS diferido por solicitud del usuario. |
 | E08 | Web Tienda: domicilio, distrito requerido, reapertura y eliminación de campos de tienda. | Android: habilitar desde Configuración, cambiar tienda a domicilio, rechazo de distrito vacío, guardar y reabrir desde Ventas comprobados. API confirmó domicilio sin `pickupPoint`. iOS diferido por solicitud del usuario. |
-| E09 | Web Agencia: courier/configuración conjunta, documento obligatorio y ceros iniciales. | Android: alta real de courier, habilitación de agencia, documento obligatorio, guardado y reapertura con `00-A-001` comprobados. Se repitió el guardado conjunto: versión 7 deshabilitada/un courier → versión 8 habilitada/dos couriers, alta de `NativeAlternate` en la misma operación. iOS diferido por solicitud del usuario. |
-| E10 | Web Agencia: nombre histórico, omisión de inactivos y desactivación concurrente recuperable. | Android: renombrar/desactivar por API conservó `NativeCourier` en detalle; selector mostró solo el activo. Desactivar ese activo mientras el formulario estaba abierto produjo error recuperable, campos retenidos y agregado anterior completo sin cambios. iOS diferido por solicitud del usuario. |
+| E09 | Web Agencia: la opción de agencia se configura con couriers y agencias del catálogo (`delivery-settings`), y la venta exige elegir una agencia asociada, documento obligatorio y ceros iniciales (`agency-delivery`). | Evidencia Android anterior al refactor (courier con nombre propio y agencia escrita a mano); no describe el modelo actual y no se repitió en dispositivo. El selector de agencias del catálogo móvil solo se cubre con pruebas de pantalla y del adaptador, no con E2E nativos. |
+| E10 | Web Agencia: el snapshot conserva courier y agencia históricos, y la desactivación concurrente de la agencia o de su courier produce `RATE_UNAVAILABLE` recuperable con borrador retenido y recotización (`agency-delivery`). | Evidencia Android anterior al refactor (renombrar o desactivar un courier propio); no describe el modelo actual y no se repitió en dispositivo. |
 | E11 | Inicio de sesión → Modalidades/Ventas → pedido reales en web mostraron el destino e importes guardados en Android. | Configuración guardada en web se consultó mediante recarga nativa; entrega guardada en Android se consultó desde Ventas web. Mismo negocio y pedido autenticados; iOS diferido por solicitud del usuario. |
 | E12 | Web Normal: servidor normal, configuración operativa y asignación sin costo inventado. | Android: proceso `src/server.ts` sin resolvedor inyectado; configuración guardada desde la app. Asignación rechazada, borrador retenido, agregado con entrega nula/total 10/stock sin descontar. iOS diferido por solicitud del usuario. |
 
