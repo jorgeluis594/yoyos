@@ -11,6 +11,7 @@ const mockCompleteOrder = jest.fn();
 const mockQuotation = jest.fn();
 const mockSettingsGet = jest.fn();
 const mockReadPending = jest.fn();
+const mockDiscardPending = jest.fn();
 const mockResolvePending = jest.fn();
 const mockResendPending = jest.fn();
 const mockReviewPending = jest.fn();
@@ -35,8 +36,9 @@ jest.mock("expo-network", () => ({ useNetworkState: () => ({ isConnected: !mockO
   getNetworkStateAsync: async () => ({ isConnected: !mockOffline, isInternetReachable: !mockOffline }) }));
 jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   readPendingOrderConfirmation: (...args: unknown[]) => mockReadPending(...args),
+  discardPendingOrderConfirmation: (...args: unknown[]) => mockDiscardPending(...args),
   resendPendingOrder: (...args: unknown[]) => mockResendPending(...args),
-  reviewLegacyPendingDelivery: (...args: unknown[]) => mockReviewPending(...args),
+  reviewPendingDelivery: (...args: unknown[]) => mockReviewPending(...args),
   loadPendingOrderReview: (...args: unknown[]) => mockLoadReview(...args),
   reviewPendingOrder: (...args: unknown[]) => mockReviewOrder(...args),
   resolvePendingOrderConfirmation: (...args: unknown[]) => mockResolvePending(...args),
@@ -156,6 +158,17 @@ test("Chile seller selects a variant, reviews the amount, and opens the complete
   await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledWith(expect.objectContaining({ id: mockId(3) }), mockId(1)));
   expect(mockShow).toHaveBeenCalledWith({ id: mockId(3), shownTotal: { amount: 10, currency: "PEN" } });
   expect(mockReplace).toHaveBeenCalledWith(`/orders/${mockId(3)}`);
+});
+
+test("an attempt saved in an older format cannot be read and is discarded to continue selling", async () => {
+  mockReadPending.mockResolvedValue(err({ code: "INVALID_PENDING_DATA", message: "Invalid pending order" }));
+  mockDiscardPending.mockResolvedValue(ok(undefined));
+  const screen = render(<NewOrderScreen />);
+  await screen.findByText("No se pudo leer el intento pendiente");
+  fireEvent.press(screen.getByRole("button", { name: "Descartar intento pendiente" }));
+  await waitFor(() => expect(mockDiscardPending).toHaveBeenCalledWith(mockId(1)));
+  await screen.findByText("Camisa");
+  expect(screen.queryByText("No se pudo leer el intento pendiente")).toBeNull();
 });
 
 test("known stock rejection after uncertain resend returns to the editable cart", async () => {
@@ -331,12 +344,12 @@ test("restart verifies and resends a saved request without rebuilding another or
   expect(mockCompleteOrder).not.toHaveBeenCalled();
 });
 
-test("legacy recovery reviews an explicit rate while retaining recipient and original payment identities", async () => {
-  const pending = { version: 2, companyId: mockId(1), id: mockId(3), shownTotal: { amount: 10, currency: "PEN" },
+test("saved-delivery recovery reviews an explicit rate while retaining recipient and original payment identities", async () => {
+  const pending = { version: 2, companyId: mockId(1), id: mockId(3), shownTotal: { amount: 18, currency: "PEN" },
     request: { id: mockId(3), contactId: null, items: [{ variantId: mockId(2), quantity: 1 }],
       payments: [{ paymentId: mockId(8), amount: { amount: 4.5, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false }],
-      delivery: { chargeDeliveryToCustomer: false, delivery: { method: "home", recipient: { name: "Ana", phone: "999001", identity: { kind: "absent" } },
-        destination: { address: "Original street", district: "Miraflores", instructions: "Door 2" } } } } };
+      delivery: { expectedPrice: { amount: 8, currency: "PEN" }, delivery: { method: "home", rateId: mockId(9), recipient: { name: "Ana", phone: "999001", identity: { kind: "absent" } },
+        destination: { districtCode: "150122", address: "Original street", instructions: "Door 2" } } } } };
   mockReadPending.mockResolvedValue(ok(pending));
   const screen = render(<NewOrderScreen />);
   fireEvent.press(await screen.findByRole("button", { name: "Revisar entrega guardada" }));

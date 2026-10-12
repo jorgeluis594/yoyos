@@ -39,7 +39,7 @@ jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   resendPendingOrder: (...args: Parameters<typeof mockOrders.resendPendingOrder>) => mockOrders.resendPendingOrder(...args),
   loadPendingOrderReview: (...args: Parameters<typeof mockOrders.loadPendingOrderReview>) => mockOrders.loadPendingOrderReview(...args),
   reviewPendingOrder: (...args: Parameters<typeof mockOrders.reviewPendingOrder>) => mockOrders.reviewPendingOrder(...args),
-  reviewLegacyPendingDelivery: (...args: Parameters<typeof mockOrders.reviewLegacyPendingDelivery>) => mockOrders.reviewLegacyPendingDelivery(...args),
+  reviewPendingDelivery: (...args: Parameters<typeof mockOrders.reviewPendingDelivery>) => mockOrders.reviewPendingDelivery(...args),
 } }));
 jest.mock("@mobile/features/delivery-settings/composition", () => {
   const { createDeliverySettingsApi } = jest.requireActual<typeof import("@mobile/features/delivery-settings/infrastructure/delivery-settings-api")>("@mobile/features/delivery-settings/infrastructure/delivery-settings-api");
@@ -272,18 +272,18 @@ test("rated mobile creation recovers the same charge after a lost response and r
   expect(mockPosts).toBe(1);
 });
 
-test("legacy recovery reviews a current rate and resends the same order and payments through the real API", async () => {
+test("saved-delivery recovery reviews a current rate and resends the same order and payments through the real API", async () => {
   const catalog = await mockOrders.searchOrderCatalog("Journey product");
   if (!catalog.success || !catalog.data[0]?.variants[0]) throw new Error("Missing recovery product");
   const orderId = randomUUID();
   const paymentId = randomUUID();
   const companyId = process.env.ORDER_JOURNEY_COMPANY!;
-  const pending = { version: 2, companyId, id: orderId, shownTotal: { amount: 10, currency: "PEN" },
+  const pending = { version: 2, companyId, id: orderId, shownTotal: { amount: 18, currency: "PEN" },
     request: { id: orderId, contactId: null, items: [{ variantId: catalog.data[0].variants[0].id, quantity: 1 }],
       payments: [{ paymentId, amount: { amount: 4.5, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false }],
-      delivery: { chargeDeliveryToCustomer: false, delivery: { method: "home",
+      delivery: { expectedPrice: { amount: 8, currency: "PEN" }, delivery: { method: "home", rateId: randomUUID(),
         recipient: { name: "Recovery recipient", phone: "999123456", identity: { kind: "absent" } },
-        destination: { address: "Recovery street", district: "Miraflores", instructions: "Door 2" } } } } };
+        destination: { districtCode: "150122", address: "Recovery street", instructions: "Door 2" } } } } };
   writeFileSync(join(directory, `yoyos_pending_order_${companyId}`), JSON.stringify(pending));
   restartOperations();
   const screen = render(<NewOrderScreen />);

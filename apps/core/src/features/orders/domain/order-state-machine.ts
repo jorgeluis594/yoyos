@@ -7,7 +7,7 @@ import { buildOrder, type BuildOrderInput, type BuildOrderError, type CompanyId,
 import { parsePayment, voidPayment, type ConfirmedPayment, type Payment, type ReportedPayment } from "@core/src/features/orders/domain/payment";
 import { getPeruDistrict, getPeruProvinces, peruDepartments, parsePeruDistrictCode, type PeruDistrictCode, type PeruDistrictError } from "@shared/peru-geography";
 import type { QuotationId, DeliveryRateId, DeliveryZoneId, DeliverySettingsVersion, ResolvedDeliveryRate } from "@core/src/features/delivery-settings";
-import type { CourierId, PickupPoint } from "@core/src/features/delivery-settings";
+import type { PickupPoint } from "@core/src/features/delivery-settings";
 
 export type OrderStatus = "active" | "cancelled" | "completed";
 export type PaymentStatus = "pending" | "paid";
@@ -19,10 +19,6 @@ export type AgencyRecipient = Readonly<Omit<Recipient, "identity"> & { identity:
 export type { CourierId, PickupPoint } from "@core/src/features/delivery-settings";
 export type HomeDestination = Readonly<{ address: string; district: string; instructions: string | null }>;
 export type DeliveryAuthor = Readonly<{ kind: "seller"; userId: UserId }> | Readonly<{ kind: "buyer" }>;
-export type DeliverySelection =
-  | Readonly<{ method: "home"; recipient: Recipient; destination: HomeDestination }>
-  | Readonly<{ method: "agency"; recipient: AgencyRecipient; courierId: CourierId; agency: string }>
-  | Readonly<{ method: "store"; recipient: Recipient }>;
 export type RatedDeliverySelection =
   | Readonly<{ method: "home"; recipient: Recipient; rateId: DeliveryRateId;
       destination: Readonly<{ districtCode: PeruDistrictCode; address: string; instructions: string | null }> }>
@@ -31,14 +27,9 @@ export type RatedDeliverySelection =
 export type DeliveryPricing = Readonly<{ quotationId: QuotationId; rateId: DeliveryRateId; zoneId: DeliveryZoneId; settingsVersion: DeliverySettingsVersion }>;
 export type PeruDeliveryDistrict = Readonly<{ country: "PE"; districtCode: PeruDistrictCode; district: string; province: string; department: string }>;
 export type DeliverySnapshot = Readonly<{ recordedBy: DeliveryAuthor }> & (
-  | Readonly<{ method: "home"; recipient: Recipient; destination: HomeDestination }>
   | Readonly<{ method: "home"; recipient: Recipient; destination: HomeDestination & PeruDeliveryDistrict; pricing: DeliveryPricing }>
-  | Readonly<{ method: "agency"; recipient: AgencyRecipient; courier: Readonly<{ id: CourierId; name: string }>; agency: string }>
-  | (Readonly<{ method: "agency"; recipient: AgencyRecipient; destination: PeruDeliveryDistrict; pricing: DeliveryPricing }> & (
-      | Readonly<{ courier: null; agency: null }>
-      | Readonly<{ courier: Readonly<{ id: CourierId; name: string }>; agency: string }>
-    ))
-  | Readonly<{ method: "store"; recipient: Recipient; pickupPoint: PickupPoint; settingsVersion?: DeliverySettingsVersion }>
+  | Readonly<{ method: "agency"; recipient: AgencyRecipient; destination: PeruDeliveryDistrict; pricing: DeliveryPricing; courier: null; agency: null }>
+  | Readonly<{ method: "store"; recipient: Recipient; pickupPoint: PickupPoint; settingsVersion: DeliverySettingsVersion }>
 );
 export type OrderAggregate = Readonly<{
   number: OrderNumber;
@@ -48,7 +39,6 @@ export type OrderAggregate = Readonly<{
   buyer: OrderBuyer | null;
   checkoutEnabledAt: Date | null;
   checkoutConfirmedAt: Date | null;
-  checkoutDeliveryRequest: DeliverySnapshot | null;
   createdAt: Date;
   deliveredAt: Date | null;
   completedAt: Date | null;
@@ -88,7 +78,7 @@ export function buildPendingOrder(input: BuildPendingOrderInput): Result<OrderAg
   const zero: Money = { amount: 0, currency: snapshot.total.currency };
   return ok({ number: input.number, id: snapshot.id, companyId: snapshot.companyId, sellerId: snapshot.sellerId,
     buyer: snapshot.customer.kind === "contact" ? { contactId: snapshot.customer.contactId, name: snapshot.customer.name, phone: snapshot.customer.phone } : null,
-    checkoutEnabledAt: null, checkoutConfirmedAt: null, checkoutDeliveryRequest: null, items: snapshot.items, total: snapshot.total,
+    checkoutEnabledAt: null, checkoutConfirmedAt: null, items: snapshot.items, total: snapshot.total,
     createdAt: new Date(input.createdAt), deliveredAt: null, completedAt: null, cancelled: false,
     payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false,
     itemsTotal: snapshot.total, deliveryCost: zero, deliveryCharge: zero });
@@ -110,12 +100,6 @@ const pickupPoint = z.strictObject({ name: requiredText.max(120), address: requi
 const recordedBy = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("seller"), userId: requiredText.transform((value) => value as UserId) }),
   z.strictObject({ kind: z.literal("buyer") }),
-]);
-const courierId = z.uuid().transform((value) => value as CourierId);
-const selection = z.discriminatedUnion("method", [
-  z.strictObject({ method: z.literal("home"), recipient, destination: homeDestination }),
-  z.strictObject({ method: z.literal("agency"), recipient: documentedRecipient, courierId, agency: requiredText.max(500) }),
-  z.strictObject({ method: z.literal("store"), recipient }),
 ]);
 const rateId = z.uuid().transform(value => value as DeliveryRateId);
 const ratedSelection = z.discriminatedUnion("method", [
@@ -151,12 +135,6 @@ export function buildRatedDeliverySnapshot(selection: Exclude<RatedDeliverySelec
     : { method: "agency", recipient: selection.recipient, destination, courier: null, agency: null, pricing, recordedBy: author });
 }
 
-const legacyDelivery = z.discriminatedUnion("method", [
-  z.strictObject({ method: z.literal("home"), recipient, destination: homeDestination, recordedBy }),
-  z.strictObject({ method: z.literal("agency"), recipient: documentedRecipient,
-    courier: z.strictObject({ id: courierId, name: requiredText.max(120) }), agency: requiredText.max(500), recordedBy }),
-  z.strictObject({ method: z.literal("store"), recipient, pickupPoint, recordedBy }),
-]);
 const settingsVersion = z.number().int().min(0).max(2147483647).transform(value => value as DeliverySettingsVersion);
 const pricing = z.strictObject({ quotationId: z.uuid().transform(value => value as QuotationId),
   rateId: z.uuid().transform(value => value as DeliveryRateId), zoneId: z.uuid().transform(value => value as DeliveryZoneId), settingsVersion });
@@ -164,16 +142,11 @@ const peruDistrict = z.strictObject({ country: z.literal("PE"),
   districtCode: z.string().refine(value => parsePeruDistrictCode(value).success).transform(value => value as PeruDistrictCode),
   district: requiredText.max(120), province: requiredText.max(120), department: requiredText.max(120) });
 const ratedAgency = { method: z.literal("agency"), recipient: documentedRecipient, destination: peruDistrict, pricing, recordedBy };
-const delivery = z.union([legacyDelivery,
+const delivery = z.discriminatedUnion("method", [
   z.strictObject({ method: z.literal("home"), recipient, destination: homeDestination.extend(peruDistrict.shape), pricing, recordedBy }),
   z.strictObject({ ...ratedAgency, courier: z.null(), agency: z.null() }),
-  z.strictObject({ ...ratedAgency, courier: z.strictObject({ id: courierId, name: requiredText.max(120) }), agency: requiredText.max(500) }),
   z.strictObject({ method: z.literal("store"), recipient, pickupPoint, settingsVersion, recordedBy }),
 ]);
-export function parseDeliverySelection(value: unknown): Result<DeliverySelection, OrderDomainError> {
-  const parsed = selection.safeParse(value);
-  return parsed.success ? ok(parsed.data) : err({ code: "INVALID_ORDER", message: "Invalid delivery selection" });
-}
 export function parseDeliverySnapshot(value: unknown): Result<DeliverySnapshot, OrderDomainError> {
   const parsed = delivery.safeParse(value);
   return parsed.success ? ok(parsed.data) : err({ code: "INVALID_ORDER", message: "Invalid delivery snapshot" });
@@ -239,7 +212,7 @@ function setDelivery(order: OrderAggregate, change: SetDeliveryChange): Result<O
   const allowed = canSetDelivery(order);
   if (!allowed.success) return allowed;
   const { cost, delivery: details } = change.resolved;
-  if (!delivery.safeParse(details).success || "chargeDeliveryToCustomer" in change) return failure("INVALID_ORDER", "Invalid delivery");
+  if (!delivery.safeParse(details).success) return failure("INVALID_ORDER", "Invalid delivery");
   const validatedCost = validateDeliveryCost(cost, order.total.currency);
   if (!validatedCost.success) return validatedCost;
   const charge = cost;

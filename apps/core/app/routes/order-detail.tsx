@@ -68,7 +68,6 @@ async function deliveryAction({ params, request, context }: ActionFunctionArgs) 
     if (result.error.code === "TOTAL_CHANGED") return { operation: "delivery" as const, url: null, success: false, error: "priceChanged" as const, currentPrice: result.error.currentPrice };
     return { operation: "delivery" as const, url: null, success: false, error: result.error.code === "RATE_UNAVAILABLE" ? "rateUnavailable" as const
       : result.error.code === "DELIVERY_METHOD_DISABLED" ? "disabled" as const
-      : result.error.code === "COURIER_UNAVAILABLE" ? "courierUnavailable" as const
       : result.error.code === "DELIVERY_UNAVAILABLE" ? "unavailable" as const
       : result.error.code === "DELIVERY_LOCKED" || result.error.code === "ORDER_CANCELLED" ? "locked" as const
       : result.error.code === "INSUFFICIENT_STOCK" ? "stockError" as const
@@ -328,7 +327,7 @@ export default function OrderDetail() {
                 <h3 className="font-semibold">{t(`deliverySettings.${order.delivery.method}`)}</h3>
                 {order.delivery.method === "store" && <><p className="break-words">{order.delivery.pickupPoint.name}</p><p className="whitespace-pre-wrap break-words">{order.delivery.pickupPoint.address}</p>{order.delivery.pickupPoint.instructions && <p className="whitespace-pre-wrap break-words text-muted-foreground">{order.delivery.pickupPoint.instructions}</p>}</>}
                 {order.delivery.method === "home" && <><p className="whitespace-pre-wrap break-words">{order.delivery.destination.address}</p><p className="break-words">{order.delivery.destination.district}</p>{order.delivery.destination.instructions && <p className="whitespace-pre-wrap break-words text-muted-foreground">{order.delivery.destination.instructions}</p>}</>}
-                {order.delivery.method === "agency" && (order.delivery.courier === null ? <div><p>{order.delivery.destination.district}</p><p className="text-muted-foreground">{t("orderDelivery.assignmentPending")}</p></div> : <dl className="grid grid-cols-2 gap-x-3 gap-y-2"><dt className="text-muted-foreground">{t("orderDelivery.courier")}</dt><dd className="break-words">{order.delivery.courier.name}</dd><dt className="text-muted-foreground">{t("orderDelivery.agency")}</dt><dd className="whitespace-pre-wrap break-words">{order.delivery.agency}</dd></dl>)}
+                {order.delivery.method === "agency" && <div><p>{order.delivery.destination.district}</p><p className="text-muted-foreground">{t("orderDelivery.assignmentPending")}</p></div>}
               </section>
               <section className="flex flex-col gap-2 border-t pt-4 text-sm"><h3 className="font-semibold">{t("orders.recipient")}</h3><p className="break-words">{order.delivery.recipient.name}</p><p className="break-words text-muted-foreground">{order.delivery.recipient.phone}</p>{order.delivery.recipient.identity.kind === "document" && <p className="break-words text-muted-foreground">{t(`orders.documentType.${order.delivery.recipient.identity.documentType}`)}: {order.delivery.recipient.identity.document}</p>}</section>
               <dl className="border-t pt-4 text-sm"><div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("orderDetail.internalDeliveryCost")}</dt><dd className="shrink-0 tabular-nums">{amount(order.deliveryCost)}</dd></div></dl>

@@ -29,7 +29,7 @@ jest.mock("@expo/ui", () => {
   return { Host: View, Picker };
 });
 const initialOrder: OrderAggregateResponse = { id: mockId, companyId: "00000000-0000-4000-8000-000000000001", sellerId: "seller",
-  number: 1001, buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, checkoutDeliveryRequest: null, deliveredAt: "2026-09-29T12:00:00.000Z", createdAt: "2026-09-29T11:00:00.000Z", completedAt: "2026-09-29T12:00:00.000Z",
+  number: 1001, buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, deliveredAt: "2026-09-29T12:00:00.000Z", createdAt: "2026-09-29T11:00:00.000Z", completedAt: "2026-09-29T12:00:00.000Z",
   status: "completed", paymentStatus: "paid", paidAmount: { amount: 12, currency: "PEN" },
   balanceDue: { amount: 0, currency: "PEN" }, overpaidAmount: { amount: 0, currency: "PEN" }, cancelled: false,
   delivery: null, deliveryStatus: "delivered", stockDeducted: true, itemsTotal: { amount: 12, currency: "PEN" },
@@ -57,7 +57,7 @@ beforeEach(() => {
 });
 test("recipient can differ from buyer; unavailable save preserves data and confirmed aggregate returns to detail", async () => {
   save.mockResolvedValueOnce(err({ code: "DELIVERY_UNAVAILABLE", message: "private" })).mockResolvedValueOnce(ok({ ...pending,
-    delivery: { method: "store", recipient: { name: "Recipient", phone: "555002", identity: { kind: "absent" } }, pickupPoint: point, recordedBy: { kind: "seller", userId: "server-author" } },
+    delivery: { method: "store", recipient: { name: "Recipient", phone: "555002", identity: { kind: "absent" } }, pickupPoint: point, settingsVersion: 1, recordedBy: { kind: "seller", userId: "server-author" } },
     deliveryCost: { amount: 3, currency: "PEN" }, deliveryCharge: { amount: 3, currency: "PEN" }, total: { amount: 15, currency: "PEN" } }));
   const screen = render(<OrderDeliveryScreen />);
   await screen.findByText("Current address");
@@ -290,25 +290,6 @@ test("a late quotation for the previous district cannot replace current options"
   expect(screen.getByText(/Entrega:\sS\/\s12\.00/)).toBeTruthy();
   expect(screen.getByText("MIRAFLORES · AREQUIPA · AREQUIPA")).toBeTruthy();
   expect(quote).toHaveBeenCalledTimes(2);
-});
-
-test("replacing a historical home delivery retains recipient and street without guessing a district or rate", async () => {
-  getSettings.mockResolvedValue(ok(allMethods));
-  load.mockResolvedValue(ok({ ...pending, delivery: { method: "home", recipient: { name: "Historic", phone: "00123", identity: { kind: "absent" } },
-    destination: { address: "Old street", district: "Miraflores", instructions: null }, recordedBy: { kind: "seller", userId: "seller" } } }));
-  const screen = render(<OrderDeliveryScreen />);
-  await screen.findByLabelText("Dirección de entrega *");
-  expect(screen.getByLabelText("Dirección de entrega *").props.value).toBe("Old street");
-  expect(screen.getByLabelText("Nombre del destinatario *").props.value).toBe("Historic");
-  expect(screen.getByLabelText("Teléfono del destinatario *").props.value).toBe("00123");
-  expect(quote).not.toHaveBeenCalled();
-  expect(screen.queryByTestId("delivery-rate")).toBeNull();
-  expect(screen.getByRole("button", { name: "Guardar entrega" }).props.accessibilityState.disabled).toBe(true);
-  fireEvent.changeText(screen.getByLabelText("Dirección de entrega *"), "Draft street");
-  getSettings.mockResolvedValue(ok({ ...allMethods, version: 2, home: { enabled: false } }));
-  await act(async () => { mockFocus(); });
-  expect(screen.getByLabelText("Dirección de entrega *").props.value).toBe("Draft street");
-  expect(screen.getByRole("button", { name: "Guardar entrega" }).props.accessibilityState.disabled).toBe(true);
 });
 
 test("reselecting the destination requires fresh rates instead of reviving an older quotation", async () => {

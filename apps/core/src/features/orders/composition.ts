@@ -91,7 +91,7 @@ export async function setConfiguredOrderDelivery(input: SetDeliveryInput, contex
     afterTransactionCommit(() => log.info({ event: "order_delivery_saved", operation: "set_order_delivery", orderId: input.orderId,
       userId: context.userId, authorKind: "seller", changeKind: before?.delivery ? "replaced" : "assigned",
       courierId: observed.courierId, previousDeliveryMethod: before?.delivery?.method, deliveryMethod: input.delivery.method, settingsVersion: observed.settingsVersion,
-      chargeDeliveryToCustomer: true, totalChanged: before?.total.amount !== result.data.total.amount,
+      totalChanged: before?.total.amount !== result.data.total.amount,
       stockDeductionRequired: !before?.stockDeducted && result.data.stockDeducted, stockDeducted: result.data.stockDeducted,
       transactionOutcome: "committed", durationMs }, "Order delivery saved"));
   } else if (!["ORDER_NOT_FOUND", "PERSISTENCE_UNAVAILABLE", "INVALID_STORED_DATA", "INVALID_ORDER", "CURRENCY_MISMATCH"].includes(result.error.code)) {
@@ -122,7 +122,7 @@ const checkoutDependencies: CheckoutDependencies = { transaction: scopedOrderTra
 function rejectedCheckout(error: CheckoutError) {
   const outcomes = { CHECKOUT_UNAVAILABLE: "unavailable", ORDER_CANCELLED: "cancelled", INVALID_BUYER: "invalid_input",
     TOTAL_CHANGED: "total_changed", INVALID_CHECKOUT: "technical_failure", PERSISTENCE_UNAVAILABLE: "technical_failure",
-    DELIVERY_METHOD_DISABLED: "invalid_input", COURIER_UNAVAILABLE: "invalid_input", DELIVERY_LOCKED: "invalid_input", INVALID_DELIVERY: "invalid_input" } as const;
+    DELIVERY_METHOD_DISABLED: "invalid_input", DELIVERY_LOCKED: "invalid_input", INVALID_DELIVERY: "invalid_input" } as const;
   bindRequestOperation({ outcome: outcomes[error.code] });
 }
 

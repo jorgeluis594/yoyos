@@ -27,7 +27,8 @@ test("unassigned delivery asks for a district and recipient and never offers imp
 
 test("historical delivery shows saved address and charge without consulting a current district or rate", () => {
   const html = render({ ...checkout, deliveryCharge: { amount: 8, currency: "PEN" }, total: { amount: 18, currency: "PEN" }, delivery: {
-    method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, destination: { address: "Old street", district: "Old district", instructions: null },
+    method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, destination: { address: "Old street", country: "PE", districtCode: "150101", district: "Old district", province: "Lima", department: "Lima", instructions: null },
+    pricing: { quotationId: "00000000-0000-4000-8000-000000000020", rateId: "00000000-0000-4000-8000-000000000021", zoneId: "00000000-0000-4000-8000-000000000022", settingsVersion: 1 },
   } });
   expect(html).toContain("Conservar entrega actual");
   expect(html).toContain("Old street, Old district");

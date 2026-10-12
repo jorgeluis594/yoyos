@@ -105,8 +105,8 @@ test("delivery HTTP resolves real configuration, preserves snapshots, replaces a
     return response.ok ? ok(body) : err({ code: "API_ERROR", message: "HTTP failure", http: { status: response.status, body } });
   });
 
-  for (const chargeDeliveryToCustomer of [true, false]) {
-    const rejected = await call(`/api/orders/${orderId}/delivery`, seller.cookie, { delivery: input.delivery, chargeDeliveryToCustomer }, "PUT");
+  for (const obsoleteCharge of [true, false]) {
+    const rejected = await call(`/api/orders/${orderId}/delivery`, seller.cookie, { delivery: input.delivery, obsoleteCharge }, "PUT");
     expect(rejected.status).toBe(400);
     expect(await rejected.json()).toMatchObject({ code: "INVALID_INPUT" });
   }
@@ -593,7 +593,7 @@ test("quotation HTTP uses the checkout order tenant even with a foreign seller s
 });
 
 
-test("aggregate reads preserve rated and historical delivery snapshots without consulting current configuration", async () => {
+test("aggregate reads preserve rated delivery snapshots without consulting current configuration", async () => {
   const seller = await fixture("PE");
   const orderId = randomUUID();
   expect((await call("/api/orders/pending", seller.cookie, { id: orderId, contactId: null,
@@ -604,9 +604,8 @@ test("aggregate reads preserve rated and historical delivery snapshots without c
   const recordedBy = { kind: "buyer" };
   const home = { method: "home", recipient, destination: { ...district, address: "Street", instructions: null }, pricing, recordedBy };
   const agency = { method: "agency", recipient, destination: district, pricing, courier: null, agency: null, recordedBy };
-  const historicalHome = { method: "home", recipient, destination: { address: "Old street", district: "Historical free text", instructions: null }, recordedBy };
-  const historicalAgency = { method: "agency", recipient, courier: { id: randomUUID(), name: "Old courier" }, agency: "Old office", recordedBy };
-  for (const delivery of [home, agency, historicalHome, historicalAgency]) {
+  const pickup = { method: "store", recipient, pickupPoint: { name: "Shop", address: "Street", instructions: null }, settingsVersion: 3, recordedBy };
+  for (const delivery of [home, agency, pickup]) {
     const charge = "pricing" in delivery ? 8 : 0;
     await withTenantIsolation(seller.companyId, async () => await prisma.order.update({ where: { id: orderId }, data: {
       delivery, deliveryCost: 8, deliveryCharge: charge, total: 10 + charge,
@@ -614,6 +613,11 @@ test("aggregate reads preserve rated and historical delivery snapshots without c
     const response = await call(`/api/orders/${orderId}/aggregate`, seller.cookie);
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ delivery, deliveryCost: { amount: 8, currency: "PEN" }, deliveryCharge: { amount: charge }, total: { amount: 10 + charge } });
+  }
+  const freeTextAgency = { method: "agency", recipient, destination: district, pricing, courier: { id: randomUUID(), name: "Old courier" }, agency: "Old office", recordedBy };
+  for (const delivery of [freeTextAgency, { ...home, pricing: undefined }]) {
+    await withTenantIsolation(seller.companyId, async () => await prisma.order.update({ where: { id: orderId }, data: { delivery } }));
+    expect((await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).status).toBe(422);
   }
   await withTenantIsolation(seller.companyId, async () => expect(await prisma.companyDeliverySettings.count()).toBe(0));
 });
@@ -654,7 +658,7 @@ test("rated delivery HTTP assigns the selected option, reports price conflicts a
   expect(otherRate.status).toBe(422);
   expect(await otherRate.json()).toMatchObject({ code: "RATE_UNAVAILABLE" });
   expect((await call(path, foreign.cookie, input, "PUT")).status).toBe(404);
-  for (const body of [{ ...input, chargeDeliveryToCustomer: false }, { ...input, price: home.price },
+  for (const body of [{ ...input, obsoleteCharge: false }, { ...input, price: home.price },
     { ...input, delivery: { ...input.delivery, quotationId: quote.id } }, { ...input, delivery: { ...input.delivery, rateId: undefined } }]) {
     expect((await call(path, seller.cookie, body, "PUT")).status).toBe(400);
   }
@@ -676,8 +680,8 @@ test("rated delivery HTTP assigns the selected option, reports price conflicts a
   const paymentId = randomUUID();
   const paidInput = { id: paidId, contactId: null, items: [{ variantId: seller.variantId, quantity: 1 }], delivery: input,
     payments: [{ paymentId, amount: { amount: 18, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }] };
-  for (const chargeDeliveryToCustomer of [true, false]) {
-    const rejected = await call("/api/orders", seller.cookie, { ...paidInput, delivery: { delivery: { method: "store", recipient }, chargeDeliveryToCustomer } });
+  for (const obsoleteCharge of [true, false]) {
+    const rejected = await call("/api/orders", seller.cookie, { ...paidInput, delivery: { delivery: { method: "store", recipient }, obsoleteCharge } });
     expect(rejected.status).toBe(400);
     expect(await rejected.json()).toMatchObject({ code: "INVALID_INPUT" });
   }

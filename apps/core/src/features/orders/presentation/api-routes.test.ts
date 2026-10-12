@@ -89,8 +89,8 @@ test("delivery HTTP rejects client authority and maps disabled or locked deliver
   for (const extra of [{ recordedBy: { kind: "seller", userId: "other" } }, { pickupPoint: { name: "Fake", address: "Fake", instructions: null } }]) {
     expect(await request(`/${contactId}/delivery`, "PE", put({ ...body, delivery: { ...body.delivery, ...extra } }))).toMatchObject({ status: 400 });
   }
-  for (const chargeDeliveryToCustomer of [true, false]) {
-    expect(await request(`/${contactId}/delivery`, "PE", put({ delivery: body.delivery, chargeDeliveryToCustomer }))).toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
+  for (const obsoleteCharge of [true, false]) {
+    expect(await request(`/${contactId}/delivery`, "PE", put({ delivery: body.delivery, obsoleteCharge }))).toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
   }
   expect(set).not.toHaveBeenCalled();
   expect(await request(`/${contactId}/delivery`, "PE", put(body))).toMatchObject({ status: 422, body: { code: "DELIVERY_METHOD_DISABLED" } });
@@ -143,12 +143,12 @@ test("rated assignment errors preserve public price metadata and distinguish sto
 });
 
 
-test("creation API rejects legacy delivery choices without dispatching a save", async () => {
+test("creation API rejects obsolete delivery choices without dispatching a save", async () => {
   const create = vi.spyOn(orderComposition, "createConfiguredOrder");
   const immediate = vi.spyOn(orders, "registerImmediateSale");
-  for (const chargeDeliveryToCustomer of [true, false]) {
+  for (const obsoleteCharge of [true, false]) {
     const body = { id: "00000000-0000-4000-8000-000000000003", contactId: null, items: [{ variantId: contactId, quantity: 1 }],
-      delivery: { delivery: { method: "store", recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } } }, chargeDeliveryToCustomer } };
+      delivery: { delivery: { method: "store", recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } } }, obsoleteCharge } };
     expect(await request("/", "PE", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
   }
   expect(create).not.toHaveBeenCalled();

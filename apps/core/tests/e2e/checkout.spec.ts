@@ -32,7 +32,7 @@ async function fixture(prefill: "none" | "phone" | "full" = "none", enabled = tr
     const created = await orders.create({ id: orderId, contactId: prefill === "none" ? null : contactId, items: [{ variantId: variant.id as VariantId, quantity: 1 as PositiveInteger }] }, { companyId, userId });
     if (!created.success) throw new Error("Order fixture failed");
     if (assigned) await prisma.order.update({ where: { id: orderId }, data: { delivery: { method: "home",
-      recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } }, destination: { address: "Historical address", district: "Lima", instructions: null },
+      recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } }, destination: { address: "Historical address", country: "PE", districtCode: "150101", district: "Lima", province: "Lima", department: "Lima", instructions: null }, pricing: { quotationId: randomUUID(), rateId: randomUUID(), zoneId: randomUUID(), settingsVersion: 1 },
       recordedBy: { kind: "seller", userId } } } });
     if (enabled) expect(await orders.enableCheckout(orderId, { companyId, userId })).toMatchObject({ success: true });
   });
@@ -107,7 +107,7 @@ test("changed total preserves buyer input and needs an explicit new confirmation
     await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
     await withTenantIsolation(f.companyId, async () => {
       await prisma.order.update({ where: { id: f.orderId }, data: { total: 12, deliveryCost: 2, deliveryCharge: 2,
-        delivery: { method: "home", recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } }, destination: { address: "Address", district: "Lima", instructions: null }, recordedBy: { kind: "seller", userId: f.userId } } } });
+        delivery: { method: "home", recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } }, destination: { address: "Address", country: "PE", districtCode: "150101", district: "Lima", province: "Lima", department: "Lima", instructions: null }, pricing: { quotationId: randomUUID(), rateId: randomUUID(), zoneId: randomUUID(), settingsVersion: 1 }, recordedBy: { kind: "seller", userId: f.userId } } } });
     });
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
     await browserExpect(page.getByRole("alert")).toContainText("El total cambió");
@@ -198,7 +198,7 @@ test("seller copies a stable link and sees buyer confirmation separately from pa
     await withTenantIsolation(companyId, async () => {
       const stored = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
       await prisma.order.update({ where: { id: orderId }, data: { delivery: { method: "home", recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } },
-        destination: { address: "Historical address", district: "Lima", instructions: null }, recordedBy: { kind: "seller", userId: stored.sellerId } } } });
+        destination: { address: "Historical address", country: "PE", districtCode: "150101", district: "Lima", province: "Lima", department: "Lima", instructions: null }, pricing: { quotationId: randomUUID(), rateId: randomUUID(), zoneId: randomUUID(), settingsVersion: 1 }, recordedBy: { kind: "seller", userId: stored.sellerId } } } });
     });
     await page.goto(`/es-PE/orders/${orderId}`);
     await browserExpect(page.getByRole("heading", { name: "Pedido #10000" })).toBeVisible();

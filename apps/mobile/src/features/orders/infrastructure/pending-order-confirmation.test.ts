@@ -2,26 +2,22 @@ import { createPendingOrderConfirmationStore } from "@mobile/features/orders/inf
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 
-test.each([true, false])("legacy delivery attempts remain intact after restart (customer charge: %s)", async (chargeDeliveryToCustomer) => {
-  const pending = { version: 2 as const, companyId: id(1), id: id(2), shownTotal: { amount: 10, currency: "PEN" as const },
-    request: { id: id(2), contactId: id(5), items: [{ variantId: id(3), quantity: 2 }],
-      payments: [{ paymentId: id(4), amount: { amount: 3, currency: "PEN" as const }, method: "bank_transfer" as const, deductStockIfPartial: false }],
-      delivery: { chargeDeliveryToCustomer, delivery: { method: "home" as const,
-        recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } },
-        destination: { address: "Calle original", district: "Lima", instructions: "Puerta lateral" } } }, deliverImmediately: false } };
-  const raw = JSON.stringify(pending);
-  const key = `yoyos_pending_order_${id(1)}`;
-  const values = new Map([[key, raw]]);
-  const setItemAsync = jest.fn(async (storageKey: string, value: string) => { values.set(storageKey, value); });
-  const deleteItemAsync = jest.fn(async (storageKey: string) => { values.delete(storageKey); });
-  const store = createPendingOrderConfirmationStore({ getItemAsync: async (storageKey) => values.get(storageKey) ?? null,
-    setItemAsync, deleteItemAsync });
-  expect(await store.read(id(1))).toEqual({ success: true, data: pending });
-  expect(await store.save({ ...pending, request: { ...pending.request, delivery: undefined, payments: [] } }))
-    .toEqual({ success: true, data: pending });
-  expect(values.get(key)).toBe(raw);
-  expect(setItemAsync).not.toHaveBeenCalled();
-  expect(deleteItemAsync).not.toHaveBeenCalled();
+const simple = (shownAmount = 10, orderId = id(2)) => ({ companyId: id(1), id: orderId, shownTotal: { amount: shownAmount, currency: "PEN" as const },
+  version: 2 as const, request: { id: orderId, contactId: null, items: [{ variantId: id(3), quantity: 1 }] } });
+
+test.each([true, false])("attempts saved with the obsolete delivery shape or without a version are invalid (charge: %s)", async (obsoleteCharge) => {
+  const obsolete = { ...simple(), request: { ...simple().request, delivery: { obsoleteCharge, delivery: { method: "home" as const,
+    recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } },
+    destination: { address: "Calle original", district: "Lima", instructions: "Puerta lateral" } } } } };
+  const { version: _version, request: _request, ...unversioned } = simple();
+  for (const stored of [obsolete, unversioned]) {
+    const values = new Map([[`yoyos_pending_order_${id(1)}`, JSON.stringify(stored)]]);
+    const store = createPendingOrderConfirmationStore({ getItemAsync: async (key) => values.get(key) ?? null,
+      setItemAsync: async () => {}, deleteItemAsync: async (key) => { values.delete(key); } });
+    expect(await store.read(id(1))).toMatchObject({ success: false, error: { code: "INVALID_PENDING_DATA" } });
+    expect(await store.discard(id(1))).toEqual({ success: true, data: undefined });
+    expect(await store.read(id(1))).toEqual({ success: true, data: null });
+  }
 });
 
 test("pending confirmation is company scoped, keeps its first amount, and refuses a different ID", async () => {
@@ -31,11 +27,11 @@ test("pending confirmation is company scoped, keeps its first amount, and refuse
     setItemAsync: async (key, value) => { values.set(key, value); },
     deleteItemAsync: async (key) => { values.delete(key); },
   });
-  const pending = { companyId: id(1), id: id(2), shownTotal: { amount: 10, currency: "PEN" as const } };
+  const pending = simple();
   expect(await store.save(pending)).toMatchObject({ success: true, data: pending });
   expect(await store.read(id(3))).toEqual({ success: true, data: null });
   expect(await store.save({ ...pending, shownTotal: { amount: 12, currency: "PEN" } })).toMatchObject({ success: true, data: pending });
-  expect(await store.save({ ...pending, id: id(4) })).toMatchObject({ success: false, error: { code: "PENDING_CONFIRMATION" } });
+  expect(await store.save(simple(10, id(4)))).toMatchObject({ success: false, error: { code: "PENDING_CONFIRMATION" } });
   expect(await store.clear(id(1), id(4))).toMatchObject({ success: false, error: { code: "PENDING_CONFIRMATION" } });
   expect(await store.read(id(1))).toMatchObject({ success: true, data: pending });
   expect(await store.clear(id(1), id(2))).toEqual({ success: true, data: undefined });
@@ -56,14 +52,14 @@ test("corrupt or unreadable pending data never looks like absence", async () => 
 });
 
 test("review replacement rejects another identity and retains the original on storage failure", async () => {
-  const pending = { companyId: id(1), id: id(2), shownTotal: { amount: 10, currency: "PEN" as const } };
+  const pending = simple();
   let raw = JSON.stringify(pending);
   let fail = true;
   const deleteItemAsync = jest.fn(async () => {});
   const store = createPendingOrderConfirmationStore({ getItemAsync: async () => raw,
     setItemAsync: async (_key, value) => { if (fail) throw new Error("Storage failed"); raw = value; }, deleteItemAsync });
-  const next = { ...pending, shownTotal: { amount: 12, currency: "PEN" as const } };
-  expect(await store.replace(pending, { ...next, id: id(3) })).toMatchObject({ success: false, error: { code: "INVALID_PENDING_DATA" } });
+  const next = simple(12);
+  expect(await store.replace(pending, simple(12, id(3)))).toMatchObject({ success: false, error: { code: "INVALID_PENDING_DATA" } });
   expect(await store.replace(pending, next)).toMatchObject({ success: false, error: { code: "PENDING_STORAGE_UNAVAILABLE" } });
   expect(await store.read(id(1))).toEqual({ success: true, data: pending });
   fail = false;
@@ -105,6 +101,6 @@ test("rated pending creation survives restart without losing the reviewed price 
   expect(await restarted.save({ ...pending, request: { ...pending.request, delivery: { ...pending.request.delivery,
     expectedPrice: { amount: 10, currency: "PEN" as const } } } })).toEqual({ success: true, data: pending });
   values.set(`yoyos_pending_order_${id(1)}`, JSON.stringify({ ...pending, request: { ...pending.request,
-    delivery: { ...pending.request.delivery, chargeDeliveryToCustomer: false } } }));
+    delivery: { ...pending.request.delivery, obsoleteCharge: false } } }));
   expect(await restarted.read(id(1))).toMatchObject({ success: false, error: { code: "INVALID_PENDING_DATA" } });
 });

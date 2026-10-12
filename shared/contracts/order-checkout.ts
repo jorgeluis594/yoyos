@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { internationalPhonePattern } from "@shared/phone";
-import { deliverySnapshotSchemas, ratedDeliverySelectionSchema } from "@shared/contracts/orders";
+import { agencyDeliverySnapshotSchema, homeDeliverySnapshotSchema, ratedDeliverySelectionSchema, storeDeliverySnapshotSchema } from "@shared/contracts/orders";
 import { moneySchema } from "@shared/contracts/money";
 import { storeDeliverySettingsSchema } from "@shared/contracts/delivery-settings";
 
@@ -20,14 +20,10 @@ export const checkoutDeliveryOptionsSchema = z.strictObject({
   home: z.strictObject({ enabled: z.boolean() }), agency: z.strictObject({ enabled: z.boolean() }), store: storeDeliverySettingsSchema,
 });
 export type CheckoutDeliveryOptions = z.infer<typeof checkoutDeliveryOptionsSchema>;
-export const publicCheckoutDeliverySchema = z.union([
-  deliverySnapshotSchemas[0].omit({ recordedBy: true }),
-  deliverySnapshotSchemas[1].omit({ recordedBy: true }),
-  deliverySnapshotSchemas[2].omit({ recordedBy: true }),
-  deliverySnapshotSchemas[3].omit({ recordedBy: true }),
-  deliverySnapshotSchemas[4].omit({ recordedBy: true }),
-  deliverySnapshotSchemas[5].omit({ recordedBy: true }),
-  deliverySnapshotSchemas[6].omit({ recordedBy: true })
+export const publicCheckoutDeliverySchema = z.discriminatedUnion("method", [
+  homeDeliverySnapshotSchema.omit({ recordedBy: true }),
+  agencyDeliverySnapshotSchema.omit({ recordedBy: true }),
+  storeDeliverySnapshotSchema.omit({ recordedBy: true }),
 ]);
 export const publicCheckoutSchema = z.strictObject({
   companyName: z.string(), number: z.number().int().safe().min(1001),

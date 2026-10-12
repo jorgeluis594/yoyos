@@ -112,7 +112,7 @@ export default function OrderDeliveryScreen() {
     if (result.success) { reset(getValues()); setOrder(result.data); router.back(); }
     else {
       const code = result.error.code;
-      if (["TOTAL_CHANGED", "RATE_UNAVAILABLE", "INVALID_DELIVERY_RATE", "COURIER_UNAVAILABLE", "DELIVERY_METHOD_DISABLED"].includes(code)) {
+      if (["TOTAL_CHANGED", "RATE_UNAVAILABLE", "INVALID_DELIVERY_RATE", "DELIVERY_METHOD_DISABLED"].includes(code)) {
         const latest = await deliverySettings.get();
         if (latest.success) setSettings(latest.data);
         setQuoteAttempt(value => value + 1);
@@ -122,7 +122,6 @@ export default function OrderDeliveryScreen() {
         : code === "RATE_UNAVAILABLE" || code === "INVALID_DELIVERY_RATE" ? "orderDeliveryRateUnavailable"
         : code === "DELIVERY_UNAVAILABLE" ? "orderDeliveryUnavailable"
         : code === "DELIVERY_METHOD_DISABLED" ? "orderDeliveryDisabled"
-        : code === "COURIER_UNAVAILABLE" ? "orderCourierUnavailable"
         : code === "INSUFFICIENT_STOCK" ? "insufficientStock"
         : code === "DELIVERY_LOCKED" || code === "ORDER_CANCELLED" || code === "INVALID_TRANSITION" ? "orderDeliveryLocked"
         : code === "INVALID_INPUT" ? "invalidOrderDelivery" : "saveOrderDeliveryError");

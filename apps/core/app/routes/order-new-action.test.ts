@@ -32,7 +32,7 @@ test("returns the current price without turning a rejected creation into success
 
 test("rejects manual charge and forged snapshot claims on rated creation", async () => {
   const create = vi.spyOn(composition, "createConfiguredOrder");
-  for (const body of [{ ...input, companyId: "forged" }, { ...input, delivery: { ...input.delivery, chargeDeliveryToCustomer: false } },
+  for (const body of [{ ...input, companyId: "forged" }, { ...input, delivery: { ...input.delivery, obsoleteCharge: false } },
     { ...input, delivery: { ...input.delivery, delivery: { ...input.delivery.delivery, recordedBy: { kind: "buyer" } } } },
     { ...input, delivery: { ...input.delivery, delivery: { ...input.delivery.delivery, destination: { ...input.delivery.delivery.destination, districtCode: "999999" } } } }]) {
     expect(await save(body)).toMatchObject({ code: "INVALID_ORDER" });
@@ -41,10 +41,10 @@ test("rejects manual charge and forged snapshot claims on rated creation", async
 });
 
 
-test("rejects legacy initial delivery with either charge choice", async () => {
+test("rejects obsolete initial delivery with either charge choice", async () => {
   const create = vi.spyOn(composition, "createConfiguredOrder");
-  for (const chargeDeliveryToCustomer of [true, false]) {
-    expect(await save({ ...input, delivery: { delivery: { method: "store", recipient: input.delivery.delivery.recipient }, chargeDeliveryToCustomer } })).toMatchObject({ code: "INVALID_ORDER" });
+  for (const obsoleteCharge of [true, false]) {
+    expect(await save({ ...input, delivery: { delivery: { method: "store", recipient: input.delivery.delivery.recipient }, obsoleteCharge } })).toMatchObject({ code: "INVALID_ORDER" });
   }
   expect(create).not.toHaveBeenCalled();
 });

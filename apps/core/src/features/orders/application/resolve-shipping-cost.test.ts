@@ -80,10 +80,10 @@ test("expected delivery price is checked independently and storage/availability 
     getStoreSettings: async () => failure })).toEqual(failure);
 });
 
-test("new shipping selections reject legacy/manual prices, unknown districts and forged geographic labels", async () => {
+test("new shipping selections reject manual prices, unknown districts and forged geographic labels", async () => {
   const f = fixture();
   for (const input of [{ ...f.input, rateId: undefined }, { ...f.input, rateId: "bad" }, { ...f.input, price: money(0) },
-    { ...f.input, chargeDeliveryToCustomer: false }, { ...f.input, destination: { districtCode: "150122", district: "Fake", address: "Street", instructions: null } }]) {
+    { ...f.input, obsoleteCharge: false }, { ...f.input, destination: { districtCode: "150122", district: "Fake", address: "Street", instructions: null } }]) {
     expect((await resolveShippingCost(input, f.context, "PEN", money(8), f.deps)).success).toBe(false);
   }
   expect(parseRatedDeliverySelection({ method: "agency", rateId: f.rate.rateId, recipient: f.recipient, districtCode: "999999" }))

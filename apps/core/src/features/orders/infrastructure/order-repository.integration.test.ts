@@ -1065,7 +1065,7 @@ test.each(["CompanyDeliverySettings", "Order"] as const)("a deferred %s commit f
   }
 });
 
-test("a corrupt persisted delivery snapshot fails explicitly without inventing legacy authorship", async () => {
+test("a corrupt persisted delivery snapshot fails explicitly without inventing authorship", async () => {
   const f = await fixture();
   const failure = vi.spyOn(log, "error").mockImplementation(() => {});
   try {
@@ -1123,7 +1123,7 @@ test("confirmation observes total changes and cancellation committed by a concur
         locked.resolve();
         await release.promise;
         await prisma.order.update({ where: { id: access.orderId }, data: change === "total" ? { total: 1, deliveryCost: 0.9, deliveryCharge: 0.9,
-          delivery: { method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, destination: { address: "Av. Lima 123", district: "Lima", instructions: null }, recordedBy: { kind: "seller", userId: f.sellerId } } } : { cancelled: true } });
+          delivery: { method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, destination: { address: "Av. Lima 123", country: "PE", districtCode: "150101", district: "Lima", province: "Lima", department: "Lima", instructions: null }, pricing: { quotationId: randomUUID(), rateId: randomUUID(), zoneId: randomUUID(), settingsVersion: 1 }, recordedBy: { kind: "seller", userId: f.sellerId } } } : { cancelled: true } });
         return ok(null);
       }));
       await locked.promise;
@@ -1183,7 +1183,7 @@ test("confirmation committed first survives a concurrent total update or cancell
         if (!found.success) return found;
         await prisma.order.update({ where: { id: access.orderId }, data: change === "cancel" ? { cancelled: true } : {
           total: 1, deliveryCost: 0.9, deliveryCharge: 0.9,
-          delivery: { method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, destination: { address: "Av. Lima 123", district: "Lima", instructions: null }, recordedBy: { kind: "seller", userId: f.sellerId } },
+          delivery: { method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, destination: { address: "Av. Lima 123", country: "PE", districtCode: "150101", district: "Lima", province: "Lima", department: "Lima", instructions: null }, pricing: { quotationId: randomUUID(), rateId: randomUUID(), zoneId: randomUUID(), settingsVersion: 1 }, recordedBy: { kind: "seller", userId: f.sellerId } },
         } });
         return ok(null);
       }));
@@ -1336,14 +1336,14 @@ test.each([
   } finally { await f.cleanup(); }
 });
 
-test.each([true, false])("complete creation rejects legacy delivery without persisting order or payments (charge: %s)", async (chargeDeliveryToCustomer) => {
+test.each([true, false])("complete creation rejects obsolete delivery without persisting order or payments (charge: %s)", async (obsoleteCharge) => {
   const f = await fixture();
   try {
     await withTenantIsolation(f.companyId, async () => {
       const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
       const input = { id: randomUUID(), contactId: null, items: [{ variantId: f.variantIds[0], quantity: 2 }],
         payments: [{ paymentId: randomUUID(), amount: { amount: 0.2, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }],
-        delivery: { delivery: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } }, chargeDeliveryToCustomer } };
+        delivery: { delivery: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } }, obsoleteCharge } };
       expect(await createConfiguredOrder(input as unknown as CreateCompleteOrderInput, context)).toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
       expect(await prisma.order.count()).toBe(0);
       expect(await prisma.orderItem.count()).toBe(0);

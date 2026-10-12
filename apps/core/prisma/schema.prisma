@@ -428,7 +428,6 @@ model Order {
   buyer OrderBuyer?
   checkoutEnabledAt DateTime?
   checkoutConfirmedAt DateTime?
-  checkoutDeliveryRequest Json?
   currency String
   total Decimal @db.Decimal(15, 2)
   itemsTotal Decimal @db.Decimal(15, 2)

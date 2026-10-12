@@ -111,10 +111,6 @@ test("rated assignments charge the validated price and reuse covered-stock deduc
   } });
   expect(resolveRatedDelivery).toHaveBeenCalledWith(delivery, context, 'PEN', money(0));
   expect(f.deductProductStock).toHaveBeenCalledTimes(1);
-  const rejected = dependencies(order());
-  expect(await setOrderDelivery({ ...rated, chargeDeliveryToCustomer: false } as typeof rated, context, rejected.deps))
-    .toMatchObject({ success: false, error: { code: 'INVALID_ORDER' } });
-  expect(rejected.saveDelivery).not.toHaveBeenCalled();
 });
 
 test("rated price conflicts never save delivery, stock or totals", async () => {
@@ -127,10 +123,9 @@ test("rated price conflicts never save delivery, stock or totals", async () => {
   expect(f.saveStockDeduction).not.toHaveBeenCalled();
 });
 
-test.each([true, false])("rejects legacy charge decision %s before resolving or writing", async chargeDeliveryToCustomer => {
+test("rejects a missing reviewed price before resolving or writing", async () => {
   const f = dependencies(order());
-  const legacy = { orderId: input.orderId, delivery, chargeDeliveryToCustomer };
-  expect(await setOrderDelivery(legacy as unknown as typeof input, context, f.deps))
+  expect(await setOrderDelivery({ orderId: input.orderId, delivery } as unknown as typeof input, context, f.deps))
     .toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
   expect(f.resolveRatedDelivery).not.toHaveBeenCalled();
   expect(f.saveDelivery).not.toHaveBeenCalled();

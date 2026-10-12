@@ -117,7 +117,7 @@ test("technical failures propagate without a false success or subsequent writes"
 
 function deliveryFixture() {
   const order = { ...base, items: [base.items[0]] as const, sellerId: seller.userId, createdAt: now,
-    completedAt: null, deliveredAt: null, deliveryStatus: "pending" as const, stockDeducted: false, payments: [], checkoutDeliveryRequest: null,
+    completedAt: null, deliveredAt: null, deliveryStatus: "pending" as const, stockDeducted: false, payments: [],
     delivery: null, deliveryCost: { amount: 0, currency: "PEN" as const }, deliveryCharge: { amount: 0, currency: "PEN" as const }, total: base.itemsTotal };
   const deps: ConfirmCheckoutDeliveryDependencies = {
     transaction: async (_company, work) => work(), findOrderForUpdate: async () => ok(order),
@@ -155,9 +155,10 @@ test("checkout keep requires an existing delivery and preserves historical price
   expect(await confirmCheckoutDelivery(input, access, now, f.deps)).toMatchObject({ error: { code: "INVALID_CHECKOUT" } });
   const historical = { ...f.order, deliveryCost: { amount: 30, currency: "PEN" as const },
     deliveryCharge: { amount: 0, currency: "PEN" as const }, delivery: { method: "home" as const,
-      recipient: f.input.delivery.selection.recipient, destination: { address: "Old street", district: "Old district", instructions: null },
+      recipient: f.input.delivery.selection.recipient, destination: { address: "Old street", country: "PE" as const, districtCode: "150101", district: "Old district", province: "Lima", department: "Lima", instructions: null },
+      pricing: { quotationId: "00000000-0000-4000-8000-000000000020", rateId: "00000000-0000-4000-8000-000000000021", zoneId: "00000000-0000-4000-8000-000000000022", settingsVersion: 1 },
       recordedBy: { kind: "seller" as const, userId: seller.userId } } };
-  f.deps = { ...f.deps, findOrderForUpdate: async () => ok(historical) };
+  f.deps = { ...f.deps, findOrderForUpdate: async () => ok(historical as unknown as typeof f.order) };
   expect(await confirmCheckoutDelivery({ ...input, expectedTotal: historical.total }, access, now, f.deps))
     .toMatchObject({ data: { changed: true, checkout: { total: historical.total } } });
   expect(f.deps.saveDelivery).not.toHaveBeenCalled();
@@ -180,7 +181,8 @@ test("checkout confirmation replay preserves buyer and delivery without resolvin
 
 test("checkout exposes the saved delivery and customer charge without seller identity or repricing", async () => {
   const parsed = parseDeliverySnapshot({ method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
-    destination: { address: "Historical street", district: "Historical district", instructions: null }, recordedBy: { kind: "seller", userId: seller.userId } });
+    destination: { address: "Historical street", country: "PE", districtCode: "150101", district: "Historical district", province: "Lima", department: "Lima", instructions: null },
+    pricing: { quotationId: "00000000-0000-4000-8000-000000000020", rateId: "00000000-0000-4000-8000-000000000021", zoneId: "00000000-0000-4000-8000-000000000022", settingsVersion: 1 }, recordedBy: { kind: "seller", userId: seller.userId } });
   if (!parsed.success) throw new Error("Invalid delivery fixture");
   const f = fixture({ ...base, delivery: parsed.data });
   const result = await getOrderCheckout(access, f.deps);

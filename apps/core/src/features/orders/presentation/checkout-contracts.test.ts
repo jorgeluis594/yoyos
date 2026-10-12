@@ -23,21 +23,22 @@ test("public response validates confirmed buyers and excludes private aggregate 
 });
 
 
-test("public delivery keeps historical and pending agency snapshots and excludes author identity", () => {
+test("public delivery keeps rated snapshots, rejects obsolete shapes and excludes author identity", () => {
   const recipient = { name: "Ana", phone: "999", identity: { kind: "absent" } };
-  const historical = { method: "home", recipient, destination: { address: "Street", district: "Old district", instructions: null } };
-  expect(publicCheckoutDeliverySchema.safeParse(historical).success).toBe(true);
-  expect(publicCheckoutDeliverySchema.safeParse({ ...historical, recordedBy: { kind: "seller", userId: "private" } }).success).toBe(false);
+  const pricing = { quotationId: "00000000-0000-4000-8000-000000000001", rateId: "00000000-0000-4000-8000-000000000002",
+    zoneId: "00000000-0000-4000-8000-000000000003", settingsVersion: 2 };
+  const district = { country: "PE", districtCode: "150122", district: "MIRAFLORES", province: "LIMA METROPOLITANA", department: "LIMA" };
+  const home = { method: "home", recipient, destination: { ...district, address: "Street", instructions: null }, pricing };
+  expect(publicCheckoutDeliverySchema.safeParse(home).success).toBe(true);
+  expect(publicCheckoutDeliverySchema.safeParse({ ...home, recordedBy: { kind: "seller", userId: "private" } }).success).toBe(false);
+  expect(publicCheckoutDeliverySchema.safeParse({ ...home, pricing: undefined, destination: { address: "Street", district: "Old district", instructions: null } }).success).toBe(false);
   const agency = { method: "agency", recipient: { ...recipient, identity: { kind: "document", documentType: "passport", document: "001" } },
-    destination: { country: "PE", districtCode: "150122", district: "MIRAFLORES", province: "LIMA METROPOLITANA", department: "LIMA" },
-    pricing: { quotationId: "00000000-0000-4000-8000-000000000001", rateId: "00000000-0000-4000-8000-000000000002",
-      zoneId: "00000000-0000-4000-8000-000000000003", settingsVersion: 2 }, courier: null, agency: null };
+    destination: district, pricing, courier: null, agency: null };
   expect(publicCheckoutDeliverySchema.safeParse(agency).success).toBe(true);
-  expect(publicCheckoutDeliverySchema.safeParse({ ...agency, courier: { id: agency.pricing.zoneId, name: "Courier" }, agency: "Office" }).success).toBe(true);
-  const store = { method: "store", recipient, pickupPoint: { name: "Shop", address: "Street", instructions: null } };
+  expect(publicCheckoutDeliverySchema.safeParse({ ...agency, courier: { id: pricing.zoneId, name: "Courier" }, agency: "Office" }).success).toBe(false);
+  const store = { method: "store", recipient, pickupPoint: { name: "Shop", address: "Street", instructions: null }, settingsVersion: 2 };
   expect(publicCheckoutDeliverySchema.safeParse(store).success).toBe(true);
-  expect(publicCheckoutDeliverySchema.safeParse({ ...store, settingsVersion: 2 }).success).toBe(true);
-  expect(publicCheckoutDeliverySchema.safeParse({ ...agency, courier: { id: agency.pricing.zoneId, name: "Courier" } }).success).toBe(false);
+  expect(publicCheckoutDeliverySchema.safeParse({ ...store, settingsVersion: undefined }).success).toBe(false);
 });
 
 test("delivery confirmation requires explicit change, rate identity and independently valid expected price", () => {
@@ -46,7 +47,7 @@ test("delivery confirmation requires explicit change, rate identity and independ
   const delivery = { kind: "replace", selection: { method: "store", recipient }, expectedPrice: { amount: 0, currency: "PEN" } };
   expect(confirmCheckoutDeliverySchema.safeParse({ ...valid, delivery }).success).toBe(true);
   for (const change of [null, { kind: "keep", expectedPrice: delivery.expectedPrice }, { ...delivery, expectedPrice: { amount: 0.001, currency: "PEN" } },
-    { ...delivery, selection: { ...delivery.selection, rateId: "fake" } }, { ...delivery, chargeDeliveryToCustomer: false },
+    { ...delivery, selection: { ...delivery.selection, rateId: "fake" } }, { ...delivery, obsoleteCharge: false },
     { ...delivery, selection: { method: "home", recipient, destination: { districtCode: "150122", address: "Street", instructions: null } } }])
     expect(confirmCheckoutDeliverySchema.safeParse({ ...valid, delivery: change }).success).toBe(false);
   expect(confirmCheckoutDeliverySchema.safeParse(valid).success).toBe(false);

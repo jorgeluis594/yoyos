@@ -54,10 +54,10 @@ test("delivery failure prevents payments and fulfillment", async () => {
   expect(f.deliver).not.toHaveBeenCalled();
 });
 
-test.each([true, false])("legacy initial delivery is rejected before opening a transaction (charge: %s)", async (chargeDeliveryToCustomer) => {
+test("initial delivery without a reviewed price is rejected before opening a transaction", async () => {
   const f = fixture();
-  const delivery = { delivery: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } }, chargeDeliveryToCustomer };
-  for (const selection of [delivery, { ...delivery, expectedPrice: { amount: 0, currency: "PEN" } }, { delivery: delivery.delivery }]) {
+  const delivery = { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } };
+  for (const selection of [{ delivery }, { delivery, price: { amount: 0, currency: "PEN" } }]) {
     expect(await createCompleteOrder({ ...input, payments: [payment], delivery: selection } as unknown as CreateCompleteOrderInput, context, f.deps))
       .toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
   }
