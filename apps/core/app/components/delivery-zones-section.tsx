@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import { useForm, useFieldArray, Controller } from "react-hook-form";
+import { useForm, useFieldArray, useWatch, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useTranslation } from "react-i18next";
@@ -9,8 +9,9 @@ import { Field, FieldLabel, FieldError, controlClass } from "@core/app/component
 import { PeruDistrictMultiSelect } from "@core/app/components/peru-district-multi-select";
 import { getPeruDistrict, type PeruDistrictCode } from "@shared/peru-geography";
 import { parseDeliveryPrice } from "@core/src/features/delivery-settings/domain/delivery-price";
-import type { DeliveryZonesResponse, SaveDeliveryZonesRequest } from "@shared/contracts/delivery-settings";
+import type { DeliverySettingsResponse, DeliveryZonesResponse, SaveDeliveryZonesRequest } from "@shared/contracts/delivery-settings";
 import { formatCurrency } from "@core/app/format-currency";
+import { AgencyPicker } from "@core/app/components/agency-picker";
 
 const optionDraftSchema = z.object({
   id: z.string().optional(),
@@ -18,7 +19,6 @@ const optionDraftSchema = z.object({
   name: z.string().trim().min(1).max(120),
   amount: z.string().regex(/^\d+(?:[.,]\d{1,2})?$/).refine(value => parseDeliveryPrice({ amount: Number(value.replace(",", ".")), currency: "PEN" }, "PEN").success),
   enabled: z.boolean(),
-  // Agencies are associated in a later task; saved associations are carried through untouched.
   agencyIds: z.array(z.string()),
 });
 export const zoneDraftSchema = z.object({
@@ -44,8 +44,14 @@ const toZoneInput = (zone: Draft, id?: string): SaveDeliveryZonesRequest["zones"
   ...(id ? { kind: "existing" as const, id } : { kind: "new" as const }),
   name: zone.name, enabled: zone.enabled, districtCodes: zone.districtCodes, options: zone.options.map(toOptionInput) });
 
-export function DeliveryZonesSection({ state, pending, error, saved, onSave }: Readonly<{
-  state: DeliveryZonesResponse; pending: boolean; error?: string; saved?: DeliveryZonesResponse;
+type Courier = DeliverySettingsResponse["couriers"][number];
+type Option = Zone["options"][number];
+/** An agency option is only offered when an associated agency is enabled and so is its courier (the catalog rows are checked server-side). */
+export const hasEligibleAgency = (option: Option, state: DeliveryZonesResponse, couriers: readonly Courier[]) => option.method === "agency" &&
+  option.agencyIds.some(id => { const agency = state.agencies.find(value => value.id === id); return agency?.enabled && couriers.some(courier => courier.courierId === agency.courierId && courier.enabled); });
+
+export function DeliveryZonesSection({ state, couriers, pending, error, saved, onSave }: Readonly<{
+  state: DeliveryZonesResponse; couriers: readonly Courier[]; pending: boolean; error?: string; saved?: DeliveryZonesResponse;
   onSave: (request: SaveDeliveryZonesRequest) => void;
 }>) {
   const { t } = useTranslation();
@@ -55,6 +61,7 @@ export function DeliveryZonesSection({ state, pending, error, saved, onSave }: R
   const setEditing = (id: string | null | undefined) => setEditor(id === undefined ? undefined : { id, saved });
   const form = useForm<Draft>({ resolver: zodResolver(zoneDraftSchema), defaultValues: empty });
   const { fields, append, remove } = useFieldArray({ control: form.control, name: "options", keyName: "fieldKey" });
+  const methods = useWatch({ control: form.control, name: "options" });
   const zones = state.zones;
   const blocked = error === "DELIVERY_SETTINGS_CONFLICT" || error === "INTERNAL_ERROR" || error === "SERVICE_UNAVAILABLE" || error === "PERSISTENCE_UNAVAILABLE";
   const { reset } = form;
@@ -80,7 +87,8 @@ export function DeliveryZonesSection({ state, pending, error, saved, onSave }: R
       <p className="text-sm">{t(zone.enabled ? "deliverySettings.active" : "deliverySettings.inactive")}</p>
       {zone.options.length === 0 && <p className="text-sm text-muted-foreground">{t("deliveryZones.noOptions")}</p>}
       <ul className="flex flex-col gap-1">{zone.options.map(option => <li key={option.id} className="flex flex-wrap justify-between gap-2 text-sm">
-        <span className="break-words">{option.name} · {t(`deliveryZones.method.${option.method}`)}{!option.enabled && ` · ${t("deliverySettings.inactive")}`}</span>
+        <span className="break-words">{option.name} · {t(`deliveryZones.method.${option.method}`)}{!option.enabled && ` · ${t("deliverySettings.inactive")}`}
+          {option.method === "agency" && !hasEligibleAgency(option, state, couriers) && <em className="block not-italic text-muted-foreground">{t("deliveryZones.noEligibleAgencies")}</em>}</span>
         <span>{price(option.price.amount, option.price.currency)}</span>
       </li>)}</ul>
       <div className="flex flex-wrap gap-2"><Button type="button" variant="outline" disabled={pending || blocked} onClick={() => { setEditing(zone.id); reset(toDraft(zone)); }}>{t("deliveryZones.edit", { name: zone.name })}</Button>
@@ -122,6 +130,8 @@ export function DeliveryZonesSection({ state, pending, error, saved, onSave }: R
               <p className="text-sm text-muted-foreground">{t("deliveryZones.priceHint")}</p>
               {fieldState.error && <FieldError>{t("deliveryZones.invalidPrice")}</FieldError>}
             </Field>} />
+            {methods?.[index]?.method === "agency" && <Controller name={`options.${index}.agencyIds`} control={form.control} render={({ field }) =>
+              <AgencyPicker id={`${id}-agencies-${index}`} couriers={couriers} known={state.agencies} value={field.value} onChange={field.onChange} />} />}
             <Controller name={`options.${index}.enabled`} control={form.control} render={({ field }) => <label className="flex min-h-touch items-center gap-3">
               <input type="checkbox" checked={field.value} onChange={event => field.onChange(event.target.checked)} className="size-4 accent-primary" />{t("deliveryZones.optionActive")}
             </label>} />

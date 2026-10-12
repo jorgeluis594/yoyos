@@ -142,7 +142,7 @@ function SettingsForm({ settings }: { settings: DeliverySettingsResponse & { cou
   const baseZones = zoneHistory.state;
   const zonesState = baseZones ? { ...baseZones, version: Math.max(baseZones.version, saved?.version ?? 0),
     ...(saved && saved.version > baseZones.version ? { home: saved.home, agency: saved.agency } : {}) } : null;
-  const zoneSection = zonesState && <DeliveryZonesSection state={zonesState}
+  const zoneSection = zonesState && <DeliveryZonesSection state={zonesState} couriers={settings.couriers}
     pending={navigation.state !== "idle" || zonesFetcher.state !== "idle" || !ready}
     error={zonesFetcher.data?.zonesError?.code}
     saved={zoneHistory.saved}
