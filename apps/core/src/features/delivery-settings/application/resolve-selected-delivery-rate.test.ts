@@ -87,7 +87,7 @@ test("agency rates require agency delivery, an enabled courier and an eligible a
   // A vanished agency wins over a price change: the buyer must pick again, not just accept a new total.
   expect(await resolveSelectedDeliveryRate(input, { ...deps, readConfigurationForShare: async () => ok({ ...configuration, agencies: [],
     zones: [{ ...configuration.zones[0], options: [{ ...option, price: { amount: 9, currency: "PEN" } }] }] }) })).toMatchObject({ success: false, error: { code: "RATE_UNAVAILABLE" } });
-  for (const change of [{ settings: { ...configuration.settings, couriers: [{ ...courier, catalogEnabled: false }] } },{ agencies: [] }, { agencies: [{ ...agency, enabled: false }] }, { agencies: [{ ...agency, courierEnabled: false }] },
+  for (const change of [{ settings: { ...configuration.settings, couriers: [{ ...courier, catalogEnabled: false }] } }, { agencies: [] }, { agencies: [{ ...agency, enabled: false }] }, { agencies: [{ ...agency, courierEnabled: false }] },
     { settings: { ...configuration.settings, couriers: [{ ...courier, enabled: false }] } }, { settings: { ...configuration.settings, agency: { enabled: false } } }]) {
     expect(await resolveSelectedDeliveryRate(input, { ...deps, readConfigurationForShare: async () => ok({ ...configuration, ...change }) }))
       .toMatchObject({ success: false, error: { code: "RATE_UNAVAILABLE" } });

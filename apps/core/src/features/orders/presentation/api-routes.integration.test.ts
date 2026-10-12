@@ -464,6 +464,7 @@ test("rated agency adapters preserve snapshots and reject unavailable, unassocia
   await withCatalogAdmin(query => query('UPDATE "DeliveryAgency" SET enabled = false WHERE id = $1', [associated]));
   expect(await mobile.getAggregate(orderId)).toEqual(saved);
   expect(await mobile.setDelivery(orderId, input)).toMatchObject({ success: false, error: { code: "RATE_UNAVAILABLE" } });
+  expect(rejection).toHaveBeenCalledWith(expect.objectContaining({ event: "order_delivery_rejected", errorCode: "RATE_UNAVAILABLE", agencyId: associated }), "Order delivery rejected");
   await withCatalogAdmin(query => query('UPDATE "DeliveryAgency" SET enabled = true WHERE id = $1', [associated]));
   expect(await mobile.setDelivery(orderId, input)).toMatchObject({ success: true });
   const nextSettings = { ...settingsInput, expectedVersion: 2, agency: { enabled: false }, couriers: [{ kind: "existing" as const, id: courier.id, enabled: false }] };

@@ -76,6 +76,7 @@ export async function setConfiguredOrderDelivery(input: SetDeliveryInput, contex
     },
     resolveRatedDelivery: async (selection, access, currency, expectedPrice) => {
       observed.stage = "resolve_delivery";
+      if (selection.method === "agency") observed.agencyId = selection.agencyId; // kept for the rejection log (RATE_UNAVAILABLE never reaches the snapshot)
       const resolved = await resolveRatedShippingCost(selection, { companyId: access.companyId, author: { kind: "seller", userId: access.userId } }, currency, expectedPrice, {
         getStoreSettings: () => deliverySettings.get(access, "set_order_delivery"),
         resolveSelectedDeliveryRate: deliverySettings.resolveSelectedDeliveryRate,
