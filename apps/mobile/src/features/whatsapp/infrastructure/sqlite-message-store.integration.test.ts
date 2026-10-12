@@ -236,3 +236,19 @@ test("nextRetryAt returns the earliest pending attempt of the company, or null",
   expect(await store.nextRetryAt(otherCompany)).toEqual({ success: true, data: null });
   database.close();
 });
+
+test("saves and clears coreImageId", async () => {
+  const { database, store, linked } = await setup();
+  await store.saveOnce(image(1), await linked(), now);
+  const coreImageId = "00000000-0000-4000-8000-000000000009";
+  const read = async () => {
+    const pending = await store.nextPending(company, now, 20);
+    return pending.success ? pending.data[0]?.coreImageId : "failed";
+  };
+  expect(await read()).toBeNull();
+  expect(await store.saveCoreImageId(image(1).id, coreImageId)).toEqual({ success: true, data: undefined });
+  expect(await read()).toBe(coreImageId);
+  expect(await store.clearCoreImageId(image(1).id)).toEqual({ success: true, data: undefined });
+  expect(await read()).toBeNull();
+  database.close();
+});

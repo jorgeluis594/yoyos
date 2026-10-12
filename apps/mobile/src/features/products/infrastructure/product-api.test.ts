@@ -63,3 +63,12 @@ test("requests stock filter and sort, and maps listing thumbnails", async () => 
   if (!result.success) return;
   expect(result.data.items.map((product) => product.photo ?? null)).toEqual([{ id: imageId, url: "https://cdn.example/camisa.webp" }, null]);
 });
+
+test("uploads product photos through the shared image client", async () => {
+  global.fetch = jest.fn(async () => ({ blob: async () => new Blob(["x"]) })) as unknown as typeof fetch;
+  const request = jest.fn(async (_path: string, _init?: RequestInit) => ok<unknown>({ id: "00000000-0000-4000-8000-000000000005", url: "https://cdn.example/a.jpg" }));
+  const result = await createProductApi(request, () => 0).uploadImage("file:///a.jpg");
+  expect(result).toMatchObject({ success: true, data: { id: "00000000-0000-4000-8000-000000000005" } });
+  expect(request.mock.calls[0]?.[0]).toBe("/api/images");
+  expect(((request.mock.calls[0]?.[1]?.body) as FormData).get("file")).toHaveProperty("type", "image/jpeg");
+});

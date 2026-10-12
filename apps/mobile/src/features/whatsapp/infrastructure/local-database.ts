@@ -91,18 +91,25 @@ const dropSchemaV1 = `
   DROP TABLE IF EXISTS whatsapp_auth_entries;
 `;
 
-/** Brings the schema to v2. Each upgrade is atomic: a failure rolls back and leaves `user_version` untouched. */
-export async function migrateWhatsAppDatabase(database: Pick<SqlDatabase, "execAsync" | "getFirstAsync">): Promise<void> {
-  const version = await database.getFirstAsync<{ user_version: number }>("PRAGMA user_version", []);
-  if (!version || ![0, 1, 2].includes(version.user_version)) throw new Error("Unsupported WhatsApp database schema");
-  if (version.user_version === 2) return;
+const upgradeToV3 = "ALTER TABLE whatsapp_messages ADD COLUMN core_image_id TEXT; PRAGMA user_version = 3;";
+
+/** Runs one upgrade atomically: a failure rolls back and leaves `user_version` untouched. */
+async function upgrade(database: Pick<SqlDatabase, "execAsync">, statements: string): Promise<void> {
   await database.execAsync("BEGIN IMMEDIATE");
   try {
-    // v1 was designed for another stack and never written, so its tables are dropped rather than migrated.
-    await database.execAsync(`${dropSchemaV1}${schemaV2}PRAGMA user_version = 2;`);
+    await database.execAsync(statements);
     await database.execAsync("COMMIT");
   } catch (error) {
     await database.execAsync("ROLLBACK");
     throw error;
   }
+}
+
+/** Brings the schema to v3 one version at a time, each step in its own transaction. */
+export async function migrateWhatsAppDatabase(database: Pick<SqlDatabase, "execAsync" | "getFirstAsync">): Promise<void> {
+  const version = await database.getFirstAsync<{ user_version: number }>("PRAGMA user_version", []);
+  if (!version || ![0, 1, 2, 3].includes(version.user_version)) throw new Error("Unsupported WhatsApp database schema");
+  // v1 was designed for another stack and never written, so its tables are dropped rather than migrated.
+  if (version.user_version < 2) await upgrade(database, `${dropSchemaV1}${schemaV2}PRAGMA user_version = 2;`);
+  if (version.user_version < 3) await upgrade(database, upgradeToV3);
 }

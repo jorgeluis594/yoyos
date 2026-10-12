@@ -8,8 +8,6 @@ const protocolMessageIdSchema = limitedText(512);
 const messageTextSchema = limitedText(65536);
 const nativeMessageIdSchema = z.string().startsWith("wa-message:v1:").refine((value) => byteLength(value) <= 4096);
 const unixMillisecondsSchema = z.number().int().min(0).max(253402300799999);
-const imageMimeTypeSchema = z.string().regex(/^image\/[A-Za-z0-9!#$&^_.+-]+$/).max(127);
-const imageSizeSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 
 function decodedIdentity(id: string): unknown {
   const encoded = id.slice("wa-message:v1:".length);
@@ -24,25 +22,33 @@ function decodedIdentity(id: string): unknown {
   } catch { return null; }
 }
 
-export const registerWhatsAppMessageRequestSchema = z.strictObject({
-  version: z.literal(1),
-  message: z.strictObject({
-    id: nativeMessageIdSchema,
-    accountId: lidSchema,
-    chatId: lidSchema,
-    whatsappMessageId: protocolMessageIdSchema,
-    direction: z.enum(["incoming", "outgoing"]),
-    // Absent when WhatsApp's own time was missing; the date is unknown and is never replaced by the reception time.
-    timestamp: unixMillisecondsSchema.optional(),
-    content: z.discriminatedUnion("type", [
-      z.strictObject({ type: z.literal("text"), text: messageTextSchema }),
-      z.strictObject({ type: z.literal("image"), caption: messageTextSchema.optional(), mimeType: imageMimeTypeSchema.optional(), size: imageSizeSchema.optional() }),
-    ]),
-  }),
-}).superRefine(({ message }, context) => {
+const messageEnvelope = z.strictObject({
+  id: nativeMessageIdSchema,
+  accountId: lidSchema,
+  chatId: lidSchema,
+  whatsappMessageId: protocolMessageIdSchema,
+  direction: z.enum(["incoming", "outgoing"]),
+  // Absent when WhatsApp's own time was missing; the date is unknown and is never replaced by the reception time.
+  timestamp: unixMillisecondsSchema.optional(),
+});
+
+function checkIdentity(message: Readonly<{ id: string; accountId: string; chatId: string; whatsappMessageId: string }>, context: z.RefinementCtx) {
   const identity = decodedIdentity(message.id);
   if (!Array.isArray(identity) || identity.length !== 3 || identity[0] !== message.accountId || identity[1] !== message.chatId || identity[2] !== message.whatsappMessageId)
-    context.addIssue({ code: "custom", path: ["message", "id"], message: "IDENTITY_MISMATCH" });
+    context.addIssue({ code: "custom", path: ["id"], message: "IDENTITY_MISMATCH" });
+}
+
+/** The message envelope without its content, with the identity consistency check. */
+export const whatsAppMessageIdentitySchema = messageEnvelope.superRefine(checkIdentity);
+
+export const registerWhatsAppMessageRequestSchema = z.strictObject({
+  version: z.literal(1),
+  message: messageEnvelope.extend({
+    content: z.discriminatedUnion("type", [
+      z.strictObject({ type: z.literal("text"), text: messageTextSchema }),
+      z.strictObject({ type: z.literal("image"), imageId: z.uuid(), caption: messageTextSchema.optional() }),
+    ]),
+  }).superRefine(checkIdentity),
 });
 
 export const registerWhatsAppMessageResponseSchema = z.strictObject({
@@ -54,3 +60,4 @@ export const registerWhatsAppMessageResponseSchema = z.strictObject({
 
 export type RegisterWhatsAppMessageRequest = z.infer<typeof registerWhatsAppMessageRequestSchema>;
 export type RegisterWhatsAppMessageResponse = z.infer<typeof registerWhatsAppMessageResponseSchema>;
+export type WhatsAppMessageIdentity = z.infer<typeof whatsAppMessageIdentitySchema>;

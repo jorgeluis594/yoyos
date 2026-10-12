@@ -2,10 +2,11 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { MessageCreated } from "@core/src/features/chats/application/events";
 import type { EventMetadata } from "@core/src/shared/events/application/contracts";
-import type { ChatMessageId, MobileMessageInput, NewMobileMessage, RegisterMobileMessageError, RegisterOutcome, RegistrationContext, StoreOutcome } from "@core/src/features/chats/domain/mobile-message";
+import type { ChatMessageId, ImageId, MobileMessageInput, NewMobileMessage, RegisterMobileMessageError, RegisterOutcome, RegistrationContext, StoreOutcome } from "@core/src/features/chats/domain/mobile-message";
 
 type Failure = RegisterMobileMessageError;
 export type RegisterMobileMessageDependencies = Readonly<{
+  findImage: (imageId: ImageId) => Promise<Result<boolean, Failure>>;
   storeOnce: (input: NewMobileMessage) => Promise<Result<StoreOutcome, Failure>>;
   markEventDispatched: (companyId: RegistrationContext["companyId"], messageId: ChatMessageId, at: Date) => Promise<Result<void, Failure>>;
   dispatchMessageRecorded: (payload: MessageCreated, metadata: EventMetadata) => Promise<Result<void, Failure>>;
@@ -14,6 +15,11 @@ export type RegisterMobileMessageDependencies = Readonly<{
 }>;
 
 export async function registerMobileMessage(input: MobileMessageInput, context: RegistrationContext, dependencies: RegisterMobileMessageDependencies): Promise<Result<RegisterOutcome, Failure>> {
+  if (input.content.type === "image") {
+    const image = await dependencies.findImage(input.content.imageId);
+    if (!image.success) return image;
+    if (!image.data) return err({ code: "IMAGE_NOT_FOUND", message: "Image is unavailable" });
+  }
   const stored = await dependencies.storeOnce({ ...input, ...context, id: dependencies.newMessageId(), receivedAt: dependencies.now() });
   if (!stored.success) return stored;
   const { created, message } = stored.data;
