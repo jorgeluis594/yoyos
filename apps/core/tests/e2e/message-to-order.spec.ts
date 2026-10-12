@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeAll } from "vitest";
 import { listOrderAggregatesResponseSchema } from "@shared/contracts/orders";
 import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { startMobileWeb } from "@core/tests/e2e/mobile-web";
 import type { Page } from "@playwright/test";
 
 // The images module reads R2_* when it is first imported, so the env is set before the dynamic import in beforeAll.
@@ -159,11 +160,17 @@ test("a second label photo in the same chat adds its variant to the same order a
   await browserExpect(page.getByText(/S\/\s*35\.00/).first()).toBeVisible();
 }, 90000);
 
-// The mobile history screen renders the icon from this `source` field; the screen itself is covered by the §7.2 mobile tests
-// (order-history-screen.test.tsx), so this checks the API contract the app consumes.
 test("mobile order history shows the WhatsApp order with its icon", async ({ page }) => {
-  await sellerWithVariants(page);
-  await receivePhoto(page, "label.jpg");
-  await expect.poll(async () => (await mobileHistory(page)).length, { timeout: 30000 }).toBe(1);
-  expect((await mobileHistory(page))[0]).toMatchObject({ source: "whatsapp", total: { amount: 10, currency: "PEN" } });
-}, 90000);
+  const mobile = await startMobileWeb();
+  try {
+    await sellerWithVariants(page);
+    await receivePhoto(page, "label.jpg");
+    await expect.poll(async () => (await mobileHistory(page)).length, { timeout: 30000 }).toBe(1);
+    expect((await mobileHistory(page))[0]).toMatchObject({ source: "whatsapp", total: { amount: 10, currency: "PEN" } });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`${mobile.origin}/orders`, { timeout: 90000 });
+    await browserExpect(page.getByText(/S\/\s*10/).first()).toBeVisible({ timeout: 90000 });
+    // Expo Web renders SymbolView as an empty box, so the accessible icon is attached but has no visible size.
+    await browserExpect(page.getByRole("img", { name: "WhatsApp" })).toHaveCount(1);
+  } finally { await mobile.close(); }
+}, 180000);

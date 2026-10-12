@@ -41,16 +41,16 @@ await save("non-uuid-qr", sharp(white(800, 600)).composite([{ input: url, left: 
 const QRCode = createRequire(join(out, "../../../../../../mobile/package.json"))("qrcode");
 const dpi = 203;
 async function printedLabel(file, id, name, sku) {
-const [widthPx, heightPx] = [Math.round(50 / 25.4 * dpi), Math.round(25 / 25.4 * dpi)];
-const modules = QRCode.create(id, { errorCorrectionLevel: "M" }).modules;
-const margin = Math.ceil(dpi / 25.4);
-const modulePx = Math.floor(Math.min(heightPx - 2 * margin, Math.floor(widthPx * 0.39)) / (modules.size + 8));
-const qrSize = modulePx * (modules.size + 8);
-const qrY = Math.floor((heightPx - qrSize) / 2);
-const textX = margin + qrSize + margin;
-const rects = [];
-for (let row = 0; row < modules.size; row++) for (let col = 0; col < modules.size; col++) {
-  if (modules.get(row, col)) rects.push(`<rect x="${margin + (col + 4) * modulePx}" y="${qrY + (row + 4) * modulePx}" width="${modulePx}" height="${modulePx}"/>`);
+  const [widthPx, heightPx] = [Math.round(50 / 25.4 * dpi), Math.round(25 / 25.4 * dpi)];
+  const modules = QRCode.create(id, { errorCorrectionLevel: "M" }).modules;
+  const margin = Math.ceil(dpi / 25.4);
+  const modulePx = Math.floor(Math.min(heightPx - 2 * margin, Math.floor(widthPx * 0.39)) / (modules.size + 8));
+  const qrSize = modulePx * (modules.size + 8);
+  const qrY = Math.floor((heightPx - qrSize) / 2);
+  const textX = margin + qrSize + margin;
+  const rects = [];
+  for (let row = 0; row < modules.size; row++) for (let col = 0; col < modules.size; col++) {
+    if (modules.get(row, col)) rects.push(`<rect x="${margin + (col + 4) * modulePx}" y="${qrY + (row + 4) * modulePx}" width="${modulePx}" height="${modulePx}"/>`);
 }
 const label = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${widthPx}" height="${heightPx}"><rect width="100%" height="100%" fill="#fff"/>${rects.join("")}
 <text x="${textX}" y="${margin + 26}" font-family="sans-serif" font-size="${9 * dpi / 72}" font-weight="bold">${name}</text>
