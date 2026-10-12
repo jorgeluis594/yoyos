@@ -36,7 +36,7 @@ async function tabTo(page: Page, target: Locator, key: "Tab" | "Shift+Tab" = "Ta
 }
 
 const stored = (companyId: string) => withTenantIsolation(companyId, async () => await prisma.companyCheckoutAppearance.findUnique({ where: { companyId } }));
-const uploadLogo = (page: Page) => page.getByTestId("logo-input").setInputFiles({ name: "logo.png", mimeType: "image/png", buffer: png });
+const uploadLogo = (page: Page) => page.getByTestId("logo-upload").locator("input[type=file]").setInputFiles({ name: "logo.png", mimeType: "image/png", buffer: png });
 
 async function chooseColor(page: Page, name: string) {
   await page.getByRole("button", { name: /Cambiar$/ }).last().click();

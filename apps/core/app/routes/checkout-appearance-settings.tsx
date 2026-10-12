@@ -1,11 +1,18 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Dialog, RadioGroup, Tabs } from "radix-ui";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Check, ChevronRight, RotateCcw, Upload } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { data, useBlocker, useFetcher, useLoaderData, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
 import { imageResponseSchema } from "@shared/contracts/images";
 import { privateUserContext } from "@core/app/private-user-context";
+import { Alert, AlertDescription } from "@core/app/components/ui/alert";
+import { Badge } from "@core/app/components/ui/badge";
 import { Button } from "@core/app/components/ui/button";
+import { Card, CardContent, CardDescription, CardTitle } from "@core/app/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@core/app/components/ui/dialog";
+import { FileUpload, FileUploadActions, FileUploadTrigger } from "@core/app/components/ui/file-upload";
+import { PageHeader } from "@core/app/components/ui/page-header";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@core/app/components/ui/tabs";
+import { ToggleGroup, ToggleGroupItem } from "@core/app/components/ui/toggle-group";
 import { ErrorState } from "@core/app/components/ui/error-state";
 import { resolvePublicImage } from "@core/src/shared/images";
 import { bindRequestOperation } from "@core/src/shared/infrastructure/logger";
@@ -107,7 +114,6 @@ export default function CheckoutAppearanceSettings() {
   const [dismissed, setDismissed] = useState<EditorActionData | undefined>(undefined);
   const [uploading, setUploading] = useState(false);
   const [uploadFailure, setUploadFailure] = useState<{ reason: UploadFailure; file: File } | null>(null);
-  const fileInput = useRef<HTMLInputElement>(null);
 
   const saving = fetcher.state !== "idle";
   const dirty = !sameAppearance(draft.appearance, published);
@@ -160,12 +166,11 @@ export default function CheckoutAppearanceSettings() {
   const saveMessage = saveFailure && t(saveFailure === "INVALID_IMAGE" ? "checkoutAppearance.invalidLogo"
     : saveFailure === "INVALID_CHECKOUT_APPEARANCE" ? "checkoutAppearance.invalidAppearance" : "checkoutAppearance.saveError");
 
-  const tabClass = "min-h-touch flex-1 rounded-sm px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=active]:bg-accent data-[state=active]:text-accent-foreground";
   const previewPanel = <CheckoutPreviewFrame mode={mode} onModeChange={setMode}
         appearance={{ logoUrl: draft.logoUrl, brandColor: draft.appearance.brandColor, background: draft.appearance.background }} />;
-  const editPanel = <>
-        <div className="flex flex-col gap-3 p-5">
-          <h2 className="text-base font-semibold">{t("checkoutAppearance.logoTitle")}</h2>
+  const editPanel = <Card className="gap-0 divide-y py-0">
+        <CardContent className="flex flex-col gap-3 p-5">
+          <CardTitle>{t("checkoutAppearance.logoTitle")}</CardTitle>
           <div className="flex items-center gap-3">
             <span className="grid size-12 shrink-0 place-items-center overflow-hidden rounded-md border bg-white">
               {draft.logoUrl && <img src={draft.logoUrl} alt="" className="max-h-full max-w-full object-contain" />}
@@ -175,100 +180,97 @@ export default function CheckoutAppearanceSettings() {
               <p className="text-xs text-muted-foreground">{t("checkoutAppearance.logoHint")}</p>
             </div>
           </div>
-          <input ref={fileInput} type="file" accept={logoTypes.join(",")} className="sr-only" tabIndex={-1} aria-hidden="true" data-testid="logo-input"
-            onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void upload(file); }} />
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" disabled={uploading} onClick={() => fileInput.current?.click()}>
-              <Upload data-icon="inline-start" aria-hidden="true" />{draft.logoUrl ? t("checkoutAppearance.logoChange") : t("checkoutAppearance.logoUpload")}
-            </Button>
-            {draft.logoUrl && <Button type="button" variant="ghost" disabled={busy}
-              onClick={() => { setUploadFailure(null); changeDraft((current) => ({ appearance: { ...current.appearance, logoImageId: null }, logoUrl: null })); }}>{t("checkoutAppearance.logoRemove")}</Button>}
-          </div>
-          {uploading && <p role="status" className="text-sm text-muted-foreground">{t("checkoutAppearance.logoUploading")}</p>}
-          {uploadMessage && uploadFailure && <p role="alert" className="flex flex-wrap items-center gap-3 text-sm text-destructive">{uploadMessage}
-            <Button size="sm" variant="outline" onClick={() => void upload(uploadFailure.file)}>{t("checkoutAppearance.retry")}</Button></p>}
-        </div>
+          <FileUpload accept={logoTypes.join(",")} disabled={uploading} onFileSelect={(file) => void upload(file)} data-testid="logo-upload">
+            <FileUploadActions>
+              <FileUploadTrigger>
+                <Upload data-icon="inline-start" aria-hidden="true" />{draft.logoUrl ? t("checkoutAppearance.logoChange") : t("checkoutAppearance.logoUpload")}
+              </FileUploadTrigger>
+              {draft.logoUrl && <Button type="button" variant="ghost" disabled={busy}
+                onClick={() => { setUploadFailure(null); changeDraft((current) => ({ appearance: { ...current.appearance, logoImageId: null }, logoUrl: null })); }}>{t("checkoutAppearance.logoRemove")}</Button>}
+            </FileUploadActions>
+            {uploading && <Alert><AlertDescription>{t("checkoutAppearance.logoUploading")}</AlertDescription></Alert>}
+            {uploadMessage && uploadFailure && <Alert variant="destructive" className="flex flex-wrap items-center gap-3">{uploadMessage}
+              <Button size="sm" variant="outline" onClick={() => void upload(uploadFailure.file)}>{t("checkoutAppearance.retry")}</Button></Alert>}
+          </FileUpload>
+        </CardContent>
 
-        <div className="flex flex-col gap-3 p-5">
-          <div><h2 className="text-base font-semibold">{t("checkoutAppearance.colorTitle")}</h2>
-            <p className="text-sm text-muted-foreground">{t("checkoutAppearance.colorHint")}</p></div>
+        <CardContent className="flex flex-col gap-3 p-5">
+          <div><CardTitle>{t("checkoutAppearance.colorTitle")}</CardTitle>
+            <CardDescription>{t("checkoutAppearance.colorHint")}</CardDescription></div>
           <BrandColorDialog value={draft.appearance.brandColor} mode={mode} onUse={(brandColor) => update({ brandColor })}>
-            <button type="button" className="flex min-h-touch items-center gap-3 rounded-md border bg-card p-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <Button type="button" variant="outline" className="h-auto min-h-touch justify-start gap-3 p-3 text-left">
               <span className="size-9 shrink-0 rounded-md border border-foreground/10" style={{ backgroundColor: swatchOf(draft.appearance.brandColor, mode) }} data-testid="color-swatch" aria-hidden="true" />
               <span className="min-w-0 flex-1"><span className="block text-sm font-semibold">{colorName}</span>
-                <span className="block text-xs text-muted-foreground">{t(mode === "light" ? "checkoutAppearance.colorToneLight" : "checkoutAppearance.colorToneDark")}</span></span>
+                <span className="block text-xs font-normal text-muted-foreground">{t(mode === "light" ? "checkoutAppearance.colorToneLight" : "checkoutAppearance.colorToneDark")}</span></span>
               <span className="flex items-center text-sm font-medium">{t("checkoutAppearance.colorChange")}<ChevronRight className="size-4" aria-hidden="true" /></span>
-            </button>
+            </Button>
           </BrandColorDialog>
-        </div>
+        </CardContent>
 
-        <div className="flex flex-col gap-3 p-5">
-          <h2 id="appearance-background-label" className="text-base font-semibold">{t("checkoutAppearance.backgroundTitle")}</h2>
-          <RadioGroup.Root aria-labelledby="appearance-background-label" value={draft.appearance.background} onValueChange={(background) => update({ background: background as CheckoutBackground })}
-            className="grid grid-cols-3 gap-1 rounded-md border p-1">
-            {checkoutBackgrounds.map((background) => <RadioGroup.Item key={background} value={background}
-              className="flex min-h-touch items-center justify-center gap-1 whitespace-nowrap rounded-sm px-1 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=checked]:bg-accent data-[state=checked]:text-accent-foreground">
-              <RadioGroup.Indicator><Check className="size-3.5" aria-hidden="true" /></RadioGroup.Indicator>{backgrounds[background]}
-            </RadioGroup.Item>)}
-          </RadioGroup.Root>
+        <CardContent className="flex flex-col gap-3 p-5">
+          <CardTitle id="appearance-background-label">{t("checkoutAppearance.backgroundTitle")}</CardTitle>
+          {/* Radix reports "" when the pressed item is pressed again; a background is always required. */}
+          <ToggleGroup type="single" variant="outline" aria-labelledby="appearance-background-label" value={draft.appearance.background}
+            onValueChange={(background) => background && update({ background: background as CheckoutBackground })} className="grid w-full grid-cols-3">
+            {checkoutBackgrounds.map((background) => <ToggleGroupItem key={background} value={background} className="min-h-touch whitespace-nowrap">
+              {draft.appearance.background === background && <Check className="size-3.5" aria-hidden="true" />}{backgrounds[background]}
+            </ToggleGroupItem>)}
+          </ToggleGroup>
           {draft.appearance.background === "brand_tint" && <p className="text-xs text-muted-foreground">{t("checkoutAppearance.backgroundBrandTintHint", { color: colorName })}</p>}
-        </div>
+        </CardContent>
 
-        <div className="flex flex-col gap-1 p-5">
+        <CardContent className="flex flex-col gap-1 p-5">
           <Button type="button" variant="ghost" className="self-start" disabled={busy} onClick={() => changeDraft(resetDraft)}>
             <RotateCcw data-icon="inline-start" aria-hidden="true" />{t("checkoutAppearance.reset")}
           </Button>
           <p className="text-xs text-muted-foreground">{t("checkoutAppearance.resetNote")}</p>
-        </div>
-  </>;
+        </CardContent>
+  </Card>;
 
   return <div className="flex flex-col gap-6">
-    <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">{t("checkoutAppearance.title")}</h1>
-        <p className="text-sm text-muted-foreground">{t("checkoutAppearance.description")}</p>
-      </div>
+    <PageHeader className="flex-col lg:flex-row">
+      <PageHeader.Heading>
+        <PageHeader.Title>{t("checkoutAppearance.title")}</PageHeader.Title>
+        <PageHeader.Description>{t("checkoutAppearance.description")}</PageHeader.Description>
+      </PageHeader.Heading>
       <div className="flex flex-col gap-2 lg:items-end">
-        <div className="flex flex-wrap items-center gap-2">
-          {dirty && <span className="rounded-full bg-secondary px-3 py-1 text-xs font-medium text-secondary-foreground">{t("checkoutAppearance.unsaved")}</span>}
+        <PageHeader.Actions className="gap-2">
+          {dirty && <Badge variant="secondary">{t("checkoutAppearance.unsaved")}</Badge>}
           <Button variant="ghost" disabled={!dirty || busy} onClick={() => changeDraft({ appearance: published, logoUrl: loaded.logoUrl })}>{t("checkoutAppearance.discard")}</Button>
           <Button disabled={!canSave} onClick={save}>{saving ? t("checkoutAppearance.saving") : t("checkoutAppearance.save")}</Button>
-        </div>
+        </PageHeader.Actions>
         <p className="text-xs text-muted-foreground">{t("checkoutAppearance.appliesToAll")}</p>
-        {justSaved && <p role="status" className="text-sm font-medium text-success">{t("checkoutAppearance.saved")}</p>}
-        {saveMessage && <p role="alert" className="flex items-center gap-3 text-sm text-destructive">{saveMessage}
-          <Button size="sm" variant="outline" disabled={!canSave} onClick={save}>{t("checkoutAppearance.retry")}</Button></p>}
+        {justSaved && <Alert variant="success">{t("checkoutAppearance.saved")}</Alert>}
+        {saveMessage && <Alert variant="destructive" className="flex items-center gap-3">{saveMessage}
+          <Button size="sm" variant="outline" disabled={!canSave} onClick={save}>{t("checkoutAppearance.retry")}</Button></Alert>}
       </div>
-    </header>
+    </PageHeader>
 
     {wide
       ? <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <section className="min-w-0 lg:order-1">{previewPanel}</section>
-        <section className="flex flex-col divide-y rounded-md border lg:order-2">{editPanel}</section>
+        <section className="lg:order-2">{editPanel}</section>
       </div>
-      : <Tabs.Root value={tab} onValueChange={(value) => setTab(value as EditorTab)} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        <Tabs.List aria-label={t("checkoutAppearance.tabsLabel")} className="flex gap-1 rounded-md border p-1 lg:hidden">
-          <Tabs.Trigger value="edit" className={tabClass}>{t("checkoutAppearance.tabEdit")}</Tabs.Trigger>
-          <Tabs.Trigger value="preview" className={tabClass}>{t("checkoutAppearance.tabPreview")}</Tabs.Trigger>
-        </Tabs.List>
-        <Tabs.Content value="preview" forceMount className="min-w-0 outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=inactive]:hidden lg:data-[state=inactive]:block lg:order-1">{previewPanel}</Tabs.Content>
-        <Tabs.Content value="edit" forceMount className="flex flex-col divide-y rounded-md border outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=inactive]:hidden lg:data-[state=inactive]:flex lg:order-2">{editPanel}</Tabs.Content>
-      </Tabs.Root>}
+      : <Tabs value={tab} onValueChange={(value) => setTab(value as EditorTab)} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <TabsList aria-label={t("checkoutAppearance.tabsLabel")} className="w-full group-data-horizontal/tabs:h-auto lg:hidden">
+          <TabsTrigger value="edit" className="min-h-touch">{t("checkoutAppearance.tabEdit")}</TabsTrigger>
+          <TabsTrigger value="preview" className="min-h-touch">{t("checkoutAppearance.tabPreview")}</TabsTrigger>
+        </TabsList>
+        <TabsContent value="preview" forceMount className="min-w-0 data-[state=inactive]:hidden lg:data-[state=inactive]:block lg:order-1">{previewPanel}</TabsContent>
+        <TabsContent value="edit" forceMount className="data-[state=inactive]:hidden lg:data-[state=inactive]:block lg:order-2">{editPanel}</TabsContent>
+      </Tabs>}
 
-    <Dialog.Root open={blocker.state === "blocked"} onOpenChange={(open) => { if (!open && blocker.state === "blocked") blocker.reset(); }}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-foreground/40" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-lg border bg-card p-6 text-card-foreground shadow-lg outline-none">
-          <div className="flex flex-col gap-1">
-            <Dialog.Title className="text-lg font-semibold">{t("checkoutAppearance.leaveTitle")}</Dialog.Title>
-            <Dialog.Description className="text-sm text-muted-foreground">{t("checkoutAppearance.leaveDescription")}</Dialog.Description>
-          </div>
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button variant="outline" onClick={() => blocker.state === "blocked" && blocker.reset()}>{t("checkoutAppearance.keepEditing")}</Button>
-            <Button variant="destructive" onClick={() => blocker.state === "blocked" && blocker.proceed()}>{t("checkoutAppearance.discardAndLeave")}</Button>
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+    <Dialog open={blocker.state === "blocked"} onOpenChange={(open) => { if (!open && blocker.state === "blocked") blocker.reset(); }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t("checkoutAppearance.leaveTitle")}</DialogTitle>
+          <DialogDescription>{t("checkoutAppearance.leaveDescription")}</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => blocker.state === "blocked" && blocker.reset()}>{t("checkoutAppearance.keepEditing")}</Button>
+          <Button variant="destructive" onClick={() => blocker.state === "blocked" && blocker.proceed()}>{t("checkoutAppearance.discardAndLeave")}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </div>;
 }

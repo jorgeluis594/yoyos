@@ -8,7 +8,10 @@ import { companyPaymentSettings } from "@core/src/features/companies";
 import { resolvePublicImage } from "@core/src/shared/images";
 import { Button } from "@core/app/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@core/app/components/ui/card";
-import { Field, FieldLabel } from "@core/app/components/ui/field";
+import { Alert } from "@core/app/components/ui/alert";
+import { Checkbox } from "@core/app/components/ui/checkbox";
+import { FileUpload, FileUploadActions, FileUploadPreview, FileUploadTrigger } from "@core/app/components/ui/file-upload";
+import { Field, FieldDescription, FieldLabel } from "@core/app/components/ui/field";
 import { Input } from "@core/app/components/ui/input";
 import { PageHeader } from "@core/app/components/ui/page-header";
 
@@ -76,25 +79,25 @@ export default function PaymentSettings() {
     <Form method="post" className="flex flex-col gap-5">
       <input type="hidden" name="walletImageId" value={walletImageId} /><input type="hidden" name="bankImageId" value={bankImageId} />
       <Card><CardHeader><CardTitle>{t("paymentSettings.wallet")}</CardTitle><CardDescription>{t("paymentSettings.walletHint")}</CardDescription></CardHeader>
-        <CardContent className="flex flex-col gap-4"><label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" name="walletEnabled" checked={walletEnabled} onChange={(event) => setWalletEnabled(event.target.checked)} />{t("paymentSettings.enableWallet")}</label>
+        <CardContent className="flex flex-col gap-4"><Field orientation="horizontal"><Checkbox id="wallet-enabled" name="walletEnabled" checked={walletEnabled} onCheckedChange={(checked) => setWalletEnabled(checked === true)} /><FieldLabel htmlFor="wallet-enabled">{t("paymentSettings.enableWallet")}</FieldLabel></Field>
           {walletEnabled && <><div className="grid gap-4 sm:grid-cols-2"><Field><FieldLabel htmlFor="wallet-provider">{t("paymentSettings.provider")}</FieldLabel><Input id="wallet-provider" name="walletProvider" defaultValue={wallet?.method === "digital_wallet" ? wallet.provider : ""} required /></Field>
             <Field><FieldLabel htmlFor="wallet-holder">{t("paymentSettings.holder")}</FieldLabel><Input id="wallet-holder" name="walletHolder" defaultValue={wallet?.method === "digital_wallet" ? wallet.holder : ""} required /></Field></div>
             <ImageControl label={t("paymentSettings.optionalImage")} url={walletImageUrl} uploading={uploading} onFile={(file) => void upload(file, "wallet")}
               onRemove={() => { setWalletImageId(""); setWalletImageUrl(""); }} /></>}
         </CardContent></Card>
       <Card><CardHeader><CardTitle>{t("paymentSettings.bankTransfer")}</CardTitle><CardDescription>{t("paymentSettings.bankHint")}</CardDescription></CardHeader>
-        <CardContent className="flex flex-col gap-4"><label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" name="bankEnabled" checked={bankEnabled} onChange={(event) => setBankEnabled(event.target.checked)} />{t("paymentSettings.enableBank")}</label>
+        <CardContent className="flex flex-col gap-4"><Field orientation="horizontal"><Checkbox id="bank-enabled" name="bankEnabled" checked={bankEnabled} onCheckedChange={(checked) => setBankEnabled(checked === true)} /><FieldLabel htmlFor="bank-enabled">{t("paymentSettings.enableBank")}</FieldLabel></Field>
           {bankEnabled && <><div className="grid gap-4 sm:grid-cols-2"><Field><FieldLabel htmlFor="bank-name">{t("paymentSettings.bank")}</FieldLabel><Input id="bank-name" name="bankName" defaultValue={bank?.method === "bank_transfer" ? bank.bank : ""} required /></Field>
             <Field><FieldLabel htmlFor="bank-holder">{t("paymentSettings.holder")}</FieldLabel><Input id="bank-holder" name="bankHolder" defaultValue={bank?.method === "bank_transfer" ? bank.holder : ""} required /></Field>
             <Field><FieldLabel htmlFor="bank-account">{t("paymentSettings.accountNumber")}</FieldLabel><Input id="bank-account" name="accountNumber" inputMode="numeric" defaultValue={bank?.method === "bank_transfer" ? bank.accountNumber ?? "" : ""} /></Field>
             <Field><FieldLabel htmlFor="bank-cci">{t("paymentSettings.cci")}</FieldLabel><Input id="bank-cci" name="cci" inputMode="numeric" defaultValue={bank?.method === "bank_transfer" ? bank.cci ?? "" : ""} /></Field></div>
-            <p className="text-sm text-muted-foreground">{t("paymentSettings.bankIdentifierHint")}</p>
+            <FieldDescription>{t("paymentSettings.bankIdentifierHint")}</FieldDescription>
             <ImageControl label={t("paymentSettings.optionalImage")} url={bankImageUrl} uploading={uploading} onFile={(file) => void upload(file, "bank")}
               onRemove={() => { setBankImageId(""); setBankImageUrl(""); }} /></>}
         </CardContent></Card>
-      {uploadError && <p role="alert" className="text-sm text-destructive">{uploadError}</p>}
-      {actionData?.error && <p role="alert" className="text-sm text-destructive">{t("paymentSettings.saveError")}</p>}
-      {actionData?.success && <p role="status" className="text-sm text-muted-foreground">{t("paymentSettings.saved")}</p>}
+      {uploadError && <Alert variant="destructive">{uploadError}</Alert>}
+      {actionData?.error && <Alert variant="destructive">{t("paymentSettings.saveError")}</Alert>}
+      {actionData?.success && <Alert variant="success">{t("paymentSettings.saved")}</Alert>}
       <Button type="submit" disabled={uploading || navigation.state !== "idle"} className="self-start">{navigation.state === "submitting" ? t("paymentSettings.saving") : t("paymentSettings.save")}</Button>
     </Form>
   </div>;
@@ -103,10 +106,10 @@ export default function PaymentSettings() {
 function ImageControl({ label, url, uploading, onFile, onRemove }: { label: string; url: string; uploading: boolean;
   onFile: (file: File) => void; onRemove: () => void }) {
   const { t } = useTranslation();
-  return <div className="flex flex-col gap-2"><label className="text-sm font-medium">{label}<Input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading}
-    onChange={(event) => { const file = event.target.files?.[0]; if (file) onFile(file); }} /></label>
-    {uploading && <p className="text-sm text-muted-foreground" role="status">{t("paymentSettings.uploading")}</p>}
-    {url && <div className="flex flex-col items-start gap-2"><img src={url} alt={t("paymentSettings.imagePreview")} className="max-h-40 rounded-md object-contain" />
-      <Button type="button" size="sm" variant="outline" onClick={onRemove}>{t("paymentSettings.removeImage")}</Button></div>}
-  </div>;
+  return <FileUpload accept="image/jpeg,image/png,image/webp" disabled={uploading} onFileSelect={onFile}>
+    <FileUploadActions><FileUploadTrigger>{label}</FileUploadTrigger></FileUploadActions>
+    {uploading && <Alert>{t("paymentSettings.uploading")}</Alert>}
+    {url && <><FileUploadPreview src={url} alt={t("paymentSettings.imagePreview")} />
+      <FileUploadActions><Button type="button" size="sm" variant="outline" onClick={onRemove}>{t("paymentSettings.removeImage")}</Button></FileUploadActions></>}
+  </FileUpload>;
 }
