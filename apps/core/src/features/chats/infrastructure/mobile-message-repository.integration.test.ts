@@ -19,11 +19,16 @@ function message(companyId: string, protocolId: string, content: object, directi
 }
 async function fixture() {
   const companyId = randomUUID();
-  await withTenantIsolation(companyId, async () => await prisma.company.create({ data: { id: companyId, name: "Mobile messages", country: "PE" } }));
-  return { companyId, cleanup: () => withTenantIsolation(companyId, async () => {
+  const imageId = randomUUID();
+  await withTenantIsolation(companyId, async () => {
+    await prisma.company.create({ data: { id: companyId, name: "Mobile messages", country: "PE" } });
+    await prisma.image.create({ data: { id: imageId, companyId, storageKey: `images/${imageId}.jpg` } });
+  });
+  return { companyId, imageId, cleanup: () => withTenantIsolation(companyId, async () => {
     await prisma.chatMessage.deleteMany({ where: { companyId } });
     await prisma.chat.deleteMany({ where: { companyId } });
     await prisma.contact.deleteMany({ where: { companyId } });
+    await prisma.image.deleteMany({ where: { companyId } });
     await prisma.company.deleteMany({ where: { id: companyId } });
   }) };
 }
@@ -33,8 +38,8 @@ test("stores and reads both directions and content variants without media side e
   try {
     const cases = [
       { type: "text", text: "Hola 👋" },
-      { type: "image" },
-      { type: "image", caption: "Foto 📷", mimeType: "image/png", size: Number.MAX_SAFE_INTEGER },
+      { type: "image", imageId: f.imageId },
+      { type: "image", imageId: f.imageId, caption: "Foto 📷" },
     ];
     for (const direction of ["incoming", "outgoing"] as const) for (const [index, content] of cases.entries()) {
       const input = message(f.companyId, `p-${direction}-${index}`, content, direction);
@@ -42,18 +47,76 @@ test("stores and reads both directions and content variants without media side e
       expect(result).toMatchObject({ success: true, data: { created: true, message: { id: input.id, externalId: input.externalId,
         companyId: f.companyId, direction, sentAt: input.sentAt, receivedAt: input.receivedAt, uploadedByUserId: "test-user" } } });
       if (result.success) expect(result.data.message.content).toEqual({ type: content.type,
-        ...(content.type === "text" ? { text: "Hola 👋" } : { caption: "caption" in content ? content.caption : null,
-          mimeType: "mimeType" in content ? content.mimeType : null, size: "size" in content ? content.size : null }) });
+        ...(content.type === "text" ? { text: "Hola 👋" } : { caption: "caption" in content ? content.caption : null, imageId: f.imageId }) });
     }
     await withTenantIsolation(f.companyId, async () => {
       expect(await prisma.contact.count({ where: { companyId: f.companyId } })).toBe(1);
       expect(await prisma.chat.count({ where: { companyId: f.companyId } })).toBe(1);
       expect(await prisma.chatMessage.count({ where: { companyId: f.companyId } })).toBe(6);
-      expect(await prisma.image.count({ where: { companyId: f.companyId } })).toBe(0);
+      expect(await prisma.image.count({ where: { companyId: f.companyId } })).toBe(1);
       const rows = await prisma.chatMessage.findMany({ where: { companyId: f.companyId } });
       expect(rows.every((row) => row.userId === null && row.source === (row.direction === "incoming" ? "contact" : "seller"))).toBe(true);
-      expect(rows.filter((row) => row.type === "image").every((row) => row.imageStatus === "metadata_only" && row.whatsappMediaId === null && row.imageId === null)).toBe(true);
+      expect(rows.filter((row) => row.type === "image").every((row) => row.imageStatus === "ready" && row.whatsappMediaId === null && row.imageId === f.imageId && row.imageMimeType === null && row.imageSize === null)).toBe(true);
     });
+  } finally { await f.cleanup(); }
+});
+
+test("stores an image message with its imageId as ready without mimeType or size", async () => {
+  const f = await fixture();
+  try {
+    const input = message(f.companyId, "ready", { type: "image", imageId: f.imageId, caption: "Etiqueta" });
+    expect(await storeOnce(input)).toMatchObject({ success: true, data: { created: true, message: { content: { type: "image", caption: "Etiqueta", imageId: f.imageId } } } });
+    const row = await withTenantIsolation(f.companyId, async () => await prisma.chatMessage.findFirstOrThrow({ where: { companyId: f.companyId } }));
+    expect(row).toMatchObject({ type: "image", imageStatus: "ready", imageId: f.imageId, imageMimeType: null, imageSize: null, whatsappMediaId: null });
+  } finally { await f.cleanup(); }
+});
+
+test("reads legacy metadata_only rows with and without sentAt", async () => {
+  const f = await fixture();
+  try {
+    const first = message(f.companyId, "legacy-seed", { type: "text", text: "seed" });
+    expect((await storeOnce(first)).success).toBe(true);
+    const seed = await withTenantIsolation(f.companyId, async () => await prisma.chatMessage.findFirstOrThrow({ where: { companyId: f.companyId } }));
+    const { mapMobileMessage } = await import("@core/src/features/chats/infrastructure/mobile-message-repository");
+    for (const [index, sentAt] of [new Date("2026-10-08T12:00:00.000Z"), null].entries()) {
+      const protocolId = `legacy-${index}`;
+      const row = await withTenantIsolation(f.companyId, async () => {
+        await prisma.chatMessage.create({ data: { companyId: f.companyId, chatId: seed.chatId, externalId: nativeId(accountId, remoteChatId, protocolId), whatsappMessageId: protocolId,
+          direction: "incoming", source: "contact", type: "image", caption: "old", sentAt, receivedAt: first.receivedAt, uploadedByUserId: "test-user",
+          imageStatus: "metadata_only", imageMimeType: "image/png", imageSize: 12n } });
+        return await prisma.chatMessage.findFirstOrThrow({ where: { companyId: f.companyId, whatsappMessageId: protocolId }, include: { chat: { include: { contact: true } } } });
+      });
+      expect(mapMobileMessage(row)).toMatchObject({ success: true, data: { sentAt, content: { type: "image", caption: "old", imageId: null } } });
+    }
+  } finally { await f.cleanup(); }
+});
+
+test("rejects a ready image without imageId and a text message with imageId", async () => {
+  const f = await fixture();
+  try {
+    expect((await storeOnce(message(f.companyId, "invalid-ready", { type: "image", imageId: f.imageId }))).success).toBe(true);
+    expect((await storeOnce(message(f.companyId, "invalid-text", { type: "text", text: "plain" }))).success).toBe(true);
+    const rows = await withTenantIsolation(f.companyId, async () => await prisma.chatMessage.findMany({ where: { companyId: f.companyId }, include: { chat: { include: { contact: true } } } }));
+    const image = rows.find((row) => row.type === "image")!;
+    const text = rows.find((row) => row.type === "text")!;
+    const { mapMobileMessage } = await import("@core/src/features/chats/infrastructure/mobile-message-repository");
+    expect(mapMobileMessage({ ...image, imageId: null })).toMatchObject({ success: false, error: { code: "INVALID_STORED_DATA" } });
+    expect(mapMobileMessage({ ...text, imageId: f.imageId })).toMatchObject({ success: false, error: { code: "INVALID_STORED_DATA" } });
+    await withTenantIsolation(f.companyId, async () => {
+      await expect(prisma.chatMessage.update({ where: { id: image.id }, data: { imageId: null } })).rejects.toThrow();
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("a repeated registration with another imageId keeps the first image", async () => {
+  const f = await fixture();
+  try {
+    const otherImageId = randomUUID();
+    await withTenantIsolation(f.companyId, async () => await prisma.image.create({ data: { id: otherImageId, companyId: f.companyId, storageKey: `images/${otherImageId}.jpg` } }));
+    const first = await storeOnce(message(f.companyId, "same-image", { type: "image", imageId: f.imageId }));
+    const repeat = await storeOnce(message(f.companyId, "same-image", { type: "image", imageId: otherImageId }));
+    expect(first).toMatchObject({ success: true, data: { created: true } });
+    expect(repeat).toMatchObject({ success: true, data: { created: false, message: { content: { imageId: f.imageId } } } });
   } finally { await f.cleanup(); }
 });
 
@@ -74,7 +137,7 @@ test("a failed message insert rolls back its new contact and chat", async () => 
 test("rejects incompatible stored identity, content, dates and image size", async () => {
   const f = await fixture();
   try {
-    const input = message(f.companyId, "mapper", { type: "image", size: 1 });
+    const input = message(f.companyId, "mapper", { type: "image", imageId: f.imageId });
     expect((await storeOnce(input)).success).toBe(true);
     const row = await withTenantIsolation(f.companyId, async () => await prisma.chatMessage.findFirstOrThrow({
       where: { companyId: f.companyId }, include: { chat: { include: { contact: true } } },
@@ -162,7 +225,7 @@ test("an unrelated message UUID collision fails and rolls back a new conversatio
 test("sequential repeats preserve the first committed message", async () => {
   const f = await fixture();
   try {
-    const first = message(f.companyId, "repeat", { type: "image", caption: "first", mimeType: "image/png", size: 9 });
+    const first = message(f.companyId, "repeat", { type: "image", imageId: f.imageId, caption: "first" });
     const stored = await storeOnce(first);
     expect(stored).toMatchObject({ success: true, data: { created: true } });
     const repeat = { ...message(f.companyId, "repeat", { type: "text", text: "changed" }, "outgoing", "other-uploader"),

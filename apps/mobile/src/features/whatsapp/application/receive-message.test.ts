@@ -29,7 +29,7 @@ function setup(options: { links?: WhatsAppLink[]; failLinks?: boolean; failSave?
       const existing = saved.get(message.id);
       if (existing) return ok<SaveOutcome>({ status: "duplicate", message: existing });
       const state = placement.kind === "orphan" ? { state: "orphaned" as const } : { state: "pending" as const, attempts: 0, nextAttemptAt: at };
-      const stored: StoredMessage = { ...message, linkId: placement.kind === "linked" ? placement.link.id : null,
+      const stored: StoredMessage = { ...message, coreImageId: null, linkId: placement.kind === "linked" ? placement.link.id : null,
         companyId: placement.kind === "linked" ? placement.link.companyId : null, arrivalSeq: saved.size + 1, storedAt: at, sync: state };
       saved.set(message.id, stored);
       return ok<SaveOutcome>({ status: "stored", message: stored });

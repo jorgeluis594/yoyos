@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { expect, test, vi } from "vitest";
 import { ok } from "@shared/functional";
 import { applicationEventBus } from "@core/src/composition/event-bus";
+import { registerMobileMessage } from "@core/src/features/chats/application/register-mobile-message";
 import { dispatchMessageRecorded } from "@core/src/features/chats/infrastructure/mobile-message-dispatch";
 import type { MessageCreated } from "@core/src/features/chats/application/events";
 import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
@@ -32,5 +33,26 @@ test("validates message event and tenant even when the provider has no subscribe
       .toMatchObject({ success: false, error: { code: "INVALID_EVENT", message: "Invalid message event" } });
     expect(await dispatchMessageRecorded(payload, metadata)).toMatchObject({ success: false, error: { code: "INVALID_EVENT" } });
     expect(publish).toHaveBeenCalledTimes(1);
+  } finally { publish.mockRestore(); }
+});
+
+test("publishes message_created after the commit and then marks the message dispatched", async () => {
+  const steps: string[] = [];
+  const publish = vi.spyOn(applicationEventBus().provider, "publish").mockImplementation(async () => { steps.push("publish"); return ok(undefined); });
+  const receivedAt = new Date("2026-10-08T12:00:00.456Z");
+  const message = { externalId: "native", accountId: "account", remoteChatId: "chat", whatsappMessageId: "protocol", direction: "incoming", sentAt: null, companyId,
+    uploadedByUserId: "user", id: messageId, receivedAt, chatId: randomUUID(), eventDispatchedAt: null,
+    content: { type: "text", text: "x" } } as never;
+  try {
+    const result = await withTenantIsolation(companyId, () => registerMobileMessage(message, { companyId, uploadedByUserId: "user" }, {
+      findImage: async () => ok(true),
+      storeOnce: async () => { steps.push("commit"); return ok({ created: true, message }); },
+      dispatchMessageRecorded,
+      markEventDispatched: async () => { steps.push("mark"); return ok(undefined); },
+      newMessageId: () => messageId, now: () => receivedAt,
+    }));
+    expect(result).toMatchObject({ success: true, data: { eventId: messageId } });
+    expect(steps).toEqual(["commit", "publish", "mark"]);
+    expect(publish).toHaveBeenCalledWith("message_created", payload, { eventId: messageId, occurredAt: receivedAt.toISOString() });
   } finally { publish.mockRestore(); }
 });

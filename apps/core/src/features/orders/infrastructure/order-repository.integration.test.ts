@@ -11,13 +11,17 @@ import { expect, test, vi } from "vitest";
 import { ok, err } from "@shared/functional";
 import { orders, createConfiguredOrder } from "@core/src/features/orders/composition";
 import { prisma, systemPrisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
-import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
-import { findOrderAggregate, findOrderAggregates, findOrders, findOrderForUpdate, saveDelivery, saveStockDeduction } from "@core/src/features/orders/infrastructure/order-repository";
+import { buildPendingOrder, orderStateMachine, parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
+import { findOpenChatOrderCandidate, findOrderAggregate, findOrderAggregates, findOrders, findOrderForUpdate, findProcessedMessage, recordProcessedMessage, saveAddedItems, saveDelivery, savePendingOrder, saveStockDeduction } from "@core/src/features/orders/infrastructure/order-repository";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
 import { deductProductStock } from "@core/src/features/products";
 import type { CompanyId, ContactId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { ImageId } from "@core/src/features/orders/domain/payment";
 import type { VariantId } from "@core/src/features/products/domain/product";
+import type { ChatId } from "@core/src/features/orders/domain/message-order";
+import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
+import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
+import type { CustomerId } from "@core/src/features/contacts/domain/contact";
 
 async function fixture() {
   const companyId = randomUUID();
@@ -1608,6 +1612,224 @@ test("checkout validates immutable home rate and current price before total and 
     if (!checkout.success) throw new Error("Expected persisted checkout");
     expect(checkout.data.delivery).not.toHaveProperty("recordedBy");
   } finally { await f.cleanup(); }
+});
+
+async function chatFixture(owner: Awaited<ReturnType<typeof fixture>>) {
+  const customerId = randomUUID() as CustomerId;
+  const chatId = randomUUID() as ChatId;
+  const messageId = randomUUID() as ChatMessageId;
+  const imageId = randomUUID();
+  await withTenantIsolation(owner.companyId, async () => {
+    await prisma.customer.create({ data: { id: customerId, createdAt: new Date() } });
+    await prisma.contact.update({ where: { id: owner.contactId }, data: { customerId } });
+    await prisma.chat.create({ data: { id: chatId, contactId: owner.contactId } });
+    await prisma.image.create({ data: { id: imageId, storageKey: `images/${imageId}` } });
+    await prisma.chatMessage.create({ data: { id: messageId, chatId, externalId: `ext-${messageId}`, whatsappMessageId: `wa-${messageId}`, direction: "incoming",
+      source: "contact", type: "image", imageId, imageStatus: "ready", uploadedByUserId: owner.sellerId, sentAt: new Date(), receivedAt: new Date() } });
+  });
+  return { customerId, chatId, messageId, source: { chatId, customerId } };
+}
+
+async function chatCleanup(...fixtures: Awaited<ReturnType<typeof fixture>>[]) {
+  for (const f of fixtures) await withTenantIsolation(f.companyId, async () => {
+    await prisma.orderMessage.deleteMany();
+    await prisma.payment.deleteMany();
+    await prisma.orderItem.deleteMany();
+    await prisma.order.deleteMany();
+    await prisma.chatMessage.deleteMany();
+    await prisma.chat.deleteMany();
+    await prisma.contact.deleteMany();
+    await prisma.customer.deleteMany();
+  });
+}
+
+let nextNumber = 1000;
+function chatOrder(f: Awaited<ReturnType<typeof fixture>>, over: Partial<{ id: string; createdAt: Date; buyer: { name: string | null; phone: string | null } }> = {}) {
+  const built = buildPendingOrder({ number: ++nextNumber as OrderNumber, id: (over.id ?? randomUUID()) as OrderId, companyId: f.companyId as CompanyId, sellerId: f.sellerId as UserId,
+    customer: { kind: "contact", contactId: f.contactId as ContactId, name: over.buyer?.name ?? null, phone: over.buyer?.phone ?? null }, createdAt: over.createdAt ?? new Date(),
+    items: [{ id: randomUUID() as never, variantId: f.variantIds[0] as VariantId, productName: "Sample", variantAttributes: { Size: "M" }, sku: null, quantity: 1, unitPrice: { amount: 10, currency: "PEN" } }] });
+  if (!built.success) throw new Error(built.error.message);
+  return built.data;
+}
+
+test("saves a chat order with customerId, chatId and a buyer without phone", async () => {
+  const f = await fixture();
+  try {
+    const chat = await chatFixture(f);
+    const order = chatOrder(f);
+    await withTenantIsolation(f.companyId, async () => {
+      expect(await withinTransaction(() => savePendingOrder(order, chat.source))).toEqual(ok(null));
+      const row = await prisma.order.findFirstOrThrow({ where: { id: order.id }, include: { buyer: true } });
+      expect(row).toMatchObject({ customerId: chat.customerId, chatId: chat.chatId, buyer: { contactId: f.contactId, name: null, phone: null } });
+      expect(await findOrderAggregate(order.id, f.companyId as CompanyId)).toMatchObject({ success: true, data: { chatId: chat.chatId, buyer: { phone: null } } });
+      const manual = chatOrder(f);
+      await savePendingOrder(manual);
+      expect(await prisma.order.findFirstOrThrow({ where: { id: manual.id } })).toMatchObject({ customerId: null, chatId: null });
+    });
+  } finally { await chatCleanup(f); await f.cleanup(); }
+});
+
+test("findOpenChatOrderCandidate returns the most recent open order of the chat", async () => {
+  const f = await fixture();
+  try {
+    const chat = await chatFixture(f);
+    const older = chatOrder(f, { createdAt: new Date("2026-10-01T00:00:00Z") });
+    const newer = chatOrder(f, { createdAt: new Date("2026-10-02T00:00:00Z") });
+    await withTenantIsolation(f.companyId, async () => {
+      for (const order of [newer, older]) await withinTransaction(() => savePendingOrder(order, chat.source));
+      expect(await findOpenChatOrderCandidate(chat.chatId)).toEqual(ok(newer.id));
+    });
+  } finally { await chatCleanup(f); await f.cleanup(); }
+});
+
+test("findOpenChatOrderCandidate ignores manual orders, other chats and orders that are not open", async () => {
+  const f = await fixture();
+  try {
+    const chat = await chatFixture(f);
+    const states: Record<string, (order: ReturnType<typeof chatOrder>) => Promise<unknown>> = {
+      cancelled: (order) => prisma.order.update({ where: { id: order.id }, data: { cancelled: true } }),
+      completed: (order) => prisma.order.update({ where: { id: order.id }, data: { completedAt: new Date() } }),
+      checkoutConfirmed: (order) => prisma.order.update({ where: { id: order.id }, data: { checkoutEnabledAt: new Date(), checkoutConfirmedAt: new Date() } }),
+      stockDeducted: (order) => prisma.order.update({ where: { id: order.id }, data: { stockDeducted: true } }),
+      shipped: (order) => prisma.order.update({ where: { id: order.id }, data: { stockDeducted: true, deliveryStatus: "shipped" } }),
+      confirmedPayment: (order) => prisma.payment.create({ data: { id: randomUUID(), orderId: order.id, status: "confirmed", amount: new Prisma.Decimal("1"), currency: "PEN",
+        method: "digital_wallet", data: { confirmedAt: new Date().toISOString(), confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" } } } }),
+      reportedPayment: (order) => prisma.payment.create({ data: { id: randomUUID(), orderId: order.id, status: "reported", currency: "PEN",
+        data: { receiptImageId: randomUUID(), reportedAt: new Date().toISOString() } } }),
+    };
+    await withTenantIsolation(f.companyId, async () => {
+      for (const change of Object.values(states)) {
+        const order = chatOrder(f);
+        await withinTransaction(() => savePendingOrder(order, chat.source));
+        await change(order);
+      }
+      await savePendingOrder(chatOrder(f)); // manual
+      expect(await findOpenChatOrderCandidate(chat.chatId)).toEqual(ok(null));
+      expect(await findOpenChatOrderCandidate(randomUUID() as ChatId)).toEqual(ok(null));
+      const open = chatOrder(f);
+      await withinTransaction(() => savePendingOrder(open, chat.source));
+      await prisma.payment.create({ data: { id: randomUUID(), orderId: open.id, status: "voided", amount: new Prisma.Decimal("1"), currency: "PEN", method: "digital_wallet",
+        data: { confirmedAt: new Date().toISOString(), confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" }, voidedAt: new Date().toISOString(), voidedBy: "x" } } });
+      expect(await findOpenChatOrderCandidate(chat.chatId)).toEqual(ok(open.id));
+    });
+  } finally { await chatCleanup(f); await f.cleanup(); }
+});
+
+test("saveAddedItems inserts new items and updates quantities and totals", async () => {
+  const f = await fixture();
+  try {
+    const chat = await chatFixture(f);
+    const order = chatOrder(f);
+    await withTenantIsolation(f.companyId, async () => {
+      await withinTransaction(() => savePendingOrder(order, chat.source));
+      const added = orderStateMachine.appendItems(order, [
+        { variantId: f.variantIds[0] as VariantId, productName: "Sample", variantAttributes: { Size: "M" }, sku: null, unitPrice: { amount: 99, currency: "PEN" } },
+        { variantId: f.variantIds[1] as VariantId, productName: "Other", variantAttributes: { Size: "L" }, sku: null, unitPrice: { amount: 5, currency: "PEN" } },
+      ], () => randomUUID() as never);
+      if (!added.success) throw new Error(added.error.message);
+      expect(await withinTransaction(() => saveAddedItems(added.data, order))).toEqual(ok(null));
+      const stored = await findOrderAggregate(order.id, f.companyId as CompanyId);
+      expect(stored).toMatchObject({ success: true, data: { itemsTotal: { amount: 25 }, total: { amount: 25 } } });
+      if (!stored.success || !stored.data) throw new Error("order missing");
+      expect(stored.data.items.map((item) => [item.variantId, item.quantity, item.unitPrice.amount, item.subtotal.amount]).sort())
+        .toEqual([[f.variantIds[0], 2, 10, 20], [f.variantIds[1], 1, 5, 5]].sort());
+    });
+  } finally { await chatCleanup(f); await f.cleanup(); }
+});
+
+test("findProcessedMessage returns the order of a processed message", async () => {
+  const f = await fixture();
+  try {
+    const chat = await chatFixture(f);
+    const order = chatOrder(f);
+    await withTenantIsolation(f.companyId, async () => {
+      expect(await findProcessedMessage(chat.messageId)).toEqual(ok(null));
+      await withinTransaction(async () => {
+        await savePendingOrder(order, chat.source);
+        return recordProcessedMessage(order.id, chat.messageId);
+      });
+      expect(await findProcessedMessage(chat.messageId)).toEqual(ok(order.id));
+    });
+  } finally { await chatCleanup(f); await f.cleanup(); }
+});
+
+test("recordProcessedMessage maps a repeated message to MESSAGE_ALREADY_PROCESSED", async () => {
+  const f = await fixture();
+  try {
+    const chat = await chatFixture(f);
+    const [first, second] = [chatOrder(f), chatOrder(f)];
+    await withTenantIsolation(f.companyId, async () => {
+      for (const order of [first, second]) await withinTransaction(() => savePendingOrder(order, chat.source));
+      expect(await withinTransaction(() => recordProcessedMessage(first.id, chat.messageId))).toEqual(ok(null));
+      expect(await withinTransaction(() => recordProcessedMessage(second.id, chat.messageId))).toMatchObject({ success: false, error: { code: "MESSAGE_ALREADY_PROCESSED" } });
+      expect(await findProcessedMessage(chat.messageId)).toEqual(ok(first.id));
+    });
+  } finally { await chatCleanup(f); await f.cleanup(); }
+});
+
+test("lists, filters and searches orders whose buyer has no phone", async () => {
+  const f = await fixture();
+  try {
+    const chat = await chatFixture(f);
+    const named = chatOrder(f, { buyer: { name: "Ana Quispe", phone: null } });
+    const anonymous = chatOrder(f);
+    const criteria = (over: object = {}) => ({ page: 1, view: "all" as const, customer: { kind: "all" as const }, ...over }) as never;
+    await withTenantIsolation(f.companyId, async () => {
+      for (const order of [named, anonymous]) await withinTransaction(() => savePendingOrder(order, chat.source));
+      const ids = async (over?: object) => {
+        const page = await findOrderAggregates(criteria(over), f.companyId as CompanyId);
+        if (!page.success) throw new Error(page.error.message);
+        return page.data.items.map((item) => item.id).sort();
+      };
+      expect(await ids()).toEqual([named.id, anonymous.id].sort());
+      expect(await ids({ customer: { kind: "contact", contactId: f.contactId } })).toEqual([named.id, anonymous.id].sort());
+      expect(await ids({ search: "quispe" })).toEqual([named.id]);
+      expect(await ids({ search: "999" })).toEqual([]);
+      expect(await ids({ search: `#${named.number}` })).toEqual([named.id]);
+    });
+  } finally { await chatCleanup(f); await f.cleanup(); }
+});
+
+test("composite foreign keys reject a chat, customer or message of another company", async () => {
+  const a = await fixture();
+  const b = await fixture();
+  try {
+    const foreign = await chatFixture(a);
+    const own = await chatFixture(b);
+    const order = chatOrder(b);
+    await withTenantIsolation(b.companyId, async () => {
+      await withinTransaction(() => savePendingOrder(order, own.source));
+      await expect(prisma.order.create({ data: { ...(await orderData(chatOrder(b))), chatId: foreign.chatId } })).rejects.toMatchObject({ code: "P2003" });
+      await expect(prisma.order.create({ data: { ...(await orderData(chatOrder(b))), customerId: foreign.customerId } })).rejects.toMatchObject({ code: "P2003" });
+      await expect(prisma.orderMessage.create({ data: { orderId: order.id, messageId: foreign.messageId, createdAt: new Date() } })).rejects.toMatchObject({ code: "P2003" });
+    });
+  } finally { await chatCleanup(a, b); await a.cleanup(); await b.cleanup(); }
+});
+
+async function orderData(order: ReturnType<typeof chatOrder>) {
+  return { number: BigInt(order.number), id: order.id, sellerId: order.sellerId, currency: "PEN", total: 10, itemsTotal: 10, createdAt: new Date() };
+}
+
+test("tenant isolation hides customers and order messages of another company", async () => {
+  const a = await fixture();
+  const b = await fixture();
+  try {
+    const chat = await chatFixture(a);
+    const order = chatOrder(a);
+    await withTenantIsolation(a.companyId, async () => {
+      await withinTransaction(async () => {
+        await savePendingOrder(order, chat.source);
+        return recordProcessedMessage(order.id, chat.messageId);
+      });
+      expect(await prisma.customer.count()).toBe(1);
+      expect(await prisma.orderMessage.count()).toBe(1);
+    });
+    await withTenantIsolation(b.companyId, async () => {
+      expect(await prisma.customer.count()).toBe(0);
+      expect(await prisma.orderMessage.count()).toBe(0);
+      expect(await findProcessedMessage(chat.messageId)).toEqual(ok(null));
+    });
+  } finally { await chatCleanup(a, b); await a.cleanup(); await b.cleanup(); }
 });
 
 test("derives source whatsapp for chat orders and manual otherwise", async () => {
