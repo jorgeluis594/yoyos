@@ -80,10 +80,10 @@ test("rated creation reviews one full delivery price and keeps only its selected
 test.each([true, false])("new drafts reject manual delivery instead of silently omitting it (charge: %s)", (charge) => {
   const first = addDraftItem(emptyOrderDraft(), item(1, 10), () => id(9));
   if (!first.success) throw new Error("Invalid fixture");
-  const legacy = { ...first.data, delivery: { method: "store", name: "Ana", phone: "999", documentType: "absent", document: "",
+  const manual = { ...first.data, delivery: { method: "store", name: "Ana", phone: "999", documentType: "absent", document: "",
     courierId: "", agency: "", address: "", district: "", instructions: "", charge } };
-  expect(prepareOrder(legacy)).toMatchObject({ success: false, error: { code: "INVALID_CART" } });
-  expect(prepareOrder({ ...legacy, ratedDelivery: { expectedPrice: { amount: 0, currency: "PEN" },
+  expect(prepareOrder(manual)).toMatchObject({ success: false, error: { code: "INVALID_CART" } });
+  expect(prepareOrder({ ...manual, ratedDelivery: { expectedPrice: { amount: 0, currency: "PEN" },
     delivery: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } } } })).toMatchObject({ success: false });
 });
 

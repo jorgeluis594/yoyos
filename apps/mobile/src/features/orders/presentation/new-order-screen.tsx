@@ -283,7 +283,7 @@ function CompanyOrderScreen() {
     setPending(result.data.pending); setDraft(result.data.draft);
     setUnavailableVariants(result.data.unavailableVariantIds); setContactUnavailable(result.data.contactUnavailable);
     setReviewingDelivery(false); setReviewingOrder(true); setStage("review"); setPaidPaymentId(null); setError("");
-    const delivery = result.data.pending.request?.delivery?.delivery;
+    const delivery = result.data.pending.request.delivery?.delivery;
     if (delivery) restoreDelivery(delivery, result.data.pending.shownTotal.currency);
     else setInitialDelivery(null);
   };
@@ -320,7 +320,7 @@ function CompanyOrderScreen() {
         <ThemedText type="title" accessibilityRole="header">{t('newOrder')}</ThemedText></View>
       {pendingStatus === "loading" ? <ScreenState status="loading" title={t('checkingPendingOrder')} />
         : pendingStatus === "error" ? <ScreenState status="error" title={t('pendingAttemptError')}
-            description={t('pendingAttemptHint')}
+            description={invalidPending ? t('discardInvalidAttemptHint') : t('pendingAttemptHint')}
             onRetry={() => { setPendingStatus("loading"); void orders.readPendingOrderConfirmation(companyId).then((result) => {
               if (result.success) { setPending(result.data); setPendingStatus(result.data ? "uncertain" : "none"); setError(""); }
               else { setPendingStatus("error"); setInvalidPending(result.error.code === "INVALID_PENDING_DATA"); }
@@ -340,7 +340,7 @@ function CompanyOrderScreen() {
             }}>{t('reviewSavedDelivery')}</Button> : null}
             {reviewingDelivery && initialDelivery && pending ? <>
               <ThemedText>{t('savedDeliveryReviewHint')}</ThemedText>
-              <ThemedText>{t('itemCount', { count: pending.request.items.reduce((count, item) => count + item.quantity, 0) ?? 0 })}</ThemedText>
+              <ThemedText>{t('itemCount', { count: pending.request.items.reduce((count, item) => count + item.quantity, 0) })}</ThemedText>
               {pending.request.payments?.map(payment => <ThemedText key={payment.paymentId}>{t('initialPaid')}: {money(payment.amount.amount, payment.amount.currency, locale)}</ThemedText>)}
               {settings ? <DeliveryFields value={initialDelivery} onChange={next => {
                 if (next.method !== initialDelivery.method || next.districtCode !== initialDelivery.districtCode) setQuoteAttempt(value => value + 1);
