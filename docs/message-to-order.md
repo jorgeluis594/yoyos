@@ -254,6 +254,7 @@ export type MessageOrderSkipReason =
   | "not_image"
   | "outgoing_message"
   | "no_qr_code"
+  | "unreadable_image"
   | "unrecognized_qr_code"
   | "product_not_found";
 
@@ -348,8 +349,8 @@ export type AddMessageProductsDependencies = Readonly<{
   findProcessedMessage: (messageId: ChatMessageId) => Promise<Result<OrderId | null, PersistenceError>>;
   transaction: <T>(
     companyId: CompanyId,
-    work: () => Promise<Result<T, AddMessageProductsError>>,
-  ) => Promise<Result<T, AddMessageProductsError>>;
+    work: () => Promise<Result<T, AddMessageProductsError | MessageAlreadyProcessed>>,
+  ) => Promise<Result<T, AddMessageProductsError | MessageAlreadyProcessed>>;
   // Las siguientes requieren transacción activa.
   ensureCustomerForContact: (contactId: ContactId) => Promise<Result<MessageCustomer, PersistenceError | ContactNotFound>>;
   findOpenChatOrderCandidate: (chatId: ChatId) => Promise<Result<OrderId | null, PersistenceError>>;
@@ -373,7 +374,7 @@ Flujo:
 
 1. Mensaje ya procesado (`findProcessedMessage`) → `already_processed`.
 2. Cargar el mensaje. Sin `imageId` → `not_image`; saliente → `outgoing_message`.
-3. **Fuera de la transacción:** leer bytes, decodificar QR, `selectProductCode`, `findVariantsByCodes` (una consulta). Ninguna variante → `product_not_found`; códigos no encontrados → `unknownCodes` en el log.
+3. **Fuera de la transacción:** leer bytes, decodificar QR, `selectProductCode`, `findVariantsByCodes` (una consulta). Imagen ilegible (`UNREADABLE_IMAGE`, también más de 24 MP) → `unreadable_image` (omisión, reintentar no cambia nada). Ninguna variante → `product_not_found`; códigos no encontrados → `unknownCodes` en el log.
 4. **Dentro de la transacción** (orden de bloqueo siempre contacto → orden; ninguna operación existente bloquea en sentido inverso):
    1. `ensureCustomerForContact`: bloquea el contacto (serializa los mensajes del chat), devuelve su customer o crea uno vacío y actualiza `Contact.customerId`.
    2. Repetir `findProcessedMessage`.
@@ -561,6 +562,7 @@ Notas de migración (`.agents/skills/database-migrations/SKILL.md`):
 | `imageId` inexistente o de otra empresa en el POST | 404 `IMAGE_NOT_FOUND`, sin evento; mobile vuelve a subir. |
 | Imagen inaccesible al procesar | `IMAGE_NOT_FOUND`, permanente, log de fallo. |
 | Sin QR / QR no UUID (Yape, Plin, URL) | `no_qr_code` / `unrecognized_qr_code`. |
+| Imagen ilegible o de más de 24 MP | `unreadable_image` (omisión, sin reintento). |
 | Mismo código repetido en la foto | Un ítem, cantidad 1. |
 | Varios productos | Un ítem por variante. |
 | Algunos códigos existen y otros no | Se añaden los encontrados; `unknownCodes` en el log. |
