@@ -31,7 +31,7 @@ export const publicCheckoutDeliverySchema = z.union([
 ]);
 export const publicCheckoutSchema = z.strictObject({
   companyName: z.string(), number: z.number().int().safe().min(1001),
-  buyer: z.strictObject({ name: z.string().nullable(), phone: z.string() }).nullable(),
+  buyer: z.strictObject({ name: z.string().nullable(), phone: z.string().nullable() }).nullable(),
   items: z.array(z.strictObject({ productName: z.string(), variantAttributes: z.record(z.string(), z.string()), sku: z.string().nullable(),
     quantity: z.number().int().positive().safe(), unitPrice: checkoutMoneySchema, subtotal: checkoutMoneySchema })).min(1),
   itemsTotal: checkoutMoneySchema, deliveryCharge: checkoutMoneySchema, total: checkoutMoneySchema,
