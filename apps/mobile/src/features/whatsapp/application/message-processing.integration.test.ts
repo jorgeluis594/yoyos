@@ -9,6 +9,7 @@ import { createLocalSql } from "@mobile/features/whatsapp/infrastructure/local-s
 import { openTestDatabase } from "@mobile/features/whatsapp/infrastructure/node-sqlite-database";
 import { createSqliteLinkStore } from "@mobile/features/whatsapp/infrastructure/sqlite-link-store";
 import { createSqliteMessageStore } from "@mobile/features/whatsapp/infrastructure/sqlite-message-store";
+import type { Result } from "@shared/result";
 import type { TransportError } from "@mobile/shared/application/transport-error";
 
 const company = "c1" as CompanyId;
@@ -30,7 +31,8 @@ async function setup(respond: MessageApi["register"] = async () => ok({ status: 
   let clock = 10_000;
   const confirmed: string[] = [];
   const worker = createSyncWorker({
-    store, api, session: () => current, now: () => new Date(clock), random: () => 0.5, schedule: () => () => undefined,
+    store, api, images: { downloadImage: async () => ok({ uri: "file:///x", mimeType: "image/png", size: 1 }), deleteDownloadedImage: async () => ok(undefined) },
+    uploadImage: async () => ok({ id: "00000000-0000-4000-8000-0000000000aa" }), session: () => current, now: () => new Date(clock), random: () => 0.5, schedule: () => () => undefined,
   });
   const receive = receiveMessage({
     store, links, now: () => new Date(clock), wakeSync: () => undefined,
@@ -109,13 +111,13 @@ function nativeMessage(n: number, extra: Record<string, unknown> = {}) {
 
 type Handler = (payload: unknown) => void;
 
-function fakeGateway() {
+function fakeGateway(download: () => Awaited<ReturnType<WhatsAppGateway["downloadImage"]>> = () => ok({ uri: "file:///x", mimeType: "image/png", size: 1 })) {
   const listeners = new Map<string, Set<Handler>>();
   const confirmed: string[] = [];
   const gateway = {
     initialize: async () => ok(undefined), connect: async () => ok(undefined), disconnect: async () => ok(undefined), logout: async () => ok(undefined),
     confirmMessageStored: async (id: string) => { confirmed.push(id); return ok(undefined); },
-    downloadImage: async () => ok({ uri: "file:///x", mimeType: "image/png", size: 1 }), deleteDownloadedImage: async () => ok(undefined),
+    downloadImage: async () => download(), deleteDownloadedImage: async () => ok(undefined),
     addListener: (name: string, listener: Handler) => {
       const set = listeners.get(name) ?? new Set<Handler>();
       set.add(listener);
@@ -126,14 +128,17 @@ function fakeGateway() {
   return { gateway, confirmed, emit: (name: string, payload: unknown) => listeners.get(name)?.forEach((listener) => listener(payload)) };
 }
 
-async function runtimeSetup(responses: (() => Awaited<ReturnType<MessageApi["register"]>> | Promise<Awaited<ReturnType<MessageApi["register"]>>>)[] | null = null) {
+async function runtimeSetup(responses: (() => Awaited<ReturnType<MessageApi["register"]>> | Promise<Awaited<ReturnType<MessageApi["register"]>>>)[] | null = null,
+  options: { download?: Parameters<typeof fakeGateway>[0]; handler?: (path: string) => Result<unknown, TransportError> | undefined } = {}) {
   const database = openTestDatabase();
   await migrateWhatsAppDatabase(database);
-  const fake = fakeGateway();
+  const fake = fakeGateway(options.download);
   let clock = 10_000;
   let linkIds = 0;
   const timers: { ms: number; run: () => void }[] = [];
-  const request = jest.fn(async (_path: string, _init?: RequestInit) => {
+  const request = jest.fn(async (path: string, _init?: RequestInit) => {
+    const handled = options.handler?.(path);
+    if (handled) return handled;
     const next = responses?.shift();
     return next ? next() : ok(stored);
   });
@@ -160,14 +165,14 @@ async function runtimeSetup(responses: (() => Awaited<ReturnType<MessageApi["reg
   return { database, runtime, create, link, fake, request, timers, receive, messages, advance: (ms: number) => { clock += ms; } };
 }
 
-test("an image with an empty caption is confirmed, rejected as invalid input and never requested", async () => {
-  const ctx = await runtimeSetup();
+test("an image with an empty caption is confirmed, rejected as invalid input and never registered", async () => {
+  const ctx = await runtimeSetup(null, { handler: (path) => path === "/api/images" ? uploadedImage : undefined });
   await ctx.link();
   const image = { reference: { messageId: "m", downloadReference: "wa-image:v1:abc" }, mimeType: "image/png", size: 10 };
   ctx.fake.emit("messageReceived", { deliveryId: deliveryId("a"), message: nativeMessage(1, { text: "", image }) });
   await settle();
   expect(ctx.fake.confirmed).toEqual([deliveryId("a")]);
-  expect(ctx.request).not.toHaveBeenCalled();
+  expect(ctx.request.mock.calls.map(([path]) => path)).not.toContain("/api/messages");
   expect((await ctx.messages())[0]?.sync).toMatchObject({ state: "rejected", code: "INVALID_INPUT" });
   const pending = await ctx.runtime.store.nextPending(company, new Date(10 * 60_000 + 10_000), 20);
   expect(pending).toEqual({ success: true, data: [] });
@@ -260,5 +265,66 @@ test("the change notification fires on save and on sync, and not on duplicates o
   ctx.advance(60_000);
   await ctx.runtime.sync.runOnce();
   expect(changed).toHaveBeenCalledTimes(2);
+  ctx.database.close();
+});
+
+const coreImageId = "00000000-0000-4000-8000-0000000000aa";
+const uploadedImage = ok({ id: coreImageId, url: "https://cdn.example/a.png" });
+const imageEvent = (n = 1) => nativeMessage(n, { image: { reference: { messageId: "m", downloadReference: "wa-image:v1:abc" }, mimeType: "image/png", size: 10 } });
+const paths = (ctx: Awaited<ReturnType<typeof runtimeSetup>>) => ctx.request.mock.calls.map(([path]) => path);
+
+async function receiveImageOffline(ctx: Awaited<ReturnType<typeof runtimeSetup>>) {
+  await ctx.link();
+  ctx.runtime.setIdentity(null);
+  ctx.receive(imageEvent(), deliveryId("a"));
+  await settle();
+  ctx.runtime.setIdentity({ companyId: "c1", userId: "u1" });
+}
+
+beforeEach(() => {
+  global.fetch = jest.fn(async () => ({ blob: async () => new Blob(["bytes"]) })) as unknown as typeof fetch;
+});
+
+test("a received image is downloaded, uploaded and registered with its imageId", async () => {
+  const ctx = await runtimeSetup(null, { handler: (path) => path === "/api/images" ? uploadedImage : undefined });
+  await receiveImageOffline(ctx);
+  expect(await ctx.runtime.sync.runOnce()).toEqual({ success: true, data: { synced: 1, retried: 0, rejected: 0 } });
+  expect(paths(ctx)).toEqual(["/api/images", "/api/messages"]);
+  expect(JSON.parse(String(ctx.request.mock.calls[1]?.[1]?.body)).message.content).toEqual({ type: "image", imageId: coreImageId });
+  expect((await ctx.messages())[0]).toMatchObject({ coreImageId, sync: { state: "synced" } });
+  ctx.database.close();
+});
+
+test("an image uploaded before a restart is registered without uploading again", async () => {
+  let registrations = 0;
+  const ctx = await runtimeSetup(null, { handler: (path) => path === "/api/images" ? uploadedImage : path === "/api/messages" && registrations++ === 0 ? offline() : undefined });
+  await receiveImageOffline(ctx);
+  expect(await ctx.runtime.sync.runOnce()).toEqual({ success: true, data: { synced: 0, retried: 1, rejected: 0 } });
+  const restarted = ctx.create();
+  ctx.advance(60_000);
+  expect(await restarted.sync.runOnce()).toEqual({ success: true, data: { synced: 1, retried: 0, rejected: 0 } });
+  expect(paths(ctx)).toEqual(["/api/images", "/api/messages", "/api/messages"]);
+  ctx.database.close();
+});
+
+test("a 404 on registration uploads the image again and then syncs", async () => {
+  let registrations = 0;
+  const notFound = () => err<TransportError>({ code: "API_ERROR", message: "missing", http: { status: 404, body: {} } });
+  const ctx = await runtimeSetup(null, { handler: (path) => path === "/api/images" ? uploadedImage : path === "/api/messages" && registrations++ === 0 ? notFound() : undefined });
+  await receiveImageOffline(ctx);
+  expect(await ctx.runtime.sync.runOnce()).toEqual({ success: true, data: { synced: 0, retried: 1, rejected: 0 } });
+  expect((await ctx.messages())[0]?.coreImageId).toBeNull();
+  ctx.advance(60_000);
+  expect(await ctx.runtime.sync.runOnce()).toEqual({ success: true, data: { synced: 1, retried: 0, rejected: 0 } });
+  expect(paths(ctx)).toEqual(["/api/images", "/api/messages", "/api/images", "/api/messages"]);
+  ctx.database.close();
+});
+
+test("an expired WhatsApp image is rejected and never registered", async () => {
+  const ctx = await runtimeSetup(null, { download: () => err({ code: "IMAGE_UNAVAILABLE", message: "expired" }) });
+  await receiveImageOffline(ctx);
+  expect(await ctx.runtime.sync.runOnce()).toEqual({ success: true, data: { synced: 0, retried: 0, rejected: 1 } });
+  expect(ctx.request).not.toHaveBeenCalled();
+  expect((await ctx.messages())[0]?.sync).toMatchObject({ state: "rejected", code: "IMAGE_UNAVAILABLE" });
   ctx.database.close();
 });

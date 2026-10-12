@@ -12,6 +12,8 @@ export type StoredMessage = InboundMessage & Readonly<{
   /** null exactly when the message is orphaned. */
   linkId: LinkId | null;
   companyId: CompanyId | null;
+  /** Id of the image already uploaded to core; null for text and for images not uploaded yet. */
+  coreImageId: string | null;
   /** Local monotonic arrival order; the ordering base because sentAt can be null. */
   arrivalSeq: number;
   storedAt: Date;

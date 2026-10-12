@@ -22,6 +22,8 @@ export type MessageStore = Readonly<{
   nextRetryAt(companyId: CompanyId): Promise<Result<Date | null, StoreError>>;
   markSynced(id: NativeMessageId, coreMessageId: CoreMessageId, at: Date): Promise<Result<void, StoreError>>;
   markRetry(id: NativeMessageId, attempts: number, nextAttemptAt: Date): Promise<Result<void, StoreError>>;
+  saveCoreImageId(id: NativeMessageId, imageId: string): Promise<Result<void, StoreError>>;
+  clearCoreImageId(id: NativeMessageId): Promise<Result<void, StoreError>>;
   markRejected(id: NativeMessageId, code: RejectCode, at: Date): Promise<Result<void, StoreError>>;
   listConversations(companyId: CompanyId): Promise<Result<readonly ConversationSummary[], StoreError>>;
   listMessages(companyId: CompanyId, chatId: WhatsAppChatId, page: Page): Promise<Result<readonly StoredMessage[], StoreError>>;
@@ -52,5 +54,5 @@ export type RegistrationOutcome = Readonly<{ status: "stored" | "duplicate"; mes
 /** INVALID_MESSAGE: the local message does not satisfy the core contract, so no request was made. */
 export type MessageApiError = TransportError | Readonly<{ code: "INVALID_MESSAGE"; message: string }>;
 export type MessageApi = Readonly<{
-  register(message: InboundMessage): Promise<Result<RegistrationOutcome, MessageApiError>>;
+  register(message: InboundMessage & Pick<StoredMessage, "coreImageId">): Promise<Result<RegistrationOutcome, MessageApiError>>;
 }>;
