@@ -1,5 +1,7 @@
 import { err } from "@shared/functional";
 import { restoreCancelledOrderStock, restoreProductStock } from "@core/src/features/products";
+import { parseMessageCreated } from "@core/src/features/chats/infrastructure/event-payloads";
+import { addMessageProductsHandler } from "@core/src/features/orders/composition";
 import { parseOrderCancelled } from "@core/src/features/orders/infrastructure/event-payloads";
 import { findOrderForUpdate, saveStockRestoration } from "@core/src/features/orders/infrastructure/order-repository";
 import { getCompanyId, withinTransaction, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
@@ -42,7 +44,11 @@ export const restoreCancelledStock = defineEventHandler<AppEvents, "order_cancel
     },
     findOrderForUpdate, restoreProductStock, saveStockRestoration,
   })), { id: "restore-cancelled-order-stock", parsePayload: parseOrderCancelled });
-export const eventHandlers: AnyEventSubscription<AppEvents>[] = [restoreCancelledStock];
+// Imported from event-payloads, not chats/index, to avoid event-handlers → chats → dispatch → event-bus → event-handlers.
+export const addMessageProductsToOrder = defineEventHandler<AppEvents, "message_created">("message_created",
+  (payload, metadata, context) => addMessageProductsHandler(payload, metadata, context),
+  { id: "add-message-products-to-order", parsePayload: parseMessageCreated, policy: { concurrency: 2, retries: 8 } });
+export const eventHandlers: AnyEventSubscription<AppEvents>[] = [restoreCancelledStock, addMessageProductsToOrder];
 
 export function subscribeToEvent<Events extends object, Name extends EventName<Events>>(
   subscriber: EventSubscriber<Events>,

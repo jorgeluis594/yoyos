@@ -136,7 +136,8 @@ test("real provider recovers pending dispatch after restart and concurrent regis
     const rows = await withTenantIsolation(f.companyId, async () => await prisma.chatMessage.findMany({ where: { companyId: f.companyId } }));
     expect(rows).toHaveLength(2);
     expect(rows.every(result => result.eventDispatchedAt !== null)).toBe(true);
-    expect((await pool.query("SELECT id FROM pgboss.job WHERE data->>'name' = 'message_created'")).rowCount).toBe(0);
+    const queued = await pool.query<{ event_id: string }>("SELECT DISTINCT data->'metadata'->>'eventId' AS event_id FROM pgboss.job WHERE data->>'name' = 'message_created' AND data->'payload'->>'companyId' = $1", [f.companyId]);
+    expect(queued.rows.map(row => row.event_id).sort()).toEqual(rows.map(row => row.id).sort());
     await runtime.provider.stop();
     const stopped = await registerMobileMessage(input("stopped"), f.context);
     expect(stopped).toMatchObject({ success: false, error: { code: "EVENT_BUS_UNAVAILABLE" } });
@@ -148,7 +149,11 @@ test("real provider recovers pending dispatch after restart and concurrent regis
     const stoppedRow = await withTenantIsolation(f.companyId, async () => await prisma.chatMessage.findFirstOrThrow({ where: { companyId: f.companyId, whatsappMessageId: "stopped" } }));
     expect(stoppedRow.eventDispatchedAt).toBeInstanceOf(Date);
     expect(recovered.success && recovered.data.eventId).toBe(stoppedRow.id);
-  } finally { await runtime.provider.stop(); delete events.__yoyosEvents; await pool.end(); await f.cleanup(); }
+  } finally {
+    await runtime.provider.stop(); delete events.__yoyosEvents;
+    await pool.query("DELETE FROM pgboss.job WHERE data->>'name' = 'message_created' AND data->'payload'->>'companyId' = $1", [f.companyId]);
+    await pool.end(); await f.cleanup();
+  }
 });
 
 test("deferred commit failure never publishes a message event", async () => {

@@ -61,7 +61,7 @@ El mensaje se crea por la API de Yoyos, no por un webhook del canal, así que la
 **Qué no cambia:**
 
 - El cuerpo (`version: 1`, `message` con identidad LID), las respuestas 201/200, los códigos de error, el parser estricto (`Cache-Control: no-store`, 100 KiB, sin claves duplicadas) y la deduplicación.
-- El evento `whatsapp_message_recorded`, la feature `chats` y las tablas.
+- El evento de mensaje creado (`message_created`), la feature `chats` y las tablas.
 - Los nombres `registerWhatsAppMessage*Schema` y `shared/contracts/whatsapp-messages.ts`. Describen la forma de un mensaje de WhatsApp, no la ruta.
 
 **Comprobaciones:** ninguna otra ruta usa `/api/messages`. Un `GET /api/messages` sigue cayendo en el 404 genérico de `/api`. Un `POST /api/whatsapp/messages` también devuelve 404, y conviene cubrirlo con un test de ruta para que no quede montada por error.
