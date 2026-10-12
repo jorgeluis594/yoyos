@@ -63,8 +63,8 @@ export type AddMessageProductsDependencies = Readonly<{
   findProcessedMessage: (messageId: ChatMessageId) => Promise<Result<OrderId | null, PersistenceError>>;
   transaction: <T>(
     companyId: CompanyId,
-    work: () => Promise<Result<T, AddMessageProductsError>>,
-  ) => Promise<Result<T, AddMessageProductsError>>;
+    work: () => Promise<Result<T, AddMessageProductsError | MessageAlreadyProcessed>>,
+  ) => Promise<Result<T, AddMessageProductsError | MessageAlreadyProcessed>>;
   // Las siguientes requieren transacción activa.
   ensureCustomerForContact: (contactId: ContactId) => Promise<Result<MessageCustomer, PersistenceError | ContactNotFound>>;
   findOpenChatOrderCandidate: (chatId: ChatId) => Promise<Result<OrderId | null, PersistenceError>>;
@@ -100,7 +100,8 @@ export async function addMessageProductsToOrder(input: Input, deps: AddMessagePr
   const products = scan.data;
   if ("reason" in products) return skipped(products.reason);
   const entered = await deps.transaction(input.companyId, () => addInTransaction(input, message, products, deps));
-  if (entered.success || entered.error.code !== ("MESSAGE_ALREADY_PROCESSED" as string)) return entered;
+  if (entered.success) return entered;
+  if (entered.error.code !== "MESSAGE_ALREADY_PROCESSED") return err(entered.error);
   // La transacción se revirtió; el ganador ya registró el mensaje.
   const winner = await deps.findProcessedMessage(input.messageId);
   if (!winner.success) return winner;
@@ -112,8 +113,8 @@ async function scanMessage(imageId: ImageId, deps: AddMessageProductsDependencie
   const image = await deps.readImage(imageId);
   if (!image.success) return image;
   const decoded = await deps.readQrCodes(image.data);
-  // Una imagen ilegible equivale a una foto sin QR: reintentar no cambia el resultado.
-  if (!decoded.success) return decoded.error.code === "QR_READER_UNAVAILABLE" ? err({ code: decoded.error.code, message: decoded.error.message }) : ok({ reason: "no_qr_code" });
+  // Una imagen ilegible se omite: reintentar no cambia el resultado.
+  if (!decoded.success) return decoded.error.code === "QR_READER_UNAVAILABLE" ? err({ code: decoded.error.code, message: decoded.error.message }) : ok({ reason: "unreadable_image" });
   const selection = selectProductCode(decoded.data);
   if (selection.kind === "skip") return ok({ reason: selection.reason });
   const variants = await deps.findVariantsByCodes(selection.codes);
@@ -123,7 +124,7 @@ async function scanMessage(imageId: ImageId, deps: AddMessageProductsDependencie
   return ok({ variants: variants.data, unknownCodes: selection.codes.filter((code) => !known.has(code)) });
 }
 
-async function addInTransaction(input: Input, message: OrderSourceMessage, scan: Scan, deps: AddMessageProductsDependencies): Promise<Result<TransactionOutcome, AddMessageProductsError>> {
+async function addInTransaction(input: Input, message: OrderSourceMessage, scan: Scan, deps: AddMessageProductsDependencies): Promise<Result<TransactionOutcome, AddMessageProductsError | MessageAlreadyProcessed>> {
   const customer = await deps.ensureCustomerForContact(message.contactId);
   if (!customer.success) return customer;
   const again = await deps.findProcessedMessage(message.id);
@@ -132,7 +133,7 @@ async function addInTransaction(input: Input, message: OrderSourceMessage, scan:
   const written = await writeItems(input, message, customer.data, scan, deps);
   if (!written.success) return written;
   const recorded = await deps.recordProcessedMessage(written.data.orderId, message.id);
-  if (!recorded.success) return recorded as Result<never, AddMessageProductsError>; // MESSAGE_ALREADY_PROCESSED revierte y se resuelve fuera
+  if (!recorded.success) return recorded; // MESSAGE_ALREADY_PROCESSED revierte y se resuelve fuera
   return written;
 }
 

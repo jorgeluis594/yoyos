@@ -1795,9 +1795,9 @@ test("composite foreign keys reject a chat, customer or message of another compa
     const order = chatOrder(b);
     await withTenantIsolation(b.companyId, async () => {
       await withinTransaction(() => savePendingOrder(order, own.source));
-      await expect(prisma.order.create({ data: { ...(await orderData(chatOrder(b))), chatId: foreign.chatId } })).rejects.toThrow();
-      await expect(prisma.order.create({ data: { ...(await orderData(chatOrder(b))), customerId: foreign.customerId } })).rejects.toThrow();
-      await expect(prisma.orderMessage.create({ data: { orderId: order.id, messageId: foreign.messageId, createdAt: new Date() } })).rejects.toThrow();
+      await expect(prisma.order.create({ data: { ...(await orderData(chatOrder(b))), chatId: foreign.chatId } })).rejects.toMatchObject({ code: "P2003" });
+      await expect(prisma.order.create({ data: { ...(await orderData(chatOrder(b))), customerId: foreign.customerId } })).rejects.toMatchObject({ code: "P2003" });
+      await expect(prisma.orderMessage.create({ data: { orderId: order.id, messageId: foreign.messageId, createdAt: new Date() } })).rejects.toMatchObject({ code: "P2003" });
     });
   } finally { await chatCleanup(a, b); await a.cleanup(); await b.cleanup(); }
 });

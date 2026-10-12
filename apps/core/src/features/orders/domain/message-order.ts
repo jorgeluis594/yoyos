@@ -8,6 +8,7 @@ export type MessageOrderSkipReason =
   | "not_image"
   | "outgoing_message"
   | "no_qr_code"
+  | "unreadable_image"
   | "unrecognized_qr_code"
   | "product_not_found";
 

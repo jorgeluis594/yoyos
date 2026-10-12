@@ -216,11 +216,14 @@ async function concurrentWithLockHolder(f: Fixture, orderId: string, messageId: 
   }));
   await hasLock;
   const run = process(f, messageId);
-  for (let attempt = 0; attempt < 100; attempt++) { // wait until the photo is blocked on a lock
-    const [waiting] = await inTenant(f, () => prisma.$queryRaw<{ n: number }[]>`SELECT count(*)::int AS n FROM pg_stat_activity WHERE wait_event_type = 'Lock'`);
-    if (waiting!.n > 0) break;
-    await new Promise((resolve) => setTimeout(resolve, 50));
+  let blocked = false;
+  for (let attempt = 0; attempt < 100 && !blocked; attempt++) { // wait until the photo waits for this order's row lock
+    const [waiting] = await inTenant(f, () => prisma.$queryRaw<{ n: number }[]>`SELECT count(*)::int AS n FROM pg_stat_activity
+      WHERE wait_event_type = 'Lock' AND pid <> pg_backend_pid() AND query LIKE '%FROM "Order"%' AND query LIKE '%FOR UPDATE%'`);
+    blocked = waiting!.n > 0;
+    if (!blocked) await new Promise((resolve) => setTimeout(resolve, 50));
   }
+  expect(blocked).toBe(true);
   release();
   await holder;
   return run;

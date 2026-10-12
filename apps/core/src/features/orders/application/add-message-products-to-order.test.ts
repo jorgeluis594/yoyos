@@ -178,26 +178,38 @@ describe("addMessageProductsToOrder", () => {
   });
 
   const failure = (code: AddMessageProductsError["code"]) => err({ code, message: code } as AddMessageProductsError);
-  test.each([
+  test("skips unreadable images as unreadable_image", async () => {
+    const h = harness({ overrides: { readQrCodes: async () => err({ code: "UNREADABLE_IMAGE" as const, message: "Unreadable image" }) } });
+    expect(await h.run()).toEqual(ok({ kind: "skipped", reason: "unreadable_image" }));
+    expect(h.state.calls).not.toContain("transaction");
+  });
+
+  test("fails with MESSAGE_NOT_FOUND, IMAGE_NOT_FOUND, CONTACT_NOT_FOUND or SELLER_UNAVAILABLE without writing", async () => {
+    const cases = [
     ["MESSAGE_NOT_FOUND", { findSourceMessage: async () => ok(null) }],
     ["IMAGE_NOT_FOUND", { readImage: async () => failure("IMAGE_NOT_FOUND") }],
     ["CONTACT_NOT_FOUND", { ensureCustomerForContact: async () => err({ code: "CONTACT_NOT_FOUND" as const, message: "no contact" }) }],
     ["SELLER_UNAVAILABLE", { saveNewOrder: async () => err({ code: "SELLER_UNAVAILABLE" as const, message: "no seller" }) }],
-  ] as const)("fails with %s without writing", async (code, overrides) => {
-    const h = harness({ overrides: overrides as Partial<AddMessageProductsDependencies> });
-    expect(await h.run()).toMatchObject({ success: false, error: { code } });
-    expect(h.state.orders.size).toBe(0);
-    expect(h.state.processed.size).toBe(0);
-    expect(h.state.customers.size).toBe(0);
+    ] as const;
+    for (const [code, overrides] of cases) {
+      const h = harness({ overrides: overrides as Partial<AddMessageProductsDependencies> });
+      expect(await h.run()).toMatchObject({ success: false, error: { code } });
+      expect(h.state.orders.size).toBe(0);
+      expect(h.state.processed.size).toBe(0);
+      expect(h.state.customers.size).toBe(0);
+    }
   });
 
-  test.each([
+  test("propagates PERSISTENCE_UNAVAILABLE, IMAGE_STORAGE_UNAVAILABLE and QR_READER_UNAVAILABLE", async () => {
+    const cases = [
     ["PERSISTENCE_UNAVAILABLE", { findProcessedMessage: async () => failure("PERSISTENCE_UNAVAILABLE") }],
     ["IMAGE_STORAGE_UNAVAILABLE", { readImage: async () => failure("IMAGE_STORAGE_UNAVAILABLE") }],
     ["QR_READER_UNAVAILABLE", { readQrCodes: async () => failure("QR_READER_UNAVAILABLE") }],
-  ] as const)("propagates %s", async (code, overrides) => {
-    const h = harness({ overrides: overrides as Partial<AddMessageProductsDependencies> });
-    expect(await h.run()).toMatchObject({ success: false, error: { code } });
-    expect(h.state.orders.size).toBe(0);
+    ] as const;
+    for (const [code, overrides] of cases) {
+      const h = harness({ overrides: overrides as Partial<AddMessageProductsDependencies> });
+      expect(await h.run()).toMatchObject({ success: false, error: { code } });
+      expect(h.state.orders.size).toBe(0);
+    }
   });
 });

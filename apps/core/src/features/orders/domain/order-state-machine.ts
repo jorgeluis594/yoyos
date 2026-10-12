@@ -9,7 +9,6 @@ import { getPeruDistrict, getPeruProvinces, peruDepartments, parsePeruDistrictCo
 import type { QuotationId, DeliveryRateId, DeliveryZoneId, DeliverySettingsVersion, ResolvedDeliveryRate } from "@core/src/features/delivery-settings";
 import type { CourierId, PickupPoint } from "@core/src/features/delivery-settings";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
-import type { CatalogItem } from "@core/src/features/orders/application/order-snapshots";
 
 export type OrderStatus = "active" | "cancelled" | "completed";
 export type PaymentStatus = "pending" | "paid";
@@ -239,7 +238,7 @@ function lifecycle(order: OrderAggregate): Result<OrderLifecycle, AggregateValid
   return order.completedAt === null ? ok({ status: "active", completedAt: null }) : failure("INVALID_ORDER", "Active order has completion date");
 }
 
-function appendItems(order: OrderAggregate, variants: readonly CatalogItem[], newItemId: () => OrderItemId): Result<OrderAggregate, BuildOrderError> {
+function appendItems(order: OrderAggregate, variants: readonly Pick<OrderItem, "variantId" | "productName" | "variantAttributes" | "sku" | "unitPrice">[], newItemId: () => OrderItemId): Result<OrderAggregate, BuildOrderError> {
   const items: OrderItem[] = [...order.items];
   for (const variant of variants) {
     const index = items.findIndex((item) => item.variantId === variant.variantId);
