@@ -90,7 +90,7 @@ function readRequestedDelivery(value: unknown) {
 }
 
 function mapAggregate(row: DbAggregate, operation = "get_order_aggregate"): OrderAggregate {
-  if (!isCurrency(row.currency) || !row.items.length || (row.buyer && !row.buyer.phone) ||
+  if (!isCurrency(row.currency) || !row.items.length ||
     row.items.some((item) => item.quantity <= 0n || item.quantity > BigInt(Number.MAX_SAFE_INTEGER)))
     throw new InvalidStoredOrderError("Invalid stored order identity or items");
   const delivery = row.delivery === null ? null : parseDeliverySnapshot(row.delivery);
@@ -339,7 +339,7 @@ export async function findOrders(criteria: OrderCriteria) {
       prisma.order.count({ where }),
     ]);
     return ok({ items: rows.map((row) => {
-      if (!row.completedAt || !isCurrency(row.currency) || (row.buyer && !row.buyer.phone))
+      if (!row.completedAt || !isCurrency(row.currency))
         throw new InvalidStoredOrderError("Invalid stored order summary");
       return { number: storedNumber(row.number), id: row.id, completedAt: row.completedAt, sellerId: row.sellerId,
         buyer: row.buyer ? { contactId: row.buyer.contactId, name: row.buyer.name, phone: row.buyer.phone } : null,

@@ -5,6 +5,7 @@ import sharp from "sharp";
 export interface ImageStorage {
   upload(input: { bytes: Uint8Array; filename: string; contentType: string }): Promise<Result<{ key: string }>>;
   uploadPrivate(key: string, input: { bytes: Uint8Array; contentType: string }): Promise<Result<void>>;
+  read(key: string): Promise<Result<{ bytes: Uint8Array; contentType: string }>>;
   readPrivate(key: string): Promise<Result<{ bytes: Uint8Array; contentType: string }>>;
   getUrl(key: string): Promise<Result<string>>;
   delete(key: string): Promise<Result<void>>;
@@ -142,9 +143,47 @@ export async function getImages(ids: readonly string[], storage: ImageStorage, r
   };
 }
 
+export type ImageReadError = Readonly<{
+  code: "IMAGE_NOT_FOUND" | "IMAGE_STORAGE_UNAVAILABLE" | "PERSISTENCE_UNAVAILABLE";
+  message: string;
+}>;
+
+export type ReadImageBytes = (
+  imageId: string,
+  storage: ImageStorage,
+  repository: ImageRepository,
+) => Promise<Result<Readonly<{ bytes: Uint8Array; contentType: string }>, ImageReadError>>;
+
+/** Reads the bytes of a company image, from the public or private bucket by visibility. Implemented by T1. */
+export const readImageBytes: ReadImageBytes = async () => ({
+  success: false,
+  error: { code: "IMAGE_STORAGE_UNAVAILABLE", message: "readImageBytes not implemented" },
+});
+
 export async function readPrivateImage(id: string, storage: ImageStorage, repository: ImageRepository) {
   const image = await repository.find(id);
   if (!image.success) return image;
   if (!image.data || image.data.visibility !== "private") return { success: true as const, data: null };
   return storage.readPrivate(image.data.storageKey);
+}
+
+export type ImageReadError = Readonly<{
+  code: "IMAGE_NOT_FOUND" | "IMAGE_STORAGE_UNAVAILABLE" | "PERSISTENCE_UNAVAILABLE";
+  message: string;
+}>;
+
+/** Lee los bytes de una imagen de la empresa, del bucket público o privado según su visibilidad. */
+export async function readImageBytes(
+  imageId: string,
+  storage: ImageStorage,
+  repository: ImageRepository,
+): Promise<Result<Readonly<{ bytes: Uint8Array; contentType: string }>, ImageReadError>> {
+  const image = await repository.find(imageId);
+  if (!image.success) return image;
+  if (!image.data) return { success: false, error: { code: "IMAGE_NOT_FOUND", message: "Image not found" } };
+  const object = image.data.visibility === "private"
+    ? await storage.readPrivate(image.data.storageKey)
+    : await storage.read(image.data.storageKey);
+  if (object.success) return object;
+  return { success: false, error: { code: object.error.code === "IMAGE_NOT_FOUND" ? "IMAGE_NOT_FOUND" : "IMAGE_STORAGE_UNAVAILABLE", message: object.error.message } };
 }

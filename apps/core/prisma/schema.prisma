@@ -99,6 +99,8 @@ model Company {
   productVariants ProductVariant[]
   productStocks ProductStock[]
   orders Order[]
+  customers Customer[]
+  orderMessages OrderMessage[]
   orderBuyers OrderBuyer[]
   orderItems OrderItem[]
   payments Payment[]
@@ -335,10 +337,24 @@ model Contact {
   updatedAt DateTime @updatedAt
   chats     Chat[]
   orderBuyers OrderBuyer[]
+  customerId String? @db.Uuid
+  customer   Customer? @relation(fields: [companyId, customerId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
 
+  @@index([companyId, customerId])
   @@unique([companyId, id])
   @@unique([companyId, phone])
   @@unique([companyId, whatsappAccountId, whatsappLid])
+}
+
+model Customer {
+  id        String    @id @db.Uuid
+  companyId String    @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company   Company   @relation(fields: [companyId], references: [id])
+  createdAt DateTime
+  contacts  Contact[]
+  orders    Order[]
+
+  @@unique([companyId, id])
 }
 
 model Chat {
@@ -349,6 +365,7 @@ model Chat {
   contact   Contact  @relation(fields: [companyId, contactId], references: [companyId, id])
   createdAt DateTime @default(now())
   messages  ChatMessage[]
+  orders    Order[]
 
   @@unique([companyId, id])
   @@unique([companyId, contactId])
@@ -381,6 +398,7 @@ model ChatMessage {
   imageSize           BigInt?
   uploadedByUserId    String?
   eventDispatchedAt   DateTime?                 @db.Timestamp(3)
+  orderMessages       OrderMessage[]
 
   @@unique([companyId, id])
   // Cloud API externalId uniqueness is a partial SQL index in the migration.
@@ -413,9 +431,15 @@ model Order {
   completedAt DateTime?
   items OrderItem[]
   payments Payment[]
+  customerId String? @db.Uuid
+  customer Customer? @relation(fields: [companyId, customerId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
+  chatId String? @db.Uuid
+  chat Chat? @relation(fields: [companyId, chatId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
+  messages OrderMessage[]
 
   @@unique([companyId, id])
   @@unique([companyId, number])
+  @@index([companyId, chatId])
   @@index([companyId, completedAt(sort: Desc), id])
 }
 
@@ -454,6 +478,19 @@ model OrderItem {
   @@index([companyId, variantId])
 }
 
+model OrderMessage {
+  companyId String      @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company   Company     @relation(fields: [companyId], references: [id])
+  orderId   String      @db.Uuid
+  order     Order       @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Cascade, onUpdate: NoAction)
+  messageId String      @db.Uuid
+  message   ChatMessage @relation(fields: [companyId, messageId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
+  createdAt DateTime
+
+  @@id([companyId, messageId])
+  @@index([companyId, orderId])
+}
+
 model OrderBuyer {
   orderId String @id @db.Uuid
   companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
@@ -462,7 +499,7 @@ model OrderBuyer {
   contactId String? @db.Uuid
   contact Contact? @relation(fields: [companyId, contactId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
   name String?
-  phone String
+  phone String?
 
   @@unique([companyId, orderId])
   @@index([companyId, contactId])

@@ -1,6 +1,6 @@
 import { log } from "@core/src/shared/infrastructure/logger";
 import { afterEach, expect, it, vi } from "vitest";
-import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, NoSuchKey, PutObjectCommand } from "@aws-sdk/client-s3";
 import { createR2ImageStorage } from "@core/src/shared/images/infrastructure/r2-image-storage";
 
 const send = vi.hoisted(() => vi.fn());
@@ -129,4 +129,28 @@ it("requires HTTPS for both URLs in production and permits HTTP in development",
   const secureBase = createR2ImageStorage({ ...config, endpoint: "http://localhost:9000" });
   expect(construct).not.toHaveBeenCalled();
   expect(await secureBase.getUrl("key")).toEqual({ success: true, data: "https://images.example.test/key" });
+});
+
+it("read gets the object from the public bucket with its bytes and content type", async () => {
+  const storage = createR2ImageStorage(config);
+  const bytes = new Uint8Array([4, 5]);
+  send.mockResolvedValueOnce({ Body: { transformToByteArray: async () => bytes }, ContentType: "image/webp" });
+  expect(await storage.read("key")).toEqual({ success: true, data: { bytes, contentType: "image/webp" } });
+  expect(send.mock.calls[0][0]).toBeInstanceOf(GetObjectCommand);
+  expect(send.mock.calls[0][0].input).toEqual({ Bucket: "images", Key: "key" });
+});
+
+it("read reports a missing key as not found and network failures as unavailable", async () => {
+  vi.spyOn(log, "error").mockImplementation(() => {});
+  const storage = createR2ImageStorage(config);
+  send.mockRejectedValueOnce(new NoSuchKey({ message: "missing", $metadata: {} }));
+  expect(await storage.read("key")).toMatchObject({ success: false, error: { code: "IMAGE_NOT_FOUND" } });
+  send.mockRejectedValueOnce(new Error("network down"));
+  expect(await storage.read("key")).toMatchObject({ success: false, error: { code: "IMAGE_STORAGE_UNAVAILABLE" } });
+});
+
+it("readPrivate reports a missing key as not found", async () => {
+  const storage = createR2ImageStorage({ ...config, privateBucket: "private-images" });
+  send.mockRejectedValueOnce(new NoSuchKey({ message: "missing", $metadata: {} }));
+  expect(await storage.readPrivate("key")).toMatchObject({ success: false, error: { code: "IMAGE_NOT_FOUND" } });
 });

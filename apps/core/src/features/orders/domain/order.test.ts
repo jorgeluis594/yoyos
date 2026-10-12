@@ -32,6 +32,13 @@ describe("buildOrder", () => {
     expect(result.data.items[0].variantAttributes).toEqual({ Size: "M" });
   });
 
+  test("builds an order whose contact buyer has no name or phone", () => {
+    const result = buildOrder({ ...base(), customer: { kind: "contact", contactId: id(3) as ContactId, name: null, phone: null } });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.customer).toEqual({ kind: "contact", contactId: id(3), name: null, phone: null });
+  });
+
   test.each([
     ["empty", []], ["duplicate", [item(1, 1, 1), item(1, 2, 1)]],
     ["zero", [item(1, 0, 1)]], ["negative", [item(1, -1, 1)]], ["fraction", [item(1, 1.5, 1)]],

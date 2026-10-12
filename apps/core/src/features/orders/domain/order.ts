@@ -12,7 +12,7 @@ export type PaymentId = string & { readonly __brand: "PaymentId" };
 export type ContactId = string & { readonly __brand: "ContactId" };
 export type PositiveInteger = number & { readonly __brand: "PositiveInteger" };
 
-export type OrderCustomer = Readonly<{ kind: "general_public" }> | Readonly<{ kind: "contact"; contactId: ContactId; name: string | null; phone: string }>;
+export type OrderCustomer = Readonly<{ kind: "general_public" }> | Readonly<{ kind: "contact"; contactId: ContactId; name: string | null; phone: string | null }>;
 export type OrderItem = Readonly<{ id: OrderItemId; variantId: VariantId; productName: string; variantAttributes: Readonly<Record<string, string>>; sku: string | null; quantity: PositiveInteger; unitPrice: Money; subtotal: Money }>;
 export type Order = OrderAggregate;
 export type PricedOrder = Pick<Order, "id" | "companyId" | "sellerId" | "createdAt" | "items" | "total"> & Readonly<{ customer: OrderCustomer }>;
@@ -32,7 +32,7 @@ const validAmount = (amount: number, maxCents: number) => {
 export function buildOrder(input: BuildOrderInput): Result<PricedOrder, BuildOrderError> {
   if (!uuid.test(input.id) || !uuid.test(input.companyId) || !input.sellerId || !(input.createdAt instanceof Date) || !Number.isFinite(input.createdAt.getTime()) || !input.items.length ||
     !["contact", "general_public"].includes(input.customer.kind) ||
-    (input.customer.kind === "contact" && (!uuid.test(input.customer.contactId) || !input.customer.phone || (input.customer.name !== null && typeof input.customer.name !== "string")))) {
+    (input.customer.kind === "contact" && (!uuid.test(input.customer.contactId) || (input.customer.name !== null && typeof input.customer.name !== "string")))) {
     return err({ code: "INVALID_ORDER", message: "Invalid order header" });
   }
   const seen = new Set<string>();
