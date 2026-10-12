@@ -1,10 +1,21 @@
 import express, { type Response } from "express";
 import { createQuotationRequestSchema, quotationApiErrorSchema, quotationResponseSchema, type CreateQuotationRequest } from "@shared/contracts/quotations";
 import { orders } from "@core/src/features/orders";
+import { peruDeliveryDistrict } from "@shared/peru-geography";
+import type { QuotedDeliveryRate } from "@core/src/features/delivery-settings/domain/quotation";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
 import { apiError, loadApiAccess, requireApiCompany, type AuthenticatedLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { bindCompanyToRequest, bindRequestOperation, log } from "@core/src/shared/infrastructure/logger";
+
+function toRateContract(quoted: QuotedDeliveryRate) {
+  const { rate, name, zoneName } = quoted;
+  const common = { id: rate.id, optionId: rate.optionId, name, zoneName, price: rate.price };
+  return "agencies" in quoted
+    ? { ...common, method: "agency", agencies: quoted.agencies.map(({ agency, courier }) => ({ id: agency.id, name: agency.name, address: agency.address,
+      location: peruDeliveryDistrict(agency.districtCode), courier: { id: courier.id, name: courier.name } })) }
+    : { ...common, method: "home" };
+}
 
 export const quotationRoutes = express.Router();
 quotationRoutes.use((_request, response, next) => { response.set("Cache-Control", "no-store"); next(); });
@@ -51,8 +62,7 @@ quotationRoutes.post("/", (request, response, next) => {
       ...("field" in error ? { field: error.field } : {}), ...("districtCode" in error ? { districtCode: error.districtCode } : {}) }));
   }
   const output = quotationResponseSchema.safeParse({ id: result.data.quotation.id, destination: result.data.quotation.destination,
-    createdAt: result.data.quotation.createdAt.toISOString(), rates: result.data.rates.map(({ rate, name, zoneName }) => ({ id: rate.id, method: rate.method,
-      optionId: rate.optionId, name, zoneName, price: rate.price })) });
+    createdAt: result.data.quotation.createdAt.toISOString(), rates: result.data.rates.map(toRateContract) });
   if (!output.success) {
     log.error({ event: "quotation_response_invalid", companyId }, "Invalid quotation response");
     return apiError(response, 500, "INTERNAL_ERROR", "Internal error");

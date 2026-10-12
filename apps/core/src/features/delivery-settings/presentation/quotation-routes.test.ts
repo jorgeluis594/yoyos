@@ -4,6 +4,7 @@ import { ok, err } from "@shared/functional";
 import type { CompanyId, OrderId } from "@core/src/features/orders/domain/order";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import { orders } from "@core/src/features/orders";
+import type { QuotationWithRates } from "@core/src/features/delivery-settings/domain/quotation";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
 import { quotationRoutes } from "@core/src/features/delivery-settings/presentation/quotation-routes";
 
@@ -66,4 +67,19 @@ test("failed checkout authorization never creates a quotation or falls back to s
   checkout.mockResolvedValueOnce(err({ code: "CHECKOUT_UNAVAILABLE", message: "private disabled" }));
   expect(await request()).toMatchObject({ status: 404, body: { code: "CHECKOUT_UNAVAILABLE" } });
   expect(create).not.toHaveBeenCalled();
+});
+
+test("agency rates are answered with their eligible agencies, courier and catalog location", async () => {
+  authorize();
+  const id = (value: number) => `00000000-0000-4000-8000-${String(value).padStart(12, "0")}`;
+  const base = { id: id(10), companyId, quotationId: id(11), price: { amount: 5, currency: "PEN" }, settingsVersion: 1, createdAt: new Date(0), optionId: id(12), districtCode: "150122" };
+  const value = { quotation: { id: id(11), companyId, destination: { country: "PE", districtCode: "150122", address: null, instructions: null }, createdAt: new Date(0) },
+    rates: [{ rate: { ...base, method: "agency" }, name: "Agency", zoneName: "Lima", agencies: [{ agency: { id: id(20), courierId: id(30), name: "Branch", address: "Av. Test 123",
+      districtCode: "150122", enabled: true, courierEnabled: true }, courier: { id: id(31), catalogId: id(30), name: "Shalom", enabled: true, catalogEnabled: true } }] }] };
+  vi.spyOn(deliverySettings, "createQuotation").mockResolvedValue(ok(value as unknown as QuotationWithRates));
+  const response = await request();
+  expect(response.status).toBe(201);
+  expect(response.body.rates).toEqual([{ id: id(10), method: "agency", optionId: id(12), name: "Agency", zoneName: "Lima", price: { amount: 5, currency: "PEN" },
+    agencies: [{ id: id(20), name: "Branch", address: "Av. Test 123", courier: { id: id(31), name: "Shalom" },
+      location: { country: "PE", districtCode: "150122", district: "MIRAFLORES", province: "LIMA METROPOLITANA", department: "LIMA" } }] }]);
 });

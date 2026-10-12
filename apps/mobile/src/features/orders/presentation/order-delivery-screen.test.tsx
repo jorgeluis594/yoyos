@@ -46,7 +46,9 @@ const getSettings = jest.mocked(deliverySettings.get);
 const quote = jest.mocked(deliverySettings.createQuotation);
 const firstRate = { id: "00000000-0000-4000-8000-000000000030", method: "home" as const, name: "Standard", zoneName: "Lima", price: { amount: 8, currency: "PEN" as const } };
 const secondRate = { ...firstRate, id: "00000000-0000-4000-8000-000000000031", price: { amount: 12, currency: "PEN" as const } };
-const agencyRate = { ...firstRate, id: "00000000-0000-4000-8000-000000000032", method: "agency" as const, price: { amount: 0, currency: "PEN" as const } };
+const agencyRate = { ...firstRate, id: "00000000-0000-4000-8000-000000000032", method: "agency" as const, price: { amount: 0, currency: "PEN" as const },
+  agencies: [{ id: "00000000-0000-4000-8000-000000000040", name: "Branch", address: "Av. Test 123", courier: { id: "00000000-0000-4000-8000-000000000041", name: "Shalom" },
+    location: { country: "PE" as const, districtCode: "150122", district: "MIRAFLORES", province: "LIMA METROPOLITANA", department: "LIMA" } }] };
 const quotation = { id: "00000000-0000-4000-8000-000000000033", districtCode: "150122", rates: [firstRate, secondRate, agencyRate] };
 const point = { name: "Pickup", address: "Current address", instructions: "Ask for Ana" };
 const pending: OrderAggregateResponse = { ...initialOrder, status: "active", deliveryStatus: "pending", completedAt: null,

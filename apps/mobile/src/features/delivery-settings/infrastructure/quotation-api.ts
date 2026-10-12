@@ -4,7 +4,7 @@ import { err, ok } from "@shared/functional";
 import { getPeruDistrict } from "@shared/peru-geography";
 import type { Result } from "@shared/result";
 import type { TransportError } from "@mobile/shared/application/transport-error";
-import type { CreateDeliveryQuotation, QuotationError } from "@mobile/features/delivery-settings/application/quotation";
+import type { CreateDeliveryQuotation, QuotationError, QuotedRate } from "@mobile/features/delivery-settings/application/quotation";
 
 type Request = (path: string, init?: RequestInit) => Promise<Result<unknown, TransportError>>;
 const statusByCode = { INVALID_INPUT: 400, UNSUPPORTED_MEDIA_TYPE: 415, PAYLOAD_TOO_LARGE: 413, INVALID_DESTINATION: 422, INVALID_DISTRICT: 422,
@@ -24,7 +24,10 @@ export function createQuotationApi(request: Request): CreateDeliveryQuotation {
         parsed.data.rates.some(rate => rate.price.currency !== "PEN"))
         return err({ code: "INVALID_RESPONSE", message: "Invalid delivery quotation response" });
       return ok({ id: parsed.data.id, districtCode: parsed.data.destination.districtCode,
-        rates: parsed.data.rates.map(({ id, method, name, zoneName, price }) => ({ id, method, name, zoneName, price })) });
+        rates: parsed.data.rates.map((rate): QuotedRate => {
+          const { id, name, zoneName, price } = rate;
+          return rate.method === "agency" ? { id, method: "agency", name, zoneName, price, agencies: rate.agencies } : { id, method: "home", name, zoneName, price };
+        }) });
     }
     const error = result.error;
     if (!error.http || ["UNAUTHENTICATED", "COMPANY_REQUIRED", "RATE_LIMITED"].includes(error.code))

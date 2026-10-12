@@ -7,11 +7,13 @@ const quotation = { id, destination: { country: "PE", districtCode: "150122", ad
   createdAt: "2026-10-08T00:00:00.000Z", rates: [rate] };
 
 test("seller lookup sends only a district and preserves every option, equal prices and explicit zero", async () => {
+  const agency = { id: "00000000-0000-4000-8000-000000000020", name: "Branch", address: "Av. Test 123", courier: { id: "00000000-0000-4000-8000-000000000021", name: "Shalom" },
+    location: { country: "PE", districtCode: "150122", district: "MIRAFLORES", province: "LIMA METROPOLITANA", department: "LIMA" } };
   const rates = [rate, { ...rate, id: "00000000-0000-4000-8000-000000000003" },
-    { ...rate, id: "00000000-0000-4000-8000-000000000004", method: "agency", name: "Agency", price: { amount: 0, currency: "PEN" } }];
+    { ...rate, id: "00000000-0000-4000-8000-000000000004", method: "agency", name: "Agency", price: { amount: 0, currency: "PEN" }, agencies: [agency] }];
   const request = jest.fn(async () => ok({ ...quotation, rates }));
   expect(await createQuotationApi(request)("150122")).toEqual(ok({ id, districtCode: "150122",
-    rates: rates.map(({ id, method, name, zoneName, price }) => ({ id, method, name, zoneName, price })) }));
+    rates: rates.map(({ optionId: _optionId, ...value }) => value) }));
   expect(request).toHaveBeenCalledTimes(1);
   expect(request).toHaveBeenCalledWith("/api/quotations", { method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ destination: { country: "PE", districtCode: "150122" } }) });
@@ -28,7 +30,7 @@ test("invalid districts do not request a quotation and corrupt or unrelated resp
     { ...quotation, rates: [rate, rate] }, { ...quotation, unexpected: true },
     ...[-1, 0.001, Infinity].map(amount => ({ ...quotation, rates: [{ ...rate, price: { amount, currency: "PEN" } }] })),
     { ...quotation, rates: [{ ...rate, price: { amount: 8, currency: "USD" } }] },
-    { ...quotation, rates: [{ ...rate, method: "store" }] }]) {
+    { ...quotation, rates: [{ ...rate, method: "store" }] }, { ...quotation, rates: [{ ...rate, method: "agency" }] }]) {
     expect(await createQuotationApi(async () => ok(response))("150122")).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
   }
 });

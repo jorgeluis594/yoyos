@@ -23,3 +23,15 @@ test("quotation output preserves every same-method rate and explicitly allows an
   }
   expect(quotationResponseSchema.safeParse({ ...base, rates, total: { amount: 8, currency: "PEN" } }).success).toBe(false);
 });
+test("agency rates carry at least one eligible agency with its courier and catalog location", () => {
+  const location = { country: "PE", districtCode: "150122", district: "Miraflores", province: "Lima", department: "Lima" };
+  const agency = { id, name: "Agency", address: "Av. Test 123", location, courier: { id, name: "Shalom" } };
+  const rate = { id, method: "agency", optionId: id, name: "Agency", zoneName: "Zone", price: { amount: 5, currency: "PEN" }, agencies: [agency] };
+  const base = { id, destination, createdAt: "2026-10-07T16:00:00.000Z" };
+  expect(quotationResponseSchema.safeParse({ ...base, rates: [rate] }).success).toBe(true);
+  for (const change of [{ agencies: [] }, { agencies: undefined }, { agencies: [{ ...agency, courier: null }] }, { agencies: [{ ...agency, location: { ...location, districtCode: "x" } }] },
+    { agencies: [{ ...agency, address: "" }] }]) {
+    expect(quotationResponseSchema.safeParse({ ...base, rates: [{ ...rate, ...change }] }).success).toBe(false);
+  }
+  expect(quotationResponseSchema.safeParse({ ...base, rates: [{ ...rate, method: "home" }] }).success).toBe(false);
+});
