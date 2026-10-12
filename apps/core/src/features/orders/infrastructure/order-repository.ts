@@ -113,6 +113,7 @@ function mapAggregate(row: DbAggregate, operation = "get_order_aggregate"): Orde
   if (!number.success) throw new InvalidStoredOrderError("Invalid stored order number");
   const order: OrderAggregate = { number: number.data, id: row.id as OrderId, companyId: row.companyId as CompanyId, sellerId: row.sellerId as UserId,
     buyer: row.buyer ? { contactId: row.buyer.contactId as ContactId | null, name: row.buyer.name, phone: row.buyer.phone } : null,
+    source: row.chatId === null ? "manual" : "whatsapp",
     checkoutEnabledAt: row.checkoutEnabledAt, checkoutConfirmedAt: row.checkoutConfirmedAt,
     checkoutDeliveryRequest: readRequestedDelivery(row.checkoutDeliveryRequest),
     createdAt: row.createdAt, deliveredAt: row.deliveredAt, completedAt: row.completedAt, cancelled: row.cancelled, items, payments,
@@ -335,7 +336,7 @@ export async function findOrders(criteria: OrderCriteria) {
   try {
     const [rows, total] = await Promise.all([
       prisma.order.findMany({ where, orderBy: [{ completedAt: "desc" }, { id: "asc" }], skip: (criteria.page - 1) * 20, take: 20,
-        select: { number: true, id: true, completedAt: true, buyer: true, sellerId: true, currency: true, total: true } }),
+        select: { number: true, id: true, completedAt: true, buyer: true, chatId: true, sellerId: true, currency: true, total: true } }),
       prisma.order.count({ where }),
     ]);
     return ok({ items: rows.map((row) => {
@@ -343,6 +344,7 @@ export async function findOrders(criteria: OrderCriteria) {
         throw new InvalidStoredOrderError("Invalid stored order summary");
       return { number: storedNumber(row.number), id: row.id, completedAt: row.completedAt, sellerId: row.sellerId,
         buyer: row.buyer ? { contactId: row.buyer.contactId, name: row.buyer.name, phone: row.buyer.phone } : null,
+        source: row.chatId === null ? "manual" as const : "whatsapp" as const,
         total: { amount: row.total.toNumber(), currency: row.currency } };
     }), page: criteria.page, pageSize: 20, total });
   } catch (cause) {

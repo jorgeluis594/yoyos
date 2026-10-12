@@ -5,7 +5,7 @@ import { readCancellationOrder, verifyCancellation, type CancellationUiState } f
 const id = "00000000-0000-4000-8000-000000000001";
 const money = { amount: 10, currency: "PEN" as const };
 function order(): OrderAggregateResponse {
-  return { id, companyId: id, sellerId: "seller", number: 1001, buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null,
+  return { id, companyId: id, sellerId: "seller", number: 1001, buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null,
     checkoutDeliveryRequest: null, createdAt: "2026-10-07T10:00:00Z", deliveredAt: null, completedAt: null, status: "active", cancelled: false,
     deliveryStatus: "pending", stockDeducted: false, delivery: null, payments: [], items: [{ id, variantId: id, productName: "Item", variantAttributes: {}, sku: null, quantity: 1, unitPrice: money, subtotal: money }],
     total: money, itemsTotal: money, deliveryCost: { ...money, amount: 0 }, deliveryCharge: { ...money, amount: 0 },

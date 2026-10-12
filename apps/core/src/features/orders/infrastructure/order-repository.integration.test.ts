@@ -910,7 +910,7 @@ test("checkout enable and confirmation are idempotent under real concurrent tran
     expect(info.mock.calls.filter(([fields]) => typeof fields === "object" && fields && "event" in fields && fields.event === "order_checkout_confirmed")).toHaveLength(1);
     const stored = await withTenantIsolation(f.companyId, () => orderDetail(access.orderId, f));
     if (!stored.success) throw new Error("Unable to read confirmed order");
-    expect({ ...stored.data, buyer: order.buyer, checkoutEnabledAt: null, checkoutConfirmedAt: null }).toEqual(order);
+    expect({ ...stored.data, buyer: order.buyer, checkoutEnabledAt: null, checkoutConfirmedAt: null, source: undefined }).toEqual(order);
     expect(stored.data.buyer?.contactId).toBe(f.contactId);
     await withTenantIsolation(f.companyId, async () => {
       expect(await prisma.contact.findUnique({ where: { id: f.contactId } })).toMatchObject({ name: null, phone: "+51999999999" });
@@ -1329,7 +1329,7 @@ test.each([
       expect(result).toMatchObject({ success: true, data: { stockDeducted: deducted,
         deliveryStatus: immediate ? "delivered" : "pending", completedAt: immediate ? expect.any(Date) : null } });
       const saved = await findOrderAggregate(id, context.companyId);
-      expect(saved).toEqual(result);
+      expect(saved).toEqual((result.success ? { ...result, data: { ...result.data, source: "manual" } } : result));
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(deducted ? 1n : 3n);
       expect(await prisma.payment.count()).toBe(amount === null ? 0 : 1);
     });
@@ -1378,7 +1378,7 @@ test("complete creation resolves delivery charge before coverage and retains its
       expect(result).toMatchObject({ success: true, data: { delivery: { method: "home", destination: { districtCode: "150122", address: "Av. Lima 123" },
         pricing: { rateId: quote.data.rates[0].id, quotationId: quote.data.quotation.id } }, deliveryCost: { amount: 0.1 }, deliveryCharge: { amount: 0.1 },
         total: { amount: 0.3 }, stockDeducted: false, completedAt: null } });
-      expect(await findOrderAggregate(id, context.companyId)).toEqual(result);
+      expect(await findOrderAggregate(id, context.companyId)).toEqual((result.success ? { ...result, data: { ...result.data, source: "manual" } } : result));
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
     });
   } finally { await f.cleanup(); }

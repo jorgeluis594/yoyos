@@ -46,6 +46,7 @@ export type OrderAggregate = Readonly<{
   companyId: CompanyId;
   sellerId: UserId;
   buyer: OrderBuyer | null;
+  source?: "manual" | "whatsapp";
   checkoutEnabledAt: Date | null;
   checkoutConfirmedAt: Date | null;
   checkoutDeliveryRequest: DeliverySnapshot | null;

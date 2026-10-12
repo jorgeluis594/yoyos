@@ -5,6 +5,7 @@ import { useState } from "react";
 import { cn } from "cn";
 import { z } from "zod";
 import { Form, isRouteErrorResponse, Link, useLoaderData, useLocation, type LoaderFunctionArgs } from "react-router";
+import { orderBuyerText, WhatsAppMark } from "@core/app/components/order-buyer-label";
 import { BadgeDollarSign, Check, CircleCheck, CircleX, Coins, PackageCheck, Send, SlidersHorizontal, Truck } from "lucide-react";
 import { listOrderAggregatesSchema, orderListLoaderSchema, orderContactsSchema } from "@shared/contracts/orders";
 import { limaMidnightUtc } from "@shared/orders-date";
@@ -71,7 +72,7 @@ export default function OrderList() {
       {item.checkoutEnabledAt && <span className="text-xs font-normal text-muted-foreground">{t(item.status === "cancelled" ? "orders.checkoutCancelled" : item.checkoutConfirmedAt ? "orders.checkoutConfirmed" : "orders.checkoutPending")}</span>}
     </div> },
     { id: "customer", header: t("orders.customer"), mobile: "description", cell: (item) => <div className="flex flex-col gap-1">
-      <Link to={`${base}/${item.id}`} className="font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">{item.buyer !== null ? item.buyer.name ?? item.buyer.phone ?? "—" : t("orders.generalPublic")}</Link>
+      <Link to={`${base}/${item.id}`} className="inline-flex items-center gap-1.5 font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">{item.source === "whatsapp" && <WhatsAppMark />}{orderBuyerText(item.buyer, t("orders.generalPublic"))}</Link>
       {item.buyer?.name && item.buyer.phone && <span className="text-xs font-normal text-muted-foreground">{item.buyer.phone}</span>}
     </div> },
     { id: "createdAt", header: t("orders.listDate"), mobile: "description", cell: (item) => <time dateTime={item.createdAt} className="flex flex-col gap-1">
