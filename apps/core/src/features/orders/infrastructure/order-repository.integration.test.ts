@@ -1,3 +1,4 @@
+import { toOrderAggregateJson, toOrderAggregateListJson } from "@core/src/features/orders/presentation/order-json";
 import type { CreateCompleteOrderInput } from "@core/src/features/orders/application/create-complete-order";
 import { log, safeError } from "@core/src/shared/infrastructure/logger";
 import { parseBuyer, type CheckoutAccess } from "@core/src/features/orders/domain/checkout";
@@ -915,7 +916,7 @@ test("checkout enable and confirmation are idempotent under real concurrent tran
     expect(info.mock.calls.filter(([fields]) => typeof fields === "object" && fields && "event" in fields && fields.event === "order_checkout_confirmed")).toHaveLength(1);
     const stored = await withTenantIsolation(f.companyId, () => orderDetail(access.orderId, f));
     if (!stored.success) throw new Error("Unable to read confirmed order");
-    expect({ ...stored.data, buyer: order.buyer, checkoutEnabledAt: null, checkoutConfirmedAt: null, source: undefined }).toEqual(order);
+    expect({ ...stored.data, buyer: order.buyer, checkoutEnabledAt: null, checkoutConfirmedAt: null }).toEqual(order);
     expect(stored.data.buyer?.contactId).toBe(f.contactId);
     await withTenantIsolation(f.companyId, async () => {
       expect(await prisma.contact.findUnique({ where: { id: f.contactId } })).toMatchObject({ name: null, phone: "+51999999999" });
@@ -1335,7 +1336,7 @@ test.each([
         deliveryStatus: immediate ? "delivered" : "pending", completedAt: immediate ? expect.any(Date) : null } });
       const saved = await findOrderAggregate(id, context.companyId);
       expect(saved).toMatchObject(result);
-      expect(saved.success && saved.data?.source).toBe("manual");
+      expect(saved.success && saved.data?.chatId).toBeUndefined();
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(deducted ? 1n : 3n);
       expect(await prisma.payment.count()).toBe(amount === null ? 0 : 1);
     });
@@ -1386,7 +1387,7 @@ test("complete creation resolves delivery charge before coverage and retains its
         total: { amount: 0.3 }, stockDeducted: false, completedAt: null } });
       const saved = await findOrderAggregate(id, context.companyId);
       expect(saved).toMatchObject(result);
-      expect(saved.success && saved.data?.source).toBe("manual");
+      expect(saved.success && saved.data?.chatId).toBeUndefined();
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
     });
   } finally { await f.cleanup(); }
@@ -1847,13 +1848,15 @@ test("derives source whatsapp for chat orders and manual otherwise", async () =>
       await prisma.order.update({ where: { companyId_id: { companyId: f.companyId, id: chatOrder } }, data: { chatId: chat.id } });
       const sourceOf = (id: string) => (id === chatOrder ? "whatsapp" : "manual");
       for (const id of [chatOrder, manualOrder])
-        expect(await findOrderAggregate(id as OrderId, context.companyId)).toMatchObject({ success: true, data: { id, source: sourceOf(id) } });
+        expect(await findOrderAggregate(id as OrderId, context.companyId)).toMatchObject({ success: true, data: { id } });
+      const stored = await Promise.all([chatOrder, manualOrder].map((id) => findOrderAggregate(id as OrderId, context.companyId)));
+      expect(stored.map((found) => found.success && found.data && toOrderAggregateJson(found.data).source)).toEqual(["whatsapp", "manual"]);
       const aggregates = await findOrderAggregates({ page: 1, customer: { kind: "all" } }, context.companyId);
       const summaries = await findOrders({ page: 1, customer: { kind: "all" } });
-      for (const page of [aggregates, summaries]) {
-        if (!page.success) throw new Error("Unable to list orders");
-        expect(page.data.items.map((item) => [item.id, item.source]).sort()).toEqual([chatOrder, manualOrder].map((id) => [id, sourceOf(id)]).sort());
-      }
+      if (!aggregates.success || !summaries.success) throw new Error("Unable to list orders");
+      const expected = [chatOrder, manualOrder].map((id) => [id, sourceOf(id)]).sort();
+      expect(toOrderAggregateListJson(aggregates.data).items.map((item) => [item.id, item.source]).sort()).toEqual(expected);
+      expect(summaries.data.items.map((item) => [item.id, item.source]).sort()).toEqual(expected);
     });
   } finally { await f.cleanup(); }
 });
