@@ -1,6 +1,6 @@
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import { describe, expect, test } from "vitest";
-import { buildPendingOrder, orderStateMachine, type OrderAggregate, type DeliverySnapshot, type DeliveryPricing, type PeruDeliveryDistrict } from "@core/src/features/orders/domain/order-state-machine";
+import { buildPendingOrder, orderStateMachine, type CourierId, type OrderAggregate, type DeliverySnapshot, type DeliveryPricing, type PeruDeliveryDistrict } from "@core/src/features/orders/domain/order-state-machine";
 import type { ConfirmedPayment } from "@core/src/features/orders/domain/payment";
 import type { CompanyId, OrderId, OrderItemId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
@@ -21,6 +21,7 @@ const payment = (n: number, amount: number): ConfirmedPayment => ({ id: id(n) as
   status: "confirmed", amount: money(amount), method: "digital_wallet",
   data: { confirmedAt: paymentAt, confirmedBy: { kind: "seller", userId: "seller" as UserId }, evidence: { kind: "manual" } } });
 const pricing = { quotationId: id(20), rateId: id(21), optionId: id(22), settingsVersion: 1 } as DeliveryPricing;
+const catalogAgency = { id: id(9), name: "Branch", address: "Av. Test 123", location: { country: "PE", districtCode: "150122", district: "Miraflores", province: "Lima", department: "Lima" } } as unknown as Extract<DeliverySnapshot, { method: "agency" }>["agency"];
 const limaDistrict = { country: "PE", districtCode: "150101", district: "Lima", province: "Lima", department: "Lima" } as unknown as PeruDeliveryDistrict;
 const home: DeliverySnapshot = { method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
   destination: { ...limaDistrict, address: "Av. Lima 123", instructions: null }, pricing, recordedBy: { kind: "seller", userId: "seller" as UserId } };
@@ -119,17 +120,18 @@ describe("delivery and stock transitions", () => {
   });
 
   test("requires documented agency recipient and validates identity at runtime", () => {
-    const pending = { method: "agency", destination: limaDistrict, pricing, courier: null, agency: null, recordedBy: { kind: "seller", userId: "seller" as UserId } };
+    const pending = { method: "agency", destination: limaDistrict, pricing, courier: { id: id(8), name: "Courier" }, agency: catalogAgency, recordedBy: { kind: "seller", userId: "seller" as UserId } };
     const invalid = { ...pending, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } };
     expect(orderStateMachine.setDelivery(order(), { resolved: { delivery: invalid as unknown as DeliverySnapshot, cost: money(1) } }))
       .toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
-    const agency: DeliverySnapshot = { method: "agency", destination: limaDistrict, pricing, courier: null, agency: null, recipient: { name: "Ana", phone: "999", identity: {
+    const agency: DeliverySnapshot = { method: "agency", destination: limaDistrict, pricing, courier: { id: id(8) as CourierId, name: "Courier" }, agency: catalogAgency, recipient: { name: "Ana", phone: "999", identity: {
       kind: "document", documentType: "passport", document: "A-001" } }, recordedBy: { kind: "seller", userId: "seller" as UserId } };
     expect(orderStateMachine.setDelivery(order(), { resolved: { delivery: agency, cost: money(0) } }))
       .toMatchObject({ success: true, data: { delivery: agency } });
-    const freeText = { ...agency, courier: { id: id(8), name: "Courier" }, agency: "Lima" };
-    expect(orderStateMachine.setDelivery(order(), { resolved: { delivery: freeText as unknown as DeliverySnapshot, cost: money(0) } }))
-      .toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
+    for (const change of [{ agency: "Lima" }, { courier: null }, { agency: null }, { agency: { ...catalogAgency, location: undefined } }]) {
+      expect(orderStateMachine.setDelivery(order(), { resolved: { delivery: { ...agency, ...change } as unknown as DeliverySnapshot, cost: money(0) } }))
+        .toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
+    }
   });
 
   test("deducts only when requested for partial payment, automatically when covered, and only once", () => {

@@ -205,7 +205,6 @@ test("agency selects district and explicit zero rate without operational fields,
   await screen.findByTestId("delivery-rate");
   fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 0);
   expect(screen.queryByTestId("delivery-courier")).toBeNull();
-  expect(screen.queryByLabelText("Agencia de destino *")).toBeNull();
   fireEvent.press(screen.getByText("Guardar entrega"));
   await screen.findByText(/Completa el nombre, el teléfono y el documento/);
   expect(save).not.toHaveBeenCalled();
@@ -213,8 +212,29 @@ test("agency selects district and explicit zero rate without operational fields,
   fireEvent.changeText(screen.getByLabelText("Número de documento *"), "00-A001");
   fireEvent.press(screen.getByText("Guardar entrega"));
   await waitFor(() => expect(mockBack).toHaveBeenCalledTimes(1));
-  expect(save).toHaveBeenCalledWith(mockId, { delivery: { method: "agency", districtCode: "150122", rateId: agencyRate.id,
+  // A rate with a single eligible agency selects it.
+  expect(save).toHaveBeenCalledWith(mockId, { delivery: { method: "agency", districtCode: "150122", rateId: agencyRate.id, agencyId: agencyRate.agencies[0].id,
     recipient: { name: "Customer", phone: "555001", identity: { kind: "document", documentType: "passport", document: "00-A001" } } }, expectedPrice: agencyRate.price });
+});
+
+test("an agency rate with several agencies requires choosing one before saving", async () => {
+  const second = { ...agencyRate.agencies[0], id: "00000000-0000-4000-8000-000000000042", name: "Second branch" };
+  quote.mockResolvedValueOnce(ok({ ...quotation, rates: [{ ...agencyRate, agencies: [agencyRate.agencies[0], second] }] }));
+  getSettings.mockResolvedValue(ok(allMethods));
+  save.mockResolvedValue(ok(pending));
+  const screen = render(<OrderDeliveryScreen />);
+  await screen.findByText("Current address");
+  fireEvent(screen.getByTestId("delivery-method"), "valueChange", 2);
+  selectDistrict(screen);
+  await screen.findByTestId("delivery-rate");
+  fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 0);
+  fireEvent(screen.getByTestId("delivery-document-type"), "valueChange", 1);
+  fireEvent.changeText(screen.getByLabelText("Número de documento *"), "00-A001");
+  fireEvent.press(screen.getByText("Guardar entrega"));
+  expect(save).not.toHaveBeenCalled();
+  fireEvent(screen.getByTestId("delivery-agency"), "valueChange", 1);
+  fireEvent.press(screen.getByText("Guardar entrega"));
+  await waitFor(() => expect(save).toHaveBeenCalledWith(mockId, expect.objectContaining({ delivery: expect.objectContaining({ method: "agency", agencyId: second.id }) })));
 });
 
 test("a late shipping quotation cannot restore a charge after switching to pickup", async () => {

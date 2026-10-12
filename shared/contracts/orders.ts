@@ -37,7 +37,8 @@ export const ratedDeliverySelectionSchema = z.discriminatedUnion("method", [
   z.strictObject({ method: z.literal("home"), recipient: recipientSchema, rateId: z.uuid(), destination: z.strictObject({
     districtCode: peruDistrictCodeSchema, address: z.string().trim().min(1).max(500), instructions: z.string().trim().max(1000).nullable(),
   }) }),
-  z.strictObject({ method: z.literal("agency"), recipient: agencyRecipientSchema, rateId: z.uuid(), districtCode: peruDistrictCodeSchema }),
+  z.strictObject({ method: z.literal("agency"), recipient: agencyRecipientSchema, rateId: z.uuid(),
+    districtCode: peruDistrictCodeSchema, agencyId: z.uuid() }),
   z.strictObject({ method: z.literal("store"), recipient: recipientSchema }),
 ]);
 export const setRatedOrderDeliverySchema = z.strictObject({ delivery: ratedDeliverySelectionSchema, expectedPrice: moneySchema });
@@ -65,9 +66,11 @@ const settingsVersionSchema = z.number().int().min(0).max(2147483647);
 const deliveryPricingSchema = z.strictObject({ quotationId: z.uuid(), rateId: z.uuid(), optionId: z.uuid(), settingsVersion: settingsVersionSchema });
 export const homeDeliverySnapshotSchema = z.strictObject({ method: z.literal("home"), recipient: recipientSchema,
   destination: homeDestinationSchema.extend(peruDeliveryDistrictSchema.shape), pricing: deliveryPricingSchema, recordedBy: deliveryAuthorSchema });
-// T5 replaces the pending-agency variant (courier: null, agency: null) with courier and catalog agency.
+const snapshotCourierSchema = z.strictObject({ id: z.uuid(), name: z.string().trim().min(1).max(120) });
+const snapshotAgencySchema = z.strictObject({ id: z.uuid(), name: z.string().trim().min(1).max(120),
+  address: z.string().trim().min(1).max(500), location: peruDeliveryDistrictSchema });
 export const agencyDeliverySnapshotSchema = z.strictObject({ method: z.literal("agency"), recipient: agencyRecipientSchema,
-  destination: peruDeliveryDistrictSchema, pricing: deliveryPricingSchema, courier: z.null(), agency: z.null(), recordedBy: deliveryAuthorSchema });
+  destination: peruDeliveryDistrictSchema, pricing: deliveryPricingSchema, courier: snapshotCourierSchema, agency: snapshotAgencySchema, recordedBy: deliveryAuthorSchema });
 export const storeDeliverySnapshotSchema = z.strictObject({ method: z.literal("store"), recipient: recipientSchema,
   pickupPoint: pickupPointSchema, settingsVersion: settingsVersionSchema, recordedBy: deliveryAuthorSchema });
 export const deliverySnapshotSchema = z.discriminatedUnion("method",

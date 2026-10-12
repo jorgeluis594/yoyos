@@ -32,11 +32,13 @@ test("payment and delivery contracts reject invented fields and incomplete agenc
   const id = "00000000-0000-4000-8000-000000000002";
   const agency = { method: "agency", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
     destination: { country: "PE", districtCode: "150122", district: "Miraflores", province: "Lima", department: "Lima" },
-    pricing: { quotationId: id, rateId: id, optionId: id, settingsVersion: 1 }, courier: null, agency: null, recordedBy: { kind: "seller", userId: "seller" } };
+    pricing: { quotationId: id, rateId: id, optionId: id, settingsVersion: 1 }, recordedBy: { kind: "seller", userId: "seller" },
+    courier: { id, name: "Courier" }, agency: { id, name: "Branch", address: "Av. Test 123", location: { country: "PE", districtCode: "150122", district: "Miraflores", province: "Lima", department: "Lima" } } };
   expect(deliverySnapshotSchema.safeParse(agency).success).toBe(false);
   const documented = { ...agency, recipient: { ...agency.recipient, identity: { kind: "document", documentType: "passport", document: "A-001" } } };
   expect(deliverySnapshotSchema.safeParse(documented).success).toBe(true);
-  expect(deliverySnapshotSchema.safeParse({ ...documented, courier: { id, name: "Courier" }, agency: "Lima" }).success).toBe(false);
+  for (const change of [{ agency: "Lima" }, { courier: null }, { agency: null }, { courier: null, agency: null }, { agency: { ...agency.agency, location: undefined } }])
+    expect(deliverySnapshotSchema.safeParse({ ...documented, ...change }).success).toBe(false);
   expect(stockOutcomeSchema.safeParse({ kind: "pending", reason: "INSUFFICIENT_STOCK" }).success).toBe(false);
 });
 
@@ -73,10 +75,12 @@ test("rated snapshots require complete pricing and geographic references and rej
   const district = { country: "PE", districtCode: "150122", district: "Miraflores", province: "Lima", department: "Lima" };
   const author = { kind: "buyer" };
   const home = { method: "home", recipient, destination: { ...district, address: "Street", instructions: null }, pricing, recordedBy: author };
-  const pendingAgency = { method: "agency", recipient, destination: district, pricing, courier: null, agency: null, recordedBy: author };
-  const assignedAgency = { ...pendingAgency, courier: { id, name: "Courier" }, agency: "Office" };
+  const catalogAgency = { id, name: "Branch", address: "Av. Test 123", location: district };
+  const assignedAgency = { method: "agency", recipient, destination: district, pricing, courier: { id, name: "Courier" }, agency: catalogAgency, recordedBy: author };
+  const pendingAgency = { ...assignedAgency, courier: null, agency: null };
+  const freeTextAgency = { ...assignedAgency, agency: "Office" };
   const pickup = { method: "store", recipient, pickupPoint: { name: "Shop", address: "Street", instructions: null }, settingsVersion: 2, recordedBy: author };
-  for (const value of [home, pendingAgency, pickup]) {
+  for (const value of [home, assignedAgency, pickup]) {
     expect(deliverySnapshotSchema.safeParse(value).success).toBe(true);
     expect(parseDeliverySnapshot(value).success).toBe(true);
   }
@@ -84,9 +88,9 @@ test("rated snapshots require complete pricing and geographic references and rej
   expect(parseDeliverySnapshot(obsolete).success).toBe(false);
   expect(deliverySnapshotSchema.safeParse(obsolete).success).toBe(false);
   for (const value of [{ ...home, pricing: { ...pricing, rateId: null } }, { ...home, pricing: { rateId: id } },
-    { ...home, destination: obsolete.destination }, { ...pendingAgency, courier: null, agency: "Office" },
-    { ...pendingAgency, courier: assignedAgency.courier, agency: null }, assignedAgency, { ...assignedAgency, agency: "" }, { ...pickup, settingsVersion: undefined }, { ...pendingAgency, courier: { id, name: "" }, agency: "" },
-    { ...pendingAgency, pricing: { ...pricing, settingsVersion: -1 } }, { ...pickup, pricing }, { ...pickup, destination: district },
+    { ...home, destination: obsolete.destination }, pendingAgency, freeTextAgency,
+    { ...assignedAgency, courier: null }, { ...assignedAgency, agency: null }, { ...assignedAgency, agency: "" }, { ...pickup, settingsVersion: undefined }, { ...assignedAgency, courier: { id, name: "" } },
+    { ...assignedAgency, pricing: { ...pricing, settingsVersion: -1 } }, { ...pickup, pricing }, { ...pickup, destination: district },
     { ...pickup, settingsVersion: -1 }]) {
     expect(deliverySnapshotSchema.safeParse(value).success).toBe(false);
     expect(parseDeliverySnapshot(value).success).toBe(false);

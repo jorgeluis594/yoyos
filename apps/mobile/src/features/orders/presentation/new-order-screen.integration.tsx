@@ -211,16 +211,16 @@ test("mobile creates a rated home order and payment atomically with the full sel
   expect(mockPosts).toBe(1);
 });
 
-// T5 restores agency sales; until then no agency option applies.
-test.skip("mobile creates free rated agency delivery without operational courier or agency fields", async () => {
+test("mobile creates free rated agency delivery with the courier and catalog agency of the rate", async () => {
   const screen = await ratedReview("agency");
   expect(screen.queryByTestId("delivery-courier")).toBeNull();
+  expect(screen.getByTestId("delivery-agency")).toBeTruthy();
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   await waitFor(() => expect(mockReplace).toHaveBeenCalledTimes(1));
   const id = mockReplace.mock.calls[0][0].split("/").at(-1);
   expect(await mockOrders.loadOrder(id)).toMatchObject({ success: true, data: {
     total: { amount: 10, currency: "PEN" }, deliveryCharge: { amount: 0, currency: "PEN" }, stockDeducted: false,
-    delivery: { method: "agency", courier: null, agency: null, destination: { districtCode: "150122" },
+    delivery: { method: "agency", courier: { name: "Shalom" }, agency: { name: "Journey branch" }, destination: { districtCode: "150122" },
       recipient: { identity: { kind: "document", document: "00123456" } }, pricing: { rateId: expect.any(String) } },
   } });
 });

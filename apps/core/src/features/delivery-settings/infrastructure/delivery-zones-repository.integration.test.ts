@@ -176,7 +176,7 @@ test("agency options keep their catalog associations, replace them on save and r
       expect(await prisma.deliveryZone.count()).toBe(0);
       const saved = await deliverySettings.saveZones({ expectedVersion: 1, zones: [{ kind: "new", ...fields, options: [agencyOption([first, second])] }] }, f.context);
       if (!saved.success) throw new Error(saved.error.message);
-      expect(saved.data.agencies.map(agency => [agency.id, agency.enabled])).toEqual([[first, true], [second, false]]);
+      expect(saved.data.agencies.map(agency => [agency.id, agency.enabled]).sort()).toEqual([[first, true], [second, false]].sort());
       expect(await prisma.deliveryOptionAgency.count()).toBe(2);
       const zone = saved.data.zones[0];
       const replaced = await deliverySettings.saveZones({ expectedVersion: 2, zones: [{ ...existing(zone), options: [{ kind: "existing", id: zone.options[0].id, method: "agency", name: "Agency", enabled: true, price: { amount: 5, currency: "PEN" }, agencyIds: [second] }] }] }, f.context);

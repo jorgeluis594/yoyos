@@ -27,12 +27,13 @@ function fixture(method: "home" | "agency" = "home") {
     configuration, rateIds: [id(4)] });
   if (!built.success) throw new Error(built.error.message);
   const saved = built.data.rates[0].rate;
-  const rate = validateSelectedDeliveryRate({ companyId: saved.companyId, rateId: saved.id, method, districtCode: saved.districtCode },
+  const rate = validateSelectedDeliveryRate((method === "home" ? { companyId: saved.companyId, rateId: saved.id, method, districtCode: saved.districtCode }
+      : { companyId: saved.companyId, rateId: saved.id, method, districtCode: saved.districtCode, agencyId: id(8) as DeliveryAgencyId }),
     { quotation: built.data.quotation, rate: saved }, configuration);
   if (!rate.success) throw new Error(rate.error.message);
   const recipient = { name: "Ana", phone: "999", identity: { kind: "document", documentType: "national_id", document: "12345678" } };
   const input = method === "home" ? { method, recipient, rateId: saved.id, destination: { districtCode: "150122", address: " Street ", instructions: " " } }
-    : { method, recipient, rateId: saved.id, districtCode: "150122" };
+    : { method, recipient, rateId: saved.id, districtCode: "150122", agencyId: id(8) };
   const context = { companyId: saved.companyId, author: { kind: "buyer" as const } };
   const deps = { getStoreSettings: vi.fn(async () => ok(settings)), resolveSelectedDeliveryRate: vi.fn(async () => ok(rate.data)) };
   return { input, recipient, context, settings, rate: rate.data, deps };
@@ -50,9 +51,12 @@ test("shipping uses the chosen rate's price and references and obtains geographi
         cost: money(0), delivery: { pricing: { rateId: f.rate.rateId }, recordedBy: { kind: "seller", userId: "seller" } },
       } });
     expect(f.deps.getStoreSettings).not.toHaveBeenCalled();
-    expect(f.deps.resolveSelectedDeliveryRate).toHaveBeenCalledWith({ companyId: f.context.companyId, rateId: f.rate.rateId, method, districtCode: "150122" });
+    expect(f.deps.resolveSelectedDeliveryRate).toHaveBeenCalledWith({ companyId: f.context.companyId, rateId: f.rate.rateId, method, districtCode: "150122",
+      ...(method === "agency" ? { agencyId: f.input.method === "agency" ? f.input.agencyId : undefined } : {}) });
     if (method === "home") expect(result).toMatchObject({ data: { delivery: { destination: { address: "Street", instructions: null } } } });
-    else expect(result).toMatchObject({ data: { delivery: { courier: null, agency: null } } });
+    else expect(result).toMatchObject({ data: { delivery: { courier: { id: f.rate.method === "agency" ? f.rate.courier.id : "", name: "Courier" },
+      agency: { id: f.input.method === "agency" ? f.input.agencyId : "", name: "Agency", address: "Street",
+        location: { country: "PE", districtCode: "150122", district: "MIRAFLORES", province: "LIMA METROPOLITANA", department: "LIMA" } } } } });
   }
 });
 
@@ -92,7 +96,7 @@ test("new shipping selections reject manual prices, unknown districts and forged
     { ...f.input, obsoleteCharge: false }, { ...f.input, destination: { districtCode: "150122", district: "Fake", address: "Street", instructions: null } }]) {
     expect((await resolveShippingCost(input, f.context, "PEN", money(8), f.deps)).success).toBe(false);
   }
-  expect(parseRatedDeliverySelection({ method: "agency", rateId: f.rate.rateId, recipient: f.recipient, districtCode: "999999" }))
+  expect(parseRatedDeliverySelection({ method: "agency", rateId: f.rate.rateId, recipient: f.recipient, districtCode: "999999", agencyId: "00000000-0000-4000-8000-000000000008" }))
     .toMatchObject({ success: false, error: { code: "INVALID_DISTRICT" } });
   expect(f.deps.resolveSelectedDeliveryRate).not.toHaveBeenCalled();
   for (const amount of [NaN, Infinity, -1, 8.001]) expect((await resolveShippingCost(f.input, f.context, "PEN", money(amount), f.deps)).success).toBe(false);

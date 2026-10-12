@@ -73,7 +73,9 @@ jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireA
 
 const firstRate = { id: mockId(30), method: "home" as const, name: "Standard", zoneName: "Lima", price: { amount: 8, currency: "PEN" as const } };
 const secondRate = { ...firstRate, id: mockId(31), price: { amount: 12, currency: "PEN" as const } };
-const freeAgency = { ...firstRate, id: mockId(32), method: "agency" as const, price: { amount: 0, currency: "PEN" as const } };
+const branch = { id: mockId(40), name: "Branch", address: "Av. Test 123", courier: { id: mockId(41), name: "Shalom" },
+  location: { country: "PE" as const, districtCode: "150122", district: "MIRAFLORES", province: "LIMA METROPOLITANA", department: "LIMA" } };
+const freeAgency = { ...firstRate, id: mockId(32), method: "agency" as const, price: { amount: 0, currency: "PEN" as const }, agencies: [branch] };
 const quotation = { id: mockId(33), districtCode: "150122", rates: [firstRate, secondRate, freeAgency] };
 const allMethods: DeliverySettingsResponse = { version: 1, home: { enabled: true }, agency: { enabled: true }, couriers: [],
   store: { enabled: true, pickupPoint: { name: "Pickup", address: "Current pickup", instructions: null } } };
@@ -459,13 +461,13 @@ test("agency creation uses an explicit zero rate and requires identity without o
   fireEvent.changeText(screen.getByLabelText(/Teléfono del destinatario/), "999001");
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
   expect(screen.queryByTestId("delivery-courier")).toBeNull();
-  expect(screen.queryByLabelText("Agencia de destino *")).toBeNull();
+  expect(screen.getByTestId("delivery-agency")).toBeTruthy();
   fireEvent(screen.getByTestId("delivery-document-type"), "valueChange", 0);
   fireEvent.changeText(screen.getByLabelText(/Número de documento/), "00123456");
   expect(screen.getAllByText(/S\/\s10\.00/).length).toBeGreaterThan(0);
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledWith(expect.objectContaining({ ratedDelivery: {
-    expectedPrice: freeAgency.price, delivery: { method: "agency", rateId: freeAgency.id, districtCode: "150122",
+    expectedPrice: freeAgency.price, delivery: { method: "agency", rateId: freeAgency.id, districtCode: "150122", agencyId: branch.id,
       recipient: { name: "Ana", phone: "999001", identity: { kind: "document", documentType: "national_id", document: "00123456" } },
     },
   } }), mockId(1)));

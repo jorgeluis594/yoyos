@@ -32,7 +32,7 @@ test("quotations persist all overlapping rates, remain immutable, isolate tenant
       expect(second.data.quotation.id).not.toBe(first.data.quotation.id);
       const { rate } = first.data.rates[0];
       expect(await withinTransaction(() => findRateWithQuotation(companyId, rate.id))).toEqual(ok({ quotation: first.data.quotation, rate }));
-      const selection = { companyId, rateId: rate.id, method: rate.method, districtCode: rate.districtCode };
+      const selection = { companyId, rateId: rate.id, method: "home" as const, districtCode: rate.districtCode };
       expect(await deliverySettings.resolveSelectedDeliveryRate(selection)).toMatchObject({ success: true, data: { price: rate.price, settingsVersion: 2 } });
       await prisma.companyDeliverySettings.update({ where: { companyId }, data: { version: 3 } });
       expect(await deliverySettings.resolveSelectedDeliveryRate(selection)).toMatchObject({ success: true, data: { settingsVersion: 2 } });

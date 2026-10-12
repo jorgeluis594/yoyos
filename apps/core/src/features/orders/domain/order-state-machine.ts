@@ -5,8 +5,8 @@ import type { Result } from "@shared/result";
 import { z } from "zod";
 import { buildOrder, type BuildOrderInput, type BuildOrderError, type CompanyId, type OrderId, type OrderItem, type UserId } from "@core/src/features/orders/domain/order";
 import { parsePayment, voidPayment, type ConfirmedPayment, type Payment, type ReportedPayment } from "@core/src/features/orders/domain/payment";
-import { getPeruDistrict, getPeruProvinces, peruDepartments, parsePeruDistrictCode, type PeruDistrictCode, type PeruDistrictError } from "@shared/peru-geography";
-import type { QuotationId, DeliveryRateId, DeliveryOptionId, DeliverySettingsVersion, ResolvedDeliveryRate } from "@core/src/features/delivery-settings";
+import { parsePeruDistrictCode, peruDeliveryDistrict, type PeruDistrictCode, type PeruDistrictError } from "@shared/peru-geography";
+import type { QuotationId, DeliveryRateId, DeliveryOptionId, DeliveryAgencyId, DeliverySettingsVersion, ResolvedDeliveryRate, CourierId } from "@core/src/features/delivery-settings";
 import type { PickupPoint } from "@core/src/features/delivery-settings";
 
 export type OrderStatus = "active" | "cancelled" | "completed";
@@ -17,18 +17,21 @@ export type DocumentType = "national_id" | "passport" | "foreign_id";
 export type Recipient = Readonly<{ name: string; phone: string; identity: { kind: "absent" } | { kind: "document"; documentType: DocumentType; document: string } }>;
 export type AgencyRecipient = Readonly<Omit<Recipient, "identity"> & { identity: Extract<Recipient["identity"], { kind: "document" }> }>;
 export type { CourierId, PickupPoint } from "@core/src/features/delivery-settings";
+export type { DeliveryAgencyId } from "@core/src/features/delivery-settings";
 export type HomeDestination = Readonly<{ address: string; district: string; instructions: string | null }>;
 export type DeliveryAuthor = Readonly<{ kind: "seller"; userId: UserId }> | Readonly<{ kind: "buyer" }>;
 export type RatedDeliverySelection =
   | Readonly<{ method: "home"; recipient: Recipient; rateId: DeliveryRateId;
       destination: Readonly<{ districtCode: PeruDistrictCode; address: string; instructions: string | null }> }>
-  | Readonly<{ method: "agency"; recipient: AgencyRecipient; rateId: DeliveryRateId; districtCode: PeruDistrictCode }>
+  | Readonly<{ method: "agency"; recipient: AgencyRecipient; rateId: DeliveryRateId; districtCode: PeruDistrictCode; agencyId: DeliveryAgencyId }>
   | Readonly<{ method: "store"; recipient: Recipient }>;
 export type DeliveryPricing = Readonly<{ quotationId: QuotationId; rateId: DeliveryRateId; optionId: DeliveryOptionId; settingsVersion: DeliverySettingsVersion }>;
 export type PeruDeliveryDistrict = Readonly<{ country: "PE"; districtCode: PeruDistrictCode; district: string; province: string; department: string }>;
+export type SnapshotAgency = Readonly<{ id: DeliveryAgencyId; name: string; address: string; location: PeruDeliveryDistrict }>;
 export type DeliverySnapshot = Readonly<{ recordedBy: DeliveryAuthor }> & (
   | Readonly<{ method: "home"; recipient: Recipient; destination: HomeDestination & PeruDeliveryDistrict; pricing: DeliveryPricing }>
-  | Readonly<{ method: "agency"; recipient: AgencyRecipient; destination: PeruDeliveryDistrict; pricing: DeliveryPricing; courier: null; agency: null }>
+  | Readonly<{ method: "agency"; recipient: AgencyRecipient; destination: PeruDeliveryDistrict; pricing: DeliveryPricing;
+      courier: Readonly<{ id: CourierId; name: string }>; agency: SnapshotAgency }>
   | Readonly<{ method: "store"; recipient: Recipient; pickupPoint: PickupPoint; settingsVersion: DeliverySettingsVersion }>
 );
 export type OrderAggregate = Readonly<{
@@ -105,7 +108,8 @@ const rateId = z.uuid().transform(value => value as DeliveryRateId);
 const ratedSelection = z.discriminatedUnion("method", [
   z.strictObject({ method: z.literal("home"), recipient, rateId, destination: z.strictObject({ districtCode: z.string(),
     address: requiredText.max(500), instructions: z.string().trim().max(1000).nullable().transform(value => value || null) }) }),
-  z.strictObject({ method: z.literal("agency"), recipient: documentedRecipient, rateId, districtCode: z.string() }),
+  z.strictObject({ method: z.literal("agency"), recipient: documentedRecipient, rateId, districtCode: z.string(),
+    agencyId: z.uuid().transform(value => value as DeliveryAgencyId) }),
   z.strictObject({ method: z.literal("store"), recipient }),
 ]);
 export function parseRatedDeliverySelection(value: unknown): Result<RatedDeliverySelection, OrderDomainError | PeruDistrictError> {
@@ -124,15 +128,17 @@ export function buildRatedDeliverySnapshot(selection: Exclude<RatedDeliverySelec
   if (rate.method !== selection.method || rate.rateId !== selection.rateId)
     return err({ code: "INVALID_ORDER", message: "Resolved rate differs from delivery selection" });
   const code = selection.method === "home" ? selection.destination.districtCode : selection.districtCode;
-  const district = getPeruDistrict(code);
-  const department = district && peruDepartments.find(value => value.code === district.departmentCode);
-  const province = district && getPeruProvinces(district.departmentCode).find(value => value.code === district.provinceCode);
-  if (!district || !department || !province) return err({ code: "INVALID_DISTRICT", message: "Select a district from the Peru catalog" });
-  const destination: PeruDeliveryDistrict = { country: "PE", districtCode: district.code, district: district.name, province: province.name, department: department.name };
+  const destination = peruDeliveryDistrict(code);
+  if (!destination) return err({ code: "INVALID_DISTRICT", message: "Select a district from the Peru catalog" });
   const pricing: DeliveryPricing = { quotationId: rate.quotationId, rateId: rate.rateId, optionId: rate.optionId, settingsVersion: rate.settingsVersion };
-  return parseDeliverySnapshot(selection.method === "home"
-    ? { method: "home", recipient: selection.recipient, destination: { ...destination, address: selection.destination.address, instructions: selection.destination.instructions }, pricing, recordedBy: author }
-    : { method: "agency", recipient: selection.recipient, destination, courier: null, agency: null, pricing, recordedBy: author });
+  if (selection.method === "home")
+    return parseDeliverySnapshot({ method: "home", recipient: selection.recipient, destination: { ...destination, address: selection.destination.address, instructions: selection.destination.instructions }, pricing, recordedBy: author });
+  if (rate.method !== "agency" || rate.agency.id !== selection.agencyId)
+    return err({ code: "INVALID_ORDER", message: "Resolved agency differs from delivery selection" });
+  const location = peruDeliveryDistrict(rate.agency.districtCode);
+  if (!location) return err({ code: "INVALID_DISTRICT", message: "Select a district from the Peru catalog" });
+  return parseDeliverySnapshot({ method: "agency", recipient: selection.recipient, destination, courier: rate.courier,
+    agency: { id: rate.agency.id, name: rate.agency.name, address: rate.agency.address, location }, pricing, recordedBy: author });
 }
 
 const settingsVersion = z.number().int().min(0).max(2147483647).transform(value => value as DeliverySettingsVersion);
@@ -141,10 +147,12 @@ const pricing = z.strictObject({ quotationId: z.uuid().transform(value => value 
 const peruDistrict = z.strictObject({ country: z.literal("PE"),
   districtCode: z.string().refine(value => parsePeruDistrictCode(value).success).transform(value => value as PeruDistrictCode),
   district: requiredText.max(120), province: requiredText.max(120), department: requiredText.max(120) });
-const ratedAgency = { method: z.literal("agency"), recipient: documentedRecipient, destination: peruDistrict, pricing, recordedBy };
+const ratedAgency = { method: z.literal("agency"), recipient: documentedRecipient, destination: peruDistrict, pricing, recordedBy,
+  courier: z.strictObject({ id: z.uuid().transform(value => value as CourierId), name: requiredText.max(120) }),
+  agency: z.strictObject({ id: z.uuid().transform(value => value as DeliveryAgencyId), name: requiredText.max(120), address: requiredText.max(500), location: peruDistrict }) };
 const delivery = z.discriminatedUnion("method", [
   z.strictObject({ method: z.literal("home"), recipient, destination: homeDestination.extend(peruDistrict.shape), pricing, recordedBy }),
-  z.strictObject({ ...ratedAgency, courier: z.null(), agency: z.null() }),
+  z.strictObject(ratedAgency),
   z.strictObject({ method: z.literal("store"), recipient, pickupPoint, settingsVersion, recordedBy }),
 ]);
 export function parseDeliverySnapshot(value: unknown): Result<DeliverySnapshot, OrderDomainError> {

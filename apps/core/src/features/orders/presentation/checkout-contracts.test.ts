@@ -33,9 +33,11 @@ test("public delivery keeps rated snapshots, rejects obsolete shapes and exclude
   expect(publicCheckoutDeliverySchema.safeParse({ ...home, recordedBy: { kind: "seller", userId: "private" } }).success).toBe(false);
   expect(publicCheckoutDeliverySchema.safeParse({ ...home, pricing: undefined, destination: { address: "Street", district: "Old district", instructions: null } }).success).toBe(false);
   const agency = { method: "agency", recipient: { ...recipient, identity: { kind: "document", documentType: "passport", document: "001" } },
-    destination: district, pricing, courier: null, agency: null };
+    destination: district, pricing, courier: { id: pricing.optionId, name: "Courier" },
+    agency: { id: pricing.rateId, name: "Branch", address: "Av. Test 123", location: district } };
   expect(publicCheckoutDeliverySchema.safeParse(agency).success).toBe(true);
-  expect(publicCheckoutDeliverySchema.safeParse({ ...agency, courier: { id: pricing.optionId, name: "Courier" }, agency: "Office" }).success).toBe(false);
+  expect(publicCheckoutDeliverySchema.safeParse({ ...agency, agency: "Office" }).success).toBe(false);
+  expect(publicCheckoutDeliverySchema.safeParse({ ...agency, courier: null, agency: null }).success).toBe(false);
   const store = { method: "store", recipient, pickupPoint: { name: "Shop", address: "Street", instructions: null }, settingsVersion: 2 };
   expect(publicCheckoutDeliverySchema.safeParse(store).success).toBe(true);
   expect(publicCheckoutDeliverySchema.safeParse({ ...store, settingsVersion: undefined }).success).toBe(false);

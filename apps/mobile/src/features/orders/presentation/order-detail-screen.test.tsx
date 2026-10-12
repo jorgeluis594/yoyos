@@ -379,17 +379,21 @@ test("fulfillment errors remain visible and requests can be retried without chan
   expect(mockVoidPayment).not.toHaveBeenCalled();
 });
 
-test('rated agency delivery shows its district and pending operational assignment', async () => {
+test('rated agency delivery shows its courier and catalog agency', async () => {
   await i18n.changeLanguage('es');
   mockOrder = { ...initialOrder, delivery: { method: 'agency',
     recipient: { name: 'Ana', phone: '999', identity: { kind: 'document', documentType: 'national_id', document: '12345678' } },
     destination: { country: 'PE', districtCode: '150122', district: 'Miraflores', province: 'Lima', department: 'Lima' },
     pricing: { quotationId: mockId, rateId: mockId, optionId: mockId, settingsVersion: 3 },
-    courier: null, agency: null, recordedBy: { kind: 'buyer' } } };
+    courier: { id: mockId, name: 'Shalom' },
+    agency: { id: mockId, name: 'Sucursal Miraflores', address: 'Av. Test 123', location: { country: 'PE', districtCode: '150122', district: 'Miraflores', province: 'Lima', department: 'Lima' } },
+    recordedBy: { kind: 'buyer' } } };
   const screen = render(<OrderDetailScreen />);
   fireEvent.press(await screen.findByRole('button', { name: /Agencia/ }));
-  expect(screen.getByText('Miraflores')).toBeTruthy();
-  expect(screen.getByText('Courier y agencia pendientes de asignación')).toBeTruthy();
+  expect(screen.getByText('Shalom')).toBeTruthy();
+  expect(screen.getByText('Sucursal Miraflores')).toBeTruthy();
+  expect(screen.getByText('Av. Test 123')).toBeTruthy();
+  expect(screen.getByText('Miraflores, Lima')).toBeTruthy();
 });
 
 function pendingCancellationOrder() {

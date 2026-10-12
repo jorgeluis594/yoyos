@@ -154,7 +154,8 @@ export function createOrderApi(request: Request) {
       if (selected.method === "store") {
         if (!("settingsVersion" in assigned)) return invalid();
       } else if (!("pricing" in assigned) || assigned.pricing.rateId !== selected.rateId ||
-        assigned.destination.districtCode !== (selected.method === "home" ? selected.destination.districtCode : selected.districtCode)) return invalid();
+        assigned.destination.districtCode !== (selected.method === "home" ? selected.destination.districtCode : selected.districtCode) ||
+        (selected.method === "agency" && !(assigned.method === "agency" && assigned.agency.id === selected.agencyId))) return invalid();
       return result;
 
     },

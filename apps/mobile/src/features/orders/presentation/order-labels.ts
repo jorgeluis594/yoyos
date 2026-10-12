@@ -35,3 +35,7 @@ export const orderStatusLabel = (status: Status, language: Language) => labels[l
 export const deliveryStatusLabel = (status: Delivery, language: Language) => labels[language][status];
 export const documentTypeLabel = (type: DocumentType, language: Language) => labels[language][type];
 export const deliveryMethodLabel = (method: "home" | "agency" | "store", language: Language) => labels[language][method];
+
+type AgencyChoice = Readonly<{ id: string; name: string; address: string; courier: Readonly<{ name: string }>; location: Readonly<{ district: string; province: string }> }>;
+export const agencyOption = (agency: AgencyChoice) => ({ value: agency.id, label: `${agency.name} · ${agency.courier.name}`,
+  description: `${agency.location.district}, ${agency.location.province} · ${agency.address}` });

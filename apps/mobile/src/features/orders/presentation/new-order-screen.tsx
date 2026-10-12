@@ -116,7 +116,8 @@ function CompanyOrderScreen() {
     currency: productTotal.success ? productTotal.data.shownTotal.currency : initialDelivery.currency,
     price: selectedRate?.price ?? null,
   }) : null;
-  const ratedDelivery = deliveryEnabled && !quoting && deliverySelection?.success && (method === "store" || selectedRate) ? deliverySelection.data : undefined;
+  const agencyChosen = selectedRate?.method === "agency" && selectedRate.agencies.some(agency => agency.id === initialDelivery?.agencyId);
+  const ratedDelivery = deliveryEnabled && !quoting && deliverySelection?.success && (method === "store" || (selectedRate && (method !== "agency" || agencyChosen))) ? deliverySelection.data : undefined;
   const saveDraft = { ...draft, ratedDelivery };
   const prepared = prepareOrder(saveDraft);
   const deliveryReady = !initialDelivery || !!ratedDelivery;
@@ -126,7 +127,7 @@ function CompanyOrderScreen() {
   const reviewedTotal = productTotal.success && (!initialDelivery || reviewedPrice)
     ? reviewedPrice ? add(reviewedPrice)(productTotal.data.shownTotal) : ok(productTotal.data.shownTotal) : null;
   const retryQuotation = () => {
-    setInitialDelivery(current => current ? { ...current, rateId: "", price: null } : null);
+    setInitialDelivery(current => current ? { ...current, rateId: "", agencyId: "", price: null } : null);
     setQuoteAttempt(value => value + 1);
   };
   const paymentDraft = prepareOrder({ ...draft, ratedDelivery: undefined });
@@ -268,7 +269,7 @@ function CompanyOrderScreen() {
       document: recipient.identity.kind === "document" ? recipient.identity.document : "",
       address: selection.method === "home" ? selection.destination.address : "",
       instructions: selection.method === "home" ? selection.destination.instructions ?? "" : "",
-      districtCode: "", rateId: "", price: null, currency });
+      districtCode: "", rateId: "", agencyId: "", price: null, currency });
     setQuoteAttempt(value => value + 1);
   };
   const reviewSavedOrder = async () => {
@@ -306,7 +307,7 @@ function CompanyOrderScreen() {
     const { name, phone, documentType, document, method, address, instructions } = deliveryDraftFromOrder({ delivery: null,
       buyer: draft.customer.kind === "contact" ? { contactId: draft.customer.contactId, name: draft.customer.name, phone: draft.customer.phone } : null,
       deliveryCharge: { amount: 0, currency: "PEN" } }, settings);
-    setInitialDelivery({ name, phone, documentType, document, method, address, instructions, rateId: "", price: null, districtCode: "",
+    setInitialDelivery({ name, phone, documentType, document, method, address, instructions, rateId: "", agencyId: "", price: null, districtCode: "",
       currency: productTotal.success ? productTotal.data.shownTotal.currency : "PEN" });
     setQuoteAttempt(value => value + 1);
   };

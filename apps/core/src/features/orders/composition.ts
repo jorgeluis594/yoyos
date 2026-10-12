@@ -63,7 +63,7 @@ const fulfillmentDependencies: FulfillOrderDependencies = { transaction: fulfill
 
 export async function setConfiguredOrderDelivery(input: SetDeliveryInput, context: OrderAccess) {
   const started = performance.now();
-  const observed: { previous: OrderAggregate | null; settingsVersion?: number; courierId?: string; stage: string } = { previous: null, stage: "lock_order" };
+  const observed: { previous: OrderAggregate | null; settingsVersion?: number; courierId?: string; optionId?: string; agencyId?: string; stage: string } = { previous: null, stage: "lock_order" };
   const result = await setOrderDelivery(input, context, {
     transaction: (companyId, work) => {
       if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
@@ -74,12 +74,19 @@ export async function setConfiguredOrderDelivery(input: SetDeliveryInput, contex
       if (found.success) observed.previous = found.data;
       return found;
     },
-    resolveRatedDelivery: (selection, access, currency, expectedPrice) => {
+    resolveRatedDelivery: async (selection, access, currency, expectedPrice) => {
       observed.stage = "resolve_delivery";
-      return resolveRatedShippingCost(selection, { companyId: access.companyId, author: { kind: "seller", userId: access.userId } }, currency, expectedPrice, {
+      const resolved = await resolveRatedShippingCost(selection, { companyId: access.companyId, author: { kind: "seller", userId: access.userId } }, currency, expectedPrice, {
         getStoreSettings: () => deliverySettings.get(access, "set_order_delivery"),
         resolveSelectedDeliveryRate: deliverySettings.resolveSelectedDeliveryRate,
       });
+      if (resolved.success) {
+        const { delivery } = resolved.data;
+        observed.settingsVersion = delivery.method === "store" ? delivery.settingsVersion : delivery.pricing.settingsVersion;
+        if (delivery.method !== "store") observed.optionId = delivery.pricing.optionId;
+        if (delivery.method === "agency") { observed.courierId = delivery.courier.id; observed.agencyId = delivery.agency.id; }
+      }
+      return resolved;
     },
     saveDelivery: (id, companyId, change) => { observed.stage = "save_delivery"; return saveDelivery(id, companyId, change); },
     deductProductStock: (variantId, quantity) => { observed.stage = "deduct_stock"; return deductProductStock(variantId, quantity, { operation: "set_order_delivery", orderId: input.orderId }); },
@@ -90,13 +97,13 @@ export async function setConfiguredOrderDelivery(input: SetDeliveryInput, contex
     const before = observed.previous;
     afterTransactionCommit(() => log.info({ event: "order_delivery_saved", operation: "set_order_delivery", orderId: input.orderId,
       userId: context.userId, authorKind: "seller", changeKind: before?.delivery ? "replaced" : "assigned",
-      courierId: observed.courierId, previousDeliveryMethod: before?.delivery?.method, deliveryMethod: input.delivery.method, settingsVersion: observed.settingsVersion,
+      courierId: observed.courierId, optionId: observed.optionId, agencyId: observed.agencyId, previousDeliveryMethod: before?.delivery?.method, deliveryMethod: input.delivery.method, settingsVersion: observed.settingsVersion,
       totalChanged: before?.total.amount !== result.data.total.amount,
       stockDeductionRequired: !before?.stockDeducted && result.data.stockDeducted, stockDeducted: result.data.stockDeducted,
       transactionOutcome: "committed", durationMs }, "Order delivery saved"));
   } else if (!["ORDER_NOT_FOUND", "PERSISTENCE_UNAVAILABLE", "INVALID_STORED_DATA", "INVALID_ORDER", "CURRENCY_MISMATCH"].includes(result.error.code)) {
     log.debug({ event: "order_delivery_rejected", operation: "set_order_delivery", orderId: input.orderId, userId: context.userId,
-      courierId: observed.courierId, deliveryMethod: input.delivery.method, settingsVersion: observed.settingsVersion, deliveryStatus: observed.previous?.deliveryStatus, cancelled: observed.previous?.cancelled,
+      courierId: observed.courierId, optionId: observed.optionId, agencyId: observed.agencyId, deliveryMethod: input.delivery.method, settingsVersion: observed.settingsVersion, deliveryStatus: observed.previous?.deliveryStatus, cancelled: observed.previous?.cancelled,
       errorCode: result.error.code, stage: observed.stage,
       ...(result.error.code === "DELIVERY_UNAVAILABLE" ? { reason: result.error.reason } : {}),
       ...(result.error.code === "INSUFFICIENT_STOCK" ? { variantId: result.error.variantId } : {}) }, "Order delivery rejected");

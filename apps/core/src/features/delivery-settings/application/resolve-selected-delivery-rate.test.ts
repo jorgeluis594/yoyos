@@ -74,13 +74,20 @@ test("agency rates require agency delivery, an enabled courier and an eligible a
   const agency = { id: agencyId as unknown as DeliveryAgencyId, courierId: catalogId, name: "Agency", address: "Street",
     districtCode: "150122" as typeof f.input.districtCode, enabled: true, courierEnabled: true };
   const courier: Courier = { id: id(60) as Courier["id"], catalogId, name: "Courier", enabled: true, catalogEnabled: true };
-  const input = { ...f.input, method: "agency" as const };
+  const input = { ...f.input, method: "agency" as const, agencyId: agencyId as unknown as DeliveryAgencyId };
   const value = { ...f.value, rate: { ...f.value.rate, method: "agency" as const } };
   const configuration: DeliveryConfiguration = { ...f.configuration, zones: [{ ...f.zone, options: [option] }], agencies: [agency],
     settings: { ...f.configuration.settings, agency: { enabled: true }, couriers: [courier] } };
   const deps = { readConfigurationForShare: async () => ok(configuration), findRateWithQuotation: async () => ok(value) };
-  expect(await resolveSelectedDeliveryRate(input, deps)).toMatchObject({ success: true, data: { method: "agency", optionId: option.id } });
-  for (const change of [{ agencies: [] }, { agencies: [{ ...agency, enabled: false }] }, { agencies: [{ ...agency, courierEnabled: false }] },
+  expect(await resolveSelectedDeliveryRate(input, deps)).toEqual(ok({ quotationId: f.value.quotation.id, rateId: f.input.rateId, optionId: option.id,
+    price: { amount: 8, currency: "PEN" }, settingsVersion: 2, method: "agency", courier: { id: courier.id, name: "Courier" },
+    agency: { id: agency.id, name: "Agency", address: "Street", districtCode: "150122" } }));
+  // An agency outside the option's associations is unavailable, even when it exists in the catalog.
+  expect(await resolveSelectedDeliveryRate({ ...input, agencyId: id(71) as unknown as DeliveryAgencyId }, deps)).toMatchObject({ success: false, error: { code: "RATE_UNAVAILABLE" } });
+  // A vanished agency wins over a price change: the buyer must pick again, not just accept a new total.
+  expect(await resolveSelectedDeliveryRate(input, { ...deps, readConfigurationForShare: async () => ok({ ...configuration, agencies: [],
+    zones: [{ ...configuration.zones[0], options: [{ ...option, price: { amount: 9, currency: "PEN" } }] }] }) })).toMatchObject({ success: false, error: { code: "RATE_UNAVAILABLE" } });
+  for (const change of [{ settings: { ...configuration.settings, couriers: [{ ...courier, catalogEnabled: false }] } },{ agencies: [] }, { agencies: [{ ...agency, enabled: false }] }, { agencies: [{ ...agency, courierEnabled: false }] },
     { settings: { ...configuration.settings, couriers: [{ ...courier, enabled: false }] } }, { settings: { ...configuration.settings, agency: { enabled: false } } }]) {
     expect(await resolveSelectedDeliveryRate(input, { ...deps, readConfigurationForShare: async () => ok({ ...configuration, ...change }) }))
       .toMatchObject({ success: false, error: { code: "RATE_UNAVAILABLE" } });
