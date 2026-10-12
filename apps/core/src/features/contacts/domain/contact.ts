@@ -1,5 +1,7 @@
 import { internationalPhonePattern } from "@shared/phone";
 
+export type CustomerId = string & { readonly __brand: "CustomerId" };
+
 type ContactDetails = Readonly<{ id: string; name: string | null; createdAt: Date; updatedAt: Date }>;
 export type PhoneContact = ContactDetails & (
   | Readonly<{ phone: string; whatsappAccountId?: null; whatsappLid?: null }>
