@@ -23,7 +23,6 @@ type Draft = Readonly<{ name: string; enabled: boolean; districtCodes: string[];
 type ZoneInput = SaveDeliveryZonesRequest["zones"][number];
 type OptionInput = ZoneInput["options"][number];
 const empty: Draft = { name: "", enabled: true, districtCodes: [], options: [] };
-let nextOptionKey = 0;
 
 const existingOptionInput = (option: DeliveryZonesResponse["zones"][number]["options"][number]): OptionInput => option.method === "home"
   ? { kind: "existing", id: option.id, method: "home", name: option.name, enabled: option.enabled, price: option.price }
@@ -73,6 +72,8 @@ export function DeliveryZonesSection({ state, disabled, blocked, onSave, onReloa
   return <View testID="delivery-zones" style={styles.section}>
     <ThemedText type="subtitle" accessibilityRole="header">{t("zonesTitle")}</ThemedText>
     <ThemedText type="small" themeColor="textSecondary">{t("zonesHint")}</ThemedText>
+    {(["home", "agency"] as const).filter(method => state[method].enabled && !zones.some(zone => zone.enabled && zone.options.some(option => option.enabled && option.method === method))).map(method =>
+      <ThemedText key={method} type="small" themeColor="textSecondary" accessibilityLiveRegion="polite">{t(method === "home" ? "zonesMissingHome" : "zonesMissingAgency")}</ThemedText>)}
     {zones.length === 0 ? <ThemedText themeColor="textSecondary">{t("zonesEmpty")}</ThemedText> : null}
     {zones.map(zone => <View key={zone.id} style={[styles.zone, { borderColor: theme.input }]}>
       <ThemedText style={styles.name}>{zone.name}</ThemedText>
@@ -96,7 +97,7 @@ export function DeliveryZonesSection({ state, disabled, blocked, onSave, onReloa
           <View style={styles.toggle}><ThemedText style={styles.label}>{t("optionActive")}</ThemedText><Switch accessibilityLabel={`${t("optionActive")} ${index + 1}`} value={option.enabled} disabled={locked} trackColor={{ true: theme.primary }} onValueChange={enabled => setOption(index, { enabled })} /></View>
           {option.kind === "new" ? <Button variant="ghost" disabled={locked} onPress={() => setDraft({ ...draft, options: draft.options.filter((_, i) => i !== index) })}>{t("optionRemove")}</Button> : null}
         </View>)}
-        <Button variant="secondary" disabled={locked} onPress={() => setDraft({ ...draft, options: [...draft.options, { kind: "new", localKey: ++nextOptionKey, method: "home", name: "", amount: "", enabled: true }] })}>{t("optionAddHome")}</Button>
+        <Button variant="secondary" disabled={locked} onPress={() => setDraft({ ...draft, options: [...draft.options, { kind: "new", localKey: Math.max(0, ...draft.options.map(value => value.kind === "new" ? value.localKey : 0)) + 1, method: "home", name: "", amount: "", enabled: true }] })}>{t("optionAddHome")}</Button>
         <Button disabled={locked} loading={disabled} onPress={() => void save()}>{t("zonesSave")}</Button>
         <Button variant="ghost" disabled={locked} onPress={() => { setDraft(empty); setEditing(undefined); setError(""); }}>{t("zonesCancel")}</Button>
       </View>}
