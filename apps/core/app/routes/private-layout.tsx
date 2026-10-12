@@ -1,9 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, ChevronRight, House, LogOut, Menu, Moon, ShoppingBag, Sun, X, ReceiptText, Truck, CreditCard, Palette } from "lucide-react";
+import { Check, ChevronRight, House, LogOut, Menu, Moon, ShoppingBag, Sun, ReceiptText, Truck, CreditCard, Palette } from "lucide-react";
 import { Link, Outlet, useLoaderData, useLocation, useNavigate, type LoaderFunctionArgs } from "react-router";
 import { cn } from "@core/app/lib/utils";
+import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Button } from "@core/app/components/ui/button";
+import { Card } from "@core/app/components/ui/card";
+import { PageContainer } from "@core/app/components/ui/page-container";
+import { Sheet, SheetContent, SheetTrigger } from "@core/app/components/ui/sheet";
+import { TextLink } from "@core/app/components/ui/text-link";
 import { privateUserContext } from "@core/app/private-user-context";
 import { authClient } from "@core/src/shared/infrastructure/auth-client";
 import { companyPath, localizedPath } from "@core/app/locale";
@@ -38,13 +43,13 @@ function Navigation({ company, name, home, productPath, orderPath, settingsPath,
       <Link to={home} onClick={onNavigate} className="flex min-h-app-header items-center gap-3 px-3 text-2xl font-semibold tracking-tight focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">
         <ShoppingBag className="size-icon-navigation text-primary" aria-hidden="true" />yoyos
       </Link>
-      <div className="flex min-w-0 items-center gap-3 rounded-md border border-border bg-card px-3 py-3 text-card-foreground">
+      <Card className="flex min-w-0 flex-row items-center gap-3 rounded-md px-3 py-3">
         <span className="grid size-8 shrink-0 place-items-center rounded-sm bg-secondary text-sm font-medium text-secondary-foreground" aria-hidden="true">{company.slice(0, 1).toUpperCase()}</span>
         <div className="min-w-0">
           <p className="break-words text-sm font-medium leading-5">{company}</p>
           <p className="mt-1 text-xs text-muted-foreground">{t("nav.workspace")}</p>
         </div>
-      </div>
+      </Card>
       <nav aria-label={t("nav.main")}>
         <Link to={home} onClick={onNavigate} data-slot="navigation-link" aria-current={active === "home" ? "page" : undefined} className={`flex min-h-control items-center gap-3 rounded-sm px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background max-md:min-h-touch ${active === "home" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent"}`}>
           <House className="size-icon-navigation shrink-0" aria-hidden="true" />{t("nav.home")}
@@ -71,7 +76,7 @@ function Navigation({ company, name, home, productPath, orderPath, settingsPath,
         <Button type="button" variant="ghost" className="min-h-control w-full justify-start gap-3" onClick={onSignOut} disabled={pending}>
           <LogOut data-icon="inline-start" aria-hidden="true" />{pending ? t("nav.signingOut") : t("nav.signOut")}
         </Button>
-        {error && <p role="alert" className="px-2 text-sm text-destructive">{error}</p>}
+        {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
       </div>
     </div>
   );
@@ -82,7 +87,7 @@ export default function PrivateLayout() {
   const { company, home, name } = useLoaderData<typeof loader>();
   const navigate = useNavigate();
   const location = useLocation();
-  const dialog = useRef<HTMLDialogElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [dark, setDark] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -113,7 +118,7 @@ export default function PrivateLayout() {
     try {
       const result = await authClient.signOut();
       if (result.error) throw result.error;
-      dialog.current?.close();
+      setMenuOpen(false);
       navigate(localizedPath(location.pathname, "/login"));
     } catch {
       setError(t("nav.signOutError"));
@@ -131,19 +136,18 @@ export default function PrivateLayout() {
 
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
-      <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-sm focus:bg-primary focus:px-4 focus:py-3 focus:text-primary-foreground">{t("nav.skipContent")}</a>
+      <TextLink href="#main-content" className="sr-only no-underline focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-sm focus:bg-primary focus:px-4 focus:py-3 focus:text-primary-foreground">{t("nav.skipContent")}</TextLink>
       <aside className="hidden md:sticky md:top-0 md:block md:h-dvh md:w-sidebar md:shrink-0 md:overflow-y-auto">
         <Navigation {...navigation} />
       </aside>
-      <dialog ref={dialog} aria-label={t("nav.mainMenu")} className="m-0 h-dvh max-h-dvh w-navigation-drawer max-w-full border-0 bg-background p-0 text-foreground shadow-xl backdrop:bg-foreground/40 md:hidden">
-        <div className="flex h-full flex-col">
-          <Button type="button" variant="ghost" size="icon" aria-label={t("nav.closeMenu")} className="absolute right-3 top-4 min-h-touch min-w-touch" onClick={() => dialog.current?.close()}><X aria-hidden="true" /></Button>
-          <Navigation {...navigation} onNavigate={() => dialog.current?.close()} />
-        </div>
-      </dialog>
       <div className="min-w-0 flex-1 bg-card text-card-foreground md:my-3 md:mr-3 md:rounded-md md:border md:border-border">
         <header className="flex min-h-app-header items-center gap-3 border-b border-border px-page-mobile py-2 text-sm sm:px-page-desktop">
-          <Button type="button" variant="ghost" size="icon" aria-label={t("nav.openMenu")} aria-haspopup="dialog" className="min-h-touch min-w-touch md:hidden" onClick={() => dialog.current?.showModal()}><Menu aria-hidden="true" /></Button>
+          <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
+            <SheetTrigger asChild><Button type="button" variant="ghost" size="icon" aria-label={t("nav.openMenu")} className="min-h-touch min-w-touch md:hidden"><Menu aria-hidden="true" /></Button></SheetTrigger>
+            <SheetContent title={t("nav.mainMenu")} description={company}>
+              <div className="min-h-0 flex-1 overflow-y-auto"><Navigation {...navigation} onNavigate={() => setMenuOpen(false)} /></div>
+            </SheetContent>
+          </Sheet>
           <nav aria-label={t("nav.breadcrumb")} className="min-w-0">
             <ol className="flex min-w-0 items-center gap-3">
               <li className="min-w-0 truncate text-muted-foreground" title={company}>{company}</li>
@@ -154,7 +158,7 @@ export default function PrivateLayout() {
             </ol>
           </nav>
         </header>
-        <main id="main-content" tabIndex={-1} className="mx-auto max-w-content px-page-mobile py-section outline-none sm:px-page-desktop"><Outlet /></main>
+        <main id="main-content" tabIndex={-1} className="px-page-mobile py-section outline-none sm:px-page-desktop"><PageContainer className="max-w-content"><Outlet /></PageContainer></main>
       </div>
     </div>
   );
