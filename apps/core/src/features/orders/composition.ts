@@ -31,6 +31,7 @@ import { findSellableVariant, findSellableVariantsByQrCodes, deductProductStock,
 import { ensureCustomerForContact, findContactById, searchSaleContacts } from "@core/src/features/contacts";
 import { findOrderSourceMessage } from "@core/src/features/chats";
 import { addMessageProductsToOrder, type AddMessageProductsDependencies, type AddMessageProductsError } from "@core/src/features/orders/application/add-message-products-to-order";
+import { messageOrderPolicy } from "@core/src/features/orders/application/message-order-policy";
 import { readQrCodes } from "@core/src/features/orders/infrastructure/qr-code-reader";
 import type { ChatId, VariantQrCode } from "@core/src/features/orders/domain/message-order";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
@@ -301,7 +302,6 @@ export const orders = {
 };
 
 type Persistence = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
-const unavailable = (message: string): Persistence => ({ code: "PERSISTENCE_UNAVAILABLE", message });
 
 // Chats and contacts return plain strings; the brands belong to orders and are applied only here.
 const messageOrderDependencies: AddMessageProductsDependencies = {
@@ -325,11 +325,7 @@ const messageOrderDependencies: AddMessageProductsDependencies = {
     return ensured.success ? ok({ ...ensured.data, customerId: ensured.data.customerId as CustomerId, contactId: ensured.data.contactId as ContactId }) : ensured;
   },
   findOpenChatOrderCandidate,
-  // A stored order that cannot be rebuilt is reported as unavailable, so the job is retried after the data is fixed.
-  findOrderForUpdate: async (id) => {
-    const locked = await findOrderForUpdate(id, getCompanyId() as CompanyId);
-    return locked.success ? locked : err(unavailable("Unable to lock order"));
-  },
+  findOrderForUpdate: (id) => findOrderForUpdate(id, getCompanyId() as CompanyId),
   allocateNumber: allocateOrderNumber,
   saveNewOrder: (order, source) => savePendingOrder(order, source),
   saveAddedItems,
@@ -339,6 +335,7 @@ const messageOrderDependencies: AddMessageProductsDependencies = {
   clock: () => new Date(),
 };
 
+export { messageOrderPolicy };
 const retryableCodes: readonly AddMessageProductsError["code"][] = ["PERSISTENCE_UNAVAILABLE", "IMAGE_STORAGE_UNAVAILABLE", "QR_READER_UNAVAILABLE"];
 
 /** Handler of `message_created`: logs each outcome and tells the bus which failures deserve a retry. */
@@ -357,7 +354,7 @@ export const addMessageProductsHandler: EventHandler<AppEvents, "message_created
     return ok(undefined);
   }
   const retryable = retryableCodes.includes(result.error.code);
-  // Retryable failures are logged as warnings; the bus keeps the final failed job.
-  log[retryable ? "warn" : "error"]({ event: "orders_message_order_failed", ...base(), code: result.error.code, retryable }, "Message order failed");
+  // A retryable failure is a warning until the last attempt: then the job stays failed.
+  log[retryable && context.attempt <= messageOrderPolicy.retries ? "warn" : "error"]({ event: "orders_message_order_failed", ...base(), code: result.error.code, retryable }, "Message order failed");
   return err({ code: result.error.code, message: result.error.message, retryable });
 };

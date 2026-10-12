@@ -32,7 +32,8 @@ vi.mock("@core/src/features/chats", () => ({ findOrderSourceMessage: vi.fn() }))
 const { addMessageProductsToOrder } = vi.hoisted(() => ({ addMessageProductsToOrder: vi.fn() }));
 vi.mock("@core/src/features/orders/application/add-message-products-to-order", () => ({ addMessageProductsToOrder }));
 
-import { orders, addMessageProductsHandler } from "@core/src/features/orders/composition";
+import { findOrderForUpdate } from "@core/src/features/orders/infrastructure/order-repository";
+import { orders, addMessageProductsHandler, messageOrderPolicy } from "@core/src/features/orders/composition";
 
 const id = (n: number) => `00000000-0000-4000-8000-${n.toString().padStart(12, "0")}`;
 const input = { id: id(1) as OrderId, contactId: null, items: [{ variantId: id(2) as VariantId, quantity: 1 as PositiveInteger }] } as const;
@@ -115,6 +116,29 @@ test("treats every other error as permanent", async () => {
       expect(await handle()).toEqual(err({ code, message: "Rejected", retryable: false }));
     }
   } finally { error.mockRestore(); addMessageProductsToOrder.mockReset(); }
+});
+
+test("treats an invalid stored order from findOrderForUpdate as a permanent INVALID_ORDER", async () => {
+  const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  try {
+    vi.mocked(findOrderForUpdate).mockResolvedValueOnce(err({ code: "INVALID_ORDER", message: "Invalid stored order" }));
+    addMessageProductsToOrder.mockImplementationOnce((_input, deps) => deps.findOrderForUpdate(id(12) as OrderId));
+    expect(await handle()).toEqual(err({ code: "INVALID_ORDER", message: "Invalid stored order", retryable: false }));
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({ code: "INVALID_ORDER", retryable: false }), expect.any(String));
+  } finally { error.mockRestore(); addMessageProductsToOrder.mockReset(); }
+});
+
+test("logs an error instead of a warning when a retryable failure exhausts its retries", async () => {
+  const warn = vi.spyOn(log, "warn").mockImplementation(() => undefined);
+  const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  try {
+    addMessageProductsToOrder.mockResolvedValue(err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unavailable" }));
+    await handle(messageOrderPolicy.retries);
+    expect(warn).toHaveBeenCalledOnce();
+    expect(error).not.toHaveBeenCalled();
+    await handle(messageOrderPolicy.retries + 1);
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "orders_message_order_failed", code: "PERSISTENCE_UNAVAILABLE", retryable: true }), expect.any(String));
+  } finally { warn.mockRestore(); error.mockRestore(); addMessageProductsToOrder.mockReset(); }
 });
 
 test("logs created, items added, skipped and failed outcomes with ids and without bytes, phones or decoded text", async () => {

@@ -15,13 +15,19 @@ const nativeId = (protocol: string) => `wa-message:v1:${Buffer.from(JSON.stringi
 async function fixture() {
   const companyId = randomUUID() as RegistrationContext["companyId"];
   await withTenantIsolation(companyId, async () => await prisma.company.create({ data: { id: companyId, name: "Mobile dispatch", country: "PE" } }));
-  return { companyId, context: { companyId, uploadedByUserId: "test-user" }, cleanup: () => withTenantIsolation(companyId, async () => {
+  return { companyId, context: { companyId, uploadedByUserId: "test-user" }, cleanup: async () => {
+    // Published message_created jobs must not stay queued for a worker running on this database.
+    const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+    try { await pool.query("DELETE FROM pgboss.job WHERE data->>'name' = 'message_created' AND data->'payload'->>'companyId' = $1", [companyId]); }
+    finally { await pool.end(); }
+    await withTenantIsolation(companyId, async () => {
     await prisma.chatMessage.deleteMany({ where: { companyId } });
     await prisma.chat.deleteMany({ where: { companyId } });
     await prisma.contact.deleteMany({ where: { companyId } });
     await prisma.image.deleteMany({ where: { companyId } });
     await prisma.company.deleteMany({ where: { id: companyId } });
-  }) };
+    });
+  } };
 }
 
 function input(protocol: string) {
@@ -151,7 +157,6 @@ test("real provider recovers pending dispatch after restart and concurrent regis
     expect(recovered.success && recovered.data.eventId).toBe(stoppedRow.id);
   } finally {
     await runtime.provider.stop(); delete events.__yoyosEvents;
-    await pool.query("DELETE FROM pgboss.job WHERE data->>'name' = 'message_created' AND data->'payload'->>'companyId' = $1", [f.companyId]);
     await pool.end(); await f.cleanup();
   }
 });
