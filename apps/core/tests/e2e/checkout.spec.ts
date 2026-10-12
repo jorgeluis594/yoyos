@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
 import { products } from "@core/src/features/products/composition";
 import { deliverySettings } from "@core/src/features/delivery-settings";
-import { seededCatalogId } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
+import { deleteAgencies, insertAgency, seededCatalogId } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
 import { orders } from "@core/src/features/orders/composition";
 import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
@@ -411,16 +411,19 @@ test("buyer pickup confirms explicit zero without district or quotation", async 
 });
 
 
-// Agency rates need catalog agencies associated with options; T5 rewrites this journey.
-test.skip("buyer chooses an agency rate and reaches payment without choosing an operational courier", async ({ page }) => {
+test("buyer chooses an agency rate and its catalog agency and reaches payment with courier and agency in the snapshot", async ({ page }) => {
   const f = await fixture("none", true, false);
+  const catalogId = await seededCatalogId();
+  const agencies = await Promise.all([insertAgency({ courierId: catalogId, name: "Sucursal Centro", districtCode: "150101" }),
+    insertAgency({ courierId: catalogId, name: "Sucursal Miraflores", districtCode: "150122" })]);
   try {
     await withTenantIsolation(f.companyId, async () => {
       const access = { companyId: f.companyId, userId: f.userId };
-      expect((await deliverySettings.saveZones({ expectedVersion: 0,
-        zones: [{ kind: "new", name: "Agency zone", enabled: true, districtCodes: ["150122"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount: 8, currency: "PEN" } }] }] }, access)).success).toBe(true);
-      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: false }, agency: { enabled: true },
-        couriers: [{ kind: "new", catalogId: await seededCatalogId(), enabled: true }], store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
+      expect((await deliverySettings.save({ expectedVersion: 0, home: { enabled: false }, agency: { enabled: true },
+        couriers: [{ kind: "new", catalogId, enabled: true }], store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
+      expect((await deliverySettings.saveZones({ expectedVersion: 1,
+        zones: [{ kind: "new", name: "Agency zone", enabled: true, districtCodes: ["150122"], options: [
+          { kind: "new", method: "agency", name: "Retiro en agencia", enabled: true, price: { amount: 8, currency: "PEN" }, agencyIds: agencies }] }] }, access)).success).toBe(true);
     });
     await page.goto(f.path);
     await page.getByLabel("Departamento", { exact: true }).selectOption("15");
@@ -434,11 +437,14 @@ test.skip("buyer chooses an agency rate and reaches payment without choosing an 
     await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
     await page.getByLabel("Nombre del destinatario").fill("Recipient");
     await page.getByLabel("Teléfono del destinatario").fill("999");
-    await browserExpect(page.getByRole("button", { name: "Confirmar pedido", exact: true })).toBeDisabled();
     await page.getByLabel("Documento del destinatario").fill("12345678");
-    await browserExpect(page.getByText("La agencia y el courier se asignarán después. No necesitas elegirlos para confirmar.", { exact: true })).toBeVisible();
+    // Two agencies are eligible: the buyer must choose one before confirming.
+    const agency = page.getByLabel("Agencia de destino");
+    await browserExpect(agency.locator("option")).toHaveCount(3);
+    await browserExpect(agency.locator("option").nth(1)).toContainText("Shalom");
+    await browserExpect(page.getByRole("button", { name: "Confirmar pedido", exact: true })).toBeDisabled();
+    await agency.selectOption(agencies[1]);
     await browserExpect(page.getByLabel("Dirección de entrega", { exact: true })).toHaveCount(0);
-    await browserExpect(page.getByRole("combobox").filter({ hasText: "Shalom" })).toHaveCount(0);
     const total = page.locator("dl > div").filter({ has: page.getByText("Total a pagar", { exact: true }) });
     await browserExpect(total).toContainText(/18[.,]00/);
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
@@ -448,13 +454,14 @@ test.skip("buyer chooses an agency rate and reaches payment without choosing an 
     const stored = await f.read();
     expect(stored.total.toNumber()).toBe(18);
     expect(stored.deliveryCharge.toNumber()).toBe(8);
-    expect(stored.delivery).toMatchObject({ method: "agency", agency: null, courier: null,
+    expect(stored.delivery).toMatchObject({ method: "agency", courier: { name: "Shalom" },
+      agency: { id: agencies[1], name: "Sucursal Miraflores", address: "Av. Test 123", location: { districtCode: "150122" } },
       recipient: { identity: { kind: "document", documentType: "national_id", document: "12345678" } },
       destination: { districtCode: "150122" }, recordedBy: { kind: "buyer" } });
     expect(stored.checkoutConfirmedAt).not.toBeNull();
     expect(stored.payments).toEqual([]);
     expect(stored.stockDeducted).toBe(false);
-  } finally { await f.cleanup(); }
+  } finally { await f.cleanup(); await deleteAgencies(agencies); }
 });
 
 

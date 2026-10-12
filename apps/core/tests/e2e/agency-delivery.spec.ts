@@ -3,15 +3,16 @@ import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests
 import { deliverySettingsSchema } from "@shared/contracts/delivery-settings";
 import { orderAggregateSchema } from "@shared/contracts/orders";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { deleteAgencies, insertAgency, seededCourier, withCatalogAdmin } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
 import { products } from "@core/src/features/products/composition";
 import { orders } from "@core/src/features/orders/composition";
 import type { CompanyId, OrderId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
-// Agency selection needs catalog agencies associated with options; T5 rewrites this journey.
-test.skip("rated agency requires a document, preserves its snapshot and recovers concurrent deactivation", async ({ page }) => {
+test("rated agency requires a document and a catalog agency, preserves its snapshot and recovers concurrent deactivation", async ({ page }) => {
   const email = `agency-order-${crypto.randomUUID()}@example.test`;
   let companyId: string | undefined;
+  const agencyIds: string[] = [];
   try {
     companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "Agency orders", country: "PE" });
     const tenantId = companyId;
@@ -38,8 +39,11 @@ test.skip("rated agency requires a document, preserves its snapshot and recovers
     await browserExpect(page.getByRole("status").filter({ hasText: "Configuración guardada." })).toHaveText("Configuración guardada.");
     const config = deliverySettingsSchema.parse(await (await page.request.get("/api/delivery-settings")).json());
     expect(config.couriers.map(courier => courier.name).sort()).toEqual(["Olva Courier", "Shalom"]);
-    expect((await page.request.put("/api/delivery-settings/zones", { data: { method: "agency", expectedVersion: config.version,
-      zones: [{ kind: "new", name: "Agency", enabled: true, districtCodes: ["040110"], price: { amount: 3, currency: "PEN" } }] } })).ok()).toBe(true);
+    const shalom = await seededCourier("shalom");
+    agencyIds.push(await insertAgency({ courierId: shalom.id, name: "Sucursal Arequipa", districtCode: "040110" }),
+      await insertAgency({ courierId: shalom.id, name: "Sucursal Cercado", districtCode: "040110" }));
+    expect((await page.request.put("/api/delivery-settings/zones", { data: { expectedVersion: config.version, zones: [{ kind: "new", name: "Agency", enabled: true,
+      districtCodes: ["040110"], options: [{ kind: "new", method: "agency", name: "Agency", enabled: true, price: { amount: 3, currency: "PEN" }, agencyIds }] }] } })).ok()).toBe(true);
     await page.goto(`/es-PE/orders/${orderId}`);
     await browserExpect(page.getByLabel("Modalidad de entrega")).toBeHidden();
     await page.getByRole("button", { name: "Asignar entrega", exact: true }).focus();
@@ -47,7 +51,6 @@ test.skip("rated agency requires a document, preserves its snapshot and recovers
     await browserExpect(page.getByRole("button", { name: "Cerrar edición" })).toHaveAttribute("aria-expanded", "true");
     await browserExpect(page.getByLabel("Modalidad de entrega")).toHaveValue("agency");
     await browserExpect(page.getByLabel("Courier", { exact: true })).toHaveCount(0);
-    await browserExpect(page.getByLabel("Agencia de destino")).toHaveCount(0);
     await page.getByLabel("Nombre del destinatario").fill("Destinataria");
     await page.getByLabel("Teléfono del destinatario").fill("00123");
     await page.getByLabel("Departamento", { exact: true }).selectOption("04");
@@ -61,6 +64,7 @@ test.skip("rated agency requires a document, preserves its snapshot and recovers
       await tariff.selectOption(rateId);
     };
     await chooseRate();
+    await browserExpect(page.getByLabel("Agencia de destino").locator("option")).toHaveCount(3);
     await browserExpect(page.getByRole("button", { name: "Guardar entrega" })).toBeDisabled();
     await page.getByLabel("Documento de identidad (obligatorio)").selectOption("passport");
     await page.getByLabel("Número de documento").fill("00-A-001");
@@ -68,6 +72,7 @@ test.skip("rated agency requires a document, preserves its snapshot and recovers
     await page.getByRole("button", { name: "Asignar entrega", exact: true }).click();
     await browserExpect(page.getByLabel("Número de documento")).toHaveValue("00-A-001");
     await chooseRate();
+    await page.getByLabel("Agencia de destino").selectOption(agencyIds[0]);
     const save = async () => {
       const response = page.waitForResponse(value => value.request().method() === "POST" && new URL(value.url()).pathname.includes(`/orders/${orderId}`));
       await page.getByRole("button", { name: "Guardar entrega" }).click();
@@ -76,13 +81,15 @@ test.skip("rated agency requires a document, preserves its snapshot and recovers
     await save();
     await browserExpect(page.getByRole("status").filter({ hasText: "Entrega guardada." })).toBeVisible();
     const assigned = orderAggregateSchema.parse(await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json());
-    expect(assigned).toMatchObject({ delivery: { method: "agency", courier: null, agency: null, destination: { districtCode: "040110" },
+    expect(assigned).toMatchObject({ delivery: { method: "agency", courier: { name: "Shalom" }, agency: { id: agencyIds[0], name: "Sucursal Arequipa", location: { districtCode: "040110" } }, destination: { districtCode: "040110" },
       recipient: { name: "Destinataria", phone: "00123", identity: { documentType: "passport", document: "00-A-001" } }, recordedBy: { kind: "seller", userId: sellerId } },
       deliveryCost: { amount: 3 }, deliveryCharge: { amount: 3 }, total: { amount: 13 }, stockDeducted: false });
     await chooseRate();
+    await page.getByLabel("Agencia de destino").selectOption(agencyIds[1]);
     await page.getByLabel("Nombre del destinatario").fill("Preserved recipient");
     expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: config.version + 1, home: config.home, store: config.store, agency: { enabled: false },
       couriers: config.couriers.map(value => ({ kind: "existing", id: value.id, enabled: false })) } })).ok()).toBe(true);
+    await withCatalogAdmin(query => query('UPDATE "DeliveryAgency" SET enabled = false WHERE id = $1', [agencyIds[1]]));
     await save();
     await browserExpect(page.getByRole("alert")).toContainText("La tarifa ya no está disponible");
     await browserExpect(page.getByLabel("Número de documento")).toHaveValue("00-A-001");
@@ -90,11 +97,12 @@ test.skip("rated agency requires a document, preserves its snapshot and recovers
     await browserExpect(page.getByRole("button", { name: "Guardar entrega" })).toBeDisabled();
     expect(await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json()).toEqual(assigned);
     await page.reload();
-    await browserExpect(page.getByText("Courier y agencia pendientes de asignación", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Sucursal Arequipa", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Shalom", { exact: true })).toBeVisible();
     expect((await page.request.post(`/api/orders/${orderId}/payments`, { data: { paymentId: crypto.randomUUID(), amount: { amount: 13, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false } })).ok()).toBe(true);
     expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(2n);
     await page.goto(`/pt-BR/orders/${orderId}`);
-    await browserExpect(page.getByText("Transportadora e agência pendentes de atribuição", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Sucursal Arequipa", { exact: true })).toBeVisible();
     await page.goto(`/es-PE/orders/${orderId}`);
     await mkdir("../../.impeccable/review", { recursive: true });
     for (const theme of ["light", "dark"] as const) {
@@ -112,12 +120,12 @@ test.skip("rated agency requires a document, preserves its snapshot and recovers
     expect((await page.request.post(`/api/orders/${orderId}/ship`)).ok()).toBe(true);
     await page.reload();
     await browserExpect(page.getByRole("button", { name: "Guardar entrega" })).toHaveCount(0);
-    await browserExpect(page.getByText("Courier y agencia pendientes de asignación", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Sucursal Arequipa", { exact: true })).toBeVisible();
     expect((await page.request.post(`/api/orders/${orderId}/deliver`)).ok()).toBe(true);
     await page.reload();
     await browserExpect(page.getByText("Venta completada", { exact: true })).toBeVisible();
     await browserExpect(page.getByRole("button", { name: "Guardar entrega" })).toHaveCount(0);
-    await browserExpect(page.getByText("Courier y agencia pendientes de asignación", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Sucursal Arequipa", { exact: true })).toBeVisible();
     const cancelledId = crypto.randomUUID();
     expect((await page.request.post("/api/orders/pending", { data: { id: cancelledId, contactId: null, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
     expect((await page.request.post(`/api/orders/${cancelledId}/cancel`)).ok()).toBe(true);
@@ -135,5 +143,6 @@ test.skip("rated agency requires a document, preserves its snapshot and recovers
       await prisma.companyCourier.deleteMany(); await prisma.companyDeliverySettings.deleteMany();
       await systemPrisma.user.deleteMany({ where: { email } }); await prisma.company.delete({ where: { id: companyId } });
     });
+    await deleteAgencies(agencyIds);
   }
 });

@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { products } from "@core/src/features/products/composition";
+import { deleteAgencies, insertAgency, seededCourier } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
 
 test("seller configures store pickup, preserves a conflicting draft and explicitly reloads", async ({ page, request }) => {
   const email = `delivery-settings-${crypto.randomUUID()}@example.test`;
@@ -166,6 +167,7 @@ test("seller configures store pickup, preserves a conflicting draft and explicit
 test("seller manages overlapping zones with delivery options and preserves an edit on a shared-version conflict", async ({ page }) => {
   const email = `delivery-zones-${crypto.randomUUID()}@example.test`;
   let companyId: string | undefined;
+  let agencyId: string | undefined;
   const buyer = await page.context().browser()!.newContext({ baseURL: `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}` });
   try {
     companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "Zones store", country: "PE" });
@@ -256,10 +258,27 @@ test("seller manages overlapping zones with delivery options and preserves an ed
     await page.getByLabel("Nombre de la opción", { exact: true }).last().fill("Agencia");
     await page.getByLabel("Tarifa de la opción (S/)", { exact: true }).last().fill("0");
     await page.getByRole("button", { name: "Guardar zona", exact: true }).click();
-    await browserExpect(page.getByText("Agencia · Agencia", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Agencia · Agencia").first()).toBeVisible();
     const quoted = await page.request.post("/api/quotations", { data: { destination: { country: "PE", districtCode: "150122" } } });
     expect(quoted.status()).toBe(201);
     expect((await quoted.json()).rates).toMatchObject([{ method: "home", name: "Moto", zoneName: "Cercana" }, { method: "home", name: "Camión", zoneName: "Extendida" }]);
+    await browserExpect(page.getByText("Sin agencias elegibles: no se ofrece al cotizar.", { exact: true })).toBeVisible();
+    // The seller associates a catalog agency of an enabled courier through the zone editor and the option starts being quoted.
+    const courier = await seededCourier("shalom");
+    agencyId = await insertAgency({ courierId: courier.id, name: "Sucursal E2E", districtCode: "150122" });
+    const latest = deliverySettingsSchema.parse(await (await page.request.get("/api/delivery-settings")).json());
+    expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: latest.version, home: latest.home, store: latest.store, agency: { enabled: true },
+      couriers: [{ kind: "new", courierId: courier.id, enabled: true }] } })).ok()).toBe(true);
+    await page.reload();
+    await page.getByRole("button", { name: "Editar Extendida", exact: true }).click();
+    await page.getByLabel("Buscar agencia por nombre, distrito o dirección", { exact: true }).fill("e2e");
+    await page.getByRole("checkbox", { name: /Sucursal E2E/ }).check();
+    await page.getByRole("button", { name: "Guardar zona", exact: true }).click();
+    await browserExpect(page.getByText("Zona guardada.", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Sin agencias elegibles: no se ofrece al cotizar.", { exact: true })).toBeHidden();
+    const agencyQuote = await page.request.post("/api/quotations", { data: { destination: { country: "PE", districtCode: "150122" } } });
+    expect((await agencyQuote.json()).rates).toMatchObject([{ method: "home" }, { method: "home" },
+      { method: "agency", name: "Agencia", agencies: [{ id: agencyId, name: "Sucursal E2E", courier: { name: "Shalom" }, location: { districtCode: "150122" } }] }]);
   } finally {
     await buyer.close();
     if (companyId) await withTenantIsolation(companyId, async () => {
@@ -276,5 +295,6 @@ test("seller manages overlapping zones with delivery options and preserves an ed
       await systemPrisma.user.deleteMany({ where: { email } });
       await prisma.company.delete({ where: { id: companyId } });
     });
+    if (agencyId) await deleteAgencies([agencyId]);
   }
 });
