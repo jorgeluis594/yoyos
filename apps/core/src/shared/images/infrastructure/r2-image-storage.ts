@@ -1,6 +1,6 @@
 import { log } from "@core/src/shared/infrastructure/logger";
 import { randomUUID } from "node:crypto";
-import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, NoSuchKey, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import type { Result } from "@shared/result";
 import type { ImageStorage } from "@core/src/shared/images/application/images";
 
@@ -12,7 +12,7 @@ type Config = {
   secretAccessKey: string;
   publicBaseUrl: string;
 };
-const failed = <T>(code: "IMAGE_STORAGE_UNAVAILABLE" | "IMAGE_STORAGE_CONFIG_ERROR", message: string): Result<T> => ({ success: false, error: { code, message } });
+const failed = <T>(code: "IMAGE_STORAGE_UNAVAILABLE" | "IMAGE_STORAGE_CONFIG_ERROR" | "IMAGE_NOT_FOUND", message: string): Result<T> => ({ success: false, error: { code, message } });
 const configurationFailed = <T>(message: string): Result<T> => {
   log.error({ event: "image_storage_configuration_invalid", errorCode: "IMAGE_STORAGE_CONFIG_ERROR" }, "image_storage_configuration_invalid");
   return failed("IMAGE_STORAGE_CONFIG_ERROR", message);
@@ -65,6 +65,18 @@ export function createR2ImageStorage(config: Config): ImageStorage {
         return failed("IMAGE_STORAGE_UNAVAILABLE", "Private image upload failed");
       }
     },
+    async read(key) {
+      if (!client) return configurationFailed("Image storage is not configured");
+      try {
+        const object = await client.send(new GetObjectCommand({ Bucket: config.bucket, Key: key }));
+        if (!object.Body) return failed("IMAGE_STORAGE_UNAVAILABLE", "Image is unavailable");
+        return { success: true, data: { bytes: await object.Body.transformToByteArray(), contentType: object.ContentType ?? "application/octet-stream" } };
+      } catch (error) {
+        if (error instanceof NoSuchKey) return failed("IMAGE_NOT_FOUND", "Image object not found");
+        log.error({ event: "r2_image_read_failed", err: error }, "r2_image_read_failed");
+        return failed("IMAGE_STORAGE_UNAVAILABLE", "Image is unavailable");
+      }
+    },
     async readPrivate(key) {
       if (!client || !config.privateBucket?.trim() || config.privateBucket === config.bucket) return configurationFailed("Private image storage is not configured");
       try {
@@ -72,6 +84,7 @@ export function createR2ImageStorage(config: Config): ImageStorage {
         if (!object.Body) return failed("IMAGE_STORAGE_UNAVAILABLE", "Private image is unavailable");
         return { success: true, data: { bytes: await object.Body.transformToByteArray(), contentType: object.ContentType ?? "application/octet-stream" } };
       } catch (error) {
+        if (error instanceof NoSuchKey) return failed("IMAGE_NOT_FOUND", "Private image object not found");
         log.error({ event: "r2_private_image_read_failed", err: error }, "r2_private_image_read_failed");
         return failed("IMAGE_STORAGE_UNAVAILABLE", "Private image is unavailable");
       }

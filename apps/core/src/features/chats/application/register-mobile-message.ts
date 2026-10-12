@@ -1,6 +1,6 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import type { WhatsAppMessageRecorded } from "@core/src/features/chats/application/events";
+import type { MessageCreated } from "@core/src/features/chats/application/events";
 import type { EventMetadata } from "@core/src/shared/events/application/contracts";
 import type { ChatMessageId, MobileMessageInput, NewMobileMessage, RegisterMobileMessageError, RegisterOutcome, RegistrationContext, StoreOutcome } from "@core/src/features/chats/domain/mobile-message";
 
@@ -8,7 +8,7 @@ type Failure = RegisterMobileMessageError;
 export type RegisterMobileMessageDependencies = Readonly<{
   storeOnce: (input: NewMobileMessage) => Promise<Result<StoreOutcome, Failure>>;
   markEventDispatched: (companyId: RegistrationContext["companyId"], messageId: ChatMessageId, at: Date) => Promise<Result<void, Failure>>;
-  dispatchMessageRecorded: (payload: WhatsAppMessageRecorded, metadata: EventMetadata) => Promise<Result<void, Failure>>;
+  dispatchMessageRecorded: (payload: MessageCreated, metadata: EventMetadata) => Promise<Result<void, Failure>>;
   newMessageId: () => ChatMessageId;
   now: () => Date;
 }>;

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
-import { findCompletedPrivateImageImport, getImage, getImages, importPrivateImage, uploadImage, type ImageRepository, type ImageStorage } from "@core/src/shared/images/application/images";
+import { findCompletedPrivateImageImport, getImage, getImages, importPrivateImage, readImageBytes, uploadImage, type ImageRepository, type ImageStorage } from "@core/src/shared/images/application/images";
 
 const id = crypto.randomUUID();
 const companyId = crypto.randomUUID();
@@ -10,6 +10,7 @@ function setup() {
   const storage: ImageStorage = {
     upload: vi.fn(async () => ({ success: true as const, data: { key: "remote" } })),
     uploadPrivate: vi.fn(async () => ({ success: true as const, data: undefined })),
+    read: vi.fn(async () => ({ success: true as const, data: { bytes: new Uint8Array([1, 2]), contentType: "image/jpeg" } })),
     readPrivate: vi.fn(async () => ({ success: true as const, data: { bytes: new Uint8Array(), contentType: "image/png" } })),
     getUrl: vi.fn(async () => ({ success: true as const, data: "https://example.test/image" })),
     delete: vi.fn(async () => ({ success: true as const, data: undefined })),
@@ -155,5 +156,53 @@ describe("images use cases", () => {
       failures: ids.map((imageId) => ({ id: imageId, code: "IMAGE_STORAGE_CONFIG_ERROR", message: "Image storage is not configured" })),
     } });
     expect(storage.getUrl).toHaveBeenCalledOnce();
+  });
+});
+
+describe("readImageBytes", () => {
+  it("returns the bytes and content type of a public image", async () => {
+    const { storage, repository } = setup();
+    expect(await readImageBytes(id, storage, repository)).toEqual({ success: true, data: { bytes: new Uint8Array([1, 2]), contentType: "image/jpeg" } });
+    expect(storage.read).toHaveBeenCalledWith("remote");
+    expect(storage.readPrivate).not.toHaveBeenCalled();
+  });
+
+  it("reads a private image from its storage key", async () => {
+    const { storage, repository } = setup();
+    vi.mocked(repository.find).mockResolvedValueOnce({ success: true, data: { id, storageKey: "company/image", visibility: "private" } });
+    expect(await readImageBytes(id, storage, repository)).toEqual({ success: true, data: { bytes: new Uint8Array(), contentType: "image/png" } });
+    expect(storage.readPrivate).toHaveBeenCalledWith("company/image");
+    expect(storage.read).not.toHaveBeenCalled();
+  });
+
+  it("returns IMAGE_NOT_FOUND when the company has no such image", async () => {
+    const { storage, repository } = setup();
+    vi.mocked(repository.find).mockResolvedValueOnce({ success: true, data: null });
+    expect(await readImageBytes(id, storage, repository)).toMatchObject({ success: false, error: { code: "IMAGE_NOT_FOUND" } });
+  });
+
+  it("returns IMAGE_NOT_FOUND when the stored object is missing", async () => {
+    const { storage, repository } = setup();
+    vi.mocked(storage.read).mockResolvedValueOnce({ success: false, error: { code: "IMAGE_NOT_FOUND", message: "missing" } });
+    expect(await readImageBytes(id, storage, repository)).toMatchObject({ success: false, error: { code: "IMAGE_NOT_FOUND" } });
+  });
+
+  it("returns IMAGE_NOT_FOUND when the stored private object is missing", async () => {
+    const { storage, repository } = setup();
+    vi.mocked(repository.find).mockResolvedValueOnce({ success: true, data: { id, storageKey: "company/image", visibility: "private" } });
+    vi.mocked(storage.readPrivate).mockResolvedValueOnce({ success: false, error: { code: "IMAGE_NOT_FOUND", message: "missing" } });
+    expect(await readImageBytes(id, storage, repository)).toMatchObject({ success: false, error: { code: "IMAGE_NOT_FOUND" } });
+  });
+
+  it("maps storage configuration errors to IMAGE_STORAGE_UNAVAILABLE", async () => {
+    const { storage, repository } = setup();
+    vi.mocked(storage.read).mockResolvedValueOnce({ success: false, error: { code: "IMAGE_STORAGE_CONFIG_ERROR", message: "bad config" } });
+    expect(await readImageBytes(id, storage, repository)).toMatchObject({ success: false, error: { code: "IMAGE_STORAGE_UNAVAILABLE" } });
+  });
+
+  it("maps repository failures to PERSISTENCE_UNAVAILABLE", async () => {
+    const { storage, repository } = setup();
+    vi.mocked(repository.find).mockResolvedValueOnce({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE", message: "down" } });
+    expect(await readImageBytes(id, storage, repository)).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
   });
 });

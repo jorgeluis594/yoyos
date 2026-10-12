@@ -134,8 +134,7 @@ function mapAggregate(row: DbAggregate, operation = "get_order_aggregate"): Orde
 export async function savePendingOrder(order: OrderAggregate) {
   try {
     await prisma.order.create({ data: { number: BigInt(order.number), id: order.id, companyId: order.companyId, sellerId: order.sellerId,
-      // shortcut: "" until T0a makes OrderBuyer.phone nullable; then write order.buyer.phone as is.
-      buyer: order.buyer ? { create: { contactId: order.buyer.contactId, name: order.buyer.name, phone: order.buyer.phone ?? "" } } : undefined,
+      buyer: order.buyer ? { create: { contactId: order.buyer.contactId, name: order.buyer.name, phone: order.buyer.phone } } : undefined,
       checkoutEnabledAt: order.checkoutEnabledAt, checkoutConfirmedAt: order.checkoutConfirmedAt,
       currency: order.total.currency, total: new Prisma.Decimal(order.total.amount.toString()),
       itemsTotal: new Prisma.Decimal(order.itemsTotal.amount.toString()),

@@ -21,12 +21,12 @@ test("mobile message identities and content remain distinct at typecheck", () =>
 });
 
 test("mobile message event has a strict typed name and payload", () => {
-  const name: EventName<AppEvents> = "whatsapp_message_recorded";
+  const name: EventName<AppEvents> = "message_created";
   // @ts-expect-error Unknown event names are rejected.
   const unknown: EventName<AppEvents> = "whatsapp_message_deleted";
   // @ts-expect-error The company ID is required.
-  const noCompany: EventPayload<AppEvents, "whatsapp_message_recorded"> = { messageId: "id" };
+  const noCompany: EventPayload<AppEvents, "message_created"> = { messageId: "id" };
   // @ts-expect-error The message ID is required.
-  const noMessage: EventPayload<AppEvents, "whatsapp_message_recorded"> = { companyId: "id" };
+  const noMessage: EventPayload<AppEvents, "message_created"> = { companyId: "id" };
   expect([name, unknown, noCompany, noMessage]).toHaveLength(4);
 });
