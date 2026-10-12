@@ -126,13 +126,12 @@ test("product persistence is atomic, isolated, and constrained", async () => {
   }
 });
 
-test("findSellableVariantsByQrCodes finds active variants of the company by QR code", async () => {
+async function withSeededVariants(run: (ctx: { mine: { id: string; qrCode: string }; foreign: { id: string; qrCode: string }; companyA: string; find: (codes: string[]) => Promise<unknown>; withTenantIsolation: <T>(id: string, fn: () => Promise<T>) => Promise<T> }) => Promise<void>) {
   expect(process.env.DATABASE_URL, "run sh scripts/run-tests.sh integration").toBeTruthy();
   const { prisma, withTenantIsolation } = await import("@core/src/shared/infrastructure/persistance");
   const { findSellableVariantsByQrCodes } = await import("@core/src/features/products/infrastructure/order-stock");
   const companyA = randomUUID();
   const companyB = randomUUID();
-  // The schema only allows status 'active' (CHECK), so the status filter cannot be exercised with stored rows.
   const seed = (attributes: Record<string, string>) => {
     const productId = randomUUID();
     const variant = { id: randomUUID(), qrCode: randomUUID() };
@@ -147,14 +146,7 @@ test("findSellableVariantsByQrCodes finds active variants of the company by QR c
     for (const id of [companyA, companyB]) await withTenantIsolation(id, async () => await prisma.company.create({ data: { id, name: id, country: "PE" } }));
     await withTenantIsolation(companyA, mine.create);
     await withTenantIsolation(companyB, foreign.create);
-
-    await withTenantIsolation(companyA, async () => {
-      expect(await findSellableVariantsByQrCodes([mine.qrCode, randomUUID()])).toEqual({ success: true, data: [
-        { variantId: mine.id, qrCode: mine.qrCode, productName: "Camisa", variantAttributes: { color: "azul" }, sku: "CAM-1", unitPrice: { amount: 19.99, currency: "PEN" } },
-      ] });
-      expect(await findSellableVariantsByQrCodes([randomUUID()])).toEqual({ success: true, data: [] });
-      expect(await findSellableVariantsByQrCodes([foreign.qrCode])).toEqual({ success: true, data: [] });
-    });
+    await run({ mine, foreign, companyA, find: (codes) => findSellableVariantsByQrCodes(codes), withTenantIsolation });
   } finally {
     for (const id of [companyA, companyB]) await withTenantIsolation(id, async () => {
       await prisma.productVariant.deleteMany({ where: { companyId: id } });
@@ -162,4 +154,19 @@ test("findSellableVariantsByQrCodes finds active variants of the company by QR c
       await prisma.company.deleteMany({ where: { id } });
     });
   }
-});
+}
+
+// The status filters are defensive: the schema CHECKs only allow status 'active', so no inactive rows can be stored to test them.
+test("findSellableVariantsByQrCodes returns active variants with price, currency and qrCode", () => withSeededVariants(async ({ mine, companyA, find, withTenantIsolation }) => {
+  await withTenantIsolation(companyA, async () => {
+    expect(await find([mine.qrCode, randomUUID()])).toEqual({ success: true, data: [
+      { variantId: mine.id, qrCode: mine.qrCode, productName: "Camisa", variantAttributes: { color: "azul" }, sku: "CAM-1", unitPrice: { amount: 19.99, currency: "PEN" } },
+    ] });
+  });
+}));
+
+test("findSellableVariantsByQrCodes does not see variants of another company", () => withSeededVariants(async ({ foreign, companyA, find, withTenantIsolation }) => {
+  await withTenantIsolation(companyA, async () => {
+    expect(await find([foreign.qrCode])).toEqual({ success: true, data: [] });
+  });
+}));

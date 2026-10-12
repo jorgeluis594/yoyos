@@ -36,10 +36,25 @@ await save("two-qr", sharp(white(1000, 500)).composite([{ input: one, left: 80, 
 await save("no-qr", sharp({ create: { width: 800, height: 600, channels: 3, background: "#c8b89a" } }).blur(8));
 await save("non-uuid-qr", sharp(white(800, 600)).composite([{ input: url, left: 250, top: 150 }]));
 
-// Printed label: QR on the left, product name and SKU on the right, photographed at a slight angle.
-const label = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="900" height="${size + 80}"><rect width="100%" height="100%" fill="#fff"/>
-<text x="${size + 60}" y="140" font-family="sans-serif" font-size="42" font-weight="bold">Camisa lino</text>
-<text x="${size + 60}" y="200" font-family="sans-serif" font-size="34">SKU CAM-001-AZ</text></svg>`);
-const flat = await sharp(label).composite([{ input: one, left: 40, top: 40 }]).png().toBuffer();
-await save("label", sharp(white(1200, 900)).composite([{ input: await sharp(flat).rotate(4, { background: "#ffffff" }).toBuffer(), left: 100, top: 120 }]));
+// Printed label with the geometry of apps/mobile product-label-renderer.ts: 50x25 mm at 203 dpi, QR v3-M with a 4-module quiet zone.
+// Needs the mobile dependencies installed (qrcode is not a core dependency).
+const QRCode = createRequire(join(out, "../../../../../../mobile/package.json"))("qrcode");
+const dpi = 203;
+const [widthPx, heightPx] = [Math.round(50 / 25.4 * dpi), Math.round(25 / 25.4 * dpi)];
+const modules = QRCode.create(VARIANT_ID, { errorCorrectionLevel: "M" }).modules;
+const margin = Math.ceil(dpi / 25.4);
+const modulePx = Math.floor(Math.min(heightPx - 2 * margin, Math.floor(widthPx * 0.39)) / (modules.size + 8));
+const qrSize = modulePx * (modules.size + 8);
+const qrY = Math.floor((heightPx - qrSize) / 2);
+const textX = margin + qrSize + margin;
+const rects = [];
+for (let row = 0; row < modules.size; row++) for (let col = 0; col < modules.size; col++) {
+  if (modules.get(row, col)) rects.push(`<rect x="${margin + (col + 4) * modulePx}" y="${qrY + (row + 4) * modulePx}" width="${modulePx}" height="${modulePx}"/>`);
+}
+const label = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${widthPx}" height="${heightPx}"><rect width="100%" height="100%" fill="#fff"/>${rects.join("")}
+<text x="${textX}" y="${margin + 26}" font-family="sans-serif" font-size="${9 * dpi / 72}" font-weight="bold">Camisa lino</text>
+<text x="${textX}" y="${margin + 60}" font-family="sans-serif" font-size="${8 * dpi / 72}">CAM-001-AZ</text></svg>`);
+// Photographed: label enlarged 3x, slightly rotated, on a table.
+const photo = await sharp(label).resize(widthPx * 3, heightPx * 3, { kernel: "nearest" }).rotate(4, { background: "#d8d2c4" }).png().toBuffer();
+await save("label", sharp({ create: { width: 1600, height: 1000, channels: 3, background: "#d8d2c4" } }).composite([{ input: photo, left: 150, top: 150 }]));
 console.log(`label QR encodes ${VARIANT_ID}`);
