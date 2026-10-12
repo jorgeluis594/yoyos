@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { currencies } from "@shared/money";
 import { moneySchema } from "@shared/contracts/money";
+import { peruDeliveryDistrictSchema } from "@shared/contracts/peru-location";
 import { pickupPointSchema } from "@shared/contracts/delivery-settings";
 
 export const orderSelectionSchema = z.strictObject({
@@ -79,8 +80,6 @@ const legacyDeliverySnapshotSchema = z.discriminatedUnion("method", [
 ]);
 const settingsVersionSchema = z.number().int().min(0).max(2147483647);
 const deliveryPricingSchema = z.strictObject({ quotationId: z.uuid(), rateId: z.uuid(), zoneId: z.uuid(), settingsVersion: settingsVersionSchema });
-const peruDeliveryDistrictSchema = z.strictObject({ country: z.literal("PE"), districtCode: z.string().regex(/^\d{6}$/),
-  district: z.string().trim().min(1).max(120), province: z.string().trim().min(1).max(120), department: z.string().trim().min(1).max(120) });
 const ratedAgencyFields = { method: z.literal("agency"), recipient: agencyRecipientSchema, destination: peruDeliveryDistrictSchema,
   pricing: deliveryPricingSchema, recordedBy: deliveryAuthorSchema };
 export const deliverySnapshotSchemas = [...legacyDeliverySnapshotSchema.options,

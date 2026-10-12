@@ -58,6 +58,7 @@ if [ "${CORE_TEST_EXTERNAL_SERVICES:-0}" != 1 ]; then
 fi
 quiet psql "$admin_database_url" -v ON_ERROR_STOP=1 -v app_password=core_app_local -f scripts/create-role.sql
 DATABASE_URL="$admin_database_url" quiet pnpm exec tsx scripts/migrate.ts
+DATABASE_URL="$admin_database_url" quiet pnpm exec tsx scripts/seed-courier-catalog.ts
 quiet psql "$admin_database_url" -v ON_ERROR_STOP=1 -c 'TRUNCATE TABLE public."jwks"'
 quiet psql "$admin_database_url" -v ON_ERROR_STOP=1 -v app_password=core_app_local -v dbname=core_test -f scripts/provision-role.sql
 export DATABASE_URL=$app_database_url

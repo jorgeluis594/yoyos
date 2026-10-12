@@ -107,6 +107,8 @@ model Company {
   couriers CompanyCourier[]
   deliveryZones DeliveryZone[]
   deliveryZoneDistricts DeliveryZoneDistrict[]
+  deliveryOptions DeliveryOption[]
+  deliveryOptionAgencies DeliveryOptionAgency[]
   quotations Quotation[]
   deliveryRates DeliveryRate[]
 }
@@ -122,8 +124,10 @@ model DeliveryZone {
   priceCurrency String
   districts DeliveryZoneDistrict[]
   rates DeliveryRate[]
+  options DeliveryOption[]
 
   @@unique([companyId, method, id])
+  @@unique([companyId, id])
 }
 
 model DeliveryZoneDistrict {
@@ -187,9 +191,65 @@ model CompanyCourier {
   company   Company @relation(fields: [companyId], references: [id])
   settings  CompanyDeliverySettings @relation(fields: [companyId], references: [companyId], map: "CompanyCourier_settings_fkey")
   name      String
+  courierId String? @db.Uuid
+  courier   Courier? @relation(fields: [courierId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   enabled   Boolean
 
+  @@unique([companyId, id])
   @@index([companyId])
+}
+
+model Courier {
+  id        String @id @db.Uuid
+  code      String @unique @db.VarChar(40)
+  name      String @db.VarChar(120)
+  enabled   Boolean
+  companies CompanyCourier[]
+  agencies  DeliveryAgency[]
+}
+
+model DeliveryOption {
+  id            String @id @db.Uuid
+  companyId     String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company       Company @relation(fields: [companyId], references: [id])
+  zoneId        String @db.Uuid
+  zone          DeliveryZone @relation(fields: [companyId, zoneId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
+  method        String
+  name          String @db.VarChar(120)
+  enabled       Boolean
+  priceAmount   Decimal @db.Decimal(15, 2)
+  priceCurrency String
+  agencies      DeliveryOptionAgency[]
+
+  @@unique([companyId, id])
+  @@unique([companyId, method, id])
+  @@index([companyId, zoneId])
+}
+
+model DeliveryAgency {
+  id           String @id @db.Uuid
+  courierId    String @db.Uuid
+  courier      Courier @relation(fields: [courierId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  name         String @db.VarChar(120)
+  address      String @db.VarChar(500)
+  districtCode String @db.VarChar(6)
+  enabled      Boolean
+  options      DeliveryOptionAgency[]
+
+  @@index([courierId])
+}
+
+model DeliveryOptionAgency {
+  companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company   Company @relation(fields: [companyId], references: [id])
+  optionId  String @db.Uuid
+  method    String @default("agency")
+  option    DeliveryOption @relation(fields: [companyId, method, optionId], references: [companyId, method, id], onDelete: Restrict, onUpdate: NoAction)
+  agencyId  String @db.Uuid
+  agency    DeliveryAgency @relation(fields: [agencyId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@id([companyId, optionId, agencyId])
+  @@index([companyId, agencyId])
 }
 
 model CompanyPaymentSettings {

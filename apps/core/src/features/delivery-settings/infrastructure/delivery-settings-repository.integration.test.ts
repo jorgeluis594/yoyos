@@ -142,7 +142,7 @@ test("courier storage requires configuration and retains deactivated records und
       const settings = await prisma.companyDeliverySettings.create({ data: { storeEnabled: false, version: 1 } });
       expect(settings).toMatchObject({ companyId: f.context.companyId, agencyEnabled: false, homeEnabled: false });
       const courier = await prisma.companyCourier.create({ data: { id, name: "Courier", enabled: true } });
-      expect(courier).toEqual({ id, companyId: f.context.companyId, name: "Courier", enabled: true });
+      expect(courier).toEqual({ id, companyId: f.context.companyId, name: "Courier", courierId: null, enabled: true });
       await prisma.companyCourier.update({ where: { id }, data: { name: "Renamed", enabled: false } });
       expect(await prisma.companyCourier.findMany()).toEqual([{ ...courier, name: "Renamed", enabled: false }]);
       await expect(prisma.companyCourier.create({ data: { id: randomUUID(), name: " ", enabled: true } })).rejects.toThrow();
