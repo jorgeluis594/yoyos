@@ -1330,8 +1330,8 @@ test.each([
       expect(result).toMatchObject({ success: true, data: { stockDeducted: deducted,
         deliveryStatus: immediate ? "delivered" : "pending", completedAt: immediate ? expect.any(Date) : null } });
       const saved = await findOrderAggregate(id, context.companyId);
-      expect(saved).toMatchObject({ success: true, data: { source: "manual", number: expect.any(Number), total: { amount: expect.any(Number) } } });
-      expect(saved).toEqual(expect.objectContaining({ data: expect.objectContaining({ id }) }));
+      expect(saved).toMatchObject(result);
+      expect(saved.success && saved.data?.source).toBe("manual");
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(deducted ? 1n : 3n);
       expect(await prisma.payment.count()).toBe(amount === null ? 0 : 1);
     });
@@ -1380,7 +1380,9 @@ test("complete creation resolves delivery charge before coverage and retains its
       expect(result).toMatchObject({ success: true, data: { delivery: { method: "home", destination: { districtCode: "150122", address: "Av. Lima 123" },
         pricing: { rateId: quote.data.rates[0].id, quotationId: quote.data.quotation.id } }, deliveryCost: { amount: 0.1 }, deliveryCharge: { amount: 0.1 },
         total: { amount: 0.3 }, stockDeducted: false, completedAt: null } });
-      expect(await findOrderAggregate(id, context.companyId)).toMatchObject({ success: true, data: { id, source: "manual", delivery: { method: "home" } } });
+      const saved = await findOrderAggregate(id, context.companyId);
+      expect(saved).toMatchObject(result);
+      expect(saved.success && saved.data?.source).toBe("manual");
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
     });
   } finally { await f.cleanup(); }
@@ -1608,7 +1610,7 @@ test("checkout validates immutable home rate and current price before total and 
   } finally { await f.cleanup(); }
 });
 
-test("derives order source from chatId in aggregate, list and summary reads", async () => {
+test("derives source whatsapp for chat orders and manual otherwise", async () => {
   const f = await fixture();
   try {
     await withTenantIsolation(f.companyId, async () => {
