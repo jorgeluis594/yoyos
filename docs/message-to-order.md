@@ -410,7 +410,7 @@ export const eventHandlers: AnyEventSubscription<AppEvents>[] = [restoreCancelle
 | --- | --- | --- |
 | chats | `findOrderSourceMessage(messageId)` | Mensaje + chat + `contactId`. Exportada en `chats/index.ts`. |
 | chats | `insertAndRead` (modificada) | Inserta `imageId` con `ready`; la comprobación previa de la imagen está en la aplicación. |
-| products | `findSellableVariantsByQrCodes(codes)` | `where: { qrCode: { in }, status: "active", product: { status: "active" } }`, alcance por RLS como `findSellableVariant`; mapper `toCatalogItem` compartido; devuelve `qrCode`. |
+| products | `findSellableVariantsByQrCodes(codes)` | `where: { qrCode: { in }, status: "active", product: { status: "active" } }`, alcance por RLS como `findSellableVariant`; mapper `toCatalogItem` compartido; devuelve `qrCode`. El filtro `status: "active"` es defensivo, igual que en `findSellableVariant`: los CHECK `Product_status_active` y `ProductVariant_status_active` solo admiten `active`, así que no hay prueba de inactivos. |
 | contacts | `ensureCustomerForContact(contactId)` | `withLockedForUpdate` sobre `Contact`; crea `Customer` vacío si falta y actualiza `customerId`. |
 | orders | `findProcessedMessage(messageId)` | `OrderMessage` por `[companyId, messageId]`. |
 | orders | `findOpenChatOrderCandidate(chatId)` | ID de la orden más reciente del chat que pasa el filtro SQL de §3.5. |
@@ -784,7 +784,6 @@ Core (PostgreSQL, rol `core_app`). El caso de uso usa la base real con fakes par
 `features/products/infrastructure/repository.integration.test.ts`
 
 - findSellableVariantsByQrCodes returns active variants with price, currency and qrCode
-- findSellableVariantsByQrCodes omits inactive variants and variants of inactive products
 - findSellableVariantsByQrCodes does not see variants of another company
 
 `features/contacts/infrastructure/contact-repository.integration.test.ts`
