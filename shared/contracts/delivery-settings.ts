@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { currencies } from "@shared/money";
 import { moneySchema } from "@shared/contracts/money";
+import { peruDeliveryDistrictSchema } from "@shared/contracts/peru-location";
 
 export const pickupPointSchema = z.strictObject({
   name: z.string().trim().min(1).max(120),
@@ -45,6 +46,15 @@ export const deliverySettingsApiErrorSchema = z.strictObject({
   error: z.string(),
   issues: z.array(z.strictObject({ field: z.string(), reason: z.string() })).optional(),
 });
+
+export const catalogAgencySchema = z.strictObject({
+  id: z.uuid(), courierId: z.uuid(), name: z.string().trim().min(1).max(120),
+  address: z.string().trim().min(1).max(500), location: peruDeliveryDistrictSchema, enabled: z.boolean(),
+});
+export const agencyCatalogRequestSchema = z.strictObject({ courierId: z.uuid() });
+export const agencyCatalogSchema = z.strictObject({ agencies: z.array(catalogAgencySchema) });
+export type CatalogAgencyContract = z.infer<typeof catalogAgencySchema>;
+export type AgencyCatalogResponse = z.infer<typeof agencyCatalogSchema>;
 
 const peruDistrictCodeSchema = z.string().regex(/^\d{6}$/);
 const optionFields = { name: z.string().trim().min(1).max(120), enabled: z.boolean(), price: moneySchema };
