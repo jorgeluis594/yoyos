@@ -54,6 +54,7 @@ test("maps ReceivedMessage fixtures without sending local delivery or image refe
     text: " caption 👋\n", deliveryId: "local-delivery", image: { mimeType: "image/png", size: 7, reference: "private-key", localUri: "file:///private" } };
   const { image, text, deliveryId, ...identity } = received;
   void deliveryId;
+  void image;
   const dto = { version: 1, message: { ...identity, content: { type: "image", caption: text, imageId } } };
   expect(parseMobileMessage(dto)).toMatchObject({ externalId: received.id, content: { type: "image", caption: text, imageId } });
   expect(JSON.stringify(dto)).not.toMatch(/private-key|local-delivery|file:\/\/\/private|reference|localUri/);
