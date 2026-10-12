@@ -148,3 +148,9 @@ it("read reports a missing key as not found and network failures as unavailable"
   send.mockRejectedValueOnce(new Error("network down"));
   expect(await storage.read("key")).toMatchObject({ success: false, error: { code: "IMAGE_STORAGE_UNAVAILABLE" } });
 });
+
+it("readPrivate reports a missing key as not found", async () => {
+  const storage = createR2ImageStorage({ ...config, privateBucket: "private-images" });
+  send.mockRejectedValueOnce(new NoSuchKey({ message: "missing", $metadata: {} }));
+  expect(await storage.readPrivate("key")).toMatchObject({ success: false, error: { code: "IMAGE_NOT_FOUND" } });
+});
