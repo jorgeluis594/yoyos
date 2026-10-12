@@ -20,7 +20,7 @@ export function imageRoutes(storage: ImageStorage, repository: ImageRepository) 
   };
   const sendFailure = (response: express.Response, code?: string) => {
     switch (code) {
-      case "IMAGE_NOT_FOUND": return apiError(response, 404, "IMAGE_NOT_FOUND", "Image not found");
+      case "IMAGE_NOT_FOUND": return apiError(response, 404, "NOT_FOUND", "Not found");
       case "IMAGE_STORAGE_UNAVAILABLE": return apiError(response, 502, "IMAGE_STORAGE_UNAVAILABLE", "Image storage unavailable");
       case "PERSISTENCE_UNAVAILABLE": return apiError(response, 503, "SERVICE_UNAVAILABLE", "Service unavailable");
       default: return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
