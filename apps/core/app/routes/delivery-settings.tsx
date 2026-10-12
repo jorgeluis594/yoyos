@@ -18,7 +18,11 @@ import { PageContainer } from "@core/app/components/ui/page-container";
 import { PageHeader } from "@core/app/components/ui/page-header";
 import { Button } from "@core/app/components/ui/button";
 import { Input } from "@core/app/components/ui/input";
-import { Field, FieldError, FieldGroup, FieldLabel, controlClass } from "@core/app/components/ui/field";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "@core/app/components/ui/field";
+import { Card, CardContent } from "@core/app/components/ui/card";
+import { Checkbox } from "@core/app/components/ui/checkbox";
+import { Alert, AlertDescription } from "@core/app/components/ui/alert";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@core/app/components/ui/select";
 import { DeliveryZonesSection } from "@core/app/components/delivery-zones-section";
 import { ErrorState } from "@core/app/components/ui/error-state";
 
@@ -188,61 +192,62 @@ function SettingsForm({ settings }: { settings: DeliverySettingsResponse & { cou
         </Tabs.Trigger>)}
       </Tabs.List>
       <Tabs.Content value="store" forceMount className="outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=inactive]:hidden">
-        <fieldset disabled={pending || !ready}>
-          <legend className="mb-3 text-lg font-semibold">{t("deliverySettings.store")}</legend>
+        <Card><CardContent className="pt-4"><FieldSet disabled={pending || !ready}>
+          <FieldLegend className="text-lg font-semibold">{t("deliverySettings.store")}</FieldLegend>
           <FieldGroup>
-            <Controller name="enabled" control={form.control} render={({ field }) => <Field><FieldLabel htmlFor="store-enabled" className="flex min-h-touch cursor-pointer items-center gap-3"><input id="store-enabled" type="checkbox" className="size-4 shrink-0 accent-primary" checked={field.value} onChange={event => field.onChange(event.target.checked)} ref={field.ref} />{t("deliverySettings.enabled")}</FieldLabel></Field>} />
-            <p className="text-sm text-muted-foreground">{t("deliverySettings.storeScope")}</p>
+            <Controller name="enabled" control={form.control} render={({ field }) => <Field orientation="horizontal"><Checkbox id="store-enabled" checked={field.value} onCheckedChange={checked => field.onChange(checked === true)} ref={field.ref} /><FieldLabel htmlFor="store-enabled">{t("deliverySettings.enabled")}</FieldLabel></Field>} />
+            <FieldDescription>{t("deliverySettings.storeScope")}</FieldDescription>
             {(["name", "address", "instructions"] as const).map(name => <Controller key={name} name={name} control={form.control} render={({ field, fieldState }) => <Field data-invalid={fieldState.invalid}>
               <FieldLabel htmlFor={`pickup-${name}`}>{t(`deliverySettings.${name}`)}</FieldLabel>
               <Input {...field} id={`pickup-${name}`} maxLength={name === "name" ? 120 : name === "address" ? 500 : 1000} aria-invalid={fieldState.invalid} aria-describedby={fieldState.invalid ? `pickup-${name}-error` : undefined} />
               {fieldState.error && <FieldError id={`pickup-${name}-error`}>{invalidMessage}</FieldError>}
             </Field>} />)}
           </FieldGroup>
-        </fieldset>
+        </FieldSet></CardContent></Card>
       </Tabs.Content>
       <Tabs.Content value="home" forceMount className="outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=inactive]:hidden">
-        <fieldset disabled={pending || !ready}>
-          <legend className="mb-3 text-lg font-semibold">{t("deliverySettings.home")}</legend>
+        <Card><CardContent className="pt-4"><FieldSet disabled={pending || !ready}>
+          <FieldLegend className="text-lg font-semibold">{t("deliverySettings.home")}</FieldLegend>
           <FieldGroup>
-            <Controller name="homeEnabled" control={form.control} render={({ field }) => <Field><FieldLabel htmlFor="home-enabled" className="flex min-h-touch cursor-pointer items-center gap-3"><input id="home-enabled" type="checkbox" className="size-4 shrink-0 accent-primary" checked={field.value} onChange={event => field.onChange(event.target.checked)} ref={field.ref} />{t("deliverySettings.homeEnabled")}</FieldLabel></Field>} />
-            <p className="text-sm text-muted-foreground">{t("deliverySettings.homeScope")}</p>
+            <Controller name="homeEnabled" control={form.control} render={({ field }) => <Field orientation="horizontal"><Checkbox id="home-enabled" checked={field.value} onCheckedChange={checked => field.onChange(checked === true)} ref={field.ref} /><FieldLabel htmlFor="home-enabled">{t("deliverySettings.homeEnabled")}</FieldLabel></Field>} />
+            <FieldDescription>{t("deliverySettings.homeScope")}</FieldDescription>
           </FieldGroup>
-        </fieldset>
+        </FieldSet></CardContent></Card>
       </Tabs.Content>
       <Tabs.Content value="agency" forceMount className="outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=inactive]:hidden">
-        <fieldset disabled={pending || !ready}>
-          <legend className="mb-3 text-lg font-semibold">{t("deliverySettings.agency")}</legend>
+        <Card><CardContent className="pt-4"><FieldSet disabled={pending || !ready}>
+          <FieldLegend className="text-lg font-semibold">{t("deliverySettings.agency")}</FieldLegend>
           <FieldGroup>
             <Controller name="agencyEnabled" control={form.control} render={({ field, fieldState }) => <Field data-invalid={fieldState.invalid}>
-              <FieldLabel htmlFor="agency-enabled" className="flex min-h-touch cursor-pointer items-center gap-3"><input id="agency-enabled" type="checkbox" className="size-4 shrink-0 accent-primary" checked={field.value} onChange={event => field.onChange(event.target.checked)} ref={field.ref} aria-invalid={fieldState.invalid} aria-describedby={fieldState.invalid ? "agency-enabled-error" : undefined} />{t("deliverySettings.agencyEnabled")}</FieldLabel>
+              <Field orientation="horizontal"><Checkbox id="agency-enabled" checked={field.value} onCheckedChange={checked => field.onChange(checked === true)} ref={field.ref} aria-invalid={fieldState.invalid} aria-describedby={fieldState.invalid ? "agency-enabled-error" : undefined} />
+                <FieldLabel htmlFor="agency-enabled">{t("deliverySettings.agencyEnabled")}</FieldLabel></Field>
               {fieldState.error && <FieldError id="agency-enabled-error">{t("deliverySettings.courierHint")}</FieldError>}
             </Field>} />
-            <p className="text-sm text-muted-foreground">{t("deliverySettings.agencyScope")}</p>
-            {fields.length === 0 && <p className="text-sm text-muted-foreground">{t("deliverySettings.noCouriers")}</p>}
+            <FieldDescription>{t("deliverySettings.agencyScope")}</FieldDescription>
+            {fields.length === 0 && <FieldDescription>{t("deliverySettings.noCouriers")}</FieldDescription>}
             {fields.map((courier, index) => <div key={courier.fieldKey} className="flex min-w-0 flex-col gap-3 border-t border-border pt-4">
               <p className="font-medium">{courier.name}</p>
-              <Controller name={`couriers.${index}.enabled`} control={form.control} render={({ field }) => <Field><FieldLabel htmlFor={`courier-enabled-${courier.fieldKey}`} className="flex min-h-touch cursor-pointer items-center gap-3"><input id={`courier-enabled-${courier.fieldKey}`} type="checkbox" className="size-4 shrink-0 accent-primary" checked={field.value} onChange={event => field.onChange(event.target.checked)} ref={field.ref} />{t("deliverySettings.courierEnabled", { name: courier.name })}</FieldLabel></Field>} />
+              <Controller name={`couriers.${index}.enabled`} control={form.control} render={({ field }) => <Field orientation="horizontal"><Checkbox id={`courier-enabled-${courier.fieldKey}`} checked={field.value} onCheckedChange={checked => field.onChange(checked === true)} ref={field.ref} /><FieldLabel htmlFor={`courier-enabled-${courier.fieldKey}`}>{t("deliverySettings.courierEnabled", { name: courier.name })}</FieldLabel></Field>} />
               {courier.kind === "new" && <Button type="button" variant="ghost" className="self-start max-md:min-h-touch" aria-label={t("deliverySettings.removeCourierLabel", { name: courier.name })} onClick={() => remove(index)}>{t("deliverySettings.removeCourier")}</Button>}
             </div>)}
             {availableCouriers.length > 0 && <div className="flex flex-wrap items-end gap-3">
               <Field className="min-w-48 flex-1"><FieldLabel htmlFor="courier-catalog">{t("deliverySettings.catalogCourier")}</FieldLabel>
-                <select id="courier-catalog" className={controlClass} value={catalogChoice} onChange={event => setCatalogChoice(event.target.value)}>
-                  <option value="">{t("deliverySettings.chooseCatalogCourier")}</option>
-                  {availableCouriers.map(courier => <option key={courier.id} value={courier.id}>{courier.name}</option>)}
-                </select></Field>
+                <Select value={catalogChoice || null} onValueChange={value => setCatalogChoice(String(value ?? ""))} items={availableCouriers.map(courier => ({ value: courier.id, label: courier.name }))}>
+                  <SelectTrigger id="courier-catalog"><SelectValue placeholder={t("deliverySettings.chooseCatalogCourier")} /></SelectTrigger>
+                  <SelectContent>{availableCouriers.map(courier => <SelectItem key={courier.id} value={courier.id}>{courier.name}</SelectItem>)}</SelectContent>
+                </Select></Field>
               <Button type="button" variant="outline" className="max-md:min-h-touch" disabled={!catalogChoice}
                 onClick={() => { const courier = availableCouriers.find(entry => entry.id === catalogChoice); if (!courier) return; append({ kind: "new", courierId: courier.id, name: courier.name, enabled: true }); setCatalogChoice(""); }}>{t("deliverySettings.addCourier")}</Button>
             </div>}
           </FieldGroup>
-        </fieldset>
+        </FieldSet></CardContent></Card>
       </Tabs.Content>
     </Tabs.Root>
     {zoneSection}
     <div className="flex flex-col gap-3 border-t border-border pt-4">
-      {result?.error && <p role="alert" className="text-sm text-destructive">{t(`deliverySettings.${result.error}`)}</p>}
-      {saved && !isDirty && <p role="status">{t("deliverySettings.saved")}</p>}
-      <p className="text-sm text-muted-foreground">{t(isDirty ? "deliverySettings.unsaved" : "deliverySettings.saveScope")}</p>
+      {result?.error && <Alert variant="destructive"><AlertDescription>{t(`deliverySettings.${result.error}`)}</AlertDescription></Alert>}
+      {saved && !isDirty && <Alert variant="success"><AlertDescription>{t("deliverySettings.saved")}</AlertDescription></Alert>}
+      <FieldDescription>{t(isDirty ? "deliverySettings.unsaved" : "deliverySettings.saveScope")}</FieldDescription>
       <div className="flex flex-wrap gap-3"><Button type="submit" className="max-sm:w-full max-md:min-h-touch" disabled={pending || !ready || Boolean(conflict)}>{t(pending ? "deliverySettings.saving" : "deliverySettings.save")}</Button>
         {conflict && <Button asChild variant="outline"><a href="">{t("deliverySettings.reload")}</a></Button>}</div>
     </div>

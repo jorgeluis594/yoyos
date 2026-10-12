@@ -92,14 +92,19 @@ test("seller configures store pickup, preserves a conflicting draft and explicit
     await browserExpect(page.getByLabel("Oferecer envio para agência")).toBeFocused();
     await browserExpect(page.getByLabel("Oferecer envio para agência")).toHaveAttribute("aria-invalid", "true");
     const catalog = page.getByLabel("Transportadora disponível");
-    await catalog.selectOption({ label: "Shalom" });
+    const choose = async (name: string) => { await catalog.click(); await page.getByRole("option", { name, exact: true }).click(); };
+    await choose("Shalom");
     await page.getByRole("button", { name: "Adicionar transportadora" }).click();
-    await browserExpect(catalog.locator("option", { hasText: "Shalom" })).toHaveCount(0);
+    await catalog.click();
+    await browserExpect(page.getByRole("option", { name: "Shalom", exact: true })).toHaveCount(0);
+    await page.keyboard.press("Escape");
     await page.getByRole("button", { name: "Remover Shalom não salva" }).click();
-    await browserExpect(catalog.locator("option", { hasText: "Shalom" })).toHaveCount(1);
-    await catalog.selectOption({ label: "Shalom" });
+    await catalog.click();
+    await browserExpect(page.getByRole("option", { name: "Shalom", exact: true })).toHaveCount(1);
+    await page.keyboard.press("Escape");
+    await choose("Shalom");
     await page.getByRole("button", { name: "Adicionar transportadora" }).click();
-    await catalog.selectOption({ label: "Olva Courier" });
+    await choose("Olva Courier");
     await page.getByRole("button", { name: "Adicionar transportadora" }).click();
     await page.getByLabel("Habilitar Olva Courier").uncheck();
     const agencySaved = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname.includes("/settings/delivery"));
@@ -254,7 +259,8 @@ test("seller manages overlapping zones with delivery options and preserves an ed
     // An agency option can be configured, but without associated agencies it never produces a rate.
     await page.getByRole("button", { name: "Editar Extendida", exact: true }).click();
     await page.getByRole("button", { name: "Agregar opción", exact: true }).click();
-    await page.getByLabel("Modalidad", { exact: true }).last().selectOption("agency");
+    await page.getByLabel("Modalidad", { exact: true }).last().click();
+    await page.getByRole("option", { name: "Agencia", exact: true }).click();
     await page.getByLabel("Nombre de la opción", { exact: true }).last().fill("Agencia");
     await page.getByLabel("Tarifa de la opción (S/)", { exact: true }).last().fill("0");
     await page.getByRole("button", { name: "Guardar zona", exact: true }).click();

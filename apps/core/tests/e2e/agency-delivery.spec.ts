@@ -31,7 +31,8 @@ test("rated agency requires a document and a catalog agency, preserves its snaps
     await page.getByRole("tab", { name: "Agencia", exact: false }).click();
     await page.getByLabel("Ofrecer envío a agencia").check();
     for (const name of ["Shalom", "Olva Courier"]) {
-      await page.getByLabel("Courier disponible", { exact: true }).selectOption({ label: name });
+      await page.getByLabel("Courier disponible", { exact: true }).click();
+      await page.getByRole("option", { name, exact: true }).click();
       await page.getByRole("button", { name: "Agregar courier" }).click();
     }
     await page.getByLabel("Habilitar Olva Courier", { exact: true }).uncheck();
