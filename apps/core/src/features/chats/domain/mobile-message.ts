@@ -15,7 +15,8 @@ export type MobileMessageInput = Readonly<{
   remoteChatId: WhatsAppChatId;
   whatsappMessageId: ProtocolMessageId;
   direction: "incoming" | "outgoing";
-  sentAt: Date;
+  /** null = unknown date. */
+  sentAt: Date | null;
   content: MobileMessageContent;
 }>;
 

@@ -1,0 +1,5 @@
+<resources>
+  <!-- Generic on purpose: no QR, account, credential or message. An app can override both names in its own resources. -->
+  <string name="whatsapp_connection_title">WhatsApp connection active</string>
+  <string name="whatsapp_connection_channel_name">WhatsApp connection</string>
+</resources>

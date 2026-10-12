@@ -1,0 +1,200 @@
+diff --git a/client.go b/client.go
+index 9f97d14..3508906 100644
+--- a/client.go
++++ b/client.go
+@@ -69,6 +69,7 @@ type Client struct {
+ 	socket           *socket.NoiseSocket
+ 	transportAttempt func([]byte) error // controlled send boundary for package transport tests
+ 	socketLock       sync.RWMutex
++	socketID         uint64
+ 	socketWait       chan struct{}
+ 	handlerQueueWait chan struct{}
+ 
+@@ -590,7 +591,10 @@ func (cli *Client) unlockedConnect(ctx context.Context) error {
+ 	closeWait := make(chan struct{})
+ 	cli.handlerQueueWait = closeWait
+ 	go cli.keepAliveLoop(ctx, fs.Context())
+-	go cli.handlerQueueLoop(ctx, fs.Context(), queue, closeWait)
++	// Every node the queue delivers is handled with the identity of the socket
++	// that received it, however late the handler starts.
++	ownedCtx := context.WithValue(ctx, socketOwnerKey{}, cli.socketID)
++	go cli.handlerQueueLoop(ownedCtx, fs.Context(), queue, closeWait)
+ 	return nil
+ }
+ 
+@@ -599,16 +603,36 @@ func (cli *Client) IsLoggedIn() bool {
+ 	return cli != nil && cli.isLoggedIn.Load()
+ }
+ 
++type socketOwnerKey struct{}
++
++// socketOwnerFromContext returns the socket whose handshake created the handler
++// context, or zero for a context that did not come from a connection.
++func socketOwnerFromContext(ctx context.Context) uint64 {
++	owner, _ := ctx.Value(socketOwnerKey{}).(uint64)
++	return owner
++}
++
++// CurrentSocketID identifies the current websocket, or zero after it closes.
++func (cli *Client) CurrentSocketID() uint64 {
++	cli.socketLock.RLock()
++	defer cli.socketLock.RUnlock()
++	if cli.socket == nil || !cli.socket.IsConnected() {
++		return 0
++	}
++	return cli.socketID
++}
++
+ func (cli *Client) onDisconnect(ctx context.Context, ns *socket.NoiseSocket, remote bool) {
+ 	ns.Stop(false, false)
+ 	cli.socketLock.Lock()
+ 	defer cli.socketLock.Unlock()
+ 	if cli.socket == ns {
++		closedSocketID := cli.socketID
+ 		cli.socket = nil
+ 		cli.clearResponseWaiters(xmlStreamEndNode)
+ 		if !cli.isExpectedDisconnect() && (cli.forceAutoReconnect.Swap(false) || remote) {
+ 			cli.Log.Debugf("Emitting Disconnected event")
+-			go cli.dispatchEvent(&events.Disconnected{})
++			go cli.dispatchEvent(&events.Disconnected{SocketID: closedSocketID})
+ 			go cli.autoReconnect(ctx)
+ 		} else if remote {
+ 			cli.Log.Debugf("OnDisconnect() called, but it was expected, so not emitting event")
+diff --git a/connectionevents.go b/connectionevents.go
+index 47ab0fb..4c8443e 100644
+--- a/connectionevents.go
++++ b/connectionevents.go
+@@ -26,7 +26,7 @@ func (cli *Client) handleStreamError(ctx context.Context, node *waBinary.Node) {
+ 	case code == "515":
+ 		if cli.DisableLoginAutoReconnect {
+ 			cli.Log.Infof("Got 515 code, but login autoreconnect is disabled, not reconnecting")
+-			cli.dispatchEvent(&events.ManualLoginReconnect{})
++			cli.dispatchEvent(&events.ManualLoginReconnect{SocketID: socketOwnerFromContext(ctx)})
+ 			return
+ 		}
+ 		cli.Log.Infof("Got 515 code, reconnecting...")
+@@ -156,6 +156,11 @@ func (cli *Client) handleConnectFailure(ctx context.Context, node *waBinary.Node
+ }
+ 
+ func (cli *Client) handleConnectSuccess(ctx context.Context, node *waBinary.Node) {
++	socketID := socketOwnerFromContext(ctx)
++	if socketID == 0 || socketID != cli.CurrentSocketID() {
++		cli.Log.Warnf("Ignoring connect success from a socket that is no longer current")
++		return
++	}
+ 	if !cli.paired.Load() {
+ 		cli.Log.Warnf("Received connect success without pairing, ignoring")
+ 		return
+@@ -201,7 +206,11 @@ func (cli *Client) handleConnectSuccess(ctx context.Context, node *waBinary.Node
+ 		if err != nil {
+ 			cli.Log.Warnf("Failed to send post-connect passive IQ: %v", err)
+ 		}
+-		cli.dispatchEvent(&events.Connected{})
++		if socketID != cli.CurrentSocketID() {
++			cli.Log.Warnf("Dropping connected event of a replaced socket")
++			return
++		}
++		cli.dispatchEvent(&events.Connected{SocketID: socketID})
+ 		cli.closeSocketWaitChan()
+ 	}()
+ }
+diff --git a/handshake.go b/handshake.go
+index bdc959b..155f88f 100644
+--- a/handshake.go
++++ b/handshake.go
+@@ -128,6 +128,7 @@ func (cli *Client) doHandshake(fs *socket.FrameSocket, ephemeralKP keys.KeyPair)
+ 	}
+ 
+ 	cli.socket = ns
++	cli.socketID++
+ 
+ 	return queue, nil
+ }
+diff --git a/pair.go b/pair.go
+index e64d3f1..3933f2e 100644
+--- a/pair.go
++++ b/pair.go
+@@ -130,6 +130,7 @@ func (cli *Client) makeQRData(ref []byte, clientType PairClientType) string {
+ }
+ 
+ func (cli *Client) handlePairSuccess(ctx context.Context, node *waBinary.Node) {
++	socketID := socketOwnerFromContext(ctx)
+ 	cli.serverTimeOffset.Store(int64(node.AttrGetter().UnixTime("t").Sub(time.Now().Round(time.Second))))
+ 	id := node.Attrs["id"].(string)
+ 	pairSuccess := node.GetChildByTag("pair-success")
+@@ -154,7 +155,7 @@ func (cli *Client) handlePairSuccess(ctx context.Context, node *waBinary.Node) {
+ 		} else {
+ 			cli.Log.Infof("Successfully paired %s", cli.Store.ID)
+ 			go cli.sendUnifiedSession()
+-			cli.dispatchEvent(&events.PairSuccess{ID: jid, LID: lid, BusinessName: businessName, Platform: platform, Props: &props})
++			cli.dispatchEvent(&events.PairSuccess{ID: jid, LID: lid, BusinessName: businessName, Platform: platform, Props: &props, SocketID: socketID})
+ 		}
+ 	}()
+ }
+diff --git a/socket/noisesocket.go b/socket/noisesocket.go
+index 632684b..d3698af 100644
+--- a/socket/noisesocket.go
++++ b/socket/noisesocket.go
+@@ -44,9 +44,13 @@ func newNoiseSocket(
+ 		onFrame:      frameHandler,
+ 		stopConsumer: make(chan struct{}),
+ 	}
++	// A peer can close the socket while the handshake is still returning, so
++	// publish the handler under the lock Close reads it with.
++	fs.lock.Lock()
+ 	fs.OnDisconnect = func(ctx context.Context, remote bool) {
+ 		disconnectHandler(ctx, ns, remote)
+ 	}
++	fs.lock.Unlock()
+ 	go ns.consumeFrames(fs.Context(), fs.Frames)
+ 	return ns, nil
+ }
+@@ -79,7 +83,9 @@ func (ns *NoiseSocket) Stop(disconnect, allowOnDisconnect bool) {
+ 	if ns.destroyed.CompareAndSwap(false, true) {
+ 		close(ns.stopConsumer)
+ 		if !allowOnDisconnect {
++			ns.fs.lock.Lock()
+ 			ns.fs.OnDisconnect = nil
++			ns.fs.lock.Unlock()
+ 		}
+ 		if disconnect {
+ 			ns.fs.Close(websocket.StatusNormalClosure)
+diff --git a/types/events/events.go b/types/events/events.go
+index 98bd242..ed7a68f 100644
+--- a/types/events/events.go
++++ b/types/events/events.go
+@@ -50,6 +50,7 @@ type RotateADVSecret struct {
+ // been completed. Note that this is generally followed by a websocket reconnection, so you should
+ // wait for the Connected before trying to send anything.
+ type PairSuccess struct {
++	SocketID     uint64
+ 	ID           types.JID
+ 	LID          types.JID
+ 	BusinessName string
+@@ -94,7 +95,7 @@ type QRScannedWithoutMultidevice struct{}
+ // Connected is emitted when the client has successfully connected to the WhatsApp servers
+ // and is authenticated. The user who the client is authenticated as will be in the device store
+ // at this point, which is why this event doesn't contain any data.
+-type Connected struct{}
++type Connected struct{ SocketID uint64 }
+ 
+ // KeepAliveTimeout is emitted when the keepalive ping request to WhatsApp web servers times out.
+ //
+@@ -147,7 +148,7 @@ type LoggedOut struct {
+ type StreamReplaced struct{}
+ 
+ // ManualLoginReconnect is emitted after login if DisableLoginAutoReconnect is set.
+-type ManualLoginReconnect struct{}
++type ManualLoginReconnect struct{ SocketID uint64 }
+ 
+ // TempBanReason is an error code included in temp ban error events.
+ type TempBanReason int
+@@ -269,7 +270,7 @@ type StreamError struct {
+ }
+ 
+ // Disconnected is emitted when the websocket is closed by the server.
+-type Disconnected struct{}
++type Disconnected struct{ SocketID uint64 }
+ 
+ // HistorySync is emitted when the phone has sent a blob of historical messages.
+ type HistorySync struct {

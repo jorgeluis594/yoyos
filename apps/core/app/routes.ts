@@ -11,6 +11,7 @@ export default [
   route("checkout/:companyId/:orderId", "routes/checkout.tsx"),
   route("checkout/*", "routes/checkout.tsx", { id: "unavailable-checkout" }),
   route("pago/:orderId", "routes/buyer-payment.tsx"),
+  route("settings/checkout-appearance/preview", "routes/checkout-appearance-preview.tsx", { id: "public-checkout-appearance-preview" }),
   layout("routes/private-layout.tsx", { id: "public-private-layout" }, [
     route("dashboard", "routes/dashboard.tsx", { id: "public-dashboard" }),
     route("products", "routes/product-list.tsx", { id: "public-product-list" }),
@@ -22,6 +23,7 @@ export default [
     route("orders", "routes/order-list.tsx", { id: "public-order-list" }),
     route("orders/:orderId", "routes/order-detail.tsx", { id: "public-order-detail" }),
     route("settings/payments", "routes/payment-settings.tsx", { id: "public-payment-settings" }),
+    route("settings/checkout-appearance", "routes/checkout-appearance-settings.tsx", { id: "public-checkout-appearance-settings" }),
   ]),
   route(":locale", "routes/locale-layout.tsx", [
     index("routes/home.tsx"),
@@ -31,6 +33,7 @@ export default [
     route("account-verified", "routes/account-verified.tsx", { id: "localized-account-verified" }),
     route("forgot-password", "routes/forgot-password.tsx", { id: "localized-forgot-password" }),
     route("reset-password", "routes/reset-password.tsx", { id: "localized-reset-password" }),
+    route("settings/checkout-appearance/preview", "routes/checkout-appearance-preview.tsx", { id: "localized-checkout-appearance-preview" }),
     layout("routes/private-layout.tsx", { id: "localized-private-layout" }, [
       route("dashboard", "routes/dashboard.tsx", { id: "localized-dashboard" }),
       route("products", "routes/product-list.tsx", { id: "localized-product-list" }),
@@ -42,6 +45,7 @@ export default [
       route("orders", "routes/order-list.tsx", { id: "localized-order-list" }),
       route("orders/:orderId", "routes/order-detail.tsx", { id: "localized-order-detail" }),
       route("settings/payments", "routes/payment-settings.tsx", { id: "localized-payment-settings" }),
+      route("settings/checkout-appearance", "routes/checkout-appearance-settings.tsx", { id: "localized-checkout-appearance-settings" }),
     ]),
   ]),
 ] satisfies RouteConfig;

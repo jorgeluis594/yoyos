@@ -51,7 +51,7 @@ app.use("/api/quotations", (_request, response, next) => { response.set("Cache-C
 app.use("/api/orders", express.json({ limit: "100kb", verify: (_request, _response, body) => {
   if (hasDuplicateJsonKeys(body.toString("utf8"))) throw new Error("Duplicate JSON key");
 } }));
-app.post("/api/whatsapp/messages", mobileMessageParser);
+app.post("/api/messages", mobileMessageParser);
 app.use("/api", express.json({ limit: "100kb" }));
 app.use("/api/buyer/orders", buyerPaymentRoutes(images));
 app.use("/api/quotations", quotationRoutes);
@@ -88,7 +88,7 @@ app.post("/api/company", async (request, response: Response<unknown, Authenticat
 });
 
 app.use("/api", requireApiCompany);
-app.use("/api/whatsapp/messages", mobileMessageRoutes(registerMobileMessage));
+app.use("/api/messages", mobileMessageRoutes(registerMobileMessage));
 app.use("/api/company/payment-settings", paymentSettingsRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);

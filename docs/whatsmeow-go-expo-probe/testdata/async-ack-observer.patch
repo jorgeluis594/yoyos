@@ -1,0 +1,32 @@
+--- a/message.go
++++ b/message.go
+@@ -456,6 +456,13 @@
+ 				// TODO this probably isn't supposed to ack
+ 				cli.sendAck(ctx, node, 0)
+ 			} else {
+-				go cli.sendRetryReceipt(context.WithoutCancel(ctx), node, info, isUnavailable)
+-				go cli.sendAck(ctx, node, 0)
++				done := probeAsyncSendsScheduled(2)
++				go func() {
++					defer done()
++					cli.sendRetryReceipt(context.WithoutCancel(ctx), node, info, isUnavailable)
++				}()
++				go func() {
++					defer done()
++					cli.sendAck(ctx, node, 0)
++				}()
+ 			}
+--- a/receipt.go
++++ b/receipt.go
+@@ -108,6 +108,10 @@ func (cli *Client) backgroundIfAsyncAck(fn func()) {
+ 	if cli.SynchronousAck {
+ 		fn()
+ 	} else {
+-		go fn()
++		done := probeAsyncSendsScheduled(1)
++		go func() {
++			defer done()
++			fn()
++		}()
+ 	}
+ }

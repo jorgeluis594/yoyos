@@ -12,15 +12,15 @@ afterEach(async () => { await Promise.all(servers.splice(0).map((server) => new 
 
 async function serve(register: RegisterMobileMessage) {
   const app = express();
-  app.use("/api/whatsapp/messages", mobileMessageParser);
+  app.use("/api/messages", mobileMessageParser);
   app.use((_request, response, next) => { response.locals.auth = { status: "ready", company: { id }, user: { id: "u1" } }; next(); });
-  app.use("/api/whatsapp/messages", mobileMessageRoutes(register));
+  app.use("/api/messages", mobileMessageRoutes(register));
   const server = app.listen(0);
   servers.push(server);
   await new Promise<void>((resolve) => server.once("listening", resolve));
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("No test port");
-  return `http://127.0.0.1:${address.port}/api/whatsapp/messages`;
+  return `http://127.0.0.1:${address.port}/api/messages`;
 }
 
 test("factory returns validated stored and duplicate responses with trusted context", async () => {
@@ -144,7 +144,7 @@ test("full app parses WhatsApp JSON before authentication without enabling the r
   await new Promise<void>((resolve) => server.once("listening", resolve));
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("No test port");
-  const response = await fetch(`http://127.0.0.1:${address.port}/api/whatsapp/messages`, { method: "POST", headers: { "content-type": "application/json" }, body: "{" });
+  const response = await fetch(`http://127.0.0.1:${address.port}/api/messages`, { method: "POST", headers: { "content-type": "application/json" }, body: "{" });
   expect(response.status).toBe(400);
   expect(response.headers.get("cache-control")).toBe("no-store");
 });

@@ -32,7 +32,8 @@ export const registerWhatsAppMessageRequestSchema = z.strictObject({
     chatId: lidSchema,
     whatsappMessageId: protocolMessageIdSchema,
     direction: z.enum(["incoming", "outgoing"]),
-    timestamp: unixMillisecondsSchema,
+    // Absent when WhatsApp's own time was missing; the date is unknown and is never replaced by the reception time.
+    timestamp: unixMillisecondsSchema.optional(),
     content: z.discriminatedUnion("type", [
       z.strictObject({ type: z.literal("text"), text: messageTextSchema }),
       z.strictObject({ type: z.literal("image"), caption: messageTextSchema.optional(), mimeType: imageMimeTypeSchema.optional(), size: imageSizeSchema.optional() }),

@@ -1,0 +1,2551 @@
+{
+ "links": [
+  {
+   "id": "IT-API-01",
+   "file": "client.test.ts",
+   "test": "private image files a call before initialization or without the module keeps its own error"
+  },
+  {
+   "id": "IT-API-01",
+   "file": "client.test.ts",
+   "test": "reports unavailable module without simulating capability"
+  },
+  {
+   "id": "IT-API-01",
+   "file": "index.test.ts",
+   "test": "reports absent native module"
+  },
+  {
+   "id": "IT-API-02",
+   "file": "client.test.ts",
+   "test": "registers the consumer with native only once local storage is prepared",
+   "note": "registrar listeners antes de initialize esta permitido"
+  },
+  {
+   "id": "IT-API-02",
+   "file": "client.test.ts",
+   "test": "requires initialization for every available local operation"
+  },
+  {
+   "id": "IT-API-03",
+   "file": "client.test.ts",
+   "test": "coalesces preparation, accepts connect before QR, and retries failed preparation"
+  },
+  {
+   "id": "IT-API-03",
+   "file": "client.test.ts",
+   "test": "remote logout uncertainty still permits a new explicit link request"
+  },
+  {
+   "id": "IT-API-03",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestConnectAcceptsBeforeQRAndDoesNotDuplicate",
+   "note": "Connect devuelve antes del QR y el estado va por eventos"
+  },
+  {
+   "id": "IT-API-03",
+   "file": "go/internal/connection/request_end_test.go",
+   "test": "TestWA12EndRouteLocalFault",
+   "note": "el fallo posterior llega por evento tras aceptar connect"
+  },
+  {
+   "id": "IT-API-04",
+   "file": "client.options.test.ts",
+   "test": "an invalid native answer to initialize does not mark the options as applied"
+  },
+  {
+   "id": "IT-API-04",
+   "file": "client.test.ts",
+   "test": "drops stale queued replay and rejects malformed events"
+  },
+  {
+   "id": "IT-API-04",
+   "file": "client.test.ts",
+   "test": "rejects a delivery carrying image bytes"
+  },
+  {
+   "id": "IT-API-04",
+   "file": "client.test.ts",
+   "test": "validates native results and sanitizes diagnostics"
+  },
+  {
+   "id": "IT-API-04",
+   "file": "index.test.ts",
+   "test": "rejects bad input and malformed native response"
+  },
+  {
+   "id": "IT-API-05",
+   "file": "client.options.test.ts",
+   "test": "IT-CFG-04/08 an uncertain answer forces a new native initialization instead of assuming either options",
+   "note": "resultado incierto se resuelve reintentando initialize"
+  },
+  {
+   "id": "IT-API-05",
+   "file": "client.test.ts",
+   "test": "simultaneous logout calls share one native call and result"
+  },
+  {
+   "id": "IT-API-05",
+   "file": "client.test.ts",
+   "test": "validates native results and sanitizes diagnostics",
+   "note": "excepcion nativa de connect se convierte en NATIVE_CALL_FAILED sin mensaje nativo"
+  },
+  {
+   "id": "IT-API-06",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "invalidStateDoesNotAdvancePublishedRevision",
+   "note": "opciones cero/fraccion/texto/inseguras rechazadas en la frontera nativa antes de publicar"
+  },
+  {
+   "id": "IT-API-06",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "retirePendingRejectsMalformedRequestsWithoutMutation"
+  },
+  {
+   "id": "IT-API-06",
+   "file": "go/bridge/images_test.go",
+   "test": "TestBridgeRejectsInvalidInputAndUninitializedSession"
+  },
+  {
+   "id": "IT-API-06",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testInvalidStateDoesNotAdvancePublishedRevision"
+  },
+  {
+   "id": "IT-BLD-02",
+   "file": "scripts/test-build-go-cleanup.sh",
+   "test": "test-build-go-cleanup.sh",
+   "note": "con un go falso, android/ios/all fallan sin construir; no prueba que Android no requiera Xcode ni que all no omita plataformas"
+  },
+  {
+   "id": "IT-BLD-04",
+   "file": "scripts/test-build-go-cleanup.sh",
+   "test": "test-build-go-cleanup.sh",
+   "note": "un fallo borra AAR, XCFramework y build-info.txt; la parte de build.gradle/podspec que aborta sin artefacto no tiene prueba"
+  },
+  {
+   "id": "IT-BLD-07",
+   "file": "scripts/test-build-go-contract.sh",
+   "test": "test-build-go-contract.sh",
+   "note": "build-info registra el hash de las entradas (Go, parches, script) y cambia con ellas"
+  },
+  {
+   "id": "IT-BRG-01",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/BridgeInstrumentedTest.kt",
+   "test": "goCallsNativeAndReturnsValue",
+   "note": "AAR real: callback Kotlin devuelve valor a Go"
+  },
+  {
+   "id": "IT-BRG-01",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/BridgeInstrumentedTest.kt",
+   "test": "nativeErrorReturnsToGo",
+   "note": "excepcion Kotlin llega a Go como NATIVE_CALL_FAILED"
+  },
+  {
+   "id": "IT-BRG-01",
+   "file": "go/bridge/bridge_test.go",
+   "test": "TestProbe",
+   "note": "lado Go con almacenamiento simulado"
+  },
+  {
+   "id": "IT-BRG-01",
+   "file": "ios/Tests/WhatsAppBridgeTests/WhatsAppBridgeTests.swift",
+   "test": "testCallbackValueAndError",
+   "note": "XCFramework real: valor y error de callback Swift"
+  },
+  {
+   "id": "IT-BRG-02",
+   "file": "go/bridge/bridge_test.go",
+   "test": "TestOpenProtocolStoreUsesNativeRead",
+   "note": "fallo de lectura no se vuelve estado vacio"
+  },
+  {
+   "id": "IT-BRG-02",
+   "file": "go/bridge/connection_test.go",
+   "test": "TestOpenConnectionPreparesFirstLinkWithoutNetworkOrStorageMutation",
+   "note": "sesion null valida, no conecta automaticamente"
+  },
+  {
+   "id": "IT-BRG-02",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestEmptyReadAndReadFailure",
+   "note": "instalacion vacia, fallo de lectura -> STORAGE_FAILED, lectura invalida -> STATE_INVALID"
+  },
+  {
+   "id": "IT-BRG-03",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestAppStateVersionAndMACsCommitAsOneTransaction"
+  },
+  {
+   "id": "IT-BRG-03",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestPreparedPendingAtomicWithProtocolAndIdentityUpdate",
+   "note": "alta pending + protocolo + resolucion de identidad juntos"
+  },
+  {
+   "id": "IT-BRG-03",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestPublishPendingIdentitiesIsOneAtomicPublication"
+  },
+  {
+   "id": "IT-BRG-03",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestTransactionStagesAndOrderedDelta",
+   "note": "un solo ApplyChanges con delta ordenado put/put/delete"
+  },
+  {
+   "id": "IT-BRG-04",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "protocolCallbackRequiresRegisteredGenerationAndPublishesRevision",
+   "note": "equivalente Android (instrumentada)"
+  },
+  {
+   "id": "IT-BRG-04",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "revisionsAndAccountIdsRequireCanonicalForms"
+  },
+  {
+   "id": "IT-BRG-04",
+   "file": "go/bridge/bridge_test.go",
+   "test": "TestPureNativeAdmissionUsesCompleteCodec",
+   "note": "admision nativa rechaza claves/tipos no canonicos"
+  },
+  {
+   "id": "IT-BRG-04",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testFreshProtocolRejectsIncompleteDeviceWithoutPublishing"
+  },
+  {
+   "id": "IT-BRG-04",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testProtocolCallbackUsesRegisteredGenerationAndDurableRevision",
+   "note": "generacion no registrada, revision esperada, prekey y tupla invalidas, generacion retirada (nativa, no ejecutable aqui)"
+  },
+  {
+   "id": "IT-BRG-04",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testRevisionsAndAccountIdsRequireCanonicalForms"
+  },
+  {
+   "id": "IT-BRG-05",
+   "file": "go/bridge/capacity_test.go",
+   "test": "TestResumeAfterCapacityStopReopensTheLatchedStore",
+   "note": "BUFFER_FULL -> RECOVERY_BUFFER_FULL"
+  },
+  {
+   "id": "IT-BRG-05",
+   "file": "go/bridge/capacity_test.go",
+   "test": "TestStorageFailureDoesNotSilentlyRebuild",
+   "note": "STORAGE_FAILED -> SESSION_STORAGE_FAILED"
+  },
+  {
+   "id": "IT-BRG-05",
+   "file": "go/bridge/connection_test.go",
+   "test": "TestFailedFirstLinkExposesStorageHealth",
+   "note": "SESSION_FULL -> SESSION_STORAGE_LIMIT_REACHED"
+  },
+  {
+   "id": "IT-BRG-05",
+   "file": "go/bridge/connection_test.go",
+   "test": "TestOpenConnectionRejectsInvalidStorageAndSession",
+   "note": "STATE_INVALID -> SESSION_STATE_INVALID"
+  },
+  {
+   "id": "IT-BRG-05",
+   "file": "go/internal/protocolstore/interfaces_test.go",
+   "test": "TestResponseValidationAndNativeCodes",
+   "note": "los 7 codigos internos llegan tipados al store"
+  },
+  {
+   "id": "IT-BRG-06",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestDurableCallbackAndUncertainCommit",
+   "note": "respuesta perdida/malformada -> UncertainCommit, relectura, sin reintento ciego"
+  },
+  {
+   "id": "IT-BRG-06",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestNativeApplyPanicStopsAndReadsBack"
+  },
+  {
+   "id": "IT-BRG-07",
+   "file": "go/internal/protocolstore/receive_test.go",
+   "test": "TestCapturedReceiveCommitsRecoveryWithSignalState",
+   "note": "escrituras de protocolo, Signal y contenido recuperable en una publicacion"
+  },
+  {
+   "id": "IT-BRG-07",
+   "file": "go/internal/protocolstore/receive_test.go",
+   "test": "TestPostDecryptWriteFailureDoesNotPublishPendingOrSignal"
+  },
+  {
+   "id": "IT-BRG-07",
+   "file": "go/internal/protocolstore/recovery_aux_test.go",
+   "test": "TestFatalRecoveryAuxiliaryWritesJoinPendingTransaction",
+   "note": "escrituras auxiliares unidas a la transaccion pendiente"
+  },
+  {
+   "id": "IT-BRG-07",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestExternalWriteWaitsAndConfirmDoesNotConflict",
+   "note": "escritura externa espera persistencia durable"
+  },
+  {
+   "id": "IT-BRG-07",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestPreparedPendingAtomicWithProtocolAndIdentityUpdate"
+  },
+  {
+   "id": "IT-BRG-07",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestRollbackAndStickyMutationError",
+   "note": "fallo descarta preparacion"
+  },
+  {
+   "id": "IT-BRG-07",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestTransactionStagesAndOrderedDelta",
+   "note": "lecturas ven cambios preparados propios"
+  },
+  {
+   "id": "IT-BRG-08",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "staleRevisionDoesNotReplacePublishedState"
+  },
+  {
+   "id": "IT-BRG-08",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestExternalWriteWaitsAndConfirmDoesNotConflict"
+  },
+  {
+   "id": "IT-BRG-08",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestPreparedPendingAtomicWithProtocolAndIdentityUpdate",
+   "note": "confirmacion concurrente no resucita el pendiente"
+  },
+  {
+   "id": "IT-BRG-08",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestProtocolWriteAfterIndependentPendingConfirmation",
+   "note": "confirmar sube revision global sin invalidar expectedSessionRevision"
+  },
+  {
+   "id": "IT-BRG-08",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testStaleRevisionCannotReplacePublishedState",
+   "note": "cambio concurrente real rechazado (nativa)"
+  },
+  {
+   "id": "IT-BRG-09",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "protocolCallbackRequiresRegisteredGenerationAndPublishesRevision"
+  },
+  {
+   "id": "IT-BRG-09",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestGenerationRetiredWhileWaitingOnNative",
+   "note": "detener mientras espera: StaleGeneration, sin escritura tardia"
+  },
+  {
+   "id": "IT-BRG-09",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testProtocolCallbackUsesRegisteredGenerationAndDurableRevision",
+   "note": "generacion retirada/ajena rechazada por el nativo"
+  },
+  {
+   "id": "IT-BRG-10",
+   "file": "go/bridge/images_test.go",
+   "test": "TestITIMG17CompleteFilesSurviveLogoutAndDownloadsDoNotBlockConfirmations",
+   "note": "confirmar durante descarga bloqueada"
+  },
+  {
+   "id": "IT-BRG-10",
+   "file": "go/internal/protocolstore/recovery_lock_test.go",
+   "test": "TestRecoveryKeyCacheLockOrder",
+   "note": "sin deadlock entre transaccion de recepcion y decodificacion de app-state"
+  },
+  {
+   "id": "IT-BRG-10",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestExternalWriteWaitsAndConfirmDoesNotConflict"
+  },
+  {
+   "id": "IT-BRG-10",
+   "file": "go/internal/receive/history_admission_test.go",
+   "test": "TestITHIS03WaitsForConfirmationsWithoutHoldingTheWriter",
+   "note": "lock del writer libre mientras espera confirmaciones"
+  },
+  {
+   "id": "IT-BUF-03",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestCapacityPauseResumesOnlyRequestedConnection",
+   "note": "reanuda solo si sigue solicitado"
+  },
+  {
+   "id": "IT-CON-01",
+   "file": "client.test.ts",
+   "test": "coalesces preparation, accepts connect before QR, and retries failed preparation"
+  },
+  {
+   "id": "IT-CON-01",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestConnectAcceptsBeforeQRAndDoesNotDuplicate",
+   "note": "Connect devuelve vacio y el estado es connecting, no connected"
+  },
+  {
+   "id": "IT-CON-02",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestConnectAcceptsBeforeQRAndDoesNotDuplicate",
+   "note": "dos Connect, un solo transporte creado"
+  },
+  {
+   "id": "IT-CON-02",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestWA12PreparedControllerConnectsOnceWhenRestoreAdoptsIt"
+  },
+  {
+   "id": "IT-CON-03",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestConnectAcceptsBeforeQRAndDoesNotDuplicate",
+   "note": "QR sustituido y vencido deja de ser vigente"
+  },
+  {
+   "id": "IT-CON-03",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestExpiredQueuedQRIsNotPublished"
+  },
+  {
+   "id": "IT-CON-03",
+   "file": "go/internal/connection/request_end_test.go",
+   "test": "TestWA12EndRoutePermanentFailureAndQRFinishedAndUnpairedNetwork",
+   "note": "qrFinished: CONNECTION_FAILED y disconnected"
+  },
+  {
+   "id": "IT-CON-03",
+   "file": "go/internal/connection/suspend_test.go",
+   "test": "TestITIOS01SuspendedQRIsNotCurrentAndUnpairedResumeConnectsAgain",
+   "note": "salir de awaitingQr invalida el QR"
+  },
+  {
+   "id": "IT-CON-03",
+   "file": "go/internal/connection/whatsmeow_test.go",
+   "test": "TestDelayedQRConsumptionKeepsProducerExpiry",
+   "note": "conserva el vencimiento real del productor"
+  },
+  {
+   "id": "IT-CON-04",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestNetworkDeadlineRetriesAndLocalFaultWins"
+  },
+  {
+   "id": "IT-CON-04",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestQRScanExcludesWaitFromAuthenticationDeadline"
+  },
+  {
+   "id": "IT-CON-04",
+   "file": "go/internal/connection/deadline_regression_test.go",
+   "test": "TestDeadlineCancelsActualDial",
+   "note": "el vencimiento cancela el intento real"
+  },
+  {
+   "id": "IT-CON-04",
+   "file": "go/internal/connection/request_end_test.go",
+   "test": "TestWA12EndRoutePermanentFailureAndQRFinishedAndUnpairedNetwork",
+   "note": "sin sesion vinculada no hay reconexion"
+  },
+  {
+   "id": "IT-CON-04",
+   "file": "go/internal/connection/socket_ownership_test.go",
+   "test": "TestHandoffKeepsClientAndOriginalDeadline",
+   "note": "frontera de 29 s y 31 s"
+  },
+  {
+   "id": "IT-CON-05",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestBackoffSequenceCapsAndResetsAfterConnection"
+  },
+  {
+   "id": "IT-CON-06",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestStopDoesNotWaitForEventConsumer"
+  },
+  {
+   "id": "IT-CON-06",
+   "file": "go/internal/connection/socket_ownership_test.go",
+   "test": "TestCancelDuringHandoffClosesSocketsAndIgnoresLateSuccess",
+   "note": "Disconnect cierra sockets y rechaza exito tardio"
+  },
+  {
+   "id": "IT-CON-06",
+   "file": "go/internal/connection/suspend_test.go",
+   "test": "TestITIOS01DisconnectOrConnectWhileSuspendedCancelsResume"
+  },
+  {
+   "id": "IT-CON-07",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestStopRejectsLateEventsAndRevocationBlocksRelink",
+   "note": "sessionExpired, Connect devuelve SESSION_EXPIRED hasta RetiredSession"
+  },
+  {
+   "id": "IT-CON-07",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestWA12RevokedControllerIsNotRetried"
+  },
+  {
+   "id": "IT-CON-07",
+   "file": "go/internal/connection/logout_test.go",
+   "test": "TestRevocationNeverRequestsUnlinkOrRetirement"
+  },
+  {
+   "id": "IT-CON-08",
+   "file": "go/bridge/delivery_test.go",
+   "test": "TestITSUB06And08FailedCallbackKeepsPendingAndStopsReception",
+   "note": "consumidor ausente detiene la recepcion"
+  },
+  {
+   "id": "IT-CON-08",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestCapacityPauseResumesOnlyRequestedConnection",
+   "note": "capacidad distinta de red"
+  },
+  {
+   "id": "IT-CON-08",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestNetworkDeadlineRetriesAndLocalFaultWins",
+   "note": "FailLocal(almacenamiento) gana y no reintenta"
+  },
+  {
+   "id": "IT-CON-09",
+   "file": "go/internal/connection/deadline_regression_test.go",
+   "test": "TestLateConnectedRechecksDeadline",
+   "note": "connected tardio revalida el deadline monotonico"
+  },
+  {
+   "id": "IT-CON-09",
+   "file": "go/internal/connection/deadline_regression_test.go",
+   "test": "TestRetiredStorageFailureDoesNotStopReplacement"
+  },
+  {
+   "id": "IT-CON-09",
+   "file": "go/internal/connection/socket_ownership_test.go",
+   "test": "TestQueuedOldSuccessCannotAuthenticateReplacementSocket"
+  },
+  {
+   "id": "IT-CON-09",
+   "file": "go/internal/connection/suspend_test.go",
+   "test": "TestITIOS01ResumeStartsOneFreshAttemptAndIsIdempotent",
+   "note": "un solo intento nuevo con deadline renovado"
+  },
+  {
+   "id": "IT-CON-09",
+   "file": "go/internal/connection/suspend_test.go",
+   "test": "TestITIOS01SuspendStopsTheGenerationAndLateResultsAreDiscarded"
+  },
+  {
+   "id": "IT-CON-10",
+   "file": "go/internal/connection/logout_test.go",
+   "test": "TestUTCON10AdmissionOrderAndGenerationRetirement",
+   "note": "orden de admision y retirada de generacion"
+  },
+  {
+   "id": "IT-DEL-09",
+   "file": "go/internal/delivery/coordinator_test.go",
+   "test": "TestUTDEL09ForeignAndRepeatedConfirmationsKeepCurrentTurn",
+   "note": "confirmacion de otra entrega y repetida"
+  },
+  {
+   "id": "IT-EVT-01",
+   "file": "client.test.ts",
+   "test": "replays only current state and unexpired QR to each new listener"
+  },
+  {
+   "id": "IT-EVT-01",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestWA12PreparedControllerConnectsOnceWhenRestoreAdoptsIt",
+   "note": "Prepare con sesion deja Disconnected, no connected"
+  },
+  {
+   "id": "IT-EVT-02",
+   "file": "client.test.ts",
+   "test": "keeps local confirmation available for invalid session and validates inputs before mutation",
+   "note": "sesion invalida: connect devuelve SESSION_STATE_INVALID"
+  },
+  {
+   "id": "IT-EVT-02",
+   "file": "client.test.ts",
+   "test": "replays only current state and unexpired QR to each new listener",
+   "note": "tras initialize el listener nuevo recibe el estado vigente"
+  },
+  {
+   "id": "IT-EVT-03",
+   "file": "client.resume.test.ts",
+   "test": "IT-IOS-01 suspension and resumption a QR shown before suspension is dropped and a late QR from that attempt is ignored"
+  },
+  {
+   "id": "IT-EVT-03",
+   "file": "client.test.ts",
+   "test": "initialization adopts a valid native QR without requesting another connection"
+  },
+  {
+   "id": "IT-EVT-03",
+   "file": "client.test.ts",
+   "test": "replays only current state and unexpired QR to each new listener",
+   "note": "QR vigente se reproduce; con now==expiresAt ya no"
+  },
+  {
+   "id": "IT-EVT-03",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestConnectAcceptsBeforeQRAndDoesNotDuplicate"
+  },
+  {
+   "id": "IT-EVT-04",
+   "file": "client.test.ts",
+   "test": "drops stale queued replay and rejects malformed events",
+   "note": "estado en cola descartado si cambia antes de entregarse"
+  },
+  {
+   "id": "IT-EVT-04",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestExpiredQueuedQRIsNotPublished",
+   "note": "QR vencido en cola no se publica"
+  },
+  {
+   "id": "IT-EVT-05",
+   "file": "client.test.ts",
+   "test": "replays only current state and unexpired QR to each new listener",
+   "note": "la reproduccion llega solo al listener nuevo; el anterior no se invoca"
+  },
+  {
+   "id": "IT-EVT-06",
+   "file": "client.test.ts",
+   "test": "removing one registration keeps an identical callback registered elsewhere"
+  },
+  {
+   "id": "IT-EVT-06",
+   "file": "client.test.ts",
+   "test": "subscribing after disconnect or logout requests no network and keeps the stop",
+   "note": "agregar un listener no llama a connect"
+  },
+  {
+   "id": "IT-FMT-01",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "logoutClearsReceiveIntentWithSessionAndKeepsPending"
+  },
+  {
+   "id": "IT-FMT-01",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "pendingFormatAndIdentitySurviveRestartAndRejectIncoherence"
+  },
+  {
+   "id": "IT-FMT-01",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "pendingRemainsReadableWithoutSessionKey"
+  },
+  {
+   "id": "IT-FMT-01",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "publishedStateSurvivesRestartAndIgnoresPreparation"
+  },
+  {
+   "id": "IT-FMT-01",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "recoveryOnlyCommitPreservesSessionCiphertext"
+  },
+  {
+   "id": "IT-FMT-01",
+   "file": "go/internal/protocolstate/codec_test.go",
+   "test": "TestDevicePreservesPrivateKeysAndAccount"
+  },
+  {
+   "id": "IT-FMT-01",
+   "file": "go/internal/protocolstate/codec_test.go",
+   "test": "TestRecordRoundTrips",
+   "note": "registros de protocolo se reconstruyen desde datos serializados"
+  },
+  {
+   "id": "IT-FMT-01",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testPendingRemainsReadableWithoutSessionKey"
+  },
+  {
+   "id": "IT-FMT-01",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testPublishedStateSurvivesReopenAndIgnoresNextFile"
+  },
+  {
+   "id": "IT-FMT-01",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testRecoveryOnlyCommitPreservesSessionCiphertext"
+  },
+  {
+   "id": "IT-FMT-02",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "malformedEnvelopeNeverPromotesTemporaryOrCreatesEmptyState"
+  },
+  {
+   "id": "IT-FMT-02",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testMalformedEnvelopeDoesNotBecomeEmptyInstall"
+  },
+  {
+   "id": "IT-FMT-03",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "invalidStateDoesNotAdvancePublishedRevision"
+  },
+  {
+   "id": "IT-FMT-03",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "pendingFormatAndIdentitySurviveRestartAndRejectIncoherence"
+  },
+  {
+   "id": "IT-FMT-03",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "strictJsonRejectsDuplicateKeysAndMalformedNumbers"
+  },
+  {
+   "id": "IT-FMT-03",
+   "file": "go/internal/protocolstate/codec_test.go",
+   "test": "TestRejectMalformedRecords"
+  },
+  {
+   "id": "IT-FMT-03",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testInvalidStateDoesNotAdvancePublishedRevision"
+  },
+  {
+   "id": "IT-FMT-03",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testPendingFormatAndIdentitySurviveRestartAndRejectIncoherence"
+  },
+  {
+   "id": "IT-FMT-03",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testStrictJsonRejectsDuplicateKeysAndMalformedNumbers"
+  },
+  {
+   "id": "IT-FMT-04",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "corruptedPublicationDoesNotBecomeEmptyInstallation"
+  },
+  {
+   "id": "IT-FMT-04",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "malformedEnvelopeNeverPromotesTemporaryOrCreatesEmptyState"
+  },
+  {
+   "id": "IT-FMT-04",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "sessionFieldsAreAuthenticatedIndependentlyOfRecoveryRevision"
+  },
+  {
+   "id": "IT-FMT-04",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testCorruptionNeverBecomesEmptyInstall"
+  },
+  {
+   "id": "IT-FMT-04",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testMalformedEnvelopeDoesNotBecomeEmptyInstall"
+  },
+  {
+   "id": "IT-FMT-04",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testSessionFieldsAreAuthenticatedIndependentlyOfRecoveryRevision"
+  },
+  {
+   "id": "IT-FMT-05",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "recoveryOnlyCommitPreservesSessionCiphertext"
+  },
+  {
+   "id": "IT-FMT-05",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestProtocolWriteAfterIndependentPendingConfirmation",
+   "note": "una confirmacion no toca la sesion"
+  },
+  {
+   "id": "IT-FMT-05",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testRecoveryOnlyCommitPreservesSessionCiphertext"
+  },
+  {
+   "id": "IT-FMT-07",
+   "file": "go/internal/protocolstate/codec_test.go",
+   "test": "TestDevicePreservesPrivateKeysAndAccount",
+   "note": "device con claves privadas y cuenta"
+  },
+  {
+   "id": "IT-FMT-07",
+   "file": "go/internal/protocolstate/codec_test.go",
+   "test": "TestRecordRoundTrips",
+   "note": "round-trip clave/valor de los 15 tipos de registro"
+  },
+  {
+   "id": "IT-FMT-07",
+   "file": "go/internal/protocolstate/codec_test.go",
+   "test": "TestRejectMalformedRecords",
+   "note": "duplicados, tipo desconocido, no canonico, mapping inverso contradictorio"
+  },
+  {
+   "id": "IT-FMT-07",
+   "file": "go/internal/protocolstate/codec_test.go",
+   "test": "TestRejectValueAndKeyBoundaries"
+  },
+  {
+   "id": "IT-FMT-08",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "pendingFormatAndIdentitySurviveRestartAndRejectIncoherence"
+  },
+  {
+   "id": "IT-FMT-08",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestPreparedPendingRejectsMalformedRecovery"
+  },
+  {
+   "id": "IT-FMT-08",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestReadRejectsMissingPendingOrdinal"
+  },
+  {
+   "id": "IT-FMT-08",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testPendingFormatAndIdentitySurviveRestartAndRejectIncoherence"
+  },
+  {
+   "id": "IT-FMT-09",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "pendingRemainsReadableWithoutSessionKey"
+  },
+  {
+   "id": "IT-FMT-09",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "storageKeysAreNonexportableAndDoNotRequirePerUseAuthentication"
+  },
+  {
+   "id": "IT-FMT-09",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testPendingRemainsReadableWithoutSessionKey"
+  },
+  {
+   "id": "IT-FMT-10",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "concurrentStoreInstancesCannotOverwriteAnOlderSnapshot"
+  },
+  {
+   "id": "IT-FMT-10",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "staleRevisionDoesNotReplacePublishedState"
+  },
+  {
+   "id": "IT-FMT-10",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestProtocolWriteAfterIndependentPendingConfirmation",
+   "note": "token de revision esperado"
+  },
+  {
+   "id": "IT-FMT-10",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testConcurrentStoreInstancesCannotOverwriteAnOlderSnapshot"
+  },
+  {
+   "id": "IT-FMT-10",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testStaleRevisionCannotReplacePublishedState"
+  },
+  {
+   "id": "IT-ID-05",
+   "file": "go/internal/identity/history_test.go",
+   "test": "TestClassifyHistoryFormatMatchesLiveRules",
+   "note": "PN pendiente/resuelto igual en historial y vivo"
+  },
+  {
+   "id": "IT-ID-05",
+   "file": "go/internal/normalization/normalization_test.go",
+   "test": "TestStableMessageIdentityAndVerifiedLID"
+  },
+  {
+   "id": "IT-ID-05",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestLIDDeviceMappingUsesAccountScopedKey"
+  },
+  {
+   "id": "IT-ID-05",
+   "file": "go/internal/receive/history_source_test.go",
+   "test": "TestHistoryPendingIdentityResolvesLikeLiveContent"
+  },
+  {
+   "id": "IT-IMG-08",
+   "file": "go/bridge/images_test.go",
+   "test": "TestB1DisconnectAndLogoutDoNotWaitForADownload",
+   "note": "Logout y Disconnect no esperan una descarga"
+  },
+  {
+   "id": "IT-IMG-13",
+   "file": "go/internal/images/service_test.go",
+   "test": "TestUTIMG14OrdersDownloadAndDeleteByAdmission",
+   "note": "descargas y borrados ordenados por admision"
+  },
+  {
+   "id": "IT-INI-01",
+   "file": "client.test.ts",
+   "test": "registers the consumer with native only once local storage is prepared",
+   "note": "initialize/listeners no llaman a connect"
+  },
+  {
+   "id": "IT-INI-01",
+   "file": "go/bridge/connection_test.go",
+   "test": "TestOpenConnectionPreparesFirstLinkWithoutNetworkOrStorageMutation"
+  },
+  {
+   "id": "IT-INI-01",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestWA12PreparedControllerConnectsOnceWhenRestoreAdoptsIt",
+   "note": "Prepare no conecta; connect posterior inicia un intento"
+  },
+  {
+   "id": "IT-INI-02",
+   "file": "client.test.ts",
+   "test": "initialization adopts a valid native QR without requesting another connection"
+  },
+  {
+   "id": "IT-INI-02",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestRepeatedPreparationAdoptsExistingConnection"
+  },
+  {
+   "id": "IT-INI-02",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestWA12PreparedControllerConnectsOnceWhenRestoreAdoptsIt"
+  },
+  {
+   "id": "IT-INI-03",
+   "file": "client.options.test.ts",
+   "test": "IT-CFG-08 serializes option changes"
+  },
+  {
+   "id": "IT-INI-03",
+   "file": "client.test.ts",
+   "test": "coalesces preparation, accepts connect before QR, and retries failed preparation",
+   "note": "initialize simultaneo comparte una sola llamada nativa"
+  },
+  {
+   "id": "IT-INI-03",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestRepeatedPreparationAdoptsExistingConnection"
+  },
+  {
+   "id": "IT-INI-04",
+   "file": "client.options.test.ts",
+   "test": "IT-CFG-04/08 an uncertain answer forces a new native initialization instead of assuming either options"
+  },
+  {
+   "id": "IT-INI-04",
+   "file": "client.test.ts",
+   "test": "coalesces preparation, accepts connect before QR, and retries failed preparation",
+   "note": "tras fallo, initialize vuelve a llamar a native"
+  },
+  {
+   "id": "IT-INI-04",
+   "file": "client.test.ts",
+   "test": "failed option update requires a fresh native initialization"
+  },
+  {
+   "id": "IT-INI-06",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "corruptedPublicationDoesNotBecomeEmptyInstallation"
+  },
+  {
+   "id": "IT-INI-06",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "establishedStateNeverRegeneratesMissingFileOrKeys"
+  },
+  {
+   "id": "IT-INI-06",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "malformedEnvelopeNeverPromotesTemporaryOrCreatesEmptyState"
+  },
+  {
+   "id": "IT-INI-06",
+   "file": "client.test.ts",
+   "test": "keeps local confirmation available for invalid session and validates inputs before mutation"
+  },
+  {
+   "id": "IT-INI-06",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestEmptyReadAndReadFailure",
+   "note": "una lectura fallida no es vacia"
+  },
+  {
+   "id": "IT-INI-06",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testCorruptionNeverBecomesEmptyInstall"
+  },
+  {
+   "id": "IT-INI-06",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testEstablishedStateNeverRegeneratesMissingFileOrKeychainRecord"
+  },
+  {
+   "id": "IT-INI-06",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testMalformedEnvelopeDoesNotBecomeEmptyInstall"
+  },
+  {
+   "id": "IT-KEY-01",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "creatingRecordRemovesPartialTemporaryBeforeReusingRecoveryKey"
+  },
+  {
+   "id": "IT-KEY-01",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "interruptedCreationResumesWithoutPromotingPreparation"
+  },
+  {
+   "id": "IT-KEY-01",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testCreatingRecordRemovesPartialTemporaryBeforeReusingRecoveryKey"
+  },
+  {
+   "id": "IT-KEY-01",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testInterruptedCreationResumes"
+  },
+  {
+   "id": "IT-KEY-02",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "creatingRecordRemovesPartialTemporaryBeforeReusingRecoveryKey"
+  },
+  {
+   "id": "IT-KEY-02",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "interruptedCreationResumesWithoutPromotingPreparation"
+  },
+  {
+   "id": "IT-KEY-02",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testCreatingRecordRemovesPartialTemporaryBeforeReusingRecoveryKey"
+  },
+  {
+   "id": "IT-KEY-02",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testInterruptedCreationResumes"
+  },
+  {
+   "id": "IT-KEY-03",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "creatingRecordRemovesPartialTemporaryBeforeReusingRecoveryKey"
+  },
+  {
+   "id": "IT-KEY-03",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testCreatingRecordRemovesPartialTemporaryBeforeReusingRecoveryKey"
+  },
+  {
+   "id": "IT-KEY-04",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "interruptedCreationResumesWithoutPromotingPreparation"
+  },
+  {
+   "id": "IT-KEY-04",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testInterruptedCreationResumes"
+  },
+  {
+   "id": "IT-KEY-05",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "corruptedPublicationDoesNotBecomeEmptyInstallation"
+  },
+  {
+   "id": "IT-KEY-05",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "establishedStateNeverRegeneratesMissingFileOrKeys"
+  },
+  {
+   "id": "IT-KEY-05",
+   "file": "go/bridge/capacity_test.go",
+   "test": "TestStorageFailureDoesNotSilentlyRebuild"
+  },
+  {
+   "id": "IT-KEY-05",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestEmptyReadAndReadFailure"
+  },
+  {
+   "id": "IT-KEY-05",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testCorruptionNeverBecomesEmptyInstall"
+  },
+  {
+   "id": "IT-KEY-05",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testEstablishedStateNeverRegeneratesMissingFileOrKeychainRecord"
+  },
+  {
+   "id": "IT-KEY-06",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "interruptedRetirementCompletesBeforeAnotherSession"
+  },
+  {
+   "id": "IT-KEY-06",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "provisionalSessionRecoveryKeepsOnlyPublishedSession"
+  },
+  {
+   "id": "IT-KEY-06",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "sameWriterRetryRemovesOnlyItsUnpublishedSessionKey"
+  },
+  {
+   "id": "IT-KEY-06",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testInterruptedRetirementCompletesBeforeAnotherSession"
+  },
+  {
+   "id": "IT-KEY-06",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testProvisionalSessionRecoveryKeepsOnlyPublishedSession"
+  },
+  {
+   "id": "IT-KEY-06",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testSameWriterRetryRemovesOnlyItsUnpublishedSessionKey"
+  },
+  {
+   "id": "IT-KEY-07",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "lostProvisionalRecordResponseForcesSameWriterReadback"
+  },
+  {
+   "id": "IT-KEY-07",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testLostProvisionalRecordResponseForcesSameWriterReadback"
+  },
+  {
+   "id": "IT-KEY-08",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "storageKeysAreNonexportableAndDoNotRequirePerUseAuthentication"
+  },
+  {
+   "id": "IT-KEY-09",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testInjectedPublicationFailuresPreserveAReadableRevision"
+  },
+  {
+   "id": "IT-KEY-09",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testPublishedStateSurvivesReopenAndIgnoresNextFile"
+  },
+  {
+   "id": "IT-KEY-10",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "revisionsAndAccountIdsRequireCanonicalForms"
+  },
+  {
+   "id": "IT-KEY-10",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testPublishedStateSurvivesReopenAndIgnoresNextFile"
+  },
+  {
+   "id": "IT-KEY-10",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testRevisionsAndAccountIdsRequireCanonicalForms"
+  },
+  {
+   "id": "IT-MSG-01",
+   "file": "go/internal/normalization/normalization_test.go",
+   "test": "TestLiveAndHistoricalFixturesShareContract"
+  },
+  {
+   "id": "IT-MSG-01",
+   "file": "go/internal/receive/history_admission_test.go",
+   "test": "TestITHIS01AdmitsTheWholeBatchAndItsChangesBeforeEmitting",
+   "note": "historial admitido y emitido"
+  },
+  {
+   "id": "IT-MSG-02",
+   "file": "go/internal/history/prepare_test.go",
+   "test": "TestUTHIS02ExcludesOutOfScopeWithoutFailing"
+  },
+  {
+   "id": "IT-MSG-02",
+   "file": "go/internal/normalization/normalization_test.go",
+   "test": "TestExcludedFixtures"
+  },
+  {
+   "id": "IT-MSG-02",
+   "file": "go/internal/protocolstore/ledger_test.go",
+   "test": "TestExcludedContentStagesOnlyRetryMarker",
+   "note": "exclusion conserva escritura de protocolo/marca de reintento"
+  },
+  {
+   "id": "IT-MSG-07",
+   "file": "go/internal/normalization/normalization_test.go",
+   "test": "TestUTMSG07InvalidTimestampBecomesUnknownDateAndKeepsTheContent"
+  },
+  {
+   "id": "IT-MSG-08",
+   "file": "go/internal/images/service_test.go",
+   "test": "TestITIMG07RejectsInvalidIntegrityOrMIME",
+   "note": "MIME indeterminable no es exito"
+  },
+  {
+   "id": "IT-MSG-08",
+   "file": "go/internal/images/service_test.go",
+   "test": "TestUTIMG04UnavailableForIncompleteOrExpired",
+   "note": "datos insuficientes -> IMAGE_UNAVAILABLE"
+  },
+  {
+   "id": "IT-MSG-08",
+   "file": "go/internal/normalization/normalization_test.go",
+   "test": "TestImageFixtureAndDescriptor"
+  },
+  {
+   "id": "IT-MSG-09",
+   "file": "go/internal/history/prepare_test.go",
+   "test": "TestUTHIS02ExcludesOutOfScopeWithoutFailing"
+  },
+  {
+   "id": "IT-MSG-09",
+   "file": "go/internal/normalization/normalization_test.go",
+   "test": "TestOldHistoryIsNotFilteredByAge"
+  },
+  {
+   "id": "IT-MSG-09",
+   "file": "go/internal/receive/history_admission_test.go",
+   "test": "TestITHIS01AdmitsTheWholeBatchAndItsChangesBeforeEmitting"
+  },
+  {
+   "id": "IT-OUT-02",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "interruptedRetirementCompletesBeforeAnotherSession",
+   "note": "retirada nativa de la sesion (no ejecutada)"
+  },
+  {
+   "id": "IT-OUT-02",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testInterruptedRetirementCompletesBeforeAnotherSession",
+   "note": "retirada nativa de la sesion (no ejecutada)"
+  },
+  {
+   "id": "IT-OUT-04",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "interruptedRetirementCompletesBeforeAnotherSession",
+   "note": "reinicio tras fallo en cada fase de retiro"
+  },
+  {
+   "id": "IT-OUT-04",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testInterruptedRetirementCompletesBeforeAnotherSession"
+  },
+  {
+   "id": "IT-PRO-01",
+   "file": "go/internal/protocolstore/receive_test.go",
+   "test": "TestCapturedReceiveCommitsRecoveryWithSignalState",
+   "note": "copia metadatos y ambos hijos v2/v3 sin punteros prestados"
+  },
+  {
+   "id": "IT-PRO-01",
+   "file": "go/internal/protocolstore/receive_test.go",
+   "test": "TestCapturedReceiveResolvesSenderBeforeProtocolStage"
+  },
+  {
+   "id": "IT-PRO-02",
+   "file": "go/internal/connection/receiving_test.go",
+   "test": "TestHandlerResultGatesDispatchAndStopsWithRun",
+   "note": "permiso de ACK denegado hace fallar el despacho"
+  },
+  {
+   "id": "IT-PRO-02",
+   "file": "go/internal/protocolstore/receive_test.go",
+   "test": "TestPostDecryptWriteFailureDoesNotPublishPendingOrSignal",
+   "note": "fallo local marcado, sin publicar, detiene generacion"
+  },
+  {
+   "id": "IT-PRO-03",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestRollbackAndStickyMutationError",
+   "note": "error de protocolo puro no se reclasifica como disco (StopReason nil)"
+  },
+  {
+   "id": "IT-PRO-04",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestNativeApplyPanicStopsAndReadsBack"
+  },
+  {
+   "id": "IT-PRO-04",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestTxnPanicStopsWithoutPublishing",
+   "note": "panic en transaccion: nada publicado, generacion detenida"
+  },
+  {
+   "id": "IT-PRO-05",
+   "file": "go/internal/connection/receiving_test.go",
+   "test": "TestDecryptMessagesRunsCaptureAndFinishedHooks",
+   "note": "Finished se reporta una vez en DecryptMessages real (ruta de fallo)"
+  },
+  {
+   "id": "IT-PRO-06",
+   "file": "go/internal/protocolstore/interfaces_test.go",
+   "test": "TestDeviceAttachesOnlyAfterDurableSave"
+  },
+  {
+   "id": "IT-PRO-06",
+   "file": "go/internal/protocolstore/receive_test.go",
+   "test": "TestPostDecryptWriteFailureDoesNotPublishPendingOrSignal",
+   "note": "fallo de secreto post-descifrado"
+  },
+  {
+   "id": "IT-PRO-06",
+   "file": "go/internal/protocolstore/recovery_aux_test.go",
+   "test": "TestFatalRecoveryAuxiliaryWritesJoinPendingTransaction",
+   "note": "fallo de contacto/NCT salt revierte todo; app-state, push name"
+  },
+  {
+   "id": "IT-PRO-07",
+   "file": "go/internal/protocolstore/recovery_aux_test.go",
+   "test": "TestFatalRecoveryAuxiliaryWritesJoinPendingTransaction",
+   "note": "procesamiento recuperable (app-state fatal) se completa en la transaccion antes de publicar el pendiente"
+  },
+  {
+   "id": "IT-STO-01",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "injectedPublicationFailuresPreserveAReadableRevision"
+  },
+  {
+   "id": "IT-STO-01",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "publishedStateSurvivesRestartAndIgnoresPreparation"
+  },
+  {
+   "id": "IT-STO-01",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestExternalWriteWaitsAndConfirmDoesNotConflict",
+   "note": "Go no devuelve antes de que el callback nativo termine"
+  },
+  {
+   "id": "IT-STO-01",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testInjectedPublicationFailuresPreserveAReadableRevision"
+  },
+  {
+   "id": "IT-STO-01",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testProtocolCallbackUsesRegisteredGenerationAndDurableRevision"
+  },
+  {
+   "id": "IT-STO-01",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testPublishedStateSurvivesReopenAndIgnoresNextFile"
+  },
+  {
+   "id": "IT-STO-02",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "injectedPublicationFailuresPreserveAReadableRevision"
+  },
+  {
+   "id": "IT-STO-02",
+   "file": "go/bridge/capacity_test.go",
+   "test": "TestStorageFailureDoesNotSilentlyRebuild",
+   "note": "la generacion queda detenida tras STORAGE_FAILED"
+  },
+  {
+   "id": "IT-STO-02",
+   "file": "go/internal/protocolstore/receive_test.go",
+   "test": "TestPostDecryptWriteFailureDoesNotPublishPendingOrSignal"
+  },
+  {
+   "id": "IT-STO-02",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testInjectedPublicationFailuresPreserveAReadableRevision"
+  },
+  {
+   "id": "IT-STO-03",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "uncertainPublicationIsRereadBeforeNextMutation"
+  },
+  {
+   "id": "IT-STO-03",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestDurableCallbackAndUncertainCommit",
+   "note": "respuesta perdida/malformada: relectura y sin reintento ciego"
+  },
+  {
+   "id": "IT-STO-03",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestNativeApplyPanicStopsAndReadsBack"
+  },
+  {
+   "id": "IT-STO-03",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testUncertainPublicationIsRereadBeforeNextMutation"
+  },
+  {
+   "id": "IT-STO-04",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreCrashInstrumentedTest.kt",
+   "test": "crashAtPublicationBoundary",
+   "note": "mata el proceso en cada frontera; solo se arma via scripts/check-android-probe.sh"
+  },
+  {
+   "id": "IT-STO-04",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreCrashInstrumentedTest.kt",
+   "test": "recoverAfterPublicationCrash"
+  },
+  {
+   "id": "IT-STO-04",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "publishedStateSurvivesRestartAndIgnoresPreparation"
+  },
+  {
+   "id": "IT-STO-04",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testProcessCrashMatrix"
+  },
+  {
+   "id": "IT-STO-05",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "enospcDuringSecondCopyKeepsPublishedState"
+  },
+  {
+   "id": "IT-STO-05",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "realFilesystemFailureCannotReplacePublishedState"
+  },
+  {
+   "id": "IT-STO-05",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testActualENOSPCOnBoundedVolume"
+  },
+  {
+   "id": "IT-STO-05",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testRealFilesystemFailureCannotReplacePublishedState"
+  },
+  {
+   "id": "IT-STO-06",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "exactlySixteenMiBValidSessionRestores"
+  },
+  {
+   "id": "IT-STO-06",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "oversizedRestoredSessionStillAllowsPendingToDrain"
+  },
+  {
+   "id": "IT-STO-06",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "oversizedSessionCannotPublishOrPruneState"
+  },
+  {
+   "id": "IT-STO-06",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestCapacityRejectionStopsGeneration",
+   "note": "Go: SESSION_FULL detiene la generacion (presupuesto Go)"
+  },
+  {
+   "id": "IT-STO-06",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testExactlySixteenMiBSerializedSessionRestores"
+  },
+  {
+   "id": "IT-STO-06",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testOversizedRestoredSessionStillAllowsPendingToDrain"
+  },
+  {
+   "id": "IT-STO-06",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testOversizedSessionCannotPublishOrPruneState"
+  },
+  {
+   "id": "IT-STO-07",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "concurrentStoreInstancesCannotOverwriteAnOlderSnapshot"
+  },
+  {
+   "id": "IT-STO-07",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "logoutCannotDiscardAPendingCommitFromAnotherWriter"
+  },
+  {
+   "id": "IT-STO-07",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "retainedCommitCallbackObjectsCannotMutatePublishedState"
+  },
+  {
+   "id": "IT-STO-07",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestExternalWriteWaitsAndConfirmDoesNotConflict"
+  },
+  {
+   "id": "IT-STO-07",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestProtocolWriteAfterIndependentPendingConfirmation",
+   "note": "confirmacion nativa no provoca falso conflicto en Go"
+  },
+  {
+   "id": "IT-STO-07",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testConcurrentStoreInstancesCannotOverwriteAnOlderSnapshot"
+  },
+  {
+   "id": "IT-STO-08",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "creatingRecordRemovesPartialTemporaryBeforeReusingRecoveryKey"
+  },
+  {
+   "id": "IT-STO-08",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "publishedStateSurvivesRestartAndIgnoresPreparation"
+  },
+  {
+   "id": "IT-STO-08",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testCreatingRecordRemovesPartialTemporaryBeforeReusingRecoveryKey"
+  },
+  {
+   "id": "IT-STO-08",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testPublishedStateSurvivesReopenAndIgnoresNextFile"
+  },
+  {
+   "id": "UT-API-03",
+   "file": "client.test.ts",
+   "test": "coalesces preparation, accepts connect before QR, and retries failed preparation",
+   "note": "ok(undefined) tras connect y codigo SESSION_STORAGE_FAILED conservado"
+  },
+  {
+   "id": "UT-API-03",
+   "file": "client.test.ts",
+   "test": "remote logout uncertainty still permits a new explicit link request",
+   "note": "conserva REMOTE_LOGOUT_UNCONFIRMED"
+  },
+  {
+   "id": "UT-API-03",
+   "file": "client.test.ts",
+   "test": "simultaneous logout calls share one native call and result"
+  },
+  {
+   "id": "UT-API-06",
+   "file": "client.test.ts",
+   "test": "keeps local confirmation available for invalid session and validates inputs before mutation",
+   "note": "confirmMessageStored('bad') no llega a native"
+  },
+  {
+   "id": "UT-API-06",
+   "file": "client.test.ts",
+   "test": "private image files UT-IMG-02: rejects malformed references before native is called"
+  },
+  {
+   "id": "UT-BRG-04",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "protocolCallbackRequiresRegisteredGenerationAndPublishesRevision",
+   "note": "equivalente Android (instrumentada)"
+  },
+  {
+   "id": "UT-BRG-04",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "revisionsAndAccountIdsRequireCanonicalForms"
+  },
+  {
+   "id": "UT-BRG-04",
+   "file": "go/bridge/bridge_test.go",
+   "test": "TestPureNativeAdmissionUsesCompleteCodec",
+   "note": "admision nativa rechaza claves/tipos no canonicos"
+  },
+  {
+   "id": "UT-BRG-04",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testFreshProtocolRejectsIncompleteDeviceWithoutPublishing"
+  },
+  {
+   "id": "UT-BRG-04",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testProtocolCallbackUsesRegisteredGenerationAndDurableRevision",
+   "note": "generacion no registrada, revision esperada, prekey y tupla invalidas, generacion retirada (nativa, no ejecutable aqui)"
+  },
+  {
+   "id": "UT-BRG-04",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testRevisionsAndAccountIdsRequireCanonicalForms"
+  },
+  {
+   "id": "UT-BRG-05",
+   "file": "go/bridge/capacity_test.go",
+   "test": "TestResumeAfterCapacityStopReopensTheLatchedStore",
+   "note": "BUFFER_FULL -> RECOVERY_BUFFER_FULL"
+  },
+  {
+   "id": "UT-BRG-05",
+   "file": "go/bridge/capacity_test.go",
+   "test": "TestStorageFailureDoesNotSilentlyRebuild",
+   "note": "STORAGE_FAILED -> SESSION_STORAGE_FAILED"
+  },
+  {
+   "id": "UT-BRG-05",
+   "file": "go/bridge/connection_test.go",
+   "test": "TestFailedFirstLinkExposesStorageHealth",
+   "note": "SESSION_FULL -> SESSION_STORAGE_LIMIT_REACHED"
+  },
+  {
+   "id": "UT-BRG-05",
+   "file": "go/bridge/connection_test.go",
+   "test": "TestOpenConnectionRejectsInvalidStorageAndSession",
+   "note": "STATE_INVALID -> SESSION_STATE_INVALID"
+  },
+  {
+   "id": "UT-BRG-05",
+   "file": "go/internal/protocolstore/interfaces_test.go",
+   "test": "TestResponseValidationAndNativeCodes",
+   "note": "los 7 codigos internos llegan tipados al store"
+  },
+  {
+   "id": "UT-CON-01",
+   "file": "client.test.ts",
+   "test": "coalesces preparation, accepts connect before QR, and retries failed preparation"
+  },
+  {
+   "id": "UT-CON-01",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestConnectAcceptsBeforeQRAndDoesNotDuplicate",
+   "note": "Connect devuelve vacio y el estado es connecting, no connected"
+  },
+  {
+   "id": "UT-CON-02",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestConnectAcceptsBeforeQRAndDoesNotDuplicate",
+   "note": "dos Connect, un solo transporte creado"
+  },
+  {
+   "id": "UT-CON-02",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestWA12PreparedControllerConnectsOnceWhenRestoreAdoptsIt"
+  },
+  {
+   "id": "UT-CON-03",
+   "file": "client.resume.test.ts",
+   "test": "IT-IOS-01 suspension and resumption a QR shown before suspension is dropped and a late QR from that attempt is ignored"
+  },
+  {
+   "id": "UT-CON-03",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestConnectAcceptsBeforeQRAndDoesNotDuplicate",
+   "note": "QR sustituido y vencido deja de ser vigente"
+  },
+  {
+   "id": "UT-CON-03",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestExpiredQueuedQRIsNotPublished"
+  },
+  {
+   "id": "UT-CON-03",
+   "file": "go/internal/connection/suspend_test.go",
+   "test": "TestITIOS01SuspendedQRIsNotCurrentAndUnpairedResumeConnectsAgain",
+   "note": "salir de awaitingQr invalida el QR"
+  },
+  {
+   "id": "UT-CON-03",
+   "file": "go/internal/connection/whatsmeow_test.go",
+   "test": "TestDelayedQRConsumptionKeepsProducerExpiry",
+   "note": "conserva el vencimiento real del productor"
+  },
+  {
+   "id": "UT-CON-04",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestNetworkDeadlineRetriesAndLocalFaultWins"
+  },
+  {
+   "id": "UT-CON-04",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestQRScanExcludesWaitFromAuthenticationDeadline"
+  },
+  {
+   "id": "UT-CON-04",
+   "file": "go/internal/connection/socket_ownership_test.go",
+   "test": "TestHandoffKeepsClientAndOriginalDeadline",
+   "note": "frontera de 29 s y 31 s"
+  },
+  {
+   "id": "UT-CON-05",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestBackoffSequenceCapsAndResetsAfterConnection"
+  },
+  {
+   "id": "UT-CON-07",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestStopRejectsLateEventsAndRevocationBlocksRelink",
+   "note": "sessionExpired, Connect devuelve SESSION_EXPIRED hasta RetiredSession"
+  },
+  {
+   "id": "UT-CON-07",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestWA12RevokedControllerIsNotRetried"
+  },
+  {
+   "id": "UT-CON-08",
+   "file": "go/bridge/delivery_test.go",
+   "test": "TestITSUB06And08FailedCallbackKeepsPendingAndStopsReception",
+   "note": "consumidor ausente detiene la recepcion"
+  },
+  {
+   "id": "UT-CON-08",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestCapacityPauseResumesOnlyRequestedConnection",
+   "note": "capacidad distinta de red"
+  },
+  {
+   "id": "UT-CON-08",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestNetworkDeadlineRetriesAndLocalFaultWins",
+   "note": "FailLocal(almacenamiento) gana y no reintenta"
+  },
+  {
+   "id": "UT-EVT-01",
+   "file": "client.test.ts",
+   "test": "replays only current state and unexpired QR to each new listener"
+  },
+  {
+   "id": "UT-EVT-01",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestWA12PreparedControllerConnectsOnceWhenRestoreAdoptsIt",
+   "note": "Prepare con sesion deja Disconnected, no connected"
+  },
+  {
+   "id": "UT-EVT-02",
+   "file": "client.test.ts",
+   "test": "keeps local confirmation available for invalid session and validates inputs before mutation",
+   "note": "sesion invalida: connect devuelve SESSION_STATE_INVALID"
+  },
+  {
+   "id": "UT-EVT-02",
+   "file": "client.test.ts",
+   "test": "replays only current state and unexpired QR to each new listener",
+   "note": "tras initialize el listener nuevo recibe el estado vigente"
+  },
+  {
+   "id": "UT-EVT-03",
+   "file": "client.resume.test.ts",
+   "test": "IT-IOS-01 suspension and resumption a QR shown before suspension is dropped and a late QR from that attempt is ignored"
+  },
+  {
+   "id": "UT-EVT-03",
+   "file": "client.test.ts",
+   "test": "initialization adopts a valid native QR without requesting another connection"
+  },
+  {
+   "id": "UT-EVT-03",
+   "file": "client.test.ts",
+   "test": "replays only current state and unexpired QR to each new listener",
+   "note": "QR vigente se reproduce; con now==expiresAt ya no"
+  },
+  {
+   "id": "UT-EVT-03",
+   "file": "go/internal/connection/controller_test.go",
+   "test": "TestConnectAcceptsBeforeQRAndDoesNotDuplicate"
+  },
+  {
+   "id": "UT-EVT-04",
+   "file": "client.test.ts",
+   "test": "drops stale queued replay and rejects malformed events",
+   "note": "estado en cola descartado si cambia antes de entregarse"
+  },
+  {
+   "id": "UT-EVT-05",
+   "file": "client.test.ts",
+   "test": "replays only current state and unexpired QR to each new listener",
+   "note": "la reproduccion llega solo al listener nuevo; el anterior no se invoca"
+  },
+  {
+   "id": "UT-EVT-06",
+   "file": "client.test.ts",
+   "test": "removing one registration keeps an identical callback registered elsewhere"
+  },
+  {
+   "id": "UT-EVT-06",
+   "file": "client.test.ts",
+   "test": "subscribing after disconnect or logout requests no network and keeps the stop",
+   "note": "agregar un listener no llama a connect"
+  },
+  {
+   "id": "UT-FMT-02",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "malformedEnvelopeNeverPromotesTemporaryOrCreatesEmptyState"
+  },
+  {
+   "id": "UT-FMT-02",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testMalformedEnvelopeDoesNotBecomeEmptyInstall"
+  },
+  {
+   "id": "UT-FMT-03",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "pendingFormatAndIdentitySurviveRestartAndRejectIncoherence"
+  },
+  {
+   "id": "UT-FMT-03",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "strictJsonRejectsDuplicateKeysAndMalformedNumbers"
+  },
+  {
+   "id": "UT-FMT-03",
+   "file": "go/internal/protocolstate/codec_test.go",
+   "test": "TestRejectMalformedRecords",
+   "note": "sobre de sesion Go: campos duplicados/desconocidos, UTF-8 invalido, Base64 no canonico y expansion excesiva"
+  },
+  {
+   "id": "UT-FMT-03",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testPendingFormatAndIdentitySurviveRestartAndRejectIncoherence"
+  },
+  {
+   "id": "UT-FMT-03",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testStrictJsonRejectsDuplicateKeysAndMalformedNumbers"
+  },
+  {
+   "id": "UT-FMT-06",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "pendingFormatAndIdentitySurviveRestartAndRejectIncoherence"
+  },
+  {
+   "id": "UT-FMT-06",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "revisionsAndAccountIdsRequireCanonicalForms"
+  },
+  {
+   "id": "UT-FMT-06",
+   "file": "go/internal/protocolstate/codec_test.go",
+   "test": "TestRejectMalformedRecords",
+   "note": "solo la parte de expansion Base64 excesiva"
+  },
+  {
+   "id": "UT-FMT-06",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testPendingFormatAndIdentitySurviveRestartAndRejectIncoherence"
+  },
+  {
+   "id": "UT-FMT-06",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testRevisionsAndAccountIdsRequireCanonicalForms"
+  },
+  {
+   "id": "UT-FMT-07",
+   "file": "go/internal/protocolstate/codec_test.go",
+   "test": "TestDevicePreservesPrivateKeysAndAccount",
+   "note": "device con claves privadas y cuenta"
+  },
+  {
+   "id": "UT-FMT-07",
+   "file": "go/internal/protocolstate/codec_test.go",
+   "test": "TestRecordRoundTrips",
+   "note": "round-trip clave/valor de los 15 tipos de registro"
+  },
+  {
+   "id": "UT-FMT-07",
+   "file": "go/internal/protocolstate/codec_test.go",
+   "test": "TestRejectMalformedRecords",
+   "note": "duplicados, tipo desconocido, no canonico, mapping inverso contradictorio"
+  },
+  {
+   "id": "UT-FMT-07",
+   "file": "go/internal/protocolstate/codec_test.go",
+   "test": "TestRejectValueAndKeyBoundaries"
+  },
+  {
+   "id": "UT-FMT-08",
+   "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
+   "test": "pendingFormatAndIdentitySurviveRestartAndRejectIncoherence"
+  },
+  {
+   "id": "UT-FMT-08",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestPreparedPendingRejectsMalformedRecovery",
+   "note": "Go rechaza hijo v2 sin hash"
+  },
+  {
+   "id": "UT-FMT-08",
+   "file": "go/internal/protocolstore/store_test.go",
+   "test": "TestReadRejectsMissingPendingOrdinal",
+   "note": "Go rechaza pendiente sin ordinal"
+  },
+  {
+   "id": "UT-FMT-08",
+   "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
+   "test": "testPendingFormatAndIdentitySurviveRestartAndRejectIncoherence"
+  },
+  {
+   "id": "UT-ID-01",
+   "file": "go/internal/normalization/normalization_test.go",
+   "test": "TestStableMessageIdentityAndVerifiedLID",
+   "note": "timestamp, texto, imagen y direccion no alteran message.id"
+  },
+  {
+   "id": "UT-ID-01",
+   "file": "go/internal/receive/ordering_test.go",
+   "test": "TestITDEL05CrashAfterRetirementBeforeAckKeepsProtocolAndAllowsIdempotentRedelivery",
+   "note": "mismo message.id tras reinicio"
+  },
+  {
+   "id": "UT-ID-02",
+   "file": "go/internal/normalization/normalization_test.go",
+   "test": "TestMessageIDRejectsLossyIdentity",
+   "note": "conserva mayusculas/contenido no ASCII"
+  },
+  {
+   "id": "UT-ID-02",
+   "file": "go/internal/normalization/normalization_test.go",
+   "test": "TestStableMessageIdentityAndVerifiedLID",
+   "note": "cuenta/chat/ID distintos y separadores a:b vs a|b"
+  },
+  {
+   "id": "UT-ID-03",
+   "file": "go/internal/normalization/normalization_test.go",
+   "test": "TestStableMessageIdentityAndVerifiedLID",
+   "note": "tupla JSON compacta, prefijo y base64url sin padding, JIDs como string"
+  },
+  {
+   "id": "UT-ID-04",
+   "file": "go/internal/normalization/normalization_test.go",
+   "test": "TestDeliveryIDCollisionAndFailures",
+   "note": "colision con pendiente se descarta y se reintenta"
+  },
+  {
+   "id": "UT-ID-04",
+   "file": "go/internal/receive/ordering_test.go",
+   "test": "TestITDEL03CrashBeforeConsumerCommitReemitsSameIDsWithoutReplay",
+   "note": "replay conserva deliveryId"
+  },
+  {
+   "id": "UT-ID-04",
+   "file": "go/internal/receive/ordering_test.go",
+   "test": "TestITDEL05CrashAfterRetirementBeforeAckKeepsProtocolAndAllowsIdempotentRedelivery",
+   "note": "tras confirmar, nuevo deliveryId con mismo message.id"
+  },
+  {
+   "id": "UT-ID-05",
+   "file": "go/internal/identity/history_test.go",
+   "test": "TestClassifyHistoryFormatMatchesLiveRules"
+  },
+  {
+   "id": "UT-ID-05",
+   "file": "go/internal/normalization/normalization_test.go",
+   "test": "TestStableMessageIdentityAndVerifiedLID",
+   "note": "retira dispositivo, PN sin mapping queda sin resolver, con mapping verificado resuelve"
+  },
+  {
+   "id": "UT-MSG-01",
+   "file": "go/internal/normalization/normalization_test.go",
+   "test": "TestLiveAndHistoricalFixturesShareContract",
+   "note": "texto/imagen x incoming/outgoing x historial/vivo"
+  },
+  {
+   "id": "UT-MSG-02",
+   "file": "go/internal/normalization/normalization_test.go",
+   "test": "TestExcludedFixtures",
+   "note": "grupo, view-once, edicion, borrado, reaccion, video, audio, documento, sticker, vacio"
+  },
+  {
+   "id": "UT-MSG-02",
+   "file": "go/internal/normalization/normalization_test.go",
+   "test": "TestParsedWrappedHistoricalEditExcluded"
+  },
+  {
+   "id": "UT-MSG-03",
+   "file": "go/internal/normalization/normalization_test.go",
+   "test": "TestExcludedFixtures",
+   "note": "texto vacio no genera entrega"
+  },
+  {
+   "id": "UT-MSG-03",
+   "file": "go/internal/normalization/normalization_test.go",
+   "test": "TestImageFixtureAndDescriptor",
+   "note": "imagen sin caption omite text"
+  },
+  {
+   "id": "UT-MSG-03",
+   "file": "go/internal/normalization/normalization_test.go",
+   "test": "TestLiveAndHistoricalFixturesShareContract",
+   "note": "conserva espacios y caption en text"
+  },
+  {
+   "id": "UT-MSG-04",
+   "file": "go/internal/normalization/normalization_test.go",
+   "test": "TestOwnContentOfQuoteForwardAndEphemeral"
+  },
+  {
+   "id": "UT-MSG-05",
+   "file": "go/internal/normalization/normalization_test.go",
+   "test": "TestExcludedFixtures",
+   "note": "edit y delete no generan entrega; edicion normal de historial se entrega"
+  },
+  {
+   "id": "UT-MSG-05",
+   "file": "go/internal/normalization/normalization_test.go",
+   "test": "TestParsedWrappedHistoricalEditExcluded"
+  },
+  {
+   "id": "UT-MSG-05",
+   "file": "go/internal/normalization/normalization_test.go",
+   "test": "TestRawEditInspectionBoundary"
+  },
+  {
+   "id": "UT-MSG-06",
+   "file": "go/internal/normalization/normalization_test.go",
+   "test": "TestOwnContentOfQuoteForwardAndEphemeral",
+   "note": "efimero admitido sin metadatos de expiracion"
+  },
+  {
+   "id": "UT-MSG-07",
+   "file": "go/internal/normalization/normalization_test.go",
+   "test": "TestUTMSG07InvalidTimestampBecomesUnknownDateAndKeepsTheContent",
+   "note": "timestamp cero, negativo o fuera de rango -> fecha desconocida (sin clave), contenido intacto"
+  },
+  {
+   "id": "UT-MSG-08",
+   "file": "go/internal/normalization/normalization_test.go",
+   "test": "TestImageFixtureAndDescriptor",
+   "note": "sin MIME/tamano/descarga: conserva referencia opaca valida"
+  },
+  {
+   "id": "UT-MSG-09",
+   "file": "go/internal/history/prepare_test.go",
+   "test": "TestUTHIS02ExcludesOutOfScopeWithoutFailing",
+   "note": "imagen queda como descriptor, sin descarga"
+  },
+  {
+   "id": "UT-MSG-09",
+   "file": "go/internal/normalization/normalization_test.go",
+   "test": "TestOldHistoryIsNotFilteredByAge",
+   "note": "mensaje de 1970 no se filtra por antiguedad"
+  },
+  {
+   "id": "IT-MSG-07",
+   "file": "client.test.ts",
+   "test": "IT-MSG-07 a message with an unknown date a %s timestamp passes validation and reaches the consumer with no date",
+   "note": "Zod: ausente o null llega al consumidor sin fecha"
+  },
+  {
+   "id": "IT-MSG-07",
+   "file": "client.test.ts",
+   "test": "IT-MSG-07 a message with an unknown date %p is not a date and not an unknown marker: the delivery is refused"
+  }
+ ],
+ "gaps": [
+  {
+   "id": "IT-AND-11",
+   "note": "Doze, ahorro de bateria, perdida de red y muerte del proceso solo se observan en un dispositivo o emulador Android: manual y fuera de alcance, sin prueba automatizada."
+  },
+  {
+   "id": "IT-API-01",
+   "note": "Solo con resolvedor de modulo nulo en Jest; no se ejecuta en un build real sin el modulo, Expo Go ni plataforma no soportada."
+  },
+  {
+   "id": "IT-API-02",
+   "note": "El retiro de listeners antes de inicializar no se prueba en esta prueba de NOT_INITIALIZED; solo con cliente TypeScript y modulo simulado, no se prueba en las fachadas nativas."
+  },
+  {
+   "id": "IT-API-03",
+   "note": "Cadena completa Result/evento solo con piezas por separado (cliente simulado y controlador Go); no hay prueba nativa que una connect aceptado y su error posterior de punta a punta."
+  },
+  {
+   "id": "IT-API-04",
+   "note": "Solo la fachada TypeScript con eventos simulados; el rechazo en Kotlin/Swift/Go de JSON o version incompatible y que un evento invalido no confirme la entrega ni borre estado no tiene prueba propia aqui."
+  },
+  {
+   "id": "IT-API-05",
+   "note": "Solo la excepcion en la fachada TypeScript; excepciones del puente Kotlin/Swift/Go y la conservacion de datos tras mutacion incierta no estan demostradas en pruebas nativas."
+  },
+  {
+   "id": "IT-API-06",
+   "note": "Kotlin/Swift no ejecutados aqui; ninguna prueba llama a WhatsAppModule.initialize/confirm con opciones o IDs mal formados sin pasar por la fachada TypeScript (que si se prueba, incluido el test.each de opciones)."
+  },
+  {
+   "id": "IT-API-08",
+   "note": "Auditoria WA-14: Nada ejecuta la afirmación de que red y disco no bloquean el hilo de interfaz (capa nativa Kotlin/Swift); solo se prueban sobre JSON, sin bytes y entrega de uno en uno."
+  },
+  {
+   "id": "IT-BLD-01",
+   "note": "Cubierto con un go falso en test-build-go-contract.sh (versiones fijadas, GOTOOLCHAIN/GOPROXY, sin descargas); no se ejecuta gomobile real ni se comprueba el binario de las herramientas."
+  },
+  {
+   "id": "IT-BLD-02",
+   "note": "Parcial: solo se prueba que, con un go falso, los destinos fallan. No se prueba que Android no requiera Xcode ni que all no omita plataformas."
+  },
+  {
+   "id": "IT-BLD-03",
+   "note": "Parche aplicado y fallos (no aplica, falta) probados contra la fuente real del cache sin modificarla; el resultado no se compila con gomobile real."
+  },
+  {
+   "id": "IT-BLD-04",
+   "note": "Parcial: se prueba el borrado de artefactos tras un fallo; no el aborto de build.gradle/WhatsApp.podspec sin artefacto (Gradle/CocoaPods, no ejecutados)."
+  },
+  {
+   "id": "IT-BLD-05",
+   "note": "ABIs, slices, prefijo Java y flags de bind verificados contra artefactos falsos; no se genera ni carga un binario real (NDK, Xcode y dispositivo no ejecutados)."
+  },
+  {
+   "id": "IT-BLD-06",
+   "note": "El autolinking real de Expo resuelve el modulo y los builds se detienen sin artefactos; que Gradle y CocoaPods carguen el AAR/XCFramework no se ejecuto."
+  },
+  {
+   "id": "IT-BLD-07",
+   "note": "Regla de proceso: solo se comprueba que build-info.txt registra un hash de las entradas nativas y que la app no usa expo-updates; no se puede demostrar que la app se reconstruyo."
+  },
+  {
+   "id": "IT-BLD-08",
+   "note": "build-info.txt (incluido el estado clean/dirty del arbol) y los .gitignore se verifican; los artefactos no se comparan byte a byte, como indica el caso."
+  },
+  {
+   "id": "IT-BRG-01",
+   "note": "Las pruebas llaman a Bridge.probe/YYWhatsAppGoBridgeProbe directamente desde Kotlin/Swift; no pasan por el modulo Expo (JS -> Expo -> Kotlin/Swift). Nativas, sin ejecutar aqui; sin dispositivo fisico."
+  },
+  {
+   "id": "IT-BRG-02",
+   "note": "Sin prueba de lectura nativa real de una revision coherente desde disco con sesion no vacia en este caso (solo almacenamiento simulado en Go)."
+  },
+  {
+   "id": "IT-BRG-03",
+   "note": "Almacenamiento simulado; no hay prueba de que Go no pueda reemplazar todo pending, confirmar entregas o hacer logout (la ausencia es estructural en ApplyRequest)."
+  },
+  {
+   "id": "IT-BRG-04",
+   "note": "No hay prueba de version de contrato invalida ni de tamano excedido; los tests nativos no verifican el codigo especifico (INVALID_REQUEST vs STALE_GENERATION vs SESSION_REVISION_MISMATCH), y requieren dispositivo."
+  },
+  {
+   "id": "IT-BRG-05",
+   "note": "Solo se prueba el mapeo Go (publicCode); el mapeo de WhatsAppModule.kt/.swift y la prioridad de almacenamiento no tienen prueba."
+  },
+  {
+   "id": "IT-BRG-06",
+   "note": "Almacenamiento simulado; no se prueba que no se repita descifrado sobre memoria modificada tras la respuesta incierta."
+  },
+  {
+   "id": "IT-BRG-07",
+   "note": "Solo con almacenamiento simulado en Go; la parte nativa de commit conjunto no se ejecuta aqui."
+  },
+  {
+   "id": "IT-BRG-08",
+   "note": "No hay prueba de que, tras un cambio concurrente real de sesion rechazado, Go reconstruya desde el estado confirmado."
+  },
+  {
+   "id": "IT-BRG-09",
+   "note": "No se prueba el cierre de escrituras posteriores a un logout completo ni callbacks tardios de otra cuenta."
+  },
+  {
+   "id": "IT-BRG-10",
+   "note": "No se prueba que el writer nativo no entre a Go/JS bajo su bloqueo, ni confirmar/detener con recepcion o historial bloqueados en el consumidor."
+  },
+  {
+   "id": "IT-BUF-01",
+   "note": "Auditoria WA-14: Solo se mide que el texto cuente dos veces (mensaje y recovery); no se prueba que metadatos, codificación, cifrado y reservas de identidad cuenten, ni que los bytes de imágenes descargadas queden fuera."
+  },
+  {
+   "id": "IT-BUF-03",
+   "note": "Se prueba la reanudacion solo si sigue solicitada (parada explicita); la expiracion durante la pausa (c.expired en controller.go) no tiene prueba."
+  },
+  {
+   "id": "IT-CFG-04",
+   "note": "Auditoria WA-14: Reinicio de iOS/Android, restauración de opciones publicadas sin sesión, no usar state.next, misma revisión sin borrar sesión/pendientes y relectura de state.bin son nativos y el test TS usa fakeNative; solo se prueba la lógica del cliente."
+  },
+  {
+   "id": "IT-CFG-05",
+   "note": "Auditoria WA-14: El rechazo nativo se simula con un mock; la regla CanUpdateOptions no se ejecuta con cliente activo en conexion/QR/reconexion/pausa por buffer, y la idempotencia se prueba tras disconnect, no con cliente activo."
+  },
+  {
+   "id": "IT-CFG-06",
+   "note": "Cubre pendientes (Go receive, Kotlin, Swift) e imagenes (Go images), pero 'inicializar aceptara el nuevo limite' se prueba por separado; las partes nativas no se ejecutan aqui y la lectura de imagenes tras reinicio solo con sistema de archivos temporal de Go."
+  },
+  {
+   "id": "IT-CFG-07",
+   "note": "La cota de lectura y el rechazo de longitudes arbitrarias se prueban en Go (TestITCFG07ReducedBudgetKeepsTheReadBoundOfTheSnapshot) y en Kotlin/Swift (no ejecutados); falta una prueba que publique una actualizacion de configuracion mientras drena."
+  },
+  {
+   "id": "IT-CFG-08",
+   "note": "Serializacion en TypeScript y espera de descarga cancelada en Go; que un fallo de publicacion incierto se resuelva leyendo lo publicado solo esta en el almacen nativo (no ejecutado) y no en la ruta de limites de imagenes."
+  },
+  {
+   "id": "IT-CFG-09",
+   "note": "Auditoria WA-14: Solo se prueba que el presupuesto se comparte entre cuentas; la segunda afirmacion (aumentar recuperacion no sube los limites internos de historial/sesion ni garantiza recuperar recursos rechazados) no se ejecuta."
+  },
+  {
+   "id": "IT-CON-01",
+   "note": "Solo con transporte simulado; que 'connected' solo llegue al completar la conexion real (y que esperar el QR no deje pendiente el metodo en Android/iOS) no se prueba de punta a punta."
+  },
+  {
+   "id": "IT-CON-02",
+   "note": "Las llamadas repetidas se prueban solo durante connecting/QR; falta Connect repetido en estado connected y en reconexion, y verificar clientes o vinculaciones paralelos reales."
+  },
+  {
+   "id": "IT-CON-03",
+   "note": "No se asserta que tras qrFinished no se cree un nuevo transporte hasta otra solicitud explicita; solo transporte simulado, sin QR real de whatsmeow."
+  },
+  {
+   "id": "IT-CON-05",
+   "note": "Perdida de red simulada con eventos y reloj controlado; no se prueba la fluctuacion real de red ni se asserta explicitamente que no existan intentos paralelos mas alla de crear un transporte por reintento."
+  },
+  {
+   "id": "IT-CON-06",
+   "note": "Disconnect cancelando una espera de backoff solo se prueba para Suspend, no hay prueba de Disconnect repetido (idempotencia) ni de que la sesion y los pendientes se conserven en Go, y sin prueba nativa."
+  },
+  {
+   "id": "IT-CON-07",
+   "note": "No se prueba extremo a extremo que connect() tras logout() no inicie QR automaticamente, ni el codigo SESSION_EXPIRED llegando a la fachada TypeScript."
+  },
+  {
+   "id": "IT-CON-08",
+   "note": "El caso pide que el error de almacenamiento gane aunque coincida con la recuperacion de red; la prueba solo avanza el reloj despues del fallo local, no hay recuperacion de red simultanea."
+  },
+  {
+   "id": "IT-CON-09",
+   "note": "Reloj simulado; no se prueba una reanudacion real del dispositivo con tiempo monotonico del sistema ni que un timeout de E/S de almacenamiento no se interprete como rollback."
+  },
+  {
+   "id": "IT-CON-10",
+   "note": "Solo el orden de admision y la retirada de generacion estan probados; no se asserta que parar no espere un commit futuro del consumidor. "
+  },
+  {
+   "id": "IT-DEL-02",
+   "note": "Auditoria WA-14: El 'crash' se simula con un fake nativo que falla el apply (failApply); la atomicidad/descarte del commit nativo real y la posible reentrega remota segun protocolo no se ejecutan."
+  },
+  {
+   "id": "IT-DEL-03",
+   "note": "El reinicio reutiliza un nativo en memoria (fake): se prueba la reemision con los mismos IDs, no la durabilidad del almacen nativo real."
+  },
+  {
+   "id": "IT-DEL-04",
+   "note": "El reinicio reutiliza un nativo en memoria (fake): se prueba que el consumidor no duplica el efecto, no la durabilidad del almacen nativo real."
+  },
+  {
+   "id": "IT-DEL-10",
+   "note": "Auditoria WA-14: No se verifica que confirmar conserve la imagen descargada (el test no incluye imagen); tampoco que no haya cuerpos en otra colección más allá de buscar el texto en state/pending."
+  },
+  {
+   "id": "IT-EVT-01",
+   "note": "Solo la fachada TypeScript con modulo simulado y el controlador Go; la entrega a un listener nuevo desde los modulos Kotlin/Swift no esta probada."
+  },
+  {
+   "id": "IT-EVT-02",
+   "note": "No se asserta que un listener previo a initialize no reciba estado antes de la preparacion, ni que con sesion invalida se emita disconnected y no connected."
+  },
+  {
+   "id": "IT-EVT-04",
+   "note": "El QR invalidado intercalado con la suscripcion en TypeScript no tiene prueba (solo estado y QR vencido en Go)."
+  },
+  {
+   "id": "IT-EVT-05",
+   "note": "No se prueba que un listener de error nuevo no reciba errores antiguos; solo estado/QR con modulo simulado."
+  },
+  {
+   "id": "IT-EVT-06",
+   "note": "remove() no verifica que no se solicite conexion ni desvinculacion; solo que se retira la suscripcion correspondiente con modulo simulado."
+  },
+  {
+   "id": "IT-FMT-01",
+   "note": "Ninguna prueba escribe y relee un snapshot con todos los bloques juntos; options efectivas solo se verifican en maxRecoveryBufferBytes/maxImageStorageBytes; el control Android solo existe en Android; todo nativo, no ejecutado aqui."
+  },
+  {
+   "id": "IT-FMT-02",
+   "note": "Solo pruebas nativas (no ejecutadas aqui); no se mide que el tamano se compruebe antes de reservar memoria."
+  },
+  {
+   "id": "IT-FMT-03",
+   "note": "No se prueba `options` ausente ni el control Android fuera de 4 KiB; lado nativo no ejecutado aqui."
+  },
+  {
+   "id": "IT-FMT-04",
+   "note": "No se altera storeId del bloque de sesion ni se comprueba que un header alterado no autorice borrar claves. Nativo, no ejecutado aqui."
+  },
+  {
+   "id": "IT-FMT-05",
+   "note": "Solo se comprueba que dos nonces consecutivos difieren y que el ciphertext de sesion se conserva; no se prueba que el nonce no derive de la revision ni que sessionRevision <= revision. Nativo, no ejecutado aqui."
+  },
+  {
+   "id": "IT-FMT-07",
+   "note": "Solo el codec Go (protocolstate); no se verifica que cada tipo de la lista v1 este cubierto por una comparacion exhaustiva contra la lista auditada."
+  },
+  {
+   "id": "IT-FMT-08",
+   "note": "Sin caso positivo de hijo historico sin hash ni rechazo de pendingLid con ID provisional; coherencia nativa no ejecutada aqui."
+  },
+  {
+   "id": "IT-FMT-09",
+   "note": "Se prueba que retirar K_session no vuelve ilegibles los pendientes; no hay prueba de que Go/JS no reciban claves de almacenamiento. Nativo, no ejecutado aqui."
+  },
+  {
+   "id": "IT-HIS-09",
+   "note": "Auditoria WA-14: Solo se mide heap de Go (inflate/decode/prepare/admit/snapshot); las copias del binding (cruce gomobile/nativo) y la RAM real del proceso/dispositivo no se miden, y los umbrales son techos de regresion."
+  },
+  {
+   "id": "IT-ID-09",
+   "note": "Auditoria WA-14: El test Go solo ejecuta logout con un mapeo disponible; no hay reinicio, no se prueba que los restantes no venzan ni que no se resuelvan con credenciales de otra cuenta."
+  },
+  {
+   "id": "IT-ID-10",
+   "note": "Auditoria WA-14: No se prueba que disconnect() conserve la cuenta ni que cambiar de cuenta exija logout completado, ni la separacion de archivos de imagen anteriores; solo pendientes tras Logout con almacenamiento simulado."
+  },
+  {
+   "id": "IT-IMG-06",
+   "note": "Auditoria WA-14: No se ejecuta la verificación de integridad previa a publicar ni el no añadir a galería/sin permisos (nativo); el test TS solo valida forma de la respuesta con mock."
+  },
+  {
+   "id": "IT-IMG-10",
+   "note": "Auditoria WA-14: La prueba usa un fake de red en el servicio: los cambios de host internos compartiendo los 60 s no se ejercitan en este caso (solo en la prueba del cliente fijado, no asignada aqui)."
+  },
+  {
+   "id": "IT-IMG-15",
+   "note": "Auditoria WA-14: Solo se simula disconnect del fake de red; no se recorren logout ni retirada de generacion reales ni la cancelacion sin esperar la cola con solicitudes encoladas."
+  },
+  {
+   "id": "IT-IMG-17",
+   "note": "Auditoria WA-14: La supervivencia de archivos tras logout no se ejecuta con Logout real: el test de bridge usa Disconnect y el de servicio solo desconecta la red; el de TS es un mock."
+  },
+  {
+   "id": "IT-INI-01",
+   "note": "Preparacion nativa real del almacenamiento y de la recuperacion no ejecutada en dispositivo; el inicio real de vinculacion por QR tras connect no se prueba con whatsmeow real."
+  },
+  {
+   "id": "IT-INI-02",
+   "note": "No hay prueba que restaure una sesion guardada real y demuestre que connect la reutiliza sin pedir otro QR ni que los pendientes se restauren en initialize; solo el controlador con transporte simulado."
+  },
+  {
+   "id": "IT-INI-03",
+   "note": "Solo se prueba en TypeScript y a nivel del controlador Go; que Kotlin/Swift/Go compartan un unico cliente, controlador y coordinador ante initialize concurrente (y no borren datos) no tiene prueba."
+  },
+  {
+   "id": "IT-INI-04",
+   "note": "Solo se prueba que la fachada reintenta; la revalidacion del estado afectado y el descarte de memoria no confirmada en la capa nativa no estan probados."
+  },
+  {
+   "id": "IT-INI-05",
+   "note": "Auditoria WA-14: No se afirma que la conexion quede bloqueada tras SESSION_STATE_INVALID (el test Go solo recupera y confirma; el de TS usa un mock nativo)."
+  },
+  {
+   "id": "IT-INI-06",
+   "note": "Las pruebas nativas solo demuestran que el almacen se niega a abrir (sin regenerar estado); no se prueba que eso bloquee recuperacion y connect ni que no se emitan datos ni se haga limpieza selectiva, y no estan ejecutadas."
+  },
+  {
+   "id": "IT-INI-07",
+   "note": "Auditoria WA-14: La prueba solo comprueba REMOTE_LOGOUT_UNCONFIRMED y que connect sigue bloqueado (SESSION_STATE_INVALID); no verifica la conservacion de pendientes ni que la nueva vinculacion quede habilitada tras la retirada local."
+  },
+  {
+   "id": "IT-KEY-01",
+   "note": "El orden registro -> clave -> state.bin -> terminada se infiere de fallos inyectados; no se prueba que vincular/recibir este bloqueado antes de terminar. Nativo no ejecutado aqui."
+  },
+  {
+   "id": "IT-KEY-02",
+   "note": "No se prueba la distincion entre instalacion parcial reconocida y una nueva ajena ni que solo se creen las claves faltantes (solo se verifica reutilizar la clave de recuperacion). Nativo no ejecutado aqui."
+  },
+  {
+   "id": "IT-KEY-04",
+   "note": "Fase initialPublication reabre con state.bin valido, pero no se asserta que el registro pase a 'ready' ni que no se generen otras claves. Nativo no ejecutado aqui."
+  },
+  {
+   "id": "IT-KEY-05",
+   "note": "No se asserta el codigo SESSION_STATE_INVALID (solo que lance); Android no prueba 'artefactos sin registro' (iOS si); IDs incoherentes sin prueba. Nativo no ejecutado aqui."
+  },
+  {
+   "id": "IT-KEY-06",
+   "note": "Solo nativo (no ejecutado aqui); la limpieza fallida se prueba por el fallo de open(), no por el bloqueo explicito de una nueva vinculacion."
+  },
+  {
+   "id": "IT-KEY-07",
+   "note": "Solo nativo (no ejecutado aqui); no se prueba el caso de lectura fallida decidiendo ausencia de clave/sesion."
+  },
+  {
+   "id": "IT-KEY-08",
+   "note": "Solo claves no exportables y sin autenticacion por uso, en emulador. Falta verificar almacenamiento protegido por credenciales (CE) y el comportamiento antes/despues del primer desbloqueo (requiere dispositivo). Ninguna prueba, ni nativa, cubre el comportamiento antes del primer desbloqueo."
+  },
+  {
+   "id": "IT-KEY-09",
+   "note": "Se asserta AfterFirstUnlockThisDeviceOnly y completeUntilFirstUserAuthentication (incl. temporal) en simulador; falta transicion real antes/despues del primer desbloqueo (dispositivo fisico) y no se ejecuta aqui."
+  },
+  {
+   "id": "IT-KEY-10",
+   "note": "iOS asserta exclusion de backup y clave no sincronizable; Android solo usa noBackupFilesDir sin asserta. Sin prueba de alias ajeno/rutas, ni de backup/transferencia real. Nativo no ejecutado aqui."
+  },
+  {
+   "id": "IT-MSG-01",
+   "note": "Prueba de contrato en normalizacion; no hay una prueba de punta a punta de recepcion viva con imagen/outgoing hasta la entrega al consumidor."
+  },
+  {
+   "id": "IT-MSG-07",
+   "note": "Fecha desconocida (clave ausente, nunca 0), decision del dueño 2026-10-10: probado con transporte controlado en vivo, historial (orden y deduplicacion), reinicio y reentrega, y en la validacion Zod. Los almacenes Kotlin/Swift aceptan la clave ausente solo por lectura del codigo (no compilados). Si falta del todo el atributo t, whatsmeow rechaza el nodo antes de nuestros hooks (fuera de este codigo)."
+  },
+  {
+   "id": "IT-MSG-09",
+   "note": "No hay prueba de ausencia de filtro por fecha de vinculacion."
+  },
+  {
+   "id": "IT-OUT-01",
+   "note": "Auditoria WA-14: Solo se prueba el controlador Go (unlink antes de cerrar); la secuencia nativa session null + clave pendiente de borrar, eliminar y retirar marcador, y el exito local solo tras completarla, no se ejecuta."
+  },
+  {
+   "id": "IT-OUT-02",
+   "note": "Auditoria WA-14: Solo cubre el controlador Go (timeout de 15 s sin error); la retirada local de credenciales, no restaurarlas y el código REMOTE_LOGOUT_UNCONFIRMED hacia la app son nativos y no se ejecutan."
+  },
+  {
+   "id": "IT-OUT-03",
+   "note": "Auditoria WA-14: Solo se simula un fallo de preparacion en Go y un mock en TS; no se recorren fallo de publicacion, borrado de clave ni retiro del marcador, ni se comprueba que se bloquee la vinculacion nueva (el test solo verifica que Connect no devuelve SessionStateInvalid) ni la relectura de pasos comprometidos."
+  },
+  {
+   "id": "IT-OUT-04",
+   "note": "No se asserta que la clave retirada aun presente no se reutilice ni que K_recovery o una clave de sesion activa no se retire; pruebas nativas no ejecutadas aqui."
+  },
+  {
+   "id": "IT-OUT-06",
+   "note": "Auditoria WA-14: Solo se verifican pendientes y mappings con almacenamiento nativo falso; no se comprueba que logout conserve mensajes del consumidor ni imagenes."
+  },
+  {
+   "id": "IT-PRO-01",
+   "note": "La reconstruccion v2/v3 y el replay historico (chat, emisor, direccion) se prueban en parches: TestRecoveryContextHook y TestHistoricalIndividualProtobufReconstructsOwnedIdentity (patches/pre-decrypt-context.patch); su resultado no entra a la matriz automatica."
+  },
+  {
+   "id": "IT-PRO-02",
+   "note": "Que ACK/reintento/UndecryptableMessage no ocurran se prueba en parches: TestRecoveryStorageFailure, TestNotificationLocalStorageFailureWithholdsTransportAck, TestDeviceNotificationMappingFailureWithholdsTransportAck, TestBotSecretLookupFailureWithholdsTransport, TestPendingMarkerWithholdsTransportUntilConfirmation, TestControlledTransportAttempt (patches/pre-decrypt-context.patch); su resultado no entra a la matriz automatica."
+  },
+  {
+   "id": "IT-PRO-03",
+   "note": "El tratamiento previsto (ACK y reintento ante error genuino de protocolo) se prueba en el parche: TestRecoveryStorageFailure fase protocol y TestControlledTransportAttempt; su resultado no entra a la matriz automatica."
+  },
+  {
+   "id": "IT-PRO-04",
+   "note": "Panic de receptor/consumidor, fallo de limpiar EventBuffer y no-ACK se prueban en el parche TestRecoveryStorageFailure (fases panic, hook-panic, clear, handler-panic); su resultado no entra a la matriz automatica. WA-14 anade pruebas Go de que el error del store no contiene el valor del panic (protocolstore/diagnostics_test.go)."
+  },
+  {
+   "id": "IT-PRO-05",
+   "note": "Una sola notificacion en exito, fallo del hook y panic, callback breve y liberacion de admision: parches TestRecoveryContextHook y TestRecoveryStorageFailure (patches/pre-decrypt-context.patch); su resultado no entra a la matriz automatica."
+  },
+  {
+   "id": "IT-PRO-06",
+   "note": "Faltan en MOD/go PN/LID, prekeys, identidad, grupos y rutas previas al hook/v3 con fallo inyectado; en parches: TestAuxiliarySyncStorageFailuresPropagate, TestNotificationLocalStorageFailureWithholdsTransportAck, TestDeviceNotificationMappingFailureWithholdsTransportAck, TestWA03AppStateMACPublicationUsesOneTransaction, TestWA03FatalRecoveryResetIsAtomic; su resultado no entra a la matriz automatica."
+  },
+  {
+   "id": "IT-PRO-07",
+   "note": "No hay prueba en MOD/go de la caida y reinicio; en parches: TestRecoveredProtocolReplayDoesNotDecryptOrDispatch, TestRecoveredFatalAppStateResponseStagesBeforePending, TestPrecommittedReceiveSkipsDuplicateSecretWrite (patches/pre-decrypt-context.patch); su resultado no entra a la matriz automatica."
+  },
+  {
+   "id": "IT-SEG-01",
+   "note": "Go y TypeScript se ejecutan con valores canario; Kotlin/Swift (logs) y la notificacion Android se comprueban solo leyendo el codigo fuente, sin observar un logcat ni una notificacion reales (no ejecutado)."
+  },
+  {
+   "id": "IT-SEG-02",
+   "note": "Comprobacion estatica del codigo fuente y del manifest; no se observa trafico de red real ni un build sin receptor servidor."
+  },
+  {
+   "id": "IT-SEG-03",
+   "note": "Solo se mide la parte de Go contra un contenedor en memoria (latencia, bytes y heap); cifrado, fsync, reemplazo y espacio temporal nativos, heap Kotlin/Swift y RSS no se midieron."
+  },
+  {
+   "id": "IT-STO-01",
+   "note": "La durabilidad se demuestra por inyeccion de fallos en cada fase y relectura; no hay prueba fisica de fsync. Nativo, no ejecutado aqui."
+  },
+  {
+   "id": "IT-STO-04",
+   "note": "Matriz de muerte de proceso es nativa: Android requiere emulador + check-android-probe.sh (sin armar es no-op), iOS requiere runner CI con host Expo. No ejecutable aqui."
+  },
+  {
+   "id": "IT-STO-05",
+   "note": "ENOSPC real: Android solo corre con argumento enospc=true (sin el es no-op); iOS exige volumen APFS acotado montado por CI. No ejecutable aqui."
+  },
+  {
+   "id": "IT-STO-06",
+   "note": "El codigo SESSION_STORAGE_LIMIT_REACHED solo se asserta en Android; no hay prueba de extremo a extremo Go+nativo ni de que se conserven mappings/claves (solo revision sin cambios). Nativo no ejecutado aqui."
+  },
+  {
+   "id": "IT-STO-07",
+   "note": "La interleaving logout vs insercion solo existe en Android; iOS solo prueba dos instancias secuenciales. Nativo no ejecutado aqui."
+  },
+  {
+   "id": "IT-STO-08",
+   "note": "No se verifica que los temporales no contengan plaintext ni un error de lectura de temporal distinto de ausencia (salvo temporal-directorio no vacio en creacion). Nativo no ejecutado aqui."
+  },
+  {
+   "id": "IT-SUB-05",
+   "note": "Auditoria WA-14: El test de carrera solo comprueba que el pendiente queda retirado; no afirma ausencia de dos recorridos simultáneos ni de espera de una entrega ya retirada, y el confirmar 'justo antes' no se ordena de forma determinista."
+  },
+  {
+   "id": "IT-SUB-06",
+   "note": "El retiro del consumidor al destruir el runtime (OnDestroy) es nativo y no se ejecuto; Go y la fachada TypeScript solo cubren el retiro explicito."
+  },
+  {
+   "id": "IT-SUB-07",
+   "note": "Auditoria WA-14: El Go solo cubre fallo local de callback; disconnect/logout se prueban unicamente en TS contra un mock nativo (connect no llamado), asi que la parada explicita nativa tras disconnect/logout y la condicion 'almacenamiento sigue validado' no se ejecutan."
+  },
+  {
+   "id": "UT-API-03",
+   "note": "La distincion aceptacion/finalizacion en el cliente solo se ve porque connect resuelve antes de cualquier evento; ninguna prueba TypeScript emite un error de evento posterior a un connect aceptado y comprueba que el resultado ya devuelto no cambia."
+  },
+  {
+   "id": "UT-BRG-04",
+   "note": "Las pruebas nativas solo afirman success=false; no distinguen versionado de contrato invalido ni limites de tamano, ni verifican los codigos INVALID_REQUEST/STALE_GENERATION/SESSION_REVISION_MISMATCH."
+  },
+  {
+   "id": "UT-BRG-05",
+   "note": "Solo se prueba el mapeo Go (publicCode); el mapeo equivalente en WhatsAppModule.kt/WhatsAppModule.swift no tiene prueba, ni la prioridad del error de almacenamiento frente a otros."
+  },
+  {
+   "id": "UT-CON-03",
+   "note": "No se asserta que un proceso de vinculacion terminado no se reinicie automaticamente (ninguna prueba cuenta transportes creados tras qrFinished)."
+  },
+  {
+   "id": "UT-EVT-02",
+   "note": "No se asserta que un listener registrado antes de initialize no reciba nada hasta completar la preparacion."
+  },
+  {
+   "id": "UT-EVT-03",
+   "note": "No se asserta que un listener nuevo no reciba el QR tras salir de awaitingQr (connected) con el mismo valor; solo el caso del vencimiento."
+  },
+  {
+   "id": "UT-EVT-04",
+   "note": "Solo se prueba el estado obsoleto; el QR invalidado encolado antes de la reproduccion no tiene prueba en TypeScript."
+  },
+  {
+   "id": "UT-EVT-05",
+   "note": "No se prueba que un listener de error nuevo no reciba errores pasados, ni la reproduccion con varios listeners de QR/error."
+  },
+  {
+   "id": "UT-EVT-06",
+   "note": "remove() no verifica que no se invoquen connect/disconnect/logout nativos; solo se prueba la identidad de la suscripcion retirada."
+  },
+  {
+   "id": "UT-FMT-02",
+   "note": "Solo pruebas nativas (no ejecutadas aqui). Rechazo antes de reservar memoria se infiere de longitudes gigantes rechazadas sin OOM; no se mide la asignacion."
+  },
+  {
+   "id": "UT-FMT-06",
+   "note": "No hay prueba de overflow al sumar presupuestos; IDs hex solo se prueban con valor 'wrong' (y sufijo salto de linea en iOS); las pruebas de revision/ordinal son nativas (no ejecutadas aqui)."
+  },
+  {
+   "id": "UT-FMT-07",
+   "note": "Prueba el codec Go; los codecs/validadores nativos Kotlin/Swift solo se ejercen indirectamente via ValidateProtocolChange."
+  },
+  {
+   "id": "UT-FMT-08",
+   "note": "No hay caso positivo de hijo historico sin hash ni rechazo explicito de pendingLid con ID de mensaje provisional; las pruebas de coherencia estan en nativo (no ejecutado aqui)."
+  },
+  {
+   "id": "UT-HIS-06",
+   "note": "Auditoria WA-14: Solo se prueban los limites de entrada y descompresion; el limite de recuperacion (buffer) no se evalua por separado en las pruebas enlazadas."
+  },
+  {
+   "id": "UT-ID-01",
+   "note": "No se varia la revision ni el cambio de dispositivo; el caso historico/vivo solo en normalizacion pura."
+  },
+  {
+   "id": "UT-ID-03",
+   "note": "No hay prueba de que Kotlin/Swift/TypeScript no reconstruyan identidades."
+  },
+  {
+   "id": "UT-ID-04",
+   "note": "La conservacion de la revision de creacion en replay no se afirma explicitamente."
+  },
+  {
+   "id": "UT-MSG-06",
+   "note": "No se prueba que desaparecer en WhatsApp no borre pendientes ni notifique al consumidor (solo ausencia de metadatos de vencimiento)."
+  },
+  {
+   "id": "UT-MSG-09",
+   "note": "No hay prueba de no filtrar por fecha de vinculacion (solo por antiguedad absoluta)."
+  }
+ ]
+}

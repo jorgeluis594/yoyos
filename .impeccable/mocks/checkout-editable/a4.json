@@ -1,0 +1,16 @@
+{
+  "title": "Apariencia del checkout · editor con colores predefinidos",
+  "surface": "Configuración → Apariencia del checkout (web)",
+  "approved": true,
+  "approvedOn": "2026-10-10",
+  "basedOn": "Propuesta A · Vista previa protagonista",
+  "decision": "El color de marca se elige entre 9 colores predefinidos en un diálogo. Cada color fija su tono claro, su fondo suave de marca, su tono oscuro y su fondo oscuro. No hay valor HEX libre.",
+  "comps": [
+    ".impeccable/mocks/checkout-editable/a4-closed-light.png",
+    ".impeccable/mocks/checkout-editable/a4-closed-dark.png",
+    ".impeccable/mocks/checkout-editable/a4-dialog-light.png",
+    ".impeccable/mocks/checkout-editable/a4-dialog-dark.png"
+  ],
+  "source": ".impeccable/mocks/checkout-editable/src/",
+  "sampleData": "Lima Studio, Ana Torres, pedido #1001 e importes son ficticios."
+}

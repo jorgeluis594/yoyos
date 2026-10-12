@@ -6,7 +6,7 @@ Estado: plan de trabajo; ninguna casilla implica implementación o pruebas ejecu
 
 ## Objetivo y organización
 
-Implementar `POST /api/whatsapp/messages` para registrar un mensaje bajo la empresa autenticada y confirmar el dispatch de `whatsapp_message_recorded` después del commit. Un éxito confirma persistencia y aceptación por el bus, no ejecución de un consumidor ni almacenamiento del archivo de una imagen.
+Implementar `POST /api/messages` para registrar un mensaje bajo la empresa autenticada y confirmar el dispatch de `whatsapp_message_recorded` después del commit. Un éxito confirma persistencia y aceptación por el bus, no ejecución de un consumidor ni almacenamiento del archivo de una imagen.
 
 Las tareas agrupan comportamientos verificables con sus contratos, datos, lógica, integración y pruebas. No son tareas independientes por archivo, columna o función. Los primeros comportamientos se validan mediante contratos y operaciones de aplicación con PostgreSQL; la tarea 6 completa el recorrido HTTP. Ejecutar en orden **1 → 2 → 3 → 4 → 5 → 6 → 7**. La ruta de producción solo se habilita cuando el flujo completo está listo; no publicar implementaciones parciales que respondan éxito sin dispatch.
 
@@ -195,12 +195,12 @@ Las adaptaciones de contactos usados en ventas y las regresiones del webhook sí
 
 **Alcance**
 
-- Componer la operación en `chats/index.ts` y montar `POST /api/whatsapp/messages` después de `loadApiAccess`/`requireApiCompany`, antes del fallback `/api`; parser específico antes del genérico.
+- Componer la operación en `chats/index.ts` y montar `POST /api/messages` después de `loadApiAccess`/`requireApiCompany`, antes del fallback `/api`; parser específico antes del genérico.
 - Obtener empresa/uploader solo desde `response.locals.auth` validado, admitir usuarios ready y aplicar `Cache-Control: no-store` a éxitos y todos los errores, incluidos parser/auth.
 - Implementar la tabla completa de sección 4: 201 stored, 200 duplicate, 400 INVALID_INPUT, 401 UNAUTHENTICATED, 403 EMAIL_VERIFICATION_REQUIRED, 409 COMPANY_REQUIRED, 413 PAYLOAD_TOO_LARGE, 415 UNSUPPORTED_MEDIA_TYPE, 503 SERVICE_UNAVAILABLE y 500 INTERNAL_ERROR.
 - Traducir fallos temporales de auth/persistencia/commit/dispatch/marcado a 503; datos incompatibles, salida corrupta y excepciones inesperadas a 500. No confundir errores de parser con INVALID_COMPANY.
 - Validar toda salida con schema compartido; errores con formato existente y `issues` opcional solo de validación. No ampliar innecesariamente `ApiErrorCode`.
-- Añadir `tests/e2e/mobile-whatsapp-messages.spec.ts` con servidor, auth, PostgreSQL y proveedor reales; fixtures propias y fallo controlado del almacenamiento/conexión del bus sin endpoints de fallo productivos.
+- Añadir `tests/e2e/mobile-messages.spec.ts` con servidor, auth, PostgreSQL y proveedor reales; fixtures propias y fallo controlado del almacenamiento/conexión del bus sin endpoints de fallo productivos.
 
 **Fuera de alcance**
 
