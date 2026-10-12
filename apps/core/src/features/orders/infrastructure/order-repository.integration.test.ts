@@ -12,7 +12,7 @@ import { ok, err } from "@shared/functional";
 import { orders, createConfiguredOrder } from "@core/src/features/orders/composition";
 import { prisma, systemPrisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
-import { findOrderAggregate, findOrderForUpdate, saveDelivery, saveStockDeduction } from "@core/src/features/orders/infrastructure/order-repository";
+import { findOrderAggregate, findOrderAggregates, findOrders, findOrderForUpdate, saveDelivery, saveStockDeduction } from "@core/src/features/orders/infrastructure/order-repository";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
 import { deductProductStock } from "@core/src/features/products";
 import type { CompanyId, ContactId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
@@ -40,6 +40,7 @@ async function fixture() {
       await prisma.payment.deleteMany();
       await prisma.orderItem.deleteMany();
       await prisma.order.deleteMany();
+      await prisma.chat.deleteMany();
       await prisma.contact.deleteMany();
       await prisma.productStock.deleteMany();
       await prisma.productVariant.deleteMany();
@@ -1329,7 +1330,8 @@ test.each([
       expect(result).toMatchObject({ success: true, data: { stockDeducted: deducted,
         deliveryStatus: immediate ? "delivered" : "pending", completedAt: immediate ? expect.any(Date) : null } });
       const saved = await findOrderAggregate(id, context.companyId);
-      expect(saved).toEqual((result.success ? { ...result, data: { ...result.data, source: "manual" } } : result));
+      expect(saved).toMatchObject({ success: true, data: { source: "manual", number: expect.any(Number), total: { amount: expect.any(Number) } } });
+      expect(saved).toEqual(expect.objectContaining({ data: expect.objectContaining({ id }) }));
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(deducted ? 1n : 3n);
       expect(await prisma.payment.count()).toBe(amount === null ? 0 : 1);
     });
@@ -1378,7 +1380,7 @@ test("complete creation resolves delivery charge before coverage and retains its
       expect(result).toMatchObject({ success: true, data: { delivery: { method: "home", destination: { districtCode: "150122", address: "Av. Lima 123" },
         pricing: { rateId: quote.data.rates[0].id, quotationId: quote.data.quotation.id } }, deliveryCost: { amount: 0.1 }, deliveryCharge: { amount: 0.1 },
         total: { amount: 0.3 }, stockDeducted: false, completedAt: null } });
-      expect(await findOrderAggregate(id, context.companyId)).toEqual((result.success ? { ...result, data: { ...result.data, source: "manual" } } : result));
+      expect(await findOrderAggregate(id, context.companyId)).toMatchObject({ success: true, data: { id, source: "manual", delivery: { method: "home" } } });
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
     });
   } finally { await f.cleanup(); }
@@ -1603,5 +1605,31 @@ test("checkout validates immutable home rate and current price before total and 
       delivery: { method: "home", destination: { districtCode: "150122", address: "Street" } } } });
     if (!checkout.success) throw new Error("Expected persisted checkout");
     expect(checkout.data.delivery).not.toHaveProperty("recordedBy");
+  } finally { await f.cleanup(); }
+});
+
+test("derives order source from chatId in aggregate, list and summary reads", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const context = { companyId: f.companyId as CompanyId, sellerId: f.sellerId };
+      const chatOrder = randomUUID();
+      const manualOrder = randomUUID();
+      for (const id of [chatOrder, manualOrder]) {
+        const sale = await immediateSale({ id, contactId: f.contactId, items: [{ variantId: f.variantIds[0], quantity: 1 }] }, context);
+        expect(sale.success).toBe(true);
+      }
+      const chat = await prisma.chat.create({ data: { contactId: f.contactId } });
+      await prisma.order.update({ where: { companyId_id: { companyId: f.companyId, id: chatOrder } }, data: { chatId: chat.id } });
+      const sourceOf = (id: string) => (id === chatOrder ? "whatsapp" : "manual");
+      for (const id of [chatOrder, manualOrder])
+        expect(await findOrderAggregate(id as OrderId, context.companyId)).toMatchObject({ success: true, data: { id, source: sourceOf(id) } });
+      const aggregates = await findOrderAggregates({ page: 1, customer: { kind: "all" } }, context.companyId);
+      const summaries = await findOrders({ page: 1, customer: { kind: "all" } });
+      for (const page of [aggregates, summaries]) {
+        if (!page.success) throw new Error("Unable to list orders");
+        expect(page.data.items.map((item) => [item.id, item.source]).sort()).toEqual([chatOrder, manualOrder].map((id) => [id, sourceOf(id)]).sort());
+      }
+    });
   } finally { await f.cleanup(); }
 });

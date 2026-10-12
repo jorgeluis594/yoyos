@@ -1,11 +1,11 @@
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, View, type StyleProp, type TextStyle } from "react-native";
 import { SymbolView } from "expo-symbols";
 import { useTranslation } from "react-i18next";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import { ThemedText } from "@mobile/components/themed-text";
 import { useTheme } from "@mobile/hooks/use-theme";
 
-type Props = Readonly<{ buyer: OrderAggregateResponse["buyer"]; source: OrderAggregateResponse["source"]; style?: object; labelled?: boolean }>;
+type Props = Readonly<{ buyer: OrderAggregateResponse["buyer"]; source: OrderAggregateResponse["source"]; style?: StyleProp<TextStyle>; labelled?: boolean }>;
 
 // Text is name ?? phone; "Público general" is only for orders without an OrderBuyer.
 export function OrderBuyerName({ buyer, source, style, labelled }: Props) {

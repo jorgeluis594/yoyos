@@ -148,7 +148,7 @@ test("accepts orders whose buyer and contact customer have a null phone", () => 
   expect(orderCustomerSchema.safeParse({ kind: "contact", contactId, name: null, phone: null }).success).toBe(true);
 });
 
-test("derives source whatsapp for chat orders and manual otherwise", () => {
+test("serializes the order source and defaults to manual", () => {
   const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
   const built = buildPendingOrder({ number: 1001 as OrderNumber, id: id(2) as OrderId, companyId: id(1) as CompanyId, sellerId: "seller" as UserId,
     customer: { kind: "general_public" }, createdAt: new Date("2026-10-01"), items: [{ id: id(3) as OrderItemId, variantId: id(4) as VariantId,
