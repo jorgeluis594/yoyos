@@ -95,3 +95,17 @@ test("reads the courier catalog and rejects malformed catalog responses", async 
   expect(await createDeliverySettingsApi(async () => ok({ couriers: [{ id: "not-a-uuid", code: "x", name: "X" }] })).getCourierCatalog())
     .toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
 });
+
+test("reads an agency catalog for a courier, maps 404 to NOT_FOUND and rejects foreign, disabled or malformed agencies", async () => {
+  const courierId = "00000000-0000-4000-8000-000000000101";
+  const agency = { id: "00000000-0000-4000-8000-000000000201", courierId, name: "Shalom Miraflores", address: "Av. Larco 1301", enabled: true,
+    location: { country: "PE", districtCode: "150122", district: "MIRAFLORES", province: "LIMA METROPOLITANA", department: "LIMA" } };
+  const request = jest.fn(async () => ok({ agencies: [agency] }));
+  expect(await createDeliverySettingsApi(request).getAgencyCatalog(courierId)).toEqual(ok({ agencies: [agency] }));
+  expect(request).toHaveBeenCalledWith(`/api/delivery-settings/agency-catalog?courierId=${courierId}`);
+  for (const invalid of [{ ...agency, courierId: "00000000-0000-4000-8000-000000000102" }, { ...agency, enabled: false },
+    { ...agency, location: { ...agency.location, districtCode: "999999" } }, { ...agency, extra: true }])
+    expect(await createDeliverySettingsApi(async () => ok({ agencies: [invalid] })).getAgencyCatalog(courierId)).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+  expect(await createDeliverySettingsApi(async () => err({ code: "API_ERROR" as const, message: "Failed", http: { status: 404, body: { code: "NOT_FOUND", error: "Courier not found" } } })).getAgencyCatalog(courierId))
+    .toMatchObject({ success: false, error: { code: "NOT_FOUND" } });
+});

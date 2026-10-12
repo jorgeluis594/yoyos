@@ -1,6 +1,6 @@
 import { getPeruDistrict } from "@shared/peru-geography";
-import { courierCatalogSchema, deliveryZonesApiErrorSchema, deliveryZonesSchema, saveDeliveryZonesSchema, type DeliveryZonesResponse, type SaveDeliveryZonesRequest, deliverySettingsApiErrorSchema, deliverySettingsSchema, saveDeliverySettingsSchema,
-  type CourierCatalogResponse, type DeliverySettingsResponse, type SaveDeliverySettingsRequest } from "@shared/contracts/delivery-settings";
+import { agencyCatalogSchema, courierCatalogSchema, deliveryZonesApiErrorSchema, deliveryZonesSchema, saveDeliveryZonesSchema, type DeliveryZonesResponse, type SaveDeliveryZonesRequest, deliverySettingsApiErrorSchema, deliverySettingsSchema, saveDeliverySettingsSchema,
+  type AgencyCatalogResponse, type CourierCatalogResponse, type DeliverySettingsResponse, type SaveDeliverySettingsRequest } from "@shared/contracts/delivery-settings";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { TransportError } from "@mobile/shared/application/transport-error";
@@ -31,6 +31,17 @@ function catalogResponse(raw: Result<unknown, TransportError>): Result<CourierCa
   }
   const failed = response(raw, false);
   return failed.success ? err({ code: "INVALID_RESPONSE", message: "Unexpected courier catalog error" }) : failed;
+}
+
+function agencyCatalogResponse(raw: Result<unknown, TransportError>, courierId: string): Result<AgencyCatalogResponse, DeliverySettingsError> {
+  if (raw.success) {
+    const parsed = agencyCatalogSchema.safeParse(raw.data);
+    return parsed.success && parsed.data.agencies.every(agency => agency.courierId === courierId && agency.enabled && getPeruDistrict(agency.location.districtCode))
+      ? ok(parsed.data) : err({ code: "INVALID_RESPONSE", message: "Invalid agency catalog response" });
+  }
+  if (raw.error.http?.status === 404) return err({ code: "NOT_FOUND", message: "Courier not found" });
+  const failed = response(raw, false);
+  return failed.success ? err({ code: "INVALID_RESPONSE", message: "Unexpected agency catalog error" }) : failed;
 }
 
 const zoneStatusByCode = { ...statusByCode, INVALID_DELIVERY_ZONE: 422, INVALID_DELIVERY_OPTION: 422, UNSUPPORTED_COUNTRY: 422 };
@@ -71,6 +82,8 @@ export function createDeliverySettingsApi(request: Request) {
         ? err({ code: "INVALID_RESPONSE", message: "Unexpected saved zones version" }) : result;
     },
     getCourierCatalog: async (): Promise<Result<CourierCatalogResponse, DeliverySettingsError>> => catalogResponse(await request("/api/delivery-settings/courier-catalog")),
+    getAgencyCatalog: async (courierId: string): Promise<Result<AgencyCatalogResponse, DeliverySettingsError>> =>
+      agencyCatalogResponse(await request(`/api/delivery-settings/agency-catalog?courierId=${encodeURIComponent(courierId)}`), courierId),
     get: async (): Promise<Result<DeliverySettingsResponse, DeliverySettingsError>> => response(await request("/api/delivery-settings"), false),
     save: async (input: SaveDeliverySettingsRequest): Promise<Result<DeliverySettingsResponse, DeliverySettingsError>> => {
       const parsed = saveDeliverySettingsSchema.safeParse(input);
