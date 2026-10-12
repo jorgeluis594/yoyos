@@ -44,3 +44,12 @@ export function filterPeruDistricts(districts: readonly PeruDistrict[], query: s
   const term = normalize(query);
   return districts.filter(district => normalize(district.name).includes(term) || district.code.includes(term));
 }
+
+/** Catalog names of a district and its province and department, as stored in delivery locations. */
+export function peruDeliveryDistrict(code: PeruDistrictCode) {
+  const district = getPeruDistrict(code);
+  const department = district && peruDepartments.find(value => value.code === district.departmentCode);
+  const province = district && getPeruProvinces(district.departmentCode).find(value => value.code === district.provinceCode);
+  if (!district || !department || !province) return null;
+  return { country: "PE" as const, districtCode: district.code, district: district.name, province: province.name, department: department.name };
+}

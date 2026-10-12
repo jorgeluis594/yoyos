@@ -22,7 +22,7 @@ const mockCheckCancellation = jest.fn();
 let mockUserId = "seller";
 jest.mock("expo-clipboard", () => ({ setStringAsync: jest.fn(async () => true) }));
 const initialOrder: OrderAggregateResponse = { number: 1001, id: mockId, companyId: "00000000-0000-4000-8000-000000000001", sellerId: "seller",
-  buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, checkoutDeliveryRequest: null, createdAt: "2026-09-29T11:00:00.000Z", deliveredAt: "2026-09-29T12:00:00.000Z", completedAt: "2026-09-29T12:00:00.000Z",
+  buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, createdAt: "2026-09-29T11:00:00.000Z", deliveredAt: "2026-09-29T12:00:00.000Z", completedAt: "2026-09-29T12:00:00.000Z",
   status: "completed", paymentStatus: "paid", paidAmount: { amount: 12, currency: "PEN" },
   balanceDue: { amount: 0, currency: "PEN" }, overpaidAmount: { amount: 0, currency: "PEN" }, cancelled: false,
   delivery: null, deliveryStatus: "delivered", stockDeducted: true, itemsTotal: { amount: 12, currency: "PEN" },
@@ -188,7 +188,7 @@ test('order detail translates amounts and labels to Portuguese', async () => {
  });
  test("saved pickup detail shows historic destination, author and absorbed delivery cost", async () => {
   mockOrder = { ...initialOrder, status: "active", completedAt: null, deliveryStatus: "pending", deliveryCost: { amount: 3, currency: "PEN" },
-    delivery: { method: "store", recipient: { name: "Recipient", phone: "555", identity: { kind: "absent" } }, pickupPoint: { name: "Historic store", address: "Historic address", instructions: "Historic instructions" }, recordedBy: { kind: "seller", userId: "second-seller" } } };
+    delivery: { method: "store", recipient: { name: "Recipient", phone: "555", identity: { kind: "absent" } }, pickupPoint: { name: "Historic store", address: "Historic address", instructions: "Historic instructions" }, settingsVersion: 1, recordedBy: { kind: "seller", userId: "second-seller" } } };
   const screen = render(<OrderDetailScreen />);
   await screen.findByRole("button", { name: "Tienda" });
   fireEvent.press(screen.getByRole("button", { name: "Tienda" }));
@@ -219,7 +219,7 @@ test("a failed refetch after returning hides obsolete details and offers retry",
 
 test("home details show historical address, district, instructions and seller alongside cost and charge", async () => {
   mockOrder = { ...initialOrder, status: "active", completedAt: null, deliveryStatus: "pending", deliveryCost: { amount: 3, currency: "PEN" },
-    delivery: { method: "home", recipient: { name: "Recipient", phone: "555", identity: { kind: "absent" } }, destination: { address: "Historic destination", district: "Historic district", instructions: "Historic instructions" }, recordedBy: { kind: "seller", userId: "second-seller" } } };
+    delivery: { method: "home", recipient: { name: "Recipient", phone: "555", identity: { kind: "absent" } }, destination: { address: "Historic destination", country: "PE" as const, districtCode: "150101", province: "Lima", department: "Lima", district: "Historic district", instructions: "Historic instructions" }, pricing: { quotationId: "00000000-0000-4000-8000-000000000020", rateId: "00000000-0000-4000-8000-000000000021", optionId: "00000000-0000-4000-8000-000000000022", settingsVersion: 1 }, recordedBy: { kind: "seller", userId: "second-seller" } } };
   const screen = render(<OrderDetailScreen />);
   await screen.findByRole("button", { name: "Domicilio" });
   fireEvent.press(screen.getByRole("button", { name: "Domicilio" }));
@@ -229,19 +229,6 @@ test("home details show historical address, district, instructions and seller al
   expect(screen.getByText(/Registrada por vendedor: second-seller/)).toBeTruthy();
   expect(screen.getByText(/Costo de entrega:/)).toBeTruthy();
   expect(screen.getByText(/Cargo al cliente:/)).toBeTruthy();
-});
-
-test("agency history shows the saved courier and document after shipment", async () => {
-  mockOrder = { ...initialOrder, status: "active", completedAt: null, deliveryStatus: "shipped",
-    delivery: { method: "agency", recipient: { name: "Recipient", phone: "00123", identity: { kind: "document", documentType: "passport", document: "00-A001" } },
-      courier: { id: "00000000-0000-4000-8000-000000000011", name: "Historic courier" }, agency: "Historic agency", recordedBy: { kind: "seller", userId: "second-seller" } } };
-  const screen = render(<OrderDetailScreen />);
-  await screen.findByRole("button", { name: "Agencia" });
-  fireEvent.press(screen.getByRole("button", { name: "Agencia" }));
-  expect(screen.getByText("Historic courier")).toBeTruthy();
-  expect(screen.getByText("Historic agency")).toBeTruthy();
-  expect(screen.getByText(/00-A001/)).toBeTruthy();
-  expect(screen.queryByText("Editar datos")).toBeNull();
 });
 
 test("seller obtains and copies checkout link without changing the payment display", async () => {
@@ -308,7 +295,7 @@ test("confirmed and cancelled checkouts display persisted state while link failu
 test.each([null, "store"] as const)("seller delivers directly from pending with %s delivery and keeps payments", async method => {
   mockOrder = { ...initialOrder, status: "active", deliveryStatus: "pending", deliveredAt: null, completedAt: null,
     delivery: method === "store" ? { method, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
-      pickupPoint: { name: "Tienda", address: "Lima", instructions: null }, recordedBy: { kind: "seller", userId: "seller" } } : null };
+      pickupPoint: { name: "Tienda", address: "Lima", instructions: null }, settingsVersion: 1, recordedBy: { kind: "seller", userId: "seller" } } : null };
   mockDeliver.mockResolvedValue({ success: true, data: { ...mockOrder, status: "completed", deliveryStatus: "delivered", completedAt: initialOrder.completedAt, deliveredAt: initialOrder.deliveredAt } });
   const screen = render(<OrderDetailScreen />);
   await screen.findByText("Orden activa");
@@ -392,17 +379,21 @@ test("fulfillment errors remain visible and requests can be retried without chan
   expect(mockVoidPayment).not.toHaveBeenCalled();
 });
 
-test('rated agency delivery shows its district and pending operational assignment', async () => {
+test('rated agency delivery shows its courier and catalog agency', async () => {
   await i18n.changeLanguage('es');
   mockOrder = { ...initialOrder, delivery: { method: 'agency',
     recipient: { name: 'Ana', phone: '999', identity: { kind: 'document', documentType: 'national_id', document: '12345678' } },
     destination: { country: 'PE', districtCode: '150122', district: 'Miraflores', province: 'Lima', department: 'Lima' },
-    pricing: { quotationId: mockId, rateId: mockId, zoneId: mockId, settingsVersion: 3 },
-    courier: null, agency: null, recordedBy: { kind: 'buyer' } } };
+    pricing: { quotationId: mockId, rateId: mockId, optionId: mockId, settingsVersion: 3 },
+    courier: { id: mockId, name: 'Shalom' },
+    agency: { id: mockId, name: 'Sucursal Miraflores', address: 'Av. Test 123', location: { country: 'PE', districtCode: '150122', district: 'Miraflores', province: 'Lima', department: 'Lima' } },
+    recordedBy: { kind: 'buyer' } } };
   const screen = render(<OrderDetailScreen />);
   fireEvent.press(await screen.findByRole('button', { name: /Agencia/ }));
-  expect(screen.getByText('Miraflores')).toBeTruthy();
-  expect(screen.getByText('Courier y agencia pendientes de asignación')).toBeTruthy();
+  expect(screen.getByText('Shalom')).toBeTruthy();
+  expect(screen.getByText('Sucursal Miraflores')).toBeTruthy();
+  expect(screen.getByText('Av. Test 123')).toBeTruthy();
+  expect(screen.getByText('Miraflores, Lima')).toBeTruthy();
 });
 
 function pendingCancellationOrder() {

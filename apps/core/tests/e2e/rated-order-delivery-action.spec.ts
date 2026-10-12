@@ -1,4 +1,4 @@
-import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
+import { browserExpect, chooseOption, expect, openOptions, prepareVerifiedCompany, selectedValue, test } from "@core/tests/e2e/fixtures";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { products } from "@core/src/features/products/composition";
 import { orders } from "@core/src/features/orders/composition";
@@ -24,9 +24,9 @@ test("private web rated pickup rejects an obsolete price without writes and retu
       store: { enabled: true, pickupPoint: { name: "Pickup", address: "Street", instructions: null } } } })).ok()).toBe(true);
     const url = `/es-PE/orders/${orderId}`;
     const delivery = { method: "store", recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } } };
-    const legacy = await page.request.post(`${url}.data`, { data: { delivery, chargeDeliveryToCustomer: false } });
-    expect(legacy.ok()).toBe(true);
-    expect(await legacy.text()).toContain("invalid");
+    const obsolete = await page.request.post(`${url}.data`, { data: { delivery, obsoleteCharge: false } });
+    expect(obsolete.ok()).toBe(true);
+    expect(await obsolete.text()).toContain("invalid");
     const stale = await page.request.post(`${url}.data`, { data: { delivery, expectedPrice: { amount: 3, currency: "PEN" } } });
     expect(stale.ok()).toBe(true);
     expect(await stale.text()).toContain("priceChanged");
@@ -39,23 +39,27 @@ test("private web rated pickup rejects an obsolete price without writes and retu
       deliveryCost: { amount: 0 }, deliveryCharge: { amount: 0 }, total: { amount: 10 }, stockDeducted: false });
     expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 1, agency: { enabled: false }, couriers: [], home: { enabled: true },
       store: { enabled: true, pickupPoint: { name: "Pickup", address: "Street", instructions: null } } } })).ok()).toBe(true);
-    const zones = [8, 12].map((amount, index) => ({ kind: "new", name: `Zone ${index}`, enabled: true, districtCodes: ["040110"], price: { amount, currency: "PEN" } }));
-    expect((await page.request.put("/api/delivery-settings/zones", { data: { method: "home", expectedVersion: 2, zones } })).ok()).toBe(true);
+    const zones = [8, 12].map((amount, index) => ({ kind: "new", name: `Zone ${index}`, enabled: true, districtCodes: ["040110"],
+      options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount, currency: "PEN" } }] }));
+    expect((await page.request.put("/api/delivery-settings/zones", { data: { expectedVersion: 2, zones } })).ok()).toBe(true);
     await page.goto(url);
     await page.getByRole("button", { name: "Editar entrega", exact: true }).click();
-    await page.getByLabel("Modalidad de entrega", { exact: true }).selectOption("home");
+    await chooseOption(page, "Modalidad de entrega", "Entrega a domicilio");
     await page.getByLabel("Departamento", { exact: true }).selectOption("04");
     await page.getByLabel("Provincia", { exact: true }).selectOption("0401");
     await page.getByLabel("Distrito", { exact: true }).selectOption("040110");
-    const tariff = page.getByLabel("Tarifa de entrega", { exact: true });
-    await browserExpect(tariff.locator("option")).toHaveCount(3);
-    const rateId = await tariff.locator("option").nth(1).getAttribute("value");
+    const tariff = selectedValue(page, "rateId");
+    const rates = await openOptions(page, "Tarifa de entrega");
+    await browserExpect(rates).toHaveCount(2);
+    await rates.first().click();
+    const rateId = await tariff.inputValue();
     if (!rateId) throw new Error("Expected explicit rate");
-    await tariff.selectOption(rateId);
     await page.getByLabel("Dirección de entrega", { exact: true }).fill("Preserved street");
     const storedZones = await (await page.request.get("/api/delivery-settings/zones")).json();
-    expect((await page.request.put("/api/delivery-settings/zones", { data: { method: "home", expectedVersion: storedZones.version,
-      zones: storedZones.zones.map((zone: { id: string; name: string; enabled: boolean; districtCodes: string[]; price: { amount: number; currency: string } }) => ({ kind: "existing", id: zone.id, name: zone.name, enabled: zone.enabled, districtCodes: zone.districtCodes, price: { ...zone.price, amount: zone.price.amount + 2 } })) } })).ok()).toBe(true);
+    expect((await page.request.put("/api/delivery-settings/zones", { data: { expectedVersion: storedZones.version,
+      zones: storedZones.zones.map((zone: { id: string; name: string; enabled: boolean; districtCodes: string[]; options: { id: string; method: string; name: string; enabled: boolean; price: { amount: number; currency: string } }[] }) => ({
+        kind: "existing", id: zone.id, name: zone.name, enabled: zone.enabled, districtCodes: zone.districtCodes,
+        options: zone.options.map(option => ({ kind: "existing", ...option, price: { ...option.price, amount: option.price.amount + 2 } })) })) } })).ok()).toBe(true);
     await page.getByRole("button", { name: "Guardar entrega", exact: true }).click();
     await browserExpect(page.getByRole("alert")).toContainText("La tarifa cambió");
     await browserExpect(page.getByLabel("Dirección de entrega", { exact: true })).toHaveValue("Preserved street");
@@ -63,11 +67,12 @@ test("private web rated pickup rejects an obsolete price without writes and retu
     await browserExpect(page.getByRole("button", { name: "Guardar entrega", exact: true })).toBeDisabled();
     const afterConflict = await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json();
     expect(afterConflict).toMatchObject({ delivery: { method: "store" }, total: { amount: 10 } });
-    await browserExpect(tariff.locator("option")).toHaveCount(3);
-    const refreshedRate = await tariff.locator("option").nth(1).getAttribute("value");
+    const refreshedRates = await openOptions(page, "Tarifa de entrega");
+    await browserExpect(refreshedRates).toHaveCount(2);
+    await refreshedRates.first().click();
+    const refreshedRate = await tariff.inputValue();
     if (!refreshedRate) throw new Error("Expected fresh rate");
     expect(refreshedRate).not.toBe(rateId);
-    await tariff.selectOption(refreshedRate);
     for (const [width, height, label] of [[1280, 900, "desktop"], [390, 844, "mobile"]] as const) {
       await page.setViewportSize({ width, height });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -85,7 +90,7 @@ test("private web rated pickup rejects an obsolete price without writes and retu
       await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
       await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
       await prisma.deliveryRate.deleteMany(); await prisma.quotation.deleteMany();
-      await prisma.deliveryZoneDistrict.deleteMany(); await prisma.deliveryZone.deleteMany();
+      await prisma.deliveryZoneDistrict.deleteMany(); await prisma.deliveryOptionAgency.deleteMany(); await prisma.deliveryOption.deleteMany(); await prisma.deliveryZone.deleteMany();
       await prisma.companyDeliverySettings.deleteMany();
       await systemPrisma.user.deleteMany({ where: { email } });
       await prisma.company.delete({ where: { id: companyId } });

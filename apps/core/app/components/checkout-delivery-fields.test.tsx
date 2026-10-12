@@ -27,7 +27,8 @@ test("unassigned delivery asks for a district and recipient and never offers imp
 
 test("historical delivery shows saved address and charge without consulting a current district or rate", () => {
   const html = render({ ...checkout, deliveryCharge: { amount: 8, currency: "PEN" }, total: { amount: 18, currency: "PEN" }, delivery: {
-    method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, destination: { address: "Old street", district: "Old district", instructions: null },
+    method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, destination: { address: "Old street", country: "PE", districtCode: "150101", district: "Old district", province: "Lima", department: "Lima", instructions: null },
+    pricing: { quotationId: "00000000-0000-4000-8000-000000000020", rateId: "00000000-0000-4000-8000-000000000021", optionId: "00000000-0000-4000-8000-000000000022", settingsVersion: 1 },
   } });
   expect(html).toContain("Conservar entrega actual");
   expect(html).toContain("Old street, Old district");
@@ -58,4 +59,16 @@ test("businesses without available delivery methods cannot offer an implicit del
   expect(html).not.toContain('value="ship"');
   expect(html).not.toContain("Distrito de entrega");
   expect(html).not.toContain("Nombre del destinatario");
+});
+
+test("a saved agency delivery shows its courier and catalog agency instead of a pending assignment", () => {
+  const district = { country: "PE" as const, districtCode: "150122", district: "Miraflores", province: "Lima", department: "Lima" };
+  const html = render({ ...checkout, deliveryCharge: { amount: 5, currency: "PEN" }, total: { amount: 15, currency: "PEN" }, delivery: {
+    method: "agency", recipient: { name: "Ana", phone: "999", identity: { kind: "document", documentType: "national_id", document: "12345678" } }, destination: district,
+    pricing: { quotationId: "00000000-0000-4000-8000-000000000020", rateId: "00000000-0000-4000-8000-000000000021", optionId: "00000000-0000-4000-8000-000000000022", settingsVersion: 1 },
+    courier: { id: "00000000-0000-4000-8000-000000000023", name: "Shalom" },
+    agency: { id: "00000000-0000-4000-8000-000000000024", name: "Branch", address: "Av. Test 123", location: district },
+  } });
+  expect(html).toContain("Retiro en agencia");
+  expect(html).toContain("Shalom · Branch · Av. Test 123");
 });

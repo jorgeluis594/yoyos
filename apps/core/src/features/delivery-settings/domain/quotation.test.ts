@@ -1,50 +1,72 @@
 import { expect, test } from "vitest";
-import { initialDeliverySettings, type DeliverySettings } from "@core/src/features/delivery-settings/domain/delivery-settings";
+import { initialDeliverySettings, type Courier, type DeliverySettings } from "@core/src/features/delivery-settings/domain/delivery-settings";
+import type { DeliveryAgency } from "@core/src/features/delivery-settings/domain/delivery-agency";
 import { parseDeliveryZone, type DeliveryZone } from "@core/src/features/delivery-settings/domain/delivery-zone";
-import { buildQuotationWithRates, parseQuotationDestination, parseRateWithQuotation } from "@core/src/features/delivery-settings/domain/quotation";
+import { applicableDeliveryOptions, buildQuotationWithRates, parseQuotationDestination, parseRateWithQuotation, type DeliveryConfiguration } from "@core/src/features/delivery-settings/domain/quotation";
+import type { PeruDistrictCode } from "@shared/peru-geography";
 
 const id = (value: number) => `00000000-0000-4000-8000-${String(value).padStart(12, "0")}`;
 const settings: DeliverySettings = { ...initialDeliverySettings(), version: 3, home: { enabled: true } };
-const zone = (value: number, amount: number, method: "home" | "agency" = "home", districtCode = "150122", enabled = true): DeliveryZone => {
-  const parsed = parseDeliveryZone({ id: id(value), method, name: "Zone", enabled, districtCodes: [districtCode], price: { amount, currency: "PEN" } }, "PEN");
+type OptionSpec = Readonly<{ id: number; amount: number; method?: "home" | "agency"; enabled?: boolean; name?: string; agencyIds?: string[] }>;
+const zone = (value: number, options: readonly OptionSpec[], districtCode = "150122", enabled = true, name = "Zone"): DeliveryZone => {
+  const parsed = parseDeliveryZone({ id: id(value), name, enabled, districtCodes: [districtCode], options: options.map(option => ({
+    id: id(option.id), method: option.method ?? "home", name: option.name ?? `Option ${option.id}`, enabled: option.enabled ?? true,
+    price: { amount: option.amount, currency: "PEN" }, ...(option.method === "agency" ? { agencyIds: option.agencyIds ?? [] } : {}) })) }, "PEN");
   if (!parsed.success) throw new Error(parsed.error.message);
   return parsed.data;
 };
-const input = (zones: readonly DeliveryZone[], rateIds: readonly string[]) => ({
+const configuration = (zones: readonly DeliveryZone[], overrides: Partial<DeliveryConfiguration> = {}): DeliveryConfiguration =>
+  ({ country: "PE", currency: "PEN", settings, zones, agencies: [], ...overrides });
+const input = (zones: readonly DeliveryZone[], rateIds: readonly string[], overrides: Partial<DeliveryConfiguration> = {}) => ({
   id: id(20), companyId: id(21), createdAt: new Date("2026-10-07T16:00:00.000Z"),
-  destination: { country: "PE", districtCode: "150122" }, settings, zones, rateIds,
+  destination: { country: "PE", districtCode: "150122" }, configuration: configuration(zones, overrides), rateIds,
 });
+const courier = { id: id(50), catalogId: id(51), name: "Courier", enabled: true, catalogEnabled: true } as unknown as Courier;
+const catalogAgency = (enabled = true, courierEnabled = true) => ({ id: id(60), courierId: courier.catalogId, name: "Agency", address: "Street",
+  districtCode: "150122" as PeruDistrictCode, enabled, courierEnabled }) as DeliveryAgency;
+const agencySettings = (overrides: Partial<Courier> = {}): DeliverySettings => ({ ...settings, agency: { enabled: true }, couriers: [{ ...courier, ...overrides }] });
 
-test("every overlapping zone generates its own rate, even with equal prices, without exposing internal names", () => {
-  const original = input([zone(3, 12), zone(2, 8), zone(1, 8)], [id(30), id(31), id(32)]);
-  const result = buildQuotationWithRates(original, "PEN");
+test("every applicable option generates its own rate named after the option, even with equal prices", () => {
+  const original = input([zone(1, [{ id: 13, amount: 12 }, { id: 12, amount: 8, name: "Standard" }], "150122", true, "Lima"), zone(2, [{ id: 11, amount: 8 }])], [id(30), id(31), id(32)]);
+  const result = buildQuotationWithRates(original);
   expect(result).toMatchObject({ success: true, data: { quotation: { id: id(20), companyId: id(21),
     destination: { country: "PE", districtCode: "150122", address: null, instructions: null } }, rates: [
-    { id: id(30), zoneId: id(1), price: { amount: 8, currency: "PEN" } },
-    { id: id(31), zoneId: id(2), price: { amount: 8, currency: "PEN" } },
-    { id: id(32), zoneId: id(3), price: { amount: 12, currency: "PEN" } },
+    { rate: { id: id(30), optionId: id(11), method: "home", price: { amount: 8, currency: "PEN" } }, name: "Option 11", zoneName: "Zone" },
+    { rate: { id: id(31), optionId: id(12), price: { amount: 8, currency: "PEN" } }, name: "Standard", zoneName: "Lima" },
+    { rate: { id: id(32), optionId: id(13), price: { amount: 12, currency: "PEN" } }, name: "Option 13", zoneName: "Lima" },
   ] } });
   if (!result.success) return;
-  for (const rate of result.data.rates) {
+  for (const { rate } of result.data.rates) {
     expect(rate).toMatchObject({ quotationId: id(20), companyId: id(21), districtCode: "150122", settingsVersion: 3, createdAt: original.createdAt });
     expect(rate).not.toHaveProperty("name");
   }
-  expect(original.zones.map(value => value.id)).toEqual([id(3), id(2), id(1)]);
   expect(result.data.quotation.createdAt).not.toBe(original.createdAt);
 });
 
-test("only active covered zones of enabled shipping methods apply; pickup is not a rate", () => {
-  const zones = [zone(1, 0), zone(2, 5, "agency"), zone(3, 8, "home", "040110"), zone(4, 8, "home", "150122", false)];
-  const result = buildQuotationWithRates(input(zones, [id(30)]), "PEN");
-  expect(result).toMatchObject({ success: true, data: { rates: [{ method: "home", price: { amount: 0, currency: "PEN" } }] } });
-  const courierSettings: DeliverySettings = { ...settings, agency: { enabled: true },
-    couriers: [{ id: id(50) as DeliverySettings["couriers"][number]["id"], name: "Courier", enabled: true }] };
-  expect(buildQuotationWithRates({ ...input(zones, [id(30), id(31)]), settings: courierSettings }, "PEN"))
-    .toMatchObject({ success: true, data: { rates: [{ method: "home" }, { method: "agency" }] } });
+test("home options apply only when home delivery, the zone, the option and the district are all active", () => {
+  const district = "150122" as PeruDistrictCode;
+  const zones = [zone(1, [{ id: 11, amount: 0 }, { id: 12, amount: 5, enabled: false }]), zone(2, [{ id: 13, amount: 8 }], "040110"), zone(3, [{ id: 14, amount: 8 }], "150122", false)];
+  expect(applicableDeliveryOptions(configuration(zones), district).map(value => value.option.id)).toEqual([id(11)]);
+  expect(applicableDeliveryOptions(configuration(zones, { settings: { ...settings, home: { enabled: false } } }), district)).toEqual([]);
+});
+
+test("agency options require agency delivery and at least one eligible agency whose courier is enabled in the catalog and the company", () => {
+  const district = "150122" as PeruDistrictCode;
+  const zones = [zone(1, [{ id: 11, amount: 5, method: "agency", agencyIds: [id(60)] }, { id: 12, amount: 8 }])];
+  const base = { settings: agencySettings(), agencies: [catalogAgency()] };
+  const options = applicableDeliveryOptions(configuration(zones, base), district);
+  expect(options.map(value => [value.option.method, value.option.id])).toEqual([["home", id(12)], ["agency", id(11)]]);
+  expect(options[1]).toMatchObject({ agencies: [{ agency: { id: id(60) }, courier: { id: id(50) } }] });
+  for (const change of [{ settings: { ...agencySettings(), agency: { enabled: false } } }, { agencies: [] }, { agencies: [catalogAgency(false)] },
+    { agencies: [catalogAgency(true, false)] }, { settings: agencySettings({ enabled: false }) }, { settings: agencySettings({ catalogEnabled: false }) },
+    { settings: { ...settings, agency: { enabled: true }, couriers: [{ ...courier, catalogId: id(99) } as unknown as Courier] } }]) {
+    expect(applicableDeliveryOptions(configuration(zones, { ...base, ...change }), district).map(value => value.option.method)).toEqual(["home"]);
+  }
+  expect(applicableDeliveryOptions(configuration([zone(1, [{ id: 11, amount: 5, method: "agency", agencyIds: [] }])], base), district)).toEqual([]);
 });
 
 test("valid uncovered destination creates a quotation with no rates rather than a zero rate", () => {
-  const result = buildQuotationWithRates(input([zone(1, 8, "home", "040110")], []), "PEN");
+  const result = buildQuotationWithRates(input([zone(1, [{ id: 11, amount: 8 }], "040110")], []));
   expect(result).toMatchObject({ success: true, data: { quotation: { id: id(20) }, rates: [] } });
 });
 
@@ -59,23 +81,25 @@ test("destination allows district without street, normalizes optional text and r
   expect(parseQuotationDestination({ country: "PE", districtCode: "999999" })).toMatchObject({ success: false, error: { code: "INVALID_DISTRICT" } });
 });
 
-test("invalid timestamps, IDs, repeated zones or rates and inconsistent generated identity counts are rejected", () => {
-  const valid = input([zone(1, 8)], [id(30)]);
+test("invalid timestamps, IDs, repeated zones or options and inconsistent generated identity counts are rejected", () => {
+  const valid = input([zone(1, [{ id: 11, amount: 8 }])], [id(30)]);
   for (const change of [{ id: "bad" }, { companyId: "bad" }, { createdAt: new Date(NaN) }, { rateIds: [] },
-    { rateIds: ["bad"] }, { rateIds: [id(30), id(30)] }, { zones: [zone(1, 8), zone(1, 8)] }]) {
-    expect(buildQuotationWithRates({ ...valid, ...change }, "PEN").success).toBe(false);
+    { rateIds: ["bad"] }, { rateIds: [id(30), id(30)] }, { configuration: configuration([zone(1, [{ id: 11, amount: 8 }]), zone(1, [{ id: 12, amount: 8 }])]) },
+    { configuration: configuration([zone(1, [{ id: 11, amount: 8 }]), zone(2, [{ id: 11, amount: 8 }])]) }]) {
+    expect(buildQuotationWithRates({ ...valid, ...change }).success).toBe(false);
   }
-  expect(buildQuotationWithRates({ ...valid, settings: { ...settings, version: -1 } }, "PEN"))
+  expect(buildQuotationWithRates({ ...valid, configuration: { ...valid.configuration, settings: { ...settings, version: -1 } } }))
     .toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_SETTINGS" } });
-  expect(buildQuotationWithRates(valid, "USD")).toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_RATE" } });
+  expect(buildQuotationWithRates({ ...valid, configuration: { ...valid.configuration, currency: "USD" } }))
+    .toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_RATE" } });
 });
 
 test("stored rates validate the immutable destination and quotation relationship", () => {
-  const built = buildQuotationWithRates(input([zone(1, 8)], [id(30)]), "PEN");
+  const built = buildQuotationWithRates(input([zone(1, [{ id: 11, amount: 8 }])], [id(30)]));
   if (!built.success) throw new Error(built.error.message);
-  const value = { quotation: built.data.quotation, rate: built.data.rates[0] };
+  const value = { quotation: built.data.quotation, rate: built.data.rates[0].rate };
   expect(parseRateWithQuotation(value, "PEN")).toEqual({ success: true, data: value });
-  for (const change of [{ companyId: id(99) }, { quotationId: id(99) }, { districtCode: "040110" },
+  for (const change of [{ companyId: id(99) }, { quotationId: id(99) }, { districtCode: "040110" }, { optionId: "bad" },
     { price: { amount: 8.001, currency: "PEN" } }, { settingsVersion: -1 }, { createdAt: "2026-10-07" }]) {
     expect(parseRateWithQuotation({ ...value, rate: { ...value.rate, ...change } }, "PEN").success).toBe(false);
   }

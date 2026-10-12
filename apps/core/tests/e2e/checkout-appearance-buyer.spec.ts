@@ -4,6 +4,7 @@ import { browserExpect, expect, test } from "@core/tests/e2e/fixtures";
 import { products } from "@core/src/features/products/composition";
 import { orders } from "@core/src/features/orders/composition";
 import { deliverySettings } from "@core/src/features/delivery-settings";
+import { deleteAgencies, insertAgency, seededCatalogId } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
 import { companyPaymentSettings } from "@core/src/features/companies";
 import { checkoutPalette } from "@core/src/features/checkout-appearance";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
@@ -35,9 +36,9 @@ async function fixture({ delivery = true }: { delivery?: boolean } = {}) {
     await prisma.contact.create({ data: { id: contactId, name: "Ana", phone: "+51987654321" } });
     const created = await orders.create({ id: orderId, contactId, items: [{ variantId: variant.id as VariantId, quantity: 1 as PositiveInteger }] }, { companyId, userId });
     if (!created.success) throw new Error("Order fixture failed");
-    if (delivery) await prisma.order.update({ where: { id: orderId }, data: { delivery: { method: "home",
-      recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } }, destination: { address: "Historical address", district: "Lima", instructions: null },
-      recordedBy: { kind: "seller", userId } } } });
+    if (delivery) await prisma.order.update({ where: { id: orderId }, data: { delivery: { method: "store",
+      recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } }, pickupPoint: { name: "Tienda", address: "Historical address", instructions: null },
+      settingsVersion: 0, recordedBy: { kind: "seller", userId } } } });
     expect(await orders.enableCheckout(orderId, { companyId, userId })).toMatchObject({ success: true });
   });
   return { companyId, userId, orderId, path: `/checkout/${companyId}/${orderId}`,
@@ -48,7 +49,7 @@ async function fixture({ delivery = true }: { delivery?: boolean } = {}) {
         await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
         await prisma.contact.deleteMany(); await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
         await prisma.deliveryRate.deleteMany(); await prisma.quotation.deleteMany(); await prisma.deliveryZoneDistrict.deleteMany();
-        await prisma.deliveryZone.deleteMany(); await prisma.companyCourier.deleteMany(); await prisma.companyDeliverySettings.deleteMany();
+        await prisma.deliveryOptionAgency.deleteMany(); await prisma.deliveryOption.deleteMany(); await prisma.deliveryZone.deleteMany(); await prisma.companyCourier.deleteMany(); await prisma.companyDeliverySettings.deleteMany();
         await prisma.companyPaymentSettings.deleteMany();
       });
       await removeCompanyAppearance(companyId);
@@ -133,15 +134,17 @@ test.describe("buyer checkout with appearance", () => {
 
   test("keeps delivery quote and payment flows working", async ({ page }) => {
     const f = await fixture({ delivery: false });
+    const catalogId = await seededCatalogId();
+    const agencies = [await insertAgency({ courierId: catalogId, name: "Sucursal Miraflores", districtCode: "150122" })];
     try {
       await saveCompanyAppearance(f.companyId, { brandColor: "forest", background: "brand_tint", withLogo: true });
       const receiptId = randomUUID();
       await withTenantIsolation(f.companyId, async () => {
         const access = { companyId: f.companyId, userId: f.userId };
-        expect((await deliverySettings.saveZones({ method: "agency", expectedVersion: 0,
-          zones: [{ kind: "new", name: "Agency zone", enabled: true, districtCodes: ["150122"], price: { amount: 8, currency: "PEN" } }] }, access)).success).toBe(true);
-        expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: false }, agency: { enabled: true },
-          couriers: [{ kind: "new", name: "Operational courier", enabled: true }], store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
+        expect((await deliverySettings.save({ expectedVersion: 0, home: { enabled: false }, agency: { enabled: true },
+          couriers: [{ kind: "new", catalogId, enabled: true }], store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
+        expect((await deliverySettings.saveZones({ expectedVersion: 1, zones: [{ kind: "new", name: "Agency zone", enabled: true, districtCodes: ["150122"],
+          options: [{ kind: "new", method: "agency", name: "Retiro en agencia", enabled: true, price: { amount: 8, currency: "PEN" }, agencyIds: agencies }] }] }, access)).success).toBe(true);
         expect((await companyPaymentSettings.save(f.companyId, f.userId, [{ method: "bank_transfer", bank: "BCP", holder: "Tienda",
           accountNumber: null, cci: "00200000000000000001", imageId: null }])).success).toBe(true);
         await prisma.image.create({ data: { id: receiptId, storageKey: `test/${receiptId}` } });
@@ -175,6 +178,6 @@ test.describe("buyer checkout with appearance", () => {
       expect(stored.deliveryCharge.toNumber()).toBe(8);
       expect(stored.delivery).toMatchObject({ method: "agency", destination: { districtCode: "150122" }, recordedBy: { kind: "buyer" } });
       expect(stored.payments).toMatchObject([{ status: "reported" }]);
-    } finally { await f.cleanup(); }
+    } finally { await f.cleanup(); await deleteAgencies(agencies); }
   });
 });

@@ -31,7 +31,7 @@ export const ratedDeliveryAssignmentSchema = z.strictObject({
     z.strictObject({ method: z.literal("home"), recipient, rateId: z.uuid(), destination: z.strictObject({
       districtCode, address: z.string().trim().min(1).max(500), instructions: z.string().trim().max(1000).nullable(),
     }) }),
-    z.strictObject({ method: z.literal("agency"), recipient: recipient.extend({ identity: identity.options[1] }), rateId: z.uuid(), districtCode }),
+    z.strictObject({ method: z.literal("agency"), recipient: recipient.extend({ identity: identity.options[1] }), rateId: z.uuid(), districtCode, agencyId: z.uuid() }),
   ]),
 }).refine(value => value.delivery.method === "store" ? value.expectedPrice.amount === 0 : value.expectedPrice.currency === "PEN");
 export type RatedDeliveryAssignment = z.infer<typeof ratedDeliveryAssignmentSchema>;

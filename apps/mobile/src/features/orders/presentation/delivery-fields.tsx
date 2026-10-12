@@ -11,14 +11,14 @@ import { getPeruDistrict } from "@shared/peru-geography";
 import type { DeliveryQuotation } from "@mobile/features/delivery-settings";
 import type { OrderDeliveryFormValues } from "@mobile/features/orders/presentation/order-delivery-form";
 import { Button } from "@mobile/components/ui/button";
-import { documentTypeLabel, orderLanguage } from "@mobile/features/orders/presentation/order-labels";
+import { agencyOption, documentTypeLabel, orderLanguage, rateLabel } from "@mobile/features/orders/presentation/order-labels";
 
 export function deliveryDraftFromOrder(order: Pick<OrderAggregateResponse, "buyer" | "delivery" | "deliveryCharge">, settings: DeliverySettingsResponse): OrderDeliveryFormValues {
   const recipient = order.delivery?.recipient;
   const destination = order.delivery?.method === "home" ? order.delivery.destination : null;
   return { name: recipient?.name ?? order.buyer?.name ?? "", phone: recipient?.phone ?? order.buyer?.phone ?? "",
     documentType: recipient?.identity.kind === "document" ? recipient.identity.documentType : "absent",
-    document: recipient?.identity.kind === "document" ? recipient.identity.document : "", rateId: "", price: null, currency: order.deliveryCharge.currency,
+    document: recipient?.identity.kind === "document" ? recipient.identity.document : "", rateId: "", agencyId: "", price: null, currency: order.deliveryCharge.currency,
     method: order.delivery?.method ?? (settings.store.enabled ? "store" : settings.home.enabled ? "home" : settings.agency.enabled ? "agency" : "store"),
     address: destination?.address ?? "", districtCode: order.delivery && "pricing" in order.delivery ? order.delivery.destination.districtCode : "", instructions: destination?.instructions ?? "" };
 }
@@ -29,13 +29,14 @@ export function DeliveryFields({ value, onChange, settings, busy, language, rate
   rates: DeliveryQuotation["rates"]; quoting: boolean; quoteError: boolean; onRetry: () => void;
 }) {
   const { t, i18n } = useTranslation();
-  const { method, address, districtCode, instructions, name, phone, documentType, document, rateId } = value;
+  const { method, address, districtCode, instructions, name, phone, documentType, document, rateId, agencyId } = value;
+  const selectedRate = rates.find(rate => rate.id === rateId);
   const enabled = !!method && settings[method].enabled;
   const formatPrice = (amount: number, currency: string) => new Intl.NumberFormat(i18n.language === "pt-BR" ? "pt-BR" : "es-PE", { style: "currency", currency }).format(amount);
   const point = settings.store.pickupPoint;
   return <>
         <Field disabled={busy}><FieldLabel>{t("orderDeliveryMethod")}</FieldLabel><OptionSelector testID="delivery-method" value={enabled ? method : null}
-          onValueChange={next => { if (next === "store" || next === "home" || next === "agency") onChange({ ...value, method: next, rateId: "", price: null }); }} options={[
+          onValueChange={next => { if (next === "store" || next === "home" || next === "agency") onChange({ ...value, method: next, rateId: "", agencyId: "", price: null }); }} options={[
             ...(settings.store.enabled ? [{ value: "store", label: t("pickupStoreTitle") }] : []),
             ...(settings.home.enabled ? [{ value: "home", label: t("homeDeliveryTitle") }] : []),
             ...(settings.agency.enabled ? [{ value: "agency", label: t("agencyDeliveryTitle") }] : []),
@@ -49,14 +50,18 @@ export function DeliveryFields({ value, onChange, settings, busy, language, rate
         </FieldGroup> : null}
         {method === "home" || method === "agency" ? <View style={styles.section}>
           <PeruDistrictSelect value={getPeruDistrict(districtCode)?.code ?? null} disabled={busy}
-            onChange={code => onChange({ ...value, districtCode: code ?? "", rateId: "", price: null })} />
+            onChange={code => onChange({ ...value, districtCode: code ?? "", rateId: "", agencyId: "", price: null })} />
           {quoting ? <ThemedText accessibilityLiveRegion="polite">{t("orderQuotationLoading")}</ThemedText> : null}
           {quoteError ? <ThemedText accessibilityRole="alert">{t("orderQuotationError")}</ThemedText> : null}
           {!quoting && districtCode && !quoteError && rates.length === 0 ? <ThemedText>{t("orderQuotationEmpty")}</ThemedText> : null}
           {rates.length > 0 ? <Field required disabled={busy || quoting}><FieldLabel>{t("orderDeliveryRate")}</FieldLabel>
             <OptionSelector testID="delivery-rate" value={rates.some(rate => rate.id === rateId) ? rateId : null}
-              options={rates.map(rate => ({ value: rate.id, label: rate.price.amount === 0 ? t("zonesFree") : formatPrice(rate.price.amount, rate.price.currency) }))}
-              onValueChange={id => { const rate = rates.find(rate => rate.id === id); onChange({ ...value, rateId: rate?.id ?? "", price: rate?.price ?? null }); }} />
+              options={rates.map(rate => ({ value: rate.id, label: rateLabel(rate, rates, rate.price.amount === 0 ? t("zonesFree") : formatPrice(rate.price.amount, rate.price.currency)) }))}
+              onValueChange={id => { const rate = rates.find(rate => rate.id === id); onChange({ ...value, rateId: rate?.id ?? "", agencyId: rate && "agencies" in rate && rate.agencies.length === 1 ? rate.agencies[0].id : "", price: rate?.price ?? null }); }} />
+          </Field> : null}
+          {method === "agency" && selectedRate && "agencies" in selectedRate ? <Field required disabled={busy || quoting}><FieldLabel>{t("orderDeliveryAgency")}</FieldLabel>
+            <OptionSelector testID="delivery-agency" value={selectedRate.agencies.some(agency => agency.id === agencyId) ? agencyId : null}
+              options={selectedRate.agencies.map(agencyOption)} onValueChange={id => onChange({ ...value, agencyId: id ?? "" })} />
           </Field> : null}
           {districtCode && !quoting ? <Button variant="secondary" disabled={busy} onPress={onRetry}>{t("orderQuotationRetry")}</Button> : null}
         </View> : null}

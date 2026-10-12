@@ -1,6 +1,9 @@
 import { useTranslation } from "react-i18next";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { PageContainer } from "@/components/ui/page-container";
+import { PageHeader } from "@/components/ui/page-header";
+import { TextLink } from "@/components/ui/text-link";
 import { Link, useLocation } from "react-router";
 import { localizedPath } from "@core/app/locale";
 
@@ -35,16 +38,18 @@ export default function Home() {
   };
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6">
-      <div className="flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold">Yoyos</h1>
-        <div className="flex items-center gap-3">
-          <Link to={localizedPath(location.pathname, "/login")} className="text-sm font-medium text-primary underline underline-offset-4">{t("common.login")}</Link>
-          <Button type="button" onClick={toggleTheme} aria-label={t("nav.toggleTheme")} aria-pressed={dark}>
-            {dark ? t("nav.lightMode") : t("nav.darkMode")}
-          </Button>
-        </div>
-      </div>
+    <main className="min-h-screen px-4 py-6 sm:px-6">
+      <PageContainer className="max-w-7xl">
+        <PageHeader className="items-center">
+          <PageHeader.Heading><PageHeader.Title>Yoyos</PageHeader.Title></PageHeader.Heading>
+          <PageHeader.Actions>
+            <TextLink asChild><Link to={localizedPath(location.pathname, "/login")} className="text-sm">{t("common.login")}</Link></TextLink>
+            <Button type="button" onClick={toggleTheme} aria-label={t("nav.toggleTheme")} aria-pressed={dark}>
+              {dark ? t("nav.lightMode") : t("nav.darkMode")}
+            </Button>
+          </PageHeader.Actions>
+        </PageHeader>
+      </PageContainer>
     </main>
   );
 }

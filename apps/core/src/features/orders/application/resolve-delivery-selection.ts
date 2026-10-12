@@ -33,8 +33,9 @@ export async function resolveShippingCost(input: unknown, context: Readonly<{ co
     if (!snapshot.success) return snapshot;
     resolved = { delivery: snapshot.data, cost: { amount: 0, currency } };
   } else {
-    const rate = await deps.resolveSelectedDeliveryRate({ companyId: context.companyId, rateId: selection.rateId, method: selection.method,
-      districtCode: selection.method === "home" ? selection.destination.districtCode : selection.districtCode });
+    const rate = await deps.resolveSelectedDeliveryRate(selection.method === "home"
+      ? { companyId: context.companyId, rateId: selection.rateId, method: "home", districtCode: selection.destination.districtCode }
+      : { companyId: context.companyId, rateId: selection.rateId, method: "agency", districtCode: selection.districtCode, agencyId: selection.agencyId });
     if (!rate.success) return rate;
     if (rate.data.price.currency !== currency) return err({ code: "RATE_UNAVAILABLE", message: "Selected delivery rate is unavailable" });
     const price = validateDeliveryCost(rate.data.price, currency);

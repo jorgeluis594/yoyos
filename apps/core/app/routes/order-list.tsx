@@ -20,6 +20,11 @@ import { ErrorState } from "@core/app/components/ui/error-state";
 import { DataTable, type TableColumn } from "@core/app/components/ui/data-table";
 import { FilterBar } from "@core/app/components/ui/filter-bar";
 import { PageHeader } from "@core/app/components/ui/page-header";
+import { TextLink } from "@core/app/components/ui/text-link";
+import { FieldDescription } from "@core/app/components/ui/field";
+import { Pagination, PaginationContent, PaginationItem, PaginationNext, PaginationPrevious } from "@core/app/components/ui/pagination";
+import { Empty, EmptyDescription, EmptyContent } from "@core/app/components/ui/empty";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@core/app/components/ui/select";
 import { Sheet, SheetContent, SheetTrigger } from "@core/app/components/ui/sheet";
 
 const salesTimeZone = "America/Lima";
@@ -64,7 +69,7 @@ export default function OrderList() {
   type Sale = (typeof list.items)[number];
   const columns: TableColumn<Sale>[] = [
     { id: "number", header: t("orders.listOrder"), mobile: "title", cell: (item) => <div className="flex flex-col items-start">
-      <Link to={`${base}/${item.id}`} aria-label={t("orders.orderNumber", { number: item.number })} className="font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">#{item.number}</Link>
+      <TextLink asChild><Link to={`${base}/${item.id}`} aria-label={t("orders.orderNumber", { number: item.number })}>#{item.number}</Link></TextLink>
       <OrderStateIndicators states={item.status === "active" ? [
         { kind: "payment", state: item.paymentStatus, label: item.paymentStatus === "paid" ? t("orders.listStatus.paid") : t("orders.listBalance", { amount: formatCurrency(item.balanceDue.amount, item.balanceDue.currency, i18n.language) }) },
         { kind: "delivery", state: item.deliveryStatus, label: `${t("orders.delivery")}: ${t(`orders.deliveryStatus.${item.deliveryStatus}`)}` },
@@ -72,7 +77,7 @@ export default function OrderList() {
       {item.checkoutEnabledAt && <span className="text-xs font-normal text-muted-foreground">{t(item.status === "cancelled" ? "orders.checkoutCancelled" : item.checkoutConfirmedAt ? "orders.checkoutConfirmed" : "orders.checkoutPending")}</span>}
     </div> },
     { id: "customer", header: t("orders.customer"), mobile: "description", cell: (item) => <div className="flex flex-col gap-1">
-      <Link to={`${base}/${item.id}`} className="inline-flex items-center gap-1.5 font-medium text-primary underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">{item.source === "whatsapp" && <WhatsAppMark />}{orderBuyerText(item.buyer, t("orders.generalPublic"))}</Link>
+      <TextLink asChild><Link to={`${base}/${item.id}`} className="inline-flex items-center gap-1.5">{item.source === "whatsapp" && <WhatsAppMark />}{orderBuyerText(item.buyer, t("orders.generalPublic"))}</Link></TextLink>
       {item.buyer?.name && item.buyer.phone && <span className="text-xs font-normal text-muted-foreground">{item.buyer.phone}</span>}
     </div> },
     { id: "createdAt", header: t("orders.listDate"), mobile: "description", cell: (item) => <time dateTime={item.createdAt} className="flex flex-col gap-1">
@@ -107,8 +112,13 @@ export default function OrderList() {
       </Button>)}
     </nav>
     <FilterBar key={search} searchName="search" searchValue={filters.search ?? ""} searchLabel={t("orders.listSearch")} submitLabel={t("orders.listSearchSubmit")} hiddenFields={activeFilterInputs} action={<OrderFilterSheet key={search} filters={filters} contacts={contacts} base={base} />} />
-    <DataTable className="order-list-table mt-6" columns={columns} caption={t("orders.allOrders")} data={list.items} getRowId={(item) => item.id} emptyMessage={<div className="flex flex-col items-center gap-2"><p>{t(filtered ? "orders.emptyFiltered" : "orders.listEmpty")}</p>{filtered && <Button asChild variant="link"><Link to={base}>{t("orders.clear")}</Link></Button>}</div>} />
-    <nav aria-label={t("orders.pages")} className="mt-6 flex items-center justify-end gap-2"><span className="mr-auto text-sm text-muted-foreground">{t("orders.page", { page: list.page })}</span>{list.page > 1 && <Button asChild variant="outline"><Link to={listUrl(list.page - 1)}>{t("orders.previous")}</Link></Button>}{list.page * list.pageSize < list.total && <Button asChild variant="outline"><Link to={listUrl(list.page + 1)}>{t("orders.next")}</Link></Button>}</nav>
+    <DataTable className="order-list-table mt-6" columns={columns} caption={t("orders.allOrders")} data={list.items} getRowId={(item) => item.id} emptyMessage={<Empty><EmptyDescription>{t(filtered ? "orders.emptyFiltered" : "orders.listEmpty")}</EmptyDescription>{filtered && <EmptyContent><Button asChild variant="link"><Link to={base}>{t("orders.clear")}</Link></Button></EmptyContent>}</Empty>} />
+    <Pagination aria-label={t("orders.pages")} className="mt-6 items-center justify-end gap-2"><span className="mr-auto text-sm text-muted-foreground">{t("orders.page", { page: list.page })}</span>
+      <PaginationContent>
+        {list.page > 1 && <PaginationItem><PaginationPrevious asChild><Link to={listUrl(list.page - 1)}>{t("orders.previous")}</Link></PaginationPrevious></PaginationItem>}
+        {list.page * list.pageSize < list.total && <PaginationItem><PaginationNext asChild><Link to={listUrl(list.page + 1)}>{t("orders.next")}</Link></PaginationNext></PaginationItem>}
+      </PaginationContent>
+    </Pagination>
   </section>;
 }
 
@@ -130,14 +140,24 @@ function OrderStateIndicators({ states }: { states: { kind: "payment" | "deliver
 function OrderFilterSheet({ filters, contacts, base }: Pick<Awaited<ReturnType<typeof loader>>, "filters" | "contacts" | "base">) {
   const { t } = useTranslation();
   const [customer, setCustomer] = useState(filters.customer);
+  const customerItems = [{ value: "all", label: t("orders.allCustomers") }, { value: "general_public", label: t("orders.generalPublic") }, { value: "contact", label: t("orders.contact") }];
+  const contactItems = [{ value: "", label: t("orders.selectContact") }, ...contacts.map(contact => ({ value: contact.id, label: contact.name ? `${contact.name} · ${contact.phone}` : contact.phone }))];
   const activeFilters = Number(filters.customer !== "all") + Number(!!filters.createdFrom) + Number(!!filters.createdBefore);
   return <Sheet><SheetTrigger asChild><Button variant="outline" className="min-h-control max-md:min-h-touch" aria-label={activeFilters ? t(activeFilters === 1 ? "orders.activeFilter_one" : "orders.activeFilter_other", { count: activeFilters }) : t("orders.filters")}><SlidersHorizontal data-icon="inline-start" aria-hidden="true" />{t("orders.filters")}{activeFilters ? ` (${activeFilters})` : ""}</Button></SheetTrigger>
       <SheetContent title={t("orders.filterTitle")} description={t("orders.filterDescription")}>
         <Form method="get" className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-5">
           <input type="hidden" name="search" value={filters.search ?? ""} />
           {filters.view && <input type="hidden" name="view" value={filters.view} />}
-          <Field><FieldLabel htmlFor="order-customer">{t("orders.customer")}</FieldLabel><select id="order-customer" name="customer" value={customer} onChange={(event) => setCustomer(event.target.value as typeof customer)} className="min-h-control max-md:min-h-touch rounded-[var(--radius-control)] border border-input bg-background px-3 font-normal"><option value="all">{t("orders.allCustomers")}</option><option value="general_public">{t("orders.generalPublic")}</option><option value="contact">{t("orders.contact")}</option></select></Field>
-          {customer === "contact" && <div className="flex flex-col gap-2"><Field><FieldLabel htmlFor="order-contact">{t("orders.contact")}</FieldLabel><select id="order-contact" name="contactId" defaultValue={filters.contactId ?? ""} required className="min-h-control max-md:min-h-touch rounded-[var(--radius-control)] border border-input bg-background px-3 font-normal"><option value="">{t("orders.selectContact")}</option>{contacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.name ? `${contact.name} · ${contact.phone}` : contact.phone}</option>)}</select></Field><p className="text-xs text-muted-foreground">{t("orders.contactHint")}</p></div>}
+          <Field><FieldLabel htmlFor="order-customer">{t("orders.customer")}</FieldLabel>
+            <Select name="customer" items={customerItems} value={customer} onValueChange={value => setCustomer(value as typeof customer)}>
+              <SelectTrigger id="order-customer"><SelectValue /></SelectTrigger>
+              <SelectContent>{customerItems.map(item => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
+            </Select></Field>
+          {customer === "contact" && <div className="flex flex-col gap-2"><Field><FieldLabel htmlFor="order-contact">{t("orders.contact")}</FieldLabel>
+            <Select name="contactId" items={contactItems} defaultValue={filters.contactId ?? ""} required>
+              <SelectTrigger id="order-contact"><SelectValue /></SelectTrigger>
+              <SelectContent>{contactItems.map(item => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
+            </Select><FieldDescription>{t("orders.contactHint")}</FieldDescription></Field></div>}
           <div className="flex flex-col gap-4 border-t pt-5"><p className="text-sm font-medium">{t("orders.creationDate")}</p><Field><FieldLabel htmlFor="created-from">{t("orders.from")}</FieldLabel><Input id="created-from" name="createdFrom" type="date" defaultValue={filters.createdFrom?.slice(0, 10)} /></Field><Field><FieldLabel htmlFor="created-before">{t("orders.before")}</FieldLabel><Input id="created-before" name="createdBefore" type="date" defaultValue={filters.createdBefore?.slice(0, 10)} /></Field></div>
           <div className="mt-auto flex gap-2 border-t pt-5"><Button asChild variant="outline" className="flex-1"><Link to={base}>{t("orders.clear")}</Link></Button><Button type="submit" className="flex-1">{t("orders.apply")}</Button></div>
         </Form>

@@ -24,7 +24,7 @@ import { getPeruDistrict, getPeruProvinces, peruDepartments } from "@shared/peru
 import { add, type Money } from "@shared/money";
 import type { DeliveryQuotation } from "@mobile/features/delivery-settings";
 import { useTheme } from "@mobile/hooks/use-theme";
-import { documentTypeLabel, orderLanguage } from "@mobile/features/orders/presentation/order-labels";
+import { agencyOption, documentTypeLabel, orderLanguage, rateLabel } from "@mobile/features/orders/presentation/order-labels";
 import { orderDeliveryFormSchema, type OrderDeliveryFormValues } from "@mobile/features/orders/presentation/order-delivery-form";
 
 export default function OrderDeliveryScreen() {
@@ -39,10 +39,10 @@ export default function OrderDeliveryScreen() {
   const [settings, setSettings] = useState<DeliverySettingsResponse | null>(null);
   const { control, reset, getValues, setValue, handleSubmit, formState: { isSubmitting } } = useForm<OrderDeliveryFormValues, unknown, SetRatedOrderDeliveryRequest>({
     resolver: zodResolver(orderDeliveryFormSchema),
-    defaultValues: { method: "store", rateId: "", price: null, currency: "PEN", address: "", districtCode: "", instructions: "",
+    defaultValues: { method: "store", rateId: "", agencyId: "", price: null, currency: "PEN", address: "", districtCode: "", instructions: "",
       name: "", phone: "", documentType: "absent", document: "" },
   });
-  const [method, districtCode, rateId, documentType] = useWatch({ control, name: ["method", "districtCode", "rateId", "documentType"] });
+  const [method, districtCode, rateId, agencyId, documentType] = useWatch({ control, name: ["method", "districtCode", "rateId", "agencyId", "documentType"] });
   const [quoteResult, setQuoteResult] = useState<{ key: string; quotation: DeliveryQuotation | null; error: string } | null>(null);
   const [quoteAttempt, setQuoteAttempt] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -66,7 +66,7 @@ export default function OrderDeliveryScreen() {
       const { name, phone, documentType, document, method, address, instructions } = deliveryDraftFromOrder(current, config.data);
       const destination = current.delivery && "pricing" in current.delivery ? current.delivery.destination : null;
       reset({ name, phone, documentType, document, method, address, instructions, currency: current.total.currency,
-        districtCode: destination?.districtCode ?? "", rateId: "", price: null });
+        districtCode: destination?.districtCode ?? "", rateId: "", agencyId: "", price: null });
     } else setError(!aggregate.success && aggregate.error.code === "ORDER_NOT_FOUND" ? "orderNotFound" : "loadOrderDeliveryError");
     inFlight.current = false; setLoading(false);
   }, [companyId, id, reset]);
@@ -95,7 +95,7 @@ export default function OrderDeliveryScreen() {
     let active = true;
     void deliverySettings.createQuotation(districtCode).then(result => {
       if (!active) return;
-      setValue("rateId", ""); setValue("price", null);
+      setValue("rateId", ""); setValue("agencyId", ""); setValue("price", null);
       setQuoteResult({ key: requestKey, quotation: result.success ? result.data : null, error: result.success ? "" : "orderQuotationError" });
     });
     return () => { active = false; };
@@ -104,7 +104,8 @@ export default function OrderDeliveryScreen() {
   const selectedRate = rates.find(rate => rate.id === rateId);
   const price = method === "store" && order ? { amount: 0, currency: order.total.currency } : selectedRate?.price;
   const shownTotal = order && price ? add(price)(order.itemsTotal) : null;
-  const selectionReady = (method === "store" || !!selectedRate) && shownTotal?.success === true;
+  const agencyChosen = selectedRate?.method === "agency" && selectedRate.agencies.some(agency => agency.id === agencyId);
+  const selectionReady = (method === "store" || (!!selectedRate && (method !== "agency" || agencyChosen))) && shownTotal?.success === true;
   const save = async (request: SetRatedOrderDeliveryRequest) => {
     if (inFlight.current || locked || !enabled || !selectionReady || quoting) return;
     inFlight.current = true; setError("");
@@ -112,7 +113,7 @@ export default function OrderDeliveryScreen() {
     if (result.success) { reset(getValues()); setOrder(result.data); router.back(); }
     else {
       const code = result.error.code;
-      if (["TOTAL_CHANGED", "RATE_UNAVAILABLE", "INVALID_DELIVERY_RATE", "COURIER_UNAVAILABLE", "DELIVERY_METHOD_DISABLED"].includes(code)) {
+      if (["TOTAL_CHANGED", "RATE_UNAVAILABLE", "INVALID_DELIVERY_RATE", "DELIVERY_METHOD_DISABLED"].includes(code)) {
         const latest = await deliverySettings.get();
         if (latest.success) setSettings(latest.data);
         setQuoteAttempt(value => value + 1);
@@ -122,7 +123,6 @@ export default function OrderDeliveryScreen() {
         : code === "RATE_UNAVAILABLE" || code === "INVALID_DELIVERY_RATE" ? "orderDeliveryRateUnavailable"
         : code === "DELIVERY_UNAVAILABLE" ? "orderDeliveryUnavailable"
         : code === "DELIVERY_METHOD_DISABLED" ? "orderDeliveryDisabled"
-        : code === "COURIER_UNAVAILABLE" ? "orderCourierUnavailable"
         : code === "INSUFFICIENT_STOCK" ? "insufficientStock"
         : code === "DELIVERY_LOCKED" || code === "ORDER_CANCELLED" || code === "INVALID_TRANSITION" ? "orderDeliveryLocked"
         : code === "INVALID_INPUT" ? "invalidOrderDelivery" : "saveOrderDeliveryError");
@@ -149,7 +149,7 @@ export default function OrderDeliveryScreen() {
       </View> : <>
         <Controller control={control} name="method" render={({ field, fieldState }) => (
           <Field disabled={busy} invalid={fieldState.invalid}><FieldLabel>{t("orderDeliveryMethod")}</FieldLabel><OptionSelector testID="delivery-method" value={enabled ? field.value : null}
-          onValueChange={method => { field.onChange(method); setValue("rateId", ""); setValue("price", null); setQuoteAttempt(value => value + 1); }} options={[
+          onValueChange={method => { field.onChange(method); setValue("rateId", ""); setValue("agencyId", ""); setValue("price", null); setQuoteAttempt(value => value + 1); }} options={[
             ...(settings.store.enabled ? [{ value: "store", label: t("pickupStoreTitle") }] : []),
             ...(settings.home.enabled ? [{ value: "home", label: t("homeDeliveryTitle") }] : []),
             ...(settings.agency.enabled ? [{ value: "agency", label: t("agencyDeliveryTitle") }] : []),
@@ -178,8 +178,13 @@ export default function OrderDeliveryScreen() {
           {!quoting && quotation && rates.length === 0 ? <ThemedText>{t("orderQuotationEmpty")}</ThemedText> : null}
           {rates.length > 0 ? <Field disabled={busy || quoting} required><FieldLabel>{t("orderDeliveryRate")}</FieldLabel>
             <OptionSelector testID="delivery-rate" value={selectedRate?.id ?? null} options={rates.map(rate => ({ value: rate.id,
-              label: rate.price.amount === 0 ? t("zonesFree") : formatPrice(rate.price) }))}
-              onValueChange={id => { const rate = rates.find(rate => rate.id === id); setValue("rateId", rate?.id ?? ""); setValue("price", rate?.price ?? null); }} />
+              label: rateLabel(rate, rates, rate.price.amount === 0 ? t("zonesFree") : formatPrice(rate.price)) }))}
+              onValueChange={id => { const rate = rates.find(rate => rate.id === id); setValue("rateId", rate?.id ?? ""); setValue("price", rate?.price ?? null);
+                setValue("agencyId", rate && "agencies" in rate && rate.agencies.length === 1 ? rate.agencies[0].id : ""); }} />
+          </Field> : null}
+          {method === "agency" && selectedRate && "agencies" in selectedRate ? <Field disabled={busy || quoting} required><FieldLabel>{t("orderDeliveryAgency")}</FieldLabel>
+            <OptionSelector testID="delivery-agency" value={selectedRate.agencies.some(agency => agency.id === agencyId) ? agencyId : null}
+              options={selectedRate.agencies.map(agencyOption)} onValueChange={id => setValue("agencyId", id ?? "")} />
           </Field> : null}
           {districtCode && !quoting ? <Button variant="ghost" disabled={busy} onPress={() => setQuoteAttempt(value => value + 1)}>{t("orderQuotationRetry")}</Button> : null}
         </View> : null}

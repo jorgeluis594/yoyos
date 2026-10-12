@@ -1,4 +1,3 @@
-import { parseCourierInputs } from "@core/src/features/delivery-settings/domain/delivery-settings";
 import { useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -9,15 +8,21 @@ import { Store, Truck, Package } from "lucide-react";
 import { useClientReady } from "@core/app/use-client-ready";
 import { useTranslation } from "react-i18next";
 import { useFetcher, useActionData, useLoaderData, useNavigation, useSubmit, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
-import { courierInputSchema, deliverySettingsSchema, saveDeliverySettingsSchema, deliveryZonesSchema, saveDeliveryZonesSchema, type DeliveryZonesResponse, type DeliverySettingsResponse, type SaveDeliverySettingsRequest } from "@shared/contracts/delivery-settings";
+import { courierCatalogSchema, saveDeliverySettingsSchema, saveDeliveryZonesSchema, type CourierCatalogResponse, type DeliveryZonesResponse, type DeliverySettingsResponse, type SaveDeliverySettingsRequest } from "@shared/contracts/delivery-settings";
 import { privateUserContext } from "@core/app/private-user-context";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
+import { toCourierInputs, toDeliverySettingsResponse } from "@core/src/features/delivery-settings/presentation/settings-response";
+import { toDeliveryZonesResponse } from "@core/src/features/delivery-settings/presentation/zones-response";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { PageContainer } from "@core/app/components/ui/page-container";
 import { PageHeader } from "@core/app/components/ui/page-header";
 import { Button } from "@core/app/components/ui/button";
 import { Input } from "@core/app/components/ui/input";
-import { Field, FieldError, FieldGroup, FieldLabel } from "@core/app/components/ui/field";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "@core/app/components/ui/field";
+import { Card, CardContent } from "@core/app/components/ui/card";
+import { Checkbox } from "@core/app/components/ui/checkbox";
+import { Alert, AlertDescription } from "@core/app/components/ui/alert";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@core/app/components/ui/select";
 import { DeliveryZonesSection } from "@core/app/components/delivery-zones-section";
 import { ErrorState } from "@core/app/components/ui/error-state";
 
@@ -25,11 +30,13 @@ export async function loader({ context }: LoaderFunctionArgs) {
   const access = context.get(privateUserContext);
   const result = await deliverySettings.get({ companyId: access.company.id, userId: access.user.id });
   if (!result.success) throw new Response("Unable to load delivery settings", { status: result.error.code === "PERSISTENCE_UNAVAILABLE" ? 503 : 500 });
-  const settings = deliverySettingsSchema.parse(result.data);
+  const catalog = await deliverySettings.getCourierCatalog({ companyId: access.company.id, userId: access.user.id });
+  if (!catalog.success) throw new Response("Unable to load courier catalog", { status: catalog.error.code === "PERSISTENCE_UNAVAILABLE" ? 503 : 500 });
+  const settings = { ...toDeliverySettingsResponse(result.data), courierCatalog: courierCatalogSchema.parse({ couriers: catalog.data }) };
   if (access.company.country !== "PE") return { ...settings, zones: null };
   const zones = await deliverySettings.getZones({ companyId: access.company.id, userId: access.user.id });
   if (!zones.success) throw new Response("Unable to load delivery zones", { status: 503 });
-  return { ...settings, zones: deliveryZonesSchema.parse(zones.data) };
+  return { ...settings, zones: toDeliveryZonesResponse(zones.data) };
 }
 
 export async function action({ context, request }: ActionFunctionArgs) {
@@ -40,14 +47,14 @@ export async function action({ context, request }: ActionFunctionArgs) {
     const zones = saveDeliveryZonesSchema.extend({ intent: z.literal("zones") }).safeParse(raw);
     if (!zones.success) return { zonesError: { code: "INVALID_INPUT" as const } };
     const access = context.get(privateUserContext);
-    const input = { method: zones.data.method, expectedVersion: zones.data.expectedVersion, zones: zones.data.zones };
+    const input = { expectedVersion: zones.data.expectedVersion, zones: zones.data.zones };
     try {
       const result = await deliverySettings.saveZones(input, { companyId: access.company.id, userId: access.user.id });
-      if (result.success) return { zonesSaved: deliveryZonesSchema.parse(result.data), zonesMethod: input.method };
+      if (result.success) return { zonesSaved: toDeliveryZonesResponse(result.data) };
       const error = result.error;
       return { zonesError: { code: error.code,
         ...(error.code === "DELIVERY_SETTINGS_CONFLICT" ? { currentVersion: error.currentVersion, reason: error.reason } : {}),
-        ...(error.code === "INVALID_DELIVERY_ZONE" ? { field: error.field, index: error.index } : {}) } };
+        ...(error.code === "INVALID_DELIVERY_ZONE" || error.code === "INVALID_DELIVERY_OPTION" ? { field: error.field, index: error.index, optionIndex: error.optionIndex } : {}) } };
     } catch (cause) {
       log.error({ event: "delivery_zones_request_failed", operation: "save_delivery_zones", entryPoint: "web_action", userId: access.user.id,
         errorCode: "INTERNAL_ERROR", err: cause }, "Unable to handle delivery zones request");
@@ -58,10 +65,10 @@ export async function action({ context, request }: ActionFunctionArgs) {
   if (!parsed.success) return { error: "invalid" as const };
   const access = context.get(privateUserContext);
   try {
-    const couriers = parseCourierInputs(parsed.data.couriers);
+    const couriers = toCourierInputs(parsed.data.couriers);
     if (!couriers.success) return { error: "invalid" as const };
     const result = await deliverySettings.save({ ...parsed.data, couriers: couriers.data }, { companyId: access.company.id, userId: access.user.id });
-    if (result.success) return { saved: deliverySettingsSchema.parse(result.data) };
+    if (result.success) return { saved: toDeliverySettingsResponse(result.data) };
     return { error: result.error.code === "DELIVERY_SETTINGS_CONFLICT" ? "conflict" as const
       : result.error.code === "INVALID_DELIVERY_SETTINGS" ? "invalid" as const : "saveError" as const };
   } catch (cause) {
@@ -74,7 +81,10 @@ export async function action({ context, request }: ActionFunctionArgs) {
 const formSchema = z.object({
   version: z.number().int(),
   agencyEnabled: z.boolean(),
-  couriers: z.array(courierInputSchema),
+  couriers: z.array(z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("new"), courierId: z.uuid(), name: z.string(), enabled: z.boolean() }),
+    z.object({ kind: z.literal("existing"), id: z.uuid(), courierId: z.uuid(), name: z.string(), enabled: z.boolean() }),
+  ])),
   homeEnabled: z.boolean(),
   enabled: z.boolean(),
   name: z.string().max(120),
@@ -105,20 +115,22 @@ function createDraft(settings: DeliverySettingsResponse): FormValues {
   };
 }
 
-function SettingsForm({ settings }: { settings: DeliverySettingsResponse & { zones: DeliveryZonesResponse | null } }) {
+function SettingsForm({ settings }: { settings: DeliverySettingsResponse & { courierCatalog: CourierCatalogResponse; zones: DeliveryZonesResponse | null } }) {
   const { t } = useTranslation();
   const submit = useSubmit();
   const ready = useClientReady();
   const navigation = useNavigation();
   const result = useActionData<typeof action>();
   const zonesFetcher = useFetcher<typeof action>();
-  const [zoneHistory, setZoneHistory] = useState<{ state: DeliveryZonesResponse | null; seen?: DeliveryZonesResponse;
-    home?: DeliveryZonesResponse; agency?: DeliveryZonesResponse }>({ state: settings.zones });
+  const [zoneHistory, setZoneHistory] = useState<{ state: DeliveryZonesResponse | null; saved?: DeliveryZonesResponse }>({ state: settings.zones });
   const [tab, setTab] = useState("store");
   const form = useForm<FormValues>({ resolver: zodResolver(formSchema), defaultValues: createDraft(settings), shouldFocusError: false });
+  const [catalogChoice, setCatalogChoice] = useState("");
   const { fields, append, remove } = useFieldArray({ control: form.control, name: "couriers", keyName: "fieldKey" });
   const [enabled, homeEnabled, agencyEnabled] = useWatch({ control: form.control, name: ["enabled", "homeEnabled", "agencyEnabled"] });
   const { isDirty } = form.formState;
+  const chosenCourierIds = new Set(fields.map(courier => courier.courierId));
+  const availableCouriers = settings.courierCatalog.couriers.filter(courier => !chosenCourierIds.has(courier.id));
   const saved = result?.saved;
   const { getValues, reset } = form;
   // Loader revalidation must not replace unsaved edits.
@@ -130,16 +142,14 @@ function SettingsForm({ settings }: { settings: DeliverySettingsResponse & { zon
   useEffect(() => {
     if (zonesSaved) setValue("version", zonesSaved.version);
   }, [zonesSaved, setValue]);
-  const zonesMethod = zonesFetcher.data?.zonesMethod;
-  if (zonesSaved && zonesMethod && zoneHistory.seen !== zonesSaved)
-    setZoneHistory({ ...zoneHistory, state: zonesSaved, seen: zonesSaved, [zonesMethod]: zonesSaved });
+  if (zonesSaved && zoneHistory.saved !== zonesSaved) setZoneHistory({ state: zonesSaved, saved: zonesSaved });
   const baseZones = zoneHistory.state;
   const zonesState = baseZones ? { ...baseZones, version: Math.max(baseZones.version, saved?.version ?? 0),
     ...(saved && saved.version > baseZones.version ? { home: saved.home, agency: saved.agency } : {}) } : null;
-  const zoneSection = (method: "home" | "agency") => zonesState && <DeliveryZonesSection method={method} state={zonesState}
+  const zoneSection = zonesState && <DeliveryZonesSection state={zonesState} couriers={settings.couriers}
     pending={navigation.state !== "idle" || zonesFetcher.state !== "idle" || !ready}
-    error={zonesFetcher.data?.zonesMethod === undefined || zonesFetcher.data.zonesMethod === method ? zonesFetcher.data?.zonesError?.code : undefined}
-    saved={zoneHistory[method]}
+    error={zonesFetcher.data?.zonesError?.code}
+    saved={zoneHistory.saved}
     onSave={request => zonesFetcher.submit({ intent: "zones", ...request }, { method: "post", encType: "application/json" })} />;
   const pending = navigation.state !== "idle" || zonesFetcher.state !== "idle";
   const conflict = result?.error === "conflict";
@@ -150,8 +160,7 @@ function SettingsForm({ settings }: { settings: DeliverySettingsResponse & { zon
       form.setFocus(errors.name ? "name" : errors.address ? "address" : "instructions");
     } else if (errors.agencyEnabled || errors.couriers) {
       flushSync(() => setTab("agency"));
-      const index = Array.isArray(errors.couriers) ? errors.couriers.findIndex(courier => courier?.name !== undefined) : -1;
-      form.setFocus(index >= 0 ? `couriers.${index}.name` : "agencyEnabled");
+      form.setFocus("agencyEnabled");
     }
   };
   const save = (values: FormValues) => {
@@ -160,7 +169,7 @@ function SettingsForm({ settings }: { settings: DeliverySettingsResponse & { zon
     const request: SaveDeliverySettingsRequest = {
       expectedVersion: values.version,
       agency: { enabled: values.agencyEnabled },
-      couriers: values.couriers,
+      couriers: values.couriers.map(courier => courier.kind === "new" ? { kind: courier.kind, courierId: courier.courierId, enabled: courier.enabled } : { kind: courier.kind, id: courier.id, enabled: courier.enabled }),
       home: { enabled: values.homeEnabled },
       store: values.enabled
         ? { enabled: true, pickupPoint: { name: values.name, address: values.address, instructions: values.instructions.trim() || null } }
@@ -183,58 +192,62 @@ function SettingsForm({ settings }: { settings: DeliverySettingsResponse & { zon
         </Tabs.Trigger>)}
       </Tabs.List>
       <Tabs.Content value="store" forceMount className="outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=inactive]:hidden">
-        <fieldset disabled={pending || !ready}>
-          <legend className="mb-3 text-lg font-semibold">{t("deliverySettings.store")}</legend>
+        <Card><CardContent className="pt-4"><FieldSet disabled={pending || !ready}>
+          <FieldLegend className="text-lg font-semibold">{t("deliverySettings.store")}</FieldLegend>
           <FieldGroup>
-            <Controller name="enabled" control={form.control} render={({ field }) => <Field><FieldLabel htmlFor="store-enabled" className="flex min-h-touch cursor-pointer items-center gap-3"><input id="store-enabled" type="checkbox" className="size-4 shrink-0 accent-primary" checked={field.value} onChange={event => field.onChange(event.target.checked)} ref={field.ref} />{t("deliverySettings.enabled")}</FieldLabel></Field>} />
-            <p className="text-sm text-muted-foreground">{t("deliverySettings.storeScope")}</p>
+            <Controller name="enabled" control={form.control} render={({ field }) => <Field orientation="horizontal"><Checkbox id="store-enabled" checked={field.value} onCheckedChange={checked => field.onChange(checked === true)} ref={field.ref} /><FieldLabel htmlFor="store-enabled">{t("deliverySettings.enabled")}</FieldLabel></Field>} />
+            <FieldDescription>{t("deliverySettings.storeScope")}</FieldDescription>
             {(["name", "address", "instructions"] as const).map(name => <Controller key={name} name={name} control={form.control} render={({ field, fieldState }) => <Field data-invalid={fieldState.invalid}>
               <FieldLabel htmlFor={`pickup-${name}`}>{t(`deliverySettings.${name}`)}</FieldLabel>
               <Input {...field} id={`pickup-${name}`} maxLength={name === "name" ? 120 : name === "address" ? 500 : 1000} aria-invalid={fieldState.invalid} aria-describedby={fieldState.invalid ? `pickup-${name}-error` : undefined} />
               {fieldState.error && <FieldError id={`pickup-${name}-error`}>{invalidMessage}</FieldError>}
             </Field>} />)}
           </FieldGroup>
-        </fieldset>
+        </FieldSet></CardContent></Card>
       </Tabs.Content>
       <Tabs.Content value="home" forceMount className="outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=inactive]:hidden">
-        <fieldset disabled={pending || !ready}>
-          <legend className="mb-3 text-lg font-semibold">{t("deliverySettings.home")}</legend>
+        <Card><CardContent className="pt-4"><FieldSet disabled={pending || !ready}>
+          <FieldLegend className="text-lg font-semibold">{t("deliverySettings.home")}</FieldLegend>
           <FieldGroup>
-            <Controller name="homeEnabled" control={form.control} render={({ field }) => <Field><FieldLabel htmlFor="home-enabled" className="flex min-h-touch cursor-pointer items-center gap-3"><input id="home-enabled" type="checkbox" className="size-4 shrink-0 accent-primary" checked={field.value} onChange={event => field.onChange(event.target.checked)} ref={field.ref} />{t("deliverySettings.homeEnabled")}</FieldLabel></Field>} />
-            <p className="text-sm text-muted-foreground">{t("deliverySettings.homeScope")}</p>
+            <Controller name="homeEnabled" control={form.control} render={({ field }) => <Field orientation="horizontal"><Checkbox id="home-enabled" checked={field.value} onCheckedChange={checked => field.onChange(checked === true)} ref={field.ref} /><FieldLabel htmlFor="home-enabled">{t("deliverySettings.homeEnabled")}</FieldLabel></Field>} />
+            <FieldDescription>{t("deliverySettings.homeScope")}</FieldDescription>
           </FieldGroup>
-        </fieldset>
-        {zoneSection("home")}
+        </FieldSet></CardContent></Card>
       </Tabs.Content>
       <Tabs.Content value="agency" forceMount className="outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=inactive]:hidden">
-        <fieldset disabled={pending || !ready}>
-          <legend className="mb-3 text-lg font-semibold">{t("deliverySettings.agency")}</legend>
+        <Card><CardContent className="pt-4"><FieldSet disabled={pending || !ready}>
+          <FieldLegend className="text-lg font-semibold">{t("deliverySettings.agency")}</FieldLegend>
           <FieldGroup>
             <Controller name="agencyEnabled" control={form.control} render={({ field, fieldState }) => <Field data-invalid={fieldState.invalid}>
-              <FieldLabel htmlFor="agency-enabled" className="flex min-h-touch cursor-pointer items-center gap-3"><input id="agency-enabled" type="checkbox" className="size-4 shrink-0 accent-primary" checked={field.value} onChange={event => field.onChange(event.target.checked)} ref={field.ref} aria-invalid={fieldState.invalid} aria-describedby={fieldState.invalid ? "agency-enabled-error" : undefined} />{t("deliverySettings.agencyEnabled")}</FieldLabel>
+              <Field orientation="horizontal"><Checkbox id="agency-enabled" checked={field.value} onCheckedChange={checked => field.onChange(checked === true)} ref={field.ref} aria-invalid={fieldState.invalid} aria-describedby={fieldState.invalid ? "agency-enabled-error" : undefined} />
+                <FieldLabel htmlFor="agency-enabled">{t("deliverySettings.agencyEnabled")}</FieldLabel></Field>
               {fieldState.error && <FieldError id="agency-enabled-error">{t("deliverySettings.courierHint")}</FieldError>}
             </Field>} />
-            <p className="text-sm text-muted-foreground">{t("deliverySettings.agencyScope")}</p>
-            {fields.length === 0 && <p className="text-sm text-muted-foreground">{t("deliverySettings.noCouriers")}</p>}
+            <FieldDescription>{t("deliverySettings.agencyScope")}</FieldDescription>
+            {fields.length === 0 && <FieldDescription>{t("deliverySettings.noCouriers")}</FieldDescription>}
             {fields.map((courier, index) => <div key={courier.fieldKey} className="flex min-w-0 flex-col gap-3 border-t border-border pt-4">
-              <Controller name={`couriers.${index}.name`} control={form.control} render={({ field, fieldState }) => <Field data-invalid={fieldState.invalid}>
-                <FieldLabel htmlFor={`courier-${courier.fieldKey}`}>{t("deliverySettings.courierName", { number: index + 1 })}</FieldLabel>
-                <Input {...field} id={`courier-${courier.fieldKey}`} maxLength={120} aria-invalid={fieldState.invalid} aria-describedby={fieldState.invalid ? `courier-${courier.fieldKey}-error` : undefined} />
-                {fieldState.error && <FieldError id={`courier-${courier.fieldKey}-error`}>{invalidMessage}</FieldError>}
-              </Field>} />
-              <Controller name={`couriers.${index}.enabled`} control={form.control} render={({ field }) => <Field><FieldLabel htmlFor={`courier-enabled-${courier.fieldKey}`} className="flex min-h-touch cursor-pointer items-center gap-3"><input id={`courier-enabled-${courier.fieldKey}`} type="checkbox" className="size-4 shrink-0 accent-primary" checked={field.value} onChange={event => field.onChange(event.target.checked)} ref={field.ref} />{t("deliverySettings.courierEnabled", { number: index + 1 })}</FieldLabel></Field>} />
-              {courier.kind === "new" && <Button type="button" variant="ghost" className="self-start max-md:min-h-touch" aria-label={t("deliverySettings.removeCourierLabel", { number: index + 1 })} onClick={() => remove(index)}>{t("deliverySettings.removeCourier")}</Button>}
+              <p className="font-medium">{courier.name}</p>
+              <Controller name={`couriers.${index}.enabled`} control={form.control} render={({ field }) => <Field orientation="horizontal"><Checkbox id={`courier-enabled-${courier.fieldKey}`} checked={field.value} onCheckedChange={checked => field.onChange(checked === true)} ref={field.ref} /><FieldLabel htmlFor={`courier-enabled-${courier.fieldKey}`}>{t("deliverySettings.courierEnabled", { name: courier.name })}</FieldLabel></Field>} />
+              {courier.kind === "new" && <Button type="button" variant="ghost" className="self-start max-md:min-h-touch" aria-label={t("deliverySettings.removeCourierLabel", { name: courier.name })} onClick={() => remove(index)}>{t("deliverySettings.removeCourier")}</Button>}
             </div>)}
-            <Button type="button" variant="outline" className="self-start max-md:min-h-touch" onClick={() => append({ kind: "new", name: "", enabled: true })}>{t("deliverySettings.addCourier")}</Button>
+            {availableCouriers.length > 0 && <div className="flex flex-wrap items-end gap-3">
+              <Field className="min-w-48 flex-1"><FieldLabel htmlFor="courier-catalog">{t("deliverySettings.catalogCourier")}</FieldLabel>
+                <Select value={catalogChoice || null} onValueChange={value => setCatalogChoice(String(value ?? ""))} items={availableCouriers.map(courier => ({ value: courier.id, label: courier.name }))}>
+                  <SelectTrigger id="courier-catalog"><SelectValue placeholder={t("deliverySettings.chooseCatalogCourier")} /></SelectTrigger>
+                  <SelectContent>{availableCouriers.map(courier => <SelectItem key={courier.id} value={courier.id}>{courier.name}</SelectItem>)}</SelectContent>
+                </Select></Field>
+              <Button type="button" variant="outline" className="max-md:min-h-touch" disabled={!catalogChoice}
+                onClick={() => { const courier = availableCouriers.find(entry => entry.id === catalogChoice); if (!courier) return; append({ kind: "new", courierId: courier.id, name: courier.name, enabled: true }); setCatalogChoice(""); }}>{t("deliverySettings.addCourier")}</Button>
+            </div>}
           </FieldGroup>
-        </fieldset>
-        {zoneSection("agency")}
+        </FieldSet></CardContent></Card>
       </Tabs.Content>
     </Tabs.Root>
+    {zoneSection}
     <div className="flex flex-col gap-3 border-t border-border pt-4">
-      {result?.error && <p role="alert" className="text-sm text-destructive">{t(`deliverySettings.${result.error}`)}</p>}
-      {saved && !isDirty && <p role="status">{t("deliverySettings.saved")}</p>}
-      <p className="text-sm text-muted-foreground">{t(isDirty ? "deliverySettings.unsaved" : "deliverySettings.saveScope")}</p>
+      {result?.error && <Alert variant="destructive"><AlertDescription>{t(`deliverySettings.${result.error}`)}</AlertDescription></Alert>}
+      {saved && !isDirty && <Alert variant="success"><AlertDescription>{t("deliverySettings.saved")}</AlertDescription></Alert>}
+      <FieldDescription>{t(isDirty ? "deliverySettings.unsaved" : "deliverySettings.saveScope")}</FieldDescription>
       <div className="flex flex-wrap gap-3"><Button type="submit" className="max-sm:w-full max-md:min-h-touch" disabled={pending || !ready || Boolean(conflict)}>{t(pending ? "deliverySettings.saving" : "deliverySettings.save")}</Button>
         {conflict && <Button asChild variant="outline"><a href="">{t("deliverySettings.reload")}</a></Button>}</div>
     </div>

@@ -36,7 +36,7 @@ async function tabTo(page: Page, target: Locator, key: "Tab" | "Shift+Tab" = "Ta
 }
 
 const stored = (companyId: string) => withTenantIsolation(companyId, async () => await prisma.companyCheckoutAppearance.findUnique({ where: { companyId } }));
-const uploadLogo = (page: Page) => page.getByTestId("logo-input").setInputFiles({ name: "logo.png", mimeType: "image/png", buffer: png });
+const uploadLogo = (page: Page) => page.getByTestId("logo-upload").locator("input[type=file]").setInputFiles({ name: "logo.png", mimeType: "image/png", buffer: png });
 
 async function chooseColor(page: Page, name: string) {
   await page.getByRole("button", { name: /Cambiar$/ }).last().click();
@@ -222,7 +222,10 @@ describe("checkout appearance editor", () => {
     await browserExpect(page.getByText("Cambios sin guardar", { exact: true })).toBeVisible();
     await page.keyboard.press("Tab");
     await browserExpect(page.getByRole("radio", { name: "Neutro" })).toBeFocused();
-    await page.keyboard.press("ArrowRight", { delay: 50 });
+    // The background picker is a toggle group: arrows move focus and Space selects.
+    await page.keyboard.press("ArrowRight");
+    await browserExpect(page.getByRole("radio", { name: "De marca" })).toBeFocused();
+    await page.keyboard.press("Space");
     await browserExpect(page.getByRole("radio", { name: "De marca" })).toBeChecked();
     await tabTo(page, page.getByRole("button", { name: "Guardar cambios" }), "Shift+Tab");
     await page.keyboard.press("Enter");

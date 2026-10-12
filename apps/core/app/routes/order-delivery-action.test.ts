@@ -35,7 +35,7 @@ test("uses session access and an explicit reviewed pickup price", async () => {
     { companyId: access.company.id, userId: access.user.id });
 });
 
-test.each([["DELIVERY_LOCKED", "locked"], ["ORDER_CANCELLED", "locked"], ["DELIVERY_METHOD_DISABLED", "disabled"], ["INSUFFICIENT_STOCK", "stockError"], ["COURIER_UNAVAILABLE", "courierUnavailable"]] as const)("maps %s to a recoverable message", async (code, message) => {
+test.each([["DELIVERY_LOCKED", "locked"], ["ORDER_CANCELLED", "locked"], ["DELIVERY_METHOD_DISABLED", "disabled"], ["INSUFFICIENT_STOCK", "stockError"]] as const)("maps %s to a recoverable message", async (code, message) => {
   vi.spyOn(composition, "setConfiguredOrderDelivery").mockResolvedValue({ success: false, error: { code, message: "Internal detail" } });
   expect(await save(input)).toMatchObject({ error: message });
 });
@@ -70,7 +70,7 @@ test("returns the current delivery price for explicit conflict recovery", async 
 
 test("rejects rated charge decisions, snapshot claims and unofficial districts", async () => {
   const assign = vi.spyOn(composition, "setConfiguredOrderDelivery");
-  for (const body of [{ ...ratedInput, chargeDeliveryToCustomer: false }, { ...ratedInput, companyId: "forged" },
+  for (const body of [{ ...ratedInput, obsoleteCharge: false }, { ...ratedInput, companyId: "forged" },
     { ...ratedInput, delivery: { ...ratedInput.delivery, recordedBy: { kind: "buyer" } } },
     { ...ratedInput, delivery: { ...ratedInput.delivery, destination: { ...ratedInput.delivery.destination, districtCode: "999999" } } }]) {
     expect(await save(body)).toMatchObject({ error: "invalid" });
@@ -79,10 +79,10 @@ test("rejects rated charge decisions, snapshot claims and unofficial districts",
 });
 
 
-test("rejects both legacy charge choices and missing reviewed prices before assignment", async () => {
+test("rejects both obsolete charge choices and missing reviewed prices before assignment", async () => {
   const assign = vi.spyOn(composition, "setConfiguredOrderDelivery");
-  for (const chargeDeliveryToCustomer of [true, false]) {
-    expect(await save({ delivery: input.delivery, chargeDeliveryToCustomer })).toMatchObject({ error: "invalid" });
+  for (const obsoleteCharge of [true, false]) {
+    expect(await save({ delivery: input.delivery, obsoleteCharge })).toMatchObject({ error: "invalid" });
   }
   expect(await save({ delivery: input.delivery })).toMatchObject({ error: "invalid" });
   expect(assign).not.toHaveBeenCalled();

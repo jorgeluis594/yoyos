@@ -27,6 +27,10 @@ test("provisions existing and future tables without exposing migration history o
       CREATE SCHEMA pgboss;
       CREATE TABLE public.existing (id integer);
       CREATE TABLE public._prisma_migrations (id integer);
+      CREATE TABLE public."Courier" (id integer);
+      CREATE TABLE public."DeliveryAgency" (id integer);
+      INSERT INTO public."Courier" VALUES (1);
+      INSERT INTO public."DeliveryAgency" VALUES (1);
     `);
     provision();
     await isolated.query(`
@@ -56,9 +60,18 @@ test("provisions existing and future tables without exposing migration history o
     await expect(app.query("TRUNCATE public.future")).rejects.toThrow(/permission denied/);
     await expect(app.query("SELECT * FROM public._prisma_migrations")).rejects.toThrow(/permission denied/);
     await expect(app.query("SELECT public.private_function()")).rejects.toThrow(/permission denied/);
+    const expectReadOnlyCatalogs = async () => {
+      for (const table of ["Courier", "DeliveryAgency"]) {
+        expect((await app.query(`SELECT * FROM public."${table}"`)).rows).toEqual([{ id: 1 }]);
+        for (const write of [`INSERT INTO public."${table}" VALUES (2)`, `UPDATE public."${table}" SET id = 2`, `DELETE FROM public."${table}"`])
+          await expect(app.query(write)).rejects.toThrow(/permission denied/);
+      }
+    };
+    await expectReadOnlyCatalogs();
     await isolated.query("GRANT EXECUTE ON FUNCTION public.private_function() TO core_app");
     provision();
     expect((await app.query("SELECT public.private_function() AS value")).rows).toEqual([{ value: 1 }]);
+    await expectReadOnlyCatalogs();
     expect((await app.query("SELECT * FROM public.existing")).rows).toEqual([{ id: 1 }]);
     await expect(app.query("SELECT * FROM public._prisma_migrations")).rejects.toThrow(/permission denied/);
   } finally {

@@ -3,14 +3,16 @@ import { err, ok } from "@shared/functional";
 import { initialDeliverySettings } from "@core/src/features/delivery-settings/domain/delivery-settings";
 import { parseDeliveryZone } from "@core/src/features/delivery-settings/domain/delivery-zone";
 import type { QuotationWithRates } from "@core/src/features/delivery-settings/domain/quotation";
-import { createQuotation, type CreateQuotationDependencies, type DeliveryConfiguration } from "@core/src/features/delivery-settings/application/create-quotation";
+import type { DeliveryConfiguration } from "@core/src/features/delivery-settings/domain/quotation";
+import { createQuotation, type CreateQuotationDependencies } from "@core/src/features/delivery-settings/application/create-quotation";
 
 const id = (value: number) => `00000000-0000-4000-8000-${String(value).padStart(12, "0")}`;
 const input = { companyId: id(1), country: "PE", districtCode: "150122", address: null, instructions: null };
 const configuration = (): DeliveryConfiguration => {
-  const zone = parseDeliveryZone({ id: id(2), name: "Zone", method: "home", enabled: true, districtCodes: ["150122"], price: { amount: 8, currency: "PEN" } }, "PEN");
+  const zone = parseDeliveryZone({ id: id(2), name: "Zone", enabled: true, districtCodes: ["150122"],
+    options: [{ id: id(3), method: "home", name: "Standard", enabled: true, price: { amount: 8, currency: "PEN" } }] }, "PEN");
   if (!zone.success) throw new Error(zone.error.message);
-  return { country: "PE", currency: "PEN", settings: { ...initialDeliverySettings(), home: { enabled: true }, version: 7 }, zones: [zone.data] };
+  return { country: "PE", currency: "PEN", settings: { ...initialDeliverySettings(), home: { enabled: true }, version: 7 }, zones: [zone.data], agencies: [] };
 };
 function fake(config = configuration()) {
   let sequence = 10;
@@ -32,7 +34,7 @@ test("quotation persists and returns the complete generated aggregate without al
   const { deps, stored } = fake(config);
   const result = await createQuotation(input, deps);
   expect(result).toMatchObject({ success: true, data: { quotation: { id: id(10), companyId: input.companyId },
-    rates: [{ id: id(11), quotationId: id(10), settingsVersion: 7, price: { amount: 8, currency: "PEN" } }] } });
+    rates: [{ rate: { id: id(11), quotationId: id(10), optionId: id(3), settingsVersion: 7, price: { amount: 8, currency: "PEN" } }, name: "Standard", zoneName: "Zone" }] } });
   expect(stored).toHaveLength(1);
   if (result.success) expect(stored[0]).toEqual(result.data);
   expect(config).toEqual(configuration());
@@ -70,8 +72,8 @@ test("retries create fresh quotation and rate identities without changing the se
   expect((await createQuotation(input, deps)).success).toBe(true);
   expect((await createQuotation(input, deps)).success).toBe(true);
   expect(stored.map(value => value.quotation.id)).toEqual([id(10), id(12)]);
-  expect(stored.map(value => value.rates[0].id)).toEqual([id(11), id(13)]);
-  expect(stored.map(value => value.rates[0].settingsVersion)).toEqual([7, 7]);
+  expect(stored.map(value => value.rates[0].rate.id)).toEqual([id(11), id(13)]);
+  expect(stored.map(value => value.rates[0].rate.settingsVersion)).toEqual([7, 7]);
 });
 
 test("business country and currency must match the Peru pilot before writing", async () => {

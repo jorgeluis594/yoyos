@@ -86,13 +86,6 @@ function knownFailure(cause: unknown) {
   return cause instanceof Prisma.PrismaClientKnownRequestError || cause instanceof Prisma.PrismaClientUnknownRequestError || cause instanceof Prisma.PrismaClientInitializationError;
 }
 
-function readRequestedDelivery(value: unknown) {
-  if (value === null) return null;
-  const parsed = parseDeliverySnapshot(value);
-  if (!parsed.success || parsed.data.recordedBy.kind !== "buyer") throw new InvalidStoredDeliveryError("Invalid requested delivery");
-  return parsed.data;
-}
-
 function mapAggregate(row: DbAggregate, operation = "get_order_aggregate"): OrderAggregate {
   if (!isCurrency(row.currency) || !row.items.length ||
     row.items.some((item) => item.quantity <= 0n || item.quantity > BigInt(Number.MAX_SAFE_INTEGER)))
@@ -119,7 +112,6 @@ function mapAggregate(row: DbAggregate, operation = "get_order_aggregate"): Orde
     buyer: row.buyer ? { contactId: row.buyer.contactId as ContactId | null, name: row.buyer.name, phone: row.buyer.phone } : null,
     ...(row.chatId ? { chatId: row.chatId as ChatId } : {}),
     checkoutEnabledAt: row.checkoutEnabledAt, checkoutConfirmedAt: row.checkoutConfirmedAt,
-    checkoutDeliveryRequest: readRequestedDelivery(row.checkoutDeliveryRequest),
     createdAt: row.createdAt, deliveredAt: row.deliveredAt, completedAt: row.completedAt, cancelled: row.cancelled, items, payments,
     delivery: delivery === null ? null : delivery.data, deliveryStatus: row.deliveryStatus, stockDeducted: row.stockDeducted,
     itemsTotal: { amount: row.itemsTotal.toNumber(), currency: row.currency },

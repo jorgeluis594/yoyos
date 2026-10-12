@@ -5,10 +5,16 @@ import { readCancellationOrder, verifyCancellation, cancellationMessage, type Ca
 import { cancelOrderResponseSchema, type CancelOrderResponse, type OrderAggregateResponse } from "@shared/contracts/orders";
 import { fulfillmentBlock } from "@shared/orders-fulfillment";
 import { PaymentFields, type PaymentDraft } from "@core/src/features/orders/presentation/payment-fields";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { orderBuyerText, WhatsAppMark } from "@core/app/components/order-buyer-label";
 import { ArrowLeft, ChevronDown, CircleCheck, CircleX, CreditCard, ExternalLink, Truck } from "lucide-react";
-import { Card } from "@core/app/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@core/app/components/ui/card";
+import { Alert, AlertDescription } from "@core/app/components/ui/alert";
+import { Badge } from "@core/app/components/ui/badge";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@core/app/components/ui/dialog";
+import { PageHeader } from "@core/app/components/ui/page-header";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@core/app/components/ui/table";
+import { TextLink } from "@core/app/components/ui/text-link";
 import { z } from "zod";
 import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
@@ -20,8 +26,7 @@ import { companyPath } from "@core/app/locale";
 import { formatCurrency } from "@core/app/format-currency";
 import { Form, useActionData, data, isRouteErrorResponse, Link, useFetcher, useFetchers, useNavigation, useLoaderData, type ClientActionFunctionArgs, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
 import { privateUserContext } from "@core/app/private-user-context";
-import { deliverySettingsSchema } from "@shared/contracts/delivery-settings";
-import { deliverySettings } from "@core/src/features/delivery-settings";
+import { deliverySettings, toDeliverySettingsResponse } from "@core/src/features/delivery-settings";
 import { RatedDeliveryForm } from "@core/src/features/orders/presentation/rated-delivery-form";
 import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { setConfiguredOrderDelivery } from "@core/src/features/orders/composition";
@@ -49,7 +54,7 @@ export async function loader({ params, context, request }: LoaderFunctionArgs) {
   const settings = await deliverySettings.get({ companyId: access.company.id, userId: access.user.id });
   return { ...orderDetailLoaderSchema.parse({ order: toOrderAggregateJson(result.data), base: companyPath(new URL(request.url).pathname, access.company.country, "/orders"),
     manualPaymentId: randomUUID(), receiptUrls }),
-    settings: settings.success ? deliverySettingsSchema.parse(settings.data) : null,
+    settings: settings.success ? toDeliverySettingsResponse(settings.data) : null,
     settingsPath: companyPath(new URL(request.url).pathname, access.company.country, "/settings/delivery") };
 }
 
@@ -69,7 +74,6 @@ async function deliveryAction({ params, request, context }: ActionFunctionArgs) 
     if (result.error.code === "TOTAL_CHANGED") return { operation: "delivery" as const, url: null, success: false, error: "priceChanged" as const, currentPrice: result.error.currentPrice };
     return { operation: "delivery" as const, url: null, success: false, error: result.error.code === "RATE_UNAVAILABLE" ? "rateUnavailable" as const
       : result.error.code === "DELIVERY_METHOD_DISABLED" ? "disabled" as const
-      : result.error.code === "COURIER_UNAVAILABLE" ? "courierUnavailable" as const
       : result.error.code === "DELIVERY_UNAVAILABLE" ? "unavailable" as const
       : result.error.code === "DELIVERY_LOCKED" || result.error.code === "ORDER_CANCELLED" ? "locked" as const
       : result.error.code === "INSUFFICIENT_STOCK" ? "stockError" as const
@@ -208,7 +212,7 @@ export default function OrderDetail() {
   const busy = navigation.state !== "idle" || fetchers.some(fetcher => fetcher.state !== "idle");
   const needsCheck = cancellationState.kind === "uncertain" || (cancellation?.outcome.kind === "failed" && cancellation.outcome.refreshFailed);
   const blocked = busy || !!needsCheck;
-  const cancelDialog = useRef<HTMLDialogElement>(null);
+  const [cancelOpen, setCancelOpen] = useState(false);
   const [copyMessage, setCopyMessage] = useState<"copied" | "copyManually" | null>(null);
   async function copyLink() {
     if (!checkoutData?.url) return;
@@ -217,38 +221,38 @@ export default function OrderDetail() {
   }
   const amount = (money: typeof order.total) => formatCurrency(money.amount, money.currency, i18n.language);
   const date = (value: string) => new Date(value).toLocaleString(i18n.language === "pt" ? "pt-BR" : "es-PE", { timeZone: "America/Lima" });
-  const badge = "inline-flex items-center gap-2 rounded-[var(--radius-badge)] px-3 py-2 text-sm font-medium";
   return <section className="flex min-w-0 flex-col gap-6" aria-labelledby="order-title">
     <header className="flex flex-col gap-4">
-      <Link to={base} className="inline-flex min-h-control w-fit items-center gap-2 text-sm text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring max-md:min-h-touch"><ArrowLeft className="size-icon-inline" aria-hidden="true" />{t("orders.view")}</Link>
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex flex-col gap-1">
-          <h1 id="order-title" className="text-2xl font-semibold">{t("orders.orderNumber", { number: order.number })}</h1>
-          <p className="text-sm text-muted-foreground">{t("orders.createdOn", { date: date(order.createdAt) })}</p>
-          {order.completedAt && <p className="text-sm text-muted-foreground">{t("orders.completedOn", { date: date(order.completedAt) })}</p>}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <span className={`${badge} ${order.cancelled ? "bg-[var(--error-surface)] text-[var(--error)]" : "bg-[var(--success-surface)] text-[var(--success)]"}`}><span aria-hidden="true">{order.cancelled ? <CircleX className="size-icon-inline" /> : <CircleCheck className="size-icon-inline" />}</span>{t(`orders.status.${order.status}`)}</span>
-          <span className={`${badge} ${order.paymentStatus === "paid" ? "bg-[var(--info-surface)] text-[var(--info)]" : "bg-[var(--warning-surface)] text-[var(--warning)]"}`}><CreditCard className="size-icon-inline" aria-hidden="true" />{t("orders.payment")}: {order.paymentStatus === "paid" ? t("orders.paid") : t("orderDetail.pendingPayment")}</span>
-          {!order.cancelled && <span className={`${badge} ${order.deliveryStatus === "pending" ? "bg-[var(--warning-surface)] text-[var(--warning)]" : "bg-[var(--success-surface)] text-[var(--success)]"}`}><Truck className="size-icon-inline" aria-hidden="true" />{t("orders.delivery")}: {t(`orders.deliveryStatus.${order.deliveryStatus}`)}</span>}
-        </div>
-      </div>
-      {!order.cancelled && order.status === "active" && order.deliveryStatus === "pending" && <Button type="button" variant="destructive" className="self-start" disabled={blocked} onClick={() => cancelDialog.current?.showModal()}>{t("orderCancellation.cancel")}</Button>}
-      <dialog ref={cancelDialog} aria-labelledby="cancel-title" aria-describedby="cancel-description" className="m-auto w-[calc(100%-2rem)] max-w-lg rounded-lg border bg-card p-6 text-card-foreground shadow-xl backdrop:bg-foreground/40">
-        <h2 id="cancel-title" className="text-lg font-semibold">{t("orderCancellation.confirm")}</h2>
-        <p id="cancel-description" className="mt-3 text-sm leading-relaxed text-muted-foreground">{t("orderCancellation.effects")}</p>
-        <div className="mt-6 flex flex-wrap justify-end gap-3">
-          <Button type="button" variant="outline" onClick={() => cancelDialog.current?.close()}>{t("orderCancellation.keep")}</Button>
-          <Form method="post" onSubmit={event => { if (blocked) event.preventDefault(); else cancelDialog.current?.close(); }}>
-            <input type="hidden" name="operation" value="cancel" /><Button type="submit" variant="destructive" disabled={blocked}>{t("orderCancellation.cancel")}</Button>
-          </Form>
-        </div>
-      </dialog>
-      {!order.cancelled && (cancellationState.kind === "submitting" || cancellationState.kind === "verifying") && <p role="status">{t(`orderCancellation.${cancellationState.kind}`)}</p>}
-      {!order.cancelled && cancellationState.kind === "failed" && <p role="alert" className="text-sm text-destructive">{t(`orderCancellation.${cancellationMessage[cancellationState.error.code]}`)}</p>}
-      {!order.cancelled && needsCheck && <div className="flex flex-col gap-3"><p role="alert">{t(cancellationState.kind === "uncertain" ? "orderCancellation.uncertain" : "orderCancellation.stateRefreshFailed")}</p><Form method="post"><input type="hidden" name="operation" value="check-cancellation" /><Button type="submit" disabled={busy}>{t("orderCancellation.check")}</Button></Form></div>}
-      {cancellation?.outcome.kind === "confirmed" && cancellation.outcome.refreshFailed && <p role="alert">{t("orderCancellation.refreshFailed")}</p>}
-      {order.cancelled && <p role="status" className="text-sm text-muted-foreground">{t("orderCancellation.saved")}</p>}
+      <TextLink asChild className="inline-flex min-h-control w-fit items-center gap-2 text-sm font-normal text-muted-foreground max-md:min-h-touch"><Link to={base}><ArrowLeft className="size-icon-inline" aria-hidden="true" />{t("orders.view")}</Link></TextLink>
+      <PageHeader>
+        <PageHeader.Heading className="flex flex-col gap-1">
+          <PageHeader.Title id="order-title">{t("orders.orderNumber", { number: order.number })}</PageHeader.Title>
+          <PageHeader.Description>{t("orders.createdOn", { date: date(order.createdAt) })}</PageHeader.Description>
+          {order.completedAt && <PageHeader.Description>{t("orders.completedOn", { date: date(order.completedAt) })}</PageHeader.Description>}
+        </PageHeader.Heading>
+        <PageHeader.Actions>
+          <Badge variant={order.cancelled ? "destructive" : "success"} className="h-auto px-3 py-2 text-sm"><span aria-hidden="true">{order.cancelled ? <CircleX className="size-icon-inline" /> : <CircleCheck className="size-icon-inline" />}</span>{t(`orders.status.${order.status}`)}</Badge>
+          <Badge variant={order.paymentStatus === "paid" ? "info" : "warning"} className="h-auto px-3 py-2 text-sm"><CreditCard className="size-icon-inline" aria-hidden="true" />{t("orders.payment")}: {order.paymentStatus === "paid" ? t("orders.paid") : t("orderDetail.pendingPayment")}</Badge>
+          {!order.cancelled && <Badge variant={order.deliveryStatus === "pending" ? "warning" : "success"} className="h-auto px-3 py-2 text-sm"><Truck className="size-icon-inline" aria-hidden="true" />{t("orders.delivery")}: {t(`orders.deliveryStatus.${order.deliveryStatus}`)}</Badge>}
+        </PageHeader.Actions>
+      </PageHeader>
+      {!order.cancelled && order.status === "active" && order.deliveryStatus === "pending" && <Button type="button" variant="destructive" className="self-start" disabled={blocked} onClick={() => setCancelOpen(true)}>{t("orderCancellation.cancel")}</Button>}
+      <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>{t("orderCancellation.confirm")}</DialogTitle><DialogDescription>{t("orderCancellation.effects")}</DialogDescription></DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setCancelOpen(false)}>{t("orderCancellation.keep")}</Button>
+            <Form method="post" onSubmit={event => { if (blocked) event.preventDefault(); else setCancelOpen(false); }}>
+              <input type="hidden" name="operation" value="cancel" /><Button type="submit" variant="destructive" disabled={blocked}>{t("orderCancellation.cancel")}</Button>
+            </Form>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {!order.cancelled && (cancellationState.kind === "submitting" || cancellationState.kind === "verifying") && <Alert><AlertDescription>{t(`orderCancellation.${cancellationState.kind}`)}</AlertDescription></Alert>}
+      {!order.cancelled && cancellationState.kind === "failed" && <Alert variant="destructive"><AlertDescription>{t(`orderCancellation.${cancellationMessage[cancellationState.error.code]}`)}</AlertDescription></Alert>}
+      {!order.cancelled && needsCheck && <div className="flex flex-col gap-3"><Alert variant="destructive"><AlertDescription>{t(cancellationState.kind === "uncertain" ? "orderCancellation.uncertain" : "orderCancellation.stateRefreshFailed")}</AlertDescription></Alert><Form method="post"><input type="hidden" name="operation" value="check-cancellation" /><Button type="submit" disabled={busy}>{t("orderCancellation.check")}</Button></Form></div>}
+      {cancellation?.outcome.kind === "confirmed" && cancellation.outcome.refreshFailed && <Alert variant="destructive"><AlertDescription>{t("orderCancellation.refreshFailed")}</AlertDescription></Alert>}
+      {order.cancelled && <Alert><AlertDescription>{t("orderCancellation.saved")}</AlertDescription></Alert>}
 
     </header>
 
@@ -256,31 +260,31 @@ export default function OrderDetail() {
     <fieldset disabled={blocked} className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
       <div className="contents xl:flex xl:min-w-0 xl:flex-col xl:gap-4">
         <Card role="region" aria-labelledby="order-products-title" className="min-w-0 max-xl:order-1">
-          <div className="flex items-center justify-between gap-3 p-4"><h2 id="order-products-title" className="text-lg font-semibold">{t("products.title")}</h2><span className="text-sm text-muted-foreground">{t("orders.itemCount", { count: order.items.length })}</span></div>
-          <div className="px-4 pb-4">
-            <table className="w-full table-fixed text-sm max-sm:block">
-              <thead className="bg-background text-muted-foreground max-sm:sr-only"><tr><th scope="col" className="w-1/2 rounded-l-sm px-3 py-3 text-left font-medium">{t("nav.product")}</th><th scope="col" className="px-2 py-3 text-center font-medium">{t("orders.quantity")}</th><th scope="col" className="rounded-r-sm px-3 py-3 text-right font-medium">{t("orderDetail.amount")}</th></tr></thead>
-              <tbody className="divide-y max-sm:block">{order.items.map(item => <tr key={item.id} className="max-sm:grid max-sm:grid-cols-[minmax(0,1fr)_auto] max-sm:gap-x-3 max-sm:py-3">
-                <td className="break-words px-3 py-4 align-top max-sm:min-w-0 max-sm:p-0"><p className="font-medium">{item.productName}</p><p className="mt-1 text-muted-foreground">{Object.values(item.variantAttributes).join(" · ") || item.sku || t("orders.uniqueVariant")} · <span className="tabular-nums">{amount(item.unitPrice)}</span></p></td>
-                <td className="px-2 py-4 text-center align-top tabular-nums max-sm:col-start-1 max-sm:row-start-2 max-sm:p-0 max-sm:pt-2 max-sm:text-left max-sm:text-muted-foreground"><span className="sm:sr-only">{t("orders.quantity")}: </span>{item.quantity}</td><td className="break-words px-3 py-4 text-right align-top font-semibold tabular-nums max-sm:col-start-2 max-sm:row-start-1 max-sm:p-0 max-sm:whitespace-nowrap">{amount(item.subtotal)}</td>
-              </tr>)}</tbody>
-            </table>
-          </div>
+          <CardHeader className="flex-row items-center justify-between gap-3"><CardTitle id="order-products-title">{t("products.title")}</CardTitle><span className="text-sm text-muted-foreground">{t("orders.itemCount", { count: order.items.length })}</span></CardHeader>
+          <CardContent>
+            <Table className="table-fixed max-sm:block">
+              <TableHeader className="max-sm:sr-only"><TableRow><TableHead scope="col" className="w-1/2">{t("nav.product")}</TableHead><TableHead scope="col" className="text-center">{t("orders.quantity")}</TableHead><TableHead scope="col" className="text-right">{t("orderDetail.amount")}</TableHead></TableRow></TableHeader>
+              <TableBody className="max-sm:block">{order.items.map(item => <TableRow key={item.id} className="max-sm:grid max-sm:grid-cols-[minmax(0,1fr)_auto] max-sm:gap-x-3 max-sm:py-3">
+                <TableCell className="whitespace-normal break-words align-top max-sm:min-w-0 max-sm:p-0"><p className="font-medium">{item.productName}</p><p className="mt-1 text-muted-foreground">{Object.values(item.variantAttributes).join(" · ") || item.sku || t("orders.uniqueVariant")} · <span className="tabular-nums">{amount(item.unitPrice)}</span></p></TableCell>
+                <TableCell className="text-center align-top tabular-nums max-sm:col-start-1 max-sm:row-start-2 max-sm:p-0 max-sm:pt-2 max-sm:text-left max-sm:text-muted-foreground"><span className="sm:sr-only">{t("orders.quantity")}: </span>{item.quantity}</TableCell><TableCell className="whitespace-normal break-words text-right align-top font-semibold tabular-nums max-sm:col-start-2 max-sm:row-start-1 max-sm:p-0 max-sm:whitespace-nowrap">{amount(item.subtotal)}</TableCell>
+              </TableRow>)}</TableBody>
+            </Table>
+          </CardContent>
         </Card>
 
         <Card role="region" aria-labelledby="order-payments-title" className="min-w-0 max-xl:order-2">
-          <h2 id="order-payments-title" className="p-4 text-lg font-semibold">{t("orders.payments")}</h2>
-          <div className="flex flex-col gap-6 px-4 pb-4">
+          <CardHeader><CardTitle id="order-payments-title">{t("orders.payments")}</CardTitle></CardHeader>
+          <CardContent className="flex flex-col gap-6">
             <dl className="flex flex-col gap-3 text-sm tabular-nums sm:ml-auto sm:w-2/3">
               <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("orderDetail.subtotal")}</dt><dd>{amount(order.itemsTotal)}</dd></div>
               <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("orderDetail.deliveryCharge")}</dt><dd>{amount(order.deliveryCharge)}</dd></div>
               <div className="flex justify-between gap-4 border-t pt-3 text-lg font-semibold"><dt>{t("orders.total")}:</dt>{" "}<dd>{amount(order.total)}</dd></div>
               <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("orderDetail.received")}</dt><dd>{amount(order.paidAmount)}</dd></div>
               <div className="flex justify-between gap-4 font-medium"><dt>{t("orderDetail.balance")}</dt><dd>{amount(order.balanceDue)}</dd></div>
-              {order.overpaidAmount.amount > 0 && <div className="rounded-sm bg-[var(--warning-surface)] p-3 text-[var(--warning)]">{t("orders.overpaid", { amount: amount(order.overpaidAmount) })}</div>}
+              {order.overpaidAmount.amount > 0 && <Alert variant="warning"><AlertDescription>{t("orders.overpaid", { amount: amount(order.overpaidAmount) })}</AlertDescription></Alert>}
             </dl>
-            {actionData?.error && !("operation" in actionData) && <p role="alert" className="text-sm text-destructive">{actionData.error === "INSUFFICIENT_STOCK" ? t("orders.paymentStockError") : t("orders.paymentSaveError")}</p>}
-            {actionData?.success && !("operation" in actionData) && <p role="status" className="text-sm text-[var(--success)]">{t("orders.paymentSaved")}</p>}
+            {actionData?.error && !("operation" in actionData) && <Alert variant="destructive"><AlertDescription>{actionData.error === "INSUFFICIENT_STOCK" ? t("orders.paymentStockError") : t("orders.paymentSaveError")}</AlertDescription></Alert>}
+            {actionData?.success && !("operation" in actionData) && <Alert variant="success"><AlertDescription>{t("orders.paymentSaved")}</AlertDescription></Alert>}
             <section className="flex flex-col gap-3 border-t pt-4" aria-labelledby="payment-history-title">
               <h3 id="payment-history-title" className="text-sm font-semibold">{t("orderDetail.paymentHistory")}</h3>
               {order.payments.length === 0 ? <p className="text-sm text-muted-foreground">{t("orderDetail.noPayments")}</p> : <ul className="divide-y">{order.payments.map(payment => <li key={payment.id} className="grid gap-3 py-3 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto]">
@@ -289,36 +293,36 @@ export default function OrderDetail() {
                   {payment.status !== "reported" && <strong className="tabular-nums">{amount(payment.amount)}</strong>}
                 </div>
                 <div className="flex flex-wrap items-center gap-3 sm:justify-end">
-                  {receiptUrls[payment.id] && <a className="inline-flex min-h-control items-center text-sm text-primary underline underline-offset-4 max-md:min-h-touch" href={receiptUrls[payment.id]} target="_blank" rel="noreferrer">{t("orders.viewReceipt")}</a>}
+                  {receiptUrls[payment.id] && <TextLink className="inline-flex min-h-control items-center text-sm font-normal max-md:min-h-touch" href={receiptUrls[payment.id]} target="_blank" rel="noreferrer">{t("orders.viewReceipt")}</TextLink>}
                   {payment.status === "confirmed" && <Form method="post"><input type="hidden" name="operation" value="void" /><input type="hidden" name="paymentId" value={payment.id} /><Button type="submit" variant="outline" disabled={navigation.state !== "idle"}>{t("orders.voidPayment")}</Button></Form>}
                 </div>
                 {payment.status === "reported" && !order.cancelled && <div className="sm:col-span-2"><PaymentForm paymentId={payment.id} source="buyer_report" currency={order.total.currency} balance={order.balanceDue.amount} /></div>}
               </li>)}</ul>}
             </section>
             {!order.cancelled && order.balanceDue.amount > 0 && <section className="flex flex-col gap-3 border-t pt-4"><h3 className="text-sm font-semibold">{t("orders.manualPayment")}</h3><PaymentForm paymentId={manualPaymentId} source="manual" currency={order.total.currency} balance={order.balanceDue.amount} /></section>}
-          </div>
+          </CardContent>
         </Card>
 
         <Card role="region" aria-labelledby="checkout-title" className="min-w-0 max-xl:order-5">
-          <div className="flex flex-wrap items-center justify-between gap-3 p-4"><h2 id="checkout-title" className="text-lg font-semibold">{t("orders.checkout")}</h2>{!order.cancelled && <checkout.Form method="post"><Button type="submit" variant="outline" disabled={checkout.state !== "idle"}>{t("orders.getCheckoutLink")}</Button></checkout.Form>}</div>
-          <div className="flex flex-col gap-3 px-4 pb-4">
+          <CardHeader className="flex-row flex-wrap items-center justify-between gap-3"><CardTitle id="checkout-title">{t("orders.checkout")}</CardTitle>{!order.cancelled && <checkout.Form method="post"><Button type="submit" variant="outline" disabled={checkout.state !== "idle"}>{t("orders.getCheckoutLink")}</Button></checkout.Form>}</CardHeader>
+          <CardContent className="flex flex-col gap-3">
             <p className="text-sm text-muted-foreground">{t(order.cancelled ? "orders.checkoutCancelled" : order.checkoutConfirmedAt ? "orders.checkoutConfirmed" : order.checkoutEnabledAt ? "orders.checkoutPending" : "orders.checkoutDisabled")}</p>
-            {checkoutData?.error && <p role="alert" className="text-sm text-destructive">{t("orders.checkoutLinkError")}</p>}
+            {checkoutData?.error && <Alert variant="destructive"><AlertDescription>{t("orders.checkoutLinkError")}</AlertDescription></Alert>}
             {!order.cancelled && checkoutData?.url && <><Field><FieldLabel htmlFor="checkout-link">{t("orders.checkoutLink")}</FieldLabel><Input id="checkout-link" readOnly value={checkoutData.url} onFocus={event => event.target.select()} /></Field><Button type="button" variant="outline" className="self-start" onClick={copyLink}>{t("orders.copyCheckoutLink")}</Button>{copyMessage && <p role="status" className="text-sm">{t(`orders.${copyMessage}`)}</p>}</>}
-            {link && <a href={link.href} target="_blank" rel="noreferrer" className="flex min-h-control items-center justify-between gap-3 border-t pt-3 text-sm text-primary underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring max-md:min-h-touch">{t(link.label)}<ExternalLink className="size-icon-inline shrink-0" aria-hidden="true" /></a>}
-          </div>
+            {link && <TextLink href={link.href} target="_blank" rel="noreferrer" className="flex min-h-control items-center justify-between gap-3 border-t pt-3 text-sm font-normal no-underline hover:underline max-md:min-h-touch">{t(link.label)}<ExternalLink className="size-icon-inline shrink-0" aria-hidden="true" /></TextLink>}
+          </CardContent>
         </Card>
       </div>
 
       <div className="contents xl:flex xl:min-w-0 xl:flex-col xl:gap-4">
         <Card role="region" aria-labelledby="order-customer-title" className="min-w-0 max-xl:order-3">
-          <h2 id="order-customer-title" className="p-4 text-lg font-semibold">{t("orders.customer")}</h2>
-          <div className="flex flex-col gap-2 px-4 pb-4"><p className="flex items-center gap-1.5 break-words font-medium">{order.source === "whatsapp" && <WhatsAppMark />}{orderBuyerText(order.buyer, t("orders.generalPublic"))}</p>{order.buyer?.phone && <dl className="text-sm"><dt className="text-muted-foreground">{t("orders.phoneAtSale")}</dt><dd className="mt-1 break-words">{order.buyer.phone}</dd></dl>}</div>
+          <CardHeader><CardTitle id="order-customer-title">{t("orders.customer")}</CardTitle></CardHeader>
+          <CardContent className="flex flex-col gap-2"><p className="flex items-center gap-1.5 break-words font-medium">{order.source === "whatsapp" && <WhatsAppMark />}{orderBuyerText(order.buyer, t("orders.generalPublic"))}</p>{order.buyer?.phone && <dl className="text-sm"><dt className="text-muted-foreground">{t("orders.phoneAtSale")}</dt><dd className="mt-1 break-words">{order.buyer.phone}</dd></dl>}</CardContent>
         </Card>
 
         <Card role="region" aria-labelledby="order-delivery-title" className="min-w-0 max-xl:order-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 p-4"><h2 id="order-delivery-title" className="text-lg font-semibold">{t("orders.delivery")}</h2>{editable && settings && (settings.store.enabled || settings.home.enabled || settings.agency.enabled) && <Button type="button" aria-expanded={editingDelivery} aria-controls="delivery-editor" onClick={() => setEditingDelivery(!editingDelivery)}>{t(editingDelivery ? "orderDetail.closeEditor" : order.delivery ? "orderDetail.editDelivery" : "orderDelivery.assign")}</Button>}</div>
-          <div className="flex flex-col gap-4 px-4 pb-4">
+          <CardHeader className="flex-row flex-wrap items-center justify-between gap-3"><CardTitle id="order-delivery-title">{t("orders.delivery")}</CardTitle>{editable && settings && (settings.store.enabled || settings.home.enabled || settings.agency.enabled) && <Button type="button" aria-expanded={editingDelivery} aria-controls="delivery-editor" onClick={() => setEditingDelivery(!editingDelivery)}>{t(editingDelivery ? "orderDetail.closeEditor" : order.delivery ? "orderDetail.editDelivery" : "orderDelivery.assign")}</Button>}</CardHeader>
+          <CardContent className="flex flex-col gap-4">
             <div className="flex flex-col gap-3">
               {!order.cancelled && (["ship", "deliver"] as const).map(operation => {
                 const blocked = fulfillmentBlock(order, operation);
@@ -328,25 +332,25 @@ export default function OrderDetail() {
                   {blocked && <p id={`fulfillment-${operation}-reason`} className="text-sm text-muted-foreground">{t(`orderFulfillment.${blocked}`)}</p>}
                 </Form>;
               })}
-              {fulfillment?.error && <p role="alert" className="text-sm text-destructive">{t(`orderFulfillment.${fulfillment.error}`, { defaultValue: t("orderFulfillment.saveError") })}</p>}
-              {fulfillment?.success && <p role="status" className="text-sm text-[var(--success)]">{t(`orderFulfillment.${fulfillment.operation}Saved`)}</p>}
+              {fulfillment?.error && <Alert variant="destructive"><AlertDescription>{t(`orderFulfillment.${fulfillment.error}`, { defaultValue: t("orderFulfillment.saveError") })}</AlertDescription></Alert>}
+              {fulfillment?.success && <Alert variant="success"><AlertDescription>{t(`orderFulfillment.${fulfillment.operation}Saved`)}</AlertDescription></Alert>}
             </div>
             {order.delivery ? <>
               <section className="flex flex-col gap-2 text-sm">
                 <h3 className="font-semibold">{t(`deliverySettings.${order.delivery.method}`)}</h3>
                 {order.delivery.method === "store" && <><p className="break-words">{order.delivery.pickupPoint.name}</p><p className="whitespace-pre-wrap break-words">{order.delivery.pickupPoint.address}</p>{order.delivery.pickupPoint.instructions && <p className="whitespace-pre-wrap break-words text-muted-foreground">{order.delivery.pickupPoint.instructions}</p>}</>}
                 {order.delivery.method === "home" && <><p className="whitespace-pre-wrap break-words">{order.delivery.destination.address}</p><p className="break-words">{order.delivery.destination.district}</p>{order.delivery.destination.instructions && <p className="whitespace-pre-wrap break-words text-muted-foreground">{order.delivery.destination.instructions}</p>}</>}
-                {order.delivery.method === "agency" && (order.delivery.courier === null ? <div><p>{order.delivery.destination.district}</p><p className="text-muted-foreground">{t("orderDelivery.assignmentPending")}</p></div> : <dl className="grid grid-cols-2 gap-x-3 gap-y-2"><dt className="text-muted-foreground">{t("orderDelivery.courier")}</dt><dd className="break-words">{order.delivery.courier.name}</dd><dt className="text-muted-foreground">{t("orderDelivery.agency")}</dt><dd className="whitespace-pre-wrap break-words">{order.delivery.agency}</dd></dl>)}
+                {order.delivery.method === "agency" && <div><p className="break-words">{order.delivery.courier.name}</p><p className="break-words">{order.delivery.agency.name}</p><p className="whitespace-pre-wrap break-words">{order.delivery.agency.address}</p><p className="break-words text-muted-foreground">{order.delivery.agency.location.district}, {order.delivery.agency.location.province}</p></div>}
               </section>
               <section className="flex flex-col gap-2 border-t pt-4 text-sm"><h3 className="font-semibold">{t("orders.recipient")}</h3><p className="break-words">{order.delivery.recipient.name}</p><p className="break-words text-muted-foreground">{order.delivery.recipient.phone}</p>{order.delivery.recipient.identity.kind === "document" && <p className="break-words text-muted-foreground">{t(`orders.documentType.${order.delivery.recipient.identity.documentType}`)}: {order.delivery.recipient.identity.document}</p>}</section>
               <dl className="border-t pt-4 text-sm"><div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("orderDetail.internalDeliveryCost")}</dt><dd className="shrink-0 tabular-nums">{amount(order.deliveryCost)}</dd></div></dl>
             </> : editable && <p className="text-sm text-muted-foreground">{t("orderDelivery.undefined")}</p>}
-            {result && typeof result.error === "string" && <p role="alert" className="text-sm text-destructive">{t(`orderDelivery.${result.error}`)}</p>}
-            {result && "order" in result && result.order && <p role="status" className="text-sm text-[var(--success)]">{t("orderDelivery.saved")}</p>}
+            {result && typeof result.error === "string" && <Alert variant="destructive"><AlertDescription>{t(`orderDelivery.${result.error}`)}</AlertDescription></Alert>}
+            {result && "order" in result && result.order && <Alert variant="success"><AlertDescription>{t("orderDelivery.saved")}</AlertDescription></Alert>}
             {editable ? settings && (settings.store.enabled || settings.home.enabled || settings.agency.enabled || editingDelivery) ? <div id="delivery-editor" hidden={!editingDelivery} className="border-t pt-4"><RatedDeliveryForm active={editingDelivery} recovery={result?.error ? result : undefined} key={JSON.stringify(order.delivery)} order={order} settings={settings} pending={navigation.state !== "idle"} /></div>
-              : <div className="flex flex-col gap-2 text-sm"><p className="text-muted-foreground">{t(settings ? "orderDelivery.disabled" : "deliverySettings.loadError")}</p><Link className="text-primary underline underline-offset-4" to={settingsPath}>{t("orderDelivery.configure")}</Link></div>
+              : <div className="flex flex-col gap-2 text-sm"><p className="text-muted-foreground">{t(settings ? "orderDelivery.disabled" : "deliverySettings.loadError")}</p><TextLink asChild><Link to={settingsPath}>{t("orderDelivery.configure")}</Link></TextLink></div>
               : <p className="text-sm text-muted-foreground">{t("orderDelivery.locked")}</p>}
-          </div>
+          </CardContent>
         </Card>
 
         <Card className="min-w-0 max-xl:order-6"><details className="group p-4"><summary className="flex min-h-control cursor-pointer list-none items-center justify-between gap-3 rounded-sm text-sm font-semibold focus-visible:outline-2 focus-visible:outline-ring max-md:min-h-touch [&::-webkit-details-marker]:hidden">{t("orderDetail.internalDetails")}<ChevronDown className="size-icon-inline shrink-0 group-open:rotate-180" aria-hidden="true" /></summary><dl className="mt-3 flex flex-col gap-3 border-t pt-4 text-sm"><div><dt className="text-muted-foreground">{t("orders.stock")}</dt><dd>{t(order.stockDeducted ? "orders.stockDeducted" : "orders.stockPending")}</dd></div><div><dt className="text-muted-foreground">{t("orders.seller")}</dt><dd className="break-all">{order.sellerId}</dd></div>{order.delivery && <div><dt className="text-muted-foreground">{t("orderDelivery.recordedBy")}</dt><dd className="break-all">{order.delivery.recordedBy.kind === "seller" ? order.delivery.recordedBy.userId : t("orderDelivery.buyer")}</dd></div>}</dl></details></Card>

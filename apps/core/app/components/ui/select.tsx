@@ -24,9 +24,13 @@ function SelectTrigger({ className, id, "aria-invalid": ariaInvalid, "aria-descr
   );
 }
 
+// Modal Radix layers (Sheet) trap focus and outside clicks, so their content provides itself as the popup container.
+const SelectPortalContainer = React.createContext<HTMLElement | null>(null);
+
 function SelectContent({ className, children, ...props }: React.ComponentProps<typeof SelectPrimitive.Popup>) {
+  const container = React.useContext(SelectPortalContainer);
   return (
-    <SelectPrimitive.Portal>
+    <SelectPrimitive.Portal container={container ?? undefined}>
       <SelectPrimitive.Positioner>
         <SelectPrimitive.Popup
           data-slot="select-content"
@@ -58,4 +62,4 @@ function SelectItem({ className, children, ...props }: React.ComponentProps<type
 const SelectValue = SelectPrimitive.Value;
 const SelectGroup = SelectPrimitive.Group;
 
-export { Select, SelectTrigger, SelectValue, SelectContent, SelectGroup, SelectItem };
+export { Select, SelectPortalContainer, SelectTrigger, SelectValue, SelectContent, SelectGroup, SelectItem };

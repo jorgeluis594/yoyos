@@ -4,6 +4,9 @@ import { useState, type FormEvent } from "react";
 import { Link, useLocation, useSearchParams } from "react-router";
 import { z } from "zod";
 import { authClient } from "@core/src/shared/infrastructure/auth-client";
+import { Alert, AlertDescription } from "@core/app/components/ui/alert";
+import { AuthLayout, AuthLayoutDescription, AuthLayoutHeader, AuthLayoutTitle } from "@core/app/components/ui/auth-layout";
+import { TextLink } from "@core/app/components/ui/text-link";
 import { Button } from "@core/app/components/ui/button";
 import { Field, FieldLabel } from "@core/app/components/ui/field";
 import { Input } from "@core/app/components/ui/input";
@@ -38,5 +41,14 @@ export default function ResetPassword() {
     } catch { setError(t("auth.invalidResetRequest")); }
     finally { setPending(false); }
   }
-  return <main className="mx-auto flex min-h-screen max-w-lg flex-col justify-center px-4"><h1 className="text-2xl font-semibold">{t("auth.resetTitle")}</h1>{invalidLink ? <><p className="mt-3 text-muted-foreground">{t("auth.invalidResetLink")}</p><Link className="mt-6 underline" to={path("/forgot-password")}>{t("auth.requestAnotherLink")}</Link></> : completed ? <><p className="mt-3 text-muted-foreground">{t("auth.passwordChanged")}</p><Link className="mt-6 underline" to={path("/login")}>{t("common.login")}</Link></> : <form onSubmit={submit} className="mt-6 flex flex-col gap-4"><Field><FieldLabel htmlFor="password">{t("auth.newPassword")}</FieldLabel><Input id="password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} maxLength={128} required /></Field>{error && <p role="alert">{error}</p>}<Button type="submit" disabled={pending}>{pending ? t("auth.saving") : t("auth.changePassword")}</Button></form>}</main>;
+  return <AuthLayout>
+    <AuthLayoutHeader><AuthLayoutTitle>{t("auth.resetTitle")}</AuthLayoutTitle>{(invalidLink || completed) && <AuthLayoutDescription>{invalidLink ? t("auth.invalidResetLink") : t("auth.passwordChanged")}</AuthLayoutDescription>}</AuthLayoutHeader>
+    {invalidLink ? <TextLink asChild><Link to={path("/forgot-password")}>{t("auth.requestAnotherLink")}</Link></TextLink>
+      : completed ? <TextLink asChild><Link to={path("/login")}>{t("common.login")}</Link></TextLink>
+      : <form onSubmit={submit} className="flex flex-col gap-4">
+        <Field><FieldLabel htmlFor="password">{t("auth.newPassword")}</FieldLabel><Input id="password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} maxLength={128} required /></Field>
+        {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+        <Button type="submit" disabled={pending}>{pending ? t("auth.saving") : t("auth.changePassword")}</Button>
+      </form>}
+  </AuthLayout>;
 }

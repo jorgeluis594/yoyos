@@ -11,7 +11,7 @@ import type { VariantId } from "@core/src/features/products/domain/product";
 export type RatedSetDeliveryInput = Readonly<{ orderId: OrderId; delivery: RatedDeliverySelection; expectedPrice: Money }>;
 export type SetDeliveryInput = RatedSetDeliveryInput;
 export type InitialOrderDeliveryInput = Omit<RatedSetDeliveryInput, "orderId">;
-export type SetDeliveryError = OrderDomainError | ResolveRateError | PeruDistrictError | Readonly<{ code: "ORDER_NOT_FOUND" | "INSUFFICIENT_STOCK" | "PERSISTENCE_UNAVAILABLE" | "DELIVERY_UNAVAILABLE" | "DELIVERY_METHOD_DISABLED" | "COURIER_UNAVAILABLE" | "INVALID_STORED_DATA"; message: string; variantId?: string; reason?: "resolver_not_integrated" | "availability_unconfirmed" }>;
+export type SetDeliveryError = OrderDomainError | ResolveRateError | PeruDistrictError | Readonly<{ code: "ORDER_NOT_FOUND" | "INSUFFICIENT_STOCK" | "PERSISTENCE_UNAVAILABLE" | "DELIVERY_UNAVAILABLE" | "DELIVERY_METHOD_DISABLED" | "INVALID_STORED_DATA"; message: string; variantId?: string; reason?: "resolver_not_integrated" | "availability_unconfirmed" }>;
 export type SetDeliveryDependencies = Readonly<{
   transaction: <T>(companyId: CompanyId, work: () => Promise<Result<T, SetDeliveryError>>) => Promise<Result<T, SetDeliveryError>>;
   findOrderForUpdate: (id: OrderId, companyId: CompanyId) => Promise<Result<OrderAggregate | null, SetDeliveryError>>;
@@ -22,8 +22,8 @@ export type SetDeliveryDependencies = Readonly<{
 }>;
 
 export async function setOrderDelivery(input: SetDeliveryInput, context: OrderAccess, deps: SetDeliveryDependencies): Promise<Result<OrderAggregate, SetDeliveryError>> {
-  if (!("expectedPrice" in input) || "chargeDeliveryToCustomer" in input)
-    return err({ code: "INVALID_ORDER", message: "Delivery requires a reviewed price and does not accept a charge decision" });
+  if (!("expectedPrice" in input))
+    return err({ code: "INVALID_ORDER", message: "Delivery requires a reviewed price" });
   const selection = parseRatedDeliverySelection(input.delivery);
   if (!selection.success) return selection;
   return deps.transaction(context.companyId, async () => {

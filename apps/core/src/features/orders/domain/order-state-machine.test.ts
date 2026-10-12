@@ -1,6 +1,6 @@
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import { describe, expect, test } from "vitest";
-import { buildPendingOrder, orderStateMachine, type OrderAggregate, type DeliverySnapshot, type CourierId } from "@core/src/features/orders/domain/order-state-machine";
+import { buildPendingOrder, orderStateMachine, type CourierId, type OrderAggregate, type DeliverySnapshot, type DeliveryPricing, type PeruDeliveryDistrict } from "@core/src/features/orders/domain/order-state-machine";
 import type { ConfirmedPayment } from "@core/src/features/orders/domain/payment";
 import type { CompanyId, OrderId, OrderItemId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
@@ -11,7 +11,7 @@ const paymentAt = new Date("2026-09-30T12:00:00Z");
 const money = (amount: number) => ({ amount, currency: "PEN" as const });
 const order = (): OrderAggregate => ({
   number: 1001 as OrderNumber, id: id(1) as OrderId, companyId: id(2) as CompanyId, sellerId: "seller" as UserId,
-  buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, checkoutDeliveryRequest: null, createdAt, deliveredAt: null, completedAt: null, cancelled: false,
+  buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, createdAt, deliveredAt: null, completedAt: null, cancelled: false,
   items: [{ id: id(3) as OrderItemId, variantId: id(4) as VariantId, productName: "Item", variantAttributes: {}, sku: null,
     quantity: 1 as PositiveInteger, unitPrice: money(10), subtotal: money(10) }],
   payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false,
@@ -20,8 +20,11 @@ const order = (): OrderAggregate => ({
 const payment = (n: number, amount: number): ConfirmedPayment => ({ id: id(n) as PaymentId, orderId: id(1) as OrderId,
   status: "confirmed", amount: money(amount), method: "digital_wallet",
   data: { confirmedAt: paymentAt, confirmedBy: { kind: "seller", userId: "seller" as UserId }, evidence: { kind: "manual" } } });
+const pricing = { quotationId: id(20), rateId: id(21), optionId: id(22), settingsVersion: 1 } as DeliveryPricing;
+const catalogAgency = { id: id(9), name: "Branch", address: "Av. Test 123", location: { country: "PE", districtCode: "150122", district: "Miraflores", province: "Lima", department: "Lima" } } as unknown as Extract<DeliverySnapshot, { method: "agency" }>["agency"];
+const limaDistrict = { country: "PE", districtCode: "150101", district: "Lima", province: "Lima", department: "Lima" } as unknown as PeruDeliveryDistrict;
 const home: DeliverySnapshot = { method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
-  destination: { address: "Av. Lima 123", district: "Lima", instructions: null }, recordedBy: { kind: "seller", userId: "seller" as UserId } };
+  destination: { ...limaDistrict, address: "Av. Lima 123", instructions: null }, pricing, recordedBy: { kind: "seller", userId: "seller" as UserId } };
 
 describe("pending order construction", () => {
   test("preserves identity and snapshots while leaving payment, delivery and stock pending", () => {
@@ -117,13 +120,18 @@ describe("delivery and stock transitions", () => {
   });
 
   test("requires documented agency recipient and validates identity at runtime", () => {
-    const invalid = { method: "agency", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, courier: { id: id(8) as CourierId, name: "Courier" }, agency: "Lima", recordedBy: { kind: "seller", userId: "seller" as UserId } };
-    expect(orderStateMachine.setDelivery(order(), { resolved: { delivery: invalid as DeliverySnapshot, cost: money(1) } }))
+    const pending = { method: "agency", destination: limaDistrict, pricing, courier: { id: id(8), name: "Courier" }, agency: catalogAgency, recordedBy: { kind: "seller", userId: "seller" as UserId } };
+    const invalid = { ...pending, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } };
+    expect(orderStateMachine.setDelivery(order(), { resolved: { delivery: invalid as unknown as DeliverySnapshot, cost: money(1) } }))
       .toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
-    const agency: DeliverySnapshot = { method: "agency", recipient: { name: "Ana", phone: "999", identity: {
-      kind: "document", documentType: "passport", document: "A-001" } }, courier: { id: id(8) as CourierId, name: "Courier" }, agency: "Lima", recordedBy: { kind: "seller", userId: "seller" as UserId } };
+    const agency: DeliverySnapshot = { method: "agency", destination: limaDistrict, pricing, courier: { id: id(8) as CourierId, name: "Courier" }, agency: catalogAgency, recipient: { name: "Ana", phone: "999", identity: {
+      kind: "document", documentType: "passport", document: "A-001" } }, recordedBy: { kind: "seller", userId: "seller" as UserId } };
     expect(orderStateMachine.setDelivery(order(), { resolved: { delivery: agency, cost: money(0) } }))
       .toMatchObject({ success: true, data: { delivery: agency } });
+    for (const change of [{ agency: "Lima" }, { courier: null }, { agency: null }, { agency: { ...catalogAgency, location: undefined } }]) {
+      expect(orderStateMachine.setDelivery(order(), { resolved: { delivery: { ...agency, ...change } as unknown as DeliverySnapshot, cost: money(0) } }))
+        .toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
+    }
   });
 
   test("deducts only when requested for partial payment, automatically when covered, and only once", () => {
@@ -207,14 +215,6 @@ describe("delivery and stock transitions", () => {
     expect(orderStateMachine.cancel({ ...order(), cancelled: true, deliveryStatus: "shipped", stockDeducted: true })).toMatchObject({ error: { code: "INVALID_TRANSITION" } });
   });
 
-});
-
-test.each([true, false])("new delivery transitions reject the obsolete charge decision %s", chargeDeliveryToCustomer => {
-  const current = order();
-  const change = { resolved: { delivery: home, cost: money(3) }, chargeDeliveryToCustomer };
-  expect(orderStateMachine.setDelivery(current, change)).toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
-  expect(current.delivery).toBeNull();
-  expect(current.total).toEqual(money(10));
 });
 
 describe("appendItems", () => {

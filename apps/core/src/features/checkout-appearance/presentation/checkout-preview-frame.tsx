@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Button } from "@core/app/components/ui/button";
+import { Card } from "@core/app/components/ui/card";
 import { cn } from "@core/app/lib/utils";
 import type { CheckoutPreviewMessage, CheckoutPreviewMode, PublicCheckoutAppearance } from "@core/src/features/checkout-appearance/presentation/checkout-appearance-schemas";
 import { listenForPreviewReady, sendPreviewUpdate } from "@core/src/features/checkout-appearance/presentation/preview-protocol";
@@ -23,10 +25,9 @@ const deviceSizes: Record<Device, Readonly<{ width: number; height: number }>> =
 function Segmented<T extends string>({ label, value, options, onChange }: Readonly<{
   label: string; value: T; options: readonly (readonly [T, string])[]; onChange: (value: T) => void;
 }>) {
-  return <div role="group" aria-label={label} className="inline-flex rounded-md border bg-card p-0.5">
-    {options.map(([option, text]) => <button key={option} type="button" aria-pressed={value === option} onClick={() => onChange(option)}
-      className={cn("min-h-8 rounded-sm px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        value === option ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent")}>{text}</button>)}
+  return <div role="group" aria-label={label} className="inline-flex gap-1 rounded-md border bg-card p-0.5">
+    {options.map(([option, text]) => <Button key={option} type="button" size="sm" aria-pressed={value === option}
+      variant={value === option ? "default" : "ghost"} onClick={() => onChange(option)}>{text}</Button>)}
   </div>;
 }
 
@@ -79,13 +80,13 @@ export function CheckoutPreviewFrame({ appearance, mode, onModeChange, src = "/s
       <Segmented label={t("checkoutPreview.state")} value={state} onChange={setState}
         options={[["review", t("checkoutPreview.review")], ["payment", t("checkoutPreview.payment")]]} />
     </div>
-    <div ref={canvas} className="min-w-0 overflow-hidden p-2">
+    <Card className="min-w-0 gap-0 overflow-hidden py-0"><div ref={canvas} className="min-w-0 overflow-hidden p-2">
       <div className="mx-auto" style={{ width: size.width * scale, height: size.height * scale }}>
         <iframe ref={frame} title={t("checkoutPreview.title")} src={src} sandbox="allow-scripts allow-same-origin"
           data-device={device}
           className={cn("block origin-top-left bg-background", device === "phone" ? "rounded-[2rem] ring-4 ring-foreground/80" : "rounded-md ring-1 ring-border")}
           style={{ width: size.width, height: size.height, transform: `scale(${scale})` }} />
       </div>
-    </div>
+    </div></Card>
   </section>;
 }
