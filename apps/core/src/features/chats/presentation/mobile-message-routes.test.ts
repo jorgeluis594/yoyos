@@ -106,6 +106,16 @@ test("declared temporary and stored-data failures map to sanitized statuses", as
   }
 });
 
+test("responds 404 IMAGE_NOT_FOUND with no-store when the image does not exist", async () => {
+  const register = vi.fn<RegisterMobileMessage>().mockResolvedValue({ success: false, error: { code: "IMAGE_NOT_FOUND", message: "Image is unavailable" } });
+  const url = await serve(register);
+  const imageBody = { ...body, message: { ...body.message, content: { type: "image", imageId: id } } };
+  const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(imageBody) });
+  expect(response.status).toBe(404);
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(await response.json()).toEqual({ code: "IMAGE_NOT_FOUND", error: "Image not found" });
+});
+
 test("validation and invalid output return sanitized errors without invoking untrusted operations", async () => {
   const register = vi.fn<RegisterMobileMessage>().mockResolvedValue({ success: true, data: { status: "stored", messageId: "invalid" as never, eventId: id as never, receivedAt: new Date(0) } });
   const url = await serve(register);
