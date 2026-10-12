@@ -129,7 +129,8 @@ export default function DeliverySettingsScreen() {
           <Button key={entry.id} variant="secondary" disabled={busy} accessibilityLabel={t("addCourierNamed", { name: entry.name })}
             onPress={() => { setDraft({ ...draft, couriers: [...draft.couriers, { kind: "new", localKey: ++nextCourierKey.current, courierId: entry.id, name: entry.name, enabled: true }] }); setSaved(false); }}>{t("addCourierNamed", { name: entry.name })}</Button>)}
       </View>
-      {zones ? <View style={[styles.section, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}><DeliveryZonesSection key={`zones-${generation}`} state={zones} disabled={busy} blocked={zoneConflict || conflict} onSave={saveZones} onReload={() => void load()} /></View> : null}
+      {zones ? <View style={[styles.section, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}><DeliveryZonesSection key={`zones-${generation}`} state={zones} loadAgencies={deliverySettings.getAgencyCatalog}
+        couriers={draft.couriers.flatMap(courier => courier.kind === "existing" ? [{ courierId: courier.courierId, name: courier.name, enabled: courier.enabled }] : [])} disabled={busy} blocked={zoneConflict || conflict} onSave={saveZones} onReload={() => void load()} /></View> : null}
     </ScrollView>
     <View style={[styles.footer, { backgroundColor: theme.background, borderColor: theme.border }]}>
       {error ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t(error)}</ThemedText> : null}

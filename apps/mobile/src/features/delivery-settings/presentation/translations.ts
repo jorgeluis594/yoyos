@@ -3,6 +3,7 @@ export const translations = {
     zonesTitle: "Zonas y tarifas",
     zonesHint: "Elige dónde entregas y cuánto cuesta cada entrega.",
     optionsTitle: "Opciones de envío", optionName: "Nombre de la opción", optionHome: "Domicilio", optionAgency: "Agencia", optionActive: "Opción activada", optionInactive: "desactivada", optionRemove: "Quitar opción", optionAddHome: "Agregar opción a domicilio",
+    optionAddAgency: "Agregar opción a agencia", agenciesTitle: "Agencias de la opción", agenciesNone: "Sin agencias: la opción no se ofrecerá al cotizar.", agencyRemove: "Quitar {{name}}", agenciesNoCouriers: "Guarda un courier habilitado para elegir sus agencias.", agencyCourier: "Courier", agencySearch: "Buscar agencia por nombre, distrito o dirección", agenciesLoading: "Cargando agencias…", agenciesError: "No se pudo cargar el catálogo de agencias.", agenciesRetry: "Reintentar agencias", agenciesNoMatches: "No hay agencias que coincidan.", agenciesMore_one: "Hay {{count}} agencia más: afina la búsqueda.", agenciesMore_other: "Hay {{count}} agencias más: afina la búsqueda.", optionNoEligibleAgencies: "Sin agencias elegibles: no se ofrece al cotizar.",
     zonesEmpty: "Todavía no hay zonas configuradas.",
     zonesMissingHome: "Falta una opción de domicilio activa con cobertura", zonesMissingAgency: "Falta una opción de agencia activa con cobertura",
     zonesFree: "Entrega gratis",
@@ -30,6 +31,7 @@ export const translations = {
   'pt-BR': {
     zonesTitle: "Zonas e tarifas",
     optionsTitle: "Opções de envio", optionName: "Nome da opção", optionHome: "Domicílio", optionAgency: "Agência", optionActive: "Opção ativada", optionInactive: "desativada", optionRemove: "Remover opção", optionAddHome: "Adicionar opção em domicílio",
+    optionAddAgency: "Adicionar opção em agência", agenciesTitle: "Agências da opção", agenciesNone: "Sem agências: a opção não será oferecida na cotação.", agencyRemove: "Remover {{name}}", agenciesNoCouriers: "Salve uma transportadora habilitada para escolher suas agências.", agencyCourier: "Transportadora", agencySearch: "Buscar agência por nome, distrito ou endereço", agenciesLoading: "Carregando agências…", agenciesError: "Não foi possível carregar o catálogo de agências.", agenciesRetry: "Tentar agências novamente", agenciesNoMatches: "Nenhuma agência corresponde.", agenciesMore_one: "Há mais {{count}} agência: refine a busca.", agenciesMore_other: "Há mais {{count}} agências: refine a busca.", optionNoEligibleAgencies: "Sem agências elegíveis: não é oferecida na cotação.",
     zonesHint: "Escolha onde entrega e quanto custa cada entrega.",
     zonesEmpty: "Ainda não há zonas configuradas.",
     zonesMissingHome: "Falta uma opção de entrega em domicílio ativa com cobertura", zonesMissingAgency: "Falta uma opção de agência ativa com cobertura",

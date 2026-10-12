@@ -2,16 +2,17 @@ import { useState } from "react";
 import { StyleSheet, Switch, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
-import type { DeliveryZonesResponse, SaveDeliveryZonesRequest } from "@shared/contracts/delivery-settings";
+import type { AgencyCatalogResponse, DeliveryZonesResponse, SaveDeliveryZonesRequest } from "@shared/contracts/delivery-settings";
 import type { Result } from "@shared/result";
 import { getPeruDistrict, type PeruDistrictCode } from "@shared/peru-geography";
-import type { DeliveryOptionDraft, DeliveryZonesError } from "@mobile/features/delivery-settings/application/delivery-settings";
+import type { DeliveryOptionDraft, DeliverySettingsError, DeliveryZonesError } from "@mobile/features/delivery-settings/application/delivery-settings";
 import { PeruDistrictMultiSelect } from "@mobile/components/peru-district-multi-select";
 import { ThemedText } from "@mobile/components/themed-text";
 import { Button } from "@mobile/components/ui/button";
 import { Field, FieldLabel } from "@mobile/components/ui/field";
 import { Input } from "@mobile/components/ui/input";
 import { useTheme } from "@mobile/hooks/use-theme";
+import { AgencyPicker, type AgencyCourier } from "@mobile/features/delivery-settings/presentation/agency-picker";
 
 const amountSchema = z.string().regex(/^\d+(?:[.,]\d{1,2})?$/).refine(value => Number(value.replace(",", ".")) <= 9999999999999.99);
 const draftSchema = z.object({ name: z.string().trim().min(1).max(120), enabled: z.boolean(),
@@ -22,6 +23,7 @@ const draftSchema = z.object({ name: z.string().trim().min(1).max(120), enabled:
 type Draft = Readonly<{ name: string; enabled: boolean; districtCodes: string[]; options: DeliveryOptionDraft[] }>;
 type ZoneInput = SaveDeliveryZonesRequest["zones"][number];
 type OptionInput = ZoneInput["options"][number];
+const nextKey = (options: readonly DeliveryOptionDraft[]) => Math.max(0, ...options.map(value => value.kind === "new" ? value.localKey : 0)) + 1;
 const empty: Draft = { name: "", enabled: true, districtCodes: [], options: [] };
 
 const existingOptionInput = (option: DeliveryZonesResponse["zones"][number]["options"][number]): OptionInput => option.method === "home"
@@ -36,8 +38,17 @@ const optionInput = (option: DeliveryOptionDraft, currency: DeliveryZonesRespons
   return option.kind === "existing" ? { kind: "existing", id: option.id, ...method, ...fields } : { kind: "new", ...method, ...fields };
 };
 
-export function DeliveryZonesSection({ state, disabled, blocked, onSave, onReload }: Readonly<{
-  state: DeliveryZonesResponse; disabled: boolean; blocked: boolean;
+type ZoneOption = DeliveryZonesResponse["zones"][number]["options"][number];
+// An agency option is only offered while an associated agency is enabled and so is its (saved) courier.
+export const hasEligibleAgency = (option: ZoneOption, state: DeliveryZonesResponse, couriers: readonly (AgencyCourier & Readonly<{ enabled: boolean }>)[]) =>
+  option.method === "agency" && option.agencyIds.some(id => {
+    const agency = state.agencies.find(value => value.id === id);
+    return !!agency?.enabled && couriers.some(courier => courier.courierId === agency.courierId && courier.enabled);
+  });
+
+export function DeliveryZonesSection({ state, couriers, loadAgencies, disabled, blocked, onSave, onReload }: Readonly<{
+  state: DeliveryZonesResponse; couriers: readonly (AgencyCourier & Readonly<{ enabled: boolean }>)[]; disabled: boolean; blocked: boolean;
+  loadAgencies: (courierId: string) => Promise<Result<AgencyCatalogResponse, DeliverySettingsError>>;
   onSave: (request: SaveDeliveryZonesRequest) => Promise<Result<DeliveryZonesResponse, DeliveryZonesError>>;
   onReload: () => void;
 }>) {
@@ -66,7 +77,7 @@ export function DeliveryZonesSection({ state, disabled, blocked, onSave, onReloa
     else setError(result.error.code === "DELIVERY_SETTINGS_CONFLICT" ? "zonesConflict"
       : ["INVALID_DELIVERY_ZONE", "INVALID_DELIVERY_OPTION", "INVALID_INPUT"].includes(result.error.code) ? "zonesInvalid" : "zonesSaveError");
   };
-  const setOption = (index: number, change: Partial<Pick<DeliveryOptionDraft, "name" | "amount" | "enabled">>) =>
+  const setOption = (index: number, change: Partial<Pick<DeliveryOptionDraft, "name" | "amount" | "enabled">> | { agencyIds: string[] }) =>
     setDraft({ ...draft, options: draft.options.map((option, i) => i === index ? { ...option, ...change } : option) });
   const locked = disabled || blocked;
   return <View testID="delivery-zones" style={styles.section}>
@@ -78,7 +89,7 @@ export function DeliveryZonesSection({ state, disabled, blocked, onSave, onReloa
     {zones.map(zone => <View key={zone.id} style={[styles.zone, { borderColor: theme.input }]}>
       <ThemedText style={styles.name}>{zone.name}</ThemedText>
       <ThemedText type="small" themeColor="textSecondary">{zone.districtCodes.map(code => `${getPeruDistrict(code)?.name} · ${code}`).join(", ")}</ThemedText>
-      {zone.options.map(option => <ThemedText key={option.id} type="small">{`${option.name} · ${t(option.method === "home" ? "optionHome" : "optionAgency")} · ${option.price.amount === 0 ? t("zonesFree") : `S/ ${option.price.amount.toFixed(2)}`}${option.enabled ? "" : ` · ${t("optionInactive")}`}`}</ThemedText>)}
+      {zone.options.map(option => <ThemedText key={option.id} type="small">{`${option.name} · ${t(option.method === "home" ? "optionHome" : "optionAgency")} · ${option.price.amount === 0 ? t("zonesFree") : `S/ ${option.price.amount.toFixed(2)}`}${option.enabled ? "" : ` · ${t("optionInactive")}`}${option.method === "agency" && !hasEligibleAgency(option, state, couriers) ? ` · ${t("optionNoEligibleAgencies")}` : ""}`}</ThemedText>)}
       <ThemedText type="small">{t(zone.enabled ? "zonesActive" : "zonesInactive")}</ThemedText>
       <Button variant="secondary" disabled={locked} onPress={() => { setDraft({ name: zone.name, enabled: zone.enabled, districtCodes: zone.districtCodes, options: zone.options.map(optionDraft) }); setEditing(zone.id); setSaved(false); setError(""); }}>{t("zonesEdit", { name: zone.name })}</Button>
       <Button variant="ghost" disabled={locked || editing !== undefined} onPress={() => void save(zone.id)}>{t(zone.enabled ? "zonesDisable" : "zonesEnable", { name: zone.name })}</Button>
@@ -94,10 +105,13 @@ export function DeliveryZonesSection({ state, disabled, blocked, onSave, onReloa
           <ThemedText type="small">{t(option.method === "home" ? "optionHome" : "optionAgency")}</ThemedText>
           <Field disabled={locked} required><FieldLabel>{t("optionName")}</FieldLabel><Input accessibilityLabel={t("optionName")} maxLength={120} value={option.name} onChangeText={name => setOption(index, { name })} /></Field>
           <Field disabled={locked} required><FieldLabel>{t("zonesPrice")}</FieldLabel><Input accessibilityLabel={t("zonesPrice")} keyboardType="decimal-pad" value={option.amount} onChangeText={amount => setOption(index, { amount })} /></Field>
+          {option.method === "agency" ? <AgencyPicker couriers={couriers} known={state.agencies} value={option.agencyIds} disabled={locked} loadCatalog={loadAgencies}
+            onChange={agencyIds => setOption(index, { agencyIds })} /> : null}
           <View style={styles.toggle}><ThemedText style={styles.label}>{t("optionActive")}</ThemedText><Switch accessibilityLabel={`${t("optionActive")} ${index + 1}`} value={option.enabled} disabled={locked} trackColor={{ true: theme.primary }} onValueChange={enabled => setOption(index, { enabled })} /></View>
           {option.kind === "new" ? <Button variant="ghost" disabled={locked} onPress={() => setDraft({ ...draft, options: draft.options.filter((_, i) => i !== index) })}>{t("optionRemove")}</Button> : null}
         </View>)}
-        <Button variant="secondary" disabled={locked} onPress={() => setDraft({ ...draft, options: [...draft.options, { kind: "new", localKey: Math.max(0, ...draft.options.map(value => value.kind === "new" ? value.localKey : 0)) + 1, method: "home", name: "", amount: "", enabled: true }] })}>{t("optionAddHome")}</Button>
+        <Button variant="secondary" disabled={locked} onPress={() => setDraft({ ...draft, options: [...draft.options, { kind: "new", localKey: nextKey(draft.options), method: "home", name: "", amount: "", enabled: true }] })}>{t("optionAddHome")}</Button>
+        {state.agency.enabled ? <Button variant="secondary" disabled={locked} onPress={() => setDraft({ ...draft, options: [...draft.options, { kind: "new", localKey: nextKey(draft.options), method: "agency", agencyIds: [], name: "", amount: "", enabled: true }] })}>{t("optionAddAgency")}</Button> : null}
         <Button disabled={locked} loading={disabled} onPress={() => void save()}>{t("zonesSave")}</Button>
         <Button variant="ghost" disabled={locked} onPress={() => { setDraft(empty); setEditing(undefined); setError(""); }}>{t("zonesCancel")}</Button>
       </View>}

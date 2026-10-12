@@ -4,16 +4,10 @@ import { Input } from "@core/app/components/ui/input";
 import { Field, FieldLabel, controlClass } from "@core/app/components/ui/field";
 import { useTranslation } from "react-i18next";
 import type { CatalogAgencyContract } from "@shared/contracts/delivery-settings";
+import { filterAgencies } from "@shared/agency-search";
 import { readAgencyCatalog, type AgencyCatalogClientError } from "@core/src/features/delivery-settings/infrastructure/agency-catalog-api";
 
 const maxShown = 50;
-const normalize = (value: string) => value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLocaleLowerCase("es").trim();
-
-/** Agencies whose name, district or address contain the query, in catalog order. */
-export function filterAgencies(agencies: readonly CatalogAgencyContract[], query: string): readonly CatalogAgencyContract[] {
-  const term = normalize(query);
-  return agencies.filter(agency => normalize(`${agency.name} ${agency.location.district} ${agency.location.province} ${agency.address}`).includes(term));
-}
 
 export const describeAgency = (agency: CatalogAgencyContract) => `${agency.name} · ${agency.location.district} · ${agency.address}`;
 

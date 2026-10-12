@@ -4,7 +4,7 @@ import { deliverySettings } from "@mobile/features/delivery-settings/composition
 import DeliverySettingsScreen from "@mobile/features/delivery-settings/presentation/delivery-settings-screen";
 import i18n from "@mobile/i18n";
 
-jest.mock("@mobile/features/delivery-settings/composition", () => ({ deliverySettings: { get: jest.fn(), getCourierCatalog: jest.fn(), save: jest.fn(), getZones: jest.fn(), saveZones: jest.fn() } }));
+jest.mock("@mobile/features/delivery-settings/composition", () => ({ deliverySettings: { get: jest.fn(), getCourierCatalog: jest.fn(), save: jest.fn(), getZones: jest.fn(), saveZones: jest.fn(), getAgencyCatalog: jest.fn() } }));
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAccess: () => ({ state: { status: "ready", company: { id: "company", country: "PE" } } }) }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 jest.mock("@expo/ui", () => {
@@ -25,6 +25,7 @@ const olvaId = "00000000-0000-4000-8000-000000000102";
 const catalog = { couriers: [{ id: shalomId, code: "shalom", name: "Shalom" }, { id: olvaId, code: "olva", name: "Olva Courier" }] };
 const getZones = jest.mocked(deliverySettings.getZones);
 const saveZones = jest.mocked(deliverySettings.saveZones);
+const getAgencyCatalog = jest.mocked(deliverySettings.getAgencyCatalog);
 const point = { name: "Store", address: "Original", instructions: null };
 beforeEach(() => {
   get.mockReset(); getCourierCatalog.mockReset(); save.mockReset();
@@ -243,4 +244,59 @@ test("uncertain zone save preserves the draft and blocks all saves until explici
     expect(screen.getByText("Editar Lima")).toBeTruthy();
     expect(screen.queryByLabelText("Nombre de la zona *")).toBeNull();
   });
+});
+
+const agencyOf = (n: number, name: string, enabled = true) => ({ id: `00000000-0000-4000-8000-0000000002${n}0`, courierId: shalomId, name, address: `Av. ${name} 1`, enabled,
+  location: { country: "PE" as const, districtCode: "150122", district: "MIRAFLORES", province: "LIMA METROPOLITANA", department: "LIMA" } });
+
+test("agency options list their catalog agencies, flag options without eligible ones and save the chosen associations", async () => {
+  const central = agencyOf(1, "Central");
+  const north = agencyOf(2, "Norte");
+  const closed = agencyOf(3, "Cerrada", false);
+  const agencyOption = { id: optionId, method: "agency" as const, name: "A agencia", enabled: true, price: { amount: 5, currency: "PEN" as const }, agencyIds: [central.id] };
+  const orphan = { ...agencyOption, id: "00000000-0000-4000-8000-000000000012", name: "Sin agencia", agencyIds: [closed.id] };
+  const state = { ...zonesState, agency: { enabled: true }, agencies: [central, closed], zones: [{ ...homeZone, options: [agencyOption, orphan] }] };
+  getZones.mockResolvedValue(ok(state));
+  getAgencyCatalog.mockResolvedValue(ok({ agencies: [central, north] }));
+  get.mockResolvedValue(ok({ version: 5, home: { enabled: true }, agency: { enabled: true }, couriers: [{ id: "00000000-0000-4000-8000-0000000000a1", courierId: shalomId, name: "Shalom", enabled: true }],
+    store: { enabled: false, pickupPoint: null } }));
+  saveZones.mockResolvedValue(ok({ ...state, version: 6 }));
+  const screen = render(<DeliverySettingsScreen />);
+  await screen.findByText("Lima");
+  expect(screen.getByText(/A agencia · Agencia · S\/ 5.00$/)).toBeTruthy();
+  expect(screen.getByText(/Sin agencia · Agencia · S\/ 5.00 · Sin agencias elegibles/)).toBeTruthy();
+  await waitFor(() => expect(screen.getByRole("button", { name: "Editar Lima" }).props.accessibilityState.disabled).toBe(false));
+  fireEvent.press(screen.getByText("Editar Lima"));
+  await screen.findAllByText(/Norte · MIRAFLORES/);
+  expect(getAgencyCatalog).toHaveBeenCalledWith(shalomId);
+  expect(screen.getAllByText(/Central · MIRAFLORES/).length).toBeGreaterThan(0);
+  fireEvent(screen.getAllByLabelText(/Norte · MIRAFLORES/)[0], "valueChange", true);
+  fireEvent.press(screen.getByText("Guardar zona"));
+  await screen.findByText("Zona guardada.");
+  expect(saveZones).toHaveBeenCalledWith({ expectedVersion: 5, zones: [expect.objectContaining({ options: [
+    expect.objectContaining({ kind: "existing", id: optionId, method: "agency", agencyIds: [central.id, north.id] }),
+    expect.objectContaining({ kind: "existing", id: orphan.id, method: "agency", agencyIds: [closed.id] }),
+  ] })] });
+});
+
+test("a new agency option is offered only when agency delivery is enabled and needs a name and price before saving", async () => {
+  getZones.mockResolvedValueOnce(ok({ ...zonesState, zones: [] }));
+  const first = render(<DeliverySettingsScreen />);
+  await first.findByText("Agregar zona");
+  await waitFor(() => expect(first.getByRole("button", { name: "Agregar zona" }).props.accessibilityState.disabled).toBe(false));
+  fireEvent.press(first.getByText("Agregar zona"));
+  expect(first.queryByText("Agregar opción a agencia")).toBeNull();
+  first.unmount();
+  getZones.mockResolvedValueOnce(ok({ ...zonesState, agency: { enabled: true }, zones: [] }));
+  getAgencyCatalog.mockResolvedValue(ok({ agencies: [] }));
+  const screen = render(<DeliverySettingsScreen />);
+  await screen.findByText("Agregar zona");
+  await waitFor(() => expect(screen.getByRole("button", { name: "Agregar zona" }).props.accessibilityState.disabled).toBe(false));
+  fireEvent.press(screen.getByText("Agregar zona"));
+  fireEvent.changeText(screen.getByLabelText("Nombre de la zona *"), "Lima");
+  fireEvent.press(screen.getByText("Agregar opción a agencia"));
+  expect(screen.getByText("Sin agencias: la opción no se ofrecerá al cotizar.")).toBeTruthy();
+  fireEvent.press(screen.getByText("Guardar zona"));
+  await screen.findByText(/Ingresa nombre, distritos/);
+  expect(saveZones).not.toHaveBeenCalled();
 });

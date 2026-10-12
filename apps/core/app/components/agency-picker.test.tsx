@@ -3,7 +3,8 @@ import { I18nextProvider, initReactI18next } from "react-i18next";
 import { renderToStaticMarkup } from "react-dom/server";
 import resources from "@core/app/locales";
 import { expect, test } from "vitest";
-import { AgencyPicker, describeAgency, filterAgencies } from "@core/app/components/agency-picker";
+import { filterAgencies } from "@shared/agency-search";
+import { AgencyPicker, describeAgency } from "@core/app/components/agency-picker";
 import { hasEligibleAgency } from "@core/app/components/delivery-zones-section";
 import type { CatalogAgencyContract, DeliveryZonesResponse } from "@shared/contracts/delivery-settings";
 
