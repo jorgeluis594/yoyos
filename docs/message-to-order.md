@@ -632,7 +632,7 @@ Títulos de las pruebas, escritas antes de implementar (TDD). Siguen el estilo d
 `shared/images/application/images.test.ts`
 
 - readImageBytes returns the bytes and content type of a public image
-- readImageBytes reads a private image from its source key
+- readImageBytes reads a private image from its storage key
 - returns IMAGE_NOT_FOUND when the company has no such image
 - returns IMAGE_NOT_FOUND when the stored object is missing
 - maps storage configuration errors to IMAGE_STORAGE_UNAVAILABLE
