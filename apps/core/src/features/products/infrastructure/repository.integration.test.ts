@@ -125,3 +125,41 @@ test("product persistence is atomic, isolated, and constrained", async () => {
     await admin.$disconnect();
   }
 });
+
+test("findSellableVariantsByQrCodes finds active variants of the company by QR code", async () => {
+  expect(process.env.DATABASE_URL, "run sh scripts/run-tests.sh integration").toBeTruthy();
+  const { prisma, withTenantIsolation } = await import("@core/src/shared/infrastructure/persistance");
+  const { findSellableVariantsByQrCodes } = await import("@core/src/features/products/infrastructure/order-stock");
+  const companyA = randomUUID();
+  const companyB = randomUUID();
+  // The schema only allows status 'active' (CHECK), so the status filter cannot be exercised with stored rows.
+  const seed = (attributes: Record<string, string>) => {
+    const productId = randomUUID();
+    const variant = { id: randomUUID(), qrCode: randomUUID() };
+    return { ...variant, create: async () => {
+      await prisma.product.create({ data: { id: productId, name: "Camisa", currency: "PEN", qrCode: randomUUID(), status: "active", createdAt: new Date(), updatedAt: new Date() } });
+      await prisma.productVariant.create({ data: { ...variant, productId, attributes, sku: "CAM-1", salePrice: 19.99, status: "active" } });
+    } };
+  };
+  const mine = seed({ color: "azul" });
+  const foreign = seed({});
+  try {
+    for (const id of [companyA, companyB]) await withTenantIsolation(id, async () => await prisma.company.create({ data: { id, name: id, country: "PE" } }));
+    await withTenantIsolation(companyA, mine.create);
+    await withTenantIsolation(companyB, foreign.create);
+
+    await withTenantIsolation(companyA, async () => {
+      expect(await findSellableVariantsByQrCodes([mine.qrCode, randomUUID()])).toEqual({ success: true, data: [
+        { variantId: mine.id, qrCode: mine.qrCode, productName: "Camisa", variantAttributes: { color: "azul" }, sku: "CAM-1", unitPrice: { amount: 19.99, currency: "PEN" } },
+      ] });
+      expect(await findSellableVariantsByQrCodes([randomUUID()])).toEqual({ success: true, data: [] });
+      expect(await findSellableVariantsByQrCodes([foreign.qrCode])).toEqual({ success: true, data: [] });
+    });
+  } finally {
+    for (const id of [companyA, companyB]) await withTenantIsolation(id, async () => {
+      await prisma.productVariant.deleteMany({ where: { companyId: id } });
+      await prisma.product.deleteMany({ where: { companyId: id } });
+      await prisma.company.deleteMany({ where: { id } });
+    });
+  }
+});
