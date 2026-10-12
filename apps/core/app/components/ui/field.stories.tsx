@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Button } from "./button";
-import { Field, FieldError, FieldLabel } from "./field";
+import { Field, FieldDescription, FieldError, FieldLabel } from "./field";
 import { Input } from "./input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "./select";
 import { Textarea } from "./textarea";
@@ -96,5 +96,16 @@ export const ComposedForm: Story = {
         <Button type="button" variant="outline">Cancelar</Button>
       </div>
     </form>
+  ),
+};
+
+export const WithDescription: Story = {
+  name: "Con descripción",
+  render: () => (
+    <Field className="max-w-form">
+      <FieldLabel htmlFor="pickup-address">Dirección de recojo</FieldLabel>
+      <Input id="pickup-address" name="address" aria-describedby="pickup-address-description" />
+      <FieldDescription id="pickup-address-description">Se muestra al comprador al elegir recojo en tienda.</FieldDescription>
+    </Field>
   ),
 };
