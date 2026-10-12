@@ -12,7 +12,7 @@ import { ok, err } from "@shared/functional";
 import { orders, createConfiguredOrder } from "@core/src/features/orders/composition";
 import { prisma, systemPrisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { buildPendingOrder, orderStateMachine, parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
-import { findOpenChatOrderCandidate, findOrderAggregate, findOrderAggregates, findOrderForUpdate, findProcessedMessage, recordProcessedMessage, saveAddedItems, saveDelivery, savePendingOrder, saveStockDeduction } from "@core/src/features/orders/infrastructure/order-repository";
+import { findOpenChatOrderCandidate, findOrderAggregate, findOrderAggregates, findOrders, findOrderForUpdate, findProcessedMessage, recordProcessedMessage, saveAddedItems, saveDelivery, savePendingOrder, saveStockDeduction } from "@core/src/features/orders/infrastructure/order-repository";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
 import { deductProductStock } from "@core/src/features/products";
 import type { CompanyId, ContactId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
@@ -44,6 +44,7 @@ async function fixture() {
       await prisma.payment.deleteMany();
       await prisma.orderItem.deleteMany();
       await prisma.order.deleteMany();
+      await prisma.chat.deleteMany();
       await prisma.contact.deleteMany();
       await prisma.productStock.deleteMany();
       await prisma.productVariant.deleteMany();
@@ -914,7 +915,7 @@ test("checkout enable and confirmation are idempotent under real concurrent tran
     expect(info.mock.calls.filter(([fields]) => typeof fields === "object" && fields && "event" in fields && fields.event === "order_checkout_confirmed")).toHaveLength(1);
     const stored = await withTenantIsolation(f.companyId, () => orderDetail(access.orderId, f));
     if (!stored.success) throw new Error("Unable to read confirmed order");
-    expect({ ...stored.data, buyer: order.buyer, checkoutEnabledAt: null, checkoutConfirmedAt: null }).toEqual(order);
+    expect({ ...stored.data, buyer: order.buyer, checkoutEnabledAt: null, checkoutConfirmedAt: null, source: undefined }).toEqual(order);
     expect(stored.data.buyer?.contactId).toBe(f.contactId);
     await withTenantIsolation(f.companyId, async () => {
       expect(await prisma.contact.findUnique({ where: { id: f.contactId } })).toMatchObject({ name: null, phone: "+51999999999" });
@@ -1333,7 +1334,8 @@ test.each([
       expect(result).toMatchObject({ success: true, data: { stockDeducted: deducted,
         deliveryStatus: immediate ? "delivered" : "pending", completedAt: immediate ? expect.any(Date) : null } });
       const saved = await findOrderAggregate(id, context.companyId);
-      expect(saved).toEqual(result);
+      expect(saved).toMatchObject(result);
+      expect(saved.success && saved.data?.source).toBe("manual");
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(deducted ? 1n : 3n);
       expect(await prisma.payment.count()).toBe(amount === null ? 0 : 1);
     });
@@ -1382,7 +1384,9 @@ test("complete creation resolves delivery charge before coverage and retains its
       expect(result).toMatchObject({ success: true, data: { delivery: { method: "home", destination: { districtCode: "150122", address: "Av. Lima 123" },
         pricing: { rateId: quote.data.rates[0].id, quotationId: quote.data.quotation.id } }, deliveryCost: { amount: 0.1 }, deliveryCharge: { amount: 0.1 },
         total: { amount: 0.3 }, stockDeducted: false, completedAt: null } });
-      expect(await findOrderAggregate(id, context.companyId)).toEqual(result);
+      const saved = await findOrderAggregate(id, context.companyId);
+      expect(saved).toMatchObject(result);
+      expect(saved.success && saved.data?.source).toBe("manual");
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
     });
   } finally { await f.cleanup(); }
@@ -1826,4 +1830,30 @@ test("tenant isolation hides customers and order messages of another company", a
       expect(await findProcessedMessage(chat.messageId)).toEqual(ok(null));
     });
   } finally { await chatCleanup(a, b); await a.cleanup(); await b.cleanup(); }
+});
+
+test("derives source whatsapp for chat orders and manual otherwise", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const context = { companyId: f.companyId as CompanyId, sellerId: f.sellerId };
+      const chatOrder = randomUUID();
+      const manualOrder = randomUUID();
+      for (const id of [chatOrder, manualOrder]) {
+        const sale = await immediateSale({ id, contactId: f.contactId, items: [{ variantId: f.variantIds[0], quantity: 1 }] }, context);
+        expect(sale.success).toBe(true);
+      }
+      const chat = await prisma.chat.create({ data: { contactId: f.contactId } });
+      await prisma.order.update({ where: { companyId_id: { companyId: f.companyId, id: chatOrder } }, data: { chatId: chat.id } });
+      const sourceOf = (id: string) => (id === chatOrder ? "whatsapp" : "manual");
+      for (const id of [chatOrder, manualOrder])
+        expect(await findOrderAggregate(id as OrderId, context.companyId)).toMatchObject({ success: true, data: { id, source: sourceOf(id) } });
+      const aggregates = await findOrderAggregates({ page: 1, customer: { kind: "all" } }, context.companyId);
+      const summaries = await findOrders({ page: 1, customer: { kind: "all" } });
+      for (const page of [aggregates, summaries]) {
+        if (!page.success) throw new Error("Unable to list orders");
+        expect(page.data.items.map((item) => [item.id, item.source]).sort()).toEqual([chatOrder, manualOrder].map((id) => [id, sourceOf(id)]).sort());
+      }
+    });
+  } finally { await f.cleanup(); }
 });

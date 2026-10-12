@@ -1,6 +1,10 @@
-import { parseDeliverySelection, parseDeliverySnapshot } from "@core/src/features/orders/domain/order-state-machine";
+import type { CompanyId, OrderId, OrderItemId, UserId } from "@core/src/features/orders/domain/order";
+import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
+import type { VariantId } from "@core/src/features/products/domain/product";
+import { toOrderAggregateJson } from "@core/src/features/orders/presentation/order-json";
+import { buildPendingOrder, parseDeliverySelection, parseDeliverySnapshot } from "@core/src/features/orders/domain/order-state-machine";
 import { expect, test } from "vitest";
-import { orderBuyerSchema, orderCustomerSchema, completeOrderSchema, legacyCompleteOrderSchema, deliverySnapshotSchema, deliverySelectionSchema, setOrderDeliverySchema, listOrdersSchema, orderApiErrorSchema, registerPaymentSchema, stockOutcomeSchema } from "@shared/contracts/orders";
+import { orderSchema, orderBuyerSchema, orderCustomerSchema, completeOrderSchema, legacyCompleteOrderSchema, deliverySnapshotSchema, deliverySelectionSchema, setOrderDeliverySchema, listOrdersSchema, orderApiErrorSchema, registerPaymentSchema, stockOutcomeSchema } from "@shared/contracts/orders";
 import { limaMidnightUtc, nextCalendarDay } from "@shared/orders-date";
 
 test("a Lima calendar day has its own UTC bounds across an offset change", () => {
@@ -142,4 +146,15 @@ test("accepts orders whose buyer and contact customer have a null phone", () => 
   const contactId = "00000000-0000-4000-8000-000000000001";
   expect(orderBuyerSchema.safeParse({ contactId, name: null, phone: null }).success).toBe(true);
   expect(orderCustomerSchema.safeParse({ kind: "contact", contactId, name: null, phone: null }).success).toBe(true);
+});
+
+test("serializes the order source and defaults to manual", () => {
+  const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+  const built = buildPendingOrder({ number: 1001 as OrderNumber, id: id(2) as OrderId, companyId: id(1) as CompanyId, sellerId: "seller" as UserId,
+    customer: { kind: "general_public" }, createdAt: new Date("2026-10-01"), items: [{ id: id(3) as OrderItemId, variantId: id(4) as VariantId,
+      productName: "Item", variantAttributes: {}, sku: null, quantity: 1, unitPrice: { amount: 10, currency: "PEN" } }] });
+  if (!built.success) throw new Error("Invalid fixture");
+  expect(toOrderAggregateJson({ ...built.data, source: "whatsapp" }).source).toBe("whatsapp");
+  expect(toOrderAggregateJson(built.data).source).toBe("manual");
+  expect(orderSchema.shape.source.safeParse("telegram").success).toBe(false);
 });

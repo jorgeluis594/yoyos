@@ -17,6 +17,7 @@ import { ListRow } from "@mobile/components/ui/list-row";
 import { ScreenState } from "@mobile/components/ui/screen-state";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
+import { OrderBuyerName } from "@mobile/features/orders/presentation/order-buyer";
 import { OrderDayField } from "@mobile/features/orders/presentation/order-day-field";
 import { useTheme } from "@mobile/hooks/use-theme";
 import { orderLanguage, deliveryStatusLabel } from "@mobile/features/orders/presentation/order-labels";
@@ -212,7 +213,7 @@ export default function OrderHistoryScreen() {
           description={error || (!loading ? t('ordersEmptyHint') : undefined)} onRetry={error ? () => void reload(companyId, criteria) : undefined} />}
         renderItem={({ item }) => <Pressable accessibilityRole="button" onPress={() => router.push(`/orders/${item.id}`)}
           style={({ pressed }) => [styles.order, { backgroundColor: pressed ? theme.backgroundSelected : theme.backgroundElement, borderBottomColor: theme.border }]}>
-          <View style={styles.orderHeading}><ThemedText style={styles.customerName}>{item.buyer ? item.buyer.name ?? item.buyer.phone ?? "—" : t('generalPublic')}</ThemedText>
+          <View style={styles.orderHeading}><OrderBuyerName buyer={item.buyer} source={item.source} style={styles.customerName} />
             <ThemedText style={styles.amount}>{money(item.total.amount, item.total.currency, locale)}</ThemedText></View>
           <ThemedText type="small" themeColor="textSecondary">#{item.number} · {timeLabel(item.createdAt, locale)}</ThemedText>
           <View style={styles.badges}>
