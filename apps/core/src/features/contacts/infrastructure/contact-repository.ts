@@ -130,12 +130,15 @@ export async function searchSaleContacts(search: string, contactId?: string) {
 
 export type MessageCustomer = Readonly<{ customerId: CustomerId; contactId: string; name: string | null; phone: string | null }>;
 
+type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
+type ContactNotFound = Readonly<{ code: "CONTACT_NOT_FOUND"; message: string }>;
+
 type LockedContact = { id: string; name: string | null; phone: string | null; customerId: string | null };
 
 /** Requires an active transaction: the row lock serializes concurrent messages of the same contact. */
-export async function ensureCustomerForContact(contactId: string) {
+export async function ensureCustomerForContact(contactId: string): Promise<Result<MessageCustomer, PersistenceError | ContactNotFound>> {
   try {
-    return await withLockedForUpdate<LockedContact, Result<MessageCustomer, { code: "CONTACT_NOT_FOUND"; message: string }>>(
+    return await withLockedForUpdate<LockedContact, Result<MessageCustomer, ContactNotFound>>(
       getCompanyId(),
       Prisma.sql`SELECT "id", "name", "phone", "customerId" FROM "Contact" WHERE "id" = ${contactId}::uuid`,
       async (contact) => {
@@ -151,6 +154,6 @@ export async function ensureCustomerForContact(contactId: string) {
   } catch (cause) {
     if (!isPersistenceFailure(cause)) throw cause;
     log.error({ event: "unable_to_ensure_customer_for_contact", err: cause }, "unable_to_ensure_customer_for_contact");
-    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to ensure customer" });
+    return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to ensure customer" });
   }
 }
