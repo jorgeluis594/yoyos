@@ -21,6 +21,9 @@ type Measure = (text: string, sizePt: number) => number;
 
 const documentNames = { national_id: "DNI", passport: "Pasaporte", foreign_id: "CE" } as const;
 
+// fitLabelLines rejects blank lines, so collapse them (multiline inputs allow them).
+const singleBreaks = (text: string) => text.trim().replace(/\s*\n\s*/g, "\n");
+
 function items(label: DispatchLabel): Item[] {
   const { recipient, destination } = label;
   const document = recipient.document ? `${documentNames[recipient.document.type]} ${recipient.document.number}` : null;
@@ -33,9 +36,9 @@ function items(label: DispatchLabel): Item[] {
     { block: "recipient", text: `Cel. ${recipient.phone}`, scale: 1.1 },
     document ? { block: "recipient", text: document, scale: 1.1 } : null,
     label.method === "agency" ? { block: "destination", text: label.destination.agencyName, scale: 1.2 } : null,
-    { block: "destination", text: destination.address, scale: 1.1 },
+    { block: "destination", text: singleBreaks(destination.address), scale: 1.1 },
     { block: "destination", text: `${district}, ${province}, ${department}`, scale: 1.1 },
-    label.method === "home" && label.destination.reference ? { block: "destination", text: `Ref: ${label.destination.reference}`, scale: 1 } : null,
+    label.method === "home" && label.destination.reference ? { block: "destination", text: `Ref: ${singleBreaks(label.destination.reference)}`, scale: 1 } : null,
     footer ? { block: "footer", text: footer, scale: 1.1 } : null,
   ];
   return rows.filter((row): row is Item => row !== null);
@@ -49,7 +52,7 @@ export function layoutDispatchLabel(
   const width = profile.widthPx - 2 * margin;
   const gap = Math.ceil(profile.dpiY / 25.4);
   const overflow = err({ code: "LABEL_CONTENT_OVERFLOW" as const, message: "Dispatch label text does not fit on this paper" });
-  if (width <= 0) return overflow;
+  if (width <= 0 || !(typography.stepPt > 0)) return overflow;
   const rows = items(label);
   for (let sizePt = typography.basePt; sizePt >= typography.minPt; sizePt -= typography.stepPt) {
     const lines: PlacedLine[] = [];

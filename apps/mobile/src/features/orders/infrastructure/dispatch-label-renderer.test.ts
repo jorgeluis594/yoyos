@@ -57,3 +57,12 @@ test("content that cannot fit even at the minimum size overflows", () => {
 test("a minimum size above the base cannot fit anything and overflows", () => {
   expect(layoutDispatchLabel(home, profile, measure, { basePt: 6, minPt: 8, stepPt: 1 })).toMatchObject({ success: false, error: { code: "LABEL_CONTENT_OVERFLOW" } });
 });
+
+test("blank lines inside address or reference do not cause a false overflow", () => {
+  const label = { ...home, destination: { ...home.destination, address: "Calle 2 123\n\nMz A", reference: "Puerta azul\n\nTocar timbre" } };
+  expect(texts(label)).toContain("Tocar timbre");
+});
+
+test("a non-positive font step overflows instead of looping forever", () => {
+  expect(layoutDispatchLabel(home, profile, measure, { basePt: 12, minPt: 7, stepPt: 0 })).toMatchObject({ success: false });
+});
