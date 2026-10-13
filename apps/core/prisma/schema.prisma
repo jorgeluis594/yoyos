@@ -283,10 +283,6 @@ model CompanyCheckoutAppearance {
   updatedAt   DateTime           @updatedAt
 }
 
-enum ImageVisibility {
-  public
-  private
-}
 enum MessageDirection {
   incoming
   outgoing
@@ -305,7 +301,6 @@ model Image {
   companyId          String             @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
   company            Company            @relation(fields: [companyId], references: [id])
   storageKey         String
-  visibility         ImageVisibility    @default(public)
   createdAt          DateTime           @default(now())
   messages           ChatMessage[]
   products Product[]

@@ -31,11 +31,6 @@ test("authenticated image routes validate uploads and isolate companies", async 
     create: async () => ({ success: true, data: { id: probeId } }),
     find: async () => ({ success: true, data: { id: probeId, storageKey: "probe" } }),
   }));
-  app.use("/probe/private-images", (_request, _response, next) => withTenantIsolation(probeId, next), imageRoutes({
-    readPrivate: async () => ({ success: false, error: { code: "IMAGE_NOT_FOUND", message: "missing" } }),
-  }, {
-    find: async () => ({ success: true, data: { id: probeId, storageKey: "company/missing", visibility: "private" } }),
-  }));
   const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -156,7 +151,6 @@ test("authenticated image routes validate uploads and isolate companies", async 
     }
     await expectError(await request("/probe/images", { method: "POST", body: form(png) }), 500, "INTERNAL_ERROR");
     await expectError(await request(`/probe/images/${probeId}`), 500, "INTERNAL_ERROR");
-    await expectError(await request(`/probe/private-images/${probeId}`), 404, "NOT_FOUND");
     probeConfigFails = true;
     await expectError(await request("/probe/images", { method: "POST", body: form(png) }), 500, "INTERNAL_ERROR");
     expect(uploaded).toHaveLength(0);

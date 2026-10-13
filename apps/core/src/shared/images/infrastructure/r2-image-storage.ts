@@ -7,7 +7,6 @@ import type { ImageStorage } from "@core/src/shared/images/application/images";
 type Config = {
   endpoint: string;
   bucket: string;
-  privateBucket?: string;
   accessKeyId: string;
   secretAccessKey: string;
   publicBaseUrl: string;
@@ -65,18 +64,6 @@ export function createR2ImageStorage(config: Config): ImageStorage {
         if (error instanceof NoSuchKey) return failed("IMAGE_NOT_FOUND", "Image object not found");
         log.error({ event: "r2_image_read_failed", err: error }, "r2_image_read_failed");
         return failed("IMAGE_STORAGE_UNAVAILABLE", "Image is unavailable");
-      }
-    },
-    async readPrivate(key) {
-      if (!client || !config.privateBucket?.trim() || config.privateBucket === config.bucket) return configurationFailed("Private image storage is not configured");
-      try {
-        const object = await client.send(new GetObjectCommand({ Bucket: config.privateBucket, Key: key }));
-        if (!object.Body) return failed("IMAGE_STORAGE_UNAVAILABLE", "Private image is unavailable");
-        return { success: true, data: { bytes: await object.Body.transformToByteArray(), contentType: object.ContentType ?? "application/octet-stream" } };
-      } catch (error) {
-        if (error instanceof NoSuchKey) return failed("IMAGE_NOT_FOUND", "Private image object not found");
-        log.error({ event: "r2_private_image_read_failed", err: error }, "r2_private_image_read_failed");
-        return failed("IMAGE_STORAGE_UNAVAILABLE", "Private image is unavailable");
       }
     },
     async getUrl(key) {

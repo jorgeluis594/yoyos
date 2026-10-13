@@ -24,7 +24,6 @@ export const app = express();
 const images = imageRoutes(createR2ImageStorage({
   endpoint: process.env.R2_ENDPOINT ?? "",
   bucket: process.env.R2_BUCKET ?? "",
-  privateBucket: process.env.R2_PRIVATE_BUCKET ?? "",
   accessKeyId: process.env.R2_ACCESS_KEY_ID ?? "",
   secretAccessKey: process.env.R2_SECRET_ACCESS_KEY ?? "",
   publicBaseUrl: process.env.R2_PUBLIC_BASE_URL ?? "",

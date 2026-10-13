@@ -5,14 +5,13 @@ import sharp from "sharp";
 export interface ImageStorage {
   upload(input: { bytes: Uint8Array; filename: string; contentType: string }): Promise<Result<{ key: string }>>;
   read(key: string): Promise<Result<{ bytes: Uint8Array; contentType: string }>>;
-  readPrivate(key: string): Promise<Result<{ bytes: Uint8Array; contentType: string }>>;
   getUrl(key: string): Promise<Result<string>>;
   delete(key: string): Promise<Result<void>>;
 }
 
 export type ImageLookupError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 
-export type StoredImage = Readonly<{ id: string; storageKey: string; visibility?: "public" | "private" }>;
+export type StoredImage = Readonly<{ id: string; storageKey: string }>;
 
 export type ImageRepository = {
   create(storageKey: string): Promise<Result<{ id: string }>>;
@@ -22,9 +21,9 @@ export type ImageRepository = {
 };
 
 export type DownloadedImage = Readonly<{ bytes: Uint8Array; filename: string; declaredContentType: string }>;
-export type PrivateImageError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE" | "INVALID_IMAGE" | "IMAGE_TOO_LARGE" | "IMAGE_STORAGE_UNAVAILABLE" | "IMAGE_STORAGE_CONFIG_ERROR"; message: string }>;
+export type ImageValidationError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE" | "INVALID_IMAGE" | "IMAGE_TOO_LARGE" | "IMAGE_STORAGE_UNAVAILABLE" | "IMAGE_STORAGE_CONFIG_ERROR"; message: string }>;
 
-export async function validateImage(file: DownloadedImage): Promise<Result<{ contentType: string }, PrivateImageError>> {
+export async function validateImage(file: DownloadedImage): Promise<Result<{ contentType: string }, ImageValidationError>> {
   if (!file.bytes.length || file.bytes.length > 10_000_000) return { success: false, error: { code: file.bytes.length ? "IMAGE_TOO_LARGE" : "INVALID_IMAGE", message: "Invalid image size" } };
   try {
     const detected = await fileTypeFromBuffer(file.bytes);
@@ -80,7 +79,6 @@ export async function getImage(
   const image = await repository.find(id);
   if (!image.success) return image;
   if (!image.data) return { success: true, data: null };
-  if (image.data.visibility === "private") return { success: false, error: { code: "PRIVATE_IMAGE", message: "Private image requires authorized streaming" } };
   const url = await storage.getUrl(image.data.storageKey);
   return url.success
     ? { success: true, data: { id: image.data.id, url: url.data } }
@@ -92,7 +90,6 @@ export type ImageUrlFailure = Readonly<{ id: string; code: string; message: stri
 export type ResolvedImages = Readonly<{ images: readonly ImageUrl[]; failures: readonly ImageUrlFailure[] }>;
 
 async function publicUrl(image: StoredImage, storage: ImageStorage): Promise<Result<ImageUrl, ImageUrlFailure>> {
-  if (image.visibility === "private") return { success: false, error: { id: image.id, code: "PRIVATE_IMAGE", message: "Private image requires authorized streaming" } };
   const url = await storage.getUrl(image.storageKey);
   return url.success
     ? { success: true, data: { id: image.id, url: url.data } }
@@ -109,7 +106,7 @@ export async function getImages(ids: readonly string[], storage: ImageStorage, r
   let configFailure: ImageUrlFailure | undefined;
   for (const image of found.data) {
     // A storage configuration error applies to every public image; asking again would only repeat it.
-    const result = configFailure && image.visibility !== "private"
+    const result = configFailure
       ? { success: false as const, error: { ...configFailure, id: image.id } }
       : await publicUrl(image, storage);
     if (!result.success && result.error.code === "IMAGE_STORAGE_CONFIG_ERROR") configFailure = result.error;
@@ -124,19 +121,12 @@ export async function getImages(ids: readonly string[], storage: ImageStorage, r
   };
 }
 
-export async function readPrivateImage(id: string, storage: ImageStorage, repository: ImageRepository) {
-  const image = await repository.find(id);
-  if (!image.success) return image;
-  if (!image.data || image.data.visibility !== "private") return { success: true as const, data: null };
-  return storage.readPrivate(image.data.storageKey);
-}
-
 export type ImageReadError = Readonly<{
   code: "IMAGE_NOT_FOUND" | "IMAGE_STORAGE_UNAVAILABLE" | "PERSISTENCE_UNAVAILABLE";
   message: string;
 }>;
 
-/** Lee los bytes de una imagen de la empresa, del bucket público o privado según su visibilidad. */
+/** Lee los bytes de una imagen de la empresa desde el almacenamiento. */
 export async function readImageBytes(
   imageId: string,
   storage: ImageStorage,
@@ -145,9 +135,7 @@ export async function readImageBytes(
   const image = await repository.find(imageId);
   if (!image.success) return image;
   if (!image.data) return { success: false, error: { code: "IMAGE_NOT_FOUND", message: "Image not found" } };
-  const object = image.data.visibility === "private"
-    ? await storage.readPrivate(image.data.storageKey)
-    : await storage.read(image.data.storageKey);
+  const object = await storage.read(image.data.storageKey);
   if (object.success) return object;
   return { success: false, error: { code: object.error.code === "IMAGE_NOT_FOUND" ? "IMAGE_NOT_FOUND" : "IMAGE_STORAGE_UNAVAILABLE", message: object.error.message } };
 }

@@ -8,7 +8,6 @@ function setup() {
   const storage: ImageStorage = {
     upload: vi.fn(async () => ({ success: true as const, data: { key: "remote" } })),
     read: vi.fn(async () => ({ success: true as const, data: { bytes: new Uint8Array([1, 2]), contentType: "image/jpeg" } })),
-    readPrivate: vi.fn(async () => ({ success: true as const, data: { bytes: new Uint8Array(), contentType: "image/png" } })),
     getUrl: vi.fn(async () => ({ success: true as const, data: "https://example.test/image" })),
     delete: vi.fn(async () => ({ success: true as const, data: undefined })),
   };
@@ -85,22 +84,21 @@ describe("images use cases", () => {
 
   it("resolves several images with one lookup and keeps each failure kind", async () => {
     const { storage, repository } = setup();
-    const [shown, hidden, broken, missing] = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+    const [shown, broken, missing] = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
     repository.findMany = vi.fn(async () => ({ success: true as const, data: [
-      { id: shown, storageKey: "shown" }, { id: hidden, storageKey: "hidden", visibility: "private" as const }, { id: broken, storageKey: "broken" },
+      { id: shown, storageKey: "shown" }, { id: broken, storageKey: "broken" },
     ] }));
     storage.getUrl = vi.fn(async (key: string) => key === "broken"
       ? { success: false as const, error: { code: "IMAGE_STORAGE_CONFIG_ERROR", message: "Image storage is not configured" } }
       : { success: true as const, data: `https://example.test/${key}` });
-    expect(await getImages([shown, hidden, shown, broken, missing], storage, repository)).toEqual({ success: true, data: {
+    expect(await getImages([shown, shown, broken, missing], storage, repository)).toEqual({ success: true, data: {
       images: [{ id: shown, url: "https://example.test/shown" }],
       failures: [
-        { id: hidden, code: "PRIVATE_IMAGE", message: "Private image requires authorized streaming" },
         { id: broken, code: "IMAGE_STORAGE_CONFIG_ERROR", message: "Image storage is not configured" },
       ],
     } });
     expect(repository.findMany).toHaveBeenCalledOnce();
-    expect(repository.findMany).toHaveBeenCalledWith([shown, hidden, broken, missing]);
+    expect(repository.findMany).toHaveBeenCalledWith([shown, broken, missing]);
     expect(repository.find).not.toHaveBeenCalled();
   });
 
@@ -128,19 +126,10 @@ describe("images use cases", () => {
 });
 
 describe("readImageBytes", () => {
-  it("returns the bytes and content type of a public image", async () => {
+  it("returns the bytes and content type of an image", async () => {
     const { storage, repository } = setup();
     expect(await readImageBytes(id, storage, repository)).toEqual({ success: true, data: { bytes: new Uint8Array([1, 2]), contentType: "image/jpeg" } });
     expect(storage.read).toHaveBeenCalledWith("remote");
-    expect(storage.readPrivate).not.toHaveBeenCalled();
-  });
-
-  it("reads a private image from its storage key", async () => {
-    const { storage, repository } = setup();
-    vi.mocked(repository.find).mockResolvedValueOnce({ success: true, data: { id, storageKey: "company/image", visibility: "private" } });
-    expect(await readImageBytes(id, storage, repository)).toEqual({ success: true, data: { bytes: new Uint8Array(), contentType: "image/png" } });
-    expect(storage.readPrivate).toHaveBeenCalledWith("company/image");
-    expect(storage.read).not.toHaveBeenCalled();
   });
 
   it("returns IMAGE_NOT_FOUND when the company has no such image", async () => {
@@ -152,13 +141,6 @@ describe("readImageBytes", () => {
   it("returns IMAGE_NOT_FOUND when the stored object is missing", async () => {
     const { storage, repository } = setup();
     vi.mocked(storage.read).mockResolvedValueOnce({ success: false, error: { code: "IMAGE_NOT_FOUND", message: "missing" } });
-    expect(await readImageBytes(id, storage, repository)).toMatchObject({ success: false, error: { code: "IMAGE_NOT_FOUND" } });
-  });
-
-  it("returns IMAGE_NOT_FOUND when the stored private object is missing", async () => {
-    const { storage, repository } = setup();
-    vi.mocked(repository.find).mockResolvedValueOnce({ success: true, data: { id, storageKey: "company/image", visibility: "private" } });
-    vi.mocked(storage.readPrivate).mockResolvedValueOnce({ success: false, error: { code: "IMAGE_NOT_FOUND", message: "missing" } });
     expect(await readImageBytes(id, storage, repository)).toMatchObject({ success: false, error: { code: "IMAGE_NOT_FOUND" } });
   });
 
