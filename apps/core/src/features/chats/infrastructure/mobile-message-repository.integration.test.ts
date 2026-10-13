@@ -294,33 +294,6 @@ test("account, chat, protocol and company identify independent messages; uploade
   } finally { await a.cleanup(); await b.cleanup(); }
 });
 
-test("Cloud API and mobile may share an externalId without capturing each other's lookup", async () => {
-  const f = await fixture();
-  try {
-    const input = message(f.companyId, "coexist", { type: "text", text: "mobile" });
-    expect((await storeOnce(input)).success).toBe(true);
-    const { recordMessage } = await import("@core/src/features/chats/application/record-message");
-    const { ensureContact } = await import("@core/src/features/contacts/application/ensure-contact");
-    const { contactRepository } = await import("@core/src/features/contacts/infrastructure/contact-repository");
-    const { chatRepository } = await import("@core/src/features/chats/infrastructure/chat-repository");
-    const { withinTransaction } = await import("@core/src/shared/infrastructure/persistance");
-    const recordCloud = () => withTenantIsolation(f.companyId, () => recordMessage({ externalId: input.externalId,
-      contactPhone: "+51912345678", contactName: null, origin: { direction: "incoming", source: "contact" },
-      sentAt: input.sentAt, receivedAt: input.receivedAt, content: { type: "text", text: "cloud" },
-    }, { ensureContact: (contact) => ensureContact(contact, contactRepository), chats: chatRepository,
-      transaction: withinTransaction, storeImage: async () => { throw new Error("No image expected"); } }));
-    const cloud = await recordCloud();
-    expect(cloud).toMatchObject({ success: true, data: { status: "stored" } });
-    expect(await recordCloud()).toEqual({ success: true, data: { status: "duplicate", messageId: cloud.success ? cloud.data.messageId : "" } });
-    expect(await storeOnce({ ...input, id: randomUUID() as NewMobileMessage["id"] })).toMatchObject({
-      success: true, data: { created: false, message: { id: input.id, content: { type: "text", text: "mobile" } } },
-    });
-    await withTenantIsolation(f.companyId, async () => {
-      expect(await prisma.chatMessage.count({ where: { companyId: f.companyId, externalId: input.externalId } })).toBe(2);
-    });
-  } finally { await f.cleanup(); }
-});
-
 function undated(companyId: string, protocolId: string): NewMobileMessage {
   const parsed = parseMobileMessage({ version: 1, message: { id: nativeId(accountId, remoteChatId, protocolId), accountId, chatId: remoteChatId,
     whatsappMessageId: protocolId, direction: "incoming", content: { type: "text", text: "no date" } } });

@@ -10,8 +10,6 @@ import type { Response } from "express";
 import { imageRoutes } from "@core/src/shared/images/presentation/routes";
 import { imageRepository } from "@core/src/shared/images/infrastructure/image-repository";
 import { createR2ImageStorage } from "@core/src/shared/images/infrastructure/r2-image-storage";
-import { loadWhatsAppConnections } from "@core/src/features/chats/infrastructure/whatsapp-connections";
-import { whatsappWebhook } from "@core/src/features/chats/presentation/whatsapp-webhook";
 import { mobileMessageParser, mobileMessageRoutes } from "@core/src/features/chats/presentation/mobile-message-routes";
 import { registerMobileMessage } from "@core/src/features/chats";
 import { productRoutes } from "@core/src/features/products/presentation/api-routes";
@@ -113,9 +111,6 @@ app.use("/api", (error: unknown, _request: express.Request, response: express.Re
   return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
 });
 
-app.use("/webhooks/whatsapp", express.raw({ type: "*/*", limit: "2mb" }), whatsappWebhook(
-  loadWhatsAppConnections(), process.env.WHATSAPP_APP_SECRET ?? "", process.env.WHATSAPP_VERIFY_TOKEN ?? "",
-));
 app.use("/webhooks", express.raw({ type: "*/*" }), (_request, response) => {
   response.sendStatus(404);
 });

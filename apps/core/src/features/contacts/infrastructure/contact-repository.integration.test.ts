@@ -2,8 +2,7 @@ import { randomUUID } from "node:crypto";
 import { expect, test } from "vitest";
 import { prisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { ensureWhatsAppContact } from "@core/src/features/contacts";
-import { contactRepository, ensureCustomerForContact, findContactById, searchSaleContacts } from "@core/src/features/contacts/infrastructure/contact-repository";
-import { chatRepository } from "@core/src/features/chats/infrastructure/chat-repository";
+import { ensureCustomerForContact, findContactById, searchSaleContacts } from "@core/src/features/contacts/infrastructure/contact-repository";
 import { createOrderInTransaction } from "@core/src/features/orders/application/create-order";
 import { ok } from "@shared/functional";
 
@@ -56,8 +55,6 @@ test("LID contacts remain tenant scoped and cannot become sale buyers without a 
       const phone = await prisma.contact.create({ data: { phone: "+51987654321" } });
       expect(await findContactById(phone.id)).toMatchObject({ success: true, data: { phone: "+51987654321" } });
       expect(await searchSaleContacts("9876")).toMatchObject({ success: true, data: [{ id: phone.id, phone: "+51987654321" }] });
-      await prisma.contact.create({ data: { phone: "bad-historical-phone" } });
-      expect(await contactRepository.findByPhone("bad-historical-phone")).toMatchObject({ success: false, error: { code: "INVALID_STORED_DATA" } });
 
       const chat = await prisma.chat.create({ data: { contactId: first.data.id } });
       const base = { chatId: chat.id, externalId: "same-native-id", direction: "incoming" as const,
@@ -66,11 +63,8 @@ test("LID contacts remain tenant scoped and cannot become sale buyers without a 
         whatsappMessageId: "protocol-1", uploadedByUserId: "uploader", imageStatus: "metadata_only",
         imageMimeType: "image/jpeg", imageSize: BigInt(Number.MAX_SAFE_INTEGER) } });
       expect(mobile.imageSize).toBe(BigInt(Number.MAX_SAFE_INTEGER));
-      const cloud = await prisma.chatMessage.create({ data: { ...base, type: "text", text: "Cloud message" } });
-      expect(await chatRepository.findMessageId(base.externalId)).toEqual({ success: true, data: { id: cloud.id } });
       await expect(prisma.chatMessage.create({ data: { ...base, externalId: "different-native-id", type: "text", text: "repeat",
         whatsappMessageId: "protocol-1", uploadedByUserId: "uploader" } })).rejects.toThrow();
-      await expect(prisma.chatMessage.create({ data: { ...base, type: "text", text: "repeat" } })).rejects.toThrow();
       await expect(prisma.chatMessage.create({ data: { ...base, externalId: "bad-cloud", type: "image", imageStatus: "metadata_only" } })).rejects.toThrow();
       await expect(prisma.chatMessage.create({ data: { ...base, externalId: "bad-mobile", type: "text", text: "",
         whatsappMessageId: "protocol-2", uploadedByUserId: "uploader" } })).rejects.toThrow();

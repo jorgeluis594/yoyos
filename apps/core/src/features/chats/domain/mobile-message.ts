@@ -5,6 +5,7 @@ export type WhatsAppChatId = string & { readonly __brand: "WhatsAppChatId" };
 export type ProtocolMessageId = string & { readonly __brand: "ProtocolMessageId" };
 export type CompanyId = string & { readonly __brand: "CompanyId" };
 export type ImageId = string & { readonly __brand: "ImageId" };
+export type Chat = Readonly<{ id: string; contactId: string; createdAt: Date }>;
 
 export type MobileMessageContent =
   | Readonly<{ type: "text"; text: string }>

@@ -156,7 +156,7 @@ test("E06 recovers the same committed row after a real provider fails to start",
   }
 });
 
-test("E07 concurrent HTTP requests create one message and preserve Cloud API routes", async ({ page, request }) => {
+test("E07 concurrent HTTP requests create one message", async ({ page }) => {
   const { companyId } = await seller(page);
   const input = message();
   const results = await Promise.all(Array.from({ length: 10 }, () => page.request.post("/api/messages", { data: input })));
@@ -168,6 +168,5 @@ test("E07 concurrent HTTP requests create one message and preserve Cloud API rou
   expect(outputs.filter(output => output.status === "stored")).toHaveLength(1);
   expect(new Set(outputs.map(output => output.messageId)).size).toBe(1);
   expect(await rows(companyId)).toHaveLength(1);
-  expect((await request.get("/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=e2e-verify-token&hub.challenge=ok")).status()).toBe(200);
   expect((await page.request.get("/api/orders")).status()).toBe(200);
 });
