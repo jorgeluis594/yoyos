@@ -19,7 +19,7 @@ export type PrinterAdapter = Readonly<{
   validateSelection: (selection: PrinterSelection) => Result<void, ResolveError>;
   discover: () => Promise<Result<readonly PrinterSelection[], DiscoveryError>>;
   resolve: (selection: PrinterSelection, format: LabelFormat) => Promise<Result<ResolvedPrinter, ResolveError>>;
-  send: (input: Readonly<{ printer: ResolvedPrinter; document: RenderedDocument; copies: CopyCount }>) => Promise<Result<PrintReceipt, SendError>>;
+  send: (input: Readonly<{ printer: ResolvedPrinter; format: LabelFormat; document: RenderedDocument; copies: CopyCount }>) => Promise<Result<PrintReceipt, SendError>>;
 }>;
 export type TemporaryDocuments = Readonly<{
   remove: (document: RenderedDocument) => Promise<Result<void, CodedError<"CLEANUP_FAILED">>>;

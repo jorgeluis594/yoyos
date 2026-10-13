@@ -47,7 +47,7 @@ test("asks for a printer before rendering, then sends and removes the image", as
   await operations.selectPrinter(chosen);
   expect(await operations.printDocument(request(render), execution)).toEqual(ok({ status: "completed", printer: chosen.printer, receipt: { confirmation: "sdk" } }));
   expect(render).toHaveBeenCalledWith(profile);
-  expect(send).toHaveBeenCalledWith({ printer: { selection: chosen, profile }, document, copies: 1 });
+  expect(send).toHaveBeenCalledWith({ printer: { selection: chosen, profile }, format: productLabelFormat, document, copies: 1 });
   expect(remove).toHaveBeenCalledWith(document);
 });
 
