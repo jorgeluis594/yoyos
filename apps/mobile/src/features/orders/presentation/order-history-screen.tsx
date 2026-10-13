@@ -206,6 +206,7 @@ export default function OrderHistoryScreen() {
         {Platform.OS === "android" ? <Button disabled={dispatchPrint.active} onPress={() => dispatchPrint.open([...selection.orders.values()])}>{t('orderListPrintLabels')}</Button> : null}
       </> : null}
     </View> : null}
+    {Platform.OS === "android" && dispatchPrint.active ? <Button variant="secondary" onPress={dispatchPrint.show}>{t('dispatchViewBatch')}</Button> : null}
     {pendingState !== "none" ? <View style={[styles.notice, { backgroundColor: theme.backgroundElement }]}>
       <ThemedText type="smallBold">{pendingState === "error" ? t('pendingReadError') : t('pendingOrder')}</ThemedText>
       <ThemedText type="small" themeColor="textSecondary">{pendingState === "error" ? t('pendingReadHint') : t('pendingOrderHint')}</ThemedText>

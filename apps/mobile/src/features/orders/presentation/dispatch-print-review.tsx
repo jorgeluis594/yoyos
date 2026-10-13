@@ -20,7 +20,7 @@ type Phase =
   | Readonly<{ kind: "review"; results: readonly Preparation[] }>
   | Readonly<{ kind: "batch"; entries: readonly DispatchPrintEntry[]; running: boolean; end: DispatchBatchEnd | null }>;
 
-const DispatchPrintContext = createContext<Readonly<{ open: (selected: readonly Reference[]) => void; active: boolean }> | null>(null);
+const DispatchPrintContext = createContext<Readonly<{ open: (selected: readonly Reference[]) => void; active: boolean; show: () => void }> | null>(null);
 
 /** In-memory dispatch print state above Ventas; it is dropped when the company or user changes. */
 export function DispatchPrintProvider({ children }: { children: ReactNode }) {
@@ -34,13 +34,15 @@ function DispatchPrintSession({ children, sender }: { children: ReactNode; sende
   const router = useRouter();
   const { showPrinterPicker, printerName } = usePrint();
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
+  const [hidden, setHidden] = useState(false);
   const alive = useRef(true);
   const stopRequested = useRef(false);
   const [numbers, setNumbers] = useState<ReadonlyMap<string, number>>(new Map());
   useEffect(() => () => { alive.current = false; }, []);
 
   const open = (selected: readonly Reference[]) => {
-    if (!sender || !selected.length) return;
+    if (!sender || !selected.length || phase.kind === "batch") return;
+    setHidden(false);
     setNumbers(new Map(selected.map(({ id, number }) => [id, number])));
     setPhase({ kind: "preparing" });
     void (async () => {
@@ -66,7 +68,8 @@ function DispatchPrintSession({ children, sender }: { children: ReactNode; sende
   const name = (orderId: string) => `#${numbers.get(orderId) ?? ""}`;
   const reason = (exclusion: DispatchLabelExclusion) => exclusion.code === "MISSING_DATA"
     ? t('dispatchMissingData', { fields: exclusion.fields.map((field) => t(`dispatchField_${field}`)).join(", ") }) : t(`dispatchExcluded_${exclusion.code}`);
-  const close = () => setPhase({ kind: "idle" });
+  // A batch keeps its progress while hidden; only an explicit discard drops it.
+  const close = () => (phase.kind === "batch" ? setHidden(true) : setPhase({ kind: "idle" }));
 
   const body = () => {
     if (phase.kind === "preparing") return <ThemedText>{t('dispatchPreparing')}</ThemedText>;
@@ -114,6 +117,7 @@ function DispatchPrintSession({ children, sender }: { children: ReactNode; sende
         </View>)}
         <View style={styles.actions}>
           {phase.running ? <Button variant="secondary" onPress={() => { stopRequested.current = true; }}>{t('dispatchStop')}</Button> : <>
+            <Button variant="ghost" onPress={() => setPhase({ kind: "idle" })}>{t('dispatchDiscard')}</Button>
             {phase.end === "selection-required" ? <Button variant="secondary" onPress={showPrinterPicker}>{t('choosePrinterAction')}</Button> : null}
             {phase.end !== "completed" && confirmed < phase.entries.length ? <Button disabled={unresolved} onPress={() => run(phase.entries)}>{t('dispatchContinue')}</Button> : null}
           </>}
@@ -123,13 +127,13 @@ function DispatchPrintSession({ children, sender }: { children: ReactNode; sende
     return null;
   };
 
-  return <DispatchPrintContext.Provider value={{ open, active: phase.kind === "batch" && phase.running }}>
+  return <DispatchPrintContext.Provider value={{ open, active: phase.kind === "batch", show: () => setHidden(false) }}>
     {children}
-    <Modal visible={phase.kind !== "idle"} animationType="slide" onRequestClose={() => { if (!(phase.kind === "batch" && phase.running)) close(); }}>
+    <Modal visible={phase.kind !== "idle" && !hidden} animationType="slide" onRequestClose={close}>
       <ScrollView contentContainerStyle={styles.screen}>
         <ThemedText type="subtitle" accessibilityRole="header">{t('dispatchTitle')}</ThemedText>
         {body()}
-        <Button variant="ghost" disabled={phase.kind === "batch" && phase.running} onPress={close}>{t('close')}</Button>
+        <Button variant="ghost" onPress={close}>{t('close')}</Button>
       </ScrollView>
     </Modal>
   </DispatchPrintContext.Provider>;

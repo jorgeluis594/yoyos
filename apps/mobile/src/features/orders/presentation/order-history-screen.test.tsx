@@ -17,7 +17,7 @@ jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   searchOrderContacts: (...args: unknown[]) => mockSearchContacts(...args),
 } }));
 const mockOpenDispatchPrint = jest.fn();
-jest.mock("@mobile/features/orders/presentation/dispatch-print-review", () => ({ useDispatchPrint: () => ({ open: mockOpenDispatchPrint, active: false }) }));
+jest.mock("@mobile/features/orders/presentation/dispatch-print-review", () => ({ useDispatchPrint: () => ({ open: mockOpenDispatchPrint, active: false, show: jest.fn() }) }));
 const mockSettings = jest.fn();
 jest.mock("@mobile/features/delivery-settings/composition", () => ({ deliverySettings: { get: (...args: unknown[]) => mockSettings(...args) } }));
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAccess: () => ({ state: {
