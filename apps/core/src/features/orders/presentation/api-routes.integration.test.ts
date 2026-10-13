@@ -1014,3 +1014,29 @@ test("shipping HTTP schedules, dispatches once, rolls back failed transitions an
   await pay(direct);
   expect(await (await patch(direct, { status: "delivered" })).json()).toMatchObject({ shippedAt: null, deliveryStatus: "delivered" });
 });
+
+test("reading mixed orders for label preparation never changes states, payments or dates", async () => {
+  const seller = await fixture("PE");
+  const location = { country: "PE", districtCode: "150122", district: "Miraflores", province: "Lima", department: "Lima" };
+  const agency = { method: "agency", recipient: { name: "Ana", phone: "999", identity: { kind: "document", documentType: "national_id", document: "12345678" } },
+    destination: location, pricing: { quotationId: randomUUID(), rateId: randomUUID(), optionId: randomUUID(), settingsVersion: 1 },
+    courier: { id: shalomId, name: "Shalom" }, agency: { id: randomUUID(), name: "Agencia", address: "Av. 1", location },
+    recordedBy: { kind: "seller", userId: seller.userId } };
+  const base = { currency: "PEN", total: 10, itemsTotal: 10, stockDeducted: true, sellerId: seller.userId, createdAt: new Date("2026-09-28T12:00:00.000Z") };
+  const [complete, incomplete, shipped, cancelled] = [1, 2, 3, 4].map(() => randomUUID());
+  await withTenantIsolation(seller.companyId, async () => {
+    await prisma.order.createMany({ data: [
+      { ...base, id: complete, number: 2001n, scheduledDispatchDate: new Date("2026-10-05"), delivery: agency },
+      { ...base, id: incomplete, number: 2002n },
+      { ...base, id: shipped, number: 2003n, deliveryStatus: "shipped", shippedAt: new Date("2026-10-06T15:00:00.000Z"), delivery: agency },
+      { ...base, id: cancelled, number: 2004n, cancelled: true, delivery: agency },
+    ] });
+    await prisma.orderItem.createMany({ data: [complete, incomplete, shipped, cancelled].map((orderId) => ({ orderId, variantId: seller.variantId,
+      productName: "Sample product", variantAttributes: {}, quantity: 1n, unitPrice: 10, subtotal: 10 })) });
+  });
+  const snapshot = () => withTenantIsolation(seller.companyId, async () => await prisma.order.findMany({ orderBy: { number: "asc" } }));
+  const before = await snapshot();
+  for (const id of [complete, incomplete, shipped, cancelled]) expect((await call(`/api/orders/${id}/aggregate`, seller.cookie)).status).toBe(200);
+  for (const query of ["view=unpaid", "deliveryStatus=pending", `courierId=${shalomId}`, "unscheduled=true"]) expect((await call(`/api/orders/mixed?${query}`, seller.cookie)).status).toBe(200);
+  expect(await snapshot()).toEqual(before);
+});

@@ -295,7 +295,7 @@ export default function OrderHistoryScreen() {
               </View>
             </>}
           </View>
-          {item.scheduledDispatchDate ? <ThemedText type="small" themeColor="textSecondary">{t('orderListScheduledOn', { date: item.scheduledDispatchDate })}</ThemedText> : null}
+          {item.scheduledDispatchDate || item.courier ? <ThemedText type="small" themeColor="textSecondary">{[item.scheduledDispatchDate && t('orderListScheduledOn', { date: item.scheduledDispatchDate }), item.courier?.name].filter(Boolean).join(" · ")}</ThemedText> : null}
           {item.checkoutEnabledAt ? <ThemedText type="small" themeColor="textSecondary">{t(item.status === "cancelled" ? "checkoutCancelled" : item.checkoutConfirmedAt ? "checkoutConfirmed" : "checkoutPending")}</ThemedText> : null}
         </Pressable></View>}
         ListFooterComponent={!error && items.length ? <View style={styles.footer}>

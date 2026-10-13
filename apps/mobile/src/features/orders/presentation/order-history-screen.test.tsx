@@ -168,7 +168,7 @@ test("search and task filters query all orders and remain selected after clearin
 });
 
 const dispatchOrder = (number: number) => ({ number: 1000 + number, id: `00000000-0000-4000-8000-${String(number).padStart(12, "0")}`, buyer: null,
-  checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: number === 1 ? "2026-10-20" : null, shippedAt: null, createdAt: "2026-09-28T12:00:00.000Z",
+  checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: number === 1 ? "2026-10-20" : null, courier: number <= 2 ? { id: "00000000-0000-4000-8000-0000000000c1", name: "Olva" } : null, shippedAt: null, createdAt: "2026-09-28T12:00:00.000Z",
   deliveredAt: null, completedAt: null, status: "active", paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false, total: { amount: number, currency: "PEN" } });
 const pagedOrders = () => mockLoadOrders.mockImplementation(async ({ page }: { page: number }) => ok({
   items: page === 1 ? Array.from({ length: 20 }, (_, index) => dispatchOrder(index + 1)) : [dispatchOrder(21)], page, pageSize: 20, total: 21 }));
@@ -189,7 +189,8 @@ test("dispatch filters, including disabled couriers and Sin programar, reach the
 test("selection spans pages, totals the selected orders and resets with filters", async () => {
   pagedOrders();
   const screen = render(<OrderHistoryScreen />);
-  await screen.findByText("Programado: 2026-10-20");
+  await screen.findByText("Programado: 2026-10-20 · Olva");
+  expect(screen.getAllByText("Olva")).toHaveLength(1);
   fireEvent.press(screen.getByRole("button", { name: "Seleccionar todos" }));
   expect(screen.getByText(/20 seleccionados · .*210[.,]00/)).toBeTruthy();
   fireEvent.press(screen.getByRole("button", { name: "Siguiente" }));
