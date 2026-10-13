@@ -1,6 +1,6 @@
 import { err } from "@shared/functional";
 import type { Result } from "@shared/result";
-import { orderStateMachine, type OrderAggregate, type OrderDomainError } from "@core/src/features/orders/domain/order-state-machine";
+import { orderStateMachine, type OrderAggregate, type FulfillmentChange, type OrderDomainError } from "@core/src/features/orders/domain/order-state-machine";
 import type { OrderAccess } from "@core/src/features/orders/application/create-order";
 import type { CompanyId, OrderId } from "@core/src/features/orders/domain/order";
 
@@ -8,7 +8,7 @@ export type FulfillOrderError = OrderDomainError | Readonly<{ code: "ORDER_NOT_F
 export type FulfillOrderDependencies = Readonly<{
   transaction: <T>(companyId: CompanyId, work: () => Promise<Result<T, FulfillOrderError>>) => Promise<Result<T, FulfillOrderError>>;
   findOrderForUpdate: (id: OrderId, companyId: CompanyId) => Promise<Result<OrderAggregate | null, FulfillOrderError>>;
-  saveFulfillment: (id: OrderId, companyId: CompanyId, change: Pick<OrderAggregate, "deliveryStatus" | "deliveredAt" | "completedAt">) => Promise<Result<null, FulfillOrderError>>;
+  saveFulfillment: (id: OrderId, companyId: CompanyId, change: FulfillmentChange) => Promise<Result<null, FulfillOrderError>>;
   clock: () => Date;
 }>;
 
@@ -17,7 +17,7 @@ export async function registerShipment(id: OrderId, context: OrderAccess, deps: 
     const found = await deps.findOrderForUpdate(id, context.companyId);
     if (!found.success) return found;
     if (!found.data) return err({ code: "ORDER_NOT_FOUND", message: "Order is not available" });
-    const shipped = orderStateMachine.registerShipment(found.data);
+    const shipped = orderStateMachine.registerShipment(found.data, deps.clock());
     if (!shipped.success) return shipped;
     const saved = await deps.saveFulfillment(id, context.companyId, shipped.data);
     return saved.success ? shipped : saved;

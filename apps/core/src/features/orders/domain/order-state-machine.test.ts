@@ -149,14 +149,14 @@ describe("delivery and stock transitions", () => {
   });
 
   test("requires payment and stock, then ships and completes at the supplied time", () => {
-    expect(orderStateMachine.registerShipment(order())).toMatchObject({ success: false, error: { code: "PAYMENT_REQUIRED" } });
+    expect(orderStateMachine.registerShipment(order(), new Date("2026-10-14T15:00:00Z"))).toMatchObject({ success: false, error: { code: "PAYMENT_REQUIRED" } });
     const paid = orderStateMachine.registerPayment(order(), payment(5, 10));
     if (!paid.success) throw new Error("Expected payment");
     expect(orderStateMachine.registerDelivery(paid.data, paymentAt)).toMatchObject({ success: false, error: { code: "STOCK_NOT_DEDUCTED" } });
     const deducted = orderStateMachine.planStockDeduction(paid.data, false);
     if (!deducted.success) throw new Error("Expected deduction plan");
-    const shipped = orderStateMachine.registerShipment(deducted.data.nextOrder);
-    expect(shipped).toMatchObject({ success: true, data: { deliveryStatus: "shipped", completedAt: null } });
+    const shipped = orderStateMachine.registerShipment(deducted.data.nextOrder, new Date("2026-10-14T15:00:00Z"));
+    expect(shipped).toMatchObject({ success: true, data: { deliveryStatus: "shipped", shippedAt: new Date("2026-10-14T15:00:00Z"), completedAt: null } });
     if (!shipped.success) return;
     expect(shipped.data.payments).toEqual(deducted.data.nextOrder.payments);
     expect(orderStateMachine.setDelivery(shipped.data, { resolved: { delivery: home, cost: money(1) } }))
@@ -168,7 +168,7 @@ describe("delivery and stock transitions", () => {
     expect(orderStateMachine.getLifecycle(delivered.data)).toEqual({ success: true, data: { status: "completed", completedAt: paymentAt } });
     expect(orderStateMachine.getLifecycle({ ...delivered.data, deliveredAt: null }))
       .toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
-    expect(orderStateMachine.registerShipment(delivered.data)).toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
+    expect(orderStateMachine.registerShipment(delivered.data, new Date("2026-10-14T15:00:00Z"))).toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
   });
 
   test("completes an immediate handover directly from pending delivery without logistics data", () => {
@@ -193,7 +193,7 @@ describe("delivery and stock transitions", () => {
     expect(orderStateMachine.cancel(cancelled.data.nextOrder)).toMatchObject({ success: true, data: { emitOrderCancelled: false } });
     expect(orderStateMachine.registerPayment(cancelled.data.nextOrder, payment(6, 1))).toMatchObject({ success: false, error: { code: "ORDER_CANCELLED" } });
     expect(orderStateMachine.planStockDeduction(cancelled.data.nextOrder, true)).toMatchObject({ success: false, error: { code: "ORDER_CANCELLED" } });
-    const shipped = orderStateMachine.registerShipment(deducted.data.nextOrder);
+    const shipped = orderStateMachine.registerShipment(deducted.data.nextOrder, new Date("2026-10-14T15:00:00Z"));
     if (!shipped.success) throw new Error("Expected shipment");
     expect(orderStateMachine.cancel(shipped.data)).toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
   });

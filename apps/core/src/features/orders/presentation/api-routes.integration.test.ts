@@ -930,3 +930,43 @@ test("cancellation rejects a session without a company or without verification b
   await systemPrisma.user.update({ where: { id: session.userId }, data: { emailVerified: true } });
   expect(await (await call(`/api/orders/${id}/aggregate`, seller.cookie)).json()).toEqual(before);
 });
+
+test("shipping HTTP schedules, dispatches once, rolls back failed transitions and isolates companies", async () => {
+  const seller = await fixture("PE");
+  const other = await fixture("CL");
+  const patch = (orderId: string, body: unknown, cookie = seller.cookie) => call(`/api/orders/${orderId}/shipping`, cookie, body, "PATCH");
+  const create = async () => {
+    const id = randomUUID();
+    const created = await call("/api/orders", seller.cookie, { id, contactId: null, scheduledDispatchDate: "2026-10-15", items: [{ variantId: seller.variantId, quantity: 1 }] }, "POST");
+    expect(await created.json()).toMatchObject({ id, scheduledDispatchDate: "2026-10-15", shippedAt: null });
+    return id;
+  };
+  const pay = async (id: string) => expect((await call(`/api/orders/${id}/payments`, seller.cookie,
+    { paymentId: randomUUID(), amount: { amount: 10, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false })).status).toBe(200);
+
+  const unpaid = await create();
+  expect(await (await patch(unpaid, { scheduledDispatchDate: "2020-01-01" })).json()).toMatchObject({ scheduledDispatchDate: "2020-01-01" });
+  expect((await patch(unpaid, { scheduledDispatchDate: "2026-02-30" })).status).toBe(400);
+  expect((await patch(unpaid, {})).status).toBe(400);
+  expect((await patch(unpaid, { scheduledDispatchDate: "2026-10-20" }, other.cookie)).status).toBe(404);
+  expect((await patch(unpaid, { scheduledDispatchDate: "2026-10-20", status: "shipped" })).status).toBe(409);
+  expect(await (await call(`/api/orders/${unpaid}/aggregate`, seller.cookie)).json()).toMatchObject({ scheduledDispatchDate: "2020-01-01", deliveryStatus: "pending" });
+  expect(await (await patch(unpaid, { scheduledDispatchDate: null })).json()).toMatchObject({ scheduledDispatchDate: null });
+  expect((await call(`/api/orders/${unpaid}/cancel`, seller.cookie, undefined, "POST")).status).toBe(200);
+  expect((await patch(unpaid, { scheduledDispatchDate: "2026-10-20" })).status).toBe(409);
+
+  const paid = await create();
+  await pay(paid);
+  const [first, second] = await Promise.all([patch(paid, { status: "shipped" }), patch(paid, { status: "shipped" })]);
+  expect([first.status, second.status]).toEqual([200, 200]);
+  const shippedAt = (await (await call(`/api/orders/${paid}/aggregate`, seller.cookie)).json()).shippedAt;
+  expect(shippedAt).toEqual(expect.any(String));
+  expect((await first.json()).shippedAt).toBe(shippedAt);
+  expect((await second.json()).shippedAt).toBe(shippedAt);
+  expect((await patch(paid, { scheduledDispatchDate: "2026-10-21" })).status).toBe(409);
+  expect(await (await patch(paid, { status: "delivered" })).json()).toMatchObject({ shippedAt, deliveryStatus: "delivered" });
+
+  const direct = await create();
+  await pay(direct);
+  expect(await (await patch(direct, { status: "delivered" })).json()).toMatchObject({ shippedAt: null, deliveryStatus: "delivered" });
+});
