@@ -45,43 +45,6 @@ ALTER TABLE "OrderMessage" ADD CONSTRAINT "OrderMessage_companyId_messageId_fkey
 ALTER TABLE "Contact" ADD CONSTRAINT "Contact_companyId_customerId_fkey" FOREIGN KEY ("companyId", "customerId") REFERENCES "Customer"("companyId", "id") ON DELETE RESTRICT ON UPDATE NO ACTION NOT VALID;
 ALTER TABLE "Order" ADD CONSTRAINT "Order_companyId_customerId_fkey" FOREIGN KEY ("companyId", "customerId") REFERENCES "Customer"("companyId", "id") ON DELETE RESTRICT ON UPDATE NO ACTION NOT VALID;
 ALTER TABLE "Order" ADD CONSTRAINT "Order_companyId_chatId_fkey" FOREIGN KEY ("companyId", "chatId") REFERENCES "Chat"("companyId", "id") ON DELETE RESTRICT ON UPDATE NO ACTION NOT VALID;
-
--- The mobile branch now accepts ready images (imageId set, no mime type or size); the Cloud API branch is unchanged.
-ALTER TABLE "ChatMessage" DROP CONSTRAINT "ChatMessage_content_image_state_check";
-ALTER TABLE "ChatMessage" ADD CONSTRAINT "ChatMessage_content_image_state_check" CHECK (
-  (
-    "whatsappMessageId" IS NULL
-    AND "imageMimeType" IS NULL AND "imageSize" IS NULL
-    AND "uploadedByUserId" IS NULL AND "eventDispatchedAt" IS NULL
-    AND (
-      ("type" = 'text' AND "text" IS NOT NULL AND "caption" IS NULL AND "whatsappMediaId" IS NULL
-        AND "imageId" IS NULL AND "imageStatus" IS NULL AND "imageFailureCode" IS NULL AND "imageFailureMessage" IS NULL)
-      OR ("type" = 'image' AND "text" IS NULL AND "whatsappMediaId" IS NOT NULL AND "whatsappMediaId" <> '' AND "imageStatus" IS NOT NULL AND (
-        ("imageStatus" = 'ready' AND "imageId" IS NOT NULL AND "imageFailureCode" IS NULL AND "imageFailureMessage" IS NULL)
-        OR ("imageStatus" = 'failed' AND "imageId" IS NULL AND "imageFailureCode" IS NOT NULL AND "imageFailureCode" <> ''
-          AND "imageFailureMessage" IS NOT NULL AND "imageFailureMessage" <> '')
-      ))
-    )
-  ) OR (
-    "whatsappMessageId" IS NOT NULL AND octet_length("whatsappMessageId") BETWEEN 1 AND 512
-    AND octet_length("externalId") BETWEEN 1 AND 4096
-    AND "uploadedByUserId" IS NOT NULL AND "uploadedByUserId" <> ''
-    AND "userId" IS NULL AND "whatsappMediaId" IS NULL
-    AND "imageFailureCode" IS NULL AND "imageFailureMessage" IS NULL
-    AND "sentAt" >= TIMESTAMP '1970-01-01' AND "sentAt" <= TIMESTAMP '9999-12-31 23:59:59.999'
-    AND ("imageSize" IS NULL OR "imageSize" BETWEEN 0 AND 9007199254740991)
-    AND ("imageMimeType" IS NULL OR "imageMimeType" ~ '^image/[A-Za-z0-9!#$&^_.+-]+$')
-    AND (
-      ("type" = 'text' AND "text" IS NOT NULL AND octet_length("text") BETWEEN 1 AND 65536
-        AND "caption" IS NULL AND "imageId" IS NULL AND "imageStatus" IS NULL AND "imageMimeType" IS NULL AND "imageSize" IS NULL)
-      OR ("type" = 'image' AND "text" IS NULL AND ("caption" IS NULL OR octet_length("caption") BETWEEN 1 AND 65536)
-        AND (
-          ("imageStatus" = 'metadata_only' AND "imageId" IS NULL)
-          OR ("imageStatus" = 'ready' AND "imageId" IS NOT NULL AND "imageMimeType" IS NULL AND "imageSize" IS NULL)
-        ))
-    )
-  )
-) NOT VALID;
 COMMIT;
 
 -- Indexes on populated tables are built without blocking writes.
@@ -96,4 +59,3 @@ ALTER TABLE "OrderMessage" VALIDATE CONSTRAINT "OrderMessage_companyId_messageId
 ALTER TABLE "Contact" VALIDATE CONSTRAINT "Contact_companyId_customerId_fkey";
 ALTER TABLE "Order" VALIDATE CONSTRAINT "Order_companyId_customerId_fkey";
 ALTER TABLE "Order" VALIDATE CONSTRAINT "Order_companyId_chatId_fkey";
-ALTER TABLE "ChatMessage" VALIDATE CONSTRAINT "ChatMessage_content_image_state_check";
