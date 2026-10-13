@@ -16,7 +16,7 @@ export function toOrderAggregateJson(order: OrderAggregate) {
   const lifecycle = orderStateMachine.getLifecycle(order);
   const payment = orderStateMachine.getPaymentSummary(order);
   if (!lifecycle.success || !payment.success) throw new Error("Invalid order aggregate response");
-  return orderAggregateSchema.parse({ ...order, checkoutEnabledAt: order.checkoutEnabledAt?.toISOString() ?? null, checkoutConfirmedAt: order.checkoutConfirmedAt?.toISOString() ?? null, createdAt: order.createdAt.toISOString(), deliveredAt: order.deliveredAt?.toISOString() ?? null,
+  return orderAggregateSchema.parse({ ...order, checkoutEnabledAt: order.checkoutEnabledAt?.toISOString() ?? null, checkoutConfirmedAt: order.checkoutConfirmedAt?.toISOString() ?? null, createdAt: order.createdAt.toISOString(), shippedAt: order.shippedAt?.toISOString() ?? null, deliveredAt: order.deliveredAt?.toISOString() ?? null,
     completedAt: order.completedAt?.toISOString() ?? null, status: lifecycle.data.status,
     paymentStatus: payment.data.status, paidAmount: payment.data.paidAmount,
     balanceDue: payment.data.balanceDue, overpaidAmount: payment.data.overpaidAmount,
@@ -30,8 +30,8 @@ export function toOrderAggregateJson(order: OrderAggregate) {
 
 export function toOrderAggregateListJson(page: AggregatePage) {
   return listOrderAggregatesResponseSchema.parse({ ...page, items: page.items.map((item) => {
-    const { number, id, createdAt, deliveredAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, buyer, checkoutEnabledAt, checkoutConfirmedAt, sellerId, total } = toOrderAggregateJson(item);
-    return orderAggregateSummarySchema.parse({ number, id, createdAt, deliveredAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, buyer, checkoutEnabledAt, checkoutConfirmedAt, sellerId, total });
+    const { number, id, createdAt, scheduledDispatchDate, shippedAt, deliveredAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, buyer, checkoutEnabledAt, checkoutConfirmedAt, sellerId, total } = toOrderAggregateJson(item);
+    return orderAggregateSummarySchema.parse({ number, id, createdAt, scheduledDispatchDate, shippedAt, deliveredAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, buyer, checkoutEnabledAt, checkoutConfirmedAt, sellerId, total });
   }) });
 }
 
