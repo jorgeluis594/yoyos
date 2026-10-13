@@ -575,57 +575,34 @@ La configuración Android utiliza los controles documentados en [KeyGenParameter
 
 No se admitirá recepción antes del primer desbloqueo posterior a reiniciar. Si el almacenamiento está temporalmente protegido, se detendrá la operación con un error de acceso, conservando archivos y claves; no se confundirá con instalación vacía ni se generarán claves de reemplazo. Una clave realmente ausente o inválida seguirá el tratamiento `SESSION_STATE_INVALID` existente. La disponibilidad con pantalla bloqueada y el comportamiento antes/después del primer desbloqueo deberán validarse en dispositivos; la política de recreación del servicio Android se define en la sección de ciclo de vida.
 
-### Formato propuesto: una revisión, dos claves
+### Formato: una base SQLite nativa, dos claves
 
-La primera implementación utilizará un snapshot completo `state.bin` y un temporal `state.next` en el mismo directorio privado. Cada commit publicará una revisión completa que contiene sesión y recuperación. Las imágenes seguirán en su directorio independiente. Es una propuesta de formato v1 pendiente de implementación y pruebas nativas.
+El estado nativo vive en una base SQLite propia del módulo (`state.db`), separada de la base de mensajes de la app y sin acceso desde JavaScript. Cada escritura es una transacción: la sesión, las entregas pendientes y los metadatos de una revisión se publican juntos o no se publican. Las imágenes siguen en su directorio independiente. Sustituye al snapshot completo `state.bin` de la primera versión, que reescribía todo el estado en cada confirmación (ver `docs/whatsapp-refactor-cola-recuperacion.md`).
 
 ```text
 whatsapp/                         # Privado, persistente y excluido de backups
-├── state.bin                    # Única revisión publicada
-├── state.next                   # Preparación de un commit; siempre cifrada
+├── state.db                     # Base publicada: meta, session y pending
+├── state.db-journal             # Journal de rollback de SQLite (puede no existir)
+├── state.db.next                # Solo durante la creación inicial; se renombra a state.db
 └── images/                      # Adjuntos completos y temporales de descarga
 
-state.bin
-  header: formatVersion, storeId, revision, recoveryKeyId
-  encryptedContainer: AES-256-GCM con K_recovery
-    session: null o {accountId, sessionKeyId, sessionRevision, nonceBase64, ciphertextBase64}
-      ciphertextBase64: estado de protocolo cifrado con K_session
-    pending: entregas recuperables, con cuenta, IDs, metadatos y plaintext del protocolo
-    sessionKeysToDelete: IDs de claves retiradas cuya eliminación debe completarse
-    options: límites efectivos de recuperación e imágenes en iOS y Android
-    androidService: solicitud de recepción y cuenta en Android, o null
+meta     (1 fila)   storeId, revision, control = {sessionKeysToDelete, options, androidService}
+session  (0 o 1)    {accountId, sessionKeyId, sessionRevision, nonceBase64, ciphertextBase64}
+                    ciphertextBase64: estado de protocolo cifrado con K_session
+pending  (1 por entrega)
+                    deliveryId, createdRevision, createdOrdinal en claro (identifican y ordenan)
+                    nonce + entrada completa cifrada con K_recovery
 ```
 
-`K_recovery` protegerá el contenedor completo y sobrevivirá a `logout()`. `K_session` protegerá adicionalmente las credenciales y el estado criptográfico de la única cuenta activa; cada nueva vinculación tendrá una clave e identificador nuevos. Los registros de protocolo que actúan como credenciales pertenecerán al bloque `session`, no a `pending`. Las dos claves permanecerán bajo custodia nativa; Go recibirá datos de protocolo descifrados, pero no estas claves de cifrado del almacenamiento.
+`K_recovery` protege cada entrada pendiente y sobrevive a `logout()`. `K_session` protege las credenciales y el estado criptográfico de la única cuenta activa; cada nueva vinculación tiene una clave e identificador nuevos. Los registros de protocolo que actúan como credenciales pertenecen a `session`, no a `pending`. Las dos claves permanecen bajo custodia nativa; Go recibe datos de protocolo descifrados, pero no estas claves.
 
-Usaremos AES-GCM de las APIs nativas, con tag de 16 bytes y nonce de 12 bytes generado de forma segura para cada cifrado, sin derivarlo de la revisión y respetando los límites de uso por clave. El header será autenticado como datos asociados; su codificación exacta y límites de lectura formarán parte del formato. La sesión autenticará también `storeId`, tipo de bloque, versión, cuenta, ID de clave y `sessionRevision`. Así, la sesión conservará su ciphertext cuando una confirmación cambie solamente la recuperación: `sessionRevision` podrá ser menor que `revision`, pero nunca mayor. Una revisión nueva no deberá volver a cifrar la sesión con un nonce anterior.
+AES-GCM de las APIs nativas, con tag de 16 bytes y nonce de 12 bytes aleatorio por cifrado. El AAD de cada pendiente es `["yoyos-whatsapp-pending", 1, storeId, deliveryId, createdRevision, createdOrdinal]`: una fila movida, renombrada o reordenada no se autentica. El AAD de sesión es `["yoyos-whatsapp-session", 1, storeId, accountId, sessionKeyId, sessionRevision]`; como la `revision` global no forma parte de él, una confirmación no toca la fila de sesión y `sessionRevision` puede ser menor que `revision`, nunca mayor. En claro solo quedan IDs, revisiones, `options` y la intención Android; nada de mensajes, plaintext de protocolo ni credenciales.
 
-Las revisiones se transportarán entre Go y nativo como cadenas decimales de enteros sin signo de 64 bits, validadas sin coerción ni overflow. La versión del formato de archivo y la del esquema de registros de protocolo se validarán antes de crear el cliente. Los campos binarios que crucen JSON usarán Base64 con límites de tamaño; nunca pasarán por la fachada TypeScript. La autenticación y una revisión monotónica permiten controlar integridad y orden de escrituras; no constituyen por sí solas protección contra un atacante que restaure un archivo antiguo válido.
+Las revisiones se transportan entre Go y nativo como cadenas decimales uint64 canónicas. `control` tiene exactamente `sessionKeysToDelete`, `options` y `androidService`, con un máximo de 4 KiB; `options` tiene exactamente `maxRecoveryBufferBytes` y `maxImageStorageBytes`, enteros JSON entre 1 y 9007199254740991, publicados con los valores efectivos (10 MiB y 50 MiB por defecto) y conservados tras `logout()`. En iOS `androidService` es siempre `null`. Un campo ausente o inválido es estado inválido, no autorización para restaurar defaults. La primera instalación usa defaults u opciones explícitas y los publica al crear la base.
 
-#### Codificación del archivo v1 propuesta
+`S` es el límite de 16 MiB de la sesión serializada. `B` es la cota de recuperación: el array de pendientes serializado no puede superarla. Coincide con el presupuesto de admisión salvo tras una reducción de límites, cuando conserva la cota anterior (`readBudget`, en el registro de creación) para que lo ya admitido siga legible y se pueda drenar. La admisión de entradas nuevas se comprueba contra `options.maxRecoveryBufferBytes` vigente. `sessionKeysToDelete` tiene como máximo un ID.
 
-El contenido descifrado será JSON UTF-8 compacto, sin compresión ni dependencias de serialización nuevas. El archivo tendrá un envoltorio binario pequeño para no codificar en Base64 todo el ciphertext:
-
-```text
-magic                 8 bytes ASCII: YOYOWA01
-headerLength          uint32 big-endian
-header                headerLength bytes: JSON UTF-8
-nonce                 12 bytes
-ciphertextLength      uint64 big-endian; incluye el tag
-ciphertextAndTag       ciphertextLength bytes: AES-256-GCM, tag al final
-```
-
-El header contendrá exactamente `formatVersion: 1`, `storeId`, `revision` y `recoveryKeyId`; no contendrá accountId, mensajes ni secretos. `storeId` y los IDs de claves serán 16 bytes aleatorios representados como 32 caracteres hexadecimales en minúsculas. `revision` será decimal uint64 canónico, sin signo ni ceros iniciales salvo `"0"`. El header tendrá un máximo de 4 KiB. El AAD del contenedor será todo el prefijo hasta `ciphertextLength` inclusive, usando los bytes originales del archivo; no se reconstruirá serializando nuevamente el header leído.
-
-El JSON cifrado del contenedor tendrá exactamente `session`, `pending`, `sessionKeysToDelete`, `options` y `androidService`. `options` será siempre un objeto con exactamente `maxRecoveryBufferBytes` y `maxImageStorageBytes`: enteros JSON entre 1 y 9007199254740991 bytes inclusive, sin coerción; no se admitirán strings, fracciones, `null` ni campos adicionales. En el primer snapshot se publicarán los valores efectivos validados (10 MiB y 50 MiB por defecto); después de `logout()` permanecerán los últimos valores publicados. En iOS `androidService` será siempre `null`; en Android seguirá el esquema interno de reinicio descrito arriba y leerá los límites solo de `options`. `session` será `null` o un objeto con `accountId`, `sessionKeyId`, `sessionRevision`, `nonceBase64` y `ciphertextBase64`. Los binarios dentro de JSON usarán Base64 estándar con padding, sin espacios; el ciphertext de sesión incluirá su tag al final. `pending` será una lista de registros internos, no un mapa ni un historial de confirmaciones. Los esquemas propuestos de pendientes y registros de protocolo se describen abajo; los codecs de valores específicos de whatsmeow deberán completarse al auditar el adaptador.
-
-`initialize(newOptions)` publicará `options` con sesión, pendientes e intención Android de la misma revisión, sin descartar contenido al reducir límites; devolverá éxito solo tras el reemplazo durable. Al reiniciar, iOS y Android autenticarán el snapshot y restaurarán sus `options` antes de preparar cliente, admitir contenido o recrear recepción. Una respuesta incierta exigirá releer la revisión publicada antes de decidir qué valores rigen; `state.next` nunca aportará opciones por sí solo. Un campo ausente o inválido en v1 es estado inválido, no autorización para restaurar defaults. La primera instalación sin `state.bin` usa defaults u opciones explícitas y los publica al crear su primera revisión.
-
-El AAD de sesión será una lista JSON UTF-8 compacta, en este orden: `["yoyos-whatsapp-session", 1, storeId, accountId, sessionKeyId, sessionRevision]`. Sus strings estarán restringidos a los formatos ASCII de identidad ya definidos, sin escapes alternativos. Una confirmación podrá conservar ese bloque cifrado porque `revision` global no pertenece a su AAD. Los IDs de claves seleccionarán únicamente aliases del namespace propio del módulo, nunca una ruta o un alias arbitrario del sistema.
-
-Para acotar el archivo, `S` será el límite de 16 MiB del objeto de sesión serializado, incluyendo Base64 y metadatos; `B` será la cota de recuperación aplicable a los datos admitidos, incluyendo el array de pendientes y sus reservas existentes. Coincidirá con el presupuesto de admisión salvo cuando deba conservar una cota anterior por una reducción de límites; no impedirá leer ni drenar datos previamente admitidos. Se admitirán hasta 4 KiB adicionales de estructura y metadatos de control del contenedor, incluyendo `options` y `androidService`; superar ese subtotal rechazará el snapshot aunque `S` o `B` tengan espacio. Por tanto, su plaintext tendrá un máximo conservador `S + B + 4096` bytes y el archivo completo un máximo `S + B + 8244` bytes, incluyendo header máximo, prefijo, nonce y ambos tamaños, y tag externo. La admisión de contenido nuevo seguirá comprobándose contra `options.maxRecoveryBufferBytes` vigente, mientras la lectura usará la cota confiable de la revisión. `sessionKeysToDelete` tendrá como máximo un ID: se completará su limpieza antes de crear otra sesión, según la regla existente.
-
-La lectura comprobará tamaño total antes de cargar el archivo, longitudes antes de reservar memoria, tag mínimo de 16 bytes y ausencia de bytes sobrantes. Se rechazarán campos desconocidos o duplicados, UTF-8 inválido, versiones distintas y longitudes incoherentes. El header será solo información no confiable para localizar la clave hasta autenticar el contenedor; no se utilizará para borrar claves o modificar el estado. El mismo formato aplicará a `state.next`, que seguirá siendo una preparación y nunca se promoverá por su contenido. Esta propuesta fija el envoltorio; no demuestra todavía durabilidad ni compatibilidad nativa.
+La lectura carga la base una vez por publicación: descifra y valida cada pendiente y la sesión, y después sirve las lecturas desde memoria. Rechaza campos desconocidos o duplicados, UTF-8 inválido, revisiones no canónicas, filas que no autentican y una base sin su clave de recuperación. Una base corrupta produce error explícito y nunca se reemplaza por una vacía (el manejador de corrupción por defecto de Android, que borra la base, está desactivado). La autenticación y la revisión monotónica controlan integridad y orden; no protegen contra un atacante que restaure una base antigua válida.
 
 ### Esquema de registros internos propuesto
 
@@ -693,29 +670,25 @@ Todo el registro, incluidos el mensaje normalizado, los datos de recuperación y
 El writer nativo será único y serializará recepción, cambios de protocolo y confirmaciones locales. Validará la generación del cliente y la revisión esperada de sesión en los cambios de protocolo. Construirá cada snapshot desde la revisión global vigente bajo su exclusión de escritura; rechazará callbacks antiguos y cambios basados en una sesión desactualizada antes de modificar el archivo.
 
 1. Preparar la revisión siguiente en memoria, aplicando juntos los cambios de sesión y del buffer de la transacción. Validar esquema y presupuestos antes de publicarla.
-2. Cifrar el contenedor y escribirlo íntegramente en `state.next`, sin temporales con plaintext.
-3. Sincronizar el archivo y cerrar comprobando errores.
-4. Reemplazar `state.bin` mediante una operación atómica dentro del mismo filesystem, y completar la sincronización de metadatos requerida por la plataforma.
-5. Actualizar la revisión confirmada en memoria y devolver éxito al store Go.
+2. Escribir en una única transacción SQLite (`synchronous=FULL`, journal de rollback; nunca `MEMORY` ni `OFF`): la fila `meta` con la revisión nueva, la fila de sesión si cambió, y las filas de pendientes insertadas, actualizadas o borradas. Confirmar una entrega borra una sola fila.
+3. Tras el `COMMIT`, actualizar la revisión y la caché en memoria y devolver éxito al store Go.
 
-La implementación deberá comprobar fallos de escritura, sincronización, cierre y reemplazo. Si falla después del reemplazo, la respuesta será fallida y el controlador volverá a leer la revisión publicada antes de intentar otra operación. Un error de respuesta no implicará restaurar la revisión anterior.
+Un fallo antes del `COMMIT` revierte la transacción y conserva la revisión publicada. Un fallo después del `COMMIT` devuelve error, y el writer relee la base antes de la siguiente operación. Un error de respuesta no implica restaurar la revisión anterior. Si el sistema de archivos ofrece escrituras atómicas por lotes (F2FS en Android), SQLite puede no crear el journal; la atomicidad la da entonces el propio sistema de archivos.
 
-La documentación de [AtomicFile](https://developer.android.com/reference/android/util/AtomicFile) describe reemplazo y sincronización, pero exige protección de concurrencia externa. Además, el [código de Android 16](https://android.googlesource.com/platform/frameworks/base/+/android-16.0.0_r1/core/java/android/util/AtomicFile.java) registra ciertos fallos de sincronización/cierre/rename sin propagarlos desde `finishWrite`. Por eso esa llamada aislada no satisfará nuestro contrato de éxito durable: el adaptador deberá usar operaciones nativas con errores verificables. En iOS también habrá que validar explícitamente la sincronización y el reemplazo; todavía no se ha elegido ni probado su implementación concreta.
-
-Reescribir el snapshot completo simplifica el primer writer, pero consume I/O, memoria y espacio temporal proporcionales al estado total, incluyendo pendientes. El presupuesto del buffer contabilizará su representación codificada y la sobrecarga atribuible del contenedor; el estado de sesión tendrá un límite propio. Los límites de buffer e imágenes no garantizan disponer del espacio necesario para una segunda copia. Ante falta de espacio se conservará la revisión publicada y se detendrá el procesamiento. Un journal incremental solo se evaluará si las mediciones de esta versión justifican su complejidad.
+La creación inicial construye la base completa en `state.db.next`, la cierra y la renombra a `state.db` sincronizando el directorio, así que la base existe entera o no existe. El coste de cada escritura es proporcional a lo que cambia: una confirmación borra una fila, y una recepción inserta su entrada y vuelve a cifrar la sesión cuando hay cambios de protocolo. Ante falta de espacio la transacción se revierte, se conserva la revisión publicada y se detiene el procesamiento.
 
 ### Inicio y desvinculación con este formato
 
-Al iniciar se autenticará y validará `state.bin`, que será la única revisión publicada. `state.next` no se promoverá por tener una revisión mayor: una preparación no demuestra commit. Tras validar la revisión publicada se retirarán temporales incompletos. Un archivo corrupto, una clave ausente o una combinación incompleta de archivos y claves producirá error explícito, salvo la creación interrumpida reconocida mediante el registro descrito abajo. Solo se iniciará una instalación vacía cuando no existan artefactos, claves ni registro de creación previos de esa instalación.
+Al iniciar se autenticará y validará `state.db`, que será la única revisión publicada. `state.db.next` nunca se promoverá: solo existe durante la creación inicial y se retira al abrir. Un archivo corrupto, una clave ausente o una combinación incompleta de archivos y claves producirá error explícito, salvo la creación interrumpida reconocida mediante el registro descrito abajo. Solo se iniciará una instalación vacía cuando no existan artefactos, claves ni registro de creación previos de esa instalación.
 
 #### Recuperación de creación de claves acordada
 
-Un registro mínimo en almacenamiento seguro distinguirá una creación inicial en curso de una instalación ya establecida. Identificará la instalación y las claves involucradas; se guardará antes de crearlas. El orden será: registrar creación en curso → crear claves → publicar durablemente el primer `state.bin` → marcar creación terminada. Antes de completar esa secuencia no se permitirá vincular ni recibir mensajes.
+Un registro mínimo en almacenamiento seguro distinguirá una creación inicial en curso de una instalación ya establecida. Identificará la instalación y las claves involucradas; se guardará antes de crearlas. El orden será: registrar creación en curso → crear claves → publicar durablemente el primer `state.db` → marcar creación terminada. Antes de completar esa secuencia no se permitirá vincular ni recibir mensajes.
 
 | Estado encontrado al iniciar | Acción |
 | --- | --- |
 | Creación en curso, sin archivo publicado ni temporal | Completar la creación usando las claves existentes y crear únicamente las todavía no creadas según ese registro. |
-| Creación en curso y `state.bin` válido y coherente | Reconocer la publicación y marcar creación terminada. |
+| Creación en curso y `state.db` válido y coherente | Reconocer la publicación y marcar creación terminada. |
 | Creación en curso con temporal, sin archivo publicado | Retirar la preparación incompleta y repetir la creación inicial, sin promover el temporal. |
 | Creación terminada, pero falta archivo o clave | `SESSION_STATE_INVALID`; no generar almacenamiento vacío. |
 | Archivo publicado corrupto, registro ausente con artefactos o identificadores incoherentes | Conservar artefactos y bloquear recuperación automática. |
@@ -1149,7 +1122,7 @@ Validan interacciones entre componentes reales: fachada y módulo, binding Go/na
 - [ ] **IT-INI-08 — Adopta el controlador nativo existente al regresar JavaScript.** Al volver JavaScript, inicializar adoptará el controlador nativo existente con opciones equivalentes, sin duplicarlo ni solicitar otra conexión. Opciones distintas seguirán los tests de configuración.
 - [ ] **IT-CFG-01 — Aplica los límites predeterminados de recuperación e imágenes.** Sin variable de entorno ni opciones personalizadas se utilizarán 10 MiB de recuperación y 50 MiB de imágenes. La composición pasará los bytes efectivos al módulo en ambas plataformas.
 - [ ] **IT-CFG-03 — Transfiere opciones del bundle y restaura las persistidas sin leer .env en nativo.** Cambiar el bundle permitirá pasar nuevos valores; Go y código nativo no leerán `.env`. La recreación del servicio utilizará opciones persistidas sin JavaScript.
-- [ ] **IT-CFG-04 — Guarda límites nuevos después de disconnect y los conserva al reiniciar.** `disconnect()` exitoso seguido de `initialize(newOptions)` publicará `options` en la misma revisión sin borrar sesión ni pendientes; `connect()` posterior los utilizará. Reinicios de iOS y Android restaurarán los valores publicados aun sin sesión y no tomarán opciones de `state.next`; una respuesta incierta se resolverá releyendo `state.bin`.
+- [ ] **IT-CFG-04 — Guarda límites nuevos después de disconnect y los conserva al reiniciar.** `disconnect()` exitoso seguido de `initialize(newOptions)` publicará `options` en la misma revisión sin borrar sesión ni pendientes; `connect()` posterior los utilizará. Reinicios de iOS y Android restaurarán los valores publicados aun sin sesión y no tomarán opciones de `state.db.next`; una respuesta incierta se resolverá releyendo `state.db`.
 - [ ] **IT-CFG-05 — Rechaza límites distintos mientras la recepción sigue solicitada.** Opciones distintas durante conexión, QR, reconexión o pausa por buffer lleno devolverán `INVALID_INPUT`. Repetir opciones equivalentes será idempotente incluso con cliente activo.
 - [ ] **IT-CFG-06 — Conserva y permite drenar datos que superan un límite reducido.** Inicializar aceptará el nuevo límite; pendientes e imágenes seguirán legibles después de reiniciar, confirmables, reutilizables o borrables. Nuevas admisiones esperarán o fallarán según capacidad, sin descartar datos existentes.
 - [ ] **IT-CFG-07 — Mantiene una cota de lectura suficiente tras reducir el presupuesto.** Reducir presupuesto no reducirá la cota confiable necesaria para snapshots previos ni aceptará longitudes arbitrarias. Una confirmación o actualización de configuración podrá publicar mientras se drena el exceso.
@@ -1226,15 +1199,15 @@ Validan interacciones entre componentes reales: fachada y módulo, binding Go/na
 - [ ] **IT-STO-01 — Devuelve éxito únicamente después de publicación durable.** Un callback de escritura no devolverá éxito al actualizar RAM o encolar trabajo; deberá completar cifrado, escritura, sincronización, cierre, reemplazo y sincronización de metadatos requeridos.
 - [ ] **IT-STO-02 — Conserva la revisión publicada ante fallo previo al reemplazo.** Inyectar por separado error de cifrado, escritura parcial, sync, cierre y reemplazo; conservar la revisión publicada, no emitir entrega exitosa y detener la generación afectada.
 - [ ] **IT-STO-03 — Relee lo publicado ante un resultado incierto posterior al reemplazo.** Ante fallo de sincronización de metadatos o respuesta perdida, releer lo publicado antes de otra operación; no restaurar automáticamente la revisión anterior ni repetir una mutación suponiendo rollback.
-- [ ] **IT-STO-04 — Recupera una revisión coherente tras cierre en cada frontera de publicación.** Terminar el proceso antes/después de cada paso de publicación y reiniciar; recuperar una revisión coherente sin mezclar sesión y pendientes de revisiones distintas. state.next no se promoverá por su número mayor.
+- [ ] **IT-STO-04 — Recupera una revisión coherente tras cierre en cada frontera de publicación.** Terminar el proceso antes/después de cada paso de publicación y reiniciar; recuperar una revisión coherente sin mezclar sesión y pendientes de revisiones distintas. state.db.next no se promoverá.
 - [ ] **IT-STO-05 — Conserva estado publicado cuando falta espacio para temporales.** Agotar espacio para la segunda copia o temporales conservará el estado publicado y producirá error, aunque los presupuestos lógicos no se hayan agotado.
 - [ ] **IT-STO-06 — Detiene cambios de protocolo al superar el presupuesto de sesión.** Exactamente 16 MiB será admisible; excederlo detendrá cambios con `SESSION_STORAGE_LIMIT_REACHED`, sin podar claves, sesiones o mappings. Restauración sobredimensionada bloqueará conexión y permitirá recuperación legible.
 - [ ] **IT-STO-07 — Serializa todas las mutaciones sobre la revisión vigente.** Recepción, confirmaciones, identidad y logout se serializarán sobre estado vigente; una confirmación no se perderá porque Go publique una copia vieja del buffer.
 - [ ] **IT-STO-08 — Limpia temporales sin promover preparaciones no confirmadas.** Un temporal incompleto se retirará después de validar la revisión publicada; un error de lectura/limpieza no se interpretará como ausencia. Temporales de estado nunca contendrán plaintext.
-- [ ] **IT-KEY-01 — Completa creación inicial antes de permitir vinculación.** Registrar creación e IDs precederá generar claves; publicar state.bin precederá marcar terminada. Antes de terminar no se permitirá vincular ni recibir.
+- [ ] **IT-KEY-01 — Completa creación inicial antes de permitir vinculación.** Registrar creación e IDs precederá generar claves; publicar state.db precederá marcar terminada. Antes de terminar no se permitirá vincular ni recibir.
 - [ ] **IT-KEY-02 — Recupera creación interrumpida reutilizando claves existentes.** Reiniciar con registro en curso reutilizará claves existentes y creará solo las no creadas; no confundirá instalación parcial reconocida con una instalación nueva ajena.
 - [ ] **IT-KEY-03 — Repite preparación inicial tras retirar un temporal incompleto.** Con registro en curso y solo temporal, retirarlo y repetir preparación no promoverá contenido sin commit. Un fallo de retirada impedirá afirmar que la recuperación terminó.
-- [ ] **IT-KEY-04 — Reconoce la publicación inicial antes de completar su registro.** Con registro todavía en curso y state.bin válido/coherente se conservará lo publicado y se finalizará el registro, sin generar otras claves.
+- [ ] **IT-KEY-04 — Reconoce la publicación inicial antes de completar su registro.** Con registro todavía en curso y state.db válido/coherente se conservará lo publicado y se finalizará el registro, sin generar otras claves.
 - [ ] **IT-KEY-05 — Rechaza instalaciones establecidas incompletas sin recrearlas vacías.** Falta de archivo/clave tras creación terminada, artefactos sin registro, corrupción o IDs incoherentes producirán `SESSION_STATE_INVALID`, conservando evidencia y sin reiniciar vacía.
 - [ ] **IT-KEY-06 — Conserva claves de sesiones publicadas y retira solo provisionales.** Interrumpir antes y después de crear/publicar; conservar la clave referenciada por sesión publicada o retirar únicamente la provisional no publicada después de validar el estado. Una limpieza fallida bloqueará nueva vinculación.
 - [ ] **IT-KEY-07 — Relee el registro de creación ante respuestas inciertas.** Perder respuesta a una actualización segura obligará a releer antes de continuar; no se decidirá ausencia de sesión/clave sobre una lectura fallida.

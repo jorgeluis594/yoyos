@@ -108,7 +108,7 @@ El mensaje se crea por la API de Yoyos, no por un webhook del canal, así que la
 ## 4. Arquitectura
 
 ```text
-WhatsApp ⇄ whatsmeow (Go) ⇄ Kotlin/Swift (state.bin, FGS) ⇄ client.ts (Zod, Result)
+WhatsApp ⇄ whatsmeow (Go) ⇄ Kotlin/Swift (state.db, FGS) ⇄ client.ts (Zod, Result)
                                                               │ messageReceived {deliveryId, message}
                                                               ▼
                      features/whatsapp/application/receive-message.ts
@@ -162,7 +162,7 @@ Los artefactos no se versionan. Se regeneran antes de cada build nativo.
 
 | Interfaz Go | Implementación | Responsabilidad |
 |---|---|---|
-| `ProtocolStorage`, `DeliveryStorage` | `NativeStateStore` (Kotlin/Swift) | Leer y escribir `state.bin` (AES-256-GCM, clave en Keystore o Keychain). Go nunca toca el disco ni las claves. |
+| `ProtocolStorage`, `DeliveryStorage` | `NativeStateStore` (Kotlin/Swift) | Leer y escribir `state.db`, una base SQLite nativa con la sesión y cada pendiente cifrados (AES-256-GCM, clave en Keystore o Keychain). Go nunca toca el disco ni las claves. |
 | `ConnectionEvents` | `PublicConnectionEvents` / `NativeConnectionEvents` | Avisar de QR, estado de conexión y errores. |
 | `DeliveryEvents` | `PublicDeliveryEvents` / `NativeDeliveryEvents` | Entregar cada mensaje pendiente (`OnDelivery`). |
 
@@ -201,14 +201,14 @@ Recorrido de un mensaje (UC-03):
 
 ```text
 whatsmeow descifra
-→ Go guarda el pendiente en state.bin (ProtocolStorage → NativeStateStore)
+→ Go guarda el pendiente en state.db (ProtocolStorage → NativeStateStore)
 → Go: DeliveryEvents.OnDelivery(json) → nativo: sendEvent("messageReceived")
 → client.ts: Zod → listener → receiveMessage(): saveOnce en SQLite
 → client.confirmMessageStored(deliveryId) → nativo → DeliverySession.Confirm
 → Go retira el pendiente → recién entonces envía el ACK a WhatsApp
 ```
 
-Si la app muere en cualquier punto antes de `confirmMessageStored`, el mensaje sigue en `state.bin` y se vuelve a entregar al reconectar. Por eso UC-03 deduplica por `message.id`.
+Si la app muere en cualquier punto antes de `confirmMessageStored`, el mensaje sigue en `state.db` y se vuelve a entregar al reconectar. Por eso UC-03 deduplica por `message.id`.
 
 #### Requisitos de ejecución
 
