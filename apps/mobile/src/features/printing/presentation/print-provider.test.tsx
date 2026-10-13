@@ -203,7 +203,9 @@ test("selection and printer change preserve the label and copies while rendering
   const label = "saved variant QR";
   const renderDocument = jest.fn(async (_content: string, profile: RenderProfile) => ok({ uri: `file:///label-${profile.widthPx}.png`, widthPx: profile.widthPx, heightPx: profile.heightPx }));
   const work: PrintWork = async (execution) => {
-    const result = await operations.printDocument({ format: productLabelFormat, copies: 3 as CopyCount, render: (profile) => renderDocument(label, profile) }, execution);
+    const reserved = await operations.withPrinter((session) => session.printDocument({ format: productLabelFormat, copies: 3 as CopyCount, render: (profile) => renderDocument(label, profile) }, execution));
+    if (!reserved.success) return { status: "failed", message: reserved.error.message, outcome: reserved.error.outcome };
+    const result = reserved.data;
     if (!result.success) return { status: "failed", message: result.error.message, outcome: result.error.outcome };
     return result.data.status === "completed" ? { status: "completed" } : { status: "selection-required" };
   };

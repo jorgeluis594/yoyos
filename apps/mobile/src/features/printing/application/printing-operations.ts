@@ -2,7 +2,7 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { makeCopyCount } from "@mobile/features/printing/domain/printing";
 import type { PrinterSelection } from "@mobile/features/printing/domain/printing";
-import type { DiscoveryError, PrintExecution, PrintFailure, PrintOutcome, PrintRequest, PrinterAdapter, PrintingDependencies, PreferenceReadError, ResolveError, SelectionResult } from "@mobile/features/printing/application/contracts";
+import type { DiscoveryError, PrintExecution, PrintFailure, PrintOutcome, PrinterSession, PrintRequest, PrinterAdapter, PrintingDependencies, PreferenceReadError, ResolveError, SelectionResult } from "@mobile/features/printing/application/contracts";
 
 const cancelled: PrintFailure = { code: "OPERATION_CANCELLED", message: "Printing session ended", outcome: "not-sent" };
 
@@ -11,6 +11,7 @@ export function createPrintingOperations({ adapters, preferences, temporaryDocum
   let selection: PrinterSelection | null = null;
   let loaded = false;
   let revision = 0;
+  let reserved = false;
   let writeTail: Promise<void> = Promise.resolve();
   const writePreference = (value: PrinterSelection) => {
     const result = writeTail.then(() => preferences.write(value));
@@ -111,5 +112,16 @@ export function createPrintingOperations({ adapters, preferences, temporaryDocum
     }
   };
 
-  return { loadPrinterPreference, discoverPrinters, selectPrinter, printDocument };
+  // One printer reservation covers a whole operation (one QR or a batch); a second caller is refused, never queued.
+  const withPrinter = async <T>(run: (session: PrinterSession) => Promise<T>): Promise<Result<T, PrintFailure>> => {
+    if (reserved) return err({ code: "PRINTER_BUSY", message: "Printer is busy with another print operation", outcome: "not-sent" });
+    reserved = true;
+    try {
+      return ok(await run({ printDocument }));
+    } finally {
+      reserved = false;
+    }
+  };
+
+  return { loadPrinterPreference, discoverPrinters, selectPrinter, withPrinter };
 }

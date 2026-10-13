@@ -9,6 +9,11 @@ const document = { uri: "file:///cache/label.png", widthPx: 696, heightPx: 271 }
 const execution = { isSessionCurrent: () => true, onStage: jest.fn() };
 const request = (render: PrintRequest["render"] = async () => ok(document)): PrintRequest => ({ format: productLabelFormat, copies: 1 as CopyCount, render });
 
+const reservedPrint = async (operations: ReturnType<typeof createPrintingOperations>, ...args: Parameters<Awaited<Parameters<ReturnType<typeof createPrintingOperations>["withPrinter"]>[0] extends (s: infer S) => unknown ? S : never>["printDocument"]>) => {
+  const reserved = await operations.withPrinter((session) => session.printDocument(...args));
+  return reserved.success ? reserved.data : reserved;
+};
+
 function setup() {
   const send = jest.fn(async () => ok({ confirmation: "sdk" as const }));
   const remove = jest.fn(async () => ok(undefined));
@@ -26,7 +31,7 @@ test("rejects an invalid printer before making it the active selection", async (
   const invalid = { ...chosen, locator: "bad" as PrinterLocator };
   expect(await operations.selectPrinter(invalid)).toMatchObject({ success: false, error: { code: "PRINTER_IDENTITY_MISMATCH" } });
   expect(write).not.toHaveBeenCalled();
-  expect(await operations.printDocument(request(), execution)).toEqual(ok({ status: "selection-required" }));
+  expect(await reservedPrint(operations, request(), execution)).toEqual(ok({ status: "selection-required" }));
 });
 
 test("without a platform adapter, printing stops before rendering or reading preferences", async () => {
@@ -34,7 +39,7 @@ test("without a platform adapter, printing stops before rendering or reading pre
   const operations = createPrintingOperations({ ...deps, adapters: [] });
   const render = jest.fn(async () => ok(document));
   expect(await operations.discoverPrinters()).toMatchObject({ success: false, error: { code: "PRINTING_UNAVAILABLE" } });
-  expect(await operations.printDocument(request(render), execution)).toMatchObject({ success: false, error: { code: "PRINTING_UNAVAILABLE", outcome: "not-sent" } });
+  expect(await reservedPrint(operations, request(render), execution)).toMatchObject({ success: false, error: { code: "PRINTING_UNAVAILABLE", outcome: "not-sent" } });
   expect(render).not.toHaveBeenCalled();
   expect(read).not.toHaveBeenCalled();
 });
@@ -42,10 +47,10 @@ test("without a platform adapter, printing stops before rendering or reading pre
 test("asks for a printer before rendering, then sends and removes the image", async () => {
   const { operations, send, remove } = setup();
   const render = jest.fn(async () => ok(document));
-  expect(await operations.printDocument(request(render), execution)).toEqual(ok({ status: "selection-required" }));
+  expect(await reservedPrint(operations, request(render), execution)).toEqual(ok({ status: "selection-required" }));
   expect(render).not.toHaveBeenCalled();
   await operations.selectPrinter(chosen);
-  expect(await operations.printDocument(request(render), execution)).toEqual(ok({ status: "completed", printer: chosen.printer, receipt: { confirmation: "sdk" } }));
+  expect(await reservedPrint(operations, request(render), execution)).toEqual(ok({ status: "completed", printer: chosen.printer, receipt: { confirmation: "sdk" } }));
   expect(render).toHaveBeenCalledWith(profile);
   expect(send).toHaveBeenCalledWith({ printer: { selection: chosen, profile }, document, copies: 1 });
   expect(remove).toHaveBeenCalledWith(document);
@@ -54,7 +59,7 @@ test("asks for a printer before rendering, then sends and removes the image", as
 test("does not send invalid images and still removes them", async () => {
   const { operations, send, remove } = setup();
   await operations.selectPrinter(chosen);
-  const result = await operations.printDocument(request(async () => ok({ ...document, widthPx: 695 })), execution);
+  const result = await reservedPrint(operations, request(async () => ok({ ...document, widthPx: 695 })), execution);
   expect(result).toMatchObject({ success: false, error: { code: "RENDER_FAILED", outcome: "not-sent" } });
   expect(send).not.toHaveBeenCalled();
   expect(remove).toHaveBeenCalledTimes(1);
@@ -64,7 +69,7 @@ test("rejects an unsupported copy count before rendering", async () => {
   const { operations, send } = setup();
   const render = jest.fn(async () => ok(document));
   await operations.selectPrinter(chosen);
-  expect(await operations.printDocument({ ...request(render), copies: 100 as CopyCount }, execution)).toMatchObject({ success: false, error: { code: "INVALID_COPIES", outcome: "not-sent" } });
+  expect(await reservedPrint(operations, { ...request(render), copies: 100 as CopyCount }, execution)).toMatchObject({ success: false, error: { code: "INVALID_COPIES", outcome: "not-sent" } });
   expect(render).not.toHaveBeenCalled();
   expect(send).not.toHaveBeenCalled();
 });
@@ -74,43 +79,47 @@ test("preserves an uncertain send failure and does not resend", async () => {
   const send = jest.fn(async () => err({ code: "COMMUNICATION_FAILED" as const, message: "Connection lost", outcome: "unknown" as const }));
   const operations = createPrintingOperations({ ...deps, adapters: [{ ...deps.adapters[0], send }] });
   await operations.selectPrinter(chosen);
-  expect(await operations.printDocument(request(), execution)).toMatchObject({ success: false, error: { code: "COMMUNICATION_FAILED", outcome: "unknown" } });
+  expect(await reservedPrint(operations, request(), execution)).toMatchObject({ success: false, error: { code: "COMMUNICATION_FAILED", outcome: "unknown" } });
   expect(send).toHaveBeenCalledTimes(1);
   expect(remove).toHaveBeenCalledTimes(1);
 });
 
-test("overlapping sends keep their own image and cleanup result", async () => {
+test("a second operation is refused as busy while the first holds the printer, then the reservation is released", async () => {
   const { deps, remove } = setup();
-  const firstDocument = { ...document, uri: "file:///cache/yoyos-label-first.png" };
-  const secondDocument = { ...document, uri: "file:///cache/yoyos-label-second.png" };
   let finishFirst!: () => void;
   const firstSend = new Promise<void>((resolve) => { finishFirst = resolve; });
-  const send = jest.fn(async ({ document: image }: Parameters<PrintingDependencies["adapters"][number]["send"]>[0]) => {
-    if (image.uri === firstDocument.uri) {
-      await firstSend;
-      return err({ code: "COMMUNICATION_FAILED" as const, message: "Connection lost", outcome: "unknown" as const });
-    }
-    return ok({ confirmation: "sdk" as const });
-  });
+  const send = jest.fn(async () => { await firstSend; return ok({ confirmation: "sdk" as const }); });
   const operations = createPrintingOperations({ ...deps, adapters: [{ ...deps.adapters[0], send }] });
   await operations.selectPrinter(chosen);
-  const first = operations.printDocument({ ...request(async () => ok(firstDocument)), copies: 2 as CopyCount }, execution);
-  const second = operations.printDocument({ ...request(async () => ok(secondDocument)), copies: 3 as CopyCount }, execution);
-  expect(await second).toMatchObject({ success: true, data: { status: "completed" } });
-  expect(remove).toHaveBeenCalledTimes(1);
-  expect(remove).toHaveBeenCalledWith(secondDocument);
-  expect(send.mock.calls.map(([value]) => [value.document.uri, value.copies])).toEqual([[firstDocument.uri, 2], [secondDocument.uri, 3]]);
+  const first = reservedPrint(operations, request(), execution);
+  const render = jest.fn(async () => ok(document));
+  expect(await reservedPrint(operations, request(render), execution)).toMatchObject({ success: false, error: { code: "PRINTER_BUSY", outcome: "not-sent" } });
+  expect(render).not.toHaveBeenCalled();
   finishFirst();
-  expect(await first).toMatchObject({ success: false, error: { code: "COMMUNICATION_FAILED", outcome: "unknown" } });
-  expect(remove).toHaveBeenCalledTimes(2);
-  expect(remove).toHaveBeenCalledWith(firstDocument);
+  expect(await first).toMatchObject({ success: true, data: { status: "completed" } });
+  expect(remove).toHaveBeenCalledTimes(1);
+  expect(await reservedPrint(operations, request(), execution)).toMatchObject({ success: true });
+});
+
+test("a batch keeps one reservation across several sends and releases it when the callback throws", async () => {
+  const { operations, send } = setup();
+  await operations.selectPrinter(chosen);
+  const batch = await operations.withPrinter(async (session) => {
+    await session.printDocument(request(), execution);
+    await session.printDocument(request(), execution);
+    return operations.withPrinter(async () => "nested");
+  });
+  expect(send).toHaveBeenCalledTimes(2);
+  expect(batch).toMatchObject({ success: true, data: { success: false, error: { code: "PRINTER_BUSY" } } });
+  await expect(operations.withPrinter(async () => { throw new Error("boom"); })).rejects.toThrow("boom");
+  expect(await operations.withPrinter(async () => "free")).toEqual(ok("free"));
 });
 
 test("a thrown cleanup failure cannot turn a confirmed send into a retryable error", async () => {
   const { operations, send, remove, deps } = setup();
   remove.mockRejectedValueOnce(new Error("cache unavailable"));
   await operations.selectPrinter(chosen);
-  expect(await operations.printDocument(request(), execution)).toMatchObject({ success: true, data: { status: "completed" } });
+  expect(await reservedPrint(operations, request(), execution)).toMatchObject({ success: true, data: { status: "completed" } });
   expect(send).toHaveBeenCalledTimes(1);
   expect(deps.reportDiagnostic).toHaveBeenCalledWith(expect.objectContaining({ code: "CLEANUP_FAILED" }));
 });
@@ -125,7 +134,7 @@ test("a late preference read cannot replace a new selection", async () => {
   finishRead(ok(null));
   await pending;
   const render = jest.fn(async () => ok(document));
-  expect(await operations.printDocument(request(render), execution)).toMatchObject({ success: true, data: { status: "completed" } });
+  expect(await reservedPrint(operations, request(render), execution)).toMatchObject({ success: true, data: { status: "completed" } });
   expect(render).toHaveBeenCalled();
 });
 
