@@ -62,13 +62,13 @@ class StateStoreCrashInstrumentedTest {
     val root = root(phase, requireNotNull(runId))
     assertEquals(phase, File(root, "crashed").readText())
     val recovered = store(root).open()
-    val replaced = phase == "directorySync" || phase == "response"
+    val replaced = phase == "afterCommit" || phase == "response"
     assertEquals(if (replaced) 123L else 50L * 1024 * 1024, recovered.getJSONObject("options").getLong("maxImageStorageBytes"))
     assertEquals(replaced, recovered.opt("session") == org.json.JSONObject.NULL)
     assertEquals(if (replaced) 1 else 0, recovered.getJSONArray("pending").length())
     assertEquals(0, recovered.getJSONArray("sessionKeysToDelete").length())
     if (replaced) assertEquals("2", recovered.getJSONArray("pending").getJSONObject(0).getString("createdRevision"))
     else assertEquals(true, store(root).canRestoreSession())
-    assertFalse(File(root, "whatsapp/state.next").exists())
+    assertFalse(File(root, "whatsapp/state.db.next").exists())
   }
 }

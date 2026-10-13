@@ -681,7 +681,7 @@
   {
    "id": "IT-FMT-02",
    "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
-   "test": "malformedEnvelopeNeverPromotesTemporaryOrCreatesEmptyState"
+   "test": "tamperedRowsNeverLoadOrCreateEmptyState"
   },
   {
    "id": "IT-FMT-02",
@@ -731,7 +731,7 @@
   {
    "id": "IT-FMT-04",
    "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
-   "test": "malformedEnvelopeNeverPromotesTemporaryOrCreatesEmptyState"
+   "test": "tamperedRowsNeverLoadOrCreateEmptyState"
   },
   {
    "id": "IT-FMT-04",
@@ -963,7 +963,7 @@
   {
    "id": "IT-INI-06",
    "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
-   "test": "malformedEnvelopeNeverPromotesTemporaryOrCreatesEmptyState"
+   "test": "tamperedRowsNeverLoadOrCreateEmptyState"
   },
   {
    "id": "IT-INI-06",
@@ -1769,7 +1769,7 @@
   {
    "id": "UT-FMT-02",
    "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
-   "test": "malformedEnvelopeNeverPromotesTemporaryOrCreatesEmptyState"
+   "test": "tamperedRowsNeverLoadOrCreateEmptyState"
   },
   {
    "id": "UT-FMT-02",

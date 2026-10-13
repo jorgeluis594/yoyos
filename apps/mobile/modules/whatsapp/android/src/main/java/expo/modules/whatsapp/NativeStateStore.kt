@@ -17,7 +17,6 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.math.BigInteger
 import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 import java.security.KeyStore
@@ -37,12 +36,13 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     "yoyos.whatsapp.test.$keySpaceSuffix"
   }
   private val directory = File(context.noBackupFilesDir, "whatsapp")
-  private val published = File(directory, "state.bin")
-  private val temporary = File(directory, "state.next")
+  private val published = File(directory, "state.db")
+  private val temporary = File(directory, "state.db.next")
   private val keys = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
   // All mutable writer state is guarded by GLOBAL_LOCK. Do not add instance-monitor
   // synchronization: callers such as applyProtocolChanges take GLOBAL_LOCK first.
   private var current: JSONObject? = null
+  private var database: StateDatabase? = null
   private var storeId = ""
   private var recoveryId = ""
   private var revision = BigInteger.ZERO
@@ -65,11 +65,18 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
 
   fun open(): JSONObject {
     GLOBAL_LOCK.lock()
+    try { return JSONObject(snapshot().toString()) } finally { GLOBAL_LOCK.unlock() }
+  }
+
+  /** The cached published state, loaded once per publication. Callers hold GLOBAL_LOCK and must not mutate it. */
+  private fun snapshot(): JSONObject {
+    GLOBAL_LOCK.lock()
     try {
       if (Build.VERSION.SDK_INT >= 24 && !context.getSystemService(UserManager::class.java).isUserUnlocked) throw StateFailure("STORAGE_FAILED")
       if (uncertain) { current = null; uncertain = false }
-      if (observedPublication == publication) current?.let { return JSONObject(it.toString()) }
+      if (observedPublication == publication) current?.let { return it }
       current = null
+      database?.close(); database = null
       val hasDirectory = existsChecked(directory)
       if (!hasDirectory && !directory.mkdirs()) throw StateFailure("STORAGE_FAILED")
       val record = readRecord()
@@ -87,11 +94,11 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
           removeTemp(temporary)
           storeId = parts[0]; recoveryId = parts[1]; readBudget = DEFAULT_BUFFER
           val pending = JSONObject().put("status", "creating").put("storeId", storeId)
-            .put("recoveryKeyId", recoveryId).put("readBudget", readBudget).put("preparedRevision", "0")
+            .put("recoveryKeyId", recoveryId).put("readBudget", readBudget)
             .put("provisionalSessionKeyId", JSONObject.NULL)
           ensureKey(recordAlias)
           writeRecord(pending)
-          return open()
+          return snapshot()
         }
         if (existsChecked(temporary)) throw StateFailure("SESSION_STATE_INVALID")
         if (hasDirectory) {
@@ -104,10 +111,8 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
       recoveryId = record.getString("recoveryKeyId")
       readBudget = record.getLong("readBudget")
       if (!keys.containsAlias(marker(storeId, recoveryId))) throw StateFailure("SESSION_STATE_INVALID")
-      val preparedRevision = parseRevision(record.getString("preparedRevision"))
       if (existsChecked(published)) {
-        val state = readSnapshot(published, readBudget)
-        if (revision > preparedRevision) throw StateFailure("SESSION_STATE_INVALID")
+        val state = readSnapshot(readBudget)
         if (record.getString("status") == "creating") {
           ensureNamedKey(readyPrefix + storeId)
           writeRecord(record.put("status", "ready"))
@@ -121,46 +126,57 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
           cleanupProvisional(record, state)
           if (state.getJSONArray("sessionKeysToDelete").length() > 0) {
             endSession()
-            return open()
+            return snapshot()
           }
         } catch (e: Exception) {
           current = null
           throw e
         }
-        return JSONObject((current ?: state).toString())
+        return current ?: snapshot()
       }
       if (record.getString("status") != "creating") throw StateFailure("SESSION_STATE_INVALID")
       removeTemp(temporary)
       ensureKey(recoveryId)
       val state = emptyState()
-      publish(state, BigInteger.ZERO)
+      createDatabase(state)
       fault?.invoke("initialPublication")
       ensureNamedKey(readyPrefix + storeId)
       writeRecord(record.put("status", "ready"))
       ensureImagesDirectory()
       current = state
       observedPublication = publication
-      return JSONObject(state.toString())
+      return state
     } finally { GLOBAL_LOCK.unlock() }
   }
 
   fun commit(expectedRevision: String, change: (JSONObject) -> JSONObject): JSONObject {
     GLOBAL_LOCK.lock()
     try {
-      val old = open()
+      val before = snapshot()
+      val old = JSONObject(before.toString())
       val originalSession = old.opt("session")?.toString()
       if (parseRevision(expectedRevision) != revision) throw StateFailure("SESSION_REVISION_MISMATCH")
       if (revision == MAX_REVISION) throw StateFailure("STATE_INVALID")
       val next = change(old)
       val requested = next.getJSONObject("options").getLong("maxRecoveryBufferBytes")
-      val record = readRecord() ?: throw StateFailure("SESSION_STATE_INVALID")
       val nextBound = maxOf(readBudget, requested)
-      validateState(next, revision + BigInteger.ONE, nextBound, !sessionUsable && next.opt("session")?.toString() == originalSession)
-      writeRecord(record.put("readBudget", nextBound).put("preparedRevision", (revision + BigInteger.ONE).toString()))
-      readBudget = nextBound
-      publish(next, revision + BigInteger.ONE)
-      current = JSONObject(next.toString())
-      observedPublication = publication
+      val nextRevision = revision + BigInteger.ONE
+      validateState(next, nextRevision, nextBound, !sessionUsable && next.opt("session")?.toString() == originalSession)
+      if (nextBound != readBudget) {
+        // Raised before publishing: a larger bound than the published state needs is harmless, a smaller one is not.
+        val record = readRecord() ?: throw StateFailure("SESSION_STATE_INVALID")
+        writeRecord(record.put("readBudget", nextBound))
+        readBudget = nextBound
+      }
+      val oldPending = entries(before.getJSONArray("pending"))
+      val newPending = entries(next.getJSONArray("pending"))
+      val sessionChanged = next.opt("session")?.toString() != before.opt("session")?.toString()
+      // A changed entry is rewritten as delete plus insert, so its ordering columns follow its content.
+      val kept = newPending.filter { (id, item) -> oldPending[id]?.toString() == item.toString() }.keys
+      // The cache gets its own copy: the caller may keep and mutate the objects it built.
+      persist(JSONObject(next.toString()), nextRevision, sessionChanged,
+        deletes = oldPending.keys.filter { it !in kept },
+        inserts = newPending.filterKeys { it !in kept }.values.map { seal(it) })
       return JSONObject(next.toString())
     } catch (e: Exception) {
       current = null
@@ -174,7 +190,6 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     try {
       registeredGeneration = null
       registeredAccount = null
-      current = null
       val state = open()
       if (protocolBytes.size > SESSION_LIMIT) throw StateFailure("SESSION_STORAGE_LIMIT_REACHED")
       if (state.opt("session") != JSONObject.NULL || state.getJSONArray("sessionKeysToDelete").length() != 0) throw StateFailure("SESSION_STATE_INVALID")
@@ -201,7 +216,10 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
       fault?.invoke("sessionPublished")
       val committedRecord = readRecord() ?: throw StateFailure("SESSION_STATE_INVALID")
       writeRecord(committedRecord.put("provisionalSessionKeyId", JSONObject.NULL))
-    } finally { current = null; GLOBAL_LOCK.unlock() }
+    } catch (e: Exception) {
+      current = null // the next read reloads and cleans up a provisional key left behind
+      throw e
+    } finally { GLOBAL_LOCK.unlock() }
   }
 
   /**
@@ -341,7 +359,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     if (input.get("contractVersion") !is Number || input.get("contractVersion").toString() != "1") throw StateFailure("INVALID_REQUEST")
     GLOBAL_LOCK.lock()
     try {
-      val snapshot = open()
+      val snapshot = snapshot()
       val session = snapshot.optJSONObject("session")
       val data = JSONObject().put("revision", revision.toString())
         .put("sessionRevision", session?.getString("sessionRevision") ?: "0")
@@ -365,8 +383,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     if (input.get("contractVersion") !is Number || input.get("contractVersion").toString() != "1") throw StateFailure("INVALID_REQUEST")
     GLOBAL_LOCK.lock()
     try {
-      val snapshot = open()
-      JSONObject().put("revision", revision.toString()).put("pending", snapshot.getJSONArray("pending"))
+      JSONObject().put("revision", revision.toString()).put("pending", snapshot().getJSONArray("pending"))
     } finally { GLOBAL_LOCK.unlock() }
   }
 
@@ -380,16 +397,19 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     val id = input.getString("deliveryId")
     GLOBAL_LOCK.lock()
     try {
-      val snapshot = open()
-      val existing = snapshot.getJSONArray("pending")
-      val kept = JSONArray()
-      var removed = false
-      for (i in 0 until existing.length()) {
-        val item = existing.getJSONObject(i)
-        if (item.getString("deliveryId") == id) removed = true else kept.put(item)
+      val state = snapshot()
+      val existing = state.getJSONArray("pending")
+      val index = (0 until existing.length()).firstOrNull { existing.getJSONObject(it).getString("deliveryId") == id }
+      if (index != null) {
+        if (revision == MAX_REVISION) throw StateFailure("STATE_INVALID")
+        // Deletes one row; the session and every other entry stay untouched on disk.
+        val next = JSONObject().put("session", state.get("session")).put("pending", JSONArray().also { kept ->
+          for (i in 0 until existing.length()) if (i != index) kept.put(existing.get(i))
+        }).put("sessionKeysToDelete", state.get("sessionKeysToDelete")).put("options", state.get("options"))
+          .put("androidService", state.get("androidService"))
+        persist(next, revision + BigInteger.ONE, sessionChanged = false, deletes = listOf(id))
       }
-      if (removed) commit(revision.toString()) { old -> old.put("pending", kept) }
-      JSONObject().put("revision", revision.toString()).put("removed", removed)
+      JSONObject().put("revision", revision.toString()).put("removed", index != null)
     } finally { GLOBAL_LOCK.unlock() }
   }
 
@@ -425,7 +445,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     try {
       if (request.toByteArray(Charsets.UTF_8).size > SESSION_LIMIT.toLong() + readBudget + 12340L) throw StateFailure("INVALID_REQUEST")
       if (registeredGeneration != generation || registeredAccount != account) throw StateFailure("STALE_GENERATION")
-      val snapshot = open()
+      val snapshot = snapshot()
       val session = snapshot.optJSONObject("session") ?: throw StateFailure("STALE_GENERATION")
       if (session.getString("accountId") != account) throw StateFailure("STALE_GENERATION")
       if (parseRevision(session.getString("sessionRevision")) != expected) throw StateFailure("SESSION_REVISION_MISMATCH")
@@ -463,6 +483,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
         item.put("createdRevision", (revision + BigInteger.ONE).toString()).put("createdOrdinal", i)
         pending.put(item)
       }
+      val resolved = mutableListOf<JSONObject>()
       for (i in 0 until updates.length()) {
         val update = updates.getJSONObject(i)
         val id = update.getString("deliveryId")
@@ -471,6 +492,7 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
           val item = pending.getJSONObject(j)
           if (item.getString("deliveryId") == id && item.getString("identityState") == "pendingLid") {
             item.put("identityState", "resolved").put("message", update.getJSONObject("message"))
+            resolved.add(item)
             found = true
           }
         }
@@ -483,16 +505,20 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
       val budget = snapshot.getJSONObject("options").getLong("maxRecoveryBufferBytes")
       val maxPending = if (inserts.length() > 0) budget else maxOf(budget, readBudget)
       if (pending.toString().toByteArray(Charsets.UTF_8).size > maxPending) throw StateFailure("BUFFER_FULL")
+      if (revision == MAX_REVISION) throw StateFailure("STATE_INVALID")
       val nextRevision = revision + BigInteger.ONE
+      val added = (existing.length() until pending.length()).map { pending.getJSONObject(it) }
+      for (item in added + resolved) validatePendingEntry(item, nextRevision, maxOf(budget, readBudget))
       val nextSession = if (changes.length() == 0) session else {
         val id = session.getString("sessionKeyId")
         val (nonce, ciphertext) = encrypt(id, plain, sessionAad(storeId, account, id, nextRevision.toString()))
         JSONObject().put("accountId", account).put("sessionKeyId", id).put("sessionRevision", nextRevision.toString())
           .put("nonceBase64", b64(nonce)).put("ciphertextBase64", b64(ciphertext))
       }
-      val next = commit(revision.toString()) { old -> old.put("session", nextSession).put("pending", pending) }
-      JSONObject().put("revision", revision.toString())
-        .put("sessionRevision", next.getJSONObject("session").getString("sessionRevision"))
+      val next = JSONObject().put("session", nextSession).put("pending", pending).put("sessionKeysToDelete", snapshot.get("sessionKeysToDelete"))
+        .put("options", snapshot.get("options")).put("androidService", snapshot.get("androidService"))
+      persist(next, nextRevision, sessionChanged = changes.length() > 0, inserts = added.map { seal(it) }, updates = resolved.map { seal(it) })
+      JSONObject().put("revision", revision.toString()).put("sessionRevision", nextSession.getString("sessionRevision"))
     } finally { GLOBAL_LOCK.unlock() }
   }
 
@@ -678,13 +704,16 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
         fault?.invoke("keyDeleted")
         commit(revision.toString()) { it.put("sessionKeysToDelete", JSONArray()) }
       }
-    } finally { current = null; GLOBAL_LOCK.unlock() }
+    } catch (e: Exception) {
+      current = null // the next read reloads and finishes the interrupted retirement
+      throw e
+    } finally { GLOBAL_LOCK.unlock() }
   }
 
   private fun create(): JSONObject {
     storeId = newId(); recoveryId = newId(); readBudget = DEFAULT_BUFFER
     val record = JSONObject().put("status", "creating").put("storeId", storeId)
-      .put("recoveryKeyId", recoveryId).put("readBudget", readBudget).put("preparedRevision", "0").put("provisionalSessionKeyId", JSONObject.NULL)
+      .put("recoveryKeyId", recoveryId).put("readBudget", readBudget).put("provisionalSessionKeyId", JSONObject.NULL)
     ensureNamedKey(marker(storeId, recoveryId))
     ensureKey(recordAlias)
     writeRecord(record)
@@ -692,14 +721,14 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     ensureKey(recoveryId)
     fault?.invoke("recoveryKey")
     val state = emptyState()
-    publish(state, BigInteger.ZERO)
+    createDatabase(state)
     fault?.invoke("initialPublication")
     ensureNamedKey(readyPrefix + storeId)
     writeRecord(record.put("status", "ready"))
     ensureImagesDirectory()
     current = state
     observedPublication = publication
-    return JSONObject(state.toString())
+    return state
   }
 
   private fun emptyState() = JSONObject().put("session", JSONObject.NULL).put("pending", JSONArray())
@@ -718,77 +747,92 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     writeRecord(record.put("provisionalSessionKeyId", JSONObject.NULL))
   }
 
-  private fun publish(state: JSONObject, nextRevision: BigInteger) {
-    val plaintext = state.toString().toByteArray(Charsets.UTF_8)
-    val header = JSONObject().put("formatVersion", 1).put("storeId", storeId).put("revision", nextRevision.toString())
-      .put("recoveryKeyId", recoveryId).toString().toByteArray(Charsets.UTF_8)
-    if (header.size > 4096 || plaintext.size > SESSION_LIMIT + readBudget + 4096) throw StateFailure("STATE_INVALID")
-    val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-    cipher.init(Cipher.ENCRYPT_MODE, getKey(recoveryId))
-    val nonce = cipher.iv.also { if (it.size != 12) throw StateFailure("STORAGE_FAILED") }
-    val prefix = ByteBuffer.allocate(8 + 4 + header.size + 12 + 8).order(ByteOrder.BIG_ENDIAN)
-      .put("YOYOWA01".toByteArray(Charsets.US_ASCII)).putInt(header.size).put(header).put(nonce)
-      .putLong(plaintext.size.toLong() + 16).array()
-    fault?.invoke("cipher")
-    cipher.updateAAD(prefix)
-    val sealed = cipher.doFinal(plaintext)
+  /** The first publication: a complete database is built aside and renamed into place, so it exists whole or not at all. */
+  private fun createDatabase(state: JSONObject) {
     try {
       removeTemp(temporary)
-      FileOutputStream(temporary).use { output ->
-        fault?.invoke("write")
-        output.write(prefix); output.write(sealed)
-        fault?.invoke("sync")
-        output.fd.sync()
-        fault?.invoke("close")
-      }
-      uncertain = true
-      fault?.invoke("replace")
+      removeTemp(File(temporary.path + "-journal"))
+      StateDatabase.create(temporary, storeId, control(state))
       Os.rename(temporary.path, published.path)
-      publication++
-      fault?.invoke("directorySync")
+      removeTemp(File(temporary.path + "-journal")) // the creation transaction's empty journal
       syncDirectory()
-      revision = nextRevision
-      fault?.invoke("response")
-      uncertain = false
+      publication++
+      revision = BigInteger.ZERO
+    } catch (e: StateFailure) {
+      throw e
     } catch (e: Exception) {
       throw StateFailure("STORAGE_FAILED")
     }
   }
 
-  private fun readSnapshot(file: File, bound: Long): JSONObject {
-    val maximum = SESSION_LIMIT.toLong() + bound + 8244
-    if (!file.isFile || file.length() < 8 + 4 + 12 + 8 + 16 || file.length() > maximum || file.length() > Int.MAX_VALUE) throw StateFailure("SESSION_STATE_INVALID")
-    val bytes = ByteArray(file.length().toInt())
-    FileInputStream(file).use { input ->
-      var offset = 0
-      while (offset < bytes.size) {
-        val count = input.read(bytes, offset, bytes.size - offset)
-        if (count <= 0) throw StateFailure("SESSION_STATE_INVALID")
-        offset += count
-      }
-      if (input.read() != -1) throw StateFailure("SESSION_STATE_INVALID")
+  /** Publishes [next] at [nextRevision] in one transaction; the cache follows only a committed write. */
+  private fun persist(
+    next: JSONObject, nextRevision: BigInteger, sessionChanged: Boolean,
+    deletes: List<String> = emptyList(), inserts: List<SealedPending> = emptyList(), updates: List<SealedPending> = emptyList(),
+  ) {
+    val session = next.opt("session").takeIf { it != JSONObject.NULL }?.toString()?.toByteArray(Charsets.UTF_8)
+    val change = StateChange(nextRevision.toString(), control(next), sessionChanged, session, deletes, inserts, updates)
+    try {
+      uncertain = true
+      db().write(change) { fault?.invoke("beforeCommit") }
+      publication++
+      fault?.invoke("afterCommit")
+      revision = nextRevision
+      current = next
+      observedPublication = publication
+      fault?.invoke("response")
+      uncertain = false
+    } catch (e: Exception) {
+      current = null
+      throw if (e is StateFailure && e.code == "INVALID_REQUEST") e else StateFailure("STORAGE_FAILED")
     }
-    val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.BIG_ENDIAN)
-    val magic = ByteArray(8).also(buffer::get)
-    if (!magic.contentEquals("YOYOWA01".toByteArray(Charsets.US_ASCII))) throw StateFailure("SESSION_STATE_INVALID")
-    val length = buffer.getInt()
-    if (length <= 0 || length > 4096 || length > buffer.remaining() - 36) throw StateFailure("SESSION_STATE_INVALID")
-    val headerBytes = ByteArray(length).also(buffer::get)
-    val header = parseObject(headerBytes)
-    exact(header, "formatVersion", "storeId", "revision", "recoveryKeyId")
-    strings(header, "storeId", "revision", "recoveryKeyId")
-    if (header.get("formatVersion") !is Number || header.get("formatVersion").toString() != "1" || header.getString("storeId") != storeId || header.getString("recoveryKeyId") != recoveryId) throw StateFailure("SESSION_STATE_INVALID")
-    if (header.get("revision") !is String) throw StateFailure("SESSION_STATE_INVALID")
-    val nextRevision = parseRevision(header.getString("revision"))
-    val nonce = ByteArray(12).also(buffer::get)
-    val ciphertextLength = buffer.getLong()
-    if (ciphertextLength < 16 || ciphertextLength > maximum || ciphertextLength != buffer.remaining().toLong()) throw StateFailure("SESSION_STATE_INVALID")
-    val prefix = bytes.copyOfRange(0, buffer.position())
+  }
+
+  private fun db(): StateDatabase = database ?: try {
+    StateDatabase(published).also { database = it }
+  } catch (e: Exception) { throw StateFailure("SESSION_STATE_INVALID") }
+
+  /** Everything except the session and the pending entries: the small control part of the state. */
+  private fun control(state: JSONObject): ByteArray = JSONObject().put("sessionKeysToDelete", state.get("sessionKeysToDelete"))
+    .put("options", state.get("options")).put("androidService", state.get("androidService")).toString().toByteArray(Charsets.UTF_8)
+
+  private fun entries(pending: JSONArray): Map<String, JSONObject> =
+    (0 until pending.length()).map { pending.getJSONObject(it) }.associateBy { it.getString("deliveryId") }
+
+  private fun pendingAad(id: String, createdRevision: String, ordinal: Long) =
+    JSONArray().put("yoyos-whatsapp-pending").put(1).put(storeId).put(id).put(createdRevision).put(ordinal).toString().toByteArray(Charsets.UTF_8)
+
+  private fun seal(entry: JSONObject): SealedPending {
+    val id = entry.getString("deliveryId")
+    val created = entry.getString("createdRevision")
+    val ordinal = entry.getLong("createdOrdinal")
+    val (nonce, ciphertext) = encrypt(recoveryId, entry.toString().toByteArray(Charsets.UTF_8), pendingAad(id, created, ordinal))
+    return SealedPending(id, created, ordinal, nonce, ciphertext)
+  }
+
+  private fun unseal(sealed: SealedPending): JSONObject {
+    if (sealed.nonce.size != 12 || sealed.ciphertext.size < 16) throw StateFailure("SESSION_STATE_INVALID")
     val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-    cipher.init(Cipher.DECRYPT_MODE, getKey(recoveryId), GCMParameterSpec(128, nonce))
-    cipher.updateAAD(prefix)
-    val plaintext = cipher.doFinal(bytes, buffer.position(), ciphertextLength.toInt())
-    val state = parseObject(plaintext)
+    cipher.init(Cipher.DECRYPT_MODE, getKey(recoveryId), GCMParameterSpec(128, sealed.nonce))
+    cipher.updateAAD(pendingAad(sealed.deliveryId, sealed.createdRevision, sealed.createdOrdinal))
+    val entry = parseObject(cipher.doFinal(sealed.ciphertext))
+    if (entry.opt("deliveryId") != sealed.deliveryId || entry.opt("createdRevision") != sealed.createdRevision ||
+      entry.opt("createdOrdinal")?.toString() != sealed.createdOrdinal.toString()) throw StateFailure("SESSION_STATE_INVALID")
+    return entry
+  }
+
+  /** Loads and validates the whole published state once; afterwards it is served from the cache. */
+  private fun readSnapshot(bound: Long): JSONObject {
+    val stored = try { db().read(SESSION_LIMIT.toLong() * 2, bound + 1024) } catch (e: StateFailure) { throw e } catch (e: Exception) { throw StateFailure("SESSION_STATE_INVALID") }
+    if (stored.storeId != storeId) throw StateFailure("SESSION_STATE_INVALID")
+    getKey(recoveryId) // an established store without its recovery key is invalid even with no pending entry
+    val nextRevision = parseRevision(stored.revision)
+    val state = parseObject(stored.control)
+    exact(state, "sessionKeysToDelete", "options", "androidService")
+    state.put("session", stored.session?.let { parseObject(it) } ?: JSONObject.NULL)
+    val pending = stored.pending.map { unseal(it) }
+      .sortedWith(compareBy<JSONObject>({ BigInteger(it.getString("createdRevision")) }, { it.getLong("createdOrdinal") }))
+    state.put("pending", JSONArray().also { array -> pending.forEach { array.put(it) } })
     validateState(state, nextRevision, bound, true)
     revision = nextRevision
     return state
@@ -854,38 +898,43 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     val deliveryIds = mutableSetOf<String>()
     for (index in 0 until pending.length()) {
       val item = pending.getJSONObject(index)
-      exact(item, "deliveryId", "accountId", "createdRevision", "createdOrdinal", "source", "identityState", "recovery", *(if (item.has("message")) arrayOf("message") else emptyArray()))
-      strings(item, "deliveryId", "accountId", "createdRevision", "source", "identityState")
-      if (!DELIVERY.matches(item.getString("deliveryId")) || !ACCOUNT.matches(item.getString("accountId"))) throw StateFailure("SESSION_STATE_INVALID")
-      if (item.get("createdRevision") !is String) throw StateFailure("SESSION_STATE_INVALID")
-      val created = parseRevision(item.getString("createdRevision"))
-      val rawOrdinal = item.get("createdOrdinal")
-      if (rawOrdinal !is Number || !Regex("0|[1-9][0-9]*").matches(rawOrdinal.toString())) throw StateFailure("SESSION_STATE_INVALID")
-      val ordinal = rawOrdinal.toString().toLongOrNull() ?: throw StateFailure("SESSION_STATE_INVALID")
-      if (created > atRevision || ordinal !in 0L..4294967295L || !used.add("$created:$ordinal") || !deliveryIds.add(item.getString("deliveryId"))) throw StateFailure("SESSION_STATE_INVALID")
-      if (item.getString("source") !in listOf("live", "history") || item.getString("identityState") !in listOf("pendingLid", "resolved")) throw StateFailure("SESSION_STATE_INVALID")
-      if ((item.getString("identityState") == "resolved") != item.has("message")) throw StateFailure("SESSION_STATE_INVALID")
-      if (item.has("message")) validateMessage(item.get("message") as? JSONObject ?: throw StateFailure("SESSION_STATE_INVALID"), item.getString("accountId"))
-      val recovery = item.getJSONObject("recovery")
-      exact(recovery, "messageInfoJson", "items")
-      strings(recovery, "messageInfoJson")
-      parseObject(recovery.getString("messageInfoJson").toByteArray(Charsets.UTF_8))
-      val children = recovery.getJSONArray("items")
-      for (i in 0 until children.length()) {
-        val child = children.getJSONObject(i)
-        exact(child, "format", "plaintextBase64", *(if (child.has("ciphertextHashBase64")) arrayOf("ciphertextHashBase64") else emptyArray()))
-        strings(child, "format", "plaintextBase64")
-        if (child.has("ciphertextHashBase64")) strings(child, "ciphertextHashBase64")
-        val format = child.getString("format")
-        if (format !in listOf("v2", "v3", "history")) throw StateFailure("SESSION_STATE_INVALID")
-        if ((item.getString("source") == "history") != (format == "history")) throw StateFailure("SESSION_STATE_INVALID")
-        decode(child.getString("plaintextBase64"), minOf(bound, Int.MAX_VALUE.toLong()).toInt())
-        if (format == "history" && child.has("ciphertextHashBase64")) throw StateFailure("SESSION_STATE_INVALID")
-        if (format != "history" && (!child.has("ciphertextHashBase64") || decode(child.getString("ciphertextHashBase64"), 32).size != 32)) throw StateFailure("SESSION_STATE_INVALID")
-      }
+      validatePendingEntry(item, atRevision, bound)
+      if (!used.add(item.getString("createdRevision") + ":" + item.getLong("createdOrdinal")) || !deliveryIds.add(item.getString("deliveryId"))) throw StateFailure("SESSION_STATE_INVALID")
     }
     val control = state.toString().toByteArray(Charsets.UTF_8).size - (session?.toString()?.toByteArray(Charsets.UTF_8)?.size ?: 4) - pending.toString().toByteArray(Charsets.UTF_8).size
     if (control > 4096) throw StateFailure("SESSION_STATE_INVALID")
+  }
+
+  private fun validatePendingEntry(item: JSONObject, atRevision: BigInteger, bound: Long) {
+    exact(item, "deliveryId", "accountId", "createdRevision", "createdOrdinal", "source", "identityState", "recovery", *(if (item.has("message")) arrayOf("message") else emptyArray()))
+    strings(item, "deliveryId", "accountId", "createdRevision", "source", "identityState")
+    if (!DELIVERY.matches(item.getString("deliveryId")) || !ACCOUNT.matches(item.getString("accountId"))) throw StateFailure("SESSION_STATE_INVALID")
+    if (item.get("createdRevision") !is String) throw StateFailure("SESSION_STATE_INVALID")
+    val created = parseRevision(item.getString("createdRevision"))
+    val rawOrdinal = item.get("createdOrdinal")
+    if (rawOrdinal !is Number || !Regex("0|[1-9][0-9]*").matches(rawOrdinal.toString())) throw StateFailure("SESSION_STATE_INVALID")
+    val ordinal = rawOrdinal.toString().toLongOrNull() ?: throw StateFailure("SESSION_STATE_INVALID")
+    if (created > atRevision || ordinal !in 0L..4294967295L) throw StateFailure("SESSION_STATE_INVALID")
+    if (item.getString("source") !in listOf("live", "history") || item.getString("identityState") !in listOf("pendingLid", "resolved")) throw StateFailure("SESSION_STATE_INVALID")
+    if ((item.getString("identityState") == "resolved") != item.has("message")) throw StateFailure("SESSION_STATE_INVALID")
+    if (item.has("message")) validateMessage(item.get("message") as? JSONObject ?: throw StateFailure("SESSION_STATE_INVALID"), item.getString("accountId"))
+    val recovery = item.getJSONObject("recovery")
+    exact(recovery, "messageInfoJson", "items")
+    strings(recovery, "messageInfoJson")
+    parseObject(recovery.getString("messageInfoJson").toByteArray(Charsets.UTF_8))
+    val children = recovery.getJSONArray("items")
+    for (i in 0 until children.length()) {
+      val child = children.getJSONObject(i)
+      exact(child, "format", "plaintextBase64", *(if (child.has("ciphertextHashBase64")) arrayOf("ciphertextHashBase64") else emptyArray()))
+      strings(child, "format", "plaintextBase64")
+      if (child.has("ciphertextHashBase64")) strings(child, "ciphertextHashBase64")
+      val format = child.getString("format")
+      if (format !in listOf("v2", "v3", "history")) throw StateFailure("SESSION_STATE_INVALID")
+      if ((item.getString("source") == "history") != (format == "history")) throw StateFailure("SESSION_STATE_INVALID")
+      decode(child.getString("plaintextBase64"), minOf(bound, Int.MAX_VALUE.toLong()).toInt())
+      if (format == "history" && child.has("ciphertextHashBase64")) throw StateFailure("SESSION_STATE_INVALID")
+      if (format != "history" && (!child.has("ciphertextHashBase64") || decode(child.getString("ciphertextHashBase64"), 32).size != 32)) throw StateFailure("SESSION_STATE_INVALID")
+    }
   }
 
   private fun validateMessage(message: JSONObject, account: String) {
@@ -949,12 +998,12 @@ internal class NativeStateStore(private val context: Context, keySpaceSuffix: St
     val cipher = Cipher.getInstance("AES/GCM/NoPadding")
     cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
     val record = parseObject(cipher.doFinal(bytes, 12, bytes.size - 12))
-    exact(record, "status", "storeId", "recoveryKeyId", "readBudget", "preparedRevision", "provisionalSessionKeyId")
-    strings(record, "status", "storeId", "recoveryKeyId", "preparedRevision")
+    exact(record, "status", "storeId", "recoveryKeyId", "readBudget", "provisionalSessionKeyId")
+    strings(record, "status", "storeId", "recoveryKeyId")
     if (record.opt("provisionalSessionKeyId") != JSONObject.NULL) strings(record, "provisionalSessionKeyId")
     val budget = record.get("readBudget")
     val budgetValue = budget.toString().toLongOrNull()
-    if (record.getString("status") !in listOf("creating", "ready") || !ID.matches(record.getString("storeId")) || !ID.matches(record.getString("recoveryKeyId")) || budget !is Number || !Regex("[1-9][0-9]*").matches(budget.toString()) || budgetValue == null || budgetValue !in 1L..9007199254740991L || parseRevision(record.getString("preparedRevision")) > MAX_REVISION) throw StateFailure("SESSION_STATE_INVALID")
+    if (record.getString("status") !in listOf("creating", "ready") || !ID.matches(record.getString("storeId")) || !ID.matches(record.getString("recoveryKeyId")) || budget !is Number || !Regex("[1-9][0-9]*").matches(budget.toString()) || budgetValue == null || budgetValue !in 1L..9007199254740991L) throw StateFailure("SESSION_STATE_INVALID")
     return record
   }
 
