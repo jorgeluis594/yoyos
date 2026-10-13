@@ -186,39 +186,50 @@ test("dispatch filters, including disabled couriers and Sin programar, reach the
     courierId: "00000000-0000-4000-8000-0000000000c1", unscheduled: true }));
 });
 
+const pressOrder = (screen: ReturnType<typeof render>, number: number, long = false) => {
+  const row = screen.getByText(new RegExp(`#${number} ·`)).parent!.parent!;
+  fireEvent(row, long ? "longPress" : "press");
+};
+
+test("long press enters selection mode; taps toggle without navigating; unselecting the last exits", async () => {
+  pagedOrders();
+  const screen = render(<OrderHistoryScreen />);
+  await screen.findByRole("button", { name: "Siguiente" });
+  expect(screen.queryByText("Seleccionar todos")).toBeNull();
+  expect(screen.queryByText(/seleccionados/)).toBeNull();
+  pressOrder(screen, 1001);
+  expect(mockPush).toHaveBeenCalledTimes(1);
+  mockPush.mockClear();
+  pressOrder(screen, 1001, true);
+  expect(screen.getByText(/1 seleccionados/)).toBeTruthy();
+  pressOrder(screen, 1002);
+  expect(screen.getByText(/2 seleccionados/)).toBeTruthy();
+  pressOrder(screen, 1002);
+  pressOrder(screen, 1001);
+  expect(screen.queryByText(/seleccionados/)).toBeNull();
+  expect(mockPush).not.toHaveBeenCalled();
+});
+
 test("selection spans pages, totals the selected orders and resets with filters", async () => {
   pagedOrders();
   const screen = render(<OrderHistoryScreen />);
   await screen.findByText("Programado: 2026-10-20 · Olva");
-  expect(screen.getAllByText("Olva")).toHaveLength(1);
-  fireEvent.press(screen.getByRole("button", { name: "Seleccionar todos" }));
-  expect(screen.getByText(/20 seleccionados · .*210[.,]00/)).toBeTruthy();
+  pressOrder(screen, 1001, true);
+  pressOrder(screen, 1002);
+  expect(screen.getByText(/2 seleccionados · .*3[.,]00/)).toBeTruthy();
   fireEvent.press(screen.getByRole("button", { name: "Siguiente" }));
   await screen.findByRole("button", { name: "Anterior" });
-  expect(screen.getByText(/20 seleccionados/)).toBeTruthy();
-  fireEvent.press(screen.getByRole("checkbox", { name: "Seleccionar pedido 1021" }));
-  expect(screen.getByText(/21 seleccionados · .*231[.,]00/)).toBeTruthy();
-  fireEvent.press(screen.getByRole("checkbox", { name: "Seleccionar pedido 1021" }));
-  expect(screen.getByText(/20 seleccionados/)).toBeTruthy();
+  expect(screen.getByText(/2 seleccionados/)).toBeTruthy();
+  pressOrder(screen, 1021);
+  expect(screen.getByText(/3 seleccionados · .*24[.,]00/)).toBeTruthy();
   fireEvent.press(screen.getByRole("button", { name: "Por cobrar" }));
   await waitFor(() => expect(screen.queryByText(/seleccionados/)).toBeNull());
-  fireEvent.press(screen.getByRole("checkbox", { name: "Seleccionar pedido 1001" }));
-  fireEvent.press(screen.getByRole("button", { name: "Todos" }));
-  await waitFor(() => expect(screen.queryByText(/seleccionados/)).toBeNull());
-  fireEvent.press(screen.getByRole("button", { name: "Por cobrar" }));
-  await screen.findByRole("checkbox", { name: "Seleccionar pedido 1001" });
-  expect(screen.queryByText(/seleccionados/)).toBeNull();
-});
-
-test("select all covers only the visible page and can be cleared", async () => {
-  pagedOrders();
-  const screen = render(<OrderHistoryScreen />);
-  await screen.findByRole("button", { name: "Siguiente" });
-  fireEvent.press(screen.getByRole("button", { name: "Seleccionar todos" }));
+  pressOrder(screen, 1001, true);
   fireEvent.press(screen.getByRole("button", { name: "Quitar selección" }));
   expect(screen.queryByText(/seleccionados/)).toBeNull();
-  fireEvent.press(screen.getByRole("checkbox", { name: "Seleccionar pedido 1003" }));
-  expect(screen.getByText(/1 seleccionados/)).toBeTruthy();
+  pressOrder(screen, 1001, true);
+  fireEvent.press(screen.getByRole("button", { name: "Todos" }));
+  await waitFor(() => expect(screen.queryByText(/seleccionados/)).toBeNull());
 });
 
 async function selectedOn(os: "android" | "ios") {
@@ -229,7 +240,7 @@ async function selectedOn(os: "android" | "ios") {
     pagedOrders();
     const screen = render(<OrderHistoryScreen />);
     await screen.findByRole("button", { name: "Siguiente" });
-    fireEvent.press(screen.getByRole("checkbox", { name: "Seleccionar pedido 1003" }));
+    pressOrder(screen, 1003, true);
     return screen;
   } finally { Platform.OS = original; }
 }
