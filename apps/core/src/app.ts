@@ -111,6 +111,3 @@ app.use("/api", (error: unknown, _request: express.Request, response: express.Re
   return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
 });
 
-app.use("/webhooks", express.raw({ type: "*/*" }), (_request, response) => {
-  response.sendStatus(404);
-});
