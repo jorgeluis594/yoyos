@@ -70,11 +70,11 @@ export default function OrderHistoryScreen() {
   const dispatchPrint = useDispatchPrint();
   const selection = useOrderSelection(`${companyId}|${JSON.stringify({ ...criteria, page: 0 })}`);
   const clearSelection = selection.clear;
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     if (!selection.count) return;
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => { clearSelection(); return true; });
     return () => subscription.remove();
-  }, [selection.count, clearSelection]);
+  }, [selection.count, clearSelection]));
 
   const reload = useCallback(async (company: string, filters: OrderListCriteria) => {
     const request = ++activeRequest.current;
