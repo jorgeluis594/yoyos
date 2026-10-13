@@ -10,10 +10,10 @@ const mockReplace = jest.fn();
 const mockCompleteOrder = jest.fn();
 const mockQuotation = jest.fn();
 const mockSettingsGet = jest.fn();
-const mockReadPending = jest.fn();
+let mockPending: unknown = ok([]);
+const mockRefreshPending = jest.fn(async () => {});
+const mockSyncPending = jest.fn();
 const mockDiscardPending = jest.fn();
-const mockResolvePending = jest.fn();
-const mockResendPending = jest.fn();
 const mockLoadReview = jest.fn();
 const mockReviewOrder = jest.fn();
 let mockDirty = false;
@@ -34,12 +34,9 @@ jest.mock("expo-crypto", () => ({ randomUUID: () => mockId(mockNextId++) }));
 jest.mock("expo-network", () => ({ useNetworkState: () => ({ isConnected: !mockOffline, isInternetReachable: !mockOffline }),
   getNetworkStateAsync: async () => ({ isConnected: !mockOffline, isInternetReachable: !mockOffline }) }));
 jest.mock("@mobile/features/orders/composition", () => ({ orders: {
-  readPendingOrderConfirmation: (...args: unknown[]) => mockReadPending(...args),
   discardPendingOrderConfirmation: (...args: unknown[]) => mockDiscardPending(...args),
-  resendPendingOrder: (...args: unknown[]) => mockResendPending(...args),
   loadPendingOrderReview: (...args: unknown[]) => mockLoadReview(...args),
   reviewPendingOrder: (...args: unknown[]) => mockReviewOrder(...args),
-  resolvePendingOrderConfirmation: (...args: unknown[]) => mockResolvePending(...args),
   searchOrderCatalog: async () => ({ success: true, data: [{ id: mockId(4), name: "Camisa", currency: "PEN",
     variants: [{ id: mockId(2), attributes: { Talla: "M" }, sku: "CAM-M", price: 10, stock: 3 }] }] }),
   completeOrder: (...args: unknown[]) => mockCompleteOrder(...args),
@@ -69,6 +66,8 @@ jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAcc
 jest.mock("@mobile/features/orders/presentation/order-draft-guard", () => ({ useOrderDraft: () => ({
   dirty: mockDirty, setDirty: mockSetDirty, discardVersion: mockDiscardVersion,
 }) }));
+jest.mock("@mobile/features/orders/presentation/pending-order-sync-provider", () => ({ usePendingOrders: () => ({
+  pending: mockPending, refresh: mockRefreshPending, trigger: mockSyncPending }) }));
 jest.mock("@mobile/features/orders/presentation/order-result", () => ({ useOrderResult: () => ({ show: mockShow }) }));
 jest.mock("react-native-screens/experimental", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
@@ -163,7 +162,7 @@ test("delivered status explains missing payment and allows saving once covered",
 });
 beforeEach(() => { jest.clearAllMocks(); mockQuotation.mockReset(); mockSettingsGet.mockReset();
   mockQuotation.mockResolvedValue(ok(quotation));
-  mockSettingsGet.mockResolvedValue(ok({ version: 1, home: { enabled: true }, store: { enabled: false, pickupPoint: null }, agency: { enabled: false }, couriers: [] })); mockNextId = 3; mockCountry = "PE"; mockDirty = false; mockDiscardVersion = 0; mockOffline = false; mockReadPending.mockResolvedValue(ok(null)); });
+  mockSettingsGet.mockResolvedValue(ok({ version: 1, home: { enabled: true }, store: { enabled: false, pickupPoint: null }, agency: { enabled: false }, couriers: [] })); mockNextId = 3; mockCountry = "PE"; mockDirty = false; mockDiscardVersion = 0; mockOffline = false; mockPending = ok([]); });
 
 test("Chile seller selects a variant, reviews the amount, and opens the completed sale", async () => {
   mockCountry = "CL";
@@ -179,42 +178,6 @@ test("Chile seller selects a variant, reviews the amount, and opens the complete
   await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledWith(expect.objectContaining({ id: mockId(3) }), mockId(1)));
   expect(mockShow).toHaveBeenCalledWith({ id: mockId(3), shownTotal: { amount: 10, currency: "PEN" } });
   expect(mockReplace).toHaveBeenCalledWith(`/orders/${mockId(3)}`);
-});
-
-test("an attempt saved in an older format cannot be read and is discarded to continue selling", async () => {
-  mockReadPending.mockResolvedValue(err({ code: "INVALID_PENDING_DATA", message: "Invalid pending order" }));
-  mockDiscardPending.mockResolvedValue(ok(undefined));
-  const screen = render(<NewOrderScreen />);
-  await screen.findByText("No se pudo leer el intento pendiente");
-  fireEvent.press(screen.getByRole("button", { name: "Descartar intento pendiente" }));
-  await waitFor(() => expect(mockDiscardPending).toHaveBeenCalledWith(mockId(1)));
-  await screen.findByText("Camisa");
-  expect(screen.queryByText("No se pudo leer el intento pendiente")).toBeNull();
-});
-
-test("uncertain save keeps the sale on its page and a stock rejection on retry returns to the editable cart", async () => {
-  const pending = { version: 2, companyId: mockId(1), id: mockId(3), shownTotal: { amount: 10, currency: "PEN" }, request: { id: mockId(3), items: [{ variantId: mockId(2), quantity: 1 }] } };
-  mockCompleteOrder.mockResolvedValueOnce(ok({ kind: "uncertain", pending }));
-  mockResolvePending.mockResolvedValue(ok({ kind: "uncertain", pending }));
-  mockReviewOrder.mockResolvedValueOnce(ok({ kind: "uncertain", pending }));
-  mockResendPending.mockResolvedValueOnce(err({
-    code: "INSUFFICIENT_STOCK", message: "No stock", issues: [{ field: "items", reason: "STOCK", variantId: mockId(2) }],
-  }));
-  const screen = await review();
-  await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" })); });
-  expect(screen.getByText("Venta sin confirmar")).toBeTruthy();
-  expect(screen.getByText(/No sabemos si se guardó/)).toBeTruthy();
-  expect(screen.getByText("Camisa")).toBeTruthy();
-  expect(screen.queryByText(mockId(3))).toBeNull();
-  await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Comprobar" })); });
-  expect(mockResolvePending).toHaveBeenCalledWith(mockId(1));
-  expect(screen.getByText(/Aún no está en tus pedidos/)).toBeTruthy();
-  await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar otra vez" })); });
-  expect(mockReviewOrder).toHaveBeenCalledWith(mockId(1), expect.objectContaining({ id: mockId(3) }));
-  expect(mockResendPending).toHaveBeenCalledWith(mockId(1));
-  await screen.findByText("Ya no hay stock suficiente. Corrige la cantidad y vuelve a confirmar.");
-  fireEvent.press(screen.getByRole("button", { name: "Editar productos" }));
-  expect(screen.getByText("Revisa esta variante.")).toBeTruthy();
 });
 
 test("leaving with items asks to discard and reopening starts with an empty cart", async () => {
@@ -342,52 +305,6 @@ test("decimal comma in an initial payment updates the summary and allows saving"
   await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledWith(expect.objectContaining({
     payments: [expect.objectContaining({ amount: "5.50" })],
   }), mockId(1)));
-});
-
-test("restart opens the saved sale on its page and saves the same attempt again", async () => {
-  const delivery = { expectedPrice: { amount: 8, currency: "PEN" }, delivery: { method: "home", rateId: mockId(9),
-    recipient: { name: "Ana", phone: "999001", identity: { kind: "absent" } }, destination: { districtCode: "150122", address: "Original street", instructions: null } } };
-  const pending = { version: 2, companyId: mockId(1), id: mockId(3), shownTotal: { amount: 18, currency: "PEN" },
-    request: { id: mockId(3), items: [{ variantId: mockId(2), quantity: 1 }], delivery } };
-  const draft = { kind: "items", id: pending.id, ratedDelivery: delivery, items: [{ variantId: mockId(2), quantity: 1, productName: "Camisa",
-    variantAttributes: {}, sku: null, shownUnitPrice: { amount: 10, currency: "PEN" }, shownStock: 3 }] };
-  mockReadPending.mockResolvedValue(ok(pending));
-  mockLoadReview.mockResolvedValue(ok({ kind: "review", pending, draft, unavailableVariantIds: [] }));
-  mockReviewOrder.mockResolvedValue(ok({ kind: "uncertain", pending }));
-  mockResendPending.mockResolvedValue(ok({ kind: "completed", shownTotal: pending.shownTotal, order: { id: pending.id, status: "active" } }));
-  const screen = render(<NewOrderScreen />);
-  await screen.findByText("Venta sin confirmar");
-  expect(mockLoadReview).toHaveBeenCalledWith(mockId(1));
-  expect(screen.getByText("Camisa")).toBeTruthy();
-  expect(screen.getByLabelText(/Dirección de entrega/)).toHaveProp("value", "Original street");
-  expect(screen.getByLabelText(/Nombre del destinatario/)).toHaveProp("value", "Ana");
-  expect(screen.getByRole("button", { name: "Guardar otra vez" })).toBeDisabled();
-  selectDistrict(screen);
-  await screen.findByTestId("delivery-rate");
-  fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 1);
-  await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar otra vez" })); });
-  expect(mockReviewOrder).toHaveBeenCalledWith(mockId(1), expect.objectContaining({ id: pending.id,
-    ratedDelivery: expect.objectContaining({ expectedPrice: secondRate.price }) }));
-  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(`/orders/${mockId(3)}`));
-  expect(mockCompleteOrder).not.toHaveBeenCalled();
-});
-
-test("restart without connection keeps the saved sale summary until it can be checked", async () => {
-  const pending = { version: 2, companyId: mockId(1), id: mockId(3), shownTotal: { amount: 20, currency: "PEN" },
-    request: { id: mockId(3), items: [{ variantId: mockId(2), quantity: 2 }] } };
-  const draft = { kind: "items", id: pending.id, items: [{ variantId: mockId(2), quantity: 2, productName: "Camisa",
-    variantAttributes: {}, sku: null, shownUnitPrice: { amount: 10, currency: "PEN" }, shownStock: 3 }] };
-  mockReadPending.mockResolvedValue(ok(pending));
-  mockLoadReview.mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "Offline" }));
-  const screen = render(<NewOrderScreen />);
-  await screen.findByText(/No pudimos comprobarla/);
-  expect(screen.getByText("2 artículos")).toBeTruthy();
-  expect(screen.getByText(/20[.,]00/)).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Guardar pedido" })).toBeNull();
-  mockLoadReview.mockResolvedValueOnce(ok({ kind: "review", pending, draft, unavailableVariantIds: [] }));
-  await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Comprobar" })); });
-  expect(screen.getByText("Camisa")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Guardar otra vez" })).toBeEnabled();
 });
 
 test("new order selects one overlapping home rate and reviews the full charge without manual pricing", async () => {
@@ -566,19 +483,82 @@ test("disabled delivery after a rejection preserves the form and can be explicit
   expect(screen.queryByTestId("delivery-rate")).toBeNull();
 });
 
-test("restarted seller corrects missing references and payments before saving the same attempt", async () => {
+const stockRejection = { code: "INSUFFICIENT_STOCK", message: "No stock" };
+
+test("an unreadable saved sale can be discarded without blocking a new sale", async () => {
+  mockPending = err({ code: "INVALID_PENDING_DATA", message: "Invalid pending order" });
+  mockDiscardPending.mockResolvedValue(ok(undefined));
+  const screen = render(<NewOrderScreen />);
+  await screen.findByText("No se pudo leer una venta guardada en el teléfono");
+  await screen.findByText("Camisa");
+  fireEvent.press(screen.getByRole("button", { name: "Descartar venta ilegible" }));
+  await waitFor(() => expect(mockDiscardPending).toHaveBeenCalledWith(mockId(1)));
+  expect(mockRefreshPending).toHaveBeenCalled();
+});
+
+test("a sale core cannot confirm yet waits on the phone and the page starts a new sale", async () => {
+  const pending = { version: 2, companyId: mockId(1), id: mockId(3), shownTotal: { amount: 10, currency: "PEN" }, request: { id: mockId(3), items: [{ variantId: mockId(2), quantity: 1 }] } };
+  mockCompleteOrder.mockResolvedValueOnce(ok({ kind: "queued", pending }));
+  const screen = await review();
+  await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" })); });
+  expect(screen.getByText(/Se enviará sola/)).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Guardar pedido" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Continuar" })).toBeDisabled();
+  expect(screen.queryByText(/Comprobar|por verificar|Venta sin confirmar/)).toBeNull();
+  expect(mockSyncPending).toHaveBeenCalled();
+  expect(mockRefreshPending).toHaveBeenCalled();
+  expect(mockReplace).not.toHaveBeenCalled();
+  fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
+  fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
+  expect(screen.queryByText(/Se enviará sola/)).toBeNull();
+});
+
+test("a refused sale is reviewed on its page with its delivery and saved again under the same attempt", async () => {
+  const delivery = { expectedPrice: { amount: 8, currency: "PEN" }, delivery: { method: "home", rateId: mockId(9),
+    recipient: { name: "Ana", phone: "999001", identity: { kind: "absent" } }, destination: { districtCode: "150122", address: "Original street", instructions: null } } };
+  const pending = { version: 2, companyId: mockId(1), id: mockId(3), shownTotal: { amount: 18, currency: "PEN" },
+    request: { id: mockId(3), items: [{ variantId: mockId(2), quantity: 1 }], delivery }, rejection: { code: "TOTAL_CHANGED", message: "Changed" } };
+  const draft = { kind: "items", id: pending.id, ratedDelivery: delivery, items: [{ variantId: mockId(2), quantity: 1, productName: "Camisa",
+    variantAttributes: {}, sku: null, shownUnitPrice: { amount: 10, currency: "PEN" }, shownStock: 3 }] };
+  mockPending = ok([pending]);
+  mockLoadReview.mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "Offline" }))
+    .mockResolvedValue(ok({ kind: "review", pending, draft, unavailableVariantIds: [] }));
+  mockReviewOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: pending.shownTotal, order: { id: pending.id, status: "active" } }));
+  const screen = render(<NewOrderScreen />);
+  await screen.findByText("Venta no guardada");
+  expect(screen.getByText(/El precio de entrega cambió|cambió/)).toBeTruthy();
+  expect(screen.getByText(/18[.,]00/)).toBeTruthy();
+  await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Revisar venta" })); });
+  expect(screen.getByText(/No se pudo abrir la venta/)).toBeTruthy();
+  await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Revisar venta" })); });
+  expect(mockLoadReview).toHaveBeenLastCalledWith(mockId(1), mockId(3));
+  expect(screen.queryByText("Venta no guardada")).toBeNull();
+  expect(screen.getByLabelText(/Dirección de entrega/)).toHaveProp("value", "Original street");
+  expect(screen.getByRole("button", { name: "Guardar otra vez" })).toBeDisabled();
+  selectDistrict(screen);
+  await screen.findByTestId("delivery-rate");
+  fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 1);
+  await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar otra vez" })); });
+  expect(mockReviewOrder).toHaveBeenCalledWith(mockId(1), expect.objectContaining({ id: pending.id,
+    ratedDelivery: expect.objectContaining({ expectedPrice: secondRate.price }) }));
+  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(`/orders/${mockId(3)}`));
+  expect(mockCompleteOrder).not.toHaveBeenCalled();
+});
+
+test("a seller corrects a refused sale's missing references and payments; a repeated refusal stays editable", async () => {
   const pending = { version: 2, companyId: mockId(1), id: mockId(3), shownTotal: { amount: 30, currency: "PEN" },
     request: { id: mockId(3), items: [{ variantId: mockId(2), quantity: 2 }, { variantId: mockId(6), quantity: 1 }],
-      payments: [{ paymentId: mockId(8), amount: { amount: 4.5, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false }] } };
+      payments: [{ paymentId: mockId(8), amount: { amount: 4.5, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false }] },
+    rejection: stockRejection };
   const draft = { kind: "items", id: pending.id,
     items: [{ variantId: mockId(2), quantity: 2, productName: "Camisa", variantAttributes: {}, sku: null,
       shownUnitPrice: { amount: 10, currency: "PEN" }, shownStock: 1 }],
     payments: [{ paymentId: mockId(8), amount: "4.5", method: "bank_transfer", deductStockIfPartial: false }] };
-  mockReadPending.mockResolvedValue(ok(pending));
+  mockPending = ok([pending]);
   mockLoadReview.mockResolvedValue(ok({ kind: "review", pending, draft, unavailableVariantIds: [mockId(6)] }));
   const screen = render(<NewOrderScreen />);
-  await screen.findByText("Venta sin confirmar");
-  expect(mockLoadReview).toHaveBeenCalledWith(mockId(1));
+  await screen.findByText("Ya no hay stock suficiente. Corrige la cantidad y vuelve a confirmar.");
+  await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Revisar venta" })); });
   expect(screen.getByText(/Revisa los productos no disponibles/)).toBeTruthy();
   expect(screen.getByRole("button", { name: "Guardar otra vez" })).toBeDisabled();
   fireEvent.press(screen.getByRole("button", { name: "Editar productos" }));
@@ -588,18 +568,17 @@ test("restarted seller corrects missing references and payments before saving th
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
   fireEvent.changeText(screen.getByLabelText(/Monto/), "5.50");
   expect(screen.getByRole("button", { name: "Guardar otra vez" })).toBeEnabled();
-  mockReviewOrder.mockResolvedValueOnce(err({ code: "PENDING_STORAGE_UNAVAILABLE", message: "Cannot save" }));
+  mockReviewOrder.mockResolvedValueOnce(err({ code: "INSUFFICIENT_STOCK", message: "No stock", issues: [{ field: "items", reason: "STOCK", variantId: mockId(2) }] }));
   await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar otra vez" })); });
   expect(screen.getByLabelText(/Monto/)).toHaveProp("value", "5.50");
   expect(mockReviewOrder).toHaveBeenLastCalledWith(mockId(1), expect.objectContaining({ id: pending.id,
     items: [expect.objectContaining({ variantId: mockId(2), quantity: 1 })],
     payments: [expect.objectContaining({ paymentId: mockId(8), amount: "5.50" })] }));
-  expect(mockResendPending).not.toHaveBeenCalled();
-  mockReviewOrder.mockResolvedValueOnce(ok({ kind: "uncertain", pending }));
-  mockResendPending.mockResolvedValueOnce(ok({ kind: "uncertain", pending }));
+  fireEvent.press(screen.getByRole("button", { name: "Editar productos" }));
+  expect(screen.getByText("Revisa esta variante.")).toBeTruthy();
+  fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
+  mockReviewOrder.mockResolvedValueOnce(ok({ kind: "queued", pending }));
   await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar otra vez" })); });
-  expect(mockResendPending).toHaveBeenCalledWith(mockId(1));
-  expect(screen.getByText(/No sabemos si se guardó/)).toBeTruthy();
-  expect(screen.getByLabelText(/Monto/)).toHaveProp("value", "5.50");
+  expect(screen.getByText(/Se enviará sola/)).toBeTruthy();
   expect(mockCompleteOrder).not.toHaveBeenCalled();
 });

@@ -16,7 +16,7 @@ import { Button } from "@mobile/components/ui/button";
 import { Input } from "@mobile/components/ui/input";
 import { ScreenState } from "@mobile/components/ui/screen-state";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
-import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
+import { usePendingOrders } from "@mobile/features/orders/presentation/pending-order-sync-provider";
 import { useDispatchPrint } from "@mobile/features/orders/presentation/dispatch-print-review";
 import { useOrderSelection } from "@mobile/features/orders/presentation/use-order-selection";
 import { OrderBuyerName } from "@mobile/features/orders/presentation/order-buyer";
@@ -37,7 +37,6 @@ export default function OrderHistoryScreen() {
   const { t, i18n } = useTranslation();
   const locale = i18n.language === 'pt-BR' ? 'pt-BR' : 'es-PE';
   const { state } = useAccess();
-  const { show } = useOrderResult();
   const [criteria, setCriteria] = useState<OrderListCriteria>({ page: 1, customer: { kind: "all" } });
   const [now, setNow] = useState(() => new Date());
   const [search, setSearch] = useState("");
@@ -59,9 +58,7 @@ export default function OrderHistoryScreen() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [pendingState, setPendingState] = useState<"none" | "pending" | "error">("none");
-  const [verifyMessage, setVerifyMessage] = useState("");
-  const [verifying, setVerifying] = useState(false);
+  const { pending } = usePendingOrders();
   const activeRequest = useRef(0);
   const companyId = state.status === "ready" ? state.company.id : "";
   const dispatchPrint = useDispatchPrint();
@@ -73,16 +70,23 @@ export default function OrderHistoryScreen() {
     return () => subscription.remove();
   }, [selection.count, clearSelection]));
 
-  const reload = useCallback(async (company: string, filters: OrderListCriteria) => {
+  const reload = useCallback(async (_company: string, filters: OrderListCriteria) => {
     const request = ++activeRequest.current;
     setLoading(true);
-    const [list, pending] = await Promise.all([orders.loadMixedOrders(filters), orders.readPendingOrderConfirmation(company)]);
+    const list = await orders.loadMixedOrders(filters);
     if (request !== activeRequest.current) return;
     if (list.success) { setItems(list.data.items); setTotal(list.data.total); setError(""); }
     else setError(list.error.code === "INVALID_INPUT" ? translations.t('filterInputError') : translations.t('loadOrdersError'));
-    setPendingState(!pending.success ? "error" : pending.data ? "pending" : "none");
     setLoading(false);
   }, []);
+  const waiting = pending?.success ? pending.data.filter(sale => !sale.rejection).length : 0;
+  const rejectedCount = pending?.success ? pending.data.length - waiting : 0;
+  const sent = useRef(waiting);
+  // A queued sale that reached core shows up in the list without a manual refresh.
+  useEffect(() => {
+    if (waiting < sent.current && companyId) void reload(companyId, criteria);
+    sent.current = waiting;
+  }, [waiting, companyId, criteria, reload]);
   useFocusEffect(useCallback(() => {
     setNow(new Date());
     if (previousCriteria.current !== criteria) { setItems([]); previousCriteria.current = criteria; }
@@ -119,17 +123,6 @@ export default function OrderHistoryScreen() {
       ...(unscheduled ? { unscheduled: true as const } : { ...(scheduledFrom ? { scheduledFrom } : {}), ...(scheduledThrough ? { scheduledThrough } : {}) }),
       ...(shippedFromDay ? { shippedFromDay } : {}), ...(shippedThroughDay ? { shippedThroughDay } : {}) });
     setFiltersOpen(false); setFilterError("");
-  };
-  const verify = async () => {
-    if (verifying) return;
-    setVerifying(true);
-    const result = await orders.resolvePendingOrderConfirmation(companyId);
-    setVerifying(false);
-    if (!result.success) { setVerifyMessage(t('verifyOrderError')); return; }
-    if (!result.data) { setPendingState("none"); setVerifyMessage(""); return; }
-    if (result.data.kind === "uncertain") { setVerifyMessage(t('orderStillMissing')); return; }
-    show({ id: result.data.order.id, shownTotal: result.data.shownTotal });
-    router.push(`/orders/${result.data.order.id}`);
   };
 
   const advanced = criteria.customer.kind !== "all" || !!criteria.fromDay || !!criteria.throughDay ||
@@ -195,11 +188,10 @@ export default function OrderHistoryScreen() {
         {Platform.OS === "android" ? <Button disabled={dispatchPrint.active} onPress={() => dispatchPrint.open([...selection.orders.values()])}>{t('orderListPrintLabels')}</Button> : null}
     </View> : null}
     {Platform.OS === "android" && dispatchPrint.active ? <Button variant="secondary" onPress={dispatchPrint.show}>{t('dispatchViewBatch')}</Button> : null}
-    {pendingState !== "none" ? <View style={[styles.notice, { backgroundColor: theme.backgroundElement }]}>
-      <ThemedText type="smallBold">{pendingState === "error" ? t('pendingReadError') : t('pendingOrder')}</ThemedText>
-      <ThemedText type="small" themeColor="textSecondary">{pendingState === "error" ? t('pendingReadHint') : t('pendingOrderHint')}</ThemedText>
-      <Button variant="secondary" loading={verifying} onPress={() => pendingState === "error" ? void reload(companyId, criteria) : void verify()}>{pendingState === "error" ? t('retry') : t('verifyOrder')}</Button>
-      {verifyMessage ? <ThemedText type="small" accessibilityRole="alert">{verifyMessage}</ThemedText> : null}
+    {waiting ? <ThemedText type="small" themeColor="textSecondary" accessibilityLiveRegion="polite">{t('salesSending', { count: waiting })}</ThemedText> : null}
+    {rejectedCount || (pending && !pending.success) ? <View style={[styles.notice, { backgroundColor: theme.backgroundElement }]}>
+      <ThemedText type="smallBold">{pending && !pending.success ? t('pendingReadError') : t('rejectedSalesHint', { count: rejectedCount })}</ThemedText>
+      <Button variant="secondary" onPress={() => router.push("/orders/new")}>{t('reviewRejectedSale')}</Button>
     </View> : null}
   </View>;
 

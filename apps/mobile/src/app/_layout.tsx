@@ -10,6 +10,7 @@ import { DispatchPrintProvider } from '@mobile/features/orders/presentation/disp
 import { PrintProvider } from '@mobile/features/printing/presentation/print-provider';
 import { ProductDraftProvider } from '@/features/products/presentation/draft-guard';
 import { OrderDraftProvider } from '@mobile/features/orders/presentation/order-draft-guard';
+import { PendingOrderSyncProvider } from '@mobile/features/orders/presentation/pending-order-sync-provider';
 import { AccessGate } from '@/composition/access-gate';
 import * as auth from '@/composition/auth';
 import i18n, { languageForLocale } from '@mobile/i18n';
@@ -36,7 +37,7 @@ export default function TabLayout() {
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <AnimatedSplashOverlay />
-      <ProductDraftProvider><OrderDraftProvider><AccessProvider operations={auth}><PrintProvider><DispatchPrintProvider><AccessGate /></DispatchPrintProvider></PrintProvider></AccessProvider></OrderDraftProvider></ProductDraftProvider>
+      <ProductDraftProvider><OrderDraftProvider><AccessProvider operations={auth}><PrintProvider><DispatchPrintProvider><PendingOrderSyncProvider><AccessGate /></PendingOrderSyncProvider></DispatchPrintProvider></PrintProvider></AccessProvider></OrderDraftProvider></ProductDraftProvider>
     </ThemeProvider>
   );
 }

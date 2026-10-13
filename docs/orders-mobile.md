@@ -22,11 +22,11 @@ La primera versión requiere conexión para confirmar. El vendedor puede seguir 
 | Cobro y entrega | El vendedor confirma ambas acciones manualmente. Una orden completada queda cobrada y entregada; no hay estados intermedios. |
 | Stock | La selección no reserva unidades. Si al confirmar falta stock, la orden se rechaza y la selección queda editable. |
 | Selección temporal | Los artículos y cantidades viven en «Nueva venta». Salir con artículos exige confirmar su descarte; no hay borrador que se recupere al volver o reiniciar. |
-| Confirmación incierta | Si no se sabe si core completó el envío, se conserva un único intento por empresa para verificarlo con el mismo ID antes de iniciar otra orden. |
+| Confirmación incierta | Si no se sabe si core guardó la venta, queda en una cola del teléfono por empresa y se envía sola con el mismo ID; el vendedor puede seguir vendiendo. |
 
 ### Pantallas y navegación
 
-- **Ventas:** lista paginada, filtros por fecha y cliente, estados de lista vacía, filtros sin resultados y error de carga. Cada fila usa cliente, fecha y total; el detalle conserva datos históricos. Si hay una confirmación incierta, muestra la acción para verificarla antes de iniciar otra venta.
+- **Ventas:** lista paginada, filtros por fecha y cliente, estados de lista vacía, filtros sin resultados y error de carga. Cada fila usa cliente, fecha y total; el detalle conserva datos históricos. Las ventas en cola se indican como «enviándose» sin acción; solo las que core rechazó piden revisión.
 - **Nueva venta:** búsqueda de productos agrupados; tocar un producto abre variantes con precio y stock. La barra inferior resume artículos y total mostrado. Salir con carrito no vacío pide confirmación para descartarlo.
 - **Revisar:** permite editar cantidades; explica que el pago y la entrega se confirman manualmente. Ante un rechazo conocido permanece aquí con el carrito intacto.
 - **Detalle:** usa siempre el total registrado por core. El aviso de diferencia depende del intento local y solo aparece inmediatamente tras completar o recuperar esa venta.
@@ -35,9 +35,9 @@ La primera versión requiere conexión para confirmar. El vendedor puede seguir 
 
 El historial muestra páginas de 20, ordenadas por fecha de finalización descendente y por ID en los empates. El filtro de cliente distingue todas las órdenes o público general. «Desde» y «Hasta» seleccionan **días completos e inclusivos** de `America/Lima`, no horas ni la zona del teléfono; la fecha y hora visibles usan Lima para que coincidan con el filtro. El detalle muestra los artículos y datos del cliente tal como quedaron registrados al completar la orden.
 
-### Resultado incierto y diferencia de importe
+### Venta en cola y diferencia de importe
 
-Una pérdida de respuesta después de confirmar no significa que la orden haya fallado. Mobile ofrece verificar el mismo ID; un `404` inmediato tampoco resuelve el resultado. No reenvía automáticamente. Si se reinicia la app o se cierra sesión, la selección editable desaparece, pero el intento pendiente permanece para la misma empresa. Solo después de verificarlo, el vendedor puede reconstruir esa misma orden con el ID pendiente y confirmar explícitamente un nuevo envío. Mientras el intento siga incierto, no se inicia otra orden para esa empresa. Un problema al leer el intento se muestra como error recuperable y bloquea una nueva confirmación.
+Una pérdida de respuesta o un fallo del servidor después de guardar no significa que la venta haya fallado. La venta queda guardada en el teléfono con su ID y la pantalla empieza una venta nueva. Mobile la envía sola: al iniciar sesión, al volver a la app, al recuperar conexión y, mientras siga pendiente, con reintentos de espera exponencial con jitter (hasta 5 minutos entre intentos). Cada intento consulta primero el ID en core y solo reenvía la petición guardada si no existe; core rechaza un ID repetido, así que nunca se duplica ni descuenta stock dos veces. Si core rechaza la venta de forma definitiva (stock, tarifa, pago…), deja de reintentarse y aparece en «Nueva venta» para que el vendedor la revise y la guarde otra vez con los mismos IDs. La cola sobrevive al reinicio y al cierre de sesión y solo se muestra en su empresa. Una venta guardada que no se puede leer se muestra como error con la opción de descartarla, sin bloquear ventas nuevas.
 
 Si el importe registrado por core difiere del mostrado al confirmar, la app presenta ambos importes para que el vendedor ajuste el cobro fuera de la app. Esta comparación se muestra al completar o recuperar el intento en ese dispositivo; al abrir después la orden desde el historial se muestra solo el importe registrado.
 
@@ -191,7 +191,7 @@ El caso de uso mobile recibe `OrderDraft`, comprueba sus invariantes, arma `Crea
 ```ts
 type ConfirmOrderOutcome =
   | Readonly<{ kind: "completed"; order: OrderResponse; shownTotal: Money }>
-  | Readonly<{ kind: "uncertain"; pending: PendingOrderConfirmation }>;
+  | Readonly<{ kind: "queued"; pending: PendingOrderConfirmation }>;
 
 type OrderRequestError =
   | Readonly<{
@@ -224,19 +224,19 @@ declare function resolvePendingOrderConfirmation(companyId: string): Promise<Res
 
 Las firmas muestran los tipos existentes y los inferidos de los esquemas: `OrderApiError` se infiere del esquema de órdenes y `TransportError` ya existe en mobile como salida genérica del cliente HTTP. El adaptador convierte ese error en `OrderRequestError`, limitado a fallos de transporte pertinentes y errores propios de órdenes; no expone `http.body` ni códigos de otras features al caso de uso. Las operaciones devuelven ausencia o error de forma explícita; un `404` de detalle durante recuperación no se presenta como confirmación definitiva de que el `POST` falló. La pantalla conserva la selección y las cantidades como estado de interacción, pero el caso de uso decide si forman una venta válida y construye la petición. La pantalla traduce resultados a mensajes, navegación y estados de carga.
 
-`pending-order-confirmation.ts` usa `expo-secure-store`, ya instalado en mobile, con una clave por `companyId`. Sus operaciones `read(companyId): Promise<Result<PendingOrderConfirmation | null, PendingOrderStoreError>>`, `save(pending): Promise<Result<PendingOrderConfirmation, PendingOrderStoreError>>` y `clear(companyId, id): Promise<Result<void, PendingOrderStoreError>>` validan `{ companyId, id, shownTotal }` con Zod al leer; `clear` comprueba el ID para no borrar otro intento. `save` no reemplaza un intento con otro ID y, si recibe el mismo ID, devuelve el marcador existente con el `shownTotal` original: representa el importe que el vendedor confirmó haber cobrado antes del primer envío. La aplicación usa ese valor persistido para comparar el resultado de core. Si la lectura, validación o escritura falla, «Nueva venta» queda bloqueada hasta que el intento pueda consultarse con seguridad; un fallo de almacenamiento no se interpreta como ausencia de venta. El intento no se borra al cerrar sesión y nunca se muestra bajo otra empresa.
+`pending-order-confirmation.ts` usa `expo-secure-store` como cola por empresa: cada venta tiene su clave (`yoyos_pending_order_<companyId>_<id>`) y un índice por empresa (`yoyos_pending_orders_<companyId>`) guarda el orden. La entrada se escribe antes de entrar al índice y sale del índice antes de borrarse, para que el índice nunca apunte a una venta no guardada. Expone `list`, `read`, `save`, `replace`, `clear` y `discard`, valida cada entrada con Zod y conserva la petición exacta, el `shownTotal` del primer guardado y, si core la rechazó, `rejection`. `save` con un ID existente devuelve la entrada original. `discard` elimina solo las entradas ilegibles. La clave anterior de un solo intento por empresa se incorpora a la cola al leerla.
 
 La conexión es obligatoria: cuando se sabe que el dispositivo está desconectado se deshabilita la confirmación y se conserva el carrito. El estado de conectividad no prueba que un envío haya llegado o no a core; después de iniciar `POST`, un fallo de red se trata como resultado incierto. El aviso de diferencia de precio aparece únicamente al completar o recuperar ese intento en el mismo celular; el historial ordinario no conoce el total mostrado.
 
 #### Confirmación y recuperación
 
 1. Al agregar el primer artículo, mobile genera el UUID de la venta. Editar cantidades no cambia ese ID. Se impiden artículos repetidos, cantidades inválidas y monedas mezcladas antes de habilitar la confirmación.
-2. Al pulsar «Confirmar cobro y entrega», se guarda `PendingOrderConfirmation` antes de enviar `POST /api/orders`. Si no se puede guardar, no se envía la venta y se muestra un error recuperable. Se deshabilita el doble toque.
-3. Si core devuelve éxito, se muestra `OrderResponse` y se compara su total con `shownTotal`. Si difiere, se muestran ambos importes y la diferencia para que el vendedor ajuste el pago fuera de la app. Si cambió la moneda, se muestran ambos importes sin restarlos. El intento temporal se limpia cuando el vendedor deja el resultado.
-4. Un rechazo definitivo de negocio limpia `PendingOrderConfirmation`, conserva el carrito en pantalla y muestra la corrección posible. En falta de stock se puede editar y reintentar con el mismo ID.
-5. Una pérdida de respuesta o un fallo técnico de resultado incierto conserva `PendingOrderConfirmation`. Esto incluye `NETWORK_ERROR`, `SERVICE_UNAVAILABLE`, una respuesta exitosa inválida y `OPERATION_CANCELLED` si cambia la sesión después de iniciar el envío. Se consulta `GET /api/orders/:id`; una orden encontrada con ese UUID generado por mobile dentro de la empresa se presenta como resultado. Un `404` inmediatamente después de perder la respuesta no demuestra que el `POST` haya terminado: se vuelve a consultar antes de permitir resolver el intento. Mientras el carrito siga abierto, cualquier reintento usa la misma petición congelada y el mismo ID.
-6. Si la app se reinicia, no se restaura el carrito editable. Con la misma empresa autenticada, se ofrece verificar el intento pendiente. Si la venta sigue sin aparecer y el vendedor decide rehacerla, arma el mismo intento con un carrito nuevo que reutiliza el ID pendiente y el importe originalmente confirmado para la comparación final. El envío requiere una confirmación explícita; no hay cola ni sincronización automática sin conexión.
-7. Mientras haya una confirmación incierta para la empresa activa, «Nueva venta» lleva a verificar o reconstruir **ese mismo intento**; no permite iniciar una venta diferente que reemplace su ID. Cerrar sesión no descarta el intento. Una empresa distinta solo accede a sus propios intentos.
+2. Al pulsar «Guardar pedido», se guarda la venta en la cola antes de enviar `POST /api/orders`. Si no se puede guardar, no se envía y se muestra un error recuperable. Un doble toque comparte el mismo envío.
+3. Si core devuelve éxito, la venta sale de la cola, se abre su detalle y se compara su total con `shownTotal`. Si difiere, se muestran ambos importes para que el vendedor ajuste el cobro fuera de la app.
+4. Un rechazo definitivo en el primer envío saca la venta de la cola, conserva el formulario y muestra la corrección posible.
+5. Cualquier otro fallo (`NETWORK_ERROR`, `SERVICE_UNAVAILABLE`, `SERVER_ERROR`, una respuesta inválida, `ORDER_ALREADY_EXISTS`) consulta `GET /api/orders/:id`: si la orden existe en la empresa se presenta como resultado; si no, la venta queda en cola (`kind: "queued"`) y la pantalla avisa que se enviará sola.
+6. `createPendingOrderSync` envía la cola de la empresa activa con `syncPendingOrders`: consulta cada ID y reenvía solo tras `ORDER_NOT_FOUND`. Mientras queden ventas sin confirmar, reintenta tras `retryDelay` (jitter completo sobre 2 s·2ⁿ, mínimo 1 s, máximo 5 min); volver a la app, recuperar conexión o encolar otra venta reintenta de inmediato y reinicia la espera.
+7. Un rechazo definitivo durante la sincronización guarda `rejection` y detiene los reintentos de esa venta. «Nueva venta» la muestra con su motivo; al revisarla se reconstruye con los productos actuales y, al guardarla otra vez, se reemplaza la petición conservando los IDs de la venta y de los pagos.
 
 `ORDER_ALREADY_EXISTS` tampoco equivale por sí solo a éxito. Mobile consulta el ID; si no puede leerlo dentro de la empresa, muestra conflicto. El cliente HTTP existente puede repetir una petición tras renovar el token: el UUID estable y la unicidad en core impiden un segundo descuento de stock, incluso si el vendedor tuvo que reconstruir el carrito.
 
@@ -275,19 +275,19 @@ Las pruebas existentes de core siguen cubriendo las reglas internas de creación
 | MU02 | Una cantidad inválida, una variante sin stock o una combinación de monedas distintas impide confirmar la venta. |
 | MU04 | `CreateOrderRequest` contiene solo `id` e `items` con `variantId` y `quantity`; conserva el mismo `id` al editar o reintentar el carrito. |
 | MU05 | El filtro «Desde/Hasta» convierte días inclusivos de Lima en un intervalo UTC con inicio inclusivo y fin exclusivo, y muestra la hora de las ventas en Lima. |
-| MU06 | La confirmación no se envía si falla el guardado del intento pendiente y un doble toque no produce dos envíos. |
+| MU06 | La venta no se envía si falla su guardado en la cola y un doble toque no produce dos envíos. |
 | MU07 | Un rechazo por stock o variante conserva el carrito editable y señala qué debe corregir el vendedor. |
 | MU08 | Al completar o recuperar una venta, se avisa si el total registrado difiere del mostrado; el aviso no aparece al abrir después esa venta desde el historial. |
-| MU09 | Una respuesta perdida mantiene la confirmación como incierta: consulta el ID, no interpreta un `404` inmediato como rechazo definitivo y no reenvía automáticamente la venta. |
-| MU10 | `PendingOrderConfirmation` conserva solo `companyId`, `id` y `shownTotal`; sobrevive al reinicio y al cierre de sesión, se muestra solo en su empresa y bloquea una venta distinta mientras siga incierto. |
-| MU11 | Salir de «Nueva venta» con artículos pide confirmar el descarte y, al volver, abre un carrito vacío cuando no existe un intento pendiente. |
+| MU09 | Una respuesta perdida deja la venta en cola, empieza una venta nueva y la sincronización la envía con el mismo ID tras consultar core, sin duplicarla. |
+| MU10 | La cola sobrevive al reinicio y al cierre de sesión, se muestra solo en su empresa y no bloquea ventas nuevas. |
+| MU11 | Salir de «Nueva venta» con artículos pide confirmar el descarte y, al volver, abre un carrito vacío. |
 | MU12 | Sin conexión no se puede completar una venta; el carrito sigue editable para continuar cuando vuelva la conexión. |
-| MU13 | Un intento pendiente con datos locales inválidos o que no se puede leer bloquea una venta nueva y se presenta como error recuperable, sin descartarlo silenciosamente. |
+| MU13 | Una venta guardada ilegible se muestra como error recuperable y puede descartarse sin afectar a las legibles. |
 
 #### Integración
 
 | ID | Descripción del test |
 | --- | --- |
 | MI01 | El flujo mobile permite buscar productos, elegir variantes, revisar, confirmar y abrir el detalle, y descarta el carrito si el vendedor abandona una venta sin confirmar. |
-| MI02 | Tras perder la respuesta de confirmación, reiniciar o cerrar sesión, mobile recupera el intento de la misma empresa, impide iniciar otra venta y reutiliza el ID pendiente al reconstruirla. |
+| MI02 | Tras perder la respuesta y reiniciar, la sincronización confirma la venta sin reenviarla; una venta rechazada se revisa y se guarda con sus IDs originales. |
 | MI03 | El historial mobile muestra las ventas ordenadas, permite filtrar y avanzar de página, y distingue lista vacía, filtros sin resultados y error de carga. |

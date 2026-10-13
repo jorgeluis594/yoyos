@@ -31,15 +31,22 @@ jest.mock("expo-crypto", () => ({ randomUUID: () => jest.requireActual<typeof im
 jest.mock("expo-network", () => ({ useNetworkState: () => ({ isConnected: true, isInternetReachable: true }),
   getNetworkStateAsync: async () => ({ isConnected: true, isInternetReachable: true }) }));
 jest.mock("@mobile/features/orders/composition", () => ({ orders: {
-  readPendingOrderConfirmation: (...args: Parameters<typeof mockOrders.readPendingOrderConfirmation>) => mockOrders.readPendingOrderConfirmation(...args),
-  resolvePendingOrderConfirmation: (...args: Parameters<typeof mockOrders.resolvePendingOrderConfirmation>) => mockOrders.resolvePendingOrderConfirmation(...args),
+  discardPendingOrderConfirmation: (...args: Parameters<typeof mockOrders.discardPendingOrderConfirmation>) => mockOrders.discardPendingOrderConfirmation(...args),
   searchOrderCatalog: (...args: Parameters<typeof mockOrders.searchOrderCatalog>) => mockOrders.searchOrderCatalog(...args),
   completeOrder: (...args: Parameters<typeof mockOrders.completeOrder>) => mockOrders.completeOrder(...args),
-  resendPendingOrder: (...args: Parameters<typeof mockOrders.resendPendingOrder>) => mockOrders.resendPendingOrder(...args),
   loadPendingOrderReview: (...args: Parameters<typeof mockOrders.loadPendingOrderReview>) => mockOrders.loadPendingOrderReview(...args),
   reviewPendingOrder: (...args: Parameters<typeof mockOrders.reviewPendingOrder>) => mockOrders.reviewPendingOrder(...args),
-  reviewPendingDelivery: (...args: Parameters<typeof mockOrders.reviewPendingDelivery>) => mockOrders.reviewPendingDelivery(...args),
 } }));
+// The queue is read from the real store; the harness sends it explicitly instead of on timers.
+jest.mock("@mobile/features/orders/presentation/pending-order-sync-provider", () => {
+  const React = jest.requireActual<typeof import("react")>("react");
+  return { usePendingOrders: () => {
+    const [pending, setPending] = React.useState<Awaited<ReturnType<typeof mockOrders.listPendingOrders>> | null>(null);
+    const refresh = React.useCallback(async () => { setPending(await mockOrders.listPendingOrders(process.env.ORDER_JOURNEY_COMPANY!)); }, []);
+    React.useEffect(() => { void refresh(); }, [refresh]);
+    return { pending, refresh, trigger: () => {} };
+  } };
+});
 jest.mock("@mobile/features/delivery-settings/composition", () => {
   const { createDeliverySettingsApi } = jest.requireActual<typeof import("@mobile/features/delivery-settings/infrastructure/delivery-settings-api")>("@mobile/features/delivery-settings/infrastructure/delivery-settings-api");
   const { createQuotationApi } = jest.requireActual<typeof import("@mobile/features/delivery-settings/infrastructure/quotation-api")>("@mobile/features/delivery-settings/infrastructure/quotation-api");
@@ -146,27 +153,28 @@ test("mobile interface creates an immediate sale with payment, stock deduction a
   expect(mockPosts).toBe(1);
 });
 
-test("mobile recovers a persisted pending creation after a lost response and restart without reposting", async () => {
-  const screen = await review();
+async function queuedAfterLostResponse(screen: Awaited<ReturnType<typeof review>>) {
   mockLoseResponse = true; mockOfflineRead = true;
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
-  await screen.findByText("Venta sin confirmar");
+  await screen.findByText(/Se enviará sola/);
   expect(mockReplace).not.toHaveBeenCalled();
-  const saved = await mockOrders.readPendingOrderConfirmation(process.env.ORDER_JOURNEY_COMPANY!);
-  expect(saved).toMatchObject({ success: true, data: { version: 2, request: { id: expect.any(String) } } });
-  if (!saved.success || !saved.data) throw new Error("Missing persisted attempt");
-  const id = saved.data.id;
+  const saved = await mockOrders.listPendingOrders(process.env.ORDER_JOURNEY_COMPANY!);
+  if (!saved.success || saved.data.length !== 1) throw new Error("Missing persisted attempt");
   screen.unmount();
   mockOfflineRead = false; mockLoseResponse = false;
   restartOperations();
-  render(<NewOrderScreen />);
-  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(`/orders/${id}`));
-  expect(await mockOrders.loadOrder(id)).toMatchObject({ success: true, data: {
+  return saved.data[0];
+}
+
+test("mobile queues a sale after a lost response and the sync confirms it after restart without reposting", async () => {
+  const saved = await queuedAfterLostResponse(await review());
+  expect(saved).toMatchObject({ version: 2, request: { id: saved.id } });
+  expect(await mockOrders.syncPendingOrders(process.env.ORDER_JOURNEY_COMPANY!)).toEqual({ waiting: 0 });
+  expect(await mockOrders.loadOrder(saved.id)).toMatchObject({ success: true, data: {
     status: "active", payments: [], stockDeducted: false, deliveryStatus: "pending", completedAt: null,
   } });
   expect(mockPosts).toBe(1);
-  expect(await mockOrders.clearPendingOrderConfirmation(process.env.ORDER_JOURNEY_COMPANY!, id)).toMatchObject({ success: true });
-  expect(await mockOrders.readPendingOrderConfirmation(process.env.ORDER_JOURNEY_COMPANY!)).toEqual(ok(null));
+  expect(await mockOrders.listPendingOrders(process.env.ORDER_JOURNEY_COMPANY!)).toEqual(ok([]));
 });
 
 async function ratedReview(method: "home" | "agency" = "home", rateIndex = 0) {
@@ -235,7 +243,7 @@ test("mobile price conflict leaves no order and preserves fields for explicit ra
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   await screen.findByText(/La tarifa cambió/);
   expect(mockReplace).not.toHaveBeenCalled();
-  expect(await mockOrders.readPendingOrderConfirmation(process.env.ORDER_JOURNEY_COMPANY!)).toEqual(ok(null));
+  expect(await mockOrders.listPendingOrders(process.env.ORDER_JOURNEY_COMPANY!)).toEqual(ok([]));
   expect(screen.getByLabelText(/Dirección de entrega/)).toHaveProp("value", "Journey street");
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
   await screen.findByTestId("delivery-rate");
@@ -248,27 +256,19 @@ test("mobile price conflict leaves no order and preserves fields for explicit ra
   expect(mockPosts).toBe(2);
 });
 
-test("rated mobile creation recovers the same charge after a lost response and restart without reposting", async () => {
-  const screen = await ratedReview("home", 1);
-  mockLoseResponse = true; mockOfflineRead = true;
-  fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
-  await screen.findByText("Venta sin confirmar");
-  const saved = await mockOrders.readPendingOrderConfirmation(process.env.ORDER_JOURNEY_COMPANY!);
-  expect(saved).toMatchObject({ success: true, data: { version: 2, shownTotal: { amount: 22, currency: "PEN" },
-    request: { delivery: { expectedPrice: { amount: 12, currency: "PEN" }, delivery: { method: "home", rateId: expect.any(String) } } } } });
-  if (!saved.success || !saved.data) throw new Error("Missing persisted attempt");
-  const id = saved.data.id;
-  screen.unmount(); mockOfflineRead = false; mockLoseResponse = false;
-  restartOperations();
-  render(<NewOrderScreen />);
-  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(`/orders/${id}`));
+test("rated mobile creation keeps the same charge through the queue after a lost response and restart", async () => {
+  const saved = await queuedAfterLostResponse(await ratedReview("home", 1));
+  expect(saved).toMatchObject({ version: 2, shownTotal: { amount: 22, currency: "PEN" },
+    request: { delivery: { expectedPrice: { amount: 12, currency: "PEN" }, delivery: { method: "home", rateId: expect.any(String) } } } });
+  const id = saved.id;
+  expect(await mockOrders.syncPendingOrders(process.env.ORDER_JOURNEY_COMPANY!)).toEqual({ waiting: 0 });
   expect(await mockOrders.loadOrder(id)).toMatchObject({ success: true, data: {
     total: { amount: 22, currency: "PEN" }, deliveryCharge: { amount: 12, currency: "PEN" }, stockDeducted: false, payments: [],
   } });
   expect(mockPosts).toBe(1);
 });
 
-test("restarted saved sale opens on its page, reviews a current rate and saves the same order and payments through the real API", async () => {
+test("a refused saved sale opens on its page, reviews a current rate and saves the same order and payments through the real API", async () => {
   const catalog = await mockOrders.searchOrderCatalog("Journey product");
   if (!catalog.success || !catalog.data[0]?.variants[0]) throw new Error("Missing recovery product");
   const orderId = randomUUID();
@@ -279,11 +279,13 @@ test("restarted saved sale opens on its page, reviews a current rate and saves t
       payments: [{ paymentId, amount: { amount: 4.5, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false }],
       delivery: { expectedPrice: { amount: 8, currency: "PEN" }, delivery: { method: "home", rateId: randomUUID(),
         recipient: { name: "Recovery recipient", phone: "999123456", identity: { kind: "absent" } },
-        destination: { districtCode: "150122", address: "Recovery street", instructions: "Door 2" } } } } };
+        destination: { districtCode: "150122", address: "Recovery street", instructions: "Door 2" } } } },
+    rejection: { code: "RATE_UNAVAILABLE", message: "Rate unavailable" } };
+  // Written in the pre-queue format, which joins the queue when read.
   writeFileSync(join(directory, `yoyos_pending_order_${companyId}`), JSON.stringify(pending));
   restartOperations();
   const screen = render(<NewOrderScreen />);
-  await screen.findByText("Venta sin confirmar");
+  fireEvent.press(await screen.findByRole("button", { name: "Revisar venta" }));
   await screen.findByLabelText(/Dirección de entrega/);
   expect(screen.getByLabelText(/Dirección de entrega/)).toHaveProp("value", "Recovery street");
   const district = getPeruDistrict("150122")!;
@@ -318,11 +320,10 @@ test("a restarted rated attempt with a real HTTP price conflict saves a fresh ra
         destination: { address: "Restart street", districtCode: "150122", instructions: null } } } } };
   writeFileSync(join(directory, `yoyos_pending_order_${companyId}`), JSON.stringify(pending));
   restartOperations();
-  expect(await mockOrders.resendPendingOrder(companyId)).toMatchObject({ success: false,
-    error: { code: "TOTAL_CHANGED", currentPrice: { amount: 10, currency: "PEN" } } });
-  expect(await mockOrders.readPendingOrderConfirmation(companyId)).toEqual(ok(pending));
+  expect(await mockOrders.syncPendingOrders(companyId)).toEqual({ waiting: 0 });
+  expect(await mockOrders.listPendingOrders(companyId)).toEqual(ok([{ ...pending, rejection: { code: "TOTAL_CHANGED", message: expect.any(String) } }]));
   const screen = render(<NewOrderScreen />);
-  await screen.findByText("Venta sin confirmar");
+  fireEvent.press(await screen.findByRole("button", { name: "Revisar venta" }));
   expect(await screen.findByLabelText(/Dirección de entrega/)).toHaveProp("value", "Restart street");
   const district = getPeruDistrict("150122")!;
   fireEvent(screen.getByTestId("delivery-department"), "valueChange", peruDepartments.findIndex(value => value.code === district.departmentCode));
@@ -353,9 +354,10 @@ test("restarted stock rejection keeps the paid attempt editable and resends its 
       payments: [{ paymentId, amount: { amount: 40, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false }] } };
   writeFileSync(join(directory, `yoyos_pending_order_${companyId}`), JSON.stringify(pending));
   restartOperations();
-  expect(await mockOrders.resendPendingOrder(companyId)).toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
-  expect(await mockOrders.readPendingOrderConfirmation(companyId)).toEqual(ok(pending));
+  expect(await mockOrders.syncPendingOrders(companyId)).toEqual({ waiting: 0 });
+  expect(await mockOrders.listPendingOrders(companyId)).toEqual(ok([{ ...pending, rejection: { code: "INSUFFICIENT_STOCK", message: expect.any(String) } }]));
   const screen = render(<NewOrderScreen />);
+  fireEvent.press(await screen.findByRole("button", { name: "Revisar venta" }));
   await screen.findByRole("button", { name: "Guardar otra vez" });
   expect(screen.getByLabelText(/Monto/)).toHaveProp("value", "40");
   fireEvent.press(screen.getByRole("button", { name: "Editar productos" }));
