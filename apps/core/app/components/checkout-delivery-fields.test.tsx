@@ -1,14 +1,21 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { createInstance } from "i18next";
+import { I18nextProvider, initReactI18next } from "react-i18next";
+import resources from "@core/app/locales";
 import { expect, test } from "vitest";
 import { CheckoutDeliveryFields } from "@core/app/components/checkout-delivery-fields";
 import type { PublicCheckoutResponse } from "@shared/contracts/order-checkout";
+
+const i18n = createInstance();
+await i18n.use(initReactI18next).init({ lng: "es", resources });
+const withI18n = (element: React.ReactElement) => <I18nextProvider i18n={i18n}>{element}</I18nextProvider>;
 
 const total = { amount: 10, currency: "PEN" as const };
 const checkout: PublicCheckoutResponse = { companyName: "Shop", number: 1001, buyer: null, delivery: null,
   deliveryCharge: { amount: 0, currency: "PEN" }, itemsTotal: total, total,
   items: [{ productName: "Product", variantAttributes: {}, sku: null, quantity: 1, unitPrice: total, subtotal: total }], state: { kind: "pending" } };
 const options = { home: { enabled: true }, agency: { enabled: false }, store: { enabled: false as const, pickupPoint: null } };
-const render = (value = checkout, settings = options) => renderToStaticMarkup(<CheckoutDeliveryFields orderId="00000000-0000-4000-8000-000000000001" checkout={value} options={settings} onChange={() => undefined} />);
+const render = (value = checkout, settings = options) => renderToStaticMarkup(withI18n(<CheckoutDeliveryFields orderId="00000000-0000-4000-8000-000000000001" checkout={value} options={settings} onChange={() => undefined} />));
 
 test("delivery controls wait for client hydration before accepting selections", () => {
   expect(render()).toMatch(/<fieldset disabled=""/);
@@ -38,15 +45,15 @@ test("historical delivery shows saved address and charge without consulting a cu
 });
 
 test("pickup is offered explicitly only with an enabled configured point", () => {
-  const html = renderToStaticMarkup(<CheckoutDeliveryFields orderId="00000000-0000-4000-8000-000000000001" checkout={checkout}
-    options={{ ...options, store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } }} onChange={() => undefined} />);
+  const html = renderToStaticMarkup(withI18n(<CheckoutDeliveryFields orderId="00000000-0000-4000-8000-000000000001" checkout={checkout}
+    options={{ ...options, store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } }} onChange={() => undefined} />));
   expect(html).toContain("Recojo en tienda · Gratis");
 });
 
 test("pickup-only businesses show the configured point without offering shipping or a district", () => {
-  const html = renderToStaticMarkup(<CheckoutDeliveryFields orderId="00000000-0000-4000-8000-000000000001" checkout={checkout}
+  const html = renderToStaticMarkup(withI18n(<CheckoutDeliveryFields orderId="00000000-0000-4000-8000-000000000001" checkout={checkout}
     options={{ home: { enabled: false }, agency: { enabled: false }, store: { enabled: true,
-      pickupPoint: { name: "Shop", address: "Pickup street", instructions: "Door 2" } } }} onChange={() => undefined} />);
+      pickupPoint: { name: "Shop", address: "Pickup street", instructions: "Door 2" } } }} onChange={() => undefined} />));
   expect(html).toContain("Pickup street");
   expect(html).toContain("Door 2");
   expect(html).not.toContain('value="ship"');

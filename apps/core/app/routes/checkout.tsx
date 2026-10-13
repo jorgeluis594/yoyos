@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { CheckoutDeliveryFields, type CheckoutDeliveryDraft } from "@core/app/components/checkout-delivery-fields";
 import { redirect, data, isRouteErrorResponse, useFetcher, useLoaderData, useParams, type ActionFunctionArgs, type LoaderFunctionArgs, type ShouldRevalidateFunctionArgs } from "react-router";
 import { z } from "zod";
+import { useTranslation } from "react-i18next";
 import { Button } from "@core/app/components/ui/button";
 import { CheckoutBuyerDetails, CheckoutOrderSummary, CheckoutPayment, CheckoutReviewFields, CheckoutShell, checkoutTotal } from "@core/app/components/checkout-sections";
 import { orders } from "@core/src/features/orders/composition";
@@ -179,6 +180,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 }
 
 export default function Checkout() {
+  const { t } = useTranslation();
   const initialData = useLoaderData<typeof loader>();
   const initial = initialData.checkout!;
   const { orderId = "" } = useParams();
@@ -192,9 +194,9 @@ export default function Checkout() {
   const total = checkoutTotal(checkout, deliveryDraft);
   const recoveryVersion = fetcher.data?.code && ["TOTAL_CHANGED", "RATE_UNAVAILABLE", "INVALID_DISTRICT", "INVALID_DELIVERY_RATE", "DELIVERY_METHOD_DISABLED"].includes(fetcher.data.code) ? fetcher.data : undefined;
   const pending = fetcher.state !== "idle";
-  const errors = { name: name.fieldState.error ? "Ingresa tu nombre." : fetcher.data?.fieldErrors?.name,
-    phone: phone.fieldState.error ? "Ingresa un teléfono con código de país, por ejemplo +51987654321." : fetcher.data?.fieldErrors?.phone };
-  if (fetcher.data?.unavailable) return <main className="mx-auto max-w-lg p-6"><h1 className="text-2xl font-semibold">{unavailable}</h1><p>Solicita el enlace al vendedor.</p></main>;
+  const errors = { name: name.fieldState.error ? t("checkoutPage.nameRequired") : fetcher.data?.fieldErrors?.name,
+    phone: phone.fieldState.error ? t("checkoutPage.phoneInvalid") : fetcher.data?.fieldErrors?.phone };
+  if (fetcher.data?.unavailable) return <main className="mx-auto max-w-lg p-6"><h1 className="text-2xl font-semibold">{t("checkoutPage.unavailable")}</h1><p>{t("checkoutPage.askSeller")}</p></main>;
   return <CheckoutShell appearance={initialData.appearance ?? null} checkout={checkout}>
     <CheckoutOrderSummary checkout={checkout} deliveryDraft={deliveryDraft} />
     {checkout.state.kind === "pending" ? <fetcher.Form method="post" noValidate className="flex flex-col gap-5" onSubmit={buyerForm.handleSubmit(buyer => {
@@ -210,6 +212,7 @@ export default function Checkout() {
 }
 
 export function ErrorBoundary({ error }: { error: unknown }) {
+  const { t } = useTranslation();
   const missing = isRouteErrorResponse(error) && error.status === 404;
-  return <main className="mx-auto flex max-w-lg flex-col gap-4 p-6"><h1 className="text-2xl font-semibold">{missing ? unavailable : "No se pudo cargar el pedido"}</h1><p>{missing ? "Solicita el enlace al vendedor." : "Reintenta para consultar el estado actual de tu pedido."}</p>{!missing && <Button asChild><a href="">Reintentar</a></Button>}</main>;
+  return <main className="mx-auto flex max-w-lg flex-col gap-4 p-6"><h1 className="text-2xl font-semibold">{missing ? t("checkoutPage.unavailable") : t("checkoutPage.loadError")}</h1><p>{missing ? t("checkoutPage.askSeller") : t("checkoutPage.loadErrorHint")}</p>{!missing && <Button asChild><a href="">{t("checkoutPage.retry")}</a></Button>}</main>;
 }

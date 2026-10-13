@@ -1,4 +1,5 @@
 import { redirect, isRouteErrorResponse, useLoaderData, type LoaderFunctionArgs } from "react-router";
+import { useTranslation } from "react-i18next";
 import { buyerPaymentViewSchema } from "@shared/contracts/orders";
 import { orders } from "@core/src/features/orders/composition";
 import { BuyerPaymentContent } from "@core/src/features/orders/presentation/buyer-payment-content";
@@ -44,11 +45,13 @@ export async function loader({ params }: LoaderFunctionArgs) {
 }
 
 export default function BuyerPayment() {
+  const { t } = useTranslation();
   const view = useLoaderData<typeof loader>();
-  return <main className="mx-auto flex min-h-screen max-w-xl flex-col gap-6 px-5 py-8"><header><h1 className="text-2xl font-semibold">Pago del pedido</h1><p className="mt-2 text-muted-foreground">Elige cómo pagar y adjunta tu comprobante.</p></header><BuyerPaymentContent view={view} /></main>;
+  return <main className="mx-auto flex min-h-screen max-w-xl flex-col gap-6 px-5 py-8"><header><h1 className="text-2xl font-semibold">{t("buyerPayment.title")}</h1><p className="mt-2 text-muted-foreground">{t("buyerPayment.hint")}</p></header><BuyerPaymentContent view={view} /></main>;
 }
 
 export function ErrorBoundary({ error }: { error: unknown }) {
+  const { t } = useTranslation();
   const missing = isRouteErrorResponse(error) && error.status === 404;
-  return <main className="mx-auto flex min-h-screen max-w-xl flex-col justify-center gap-4 px-4"><span className="text-xl font-semibold">Yoyos</span><h1 className="text-2xl font-semibold">{missing ? "Pedido no encontrado" : "No se pudo cargar el pago"}</h1><p className="text-muted-foreground">{missing ? "Revisa el enlace con el vendedor." : "Inténtalo de nuevo más tarde."}</p></main>;
+  return <main className="mx-auto flex min-h-screen max-w-xl flex-col justify-center gap-4 px-4"><span className="text-xl font-semibold">Yoyos</span><h1 className="text-2xl font-semibold">{missing ? t("buyerPayment.notFound") : t("buyerPayment.loadError")}</h1><p className="text-muted-foreground">{missing ? t("buyerPayment.notFoundHint") : t("buyerPayment.loadErrorHint")}</p></main>;
 }

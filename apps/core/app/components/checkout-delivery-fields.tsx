@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useEffect, useMemo, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -26,6 +27,7 @@ export function CheckoutDeliveryFields({ orderId, checkout, options, onChange, r
   orderId: string; checkout: PublicCheckoutResponse; options: CheckoutDeliveryOptions;
   onChange: (draft: CheckoutDeliveryDraft | null) => void; recoveryVersion?: number | object; disabled?: boolean;
 }>) {
+  const { t, i18n } = useTranslation();
   const ready = useClientReady();
   const saved = checkout.delivery;
   const shippingEnabled = options.home.enabled || options.agency.enabled;
@@ -67,37 +69,37 @@ export function CheckoutDeliveryFields({ orderId, checkout, options, onChange, r
   }, [draft.mode, draft.name, draft.phone, draft.documentType, draft.document, draft.districtCode, draft.address, draft.instructions, draft.agencyId,
     rate, saved, checkout.deliveryCharge, checkout.total.currency, options.store.enabled]);
   useEffect(() => onChange(prepared), [prepared, onChange]);
-  const amount = (price: Money) => price.amount === 0 ? "Gratis" : formatCurrency(price.amount, price.currency, "es");
+  const amount = (price: Money) => price.amount === 0 ? t("checkoutDelivery.free") : formatCurrency(price.amount, price.currency, i18n.language);
   const input = (name: "name" | "phone" | "address" | "instructions" | "document", label: string, required = false) => <Controller key={name} name={name} control={form.control} render={({ field }) =>
     <Field><FieldLabel htmlFor={`delivery-${name}`}>{label}</FieldLabel><Input {...field} name={undefined} id={`delivery-${name}`} required={required} type={name === "phone" ? "tel" : "text"} /></Field>} />;
   return <fieldset disabled={disabled || !ready} className="flex min-w-0 flex-col gap-4">
-    <legend className="mb-3 text-lg font-semibold">Entrega</legend>
-    <Controller name="mode" control={form.control} render={({ field }) => <Field><FieldLabel htmlFor="delivery-mode">Forma de entrega</FieldLabel>
+    <legend className="mb-3 text-lg font-semibold">{t("checkoutDelivery.title")}</legend>
+    <Controller name="mode" control={form.control} render={({ field }) => <Field><FieldLabel htmlFor="delivery-mode">{t("checkoutDelivery.mode")}</FieldLabel>
       <select id="delivery-mode" className={controlClass} value={field.value} onBlur={field.onBlur} onChange={event => {
         field.onChange(event); form.setValue("rateId", ""); form.setValue("agencyId", ""); setReceived(null);
-      }}>{!saved && !shippingEnabled && !options.store.enabled && <option value="">No hay modalidades de entrega disponibles</option>}{saved && <option value="keep">Conservar entrega actual</option>}{shippingEnabled && <option value="ship">Envío</option>}{options.store.enabled && <option value="store">Recojo en tienda · Gratis</option>}</select>
+      }}>{!saved && !shippingEnabled && !options.store.enabled && <option value="">{t("checkoutDelivery.noModes")}</option>}{saved && <option value="keep">{t("checkoutDelivery.keep")}</option>}{shippingEnabled && <option value="ship">{t("checkoutDelivery.ship")}</option>}{options.store.enabled && <option value="store">{t("checkoutDelivery.storeFree")}</option>}</select>
     </Field>} />
-    {draft.mode === "keep" && saved && <div className="space-y-1 text-sm"><p>{saved.method === "home" ? "Entrega a domicilio" : saved.method === "agency" ? "Retiro en agencia" : "Recojo en tienda"} · {amount(checkout.deliveryCharge)}</p>
-      <p>{saved.method === "home" ? `${saved.destination.address}, ${saved.destination.district}` : saved.method === "store" ? saved.pickupPoint.address : `${saved.courier.name} · ${saved.agency.name} · ${saved.agency.address}`}</p><p>Se conserva la entrega y el importe ya asignados.</p></div>}
-    {draft.mode === "store" && options.store.enabled && <div className="space-y-1 text-sm"><p className="font-medium">{options.store.pickupPoint.name} · Gratis</p><p>{options.store.pickupPoint.address}</p>{options.store.pickupPoint.instructions && <p>{options.store.pickupPoint.instructions}</p>}</div>}
+    {draft.mode === "keep" && saved && <div className="space-y-1 text-sm"><p>{t(`checkoutDelivery.method.${saved.method}`)} · {amount(checkout.deliveryCharge)}</p>
+      <p>{saved.method === "home" ? `${saved.destination.address}, ${saved.destination.district}` : saved.method === "store" ? saved.pickupPoint.address : `${saved.courier.name} · ${saved.agency.name} · ${saved.agency.address}`}</p><p>{t("checkoutDelivery.kept")}</p></div>}
+    {draft.mode === "store" && options.store.enabled && <div className="space-y-1 text-sm"><p className="font-medium">{options.store.pickupPoint.name} · {t("checkoutDelivery.free")}</p><p>{options.store.pickupPoint.address}</p>{options.store.pickupPoint.instructions && <p>{options.store.pickupPoint.instructions}</p>}</div>}
     {draft.mode === "ship" && shippingEnabled && <>
       <PeruDistrictSelect value={draft.districtCode ? getPeruDistrict(draft.districtCode)?.code ?? null : null} disabled={disabled} onChange={code => { form.setValue("districtCode", code); form.setValue("rateId", ""); form.setValue("agencyId", ""); }} />
-      {draft.districtCode && !current && <p role="status" className="text-sm text-muted-foreground">Consultando opciones de envío…</p>}
-      {current && !current.success && <div><p role="alert">No se pudieron cargar las tarifas. Tus datos siguen aquí.</p><Button type="button" variant="outline" onClick={() => setRevision(value => value + 1)}>Reintentar tarifas</Button></div>}
-      {current?.success && rates.length === 0 && <p role="status">No hay opciones de envío para este distrito. Elige otro distrito{options.store.enabled ? " o recojo en tienda" : ""}.</p>}
-      {rates.length > 0 && <Controller name="rateId" control={form.control} render={({ field }) => <Field><FieldLabel htmlFor="delivery-rate">Tarifa de envío</FieldLabel><select id="delivery-rate" className={controlClass} value={field.value} onBlur={field.onBlur} onChange={event => {
+      {draft.districtCode && !current && <p role="status" className="text-sm text-muted-foreground">{t("checkoutDelivery.loading")}</p>}
+      {current && !current.success && <div><p role="alert">{t("checkoutDelivery.ratesError")}</p><Button type="button" variant="outline" onClick={() => setRevision(value => value + 1)}>{t("checkoutDelivery.retry")}</Button></div>}
+      {current?.success && rates.length === 0 && <p role="status">{t(options.store.enabled ? "checkoutDelivery.noRatesOrStore" : "checkoutDelivery.noRates")}</p>}
+      {rates.length > 0 && <Controller name="rateId" control={form.control} render={({ field }) => <Field><FieldLabel htmlFor="delivery-rate">{t("checkoutDelivery.rate")}</FieldLabel><select id="delivery-rate" className={controlClass} value={field.value} onBlur={field.onBlur} onChange={event => {
           field.onChange(event);
           const chosen = rates.find(item => item.id === event.target.value);
           form.setValue("agencyId", chosen?.method === "agency" && chosen.agencies.length === 1 ? chosen.agencies[0].id : "");
         }}>
-        <option value="">Selecciona una tarifa</option>{rates.map(item => <option key={item.id} value={item.id}>{rateLabel(item, rates)} · {amount(item.price)}</option>)}</select></Field>} />}
-      {agencies.length > 0 && <Controller name="agencyId" control={form.control} render={({ field }) => <Field><FieldLabel htmlFor="delivery-agency">Agencia de destino</FieldLabel><select id="delivery-agency" className={controlClass} value={agencies.some(item => item.id === field.value) ? field.value : ""} onBlur={field.onBlur} onChange={field.onChange}>
-        <option value="">Selecciona una agencia</option>{agencies.map(item => <option key={item.id} value={item.id}>{agencyLabel(item)}</option>)}</select></Field>} />}
+        <option value="">{t("checkoutDelivery.selectRate")}</option>{rates.map(item => <option key={item.id} value={item.id}>{rateLabel(item, rates)} · {amount(item.price)}</option>)}</select></Field>} />}
+      {agencies.length > 0 && <Controller name="agencyId" control={form.control} render={({ field }) => <Field><FieldLabel htmlFor="delivery-agency">{t("checkoutDelivery.agency")}</FieldLabel><select id="delivery-agency" className={controlClass} value={agencies.some(item => item.id === field.value) ? field.value : ""} onBlur={field.onBlur} onChange={field.onChange}>
+        <option value="">{t("checkoutDelivery.selectAgency")}</option>{agencies.map(item => <option key={item.id} value={item.id}>{agencyLabel(item)}</option>)}</select></Field>} />}
     </>}
     {draft.mode && draft.mode !== "keep" && <>
-      {input("name", "Nombre del destinatario", true)}{input("phone", "Teléfono del destinatario", true)}
-      {rate?.method === "home" && <>{input("address", "Dirección de entrega", true)}{input("instructions", "Indicaciones de entrega")}</>}
-      {rate?.method === "agency" && <><Controller name="documentType" control={form.control} render={({ field }) => <Field><FieldLabel htmlFor="delivery-document-type">Tipo de documento</FieldLabel><select id="delivery-document-type" className={controlClass} value={field.value} onChange={field.onChange} onBlur={field.onBlur}><option value="national_id">DNI</option><option value="passport">Pasaporte</option><option value="foreign_id">Carné de extranjería</option></select></Field>} />{input("document", "Documento del destinatario", true)}</>}
+      {input("name", t("checkoutDelivery.recipientName"), true)}{input("phone", t("checkoutDelivery.recipientPhone"), true)}
+      {rate?.method === "home" && <>{input("address", t("checkoutDelivery.address"), true)}{input("instructions", t("checkoutDelivery.instructions"))}</>}
+      {rate?.method === "agency" && <><Controller name="documentType" control={form.control} render={({ field }) => <Field><FieldLabel htmlFor="delivery-document-type">{t("checkoutDelivery.documentType")}</FieldLabel><select id="delivery-document-type" className={controlClass} value={field.value} onChange={field.onChange} onBlur={field.onBlur}><option value="national_id">{t("checkoutDelivery.documentTypes.national_id")}</option><option value="passport">{t("checkoutDelivery.documentTypes.passport")}</option><option value="foreign_id">{t("checkoutDelivery.documentTypes.foreign_id")}</option></select></Field>} />{input("document", t("checkoutDelivery.document"), true)}</>}
     </>}
   </fieldset>;
 }
