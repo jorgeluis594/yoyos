@@ -199,6 +199,12 @@ test("selection spans pages, totals the selected orders and resets with filters"
   expect(screen.getByText(/20 seleccionados/)).toBeTruthy();
   fireEvent.press(screen.getByRole("button", { name: "Por cobrar" }));
   await waitFor(() => expect(screen.queryByText(/seleccionados/)).toBeNull());
+  fireEvent.press(screen.getByRole("checkbox", { name: "Seleccionar pedido 1001" }));
+  fireEvent.press(screen.getByRole("button", { name: "Todos" }));
+  await waitFor(() => expect(screen.queryByText(/seleccionados/)).toBeNull());
+  fireEvent.press(screen.getByRole("button", { name: "Por cobrar" }));
+  await screen.findByRole("checkbox", { name: "Seleccionar pedido 1001" });
+  expect(screen.queryByText(/seleccionados/)).toBeNull();
 });
 
 test("select all covers only the visible page and can be cleared", async () => {

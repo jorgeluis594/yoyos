@@ -10,6 +10,8 @@ type Selection = Readonly<{ key: string; orders: ReadonlyMap<string, SelectableO
  */
 export function useOrderSelection(resetKey: string) {
   const [selection, setSelection] = useState<Selection>({ key: resetKey, orders: new Map() });
+  // Drop the stale selection as soon as the key changes, so returning to a previous key never revives it.
+  if (selection.key !== resetKey) setSelection({ key: resetKey, orders: new Map() });
   const current = selection.key === resetKey ? selection.orders : new Map<string, SelectableOrder>();
   const update = useCallback((change: (orders: Map<string, SelectableOrder>) => void) => setSelection((previous) => {
     const orders = new Map(previous.key === resetKey ? previous.orders : []);

@@ -338,7 +338,7 @@ const styles = StyleSheet.create({
   orderRow: { flexDirection: "row", alignItems: "stretch", borderBottomWidth: StyleSheet.hairlineWidth },
   select: { minWidth: 48, minHeight: 48, alignItems: "center", justifyContent: "center", paddingLeft: 8 }, orderBody: { flex: 1, paddingLeft: 8 },
   selectionBar: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
-  order: { paddingHorizontal: 16, paddingVertical: 12, gap: 4, borderBottomWidth: StyleSheet.hairlineWidth },
+  order: { paddingHorizontal: 16, paddingVertical: 12, gap: 4 },
   orderHeading: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "baseline", columnGap: 12 },
   customerName: { fontWeight: "700", flexGrow: 1, flexShrink: 1, flexBasis: 160 }, amount: { fontWeight: "700", fontVariant: ["tabular-nums"] },
   badges: { gap: 4, marginTop: 4, alignItems: "flex-start" }, badge: { borderRadius: 20, paddingHorizontal: 9, paddingVertical: 2 },
