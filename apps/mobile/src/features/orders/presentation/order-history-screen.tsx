@@ -251,31 +251,38 @@ export default function OrderHistoryScreen() {
         ListEmptyComponent={<ScreenState status={loading ? "loading" : error ? "error" : filtered ? "no-results" : "empty"}
           title={loading ? t('loadingOrders') : error ? t('loadOrdersTitle') : filtered ? t('noResults') : t('noOrders')}
           description={error || (!loading ? t('ordersEmptyHint') : undefined)} onRetry={error ? () => void reload(companyId, criteria) : undefined} />}
-        renderItem={({ item }) => {
+        renderItem={({ item, index, section }) => {
           const selected = selection.orders.has(item.id);
+          const first = index === 0, last = index === section.data.length - 1;
           return <Pressable accessibilityRole="button" accessibilityState={{ selected }} accessibilityHint={t('orderListSelectHint')}
             accessibilityActions={[{ name: "select", label: t('orderListSelect', { number: item.number }) }]} onAccessibilityAction={() => selection.toggle(item)}
             onPress={() => selection.count ? selection.toggle(item) : router.push(`/orders/${item.id}`)} onLongPress={() => { if (!selected) selection.toggle(item); }}
-            style={({ pressed }) => [styles.order, { backgroundColor: pressed ? theme.backgroundSelected : theme.backgroundElement, borderColor: selected ? theme.primary : "transparent", borderBottomColor: selected ? theme.primary : theme.border }]}>
-          <View style={styles.orderHeading}><OrderBuyerName buyer={item.buyer} source={item.source} style={styles.customerName} />
-            <ThemedText style={styles.amount}>{money(item.total.amount, item.total.currency, locale)}</ThemedText></View>
-          <ThemedText type="small" themeColor="textSecondary">#{item.number} · {timeLabel(item.createdAt, locale)}</ThemedText>
-          <View style={styles.badges}>
+            style={({ pressed }) => [styles.order, {
+              backgroundColor: selected || pressed ? theme.backgroundSelected : theme.backgroundElement, borderColor: theme.border,
+              borderTopWidth: first ? StyleSheet.hairlineWidth : 0,
+              borderTopLeftRadius: first ? 12 : 0, borderTopRightRadius: first ? 12 : 0,
+              borderBottomLeftRadius: last ? 12 : 0, borderBottomRightRadius: last ? 12 : 0,
+            }]}>
+          {selection.count ? <SymbolView name={{ ios: selected ? "checkmark.circle.fill" : "circle", android: selected ? "check_circle" : "radio_button_unchecked" }} size={24} tintColor={selected ? theme.primary : theme.textSecondary} /> : null}
+          <View style={styles.orderText}>
+            <OrderBuyerName buyer={item.buyer} source={item.source} style={styles.customerName} />
+            <ThemedText type="small" themeColor="textSecondary">#{item.number} · {timeLabel(item.createdAt, locale)}</ThemedText>
             {item.status === "cancelled" || item.status === "completed" ? <View style={[styles.badge, { backgroundColor: item.status === "completed" ? theme.successSurface : theme.secondary }]}>
               <ThemedText type="small" style={{ color: item.status === "completed" ? theme.success : theme.textSecondary }}>{t(item.status === "completed" ? 'orderListCompleted' : 'orderListCancelled')}</ThemedText>
-            </View> : <>
+            </View> : <View style={styles.badges}>
               <View style={styles.statusLine}>
-                <SymbolView name={{ ios: item.paymentStatus === "paid" ? "checkmark.circle.fill" : "clock", android: item.paymentStatus === "paid" ? "check_circle" : "schedule" }} size={18} tintColor={item.paymentStatus === "paid" ? theme.success : theme.warning} />
+                <SymbolView name={{ ios: item.paymentStatus === "paid" ? "checkmark.circle.fill" : "clock", android: item.paymentStatus === "paid" ? "check_circle" : "schedule" }} size={16} tintColor={item.paymentStatus === "paid" ? theme.success : theme.warning} />
                 <ThemedText type="small" style={{ flexShrink: 1, color: item.paymentStatus === "paid" ? theme.success : theme.warning }}>{t(item.paymentStatus === "paid" ? 'orderListPaid' : 'orderListPaymentPending')}</ThemedText>
               </View>
               <View style={styles.statusLine}>
-                <SymbolView name={{ ios: "shippingbox", android: "local_shipping" }} size={18} tintColor={theme.textSecondary} />
+                <SymbolView name={{ ios: "shippingbox", android: "local_shipping" }} size={16} tintColor={theme.textSecondary} />
                 <ThemedText type="small" themeColor="textSecondary" style={styles.statusText}>{deliveryStatusLabel(item.deliveryStatus, language)}</ThemedText>
               </View>
-            </>}
+            </View>}
+            {item.scheduledDispatchDate || item.courier ? <ThemedText type="small" themeColor="textSecondary">{[item.scheduledDispatchDate && t('orderListScheduledOn', { date: item.scheduledDispatchDate }), item.courier?.name].filter(Boolean).join(" · ")}</ThemedText> : null}
+            {item.checkoutEnabledAt ? <ThemedText type="small" themeColor="textSecondary">{t(item.status === "cancelled" ? "checkoutCancelled" : item.checkoutConfirmedAt ? "checkoutConfirmed" : "checkoutPending")}</ThemedText> : null}
           </View>
-          {item.scheduledDispatchDate || item.courier ? <ThemedText type="small" themeColor="textSecondary">{[item.scheduledDispatchDate && t('orderListScheduledOn', { date: item.scheduledDispatchDate }), item.courier?.name].filter(Boolean).join(" · ")}</ThemedText> : null}
-          {item.checkoutEnabledAt ? <ThemedText type="small" themeColor="textSecondary">{t(item.status === "cancelled" ? "checkoutCancelled" : item.checkoutConfirmedAt ? "checkoutConfirmed" : "checkoutPending")}</ThemedText> : null}
+          <ThemedText style={styles.amount}>{money(item.total.amount, item.total.currency, locale)}</ThemedText>
         </Pressable>;
         }}
         ListFooterComponent={!error && items.length ? <View style={styles.footer}>
@@ -320,11 +327,11 @@ const styles = StyleSheet.create({
   applied: { minHeight: 48, justifyContent: "center" },
   day: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10 },
   selectionBar: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
-  order: { paddingHorizontal: 16, paddingVertical: 12, gap: 4, borderWidth: 2 },
-  orderHeading: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "baseline", columnGap: 12 },
-  customerName: { fontWeight: "700", flexGrow: 1, flexShrink: 1, flexBasis: 160 }, amount: { fontWeight: "700", fontVariant: ["tabular-nums"] },
-  badges: { gap: 4, marginTop: 4, alignItems: "flex-start" }, badge: { borderRadius: 20, paddingHorizontal: 9, paddingVertical: 2 },
-  statusLine: { flexDirection: "row", alignItems: "center", gap: 8 }, statusText: { flexShrink: 1 },
+  order: { marginHorizontal: 16, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 12, paddingVertical: 10, minHeight: 72, borderBottomWidth: StyleSheet.hairlineWidth, borderLeftWidth: StyleSheet.hairlineWidth, borderRightWidth: StyleSheet.hairlineWidth },
+  orderText: { flex: 1, minWidth: 0, gap: 2 },
+  customerName: { fontWeight: "600" }, amount: { fontWeight: "600", fontVariant: ["tabular-nums"], textAlign: "right", maxWidth: "40%" },
+  badges: { flexDirection: "row", flexWrap: "wrap", columnGap: 12, rowGap: 2 }, badge: { alignSelf: "flex-start", borderRadius: 20, paddingHorizontal: 9, paddingVertical: 2 },
+  statusLine: { flexDirection: "row", alignItems: "center", gap: 4 }, statusText: { flexShrink: 1 },
   footer: { gap: 8, padding: 16 }, filters: { gap: 16 },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8, alignItems: "center" },
   field: { gap: 8 }, date: { flex: 1, minWidth: 130, gap: 4 }, notice: { gap: 8, padding: 16, borderRadius: 8 },
