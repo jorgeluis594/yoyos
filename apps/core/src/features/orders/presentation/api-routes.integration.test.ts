@@ -375,6 +375,49 @@ test("orders HTTP combines contact and Lima-day UTC bounds with stable pages and
   expect(contacts).toHaveLength(20);
 });
 
+test("orders HTTP filters by dispatch status, courier, scheduled and shipped dates within the tenant", async () => {
+  const seller = await fixture("PE");
+  const other = await fixture("PE");
+  const courierId = randomUUID();
+  const location = { country: "PE", districtCode: "150122", district: "Miraflores", province: "Lima", department: "Lima" };
+  const delivery = { method: "agency", recipient: { name: "Ana", phone: "999", identity: { kind: "document", documentType: "national_id", document: "12345678" } },
+    destination: location, pricing: { quotationId: randomUUID(), rateId: randomUUID(), optionId: randomUUID(), settingsVersion: 1 },
+    courier: { id: courierId, name: "Shalom" }, agency: { id: randomUUID(), name: "Agencia", address: "Av. 1", location },
+    recordedBy: { kind: "seller", userId: seller.userId } };
+  const base = { currency: "PEN", total: 10, itemsTotal: 10, stockDeducted: true, createdAt: new Date("2026-09-28T12:00:00.000Z") };
+  const ids = Array.from({ length: 5 }, () => randomUUID());
+  const [pendingScheduled, pendingUnscheduled, cancelledPending, shipped, otherTenant] = ids;
+  await withTenantIsolation(seller.companyId, async () => {
+    await prisma.order.createMany({ data: [
+      { ...base, number: 1001n, id: pendingScheduled, sellerId: seller.userId, scheduledDispatchDate: new Date("2026-10-05"), delivery },
+      { ...base, number: 1002n, id: pendingUnscheduled, sellerId: seller.userId },
+      { ...base, number: 1003n, id: cancelledPending, sellerId: seller.userId, cancelled: true, scheduledDispatchDate: new Date("2026-10-05") },
+      { ...base, number: 1004n, id: shipped, sellerId: seller.userId, deliveryStatus: "shipped", shippedAt: new Date("2026-10-06T15:00:00.000Z"), scheduledDispatchDate: new Date("2026-10-06") },
+    ] });
+    await prisma.orderItem.createMany({ data: [pendingScheduled, pendingUnscheduled, cancelledPending, shipped].map((orderId) => ({ orderId, variantId: seller.variantId,
+      productName: "Sample product", variantAttributes: {}, quantity: 1n, unitPrice: 10, subtotal: 10 })) });
+  });
+  await withTenantIsolation(other.companyId, async () => {
+    await prisma.order.create({ data: { ...base, number: 1001n, id: otherTenant, sellerId: other.userId, scheduledDispatchDate: new Date("2026-10-05") } });
+  });
+  const list = async (query: string) => {
+    const response = await call(`/api/orders/mixed?${query}`, seller.cookie);
+    return response.status === 200 ? (await response.json()).items.map((item: { id: string }) => item.id).sort() : response.status;
+  };
+  expect(await list("deliveryStatus=pending")).toEqual([pendingScheduled, pendingUnscheduled].sort());
+  expect(await list("deliveryStatus=shipped")).toEqual([shipped]);
+  expect(await list(`courierId=${courierId}`)).toEqual([pendingScheduled]);
+  expect(await list("unscheduled=true")).toEqual([pendingUnscheduled]);
+  expect(await list("scheduledFrom=2026-10-06")).toEqual([shipped]);
+  expect(await list("scheduledThrough=2026-10-05&deliveryStatus=pending")).toEqual([pendingScheduled]);
+  expect(await list("scheduledFrom=2026-10-05&scheduledThrough=2026-10-06")).toEqual([pendingScheduled, cancelledPending, shipped].sort());
+  expect(await list("shippedFrom=2026-10-06T00%3A00%3A00.000Z&shippedBefore=2026-10-06T15%3A00%3A00.000Z")).toEqual([]);
+  expect(await list("shippedFrom=2026-10-06T15%3A00%3A00.000Z&shippedBefore=2026-10-07T00%3A00%3A00.000Z")).toEqual([shipped]);
+  expect(await list("unscheduled=true&scheduledFrom=2026-10-05")).toBe(400);
+  expect(await list("scheduledFrom=2026-10-06&scheduledThrough=2026-10-05")).toBe(400);
+  expect(await list("shippedFrom=2026-10-07T00%3A00%3A00.000Z&shippedBefore=2026-10-06T00%3A00%3A00.000Z")).toBe(400);
+});
+
 test("home HTTP uses persisted enablement, requires district and replaces store without retaining its destination", async () => {
   const seller = await fixture("PE");
   const orderId = randomUUID();

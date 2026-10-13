@@ -359,6 +359,15 @@ export async function findOrderAggregates(criteria: AggregateCriteria, companyId
   if (criteria.customer.kind === "contact") predicates.push(Prisma.sql`b."contactId" = ${criteria.customer.contactId}::uuid`);
   if (criteria.createdFrom) predicates.push(Prisma.sql`o."createdAt" >= ${criteria.createdFrom}`);
   if (criteria.createdBefore) predicates.push(Prisma.sql`o."createdAt" < ${criteria.createdBefore}`);
+  if (criteria.deliveryStatus) predicates.push(Prisma.sql`o."deliveryStatus" = ${criteria.deliveryStatus}`);
+  if (criteria.deliveryStatus === "pending") predicates.push(Prisma.sql`o.cancelled = false`);
+  if (criteria.courierId) predicates.push(Prisma.sql`o.delivery -> 'courier' ->> 'id' = ${criteria.courierId}`);
+  const scheduled = criteria.scheduled;
+  if (scheduled?.kind === "unscheduled") predicates.push(Prisma.sql`o."scheduledDispatchDate" IS NULL`);
+  if (scheduled && "from" in scheduled) predicates.push(Prisma.sql`o."scheduledDispatchDate" >= ${scheduled.from}::date`);
+  if (scheduled && "through" in scheduled) predicates.push(Prisma.sql`o."scheduledDispatchDate" <= ${scheduled.through}::date`);
+  if (criteria.shippedFrom) predicates.push(Prisma.sql`o."shippedAt" >= ${criteria.shippedFrom}`);
+  if (criteria.shippedBefore) predicates.push(Prisma.sql`o."shippedAt" < ${criteria.shippedBefore}`);
   if (criteria.search) {
     const number = /^#?\d+$/.test(criteria.search) ? Number(criteria.search.replace(/^#/, "")) : NaN;
     predicates.push(Prisma.sql`(strpos(lower(coalesce(b.name, '')), lower(${criteria.search})) > 0
