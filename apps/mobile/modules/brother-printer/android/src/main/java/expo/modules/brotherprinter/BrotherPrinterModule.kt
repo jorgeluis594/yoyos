@@ -35,6 +35,12 @@ class PrintInput : Record {
   @Field var copies: Int = 0
 }
 
+// Paper id -> SDK label size and printable height in dots (300 dpi); 62 × 100 is DK-11202.
+private val labelSizes = mapOf(
+  "DK-1209" to (QLPrintSettings.LabelSize.DieCutW62H29 to 271),
+  "DK-11202" to (QLPrintSettings.LabelSize.DieCutW62H100 to 1109),
+)
+
 class BrotherPrinterModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("BrotherPrinter")
@@ -88,7 +94,7 @@ class BrotherPrinterModule : Module() {
 
   private fun printImage(input: PrintInput): Map<String, Any> {
     if (input.copies !in 1..99) return sendFailure("INVALID_COPIES", "Copies must be between 1 and 99", "not-sent")
-    if (input.model != "QL-810W" || input.labelSize != "DK-1209")
+    if (input.model != "QL-810W" || input.labelSize !in labelSizes)
       return sendFailure("PRINTER_REJECTED", "Unsupported printer or label size", "not-sent")
     if (!validIp(input.ip) || input.identityKind !in setOf("serial", "mac") || input.identityValue.isBlank())
       return sendFailure("PRINTER_REJECTED", "Invalid printer identity", "not-sent")
@@ -103,7 +109,8 @@ class BrotherPrinterModule : Module() {
       return sendFailure("PRINTER_REJECTED", "Image is outside the print cache", "not-sent")
     val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeFile(file.path, options)
-    if (options.outWidth != 696 || options.outHeight != 271)
+    val (sdkLabelSize, height) = labelSizes.getValue(input.labelSize)
+    if (options.outWidth != 696 || options.outHeight != height)
       return sendFailure("PRINTER_REJECTED", "Image has the wrong dimensions", "not-sent")
 
     var sendStarted = false
@@ -124,7 +131,7 @@ class BrotherPrinterModule : Module() {
       val driver = opened.driver
       try {
         val settings = QLPrintSettings(PrinterModel.QL_810W).apply {
-          labelSize = QLPrintSettings.LabelSize.DieCutW62H29
+          labelSize = sdkLabelSize
           workPath = context.cacheDir.absolutePath
           scaleMode = PrintImageSettings.ScaleMode.ActualSize
           numCopies = input.copies

@@ -27,7 +27,7 @@ const sendingSchema = z.discriminatedUnion("status", [
 type NativeBrother = {
   discoverPrinters(timeoutMs: number): Promise<unknown>;
   resolvePrinter(input: Readonly<{ model: "QL-810W"; identityKind: "serial" | "mac"; identityValue: string; lastKnownIp: string }>): Promise<unknown>;
-  printImage(input: Readonly<{ model: "QL-810W"; labelSize: "DK-1209"; ip: string; identityKind: "serial" | "mac"; identityValue: string; uri: string; copies: number }>): Promise<unknown>;
+  printImage(input: Readonly<{ model: "QL-810W"; labelSize: "DK-1209" | "DK-11202"; ip: string; identityKind: "serial" | "mac"; identityValue: string; uri: string; copies: number }>): Promise<unknown>;
 };
 const native = () => Platform.OS === "android" ? requireOptionalNativeModule<NativeBrother>("BrotherPrinter") : null;
 

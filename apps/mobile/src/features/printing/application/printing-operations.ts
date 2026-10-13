@@ -100,7 +100,7 @@ export function createPrintingOperations({ adapters, preferences, temporaryDocum
       }
       if (!execution.isSessionCurrent()) return err(cancelled);
       stage(execution, "sending");
-      const sent = await adapter.send({ printer: resolved.data, document, copies: copies.data });
+      const sent = await adapter.send({ printer: resolved.data, format: request.format, document, copies: copies.data });
       return sent.success ? ok({ status: "completed", printer: resolved.data.selection.printer, receipt: sent.data }) : sent;
     } finally {
       try {
