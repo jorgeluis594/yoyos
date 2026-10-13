@@ -1,7 +1,7 @@
 import { ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { createOrderInTransaction, type CreateOrderDependencies, type CreateOrderError, type CreateOrderInput, type OrderAccess } from "@core/src/features/orders/application/create-order";
-import { orderStateMachine, type OrderAggregate, type OrderDomainError, type Payment } from "@core/src/features/orders/domain/order-state-machine";
+import { orderStateMachine, type OrderAggregate, type FulfillmentChange, type OrderDomainError, type Payment } from "@core/src/features/orders/domain/order-state-machine";
 import { confirmPayment } from "@core/src/features/orders/domain/payment";
 import type { PaymentError } from "@core/src/features/orders/domain/payment";
 import type { CompanyId, OrderId, PaymentId, PositiveInteger } from "@core/src/features/orders/domain/order";
@@ -13,7 +13,7 @@ export type RegisterImmediateSaleDependencies = Omit<CreateOrderDependencies, "t
   savePayment: (payment: Payment, companyId: CompanyId) => Promise<Result<null, RegisterImmediateSaleError>>;
   deductProductStock: (variantId: VariantId, quantity: PositiveInteger) => Promise<Result<null, RegisterImmediateSaleError>>;
   saveStockDeduction: (id: OrderId, companyId: CompanyId) => Promise<Result<null, RegisterImmediateSaleError>>;
-  saveFulfillment: (id: OrderId, companyId: CompanyId, change: Pick<OrderAggregate, "deliveryStatus" | "deliveredAt" | "completedAt">) => Promise<Result<null, RegisterImmediateSaleError>>;
+  saveFulfillment: (id: OrderId, companyId: CompanyId, change: FulfillmentChange) => Promise<Result<null, RegisterImmediateSaleError>>;
   newPaymentId: () => PaymentId;
 }>;
 

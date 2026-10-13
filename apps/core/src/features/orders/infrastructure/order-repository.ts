@@ -7,7 +7,7 @@ import { isCurrency } from "@shared/money";
 import { parseDispatchDate } from "@shared/dispatch-date";
 import { getCompanyId, prisma, systemPrisma, requireActiveTransaction } from "@core/src/shared/infrastructure/persistance";
 import { buildOrder, type OrderItemId, type OrderId, type ContactId, type CompanyId, type UserId, type PositiveInteger } from "@core/src/features/orders/domain/order";
-import { orderStateMachine, parseDeliverySnapshot, type OrderAggregate, type Payment } from "@core/src/features/orders/domain/order-state-machine";
+import { orderStateMachine, parseDeliverySnapshot, type DispatchScheduleChange, type FulfillmentChange, type OrderAggregate, type Payment } from "@core/src/features/orders/domain/order-state-machine";
 import { parsePayment } from "@core/src/features/orders/domain/payment";
 import type { OrderCriteria } from "@core/src/features/orders/application/read-orders";
 import type { AggregateCriteria, AggregatePage } from "@core/src/features/orders/application/list-order-aggregates";
@@ -261,12 +261,26 @@ export async function saveCompletion(id: OrderId, companyId: CompanyId, complete
   }
 }
 
-export async function saveFulfillment(id: OrderId, companyId: CompanyId, change: Pick<OrderAggregate, "deliveryStatus" | "deliveredAt" | "completedAt">) {
+export async function saveDispatchSchedule(id: OrderId, companyId: CompanyId, change: DispatchScheduleChange) {
+  requireActiveTransaction(companyId);
+  try {
+    const updated = await prisma.order.updateMany({ where: { id, companyId, cancelled: false, deliveryStatus: "pending" },
+      data: { scheduledDispatchDate: change.scheduledDispatchDate && new Date(change.scheduledDispatchDate) } });
+    if (updated.count !== 1) throw new Error("Locked order was not available for scheduling");
+    return ok<null>(null);
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_save_dispatch_schedule", err: cause }, "unable_to_save_dispatch_schedule");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save dispatch schedule" });
+  }
+}
+
+export async function saveFulfillment(id: OrderId, companyId: CompanyId, change: FulfillmentChange) {
   requireActiveTransaction(companyId);
   try {
     const updated = await prisma.order.updateMany({ where: { id, companyId, cancelled: false, stockDeducted: true,
       deliveryStatus: change.deliveryStatus === "shipped" ? "pending" : { in: ["pending", "shipped"] } },
-    data: { deliveryStatus: change.deliveryStatus, deliveredAt: change.deliveredAt, completedAt: change.completedAt } });
+    data: { deliveryStatus: change.deliveryStatus, shippedAt: change.shippedAt, deliveredAt: change.deliveredAt, completedAt: change.completedAt } });
     if (updated.count !== 1) throw new Error("Locked order was not available for fulfillment");
     return ok<null>(null);
   } catch (cause) {

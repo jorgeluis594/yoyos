@@ -4,10 +4,11 @@ import { err } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { buildPendingOrder, type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { CompanyId, ContactId, OrderId, OrderItemId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
+import { parseDispatchDate, type DispatchDate } from "@shared/dispatch-date";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import type { CatalogItem, ContactSnapshot } from "@core/src/features/orders/application/order-snapshots";
 
-export type CreateOrderInput = Readonly<{ id: OrderId; contactId: ContactId | null;
+export type CreateOrderInput = Readonly<{ id: OrderId; contactId: ContactId | null; scheduledDispatchDate?: DispatchDate;
   items: readonly [Readonly<{ variantId: VariantId; quantity: PositiveInteger }>, ...Readonly<{ variantId: VariantId; quantity: PositiveInteger }> []] }>;
 export type OrderAccess = Readonly<{ companyId: CompanyId; userId: UserId }>;
 export type CreateOrderError = Readonly<{ code: "INVALID_ORDER" | "CURRENCY_MISMATCH" | "ORDER_ALREADY_EXISTS" | "CONTACT_NOT_FOUND" | "VARIANT_NOT_FOUND" | "PERSISTENCE_UNAVAILABLE";
@@ -24,7 +25,7 @@ export type CreateOrderDependencies = Readonly<{
   clock: () => Date;
 }>;
 
-const selection = z.strictObject({ id: z.uuid(), contactId: z.uuid().nullable(), items: z.array(z.strictObject({
+const selection = z.strictObject({ id: z.uuid(), contactId: z.uuid().nullable(), scheduledDispatchDate: z.string().refine((value) => parseDispatchDate(value).success).optional(), items: z.array(z.strictObject({
   variantId: z.uuid(), quantity: z.number().int().positive().safe(),
 })).min(1) });
 const access = z.strictObject({ companyId: z.uuid(), userId: z.string().min(1) });
@@ -56,7 +57,7 @@ export async function createOrderInTransaction(input: CreateOrderInput, context:
   const built = buildPendingOrder({ number: number.data, id: input.id, companyId: context.companyId, sellerId: context.userId,
     customer: contact && contact.success && contact.data ? { kind: "contact", contactId: contact.data.id as ContactId,
       name: contact.data.name, phone: contact.data.phone } : { kind: "general_public" },
-    createdAt: deps.clock(), items });
+    createdAt: deps.clock(), items, scheduledDispatchDate: input.scheduledDispatchDate });
   if (!built.success) return built;
   const saved = await deps.saveOrder(built.data);
   return saved.success ? built : saved;
