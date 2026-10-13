@@ -4,6 +4,7 @@ import { currencies } from "@shared/money";
 import { add, multiply, type Money } from "@shared/money";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
+import { dispatchDateSchema } from "@shared/contracts/orders";
 import { normalizeDecimalInput } from "@mobile/shared/decimal-input";
 
 export type OrderDraftItem = Readonly<{
@@ -19,7 +20,7 @@ export type OrderDraftItem = Readonly<{
 type DraftCustomer = Readonly<{ kind: "general_public" }> | Readonly<{ kind: "contact"; contactId: string; name: string | null; phone: string }>;
 
 export type DraftPayment = Readonly<{ paymentId: string; amount: string; method: "digital_wallet" | "bank_transfer"; deductStockIfPartial: boolean }>;
-type DraftOptions = Readonly<{ payments?: readonly DraftPayment[]; ratedDelivery?: RatedDeliveryAssignment; deliverImmediately?: boolean }>;
+type DraftOptions = Readonly<{ payments?: readonly DraftPayment[]; ratedDelivery?: RatedDeliveryAssignment; deliverImmediately?: boolean; scheduledDispatchDate?: string }>;
 const identity = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("absent") }),
   z.strictObject({ kind: z.literal("document"), documentType: z.enum(["national_id", "passport", "foreign_id"]), document: z.string().trim().min(1) })]);
 const recipient = z.strictObject({ name: z.string().trim().min(1), phone: z.string().trim().min(1), identity });
@@ -41,6 +42,7 @@ const submissionSchema = z.strictObject({ id: z.uuid(), contactId: z.uuid().null
     method: z.enum(["digital_wallet", "bank_transfer"]), deductStockIfPartial: z.boolean() })).optional(),
   delivery: ratedDeliveryAssignmentSchema.optional(),
   deliverImmediately: z.boolean().optional(),
+  scheduledDispatchDate: dispatchDateSchema.optional(),
 });
 export type OrderSubmission = z.infer<typeof submissionSchema>;
 
@@ -81,6 +83,7 @@ export function prepareOrder(draft: OrderDraft): Result<{ request: OrderSubmissi
     ...(draft.payments ? { payments: draft.payments.map(payment => ({ ...payment, amount: { amount: Number(normalizeDecimalInput(payment.amount)), currency: total?.currency } })) } : {}),
     ...(ratedDelivery?.success ? { delivery: ratedDelivery.data } : {}),
     ...(draft.deliverImmediately !== undefined ? { deliverImmediately: draft.deliverImmediately } : {}),
+    ...(draft.scheduledDispatchDate ? { scheduledDispatchDate: draft.scheduledDispatchDate } : {}),
     contactId: draft.customer.kind === "contact" ? draft.customer.contactId : null,
     items: draft.items.map(({ variantId, quantity }) => ({ variantId, quantity })) });
   return parsed.success && total ? ok({ request: parsed.data, shownTotal: total }) : invalid();

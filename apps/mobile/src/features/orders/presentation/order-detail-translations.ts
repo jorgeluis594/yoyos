@@ -15,6 +15,7 @@ export const orderDetailTranslations = {
     },
 
     detailCourier: 'Courier', detailAgency: 'Agencia de destino',
+    scheduledDispatch: 'Despacho programado', shippedOn: 'Despachado el {{date}}', noScheduledDispatch: 'Sin programar', scheduledSaveError: 'No se pudo guardar la fecha programada.',
     detailBuyer: 'Comprador', detailPaymentPending: 'Pago pendiente',
     detailReports_one: '{{count}} comprobante por revisar', detailReports_other: '{{count}} comprobantes por revisar',
     detailProducts_one: 'Productos · {{count}} unidad', detailProducts_other: 'Productos · {{count}} unidades',
@@ -40,6 +41,7 @@ export const orderDetailTranslations = {
     },
 
     detailCourier: 'Transportadora', detailAgency: 'Agência de destino',
+    scheduledDispatch: 'Despacho programado', shippedOn: 'Despachado em {{date}}', noScheduledDispatch: 'Sem programação', scheduledSaveError: 'Não foi possível salvar a data programada.',
     detailBuyer: 'Comprador', detailPaymentPending: 'Pagamento pendente',
     detailReports_one: '{{count}} comprovante para revisar', detailReports_other: '{{count}} comprovantes para revisar',
     detailProducts_one: 'Produtos · {{count}} unidade', detailProducts_other: 'Produtos · {{count}} unidades',

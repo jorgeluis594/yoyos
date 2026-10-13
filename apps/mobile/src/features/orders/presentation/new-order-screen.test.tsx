@@ -55,6 +55,11 @@ jest.mock("@expo/ui/community/menu", () => {
   return { MenuView: ({ children, onPressAction }: { children: React.ReactNode; onPressAction: (event: { nativeEvent: { event: string } }) => void }) =>
     <View {...{ onValueChange: (index: number) => onPressAction({ nativeEvent: { event: String(index) } }) }}>{children}</View> };
 });
+jest.mock("@expo/ui/community/datetime-picker", () => {
+  const { View } = jest.requireActual<typeof import("react-native")>("react-native");
+  return { DateTimePicker: ({ testID, onValueChange }: { testID?: string; onValueChange: (event: unknown, date: Date) => void }) =>
+    <View testID={testID} {...{ onValueChange }} /> };
+});
 jest.mock("@expo/ui", () => {
   const { View } = jest.requireActual<typeof import("react-native")>("react-native");
   const Picker = ({ onValueChange, children, testID, selectedValue }: { onValueChange: (value: number) => void; children: React.ReactNode; testID?: string; selectedValue: number }) => <View testID={testID} accessible accessibilityRole="adjustable" {...{ onValueChange, selectedValue }}>{children}</View>;
@@ -111,6 +116,23 @@ test("review preserves payment and shows one save action", async () => {
   expect(mockCompleteOrder).toHaveBeenCalledWith(expect.objectContaining({
     payments: [expect.objectContaining({ amount: "5" })],
   }), mockId(1));
+});
+
+test("scheduled dispatch date is sent when chosen and omitted otherwise", async () => {
+  mockCompleteOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: { amount: 10, currency: "PEN" },
+    order: { id: mockId(3) } }));
+  const withoutDay = await review();
+  fireEvent.press(withoutDay.getByRole("button", { name: "Guardar pedido" }));
+  await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledTimes(1));
+  expect(mockCompleteOrder.mock.calls[0][0]).not.toHaveProperty("scheduledDispatchDate");
+  withoutDay.unmount();
+  mockCompleteOrder.mockClear();
+  const screen = await review();
+  fireEvent.press(screen.getByRole("button", { name: /^Despacho programado/ }));
+  fireEvent(screen.getByTestId("order-despacho programado-picker"), "valueChange", {}, new Date(2026, 9, 20, 12));
+  fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
+  await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledTimes(1));
+  expect(mockCompleteOrder.mock.calls[0][0]).toEqual(expect.objectContaining({ scheduledDispatchDate: "2026-10-20" }));
 });
 
 test("products stay read-only on the form and returning preserves entered data", async () => {
