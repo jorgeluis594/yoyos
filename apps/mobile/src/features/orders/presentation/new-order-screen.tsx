@@ -26,6 +26,7 @@ import { ThemedText } from "@mobile/components/themed-text";
 import { ThemedView } from "@mobile/components/themed-view";
 import { Button } from "@mobile/components/ui/button";
 import { Input } from "@mobile/components/ui/input";
+import { OrderDayField } from "@mobile/features/orders/presentation/order-day-field";
 import { ListRow } from "@mobile/components/ui/list-row";
 import { ScreenState } from "@mobile/components/ui/screen-state";
 import { showConfirmation } from "@mobile/components/ui/show-confirmation";
@@ -412,6 +413,8 @@ function CompanyOrderScreen() {
             <Field disabled={sending}><FieldLabel>{t('deliveryStatus')}</FieldLabel><OptionSelector testID="delivery-status" value={draft.deliverImmediately ? "delivered" : "pending"}
               options={[{ value: "pending", label: t('deliveryPending') }, { value: "delivered", label: t('deliveryDelivered') }]}
               onValueChange={value => setDraft(current => ({ ...current, deliverImmediately: value === "delivered" }))} /></Field>
+            <OrderDayField label={t('scheduledDispatch')} value={draft.scheduledDispatchDate ?? ""}
+              onChange={day => setDraft(current => ({ ...current, scheduledDispatchDate: day || undefined }))} />
             {settings && (initialDelivery || settings.home.enabled || settings.store.enabled || settings.agency.enabled) ? <>
               <Button variant="ghost" disabled={sending} onPress={() => {
                 if (initialDelivery) { setInitialDelivery(null); setQuoteAttempt(value => value + 1); }

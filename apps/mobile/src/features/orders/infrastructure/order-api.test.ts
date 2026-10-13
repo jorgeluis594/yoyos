@@ -303,3 +303,13 @@ test.each([401, 403])("cancellation treats HTTP %s as an authorization failure e
   expect(await api.cancel(id(1))).toEqual(err({ code: "UNAUTHENTICATED", message: "Access rejected" }));
   expect(await api.readCancellationState(id(1))).toEqual(err({ code: "UNAUTHENTICATED", message: "Access rejected" }));
 });
+
+test("order API patches shipping only with a valid body and order ID", async () => {
+  const request = jest.fn(async () => ok({ unexpected: true }));
+  const api = createOrderApi(request);
+  expect(await api.updateShipping(id(1), { scheduledDispatchDate: "2026-02-30" })).toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
+  expect(await api.updateShipping(id(1), {})).toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
+  expect(request).not.toHaveBeenCalled();
+  expect(await api.updateShipping(id(1), { scheduledDispatchDate: null })).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+  expect(request).toHaveBeenCalledWith(`/api/orders/${id(1)}/shipping`, expect.objectContaining({ method: "PATCH", body: JSON.stringify({ scheduledDispatchDate: null }) }));
+});

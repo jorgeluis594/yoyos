@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { listOrderAggregatesResponseSchema, listOrderAggregatesSchema, listOrdersResponseSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema,
-  type ListOrderAggregatesRequest, type ListOrdersRequest, type OrderAggregateResponse, type OrderApiError, type OrderApiIssue } from "@shared/contracts/orders";
+  type ListOrderAggregatesRequest, type UpdateOrderShippingRequest, type ListOrdersRequest, type OrderAggregateResponse, type OrderApiError, type OrderApiIssue } from "@shared/contracts/orders";
 import { err, ok } from "@shared/functional";
 import { add, subtract, type Money } from "@shared/money";
 import { limaMidnightUtc, nextCalendarDay } from "@shared/orders-date";
@@ -53,6 +53,7 @@ type Api = Readonly<{
   getAggregate: (id: string) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
   list: (input: ListOrdersRequest) => Promise<Result<z.infer<typeof listOrdersResponseSchema>, OrderRequestError>>;
   get: (id: string) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
+  updateShipping: (orderId: string, input: UpdateOrderShippingRequest) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
   create: (input: OrderSubmission) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
   findCatalog: (variantIds: readonly string[]) => Promise<Result<z.infer<typeof orderCatalogSchema>, OrderRequestError>>;
   searchCatalog: (search: string) => Promise<Result<z.infer<typeof orderCatalogSchema>, OrderRequestError>>;
@@ -160,6 +161,7 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
       return input.success ? api.listAggregates(input.data) : input;
     },
     loadOrderAggregate: api.getAggregate,
+    updateOrderShipping: api.updateShipping,
     enableOrderCheckout: api.enableCheckout,
     loadOrders: async (criteria: OrderListCriteria) => {
       const input = listRequest(criteria);
@@ -192,7 +194,7 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
         return err({ code: "CURRENCY_MISMATCH", message: "Saved payment currency differs" });
       let draft: OrderDraft = { ...emptyOrderDraft(), id: saved.id,
         payments: request.payments?.map(payment => ({ ...payment, amount: String(payment.amount.amount) })),
-        deliverImmediately: request.deliverImmediately };
+        deliverImmediately: request.deliverImmediately, scheduledDispatchDate: request.scheduledDispatchDate };
       draft = setDraftCustomer(draft, request.contactId ? { kind: "contact", contactId: request.contactId,
         name: contact.data?.name ?? null, phone: contact.data?.phone ?? "" } : { kind: "general_public" });
       const unavailableVariantIds: string[] = [];
