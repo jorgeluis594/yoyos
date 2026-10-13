@@ -42,6 +42,13 @@ export type OrderListCriteria = Readonly<{
   view?: "all" | "unpaid" | "undelivered";
   fromDay?: string;
   throughDay?: string;
+  deliveryStatus?: "pending" | "shipped" | "delivered";
+  courierId?: string;
+  scheduledFrom?: string;
+  scheduledThrough?: string;
+  unscheduled?: true;
+  shippedFromDay?: string;
+  shippedThroughDay?: string;
 }>;
 
 export type { RatedDeliveryAssignment } from "@mobile/features/orders/domain/order-draft";
@@ -81,16 +88,23 @@ function listRequest(criteria: OrderListCriteria): Result<ListOrdersRequest, Ord
   return parsed.success ? ok(parsed.data) : err({ code: "INVALID_INPUT", message: "Invalid order filters" });
 }
 
+const validRange = (from?: string, through?: string) => [from, through].every(day => !day || z.iso.date().safeParse(day).success) && !(from && through && from > through);
+
 function mixedListRequest(criteria: OrderListCriteria): Result<ListOrderAggregatesRequest, OrderRequestError> {
-  if ((criteria.fromDay && !z.iso.date().safeParse(criteria.fromDay).success) ||
-      (criteria.throughDay && !z.iso.date().safeParse(criteria.throughDay).success) ||
-      (criteria.fromDay && criteria.throughDay && criteria.fromDay > criteria.throughDay))
+  if (!validRange(criteria.fromDay, criteria.throughDay) || !validRange(criteria.scheduledFrom, criteria.scheduledThrough) ||
+      !validRange(criteria.shippedFromDay, criteria.shippedThroughDay) ||
+      (criteria.unscheduled && (criteria.scheduledFrom || criteria.scheduledThrough)))
     return err({ code: "INVALID_INPUT", message: "Invalid order days" });
   const parsed = listOrderAggregatesSchema.safeParse({ page: criteria.page, customer: criteria.customer.kind,
     ...(criteria.search ? { search: criteria.search.trim() } : {}), ...(criteria.view ? { view: criteria.view } : {}),
     ...(criteria.customer.kind === "contact" ? { contactId: criteria.customer.contactId } : {}),
     ...(criteria.fromDay ? { createdFrom: limaMidnightUtc(criteria.fromDay) } : {}),
     ...(criteria.throughDay ? { createdBefore: limaMidnightUtc(nextCalendarDay(criteria.throughDay)) } : {}),
+    ...(criteria.deliveryStatus ? { deliveryStatus: criteria.deliveryStatus } : {}), ...(criteria.courierId ? { courierId: criteria.courierId } : {}),
+    ...(criteria.scheduledFrom ? { scheduledFrom: criteria.scheduledFrom } : {}), ...(criteria.scheduledThrough ? { scheduledThrough: criteria.scheduledThrough } : {}),
+    ...(criteria.unscheduled ? { unscheduled: "true" } : {}),
+    ...(criteria.shippedFromDay ? { shippedFrom: limaMidnightUtc(criteria.shippedFromDay) } : {}),
+    ...(criteria.shippedThroughDay ? { shippedBefore: limaMidnightUtc(nextCalendarDay(criteria.shippedThroughDay)) } : {}),
   });
   return parsed.success ? ok(parsed.data) : err({ code: "INVALID_INPUT", message: "Invalid order filters" });
 }

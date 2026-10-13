@@ -42,6 +42,23 @@ test("Lima day filters include the whole through day and reject inverted days", 
   expect(paths).toHaveLength(2);
 });
 
+test("dispatch filters map to the mixed query and reject unscheduled with a range", async () => {
+  const paths: string[] = [];
+  const operations = createOrderOperations(createOrderApi(async (path) => { paths.push(path); return ok({ items: [], page: 1, pageSize: 20, total: 0 }); }), storage());
+  const courierId = id(9);
+  await operations.loadMixedOrders({ page: 1, customer: { kind: "all" }, deliveryStatus: "shipped", courierId, scheduledFrom: "2026-10-01", scheduledThrough: "2026-10-05",
+    shippedFromDay: "1989-12-31", shippedThroughDay: "1989-12-31" });
+  const query = new URL(`http://localhost${paths[0]}`).searchParams;
+  expect(Object.fromEntries(query)).toMatchObject({ deliveryStatus: "shipped", courierId, scheduledFrom: "2026-10-01", scheduledThrough: "2026-10-05",
+    shippedFrom: "1989-12-31T05:00:00.000Z", shippedBefore: "1990-01-01T04:00:00.000Z" });
+  await operations.loadMixedOrders({ page: 1, customer: { kind: "all" }, unscheduled: true });
+  expect(new URL(`http://localhost${paths[1]}`).searchParams.get("unscheduled")).toBe("true");
+  for (const bad of [{ unscheduled: true as const, scheduledFrom: "2026-10-01" }, { scheduledFrom: "2026-10-05", scheduledThrough: "2026-10-01" },
+    { shippedFromDay: "2026-10-05", shippedThroughDay: "2026-10-01" }])
+    expect(await operations.loadMixedOrders({ page: 1, customer: { kind: "all" }, ...bad })).toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
+  expect(paths).toHaveLength(2);
+});
+
 test("save failure prevents POST; uncertain POST coalesces taps and blocks another order", async () => {
   let sends = 0;
   const bodies: unknown[] = [];

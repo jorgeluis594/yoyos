@@ -16,6 +16,8 @@ jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   readPendingOrderConfirmation: (...args: unknown[]) => mockReadPending(...args),
   searchOrderContacts: (...args: unknown[]) => mockSearchContacts(...args),
 } }));
+const mockSettings = jest.fn();
+jest.mock("@mobile/features/delivery-settings/composition", () => ({ deliverySettings: { get: (...args: unknown[]) => mockSettings(...args) } }));
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAccess: () => ({ state: {
   status: "ready", company: { id: "00000000-0000-4000-8000-000000000001", name: "Mi tienda", country: mockCountry },
 } }) }));
@@ -23,7 +25,8 @@ jest.mock("@mobile/features/orders/presentation/order-result", () => ({ useOrder
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 
 beforeEach(() => { jest.clearAllMocks(); mockCountry = "PE"; mockReadPending.mockResolvedValue(ok(null));
-  mockSearchContacts.mockResolvedValue(ok([])); mockLoadOrders.mockResolvedValue(ok({ items: [], page: 1, pageSize: 20, total: 0 })); });
+  mockSearchContacts.mockResolvedValue(ok([]));
+  mockSettings.mockResolvedValue(ok({ couriers: [{ id: "00000000-0000-4000-8000-0000000000c1", courierId: "00000000-0000-4000-8000-0000000000c2", name: "Olva", enabled: false }] })); mockLoadOrders.mockResolvedValue(ok({ items: [], page: 1, pageSize: 20, total: 0 })); });
 
 test("history distinguishes empty sales from filtered results and sends full Lima days", async () => {
   const screen = render(<OrderHistoryScreen />);
@@ -160,4 +163,57 @@ test("search and task filters query all orders and remain selected after clearin
   await waitFor(() => expect(mockLoadOrders).toHaveBeenLastCalledWith({ page: 1, customer: { kind: "all" }, search: "#1005", view: "unpaid" }));
   fireEvent.press(screen.getByRole("button", { name: "Borrar búsqueda" }));
   await waitFor(() => expect(mockLoadOrders).toHaveBeenLastCalledWith({ page: 1, customer: { kind: "all" }, search: "", view: "unpaid" }));
+});
+
+const dispatchOrder = (number: number) => ({ number: 1000 + number, id: `00000000-0000-4000-8000-${String(number).padStart(12, "0")}`, buyer: null,
+  checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: number === 1 ? "2026-10-20" : null, shippedAt: null, createdAt: "2026-09-28T12:00:00.000Z",
+  deliveredAt: null, completedAt: null, status: "active", paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false, total: { amount: number, currency: "PEN" } });
+const pagedOrders = () => mockLoadOrders.mockImplementation(async ({ page }: { page: number }) => ok({
+  items: page === 1 ? Array.from({ length: 20 }, (_, index) => dispatchOrder(index + 1)) : [dispatchOrder(21)], page, pageSize: 20, total: 21 }));
+
+test("dispatch filters, including disabled couriers and Sin programar, reach the query", async () => {
+  const screen = render(<OrderHistoryScreen />);
+  await screen.findByText("Aún no hay pedidos");
+  fireEvent.press(screen.getByRole("button", { name: "Filtros" }));
+  fireEvent.press(screen.getByRole("button", { name: "Despachado" }));
+  fireEvent.press(await screen.findByRole("button", { name: "Olva" }));
+  fireEvent.press(screen.getByRole("button", { name: "Sin programar" }));
+  expect(screen.queryByRole("button", { name: /Programado desde/ })).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: "Aplicar filtros" }));
+  await waitFor(() => expect(mockLoadOrders).toHaveBeenLastCalledWith({ page: 1, customer: { kind: "all" }, deliveryStatus: "shipped",
+    courierId: "00000000-0000-4000-8000-0000000000c1", unscheduled: true }));
+});
+
+test("selection spans pages, totals the selected orders and resets with filters", async () => {
+  pagedOrders();
+  const screen = render(<OrderHistoryScreen />);
+  await screen.findByText("Programado: 2026-10-20");
+  fireEvent.press(screen.getByRole("button", { name: "Seleccionar todos" }));
+  expect(screen.getByText(/20 seleccionados · .*210[.,]00/)).toBeTruthy();
+  fireEvent.press(screen.getByRole("button", { name: "Siguiente" }));
+  await screen.findByRole("button", { name: "Anterior" });
+  expect(screen.getByText(/20 seleccionados/)).toBeTruthy();
+  fireEvent.press(screen.getByRole("checkbox", { name: "Seleccionar pedido 1021" }));
+  expect(screen.getByText(/21 seleccionados · .*231[.,]00/)).toBeTruthy();
+  fireEvent.press(screen.getByRole("checkbox", { name: "Seleccionar pedido 1021" }));
+  expect(screen.getByText(/20 seleccionados/)).toBeTruthy();
+  fireEvent.press(screen.getByRole("button", { name: "Por cobrar" }));
+  await waitFor(() => expect(screen.queryByText(/seleccionados/)).toBeNull());
+  fireEvent.press(screen.getByRole("checkbox", { name: "Seleccionar pedido 1001" }));
+  fireEvent.press(screen.getByRole("button", { name: "Todos" }));
+  await waitFor(() => expect(screen.queryByText(/seleccionados/)).toBeNull());
+  fireEvent.press(screen.getByRole("button", { name: "Por cobrar" }));
+  await screen.findByRole("checkbox", { name: "Seleccionar pedido 1001" });
+  expect(screen.queryByText(/seleccionados/)).toBeNull();
+});
+
+test("select all covers only the visible page and can be cleared", async () => {
+  pagedOrders();
+  const screen = render(<OrderHistoryScreen />);
+  await screen.findByRole("button", { name: "Siguiente" });
+  fireEvent.press(screen.getByRole("button", { name: "Seleccionar todos" }));
+  fireEvent.press(screen.getByRole("button", { name: "Quitar selección" }));
+  expect(screen.queryByText(/seleccionados/)).toBeNull();
+  fireEvent.press(screen.getByRole("checkbox", { name: "Seleccionar pedido 1003" }));
+  expect(screen.getByText(/1 seleccionados/)).toBeTruthy();
 });

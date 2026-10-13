@@ -9,6 +9,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import type { ListOrderAggregatesResponse } from "@shared/contracts/orders";
 import { orders } from "@mobile/features/orders/composition";
+import { deliverySettings } from "@mobile/features/delivery-settings/composition";
 import { ThemedText } from "@mobile/components/themed-text";
 import { ThemedView } from "@mobile/components/themed-view";
 import { Button } from "@mobile/components/ui/button";
@@ -17,6 +18,7 @@ import { ListRow } from "@mobile/components/ui/list-row";
 import { ScreenState } from "@mobile/components/ui/screen-state";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
+import { useOrderSelection } from "@mobile/features/orders/presentation/use-order-selection";
 import { OrderDayField } from "@mobile/features/orders/presentation/order-day-field";
 import { useTheme } from "@mobile/hooks/use-theme";
 import { orderLanguage, deliveryStatusLabel } from "@mobile/features/orders/presentation/order-labels";
@@ -46,6 +48,14 @@ export default function OrderHistoryScreen() {
   const [customerKind, setCustomerKind] = useState<"all" | "general_public" | "contact">("all");
   const [contactSearch, setContactSearch] = useState("");
   const [contactId, setContactId] = useState("");
+  const [deliveryStatus, setDeliveryStatus] = useState<NonNullable<OrderListCriteria["deliveryStatus"]> | "">("");
+  const [courierId, setCourierId] = useState("");
+  const [couriers, setCouriers] = useState<{ id: string; name: string }[]>([]);
+  const [unscheduled, setUnscheduled] = useState(false);
+  const [scheduledFrom, setScheduledFrom] = useState("");
+  const [scheduledThrough, setScheduledThrough] = useState("");
+  const [shippedFromDay, setShippedFromDay] = useState("");
+  const [shippedThroughDay, setShippedThroughDay] = useState("");
   const [contacts, setContacts] = useState<{ id: string; name: string | null; phone: string }[]>([]);
   const [items, setItems] = useState<Summary[]>([]);
   const [total, setTotal] = useState(0);
@@ -56,6 +66,7 @@ export default function OrderHistoryScreen() {
   const [verifying, setVerifying] = useState(false);
   const activeRequest = useRef(0);
   const companyId = state.status === "ready" ? state.company.id : "";
+  const selection = useOrderSelection(`${companyId}|${JSON.stringify({ ...criteria, page: 0 })}`);
 
   const reload = useCallback(async (company: string, filters: OrderListCriteria) => {
     const request = ++activeRequest.current;
@@ -91,16 +102,28 @@ export default function OrderHistoryScreen() {
     return () => { active = false; clearTimeout(timer); };
   }, [companyId, filtersOpen, customerKind, contactSearch]);
 
+  useEffect(() => {
+    if (!companyId || !filtersOpen) return;
+    let active = true;
+    // Includes disabled couriers: past orders keep their courier snapshot.
+    void deliverySettings.get().then((result) => { if (active && result.success) setCouriers(result.data.couriers.map(({ id, name }) => ({ id, name }))); });
+    return () => { active = false; };
+  }, [companyId, filtersOpen]);
+
   if (state.status !== "ready") return null;
   const language = orderLanguage(state.company.country, i18n.language);
 
   const apply = () => {
     if ((customerKind === "contact" && !contactId) || (fromDay && !z.iso.date().safeParse(fromDay).success) ||
-      (throughDay && !z.iso.date().safeParse(throughDay).success) || (fromDay && throughDay && fromDay > throughDay)) {
+      (throughDay && !z.iso.date().safeParse(throughDay).success) || (fromDay && throughDay && fromDay > throughDay) ||
+      (scheduledFrom && scheduledThrough && scheduledFrom > scheduledThrough) || (shippedFromDay && shippedThroughDay && shippedFromDay > shippedThroughDay)) {
       setFilterError(t('orderListFilterError')); return;
     }
     setCriteria({ search: criteria.search, view: criteria.view, page: 1, customer: customerKind === "contact" ? { kind: "contact", contactId } : { kind: customerKind },
-      ...(fromDay ? { fromDay } : {}), ...(throughDay ? { throughDay } : {}) });
+      ...(fromDay ? { fromDay } : {}), ...(throughDay ? { throughDay } : {}),
+      ...(deliveryStatus ? { deliveryStatus } : {}), ...(courierId ? { courierId } : {}),
+      ...(unscheduled ? { unscheduled: true as const } : { ...(scheduledFrom ? { scheduledFrom } : {}), ...(scheduledThrough ? { scheduledThrough } : {}) }),
+      ...(shippedFromDay ? { shippedFromDay } : {}), ...(shippedThroughDay ? { shippedThroughDay } : {}) });
     setFiltersOpen(false); setFilterError("");
   };
   const verify = async () => {
@@ -115,12 +138,16 @@ export default function OrderHistoryScreen() {
     router.push(`/orders/${result.data.order.id}`);
   };
 
-  const advanced = criteria.customer.kind !== "all" || !!criteria.fromDay || !!criteria.throughDay;
+  const advanced = criteria.customer.kind !== "all" || !!criteria.fromDay || !!criteria.throughDay ||
+    !!criteria.deliveryStatus || !!criteria.courierId || !!criteria.unscheduled || !!criteria.scheduledFrom || !!criteria.scheduledThrough || !!criteria.shippedFromDay || !!criteria.shippedThroughDay;
   const filtered = advanced || !!criteria.search || (!!criteria.view && criteria.view !== "all");
   const openFilters = () => {
     setCustomerKind(criteria.customer.kind);
     setContactId(criteria.customer.kind === "contact" ? criteria.customer.contactId : "");
     setFromDay(criteria.fromDay ?? ""); setThroughDay(criteria.throughDay ?? "");
+    setDeliveryStatus(criteria.deliveryStatus ?? ""); setCourierId(criteria.courierId ?? ""); setUnscheduled(!!criteria.unscheduled);
+    setScheduledFrom(criteria.scheduledFrom ?? ""); setScheduledThrough(criteria.scheduledThrough ?? "");
+    setShippedFromDay(criteria.shippedFromDay ?? ""); setShippedThroughDay(criteria.shippedThroughDay ?? "");
     setFilterError(""); setFiltersOpen(true);
   };
   const sections: { title: string; data: Summary[] }[] = [];
@@ -169,6 +196,13 @@ export default function OrderHistoryScreen() {
     {advanced ? <Pressable accessibilityRole="button" accessibilityLabel={t('orderListClear')} onPress={() => setCriteria({ page: 1, customer: { kind: "all" }, search: criteria.search, view: criteria.view })} style={styles.applied}>
       <ThemedText type="small" style={{ color: theme.primary }}>{t('orderListFiltered')} · {t('orderListClear')}</ThemedText>
     </Pressable> : null}
+    {items.length ? <View style={styles.selectionBar}>
+      <Button variant="secondary" onPress={() => selection.selectPage(items)}>{t('orderListSelectAll')}</Button>
+      {selection.count ? <>
+        <ThemedText type="small" accessibilityRole="summary">{t('orderListSelected', { count: selection.count, total: money(selection.total.amount, selection.total.currency, locale) })}</ThemedText>
+        <Button variant="ghost" onPress={selection.clear}>{t('orderListClearSelection')}</Button>
+      </> : null}
+    </View> : null}
     {pendingState !== "none" ? <View style={[styles.notice, { backgroundColor: theme.backgroundElement }]}>
       <ThemedText type="smallBold">{pendingState === "error" ? t('pendingReadError') : t('pendingOrder')}</ThemedText>
       <ThemedText type="small" themeColor="textSecondary">{pendingState === "error" ? t('pendingReadHint') : t('pendingOrderHint')}</ThemedText>
@@ -195,9 +229,31 @@ export default function OrderHistoryScreen() {
         <View style={styles.date}><OrderDayField label={t('from')} value={fromDay} onChange={setFromDay} /></View>
         <View style={styles.date}><OrderDayField label={t('through')} value={throughDay} onChange={setThroughDay} /></View>
       </View>
+      <ThemedText type="subtitle" accessibilityRole="header">{t('orderListDispatchStatus')}</ThemedText>
+      <View style={styles.row}>
+        {(["", "pending", "shipped", "delivered"] as const).map((status) => <Button key={status || "all"} variant={deliveryStatus === status ? "default" : "secondary"}
+          onPress={() => setDeliveryStatus(status)}>{status ? deliveryStatusLabel(status, language) : t('all')}</Button>)}
+      </View>
+      <ThemedText type="subtitle" accessibilityRole="header">{t('orderListCourier')}</ThemedText>
+      <View style={styles.row}>
+        <Button variant={!courierId ? "default" : "secondary"} onPress={() => setCourierId("")}>{t('all')}</Button>
+        {couriers.map((courier) => <Button key={courier.id} variant={courierId === courier.id ? "default" : "secondary"} onPress={() => setCourierId(courier.id)}>{courier.name}</Button>)}
+      </View>
+      <ThemedText type="subtitle" accessibilityRole="header">{t('orderListScheduled')}</ThemedText>
+      <Button variant={unscheduled ? "default" : "secondary"} onPress={() => { setUnscheduled(!unscheduled); setScheduledFrom(""); setScheduledThrough(""); }}>{t('orderListUnscheduled')}</Button>
+      {unscheduled ? null : <View style={styles.row}>
+        <View style={styles.date}><OrderDayField label={t('orderListScheduledFrom')} value={scheduledFrom} onChange={setScheduledFrom} /></View>
+        <View style={styles.date}><OrderDayField label={t('orderListScheduledThrough')} value={scheduledThrough} onChange={setScheduledThrough} /></View>
+      </View>}
+      <ThemedText type="subtitle" accessibilityRole="header">{t('orderListShipped')}</ThemedText>
+      <View style={styles.row}>
+        <View style={styles.date}><OrderDayField label={t('orderListShippedFrom')} value={shippedFromDay} onChange={setShippedFromDay} /></View>
+        <View style={styles.date}><OrderDayField label={t('orderListShippedThrough')} value={shippedThroughDay} onChange={setShippedThroughDay} /></View>
+      </View>
       {filterError ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{filterError}</ThemedText> : null}
       <Button onPress={apply}>{t('applyFilters')}</Button>
-      <Button variant="ghost" onPress={() => { setFromDay(""); setThroughDay(""); setCustomerKind("all"); setContactId(""); setContactSearch(""); setFilterError(""); }}>{t('orderListClear')}</Button>
+      <Button variant="ghost" onPress={() => { setFromDay(""); setThroughDay(""); setDeliveryStatus(""); setCourierId(""); setUnscheduled(false);
+        setScheduledFrom(""); setScheduledThrough(""); setShippedFromDay(""); setShippedThroughDay(""); setCustomerKind("all"); setContactId(""); setContactSearch(""); setFilterError(""); }}>{t('orderListClear')}</Button>
     </View>;
 
   return <ThemedView style={styles.page}><SafeAreaView style={styles.page} edges={["top", "left", "right"]}>
@@ -210,8 +266,14 @@ export default function OrderHistoryScreen() {
         ListEmptyComponent={<ScreenState status={loading ? "loading" : error ? "error" : filtered ? "no-results" : "empty"}
           title={loading ? t('loadingOrders') : error ? t('loadOrdersTitle') : filtered ? t('noResults') : t('noOrders')}
           description={error || (!loading ? t('ordersEmptyHint') : undefined)} onRetry={error ? () => void reload(companyId, criteria) : undefined} />}
-        renderItem={({ item }) => <Pressable accessibilityRole="button" onPress={() => router.push(`/orders/${item.id}`)}
-          style={({ pressed }) => [styles.order, { backgroundColor: pressed ? theme.backgroundSelected : theme.backgroundElement, borderBottomColor: theme.border }]}>
+        renderItem={({ item }) => <View style={[styles.orderRow, { borderBottomColor: theme.border }]}>
+          <Pressable accessibilityRole="checkbox" accessibilityLabel={t('orderListSelect', { number: item.number })} accessibilityState={{ checked: selection.orders.has(item.id) }}
+            onPress={() => selection.toggle(item)} style={styles.select}>
+            <SymbolView name={{ ios: selection.orders.has(item.id) ? "checkmark.square.fill" : "square", android: selection.orders.has(item.id) ? "check_box" : "check_box_outline_blank" }} size={24}
+              tintColor={selection.orders.has(item.id) ? theme.primary : theme.textSecondary} />
+          </Pressable>
+          <Pressable accessibilityRole="button" onPress={() => router.push(`/orders/${item.id}`)}
+          style={({ pressed }) => [styles.order, styles.orderBody, { backgroundColor: pressed ? theme.backgroundSelected : theme.backgroundElement }]}>
           <View style={styles.orderHeading}><ThemedText style={styles.customerName}>{item.buyer ? item.buyer.name ?? item.buyer.phone : t('generalPublic')}</ThemedText>
             <ThemedText style={styles.amount}>{money(item.total.amount, item.total.currency, locale)}</ThemedText></View>
           <ThemedText type="small" themeColor="textSecondary">#{item.number} · {timeLabel(item.createdAt, locale)}</ThemedText>
@@ -229,8 +291,9 @@ export default function OrderHistoryScreen() {
               </View>
             </>}
           </View>
+          {item.scheduledDispatchDate ? <ThemedText type="small" themeColor="textSecondary">{t('orderListScheduledOn', { date: item.scheduledDispatchDate })}</ThemedText> : null}
           {item.checkoutEnabledAt ? <ThemedText type="small" themeColor="textSecondary">{t(item.status === "cancelled" ? "checkoutCancelled" : item.checkoutConfirmedAt ? "checkoutConfirmed" : "checkoutPending")}</ThemedText> : null}
-        </Pressable>}
+        </Pressable></View>}
         ListFooterComponent={!error && items.length ? <View style={styles.footer}>
           <ThemedText type="small" themeColor="textSecondary">{t('orderCount', { count: total })}</ThemedText>
           <View style={styles.row}>
@@ -272,7 +335,10 @@ const styles = StyleSheet.create({
   filterButton: { minHeight: 48, minWidth: 48, borderRadius: 24, borderWidth: StyleSheet.hairlineWidth, alignItems: "center", justifyContent: "center" },
   applied: { minHeight: 48, justifyContent: "center" },
   day: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10 },
-  order: { paddingHorizontal: 16, paddingVertical: 12, gap: 4, borderBottomWidth: StyleSheet.hairlineWidth },
+  orderRow: { flexDirection: "row", alignItems: "stretch", borderBottomWidth: StyleSheet.hairlineWidth },
+  select: { minWidth: 48, minHeight: 48, alignItems: "center", justifyContent: "center", paddingLeft: 8 }, orderBody: { flex: 1, paddingLeft: 8 },
+  selectionBar: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
+  order: { paddingHorizontal: 16, paddingVertical: 12, gap: 4 },
   orderHeading: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "baseline", columnGap: 12 },
   customerName: { fontWeight: "700", flexGrow: 1, flexShrink: 1, flexBasis: 160 }, amount: { fontWeight: "700", fontVariant: ["tabular-nums"] },
   badges: { gap: 4, marginTop: 4, alignItems: "flex-start" }, badge: { borderRadius: 20, paddingHorizontal: 9, paddingVertical: 2 },
