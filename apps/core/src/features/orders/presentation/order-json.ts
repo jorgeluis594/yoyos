@@ -30,8 +30,9 @@ export function toOrderAggregateJson(order: OrderAggregate) {
 
 export function toOrderAggregateListJson(page: AggregatePage) {
   return listOrderAggregatesResponseSchema.parse({ ...page, items: page.items.map((item) => {
-    const { number, id, createdAt, scheduledDispatchDate, shippedAt, deliveredAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, buyer, checkoutEnabledAt, checkoutConfirmedAt, sellerId, total } = toOrderAggregateJson(item);
-    return orderAggregateSummarySchema.parse({ number, id, createdAt, scheduledDispatchDate, shippedAt, deliveredAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, buyer, checkoutEnabledAt, checkoutConfirmedAt, sellerId, total });
+    const { number, id, createdAt, scheduledDispatchDate, shippedAt, deliveredAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, buyer, checkoutEnabledAt, checkoutConfirmedAt, sellerId, total, delivery } = toOrderAggregateJson(item);
+    return orderAggregateSummarySchema.parse({ number, id, createdAt, scheduledDispatchDate, shippedAt, deliveredAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, buyer, checkoutEnabledAt, checkoutConfirmedAt, sellerId, total,
+      courier: delivery?.method === "agency" ? delivery.courier : null });
   }) });
 }
 

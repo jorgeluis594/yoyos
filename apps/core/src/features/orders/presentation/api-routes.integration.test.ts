@@ -406,6 +406,7 @@ test("orders HTTP filters by dispatch status, courier, scheduled and shipped dat
   };
   expect(await list("deliveryStatus=pending")).toEqual([pendingScheduled, pendingUnscheduled].sort());
   expect(await list("deliveryStatus=shipped")).toEqual([shipped]);
+  expect((await (await call(`/api/orders/mixed?courierId=${courierId}`, seller.cookie)).json()).items[0].courier).toEqual({ id: courierId, name: "Shalom" });
   expect(await list(`courierId=${courierId}`)).toEqual([pendingScheduled]);
   expect(await list("unscheduled=true")).toEqual([pendingUnscheduled]);
   expect(await list("scheduledFrom=2026-10-06")).toEqual([shipped]);
