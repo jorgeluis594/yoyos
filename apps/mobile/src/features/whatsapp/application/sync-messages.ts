@@ -11,7 +11,7 @@ export type SyncWorkerDeps = Readonly<{
   store: MessageStore;
   api: MessageApi;
   images: Pick<WhatsAppGateway, "downloadImage" | "deleteDownloadedImage">;
-  uploadImage: (uri: string, mimeType: string) => Promise<Result<Readonly<{ id: string }>, Readonly<{ code: string; message: string }>>>;
+  uploadImage: (uri: string, mimeType: string) => Promise<Result<Readonly<{ id: string }>, Readonly<{ code: string; message: string; http?: Readonly<{ status: number }> }>>>;
   session: () => Session | null;
   now: Clock;
   /** A value in [0, 1) used for backoff jitter. */

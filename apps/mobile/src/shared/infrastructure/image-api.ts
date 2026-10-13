@@ -5,7 +5,7 @@ import type { TransportError } from "@mobile/shared/application/transport-error"
 
 type UploadCode = "UNAUTHENTICATED" | "COMPANY_REQUIRED" | "NETWORK_ERROR" | "SERVICE_UNAVAILABLE" | "RATE_LIMITED" | "SERVER_ERROR" | "INVALID_RESPONSE" | "OPERATION_CANCELLED" | "SECURE_STORAGE_ERROR" | "API_ERROR"
   | "INVALID_IMAGE" | "IMAGE_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" | "IMAGE_STORAGE_UNAVAILABLE";
-export type UploadImageError = Readonly<{ code: UploadCode; message: string }>;
+export type UploadImageError = Readonly<{ code: UploadCode; message: string; http?: Readonly<{ status: number }> }>;
 type Request = (path: string, init?: RequestInit) => Promise<Result<unknown, TransportError>>;
 
 const uploadCodes: readonly string[] = ["UNAUTHENTICATED", "COMPANY_REQUIRED", "NETWORK_ERROR", "SERVICE_UNAVAILABLE", "RATE_LIMITED", "SERVER_ERROR", "INVALID_RESPONSE", "OPERATION_CANCELLED", "SECURE_STORAGE_ERROR", "API_ERROR",
@@ -19,11 +19,12 @@ function failure(code: UploadCode, message: string): UploadImageError {
 
 function readFailure(error: TransportError): UploadImageError {
   if (error.http?.status === 429) return failure("RATE_LIMITED", error.message);
-  if (!uploadCodes.includes(error.code)) return failure("API_ERROR", error.message);
+  const http = error.http ? { http: { status: error.http.status } } : {};
+  if (!uploadCodes.includes(error.code)) return { ...failure("API_ERROR", error.message), ...http };
   const status = expectedStatus[error.code];
   // A typed image error must come with its documented status; anything else is not a trustworthy answer.
   if (status !== undefined && error.http?.status !== status) return failure("INVALID_RESPONSE", "Server returned an invalid error");
-  return failure(error.code as UploadCode, error.message);
+  return { ...failure(error.code as UploadCode, error.message), ...http };
 }
 
 /** Uploads a local image to core with its real mimeType; the file is validated by core from its bytes. */

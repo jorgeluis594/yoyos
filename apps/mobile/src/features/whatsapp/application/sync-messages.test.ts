@@ -259,6 +259,14 @@ test("rejects an expired WhatsApp image without registering it", async () => {
   expect(sent).toEqual([]);
 });
 
+test("classifies an upload failure by its HTTP status", async () => {
+  const blocked = setup([imageMessage(1)], () => stored(), { upload: () => err({ code: "API_ERROR", message: "m", http: { status: 403 } }) });
+  expect(await blocked.worker.runOnce()).toMatchObject({ success: false, error: { code: "SESSION_BLOCKED" } });
+  const rejected = setup([imageMessage(1)], () => stored(), { upload: () => err({ code: "API_ERROR", message: "m", http: { status: 400 } }) });
+  expect(await rejected.worker.runOnce()).toEqual({ success: true, data: { synced: 0, retried: 0, rejected: 1 } });
+  expect(rejected.sent).toEqual([]);
+});
+
 test("leaves the message pending when WhatsApp is disconnected", async () => {
   const { worker, retries, sent, rows } = setup([imageMessage(1)], () => stored(), { download: () => wa("ACCOUNT_NOT_CONNECTED") });
   expect(await worker.runOnce()).toEqual({ success: true, data: { synced: 0, retried: 1, rejected: 0 } });

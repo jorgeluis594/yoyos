@@ -24,3 +24,8 @@ test("maps 400, 413 and 415 to INVALID_IMAGE, IMAGE_TOO_LARGE and UNSUPPORTED_ME
     expect(await uploadImage(async () => err(failure), "file:///a.jpg", "image/jpeg")).toMatchObject({ success: false, error: { code } });
   }
 });
+
+test("keeps the HTTP status of untyped errors so the caller can classify them", async () => {
+  const failure = { code: "API_ERROR", message: "m", http: { status: 403, body: {} } } as const;
+  expect(await uploadImage(async () => err(failure), "file:///a.jpg", "image/jpeg")).toEqual({ success: false, error: { code: "API_ERROR", message: "m", http: { status: 403 } } });
+});

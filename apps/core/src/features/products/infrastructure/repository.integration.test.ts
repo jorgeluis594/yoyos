@@ -170,3 +170,13 @@ test("findSellableVariantsByQrCodes does not see variants of another company", (
     expect(await find([foreign.qrCode])).toEqual({ success: true, data: [] });
   });
 }));
+
+test("findSellableVariantsByQrCodes skips a variant with invalid stored data and returns the rest", () => withSeededVariants(async ({ mine, companyA, find, withTenantIsolation }) => {
+  const { prisma } = await import("@core/src/shared/infrastructure/persistance");
+  await withTenantIsolation(companyA, async () => {
+    const corrupt = { id: randomUUID(), qrCode: randomUUID() };
+    const { productId } = await prisma.productVariant.findUniqueOrThrow({ where: { id: mine.id } });
+    await prisma.productVariant.create({ data: { ...corrupt, productId, attributes: { talla: 1 }, sku: null, salePrice: 5, status: "active" } });
+    expect(await find([mine.qrCode, corrupt.qrCode])).toMatchObject({ success: true, data: [{ variantId: mine.id }] });
+  });
+}));

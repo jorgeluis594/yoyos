@@ -44,10 +44,8 @@ export async function findSellableVariantsByQrCodes(codes: readonly string[]) {
     const items: Array<CatalogItem & Readonly<{ qrCode: string }>> = [];
     for (const row of rows) {
       const item = toCatalogItem(row);
-      if (!item) {
-        log.error({ event: "invalid_stored_sale_variant" }, "invalid_stored_sale_variant");
-        return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
-      }
+      // Una variante corrupta no debe bloquear las demás ni reintentarse: se omite como si no existiera.
+      if (!item) { log.error({ event: "invalid_stored_sale_variant", variantId: row.id }, "invalid_stored_sale_variant"); continue; }
       items.push({ ...item, qrCode: row.qrCode });
     }
     return ok(items);
