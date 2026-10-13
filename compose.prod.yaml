@@ -32,8 +32,7 @@ services:
       context: .
       dockerfile: apps/core/Dockerfile
     restart: unless-stopped
-    # shortcut: builds at container startup, move the build into the image when startup time matters.
-    command: sh -c 'pnpm exec prisma generate && pnpm build && exec pnpm start'
+    command: pnpm start
     environment:
       NODE_ENV: production
       PORT: 3000
@@ -59,7 +58,7 @@ services:
       context: .
       dockerfile: apps/core/Dockerfile
     restart: unless-stopped
-    command: sh -c 'pnpm exec prisma generate && exec pnpm worker'
+    command: pnpm worker
     stop_grace_period: 40s
     environment:
       NODE_ENV: production

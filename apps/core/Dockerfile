@@ -19,4 +19,7 @@ COPY apps/core/. .
 COPY shared /workspace/shared
 COPY docs/design-tokens.json /workspace/docs/design-tokens.json
 
+# Prisma config requires DATABASE_URL, but generate never connects.
+RUN DATABASE_URL=postgresql://build@localhost/build pnpm exec prisma generate && pnpm build
+
 EXPOSE 3000
