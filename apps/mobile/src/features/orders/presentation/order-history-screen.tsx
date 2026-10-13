@@ -18,6 +18,7 @@ import { ListRow } from "@mobile/components/ui/list-row";
 import { ScreenState } from "@mobile/components/ui/screen-state";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
+import { useDispatchPrint } from "@mobile/features/orders/presentation/dispatch-print-review";
 import { useOrderSelection } from "@mobile/features/orders/presentation/use-order-selection";
 import { OrderDayField } from "@mobile/features/orders/presentation/order-day-field";
 import { useTheme } from "@mobile/hooks/use-theme";
@@ -66,6 +67,7 @@ export default function OrderHistoryScreen() {
   const [verifying, setVerifying] = useState(false);
   const activeRequest = useRef(0);
   const companyId = state.status === "ready" ? state.company.id : "";
+  const dispatchPrint = useDispatchPrint();
   const selection = useOrderSelection(`${companyId}|${JSON.stringify({ ...criteria, page: 0 })}`);
 
   const reload = useCallback(async (company: string, filters: OrderListCriteria) => {
@@ -201,6 +203,7 @@ export default function OrderHistoryScreen() {
       {selection.count ? <>
         <ThemedText type="small" accessibilityRole="summary">{t('orderListSelected', { count: selection.count, total: money(selection.total.amount, selection.total.currency, locale) })}</ThemedText>
         <Button variant="ghost" onPress={selection.clear}>{t('orderListClearSelection')}</Button>
+        {Platform.OS === "android" ? <Button disabled={dispatchPrint.active} onPress={() => dispatchPrint.open([...selection.orders.values()])}>{t('orderListPrintLabels')}</Button> : null}
       </> : null}
     </View> : null}
     {pendingState !== "none" ? <View style={[styles.notice, { backgroundColor: theme.backgroundElement }]}>

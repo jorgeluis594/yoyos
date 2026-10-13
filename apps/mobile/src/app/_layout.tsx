@@ -6,6 +6,7 @@ import { useEffect } from 'react';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { AccessProvider } from '@/features/users/presentation/access-provider';
+import { DispatchPrintProvider } from '@mobile/features/orders/presentation/dispatch-print-review';
 import { PrintProvider } from '@mobile/features/printing/presentation/print-provider';
 import { ProductDraftProvider } from '@/features/products/presentation/draft-guard';
 import { OrderDraftProvider } from '@mobile/features/orders/presentation/order-draft-guard';
@@ -35,7 +36,7 @@ export default function TabLayout() {
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <AnimatedSplashOverlay />
-      <ProductDraftProvider><OrderDraftProvider><AccessProvider operations={auth}><PrintProvider><AccessGate /></PrintProvider></AccessProvider></OrderDraftProvider></ProductDraftProvider>
+      <ProductDraftProvider><OrderDraftProvider><AccessProvider operations={auth}><PrintProvider><DispatchPrintProvider><AccessGate /></DispatchPrintProvider></PrintProvider></AccessProvider></OrderDraftProvider></ProductDraftProvider>
     </ThemeProvider>
   );
 }

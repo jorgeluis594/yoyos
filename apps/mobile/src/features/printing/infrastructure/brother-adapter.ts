@@ -2,6 +2,7 @@ import { z } from "zod";
 import { err, ok } from "@shared/functional";
 import { discoverBrother, resolveBrother, sendBrother, type BrotherDevice } from "@mobile/modules/brother-printer";
 import type { PrinterAdapter } from "@mobile/features/printing/application/contracts";
+import { dispatchLabelFormat } from "@mobile/features/printing/domain/printing";
 import type { AdapterId, LabelFormat, PrinterId, PrinterLocator, PrinterSelection } from "@mobile/features/printing/domain/printing";
 
 const adapterId = "brother" as AdapterId;
@@ -15,6 +16,8 @@ type Locator = z.infer<typeof locatorSchema>;
 const paperFor = (format: LabelFormat) => format.heightMm === 100
   ? { labelSize: "DK-11202" as const, profile: { widthPx: 696, heightPx: 1109, dpiX: 300, dpiY: 300 } }
   : { labelSize: "DK-1209" as const, profile: { widthPx: 696, heightPx: 271, dpiX: 300, dpiY: 300 } };
+/** Printable area of the dispatch roll, used to measure labels before a printer is resolved. */
+export const dispatchPaperProfile = paperFor(dispatchLabelFormat).profile;
 const idFor = (identity: Locator["identity"]) => `${identity.kind}:${identity.value}` as PrinterId;
 const identityFor = (device: BrotherDevice): Locator["identity"] | null => device.serial
   ? { kind: "serial", value: device.serial }
