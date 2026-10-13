@@ -55,16 +55,6 @@ export function createR2ImageStorage(config: Config): ImageStorage {
         return failed("IMAGE_STORAGE_UNAVAILABLE", "Image upload failed");
       }
     },
-    async uploadPrivate(key, { bytes, contentType }) {
-      if (!client || !config.privateBucket?.trim() || config.privateBucket === config.bucket) return configurationFailed("Private image storage is not configured");
-      try {
-        await client.send(new PutObjectCommand({ Bucket: config.privateBucket, Key: key, Body: bytes, ContentType: contentType }));
-        return { success: true, data: undefined };
-      } catch (error) {
-        log.error({ event: "r2_private_image_upload_failed", err: error }, "r2_private_image_upload_failed");
-        return failed("IMAGE_STORAGE_UNAVAILABLE", "Private image upload failed");
-      }
-    },
     async read(key) {
       if (!client) return configurationFailed("Image storage is not configured");
       try {

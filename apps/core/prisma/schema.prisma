@@ -287,10 +287,6 @@ enum ImageVisibility {
   public
   private
 }
-enum ImageImportStatus {
-  pending
-  ready
-}
 enum MessageDirection {
   incoming
   outgoing
@@ -310,15 +306,11 @@ model Image {
   company            Company            @relation(fields: [companyId], references: [id])
   storageKey         String
   visibility         ImageVisibility    @default(public)
-  sourceKey          String?
-  importStatus       ImageImportStatus?
-  importCompletedAt  DateTime?
   createdAt          DateTime           @default(now())
   messages           ChatMessage[]
   products Product[]
   checkoutAppearances CompanyCheckoutAppearance[]
 
-  @@unique([companyId, sourceKey])
   @@index([companyId])
   @@unique([companyId, id])
 }

@@ -4,7 +4,6 @@ import sharp from "sharp";
 
 export interface ImageStorage {
   upload(input: { bytes: Uint8Array; filename: string; contentType: string }): Promise<Result<{ key: string }>>;
-  uploadPrivate(key: string, input: { bytes: Uint8Array; contentType: string }): Promise<Result<void>>;
   read(key: string): Promise<Result<{ bytes: Uint8Array; contentType: string }>>;
   readPrivate(key: string): Promise<Result<{ bytes: Uint8Array; contentType: string }>>;
   getUrl(key: string): Promise<Result<string>>;
@@ -20,17 +19,10 @@ export type ImageRepository = {
   find(id: string): Promise<Result<StoredImage | null, ImageLookupError>>;
   /** Looks up several images in one query; missing IDs are simply absent from the result. */
   findMany(ids: readonly string[]): Promise<Result<readonly StoredImage[], ImageLookupError>>;
-  findCompletedImport(companyId: string, sourceKey: string): Promise<Result<{ id: string } | null, ImageLookupError>>;
-  reserveImport(companyId: string, sourceKey: string): Promise<Result<{ id: string; storageKey: string }>>;
-  completeImport(companyId: string, id: string): Promise<Result<void>>;
 };
 
 export type DownloadedImage = Readonly<{ bytes: Uint8Array; filename: string; declaredContentType: string }>;
 export type PrivateImageError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE" | "INVALID_IMAGE" | "IMAGE_TOO_LARGE" | "IMAGE_STORAGE_UNAVAILABLE" | "IMAGE_STORAGE_CONFIG_ERROR"; message: string }>;
-
-export function findCompletedPrivateImageImport(companyId: string, sourceKey: string, repository: ImageRepository): Promise<Result<{ id: string } | null, ImageLookupError>> {
-  return repository.findCompletedImport(companyId, sourceKey);
-}
 
 export async function validateImage(file: DownloadedImage): Promise<Result<{ contentType: string }, PrivateImageError>> {
   if (!file.bytes.length || file.bytes.length > 10_000_000) return { success: false, error: { code: file.bytes.length ? "IMAGE_TOO_LARGE" : "INVALID_IMAGE", message: "Invalid image size" } };
@@ -46,17 +38,6 @@ export async function validateImage(file: DownloadedImage): Promise<Result<{ con
   } catch {
     return { success: false, error: { code: "INVALID_IMAGE", message: "Invalid image data" } };
   }
-}
-
-export async function importPrivateImage(companyId: string, sourceKey: string, file: DownloadedImage, storage: ImageStorage, repository: ImageRepository): Promise<Result<{ id: string }>> {
-  const valid = await validateImage(file);
-  if (!valid.success) return valid;
-  const reserved = await repository.reserveImport(companyId, sourceKey);
-  if (!reserved.success) return reserved;
-  const uploaded = await storage.uploadPrivate(reserved.data.storageKey, { bytes: file.bytes, contentType: valid.data.contentType });
-  if (!uploaded.success) return uploaded;
-  const completed = await repository.completeImport(companyId, reserved.data.id);
-  return completed.success ? { success: true, data: { id: reserved.data.id } } : completed;
 }
 
 async function compensate(storage: ImageStorage, key: string): Promise<void> {
