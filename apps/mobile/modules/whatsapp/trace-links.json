@@ -686,7 +686,7 @@
   {
    "id": "IT-FMT-02",
    "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
-   "test": "testMalformedEnvelopeDoesNotBecomeEmptyInstall"
+   "test": "testTamperedRowsNeverLoadOrCreateEmptyState"
   },
   {
    "id": "IT-FMT-03",
@@ -746,7 +746,7 @@
   {
    "id": "IT-FMT-04",
    "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
-   "test": "testMalformedEnvelopeDoesNotBecomeEmptyInstall"
+   "test": "testTamperedRowsNeverLoadOrCreateEmptyState"
   },
   {
    "id": "IT-FMT-04",
@@ -989,7 +989,7 @@
   {
    "id": "IT-INI-06",
    "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
-   "test": "testMalformedEnvelopeDoesNotBecomeEmptyInstall"
+   "test": "testTamperedRowsNeverLoadOrCreateEmptyState"
   },
   {
    "id": "IT-KEY-01",
@@ -1774,7 +1774,7 @@
   {
    "id": "UT-FMT-02",
    "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
-   "test": "testMalformedEnvelopeDoesNotBecomeEmptyInstall"
+   "test": "testTamperedRowsNeverLoadOrCreateEmptyState"
   },
   {
    "id": "UT-FMT-03",

@@ -3,6 +3,7 @@ import Foundation
 import Security
 import CryptoKit
 import Darwin
+import SQLite3
 #if !WA02_APP_HOSTED
 @testable import WhatsAppStateStore
 #endif
@@ -27,7 +28,7 @@ final class StateStoreTests: XCTestCase {
 
   // CI invokes each phase twice: a process kill, then a separately successful recovery.
   func testProcessCrashMatrix() throws {
-    let phases = ["cipher", "write", "sync", "close", "replace", "directorySync", "response"]
+    let phases = ["beforeCommit", "afterCommit", "response"]
     let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
                                                appropriateFor: nil, create: true)
     let plan = support.appendingPathComponent("wa02-crash-matrix", isDirectory: true)
@@ -48,13 +49,6 @@ final class StateStoreTests: XCTestCase {
         _ = Darwin.kill(Darwin.getpid(), SIGKILL)
         Darwin._exit(137)
       }
-    }
-    let published = root.appendingPathComponent("whatsapp/state.bin")
-    func revision() throws -> String {
-      let bytes = try Data(contentsOf: published)
-      let length = bytes[8..<12].reduce(0) { ($0 << 8) | Int($1) }
-      let header = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes[12..<12+length]) as? [String: Any])
-      return try XCTUnwrap(header["revision"] as? String)
     }
     if parts[0] == "ready" {
       _ = try writer.open()
@@ -80,7 +74,7 @@ final class StateStoreTests: XCTestCase {
       return
     }
     let state = try writer.open()
-    let replaced = step >= 5
+    let replaced = step >= 1
     let pending = state["pending"] as? [[String: Any]]
     let retired = state["sessionKeysToDelete"] as? [String]
     let options = state["options"] as? [String: Int]
@@ -88,8 +82,8 @@ final class StateStoreTests: XCTestCase {
     let sessionMatches = replaced ? state["session"] is NSNull : account == "123@lid"
     let pendingMatches = pending?.count == (replaced ? 1 : 0)
     let pendingRevision = pending?.first?["createdRevision"] as? String
-    let publishedRevision = try revision()
-    let hasTemporary = FileManager.default.fileExists(atPath: root.appendingPathComponent("whatsapp/state.next").path)
+    let publishedRevision = try revision(root)
+    let hasTemporary = FileManager.default.fileExists(atPath: root.appendingPathComponent("whatsapp/state.db.next").path)
     let restorable: Bool
     if replaced { restorable = true }
     else { restorable = try writer.canRestoreSession() }
@@ -126,6 +120,56 @@ final class StateStoreTests: XCTestCase {
     try NativeStateStore.parseObject(keychainData(root, id: "record"))
   }
 
+  private func stateFile(_ root: URL) -> URL { root.appendingPathComponent("whatsapp/state.db") }
+
+  /// Runs one statement against the store's database and returns the first column of each row.
+  @discardableResult
+  private func sql(_ root: URL, _ statement: String, _ arguments: [Any] = []) throws -> [Data?] {
+    var db: OpaquePointer?
+    guard sqlite3_open_v2(stateFile(root).path, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else { sqlite3_close(db); throw StateStoreError.storage }
+    defer { sqlite3_close(db) }
+    var prepared: OpaquePointer?
+    guard sqlite3_prepare_v2(db, statement, -1, &prepared, nil) == SQLITE_OK else { throw StateStoreError.storage }
+    defer { sqlite3_finalize(prepared) }
+    let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+    for (index, argument) in arguments.enumerated() {
+      let position = Int32(index + 1)
+      switch argument {
+      case let value as String: sqlite3_bind_text(prepared, position, value, -1, transient)
+      case let value as Int: sqlite3_bind_int64(prepared, position, Int64(value))
+      case let value as Data: _ = value.withUnsafeBytes { sqlite3_bind_blob(prepared, position, $0.baseAddress, Int32($0.count), transient) }
+      default: throw StateStoreError.storage
+      }
+    }
+    var rows = [Data?]()
+    while true {
+      let status = sqlite3_step(prepared)
+      if status == SQLITE_DONE { return rows }
+      guard status == SQLITE_ROW else { throw StateStoreError.storage }
+      guard let bytes = sqlite3_column_blob(prepared, 0) else { rows.append(nil); continue }
+      rows.append(Data(bytes: bytes, count: Int(sqlite3_column_bytes(prepared, 0))))
+    }
+  }
+
+  private func revision(_ root: URL) throws -> String {
+    String(decoding: try XCTUnwrap(try sql(root, "SELECT revision FROM meta").first ?? nil), as: UTF8.self)
+  }
+
+  private func sessionValue(_ root: URL) throws -> Data? { try sql(root, "SELECT value FROM session").first ?? nil }
+
+  /// Inserts [entry] the way the store seals it, bypassing every store check.
+  private func insertSealedPending(_ root: URL, _ entry: [String: Any]) throws {
+    let record = try creationRecord(root)
+    let key = SymmetricKey(data: try keychainData(root, id: try XCTUnwrap(record["recoveryKeyId"] as? String)))
+    let id = try XCTUnwrap(entry["deliveryId"] as? String)
+    let created = try XCTUnwrap(entry["createdRevision"] as? String)
+    let ordinal = try XCTUnwrap(entry["createdOrdinal"] as? Int)
+    let aad = Data("[\"yoyos-whatsapp-pending\",1,\"\(try XCTUnwrap(record["storeId"] as? String))\",\"\(id)\",\"\(created)\",\(ordinal)]".utf8)
+    let sealed = try AES.GCM.seal(try JSONSerialization.data(withJSONObject: entry, options: [.sortedKeys]), using: key, authenticating: aad)
+    try sql(root, "INSERT INTO pending (delivery_id, created_revision, created_ordinal, nonce, ciphertext) VALUES (?, ?, ?, ?, ?)",
+            [id, created, ordinal, Data(sealed.nonce), sealed.ciphertext + sealed.tag])
+  }
+
   func testStrictJsonRejectsDuplicateKeysAndMalformedNumbers() {
     for text in ["{\"a\":1,\"a\":2}", #"{"a":1,"\u0061":2}"#, "{\"a\":01}", "{\"a\":1,}", "{\"a\":+1}", "{\"a\":NaN}", #"{"a":"\ud800"}"#] {
       XCTAssertThrowsError(try StrictStateJSON.check(text))
@@ -143,14 +187,10 @@ final class StateStoreTests: XCTestCase {
     let initial = try store.open()
     let images = root.appendingPathComponent("whatsapp/images")
     XCTAssertTrue((try images.resourceValues(forKeys: [.isExcludedFromBackupKey])).isExcludedFromBackup == true)
-    let stateFile = root.appendingPathComponent("whatsapp/state.bin")
-    let protected = try stateFile.resourceValues(forKeys: [.isExcludedFromBackupKey, .fileProtectionKey])
+    let protected = try stateFile(root).resourceValues(forKeys: [.isExcludedFromBackupKey, .fileProtectionKey])
     XCTAssertTrue(protected.isExcludedFromBackup == true)
     XCTAssertEqual(protected.fileProtection, .completeUntilFirstUserAuthentication)
-    let stateBytes = try Data(contentsOf: stateFile)
-    let headerLength = stateBytes[8..<12].reduce(0) { ($0 << 8) | Int($1) }
-    let header = try XCTUnwrap(JSONSerialization.jsonObject(with: stateBytes[12..<12+headerLength]) as? [String: Any])
-    let keyId = try XCTUnwrap(header["recoveryKeyId"] as? String)
+    let keyId = try XCTUnwrap((try creationRecord(root))["recoveryKeyId"] as? String)
     let service = "com.yoyos.whatsapp.state.test." + root.lastPathComponent.replacingOccurrences(of: "-", with: "").lowercased()
     let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
                                 kSecAttrAccount as String: keyId, kSecReturnAttributes as String: true,
@@ -167,10 +207,10 @@ final class StateStoreTests: XCTestCase {
       return next
     }
     let directory = root.appendingPathComponent("whatsapp")
-    try Data("uncommitted".utf8).write(to: directory.appendingPathComponent("state.next"))
+    try Data("uncommitted".utf8).write(to: directory.appendingPathComponent("state.db.next"))
     let recovered = try makeStore(root).open()
     XCTAssertEqual((recovered["options"] as? [String: Int])?["maxRecoveryBufferBytes"], 20 * 1024 * 1024)
-    XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("state.next").path))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("state.db.next").path))
   }
 
   func testTrustedReadBudgetSurvivesGrowthReductionFailureAndDrain() throws {
@@ -193,7 +233,6 @@ final class StateStoreTests: XCTestCase {
     _ = try writer.open()
     _ = try writer.commit(expectedRevision: "0", change: grow)
     XCTAssertEqual((try creationRecord(root))["readBudget"] as? Int, 12 * 1024 * 1024)
-    XCTAssertEqual((try creationRecord(root))["preparedRevision"] as? String, "1")
     let grown = try makeStore(root).open()
     XCTAssertEqual(((grown["pending"] as? [[String: Any]])?.first?["recovery"] as? [String: Any])?["messageInfoJson"] as? String, largeInfo)
     _ = try writer.commit(expectedRevision: "1") { state in
@@ -207,29 +246,25 @@ final class StateStoreTests: XCTestCase {
     XCTAssertEqual((reduced["options"] as? [String: Int])?["maxRecoveryBufferBytes"], 1024)
     XCTAssertEqual(((reduced["pending"] as? [[String: Any]])?.first?["recovery"] as? [String: Any])?["messageInfoJson"] as? String, largeInfo)
     XCTAssertEqual((try creationRecord(root))["readBudget"] as? Int, 12 * 1024 * 1024)
-    XCTAssertEqual((try creationRecord(root))["preparedRevision"] as? String, "2")
     _ = try writer.commit(expectedRevision: "2") { state in
       var next = state; next["pending"] = [[String: Any]](); return next
     }
     XCTAssertEqual((try makeStore(root).open()["pending"] as? [[String: Any]])?.count, 0)
-    XCTAssertEqual((try creationRecord(root))["preparedRevision"] as? String, "3")
+    XCTAssertEqual(try revision(root), "3")
 
-    for phase in ["recordResponse", "replace"] {
+    for phase in ["recordResponse", "beforeCommit"] {
       let failedRoot = try temporaryDirectory()
       defer { try? FileManager.default.removeItem(at: failedRoot) }
       var active = false
       let failedWriter = try makeStore(failedRoot) { if active && $0 == phase { throw StateStoreError.storage } }
       _ = try failedWriter.open()
-      let published = failedRoot.appendingPathComponent("whatsapp/state.bin")
-      let oldBytes = try Data(contentsOf: published)
       active = true
       XCTAssertThrowsError(try failedWriter.commit(expectedRevision: "0", change: grow))
-      XCTAssertEqual(try Data(contentsOf: published), oldBytes)
+      XCTAssertEqual(try revision(failedRoot), "0")
       let recovered = try makeStore(failedRoot).open()
       XCTAssertEqual((recovered["pending"] as? [[String: Any]])?.count, 0)
       XCTAssertEqual((recovered["options"] as? [String: Int])?["maxRecoveryBufferBytes"], 10 * 1024 * 1024)
       XCTAssertEqual((try creationRecord(failedRoot))["readBudget"] as? Int, 12 * 1024 * 1024)
-      XCTAssertEqual((try creationRecord(failedRoot))["preparedRevision"] as? String, "1")
     }
   }
 
@@ -240,15 +275,11 @@ final class StateStoreTests: XCTestCase {
     _ = try store.open()
     try store.beginSession(accountId: "123@lid", protocolBytes: Data("{\"protocolSchemaVersion\":1,\"records\":[]}".utf8))
     let original = try XCTUnwrap((store.open()["session"] as? [String: Any])?["ciphertextBase64"] as? String)
-    func containerNonce() throws -> Data {
-      let bytes = try Data(contentsOf: root.appendingPathComponent("whatsapp/state.bin"))
-      let length = bytes[8..<12].reduce(0) { ($0 << 8) | Int($1) }
-      return bytes[12+length..<24+length]
-    }
-    let outerNonce = try containerNonce()
+    let storedSession = try sessionValue(root)
     let next = try store.commit(expectedRevision: "1") { $0 }
     XCTAssertEqual((next["session"] as? [String: Any])?["ciphertextBase64"] as? String, original)
-    XCTAssertNotEqual(outerNonce, try containerNonce())
+    XCTAssertEqual(try sessionValue(root), storedSession)
+    XCTAssertEqual(try revision(root), "2")
     XCTAssertTrue(try makeStore(root).canRestoreSession())
     let first = try XCTUnwrap(store.open()["session"] as? [String: Any])
     try store.endSession()
@@ -303,11 +334,11 @@ final class StateStoreTests: XCTestCase {
     let originalKey = try keychainData(root, id: recoveryId)
     let sealed = try AES.GCM.seal(Data("partial".utf8), using: SymmetricKey(data: originalKey))
     let partial = Data("YOYOWA01".utf8) + Data(sealed.ciphertext.prefix(4))
-    let next = root.appendingPathComponent("whatsapp/state.next")
+    let next = root.appendingPathComponent("whatsapp/state.db.next")
     try FileManager.default.createDirectory(at: next, withIntermediateDirectories: false)
     try partial.write(to: next.appendingPathComponent("partial"))
     XCTAssertThrowsError(try makeStore(root).open())
-    XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("whatsapp/state.bin").path))
+    XCTAssertFalse(FileManager.default.fileExists(atPath: stateFile(root).path))
     XCTAssertEqual((try creationRecord(root))["status"] as? String, "creating")
     XCTAssertEqual(try keychainData(root, id: recoveryId), originalKey)
     try FileManager.default.removeItem(at: next)
@@ -387,36 +418,23 @@ final class StateStoreTests: XCTestCase {
   }
 
   func testInjectedPublicationFailuresPreserveAReadableRevision() throws {
-    for phase in ["recordResponse", "cipher", "write", "sync", "close", "replace", "directorySync", "response"] {
+    for phase in ["beforeCommit", "afterCommit", "response"] {
       let root = try temporaryDirectory()
       defer { try? FileManager.default.removeItem(at: root) }
       var active = false
       let store = try makeStore(root) { reached in
-        if active && reached == phase {
-          if reached == "write" {
-            let temporary = root.appendingPathComponent("whatsapp/state.next")
-            let attributes = try temporary.resourceValues(forKeys: [.fileProtectionKey, .isExcludedFromBackupKey])
-            XCTAssertEqual(attributes.fileProtection, .completeUntilFirstUserAuthentication)
-            XCTAssertTrue(attributes.isExcludedFromBackup == true)
-          }
-          throw StateStoreError.storage
-        }
+        if active && reached == phase { throw StateStoreError.storage }
       }
       _ = try store.open()
       active = true
       XCTAssertThrowsError(try store.commit(expectedRevision: "0") { $0 })
-      let expected = phase == "directorySync" || phase == "response" ? "1" : "0"
-      let file = root.appendingPathComponent("whatsapp/state.bin")
-      let bytes = try Data(contentsOf: file)
-      let length = bytes[8..<12].reduce(0) { ($0 << 8) | Int($1) }
-      let header = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes[12..<12+length]) as? [String: Any])
-      XCTAssertEqual(header["revision"] as? String, expected)
+      XCTAssertEqual(try revision(root), phase == "beforeCommit" ? "0" : "1")
       XCTAssertNoThrow(try makeStore(root).open())
     }
   }
 
   func testUncertainPublicationIsRereadBeforeNextMutation() throws {
-    for phase in ["directorySync", "response"] {
+    for phase in ["afterCommit", "response"] {
       let root = try temporaryDirectory()
       defer { try? FileManager.default.removeItem(at: root) }
       var active = false
@@ -533,14 +551,16 @@ final class StateStoreTests: XCTestCase {
   func testRealFilesystemFailureCannotReplacePublishedState() throws {
     let root = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: root) }
-    let writer = try makeStore(root)
-    _ = try writer.open()
-    let next = root.appendingPathComponent("whatsapp/state.next")
-    try FileManager.default.createDirectory(at: next, withIntermediateDirectories: false)
-    XCTAssertThrowsError(try writer.commit(expectedRevision: "0") { $0 })
-    XCTAssertThrowsError(try makeStore(root).open())
-    try FileManager.default.removeItem(at: next)
-    XCTAssertNoThrow(try makeStore(root).open())
+    _ = try makeStore(root).open()
+    // The file system refuses the write (a read-only database file): nothing is published.
+    try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: stateFile(root).path)
+    XCTAssertThrowsError(try makeStore(root).commit(expectedRevision: "0") { current in
+      var next = current; next["options"] = ["maxRecoveryBufferBytes": 10 * 1024 * 1024, "maxImageStorageBytes": 123]; return next
+    })
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stateFile(root).path)
+    XCTAssertEqual(try revision(root), "0")
+    let options = try XCTUnwrap(makeStore(root).open()["options"] as? [String: Int])
+    XCTAssertEqual(options["maxImageStorageBytes"], 50 * 1024 * 1024)
   }
 
   func testActualENOSPCOnBoundedVolume() throws {
@@ -565,7 +585,7 @@ final class StateStoreTests: XCTestCase {
                                   "recovery": recovery]
     _ = try store.commit(expectedRevision: "0") { current in
       var next = current
-      next["options"] = ["maxRecoveryBufferBytes": 12 * 1024 * 1024,
+      next["options"] = ["maxRecoveryBufferBytes": 20 * 1024 * 1024,
                          "maxImageStorageBytes": 50 * 1024 * 1024]
       next["pending"] = [pending]
       return next
@@ -574,7 +594,7 @@ final class StateStoreTests: XCTestCase {
     guard (preflight["pending"] as? [[String: Any]])?.count == 1 else {
       XCTFail("Mounted volume could not reopen the published state"); return
     }
-    let published = root.appendingPathComponent("whatsapp/state.bin")
+    let published = stateFile(root)
     let publishedSize = try XCTUnwrap(manager.attributesOfItem(atPath: published.path)[.size] as? NSNumber).intValue
     let protection = try published.resourceValues(forKeys: [.fileProtectionKey]).fileProtection
     guard protection == .completeUntilFirstUserAuthentication else {
@@ -602,14 +622,14 @@ final class StateStoreTests: XCTestCase {
     do { try probeHandle.write(contentsOf: Data(repeating: 0, count: publishedSize)) }
     catch { exhausted = isNoSpace(error); if !exhausted { throw error } }
     XCTAssertTrue(exhausted, "Expected a real ENOSPC from the bounded filesystem")
-    var reachedWrite = false
-    let writer = try makeStore(root) { if $0 == "write" { reachedWrite = true } }
-    XCTAssertThrowsError(try writer.commit(expectedRevision: "1") { $0 })
-    XCTAssertTrue(reachedWrite)
-    let bytes = try Data(contentsOf: published)
-    let headerLength = bytes[8..<12].reduce(0) { ($0 << 8) | Int($1) }
-    let header = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes[12..<12+headerLength]) as? [String: Any])
-    XCTAssertEqual(header["revision"] as? String, "1")
+    // A second 8 MiB entry needs more room than is left: the transaction rolls back.
+    var second = pending
+    second["deliveryId"] = "wa-delivery:v1:" + String(repeating: "b", count: 32)
+    second["createdRevision"] = "2"
+    XCTAssertThrowsError(try makeStore(root).commit(expectedRevision: "1") { current in
+      var next = current; next["pending"] = [pending, second]; return next
+    })
+    XCTAssertEqual(try revision(root), "1")
     try? probeHandle.close()
     try? fillHandle.close()
     try manager.removeItem(at: probe)
@@ -652,41 +672,10 @@ final class StateStoreTests: XCTestCase {
   func testExhaustedRevisionCannotCreateAProvisionalKey() throws {
     let root = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: root) }
-    let initial = try makeStore(root).open()
-    let file = root.appendingPathComponent("whatsapp/state.bin")
-    let original = try Data(contentsOf: file)
-    let oldHeaderLength = original[8..<12].reduce(0) { ($0 << 8) | Int($1) }
-    var header = try XCTUnwrap(JSONSerialization.jsonObject(with: original[12..<12+oldHeaderLength]) as? [String: Any])
-    let maximum = "18446744073709551615"
-    header["revision"] = maximum
+    _ = try makeStore(root).open()
+    try sql(root, "UPDATE meta SET revision = ?", ["18446744073709551615"])
     let service = "com.yoyos.whatsapp.state.test." + root.lastPathComponent.replacingOccurrences(of: "-", with: "").lowercased()
-    func data(_ id: String) throws -> Data {
-      let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-                                  kSecAttrAccount as String: id, kSecReturnData as String: true,
-                                  kSecUseDataProtectionKeychain as String: true]
-      var result: CFTypeRef?
-      guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-            let bytes = result as? Data else { throw StateStoreError.storage }
-      return bytes
-    }
-    var record = try XCTUnwrap(JSONSerialization.jsonObject(with: data("record")) as? [String: Any])
-    record["preparedRevision"] = maximum
-    let recordQuery: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-                                     kSecAttrAccount as String: "record", kSecUseDataProtectionKeychain as String: true]
-    let recordBytes = try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
-    XCTAssertEqual(SecItemUpdate(recordQuery as CFDictionary, [kSecValueData as String: recordBytes] as CFDictionary), errSecSuccess)
-    let keyId = try XCTUnwrap(header["recoveryKeyId"] as? String)
-    let key = SymmetricKey(data: try data(keyId))
-    let headerBytes = try JSONSerialization.data(withJSONObject: header, options: [.sortedKeys])
-    let plaintext = try JSONSerialization.data(withJSONObject: initial, options: [.sortedKeys])
-    let nonce = AES.GCM.Nonce()
-    var prefix = Data("YOYOWA01".utf8)
-    prefix.append(contentsOf: withUnsafeBytes(of: UInt32(headerBytes.count).bigEndian) { Data($0) })
-    prefix.append(headerBytes)
-    prefix.append(contentsOf: nonce)
-    prefix.append(contentsOf: withUnsafeBytes(of: UInt64(plaintext.count + 16).bigEndian) { Data($0) })
-    let sealed = try AES.GCM.seal(plaintext, using: key, nonce: nonce, authenticating: prefix)
-    try (prefix + sealed.ciphertext + sealed.tag).write(to: file)
+    let recordBytes = try keychainData(root, id: "record")
     func accounts() throws -> Set<String> {
       let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
                                   kSecReturnAttributes as String: true, kSecMatchLimit as String: kSecMatchLimitAll,
@@ -703,7 +692,7 @@ final class StateStoreTests: XCTestCase {
       if case StateStoreError.invalid = error {} else { XCTFail("Expected revision exhaustion") }
     }
     XCTAssertEqual(try accounts(), before)
-    XCTAssertEqual(try data("record"), recordBytes)
+    XCTAssertEqual(try keychainData(root, id: "record"), recordBytes)
   }
 
   func testExactlySixteenMiBSerializedSessionRestores() throws {
@@ -761,19 +750,6 @@ final class StateStoreTests: XCTestCase {
     let root = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: root) }
     _ = try makeStore(root).open()
-    let file = root.appendingPathComponent("whatsapp/state.bin")
-    let original = try Data(contentsOf: file)
-    let headerLength = original[8..<12].reduce(0) { ($0 << 8) | Int($1) }
-    let header = original[12..<12+headerLength]
-    let fields = try XCTUnwrap(JSONSerialization.jsonObject(with: header) as? [String: Any])
-    let recoveryId = try XCTUnwrap(fields["recoveryKeyId"] as? String)
-    let service = "com.yoyos.whatsapp.state.test." + root.lastPathComponent.replacingOccurrences(of: "-", with: "").lowercased()
-    let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
-                                kSecAttrAccount as String: recoveryId, kSecReturnData as String: true,
-                                kSecUseDataProtectionKeychain as String: true]
-    var result: CFTypeRef?
-    XCTAssertEqual(SecItemCopyMatching(query as CFDictionary, &result), errSecSuccess)
-    let key = SymmetricKey(data: try XCTUnwrap(result as? Data))
     let session: [String: Any] = ["accountId": "123@lid", "sessionKeyId": String(repeating: "a", count: 32),
                                   "sessionRevision": "0", "nonceBase64": "AAAAAAAAAAAAAAAA",
                                   "ciphertextBase64": String(repeating: "A", count: 16 * 1024 * 1024)]
@@ -781,18 +757,8 @@ final class StateStoreTests: XCTestCase {
                                   "accountId": "123@lid", "createdRevision": "0", "createdOrdinal": 0,
                                   "source": "live", "identityState": "pendingLid",
                                   "recovery": ["messageInfoJson": "{}", "items": [[String: Any]]()]]
-    let state: [String: Any] = ["session": session, "pending": [pending], "sessionKeysToDelete": [String](),
-                                 "options": ["maxRecoveryBufferBytes": 10 * 1024 * 1024, "maxImageStorageBytes": 50 * 1024 * 1024],
-                                 "androidService": NSNull()]
-    let plaintext = try JSONSerialization.data(withJSONObject: state, options: [.sortedKeys])
-    let nonce = AES.GCM.Nonce()
-    var prefix = Data("YOYOWA01".utf8)
-    prefix.append(contentsOf: withUnsafeBytes(of: UInt32(headerLength).bigEndian) { Data($0) })
-    prefix.append(contentsOf: header)
-    prefix.append(contentsOf: nonce)
-    prefix.append(contentsOf: withUnsafeBytes(of: UInt64(plaintext.count + 16).bigEndian) { Data($0) })
-    let sealed = try AES.GCM.seal(plaintext, using: key, nonce: nonce, authenticating: prefix)
-    try (prefix + sealed.ciphertext + sealed.tag).write(to: file)
+    try sql(root, "INSERT INTO session (id, value) VALUES (1, ?)", [try JSONSerialization.data(withJSONObject: session, options: [.sortedKeys])])
+    try insertSealedPending(root, pending)
     let restored = try makeStore(root)
     XCTAssertEqual((try restored.open()["pending"] as? [[String: Any]])?.count, 1)
     XCTAssertFalse(try restored.canRestoreSession())
@@ -835,18 +801,18 @@ final class StateStoreTests: XCTestCase {
     let root = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: root) }
     _ = try makeStore(root).open()
-    let file = root.appendingPathComponent("whatsapp/state.bin")
-    var data = try Data(contentsOf: file)
-    data[data.count - 1] ^= 1
-    try data.write(to: file)
+    var data = try Data(contentsOf: stateFile(root))
+    data.replaceSubrange(0..<16, with: Data(count: 16))
+    try data.write(to: stateFile(root))
     XCTAssertThrowsError(try makeStore(root).open())
+    XCTAssertEqual(try Data(contentsOf: stateFile(root)), data)
   }
 
   func testEstablishedStateNeverRegeneratesMissingFileOrKeychainRecord() throws {
     let missingFile = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: missingFile) }
     _ = try makeStore(missingFile).open()
-    try FileManager.default.removeItem(at: missingFile.appendingPathComponent("whatsapp/state.bin"))
+    try FileManager.default.removeItem(at: stateFile(missingFile))
     XCTAssertThrowsError(try makeStore(missingFile).open())
 
     let missingRecord = try temporaryDirectory()
@@ -856,16 +822,13 @@ final class StateStoreTests: XCTestCase {
     let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
                                 kSecAttrAccount as String: "record", kSecUseDataProtectionKeychain as String: true]
     XCTAssertEqual(SecItemDelete(query as CFDictionary), errSecSuccess)
-    try FileManager.default.removeItem(at: missingRecord.appendingPathComponent("whatsapp/state.bin"))
+    try FileManager.default.removeItem(at: stateFile(missingRecord))
     XCTAssertThrowsError(try makeStore(missingRecord).open())
 
     let missingKey = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: missingKey) }
     _ = try makeStore(missingKey).open()
-    let bytes = try Data(contentsOf: missingKey.appendingPathComponent("whatsapp/state.bin"))
-    let length = bytes[8..<12].reduce(0) { ($0 << 8) | Int($1) }
-    let header = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes[12..<12+length]) as? [String: Any])
-    let recoveryId = try XCTUnwrap(header["recoveryKeyId"] as? String)
+    let recoveryId = try XCTUnwrap((try creationRecord(missingKey))["recoveryKeyId"] as? String)
     let keyService = "com.yoyos.whatsapp.state.test." + missingKey.lastPathComponent.replacingOccurrences(of: "-", with: "").lowercased()
     let keyQuery: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: keyService,
                                    kSecAttrAccount as String: recoveryId, kSecUseDataProtectionKeychain as String: true]
@@ -873,53 +836,29 @@ final class StateStoreTests: XCTestCase {
     XCTAssertThrowsError(try makeStore(missingKey).open())
   }
 
-  func testMalformedEnvelopeDoesNotBecomeEmptyInstall() throws {
-    let mutations: [(inout Data) -> Void] = [
-      { $0[0] = 0 },
-      { $0.replaceSubrange(8..<12, with: [0, 0, 16, 1]) },
-      { $0.replaceSubrange(8..<12, with: [127, 255, 255, 255]) },
-      { bytes in
-        let length = bytes[8..<12].reduce(0) { ($0 << 8) | Int($1) }
-        let header = String(decoding: bytes[12..<12+length], as: UTF8.self)
-        let marker = "\"revision\":\"0\""
-        let index = header.range(of: marker)!.lowerBound.utf16Offset(in: header) + "\"revision\":\"".count
-        bytes[12 + index] = 0x31
-      },
-      { bytes in
-        let length = bytes[8..<12].reduce(0) { ($0 << 8) | Int($1) }
-        bytes[12 + length] ^= 1
-      },
-      { bytes in
-        let length = bytes[8..<12].reduce(0) { ($0 << 8) | Int($1) }
-        bytes.replaceSubrange(12+length+12..<12+length+20, with: [0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff])
-      },
-      { bytes in
-        let length = bytes[8..<12].reduce(0) { ($0 << 8) | Int($1) }
-        bytes.replaceSubrange(12+length+12..<12+length+20, with: [0, 0, 0, 0, 0, 0, 0, 15])
-      },
-      { $0.removeLast() },
-      { $0.append(0) },
-      { $0[$0.count - 1] ^= 1 },
+  func testTamperedRowsNeverLoadOrCreateEmptyState() throws {
+    var entry = pendingEntry("a", ordinal: 0)
+    entry["createdRevision"] = "1"
+    let tampering: [(URL) throws -> Void] = [
+      { try self.sql($0, "DELETE FROM meta") },
+      { try self.sql($0, "UPDATE meta SET store_id = ?", [String(repeating: "0", count: 32)]) },
+      { try self.sql($0, "UPDATE meta SET revision = '01'") },
+      { try self.sql($0, "UPDATE meta SET control = ?", [Data("{\"unexpected\":true}".utf8)]) },
+      { try self.sql($0, "UPDATE pending SET created_ordinal = 1") },
+      { try self.sql($0, "UPDATE pending SET delivery_id = ?", ["wa-delivery:v1:" + String(repeating: "b", count: 32)]) },
+      { try self.sql($0, "UPDATE pending SET ciphertext = substr(ciphertext, 2) || x'00'") },
+      { try self.sql($0, "INSERT INTO session (id, value) VALUES (1, ?)", [Data("not json".utf8)]) },
     ]
-    for mutate in mutations {
+    for tamper in tampering {
       let root = try temporaryDirectory()
       defer { try? FileManager.default.removeItem(at: root) }
-      _ = try makeStore(root).open()
-      let file = root.appendingPathComponent("whatsapp/state.bin")
-      var data = try Data(contentsOf: file)
-      mutate(&data)
-      try data.write(to: file)
+      _ = try makeStore(root).commit(expectedRevision: "0") { current in
+        var next = current; next["pending"] = [entry]; return next
+      }
+      try tamper(root)
       XCTAssertThrowsError(try makeStore(root).open())
-      XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+      XCTAssertTrue(FileManager.default.fileExists(atPath: stateFile(root).path))
     }
-    let oversized = try temporaryDirectory()
-    defer { try? FileManager.default.removeItem(at: oversized) }
-    _ = try makeStore(oversized).open()
-    let file = oversized.appendingPathComponent("whatsapp/state.bin")
-    let handle = try FileHandle(forWritingTo: file)
-    try handle.truncate(atOffset: 27_271_221)
-    try handle.close()
-    XCTAssertThrowsError(try makeStore(oversized).open())
   }
 
   func testInvalidStateDoesNotAdvancePublishedRevision() throws {
@@ -937,11 +876,7 @@ final class StateStoreTests: XCTestCase {
     ]
     for mutate in invalid {
       XCTAssertThrowsError(try store.commit(expectedRevision: "0", change: mutate))
-      let file = root.appendingPathComponent("whatsapp/state.bin")
-      let bytes = try Data(contentsOf: file)
-      let length = bytes[8..<12].reduce(0) { ($0 << 8) | Int($1) }
-      let header = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes[12..<12+length]) as? [String: Any])
-      XCTAssertEqual(header["revision"] as? String, "0")
+      XCTAssertEqual(try revision(root), "0")
       XCTAssertNoThrow(try makeStore(root).open())
     }
   }
@@ -983,7 +918,7 @@ final class StateStoreTests: XCTestCase {
       "expectedSessionRevision": "2", "protocolChanges": [invalidPrekey], "pendingInserts": [Any](), "pendingIdentityUpdates": [Any]()]
     let invalidRaw = try XCTUnwrap(String(data: JSONSerialization.data(withJSONObject: invalidRequest), encoding: .utf8))
     XCTAssertEqual(try response(writer.applyProtocolChanges(invalidRaw))["success"] as? Bool, false)
-    XCTAssertEqual(try makeStore(root).open()["revision"] as? String, "2")
+    XCTAssertEqual(try revision(root), "2")
     let whitespaceTuple = "WyAiMTIzOjIiIF0"
     let noncanonical: [String: Any] = ["contractVersion": 1, "generationId": "generation", "accountId": "123@lid",
       "expectedSessionRevision": "2", "protocolChanges": [["operation": "put", "recordType": "signal-session",
@@ -1050,9 +985,7 @@ final class StateStoreTests: XCTestCase {
   func testReducedBudgetRefusesOnlyInsertions() throws {
     let root = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: root) }
-    let writer = try makeStore(root)
-    _ = try writer.open()
-    try writer.beginSession(accountId: "123@lid", protocolBytes: Data("{\"protocolSchemaVersion\":1,\"records\":[]}".utf8))
+    let writer = try protocolWriter(root)
     let padding = "{\"padding\":\"" + String(repeating: "A", count: 2000) + "\"}"
     func padded(_ letter: String, _ ordinal: Int) -> [String: Any] {
       var entry = pendingEntry(letter, ordinal: ordinal)
@@ -1065,7 +998,6 @@ final class StateStoreTests: XCTestCase {
       return next
     }
     _ = try writer.updateOptions(maxRecoveryBufferBytes: 1024, maxImageStorageBytes: 50 * 1024 * 1024) // far below the ~4 KB stored
-    try writer.registerGeneration("generation", accountId: "123@lid")
     let sessionRevision = try XCTUnwrap((writer.open()["session"] as? [String: Any])?["sessionRevision"] as? String)
     func request(inserts: [[String: Any]], updates: [[String: Any]]) throws -> String {
       let body: [String: Any] = ["contractVersion": 1, "generationId": "generation", "accountId": "123@lid",
@@ -1073,11 +1005,11 @@ final class StateStoreTests: XCTestCase {
         "pendingInserts": inserts, "pendingIdentityUpdates": updates]
       return try XCTUnwrap(String(data: JSONSerialization.data(withJSONObject: body), encoding: .utf8))
     }
-    let insert = try response(writer.applyProtocolChanges(request(inserts: [padded("c", 0)], updates: [])))
+    let insert = try response(writer.applyProtocolChanges(request(inserts: [insertable(padded("c", 0))], updates: [])))
     XCTAssertEqual(insert["success"] as? Bool, false)
     XCTAssertEqual((insert["error"] as? [String: Any])?["code"] as? String, "BUFFER_FULL")
     let update: [String: Any] = ["deliveryId": "wa-delivery:v1:" + String(repeating: "a", count: 32), "identityState": "resolved",
-                                 "message": ["id": "wa-message:v1:YQ"]]
+                                 "message": resolvedMessage()]
     XCTAssertEqual(try response(writer.applyProtocolChanges(request(inserts: [], updates: [update])))["success"] as? Bool, true)
     let pending = try XCTUnwrap(try writer.open()["pending"] as? [[String: Any]])
     XCTAssertEqual(pending.count, 2) // nothing was discarded
@@ -1129,5 +1061,110 @@ final class StateStoreTests: XCTestCase {
       XCTAssertEqual((result["error"] as? [String: Any])?["code"] as? String, "INVALID_REQUEST")
     }
     XCTAssertEqual(try response(writer.readPending("{\"contractVersion\":2}"))["success"] as? Bool, false)
+  }
+
+  private func freshSessionRequest(_ generation: String) -> String {
+    func b64(_ value: Data) -> String { value.base64EncodedString() }
+    let account = Data([10, 2, 8, 1, 18, 32]) + Data(repeating: 1, count: 32) +
+      Data([26, 64]) + Data(repeating: 1, count: 64) + Data([34, 64]) + Data(repeating: 1, count: 64)
+    let value = "{\"version\":1,\"noisePrivateKey\":\"\(b64(Data(repeating: 1, count: 32)))\",\"identityPrivateKey\":\"\(b64(Data(repeating: 2, count: 32)))\",\"signedPreKeyPrivate\":\"\(b64(Data(repeating: 3, count: 32)))\",\"signedPreKeyId\":7,\"signedPreKeySignature\":\"\(b64(Data(repeating: 4, count: 64)))\",\"registrationId\":9,\"advSecretKey\":\"\(b64(Data(repeating: 1, count: 32)))\",\"id\":\"123:2@s.whatsapp.net\",\"lid\":\"123:2@lid\",\"account\":\"\(b64(account))\",\"platform\":\"\",\"businessName\":\"\",\"pushName\":\"\",\"facebookUuid\":\"\",\"lidMigrationTimestamp\":0,\"companionMetaNonce\":\"\"}"
+    return "{\"contractVersion\":1,\"generationId\":\"\(generation)\",\"accountId\":\"123@lid\",\"device\":{\"recordType\":\"device\",\"recordKey\":\"W10\",\"valueBase64\":\"\(b64(Data(value.utf8)))\"}}"
+  }
+
+  /// A writer with a session and a registered generation, ready for Go's protocol callbacks.
+  private func protocolWriter(_ root: URL, fault: ((String) throws -> Void)? = nil) throws -> NativeStateStore {
+    let writer = try makeStore(root, fault: fault)
+    _ = try writer.open()
+    try writer.registerFreshGeneration("generation")
+    XCTAssertEqual(try response(writer.beginFreshProtocolSession(freshSessionRequest("generation")))["success"] as? Bool, true)
+    return writer
+  }
+
+  private func resolvedMessage() -> [String: Any] {
+    let encoded = Data("[\"123@lid\",\"456@lid\",\"ABC\"]".utf8).base64EncodedString()
+      .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+    return ["id": "wa-message:v1:" + encoded, "accountId": "123@lid", "whatsappMessageId": "ABC", "chatId": "456@lid", "direction": "incoming"]
+  }
+
+  private func insertable(_ entry: [String: Any]) -> [String: Any] {
+    var item = entry
+    item.removeValue(forKey: "createdRevision")
+    item.removeValue(forKey: "createdOrdinal")
+    return item
+  }
+
+  private func applyRequest(_ expected: String, inserts: [[String: Any]], updates: [[String: Any]] = [], changes: [[String: Any]] = []) throws -> String {
+    let body: [String: Any] = ["contractVersion": 1, "generationId": "generation", "accountId": "123@lid",
+                               "expectedSessionRevision": expected, "protocolChanges": changes,
+                               "pendingInserts": inserts, "pendingIdentityUpdates": updates]
+    return try XCTUnwrap(String(data: JSONSerialization.data(withJSONObject: body), encoding: .utf8))
+  }
+
+  private func retireRequest(_ letter: String) -> String {
+    "{\"contractVersion\":1,\"deliveryId\":\"wa-delivery:v1:" + String(repeating: letter, count: 32) + "\"}"
+  }
+
+  // Confirming deletes one row: the stored session bytes and sessionRevision stay as they were.
+  func testRetirePendingLeavesTheStoredSessionUntouched() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let writer = try protocolWriter(root)
+    let inserts = [insertable(pendingEntry("a", ordinal: 0)), insertable(pendingEntry("b", ordinal: 0))]
+    XCTAssertEqual(try response(writer.applyProtocolChanges(applyRequest("1", inserts: inserts)))["success"] as? Bool, true)
+    let session = try sessionValue(root)
+    let retired = try XCTUnwrap(try response(writer.retirePending(retireRequest("a")))["data"] as? [String: Any])
+    XCTAssertEqual(retired["removed"] as? Bool, true)
+    XCTAssertEqual(try sessionValue(root), session)
+    XCTAssertEqual(try revision(root), "3")
+    let restored = try makeStore(root).open()
+    XCTAssertEqual((restored["session"] as? [String: Any])?["sessionRevision"] as? String, "1")
+    XCTAssertEqual((restored["pending"] as? [[String: Any]])?.compactMap { $0["deliveryId"] as? String },
+                   ["wa-delivery:v1:" + String(repeating: "b", count: 32)])
+  }
+
+  // The inserts and the session publish together: a failure before the commit leaves neither.
+  func testFailedApplyPublishesNeitherPendingNorSession() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    var active = false
+    let writer = try protocolWriter(root) { if active && $0 == "beforeCommit" { throw StateStoreError.storage } }
+    let prekeyState = Data("{\"version\":1,\"nextId\":1,\"uploadedThrough\":0}".utf8).base64EncodedString()
+    let request = try applyRequest("1", inserts: [insertable(pendingEntry("a", ordinal: 0))],
+                                   changes: [["operation": "put", "recordType": "prekey-state", "recordKey": "W10", "valueBase64": prekeyState]])
+    active = true
+    XCTAssertEqual(try response(writer.applyProtocolChanges(request))["success"] as? Bool, false)
+    active = false
+    XCTAssertEqual(try revision(root), "1")
+    let restored = try makeStore(root).open()
+    XCTAssertEqual((restored["pending"] as? [[String: Any]])?.count, 0)
+    XCTAssertEqual((restored["session"] as? [String: Any])?["sessionRevision"] as? String, "1")
+    XCTAssertEqual(try response(writer.applyProtocolChanges(request))["success"] as? Bool, true)
+    XCTAssertEqual((try makeStore(root).open()["pending"] as? [[String: Any]])?.count, 1)
+  }
+
+  // An identity update never recreates an entry that was already confirmed.
+  func testIdentityUpdateCannotRecreateARetiredEntry() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let writer = try protocolWriter(root)
+    XCTAssertEqual(try response(writer.applyProtocolChanges(applyRequest("1", inserts: [insertable(pendingEntry("a", ordinal: 0))])))["success"] as? Bool, true)
+    _ = writer.retirePending(retireRequest("a"))
+    let update: [String: Any] = ["deliveryId": "wa-delivery:v1:" + String(repeating: "a", count: 32), "identityState": "resolved", "message": resolvedMessage()]
+    XCTAssertEqual(try response(writer.applyProtocolChanges(applyRequest("1", inserts: [], updates: [update])))["success"] as? Bool, false)
+    XCTAssertEqual((try makeStore(root).open()["pending"] as? [[String: Any]])?.count, 0)
+  }
+
+  // A second instance sees a confirmation made by the first without keeping a stale copy.
+  func testAnotherInstanceSeesARetirement() throws {
+    let root = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let writer = try protocolWriter(root)
+    let inserts = [insertable(pendingEntry("a", ordinal: 0)), insertable(pendingEntry("b", ordinal: 0))]
+    XCTAssertEqual(try response(writer.applyProtocolChanges(applyRequest("1", inserts: inserts)))["success"] as? Bool, true)
+    let reader = try makeStore(root)
+    func count() throws -> Int? { ((try response(reader.readPending("{\"contractVersion\":1}"))["data"] as? [String: Any])?["pending"] as? [[String: Any]])?.count }
+    XCTAssertEqual(try count(), 2)
+    _ = writer.retirePending(retireRequest("a"))
+    XCTAssertEqual(try count(), 1)
   }
 }

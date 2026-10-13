@@ -1177,7 +1177,7 @@
       },
       {
         "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
-        "test": "testMalformedEnvelopeDoesNotBecomeEmptyInstall",
+        "test": "testTamperedRowsNeverLoadOrCreateEmptyState",
         "via": "link",
         "native": true,
         "result": "none"
@@ -2118,7 +2118,7 @@
       },
       {
         "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
-        "test": "testMalformedEnvelopeDoesNotBecomeEmptyInstall",
+        "test": "testTamperedRowsNeverLoadOrCreateEmptyState",
         "via": "link",
         "native": true,
         "result": "none"
@@ -4170,7 +4170,7 @@
       },
       {
         "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
-        "test": "testMalformedEnvelopeDoesNotBecomeEmptyInstall",
+        "test": "testTamperedRowsNeverLoadOrCreateEmptyState",
         "via": "link",
         "native": true,
         "result": "none"
@@ -4270,7 +4270,7 @@
       },
       {
         "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
-        "test": "testMalformedEnvelopeDoesNotBecomeEmptyInstall",
+        "test": "testTamperedRowsNeverLoadOrCreateEmptyState",
         "via": "link",
         "native": true,
         "result": "none"
