@@ -13,7 +13,7 @@ import { fitLabelLines } from "@mobile/features/products/infrastructure/label-te
 const fontAsset = require("../../../../assets/fonts/InterVariable.ttf");
 let fontData: Promise<Awaited<ReturnType<typeof Skia.Data.fromURI>>> | null = null;
 
-async function typeface() {
+export async function typeface() {
   fontData ??= Asset.fromModule(fontAsset).downloadAsync().then((asset) => Skia.Data.fromURI(asset.localUri!)).catch((error) => { fontData = null; throw error; });
   const data = await fontData;
   const font = Skia.Typeface.MakeFreeTypeFaceFromData(data);
