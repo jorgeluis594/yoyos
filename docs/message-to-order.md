@@ -39,7 +39,7 @@ Customer 1 ── * Contact 1 ── 1 Chat 1 ── * ChatMessage
 | Agrupación | Siempre se añade a la orden abierta del chat (§3.5); variante repetida suma 1. |
 | Stock | Se añade aunque el stock sea 0. |
 | Visibilidad de omisiones y fallos | Solo logs. |
-| WhatsApp Cloud API (webhook) | Fuera de alcance; ese camino no publica `message_created`. |
+| Origen de mensajes | Solo el flujo móvil (`POST /api/messages`). |
 | Lector QR | `zxing-wasm@3.1.5` con el `.wasm` local. |
 | Worker en producción | Añadir las variables `R2_*` al servicio `worker` de `compose.prod.yaml`. |
 
@@ -125,7 +125,7 @@ Mobile (sync worker)
   │    ├─ guardar core_image_id en SQLite
   │    └─ deleteDownloadedImage
   └─ POST /api/messages { content: { type: "image", imageId, caption? } }
-        └─ core valida la imagen, persiste (imageStatus = ready) y publica message_created
+        └─ core valida la imagen, persiste el mensaje con su imageId y publica message_created
 ```
 
 Contrato (`shared/contracts/whatsapp-messages.ts`, `version: 1` modificada; no hay builds desplegados):
@@ -138,16 +138,16 @@ z.strictObject({
 })
 ```
 
-`mimeType` y `size` se eliminan del contrato: el registro `Image` conoce el archivo validado. Las columnas `imageMimeType`/`imageSize` se conservan para las filas antiguas. El archivo y los nombres del contrato conservan `whatsapp` porque el cuerpo es específico del canal (LID, `whatsappMessageId`).
+`mimeType` y `size` se eliminan del contrato: el registro `Image` conoce el archivo validado. El archivo y los nombres del contrato conservan `whatsapp` porque el cuerpo es específico del canal (LID, `whatsappMessageId`).
 
 Registro en core:
 
 - Antes de insertar, `findImage(imageId)` con el repositorio de imágenes (alcance RLS). Si no existe → **404 `IMAGE_NOT_FOUND`**, igual que productos (`products/application/create.ts`). La FK compuesta `[companyId, imageId]` queda como respaldo.
-- Inserta `imageId` con `imageStatus = 'ready'` e `imageMimeType`/`imageSize` en `NULL`.
+- Inserta el mensaje con su `imageId`.
 - `mobile-message-repository.ts`:
-  - `storedRowSchema`: `imageId` sale de la base común. Texto: `imageId: z.null()`. Imagen: `metadata_only` con `imageId: z.null()` (filas antiguas) o `ready` con `imageId: z.uuid()` e `imageMimeType`/`imageSize` nulos.
-  - `mapMobileMessage` ya no reconstruye el request completo, porque una fila `metadata_only` no cumple el contrato nuevo. El contrato exporta `whatsAppMessageIdentitySchema` (sobre del mensaje sin `content`, con el `superRefine` de identidad) y el mapper valida solo eso; el contenido ya lo valida `storedRowSchema`.
-  - `MobileMessage.content` de imagen pasa a `{ type: "image"; caption: string | null; imageId: ImageId | null }`.
+  - `storedRowSchema`: texto con `imageId: z.null()`; imagen con `imageId: z.uuid()`.
+  - `mapMobileMessage` no reconstruye el request completo. El contrato exporta `whatsAppMessageIdentitySchema` (sobre del mensaje sin `content`, con el `superRefine` de identidad) y el mapper valida solo eso; el contenido ya lo valida `storedRowSchema`.
+  - `MobileMessage.content` de imagen pasa a `{ type: "image"; caption: string | null; imageId: ImageId }`.
 - Reintento con otro `imageId`: `ON CONFLICT DO NOTHING` conserva el primero; la imagen nueva queda huérfana (aceptado).
 
 Lectura de bytes para el QR: `ImageStorage.read(key)` (nuevo, `GetObjectCommand` sobre `config.bucket`) y `readImageBytes` en `shared/images/application/images.ts`:
@@ -158,7 +158,7 @@ export type ImageReadError = Readonly<{
   message: string;
 }>;
 
-/** Lee los bytes de una imagen de la empresa, del bucket público o privado según su visibilidad. */
+/** Lee los bytes de una imagen de la empresa desde el almacenamiento. */
 export async function readImageBytes(
   imageId: string,
   storage: ImageStorage,
@@ -305,14 +305,12 @@ export type OrderSourceMessage = Readonly<{
   contactId: ContactId;
   direction: "incoming" | "outgoing";
   uploadedByUserId: UserId;
-  imageId: ImageId | null; // null en texto y en filas antiguas metadata_only
+  imageId: ImageId | null; // null en mensajes de texto
 }>;
 
 export type MessageCustomer = Readonly<{
   customerId: CustomerId;
   contactId: ContactId;
-  name: string | null;  // del contacto
-  phone: string | null; // del contacto
 }>;
 
 export type AddMessageProductsOutcome =
@@ -381,12 +379,12 @@ Flujo:
    2. Repetir `findProcessedMessage`.
    3. `findOpenChatOrderCandidate(chatId)` → `findOrderForUpdate(id)` (serializa frente a pagos, entrega, stock, cancelación y checkout) → `isOpenForMessageItems`.
       - Abierta → `appendItems` → `saveAddedItems`.
-      - Sin candidata o ya no abierta → `allocateNumber` → `buildPendingOrder` (un ítem por variante, `sellerId = uploadedByUserId`, comprador = contacto con `phone` nullable) → `saveNewOrder`.
+      - Sin candidata o ya no abierta → `allocateNumber` → `buildPendingOrder` (un ítem por variante, `sellerId = uploadedByUserId`, comprador = contacto sin nombre ni teléfono) → `saveNewOrder`.
    4. `recordProcessedMessage`; `MESSAGE_ALREADY_PROCESSED` → revertir y `already_processed`.
 
 Si se anula el pago de una orden antigua, pueden quedar dos órdenes abiertas en el chat: se usa la más reciente.
 
-Comprador: `OrderCustomer.contact.phone` pasa a `string | null` y `buildOrder` acepta `null` (sin variante nueva). La orden de chat siempre crea `OrderBuyer { contactId, name, phone }` con los datos del contacto (normalmente nulos). El checkout ya exige un teléfono válido al confirmar y completa la instantánea. `findContactById` y `searchSaleContacts` mantienen su filtro de teléfono, así los contactos sin datos no aparecen en ventas manuales.
+Comprador: `OrderCustomer.contact.phone` pasa a `string | null` y `buildOrder` acepta `null` (sin variante nueva). La orden de chat siempre crea `OrderBuyer { contactId, name: null, phone: null }`: los contactos solo tienen sus LID de WhatsApp. El checkout exige un teléfono válido al confirmar y completa la instantánea.
 
 Adaptador de handler: `PERSISTENCE_UNAVAILABLE`, `IMAGE_STORAGE_UNAVAILABLE` y `QR_READER_UNAVAILABLE` son `retryable`; el resto es permanente.
 
@@ -411,7 +409,7 @@ export const eventHandlers: AnyEventSubscription<AppEvents>[] = [restoreCancelle
 | Feature | Función | Notas |
 | --- | --- | --- |
 | chats | `findOrderSourceMessage(messageId)` | Mensaje + chat + `contactId`. Exportada en `chats/index.ts`. |
-| chats | `insertAndRead` (modificada) | Inserta `imageId` con `ready`; la comprobación previa de la imagen está en la aplicación. |
+| chats | `insertAndRead` (modificada) | Inserta `imageId`; la comprobación previa de la imagen está en la aplicación. |
 | products | `findSellableVariantsByQrCodes(codes)` | `where: { qrCode: { in }, status: "active", product: { status: "active" } }`, alcance por RLS como `findSellableVariant`; mapper `toCatalogItem` compartido; devuelve `qrCode`. El filtro `status: "active"` es defensivo, igual que en `findSellableVariant`: los CHECK `Product_status_active` y `ProductVariant_status_active` solo admiten `active`, así que no hay prueba de inactivos. |
 | contacts | `ensureCustomerForContact(contactId)` | `withLockedForUpdate` sobre `Contact`; crea `Customer` vacío si falta y actualiza `customerId`. |
 | orders | `findProcessedMessage(messageId)` | `OrderMessage` por `[companyId, messageId]`. |
@@ -425,7 +423,7 @@ export const eventHandlers: AnyEventSubscription<AppEvents>[] = [restoreCancelle
 ### 3.9 Icono de WhatsApp en la orden
 
 - `orderAggregateSchema` y `orderSchema` (`shared/contracts/orders.ts`) añaden `source: "manual" | "whatsapp"`, derivado de `chatId != null`.
-- `orderBuyerSchema.phone` y la variante `contact` del customer de orden (`shared/contracts/orders.ts`, líneas 15 y 17) pasan a `z.string().nullable()`; también `buyer.phone` en `shared/contracts/order-checkout.ts`. `orderContactsSchema` no cambia (los contactos sin teléfono no se listan).
+- `orderBuyerSchema.phone` y la variante `contact` del customer de orden (`shared/contracts/orders.ts`, líneas 15 y 17) pasan a `z.string().nullable()`; también `buyer.phone` en `shared/contracts/order-checkout.ts`.
 - Web (`apps/core/app/routes/order-list.tsx`, `order-detail.tsx`) y mobile (`order-history-screen.tsx`, `order-detail-screen.tsx`): icono de WhatsApp con etiqueta accesible «WhatsApp» cuando `source = "whatsapp"`. El comprador se muestra como `name ?? phone`; si ambos son nulos solo se ve el icono. «Público general» queda reservado a órdenes sin `OrderBuyer`. Ocultar el teléfono cuando es `null`.
 - Sin enlace al chat (no existe pantalla de chat en web).
 
@@ -481,29 +479,7 @@ model ChatMessage {
 }
 ```
 
-Nuevo CHECK de la rama móvil (desde la línea 52 de `20261008064129_adapt_chats_for_mobile_whatsapp/migration.sql`; la rama Cloud API se copia sin cambios). `"imageId" IS NULL` sale de la parte común y pasa a cada rama. Las comparaciones de `sentAt` aceptan `NULL` (un CHECK solo falla con `false`) y `ChatMessage_sentAt_required_outside_mobile_check` de `20261010150428` no se toca:
-
-```sql
-  ) OR (
-    "whatsappMessageId" IS NOT NULL AND octet_length("whatsappMessageId") BETWEEN 1 AND 512
-    AND octet_length("externalId") BETWEEN 1 AND 4096
-    AND "uploadedByUserId" IS NOT NULL AND "uploadedByUserId" <> ''
-    AND "userId" IS NULL AND "whatsappMediaId" IS NULL
-    AND "imageFailureCode" IS NULL AND "imageFailureMessage" IS NULL
-    AND "sentAt" >= TIMESTAMP '1970-01-01' AND "sentAt" <= TIMESTAMP '9999-12-31 23:59:59.999'
-    AND ("imageSize" IS NULL OR "imageSize" BETWEEN 0 AND 9007199254740991)
-    AND ("imageMimeType" IS NULL OR "imageMimeType" ~ '^image/[A-Za-z0-9!#$&^_.+-]+$')
-    AND (
-      ("type" = 'text' AND "text" IS NOT NULL AND octet_length("text") BETWEEN 1 AND 65536
-        AND "caption" IS NULL AND "imageId" IS NULL AND "imageStatus" IS NULL AND "imageMimeType" IS NULL AND "imageSize" IS NULL)
-      OR ("type" = 'image' AND "text" IS NULL AND ("caption" IS NULL OR octet_length("caption") BETWEEN 1 AND 65536)
-        AND (
-          ("imageStatus" = 'metadata_only' AND "imageId" IS NULL)
-          OR ("imageStatus" = 'ready' AND "imageId" IS NOT NULL AND "imageMimeType" IS NULL AND "imageSize" IS NULL)
-        ))
-    )
-  )
-```
+`ChatMessage_content_check` exige `text` y ninguna imagen en los mensajes de texto, e `imageId` sin `text` en los de imagen.
 
 Notas de migración (`.agents/skills/database-migrations/SKILL.md`):
 
@@ -512,8 +488,7 @@ Notas de migración (`.agents/skills/database-migrations/SKILL.md`):
 - Columnas nuevas nulas y `OrderBuyer.phone DROP NOT NULL`: solo metadatos.
 - FK con `NOT VALID` y `VALIDATE CONSTRAINT` aparte.
 - `Customer` y `OrderMessage`: tabla, default de `companyId`, `ENABLE`/`FORCE ROW LEVEL SECURITY` y política de aislamiento en la misma transacción.
-- CHECK: `DROP CONSTRAINT` + `ADD CONSTRAINT … NOT VALID`; `VALIDATE` aparte.
-- Sin backfill: las filas `metadata_only` se conservan y se omiten (`not_image`); órdenes y contactos existentes quedan sin customer.
+- Sin backfill: órdenes y contactos existentes quedan sin customer.
 - No hay índice único de «una orden abierta por chat»: depende de pagos y checkout en otras tablas; lo garantizan los bloqueos.
 
 ## 5. Archivos
@@ -558,7 +533,7 @@ Notas de migración (`.agents/skills/database-migrations/SKILL.md`):
 
 | Caso | Comportamiento |
 | --- | --- |
-| Mensaje de texto o fila antigua `metadata_only` | `not_image`. |
+| Mensaje de texto | `not_image`. |
 | Mensaje saliente | `outgoing_message`. |
 | `imageId` inexistente o de otra empresa en el POST | 404 `IMAGE_NOT_FOUND`, sin evento; mobile vuelve a subir. |
 | Imagen inaccesible al procesar | `IMAGE_NOT_FOUND`, permanente, log de fallo. |
@@ -691,7 +666,7 @@ Títulos de las pruebas, escritas antes de implementar (TDD). Siguen el estilo d
 - creates a new order when the candidate is no longer open after locking it
 - creates the customer when the contact has none
 - adds the codes found and reports the unknown ones
-- skips text and metadata_only messages as not_image without reading images
+- skips text messages as not_image without reading images
 - skips outgoing messages as outgoing_message
 - skips photos without QR codes as no_qr_code
 - skips photos with only non-product QR codes as unrecognized_qr_code
@@ -775,9 +750,8 @@ Core (PostgreSQL, rol `core_app`). El caso de uso usa la base real con fakes par
 
 `features/chats/infrastructure/mobile-message-repository.integration.test.ts`
 
-- stores an image message with its imageId as ready without mimeType or size
-- reads legacy metadata_only rows with and without sentAt
-- rejects a ready image without imageId and a text message with imageId
+- stores an image message with its imageId
+- rejects an image without imageId and a text message with imageId
 - a repeated registration with another imageId keeps the first image
 
 `features/chats/infrastructure/mobile-message-dispatch.integration.test.ts`

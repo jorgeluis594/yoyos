@@ -591,7 +591,7 @@ export type Page = Readonly<{ beforeArrivalSeq: number | null; limit: number }>;
 
 - El orden es por `arrival_seq` descendente y **nunca** por `sentAt`, porque la fecha puede faltar.
 - Un `sentAt` nulo se muestra como "Fecha desconocida".
-- El nombre visible del chat en v1 es el LID abreviado, porque la librería no entrega push name ni teléfono. Una vez sincronizado, se puede enriquecer con el `Contact` de core (fuera de v1).
+- El nombre visible del chat en v1 es el LID abreviado, porque la librería no entrega push name ni teléfono.
 
 ### UC-09 Errores informativos de la librería
 
@@ -895,5 +895,4 @@ Un commit por unidad lógica, cada uno con sus pruebas pasando (memoria `4176391
 | Conflicto de `timestamp` con core (A1). | Usar `held_unknown_date` sin pérdida hasta resolverlo. |
 | El buffer nativo se llena si UC-03 falla repetidamente. | La custodia es independiente de la red (D2). `LOCAL_STORAGE_FAILED` se muestra en la UI. |
 | El runtime JS muere con el servicio vivo en Android (A4). | No se pierden mensajes. Se mide en dispositivo. |
-| Push name y teléfono no disponibles. | Se muestra el LID en v1. El contacto se enriquece después desde core. |
-| Webhook de Meta Cloud y móvil en paralelo para la misma empresa. | Core ya mantiene identidades separadas (memoria `6e761725`). Unificar los chats es una decisión de producto aparte. |
+| Push name y teléfono no disponibles. | Se muestra el LID en v1. |

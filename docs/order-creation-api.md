@@ -8,12 +8,11 @@ El contrato de entrada acepta únicamente datos aportados por el cliente. Core o
 
 ### Orden pendiente
 
-Mobile envía cliente y productos, sin pago ni entrega:
+Mobile envía los productos, sin pago ni entrega:
 
 ```json
 {
   "id": "<UUID estable generado por el cliente>",
-  "contactId": null,
   "items": [{ "variantId": "<UUID>", "quantity": 1 }]
 }
 ```
@@ -25,7 +24,6 @@ Mobile incluye el pago total y la confirmación de entrega en mano:
 ```json
 {
   "id": "<UUID estable generado por el cliente>",
-  "contactId": null,
   "items": [{ "variantId": "<UUID>", "quantity": 1 }],
   "payment": { "method": "digital_wallet" },
   "delivery": { "method": "handover" }
@@ -42,13 +40,13 @@ Mobile incluye el pago total y la confirmación de entrega en mano:
 | `payment` y `delivery: handover` | `status: completed`, `paymentStatus: paid`, `deliveryStatus: delivered`, `stockDeducted: true`, un pago por el total y `completedAt` asignado por Core. Todo ocurre en una transacción. |
 | Solo uno de ellos | `400 INVALID_INPUT`; no se crea la orden. |
 
-El contrato se validará en `shared/contracts/orders.ts` con objetos estrictos: `contactId` es un UUID de contacto de la empresa o `null` para público general; los productos contienen UUID de variante y cantidad entera positiva, con al menos un producto y sin variantes repetidas. Los contactos y variantes deben pertenecer a la empresa de la sesión. Se rechazan campos adicionales, incluidos importes, estados y fechas calculados por Core.
+El contrato se validará en `shared/contracts/orders.ts` con objetos estrictos: los productos contienen UUID de variante y cantidad entera positiva, con al menos un producto y sin variantes repetidas. Las variantes deben pertenecer a la empresa de la sesión. La venta se crea para público general. Se rechazan campos adicionales, incluidos importes, estados y fechas calculados por Core.
 
 Este alcance no acepta pagos parciales, varios pagos, un pago con entrega pendiente ni entregas con destino durante la creación. Las acciones posteriores sobre una orden activa conservan sus propias reglas.
 
 ## Errores y recuperación en mobile
 
-- Un cuerpo inválido o una combinación de hijos no admitida devuelve `400 INVALID_INPUT`. Los errores de dominio conservan sus códigos actuales, como `422 INVALID_ORDER` o `422 CURRENCY_MISMATCH`; un contacto o variante no disponible devuelve `404` con el código correspondiente.
+- Un cuerpo inválido o una combinación de hijos no admitida devuelve `400 INVALID_INPUT`. Los errores de dominio conservan sus códigos actuales, como `422 INVALID_ORDER` o `422 CURRENCY_MISMATCH`; una variante no disponible devuelve `404 VARIANT_NOT_FOUND`.
 - Una venta completada sin stock suficiente devuelve `409 INSUFFICIENT_STOCK` y revierte creación, pago, descuento y entrega. Crear una orden pendiente no exige stock suficiente porque no lo descuenta ni lo reserva.
 - Una indisponibilidad conocida de persistencia devuelve `503 SERVICE_UNAVAILABLE`. Una respuesta perdida o un error técnico no permiten a mobile asumir que la operación no ocurrió.
 - Mobile genera y conserva el mismo UUID de orden para todos los intentos de una creación. Si ese ID ya existe en la empresa, el endpoint devuelve `409 ORDER_ALREADY_EXISTS` sin modificar la orden ni repetir pagos o descuentos; no devuelve otro `201`.
@@ -77,7 +75,7 @@ Los siguientes cambios describen la implementación del contrato acordado.
 
 Archivo: `shared/contracts/orders.ts`.
 
-- Extraer el esquema actual de selección (`id`, `contactId`, `items`) como `orderSelectionSchema`, con su tipo `OrderSelectionRequest`. Será la base común de los dos cuerpos de creación y de los consumidores que solo preparan una selección.
+- Extraer el esquema actual de selección (`id`, `items`) como `orderSelectionSchema`, con su tipo `OrderSelectionRequest`. Será la base común de los dos cuerpos de creación y de los consumidores que solo preparan una selección.
 - Convertir `createOrderSchema` y `CreateOrderRequest` en el contrato del endpoint general. Debe admitir exactamente dos formas: selección sin hijos, o selección con `payment: { method: digital_wallet }` y `delivery: { method: handover }`. Validar ambas formas como objetos estrictos; hijos omitidos y valores `null` no son equivalentes.
 - Rechazar un solo hijo, métodos diferentes, importes e IDs de pago enviados por el cliente y campos calculados por Core. La validación HTTP debe fallar antes de llamar a un caso de uso.
 - Mantener el rechazo de variantes repetidas como `INVALID_ORDER` en los casos de uso actuales; no cambiar ese error a `INVALID_INPUT` al ampliar el contrato.
@@ -89,7 +87,7 @@ La selección contiene datos para construir la orden; los hijos indican operacio
 
 | Archivo o función | Cambio previsto |
 | --- | --- |
-| `apps/core/src/features/orders/application/create-order.ts`: `createOrder` | Conservar su entrada `CreateOrderInput` y su comportamiento: validar selección, resolver cliente y catálogo, construir snapshots y guardar una orden pendiente en una transacción. |
+| `apps/core/src/features/orders/application/create-order.ts`: `createOrder` | Conservar su entrada `CreateOrderInput` y su comportamiento: validar selección, resolver catálogo, construir snapshots y guardar una orden pendiente en una transacción. |
 | Mismo archivo: `createOrderInTransaction` | Conservar la construcción compartida que reutiliza la venta inmediata. |
 | `apps/core/src/features/orders/application/register-immediate-sale.ts`: `registerImmediateSale` | Conservar su entrada y su transacción: crear, registrar un pago por el total, descontar todos los productos y confirmar la entrega. El contrato HTTP solo admite el método que este caso de uso ya soporta. |
 | `apps/core/src/features/orders/composition.ts` | Reutilizar `orders.create` y `orders.registerImmediateSale` con sus dependencias actuales. |
@@ -104,7 +102,7 @@ La infraestructura actual ya guarda orden, productos, pagos, descuento y cumplim
 Archivo: `apps/core/src/features/orders/presentation/api-routes.ts`.
 
 1. Sustituir el manejador actual de `POST /` por la creación general. Mantener la exigencia de JSON y validar el cuerpo con el nuevo `createOrderSchema`.
-2. Adaptar `pendingInput` para recibir la selección común y producir exclusivamente `CreateOrderInput`: `id`, `contactId` e `items`. Puede renombrarse a `toCreateOrderInput`, ya que lo usan ambos flujos.
+2. Adaptar `pendingInput` para recibir la selección común y producir exclusivamente `CreateOrderInput`: `id` e `items`. Puede renombrarse a `toCreateOrderInput`, ya que lo usan ambos flujos.
 3. Obtener `companyId` y `userId` con `orderContext(response)`, como hoy.
 4. Sin hijos, llamar a `orders.create(input, context)`. Con los dos hijos validados, llamar a `orders.registerImmediateSale(input, context)`.
 5. Serializar ambos resultados con `toOrderAggregateJson` de `presentation/order-json.ts` y responder `201`. El nuevo POST deja de usar `toLegacyOrderJson`; ese serializador sigue atendiendo las lecturas antiguas.
