@@ -121,7 +121,8 @@ export const listOrderAggregatesSchema = z.strictObject({
     { message: "Invalid date interval", path: ["createdBefore"] });
 export type ListOrderAggregatesRequest = z.infer<typeof listOrderAggregatesSchema>;
 export const orderAggregateSummarySchema = orderAggregateSchema.pick({ checkoutEnabledAt: true, checkoutConfirmedAt: true, number: true, id: true, createdAt: true, scheduledDispatchDate: true, shippedAt: true, deliveredAt: true, completedAt: true, status: true,
-  paymentStatus: true, deliveryStatus: true, stockDeducted: true, buyer: true, sellerId: true, total: true });
+  paymentStatus: true, deliveryStatus: true, stockDeducted: true, buyer: true, sellerId: true, total: true })
+  .extend({ courier: snapshotCourierSchema.nullable().optional() });
 export const listOrderAggregatesResponseSchema = z.strictObject({ items: z.array(orderAggregateSummarySchema),
   page: z.number().int().positive(), pageSize: z.literal(20), total: z.number().int().nonnegative() });
 export type ListOrderAggregatesResponse = z.infer<typeof listOrderAggregatesResponseSchema>;

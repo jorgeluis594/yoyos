@@ -9,6 +9,7 @@ import { orders, createConfiguredOrder } from "@core/src/features/orders/composi
 import { toLegacyOrderJson, toOrderAggregateJson, toOrderAggregateListJson, toOrderListJson } from "@core/src/features/orders/presentation/order-json";
 import type { CreateOrderInput, OrderAccess } from "@core/src/features/orders/application/create-order";
 import type { ContactId, CompanyId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
+import { parseScheduledDispatchFilter } from "@core/src/features/orders/application/list-order-aggregates";
 import type { DispatchDate } from "@shared/dispatch-date";
 import type { Money } from "@shared/money";
 import type { RatedSetDeliveryInput } from "@core/src/features/orders/application/set-delivery";
@@ -108,9 +109,14 @@ orderRoutes.get("/mixed", async (request, response: Response<unknown, PrivateLoc
   if (!query) return;
   const parsed = listOrderAggregatesSchema.safeParse(query);
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order filters");
-  const { page, customer, contactId, createdFrom, createdBefore, search, view } = parsed.data;
+  const { page, customer, contactId, createdFrom, createdBefore, search, view, deliveryStatus, courierId, shippedFrom, shippedBefore } = parsed.data;
+  const scheduled = parseScheduledDispatchFilter({ scheduledFrom: parsed.data.scheduledFrom as DispatchDate | undefined,
+    scheduledThrough: parsed.data.scheduledThrough as DispatchDate | undefined, unscheduled: parsed.data.unscheduled });
+  if (!scheduled.success || (shippedFrom && shippedBefore && new Date(shippedFrom) >= new Date(shippedBefore))) return apiError(response, 400, "INVALID_INPUT", "Invalid order filters");
   try {
-    const result = await orders.listAggregates({ page, search, view,
+    const result = await orders.listAggregates({ page, search, view, deliveryStatus, courierId, scheduled: scheduled.data,
+      ...(shippedFrom ? { shippedFrom: new Date(shippedFrom) } : {}),
+      ...(shippedBefore ? { shippedBefore: new Date(shippedBefore) } : {}),
       customer: customer === "contact" ? { kind: "contact", contactId: contactId as ContactId } : { kind: customer },
       ...(createdFrom ? { createdFrom: new Date(createdFrom) } : {}),
       ...(createdBefore ? { createdBefore: new Date(createdBefore) } : {}),

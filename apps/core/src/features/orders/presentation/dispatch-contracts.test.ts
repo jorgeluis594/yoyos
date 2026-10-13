@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseDispatchDate } from "@shared/dispatch-date";
-import { listOrderAggregatesSchema, updateOrderShippingSchema } from "@shared/contracts/orders";
+import { listOrderAggregatesSchema, orderAggregateSummarySchema, updateOrderShippingSchema } from "@shared/contracts/orders";
 
 describe("parseDispatchDate", () => {
   it("accepts real calendar days, including leap days", () => {
@@ -36,4 +36,10 @@ describe("listOrderAggregatesSchema dispatch filters", () => {
     for (const query of [{ scheduledFrom: "2026-02-30" }, { deliveryStatus: "lost" }, { courierId: "x" }])
       expect(listOrderAggregatesSchema.safeParse(query).success).toBe(false);
   });
+});
+
+it("order summary carries the snapshot courier when present", () => {
+  const courier = { id: "11111111-1111-4111-8111-111111111111", name: "Shalom" };
+  expect(orderAggregateSummarySchema.shape.courier.parse(courier)).toEqual(courier);
+  expect(orderAggregateSummarySchema.shape.courier.parse(null)).toBeNull();
 });
