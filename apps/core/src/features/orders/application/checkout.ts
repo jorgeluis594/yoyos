@@ -8,7 +8,7 @@ import { resolveShippingCost, type ResolveShippingDependencies } from "@core/src
 import type { CompanyId, OrderId } from "@core/src/features/orders/domain/order";
 import type { OrderAccess } from "@core/src/features/orders/application/create-order";
 import { checkoutState, checkoutView, checkExpectedTotal, parseBuyer,
-  type BuyerData, type CheckoutAccess, type CheckoutError, type CheckoutOrder, type CheckoutView, type OrderBuyer, type OrderNumber,
+  type BuyerData, type CheckoutAccess, type CheckoutError, type CheckoutOrder, type CheckoutView, type ConfirmedBuyer, type OrderNumber,
 } from "@core/src/features/orders/domain/checkout";
 
 export type ConfirmOrderCheckoutInput = Readonly<{ buyer: BuyerData; expectedTotal: Money }>;
@@ -26,7 +26,7 @@ export type CheckoutDependencies = Readonly<{
   findOrder: (access: CheckoutAccess) => Promise<Result<CheckoutOrder | null, CheckoutError>>;
   findOrderForUpdate: (access: CheckoutAccess) => Promise<Result<CheckoutOrder | null, CheckoutError>>;
   saveEnabled: (access: CheckoutAccess, at: Date) => Promise<Result<null, CheckoutError>>;
-  saveBuyer: (access: CheckoutAccess, buyer: OrderBuyer) => Promise<Result<null, CheckoutError>>;
+  saveBuyer: (access: CheckoutAccess, buyer: ConfirmedBuyer) => Promise<Result<null, CheckoutError>>;
   saveConfirmed: (access: CheckoutAccess, at: Date) => Promise<Result<null, CheckoutError>>;
 }>;
 

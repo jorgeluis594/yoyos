@@ -15,7 +15,7 @@ import { Form, Link, useActionData, useFetcher, useLoaderData, useNavigation, ty
 import { completeOrderSchema, newOrderLoaderSchema, orderActionErrorSchema } from "@shared/contracts/orders";
 import { privateUserContext } from "@core/app/private-user-context";
 import { orders, createConfiguredOrder } from "@core/src/features/orders/composition";
-import type { ContactId, OrderId, PaymentId, PositiveInteger } from "@core/src/features/orders/domain/order";
+import type { OrderId, PaymentId, PositiveInteger } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import { Button } from "@core/app/components/ui/button";
 import { Input } from "@core/app/components/ui/input";
@@ -31,14 +31,13 @@ import { TextLink } from "@core/app/components/ui/text-link";
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const params = new URL(request.url).searchParams;
   const access = context.get(privateUserContext);
-  const [products, contacts, settings] = await Promise.all([
+  const [products, settings] = await Promise.all([
     orders.searchProducts((params.get("search") ?? "").trim()),
-    orders.searchContacts((params.get("customerSearch") ?? "").trim()),
     deliverySettings.get({ companyId: access.company.id, userId: access.user.id }),
   ]);
-  if (!products.success || !contacts.success) throw new Response("No se pudo cargar el catálogo.", { status: 503 });
+  if (!products.success) throw new Response("No se pudo cargar el catálogo.", { status: 503 });
   const company = context.get(privateUserContext).company;
-  return { ...newOrderLoaderSchema.parse({ products: products.data, contacts: contacts.data, base: companyPath(new URL(request.url).pathname, company.country, "/orders") }), settings: settings.success ? toDeliverySettingsResponse(settings.data) : null };
+  return { ...newOrderLoaderSchema.parse({ products: products.data, base: companyPath(new URL(request.url).pathname, company.country, "/orders") }), settings: settings.success ? toDeliverySettingsResponse(settings.data) : null };
 }
 
 export async function action({ request, context }: ActionFunctionArgs) {
@@ -59,7 +58,7 @@ export async function action({ request, context }: ActionFunctionArgs) {
     delivery = { delivery: selected.data, expectedPrice: input.expectedPrice };
   }
   const result = await createConfiguredOrder({ id: parsed.data.id as OrderId,
-    contactId: parsed.data.contactId as ContactId | null, items: [item(first), ...rest.map(item)],
+    items: [item(first), ...rest.map(item)],
     payments: parsed.data.payments?.map(payment => ({ ...payment, paymentId: payment.paymentId as PaymentId })),
     delivery,
     deliverImmediately: parsed.data.deliverImmediately },
@@ -67,7 +66,6 @@ export async function action({ request, context }: ActionFunctionArgs) {
   if (!result.success) return orderActionErrorSchema.parse({ code: result.error.code,
     ...(result.error.code === "TOTAL_CHANGED" ? { currentPrice: result.error.currentPrice } : {}), error: result.error.code === "INSUFFICIENT_STOCK" ? "No hay stock suficiente para uno de los productos." :
     result.error.code === "ORDER_ALREADY_EXISTS" ? "Esta venta ya se registró. Revisa el historial antes de intentar otra." :
-    result.error.code === "CONTACT_NOT_FOUND" ? "El cliente ya no está disponible." :
     result.error.code === "VARIANT_NOT_FOUND" ? "Uno de los productos ya no está disponible." :
     result.error.code === "CURRENCY_MISMATCH" ? "Los productos deben tener la misma moneda." :
     result.error.code === "PERSISTENCE_UNAVAILABLE" ? "No se pudo completar la venta. Inténtalo de nuevo." : "Revisa los datos de la venta." });
@@ -80,11 +78,9 @@ export default function OrderNew() {
   const { t, i18n } = useTranslation();
   const initial = useLoaderData<typeof loader>();
   const productSearch = useFetcher<typeof loader>();
-  const contactSearch = useFetcher<typeof loader>();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const products = productSearch.data?.products ?? initial.products;
-  const contacts = contactSearch.data?.contacts ?? initial.contacts;
   const [payments, setPayments] = useState<(PaymentDraft & { paymentId: string })[]>([]);
   const [deliveryEnabled, setDeliveryEnabled] = useState(false);
   const [deliveryReview, setDeliveryReview] = useState<RatedDeliveryReview>({ request: null, price: null });
@@ -92,9 +88,6 @@ export default function OrderNew() {
   const parsedDelivery = deliveryEnabled ? deliveryReview.request : null;
   const [cart, setCart] = useState<CartItem[]>([]);
   const [orderId, setOrderId] = useState("");
-  const [contactId, setContactId] = useState<string | null>(null);
-  const [contactLabel, setContactLabel] = useState<string | null>(null);
-  const [editingCustomer, setEditingCustomer] = useState(false);
   const [productQuery, setProductQuery] = useState("");
   const [searchedProduct, setSearchedProduct] = useState(false);
   const [summaryVisible, setSummaryVisible] = useState(false);
@@ -159,12 +152,9 @@ export default function OrderNew() {
         </li>)}</ul>}
         <p className="flex items-center justify-between gap-3"><span className="font-medium">{t("orders.shownTotal")}:</span><strong className="text-xl font-semibold tabular-nums">{currency && total !== null ? formatCurrency(total, currency, i18n.language) : "—"}</strong></p>
         {currencies.size > 1 && <Alert variant="destructive"><AlertDescription>{t("orders.currencyMismatch")}</AlertDescription></Alert>}
-        <div className="border-t pt-4"><div className="flex items-center justify-between gap-3"><div><p className="text-sm font-medium">{t("orders.customer")}</p><p className="text-sm text-muted-foreground">{contactLabel ?? t("orders.generalPublic")}</p></div><Button type="button" variant="ghost" onClick={() => setEditingCustomer((open) => !open)} aria-expanded={editingCustomer} aria-controls="order-customer-search">{editingCustomer ? t("orders.close") : t("orders.change")}</Button></div>
-          {editingCustomer && <div id="order-customer-search" className="mt-4 flex flex-col gap-3"><contactSearch.Form method="get" className="flex gap-2"><Field className="min-w-0 flex-1"><FieldLabel className="sr-only">{t("orders.searchCustomer")}</FieldLabel><Input name="customerSearch" type="search" placeholder={t("orders.nameOrPhone")} /></Field><Button type="submit" variant="outline">{t("orders.search")}</Button></contactSearch.Form><Button type="button" variant={contactId === null ? "secondary" : "ghost"} className="self-start" onClick={() => { setContactId(null); setContactLabel(null); setEditingCustomer(false); }}>{t("orders.generalPublic")}</Button><ul className="divide-y">{contacts.map((contact) => <li key={contact.id} className="flex items-center justify-between gap-2 py-2"><span className="min-w-0 break-words text-sm">{contact.name ? `${contact.name} · ${contact.phone}` : contact.phone}</span><Button type="button" size="sm" variant={contactId === contact.id ? "secondary" : "outline"} onClick={() => { setContactId(contact.id); setContactLabel(contact.name ? `${contact.name} · ${contact.phone}` : contact.phone); setEditingCustomer(false); }}>{t("orders.select")}</Button></li>)}</ul></div>}
-        </div>
       </CardContent></Card>
         <Form method="post" className="grid items-start gap-6 lg:col-span-2 lg:grid-cols-2">
-          <input type="hidden" name="order" value={JSON.stringify({ id: orderId, contactId,
+          <input type="hidden" name="order" value={JSON.stringify({ id: orderId,
             items: cart.map(({ variantId, quantity }) => ({ variantId, quantity })),
             payments: payments.map(payment => ({ ...payment, amount: { amount: Number(payment.amount), currency } })),
             delivery: parsedDelivery ?? undefined, deliverImmediately })} />
@@ -199,7 +189,7 @@ export default function OrderNew() {
             <Button type="submit" className="w-full" disabled={!canComplete || (deliveryEnabled && !parsedDelivery) || navigation.state === "submitting"}>{t(navigation.state === "submitting" ? "orders.savingOrder" : "orders.saveOrder")}<ArrowRight aria-hidden="true" data-icon="inline-end" /></Button>
           </CardContent></Card>
         </Form>
-        {actionData?.error && <Alert variant="destructive"><AlertDescription>{t(actionData.code === "INSUFFICIENT_STOCK" ? "orders.insufficientStock" : actionData.code === "ORDER_ALREADY_EXISTS" ? "orders.alreadyExists" : actionData.code === "CONTACT_NOT_FOUND" ? "orders.contactMissing" : actionData.code === "VARIANT_NOT_FOUND" ? "orders.variantMissing" : actionData.code === "CURRENCY_MISMATCH" ? "orders.currencyMismatch" : actionData.code === "PAYMENT_REQUIRED" ? "orders.immediateRequirements" : actionData.code === "TOTAL_CHANGED" ? "orderDelivery.priceChanged" : actionData.code === "RATE_UNAVAILABLE" ? "orderDelivery.rateUnavailable" : actionData.code === "DELIVERY_UNAVAILABLE" ? "orderDelivery.unavailable" : actionData.code === "DELIVERY_METHOD_DISABLED" ? "orderDelivery.disabled" : actionData.code === "PERSISTENCE_UNAVAILABLE" ? "orders.saveError" : "orders.invalidOrder")}</AlertDescription></Alert>}
+        {actionData?.error && <Alert variant="destructive"><AlertDescription>{t(actionData.code === "INSUFFICIENT_STOCK" ? "orders.insufficientStock" : actionData.code === "ORDER_ALREADY_EXISTS" ? "orders.alreadyExists" : actionData.code === "VARIANT_NOT_FOUND" ? "orders.variantMissing" : actionData.code === "CURRENCY_MISMATCH" ? "orders.currencyMismatch" : actionData.code === "PAYMENT_REQUIRED" ? "orders.immediateRequirements" : actionData.code === "TOTAL_CHANGED" ? "orderDelivery.priceChanged" : actionData.code === "RATE_UNAVAILABLE" ? "orderDelivery.rateUnavailable" : actionData.code === "DELIVERY_UNAVAILABLE" ? "orderDelivery.unavailable" : actionData.code === "DELIVERY_METHOD_DISABLED" ? "orderDelivery.disabled" : actionData.code === "PERSISTENCE_UNAVAILABLE" ? "orders.saveError" : "orders.invalidOrder")}</AlertDescription></Alert>}
     </div>
     {cart.length > 0 && !summaryVisible && <Card className="fixed inset-x-0 bottom-0 flex items-center justify-between gap-3 rounded-none border-x-0 border-b-0 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:hidden"><div><p className="text-xs text-muted-foreground">{t("orders.shownTotal")}</p><p className="font-semibold tabular-nums">{currency && total !== null ? formatCurrency(total, currency, i18n.language) : "—"}</p></div><Button asChild variant="outline"><a href="#resumen">{t("orders.review")} <ArrowRight aria-hidden="true" data-icon="inline-end" /></a></Button></Card>}
   </section>;

@@ -3,9 +3,11 @@ import { orderStateMachine, type OrderAggregate } from "@core/src/features/order
 import type { ListOrdersOutput } from "@core/src/features/orders/application/read-orders";
 import type { AggregatePage } from "@core/src/features/orders/application/list-order-aggregates";
 
+const orderSource = (order: OrderAggregate) => order.chatId ? "whatsapp" as const : "manual" as const;
+
 export function toLegacyOrderJson(order: OrderAggregate) {
   if (!order.completedAt || order.deliveryStatus !== "delivered") throw new Error("Immediate sale is not completed");
-  return orderSchema.parse({ number: order.number, id: order.id, companyId: order.companyId, sellerId: order.sellerId, buyer: order.buyer,
+  return orderSchema.parse({ number: order.number, id: order.id, companyId: order.companyId, sellerId: order.sellerId, buyer: order.buyer, source: orderSource(order),
     paymentMethod: "digital_wallet", completedAt: order.completedAt.toISOString(), currency: order.total.currency, total: order.total.amount,
     items: order.items.map((item) => ({ id: item.id, variantId: item.variantId, productName: item.productName,
       variantAttributes: item.variantAttributes, sku: item.sku, quantity: item.quantity,
@@ -16,7 +18,9 @@ export function toOrderAggregateJson(order: OrderAggregate) {
   const lifecycle = orderStateMachine.getLifecycle(order);
   const payment = orderStateMachine.getPaymentSummary(order);
   if (!lifecycle.success || !payment.success) throw new Error("Invalid order aggregate response");
-  return orderAggregateSchema.parse({ ...order, checkoutEnabledAt: order.checkoutEnabledAt?.toISOString() ?? null, checkoutConfirmedAt: order.checkoutConfirmedAt?.toISOString() ?? null, createdAt: order.createdAt.toISOString(), deliveredAt: order.deliveredAt?.toISOString() ?? null,
+  // The contract exposes `source`, not the chat id.
+  const fields = Object.fromEntries(Object.entries(order).filter(([key]) => key !== "chatId"));
+  return orderAggregateSchema.parse({ ...fields, source: orderSource(order), checkoutEnabledAt: order.checkoutEnabledAt?.toISOString() ?? null, checkoutConfirmedAt: order.checkoutConfirmedAt?.toISOString() ?? null, createdAt: order.createdAt.toISOString(), deliveredAt: order.deliveredAt?.toISOString() ?? null,
     completedAt: order.completedAt?.toISOString() ?? null, status: lifecycle.data.status,
     paymentStatus: payment.data.status, paidAmount: payment.data.paidAmount,
     balanceDue: payment.data.balanceDue, overpaidAmount: payment.data.overpaidAmount,
@@ -30,8 +34,8 @@ export function toOrderAggregateJson(order: OrderAggregate) {
 
 export function toOrderAggregateListJson(page: AggregatePage) {
   return listOrderAggregatesResponseSchema.parse({ ...page, items: page.items.map((item) => {
-    const { number, id, createdAt, deliveredAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, buyer, checkoutEnabledAt, checkoutConfirmedAt, sellerId, total } = toOrderAggregateJson(item);
-    return orderAggregateSummarySchema.parse({ number, id, createdAt, deliveredAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, buyer, checkoutEnabledAt, checkoutConfirmedAt, sellerId, total });
+    const { number, id, createdAt, deliveredAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, buyer, source, checkoutEnabledAt, checkoutConfirmedAt, sellerId, total } = toOrderAggregateJson(item);
+    return orderAggregateSummarySchema.parse({ number, id, createdAt, deliveredAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, buyer, source, checkoutEnabledAt, checkoutConfirmedAt, sellerId, total });
   }) });
 }
 

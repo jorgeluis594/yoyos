@@ -125,3 +125,58 @@ test("product persistence is atomic, isolated, and constrained", async () => {
     await admin.$disconnect();
   }
 });
+
+async function withSeededVariants(run: (ctx: { mine: { id: string; qrCode: string }; foreign: { id: string; qrCode: string }; companyA: string; find: (codes: string[]) => Promise<unknown>; withTenantIsolation: <T>(id: string, fn: () => Promise<T>) => Promise<T> }) => Promise<void>) {
+  expect(process.env.DATABASE_URL, "run sh scripts/run-tests.sh integration").toBeTruthy();
+  const { prisma, withTenantIsolation } = await import("@core/src/shared/infrastructure/persistance");
+  const { findSellableVariantsByQrCodes } = await import("@core/src/features/products/infrastructure/order-stock");
+  const companyA = randomUUID();
+  const companyB = randomUUID();
+  const seed = (attributes: Record<string, string>) => {
+    const productId = randomUUID();
+    const variant = { id: randomUUID(), qrCode: randomUUID() };
+    return { ...variant, create: async () => {
+      await prisma.product.create({ data: { id: productId, name: "Camisa", currency: "PEN", qrCode: randomUUID(), status: "active", createdAt: new Date(), updatedAt: new Date() } });
+      await prisma.productVariant.create({ data: { ...variant, productId, attributes, sku: "CAM-1", salePrice: 19.99, status: "active" } });
+    } };
+  };
+  const mine = seed({ color: "azul" });
+  const foreign = seed({});
+  try {
+    for (const id of [companyA, companyB]) await withTenantIsolation(id, async () => await prisma.company.create({ data: { id, name: id, country: "PE" } }));
+    await withTenantIsolation(companyA, mine.create);
+    await withTenantIsolation(companyB, foreign.create);
+    await run({ mine, foreign, companyA, find: (codes) => findSellableVariantsByQrCodes(codes), withTenantIsolation });
+  } finally {
+    for (const id of [companyA, companyB]) await withTenantIsolation(id, async () => {
+      await prisma.productVariant.deleteMany({ where: { companyId: id } });
+      await prisma.product.deleteMany({ where: { companyId: id } });
+      await prisma.company.deleteMany({ where: { id } });
+    });
+  }
+}
+
+// The status filters are defensive: the schema CHECKs only allow status 'active', so no inactive rows can be stored to test them.
+test("findSellableVariantsByQrCodes returns active variants with price, currency and qrCode", () => withSeededVariants(async ({ mine, companyA, find, withTenantIsolation }) => {
+  await withTenantIsolation(companyA, async () => {
+    expect(await find([mine.qrCode, randomUUID()])).toEqual({ success: true, data: [
+      { variantId: mine.id, qrCode: mine.qrCode, productName: "Camisa", variantAttributes: { color: "azul" }, sku: "CAM-1", unitPrice: { amount: 19.99, currency: "PEN" } },
+    ] });
+  });
+}));
+
+test("findSellableVariantsByQrCodes does not see variants of another company", () => withSeededVariants(async ({ foreign, companyA, find, withTenantIsolation }) => {
+  await withTenantIsolation(companyA, async () => {
+    expect(await find([foreign.qrCode])).toEqual({ success: true, data: [] });
+  });
+}));
+
+test("findSellableVariantsByQrCodes skips a variant with invalid stored data and returns the rest", () => withSeededVariants(async ({ mine, companyA, find, withTenantIsolation }) => {
+  const { prisma } = await import("@core/src/shared/infrastructure/persistance");
+  await withTenantIsolation(companyA, async () => {
+    const corrupt = { id: randomUUID(), qrCode: randomUUID() };
+    const { productId } = await prisma.productVariant.findUniqueOrThrow({ where: { id: mine.id } });
+    await prisma.productVariant.create({ data: { ...corrupt, productId, attributes: { talla: 1 }, sku: null, salePrice: 5, status: "active" } });
+    expect(await find([mine.qrCode, corrupt.qrCode])).toMatchObject({ success: true, data: [{ variantId: mine.id }] });
+  });
+}));

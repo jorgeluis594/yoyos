@@ -60,7 +60,7 @@ async function fixture(country: "PE" | "CL") {
     await prisma.productVariant.create({ data: { id: variantId, productId, attributes: { Talla: "M" }, sku: `SKU-${variantId}`,
       salePrice: 10, qrCode: variantId, status: "active" } });
     await prisma.productStock.create({ data: { variantId, quantity: 3n } });
-    await prisma.contact.create({ data: { id: contactId, name: "Ana", phone: "+51999999999" } });
+    await prisma.contact.create({ data: { id: contactId, whatsappAccountId: "1@lid", whatsappLid: "2@lid" } });
   });
   const result = { companyId, userId, cookie, productId, variantId, contactId, async cleanup() {
     await withTenantIsolation(companyId, async () => {
@@ -103,7 +103,7 @@ test("delivery HTTP resolves real configuration, preserves snapshots, replaces a
   const orderId = randomUUID();
   const store = { enabled: true, pickupPoint: { name: "Tienda", address: "Dirección original", instructions: null } };
   expect((await call("/api/delivery-settings", seller.cookie, { expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: false }, store }, "PUT")).status).toBe(200);
-  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, contactId: seller.contactId,
+  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, 
     items: [{ variantId: seller.variantId, quantity: 2 }] })).status).toBe(201);
   const input = { delivery: { method: "store", recipient: { name: "Destinatario distinto", phone: "987", identity: { kind: "absent" } } }, expectedPrice: { amount: 0, currency: "PEN" } } as const;
   const mobile = createOrderApi(async (path, init) => {
@@ -157,7 +157,7 @@ test("buyer payment cannot bypass pending checkout and resumes after confirmatio
   const orderId = randomUUID();
   const imageId = randomUUID();
   const paymentId = randomUUID();
-  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, contactId: null,
+  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, 
     items: [{ variantId: seller.variantId, quantity: 1 }] }, "POST")).status).toBe(201);
   await withTenantIsolation(seller.companyId, async () => {
     await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: new Date() } });
@@ -189,7 +189,7 @@ test("buyer order link resolves one company and reports only its receipt", async
   const other = await fixture("CL");
   const orderId = randomUUID();
   const paymentId = randomUUID();
-  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, contactId: null,
+  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, 
     items: [{ variantId: seller.variantId, quantity: 1 }] }, "POST")).status).toBe(201);
   const path = `/api/buyer/orders/${orderId}`;
   const view = await call(`${path}/payment`);
@@ -228,13 +228,13 @@ test("orders HTTP lets a Chile company complete sales, returns historical data, 
   const seller = await fixture("CL");
   const other = await fixture("PE");
   const id = randomUUID();
-  const input = { id, contactId: seller.contactId, items: [{ variantId: seller.variantId, quantity: 2 }],
+  const input = { id, items: [{ variantId: seller.variantId, quantity: 2 }],
     payment: { method: "digital_wallet" }, delivery: { method: "handover" } };
   const created = await call("/api/orders", seller.cookie, input, "POST");
   expect(created.status).toBe(201);
   expect(await created.json()).toMatchObject({ id, companyId: seller.companyId, sellerId: seller.userId,
     status: "completed", paymentStatus: "paid", deliveryStatus: "delivered", stockDeducted: true,
-    total: { amount: 20, currency: "PEN" }, buyer: { name: "Ana", phone: "+51999999999" },
+    total: { amount: 20, currency: "PEN" }, buyer: null,
     payments: [{ amount: { amount: 20, currency: "PEN" } }],
     items: [{ productName: "Camisa", variantAttributes: { Talla: "M" }, quantity: 2,
       unitPrice: { amount: 10, currency: "PEN" }, subtotal: { amount: 20, currency: "PEN" } }] });
@@ -242,39 +242,31 @@ test("orders HTTP lets a Chile company complete sales, returns historical data, 
   expect(await withTenantIsolation(seller.companyId, async () =>
     (await prisma.productStock.findUniqueOrThrow({ where: { variantId: seller.variantId } })).quantity)).toBe(1n);
   await withTenantIsolation(seller.companyId, async () => {
-    await prisma.contact.update({ where: { id: seller.contactId }, data: { name: "Changed" } });
     await prisma.product.update({ where: { id: seller.productId }, data: { name: "Changed" } });
   });
   const detail = await call(`/api/orders/${id}`, seller.cookie);
   expect(detail.status).toBe(200);
-  expect(await detail.json()).toMatchObject({ buyer: { name: "Ana" }, items: [{ productName: "Camisa" }] });
+  expect(await detail.json()).toMatchObject({ buyer: null, items: [{ productName: "Camisa" }] });
   expect((await call(`/api/orders/${id}`, other.cookie)).status).toBe(404);
-  const foreignVariant = await call("/api/orders", other.cookie, { id: randomUUID(), contactId: null,
+  const foreignVariant = await call("/api/orders", other.cookie, { id: randomUUID(), 
     items: [{ variantId: seller.variantId, quantity: 1 }] }, "POST");
   expect(foreignVariant.status).toBe(404);
   expect(await foreignVariant.json()).toMatchObject({ code: "VARIANT_NOT_FOUND" });
-  const foreignContact = await call("/api/orders", other.cookie, { id: randomUUID(), contactId: seller.contactId,
-    items: [{ variantId: other.variantId, quantity: 1 }] }, "POST");
-  expect(foreignContact.status).toBe(404);
-  expect(await foreignContact.json()).toMatchObject({ code: "CONTACT_NOT_FOUND" });
-  const list = await call(`/api/orders?customer=contact&contactId=${seller.contactId}`, seller.cookie);
+  const list = await call("/api/orders?customer=general_public", seller.cookie);
   expect(await list.json()).toMatchObject({ total: 1, page: 1, pageSize: 20, items: [{ id, total: 20 }] });
   expect(await (await call("/api/orders", other.cookie)).json()).toMatchObject({ total: 0, items: [] });
   expect(await (await call("/api/orders/catalog?search=Camisa", other.cookie)).json()).toMatchObject([{ id: other.productId }]);
-  expect(await (await call("/api/orders/contacts?search=Ana", other.cookie)).json()).toMatchObject([{ id: other.contactId }]);
 });
 
 test("orders HTTP rejects invalid input and stock without partial sale", async () => {
   const seller = await fixture("PE");
-  const input = { id: randomUUID(), contactId: null, items: [{ variantId: seller.variantId, quantity: 4 }],
+  const input = { id: randomUUID(), items: [{ variantId: seller.variantId, quantity: 4 }],
     payment: { method: "digital_wallet" }, delivery: { method: "handover" } };
   const stock = await call("/api/orders", seller.cookie, input, "POST");
   expect(stock.status).toBe(409);
   expect(await stock.json()).toMatchObject({ code: "INSUFFICIENT_STOCK", issues: [{ variantId: seller.variantId }] });
-  const missingContact = await call("/api/orders", seller.cookie, { ...input, id: randomUUID(), contactId: randomUUID(),
-    items: [{ variantId: seller.variantId, quantity: 1 }] }, "POST");
-  expect(missingContact.status).toBe(404);
-  expect(await missingContact.json()).toMatchObject({ code: "CONTACT_NOT_FOUND" });
+  expect((await call("/api/orders", seller.cookie, { ...input, id: randomUUID(), contactId: randomUUID(),
+    items: [{ variantId: seller.variantId, quantity: 1 }] }, "POST")).status).toBe(400);
   const missingVariant = await call("/api/orders", seller.cookie, { ...input, id: randomUUID(),
     items: [{ variantId: randomUUID(), quantity: 1 }] }, "POST");
   expect(missingVariant.status).toBe(404);
@@ -295,7 +287,7 @@ test("orders HTTP rejects payment without stock and allows retry with company is
   const id = randomUUID();
   const paymentId = randomUUID();
   const created = await call("/api/orders", seller.cookie,
-    { id, contactId: null, items: [{ variantId: seller.variantId, quantity: 4 }] }, "POST");
+    { id, items: [{ variantId: seller.variantId, quantity: 4 }] }, "POST");
   expect(created.status).toBe(201);
   expect(await created.json()).toMatchObject({ id, status: "active", paymentStatus: "pending", deliveryStatus: "pending",
     stockDeducted: false, completedAt: null, total: { amount: 40, currency: "PEN" }, payments: [] });
@@ -326,9 +318,9 @@ test("mixed orders list uses creation date and includes pending and completed or
   const pendingId = randomUUID();
   const completedId = randomUUID();
   expect((await call("/api/orders", seller.cookie,
-    { id: pendingId, contactId: seller.contactId, items: [{ variantId: seller.variantId, quantity: 1 }] }, "POST")).status).toBe(201);
+    { id: pendingId, items: [{ variantId: seller.variantId, quantity: 1 }] }, "POST")).status).toBe(201);
   expect((await call("/api/orders", seller.cookie,
-    { id: completedId, contactId: null, items: [{ variantId: seller.variantId, quantity: 1 }],
+    { id: completedId, items: [{ variantId: seller.variantId, quantity: 1 }],
       payment: { method: "digital_wallet" }, delivery: { method: "handover" } }, "POST")).status).toBe(201);
   await withTenantIsolation(seller.companyId, async () => {
     await prisma.order.update({ where: { id: pendingId }, data: { createdAt: new Date("2026-09-30T12:00:00Z") } });
@@ -340,14 +332,12 @@ test("mixed orders list uses creation date and includes pending and completed or
     { id: pendingId, status: "active", paymentStatus: "pending", createdAt: "2026-09-30T12:00:00.000Z" },
     { id: completedId, status: "completed", paymentStatus: "paid", createdAt: "2026-09-29T12:00:00.000Z" },
   ] });
-  expect(await (await call(`/api/orders/mixed?customer=contact&contactId=${seller.contactId}`, seller.cookie)).json())
-    .toMatchObject({ total: 1, items: [{ id: pendingId }] });
   expect(await (await call("/api/orders/mixed?createdFrom=2026-09-30T00%3A00%3A00.000Z", seller.cookie)).json())
     .toMatchObject({ total: 1, items: [{ id: pendingId }] });
   expect(await (await call("/api/orders", seller.cookie)).json()).toMatchObject({ total: 1, items: [{ id: completedId }] });
 });
 
-test("orders HTTP combines contact and Lima-day UTC bounds with stable pages and capped search", async () => {
+test("orders HTTP combines Lima-day UTC bounds with stable pages", async () => {
   const seller = await fixture("PE");
   const ids = Array.from({ length: 21 }, (_, index) => `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`);
   await withTenantIsolation(seller.companyId, async () => {
@@ -355,10 +345,8 @@ test("orders HTTP combines contact and Lima-day UTC bounds with stable pages and
       deliveryStatus: "delivered", stockDeducted: true,
       completedAt: new Date("2026-09-28T12:00:00.000Z"), createdAt: new Date("2026-09-28T12:00:00.000Z") })) });
     await prisma.orderBuyer.createMany({ data: ids.map((orderId) => ({ orderId, contactId: seller.contactId, name: "Ana", phone: "+51999999999" })) });
-    await prisma.contact.createMany({ data: Array.from({ length: 21 }, (_, index) => ({ id: randomUUID(),
-      name: "Search contact", phone: `+51988${String(index).padStart(6, "0")}` })) });
   });
-  const filters = new URLSearchParams({ customer: "contact", contactId: seller.contactId,
+  const filters = new URLSearchParams({
     completedFrom: "2026-09-28T05:00:00.000Z", completedBefore: "2026-09-29T05:00:00.000Z" });
   const first = await (await call(`/api/orders?${filters}`, seller.cookie)).json();
   expect(first).toMatchObject({ total: 21, page: 1, pageSize: 20 });
@@ -371,8 +359,6 @@ test("orders HTTP combines contact and Lima-day UTC bounds with stable pages and
   expect(await (await call(`/api/orders?${filters}`, seller.cookie)).json()).toMatchObject({ total: 0, items: [] });
   filters.set("completedBefore", "2026-09-28T05:00:00.000Z");
   expect((await call(`/api/orders?${filters}`, seller.cookie)).status).toBe(400);
-  const contacts = await (await call("/api/orders/contacts?search=Search", seller.cookie)).json();
-  expect(contacts).toHaveLength(20);
 });
 
 test("home HTTP uses persisted enablement, requires district and replaces store without retaining its destination", async () => {
@@ -381,7 +367,7 @@ test("home HTTP uses persisted enablement, requires district and replaces store 
   const store = { enabled: true, pickupPoint: { name: "Store", address: "Historic pickup", instructions: null } };
   const settings = { expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: true }, store };
   expect((await call("/api/delivery-settings", seller.cookie, settings, "PUT")).status).toBe(200);
-  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, contactId: null, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
+  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
   const recipient = { name: "Different recipient", phone: "00123", identity: { kind: "absent" } } as const;
   const home = { delivery: { method: "home" as const, recipient, rateId: randomUUID(), destination: { address: " Street 123 ", districtCode: "040110", instructions: null } }, expectedPrice: { amount: 6, currency: "PEN" as const } };
   expect((await call(`/api/orders/${orderId}/delivery`, seller.cookie, home, "PUT")).status).toBe(422);
@@ -436,7 +422,7 @@ test("rated agency adapters preserve snapshots and reject unavailable, unassocia
   const courier = configured.data.couriers[0];
   const agencyZone = (agencyId: string, name = "Agency") => ({ kind: "new" as const, name, enabled: true, districtCodes: ["040110"],
     options: [{ kind: "new" as const, method: "agency" as const, name, enabled: true, price: { amount: 3, currency: "PEN" as const }, agencyIds: [agencyId] }] });
-  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, contactId: null, items: [{ variantId: seller.variantId, quantity: 2 }] })).status).toBe(201);
+  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, items: [{ variantId: seller.variantId, quantity: 2 }] })).status).toBe(201);
   expect((await call("/api/delivery-settings/zones", seller.cookie, { expectedVersion: 1, zones: [agencyZone(associated)] }, "PUT")).status).toBe(200);
   const quotation = quotationResponseSchema.parse(await (await call("/api/quotations", seller.cookie, { destination: { country: "PE", districtCode: "040110" } })).json());
   const rate = quotation.rates[0];
@@ -488,7 +474,7 @@ test("checkout-link HTTP requires the seller company and returns a stable UUID U
   const owner = await fixture("PE");
   const other = await fixture("PE");
   const id = randomUUID();
-  expect((await call("/api/orders", owner.cookie, { id, contactId: owner.contactId, items: [{ variantId: owner.variantId, quantity: 1 }] })).status).toBe(201);
+  expect((await call("/api/orders", owner.cookie, { id, items: [{ variantId: owner.variantId, quantity: 1 }] })).status).toBe(201);
   const path = `/api/orders/${id}/checkout-link`;
   expect((await call(path, "", {})).status).toBe(401);
   expect((await call(path, other.cookie, {})).status).toBe(404);
@@ -508,7 +494,7 @@ test("complete creation HTTP preserves optional payment IDs and supports pending
   for (const amount of [null, 5, 10]) {
     const id = randomUUID();
     const paymentId = randomUUID();
-    const input = { id, contactId: f.contactId, items: [{ variantId: f.variantId, quantity: 1 }],
+    const input = { id, items: [{ variantId: f.variantId, quantity: 1 }],
       payments: amount === null ? [] : [{ paymentId, amount: { amount, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false }],
       deliverImmediately: false };
     const response = await call("/api/orders", f.cookie, input);
@@ -573,7 +559,7 @@ test("quotation HTTP uses the checkout order tenant even with a foreign seller s
   const before = await call("/api/quotations", foreign.cookie, input);
   expect(before.status).toBe(404);
   expect(await before.json()).toMatchObject({ code: "CHECKOUT_UNAVAILABLE" });
-  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, contactId: null,
+  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, 
     items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
   expect((await call("/api/quotations", foreign.cookie, input)).status).toBe(404);
   expect((await call(`/api/orders/${orderId}/checkout-link`, seller.cookie, {})).status).toBe(200);
@@ -621,7 +607,7 @@ test("quotation HTTP uses the checkout order tenant even with a foreign seller s
 test("aggregate reads preserve rated delivery snapshots without consulting current configuration", async () => {
   const seller = await fixture("PE");
   const orderId = randomUUID();
-  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, contactId: null,
+  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, 
     items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
   const recipient = { name: "Ana", phone: "999", identity: { kind: "document", documentType: "national_id", document: "12345678" } };
   const pricing = { quotationId: randomUUID(), rateId: randomUUID(), optionId: randomUUID(), settingsVersion: 3 };
@@ -668,7 +654,7 @@ test("rated delivery HTTP assigns the selected option, reports price conflicts a
   const home = quote.rates.find(rate => rate.method === "home" && rate.price.amount === 8)!;
   const free = quote.rates.find(rate => rate.method === "home" && rate.price.amount === 0)!;
   const orderId = randomUUID();
-  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, contactId: null, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
+  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
   const path = `/api/orders/${orderId}/delivery`;
   const input = { delivery: { method: "home", rateId: home.id, recipient, destination: { districtCode: "150122", address: "Final street", instructions: null } }, expectedPrice: home.price };
   const saved = await call(path, seller.cookie, input, "PUT");
@@ -698,7 +684,7 @@ test("rated delivery HTTP assigns the selected option, reports price conflicts a
     delivery: { method: "store", settingsVersion: 2, pickupPoint: { name: "Shop" } } });
   const paidId = randomUUID();
   const paymentId = randomUUID();
-  const paidInput = { id: paidId, contactId: null, items: [{ variantId: seller.variantId, quantity: 1 }], delivery: input,
+  const paidInput = { id: paidId, items: [{ variantId: seller.variantId, quantity: 1 }], delivery: input,
     payments: [{ paymentId, amount: { amount: 18, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }] };
   for (const obsoleteCharge of [true, false]) {
     const rejected = await call("/api/orders", seller.cookie, { ...paidInput, delivery: { delivery: { method: "store", recipient }, obsoleteCharge } });
@@ -718,7 +704,7 @@ test("rated delivery HTTP assigns the selected option, reports price conflicts a
   expect(await paidCreation.json()).toMatchObject({ id: paidId, total: { amount: 18 }, deliveryCharge: home.price, paidAmount: { amount: 18 }, stockDeducted: true,
     delivery: { pricing: { rateId: home.id } }, payments: [expect.objectContaining({ id: paymentId })] });
   const initialId = randomUUID();
-  const created = await call("/api/orders", seller.cookie, { id: initialId, contactId: null, items: [{ variantId: seller.variantId, quantity: 1 }],
+  const created = await call("/api/orders", seller.cookie, { id: initialId, items: [{ variantId: seller.variantId, quantity: 1 }],
     delivery: { ...input, delivery: { ...input.delivery, rateId: free.id }, expectedPrice: free.price },
     payments: [{ paymentId: randomUUID(), amount: { amount: 10, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }] });
   expect(created.status).toBe(201);
@@ -732,7 +718,7 @@ test("public checkout delivery action persists buyer pickup and redirects to exi
   const orderId = randomUUID();
   expect((await call("/api/delivery-settings", seller.cookie, { expectedVersion: 0, agency: { enabled: false }, home: { enabled: false }, couriers: [],
     store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } }, "PUT")).status).toBe(200);
-  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, contactId: null, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
+  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
   await withTenantIsolation(seller.companyId, async () => {
     await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: new Date() } });
   });
@@ -787,31 +773,11 @@ test("catalog lookup by variant IDs bypasses search pagination and excludes unav
 });
 
 
-test("saved order contacts load by ID outside search pagination and remain tenant isolated", async () => {
-  const seller = await fixture("PE");
-  const other = await fixture("PE");
-  await withTenantIsolation(seller.companyId, async () => {
-    for (let index = 0; index < 21; index++)
-      await prisma.contact.create({ data: { name: `Later ${index}`, phone: `999${index}`, createdAt: new Date(Date.now() + index + 1000) } });
-  });
-  const searched = await (await call("/api/orders/contacts?search=", seller.cookie)).json();
-  expect(searched).toHaveLength(20);
-  expect(searched.some((contact: { id: string }) => contact.id === seller.contactId)).toBe(false);
-  const found = await call(`/api/orders/contacts?contactId=${seller.contactId}`, seller.cookie);
-  expect(found.status).toBe(200);
-  expect(await found.json()).toEqual([{ id: seller.contactId, name: "Ana", phone: "+51999999999" }]);
-  expect(await (await call(`/api/orders/contacts?contactId=${seller.contactId}`, other.cookie)).json()).toEqual([]);
-  await withTenantIsolation(seller.companyId, async () => { await prisma.contact.delete({ where: { id: seller.contactId } }); });
-  expect(await (await call(`/api/orders/contacts?contactId=${seller.contactId}`, seller.cookie)).json()).toEqual([]);
-  for (const query of ["contactId=bad", `contactId=${other.contactId}&search=Ana`])
-    expect((await call(`/api/orders/contacts?${query}`, seller.cookie)).status).toBe(400);
-});
-
 test("cancellation HTTP validates identity, isolation, repeated results and preserves payments", async () => {
   const seller = await fixture("PE");
   const other = await fixture("PE");
   const id = randomUUID();
-  expect((await call("/api/orders/pending", seller.cookie, { id, contactId: null, items: [{ variantId: seller.variantId, quantity: 2 }] })).status).toBe(201);
+  expect((await call("/api/orders/pending", seller.cookie, { id, items: [{ variantId: seller.variantId, quantity: 2 }] })).status).toBe(201);
   const paymentId = randomUUID();
   expect((await call(`/api/orders/${id}/payments`, seller.cookie, { paymentId, amount: { amount: 20, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false })).status).toBe(200);
   expect((await call(`/api/orders/${id}/cancel`, undefined, undefined, "POST")).status).toBe(401);
@@ -838,7 +804,7 @@ test("cancellation HTTP validates identity, isolation, repeated results and pres
 test("mobile cancellation adapter recovers the real committed result with one write and read", async () => {
   const seller = await fixture("PE");
   const id = randomUUID();
-  expect((await call("/api/orders/pending", seller.cookie, { id, contactId: null, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
+  expect((await call("/api/orders/pending", seller.cookie, { id, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
   const paths: string[] = [];
   let offline = true;
   const api = createOrderApi(async (path, init) => {
@@ -877,10 +843,10 @@ test("mobile adapter accepts real cancellation and rejects dispatched orders wit
     return response.ok ? ok(body) : err({ code: "API_ERROR", message: "Rejected", http: { status: response.status, body } });
   });
   const pending = randomUUID();
-  expect((await call("/api/orders/pending", seller.cookie, { id: pending, contactId: null, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
+  expect((await call("/api/orders/pending", seller.cookie, { id: pending, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
   expect(await api.cancel(pending)).toEqual(ok({ id: pending, status: "cancelled", cancelled: true, deliveryStatus: "pending", stockDeducted: false, deliveredAt: null, completedAt: null }));
   const dispatched = randomUUID();
-  expect((await call("/api/orders/pending", seller.cookie, { id: dispatched, contactId: null, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
+  expect((await call("/api/orders/pending", seller.cookie, { id: dispatched, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
   expect((await call(`/api/orders/${dispatched}/payments`, seller.cookie, { paymentId: randomUUID(), amount: { amount: 10, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false })).status).toBe(200);
   for (const operation of ["ship", "deliver"] as const) {
     expect((await call(`/api/orders/${dispatched}/${operation}`, seller.cookie, undefined, "POST")).status).toBe(200);
@@ -895,7 +861,7 @@ test("mobile adapter accepts real cancellation and rejects dispatched orders wit
 test("HTTP cancellation commits and logs a failed publication without restoring or republishing", async () => {
   const seller = await fixture("PE");
   const id = randomUUID();
-  expect((await call("/api/orders/pending", seller.cookie, { id, contactId: null, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
+  expect((await call("/api/orders/pending", seller.cookie, { id, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
   expect((await call(`/api/orders/${id}/payments`, seller.cookie, { paymentId: randomUUID(), amount: { amount: 10, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false })).status).toBe(200);
   const publish = vi.spyOn(applicationEventBus().provider, "publish").mockResolvedValue(err({ code: "EVENT_BUS_UNAVAILABLE", message: "Test publication failure" }));
   const logging = vi.spyOn(log, "error").mockImplementation(() => {});
@@ -919,7 +885,7 @@ test("cancellation rejects a session without a company or without verification b
   const seller = await fixture("PE");
   const session = await fixture("PE");
   const id = randomUUID();
-  expect((await call("/api/orders/pending", seller.cookie, { id, contactId: null, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
+  expect((await call("/api/orders/pending", seller.cookie, { id, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
   const before = await (await call(`/api/orders/${id}/aggregate`, seller.cookie)).json();
   await systemPrisma.user.update({ where: { id: session.userId }, data: { companyId: null } });
   const noCompany = await call(`/api/orders/${id}/cancel`, session.cookie, undefined, "POST");

@@ -14,11 +14,11 @@ type MessageRow = Readonly<{
   direction: "incoming" | "outgoing"; sent_at: number | null; arrival_seq: number; stored_at: number;
   content_type: "text" | "image"; text: string | null; image_mime_type: string | null; image_size: number | null; image_reference: string | null;
   sync_state: SyncState["state"]; sync_attempts: number; next_attempt_at: number | null; core_message_id: string | null;
-  sync_error_code: string | null; synced_at: number | null; rejected_at: number | null;
+  core_image_id: string | null; sync_error_code: string | null; synced_at: number | null; rejected_at: number | null;
 }>;
 
 const storageFailure: StoreError = { code: "LOCAL_STORAGE_FAILED", message: "Local storage failed" };
-const rejectCodes: readonly string[] = ["INVALID_INPUT", "PAYLOAD_TOO_LARGE", "UNSUPPORTED_MEDIA_TYPE"];
+const rejectCodes: readonly string[] = ["INVALID_INPUT", "PAYLOAD_TOO_LARGE", "UNSUPPORTED_MEDIA_TYPE", "IMAGE_UNAVAILABLE"];
 
 // Stored data is corrupt if it fails these; the throw is translated to LOCAL_STORAGE_FAILED by `guarded`.
 function unwrap<T>(result: Result<T, { message: string }>): T {
@@ -60,6 +60,7 @@ function toStored(row: MessageRow): StoredMessage {
     content: toContent(row),
     linkId: row.link_id === null ? null : unwrap(parseLinkId(row.link_id)),
     companyId: row.company_id === null ? null : unwrap(parseCompanyId(row.company_id)),
+    coreImageId: row.core_image_id,
     arrivalSeq: row.arrival_seq,
     storedAt: new Date(row.stored_at),
     sync: toSync(row),
@@ -139,6 +140,14 @@ export function createSqliteMessageStore(sql: LocalSql): MessageStore {
         "UPDATE whatsapp_messages SET sync_attempts = ?, next_attempt_at = ? WHERE id = ? AND sync_state = 'pending'",
         attempts, nextAttemptAt.getTime(), id,
       );
+    }),
+
+    saveCoreImageId: (id, imageId) => guarded(async () => {
+      await sql.run("UPDATE whatsapp_messages SET core_image_id = ? WHERE id = ? AND content_type = 'image'", imageId, id);
+    }),
+
+    clearCoreImageId: (id) => guarded(async () => {
+      await sql.run("UPDATE whatsapp_messages SET core_image_id = NULL WHERE id = ?", id);
     }),
 
     markRejected: (id, code, at) => guarded(async () => {

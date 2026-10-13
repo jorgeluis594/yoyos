@@ -6,6 +6,7 @@ import { cancelOrderResponseSchema, type CancelOrderResponse, type OrderAggregat
 import { fulfillmentBlock } from "@shared/orders-fulfillment";
 import { PaymentFields, type PaymentDraft } from "@core/src/features/orders/presentation/payment-fields";
 import { useState } from "react";
+import { orderBuyerText, WhatsAppMark } from "@core/app/components/order-buyer-label";
 import { ArrowLeft, ChevronDown, CircleCheck, CircleX, CreditCard, ExternalLink, Truck } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@core/app/components/ui/card";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
@@ -316,7 +317,7 @@ export default function OrderDetail() {
       <div className="contents xl:flex xl:min-w-0 xl:flex-col xl:gap-4">
         <Card role="region" aria-labelledby="order-customer-title" className="min-w-0 max-xl:order-3">
           <CardHeader><CardTitle id="order-customer-title">{t("orders.customer")}</CardTitle></CardHeader>
-          <CardContent className="flex flex-col gap-2"><p className="break-words font-medium">{order.buyer !== null ? order.buyer.name ?? order.buyer.phone : t("orders.generalPublic")}</p>{order.buyer !== null && <dl className="text-sm"><dt className="text-muted-foreground">{t("orders.phoneAtSale")}</dt><dd className="mt-1 break-words">{order.buyer.phone}</dd></dl>}</CardContent>
+          <CardContent className="flex flex-col gap-2"><p className="flex items-center gap-1.5 break-words font-medium">{order.source === "whatsapp" && <WhatsAppMark />}{orderBuyerText(order.buyer, t("orders.generalPublic"))}</p>{order.buyer?.phone && <dl className="text-sm"><dt className="text-muted-foreground">{t("orders.phoneAtSale")}</dt><dd className="mt-1 break-words">{order.buyer.phone}</dd></dl>}</CardContent>
         </Card>
 
         <Card role="region" aria-labelledby="order-delivery-title" className="min-w-0 max-xl:order-4">

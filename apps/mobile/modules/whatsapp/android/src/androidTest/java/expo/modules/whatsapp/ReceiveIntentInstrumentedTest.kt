@@ -79,7 +79,7 @@ class ReceiveIntentInstrumentedTest {
   @Test fun failedWithdrawalPropagatesAndLeavesTheIntentVisible() {
     val root = newRoot()
     var fail = false
-    val writer = store(root) { point -> if (fail && point == "write") throw java.io.IOException("injected") }
+    val writer = store(root) { point -> if (fail && point == "beforeCommit") throw java.io.IOException("injected") }
     writer.open()
     writer.beginSession("123@lid", protocol, armReceive = true)
     fail = true

@@ -17,7 +17,7 @@ test("private web rated pickup rejects an obsolete price without writes and retu
       const product = await products.create({ name: "Rated product", currency: "PEN", variants: [{ attributes: {}, salePrice: 10, initialStock: 3 }] });
       if (!product.success) throw new Error("Expected product");
       const variant = await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } });
-      expect(await orders.create({ id: orderId as OrderId, contactId: null, items: [{ variantId: variant.id as VariantId, quantity: 1 as PositiveInteger }] },
+      expect(await orders.create({ id: orderId as OrderId, items: [{ variantId: variant.id as VariantId, quantity: 1 as PositiveInteger }] },
         { companyId: tenantId as CompanyId, userId: userId as UserId })).toMatchObject({ success: true });
     });
     expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: false },

@@ -1,6 +1,5 @@
 import type { Result } from "@shared/result";
-import type { NewMobileMessage, RegisterMobileMessageError, StoreOutcome } from "@core/src/features/chats/domain/mobile-message";
-import type { Chat } from "@core/src/features/chats/domain/message";
+import type { Chat, NewMobileMessage, RegisterMobileMessageError, StoreOutcome } from "@core/src/features/chats/domain/mobile-message";
 import type { WhatsAppContact } from "@core/src/features/contacts";
 
 type StoreError = RegisterMobileMessageError;

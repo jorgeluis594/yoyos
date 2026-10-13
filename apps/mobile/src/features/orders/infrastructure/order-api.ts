@@ -4,7 +4,7 @@ import { cancelOrderParamsSchema, cancelOrderResponseSchema, cancelOrderErrorSch
 import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
 import { z } from "zod";
 import { createOrderSchema, listOrderAggregatesResponseSchema, listOrderAggregatesSchema, listOrdersResponseSchema, listOrdersSchema, orderAggregateSchema, orderApiErrorSchema,
-  orderCatalogSchema, orderContactsSchema, setRatedOrderDeliverySchema, type SetRatedOrderDeliveryRequest, registerPaymentResponseSchema, registerPaymentSchema, type CreateRatedOrderRequest, type CreateOrderRequest, type ListOrderAggregatesRequest, type ListOrdersRequest, type RegisterPaymentRequest,
+  orderCatalogSchema, setRatedOrderDeliverySchema, type SetRatedOrderDeliveryRequest, registerPaymentResponseSchema, registerPaymentSchema, type CreateRatedOrderRequest, type CreateOrderRequest, type ListOrderAggregatesRequest, type ListOrdersRequest, type RegisterPaymentRequest,
   type OrderAggregateResponse, type OrderApiError } from "@shared/contracts/orders";
 import { err, ok } from "@shared/functional";
 import { imageResponseSchema } from "@shared/contracts/images";
@@ -14,11 +14,11 @@ import type { TransportError } from "@mobile/shared/application/transport-error"
 import type { OrderRequestError } from "@mobile/features/orders/application/order-operations";
 
 type Request = (path: string, init?: RequestInit) => Promise<Result<unknown, TransportError>>;
-type Operation = "fulfillment" | "delivery" | "checkout" | "list" | "mixed" | "get" | "aggregate" | "create" | "payment" | "void" | "deduct" | "catalog" | "contacts";
+type Operation = "fulfillment" | "delivery" | "checkout" | "list" | "mixed" | "get" | "aggregate" | "create" | "payment" | "void" | "deduct" | "catalog";
 
 const statusByCode: Record<OrderApiError["code"], number> = {
   INVALID_INPUT: 400, UNSUPPORTED_MEDIA_TYPE: 415, PAYLOAD_TOO_LARGE: 413,
-  INVALID_ORDER: 422, CURRENCY_MISMATCH: 422, CONTACT_NOT_FOUND: 404, VARIANT_NOT_FOUND: 404,
+  INVALID_ORDER: 422, CURRENCY_MISMATCH: 422, VARIANT_NOT_FOUND: 404,
   INSUFFICIENT_STOCK: 409, ORDER_ALREADY_EXISTS: 409, ORDER_NOT_FOUND: 404, SERVICE_UNAVAILABLE: 503,
   INVALID_PAYMENT: 422, PAYMENT_CONFLICT: 409, PAYMENT_NOT_FOUND: 404, RECEIPT_NOT_FOUND: 422, INVALID_TRANSITION: 409, DELIVERY_LOCKED: 409,
   PAYMENT_REQUIRED: 409, STOCK_NOT_DEDUCTED: 409, ORDER_CANCELLED: 409, DELIVERY_UNAVAILABLE: 422,
@@ -40,7 +40,7 @@ const commonErrorSchema = httpErrorSchema([]);
 const getErrorSchema = httpErrorSchema(["ORDER_NOT_FOUND"]);
 const errorSchemas = {
   checkout: httpErrorSchema(["ORDER_NOT_FOUND", "ORDER_CANCELLED"], 422),
-  create: httpErrorSchema(["INVALID_ORDER", "CURRENCY_MISMATCH", "CONTACT_NOT_FOUND", "VARIANT_NOT_FOUND",
+  create: httpErrorSchema(["INVALID_ORDER", "CURRENCY_MISMATCH", "VARIANT_NOT_FOUND",
     "INSUFFICIENT_STOCK", "ORDER_ALREADY_EXISTS", "INVALID_PAYMENT", "PAYMENT_CONFLICT", "PAYMENT_REQUIRED",
     "INVALID_TRANSITION", "STOCK_NOT_DEDUCTED", "DELIVERY_UNAVAILABLE", "DELIVERY_METHOD_DISABLED",
     "RATE_UNAVAILABLE", "TOTAL_CHANGED", "INVALID_DISTRICT", "INVALID_DELIVERY_RATE", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]),
@@ -59,7 +59,6 @@ const errorSchemas = {
   list: commonErrorSchema,
   mixed: commonErrorSchema,
   catalog: commonErrorSchema,
-  contacts: commonErrorSchema,
 } satisfies Record<Operation, z.ZodType>;
 
 function requestError(error: TransportError, operation: Operation): OrderRequestError {
@@ -220,14 +219,5 @@ export function createOrderApi(request: Request) {
     },
     searchCatalog: async (search: string): Promise<Result<z.infer<typeof orderCatalogSchema>, OrderRequestError>> =>
       response(await request(`/api/orders/catalog?${new URLSearchParams({ search })}`), orderCatalogSchema, "catalog"),
-    findContact: async (contactId: string): Promise<Result<z.infer<typeof orderContactsSchema>[number] | null, OrderRequestError>> => {
-      if (!z.uuid().safeParse(contactId).success) return err({ code: "INVALID_INPUT", message: "Invalid contact ID" });
-      const found = response(await request(`/api/orders/contacts?${new URLSearchParams({ contactId })}`), orderContactsSchema, "contacts");
-      if (!found.success) return found;
-      return found.data.length <= 1 && found.data.every(contact => contact.id === contactId) ? ok(found.data[0] ?? null)
-        : err({ code: "INVALID_RESPONSE", message: "Unexpected contact identity" });
-    },
-    searchContacts: async (search: string): Promise<Result<z.infer<typeof orderContactsSchema>, OrderRequestError>> =>
-      response(await request(`/api/orders/contacts?${new URLSearchParams({ search })}`), orderContactsSchema, "contacts"),
   };
 }

@@ -173,6 +173,15 @@ func TestAppStateKeysVersionsMACsAndSecrets(t *testing.T) {
 	if e := s.PutAppStateSyncKey(ctx, []byte{1}, stale); e != nil {
 		t.Fatal(e)
 	}
+	// A shared key without data is skipped instead of failing the decryption transaction.
+	if e := s.DoDecryptionTxn(ctx, func(ctx context.Context) error {
+		return s.PutAppStateSyncKey(ctx, []byte{2}, store.AppStateSyncKey{Fingerprint: []byte{8, 1, 16, 2}, Timestamp: 30})
+	}); e != nil {
+		t.Fatal(e)
+	}
+	if missing, e := s.GetAppStateSyncKey(ctx, []byte{2}); e != nil || missing != nil {
+		t.Fatal(missing, e)
+	}
 	got, e := s.GetAppStateSyncKey(ctx, []byte{1})
 	if e != nil || !bytes.Equal(got.Data, key.Data) {
 		t.Fatal(got, e)

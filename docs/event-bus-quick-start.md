@@ -5,8 +5,10 @@ such as sending a receipt. Production persists one PostgreSQL job per registered
 handler; a separate worker executes them. Keep required business invariants
 (such as stock updates) inside the business transaction.
 
-There are currently no business events or handlers registered. The following
-`order.completed` example shows how to add one; it is not an existing feature.
+Registered handlers today: `restore-cancelled-order-stock` (`order_cancelled`)
+and `add-message-products-to-order` (`message_created`, see
+[Message to order](message-to-order.md)). The following `order.completed`
+example shows how to add another one; it is not an existing feature.
 Paths below are relative to `apps/core/src/`.
 
 ## 1. Declare the event
@@ -155,3 +157,23 @@ handler's meaningful failure boundary. Verify required handlers are in the
 composition registry. Make effects idempotent: jobs can execute again after a
 crash or retry, and there is no global execution order. Local unsubscribe stops
 the consumer without deleting its queue or pending jobs.
+
+## 6. Reprocess failed jobs
+
+A job whose handler returns a permanent error (or exhausts its retries) stays in
+`pgboss.job` with `state = 'failed'`; the handler's `*_failed` log has the code.
+List them per handler (example: `add-message-products-to-order`):
+
+```sql
+SELECT id, data->'metadata'->>'eventId' AS event_id, output->>'message', completed_on
+FROM pgboss.job
+WHERE name = 'add-message-products-to-order' AND state = 'failed';
+```
+
+Fix the cause first (a permanent error does not change by itself), then retry
+with `boss.retry('add-message-products-to-order', jobId)`. Reprocessing is safe
+when the handler is idempotent; `add-message-products-to-order` is, through the
+primary key of `OrderMessage`. For that handler the event ID is the message ID,
+and a late retry may add the products to a different open order of the chat.
+Publishing the event again is not an option for `message_created`: the message
+is already marked as dispatched.

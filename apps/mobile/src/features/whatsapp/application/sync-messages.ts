@@ -1,6 +1,7 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import type { Clock, MessageApi, MessageStore, Session, StoreError } from "@mobile/features/whatsapp/application/ports";
+import type { StoredMessage } from "@mobile/features/whatsapp/domain/stored-message";
+import type { Clock, MessageApi, MessageStore, RegistrationOutcome, Session, StoreError, WhatsAppGateway } from "@mobile/features/whatsapp/application/ports";
 import { classifyFailure, retryDelayMs } from "@mobile/features/whatsapp/domain/sync-policy";
 
 export type SyncSummary = Readonly<{ synced: number; retried: number; rejected: number }>;
@@ -9,6 +10,8 @@ export type SyncError = StoreError | Readonly<{ code: "NO_SESSION" | "SESSION_BL
 export type SyncWorkerDeps = Readonly<{
   store: MessageStore;
   api: MessageApi;
+  images: Pick<WhatsAppGateway, "downloadImage" | "deleteDownloadedImage">;
+  uploadImage: (uri: string, mimeType: string) => Promise<Result<Readonly<{ id: string }>, Readonly<{ code: string; message: string; http?: Readonly<{ status: number }> }>>>;
   session: () => Session | null;
   now: Clock;
   /** A value in [0, 1) used for backoff jitter. */
@@ -19,6 +22,12 @@ export type SyncWorkerDeps = Readonly<{
 
 const batchSize = 20;
 
+type Failure = Readonly<{ code: string; message: string; http?: Readonly<{ status: number }> }>;
+type Upload =
+  | Readonly<{ kind: "ready"; message: StoredMessage }>
+  | Readonly<{ kind: "failed"; error: Failure }>
+  | Readonly<{ kind: "store"; error: StoreError }>;
+
 export function createSyncWorker(deps: SyncWorkerDeps) {
   let queued = false;
   let running = false;
@@ -27,6 +36,21 @@ export function createSyncWorker(deps: SyncWorkerDeps) {
   let cancelTimer: (() => void) | null = null;
 
   const clearTimer = () => { cancelTimer?.(); cancelTimer = null; };
+
+  /** Downloads the WhatsApp image once and uploads it to core; the local file never outlives the attempt. */
+  async function upload(message: StoredMessage & Readonly<{ content: Extract<StoredMessage["content"], { type: "image" }> }>): Promise<Upload> {
+    const downloaded = await deps.images.downloadImage({ messageId: message.id, downloadReference: message.content.reference });
+    if (!downloaded.success) return { kind: "failed", error: downloaded.error };
+    let uploaded: Awaited<ReturnType<SyncWorkerDeps["uploadImage"]>>;
+    try {
+      uploaded = await deps.uploadImage(downloaded.data.uri, downloaded.data.mimeType);
+    } finally {
+      await deps.images.deleteDownloadedImage(message.id);
+    }
+    if (!uploaded.success) return { kind: "failed", error: uploaded.error };
+    const saved = await deps.store.saveCoreImageId(message.id, uploaded.data.id);
+    return saved.success ? { kind: "ready", message: { ...message, coreImageId: uploaded.data.id } } : { kind: "store", error: saved.error };
+  }
 
   async function runOnce(): Promise<Result<SyncSummary, SyncError>> {
     const session = deps.session();
@@ -45,14 +69,27 @@ export function createSyncWorker(deps: SyncWorkerDeps) {
       for (const message of pending.data) {
         if (!unchanged()) break batches;
         if (message.companyId !== session.companyId) continue;
-        const sent = await deps.api.register(message);
+        let outgoing: StoredMessage = message;
+        let sent: Result<RegistrationOutcome, Failure> | undefined;
+        if (message.content.type === "image" && message.coreImageId === null) {
+          const prepared = await upload(message as Parameters<typeof upload>[0]);
+          if (prepared.kind === "store") return err(prepared.error);
+          if (prepared.kind === "failed") sent = err(prepared.error);
+          else outgoing = prepared.message;
+        }
+        sent ??= await deps.api.register(outgoing);
         if (sent.success) {
           const marked = await deps.store.markSynced(message.id, sent.data.messageId, deps.now());
           if (!marked.success) return marked;
           synced += 1;
           continue;
         }
-        const decision = classifyFailure({ code: sent.error.code, httpStatus: "http" in sent.error ? sent.error.http?.status ?? null : null });
+        let decision = classifyFailure({ code: sent.error.code, httpStatus: sent.error.http?.status ?? null });
+        if (decision.action === "reupload") {
+          const cleared = await deps.store.clearCoreImageId(message.id);
+          if (!cleared.success) return cleared;
+          decision = { action: "retry", stopBatch: false };
+        }
         if (decision.action === "cancel") { stoppedFor = "cancel"; break batches; }
         if (decision.action === "block") return err({ code: "SESSION_BLOCKED", message: "Core rejected the session" });
         if (decision.action === "reject") {

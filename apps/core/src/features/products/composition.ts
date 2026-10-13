@@ -46,7 +46,7 @@ const listImages: ListImageDependencies = { resolve: resolveListImages, report: 
 export type ListOptions = Readonly<{ includeImages?: boolean }>;
 
 async function findImage(imageId: ImageId) {
-  return map(await imageRepository.find(imageId), (image) => image !== null && image.visibility !== "private");
+  return map(await imageRepository.find(imageId), (image) => image !== null);
 }
 
 export const products = {

@@ -2,7 +2,7 @@ import { log } from "@core/src/shared/infrastructure/logger";
 import express, { type ErrorRequestHandler } from "express";
 import { imageResponseSchema } from "@shared/contracts/images";
 import { apiError } from "@core/src/shared/infrastructure/api-auth-middleware";
-import { getImage, readPrivateImage, uploadImage, validateImage, type ImageRepository, type ImageStorage } from "@core/src/shared/images/application/images";
+import { getImage, uploadImage, validateImage, type ImageRepository, type ImageStorage } from "@core/src/shared/images/application/images";
 
 const maxBytes = 10_000_000;
 const rawBody = express.raw({ type: () => true, limit: maxBytes + 64 * 1024 });
@@ -20,6 +20,7 @@ export function imageRoutes(storage: ImageStorage, repository: ImageRepository) 
   };
   const sendFailure = (response: express.Response, code?: string) => {
     switch (code) {
+      case "IMAGE_NOT_FOUND": return apiError(response, 404, "NOT_FOUND", "Not found");
       case "IMAGE_STORAGE_UNAVAILABLE": return apiError(response, 502, "IMAGE_STORAGE_UNAVAILABLE", "Image storage unavailable");
       case "PERSISTENCE_UNAVAILABLE": return apiError(response, 503, "SERVICE_UNAVAILABLE", "Service unavailable");
       default: return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
@@ -56,9 +57,6 @@ export function imageRoutes(storage: ImageStorage, repository: ImageRepository) 
   router.get("/:id", async (request, response) => {
     const id = request.params.id;
     if (typeof id !== "string" || !uuid.test(id)) return apiError(response, 404, "NOT_FOUND", "Not found");
-    const privateImage = await readPrivateImage(id, storage, repository);
-    if (!privateImage.success) return sendFailure(response, privateImage.error.code);
-    if (privateImage.data) return response.type(privateImage.data.contentType).set({ "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" }).send(Buffer.from(privateImage.data.bytes));
     const result = await getImage(id, storage, repository);
     if (!result.success) return sendFailure(response, result.error.code);
     return result.data ? sendResult(response, result.data) : apiError(response, 404, "NOT_FOUND", "Not found");

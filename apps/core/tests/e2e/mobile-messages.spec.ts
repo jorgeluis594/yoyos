@@ -23,7 +23,7 @@ async function seller(page: Page) {
   return { email, companyId: account.companyId };
 }
 async function rows(companyId: string) {
-  return withTenantIsolation(companyId, async () => await prisma.chatMessage.findMany({ where: { companyId, whatsappMessageId: { not: null } } }));
+  return withTenantIsolation(companyId, async () => await prisma.chatMessage.findMany({ where: { companyId } }));
 }
 async function checked(response: Awaited<ReturnType<Page["request"]["post"]>>, status: number) {
   expect(response.status()).toBe(status);
@@ -36,6 +36,7 @@ afterAll(async () => {
       await prisma.chatMessage.deleteMany({ where: { companyId } });
       await prisma.chat.deleteMany({ where: { companyId } });
       await prisma.contact.deleteMany({ where: { companyId } });
+      await prisma.image.deleteMany({ where: { companyId } });
     });
     await systemPrisma.user.deleteMany({ where: { email } });
     if (companyId) await withTenantIsolation(companyId, async () => await prisma.company.delete({ where: { id: companyId } }));
@@ -55,12 +56,17 @@ test("E01–E03 stores text and image, and a lost response repeats the original 
   expect(repeated).toEqual({ ...created, status: "duplicate" });
   expect(await rows(companyId)).toHaveLength(1);
   expect((await rows(companyId))[0].text).toBe(" Hola 👋\n");
-  const image = message(crypto.randomUUID(), { type: "image" });
+  const imageId = crypto.randomUUID();
+  await withTenantIsolation(companyId, async () => { await prisma.image.create({ data: { id: imageId, companyId, storageKey: `test/${imageId}` } }); });
+  const image = message(crypto.randomUUID(), { type: "image", imageId });
   image.message.direction = "outgoing";
   image.message.timestamp = 0;
   await checked(await page.request.post("/api/messages", { data: image }), 201);
   expect((await rows(companyId)).find(row => row.whatsappMessageId === image.message.whatsappMessageId))
-    .toMatchObject({ direction: "outgoing", source: "seller", imageStatus: "metadata_only", imageMimeType: null, imageSize: null, imageId: null });
+    .toMatchObject({ direction: "outgoing", source: "seller", imageId });
+  const missing = message(crypto.randomUUID(), { type: "image", imageId: crypto.randomUUID() });
+  expect(apiErrorResponseSchema.parse(await checked(await page.request.post("/api/messages", { data: missing }), 404)).code).toBe("IMAGE_NOT_FOUND");
+  expect(await rows(companyId)).toHaveLength(2);
 });
 
 test("E04 and E05 reject unauthorized, malformed and oversized requests without writing", async ({ page, request }) => {
@@ -150,7 +156,7 @@ test("E06 recovers the same committed row after a real provider fails to start",
   }
 });
 
-test("E07 concurrent HTTP requests create one message and preserve Cloud API routes", async ({ page, request }) => {
+test("E07 concurrent HTTP requests create one message", async ({ page }) => {
   const { companyId } = await seller(page);
   const input = message();
   const results = await Promise.all(Array.from({ length: 10 }, () => page.request.post("/api/messages", { data: input })));
@@ -162,6 +168,5 @@ test("E07 concurrent HTTP requests create one message and preserve Cloud API rou
   expect(outputs.filter(output => output.status === "stored")).toHaveLength(1);
   expect(new Set(outputs.map(output => output.messageId)).size).toBe(1);
   expect(await rows(companyId)).toHaveLength(1);
-  expect((await request.get("/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=e2e-verify-token&hub.challenge=ok")).status()).toBe(200);
   expect((await page.request.get("/api/orders")).status()).toBe(200);
 });

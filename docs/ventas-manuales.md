@@ -11,17 +11,16 @@ Este documento define el comportamiento del producto, la persistencia, los tipos
 ## Flujo de venta
 
 1. **Agregar productos.** El vendedor busca productos por nombre, selecciona la variante cuando corresponda e indica las cantidades.
-2. **Asociar un cliente, opcionalmente.** La venta usa “público general” por defecto. El vendedor puede asociar un cliente si lo necesita.
-3. **Revisar la venta.** Se muestran los productos, las cantidades, los precios del catálogo y el total.
-4. **Confirmar el cobro.** El vendedor verifica que recibió el total por billetera digital y confirma el cobro en el sistema. Basta con su confirmación; no se solicita un número de operación.
-5. **Completar la venta.** Si hay stock suficiente para todos los productos, la venta queda cobrada y entregada, y se descuentan del inventario las unidades vendidas. Si algún producto no tiene stock suficiente, se bloquea la venta.
+2. **Revisar la venta.** Se muestran los productos, las cantidades, los precios del catálogo y el total.
+3. **Confirmar el cobro.** El vendedor verifica que recibió el total por billetera digital y confirma el cobro en el sistema. Basta con su confirmación; no se solicita un número de operación.
+4. **Completar la venta.** Si hay stock suficiente para todos los productos, la venta queda cobrada y entregada, y se descuentan del inventario las unidades vendidas. Si algún producto no tiene stock suficiente, se bloquea la venta.
 
 ## Reglas de producto
 
 | Aspecto | Definición |
 | --- | --- |
 | Búsqueda de productos | Por nombre. |
-| Cliente | Opcional; “público general” por defecto. |
+| Cliente | “Público general”. |
 | Precios | Se utilizan los precios del catálogo, sin modificaciones. |
 | Descuentos | No disponibles en esta versión; se incorporarán más adelante. |
 | Medio de pago | Billetera digital. |
@@ -48,7 +47,7 @@ Formulario del POS
   → action de React Router
   → parseo y validación con Zod
   → createOrder con datos primitivos validados
-  → consulta de contacto y catálogo
+  → consulta de catálogo
   → buildOrder con datos del backend
   → persistencia de orden y detalles, y descuento de stock
   → respuesta a la pantalla
@@ -58,7 +57,7 @@ La consulta de datos, la construcción de la orden y las escrituras se coordinan
 
 | Componente | Responsabilidad |
 | --- | --- |
-| Formulario | Armar el carrito y enviar ID, contacto opcional, variantes y cantidades. |
+| Formulario | Armar el carrito y enviar ID, variantes y cantidades. |
 | `action` de React Router | Obtener el contexto autenticado, leer la petición, validar y parsear con Zod, invocar el caso de uso y adaptar el resultado a la pantalla. |
 | `createOrder` | Validar las reglas de aplicación, consultar las dependencias y coordinar la creación dentro de una transacción. |
 | `buildOrder` | Construir la entidad mediante una función pura, validar sus invariantes y calcular subtotales y total. |
@@ -83,7 +82,6 @@ El contrato de entrada contiene datos primitivos y su tipo se deriva del esquema
 
 ```text
 id: string UUID
-contactId: string UUID | null
 items: lista no vacía de {
   variantId: string UUID
   quantity: number entero positivo dentro del rango seguro
@@ -110,7 +108,7 @@ type OrderCustomer =
       kind: "contact";
       contactId: ContactId;
       name: string | null;
-      phone: string;
+      phone: string | null;
     }>;
 
 type OrderItem = Readonly<{
@@ -149,9 +147,6 @@ Se utiliza la base de datos actual de core y su mecanismo de aislamiento por emp
 | `id` | UUID | Generado en el frontend; único. |
 | `companyId` | UUID | Empresa del contexto autenticado. |
 | `sellerId` | Identificador de `User` | Vendedor del contexto autenticado; conserva el tipo de almacenamiento de `User.id`. |
-| `contactId` | UUID nullable | Referencia a `Contact` de la misma empresa. |
-| `contactName` | Texto nullable | Copia del nombre al vender; puede ser nulo si el contacto no tiene nombre. |
-| `contactPhone` | Texto nullable | Copia del teléfono al vender. |
 | `currency` | Código de moneda admitido | Una moneda para toda la orden. |
 | `total` | `numeric(15,2)` | Calculado por el backend. |
 | `paymentMethod` | Valor restringido a `digital_wallet` | Billetera digital confirmada por el vendedor. |
@@ -176,24 +171,20 @@ La moneda se almacena una vez en `Order`; el mapeo de persistencia la utiliza al
 
 ### Cliente y datos históricos
 
-Se reutiliza `Contact` como cliente de la venta. No se introduce una entidad de cliente independiente ni un contacto ficticio para “Público general”.
+Las ventas manuales se registran para “Público general”, sin comprador ni referencia a un contacto. No se introduce un contacto ficticio para “Público general”.
 
-- Para público general, `contactId`, `contactName` y `contactPhone` son `null`.
-- Para un contacto seleccionado, se conserva su referencia y una copia de su nombre y teléfono al vender.
-- El nombre puede ser nulo en un contacto identificado; el teléfono se conserva.
-- Los filtros por cliente utilizan `contactId`.
-- Editar posteriormente el contacto o el catálogo no modifica las copias históricas de la venta.
+- Editar posteriormente el catálogo no modifica las copias históricas de la venta.
 
 ### Integridad e índices
 
 - Órdenes y detalles mantienen el aislamiento por empresa, incluidas las políticas RLS correspondientes.
-- Las relaciones incluyen la empresa para impedir referencias a contactos, vendedores, órdenes o variantes de otra empresa.
+- Las relaciones incluyen la empresa para impedir referencias a vendedores, órdenes o variantes de otra empresa.
 - El ID de la orden es único. Cada variante aparece una sola vez por orden, con su cantidad total.
 - La base de datos restringe cantidades e importes a valores positivos.
 - El dominio valida que la orden tenga al menos un detalle, una sola moneda y totales correctos dentro del rango de almacenamiento.
 - La transacción garantiza que se guarden todos los detalles junto con la orden.
-- No se borran ventas históricas en cascada al borrar contactos o productos; las referencias existentes deben proteger ese historial.
-- Se agregan índices para consultar por empresa y fecha, y por empresa, contacto y fecha, considerando el ID como desempate de ordenación.
+- No se borran ventas históricas en cascada al borrar productos; las referencias existentes deben proteger ese historial.
+- Se agregan índices para consultar por empresa y fecha, considerando el ID como desempate de ordenación.
 
 ## Precios y cálculos
 
@@ -207,7 +198,7 @@ No se envían precios esperados para comparar ni se incorpora `PRICE_CHANGED`. S
 
 | Caso de uso | Entrada | Salida |
 | --- | --- | --- |
-| `createOrder` | ID de orden, contacto opcional, variantes y cantidades, más contexto autenticado y dependencias. | Orden completada con importes calculados por el backend, o error. |
+| `createOrder` | ID de orden, variantes y cantidades, más contexto autenticado y dependencias. | Orden completada con importes calculados por el backend, o error. |
 | `listOrders` | Paginación y filtros de fecha y cliente. | Resúmenes de ventas, página, tamaño de página y total de resultados. |
 | `getOrder` | ID de orden. | Orden completa con sus detalles, o `ORDER_NOT_FOUND`. |
 
@@ -217,7 +208,7 @@ Todos operan dentro de la empresa autenticada. Los casos de uso reciben datos si
 
 `buildOrder` es una función pura del dominio invocada por `createOrder`, no otro caso de uso independiente.
 
-Recibe explícitamente los IDs, empresa, vendedor, fecha, contacto opcional y artículos con datos y precios obtenidos por el backend. Valida las invariantes, calcula los importes y construye la entidad con sus copias históricas. Devuelve `Result<Order, BuildOrderError>`.
+Recibe explícitamente los IDs, empresa, vendedor, fecha y artículos con datos y precios obtenidos por el backend. Valida las invariantes, calcula los importes y construye la entidad con sus copias históricas. Devuelve `Result<Order, BuildOrderError>`.
 
 No consulta la base de datos, no genera IDs o fechas internamente y no descuenta stock. La detección definitiva de duplicados y la disponibilidad de stock dependen de la operación transaccional coordinada por `createOrder`.
 
@@ -225,7 +216,7 @@ No consulta la base de datos, no genera IDs o fechas internamente y no descuenta
 
 1. Validar la entrada: ID válido, al menos un artículo, cantidades enteras positivas y variantes sin repetir.
 2. Abrir la transacción mediante el mecanismo existente `withinTransaction`, conectado por composición.
-3. Consultar contacto y catálogo dentro de la empresa autenticada, obteniendo los datos para los precios y las copias históricas.
+3. Consultar el catálogo dentro de la empresa autenticada, obteniendo los datos para los precios y las copias históricas.
 4. Invocar `buildOrder` con esos datos y los valores generados por el backend.
 5. Insertar la orden y sus detalles. La restricción de unicidad impide registrar otra orden con el mismo ID.
 6. Descontar el stock de cada variante mediante una operación condicionada a que aún existan unidades suficientes. Procesar las variantes en un orden estable reduce conflictos entre ventas concurrentes.
@@ -244,8 +235,7 @@ El listado usa páginas de 20 ventas, con número de página entero positivo. Or
 ```ts
 type CustomerFilter =
   | Readonly<{ kind: "all" }>
-  | Readonly<{ kind: "general_public" }>
-  | Readonly<{ kind: "contact"; contactId: ContactId }>;
+  | Readonly<{ kind: "general_public" }>;
 
 type ListOrdersInput = Readonly<{
   page: number;
@@ -266,7 +256,6 @@ Los errores esperados usan `Result`, con uniones discriminadas por `code` y un `
 | Código | Significado |
 | --- | --- |
 | `ORDER_ALREADY_EXISTS` | Ya existe una orden con ese ID. |
-| `CONTACT_NOT_FOUND` | El contacto no está disponible dentro de la empresa. |
 | `VARIANT_NOT_FOUND` | Una variante no está disponible dentro de la empresa; incluye `variantId`. |
 | `INSUFFICIENT_STOCK` | Una variante no tiene unidades suficientes; incluye `variantId`. |
 | `CURRENCY_MISMATCH` | Los artículos no comparten moneda. |
@@ -292,7 +281,7 @@ shared/contracts/
   Contratos JSON compartidos, con esquemas y tipos derivados
 ```
 
-Las rutas delegan el comportamiento a la feature. Se reutilizan las capacidades de productos y contactos para las búsquedas del POS. Los tests se ubican junto al comportamiento que verifican; se crean los archivos necesarios sin introducir repositorios genéricos ni capas adicionales de delegación.
+Las rutas delegan el comportamiento a la feature. Se reutilizan las capacidades de productos para las búsquedas del POS. Los tests se ubican junto al comportamiento que verifican; se crean los archivos necesarios sin introducir repositorios genéricos ni capas adicionales de delegación.
 
 ## Validación de la implementación
 
@@ -309,7 +298,6 @@ Se ejecutan sin servidor, red ni base de datos. El dominio recibe datos explíci
 | ID | Prueba | Resultado esperado |
 | --- | --- | --- |
 | U01 | Construir una venta para público general con varios artículos: 3 unidades a 0.10 y 2 unidades a 0.20, en la misma moneda. | Devuelve una orden con cliente `general_public`, subtotales 0.30 y 0.40, total 0.70 y medio `digital_wallet`. Conserva los IDs, empresa, vendedor y fecha recibidos explícitamente. |
-| U02 | Construir una venta con un contacto, incluyendo la variante de contacto sin nombre, y artículos con atributos y SKU opcional. | Conserva las referencias y copias históricas correctas; un contacto sin nombre mantiene su teléfono y no se convierte en público general. Los datos de entrada no se modifican ni quedan compartidos de forma que cambios posteriores alteren las copias históricas. |
 | U03 | Construir una orden vacía o con una variante repetida. | Devuelve `INVALID_ORDER`; no produce una entidad parcial. |
 | U04 | Construir una orden con cantidades cero, negativas, fraccionarias, no finitas o fuera del rango entero seguro; contrastar con una cantidad positiva válida. | Rechaza las cantidades inválidas e identifica el artículo afectado. La cantidad válida permite construir la orden cuando el resto de las reglas se cumple. |
 | U05 | Construir una orden con artículos de monedas distintas. | Devuelve `CURRENCY_MISMATCH`, sin convertir monedas ni sumar importes incompatibles. |
@@ -320,12 +308,12 @@ Se ejecutan sin servidor, red ni base de datos. El dominio recibe datos explíci
 
 | ID | Prueba | Resultado esperado |
 | --- | --- | --- |
-| U08 | Ejecutar `createOrder` con una entrada de primitivos válida y dependencias que entregan catálogo, contacto, IDs y reloj controlados. | Devuelve la orden construida con los precios del catálogo y el contexto autenticado, y solicita persistir esa orden y descontar las cantidades correspondientes. Se verifica el resultado y los valores de los efectos, no el orden interno de llamadas a helpers. |
-| U09 | Ejecutar `createOrder` cuando falta el contacto seleccionado o una variante solicitada. | Devuelve `CONTACT_NOT_FOUND` o `VARIANT_NOT_FOUND`, con el identificador pertinente cuando corresponde, sin solicitar guardar la venta ni descontar stock. |
+| U08 | Ejecutar `createOrder` con una entrada de primitivos válida y dependencias que entregan catálogo, IDs y reloj controlados. | Devuelve la orden construida con los precios del catálogo y el contexto autenticado, y solicita persistir esa orden y descontar las cantidades correspondientes. Se verifica el resultado y los valores de los efectos, no el orden interno de llamadas a helpers. |
+| U09 | Ejecutar `createOrder` cuando falta una variante solicitada. | Devuelve `VARIANT_NOT_FOUND` con el identificador de la variante, sin solicitar guardar la venta ni descontar stock. |
 | U10 | Hacer que la construcción falle o que una dependencia reporte un error esperado de duplicado, stock o persistencia. | El caso de uso devuelve el error correspondiente y no continúa con pasos dependientes del fallo. La reversión efectiva de escrituras se verifica en integración. |
-| U11 | Parsear una solicitud válida con `contactId: null` y otra con un contacto; luego probar JSON malformado, IDs inválidos, campos requeridos ausentes y tipos incorrectos. | Las solicitudes válidas producen la entrada tipada esperada. Las inválidas producen errores de presentación y no invocan el caso de uso. |
+| U11 | Parsear una solicitud válida; luego probar JSON malformado, IDs inválidos, campos requeridos ausentes y tipos incorrectos. | Las solicitudes válidas producen la entrada tipada esperada. Las inválidas producen errores de presentación y no invocan el caso de uso. |
 | U12 | Incluir precios, subtotales, total, empresa, vendedor o fecha manipulados en una solicitud. | Esos valores ajenos al contrato nunca se convierten en datos autorizados del caso de uso. No permiten reemplazar los valores calculados o derivados por el backend. |
-| U13 | Parsear filtros de listado con cada variante de cliente, fechas válidas y página válida; probar páginas no positivas o fraccionarias, fechas malformadas y un filtro de contacto sin ID válido. | Produce criterios tipados para las entradas válidas y errores para las inválidas. Distingue entre todos los clientes, público general y un contacto concreto. |
+| U13 | Parsear filtros de listado con cada variante de cliente, fechas válidas y página válida; probar páginas no positivas o fraccionarias, fechas malformadas y un filtro de cliente desconocido. | Produce criterios tipados para las entradas válidas y errores para las inválidas. Distingue entre todos los clientes y público general. |
 | U14 | Adaptar resultados exitosos y errores de los casos de uso en actions y loaders. | Presenta éxito únicamente si el caso de uso tuvo éxito; conserva los importes devueltos por el backend y comunica errores de validación, duplicado, stock y orden no encontrada sin exponer detalles internos. |
 | U15 | Recibir un fallo conocido de persistencia o una excepción inesperada al consultar o crear. | El fallo conocido conserva su contrato de error. El inesperado permanece observable y nunca se convierte en orden creada, lista vacía o ausencia válida. |
 
@@ -337,7 +325,7 @@ Ejercitan la composición y los adaptadores con una base de datos aislada y el m
 
 | ID | Prueba | Resultado esperado |
 | --- | --- | --- |
-| I01 | Crear una venta válida de varios artículos y leerla nuevamente, tanto para público general como para un contacto. | Se conservan orden, detalles, moneda, importes, fecha y datos históricos; el stock disminuye exactamente lo vendido. Para público general los tres campos de contacto son nulos. La lectura reconstruye correctamente cantidades, fechas y valores `Money`. |
+| I01 | Crear una venta válida de varios artículos y leerla nuevamente. | Se conservan orden, detalles, moneda, importes, fecha y datos históricos; el stock disminuye exactamente lo vendido. La venta no tiene comprador. La lectura reconstruye correctamente cantidades, fechas y valores `Money`. |
 | I02 | Cambiar el precio del catálogo entre la preparación de la venta y su envío, y completar usando solo IDs y cantidades. | La orden y la respuesta usan el precio vigente consultado por el backend y sus totales recalculados. No se produce `PRICE_CHANGED` ni se conserva el precio antiguo mostrado en el carrito. |
 | I03 | Registrar una venta y volver a enviar su ID, tanto con el mismo contenido como con contenido diferente. | El segundo intento devuelve `ORDER_ALREADY_EXISTS`. La orden original, sus detalles y el stock permanecen sin cambios adicionales. |
 | I04 | Enviar simultáneamente dos solicitudes válidas con el mismo ID y stock suficiente para ambas. | Solo una crea la venta; la otra devuelve `ORDER_ALREADY_EXISTS`. Existe una sola orden y el stock se descuenta una sola vez. |
@@ -345,12 +333,12 @@ Ejercitan la composición y los adaptadores con una base de datos aislada y el m
 | I06 | Enviar simultáneamente dos órdenes con IDs distintos que solicitan la última unidad de una variante. | Una venta se completa y la otra devuelve `INSUFFICIENT_STOCK`. Solo queda una orden completada y el stock termina en cero, nunca negativo. |
 | I07 | Crear una venta de varios artículos donde un descuento puede ejecutarse y otro falla por falta de stock. | Se revierte la orden, todos sus detalles y cualquier descuento previo. Cada stock queda igual que antes del intento. |
 | I08 | Provocar un fallo de escritura durante una creación que ya haya efectuado cambios dentro de la transacción. | No quedan escrituras parciales ni descuentos de stock. Se comunica el fallo sin devolver una venta exitosa. |
-| I09 | Crear, listar y consultar ventas con dos empresas; intentar usar contactos, variantes o IDs de órdenes de la otra empresa. | No se crean referencias cruzadas ni se modifica stock ajeno. Listados y conteos excluyen la otra empresa y su detalle no se devuelve. También se verifican las políticas RLS y referencias compuestas mediante operaciones directas de persistencia. |
+| I09 | Crear, listar y consultar ventas con dos empresas; intentar usar variantes o IDs de órdenes de la otra empresa. | No se crean referencias cruzadas ni se modifica stock ajeno. Listados y conteos excluyen la otra empresa y su detalle no se devuelve. También se verifican las políticas RLS y referencias compuestas mediante operaciones directas de persistencia. |
 | I10 | Invocar las actions y loaders sin sesión o sin empresa autorizada; con sesión válida, intentar imponer otra empresa o vendedor en la solicitud. | El acceso no autorizado se rechaza sin efectos. Los valores manipulados no permiten suplantar al vendedor ni cambiar la empresa derivada de la sesión. |
 | I11 | Intentar escrituras que violen unicidad de variante por orden, cantidades o importes positivos, medio de pago permitido y referencias requeridas. | Las restricciones de la base de datos rechazan los datos inválidos incluso si se omite la validación de aplicación. |
-| I12 | Editar los nombres, atributos, SKU y precios del catálogo, y el nombre y teléfono del contacto, después de completar una venta. | El detalle histórico mantiene todos los valores originales. El filtro por cliente sigue encontrando la venta por su `contactId`. |
-| I13 | Intentar eliminar un contacto o producto referenciado por una venta. | La relación protege el historial: la operación no elimina en cascada la orden ni sus detalles y la venta continúa siendo consultable. |
-| I14 | Listar ventas con filtros de todos los clientes, público general y un contacto, combinados con fechas; incluir registros exactamente en el inicio y en el fin del intervalo. | Incluye el límite inicial y excluye el final. Cada filtro retorna únicamente las ventas correspondientes y `total` cuenta esas mismas ventas dentro de la empresa. |
+| I12 | Editar los nombres, atributos, SKU y precios del catálogo después de completar una venta. | El detalle histórico mantiene todos los valores originales. |
+| I13 | Intentar eliminar un producto referenciado por una venta. | La relación protege el historial: la operación no elimina en cascada la orden ni sus detalles y la venta continúa siendo consultable. |
+| I14 | Listar ventas con filtros de todos los clientes y público general, combinados con fechas; incluir registros exactamente en el inicio y en el fin del intervalo. | Incluye el límite inicial y excluye el final. Cada filtro retorna únicamente las ventas correspondientes y `total` cuenta esas mismas ventas dentro de la empresa. |
 | I15 | Listar más de 20 ventas, incluyendo varias con la misma fecha, y recorrer páginas sobre datos sin cambios concurrentes. | Devuelve páginas de 20 salvo la última, ordenadas por fecha descendente con desempate estable por ID. No repite ni omite registros entre páginas. Sin coincidencias devuelve lista vacía y total cero; una página posterior a la última queda vacía y conserva el total filtrado. |
 | I16 | Consultar una orden existente y un ID inexistente. | La primera devuelve la orden con todos sus detalles y copias históricas. El segundo devuelve `ORDER_NOT_FOUND`, sin confundir ausencia con fallo de persistencia. |
 
@@ -361,11 +349,10 @@ Ejercitan la aplicación en ejecución desde el navegador, con backend y base de
 | ID | Recorrido | Resultado esperado |
 | --- | --- | --- |
 | E01 | Iniciar sesión, abrir el POS, buscar productos por nombre, elegir una variante, agregar cantidades y completar una venta sin seleccionar cliente. | Se muestran precios del catálogo y total, el cliente es “Público general” y el cobro se confirma por billetera sin número de operación. La venta aparece en el listado y su detalle muestra los artículos e importes del backend; el stock visible refleja las unidades vendidas. |
-| E02 | Seleccionar un contacto existente, completar una venta y abrirla desde el listado. | El resumen y el detalle identifican al contacto y muestran sus datos históricos. También funciona con un contacto sin nombre, mostrando su teléfono para identificarlo. |
 | E03 | Intentar completar una venta cuya cantidad excede el stock disponible; corregir la cantidad y volver a confirmar. | Se comunica la insuficiencia y no aparece una venta completada en el intento fallido. Al corregir, se registra una sola venta con el descuento de stock correspondiente. |
 | E04 | Mostrar un precio en el carrito, cambiarlo en el catálogo mediante otra sesión autorizada y luego completar la venta. | La pantalla de resultado y el detalle muestran el precio y total definitivos calculados por el backend, sin solicitar una confirmación por `PRICE_CHANGED`. |
 | E05 | Armar un carrito y recargar la página o salir y volver antes de confirmar. | No se recupera una venta en preparación, no se genera una orden en el listado y no se modifica ni reserva stock. |
-| E06 | Consultar el listado, filtrar por fechas, público general y un contacto; cambiar de página y abrir un detalle. | Las ventas visibles corresponden a los filtros, la paginación permite recorrer los resultados y el detalle coincide con la venta seleccionada. Los filtros sin coincidencias muestran un estado vacío. |
+| E06 | Consultar el listado, filtrar por fechas y público general; cambiar de página y abrir un detalle. | Las ventas visibles corresponden a los filtros, la paginación permite recorrer los resultados y el detalle coincide con la venta seleccionada. Los filtros sin coincidencias muestran un estado vacío. |
 | E07 | Acceder al POS, listado o detalle sin autenticación y abrir desde otra empresa una URL de detalle conocida. | Se aplica el flujo de acceso correspondiente y nunca se muestran los datos de una venta ajena. |
 | E08 | Provocar un fallo controlado del backend al confirmar una venta y volver a intentarlo tras recuperar el servicio. | La pantalla comunica el fallo sin presentar éxito. El intento conserva el ID de la venta y, si el primero se revirtió, la confirmación posterior genera una sola orden. Si el primer intento sí se confirmó y se perdió su respuesta, reenviar el mismo ID muestra el error de duplicado y no registra otra venta. |
 

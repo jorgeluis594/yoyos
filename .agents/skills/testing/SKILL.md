@@ -21,7 +21,7 @@ Paths below are relative to this skill. [Testing Conventions](../../../docs/test
 - Tests must run independently of order and of other tests' data. Control time, identifiers, and external responses; restore globals and mocks after each test; await observable completion instead of adding delays.
 - Integration and end-to-end tests use dedicated test resources, clean up their data, and never use production data or credentials.
 - Do not add tests solely for exports, trivial forwarding functions, or static markup. Avoid large snapshots and coverage targets.
-- Do not create tests for database migrations. Migrations are generated with Prisma CLI and reviewed through the [Database Migrations](../database-migrations/SKILL.md) skill; verify the resulting schema behavior through infrastructure tests of the adapters that use it, not by testing migration files, migration SQL, or schema drift.
+- Do not create tests for database migrations. Migrations are generated with Prisma CLI and reviewed through the [Database Migrations](../database-migrations/SKILL.md) skill; verify the resulting schema behavior through infrastructure tests of the adapters that use it, not by testing migration files, migration SQL, or schema drift. This includes data migrations: do not write tests that apply migrations to a temporary database, seed historical rows, and assert backfills or deletions. Existing migration tests are not a pattern to follow.
 - Add test tooling only when runnable tests require it. Reinspect each application's `package.json` and CI configuration before assuming a command exists.
 
 ## Commands

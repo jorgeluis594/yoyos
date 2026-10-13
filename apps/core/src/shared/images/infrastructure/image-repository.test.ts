@@ -38,8 +38,8 @@ for (const operation of operations) {
 }
 
 it("finds several images with a single query and skips empty lookups", async () => {
-  queries.findMany.mockResolvedValueOnce([{ id: "a", storageKey: "a", visibility: "public" }]);
-  expect(await imageRepository.findMany(["a", "b"])).toEqual({ success: true, data: [{ id: "a", storageKey: "a", visibility: "public" }] });
+  queries.findMany.mockResolvedValueOnce([{ id: "a", storageKey: "a" }]);
+  expect(await imageRepository.findMany(["a", "b"])).toEqual({ success: true, data: [{ id: "a", storageKey: "a" }] });
   expect(queries.findMany).toHaveBeenCalledOnce();
   expect(queries.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: { in: ["a", "b"] } }) }));
   expect(await imageRepository.findMany([])).toEqual({ success: true, data: [] });

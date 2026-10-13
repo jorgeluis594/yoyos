@@ -11,6 +11,7 @@ Pod::Spec.new do |s|
   s.static_framework = true
   s.source_files = 'WhatsAppModule.swift', 'Storage/*.swift'
   s.vendored_frameworks = 'Frameworks/WhatsAppGo.xcframework'
+  s.library = 'sqlite3'
   s.dependency 'ExpoModulesCore'
   unless File.directory?(File.join(__dir__, 'Frameworks/WhatsAppGo.xcframework'))
     raise 'WhatsAppGo.xcframework is missing; run modules/whatsapp/scripts/build-go.sh ios before pod install'

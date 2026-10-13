@@ -1,7 +1,7 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 
-export type RejectCode = "INVALID_INPUT" | "PAYLOAD_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE";
+export type RejectCode = "INVALID_INPUT" | "PAYLOAD_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" | "IMAGE_UNAVAILABLE";
 
 export type SyncStateName = "pending" | "synced" | "rejected" | "orphaned";
 
@@ -12,6 +12,8 @@ export type SyncDecision =
   | Readonly<{ action: "reject"; code: RejectCode }>
   | Readonly<{ action: "block" }>
   | Readonly<{ action: "cancel" }>
+  /** Core does not know the uploaded image: forget its id so the next attempt uploads it again. */
+  | Readonly<{ action: "reupload" }>
   | Readonly<{ action: "retry"; stopBatch: boolean }>;
 
 const blockingCodes = ["UNAUTHENTICATED", "COMPANY_REQUIRED", "INVALID_COMPANY", "SECURE_STORAGE_ERROR"];
@@ -20,12 +22,17 @@ const batchStoppingCodes = ["NETWORK_ERROR", "RATE_LIMITED"];
 export function classifyFailure(failure: SyncFailure): SyncDecision {
   if (failure.code === "OPERATION_CANCELLED") return { action: "cancel" };
   if (failure.code === "INVALID_MESSAGE") return { action: "reject", code: "INVALID_INPUT" };
+  if (failure.code === "IMAGE_UNAVAILABLE") return { action: "reject", code: "IMAGE_UNAVAILABLE" };
+  if (failure.code === "INVALID_IMAGE") return { action: "reject", code: "INVALID_INPUT" };
+  if (failure.code === "IMAGE_TOO_LARGE") return { action: "reject", code: "PAYLOAD_TOO_LARGE" };
   if (failure.code === "UNSUPPORTED_MEDIA_TYPE") return { action: "reject", code: "UNSUPPORTED_MEDIA_TYPE" };
   if (blockingCodes.includes(failure.code)) return { action: "block" };
   if (failure.code === "API_ERROR") {
     if (failure.httpStatus === 400) return { action: "reject", code: "INVALID_INPUT" };
     if (failure.httpStatus === 413) return { action: "reject", code: "PAYLOAD_TOO_LARGE" };
     if (failure.httpStatus === 403) return { action: "block" };
+    // The only 404 of POST /api/messages is IMAGE_NOT_FOUND.
+    if (failure.httpStatus === 404) return { action: "reupload" };
   }
   return { action: "retry", stopBatch: batchStoppingCodes.includes(failure.code) };
 }

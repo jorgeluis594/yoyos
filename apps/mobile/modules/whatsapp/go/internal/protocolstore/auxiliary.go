@@ -12,6 +12,11 @@ import (
 )
 
 func (s *Store) PutAppStateSyncKey(ctx context.Context, id []byte, key store.AppStateSyncKey) error {
+	// WhatsApp can share a key without data (e.g. one the primary no longer has). It decrypts nothing, and
+	// rejecting it would poison the whole decryption transaction, so the key-share message is replayed forever.
+	if len(key.Data) == 0 {
+		return nil
+	}
 	return s.stage(ctx, func(t *txn) error {
 		v, found, e := t.value("app-state-key", binaryKey(id))
 		if e != nil {

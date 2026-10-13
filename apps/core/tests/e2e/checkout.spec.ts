@@ -29,9 +29,10 @@ async function fixture(prefill: "none" | "phone" | "full" = "none", enabled = tr
     const product = await products.create({ name: "Cuaderno", currency: "PEN", variants: [{ attributes: { Color: "Azul" }, salePrice: 10, initialStock: 3 }] });
     if (!product.success) throw new Error("Product fixture failed");
     const variant = await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } });
-    if (prefill !== "none") await prisma.contact.create({ data: { id: contactId, name: prefill === "full" ? "Anterior" : null, phone: "+51987654321" } });
-    const created = await orders.create({ id: orderId, contactId: prefill === "none" ? null : contactId, items: [{ variantId: variant.id as VariantId, quantity: 1 as PositiveInteger }] }, { companyId, userId });
+    if (prefill !== "none") await prisma.contact.create({ data: { id: contactId, whatsappAccountId: "1@lid", whatsappLid: "2@lid" } });
+    const created = await orders.create({ id: orderId, items: [{ variantId: variant.id as VariantId, quantity: 1 as PositiveInteger }] }, { companyId, userId });
     if (!created.success) throw new Error("Order fixture failed");
+    if (prefill !== "none") await prisma.orderBuyer.create({ data: { orderId, contactId, name: prefill === "full" ? "Anterior" : null, phone: "+51987654321" } });
     if (assigned) await prisma.order.update({ where: { id: orderId }, data: { delivery: { method: "home",
       recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } }, destination: { address: "Historical address", country: "PE", districtCode: "150101", district: "Lima", province: "Lima", department: "Lima", instructions: null }, pricing: { quotationId: randomUUID(), rateId: randomUUID(), optionId: randomUUID(), settingsVersion: 1 },
       recordedBy: { kind: "seller", userId } } } });
@@ -91,7 +92,6 @@ test("anonymous mobile buyer reviews fixed products, corrects prefilled data and
     expect(replay.status()).toBe(302);
     expect(replay.headers().location).toBe(f.path);
     expect(await f.read()).toEqual(stored);
-    expect(await withTenantIsolation(f.companyId, async () => (await prisma.contact.findFirstOrThrow()).name)).toBeNull();
     await f.cancel();
     await page.goto(f.path);
     await browserExpect(page.getByRole("heading", { name: "Pedido cancelado", exact: true })).toBeVisible();
@@ -193,9 +193,9 @@ test("seller copies a stable link and sees buyer confirmation separately from pa
     const variantId = await withTenantIsolation(companyId, async () => (await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } })).id);
     const firstId = randomUUID();
     const orderId = randomUUID();
-    expect((await page.request.post("/api/orders", { data: { id: firstId, contactId: null, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
+    expect((await page.request.post("/api/orders", { data: { id: firstId, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
     await withTenantIsolation(companyId, async () => { await prisma.company.update({ where: { id: companyId }, data: { nextOrderNumber: 10000n } }); });
-    expect((await page.request.post("/api/orders", { data: { id: orderId, contactId: null, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
+    expect((await page.request.post("/api/orders", { data: { id: orderId, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
     await withTenantIsolation(companyId, async () => {
       const stored = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
       await prisma.order.update({ where: { id: orderId }, data: { delivery: { method: "home", recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } },

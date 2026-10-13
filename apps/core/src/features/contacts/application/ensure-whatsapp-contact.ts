@@ -1,8 +1,8 @@
 import { err } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { validWhatsAppLid, type WhatsAppContact } from "@core/src/features/contacts/domain/contact";
-import type { ContactError } from "@core/src/features/contacts/application/ensure-contact";
 
+export type ContactError = Readonly<{ code: "INVALID_CONTACT" | "PERSISTENCE_UNAVAILABLE" | "INVALID_STORED_DATA"; message: string }>;
 export type EnsureWhatsAppContactInput = Readonly<{ companyId: string; whatsappAccountId: string; whatsappLid: string }>;
 export type WhatsAppContactRepository = Readonly<{
   insertIfAbsent: (input: EnsureWhatsAppContactInput) => Promise<Result<WhatsAppContact, ContactError>>;

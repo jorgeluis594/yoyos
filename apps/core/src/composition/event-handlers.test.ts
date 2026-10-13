@@ -1,3 +1,4 @@
+import { parseMessageCreated } from "@core/src/features/chats/infrastructure/event-payloads";
 import { parseOrderCancelled } from "@core/src/features/orders/infrastructure/event-payloads";
 import { eventHandlers } from "@core/src/composition/event-handlers";
 import { describe, expect, it, vi } from "vitest";
@@ -37,4 +38,16 @@ describe("handler bootstrap", () => {
 it("registers stock restoration for the producer and worker and rejects invalid payloads", () => {
   expect(eventHandlers.filter(handler => handler.name === "order_cancelled").map(handler => handler.id)).toEqual(["restore-cancelled-order-stock"]);
   expect(parseOrderCancelled({ orderId: "invalid", companyId: "invalid" })).toMatchObject({ success: false, error: { code: "INVALID_EVENT" } });
+});
+
+it("registers add-message-products-to-order for message_created with concurrency 2 and 8 retries", () => {
+  const registered = eventHandlers.filter(handler => handler.name === "message_created");
+  expect(registered.map(handler => handler.id)).toEqual(["add-message-products-to-order"]);
+  expect(registered[0].policy).toMatchObject({ concurrency: 2, retries: 8 });
+});
+
+it("parses its payload with parseMessageCreated", () => {
+  const registered = eventHandlers.find(handler => handler.id === "add-message-products-to-order");
+  expect(registered?.parsePayload).toBe(parseMessageCreated);
+  expect(registered?.parsePayload({ companyId: "invalid", messageId: "invalid" })).toMatchObject({ success: false, error: { code: "INVALID_EVENT" } });
 });

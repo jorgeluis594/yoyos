@@ -6,18 +6,18 @@ import { pickupPointSchema } from "@shared/contracts/delivery-settings";
 
 export const orderSelectionSchema = z.strictObject({
   id: z.uuid(),
-  contactId: z.uuid().nullable(),
   items: z.array(z.strictObject({ variantId: z.uuid(), quantity: z.number().int().positive().safe() })).min(1),
 });
 export type OrderSelectionRequest = z.infer<typeof orderSelectionSchema>;
 
 export const orderCustomerSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("general_public") }),
-  z.strictObject({ kind: z.literal("contact"), contactId: z.uuid(), name: z.string().nullable(), phone: z.string() }),
+  z.strictObject({ kind: z.literal("contact"), contactId: z.uuid(), name: z.string().nullable(), phone: z.string().nullable() }),
 ]);
-export const orderBuyerSchema = z.strictObject({ contactId: z.uuid().nullable(), name: z.string().nullable(), phone: z.string() });
+export const orderBuyerSchema = z.strictObject({ contactId: z.uuid().nullable(), name: z.string().nullable(), phone: z.string().nullable() });
+export const orderSourceSchema = z.enum(["manual", "whatsapp"]);
 export const orderItemSchema = z.strictObject({ id: z.uuid(), variantId: z.uuid(), productName: z.string(), variantAttributes: z.record(z.string(), z.string()), sku: z.string().nullable(), quantity: z.number().int().positive().safe(), unitPrice: z.number().positive(), subtotal: z.number().positive() });
-export const orderSchema = z.strictObject({ number: z.number().int().safe().min(1001), id: z.uuid(), companyId: z.uuid(), sellerId: z.string(), buyer: orderBuyerSchema.nullable(), paymentMethod: z.literal("digital_wallet"), completedAt: z.iso.datetime(), currency: z.enum(currencies), items: z.array(orderItemSchema).min(1), total: z.number().positive() });
+export const orderSchema = z.strictObject({ number: z.number().int().safe().min(1001), id: z.uuid(), companyId: z.uuid(), sellerId: z.string(), buyer: orderBuyerSchema.nullable(), source: orderSourceSchema, paymentMethod: z.literal("digital_wallet"), completedAt: z.iso.datetime(), currency: z.enum(currencies), items: z.array(orderItemSchema).min(1), total: z.number().positive() });
 export type OrderResponse = z.infer<typeof orderSchema>;
 
 export { moneySchema } from "@shared/contracts/money";
@@ -88,7 +88,7 @@ export const paymentSchema = z.discriminatedUnion("status", [
   z.strictObject({ ...paymentIdentitySchema, status: z.literal("voided"), amount: moneySchema,
     method: z.enum(["digital_wallet", "bank_transfer"]), data: confirmationDataSchema.extend({ voidedAt: z.iso.datetime(), voidedBy: z.string().min(1) }) }),
 ]);
-export const orderAggregateSchema = z.strictObject({ checkoutEnabledAt: z.iso.datetime().nullable(), checkoutConfirmedAt: z.iso.datetime().nullable(), number: z.number().int().safe().min(1001), id: z.uuid(), companyId: z.uuid(), sellerId: z.string(), buyer: orderBuyerSchema.nullable(),
+export const orderAggregateSchema = z.strictObject({ checkoutEnabledAt: z.iso.datetime().nullable(), checkoutConfirmedAt: z.iso.datetime().nullable(), number: z.number().int().safe().min(1001), id: z.uuid(), companyId: z.uuid(), sellerId: z.string(), buyer: orderBuyerSchema.nullable(), source: orderSourceSchema,
   createdAt: z.iso.datetime(), deliveredAt: z.iso.datetime().nullable(), completedAt: z.iso.datetime().nullable(), status: z.enum(["active", "cancelled", "completed"]),
   paymentStatus: z.enum(["pending", "paid"]), paidAmount: moneySchema, balanceDue: moneySchema, overpaidAmount: moneySchema,
   cancelled: z.boolean(), delivery: deliverySnapshotSchema.nullable(), deliveryStatus: z.enum(["pending", "shipped", "delivered"]),
@@ -101,18 +101,16 @@ export const listOrderAggregatesSchema = z.strictObject({
   search: z.string().max(120).optional(),
   view: z.enum(["all", "unpaid", "undelivered"]).optional(),
   page: z.coerce.number().int().positive().safe().default(1),
-  customer: z.enum(["all", "general_public", "contact"]).default("all"),
-  contactId: z.uuid().optional(), createdFrom: z.iso.datetime().optional(), createdBefore: z.iso.datetime().optional(),
-}).refine((value) => (value.customer === "contact") === !!value.contactId,
-  { message: "Contact must match customer filter", path: ["contactId"] })
-  .refine((value) => Number.isSafeInteger((value.page - 1) * 20),
+  customer: z.enum(["all", "general_public"]).default("all"),
+  createdFrom: z.iso.datetime().optional(), createdBefore: z.iso.datetime().optional(),
+}).refine((value) => Number.isSafeInteger((value.page - 1) * 20),
     { message: "Page exceeds safe offset", path: ["page"] })
   .refine((value) => !value.createdFrom || !value.createdBefore ||
     new Date(value.createdFrom).getTime() < new Date(value.createdBefore).getTime(),
     { message: "Invalid date interval", path: ["createdBefore"] });
 export type ListOrderAggregatesRequest = z.infer<typeof listOrderAggregatesSchema>;
 export const orderAggregateSummarySchema = orderAggregateSchema.pick({ checkoutEnabledAt: true, checkoutConfirmedAt: true, number: true, id: true, createdAt: true, deliveredAt: true, completedAt: true, status: true,
-  paymentStatus: true, deliveryStatus: true, stockDeducted: true, buyer: true, sellerId: true, total: true });
+  paymentStatus: true, deliveryStatus: true, stockDeducted: true, buyer: true, source: true, sellerId: true, total: true });
 export const listOrderAggregatesResponseSchema = z.strictObject({ items: z.array(orderAggregateSummarySchema),
   page: z.number().int().positive(), pageSize: z.literal(20), total: z.number().int().nonnegative() });
 export type ListOrderAggregatesResponse = z.infer<typeof listOrderAggregatesResponseSchema>;
@@ -139,23 +137,19 @@ export type BuyerPaymentView = z.infer<typeof buyerPaymentViewSchema>;
 
 export const listOrdersSchema = z.strictObject({
   page: z.coerce.number().int().positive().safe().default(1),
-  customer: z.enum(["all", "general_public", "contact"]).default("all"),
-  contactId: z.uuid().optional(),
+  customer: z.enum(["all", "general_public"]).default("all"),
   completedFrom: z.iso.datetime().optional(),
   completedBefore: z.iso.datetime().optional(),
-}).refine((value) => (value.customer === "contact") === !!value.contactId,
-  { message: "Contact must match customer filter", path: ["contactId"] })
-  .refine((value) => Number.isSafeInteger((value.page - 1) * 20),
+}).refine((value) => Number.isSafeInteger((value.page - 1) * 20),
     { message: "Page exceeds safe offset", path: ["page"] })
   .refine((value) => !value.completedFrom || !value.completedBefore ||
     new Date(value.completedFrom).getTime() < new Date(value.completedBefore).getTime(),
     { message: "Invalid date interval", path: ["completedBefore"] });
 export type ListOrdersRequest = z.infer<typeof listOrdersSchema>;
-export const orderSummarySchema = orderSchema.pick({ number: true, id: true, completedAt: true, buyer: true, sellerId: true, currency: true, total: true });
+export const orderSummarySchema = orderSchema.pick({ number: true, id: true, completedAt: true, buyer: true, source: true, sellerId: true, currency: true, total: true });
 export const listOrdersResponseSchema = z.strictObject({ items: z.array(orderSummarySchema), page: z.number().int().positive(), pageSize: z.literal(20), total: z.number().int().nonnegative() });
 export const orderCatalogSchema = z.array(z.strictObject({ id: z.uuid(), name: z.string(), currency: z.enum(currencies),
   variants: z.array(z.strictObject({ id: z.uuid(), attributes: z.record(z.string(), z.string()), sku: z.string().nullable(), price: z.number().positive(), stock: z.number().int().nonnegative().safe() })) }));
-export const orderContactsSchema = z.array(z.strictObject({ id: z.uuid(), name: z.string().nullable(), phone: z.string() }));
 export const orderApiIssueSchema = z.strictObject({
   field: z.string(), reason: z.string(), index: z.number().int().nonnegative().optional(), variantId: z.uuid().optional(),
 });
@@ -163,7 +157,7 @@ export type OrderApiIssue = z.infer<typeof orderApiIssueSchema>;
 export const orderApiErrorSchema = z.strictObject({
   code: z.enum([
     "INVALID_INPUT", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE",
-    "INVALID_ORDER", "CURRENCY_MISMATCH", "CONTACT_NOT_FOUND", "VARIANT_NOT_FOUND",
+    "INVALID_ORDER", "CURRENCY_MISMATCH", "VARIANT_NOT_FOUND",
     "INSUFFICIENT_STOCK", "ORDER_ALREADY_EXISTS", "ORDER_NOT_FOUND", "SERVICE_UNAVAILABLE",
     "INVALID_PAYMENT", "PAYMENT_CONFLICT", "PAYMENT_NOT_FOUND", "RECEIPT_NOT_FOUND", "INVALID_TRANSITION", "DELIVERY_LOCKED", "PAYMENT_REQUIRED",
     "STOCK_NOT_DEDUCTED", "ORDER_CANCELLED", "DELIVERY_UNAVAILABLE",
@@ -175,8 +169,8 @@ export const orderApiErrorSchema = z.strictObject({
 });
 export type OrderApiError = z.infer<typeof orderApiErrorSchema>;
 export const orderActionErrorSchema = z.strictObject({ code: z.string(), error: z.string(), currentPrice: orderApiErrorSchema.shape.currentPrice });
-export const newOrderLoaderSchema = z.strictObject({ products: orderCatalogSchema, contacts: orderContactsSchema, base: z.string() });
-export const orderListLoaderSchema = z.strictObject({ list: listOrderAggregatesResponseSchema.extend({ items: z.array(orderAggregateSummarySchema.extend({ itemCount: z.number().int().positive().safe(), balanceDue: moneySchema })) }), filters: listOrderAggregatesSchema, contacts: orderContactsSchema, customerSearch: z.string(), base: z.string() });
+export const newOrderLoaderSchema = z.strictObject({ products: orderCatalogSchema, base: z.string() });
+export const orderListLoaderSchema = z.strictObject({ list: listOrderAggregatesResponseSchema.extend({ items: z.array(orderAggregateSummarySchema.extend({ itemCount: z.number().int().positive().safe(), balanceDue: moneySchema })) }), filters: listOrderAggregatesSchema, base: z.string() });
 export const orderDetailLoaderSchema = z.strictObject({ order: orderAggregateSchema, base: z.string(), manualPaymentId: z.uuid(),
   receiptUrls: z.record(z.string(), z.url()) });
 

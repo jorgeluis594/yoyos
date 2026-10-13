@@ -15,12 +15,19 @@ const nativeId = (protocol: string) => `wa-message:v1:${Buffer.from(JSON.stringi
 async function fixture() {
   const companyId = randomUUID() as RegistrationContext["companyId"];
   await withTenantIsolation(companyId, async () => await prisma.company.create({ data: { id: companyId, name: "Mobile dispatch", country: "PE" } }));
-  return { companyId, context: { companyId, uploadedByUserId: "test-user" }, cleanup: () => withTenantIsolation(companyId, async () => {
+  return { companyId, context: { companyId, uploadedByUserId: "test-user" }, cleanup: async () => {
+    // Published message_created jobs must not stay queued for a worker running on this database.
+    const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+    try { await pool.query("DELETE FROM pgboss.job WHERE data->>'name' = 'message_created' AND data->'payload'->>'companyId' = $1", [companyId]); }
+    finally { await pool.end(); }
+    await withTenantIsolation(companyId, async () => {
     await prisma.chatMessage.deleteMany({ where: { companyId } });
     await prisma.chat.deleteMany({ where: { companyId } });
     await prisma.contact.deleteMany({ where: { companyId } });
+    await prisma.image.deleteMany({ where: { companyId } });
     await prisma.company.deleteMany({ where: { id: companyId } });
-  }) };
+    });
+  } };
 }
 
 function input(protocol: string) {
@@ -48,6 +55,52 @@ test("marker is tenant scoped, idempotent and preserves its first timestamp", as
     expect(await markEventDispatched(b.companyId, saved.data.messageId, new Date())).toMatchObject({ success: false, error: { code: "INVALID_STORED_DATA" } });
     expect(await markEventDispatched(a.companyId, randomUUID() as typeof saved.data.messageId, new Date())).toMatchObject({ success: false, error: { code: "INVALID_STORED_DATA" } });
   } finally { await runtime.provider.stop(); delete events.__yoyosEvents; await a.cleanup(); await b.cleanup(); }
+});
+
+function imageInput(protocol: string, imageId: string) {
+  const parsed = parseMobileMessage({ version: 1, message: { id: nativeId(protocol), accountId: "123@lid", chatId: "456@lid", whatsappMessageId: protocol,
+    direction: "incoming", timestamp: 1791417600123, content: { type: "image", imageId } } });
+  expect(parsed).not.toBeNull();
+  return parsed!;
+}
+const createImage = async (companyId: string) => {
+  const id = randomUUID();
+  await withTenantIsolation(companyId, async () => await prisma.image.create({ data: { id, companyId, storageKey: `images/${id}.jpg` } }));
+  return id;
+};
+
+test("an image of another company is IMAGE_NOT_FOUND and publishes nothing", async () => {
+  const a = await fixture();
+  const b = await fixture();
+  const runtime = createEventBusRuntime();
+  events.__yoyosEvents = runtime;
+  const publish = vi.spyOn(runtime.provider, "publish");
+  try {
+    const foreignImage = await createImage(b.companyId);
+    expect(await registerMobileMessage(imageInput("foreign", foreignImage), a.context)).toMatchObject({ success: false, error: { code: "IMAGE_NOT_FOUND" } });
+    expect(await registerMobileMessage(imageInput("missing", randomUUID()), a.context)).toMatchObject({ success: false, error: { code: "IMAGE_NOT_FOUND" } });
+    expect(publish).not.toHaveBeenCalled();
+    expect(await withTenantIsolation(a.companyId, async () => await prisma.chatMessage.count({ where: { companyId: a.companyId } }))).toBe(0);
+  } finally { delete events.__yoyosEvents; await a.cleanup(); await b.cleanup(); }
+});
+
+test("a registered image message publishes message_created once with the message id as eventId", async () => {
+  const f = await fixture();
+  const runtime = createEventBusRuntime();
+  events.__yoyosEvents = runtime;
+  await runtime.provider.start();
+  const publish = vi.spyOn(runtime.provider, "publish");
+  try {
+    const imageId = await createImage(f.companyId);
+    const stored = await registerMobileMessage(imageInput("image-event", imageId), f.context);
+    expect(stored).toMatchObject({ success: true, data: { status: "stored" } });
+    const messageId = stored.success ? stored.data.messageId : "";
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(publish).toHaveBeenCalledWith("message_created", { companyId: f.companyId, messageId }, expect.objectContaining({ eventId: messageId }));
+    const row = await withTenantIsolation(f.companyId, async () => await prisma.chatMessage.findFirstOrThrow({ where: { companyId: f.companyId } }));
+    expect(row).toMatchObject({ id: messageId, imageId });
+    expect(row.eventDispatchedAt).toBeInstanceOf(Date);
+  } finally { await runtime.provider.stop(); delete events.__yoyosEvents; await f.cleanup(); }
 });
 
 test("real provider recovers pending dispatch after restart and concurrent registration shares one event identity", async () => {
@@ -89,7 +142,8 @@ test("real provider recovers pending dispatch after restart and concurrent regis
     const rows = await withTenantIsolation(f.companyId, async () => await prisma.chatMessage.findMany({ where: { companyId: f.companyId } }));
     expect(rows).toHaveLength(2);
     expect(rows.every(result => result.eventDispatchedAt !== null)).toBe(true);
-    expect((await pool.query("SELECT id FROM pgboss.job WHERE data->>'name' = 'whatsapp_message_recorded'")).rowCount).toBe(0);
+    const queued = await pool.query<{ event_id: string }>("SELECT DISTINCT data->'metadata'->>'eventId' AS event_id FROM pgboss.job WHERE data->>'name' = 'message_created' AND data->'payload'->>'companyId' = $1", [f.companyId]);
+    expect(queued.rows.map(row => row.event_id).sort()).toEqual(rows.map(row => row.id).sort());
     await runtime.provider.stop();
     const stopped = await registerMobileMessage(input("stopped"), f.context);
     expect(stopped).toMatchObject({ success: false, error: { code: "EVENT_BUS_UNAVAILABLE" } });
@@ -101,7 +155,10 @@ test("real provider recovers pending dispatch after restart and concurrent regis
     const stoppedRow = await withTenantIsolation(f.companyId, async () => await prisma.chatMessage.findFirstOrThrow({ where: { companyId: f.companyId, whatsappMessageId: "stopped" } }));
     expect(stoppedRow.eventDispatchedAt).toBeInstanceOf(Date);
     expect(recovered.success && recovered.data.eventId).toBe(stoppedRow.id);
-  } finally { await runtime.provider.stop(); delete events.__yoyosEvents; await pool.end(); await f.cleanup(); }
+  } finally {
+    await runtime.provider.stop(); delete events.__yoyosEvents;
+    await pool.end(); await f.cleanup();
+  }
 });
 
 test("deferred commit failure never publishes a message event", async () => {

@@ -7,7 +7,7 @@ const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")
 test("order API sends only validated creation fields and validates the reply", async () => {
   const calls: [string, RequestInit | undefined][] = [];
   const api = createOrderApi(async (path, init) => { calls.push([path, init]); return ok({ unexpected: true }); });
-  const input = { id: id(1), contactId: null, items: [{ variantId: id(2), quantity: 2 }] };
+  const input = { id: id(1), items: [{ variantId: id(2), quantity: 2 }] };
   expect(await api.create(input)).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
   expect(calls).toHaveLength(1);
   expect(calls[0][0]).toBe("/api/orders");
@@ -27,7 +27,7 @@ test.each(["home", "agency", "store"] as const)("creation refuses obsolete %s de
   const delivery = method === "home" ? { method, recipient, destination: { address: "Street", district: "Lima", instructions: null } }
     : method === "agency" ? { method, recipient, courierId: id(4), agency: "Old agency" } : { method, recipient };
   for (const obsoleteCharge of [true, false]) {
-    expect(await api.create({ id: id(1), contactId: null, items: [{ variantId: id(2), quantity: 1 }],
+    expect(await api.create({ id: id(1), items: [{ variantId: id(2), quantity: 1 }],
       delivery: { delivery, obsoleteCharge } } as unknown as Parameters<typeof api.create>[0])).toMatchObject({ error: { code: "INVALID_INPUT" } });
   }
   expect(request).not.toHaveBeenCalled();
@@ -36,11 +36,11 @@ test.each(["home", "agency", "store"] as const)("creation refuses obsolete %s de
 test("order API preserves matching business errors and rejects mismatched status or operation", async () => {
   const stock = { code: "INSUFFICIENT_STOCK", error: "No stock", issues: [{ field: "items", reason: "STOCK", variantId: id(2) }] };
   const api = createOrderApi(async () => err({ code: "API_ERROR", message: "API error", http: { status: 409, body: stock } }));
-  expect(await api.create({ id: id(1), contactId: null, items: [{ variantId: id(2), quantity: 1 }] }))
+  expect(await api.create({ id: id(1), items: [{ variantId: id(2), quantity: 1 }] }))
     .toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK", issues: stock.issues } });
   expect(await api.get(id(1))).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
   const wrongStatus = createOrderApi(async () => err({ code: "API_ERROR", message: "API error", http: { status: 404, body: stock } }));
-  expect(await wrongStatus.create({ id: id(1), contactId: null, items: [{ variantId: id(2), quantity: 1 }] }))
+  expect(await wrongStatus.create({ id: id(1), items: [{ variantId: id(2), quantity: 1 }] }))
     .toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
 });
 
@@ -70,7 +70,7 @@ test("order error schemas preserve transport failures and the checkout status ex
 test("order API reads mixed summaries and validates complete aggregate states", async () => {
   const total = { amount: 10, currency: "PEN" as const };
   const zero = { amount: 0, currency: "PEN" as const };
-  const summary = { number: 1001, id: id(1), buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, sellerId: "seller",
+  const summary = { number: 1001, id: id(1), buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, sellerId: "seller",
     createdAt: "2026-09-29T12:00:00.000Z", deliveredAt: null, completedAt: null, status: "active", paymentStatus: "pending",
     deliveryStatus: "pending", stockDeducted: false, total };
   const order = { ...summary, companyId: id(2), paidAmount: zero, balanceDue: total, overpaidAmount: zero,
@@ -84,7 +84,7 @@ test("order API reads mixed summaries and validates complete aggregate states", 
   expect(await api.listAggregates({ page: 1, customer: "all" })).toMatchObject({ success: true,
     data: { items: [{ id: id(1), status: "active" }] } });
   expect(await api.getAggregate(id(1))).toMatchObject({ success: true, data: { id: id(1), payments: [] } });
-  expect(await api.create({ id: id(1), contactId: null, items: [{ variantId: id(4), quantity: 1 }] }))
+  expect(await api.create({ id: id(1), items: [{ variantId: id(4), quantity: 1 }] }))
     .toMatchObject({ success: true, data: { status: "active" } });
   expect(await api.registerPayment(id(1), { paymentId: id(5), amount: total, method: "digital_wallet", deductStockIfPartial: false }))
     .toMatchObject({ success: true, data: { stock: { kind: "not_requested" } } });
@@ -123,7 +123,7 @@ test("delivery API validates the complete authored snapshot and updated aggregat
   const delivery = { method: "store" as const, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } },
     pickupPoint: { name: "Store", address: "Lima", instructions: null }, settingsVersion: 1, recordedBy: { kind: "seller" as const, userId: "current-editor" } };
   const input = { delivery: { method: "store" as const, recipient: delivery.recipient }, expectedPrice: zero };
-  const order = { id: id(1), companyId: id(2), sellerId: "original-seller", number: 1001, buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, deliveredAt: null, createdAt: "2026-10-05T12:00:00.000Z", completedAt: null,
+  const order = { id: id(1), companyId: id(2), sellerId: "original-seller", number: 1001, buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, deliveredAt: null, createdAt: "2026-10-05T12:00:00.000Z", completedAt: null,
     status: "active", paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false, total, paidAmount: zero, balanceDue: total, overpaidAmount: zero,
     cancelled: false, delivery, payments: [], itemsTotal: total, deliveryCost: { amount: 3, currency: "PEN" }, deliveryCharge: zero,
     items: [{ id: id(3), variantId: id(4), productName: "Item", variantAttributes: {}, sku: null, quantity: 1, unitPrice: total, subtotal: total }] };
@@ -213,7 +213,7 @@ test("rated assignment sends the rate and reviewed price and preserves typed pri
   const incomplete = createOrderApi(async () => err({ code: "API_ERROR", message: "Error", http: { status: 409,
     body: { code: "TOTAL_CHANGED", error: "Review price" } } }));
   expect(await incomplete.setDelivery(id(1), input)).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
-  const creation = { id: id(1), contactId: null, items: [{ variantId: id(2), quantity: 1 }], delivery: input };
+  const creation = { id: id(1), items: [{ variantId: id(2), quantity: 1 }], delivery: input };
   expect(await api.create(creation)).toMatchObject({ success: false, error: { code: "TOTAL_CHANGED", currentPrice } });
   expect(JSON.parse(String(calls[2][1]?.body))).toEqual(creation);
 });
@@ -230,22 +230,10 @@ test("catalog recovery loads explicit variant IDs and rejects malformed or dupli
 });
 
 
-test("saved contact lookup validates identity and represents a deleted contact as absence", async () => {
-  const contact = { id: id(1), name: "Ana", phone: "999" };
-  const request = jest.fn(async () => ok([contact]));
-  const api = createOrderApi(request);
-  expect(await api.findContact(id(1))).toEqual(ok(contact));
-  expect(request).toHaveBeenCalledWith(`/api/orders/contacts?contactId=${id(1)}`);
-  expect(await api.findContact("invalid")).toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
-  expect(request).toHaveBeenCalledTimes(1);
-  expect(await createOrderApi(async () => ok([])).findContact(id(1))).toEqual(ok(null));
-  expect(await api.findContact(id(2))).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
-});
-
 function cancellationFixture() {
   const total = { amount: 10, currency: "PEN" as const };
   const zero = { amount: 0, currency: "PEN" as const };
-  return { id: id(1), companyId: id(2), sellerId: "seller", number: 1001, buyer: null,
+  return { id: id(1), companyId: id(2), sellerId: "seller", number: 1001, buyer: null, source: "manual",
     checkoutEnabledAt: null, checkoutConfirmedAt: null, deliveredAt: null, completedAt: null,
     createdAt: "2026-10-05T12:00:00.000Z", status: "cancelled", paymentStatus: "pending",
     deliveryStatus: "pending", cancelled: true, stockDeducted: true, delivery: null, payments: [],

@@ -8,26 +8,26 @@ test("seller scans units and independent states, searches orders and combines wo
   try {
     companyId = await prepareVerifiedCompany(page, { email, name: "Vendedor Demo", companyName: "Pedidos de prueba", country: "PE" });
     const tenantId = companyId;
-    const { variantIds, contactId } = await withTenantIsolation(tenantId, async () => {
+    const variantIds = await withTenantIsolation(tenantId, async () => {
       const product = await products.create({ name: "Producto", currency: "PEN", variants: [
         { attributes: { Size: "M" }, salePrice: 10, initialStock: 20 },
         { attributes: { Size: "L" }, salePrice: 20, initialStock: 20 },
       ] });
       if (!product.success) throw new Error("Product setup failed");
       const variants = await prisma.productVariant.findMany({ where: { productId: product.data }, orderBy: { salePrice: "asc" } });
-      const contact = await prisma.contact.create({ data: { id: crypto.randomUUID(), name: "Ana María Fernández del Castillo", phone: "+51912345678" } });
-      return { variantIds: variants.map((variant) => variant.id), contactId: contact.id };
+      return variants.map((variant) => variant.id);
     });
     const summaries: { id: string; number: number; kind: string }[] = [];
     for (const [index, kind] of ["partial", "paid", "shipped", "completed", "cancelled", "historical"].entries()) {
       const id = crypto.randomUUID();
       const complete = kind === "completed" || kind === "historical";
-      const created = await page.request.post("/api/orders", { data: { id, contactId: complete ? null : contactId,
+      const created = await page.request.post("/api/orders", { data: { id,
         items: kind === "partial" ? [{ variantId: variantIds[0], quantity: 3 }, { variantId: variantIds[1], quantity: 2 }]
           : [{ variantId: variantIds[0], quantity: 1 }],
         ...(complete ? { payment: { method: "digital_wallet" }, delivery: { method: "handover" } } : {}),
       } });
       expect(created.status()).toBe(201);
+      if (!complete) await withTenantIsolation(tenantId, async () => await prisma.orderBuyer.create({ data: { orderId: id, name: "Ana María Fernández del Castillo", phone: "+51912345678" } }));
       summaries.push({ id, number: (await created.json()).number, kind });
       if (["partial", "paid", "shipped"].includes(kind)) {
         expect((await page.request.post(`/api/orders/${id}/payments`, { data: { paymentId: crypto.randomUUID(),
