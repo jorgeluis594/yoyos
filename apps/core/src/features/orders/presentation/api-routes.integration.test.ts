@@ -947,7 +947,7 @@ test("shipping HTTP schedules, dispatches once, rolls back failed transitions an
   const patch = (orderId: string, body: unknown, cookie = seller.cookie) => call(`/api/orders/${orderId}/shipping`, cookie, body, "PATCH");
   const create = async () => {
     const id = randomUUID();
-    const created = await call("/api/orders", seller.cookie, { id, contactId: null, scheduledDispatchDate: "2026-10-15", items: [{ variantId: seller.variantId, quantity: 1 }] }, "POST");
+    const created = await call("/api/orders", seller.cookie, { id, scheduledDispatchDate: "2026-10-15", items: [{ variantId: seller.variantId, quantity: 1 }] }, "POST");
     expect(await created.json()).toMatchObject({ id, scheduledDispatchDate: "2026-10-15", shippedAt: null });
     return id;
   };
