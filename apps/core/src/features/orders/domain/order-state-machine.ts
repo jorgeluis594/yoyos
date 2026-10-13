@@ -2,6 +2,7 @@ import { parseOrderNumber, type OrderNumber, type OrderBuyer } from "@core/src/f
 import { add, compare, isCurrency, subtract, type Currency, type Money } from "@shared/money";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
+import { type DispatchDate } from "@shared/dispatch-date";
 import { z } from "zod";
 import { buildOrder, type BuildOrderInput, type BuildOrderError, type CompanyId, type OrderId, type OrderItem, type UserId } from "@core/src/features/orders/domain/order";
 import { parsePayment, voidPayment, type ConfirmedPayment, type Payment, type ReportedPayment } from "@core/src/features/orders/domain/payment";
@@ -43,6 +44,8 @@ export type OrderAggregate = Readonly<{
   checkoutEnabledAt: Date | null;
   checkoutConfirmedAt: Date | null;
   createdAt: Date;
+  scheduledDispatchDate: DispatchDate | null;
+  shippedAt: Date | null;
   deliveredAt: Date | null;
   completedAt: Date | null;
   cancelled: boolean;
@@ -82,7 +85,7 @@ export function buildPendingOrder(input: BuildPendingOrderInput): Result<OrderAg
   return ok({ number: input.number, id: snapshot.id, companyId: snapshot.companyId, sellerId: snapshot.sellerId,
     buyer: snapshot.customer.kind === "contact" ? { contactId: snapshot.customer.contactId, name: snapshot.customer.name, phone: snapshot.customer.phone } : null,
     checkoutEnabledAt: null, checkoutConfirmedAt: null, items: snapshot.items, total: snapshot.total,
-    createdAt: new Date(input.createdAt), deliveredAt: null, completedAt: null, cancelled: false,
+    createdAt: new Date(input.createdAt), scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, completedAt: null, cancelled: false,
     payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false,
     itemsTotal: snapshot.total, deliveryCost: zero, deliveryCharge: zero });
 }

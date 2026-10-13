@@ -4,6 +4,7 @@ import { log } from "@core/src/shared/infrastructure/logger";
 import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import { isCurrency } from "@shared/money";
+import { parseDispatchDate } from "@shared/dispatch-date";
 import { getCompanyId, prisma, systemPrisma, requireActiveTransaction } from "@core/src/shared/infrastructure/persistance";
 import { buildOrder, type OrderItemId, type OrderId, type ContactId, type CompanyId, type UserId, type PositiveInteger } from "@core/src/features/orders/domain/order";
 import { orderStateMachine, parseDeliverySnapshot, type OrderAggregate, type Payment } from "@core/src/features/orders/domain/order-state-machine";
@@ -102,12 +103,15 @@ function mapAggregate(row: DbAggregate, operation = "get_order_aggregate"): Orde
       unitPrice: { amount: item.unitPrice.toNumber(), currency: row.currency }, subtotal: { amount: item.subtotal.toNumber(), currency: row.currency } };
   }) as [OrderAggregate["items"][number], ...OrderAggregate["items"][number][]];
   const payments: Payment[] = row.payments.map(mapPayment);
+  const parsedDate = row.scheduledDispatchDate ? parseDispatchDate(row.scheduledDispatchDate.toISOString().slice(0, 10)) : null;
+  if (parsedDate && !parsedDate.success) throw new InvalidStoredOrderError("Invalid stored dispatch date");
+  const scheduledDispatchDate = parsedDate ? parsedDate.data : null;
   const number = parseOrderNumber(Number(row.number));
   if (!number.success) throw new InvalidStoredOrderError("Invalid stored order number");
   const order: OrderAggregate = { number: number.data, id: row.id as OrderId, companyId: row.companyId as CompanyId, sellerId: row.sellerId as UserId,
     buyer: row.buyer ? { contactId: row.buyer.contactId as ContactId | null, name: row.buyer.name, phone: row.buyer.phone } : null,
     checkoutEnabledAt: row.checkoutEnabledAt, checkoutConfirmedAt: row.checkoutConfirmedAt,
-    createdAt: row.createdAt, deliveredAt: row.deliveredAt, completedAt: row.completedAt, cancelled: row.cancelled, items, payments,
+    createdAt: row.createdAt, scheduledDispatchDate, shippedAt: row.shippedAt, deliveredAt: row.deliveredAt, completedAt: row.completedAt, cancelled: row.cancelled, items, payments,
     delivery: delivery === null ? null : delivery.data, deliveryStatus: row.deliveryStatus, stockDeducted: row.stockDeducted,
     itemsTotal: { amount: row.itemsTotal.toNumber(), currency: row.currency },
     deliveryCost: { amount: row.deliveryCost.toNumber(), currency: row.currency },
@@ -134,7 +138,7 @@ export async function savePendingOrder(order: OrderAggregate) {
       deliveryCharge: new Prisma.Decimal(order.deliveryCharge.amount.toString()),
       delivery: Prisma.JsonNull,
       deliveryStatus: order.deliveryStatus, stockDeducted: order.stockDeducted, cancelled: order.cancelled,
-      createdAt: order.createdAt, deliveredAt: order.deliveredAt, completedAt: order.completedAt,
+      createdAt: order.createdAt, scheduledDispatchDate: order.scheduledDispatchDate && new Date(order.scheduledDispatchDate), shippedAt: order.shippedAt, deliveredAt: order.deliveredAt, completedAt: order.completedAt,
       items: { create: order.items.map((item) => ({ id: item.id, variantId: item.variantId, productName: item.productName,
         variantAttributes: item.variantAttributes as Prisma.InputJsonObject, sku: item.sku, quantity: BigInt(item.quantity),
         unitPrice: new Prisma.Decimal(item.unitPrice.amount.toString()), subtotal: new Prisma.Decimal(item.subtotal.amount.toString()) })) },
