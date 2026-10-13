@@ -98,7 +98,7 @@ test("a registered image message publishes message_created once with the message
     expect(publish).toHaveBeenCalledTimes(1);
     expect(publish).toHaveBeenCalledWith("message_created", { companyId: f.companyId, messageId }, expect.objectContaining({ eventId: messageId }));
     const row = await withTenantIsolation(f.companyId, async () => await prisma.chatMessage.findFirstOrThrow({ where: { companyId: f.companyId } }));
-    expect(row).toMatchObject({ id: messageId, imageStatus: "ready", imageId });
+    expect(row).toMatchObject({ id: messageId, imageId });
     expect(row.eventDispatchedAt).toBeInstanceOf(Date);
   } finally { await runtime.provider.stop(); delete events.__yoyosEvents; await f.cleanup(); }
 });

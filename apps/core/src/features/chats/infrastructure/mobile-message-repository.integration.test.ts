@@ -55,43 +55,23 @@ test("stores and reads both directions and content variants without media side e
       expect(await prisma.chatMessage.count({ where: { companyId: f.companyId } })).toBe(6);
       expect(await prisma.image.count({ where: { companyId: f.companyId } })).toBe(1);
       const rows = await prisma.chatMessage.findMany({ where: { companyId: f.companyId } });
-      expect(rows.every((row) => row.userId === null && row.source === (row.direction === "incoming" ? "contact" : "seller"))).toBe(true);
-      expect(rows.filter((row) => row.type === "image").every((row) => row.imageStatus === "ready" && row.whatsappMediaId === null && row.imageId === f.imageId && row.imageMimeType === null && row.imageSize === null)).toBe(true);
+      expect(rows.every((row) => row.source === (row.direction === "incoming" ? "contact" : "seller"))).toBe(true);
+      expect(rows.filter((row) => row.type === "image").every((row) => row.imageId === f.imageId)).toBe(true);
     });
   } finally { await f.cleanup(); }
 });
 
-test("stores an image message with its imageId as ready without mimeType or size", async () => {
+test("stores an image message with its imageId", async () => {
   const f = await fixture();
   try {
     const input = message(f.companyId, "ready", { type: "image", imageId: f.imageId, caption: "Etiqueta" });
     expect(await storeOnce(input)).toMatchObject({ success: true, data: { created: true, message: { content: { type: "image", caption: "Etiqueta", imageId: f.imageId } } } });
     const row = await withTenantIsolation(f.companyId, async () => await prisma.chatMessage.findFirstOrThrow({ where: { companyId: f.companyId } }));
-    expect(row).toMatchObject({ type: "image", imageStatus: "ready", imageId: f.imageId, imageMimeType: null, imageSize: null, whatsappMediaId: null });
+    expect(row).toMatchObject({ type: "image", imageId: f.imageId });
   } finally { await f.cleanup(); }
 });
 
-test("reads legacy metadata_only rows with and without sentAt", async () => {
-  const f = await fixture();
-  try {
-    const first = message(f.companyId, "legacy-seed", { type: "text", text: "seed" });
-    expect((await storeOnce(first)).success).toBe(true);
-    const seed = await withTenantIsolation(f.companyId, async () => await prisma.chatMessage.findFirstOrThrow({ where: { companyId: f.companyId } }));
-    const { mapMobileMessage } = await import("@core/src/features/chats/infrastructure/mobile-message-repository");
-    for (const [index, sentAt] of [new Date("2026-10-08T12:00:00.000Z"), null].entries()) {
-      const protocolId = `legacy-${index}`;
-      const row = await withTenantIsolation(f.companyId, async () => {
-        await prisma.chatMessage.create({ data: { companyId: f.companyId, chatId: seed.chatId, externalId: nativeId(accountId, remoteChatId, protocolId), whatsappMessageId: protocolId,
-          direction: "incoming", source: "contact", type: "image", caption: "old", sentAt, receivedAt: first.receivedAt, uploadedByUserId: "test-user",
-          imageStatus: "metadata_only", imageMimeType: "image/png", imageSize: 12n } });
-        return await prisma.chatMessage.findFirstOrThrow({ where: { companyId: f.companyId, whatsappMessageId: protocolId }, include: { chat: { include: { contact: true } } } });
-      });
-      expect(mapMobileMessage(row)).toMatchObject({ success: true, data: { sentAt, content: { type: "image", caption: "old", imageId: null } } });
-    }
-  } finally { await f.cleanup(); }
-});
-
-test("rejects a ready image without imageId and a text message with imageId", async () => {
+test("rejects an image without imageId and a text message with imageId", async () => {
   const f = await fixture();
   try {
     expect((await storeOnce(message(f.companyId, "invalid-ready", { type: "image", imageId: f.imageId }))).success).toBe(true);
@@ -151,9 +131,7 @@ test("rejects incompatible stored identity, content, dates and image size", asyn
       { ...row, sentAt: new Date(Number.NaN) },
       { ...row, receivedAt: new Date("+010000-01-01T00:00:00.000Z") },
       { ...row, eventDispatchedAt: new Date(Number.NaN) },
-      { ...row, imageSize: BigInt(Number.MAX_SAFE_INTEGER) + 1n },
-      { ...row, imageStatus: "failed" as typeof row.imageStatus },
-      { ...row, uploadedByUserId: null },
+      { ...row, uploadedByUserId: "" },
     ]) expect(mapMobileMessage(corrupt)).toMatchObject({ success: false, error: { code: "INVALID_STORED_DATA" } });
     expect(mapMobileMessage({ ...row, eventDispatchedAt: new Date(row.receivedAt.getTime() - 1) }).success).toBe(true);
   } finally { await f.cleanup(); }
@@ -170,7 +148,7 @@ test("tenant scope cannot read or link another company's mobile message", async 
       expect(await prisma.chatMessage.findFirst({ where: { id: foreign.id } })).toBeNull();
       expect(await prisma.chatMessage.updateMany({ where: { id: foreign.id }, data: { text: "changed" } })).toEqual({ count: 0 });
       await expect(prisma.chatMessage.create({ data: { companyId: b.companyId, chatId: foreign.chatId,
-        externalId: "foreign", direction: "incoming", source: "contact", type: "text", text: "foreign", sentAt: new Date(), receivedAt: new Date() } })).rejects.toThrow();
+        externalId: "foreign", whatsappMessageId: "foreign", uploadedByUserId: "test-user", direction: "incoming", source: "contact", type: "text", text: "foreign", sentAt: new Date(), receivedAt: new Date() } })).rejects.toThrow();
     });
     expect(await withTenantIsolation(a.companyId, async () => await prisma.chatMessage.findFirstOrThrow({ where: { id: foreign.id } }))).toMatchObject({ text: "private" });
   } finally { await a.cleanup(); await b.cleanup(); }
@@ -310,18 +288,6 @@ test("stores a mobile message without sentAt", async () => {
     await withTenantIsolation(f.companyId, async () => {
       expect((await prisma.chatMessage.findFirstOrThrow({ where: { companyId: f.companyId } })).sentAt).toBeNull();
     });
-  } finally { await f.cleanup(); }
-});
-
-test("rejects a message without sentAt outside mobile rows", async () => {
-  const f = await fixture();
-  try {
-    await expect(withTenantIsolation(f.companyId, async () => {
-      const contact = await prisma.contact.create({ data: { companyId: f.companyId, phone: "+51912345678" } });
-      const chat = await prisma.chat.create({ data: { companyId: f.companyId, contactId: contact.id } });
-      await prisma.chatMessage.create({ data: { companyId: f.companyId, chatId: chat.id, externalId: "wamid.cloud",
-        direction: "incoming", source: "contact", type: "text", text: "cloud", sentAt: null, receivedAt: new Date() } });
-    })).rejects.toThrow(/ChatMessage_sentAt_required_outside_mobile_check|sentAt/);
   } finally { await f.cleanup(); }
 });
 

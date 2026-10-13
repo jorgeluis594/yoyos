@@ -61,7 +61,7 @@ async function photo(f: Fixture, codes: readonly string[], over: { uploader?: st
   await withTenantIsolation(f.companyId, async () => {
     await prisma.image.create({ data: { id: imageId, storageKey: `images/${imageId}` } });
     await prisma.chatMessage.create({ data: { id: messageId, chatId: f.chatId, externalId: `ext-${messageId}`, whatsappMessageId: `wa-${messageId}`, direction,
-      source: direction === "incoming" ? "contact" : "seller", type: "image", imageId, imageStatus: "ready", uploadedByUserId: over.uploader ?? f.sellerId,
+      source: direction === "incoming" ? "contact" : "seller", type: "image", imageId, uploadedByUserId: over.uploader ?? f.sellerId,
       sentAt: new Date(), receivedAt: new Date() } });
   });
   return messageId;

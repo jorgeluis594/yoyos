@@ -117,7 +117,7 @@ describe("addMessageProductsToOrder", () => {
     expect(await h.run()).toEqual(ok({ kind: "order_created", orderId: id(500), variantIds: [variant(1).variantId], unknownCodes: [qr(9)] }));
   });
 
-  test("skips text and metadata_only messages as not_image without reading images", async () => {
+  test("skips text messages as not_image without reading images", async () => {
     const h = harness({ message: message({ imageId: null }) });
     expect(await h.run()).toEqual(ok({ kind: "skipped", reason: "not_image" }));
     expect(h.state.calls).not.toContain("readImage");

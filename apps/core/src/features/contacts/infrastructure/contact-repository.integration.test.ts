@@ -58,18 +58,12 @@ test("LID contacts remain tenant scoped and cannot become sale buyers without a 
 
       const chat = await prisma.chat.create({ data: { contactId: first.data.id } });
       const base = { chatId: chat.id, externalId: "same-native-id", direction: "incoming" as const,
-        source: "contact" as const, sentAt: new Date(0), receivedAt: new Date(), userId: null };
-      const mobile = await prisma.chatMessage.create({ data: { ...base, type: "image", text: null,
-        whatsappMessageId: "protocol-1", uploadedByUserId: "uploader", imageStatus: "metadata_only",
-        imageMimeType: "image/jpeg", imageSize: BigInt(Number.MAX_SAFE_INTEGER) } });
-      expect(mobile.imageSize).toBe(BigInt(Number.MAX_SAFE_INTEGER));
+        source: "contact" as const, sentAt: new Date(0), receivedAt: new Date() };
+      await prisma.chatMessage.create({ data: { ...base, type: "text", text: "first", whatsappMessageId: "protocol-1", uploadedByUserId: "uploader" } });
       await expect(prisma.chatMessage.create({ data: { ...base, externalId: "different-native-id", type: "text", text: "repeat",
         whatsappMessageId: "protocol-1", uploadedByUserId: "uploader" } })).rejects.toThrow();
-      await expect(prisma.chatMessage.create({ data: { ...base, externalId: "bad-cloud", type: "image", imageStatus: "metadata_only" } })).rejects.toThrow();
-      await expect(prisma.chatMessage.create({ data: { ...base, externalId: "bad-mobile", type: "text", text: "",
-        whatsappMessageId: "protocol-2", uploadedByUserId: "uploader" } })).rejects.toThrow();
-      await expect(prisma.chatMessage.create({ data: { ...base, externalId: "bad-size", type: "image", imageStatus: "metadata_only",
-        whatsappMessageId: "protocol-3", uploadedByUserId: "uploader", imageSize: -1n } })).rejects.toThrow();
+      await expect(prisma.chatMessage.create({ data: { ...base, externalId: "image-without-image", type: "image",
+        whatsappMessageId: "protocol-2", uploadedByUserId: "uploader" } })).rejects.toThrow(/ChatMessage_content_check/);
     });
   } finally {
     await cleanup(companyA);

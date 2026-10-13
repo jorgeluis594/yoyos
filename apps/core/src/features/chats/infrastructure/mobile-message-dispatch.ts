@@ -28,9 +28,9 @@ export async function dispatchMessageRecorded(payload: MessageCreated, metadata:
 export async function markEventDispatched(companyId: CompanyId, messageId: ChatMessageId, at: Date): Promise<Result<void, RegisterMobileMessageError>> {
   try {
     return await withTenantIsolation(companyId, async () => {
-      const updated = await prisma.chatMessage.updateMany({ where: { companyId, id: messageId, whatsappMessageId: { not: null }, eventDispatchedAt: null }, data: { eventDispatchedAt: at } });
+      const updated = await prisma.chatMessage.updateMany({ where: { companyId, id: messageId, eventDispatchedAt: null }, data: { eventDispatchedAt: at } });
       if (updated.count) return { success: true, data: undefined };
-      const existing = await prisma.chatMessage.findFirst({ where: { companyId, id: messageId, whatsappMessageId: { not: null } }, select: { eventDispatchedAt: true } });
+      const existing = await prisma.chatMessage.findFirst({ where: { companyId, id: messageId }, select: { eventDispatchedAt: true } });
       return existing?.eventDispatchedAt ? { success: true, data: undefined } : err({ code: "INVALID_STORED_DATA", message: "Invalid stored message" });
     });
   } catch (cause) {

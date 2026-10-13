@@ -23,7 +23,7 @@ async function seller(page: Page) {
   return { email, companyId: account.companyId };
 }
 async function rows(companyId: string) {
-  return withTenantIsolation(companyId, async () => await prisma.chatMessage.findMany({ where: { companyId, whatsappMessageId: { not: null } } }));
+  return withTenantIsolation(companyId, async () => await prisma.chatMessage.findMany({ where: { companyId } }));
 }
 async function checked(response: Awaited<ReturnType<Page["request"]["post"]>>, status: number) {
   expect(response.status()).toBe(status);
@@ -63,7 +63,7 @@ test("E01–E03 stores text and image, and a lost response repeats the original 
   image.message.timestamp = 0;
   await checked(await page.request.post("/api/messages", { data: image }), 201);
   expect((await rows(companyId)).find(row => row.whatsappMessageId === image.message.whatsappMessageId))
-    .toMatchObject({ direction: "outgoing", source: "seller", imageStatus: "ready", imageMimeType: null, imageSize: null, imageId });
+    .toMatchObject({ direction: "outgoing", source: "seller", imageId });
   const missing = message(crypto.randomUUID(), { type: "image", imageId: crypto.randomUUID() });
   expect(apiErrorResponseSchema.parse(await checked(await page.request.post("/api/messages", { data: missing }), 404)).code).toBe("IMAGE_NOT_FOUND");
   expect(await rows(companyId)).toHaveLength(2);

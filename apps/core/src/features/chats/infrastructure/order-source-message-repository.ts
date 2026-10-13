@@ -13,7 +13,7 @@ export type OrderSourceMessage = Readonly<{
   contactId: string;
   direction: "incoming" | "outgoing";
   uploadedByUserId: UserId;
-  imageId: string | null; // null for text and legacy metadata_only rows
+  imageId: string | null; // null for text messages
 }>;
 
 type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
@@ -24,8 +24,7 @@ export async function findOrderSourceMessage(messageId: string): Promise<Result<
       where: { id: messageId },
       select: { id: true, companyId: true, chatId: true, direction: true, uploadedByUserId: true, imageId: true, chat: { select: { contactId: true } } },
     });
-    // Cloud API rows have no uploader; they cannot become orders, so the use case sees them as missing.
-    if (!message?.uploadedByUserId) return ok(null);
+    if (!message) return ok(null);
     return ok({
       id: message.id as ChatMessageId, companyId: message.companyId as CompanyId, chatId: message.chatId, contactId: message.chat.contactId,
       direction: message.direction === "incoming" ? "incoming" : "outgoing",

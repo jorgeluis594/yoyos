@@ -18,7 +18,7 @@ export type OrderSourceMessage = Readonly<{
   contactId: ContactId;
   direction: "incoming" | "outgoing";
   uploadedByUserId: UserId;
-  imageId: ImageId | null; // null en texto y en filas antiguas metadata_only
+  imageId: ImageId | null; // null en mensajes de texto
 }>;
 
 export type MessageCustomer = Readonly<{

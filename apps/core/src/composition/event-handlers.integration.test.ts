@@ -48,7 +48,7 @@ async function fixture() {
     await withTenantIsolation(companyId, async () => {
       await prisma.image.create({ data: { id: imageId, storageKey: `images/${imageId}` } });
       await prisma.chatMessage.create({ data: { id: messageId, chatId, externalId: `ext-${messageId}`, whatsappMessageId: `wa-${messageId}`, direction: "incoming",
-        source: "contact", type: "image", imageId, imageStatus: "ready", uploadedByUserId: sellerId, sentAt: new Date(), receivedAt: new Date() } });
+        source: "contact", type: "image", imageId, uploadedByUserId: sellerId, sentAt: new Date(), receivedAt: new Date() } });
     });
     return messageId;
   }

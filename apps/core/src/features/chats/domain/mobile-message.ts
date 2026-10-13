@@ -24,11 +24,7 @@ export type MobileMessageInput = Readonly<{
 
 export type RegistrationContext = Readonly<{ companyId: CompanyId; uploadedByUserId: string }>;
 export type NewMobileMessage = MobileMessageInput & RegistrationContext & Readonly<{ id: ChatMessageId; receivedAt: Date }>;
-/** Legacy `metadata_only` image rows have no imageId. */
-export type StoredMobileMessageContent =
-  | Readonly<{ type: "text"; text: string }>
-  | Readonly<{ type: "image"; caption: string | null; imageId: ImageId | null }>;
-export type MobileMessage = Omit<NewMobileMessage, "content"> & Readonly<{ content: StoredMobileMessageContent; chatId: string; eventDispatchedAt: Date | null }>;
+export type MobileMessage = NewMobileMessage & Readonly<{ chatId: string; eventDispatchedAt: Date | null }>;
 export type StoreOutcome = Readonly<{ created: boolean; message: MobileMessage }>;
 export type RegisterOutcome = Readonly<{ status: "stored" | "duplicate"; messageId: ChatMessageId; eventId: ChatMessageId; receivedAt: Date }>;
 export type RegisterMobileMessageError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE" | "EVENT_BUS_UNAVAILABLE" | "INVALID_STORED_DATA" | "INVALID_EVENT" | "IMAGE_NOT_FOUND"; message: string }>;

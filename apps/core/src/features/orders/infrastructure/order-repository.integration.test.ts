@@ -1628,7 +1628,7 @@ async function chatFixture(owner: Awaited<ReturnType<typeof fixture>>) {
     await prisma.chat.create({ data: { id: chatId, contactId: owner.contactId } });
     await prisma.image.create({ data: { id: imageId, storageKey: `images/${imageId}` } });
     await prisma.chatMessage.create({ data: { id: messageId, chatId, externalId: `ext-${messageId}`, whatsappMessageId: `wa-${messageId}`, direction: "incoming",
-      source: "contact", type: "image", imageId, imageStatus: "ready", uploadedByUserId: owner.sellerId, sentAt: new Date(), receivedAt: new Date() } });
+      source: "contact", type: "image", imageId, uploadedByUserId: owner.sellerId, sentAt: new Date(), receivedAt: new Date() } });
   });
   return { customerId, chatId, messageId, source: { chatId, customerId } };
 }
