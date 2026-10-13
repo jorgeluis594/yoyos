@@ -1,20 +1,7 @@
-import { internationalPhonePattern } from "@shared/phone";
-
 export type CustomerId = string & { readonly __brand: "CustomerId" };
 
-type ContactDetails = Readonly<{ id: string; name: string | null; createdAt: Date; updatedAt: Date }>;
-export type PhoneContact = ContactDetails & (
-  | Readonly<{ phone: string; whatsappAccountId?: null; whatsappLid?: null }>
-  | Readonly<{ phone: string; whatsappAccountId: string; whatsappLid: string }>
-);
-export type WhatsAppContact = ContactDetails & Readonly<{ phone: string | null; whatsappAccountId: string; whatsappLid: string }>;
-export type Contact = PhoneContact | WhatsAppContact;
+export type WhatsAppContact = Readonly<{ id: string; whatsappAccountId: string; whatsappLid: string; createdAt: Date; updatedAt: Date }>;
 
 export function validWhatsAppLid(value: string): boolean {
   return value.length <= 128 && /^[0-9]+@lid$/.test(value);
-}
-
-export function normalizePhone(phone: string): string | null {
-  if (!internationalPhonePattern.test(phone)) return null;
-  return phone;
 }

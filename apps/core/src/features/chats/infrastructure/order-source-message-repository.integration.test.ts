@@ -21,7 +21,7 @@ test("findOrderSourceMessage returns image and text messages and hides other com
   const [a, b] = [await company(), await company()];
   try {
     const rows = await withTenantIsolation(a.id, async () => {
-      const contact = await prisma.contact.create({ data: { phone: "+51912345678" } });
+      const contact = await prisma.contact.create({ data: { whatsappAccountId: "1@lid", whatsappLid: "2@lid" } });
       const chat = await prisma.chat.create({ data: { contactId: contact.id } });
       const image = await prisma.image.create({ data: { storageKey: "k" } });
       const common = { ...base, chatId: chat.id };

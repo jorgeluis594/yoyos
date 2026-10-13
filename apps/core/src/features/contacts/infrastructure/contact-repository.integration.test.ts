@@ -21,27 +21,19 @@ test("LID contacts remain tenant scoped and cannot become sale buyers without a 
     expect(await withTenantIsolation(companyA, () => ensureWhatsAppContact({ companyId: companyA, whatsappAccountId: "123@c.us", whatsappLid: lid })))
       .toMatchObject({ success: false, error: { code: "INVALID_CONTACT" } });
     const first = await withTenantIsolation(companyA, () => ensureWhatsAppContact({ companyId: companyA, whatsappAccountId: account, whatsappLid: lid }));
-    expect(first).toMatchObject({ success: true, data: { phone: null, name: null, whatsappAccountId: account, whatsappLid: lid } });
+    expect(first).toMatchObject({ success: true, data: { whatsappAccountId: account, whatsappLid: lid } });
     if (!first.success) return;
     expect(await withTenantIsolation(companyA, () => ensureWhatsAppContact({ companyId: companyA, whatsappAccountId: account, whatsappLid: lid })))
       .toMatchObject({ success: true, data: { id: first.data.id } });
     expect(await withTenantIsolation(companyA, () => ensureWhatsAppContact({ companyId: companyA, whatsappAccountId: "789@lid", whatsappLid: lid })))
-      .toMatchObject({ success: true, data: { phone: null } });
-    const named = await withTenantIsolation(companyA, async () => await prisma.contact.create({ data: { phone: "+51912345678", name: "Existing name", whatsappAccountId: "333@lid", whatsappLid: lid } }));
-    expect(await withTenantIsolation(companyA, () => ensureWhatsAppContact({ companyId: companyA, whatsappAccountId: "333@lid", whatsappLid: lid })))
-      .toMatchObject({ success: true, data: { id: named.id, phone: named.phone, name: named.name } });
-    expect(await withTenantIsolation(companyA, async () => await prisma.contact.findUnique({ where: { id: named.id } })))
-      .toMatchObject({ phone: "+51912345678", name: "Existing name", whatsappAccountId: "333@lid", whatsappLid: lid });
+      .toMatchObject({ success: true, data: { whatsappAccountId: "789@lid" } });
     const other = await withTenantIsolation(companyB, () => ensureWhatsAppContact({ companyId: companyB, whatsappAccountId: account, whatsappLid: lid }));
-    expect(other).toMatchObject({ success: true, data: { phone: null } });
+    expect(other).toMatchObject({ success: true, data: { whatsappAccountId: account } });
     if (other.success) expect(other.data.id).not.toBe(first.data.id);
     await withTenantIsolation(companyA, async () => {
-      expect(await prisma.contact.count()).toBe(3);
+      expect(await prisma.contact.count()).toBe(2);
       expect(await prisma.contact.findFirst({ where: { id: other.success ? other.data.id : "" } })).toBeNull();
-      await expect(prisma.contact.create({ data: { phone: null, whatsappAccountId: account, whatsappLid: null } })).rejects.toThrow();
-      await expect(prisma.contact.create({ data: { phone: null } })).rejects.toThrow();
-      await expect(prisma.contact.create({ data: { phone: "" } })).rejects.toThrow();
-      await prisma.contact.create({ data: { phone: "+51987654321" } });
+      await expect(prisma.contact.create({ data: { whatsappAccountId: account, whatsappLid: lid } })).rejects.toThrow();
 
       const chat = await prisma.chat.create({ data: { contactId: first.data.id } });
       const base = { chatId: chat.id, externalId: "same-native-id", direction: "incoming" as const,
@@ -74,9 +66,9 @@ test("ensureCustomerForContact creates and links an empty customer", async () =>
   const f = await customerFixture();
   try {
     await withTenantIsolation(f.companyId, async () => {
-      const contact = await prisma.contact.create({ data: { phone: "+51912345678", name: "Ana" } });
+      const contact = await prisma.contact.create({ data: { whatsappAccountId: "1@lid", whatsappLid: "2@lid" } });
       const result = await withinTransaction(() => ensureCustomerForContact(contact.id));
-      expect(result).toMatchObject({ success: true, data: { contactId: contact.id, name: "Ana", phone: "+51912345678" } });
+      expect(result).toMatchObject({ success: true, data: { contactId: contact.id } });
       const linked = await prisma.contact.findUniqueOrThrow({ where: { id: contact.id } });
       expect(linked.customerId).toBe(result.success ? result.data.customerId : null);
       expect(await prisma.customer.count()).toBe(1);
@@ -91,7 +83,7 @@ test("ensureCustomerForContact returns the existing customer without creating an
       const customer = await prisma.customer.create({ data: { id: randomUUID(), createdAt: new Date() } });
       const contact = await prisma.contact.create({ data: { whatsappAccountId: "1@lid", whatsappLid: "2@lid", customerId: customer.id } });
       const result = await withinTransaction(() => ensureCustomerForContact(contact.id));
-      expect(result).toMatchObject({ success: true, data: { customerId: customer.id, contactId: contact.id, name: null, phone: null } });
+      expect(result).toMatchObject({ success: true, data: { customerId: customer.id, contactId: contact.id } });
       expect(await prisma.customer.count()).toBe(1);
     });
   } finally { await f.cleanup(); }
@@ -101,7 +93,7 @@ test("two concurrent calls create one customer", async () => {
   const f = await customerFixture();
   try {
     await withTenantIsolation(f.companyId, async () => {
-      const contact = await prisma.contact.create({ data: { phone: "+51912345679" } });
+      const contact = await prisma.contact.create({ data: { whatsappAccountId: "1@lid", whatsappLid: "2@lid" } });
       const results = await Promise.all([1, 2, 3].map(() => withTenantIsolation(f.companyId, () => withinTransaction(() => ensureCustomerForContact(contact.id)))));
       const ids = new Set(results.map((result: (typeof results)[number]) => result.success ? result.data.customerId : result.error.code));
       expect(ids.size).toBe(1);
@@ -113,7 +105,7 @@ test("two concurrent calls create one customer", async () => {
 test("returns CONTACT_NOT_FOUND for a contact of another company", async () => {
   const f = await customerFixture();
   try {
-    const foreign = await withTenantIsolation(f.otherCompanyId, async () => await prisma.contact.create({ data: { phone: "+51912345670" } }));
+    const foreign = await withTenantIsolation(f.otherCompanyId, async () => await prisma.contact.create({ data: { whatsappAccountId: "1@lid", whatsappLid: "2@lid" } }));
     await withTenantIsolation(f.companyId, async () => {
       expect(await withinTransaction(() => ensureCustomerForContact(foreign.id))).toMatchObject({ success: false, error: { code: "CONTACT_NOT_FOUND" } });
       expect(await withinTransaction(() => ensureCustomerForContact(randomUUID()))).toMatchObject({ success: false, error: { code: "CONTACT_NOT_FOUND" } });

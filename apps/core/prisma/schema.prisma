@@ -365,10 +365,8 @@ model Contact {
   id        String   @id @default(uuid()) @db.Uuid
   companyId String   @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
   company   Company  @relation(fields: [companyId], references: [id])
-  phone     String?
-  whatsappAccountId String? @db.VarChar(128)
-  whatsappLid String? @db.VarChar(128)
-  name      String?
+  whatsappAccountId String @db.VarChar(128)
+  whatsappLid String @db.VarChar(128)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   chats     Chat[]
@@ -378,7 +376,6 @@ model Contact {
 
   @@index([companyId, customerId])
   @@unique([companyId, id])
-  @@unique([companyId, phone])
   @@unique([companyId, whatsappAccountId, whatsappLid])
 }
 

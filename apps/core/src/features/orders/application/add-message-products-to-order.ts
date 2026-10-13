@@ -24,8 +24,6 @@ export type OrderSourceMessage = Readonly<{
 export type MessageCustomer = Readonly<{
   customerId: CustomerId;
   contactId: ContactId;
-  name: string | null;  // del contacto
-  phone: string | null; // del contacto
 }>;
 
 export type AddMessageProductsOutcome =
@@ -156,7 +154,7 @@ async function writeItems(input: Input, message: OrderSourceMessage, customer: M
   const number = await deps.allocateNumber(input.companyId);
   if (!number.success) return number;
   const built = buildPendingOrder({ number: number.data, id: deps.newOrderId(), companyId: input.companyId, sellerId: message.uploadedByUserId,
-    customer: { kind: "contact", contactId: customer.contactId, name: customer.name, phone: customer.phone }, createdAt: deps.clock(),
+    customer: { kind: "contact", contactId: customer.contactId, name: null, phone: null }, createdAt: deps.clock(),
     items: scan.variants.map((variant) => ({ id: deps.newItemId(), variantId: variant.variantId, productName: variant.productName,
       variantAttributes: variant.variantAttributes, sku: variant.sku, unitPrice: variant.unitPrice, quantity: 1 })) });
   if (!built.success) return built;

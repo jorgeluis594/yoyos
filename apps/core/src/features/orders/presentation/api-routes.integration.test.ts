@@ -60,7 +60,7 @@ async function fixture(country: "PE" | "CL") {
     await prisma.productVariant.create({ data: { id: variantId, productId, attributes: { Talla: "M" }, sku: `SKU-${variantId}`,
       salePrice: 10, qrCode: variantId, status: "active" } });
     await prisma.productStock.create({ data: { variantId, quantity: 3n } });
-    await prisma.contact.create({ data: { id: contactId, name: "Ana", phone: "+51999999999" } });
+    await prisma.contact.create({ data: { id: contactId, whatsappAccountId: "1@lid", whatsappLid: "2@lid" } });
   });
   const result = { companyId, userId, cookie, productId, variantId, contactId, async cleanup() {
     await withTenantIsolation(companyId, async () => {

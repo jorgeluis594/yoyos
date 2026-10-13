@@ -4,7 +4,7 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { getCompanyId, prisma, withLockedForUpdate } from "@core/src/shared/infrastructure/persistance";
 import type { WhatsAppContactRepository } from "@core/src/features/contacts/application/ensure-whatsapp-contact";
-import { normalizePhone, type CustomerId, validWhatsAppLid, type WhatsAppContact } from "@core/src/features/contacts/domain/contact";
+import { type CustomerId, validWhatsAppLid, type WhatsAppContact } from "@core/src/features/contacts/domain/contact";
 import { Prisma } from "@prisma/client";
 
 function isPersistenceFailure(cause: unknown) {
@@ -13,20 +13,19 @@ function isPersistenceFailure(cause: unknown) {
     || cause instanceof Prisma.PrismaClientInitializationError;
 }
 
-type ContactRow = { id: string; phone: string | null; whatsappAccountId: string | null; whatsappLid: string | null; name: string | null; createdAt: Date; updatedAt: Date };
+type ContactRow = { id: string; whatsappAccountId: string; whatsappLid: string; createdAt: Date; updatedAt: Date };
 
 export function mapWhatsAppContact(contact: ContactRow): WhatsAppContact | null {
-  return (contact.phone === null || normalizePhone(contact.phone)) && contact.whatsappAccountId && contact.whatsappLid
-    && validWhatsAppLid(contact.whatsappAccountId) && validWhatsAppLid(contact.whatsappLid)
-    ? { ...contact, whatsappAccountId: contact.whatsappAccountId, whatsappLid: contact.whatsappLid } : null;
+  return validWhatsAppLid(contact.whatsappAccountId) && validWhatsAppLid(contact.whatsappLid)
+    ? { id: contact.id, whatsappAccountId: contact.whatsappAccountId, whatsappLid: contact.whatsappLid, createdAt: contact.createdAt, updatedAt: contact.updatedAt } : null;
 }
 
 export const whatsappContactRepository: WhatsAppContactRepository = {
   async insertIfAbsent(input) {
     try {
       await prisma.$executeRaw`
-        INSERT INTO "Contact" ("id", "companyId", "phone", "name", "whatsappAccountId", "whatsappLid", "createdAt", "updatedAt")
-        VALUES (${randomUUID()}::uuid, ${input.companyId}::uuid, NULL, NULL, ${input.whatsappAccountId}, ${input.whatsappLid}, now(), now())
+        INSERT INTO "Contact" ("id", "companyId", "whatsappAccountId", "whatsappLid", "createdAt", "updatedAt")
+        VALUES (${randomUUID()}::uuid, ${input.companyId}::uuid, ${input.whatsappAccountId}, ${input.whatsappLid}, now(), now())
         ON CONFLICT ("companyId", "whatsappAccountId", "whatsappLid") DO NOTHING
       `;
       const contact = await prisma.contact.findFirst({ where: {
@@ -43,19 +42,19 @@ export const whatsappContactRepository: WhatsAppContactRepository = {
   },
 };
 
-export type MessageCustomer = Readonly<{ customerId: CustomerId; contactId: string; name: string | null; phone: string | null }>;
+export type MessageCustomer = Readonly<{ customerId: CustomerId; contactId: string }>;
 
 type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 type ContactNotFound = Readonly<{ code: "CONTACT_NOT_FOUND"; message: string }>;
 
-type LockedContact = { id: string; name: string | null; phone: string | null; customerId: string | null };
+type LockedContact = { id: string; customerId: string | null };
 
 /** Requires an active transaction: the row lock serializes concurrent messages of the same contact. */
 export async function ensureCustomerForContact(contactId: string): Promise<Result<MessageCustomer, PersistenceError | ContactNotFound>> {
   try {
     return await withLockedForUpdate<LockedContact, Result<MessageCustomer, ContactNotFound>>(
       getCompanyId(),
-      Prisma.sql`SELECT "id", "name", "phone", "customerId" FROM "Contact" WHERE "id" = ${contactId}::uuid`,
+      Prisma.sql`SELECT "id", "customerId" FROM "Contact" WHERE "id" = ${contactId}::uuid`,
       async (contact) => {
         if (!contact) return err({ code: "CONTACT_NOT_FOUND" as const, message: "Contact not found" });
         const customerId = contact.customerId ?? randomUUID();
@@ -63,7 +62,7 @@ export async function ensureCustomerForContact(contactId: string): Promise<Resul
           await prisma.customer.create({ data: { id: customerId, createdAt: new Date() } });
           await prisma.contact.update({ where: { id: contact.id }, data: { customerId } });
         }
-        return ok({ customerId: customerId as CustomerId, contactId: contact.id, name: contact.name, phone: contact.phone });
+        return ok({ customerId: customerId as CustomerId, contactId: contact.id });
       },
     );
   } catch (cause) {

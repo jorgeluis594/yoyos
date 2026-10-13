@@ -42,7 +42,7 @@ async function fixture() {
       await prisma.productVariant.create({ data: { id: variantId, productId, attributes: { Size: index ? "L" : "M" }, sku: `SKU-${variantId}`, salePrice: index ? 0.2 : 0.1, qrCode: variantId, status: "active" } });
       await prisma.productStock.create({ data: { variantId, quantity: 3n } });
     }
-    await prisma.contact.create({ data: { id: contactId, phone: "+51999999999", name: null } });
+    await prisma.contact.create({ data: { id: contactId, whatsappAccountId: "1@lid", whatsappLid: "2@lid" } });
   });
   return { companyId, sellerId, productId, variantIds, contactId, async cleanup() {
     await withTenantIsolation(companyId, async () => {
@@ -861,8 +861,6 @@ test("buyer snapshots stay independent of contacts and preserve guest buyers in 
     await withTenantIsolation(a.companyId, async () => {
       await prisma.orderBuyer.create({ data: { orderId: contactOrder.data.id, contactId: a.contactId, phone: "+51999999999" } });
       expect(await orderDetail(contactOrder.data.id, a)).toMatchObject({ data: { buyer: { contactId: a.contactId, name: null, phone: "+51999999999" }, checkoutEnabledAt: null, checkoutConfirmedAt: null } });
-      await prisma.contact.update({ where: { id: a.contactId }, data: { name: "New global name", phone: "+51988888888" } });
-      expect(await orderDetail(contactOrder.data.id, a)).toMatchObject({ data: { buyer: { name: null, phone: "+51999999999" } } });
       await prisma.orderBuyer.create({ data: { orderId: guestOrder.data.id, name: "Guest", phone: "+14155552671" } });
       expect(await orderDetail(guestOrder.data.id, a)).toMatchObject({ data: { buyer: { contactId: null, name: "Guest" } } });
       const context = { companyId: a.companyId as CompanyId, userId: a.sellerId as UserId };
@@ -921,7 +919,6 @@ test("checkout enable and confirmation are idempotent under real concurrent tran
     expect({ ...stored.data, buyer: order.buyer, checkoutEnabledAt: null, checkoutConfirmedAt: null }).toEqual(order);
     expect(stored.data.buyer?.contactId).toBe(f.contactId);
     await withTenantIsolation(f.companyId, async () => {
-      expect(await prisma.contact.findUnique({ where: { id: f.contactId } })).toMatchObject({ name: null, phone: "+51999999999" });
       expect(await prisma.orderBuyer.count({ where: { orderId: access.orderId } })).toBe(1);
       expect(await prisma.payment.count()).toBe(0);
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);

@@ -29,7 +29,7 @@ async function fixture(prefill: "none" | "phone" | "full" = "none", enabled = tr
     const product = await products.create({ name: "Cuaderno", currency: "PEN", variants: [{ attributes: { Color: "Azul" }, salePrice: 10, initialStock: 3 }] });
     if (!product.success) throw new Error("Product fixture failed");
     const variant = await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } });
-    if (prefill !== "none") await prisma.contact.create({ data: { id: contactId, name: prefill === "full" ? "Anterior" : null, phone: "+51987654321" } });
+    if (prefill !== "none") await prisma.contact.create({ data: { id: contactId, whatsappAccountId: "1@lid", whatsappLid: "2@lid" } });
     const created = await orders.create({ id: orderId, items: [{ variantId: variant.id as VariantId, quantity: 1 as PositiveInteger }] }, { companyId, userId });
     if (!created.success) throw new Error("Order fixture failed");
     if (prefill !== "none") await prisma.orderBuyer.create({ data: { orderId, contactId, name: prefill === "full" ? "Anterior" : null, phone: "+51987654321" } });
@@ -92,7 +92,6 @@ test("anonymous mobile buyer reviews fixed products, corrects prefilled data and
     expect(replay.status()).toBe(302);
     expect(replay.headers().location).toBe(f.path);
     expect(await f.read()).toEqual(stored);
-    expect(await withTenantIsolation(f.companyId, async () => (await prisma.contact.findFirstOrThrow()).name)).toBeNull();
     await f.cancel();
     await page.goto(f.path);
     await browserExpect(page.getByRole("heading", { name: "Pedido cancelado", exact: true })).toBeVisible();
