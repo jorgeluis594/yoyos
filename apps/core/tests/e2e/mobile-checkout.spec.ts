@@ -21,9 +21,9 @@ test("mobile seller copies checkout and sees the anonymous buyer confirmation in
     const variantId = await withTenantIsolation(tenant, async () => (await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } })).id);
     await withTenantIsolation(tenant, async () => { await prisma.company.update({ where: { id: tenant }, data: { nextOrderNumber: 9999n } }); });
     const historical = randomUUID();
-    expect((await page.request.post("/api/orders", { data: { id: historical, contactId: null, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
+    expect((await page.request.post("/api/orders", { data: { id: historical, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
     const id = randomUUID();
-    expect((await page.request.post("/api/orders", { data: { id, contactId: null, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
+    expect((await page.request.post("/api/orders", { data: { id, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
     await page.goto(`${mobile.origin}/orders/${id}`, { timeout: 90_000 });
@@ -52,7 +52,7 @@ test("mobile seller copies checkout and sees the anonymous buyer confirmation in
     const pending = randomUUID();
     const cancelled = randomUUID();
     for (const other of [pending, cancelled]) {
-      expect((await page.request.post(`http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}/api/orders`, { data: { id: other, contactId: null, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
+      expect((await page.request.post(`http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}/api/orders`, { data: { id: other, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
       expect((await page.request.post(`http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}/api/orders/${other}/checkout-link`)).status()).toBe(200);
     }
     expect((await page.request.post(`http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}/api/orders/${cancelled}/cancel`)).status()).toBe(200);

@@ -34,8 +34,9 @@ async function fixture({ delivery = true }: { delivery?: boolean } = {}) {
     if (!product.success) throw new Error("Product fixture failed");
     const variant = await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } });
     await prisma.contact.create({ data: { id: contactId, name: "Ana", phone: "+51987654321" } });
-    const created = await orders.create({ id: orderId, contactId, items: [{ variantId: variant.id as VariantId, quantity: 1 as PositiveInteger }] }, { companyId, userId });
+    const created = await orders.create({ id: orderId, items: [{ variantId: variant.id as VariantId, quantity: 1 as PositiveInteger }] }, { companyId, userId });
     if (!created.success) throw new Error("Order fixture failed");
+    await prisma.orderBuyer.create({ data: { orderId, contactId, name: "Ana", phone: "+51987654321" } });
     if (delivery) await prisma.order.update({ where: { id: orderId }, data: { delivery: { method: "store",
       recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } }, pickupPoint: { name: "Tienda", address: "Historical address", instructions: null },
       settingsVersion: 0, recordedBy: { kind: "seller", userId } } } });

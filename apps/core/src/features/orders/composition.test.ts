@@ -36,7 +36,7 @@ import { findOrderForUpdate } from "@core/src/features/orders/infrastructure/ord
 import { orders, addMessageProductsHandler, messageOrderPolicy } from "@core/src/features/orders/composition";
 
 const id = (n: number) => `00000000-0000-4000-8000-${n.toString().padStart(12, "0")}`;
-const input = { id: id(1) as OrderId, contactId: null, items: [{ variantId: id(2) as VariantId, quantity: 1 as PositiveInteger }] } as const;
+const input = { id: id(1) as OrderId, items: [{ variantId: id(2) as VariantId, quantity: 1 as PositiveInteger }] } as const;
 const context = { companyId: id(3) as CompanyId, userId: id(4) as UserId };
 
 test("returns a recoverable failure when transaction acquisition or commit fails", async () => {

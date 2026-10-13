@@ -66,14 +66,10 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     const stock = await withTenantIsolation(tenantId, async () => await prisma.productStock.findFirstOrThrow());
     expect(stock.quantity).toBe(1n);
 
-    const contactId = crypto.randomUUID();
-    await withTenantIsolation(tenantId, async () => await prisma.contact.create({ data: { id: contactId, phone: "+51912345678", name: null } }));
     await page.getByRole("link", { name: "Nueva venta" }).click();
     await browserExpect(page.getByText(/Stock: 1/)).toBeVisible();
     await page.getByRole("button", { name: "Agregar Cuaderno POS" }).click();
     await page.getByRole("button", { name: "Agregar Cuaderno POS" }).click();
-    await page.getByRole("button", { name: "Cambiar" }).click();
-    await page.getByRole("button", { name: "Seleccionar" }).click();
     await page.getByRole("button", { name: "Agregar pago" }).click();
     await page.getByLabel("Importe recibido").fill("0.58");
     await page.getByLabel("Marcar como entregado al guardar").check();
@@ -86,23 +82,17 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     await browserExpect(page.locator("#resumen strong")).toHaveText(formatCurrency(0.29, "PEN", "es"));
     await page.getByRole("button", { name: "Guardar pedido" }).click();
     await browserExpect(page).toHaveURL(/\/es-PE\/orders\/[0-9a-f-]+$/);
-    await browserExpect(page.getByText("Teléfono al vender")).toBeVisible();
-    await browserExpect(page.getByText("+51912345678", { exact: true }).first()).toBeVisible();
     await browserExpect(page.getByText(`Total: ${formatCurrency(0.30, "PEN", "es")}`)).toBeVisible();
     const completedUrl = page.url();
     await page.getByRole("link", { name: "Ver ventas" }).click();
     await page.getByRole("button", { name: "Filtros" }).click();
     await browserExpect(page.getByRole("dialog", { name: "Filtros de ventas" })).toBeVisible();
-    await chooseOption(page, "Cliente", "Contacto");
-    await chooseOption(page, "Contacto", "912345678");
+    await chooseOption(page, "Cliente", "Público general");
     await page.getByRole("button", { name: "Aplicar filtros" }).click();
-    await browserExpect(page.getByRole("heading", { name: /Ventas/ }).locator('[data-slot="page-header-count"]')).toHaveText("1");
-    await page.getByRole("searchbox", { name: "Buscar por nombre, teléfono o número de pedido" }).fill("912345678");
-    await page.getByRole("button", { name: "Buscar pedidos" }).click();
-    await browserExpect(page).toHaveURL(/search=912345678/);
-    await browserExpect(page).toHaveURL(new RegExp(`customer=contact.*contactId=${contactId}`));
+    await browserExpect(page).toHaveURL(/customer=general_public/);
+    await browserExpect(page.getByRole("heading", { name: /Ventas/ }).locator('[data-slot="page-header-count"]')).toHaveText("2");
     const tampered = await page.request.post("/es-PE/orders/new", { form: { order: JSON.stringify({ id: crypto.randomUUID(),
-      companyId: crypto.randomUUID(), sellerId: crypto.randomUUID(), total: 0.01, contactId: null,
+      companyId: crypto.randomUUID(), sellerId: crypto.randomUUID(), total: 0.01,
       items: [{ variantId: stock.variantId, quantity: 1 }] }) } });
     expect(await tampered.text()).toContain("Revisa los datos de la venta.");
     expect(await withTenantIsolation(tenantId, async () => await prisma.order.count())).toBe(2);
@@ -133,7 +123,7 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     await browserExpect(page).toHaveURL(/\/es-PE\/orders\/[0-9a-f-]+$/);
     const recoveredId = page.url().split("/").at(-1)!;
     expect(await withTenantIsolation(tenantId, async () => await prisma.order.count())).toBe(3);
-    const duplicate = await page.request.post("/es-PE/orders/new", { form: { order: JSON.stringify({ id: recoveredId, contactId: null,
+    const duplicate = await page.request.post("/es-PE/orders/new", { form: { order: JSON.stringify({ id: recoveredId,
       items: [{ variantId: stock.variantId, quantity: 1 }] }) } });
     expect(await duplicate.text()).toContain("Esta venta ya se registró");
     expect(await withTenantIsolation(tenantId, async () => await prisma.order.count())).toBe(3);
@@ -142,7 +132,7 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
       await prisma.productStock.update({ where: { variantId: stock.variantId }, data: { quantity: 25n } });
       const sellerId = (await systemPrisma.user.findUniqueOrThrow({ where: { email } })).id;
       for (let index = 0; index < 21; index++) {
-        expect(await orders.registerImmediateSale({ id: crypto.randomUUID() as OrderId, contactId: null,
+        expect(await orders.registerImmediateSale({ id: crypto.randomUUID() as OrderId, 
           items: [{ variantId: stock.variantId as VariantId, quantity: 1 as PositiveInteger }] },
         { companyId: tenantId as CompanyId, userId: sellerId as UserId })).toMatchObject({ success: true });
       }

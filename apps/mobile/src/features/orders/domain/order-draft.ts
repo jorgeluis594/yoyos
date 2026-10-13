@@ -16,8 +16,6 @@ export type OrderDraftItem = Readonly<{
   quantity: number;
 }>;
 
-type DraftCustomer = Readonly<{ kind: "general_public" }> | Readonly<{ kind: "contact"; contactId: string; name: string | null; phone: string }>;
-
 export type DraftPayment = Readonly<{ paymentId: string; amount: string; method: "digital_wallet" | "bank_transfer"; deductStockIfPartial: boolean }>;
 type DraftOptions = Readonly<{ payments?: readonly DraftPayment[]; ratedDelivery?: RatedDeliveryAssignment; deliverImmediately?: boolean }>;
 const identity = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("absent") }),
@@ -35,7 +33,7 @@ export const ratedDeliveryAssignmentSchema = z.strictObject({
   ]),
 }).refine(value => value.delivery.method === "store" ? value.expectedPrice.amount === 0 : value.expectedPrice.currency === "PEN");
 export type RatedDeliveryAssignment = z.infer<typeof ratedDeliveryAssignmentSchema>;
-const submissionSchema = z.strictObject({ id: z.uuid(), contactId: z.uuid().nullable(),
+const submissionSchema = z.strictObject({ id: z.uuid(),
   items: z.array(z.strictObject({ variantId: z.uuid(), quantity: z.number().int().positive().safe() })).min(1),
   payments: z.array(z.strictObject({ paymentId: z.uuid(), amount: z.strictObject({ amount: z.number().finite().positive().refine(value => /^\d+(?:\.\d{1,2})?$/.test(String(value))), currency: z.enum(currencies) }),
     method: z.enum(["digital_wallet", "bank_transfer"]), deductStockIfPartial: z.boolean() })).optional(),
@@ -45,14 +43,14 @@ const submissionSchema = z.strictObject({ id: z.uuid(), contactId: z.uuid().null
 export type OrderSubmission = z.infer<typeof submissionSchema>;
 
 export type OrderDraft = DraftOptions & (
-  | Readonly<{ kind: "empty"; id?: string; customer: DraftCustomer; items: readonly [] }>
-  | Readonly<{ kind: "items"; id: string; customer: DraftCustomer;
+  | Readonly<{ kind: "empty"; id?: string; items: readonly [] }>
+  | Readonly<{ kind: "items"; id: string;
       items: readonly [OrderDraftItem, ...OrderDraftItem[]] }>);
 
 export type CartError = Readonly<{ code: "INVALID_CART"; message: string }>;
 const invalid = () => err<CartError>({ code: "INVALID_CART", message: "Invalid order selection" });
 
-export const emptyOrderDraft = (): OrderDraft => ({ kind: "empty", customer: { kind: "general_public" }, items: [] });
+export const emptyOrderDraft = (): OrderDraft => ({ kind: "empty", items: [] });
 
 export function prepareOrder(draft: OrderDraft): Result<{ request: OrderSubmission; shownTotal: Money }, CartError> {
   if (draft.kind === "empty" || new Set(draft.items.map((item) => item.variantId)).size !== draft.items.length) return invalid();
@@ -81,7 +79,6 @@ export function prepareOrder(draft: OrderDraft): Result<{ request: OrderSubmissi
     ...(draft.payments ? { payments: draft.payments.map(payment => ({ ...payment, amount: { amount: Number(normalizeDecimalInput(payment.amount)), currency: total?.currency } })) } : {}),
     ...(ratedDelivery?.success ? { delivery: ratedDelivery.data } : {}),
     ...(draft.deliverImmediately !== undefined ? { deliverImmediately: draft.deliverImmediately } : {}),
-    contactId: draft.customer.kind === "contact" ? draft.customer.contactId : null,
     items: draft.items.map(({ variantId, quantity }) => ({ variantId, quantity })) });
   return parsed.success && total ? ok({ request: parsed.data, shownTotal: total }) : invalid();
 }
@@ -109,6 +106,3 @@ export function removeDraftItem(draft: OrderDraft, variantId: string): OrderDraf
   return first ? { ...draft, items: [first, ...rest] } : { ...draft, kind: "empty", items: [] };
 }
 
-export function setDraftCustomer(draft: OrderDraft, customer: OrderDraft["customer"]): OrderDraft {
-  return { ...draft, customer };
-}

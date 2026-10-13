@@ -22,7 +22,7 @@ test("rated agency requires a document and a catalog agency, preserves its snaps
       const created = await products.create({ name: "Agency product", currency: "PEN", variants: [{ attributes: {}, salePrice: 10, initialStock: 3 }] });
       if (!created.success) throw new Error("Expected product");
       const variant = await prisma.productVariant.findFirstOrThrow({ where: { productId: created.data } });
-      expect(await orders.create({ id: orderId as OrderId, contactId: null, items: [{ variantId: variant.id as VariantId, quantity: 1 as PositiveInteger }] },
+      expect(await orders.create({ id: orderId as OrderId, items: [{ variantId: variant.id as VariantId, quantity: 1 as PositiveInteger }] },
         { companyId: tenantId as CompanyId, userId: sellerId as UserId })).toMatchObject({ success: true });
       return variant.id;
     });
@@ -127,7 +127,7 @@ test("rated agency requires a document and a catalog agency, preserves its snaps
     await browserExpect(page.getByRole("button", { name: "Guardar entrega" })).toHaveCount(0);
     await browserExpect(page.getByText("Sucursal Arequipa", { exact: true })).toBeVisible();
     const cancelledId = crypto.randomUUID();
-    expect((await page.request.post("/api/orders/pending", { data: { id: cancelledId, contactId: null, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
+    expect((await page.request.post("/api/orders/pending", { data: { id: cancelledId, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
     expect((await page.request.post(`/api/orders/${cancelledId}/cancel`)).ok()).toBe(true);
     await page.goto(`/es-PE/orders/${cancelledId}`);
     await browserExpect(page.getByText("Orden cancelada", { exact: true })).toBeVisible();

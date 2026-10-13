@@ -26,7 +26,7 @@ test("rated pickup freezes its point and replacement preserves author and stock 
       const created = await products.create({ name: "Pickup product", currency: "PEN", variants: [{ attributes: {}, salePrice: 10, initialStock: 3 }] });
       if (!created.success) throw new Error("Expected product");
       const variant = await prisma.productVariant.findFirstOrThrow({ where: { productId: created.data } });
-      expect(await orders.create({ id: orderId as OrderId, contactId: null,
+      expect(await orders.create({ id: orderId as OrderId, 
         items: [{ variantId: variant.id as VariantId, quantity: 2 as PositiveInteger }] },
       { companyId: tenantId as CompanyId, userId: sellerId as UserId })).toMatchObject({ success: true });
       return variant.id;

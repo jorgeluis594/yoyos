@@ -2,9 +2,7 @@ import { randomUUID } from "node:crypto";
 import { expect, test } from "vitest";
 import { prisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { ensureWhatsAppContact } from "@core/src/features/contacts";
-import { ensureCustomerForContact, findContactById, searchSaleContacts } from "@core/src/features/contacts/infrastructure/contact-repository";
-import { createOrderInTransaction } from "@core/src/features/orders/application/create-order";
-import { ok } from "@shared/functional";
+import { ensureCustomerForContact } from "@core/src/features/contacts/infrastructure/contact-repository";
 
 const companyA = randomUUID();
 const companyB = randomUUID();
@@ -39,22 +37,11 @@ test("LID contacts remain tenant scoped and cannot become sale buyers without a 
     if (other.success) expect(other.data.id).not.toBe(first.data.id);
     await withTenantIsolation(companyA, async () => {
       expect(await prisma.contact.count()).toBe(3);
-      expect(await findContactById(first.data.id)).toEqual({ success: true, data: null });
-      expect(await searchSaleContacts("")).toMatchObject({ success: true, data: [{ id: named.id, phone: named.phone }] });
-      const orderInput = { id: randomUUID(), contactId: first.data.id, items: [{ variantId: randomUUID(), quantity: 1 }] } as unknown as Parameters<typeof createOrderInTransaction>[0];
-      const orderAccess = { companyId: companyA, userId: "seller" } as unknown as Parameters<typeof createOrderInTransaction>[1];
-      expect(await createOrderInTransaction(orderInput, orderAccess, {
-        orderExists: async () => ok(false), findContact: findContactById,
-        findVariant: async () => ok(null), allocateNumber: async () => ok(1n as never),
-        saveOrder: async () => ok(null), newItemId: randomUUID as never, clock: () => new Date(),
-      })).toMatchObject({ success: false, error: { code: "CONTACT_NOT_FOUND" } });
       expect(await prisma.contact.findFirst({ where: { id: other.success ? other.data.id : "" } })).toBeNull();
       await expect(prisma.contact.create({ data: { phone: null, whatsappAccountId: account, whatsappLid: null } })).rejects.toThrow();
       await expect(prisma.contact.create({ data: { phone: null } })).rejects.toThrow();
       await expect(prisma.contact.create({ data: { phone: "" } })).rejects.toThrow();
-      const phone = await prisma.contact.create({ data: { phone: "+51987654321" } });
-      expect(await findContactById(phone.id)).toMatchObject({ success: true, data: { phone: "+51987654321" } });
-      expect(await searchSaleContacts("9876")).toMatchObject({ success: true, data: [{ id: phone.id, phone: "+51987654321" }] });
+      await prisma.contact.create({ data: { phone: "+51987654321" } });
 
       const chat = await prisma.chat.create({ data: { contactId: first.data.id } });
       const base = { chatId: chat.id, externalId: "same-native-id", direction: "incoming" as const,

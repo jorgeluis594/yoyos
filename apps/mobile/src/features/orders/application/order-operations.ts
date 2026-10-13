@@ -1,11 +1,11 @@
 import { z } from "zod";
-import { listOrderAggregatesResponseSchema, listOrderAggregatesSchema, listOrdersResponseSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema,
+import { listOrderAggregatesResponseSchema, listOrderAggregatesSchema, listOrdersResponseSchema, listOrdersSchema, orderCatalogSchema,
   type ListOrderAggregatesRequest, type ListOrdersRequest, type OrderAggregateResponse, type OrderApiError, type OrderApiIssue } from "@shared/contracts/orders";
 import { err, ok } from "@shared/functional";
 import { add, subtract, type Money } from "@shared/money";
 import { limaMidnightUtc, nextCalendarDay } from "@shared/orders-date";
 import type { Result } from "@shared/result";
-import { addDraftItem, emptyOrderDraft, prepareOrder, ratedDeliveryAssignmentSchema, setDraftCustomer, type CartError, type OrderDraft, type OrderSubmission, type RatedDeliveryAssignment } from "@mobile/features/orders/domain/order-draft";
+import { addDraftItem, emptyOrderDraft, prepareOrder, ratedDeliveryAssignmentSchema, type CartError, type OrderDraft, type OrderSubmission, type RatedDeliveryAssignment } from "@mobile/features/orders/domain/order-draft";
 import type { TransportError } from "@mobile/shared/application/transport-error";
 
 export type PendingOrderConfirmation = Readonly<{
@@ -32,12 +32,12 @@ export type ConfirmOrderOutcome =
 
 export type PendingOrderReview = Readonly<{
   kind: "review"; pending: PendingOrderConfirmation; draft: OrderDraft;
-  unavailableVariantIds: readonly string[]; contactUnavailable: boolean;
+  unavailableVariantIds: readonly string[];
 }>;
 
 export type OrderListCriteria = Readonly<{
   page: number;
-  customer: { kind: "all" } | { kind: "general_public" } | { kind: "contact"; contactId: string };
+  customer: { kind: "all" } | { kind: "general_public" };
   search?: string;
   view?: "all" | "unpaid" | "undelivered";
   fromDay?: string;
@@ -56,8 +56,6 @@ type Api = Readonly<{
   create: (input: OrderSubmission) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
   findCatalog: (variantIds: readonly string[]) => Promise<Result<z.infer<typeof orderCatalogSchema>, OrderRequestError>>;
   searchCatalog: (search: string) => Promise<Result<z.infer<typeof orderCatalogSchema>, OrderRequestError>>;
-  findContact: (contactId: string) => Promise<Result<z.infer<typeof orderContactsSchema>[number] | null, OrderRequestError>>;
-  searchContacts: (search: string) => Promise<Result<z.infer<typeof orderContactsSchema>, OrderRequestError>>;
 }>;
 type PendingStore = Readonly<{
   read: (companyId: string) => Promise<Result<PendingOrderConfirmation | null, PendingOrderStoreError>>;
@@ -73,7 +71,6 @@ function listRequest(criteria: OrderListCriteria): Result<ListOrdersRequest, Ord
       (criteria.fromDay && criteria.throughDay && criteria.fromDay > criteria.throughDay))
     return err({ code: "INVALID_INPUT", message: "Invalid order days" });
   const parsed = listOrdersSchema.safeParse({ page: criteria.page, customer: criteria.customer.kind,
-    ...(criteria.customer.kind === "contact" ? { contactId: criteria.customer.contactId } : {}),
     ...(criteria.fromDay ? { completedFrom: limaMidnightUtc(criteria.fromDay) } : {}),
     ...(criteria.throughDay ? { completedBefore: limaMidnightUtc(nextCalendarDay(criteria.throughDay)) } : {}),
   });
@@ -87,7 +84,6 @@ function mixedListRequest(criteria: OrderListCriteria): Result<ListOrderAggregat
     return err({ code: "INVALID_INPUT", message: "Invalid order days" });
   const parsed = listOrderAggregatesSchema.safeParse({ page: criteria.page, customer: criteria.customer.kind,
     ...(criteria.search ? { search: criteria.search.trim() } : {}), ...(criteria.view ? { view: criteria.view } : {}),
-    ...(criteria.customer.kind === "contact" ? { contactId: criteria.customer.contactId } : {}),
     ...(criteria.fromDay ? { createdFrom: limaMidnightUtc(criteria.fromDay) } : {}),
     ...(criteria.throughDay ? { createdBefore: limaMidnightUtc(nextCalendarDay(criteria.throughDay)) } : {}),
   });
@@ -95,7 +91,7 @@ function mixedListRequest(criteria: OrderListCriteria): Result<ListOrderAggregat
 }
 
 const definitive = new Set<OrderRequestError["code"]>(["INVALID_INPUT", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE",
-  "INVALID_ORDER", "CURRENCY_MISMATCH", "CONTACT_NOT_FOUND", "VARIANT_NOT_FOUND", "INSUFFICIENT_STOCK",
+  "INVALID_ORDER", "CURRENCY_MISMATCH", "VARIANT_NOT_FOUND", "INSUFFICIENT_STOCK",
   "INVALID_PAYMENT", "PAYMENT_CONFLICT", "PAYMENT_REQUIRED", "INVALID_TRANSITION", "STOCK_NOT_DEDUCTED",
   "DELIVERY_UNAVAILABLE", "DELIVERY_METHOD_DISABLED", "RATE_UNAVAILABLE", "TOTAL_CHANGED", "INVALID_DISTRICT", "INVALID_DELIVERY_RATE"]);
 export function createOrderOperations(api: Api, pendingStore: PendingStore) {
@@ -168,8 +164,6 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
     loadOrder: api.get,
     searchOrderCatalog: api.searchCatalog,
     loadOrderCatalog: api.findCatalog,
-    searchOrderContacts: api.searchContacts,
-    loadOrderContact: api.findContact,
     readPendingOrderConfirmation: pendingStore.read,
     discardPendingOrderConfirmation: pendingStore.discard,
     resolvePendingOrderConfirmation,
@@ -186,15 +180,11 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
       if (found.error.code !== "ORDER_NOT_FOUND") return found;
       const catalog = await api.findCatalog(request.items.map(item => item.variantId));
       if (!catalog.success) return catalog;
-      const contact = request.contactId ? await api.findContact(request.contactId) : ok(null);
-      if (!contact.success) return contact;
       if (request.payments?.some(payment => payment.amount.currency !== saved.shownTotal.currency))
         return err({ code: "CURRENCY_MISMATCH", message: "Saved payment currency differs" });
       let draft: OrderDraft = { ...emptyOrderDraft(), id: saved.id,
         payments: request.payments?.map(payment => ({ ...payment, amount: String(payment.amount.amount) })),
         deliverImmediately: request.deliverImmediately };
-      draft = setDraftCustomer(draft, request.contactId ? { kind: "contact", contactId: request.contactId,
-        name: contact.data?.name ?? null, phone: contact.data?.phone ?? "" } : { kind: "general_public" });
       const unavailableVariantIds: string[] = [];
       for (const item of request.items) {
         const product = catalog.data.find(product => product.variants.some(variant => variant.id === item.variantId));
@@ -211,7 +201,7 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
         if (!delivery.success) return err({ code: "INVALID_CART", message: "Invalid saved delivery" });
         draft = { ...draft, ratedDelivery: delivery.data };
       }
-      return ok({ kind: "review", pending: saved, draft, unavailableVariantIds, contactUnavailable: !!request.contactId && !contact.data });
+      return ok({ kind: "review", pending: saved, draft, unavailableVariantIds });
     },
     reviewPendingOrder: (companyId: string, draft: OrderDraft) => run(companyId, undefined, async () => {
       const pending = await pendingStore.read(companyId);

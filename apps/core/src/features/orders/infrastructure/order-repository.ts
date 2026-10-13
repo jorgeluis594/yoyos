@@ -335,7 +335,7 @@ export async function saveDelivery(id: OrderId, companyId: CompanyId, change: Pi
 export async function findOrders(criteria: OrderCriteria) {
   const where: Prisma.OrderWhereInput = {
     companyId: getCompanyId(),
-    ...(criteria.customer.kind === "general_public" ? { buyer: { is: null } } : criteria.customer.kind === "contact" ? { buyer: { is: { contactId: criteria.customer.contactId } } } : {}),
+    ...(criteria.customer.kind === "general_public" ? { buyer: { is: null } } : {}),
     completedAt: { not: null, ...(criteria.completedFrom ? { gte: criteria.completedFrom } : {}), ...(criteria.completedBefore ? { lt: criteria.completedBefore } : {}) },
   };
   try {
@@ -367,7 +367,6 @@ export async function findOrderAggregates(criteria: AggregateCriteria, companyId
   if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
   const predicates = [Prisma.sql`o."companyId" = ${companyId}::uuid`];
   if (criteria.customer.kind === "general_public") predicates.push(Prisma.sql`b."orderId" IS NULL`);
-  if (criteria.customer.kind === "contact") predicates.push(Prisma.sql`b."contactId" = ${criteria.customer.contactId}::uuid`);
   if (criteria.createdFrom) predicates.push(Prisma.sql`o."createdAt" >= ${criteria.createdFrom}`);
   if (criteria.createdBefore) predicates.push(Prisma.sql`o."createdAt" < ${criteria.createdBefore}`);
   if (criteria.search) {

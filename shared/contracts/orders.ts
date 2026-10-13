@@ -6,7 +6,6 @@ import { pickupPointSchema } from "@shared/contracts/delivery-settings";
 
 export const orderSelectionSchema = z.strictObject({
   id: z.uuid(),
-  contactId: z.uuid().nullable(),
   items: z.array(z.strictObject({ variantId: z.uuid(), quantity: z.number().int().positive().safe() })).min(1),
 });
 export type OrderSelectionRequest = z.infer<typeof orderSelectionSchema>;
@@ -102,11 +101,9 @@ export const listOrderAggregatesSchema = z.strictObject({
   search: z.string().max(120).optional(),
   view: z.enum(["all", "unpaid", "undelivered"]).optional(),
   page: z.coerce.number().int().positive().safe().default(1),
-  customer: z.enum(["all", "general_public", "contact"]).default("all"),
-  contactId: z.uuid().optional(), createdFrom: z.iso.datetime().optional(), createdBefore: z.iso.datetime().optional(),
-}).refine((value) => (value.customer === "contact") === !!value.contactId,
-  { message: "Contact must match customer filter", path: ["contactId"] })
-  .refine((value) => Number.isSafeInteger((value.page - 1) * 20),
+  customer: z.enum(["all", "general_public"]).default("all"),
+  createdFrom: z.iso.datetime().optional(), createdBefore: z.iso.datetime().optional(),
+}).refine((value) => Number.isSafeInteger((value.page - 1) * 20),
     { message: "Page exceeds safe offset", path: ["page"] })
   .refine((value) => !value.createdFrom || !value.createdBefore ||
     new Date(value.createdFrom).getTime() < new Date(value.createdBefore).getTime(),
@@ -140,13 +137,10 @@ export type BuyerPaymentView = z.infer<typeof buyerPaymentViewSchema>;
 
 export const listOrdersSchema = z.strictObject({
   page: z.coerce.number().int().positive().safe().default(1),
-  customer: z.enum(["all", "general_public", "contact"]).default("all"),
-  contactId: z.uuid().optional(),
+  customer: z.enum(["all", "general_public"]).default("all"),
   completedFrom: z.iso.datetime().optional(),
   completedBefore: z.iso.datetime().optional(),
-}).refine((value) => (value.customer === "contact") === !!value.contactId,
-  { message: "Contact must match customer filter", path: ["contactId"] })
-  .refine((value) => Number.isSafeInteger((value.page - 1) * 20),
+}).refine((value) => Number.isSafeInteger((value.page - 1) * 20),
     { message: "Page exceeds safe offset", path: ["page"] })
   .refine((value) => !value.completedFrom || !value.completedBefore ||
     new Date(value.completedFrom).getTime() < new Date(value.completedBefore).getTime(),
@@ -156,7 +150,6 @@ export const orderSummarySchema = orderSchema.pick({ number: true, id: true, com
 export const listOrdersResponseSchema = z.strictObject({ items: z.array(orderSummarySchema), page: z.number().int().positive(), pageSize: z.literal(20), total: z.number().int().nonnegative() });
 export const orderCatalogSchema = z.array(z.strictObject({ id: z.uuid(), name: z.string(), currency: z.enum(currencies),
   variants: z.array(z.strictObject({ id: z.uuid(), attributes: z.record(z.string(), z.string()), sku: z.string().nullable(), price: z.number().positive(), stock: z.number().int().nonnegative().safe() })) }));
-export const orderContactsSchema = z.array(z.strictObject({ id: z.uuid(), name: z.string().nullable(), phone: z.string() }));
 export const orderApiIssueSchema = z.strictObject({
   field: z.string(), reason: z.string(), index: z.number().int().nonnegative().optional(), variantId: z.uuid().optional(),
 });
@@ -164,7 +157,7 @@ export type OrderApiIssue = z.infer<typeof orderApiIssueSchema>;
 export const orderApiErrorSchema = z.strictObject({
   code: z.enum([
     "INVALID_INPUT", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE",
-    "INVALID_ORDER", "CURRENCY_MISMATCH", "CONTACT_NOT_FOUND", "VARIANT_NOT_FOUND",
+    "INVALID_ORDER", "CURRENCY_MISMATCH", "VARIANT_NOT_FOUND",
     "INSUFFICIENT_STOCK", "ORDER_ALREADY_EXISTS", "ORDER_NOT_FOUND", "SERVICE_UNAVAILABLE",
     "INVALID_PAYMENT", "PAYMENT_CONFLICT", "PAYMENT_NOT_FOUND", "RECEIPT_NOT_FOUND", "INVALID_TRANSITION", "DELIVERY_LOCKED", "PAYMENT_REQUIRED",
     "STOCK_NOT_DEDUCTED", "ORDER_CANCELLED", "DELIVERY_UNAVAILABLE",
@@ -176,8 +169,8 @@ export const orderApiErrorSchema = z.strictObject({
 });
 export type OrderApiError = z.infer<typeof orderApiErrorSchema>;
 export const orderActionErrorSchema = z.strictObject({ code: z.string(), error: z.string(), currentPrice: orderApiErrorSchema.shape.currentPrice });
-export const newOrderLoaderSchema = z.strictObject({ products: orderCatalogSchema, contacts: orderContactsSchema, base: z.string() });
-export const orderListLoaderSchema = z.strictObject({ list: listOrderAggregatesResponseSchema.extend({ items: z.array(orderAggregateSummarySchema.extend({ itemCount: z.number().int().positive().safe(), balanceDue: moneySchema })) }), filters: listOrderAggregatesSchema, contacts: orderContactsSchema, customerSearch: z.string(), base: z.string() });
+export const newOrderLoaderSchema = z.strictObject({ products: orderCatalogSchema, base: z.string() });
+export const orderListLoaderSchema = z.strictObject({ list: listOrderAggregatesResponseSchema.extend({ items: z.array(orderAggregateSummarySchema.extend({ itemCount: z.number().int().positive().safe(), balanceDue: moneySchema })) }), filters: listOrderAggregatesSchema, base: z.string() });
 export const orderDetailLoaderSchema = z.strictObject({ order: orderAggregateSchema, base: z.string(), manualPaymentId: z.uuid(),
   receiptUrls: z.record(z.string(), z.url()) });
 

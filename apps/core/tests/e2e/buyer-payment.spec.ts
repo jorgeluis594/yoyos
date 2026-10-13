@@ -38,7 +38,7 @@ test("buyer reports a receipt and sees the seller confirmed balance", async ({ p
     await page.getByRole("button", { name: "Guardar medios de cobro" }).click();
     await browserExpect(page.getByText("Medios de cobro guardados.")).toBeVisible();
     const orderId = crypto.randomUUID();
-    expect((await page.request.post("/api/orders/pending", { data: { id: orderId, contactId: null,
+    expect((await page.request.post("/api/orders/pending", { data: { id: orderId,
       items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
     const unknown = await page.goto(`/pago/${crypto.randomUUID()}`);
     expect(unknown?.status()).toBe(404);

@@ -20,7 +20,6 @@ afterEach(() => vi.restoreAllMocks());
 
 test("filters sales by Lima calendar days, including the start and excluding the next midnight", async () => {
   const list = vi.spyOn(orders, "listAggregates").mockResolvedValue({ success: true, data: { items: [], page: 1, pageSize: 20, total: 0 } });
-  vi.spyOn(orders, "searchContacts").mockResolvedValue({ success: true, data: [] });
 
   const result = await loader(args("http://localhost/es-PE/orders?createdFrom=2026-09-28&createdBefore=2026-09-29"));
 
@@ -86,7 +85,6 @@ test.each([
 
 test.each([["Ana", "unpaid"], ["+51999", "undelivered"], ["#1001", "all"]] as const)("forwards order search %s and %s view with date and customer filters", async (search, view) => {
   const list = vi.spyOn(orders, "listAggregates").mockResolvedValue({ success: true, data: { items: [], page: 2, pageSize: 20, total: 0 } });
-  vi.spyOn(orders, "searchContacts").mockResolvedValue({ success: true, data: [] });
   const result = await loader(args(`http://localhost/es-PE/orders?${new URLSearchParams({ search, view, customer: "general_public", page: "2", createdFrom: "2026-09-28" })}`));
   expect(list).toHaveBeenCalledWith({ search, view, customer: { kind: "general_public" }, page: 2, createdFrom: new Date("2026-09-28T05:00:00Z") }, { companyId: "company", userId: "seller" });
   expect(result.filters).toMatchObject({ search, view, page: 2 });
@@ -110,7 +108,6 @@ test("web list counts units across product lines and shows the remaining balance
   expect(paid.success).toBe(true);
   if (!paid.success) throw new Error(paid.error.message);
   vi.spyOn(orders, "listAggregates").mockResolvedValue({ success: true, data: { items: [paid.data], page: 1, pageSize: 20, total: 1 } });
-  vi.spyOn(orders, "searchContacts").mockResolvedValue({ success: true, data: [] });
   const result = await loader(args("http://localhost/es-PE/orders"));
   expect(result.list.items[0]).toMatchObject({ itemCount: 5, balanceDue: money(30), total: money(50) });
 });

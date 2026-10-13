@@ -7,12 +7,11 @@ import { z } from "zod";
 import { Form, isRouteErrorResponse, Link, useLoaderData, useLocation, type LoaderFunctionArgs } from "react-router";
 import { orderBuyerText, WhatsAppMark } from "@core/app/components/order-buyer-label";
 import { BadgeDollarSign, Check, CircleCheck, CircleX, Coins, PackageCheck, Send, SlidersHorizontal, Truck } from "lucide-react";
-import { listOrderAggregatesSchema, orderListLoaderSchema, orderContactsSchema } from "@shared/contracts/orders";
+import { listOrderAggregatesSchema, orderListLoaderSchema } from "@shared/contracts/orders";
 import { limaMidnightUtc } from "@shared/orders-date";
 import { privateUserContext } from "@core/app/private-user-context";
 import { orders } from "@core/src/features/orders/composition";
 import { toOrderAggregateJson, toOrderAggregateListJson } from "@core/src/features/orders/presentation/order-json";
-import type { ContactId } from "@core/src/features/orders/domain/order";
 import { Button } from "@core/app/components/ui/button";
 import { Field, FieldLabel } from "@core/app/components/ui/field";
 import { Input } from "@core/app/components/ui/input";
@@ -21,7 +20,6 @@ import { DataTable, type TableColumn } from "@core/app/components/ui/data-table"
 import { FilterBar } from "@core/app/components/ui/filter-bar";
 import { PageHeader } from "@core/app/components/ui/page-header";
 import { TextLink } from "@core/app/components/ui/text-link";
-import { FieldDescription } from "@core/app/components/ui/field";
 import { Pagination, PaginationContent, PaginationItem, PaginationNext, PaginationPrevious } from "@core/app/components/ui/pagination";
 import { Empty, EmptyDescription, EmptyContent } from "@core/app/components/ui/empty";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@core/app/components/ui/select";
@@ -31,40 +29,32 @@ const salesTimeZone = "America/Lima";
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const params = new URL(request.url).searchParams;
   const raw = Object.fromEntries(params);
-  const customerSearch = (raw.customerSearch ?? "").trim();
-  delete raw.customerSearch;
   if ([raw.createdFrom, raw.createdBefore].some((date) => date && !z.iso.date().safeParse(date).success))
     throw new Response("Filtros no válidos", { status: 400 });
   const parsed = listOrderAggregatesSchema.safeParse({ ...raw,
-    ...(raw.contactId ? {} : { contactId: undefined }),
     ...(raw.createdFrom ? { createdFrom: limaMidnightUtc(raw.createdFrom) } : { createdFrom: undefined }),
     ...(raw.createdBefore ? { createdBefore: limaMidnightUtc(raw.createdBefore) } : { createdBefore: undefined }),
   });
   if (!parsed.success) throw new Response("Filtros no válidos", { status: 400 });
-  const { page, customer, contactId, createdFrom, createdBefore, search, view } = parsed.data;
+  const { page, customer, createdFrom, createdBefore, search, view } = parsed.data;
   const company = context.get(privateUserContext).company;
   const user = context.get(privateUserContext).user;
-  const result = await orders.listAggregates({ page, customer: customer === "contact" ? { kind: "contact", contactId: contactId! as ContactId } : { kind: customer },
+  const result = await orders.listAggregates({ page, customer: { kind: customer },
     ...(search !== undefined ? { search } : {}), ...(view ? { view } : {}),
     ...(createdFrom ? { createdFrom: new Date(createdFrom) } : {}), ...(createdBefore ? { createdBefore: new Date(createdBefore) } : {}) },
   { companyId: company.id, userId: user.id });
   if (!result.success) throw new Response(result.error.message, { status: result.error.code === "INVALID_ORDER" ? 400 : 503 });
-  const [searched, selected] = await Promise.all([orders.searchContacts(search ?? customerSearch), contactId ? orders.contactById(contactId) : Promise.resolve(null)]);
-  if (!searched.success || (selected && !selected.success)) throw new Response("No se pudieron cargar los contactos.", { status: 503 });
-  const contacts = orderContactsSchema.parse(searched.data);
-  const selectedContact = selected?.success ? selected.data : null;
-  if (selectedContact && !contacts.some((contact) => contact.id === selectedContact.id)) contacts.unshift(orderContactsSchema.element.parse(selectedContact));
   const list = toOrderAggregateListJson(result.data);
   const items = list.items.map((item, index) => ({ ...item,
     itemCount: result.data.items[index].items.reduce((sum, product) => sum + product.quantity, 0),
     balanceDue: toOrderAggregateJson(result.data.items[index]).balanceDue,
   }));
-  return orderListLoaderSchema.parse({ list: { ...list, items }, filters: parsed.data, contacts, customerSearch, base: companyPath(new URL(request.url).pathname, company.country, "/orders") });
+  return orderListLoaderSchema.parse({ list: { ...list, items }, filters: parsed.data, base: companyPath(new URL(request.url).pathname, company.country, "/orders") });
 }
 
 export default function OrderList() {
   const { t, i18n } = useTranslation();
-  const { list, filters, contacts, base } = useLoaderData<typeof loader>();
+  const { list, filters, base } = useLoaderData<typeof loader>();
   const { search } = useLocation();
   type Sale = (typeof list.items)[number];
   const columns: TableColumn<Sale>[] = [
@@ -90,7 +80,6 @@ export default function OrderList() {
   const activeFilterInputs = [
     { name: "customer", value: filters.customer },
     ...(filters.view ? [{ name: "view", value: filters.view }] : []),
-    ...(filters.contactId ? [{ name: "contactId", value: filters.contactId }] : []),
     ...(filters.createdFrom ? [{ name: "createdFrom", value: filters.createdFrom.slice(0, 10) }] : []),
     ...(filters.createdBefore ? [{ name: "createdBefore", value: filters.createdBefore.slice(0, 10) }] : []),
   ];
@@ -111,7 +100,7 @@ export default function OrderList() {
         <Link to={listUrl(1, view)} aria-current={(filters.view ?? "all") === view ? "page" : undefined}>{(filters.view ?? "all") === view && <Check data-icon="inline-start" aria-hidden="true" />}{t(`orders.listViewsLabels.${view}`)}</Link>
       </Button>)}
     </nav>
-    <FilterBar key={search} searchName="search" searchValue={filters.search ?? ""} searchLabel={t("orders.listSearch")} submitLabel={t("orders.listSearchSubmit")} hiddenFields={activeFilterInputs} action={<OrderFilterSheet key={search} filters={filters} contacts={contacts} base={base} />} />
+    <FilterBar key={search} searchName="search" searchValue={filters.search ?? ""} searchLabel={t("orders.listSearch")} submitLabel={t("orders.listSearchSubmit")} hiddenFields={activeFilterInputs} action={<OrderFilterSheet key={search} filters={filters} base={base} />} />
     <DataTable className="order-list-table mt-6" columns={columns} caption={t("orders.allOrders")} data={list.items} getRowId={(item) => item.id} emptyMessage={<Empty><EmptyDescription>{t(filtered ? "orders.emptyFiltered" : "orders.listEmpty")}</EmptyDescription>{filtered && <EmptyContent><Button asChild variant="link"><Link to={base}>{t("orders.clear")}</Link></Button></EmptyContent>}</Empty>} />
     <Pagination aria-label={t("orders.pages")} className="mt-6 items-center justify-end gap-2"><span className="mr-auto text-sm text-muted-foreground">{t("orders.page", { page: list.page })}</span>
       <PaginationContent>
@@ -137,11 +126,10 @@ function OrderStateIndicators({ states }: { states: { kind: "payment" | "deliver
   </details>;
 }
 
-function OrderFilterSheet({ filters, contacts, base }: Pick<Awaited<ReturnType<typeof loader>>, "filters" | "contacts" | "base">) {
+function OrderFilterSheet({ filters, base }: Pick<Awaited<ReturnType<typeof loader>>, "filters" | "base">) {
   const { t } = useTranslation();
   const [customer, setCustomer] = useState(filters.customer);
-  const customerItems = [{ value: "all", label: t("orders.allCustomers") }, { value: "general_public", label: t("orders.generalPublic") }, { value: "contact", label: t("orders.contact") }];
-  const contactItems = [{ value: "", label: t("orders.selectContact") }, ...contacts.map(contact => ({ value: contact.id, label: contact.name ? `${contact.name} · ${contact.phone}` : contact.phone }))];
+  const customerItems = [{ value: "all", label: t("orders.allCustomers") }, { value: "general_public", label: t("orders.generalPublic") }];
   const activeFilters = Number(filters.customer !== "all") + Number(!!filters.createdFrom) + Number(!!filters.createdBefore);
   return <Sheet><SheetTrigger asChild><Button variant="outline" className="min-h-control max-md:min-h-touch" aria-label={activeFilters ? t(activeFilters === 1 ? "orders.activeFilter_one" : "orders.activeFilter_other", { count: activeFilters }) : t("orders.filters")}><SlidersHorizontal data-icon="inline-start" aria-hidden="true" />{t("orders.filters")}{activeFilters ? ` (${activeFilters})` : ""}</Button></SheetTrigger>
       <SheetContent title={t("orders.filterTitle")} description={t("orders.filterDescription")}>
@@ -153,11 +141,6 @@ function OrderFilterSheet({ filters, contacts, base }: Pick<Awaited<ReturnType<t
               <SelectTrigger id="order-customer"><SelectValue /></SelectTrigger>
               <SelectContent>{customerItems.map(item => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
             </Select></Field>
-          {customer === "contact" && <div className="flex flex-col gap-2"><Field><FieldLabel htmlFor="order-contact">{t("orders.contact")}</FieldLabel>
-            <Select name="contactId" items={contactItems} defaultValue={filters.contactId ?? ""} required>
-              <SelectTrigger id="order-contact"><SelectValue /></SelectTrigger>
-              <SelectContent>{contactItems.map(item => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent>
-            </Select><FieldDescription>{t("orders.contactHint")}</FieldDescription></Field></div>}
           <div className="flex flex-col gap-4 border-t pt-5"><p className="text-sm font-medium">{t("orders.creationDate")}</p><Field><FieldLabel htmlFor="created-from">{t("orders.from")}</FieldLabel><Input id="created-from" name="createdFrom" type="date" defaultValue={filters.createdFrom?.slice(0, 10)} /></Field><Field><FieldLabel htmlFor="created-before">{t("orders.before")}</FieldLabel><Input id="created-before" name="createdBefore" type="date" defaultValue={filters.createdBefore?.slice(0, 10)} /></Field></div>
           <div className="mt-auto flex gap-2 border-t pt-5"><Button asChild variant="outline" className="flex-1"><Link to={base}>{t("orders.clear")}</Link></Button><Button type="submit" className="flex-1">{t("orders.apply")}</Button></div>
         </Form>

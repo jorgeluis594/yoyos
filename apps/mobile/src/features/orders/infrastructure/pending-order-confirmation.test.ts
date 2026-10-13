@@ -3,7 +3,7 @@ import { createPendingOrderConfirmationStore } from "@mobile/features/orders/inf
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 
 const simple = (shownAmount = 10, orderId = id(2)) => ({ companyId: id(1), id: orderId, shownTotal: { amount: shownAmount, currency: "PEN" as const },
-  version: 2 as const, request: { id: orderId, contactId: null, items: [{ variantId: id(3), quantity: 1 }] } });
+  version: 2 as const, request: { id: orderId, items: [{ variantId: id(3), quantity: 1 }] } });
 
 test.each([true, false])("attempts saved with the obsolete delivery shape or without a version are invalid (charge: %s)", async (obsoleteCharge) => {
   const obsolete = { ...simple(), request: { ...simple().request, delivery: { obsoleteCharge, delivery: { method: "home" as const,
@@ -74,7 +74,7 @@ test("versioned pending requests survive restart unchanged and reject mismatched
   const storage = { getItemAsync: async (key: string) => values.get(key) ?? null,
     setItemAsync: async (key: string, value: string) => { values.set(key, value); }, deleteItemAsync: async (key: string) => { values.delete(key); } };
   const pending = { version: 2 as const, companyId: id(1), id: id(2), shownTotal: { amount: 10, currency: "PEN" as const },
-    request: { id: id(2), contactId: null, items: [{ variantId: id(3), quantity: 1 }],
+    request: { id: id(2), items: [{ variantId: id(3), quantity: 1 }],
       payments: [{ paymentId: id(4), amount: { amount: 3, currency: "PEN" as const }, method: "bank_transfer" as const, deductStockIfPartial: true }], deliverImmediately: false } };
   expect(await createPendingOrderConfirmationStore(storage).save(pending)).toEqual({ success: true, data: pending });
   const restarted = createPendingOrderConfirmationStore(storage);
@@ -89,7 +89,7 @@ test("rated pending creation survives restart without losing the reviewed price 
   const storage = { getItemAsync: async (key: string) => values.get(key) ?? null,
     setItemAsync: async (key: string, value: string) => { values.set(key, value); }, deleteItemAsync: async (key: string) => { values.delete(key); } };
   const pending = { version: 2 as const, companyId: id(1), id: id(2), shownTotal: { amount: 58, currency: "PEN" as const },
-    request: { id: id(2), contactId: null, items: [{ variantId: id(3), quantity: 1 }], delivery: {
+    request: { id: id(2), items: [{ variantId: id(3), quantity: 1 }], delivery: {
       expectedPrice: { amount: 8, currency: "PEN" as const }, delivery: {
         method: "home" as const, rateId: id(6), recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } },
         destination: { districtCode: "150122", address: "Calle 123", instructions: null },

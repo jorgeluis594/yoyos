@@ -34,7 +34,6 @@ jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   readPendingOrderConfirmation: (...args: Parameters<typeof mockOrders.readPendingOrderConfirmation>) => mockOrders.readPendingOrderConfirmation(...args),
   resolvePendingOrderConfirmation: (...args: Parameters<typeof mockOrders.resolvePendingOrderConfirmation>) => mockOrders.resolvePendingOrderConfirmation(...args),
   searchOrderCatalog: (...args: Parameters<typeof mockOrders.searchOrderCatalog>) => mockOrders.searchOrderCatalog(...args),
-  searchOrderContacts: (...args: Parameters<typeof mockOrders.searchOrderContacts>) => mockOrders.searchOrderContacts(...args),
   completeOrder: (...args: Parameters<typeof mockOrders.completeOrder>) => mockOrders.completeOrder(...args),
   resendPendingOrder: (...args: Parameters<typeof mockOrders.resendPendingOrder>) => mockOrders.resendPendingOrder(...args),
   loadPendingOrderReview: (...args: Parameters<typeof mockOrders.loadPendingOrderReview>) => mockOrders.loadPendingOrderReview(...args),
@@ -154,7 +153,7 @@ test("mobile recovers a persisted pending creation after a lost response and res
   await screen.findByText("Venta pendiente de confirmar");
   expect(mockReplace).not.toHaveBeenCalled();
   const saved = await mockOrders.readPendingOrderConfirmation(process.env.ORDER_JOURNEY_COMPANY!);
-  expect(saved).toMatchObject({ success: true, data: { version: 2, request: { contactId: null } } });
+  expect(saved).toMatchObject({ success: true, data: { version: 2, request: { id: expect.any(String) } } });
   if (!saved.success || !saved.data) throw new Error("Missing persisted attempt");
   const id = saved.data.id;
   screen.unmount();
@@ -280,7 +279,7 @@ test("saved-delivery recovery reviews a current rate and resends the same order 
   const paymentId = randomUUID();
   const companyId = process.env.ORDER_JOURNEY_COMPANY!;
   const pending = { version: 2, companyId, id: orderId, shownTotal: { amount: 18, currency: "PEN" },
-    request: { id: orderId, contactId: null, items: [{ variantId: catalog.data[0].variants[0].id, quantity: 1 }],
+    request: { id: orderId, items: [{ variantId: catalog.data[0].variants[0].id, quantity: 1 }],
       payments: [{ paymentId, amount: { amount: 4.5, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false }],
       delivery: { expectedPrice: { amount: 8, currency: "PEN" }, delivery: { method: "home", rateId: randomUUID(),
         recipient: { name: "Recovery recipient", phone: "999123456", identity: { kind: "absent" } },
@@ -331,7 +330,7 @@ test("a restarted rated attempt retains a real HTTP price conflict and saves a f
   if (!rate) throw new Error("Missing changed price rate");
   const orderId = randomUUID();
   const pending = { version: 2, companyId, id: orderId, shownTotal: { amount: 18, currency: "PEN" },
-    request: { id: orderId, contactId: null, items: [{ variantId: catalog.data[0].variants[0].id, quantity: 1 }],
+    request: { id: orderId, items: [{ variantId: catalog.data[0].variants[0].id, quantity: 1 }],
       delivery: { expectedPrice: { amount: 8, currency: "PEN" }, delivery: { method: "home", rateId: rate.id,
         recipient: { name: "Restart recipient", phone: "999123456", identity: { kind: "absent" } },
         destination: { address: "Restart street", districtCode: "150122", instructions: null } } } } };
@@ -369,7 +368,7 @@ test("restarted stock rejection keeps the paid attempt editable and resends its 
   const orderId = randomUUID();
   const paymentId = randomUUID();
   const pending = { version: 2, companyId, id: orderId, shownTotal: { amount: 40, currency: "PEN" },
-    request: { id: orderId, contactId: null, items: [{ variantId, quantity: 4 }],
+    request: { id: orderId, items: [{ variantId, quantity: 4 }],
       payments: [{ paymentId, amount: { amount: 40, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false }] } };
   writeFileSync(join(directory, `yoyos_pending_order_${companyId}`), JSON.stringify(pending));
   restartOperations();

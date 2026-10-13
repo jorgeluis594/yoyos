@@ -92,7 +92,7 @@ test.runIf(process.env.NATIVE_ANDROID_TEST === "1")("Android cancels real orders
   const detail = async (id: string) => (await page.request.get(`/api/orders/${id}/aggregate`)).json();
   const create = async (paid: number) => {
     const id = crypto.randomUUID();
-    expect((await page.request.post("/api/orders/pending", { data: { id, contactId: null, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
+    expect((await page.request.post("/api/orders/pending", { data: { id, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
     if (paid) expect((await page.request.post(`/api/orders/${id}/payments`, { data: { paymentId: crypto.randomUUID(), amount: { amount: paid, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: true } })).ok()).toBe(true);
     return id;
   };

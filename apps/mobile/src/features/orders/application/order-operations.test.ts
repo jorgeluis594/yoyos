@@ -59,7 +59,7 @@ test("save failure prevents POST; uncertain POST coalesces taps and blocks anoth
   expect(first).toEqual(second);
   expect(first).toMatchObject({ success: true, data: { kind: "uncertain", pending: { id: id(3) } } });
   expect(sends).toBe(1);
-  expect(bodies).toEqual([{ id: id(3), contactId: null, items: [{ variantId: id(2), quantity: 1 }] }]);
+  expect(bodies).toEqual([{ id: id(3), items: [{ variantId: id(2), quantity: 1 }] }]);
   expect(await operations.resolvePendingOrderConfirmation(companyId))
     .toMatchObject({ success: true, data: { kind: "uncertain", pending: { id: id(3) } } });
   const other = addDraftItem(emptyOrderDraft(), item, () => id(4));
@@ -82,7 +82,7 @@ test("known stock rejection clears the marker and leaves the cart available", as
 });
 
 test.each([
-  ["INSUFFICIENT_STOCK", 409], ["VARIANT_NOT_FOUND", 404], ["CONTACT_NOT_FOUND", 404],
+  ["INSUFFICIENT_STOCK", 409], ["VARIANT_NOT_FOUND", 404],
   ["INVALID_INPUT", 400],
   ["INVALID_PAYMENT", 422], ["PAYMENT_CONFLICT", 409], ["PAYMENT_REQUIRED", 409],
   ["INVALID_TRANSITION", 409], ["STOCK_NOT_DEDUCTED", 409],
@@ -143,7 +143,7 @@ test("recovery keeps the amount first shown and returns the core total", async (
     completedAt: null, deliveredAt: null, deliveryStatus: "pending" as const, stockDeducted: false, payments: [], paidAmount: zero, balanceDue: amount };
   const pendingStore = storage();
   await pendingStore.save({ version: 2, companyId, id: id(3), shownTotal: { amount: 10, currency: "PEN" },
-    request: { id: id(3), contactId: null, items: [{ variantId: id(2), quantity: 1 }] } });
+    request: { id: id(3), items: [{ variantId: id(2), quantity: 1 }] } });
   const pendingOperations = createOrderOperations(createOrderApi(async () => ok(pending)), pendingStore);
   expect(await pendingOperations.resolvePendingOrderConfirmation(companyId)).toMatchObject({ success: true,
     data: { kind: "completed", order: { status: "active", paymentStatus: "pending" } } });
@@ -246,7 +246,7 @@ test("in-flight outcomes never cross company boundaries", async () => {
 test("reviewing a saved delivery keeps order and payment identities and saves before any resend", async () => {
   const store = storage();
   const pending = { version: 2 as const, companyId, id: id(3), shownTotal: { amount: 10, currency: "PEN" as const },
-    request: { id: id(3), contactId: id(7), items: [{ variantId: id(2), quantity: 1 }],
+    request: { id: id(3), items: [{ variantId: id(2), quantity: 1 }],
       payments: [{ paymentId: id(8), amount: { amount: 4.5, currency: "PEN" as const }, method: "bank_transfer" as const, deductStockIfPartial: false }],
       delivery: { expectedPrice: { amount: 0, currency: "PEN" as const }, delivery: { method: "store" as const,
         recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } } } }, deliverImmediately: false } };
@@ -315,7 +315,7 @@ test.each(["TOTAL_CHANGED", "RATE_UNAVAILABLE", "DELIVERY_METHOD_DISABLED"] as c
 test("reviewing a saved order checks its identity and atomically saves corrections before resending", async () => {
   const store = storage();
   const original = { version: 2 as const, companyId, id: id(3), shownTotal: { amount: 10, currency: "PEN" as const },
-    request: { id: id(3), contactId: id(7), items: [{ variantId: id(2), quantity: 1 }],
+    request: { id: id(3), items: [{ variantId: id(2), quantity: 1 }],
       payments: [{ paymentId: id(8), amount: { amount: 4.5, currency: "PEN" as const }, method: "bank_transfer" as const, deductStockIfPartial: false }] } };
   await store.save(original);
   const paths: string[] = [];
@@ -325,7 +325,7 @@ test("reviewing a saved order checks its identity and atomically saves correctio
   });
   const selected = draft();
   if (selected.kind !== "items") throw new Error("Expected cart");
-  const corrected = { ...selected, customer: { kind: "contact" as const, contactId: id(7), name: "Ana", phone: "999" },
+  const corrected = { ...selected,
     items: [{ ...selected.items[0], quantity: 2 }] as const,
     payments: [{ paymentId: id(8), amount: "4.50", method: "bank_transfer" as const, deductStockIfPartial: false }] };
   const operations = createOrderOperations(api, store);
@@ -350,7 +350,7 @@ test("reviewing a saved order checks its identity and atomically saves correctio
 test("saved review reconstructs current products while preserving missing references and original payments", async () => {
   const store = storage();
   const original = { version: 2 as const, companyId, id: id(3), shownTotal: { amount: 40, currency: "PEN" as const },
-    request: { id: id(3), contactId: id(7), items: [{ variantId: id(2), quantity: 2 }, { variantId: id(4), quantity: 1 }],
+    request: { id: id(3), items: [{ variantId: id(2), quantity: 2 }, { variantId: id(4), quantity: 1 }],
       payments: [{ paymentId: id(8), amount: { amount: 4.5, currency: "PEN" as const }, method: "bank_transfer" as const, deductStockIfPartial: false }] } };
   await store.save(original);
   let unavailable = false;
@@ -360,18 +360,17 @@ test("saved review reconstructs current products while preserving missing refere
     paths.push(path);
     if (path.startsWith("/api/orders/catalog?")) return failed ? err({ code: "NETWORK_ERROR", message: "Offline" }) : ok(unavailable ? [] : [{ id: id(9), name: "Current product", currency: "PEN",
       variants: [{ id: id(2), attributes: {}, sku: null, price: 12, stock: 0 }] }]);
-    if (path.startsWith("/api/orders/contacts?")) return ok([]);
     return err({ code: "API_ERROR", message: "Missing", http: { status: 404, body: { code: "ORDER_NOT_FOUND", error: "Missing" } } });
   });
   const operations = createOrderOperations(api, store);
   const review = await operations.loadPendingOrderReview(companyId);
-  expect(review).toMatchObject({ success: true, data: { kind: "review", pending: original, unavailableVariantIds: [id(4)], contactUnavailable: true,
-    draft: { id: id(3), customer: { kind: "contact", contactId: id(7), name: null, phone: "" },
+  expect(review).toMatchObject({ success: true, data: { kind: "review", pending: original, unavailableVariantIds: [id(4)],
+    draft: { id: id(3),
       payments: [{ paymentId: id(8), amount: "4.5", method: "bank_transfer" }],
       items: [{ variantId: id(2), quantity: 2, productName: "Current product", shownUnitPrice: { amount: 12, currency: "PEN" }, shownStock: 0 }] } } });
   expect(await store.read(companyId)).toEqual(ok(original));
   expect(paths[0]).toBe(`/api/orders/${id(3)}/aggregate`);
-  expect(paths).toHaveLength(3);
+  expect(paths).toHaveLength(2);
   unavailable = true;
   expect(await operations.loadPendingOrderReview(companyId)).toMatchObject({ success: true, data: { kind: "review",
     unavailableVariantIds: [id(2), id(4)], draft: { kind: "empty", id: id(3), items: [], payments: [{ paymentId: id(8) }] } } });

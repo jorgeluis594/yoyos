@@ -21,7 +21,7 @@ test("order API errors retain an affected item without accepting other feature c
   expect(orderApiErrorSchema.safeParse({ code: "DUPLICATE_SKU", error: "Wrong feature" }).success).toBe(false);
 });
 
-test("list filters reject an unrelated contact and reversed interval", () => {
+test("list filters reject a contact and reversed interval", () => {
   expect(listOrdersSchema.safeParse({ customer: "all", contactId: "00000000-0000-4000-8000-000000000001" }).success).toBe(false);
   expect(listOrdersSchema.safeParse({ completedFrom: "2026-09-29T05:00:00.000Z", completedBefore: "2026-09-28T05:00:00.000Z" }).success).toBe(false);
   expect(listOrdersSchema.safeParse({ page: String(Number.MAX_SAFE_INTEGER) }).success).toBe(false);
@@ -136,7 +136,7 @@ test("the canonical assignment contract requires a reviewed price and rejects ob
 
 test("creation rejects obsolete deliveries and accepts reviewed rated deliveries", () => {
   const id = "00000000-0000-4000-8000-000000000001";
-  const base = { id, contactId: null, items: [{ variantId: id, quantity: 1 }] };
+  const base = { id, items: [{ variantId: id, quantity: 1 }] };
   const delivery = { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } };
   expect(completeOrderSchema.safeParse(base).success).toBe(true);
   expect(completeOrderSchema.safeParse({ ...base, delivery: { delivery, expectedPrice: { amount: 0, currency: "PEN" } } }).success).toBe(true);

@@ -26,7 +26,7 @@ test("web creation rejects a stale rate atomically and retries the same order wi
         options: [{ kind: "existing", id: zones.zones[0].options[0].id, method: "home", name: "Home", enabled: true, price: { amount: 10, currency: "PEN" } }] }] } })).ok()).toBe(true);
     const id = crypto.randomUUID();
     const paymentId = crypto.randomUUID();
-    const request = { id, contactId: null, items: [{ variantId, quantity: 1 }],
+    const request = { id, items: [{ variantId, quantity: 1 }],
       payments: [{ paymentId, amount: { amount: 18, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }],
       delivery: { delivery: { method: "home", rateId: rate.id, recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } },
         destination: { districtCode: "040110", address: "Preserved street", instructions: null } }, expectedPrice: rate.price } };

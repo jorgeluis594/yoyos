@@ -7,14 +7,12 @@ import i18n from "@mobile/i18n";
 const mockPush = jest.fn();
 const mockLoadOrders = jest.fn();
 const mockReadPending = jest.fn();
-const mockSearchContacts = jest.fn();
 let mockCountry = "PE";
 jest.mock("expo-router", () => ({ useRouter: () => ({ push: mockPush }),
   useFocusEffect: (callback: () => void) => jest.requireActual("react").useEffect(callback, [callback]) }));
 jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   loadMixedOrders: (...args: unknown[]) => mockLoadOrders(...args),
   readPendingOrderConfirmation: (...args: unknown[]) => mockReadPending(...args),
-  searchOrderContacts: (...args: unknown[]) => mockSearchContacts(...args),
 } }));
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAccess: () => ({ state: {
   status: "ready", company: { id: "00000000-0000-4000-8000-000000000001", name: "Mi tienda", country: mockCountry },
@@ -23,7 +21,7 @@ jest.mock("@mobile/features/orders/presentation/order-result", () => ({ useOrder
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 
 beforeEach(() => { jest.clearAllMocks(); mockCountry = "PE"; mockReadPending.mockResolvedValue(ok(null));
-  mockSearchContacts.mockResolvedValue(ok([])); mockLoadOrders.mockResolvedValue(ok({ items: [], page: 1, pageSize: 20, total: 0 })); });
+  mockLoadOrders.mockResolvedValue(ok({ items: [], page: 1, pageSize: 20, total: 0 })); });
 
 test("history distinguishes empty sales from filtered results and sends full Lima days", async () => {
   const screen = render(<OrderHistoryScreen />);

@@ -43,35 +43,6 @@ export const whatsappContactRepository: WhatsAppContactRepository = {
   },
 };
 
-export async function findContactById(id: string) {
-  try {
-    const contact = await prisma.contact.findFirst({ where: { id, phone: { not: null } }, select: { id: true, name: true, phone: true } });
-    return ok(contact?.phone ? { ...contact, phone: contact.phone } : null);
-  } catch (cause) {
-    if (!isPersistenceFailure(cause)) throw cause;
-    log.error({ event: "unable_to_find_sale_contact", err: cause }, "unable_to_find_sale_contact");
-    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to find contact" });
-  }
-}
-
-export async function searchSaleContacts(search: string, contactId?: string) {
-  if (contactId) {
-    const found = await findContactById(contactId);
-    return found.success ? ok(found.data ? [found.data] : []) : found;
-  }
-  try {
-    const contacts = await prisma.contact.findMany({ where: { phone: { not: null }, OR: [
-      { name: { contains: search.replace(/[\\%_]/g, "\\$&"), mode: "insensitive" } },
-      { phone: { contains: search.replace(/[\\%_]/g, "\\$&"), mode: "insensitive" } },
-    ] }, orderBy: { createdAt: "desc" }, take: 20, select: { id: true, name: true, phone: true } });
-    return ok(contacts.filter((contact): contact is { id: string; name: string | null; phone: string } => contact.phone !== null));
-  } catch (cause) {
-    if (!isPersistenceFailure(cause)) throw cause;
-    log.error({ event: "unable_to_search_sale_contacts", err: cause }, "unable_to_search_sale_contacts");
-    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to search contacts" });
-  }
-}
-
 export type MessageCustomer = Readonly<{ customerId: CustomerId; contactId: string; name: string | null; phone: string | null }>;
 
 type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;

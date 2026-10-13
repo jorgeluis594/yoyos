@@ -13,7 +13,6 @@ import { ThemedText } from "@mobile/components/themed-text";
 import { ThemedView } from "@mobile/components/themed-view";
 import { Button } from "@mobile/components/ui/button";
 import { Input } from "@mobile/components/ui/input";
-import { ListRow } from "@mobile/components/ui/list-row";
 import { ScreenState } from "@mobile/components/ui/screen-state";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
@@ -44,10 +43,7 @@ export default function OrderHistoryScreen() {
   const previousCriteria = useRef(criteria);
   const [fromDay, setFromDay] = useState("");
   const [throughDay, setThroughDay] = useState("");
-  const [customerKind, setCustomerKind] = useState<"all" | "general_public" | "contact">("all");
-  const [contactSearch, setContactSearch] = useState("");
-  const [contactId, setContactId] = useState("");
-  const [contacts, setContacts] = useState<{ id: string; name: string | null; phone: string }[]>([]);
+  const [customerKind, setCustomerKind] = useState<"all" | "general_public">("all");
   const [items, setItems] = useState<Summary[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -81,26 +77,15 @@ export default function OrderHistoryScreen() {
     return () => clearTimeout(timer);
   }, [search]);
 
-  useEffect(() => {
-    if (!companyId || !filtersOpen || customerKind !== "contact") return;
-    let active = true;
-    const timer = setTimeout(() => {
-      void orders.searchOrderContacts(contactSearch.trim()).then((result) => {
-        if (active) setContacts(result.success ? result.data : []);
-      });
-    }, 250);
-    return () => { active = false; clearTimeout(timer); };
-  }, [companyId, filtersOpen, customerKind, contactSearch]);
-
   if (state.status !== "ready") return null;
   const language = orderLanguage(state.company.country, i18n.language);
 
   const apply = () => {
-    if ((customerKind === "contact" && !contactId) || (fromDay && !z.iso.date().safeParse(fromDay).success) ||
+    if ((fromDay && !z.iso.date().safeParse(fromDay).success) ||
       (throughDay && !z.iso.date().safeParse(throughDay).success) || (fromDay && throughDay && fromDay > throughDay)) {
       setFilterError(t('orderListFilterError')); return;
     }
-    setCriteria({ search: criteria.search, view: criteria.view, page: 1, customer: customerKind === "contact" ? { kind: "contact", contactId } : { kind: customerKind },
+    setCriteria({ search: criteria.search, view: criteria.view, page: 1, customer: { kind: customerKind },
       ...(fromDay ? { fromDay } : {}), ...(throughDay ? { throughDay } : {}) });
     setFiltersOpen(false); setFilterError("");
   };
@@ -120,7 +105,6 @@ export default function OrderHistoryScreen() {
   const filtered = advanced || !!criteria.search || (!!criteria.view && criteria.view !== "all");
   const openFilters = () => {
     setCustomerKind(criteria.customer.kind);
-    setContactId(criteria.customer.kind === "contact" ? criteria.customer.contactId : "");
     setFromDay(criteria.fromDay ?? ""); setThroughDay(criteria.throughDay ?? "");
     setFilterError(""); setFiltersOpen(true);
   };
@@ -181,16 +165,9 @@ export default function OrderHistoryScreen() {
   const filterForm = <View style={styles.filters}>
       <ThemedText type="subtitle" accessibilityRole="header">{t('orderListCustomer')}</ThemedText>
       <View style={styles.row}>
-        <Button variant={customerKind === "all" ? "default" : "secondary"} onPress={() => { setCustomerKind("all"); setContactId(""); }}>{t('all')}</Button>
-        <Button variant={customerKind === "general_public" ? "default" : "secondary"} onPress={() => { setCustomerKind("general_public"); setContactId(""); }}>{t('generalPublic')}</Button>
-        <Button variant={customerKind === "contact" ? "default" : "secondary"} onPress={() => setCustomerKind("contact")}>{t('contact')}</Button>
+        <Button variant={customerKind === "all" ? "default" : "secondary"} onPress={() => setCustomerKind("all")}>{t('all')}</Button>
+        <Button variant={customerKind === "general_public" ? "default" : "secondary"} onPress={() => setCustomerKind("general_public")}>{t('generalPublic')}</Button>
       </View>
-      {customerKind === "contact" ? <View style={styles.field}>
-        <Input value={contactSearch} onChangeText={(value) => { setContactSearch(value); setContactId(""); }} accessibilityLabel={t('searchContact')} placeholder={t('nameOrPhone')} />
-        {contactId ? <ThemedText type="small">{t('selectedContact')}</ThemedText> : contacts.map((contact) =>
-          <ListRow key={contact.id} title={contact.name ?? contact.phone} description={contact.name ? contact.phone : undefined}
-            onPress={() => { setContactId(contact.id); setContactSearch(contact.name ?? contact.phone); }} />)}
-      </View> : null}
       <ThemedText type="subtitle" accessibilityRole="header">{t('orderListCreated')}</ThemedText>
       <View style={styles.row}>
         <View style={styles.date}><OrderDayField label={t('from')} value={fromDay} onChange={setFromDay} /></View>
@@ -198,7 +175,7 @@ export default function OrderHistoryScreen() {
       </View>
       {filterError ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{filterError}</ThemedText> : null}
       <Button onPress={apply}>{t('applyFilters')}</Button>
-      <Button variant="ghost" onPress={() => { setFromDay(""); setThroughDay(""); setCustomerKind("all"); setContactId(""); setContactSearch(""); setFilterError(""); }}>{t('orderListClear')}</Button>
+      <Button variant="ghost" onPress={() => { setFromDay(""); setThroughDay(""); setCustomerKind("all"); setFilterError(""); }}>{t('orderListClear')}</Button>
     </View>;
 
   return <ThemedView style={styles.page}><SafeAreaView style={styles.page} edges={["top", "left", "right"]}>

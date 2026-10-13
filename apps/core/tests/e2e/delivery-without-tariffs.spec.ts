@@ -38,7 +38,7 @@ test("normal composition assigns configured pickup explicitly for free", async (
       const product = await products.create({ name: "Product", currency: "PEN", variants: [{ attributes: {}, salePrice: 10, initialStock: 3 }] });
       if (!product.success) throw new Error("Expected product");
       const variant = await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } });
-      expect(await orders.create({ id: orderId as OrderId, contactId: null, items: [{ variantId: variant.id as VariantId, quantity: 1 as PositiveInteger }] }, { companyId: tenantId as CompanyId, userId: sellerId as UserId })).toMatchObject({ success: true });
+      expect(await orders.create({ id: orderId as OrderId, items: [{ variantId: variant.id as VariantId, quantity: 1 as PositiveInteger }] }, { companyId: tenantId as CompanyId, userId: sellerId as UserId })).toMatchObject({ success: true });
       return variant.id;
     });
     await page.goto(`/es-PE/orders/${orderId}`);
