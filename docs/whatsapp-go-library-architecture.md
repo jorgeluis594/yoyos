@@ -29,7 +29,7 @@ flowchart LR
   JS["TypeScript client<br/>(client.ts, types.ts)"] --> Native["Expo module<br/>WhatsAppModule.kt / .swift"]
   Native -->|gomobile calls| Bridge["Go: bridge"]
   Bridge -->|callbacks: JSON strings| Native
-  Native --> Store[("Encrypted container<br/>state.bin<br/>NativeStateStore")]
+  Native --> Store[("Native SQLite<br/>state.db<br/>NativeStateStore")]
   Bridge --> Internal["Go: internal/*"]
   Internal --> WM["whatsmeow<br/>(pinned + patched)"]
   WM <-->|websocket| WA(("WhatsApp"))

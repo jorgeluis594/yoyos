@@ -12,20 +12,46 @@ function knownFailure(cause: unknown) {
   return cause instanceof Prisma.PrismaClientKnownRequestError || cause instanceof Prisma.PrismaClientUnknownRequestError || cause instanceof Prisma.PrismaClientInitializationError;
 }
 
+type SellableRow = Prisma.ProductVariantGetPayload<{ include: { product: true } }>;
+
+function toCatalogItem(row: SellableRow): CatalogItem | null {
+  const attributes = row.attributes;
+  if (!isCurrency(row.product.currency) || !attributes || typeof attributes !== "object" || Array.isArray(attributes) || Object.values(attributes).some((value) => typeof value !== "string")) return null;
+  return { variantId: row.id as VariantId, productName: row.product.name, variantAttributes: { ...attributes } as Record<string, string>, sku: row.sku,
+    unitPrice: { amount: row.salePrice.toNumber(), currency: row.product.currency } };
+}
+
 export async function findSellableVariant(id: string) {
   try {
     const row = await prisma.productVariant.findFirst({ where: { id, status: "active", product: { status: "active" } }, include: { product: true } });
     if (!row) return ok<CatalogItem | null>(null);
-    const attributes = row.attributes;
-    if (!isCurrency(row.product.currency) || !attributes || typeof attributes !== "object" || Array.isArray(attributes) || Object.values(attributes).some((value) => typeof value !== "string")) {
+    const item = toCatalogItem(row);
+    if (!item) {
       log.error({ event: "invalid_stored_sale_variant" }, "invalid_stored_sale_variant");
       return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
     }
-    return ok<CatalogItem>({ variantId: row.id as VariantId, productName: row.product.name, variantAttributes: { ...attributes } as Record<string, string>, sku: row.sku,
-      unitPrice: { amount: row.salePrice.toNumber(), currency: row.product.currency } });
+    return ok<CatalogItem | null>(item);
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
     log.error({ event: "unable_to_read_sale_variant", err: cause }, "unable_to_read_sale_variant");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
+  }
+}
+
+export async function findSellableVariantsByQrCodes(codes: readonly string[]) {
+  try {
+    const rows = await prisma.productVariant.findMany({ where: { qrCode: { in: [...codes] }, status: "active", product: { status: "active" } }, include: { product: true } });
+    const items: Array<CatalogItem & Readonly<{ qrCode: string }>> = [];
+    for (const row of rows) {
+      const item = toCatalogItem(row);
+      // Una variante corrupta no debe bloquear las demás ni reintentarse: se omite como si no existiera.
+      if (!item) { log.error({ event: "invalid_stored_sale_variant", variantId: row.id }, "invalid_stored_sale_variant"); continue; }
+      items.push({ ...item, qrCode: row.qrCode });
+    }
+    return ok(items);
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_read_sale_variants_by_qr_code", err: cause }, "unable_to_read_sale_variants_by_qr_code");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
   }
 }

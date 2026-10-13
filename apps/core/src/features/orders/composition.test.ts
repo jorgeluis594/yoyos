@@ -2,9 +2,10 @@ import { parseBuyer, type OrderNumber } from "@core/src/features/orders/domain/c
 import { log } from "@core/src/shared/infrastructure/logger";
 import { Prisma } from "@prisma/client";
 import { expect, test, vi } from "vitest";
-import { ok } from "@shared/functional";
+import { err, ok } from "@shared/functional";
 import type { CompanyId, OrderId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
+import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 
 const { withinTransaction } = vi.hoisted(() => ({ withinTransaction: vi.fn() }));
 vi.mock("@core/src/shared/infrastructure/persistance", () => ({ withinTransaction,
@@ -20,17 +21,22 @@ vi.mock("@core/src/features/orders/infrastructure/checkout-repository", () => ({
 vi.mock("@core/src/features/orders/infrastructure/order-repository", () => ({
   allocateOrderNumber: async () => ok(1001 as OrderNumber), orderExists: async () => ok(false), savePendingOrder: async () => ok(null), savePayment: async () => ok(null),
   saveStockDeduction: async () => ok(null), findOrders: vi.fn(), findOrderForUpdate: vi.fn(), saveFulfillment: async () => ok(null),
+  findProcessedMessage: vi.fn(), findOpenChatOrderCandidate: vi.fn(), saveAddedItems: vi.fn(), recordProcessedMessage: vi.fn(),
 }));
 vi.mock("@core/src/features/products", () => ({
   findSellableVariant: async (variantId: string) => ok({ variantId, productName: "Product", variantAttributes: {}, sku: null,
-    unitPrice: { amount: 1, currency: "PEN" } }), deductProductStock: async () => ok(null), searchSaleCatalog: vi.fn(),
+    unitPrice: { amount: 1, currency: "PEN" } }), deductProductStock: async () => ok(null), searchSaleCatalog: vi.fn(), findSellableVariantsByQrCodes: vi.fn(),
 }));
-vi.mock("@core/src/features/contacts", () => ({ findContactById: vi.fn(), searchSaleContacts: vi.fn() }));
+vi.mock("@core/src/features/contacts", () => ({ findContactById: vi.fn(), searchSaleContacts: vi.fn(), ensureCustomerForContact: vi.fn() }));
+vi.mock("@core/src/features/chats", () => ({ findOrderSourceMessage: vi.fn() }));
+const { addMessageProductsToOrder } = vi.hoisted(() => ({ addMessageProductsToOrder: vi.fn() }));
+vi.mock("@core/src/features/orders/application/add-message-products-to-order", () => ({ addMessageProductsToOrder }));
 
-import { orders } from "@core/src/features/orders/composition";
+import { findOrderForUpdate } from "@core/src/features/orders/infrastructure/order-repository";
+import { orders, addMessageProductsHandler, messageOrderPolicy } from "@core/src/features/orders/composition";
 
 const id = (n: number) => `00000000-0000-4000-8000-${n.toString().padStart(12, "0")}`;
-const input = { id: id(1) as OrderId, contactId: null, items: [{ variantId: id(2) as VariantId, quantity: 1 as PositiveInteger }] } as const;
+const input = { id: id(1) as OrderId, items: [{ variantId: id(2) as VariantId, quantity: 1 as PositiveInteger }] } as const;
 const context = { companyId: id(3) as CompanyId, userId: id(4) as UserId };
 
 test("returns a recoverable failure when transaction acquisition or commit fails", async () => {
@@ -84,4 +90,81 @@ test("checkout does not announce transitions before the outer commit succeeds", 
   } finally {
     info.mockRestore(); error.mockRestore(); withinTransaction.mockReset(); findCheckoutOrderForUpdate.mockReset();
   }
+});
+
+const messageId = id(10) as ChatMessageId;
+const eventId = id(11);
+const handle = (attempt = 1) => addMessageProductsHandler({ companyId: context.companyId, messageId },
+  { eventId, occurredAt: "2026-10-11T12:00:00.000Z" }, { signal: new AbortController().signal, attempt });
+
+test("treats persistence, image storage and QR reader failures as retryable", async () => {
+  const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  const warn = vi.spyOn(log, "warn").mockImplementation(() => undefined);
+  try {
+    for (const code of ["PERSISTENCE_UNAVAILABLE", "IMAGE_STORAGE_UNAVAILABLE", "QR_READER_UNAVAILABLE"] as const) {
+      addMessageProductsToOrder.mockResolvedValueOnce(err({ code, message: "Unavailable" }));
+      expect(await handle()).toEqual(err({ code, message: "Unavailable", retryable: true }));
+    }
+  } finally { error.mockRestore(); warn.mockRestore(); addMessageProductsToOrder.mockReset(); }
+});
+
+test("treats every other error as permanent", async () => {
+  const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  try {
+    for (const code of ["MESSAGE_NOT_FOUND", "IMAGE_NOT_FOUND", "CONTACT_NOT_FOUND", "SELLER_UNAVAILABLE", "CURRENCY_MISMATCH", "INVALID_ORDER"] as const) {
+      addMessageProductsToOrder.mockResolvedValueOnce(err({ code, message: "Rejected" }));
+      expect(await handle()).toEqual(err({ code, message: "Rejected", retryable: false }));
+    }
+  } finally { error.mockRestore(); addMessageProductsToOrder.mockReset(); }
+});
+
+test("treats an invalid stored order from findOrderForUpdate as a permanent INVALID_ORDER", async () => {
+  const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  try {
+    vi.mocked(findOrderForUpdate).mockResolvedValueOnce(err({ code: "INVALID_ORDER", message: "Invalid stored order" }));
+    addMessageProductsToOrder.mockImplementationOnce((_input, deps) => deps.findOrderForUpdate(id(12) as OrderId));
+    expect(await handle()).toEqual(err({ code: "INVALID_ORDER", message: "Invalid stored order", retryable: false }));
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({ code: "INVALID_ORDER", retryable: false }), expect.any(String));
+  } finally { error.mockRestore(); addMessageProductsToOrder.mockReset(); }
+});
+
+test("logs an error instead of a warning when a retryable failure exhausts its retries", async () => {
+  const warn = vi.spyOn(log, "warn").mockImplementation(() => undefined);
+  const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  try {
+    addMessageProductsToOrder.mockResolvedValue(err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unavailable" }));
+    await handle(messageOrderPolicy.retries);
+    expect(warn).toHaveBeenCalledOnce();
+    expect(error).not.toHaveBeenCalled();
+    await handle(messageOrderPolicy.retries + 1);
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "orders_message_order_failed", code: "PERSISTENCE_UNAVAILABLE", retryable: true }), expect.any(String));
+  } finally { warn.mockRestore(); error.mockRestore(); addMessageProductsToOrder.mockReset(); }
+});
+
+test("logs created, items added, skipped and failed outcomes with ids and without bytes, phones or decoded text", async () => {
+  const info = vi.spyOn(log, "info").mockImplementation(() => undefined);
+  const warn = vi.spyOn(log, "warn").mockImplementation(() => undefined);
+  const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  const orderId = id(12) as OrderId;
+  const variantIds = [id(13) as VariantId];
+  const unknownCodes = [id(14)];
+  const common = { companyId: context.companyId, messageId, eventId, attempt: 2, durationMs: expect.any(Number) };
+  try {
+    addMessageProductsToOrder.mockResolvedValueOnce(ok({ kind: "order_created", orderId, variantIds, unknownCodes }));
+    addMessageProductsToOrder.mockResolvedValueOnce(ok({ kind: "items_added", orderId, variantIds, unknownCodes }));
+    addMessageProductsToOrder.mockResolvedValueOnce(ok({ kind: "skipped", reason: "no_qr_code" }));
+    addMessageProductsToOrder.mockResolvedValueOnce(ok({ kind: "already_processed", orderId }));
+    addMessageProductsToOrder.mockResolvedValueOnce(err({ code: "PERSISTENCE_UNAVAILABLE", message: "+51987654321 bytes" }));
+    addMessageProductsToOrder.mockResolvedValueOnce(err({ code: "IMAGE_NOT_FOUND", message: "Image is not available" }));
+    for (let call = 0; call < 6; call += 1) await handle(2);
+    expect(info.mock.calls.map(([fields]) => fields)).toEqual([
+      { event: "orders_message_order_created", ...common, orderId, variantCount: 1, unknownCodes },
+      { event: "orders_message_order_items_added", ...common, orderId, variantCount: 1, unknownCodes },
+      { event: "orders_message_order_skipped", ...common, reason: "no_qr_code" },
+      { event: "orders_message_order_skipped", ...common, orderId, reason: "already_processed" },
+    ]);
+    expect(warn.mock.calls.map(([fields]) => fields)).toEqual([{ event: "orders_message_order_failed", ...common, code: "PERSISTENCE_UNAVAILABLE", retryable: true }]);
+    expect(error.mock.calls.map(([fields]) => fields)).toEqual([{ event: "orders_message_order_failed", ...common, code: "IMAGE_NOT_FOUND", retryable: false }]);
+    expect(JSON.stringify([info.mock.calls, warn.mock.calls, error.mock.calls])).not.toMatch(/51987654321|bytes/);
+  } finally { info.mockRestore(); warn.mockRestore(); error.mockRestore(); addMessageProductsToOrder.mockReset(); }
 });

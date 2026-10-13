@@ -7,7 +7,7 @@ import type { ReadyAccess } from "@core/src/features/users";
 
 const companyId = "00000000-0000-4000-8000-000000000001";
 const orderId = "00000000-0000-4000-8000-000000000002";
-const input = { id: orderId, contactId: null, items: [{ variantId: "00000000-0000-4000-8000-000000000003", quantity: 1 }],
+const input = { id: orderId, items: [{ variantId: "00000000-0000-4000-8000-000000000003", quantity: 1 }],
   delivery: { delivery: { method: "home", rateId: "00000000-0000-4000-8000-000000000004", recipient: { name: " Ana ", phone: " 999 ", identity: { kind: "absent" } },
     destination: { districtCode: "040110", address: " Street ", instructions: null } }, expectedPrice: { amount: 8, currency: "PEN" } } };
 async function save(body: unknown) {

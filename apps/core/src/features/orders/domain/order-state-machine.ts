@@ -4,11 +4,12 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { type DispatchDate } from "@shared/dispatch-date";
 import { z } from "zod";
-import { buildOrder, type BuildOrderInput, type BuildOrderError, type CompanyId, type OrderId, type OrderItem, type UserId } from "@core/src/features/orders/domain/order";
+import { buildOrder, type BuildOrderInput, type BuildOrderError, type CompanyId, type OrderId, type OrderItem, type OrderItemId, type PositiveInteger, type UserId } from "@core/src/features/orders/domain/order";
 import { parsePayment, voidPayment, type ConfirmedPayment, type Payment, type ReportedPayment } from "@core/src/features/orders/domain/payment";
 import { parsePeruDistrictCode, peruDeliveryDistrict, type PeruDistrictCode, type PeruDistrictError } from "@shared/peru-geography";
 import type { QuotationId, DeliveryRateId, DeliveryOptionId, DeliveryAgencyId, DeliverySettingsVersion, ResolvedDeliveryRate, CourierId } from "@core/src/features/delivery-settings";
 import type { PickupPoint } from "@core/src/features/delivery-settings";
+import type { ChatId } from "@core/src/features/orders/domain/message-order";
 
 export type OrderStatus = "active" | "cancelled" | "completed";
 export type PaymentStatus = "pending" | "paid";
@@ -41,6 +42,8 @@ export type OrderAggregate = Readonly<{
   companyId: CompanyId;
   sellerId: UserId;
   buyer: OrderBuyer | null;
+  /** Chat que originó la orden; ausente o null en órdenes manuales. */
+  chatId?: ChatId | null;
   checkoutEnabledAt: Date | null;
   checkoutConfirmedAt: Date | null;
   createdAt: Date;
@@ -221,6 +224,21 @@ function lifecycle(order: OrderAggregate): Result<OrderLifecycle, AggregateValid
   return order.completedAt === null ? ok({ status: "active", completedAt: null }) : failure("INVALID_ORDER", "Active order has completion date");
 }
 
+function appendItems(order: OrderAggregate, variants: readonly Pick<OrderItem, "variantId" | "productName" | "variantAttributes" | "sku" | "unitPrice">[], newItemId: () => OrderItemId): Result<OrderAggregate, BuildOrderError> {
+  const items: OrderItem[] = [...order.items];
+  for (const variant of variants) {
+    const index = items.findIndex((item) => item.variantId === variant.variantId);
+    if (index >= 0) { items[index] = { ...items[index]!, quantity: (items[index]!.quantity + 1) as PositiveInteger }; continue; }
+    const { variantId, productName, variantAttributes, sku, unitPrice } = variant;
+    items.push({ id: newItemId(), variantId, productName, variantAttributes, sku, quantity: 1 as PositiveInteger, unitPrice, subtotal: unitPrice });
+  }
+  const built = buildOrder({ id: order.id, companyId: order.companyId, sellerId: order.sellerId, customer: { kind: "general_public" }, createdAt: order.createdAt, items });
+  if (!built.success) return built;
+  const total = add(order.deliveryCharge)(built.data.total);
+  if (!total.success || !validMoney(total.data, true)) return failure("INVALID_ORDER", "Total exceeds supported range");
+  return ok({ ...order, items: built.data.items, itemsTotal: built.data.total, total: total.data });
+}
+
 function setDelivery(order: OrderAggregate, change: SetDeliveryChange): Result<OrderAggregate, OrderDomainError> {
   const allowed = canSetDelivery(order);
   if (!allowed.success) return allowed;
@@ -339,5 +357,5 @@ function cancel(order: OrderAggregate): Result<CancellationPlan, CancellationDom
     emitOrderCancelled: !order.cancelled });
 }
 
-export const orderStateMachine = { setDelivery, canSetDelivery, registerPayment, addReportedPayment, voidConfirmedPayment, planStockDeduction, registerShipment, scheduleDispatch,
+export const orderStateMachine = { appendItems, setDelivery, canSetDelivery, registerPayment, addReportedPayment, voidConfirmedPayment, planStockDeduction, registerShipment, scheduleDispatch,
   registerDelivery, cancel, getPaymentSummary: paymentSummary, getLifecycle: lifecycle } as const;

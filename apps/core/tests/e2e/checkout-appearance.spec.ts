@@ -276,9 +276,10 @@ async function sharedCheckoutPath(companyId: string, email: string) {
     const product = await products.create({ name: "Cuaderno", currency: "PEN", variants: [{ attributes: { Color: "Azul" }, salePrice: 10, initialStock: 3 }] });
     if (!product.success) throw new Error("Product fixture failed");
     const variant = await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } });
-    await prisma.contact.create({ data: { id: contactId, name: "Ana", phone: "+51987654321" } });
-    const created = await orders.create({ id: orderId, contactId, items: [{ variantId: variant.id as VariantId, quantity: 1 as PositiveInteger }] }, { companyId: tenant, userId });
+    await prisma.contact.create({ data: { id: contactId, whatsappAccountId: "1@lid", whatsappLid: "2@lid" } });
+    const created = await orders.create({ id: orderId, items: [{ variantId: variant.id as VariantId, quantity: 1 as PositiveInteger }] }, { companyId: tenant, userId });
     if (!created.success) throw new Error("Order fixture failed");
+    await prisma.orderBuyer.create({ data: { orderId, contactId, name: "Ana", phone: "+51987654321" } });
     expect(await orders.enableCheckout(orderId, { companyId: tenant, userId })).toMatchObject({ success: true });
   });
   return `/checkout/${companyId}/${orderId}`;

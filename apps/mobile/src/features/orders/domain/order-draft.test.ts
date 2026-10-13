@@ -1,4 +1,4 @@
-import { addDraftItem, changeDraftQuantity, emptyOrderDraft, prepareOrder, removeDraftItem, setDraftCustomer } from "@mobile/features/orders/domain/order-draft";
+import { addDraftItem, changeDraftQuantity, emptyOrderDraft, prepareOrder, removeDraftItem } from "@mobile/features/orders/domain/order-draft";
 import type { Currency } from "@shared/money";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -7,7 +7,7 @@ const item = (n: number, amount: number, currency: Currency = "PEN", stock = 3) 
   shownUnitPrice: { amount, currency }, shownStock: stock, quantity: 1,
 });
 
-test("cart keeps its ID while quantities and customer change, and sends only references", () => {
+test("cart keeps its ID while quantities change, and sends only references", () => {
   const first = addDraftItem(emptyOrderDraft(), item(1, 0.1), () => id(9));
   expect(first.success).toBe(true);
   if (!first.success) return;
@@ -15,14 +15,11 @@ test("cart keeps its ID while quantities and customer change, and sends only ref
   const changed = changeDraftQuantity(first.data, id(1), 3);
   expect(changed.success).toBe(true);
   if (!changed.success) return;
-  const withCustomer = setDraftCustomer(changed.data, { kind: "contact", contactId: id(7), name: "Ana", phone: "999" });
-  expect(prepareOrder(withCustomer)).toEqual({ success: true, data: {
-    request: { id: id(9), contactId: id(7), items: [{ variantId: id(1), quantity: 3 }] },
+  expect(prepareOrder(changed.data)).toEqual({ success: true, data: {
+    request: { id: id(9), items: [{ variantId: id(1), quantity: 3 }] },
     shownTotal: { amount: 0.3, currency: "PEN" },
   } });
-  expect(prepareOrder(setDraftCustomer(withCustomer, { kind: "general_public" })))
-    .toMatchObject({ success: true, data: { request: { contactId: null } } });
-  expect(removeDraftItem(withCustomer, id(1))).toMatchObject({ kind: "empty", customer: { kind: "contact" } });
+  expect(removeDraftItem(changed.data, id(1))).toMatchObject({ kind: "empty", id: id(9) });
 });
 
 test("cart allows pending orders beyond stock but rejects invalid quantities and mixed currencies", () => {
@@ -59,7 +56,7 @@ test("rated creation reviews one full delivery price and keeps only its selected
   } };
   const draft = { ...first.data, ratedDelivery };
   expect(prepareOrder(draft)).toEqual({ success: true, data: {
-    request: { id: id(9), contactId: null, items: [{ variantId: id(1), quantity: 1 }], delivery: ratedDelivery },
+    request: { id: id(9), items: [{ variantId: id(1), quantity: 1 }], delivery: ratedDelivery },
     shownTotal: { amount: 58, currency: "PEN" },
   } });
   expect(prepareOrder({ ...draft, ratedDelivery: { ...ratedDelivery, expectedPrice: { amount: 0, currency: "PEN" } } }))
@@ -88,19 +85,18 @@ test.each([true, false])("new drafts reject manual delivery instead of silently 
 });
 
 
-test("replacing the last cart item preserves the order, customer and payment identities", () => {
+test("replacing the last cart item preserves the order and payment identities", () => {
   const first = addDraftItem(emptyOrderDraft(), item(1, 10), () => id(9));
   if (!first.success) throw new Error("Invalid fixture");
-  const customer = { kind: "contact" as const, contactId: id(7), name: "Ana", phone: "999" };
   const payments = [{ paymentId: id(5), amount: "4.50", method: "bank_transfer" as const, deductStockIfPartial: false }];
-  const emptied = removeDraftItem({ ...first.data, customer, payments }, id(1));
-  expect(emptied).toMatchObject({ kind: "empty", id: id(9), customer, payments });
+  const emptied = removeDraftItem({ ...first.data, payments }, id(1));
+  expect(emptied).toMatchObject({ kind: "empty", id: id(9), payments });
   const newId = jest.fn(() => id(8));
   const replaced = addDraftItem(emptied, item(2, 12), newId);
   expect(newId).not.toHaveBeenCalled();
   if (!replaced.success) throw new Error("Expected replacement");
   expect(prepareOrder(replaced.data)).toMatchObject({ success: true, data: {
-    request: { id: id(9), contactId: id(7), items: [{ variantId: id(2), quantity: 1 }], payments: [{ paymentId: id(5) }] },
+    request: { id: id(9), items: [{ variantId: id(2), quantity: 1 }], payments: [{ paymentId: id(5) }] },
     shownTotal: { amount: 12, currency: "PEN" },
   } });
 });

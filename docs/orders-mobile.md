@@ -17,7 +17,7 @@ La primera versión requiere conexión para confirmar. El vendedor puede seguir 
 | Aspecto | Comportamiento |
 | --- | --- |
 | Productos | Se buscan por nombre, se elige una variante activa y se indica una cantidad. Se muestran precio y stock disponibles; una variante sin stock no se puede agregar. |
-| Cliente | «Público general» es el valor inicial. Se puede elegir o quitar un contacto existente; no se crea uno desde este flujo. |
+| Cliente | «Público general». |
 | Precio y total | Mobile muestra el importe calculado con los precios consultados, pero core vuelve a calcularlo con el catálogo vigente al confirmar. No se edita el precio ni se aplican descuentos. |
 | Cobro y entrega | El vendedor confirma ambas acciones manualmente. Una orden completada queda cobrada y entregada; no hay estados intermedios. |
 | Stock | La selección no reserva unidades. Si al confirmar falta stock, la orden se rechaza y la selección queda editable. |
@@ -28,12 +28,12 @@ La primera versión requiere conexión para confirmar. El vendedor puede seguir 
 
 - **Ventas:** lista paginada, filtros por fecha y cliente, estados de lista vacía, filtros sin resultados y error de carga. Cada fila usa cliente, fecha y total; el detalle conserva datos históricos. Si hay una confirmación incierta, muestra la acción para verificarla antes de iniciar otra venta.
 - **Nueva venta:** búsqueda de productos agrupados; tocar un producto abre variantes con precio y stock. La barra inferior resume artículos y total mostrado. Salir con carrito no vacío pide confirmación para descartarlo.
-- **Revisar:** permite editar cantidades y cliente; explica que el pago y la entrega se confirman manualmente. Ante un rechazo conocido permanece aquí con el carrito intacto.
+- **Revisar:** permite editar cantidades; explica que el pago y la entrega se confirman manualmente. Ante un rechazo conocido permanece aquí con el carrito intacto.
 - **Detalle:** usa siempre el total registrado por core. El aviso de diferencia depende del intento local y solo aparece inmediatamente tras completar o recuperar esa venta.
 
-«Nueva venta» tiene las etapas «Productos» y «Revisar» en la misma ruta para conservar la selección al avanzar y retroceder. La confirmación exige artículos válidos y conexión. Al completarse, se abre el detalle de esa orden. Si core devuelve un rechazo conocido por stock, variante o contacto, el vendedor corrige la selección y puede reintentar con el mismo ID.
+«Nueva venta» tiene las etapas «Productos» y «Revisar» en la misma ruta para conservar la selección al avanzar y retroceder. La confirmación exige artículos válidos y conexión. Al completarse, se abre el detalle de esa orden. Si core devuelve un rechazo conocido por stock o variante, el vendedor corrige la selección y puede reintentar con el mismo ID.
 
-El historial muestra páginas de 20, ordenadas por fecha de finalización descendente y por ID en los empates. El filtro de cliente distingue todas las órdenes, público general o un contacto. «Desde» y «Hasta» seleccionan **días completos e inclusivos** de `America/Lima`, no horas ni la zona del teléfono; la fecha y hora visibles usan Lima para que coincidan con el filtro. El detalle muestra los artículos y datos del cliente tal como quedaron registrados al completar la orden.
+El historial muestra páginas de 20, ordenadas por fecha de finalización descendente y por ID en los empates. El filtro de cliente distingue todas las órdenes o público general. «Desde» y «Hasta» seleccionan **días completos e inclusivos** de `America/Lima`, no horas ni la zona del teléfono; la fecha y hora visibles usan Lima para que coincidan con el filtro. El detalle muestra los artículos y datos del cliente tal como quedaron registrados al completar la orden.
 
 ### Resultado incierto y diferencia de importe
 
@@ -58,7 +58,7 @@ Pantallas mobile → operaciones de ventas → adaptador HTTP → /api/orders
                                        en una misma transacción
 ```
 
-- **Core** conserva las reglas de creación, precios, stock, autorización y aislamiento por empresa. La API adapta HTTP a `orders.create`, `orders.list`, `orders.get`, `orders.searchProducts` y `orders.searchContacts`; no crea otra implementación de esas reglas.
+- **Core** conserva las reglas de creación, precios, stock, autorización y aislamiento por empresa. La API adapta HTTP a `orders.create`, `orders.list`, `orders.get` y `orders.searchProducts`; no crea otra implementación de esas reglas.
 - **Mobile** posee la interacción, el carrito temporal, el total mostrado y la recuperación de una confirmación incierta. Calcula un importe para orientar al vendedor, pero el resultado de core es el único total registrado.
 - **Shared** posee los esquemas Zod del JSON y las utilidades `Money` y `Result`. Mobile no importa entidades ni repositorios de core.
 - La primera versión no agrega columnas, tablas, estados de orden ni migraciones. El total mostrado antes de confirmar no se persiste en core.
@@ -67,9 +67,9 @@ Pantallas mobile → operaciones de ventas → adaptador HTTP → /api/orders
 
 #### Contratos compartidos
 
-`shared/contracts/orders.ts` ya define los esquemas de creación, orden, resumen, listado, catálogo y contactos. También exporta `CreateOrderRequest`, `OrderResponse` y `ListOrdersRequest`, inferidos de sus esquemas. Se usan esos tipos existentes; para las otras respuestas se usa `z.infer<typeof esquema>` donde haga falta. Antes de incorporar mobile, los esquemas existentes `saleCatalogSchema` y `saleContactsSchema` se renombran a `orderCatalogSchema` y `orderContactsSchema`, actualizando sus usos en core sin cambiar sus estructuras JSON. No se agrega una capa de modelos o mapeadores de transporte.
+`shared/contracts/orders.ts` ya define los esquemas de creación, orden, resumen, listado y catálogo. También exporta `CreateOrderRequest`, `OrderResponse` y `ListOrdersRequest`, inferidos de sus esquemas. Se usan esos tipos existentes; para las otras respuestas se usa `z.infer<typeof esquema>` donde haga falta. No se agrega una capa de modelos o mapeadores de transporte.
 
-La petición de creación contiene `id: UUID`, `contactId: UUID | null` e `items: [{ variantId: UUID, quantity: entero positivo }]`; la lista no puede estar vacía. No viajan precios, total, medio de pago, fecha, empresa ni vendedor. `orderSchema` devuelve el ID, empresa, vendedor, cliente discriminado entre `general_public` y `contact`, `paymentMethod: "digital_wallet"`, `completedAt` ISO UTC, moneda, total y artículos con nombre, atributos, SKU, cantidad, precio y subtotal históricos. `listOrdersResponseSchema` contiene esos datos de cabecera en `items`, más `page`, `pageSize: 20` y `total`. `orderCatalogSchema` agrupa variantes por producto, con precio y stock; `orderContactsSchema` representa contactos existentes. Core valida JSON entrante y saliente; mobile valida lo que envía y cada respuesta recibida.
+La petición de creación contiene `id: UUID` e `items: [{ variantId: UUID, quantity: entero positivo }]`; la lista no puede estar vacía. No viajan precios, total, medio de pago, fecha, empresa ni vendedor. `orderSchema` devuelve el ID, empresa, vendedor, cliente discriminado entre `general_public` y `contact`, `paymentMethod: "digital_wallet"`, `completedAt` ISO UTC, moneda, total y artículos con nombre, atributos, SKU, cantidad, precio y subtotal históricos. `listOrdersResponseSchema` contiene esos datos de cabecera en `items`, más `page`, `pageSize: 20` y `total`. `orderCatalogSchema` agrupa variantes por producto, con precio y stock. Core valida JSON entrante y saliente; mobile valida lo que envía y cada respuesta recibida.
 
 Core mantiene sus tipos de dominio actuales (`Order`, `OrderCriteria`, `CreateOrderError` e IDs de marca) dentro de `apps/core/src/features/orders/`. `createOrder` valida la petición y coordina `buildOrder`, que construye y valida la entidad. La presentación escribe el JSON con las funciones existentes `toOrderJson` y `toOrderListJson`, validadas por los esquemas de salida; no añade otra capa ni expone Prisma a mobile. `Money` y `Result` se reutilizan desde `shared/`.
 
@@ -89,8 +89,8 @@ type OrderDraftItem = Readonly<{
 }>;
 
 type OrderDraft =
-  | Readonly<{ kind: "empty"; customer: OrderResponse["customer"]; items: readonly [] }>
-  | Readonly<{ kind: "items"; id: CreateOrderRequest["id"]; customer: OrderResponse["customer"];
+  | Readonly<{ kind: "empty"; items: readonly [] }>
+  | Readonly<{ kind: "items"; id: CreateOrderRequest["id"];
       items: readonly [OrderDraftItem, ...OrderDraftItem[]] }>;
 
 type PendingOrderConfirmation = Readonly<{
@@ -103,14 +103,13 @@ type OrderListCriteria = Readonly<{
   page: number;
   customer:
     | Readonly<{ kind: "all" }>
-    | Readonly<{ kind: "general_public" }>
-    | Readonly<{ kind: "contact"; contactId: NonNullable<CreateOrderRequest["contactId"]> }>;
+    | Readonly<{ kind: "general_public" }>;
   fromDay?: string;    // YYYY-MM-DD en Lima
   throughDay?: string; // YYYY-MM-DD en Lima, inclusivo
 }>;
 ```
 
-`OrderDraft` y la petición congelada durante el envío viven solo en memoria. Su `customer` usa la misma unión discriminada de `OrderResponse`; el caso de uso obtiene `contactId` cuando el cliente es un contacto. El UUID se genera al agregar el primer artículo y no cambia al editar ni al reintentar. Después de reiniciar la app no se conserva la petición: solo entonces se reconstruye el carrito por decisión del vendedor; el envío nunca se repite automáticamente. `PendingOrderConfirmation` guarda únicamente empresa, ID y total mostrado de un envío **ya confirmado por el vendedor**. Se conserva un único intento por empresa incluso al cerrar sesión, y se lee solo al autenticarse nuevamente en esa empresa. La lectura de almacenamiento se valida con un esquema Zod local antes de convertirla en estado de aplicación.
+`OrderDraft` y la petición congelada durante el envío viven solo en memoria. El UUID se genera al agregar el primer artículo y no cambia al editar ni al reintentar. Después de reiniciar la app no se conserva la petición: solo entonces se reconstruye el carrito por decisión del vendedor; el envío nunca se repite automáticamente. `PendingOrderConfirmation` guarda únicamente empresa, ID y total mostrado de un envío **ya confirmado por el vendedor**. Se conserva un único intento por empresa incluso al cerrar sesión, y se lee solo al autenticarse nuevamente en esa empresa. La lectura de almacenamiento se valida con un esquema Zod local antes de convertirla en estado de aplicación.
 
 El caso de uso mobile calcula el total mostrado con `multiply` y `add` de `shared/money.ts`, valida cantidades, variantes repetidas y monedas mezcladas, y arma `CreateOrderRequest` al confirmar. Una variante con stock mostrado en cero no se puede agregar; el stock visible nunca reserva unidades. La pantalla construye `OrderListCriteria` y el caso de uso `loadOrders` valida sus días y los convierte a `ListOrdersRequest` con instantes UTC. En core, el handler traduce este contrato a su `OrderCriteria` existente. Core vuelve a validar las reglas de consulta y calcula el importe registrado con el catálogo vigente.
 
@@ -120,19 +119,18 @@ Se registra un middleware `Cache-Control: no-store` para `/api/orders` antes del
 
 | Método y ruta | Entrada | Salida |
 | --- | --- | --- |
-| `GET /api/orders` | `page`, `customer`, `contactId`, `completedFrom`, `completedBefore` | `listOrdersResponseSchema` |
+| `GET /api/orders` | `page`, `customer`, `completedFrom`, `completedBefore` | `listOrdersResponseSchema` |
 | `GET /api/orders/:id` | UUID | `orderSchema` |
 | `POST /api/orders` | JSON `createOrderSchema` | `201` + `orderSchema` |
 | `GET /api/orders/catalog?search=` | Nombre del producto | `orderCatalogSchema`, hasta 20 productos activos; cada uno incluye solo sus variantes activas |
-| `GET /api/orders/contacts?search=` | Nombre o teléfono | `orderContactsSchema`, hasta 20 contactos |
 
 #### Validación y mapeo HTTP
 
-`apps/core/src/app.ts` registra el router después de `loadApiAccess` y `requireApiCompany`. Cada handler recibe `ReadyAccess` en `response.locals.auth` y toma de allí `company.id` y `user.id`, sin restringir el país. `loadApiAccess` ya instala el aislamiento de empresa; la API no acepta empresa ni vendedor en cuerpo o query. `POST` exige JSON; el parser global conserva el límite de 100 kB. Las rutas estáticas `catalog` y `contacts` se registran antes de `:id`.
+`apps/core/src/app.ts` registra el router después de `loadApiAccess` y `requireApiCompany`. Cada handler recibe `ReadyAccess` en `response.locals.auth` y toma de allí `company.id` y `user.id`, sin restringir el país. `loadApiAccess` ya instala el aislamiento de empresa; la API no acepta empresa ni vendedor en cuerpo o query. `POST` exige JSON; el parser global conserva el límite de 100 kB. La ruta estática `catalog` se registra antes de `:id`.
 
-En cada entrada se usa `safeParse`: `createOrderSchema` para el cuerpo, `listOrdersSchema` para el listado, UUID para detalle y esquemas estrictos de `search` para las dos búsquedas. El límite JSON rechaza claves desconocidas o repetidas y formatos inválidos; `listOrders` valida además el orden del intervalo y el rango seguro de paginación. `customer: "contact"` exige `contactId`, y las otras opciones no lo aceptan; el handler traduce `customer` a la unión discriminada de `OrderCriteria` sin introducir valores inválidos ni usar aserciones no comprobadas. Los parámetros de fecha son instantes ISO UTC; los días de producto se convierten antes, en mobile.
+En cada entrada se usa `safeParse`: `createOrderSchema` para el cuerpo, `listOrdersSchema` para el listado, UUID para detalle y un esquema estricto de `search` para la búsqueda. El límite JSON rechaza claves desconocidas o repetidas y formatos inválidos; `listOrders` valida además el orden del intervalo y el rango seguro de paginación. El handler traduce `customer` a la unión discriminada de `OrderCriteria` sin introducir valores inválidos ni usar aserciones no comprobadas. Los parámetros de fecha son instantes ISO UTC; los días de producto se convierten antes, en mobile.
 
-`POST` pasa `parsed.data` y `{ companyId: auth.company.id, sellerId: auth.user.id }` a `orders.create`. `GET /api/orders` convierte el query validado en `OrderCriteria` y llama `orders.list`; `GET /api/orders/:id` llama `orders.get`. Las búsquedas delegan a `orders.searchProducts` y `orders.searchContacts`, ya conectadas a productos y contactos. La pantalla no ofrece para selección productos que vuelvan sin variantes activas. Todos los resultados exitosos se proyectan y validan con los esquemas compartidos antes de escribir JSON. Core sigue siendo dueño de fecha, precio, stock, transacción y copias históricas. Una venta de otra empresa responde igual que una inexistente.
+`POST` pasa `parsed.data` y `{ companyId: auth.company.id, sellerId: auth.user.id }` a `orders.create`. `GET /api/orders` convierte el query validado en `OrderCriteria` y llama `orders.list`; `GET /api/orders/:id` llama `orders.get`. La búsqueda delega a `orders.searchProducts`, ya conectada a productos. La pantalla no ofrece para selección productos que vuelvan sin variantes activas. Todos los resultados exitosos se proyectan y validan con los esquemas compartidos antes de escribir JSON. Core sigue siendo dueño de fecha, precio, stock, transacción y copias históricas. Una venta de otra empresa responde igual que una inexistente.
 
 El listado conserva páginas de 20 ordenadas por `completedAt` descendente e ID ascendente en empates. `completedFrom` es inclusivo y `completedBefore` exclusivo. La pantalla filtra por **días**, no por hora: «Desde» se convierte a la medianoche de ese día y «Hasta» a la medianoche del día siguiente en `America/Lima`. Por ejemplo, solo el 28/09/2026 corresponde a `[2026-09-28T05:00:00.000Z, 2026-09-29T05:00:00.000Z)`. No se usa la zona del teléfono ni se suma una duración fija de 24 horas para obtener el día siguiente. La conversión se extrae de la ruta web actual de core a una función pura compartida por web y mobile; la fecha y hora de cada venta también se muestran en `America/Lima`.
 
@@ -149,7 +147,7 @@ El sobre sigue siendo `{ code, error, issues? }` de `shared/contracts/registrati
 | JSON, query o UUID mal formado | `400 INVALID_INPUT` | Corregir entrada; no enviar otra venta automáticamente. |
 | Cuerpo no JSON o mayor a 100 kB | `415 UNSUPPORTED_MEDIA_TYPE` / `413 PAYLOAD_TOO_LARGE` | Mantener el carrito y mostrar error seguro. |
 | Regla inválida o monedas mezcladas | `422 INVALID_ORDER` / `CURRENCY_MISMATCH` | Mantener carrito y señalar el problema. |
-| Contacto o variante ya no disponible | `404 CONTACT_NOT_FOUND` / `VARIANT_NOT_FOUND` | Mantener carrito; cambiar cliente o producto. |
+| Variante ya no disponible | `404 VARIANT_NOT_FOUND` | Mantener carrito; cambiar producto. |
 | Stock insuficiente | `409 INSUFFICIENT_STOCK` | Mantener carrito, identificar variante y permitir corregir/reintentar. |
 | ID ya registrado | `409 ORDER_ALREADY_EXISTS` | Consultar ese ID antes de decidir si fue el envío previo. |
 | Venta inexistente | `404 ORDER_NOT_FOUND` en detalle | Mostrar ausencia sin filtrar información de otra empresa. |
@@ -186,7 +184,7 @@ Las rutas de `src/app/` solo delegan a pantallas de `features/orders/presentatio
 
 #### Adaptadores y firmas
 
-`createOrderApi(request)` recibe el `request` autenticado de `src/shared/infrastructure/api-client.ts` y expone `list`, `get`, `create`, `searchCatalog` y `searchContacts`. Envía los datos que recibe del caso de uso; trata el cuerpo remoto como `unknown`, lo valida con los esquemas compartidos y devuelve `Result` con el tipo exacto inferido de cada respuesta. Los errores de negocio conservan código e incidencias tipadas y usan `message`, como exige `Result`; respuestas desconocidas o incompatibles pasan a `INVALID_RESPONSE`. La búsqueda se acota a las 20 opciones que devuelve core. `createOrderOperations(api, pendingStore)` recibe esos adaptadores por composición, sin importar HTTP ni almacenamiento dentro de la aplicación.
+`createOrderApi(request)` recibe el `request` autenticado de `src/shared/infrastructure/api-client.ts` y expone `list`, `get`, `create` y `searchCatalog`. Envía los datos que recibe del caso de uso; trata el cuerpo remoto como `unknown`, lo valida con los esquemas compartidos y devuelve `Result` con el tipo exacto inferido de cada respuesta. Los errores de negocio conservan código e incidencias tipadas y usan `message`, como exige `Result`; respuestas desconocidas o incompatibles pasan a `INVALID_RESPONSE`. La búsqueda se acota a las 20 opciones que devuelve core. `createOrderOperations(api, pendingStore)` recibe esos adaptadores por composición, sin importar HTTP ni almacenamiento dentro de la aplicación.
 
 El caso de uso mobile recibe `OrderDraft`, comprueba sus invariantes, arma `CreateOrderRequest`, calcula el total mostrado y coordina el envío y la recuperación. El estado de resultado distingue explícitamente éxito confirmado y confirmación incierta:
 
@@ -220,7 +218,6 @@ type ConfirmOrderError = OrderRequestError | PendingOrderStoreError
 declare function loadOrders(criteria: OrderListCriteria): Promise<Result<z.infer<typeof listOrdersResponseSchema>, OrderRequestError>>;
 declare function loadOrder(id: OrderResponse["id"]): Promise<Result<OrderResponse, OrderRequestError>>;
 declare function searchOrderCatalog(search: string): Promise<Result<z.infer<typeof orderCatalogSchema>, OrderRequestError>>;
-declare function searchOrderContacts(search: string): Promise<Result<z.infer<typeof orderContactsSchema>, OrderRequestError>>;
 declare function completeOrder(draft: OrderDraft): Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>>;
 declare function resolvePendingOrderConfirmation(companyId: string): Promise<Result<ConfirmOrderOutcome | null, ConfirmOrderError>>;
 ```
@@ -233,7 +230,7 @@ La conexión es obligatoria: cuando se sabe que el dispositivo está desconectad
 
 #### Confirmación y recuperación
 
-1. Al agregar el primer artículo, mobile genera el UUID de la venta. Editar cantidades o cliente no cambia ese ID. Se impiden artículos repetidos, cantidades inválidas y monedas mezcladas antes de habilitar la confirmación.
+1. Al agregar el primer artículo, mobile genera el UUID de la venta. Editar cantidades no cambia ese ID. Se impiden artículos repetidos, cantidades inválidas y monedas mezcladas antes de habilitar la confirmación.
 2. Al pulsar «Confirmar cobro y entrega», se guarda `PendingOrderConfirmation` antes de enviar `POST /api/orders`. Si no se puede guardar, no se envía la venta y se muestra un error recuperable. Se deshabilita el doble toque.
 3. Si core devuelve éxito, se muestra `OrderResponse` y se compara su total con `shownTotal`. Si difiere, se muestran ambos importes y la diferencia para que el vendedor ajuste el pago fuera de la app. Si cambió la moneda, se muestran ambos importes sin restarlos. El intento temporal se limpia cuando el vendedor deja el resultado.
 4. Un rechazo definitivo de negocio limpia `PendingOrderConfirmation`, conserva el carrito en pantalla y muestra la corrección posible. En falta de stock se puede editar y reintentar con el mismo ID.
@@ -261,10 +258,10 @@ La conexión es obligatoria: cuando se sabe que el dispositivo está desconectad
 | --- | --- |
 | AI01 | Las rutas de órdenes exigen una empresa autenticada; empresas de países distintos pueden consultar y crear ventas por API con aislamiento entre empresas. |
 | AI02 | Registrar una venta por API devuelve la orden completada con el total de core, conserva los datos históricos de cliente y artículos, y descuenta el stock una sola vez. |
-| AI03 | Una petición inválida o una venta rechazada por stock, contacto o variante devuelve el código acordado y no registra una venta parcial. |
+| AI03 | Una petición inválida o una venta rechazada por stock o variante devuelve el código acordado y no registra una venta parcial. |
 | AI04 | Repetir un ID de venta devuelve `ORDER_ALREADY_EXISTS`; consultar ese ID recupera la venta original sin un segundo descuento de stock. |
 | AI05 | El listado aplica juntos los filtros de días y cliente, pagina de forma estable y permite abrir el detalle; una empresa no puede leer ventas de otra. |
-| AI06 | La búsqueda de productos y contactos devuelve solo opciones disponibles para la empresa autenticada y respeta el límite acordado. |
+| AI06 | La búsqueda de productos devuelve solo opciones disponibles para la empresa autenticada y respeta el límite acordado. |
 
 Las pruebas existentes de core siguen cubriendo las reglas internas de creación, concurrencia y atomicidad; estas descripciones se centran en la nueva API HTTP.
 
@@ -276,11 +273,10 @@ Las pruebas existentes de core siguen cubriendo las reglas internas de creación
 | --- | --- |
 | MU01 | Agregar una variante, cambiar su cantidad y quitarla actualiza una sola línea y el total mostrado sin duplicar artículos. |
 | MU02 | Una cantidad inválida, una variante sin stock o una combinación de monedas distintas impide confirmar la venta. |
-| MU03 | `OrderDraft.customer` empieza como `general_public`, permite elegir un contacto existente y vuelve a público general si se quita el contacto; al confirmar se deriva `contactId`. |
-| MU04 | `CreateOrderRequest` contiene solo `id`, `contactId` e `items` con `variantId` y `quantity`; conserva el mismo `id` al editar o reintentar el carrito. |
+| MU04 | `CreateOrderRequest` contiene solo `id` e `items` con `variantId` y `quantity`; conserva el mismo `id` al editar o reintentar el carrito. |
 | MU05 | El filtro «Desde/Hasta» convierte días inclusivos de Lima en un intervalo UTC con inicio inclusivo y fin exclusivo, y muestra la hora de las ventas en Lima. |
 | MU06 | La confirmación no se envía si falla el guardado del intento pendiente y un doble toque no produce dos envíos. |
-| MU07 | Un rechazo por stock, contacto o variante conserva el carrito editable y señala qué debe corregir el vendedor. |
+| MU07 | Un rechazo por stock o variante conserva el carrito editable y señala qué debe corregir el vendedor. |
 | MU08 | Al completar o recuperar una venta, se avisa si el total registrado difiere del mostrado; el aviso no aparece al abrir después esa venta desde el historial. |
 | MU09 | Una respuesta perdida mantiene la confirmación como incierta: consulta el ID, no interpreta un `404` inmediato como rechazo definitivo y no reenvía automáticamente la venta. |
 | MU10 | `PendingOrderConfirmation` conserva solo `companyId`, `id` y `shownTotal`; sobrevive al reinicio y al cierre de sesión, se muestra solo en su empresa y bloquea una venta distinta mientras siga incierto. |

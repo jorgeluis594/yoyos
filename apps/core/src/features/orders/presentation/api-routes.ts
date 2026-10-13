@@ -2,13 +2,13 @@ import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import express, { type Request, type Response } from "express";
 import { z } from "zod";
-import { cancelOrderResponseSchema, createOrderSchema, setRatedOrderDeliverySchema, orderApiErrorSchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, orderContactsSchema, registerPaymentResponseSchema, registerPaymentSchema, updateOrderShippingSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
+import { cancelOrderResponseSchema, createOrderSchema, setRatedOrderDeliverySchema, orderApiErrorSchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, registerPaymentResponseSchema, registerPaymentSchema, updateOrderShippingSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
 import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { apiError, type PrivateLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { orders, createConfiguredOrder } from "@core/src/features/orders/composition";
 import { toLegacyOrderJson, toOrderAggregateJson, toOrderAggregateListJson, toOrderListJson } from "@core/src/features/orders/presentation/order-json";
 import type { CreateOrderInput, OrderAccess } from "@core/src/features/orders/application/create-order";
-import type { ContactId, CompanyId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
+import type { CompanyId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import { parseScheduledDispatchFilter } from "@core/src/features/orders/application/list-order-aggregates";
 import type { DispatchDate } from "@shared/dispatch-date";
 import type { Money } from "@shared/money";
@@ -17,7 +17,6 @@ import type { RegisterPaymentInput } from "@core/src/features/orders/application
 import type { VariantId } from "@core/src/features/products/domain/product";
 
 const searchSchema = z.strictObject({ search: z.string().trim().max(100).default("") });
-const contactsQuerySchema = z.union([searchSchema, z.strictObject({ contactId: z.uuid() })]);
 const catalogQuerySchema = z.union([searchSchema, z.strictObject({ variantIds: z.string().transform(value => value.split(","))
   .pipe(z.array(z.uuid()).min(1).refine(values => new Set(values).size === values.length)) })]);
 
@@ -41,7 +40,6 @@ function operationError(response: Response, error: { code: string; variantId?: s
   switch (error.code) {
     case "INVALID_ORDER": return apiError(response, 422, "INVALID_ORDER", "Invalid order", issues);
     case "CURRENCY_MISMATCH": return apiError(response, 422, "CURRENCY_MISMATCH", "Currency mismatch", issues);
-    case "CONTACT_NOT_FOUND": return apiError(response, 404, "CONTACT_NOT_FOUND", "Contact not found");
     case "VARIANT_NOT_FOUND": return apiError(response, 404, "VARIANT_NOT_FOUND", "Variant not found", issues);
     case "INSUFFICIENT_STOCK": return apiError(response, 409, "INSUFFICIENT_STOCK", "Insufficient stock", issues);
     case "ORDER_ALREADY_EXISTS": return apiError(response, 409, "ORDER_ALREADY_EXISTS", "Order already exists");
@@ -85,7 +83,7 @@ function toCreateOrderInput(value: OrderSelectionRequest & Readonly<{ scheduledD
   const [first, ...rest] = value.items;
   if (!first) throw new Error("Validated order has no items");
   const item = (selection: typeof first) => ({ variantId: selection.variantId as VariantId, quantity: selection.quantity as PositiveInteger });
-  return { id: value.id as OrderId, contactId: value.contactId as ContactId | null, scheduledDispatchDate: value.scheduledDispatchDate as DispatchDate | undefined, items: [item(first), ...rest.map(item)] };
+  return { id: value.id as OrderId, scheduledDispatchDate: value.scheduledDispatchDate as DispatchDate | undefined, items: [item(first), ...rest.map(item)] };
 }
 
 orderRoutes.get("/", async (request, response) => {
@@ -93,10 +91,10 @@ orderRoutes.get("/", async (request, response) => {
   if (!query) return;
   const parsed = listOrdersSchema.safeParse(query);
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order filters");
-  const { page, customer, contactId, completedFrom, completedBefore } = parsed.data;
+  const { page, customer, completedFrom, completedBefore } = parsed.data;
   try {
     const result = await orders.list({ page,
-      customer: customer === "contact" ? { kind: "contact", contactId: contactId as ContactId } : { kind: customer },
+      customer: { kind: customer },
       ...(completedFrom ? { completedFrom: new Date(completedFrom) } : {}),
       ...(completedBefore ? { completedBefore: new Date(completedBefore) } : {}),
     });
@@ -109,7 +107,7 @@ orderRoutes.get("/mixed", async (request, response: Response<unknown, PrivateLoc
   if (!query) return;
   const parsed = listOrderAggregatesSchema.safeParse(query);
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order filters");
-  const { page, customer, contactId, createdFrom, createdBefore, search, view, deliveryStatus, courierId, shippedFrom, shippedBefore } = parsed.data;
+  const { page, customer, createdFrom, createdBefore, search, view, deliveryStatus, courierId, shippedFrom, shippedBefore } = parsed.data;
   const scheduled = parseScheduledDispatchFilter({ scheduledFrom: parsed.data.scheduledFrom as DispatchDate | undefined,
     scheduledThrough: parsed.data.scheduledThrough as DispatchDate | undefined, unscheduled: parsed.data.unscheduled });
   if (!scheduled.success || (shippedFrom && shippedBefore && new Date(shippedFrom) >= new Date(shippedBefore))) return apiError(response, 400, "INVALID_INPUT", "Invalid order filters");
@@ -117,7 +115,7 @@ orderRoutes.get("/mixed", async (request, response: Response<unknown, PrivateLoc
     const result = await orders.listAggregates({ page, search, view, deliveryStatus, courierId, scheduled: scheduled.data,
       ...(shippedFrom ? { shippedFrom: new Date(shippedFrom) } : {}),
       ...(shippedBefore ? { shippedBefore: new Date(shippedBefore) } : {}),
-      customer: customer === "contact" ? { kind: "contact", contactId: contactId as ContactId } : { kind: customer },
+      customer: { kind: customer },
       ...(createdFrom ? { createdFrom: new Date(createdFrom) } : {}),
       ...(createdBefore ? { createdBefore: new Date(createdBefore) } : {}),
     }, orderContext(response));
@@ -133,17 +131,6 @@ orderRoutes.get("/catalog", async (request, response) => {
   try {
     const result = await orders.searchProducts("search" in parsed.data ? parsed.data.search : "", "variantIds" in parsed.data ? parsed.data.variantIds : undefined);
     return result.success ? response.json(orderCatalogSchema.parse(result.data)) : operationError(response, result.error);
-  } catch (error) { return unexpected(response, error); }
-});
-
-orderRoutes.get("/contacts", async (request, response) => {
-  const query = queryFrom(request, response);
-  if (!query) return;
-  const parsed = contactsQuerySchema.safeParse(query);
-  if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid search");
-  try {
-    const result = await orders.searchContacts("search" in parsed.data ? parsed.data.search : "", "contactId" in parsed.data ? parsed.data.contactId : undefined);
-    return result.success ? response.json(orderContactsSchema.parse(result.data)) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });
 

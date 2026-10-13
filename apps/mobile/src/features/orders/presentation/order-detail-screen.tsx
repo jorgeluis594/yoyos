@@ -28,6 +28,7 @@ import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
 import { deliveryMethodLabel, deliveryStatusLabel, documentTypeLabel, orderLanguage, orderStatusLabel } from "@mobile/features/orders/presentation/order-labels";
 import { OrderDayField } from "@mobile/features/orders/presentation/order-day-field";
+import { OrderBuyerName } from "@mobile/features/orders/presentation/order-buyer";
 import { useTheme } from "@mobile/hooks/use-theme";
 import translations from "@mobile/i18n";
 import { normalizeDecimalInput } from "@mobile/shared/decimal-input";
@@ -257,10 +258,8 @@ export default function OrderDetailScreen() {
             </ThemedText>
             <StatusBadge label={title} tone={order.status === "cancelled" ? "neutral" : "success"} />
           </View>
-          <ThemedText accessibilityLabel={`${t('detailBuyer')}: ${order.buyer !== null ? order.buyer.name ?? order.buyer.phone : t('generalPublic')}`}>
-            {order.buyer !== null ? order.buyer.name ?? order.buyer.phone : t('generalPublic')}
-          </ThemedText>
-          {order.buyer?.name ? <ThemedText type="small" themeColor="textSecondary" selectable>{order.buyer.phone}</ThemedText> : null}
+          <OrderBuyerName buyer={order.buyer} source={order.source} labelled />
+          {order.buyer?.name && order.buyer.phone ? <ThemedText type="small" themeColor="textSecondary" selectable>{order.buyer.phone}</ThemedText> : null}
         </View>
         {order.cancelled ? <ThemedText accessibilityRole="alert">{t("orderCancellation.cancelled")}</ThemedText> : null}
         {cancellationBusy ? <ThemedText accessibilityRole="alert">{t(cancellation.kind === "verifying" ? "orderCancellation.verifying" : "orderCancellation.submitting")}</ThemedText> : null}

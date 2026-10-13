@@ -8,7 +8,7 @@ const dependencies = { load: loadPaymentSettings, save: persistPaymentSettings,
   imageAvailable: async (companyId: string, imageId: string) => {
     if (getCompanyId() !== companyId) throw new Error("Payment settings company differs from tenant context");
     const found = await imageRepository.find(imageId);
-    return found.success ? { success: true as const, data: found.data?.visibility === "public" } : found;
+    return found.success ? { success: true as const, data: found.data !== null } : found;
   } };
 
 export const companyPaymentSettings = {

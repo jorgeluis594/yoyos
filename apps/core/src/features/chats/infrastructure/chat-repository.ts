@@ -1,7 +1,8 @@
 import { log } from "@core/src/shared/infrastructure/logger";
 import { err, ok } from "@shared/functional";
 import { prisma } from "@core/src/shared/infrastructure/persistance";
-import type { ChatRepository } from "@core/src/features/chats/application/record-message";
+import type { Result } from "@shared/result";
+import type { Chat } from "@core/src/features/chats/domain/mobile-message";
 import { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 
@@ -11,22 +12,14 @@ function isPersistenceFailure(cause: unknown) {
     || cause instanceof Prisma.PrismaClientInitializationError;
 }
 
-function mapChat(chat: { id: string; contactId: string; createdAt: Date }) {
+function mapChat(chat: { id: string; contactId: string; createdAt: Date }): Chat {
   return { id: chat.id, contactId: chat.contactId, createdAt: chat.createdAt };
 }
 
-export const chatRepository: ChatRepository = {
-  async findMessageId(externalId) {
-    try {
-      const message = await prisma.chatMessage.findFirst({ where: { externalId, whatsappMessageId: null }, select: { id: true } });
-      return ok(message);
-    } catch (cause) {
-      if (!isPersistenceFailure(cause)) throw cause;
-      log.error({ event: "unable_to_find_whatsapp_message", err: cause }, "unable_to_find_whatsapp_message");
-      return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to find message" });
-    }
-  },
-  async ensureChat(contactId) {
+type ChatError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE" | "INVALID_STORED_DATA"; message: string }>;
+
+export const chatRepository = {
+  async ensureChat(contactId: string): Promise<Result<Chat, ChatError>> {
     try {
       await prisma.$executeRaw`
         INSERT INTO "Chat" ("id", "contactId", "createdAt")
@@ -40,31 +33,6 @@ export const chatRepository: ChatRepository = {
       if (!isPersistenceFailure(cause)) throw cause;
       log.error({ event: "unable_to_ensure_whatsapp_chat", err: cause }, "unable_to_ensure_whatsapp_chat");
       return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to ensure chat" });
-    }
-  },
-  async insertMessage(input) {
-    const image = input.content.type === "image";
-    try {
-      const inserted = await prisma.chatMessage.createMany({ data: [{
-        chatId: input.chatId, externalId: input.externalId,
-        direction: input.origin.direction, source: input.origin.source,
-        userId: input.origin.direction === "outgoing" ? input.origin.userId : null,
-        type: input.content.type, text: image ? null : input.content.text,
-        caption: image ? input.content.caption : null,
-        sentAt: input.sentAt, receivedAt: input.receivedAt,
-        whatsappMediaId: image ? input.content.image.mediaId : null,
-        imageStatus: image ? input.content.image.status : null,
-        imageId: image && input.content.image.status === "ready" ? input.content.image.imageId : null,
-        imageFailureCode: image && input.content.image.status === "failed" ? input.content.image.failure.code : null,
-        imageFailureMessage: image && input.content.image.status === "failed" ? input.content.image.failure.message : null,
-      }], skipDuplicates: true });
-      const message = await prisma.chatMessage.findFirst({ where: { externalId: input.externalId, whatsappMessageId: null }, select: { id: true } });
-      if (!message) return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to persist message" });
-      return ok({ status: inserted.count ? "stored" as const : "duplicate" as const, messageId: message.id });
-    } catch (cause) {
-      if (!isPersistenceFailure(cause)) throw cause;
-      log.error({ event: "unable_to_persist_whatsapp_message", err: cause }, "unable_to_persist_whatsapp_message");
-      return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to persist message" });
     }
   },
 };

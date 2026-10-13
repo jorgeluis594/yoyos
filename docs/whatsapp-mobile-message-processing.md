@@ -18,14 +18,14 @@ Diseño técnico para conectar el módulo `@yoyos/whatsapp` (Go + whatsmeow, Exp
 - Consumir `messageReceived`, guardar el mensaje en SQLite cifrado y llamar `confirmMessageStored(deliveryId)` solo después del commit local.
 - Sincronizar cada mensaje con core mediante una cola local (outbox) con reintentos, deduplicación e aislamiento por empresa.
 - Listar conversaciones y mensajes desde la base local.
+- Subir a core la imagen de cada mensaje (`POST /api/images`) durante la sincronización y registrar el mensaje con su `imageId` (`message-to-order.md` §3.2 y §3.3).
 - Ver imágenes bajo demanda con `downloadImage` y liberar el archivo con `deleteDownloadedImage`.
 - Desvincular la cuenta (`logout`) y reaccionar al cierre de sesión de Yoyos.
 
 ### No incluye
 
 - Enviar mensajes, grupos, audio, vídeo o documentos. La librería no los soporta (`README.md`, IT-API-07).
-- Subir los bytes de imágenes a core. El endpoint solo registra metadatos (`imageStatus = metadata_only`) y no existe una API de subida.
-- Vincular mensajes con pedidos, clientes o productos. Se habilita después, consumiendo el evento `whatsapp_message_recorded` de core.
+- Vincular mensajes con pedidos, clientes o productos. Lo hace core consumiendo el evento `message_created` (`message-to-order.md`).
 - Recepción en iOS con la app en segundo plano. Sigue sin resolver (memoria `ced2ef34`, memoria `978e1f51`).
 - Varias cuentas de WhatsApp a la vez. Hay una cuenta activa por instalación (memoria `dfe3179a`).
 
@@ -61,7 +61,7 @@ El mensaje se crea por la API de Yoyos, no por un webhook del canal, así que la
 **Qué no cambia:**
 
 - El cuerpo (`version: 1`, `message` con identidad LID), las respuestas 201/200, los códigos de error, el parser estricto (`Cache-Control: no-store`, 100 KiB, sin claves duplicadas) y la deduplicación.
-- El evento `whatsapp_message_recorded`, la feature `chats` y las tablas.
+- El evento de mensaje creado (`message_created`), la feature `chats` y las tablas.
 - Los nombres `registerWhatsAppMessage*Schema` y `shared/contracts/whatsapp-messages.ts`. Describen la forma de un mensaje de WhatsApp, no la ruta.
 
 **Comprobaciones:** ninguna otra ruta usa `/api/messages`. Un `GET /api/messages` sigue cayendo en el 404 genérico de `/api`. Un `POST /api/whatsapp/messages` también devuelve 404, y conviene cubrirlo con un test de ruta para que no quede montada por error.
@@ -92,7 +92,8 @@ El mensaje se crea por la API de Yoyos, no por un webhook del canal, así que la
 | D2 | Hay dos estados independientes por mensaje: **custodia** (guardado y confirmado a la librería) y **sincronización** (registrado en core). | `confirmMessageStored` no puede depender de la red. Si dependiera, el buffer nativo se llenaría (`RECOVERY_BUFFER_FULL`) cada vez que no haya conexión. |
 | D3 | Cada vinculación pertenece a una empresa y a un usuario (`whatsapp_links`). La cuenta se asigna con el primer mensaje que llega. | La API de la librería no expone `accountId` al conectar, solo dentro de cada mensaje. Core asigna la empresa desde la sesión, así que el móvil debe garantizar que nunca envía mensajes de la empresa A con la sesión de la empresa B. |
 | D4 | Solo se conecta WhatsApp si existe un vínculo activo cuya `companyId` coincide con la sesión de Yoyos. Al cerrar sesión en Yoyos se llama `disconnect()`, no `logout()`. | Respeta el aislamiento por empresa y no destruye la vinculación por cerrar sesión. |
-| D5 | La referencia de imagen (`wa-image:v1:…`) se guarda en SQLite y nunca sale del teléfono. | El descriptor contiene la media key. Core no lo acepta (`whatsapp-mobile-message-api-implementation.md` §3). |
+| D5 | La referencia de imagen (`wa-image:v1:…`) se guarda en SQLite y nunca sale del teléfono. Salen los bytes, no la referencia. | El descriptor contiene la media key. Core no lo acepta (`whatsapp-mobile-message-api-implementation.md` §3). |
+| D6 | La sincronización descarga cada imagen una vez para subirla a core con su `mimeType` real, guarda el `core_image_id` en SQLite (esquema v3) y borra el archivo local. El mensaje se registra con `imageId`. Un 404 al registrar (`IMAGE_NOT_FOUND`) borra el `core_image_id` y la siguiente vuelta vuelve a subir. | El contrato exige `imageId` para que core pueda leer el QR de la foto; la imagen se sube una sola vez por mensaje aunque el registro se reintente. |
 
 ### Abiertas (requieren decisión)
 
@@ -107,7 +108,7 @@ El mensaje se crea por la API de Yoyos, no por un webhook del canal, así que la
 ## 4. Arquitectura
 
 ```text
-WhatsApp ⇄ whatsmeow (Go) ⇄ Kotlin/Swift (state.bin, FGS) ⇄ client.ts (Zod, Result)
+WhatsApp ⇄ whatsmeow (Go) ⇄ Kotlin/Swift (state.db, FGS) ⇄ client.ts (Zod, Result)
                                                               │ messageReceived {deliveryId, message}
                                                               ▼
                      features/whatsapp/application/receive-message.ts
@@ -161,7 +162,7 @@ Los artefactos no se versionan. Se regeneran antes de cada build nativo.
 
 | Interfaz Go | Implementación | Responsabilidad |
 |---|---|---|
-| `ProtocolStorage`, `DeliveryStorage` | `NativeStateStore` (Kotlin/Swift) | Leer y escribir `state.bin` (AES-256-GCM, clave en Keystore o Keychain). Go nunca toca el disco ni las claves. |
+| `ProtocolStorage`, `DeliveryStorage` | `NativeStateStore` (Kotlin/Swift) | Leer y escribir `state.db`, una base SQLite nativa con la sesión y cada pendiente cifrados (AES-256-GCM, clave en Keystore o Keychain). Go nunca toca el disco ni las claves. |
 | `ConnectionEvents` | `PublicConnectionEvents` / `NativeConnectionEvents` | Avisar de QR, estado de conexión y errores. |
 | `DeliveryEvents` | `PublicDeliveryEvents` / `NativeDeliveryEvents` | Entregar cada mensaje pendiente (`OnDelivery`). |
 
@@ -200,14 +201,14 @@ Recorrido de un mensaje (UC-03):
 
 ```text
 whatsmeow descifra
-→ Go guarda el pendiente en state.bin (ProtocolStorage → NativeStateStore)
+→ Go guarda el pendiente en state.db (ProtocolStorage → NativeStateStore)
 → Go: DeliveryEvents.OnDelivery(json) → nativo: sendEvent("messageReceived")
 → client.ts: Zod → listener → receiveMessage(): saveOnce en SQLite
 → client.confirmMessageStored(deliveryId) → nativo → DeliverySession.Confirm
 → Go retira el pendiente → recién entonces envía el ACK a WhatsApp
 ```
 
-Si la app muere en cualquier punto antes de `confirmMessageStored`, el mensaje sigue en `state.bin` y se vuelve a entregar al reconectar. Por eso UC-03 deduplica por `message.id`.
+Si la app muere en cualquier punto antes de `confirmMessageStored`, el mensaje sigue en `state.db` y se vuelve a entregar al reconectar. Por eso UC-03 deduplica por `message.id`.
 
 #### Requisitos de ejecución
 
@@ -308,7 +309,7 @@ El mapeo sigue `whatsapp-mobile-message-api-implementation.md` §3, *Adaptación
 | `id`, `accountId`, `chatId`, `whatsappMessageId`, `direction` | igual, con marca | igual |
 | `timestamp?` | `sentAt: Date \| null` | `timestamp: sentAt.getTime()` o retención (A1) |
 | `text`, sin `image` | `{type:"text", text}` | igual |
-| `image` + `text?` | `{type:"image", caption: text ?? null, …}` | `{type:"image", caption?, mimeType?, size?}` |
+| `image` + `text?` | `{type:"image", caption: text ?? null, …}` | `{type:"image", imageId, caption?}` (`imageId` es el `core_image_id` tras subir la imagen; `mimeType` y `size` se quedan en SQLite) |
 | `image.reference.downloadReference` | `reference` | **no se envía** |
 
 ### Estado local del mensaje
@@ -365,7 +366,7 @@ export function assignLink(links: readonly WhatsAppLink[], accountId: WhatsAppAc
 
 ## 6. Esquema SQLite v2
 
-Las tablas se crean dentro de la base SQLCipher existente. Sin columnas de cifrado por fila. La migración v1 → v2 corre dentro de `BEGIN IMMEDIATE … COMMIT` en `local-database.ts`, siguiendo el patrón actual de `user_version`.
+Las tablas se crean dentro de la base SQLCipher existente. Sin columnas de cifrado por fila. La migración v1 → v2 corre dentro de `BEGIN IMMEDIATE … COMMIT` en `local-database.ts`, siguiendo el patrón actual de `user_version`. La migración v2 → v3 (`ALTER TABLE whatsapp_messages ADD COLUMN core_image_id TEXT`) corre en su propia transacción y no borra datos; el bloque siguiente muestra el esquema resultante.
 
 ```sql
 DROP TABLE IF EXISTS whatsapp_outbox;
@@ -398,6 +399,7 @@ CREATE TABLE whatsapp_messages (
   image_mime_type TEXT,
   image_size INTEGER,
   image_reference TEXT,                      -- sensible: nunca se loguea ni se envía
+  core_image_id TEXT,                        -- v3: ID de la imagen subida a core (NULL hasta subirla)
   sync_state TEXT NOT NULL CHECK (sync_state IN ('pending','synced','rejected','held_unknown_date','orphaned')),
   sync_attempts INTEGER NOT NULL DEFAULT 0,
   next_attempt_at INTEGER,
@@ -589,7 +591,7 @@ export type Page = Readonly<{ beforeArrivalSeq: number | null; limit: number }>;
 
 - El orden es por `arrival_seq` descendente y **nunca** por `sentAt`, porque la fecha puede faltar.
 - Un `sentAt` nulo se muestra como "Fecha desconocida".
-- El nombre visible del chat en v1 es el LID abreviado, porque la librería no entrega push name ni teléfono. Una vez sincronizado, se puede enriquecer con el `Contact` de core (fuera de v1).
+- El nombre visible del chat en v1 es el LID abreviado, porque la librería no entrega push name ni teléfono.
 
 ### UC-09 Errores informativos de la librería
 
@@ -669,7 +671,8 @@ Hoy Jest no tiene un SQLite real para los tests de integración de mobile. Prepa
 **T02 · `domain/inbound-message.test.ts` — `toRegisterRequest`**
 
 - `builds a text request that passes registerWhatsAppMessageRequestSchema`
-- `builds an image request with only caption, mimeType and size`
+- `sends coreImageId as imageId without mimeType or size`
+- `returns INVALID_MESSAGE without a request for an image without coreImageId`
 - `never includes the image download reference, deliveryId or local URIs`
 - `sends sentAt as Unix milliseconds`
 - `returns UNKNOWN_DATE when sentAt is null`
@@ -684,6 +687,11 @@ Hoy Jest no tiene un SQLite real para los tests de integración de mobile. Prepa
 
 **T04 · `domain/sync-policy.test.ts` — clasificación, backoff y transiciones**
 
+- `decides reupload for API_ERROR 404 on registration`
+- `rejects an expired or missing WhatsApp image with IMAGE_UNAVAILABLE`
+- `retries with backoff when WhatsApp is disconnected or the download fails`
+- `rejects uploads refused with INVALID_IMAGE, IMAGE_TOO_LARGE or UNSUPPORTED_MEDIA_TYPE`
+- `retries with backoff on network errors and 5xx during upload`
 - `classifies stored and duplicate responses as synced with the core message id`
 - `classifies INVALID_INPUT, PAYLOAD_TOO_LARGE and UNSUPPORTED_MEDIA_TYPE as rejected`
 - `classifies UNAUTHENTICATED, COMPANY_REQUIRED, INVALID_COMPANY and EMAIL_VERIFICATION_REQUIRED as session blocked`
@@ -726,6 +734,15 @@ Hoy Jest no tiene un SQLite real para los tests de integración de mobile. Prepa
 - `keeps syncing pending messages of an ended link of the same company`
 - `stop cancels the scheduled retry`
 - `reports synced, retried and rejected counts`
+- `downloads, uploads with the real mimeType, saves coreImageId and registers an image message`
+- `does not download or upload again when coreImageId exists`
+- `deletes the downloaded file after a successful upload and after a failed one`
+- `registers text messages without touching images`
+- `uploads outgoing images too`
+- `clears coreImageId on 404 so the next run uploads again`
+- `rejects an expired WhatsApp image without registering it`
+- `leaves the message pending when WhatsApp is disconnected`
+- `retries a failed registration with the same imageId`
 
 **T07 · `application/reception-lifecycle.test.ts` — UC-02 y UC-07**
 
@@ -796,8 +813,12 @@ Si se acepta A1, `mobile-message-schemas.test.ts` suma `accepts a request withou
 
 **T14 · `infrastructure/local-database.integration.test.ts` (SQLite real)**
 
-- `upgrades a v1 database to v2 and drops the unused v1 tables`
-- `opens an existing v2 database without changes`
+- `upgrades a v1 database to v3 and drops the unused v1 tables`
+- `opens an existing v3 database without changes`
+- `a v2 database with pending messages opens as v3 without losing them`
+- `migrates v2 to v3 adding core_image_id without dropping tables`
+- `creates v3 from an empty database`
+- `rejects versions above 3`
 - `refuses to open a database with an unknown user_version`
 - `rolls back a failed upgrade and leaves user_version at 1`
 
@@ -817,6 +838,7 @@ Si se acepta A1, `mobile-message-schemas.test.ts` suma `accepts a request withou
 - `listMessages pages by arrival sequence and ignores other companies`
 - `findImage returns null for another company's message`
 - `translates SQLite failures into LOCAL_STORAGE_FAILED without the original data`
+- `saves and clears coreImageId`
 
 **T16 · `infrastructure/sqlite-link-store.integration.test.ts` (SQLite real)**
 
@@ -831,6 +853,10 @@ Si se acepta A1, `mobile-message-schemas.test.ts` suma `accepts a request withou
 - `a message received offline is synced once the API recovers`
 - `a message received during a rejected sync is not retried`
 - `a sign-out during sync leaves the message pending for the next session`
+- `a received image is downloaded, uploaded and registered with its imageId`
+- `an image uploaded before a restart is registered without uploading again`
+- `a 404 on registration uploads the image again and then syncs`
+- `an expired WhatsApp image is rejected and never registered`
 
 **T18 · core: `src/features/chats/infrastructure/mobile-message-repository.integration.test.ts` (A1)**
 
@@ -869,5 +895,4 @@ Un commit por unidad lógica, cada uno con sus pruebas pasando (memoria `4176391
 | Conflicto de `timestamp` con core (A1). | Usar `held_unknown_date` sin pérdida hasta resolverlo. |
 | El buffer nativo se llena si UC-03 falla repetidamente. | La custodia es independiente de la red (D2). `LOCAL_STORAGE_FAILED` se muestra en la UI. |
 | El runtime JS muere con el servicio vivo en Android (A4). | No se pierden mensajes. Se mide en dispositivo. |
-| Push name y teléfono no disponibles. | Se muestra el LID en v1. El contacto se enriquece después desde core. |
-| Webhook de Meta Cloud y móvil en paralelo para la misma empresa. | Core ya mantiene identidades separadas (memoria `6e761725`). Unificar los chats es una decisión de producto aparte. |
+| Push name y teléfono no disponibles. | Se muestra el LID en v1. |

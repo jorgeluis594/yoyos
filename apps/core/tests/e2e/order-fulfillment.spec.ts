@@ -18,7 +18,7 @@ test("seller ships or delivers directly, refreshes details and list, and preserv
       home: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Store", address: "Lima", instructions: null } } } })).ok()).toBe(true);
     for (const mode of ["shipment", "handover", "pickup"] as const) {
       const orderId = crypto.randomUUID();
-      expect((await page.request.post("/api/orders", { data: { id: orderId, contactId: null, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
+      expect((await page.request.post("/api/orders", { data: { id: orderId, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
       if (mode === "pickup") {
         expect((await page.request.put(`/api/orders/${orderId}/delivery`, { data: {
           delivery: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } }, expectedPrice: { amount: 0, currency: "PEN" },
@@ -120,7 +120,7 @@ test("mobile fulfillment refreshes details and history through the real API", as
     await page.setViewportSize({ width: 390, height: 844 });
     for (const shipFirst of [true, false]) {
       const orderId = crypto.randomUUID();
-      const created = await page.request.post(`${coreOrigin}/api/orders`, { data: { id: orderId, contactId: null, items: [{ variantId, quantity: 1 }] } });
+      const created = await page.request.post(`${coreOrigin}/api/orders`, { data: { id: orderId, items: [{ variantId, quantity: 1 }] } });
       expect(created.status()).toBe(201);
       const pending = await created.json();
       await page.goto(`${mobile.origin}/orders`, { timeout: 90000 });

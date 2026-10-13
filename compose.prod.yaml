@@ -45,7 +45,6 @@ services:
       RESEND_API_KEY: ${RESEND_API_KEY:?Set the Resend API key in Coolify}
       R2_ENDPOINT: ${R2_ENDPOINT:-}
       R2_BUCKET: ${R2_BUCKET:-}
-      R2_PRIVATE_BUCKET: ${R2_PRIVATE_BUCKET:-}
       R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
       R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
       R2_PUBLIC_BASE_URL: ${R2_PUBLIC_BASE_URL:-}
@@ -65,6 +64,11 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://core_app:${SERVICE_PASSWORD_64_APPDB}@db:5432/core
+      R2_ENDPOINT: ${R2_ENDPOINT:-}
+      R2_BUCKET: ${R2_BUCKET:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      R2_PUBLIC_BASE_URL: ${R2_PUBLIC_BASE_URL:-}
     depends_on:
       migrate:
         condition: service_completed_successfully

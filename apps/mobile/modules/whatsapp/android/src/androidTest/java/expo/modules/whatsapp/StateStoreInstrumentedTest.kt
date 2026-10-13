@@ -31,6 +31,19 @@ class StateStoreInstrumentedTest {
       javax.crypto.spec.GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
     return org.json.JSONObject(String(cipher.doFinal(bytes, 12, bytes.size - 12), Charsets.UTF_8))
   }
+  private fun namespace(root: File) = root.name.removePrefix("state-test-").replace("-", "")
+  private fun stateFile(root: File) = File(directory(root), "state.db")
+  // A no-op handler: the default one deletes a database it finds corrupt.
+  private fun <T> database(root: File, use: (android.database.sqlite.SQLiteDatabase) -> T): T =
+    android.database.sqlite.SQLiteDatabase.openDatabase(stateFile(root).path, null,
+      android.database.sqlite.SQLiteDatabase.OPEN_READWRITE, android.database.DatabaseErrorHandler { })
+      .apply { disableWriteAheadLogging() }.use(use)
+  private fun sql(root: File, statement: String, vararg args: Any) = database(root) { it.execSQL(statement, args) }
+  private fun recoveryKey(root: File) = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+    .getKey("yoyos.whatsapp.test.${namespace(root)}.key.${creationRecord(root).getString("recoveryKeyId")}", null) as javax.crypto.SecretKey
+  private fun sessionValue(root: File): String? = database(root) { db ->
+    db.rawQuery("SELECT value FROM session", null).use { if (it.moveToFirst()) String(it.getBlob(0), Charsets.UTF_8) else null }
+  }
 
   @Test fun strictJsonRejectsDuplicateKeysAndMalformedNumbers() {
     for (value in listOf("{\"a\":1,\"a\":2}", "{\"a\":1,\"\\u0061\":2}", "{\"a\":01}", "{\"a\":1,}", "{\"a\":+1}", "{\"a\":NaN}", "{\"a\":\"\\ud800\"}")) {
@@ -49,10 +62,10 @@ class StateStoreInstrumentedTest {
     assertEquals(true, File(directory(root), "images").isDirectory)
     val revision = currentRevision(root)
     store.commit(revision) { it.getJSONObject("options").put("maxRecoveryBufferBytes", 20L * 1024 * 1024); it }
-    File(directory(root), "state.next").writeText("uncommitted")
+    File(directory(root), "state.db.next").writeText("uncommitted")
     val recovered = makeStore(root).open()
     assertEquals(20L * 1024 * 1024, recovered.getJSONObject("options").getLong("maxRecoveryBufferBytes"))
-    assertFalse(File(directory(root), "state.next").exists())
+    assertFalse(File(directory(root), "state.db.next").exists())
   }
 
   @Test fun trustedReadBudgetSurvivesGrowthReductionFailureAndDrain() {
@@ -70,7 +83,6 @@ class StateStoreInstrumentedTest {
     writer.open()
     writer.commit("0", ::grow)
     assertEquals(12L * 1024 * 1024, creationRecord(root).getLong("readBudget"))
-    assertEquals("1", creationRecord(root).getString("preparedRevision"))
     assertEquals(largeInfo, makeStore(root).open().getJSONArray("pending").getJSONObject(0)
       .getJSONObject("recovery").getString("messageInfoJson"))
     writer.commit("1") { it.getJSONObject("options").put("maxRecoveryBufferBytes", 1024); it }
@@ -79,25 +91,22 @@ class StateStoreInstrumentedTest {
     assertEquals(largeInfo, reduced.getJSONArray("pending").getJSONObject(0)
       .getJSONObject("recovery").getString("messageInfoJson"))
     assertEquals(12L * 1024 * 1024, creationRecord(root).getLong("readBudget"))
-    assertEquals("2", creationRecord(root).getString("preparedRevision"))
     writer.commit("2") { it.put("pending", org.json.JSONArray()) }
     assertEquals(0, makeStore(root).open().getJSONArray("pending").length())
-    assertEquals("3", creationRecord(root).getString("preparedRevision"))
+    assertEquals("3", currentRevision(root))
 
-    for (phase in listOf("recordResponse", "replace")) {
+    for (phase in listOf("recordResponse", "beforeCommit")) {
       val failedRoot = freshRoot
       var active = false
       val failedWriter = makeStore(failedRoot) { if (active && it == phase) throw StateFailure("STORAGE_FAILED") }
       failedWriter.open()
-      val oldBytes = File(directory(failedRoot), "state.bin").readBytes()
       active = true
       assertThrows(StateFailure::class.java) { failedWriter.commit("0", ::grow) }
-      assertEquals(true, oldBytes.contentEquals(File(directory(failedRoot), "state.bin").readBytes()))
+      assertEquals("0", currentRevision(failedRoot))
       val recovered = makeStore(failedRoot).open()
       assertEquals(0, recovered.getJSONArray("pending").length())
       assertEquals(10L * 1024 * 1024, recovered.getJSONObject("options").getLong("maxRecoveryBufferBytes"))
       assertEquals(12L * 1024 * 1024, creationRecord(failedRoot).getLong("readBudget"))
-      assertEquals("1", creationRecord(failedRoot).getString("preparedRevision"))
     }
   }
 
@@ -107,15 +116,11 @@ class StateStoreInstrumentedTest {
     store.open()
     store.beginSession("123@lid", "{\"protocolSchemaVersion\":1,\"records\":[]}".toByteArray())
     val original = store.open().getJSONObject("session").getString("ciphertextBase64")
-    fun containerNonce(): List<Byte> {
-      val bytes = File(directory(root), "state.bin").readBytes()
-      val headerLength = java.nio.ByteBuffer.wrap(bytes, 8, 4).int
-      return bytes.copyOfRange(12 + headerLength, 24 + headerLength).toList()
-    }
-    val outerNonce = containerNonce()
+    val storedSession = sessionValue(root)
     val next = store.commit(currentRevision(root)) { it }
     assertEquals(original, next.getJSONObject("session").getString("ciphertextBase64"))
-    assertFalse(outerNonce == containerNonce())
+    assertEquals(storedSession, sessionValue(root))
+    assertEquals("2", currentRevision(root))
     assertEquals(true, makeStore(root).canRestoreSession())
     val firstKey = store.open().getJSONObject("session").getString("sessionKeyId")
     val firstNonce = store.open().getJSONObject("session").getString("nonceBase64")
@@ -150,12 +155,9 @@ class StateStoreInstrumentedTest {
     val root = freshRoot
     val store = makeStore(root)
     store.open()
-    val file = File(directory(root), "state.bin").readBytes()
-    val length = java.nio.ByteBuffer.wrap(file, 8, 4).int
-    val header = org.json.JSONObject(String(file, 12, length, Charsets.UTF_8))
-    val namespace = root.name.removePrefix("state-test-").replace("-", "")
+    val namespace = namespace(root)
     val keys = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-    val key = keys.getKey("yoyos.whatsapp.test.$namespace.key.${header.getString("recoveryKeyId")}", null) as javax.crypto.SecretKey
+    val key = recoveryKey(root)
     assertEquals(null, key.encoded)
     val info = javax.crypto.SecretKeyFactory.getInstance(key.algorithm, "AndroidKeyStore")
       .getKeySpec(key, android.security.keystore.KeyInfo::class.java) as android.security.keystore.KeyInfo
@@ -224,11 +226,11 @@ class StateStoreInstrumentedTest {
     val nonce = encrypted.iv
     val ciphertext = encrypted.doFinal("same-recovery-key".toByteArray())
     val partial = "YOYOWA01".toByteArray() + ciphertext.copyOfRange(0, 8)
-    val next = File(directory(root), "state.next")
+    val next = File(directory(root), "state.db.next")
     assertEquals(true, next.mkdir())
     File(next, "partial").writeBytes(partial)
     assertThrows(StateFailure::class.java) { makeStore(root).open() }
-    assertEquals(false, File(directory(root), "state.bin").exists())
+    assertEquals(false, stateFile(root).exists())
     assertEquals("creating", creationRecord(root).getString("status"))
     assertEquals(recoveryId, creationRecord(root).getString("recoveryKeyId"))
     assertFalse(ready())
@@ -311,7 +313,7 @@ class StateStoreInstrumentedTest {
   }
 
   @Test fun injectedPublicationFailuresPreserveAReadableRevision() {
-    for (phase in listOf("recordResponse", "cipher", "write", "sync", "close", "replace", "directorySync", "response")) {
+    for (phase in listOf("beforeCommit", "afterCommit", "response")) {
       val root = freshRoot
       var active = false
       val store = makeStore(root) { reached ->
@@ -320,14 +322,14 @@ class StateStoreInstrumentedTest {
       store.open()
       active = true
       assertThrows(StateFailure::class.java) { store.commit("0") { it } }
-      val expected = if (phase == "directorySync" || phase == "response") "1" else "0"
+      val expected = if (phase == "beforeCommit") "0" else "1"
       assertEquals(expected, currentRevision(root))
       makeStore(root).open()
     }
   }
 
   @Test fun uncertainPublicationIsRereadBeforeNextMutation() {
-    for (phase in listOf("directorySync", "response")) {
+    for (phase in listOf("afterCommit", "response")) {
       val root = freshRoot
       var active = false
       val writer = makeStore(root) { reached ->
@@ -461,34 +463,31 @@ class StateStoreInstrumentedTest {
 
   @Test fun realFilesystemFailureCannotReplacePublishedState() {
     val root = freshRoot
-    val writer = makeStore(root)
-    writer.open()
-    val next = File(directory(root), "state.next")
-    assertEquals(true, next.mkdir())
-    File(next, "occupied").writeText("x")
-    assertThrows(StateFailure::class.java) { writer.commit("0") { it } }
-    assertEquals("0", currentRevision(root))
-    assertThrows(StateFailure::class.java) { makeStore(root).open() }
-    File(next, "occupied").delete()
-    next.delete()
-    assertEquals("0", currentRevision(root))
     makeStore(root).open()
+    // The file system refuses the write (a read-only database file): nothing is published.
+    assertTrue(stateFile(root).setWritable(false, false))
+    try {
+      assertThrows(StateFailure::class.java) { makeStore(root).commit("0") { it.getJSONObject("options").put("maxImageStorageBytes", 123); it } }
+    } finally { stateFile(root).setWritable(true, false) }
+    assertEquals("0", currentRevision(root))
+    val writer = makeStore(root)
+    assertEquals(50L * 1024 * 1024, writer.open().getJSONObject("options").getLong("maxImageStorageBytes"))
+    writer.commit("0") { it.getJSONObject("options").put("maxImageStorageBytes", 123); it }
+    assertEquals(123L, makeStore(root).open().getJSONObject("options").getLong("maxImageStorageBytes"))
   }
 
   @Test fun enospcDuringSecondCopyKeepsPublishedState() {
     if (InstrumentationRegistry.getArguments().getString("enospc") != "true") return
     val root = freshRoot
-    var reachedWrite = false
-    val writer = makeStore(root) { if (it == "write") reachedWrite = true }
+    val writer = makeStore(root)
     writer.open()
-    val pending = org.json.JSONObject().put("deliveryId", "wa-delivery:v1:" + "a".repeat(32))
-      .put("accountId", "123@lid").put("createdRevision", "1").put("createdOrdinal", 0)
+    fun pending(letter: String, revision: String) = org.json.JSONObject().put("deliveryId", "wa-delivery:v1:" + letter.repeat(32))
+      .put("accountId", "123@lid").put("createdRevision", revision).put("createdOrdinal", 0)
       .put("source", "live").put("identityState", "pendingLid")
       .put("recovery", org.json.JSONObject().put("messageInfoJson", "{\"padding\":\"${"A".repeat(8 * 1024 * 1024)}\"}")
         .put("items", org.json.JSONArray()))
-    writer.commit("0") { it.getJSONObject("options").put("maxRecoveryBufferBytes", 12 * 1024 * 1024)
-      it.put("pending", org.json.JSONArray().put(pending)) }
-    reachedWrite = false
+    writer.commit("0") { it.getJSONObject("options").put("maxRecoveryBufferBytes", 20 * 1024 * 1024)
+      it.put("pending", org.json.JSONArray().put(pending("a", "1"))) }
     val filler = File(base.noBackupFilesDir, "wa02-enospc-${java.util.UUID.randomUUID()}")
     val probe = File(base.noBackupFilesDir, "wa02-enospc-probe-${java.util.UUID.randomUUID()}")
     try {
@@ -498,13 +497,13 @@ class StateStoreInstrumentedTest {
         android.system.Os.posix_fallocate(file.fd, 0, available - 4L * 1024 * 1024)
         java.io.FileOutputStream(probe).use { output ->
           val exhausted = assertThrows(android.system.ErrnoException::class.java) {
-            android.system.Os.posix_fallocate(output.fd, 0, File(directory(root), "state.bin").length())
+            android.system.Os.posix_fallocate(output.fd, 0, 8L * 1024 * 1024)
           }
           assertEquals(android.system.OsConstants.ENOSPC, exhausted.errno)
         }
         probe.delete()
-        assertThrows(StateFailure::class.java) { writer.commit("1") { it } }
-        assertEquals(true, reachedWrite)
+        // A second 8 MiB entry needs more room than is left: the transaction rolls back.
+        assertThrows(StateFailure::class.java) { writer.commit("1") { it.getJSONArray("pending").put(pending("b", "2")); it } }
         assertEquals("1", currentRevision(root))
       }
     } finally {
@@ -512,7 +511,6 @@ class StateStoreInstrumentedTest {
       filler.delete()
     }
     assertEquals(1, makeStore(root).open().getJSONArray("pending").length())
-    assertFalse(File(directory(root), "state.next").exists())
   }
 
   @Test fun staleRevisionDoesNotReplacePublishedState() {
@@ -540,40 +538,12 @@ class StateStoreInstrumentedTest {
 
   @Test fun exhaustedRevisionCannotCreateAProvisionalKey() {
     val root = freshRoot
-    val initial = makeStore(root).open()
-    val directory = directory(root)
-    val original = File(directory, "state.bin").readBytes()
-    val headerLength = java.nio.ByteBuffer.wrap(original, 8, 4).int
-    val header = org.json.JSONObject(String(original, 12, headerLength, Charsets.UTF_8))
+    makeStore(root).open()
     val maximum = "18446744073709551615"
-    header.put("revision", maximum)
-    val namespace = root.name.removePrefix("state-test-").replace("-", "")
+    sql(root, "UPDATE meta SET revision = ?", maximum)
     val keys = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-    val recordKey = keys.getKey("yoyos.whatsapp.test.$namespace.creation-key", null) as javax.crypto.SecretKey
-    val recordFile = File(directory, "creation.bin")
-    val recordBytes = recordFile.readBytes()
-    val opener = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
-    opener.init(javax.crypto.Cipher.DECRYPT_MODE, recordKey, javax.crypto.spec.GCMParameterSpec(128, recordBytes.copyOfRange(0, 12)))
-    val record = org.json.JSONObject(String(opener.doFinal(recordBytes, 12, recordBytes.size - 12), Charsets.UTF_8))
-      .put("preparedRevision", maximum)
-    val recordSealer = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
-    recordSealer.init(javax.crypto.Cipher.ENCRYPT_MODE, recordKey)
-    java.io.FileOutputStream(recordFile).use {
-      it.write(recordSealer.iv); it.write(recordSealer.doFinal(record.toString().toByteArray())); it.fd.sync()
-    }
+    val recordFile = File(directory(root), "creation.bin")
     val preparedRecordBytes = recordFile.readBytes()
-    val recoveryKey = keys.getKey("yoyos.whatsapp.test.$namespace.key.${header.getString("recoveryKeyId")}", null) as javax.crypto.SecretKey
-    val headerBytes = header.toString().toByteArray()
-    val plaintext = initial.toString().toByteArray()
-    val sealer = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
-    sealer.init(javax.crypto.Cipher.ENCRYPT_MODE, recoveryKey)
-    val prefix = java.nio.ByteBuffer.allocate(8 + 4 + headerBytes.size + 12 + 8)
-      .put("YOYOWA01".toByteArray()).putInt(headerBytes.size).put(headerBytes).put(sealer.iv)
-      .putLong(plaintext.size.toLong() + 16).array()
-    sealer.updateAAD(prefix)
-    java.io.FileOutputStream(File(directory, "state.bin")).use {
-      it.write(prefix); it.write(sealer.doFinal(plaintext)); it.fd.sync()
-    }
     fun aliases(): Set<String> {
       val result = mutableSetOf<String>()
       val values = keys.aliases()
@@ -633,9 +603,7 @@ class StateStoreInstrumentedTest {
       .put("ciphertextBase64", "A".repeat(encodedLength))
     val digits = 1 + 16 * 1024 * 1024 - template.toString().toByteArray().size
     val account = "1".repeat(digits) + "@lid"
-    val stateBytes = File(directory(root), "state.bin").readBytes()
-    val headerLength = java.nio.ByteBuffer.wrap(stateBytes, 8, 4).int
-    val storeId = org.json.JSONObject(String(stateBytes, 12, headerLength, Charsets.UTF_8)).getString("storeId")
+    val storeId = creationRecord(root).getString("storeId")
     val sessionAad = org.json.JSONArray().put("yoyos-whatsapp-session").put(1)
       .put(storeId).put(account).put(keyId).put("2").toString().toByteArray()
     var session: org.json.JSONObject? = null
@@ -666,14 +634,6 @@ class StateStoreInstrumentedTest {
   @Test fun oversizedRestoredSessionStillAllowsPendingToDrain() {
     val root = freshRoot
     makeStore(root).open()
-    val file = File(directory(root), "state.bin")
-    val original = file.readBytes()
-    val headerLength = java.nio.ByteBuffer.wrap(original, 8, 4).int
-    val header = original.copyOfRange(12, 12 + headerLength)
-    val recoveryId = org.json.JSONObject(String(header, Charsets.UTF_8)).getString("recoveryKeyId")
-    val namespace = root.name.removePrefix("state-test-").replace("-", "")
-    val key = java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-      .getKey("yoyos.whatsapp.test.$namespace.key.$recoveryId", null) as javax.crypto.SecretKey
     val session = org.json.JSONObject().put("accountId", "123@lid").put("sessionKeyId", "a".repeat(32))
       .put("sessionRevision", "0").put("nonceBase64", "AAAAAAAAAAAAAAAA")
       .put("ciphertextBase64", "A".repeat(16 * 1024 * 1024))
@@ -681,18 +641,8 @@ class StateStoreInstrumentedTest {
       .put("accountId", "123@lid").put("createdRevision", "0").put("createdOrdinal", 0)
       .put("source", "live").put("identityState", "pendingLid")
       .put("recovery", org.json.JSONObject().put("messageInfoJson", "{}").put("items", org.json.JSONArray()))
-    val state = org.json.JSONObject().put("session", session).put("pending", org.json.JSONArray().put(pending))
-      .put("sessionKeysToDelete", org.json.JSONArray())
-      .put("options", org.json.JSONObject().put("maxRecoveryBufferBytes", 10 * 1024 * 1024).put("maxImageStorageBytes", 50 * 1024 * 1024))
-      .put("androidService", org.json.JSONObject.NULL)
-    val plaintext = state.toString().toByteArray(Charsets.UTF_8)
-    val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
-    cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, key)
-    val prefix = java.nio.ByteBuffer.allocate(8 + 4 + headerLength + 12 + 8)
-      .put("YOYOWA01".toByteArray()).putInt(headerLength).put(header).put(cipher.iv)
-      .putLong(plaintext.size.toLong() + 16).array()
-    cipher.updateAAD(prefix)
-    java.io.FileOutputStream(file).use { it.write(prefix); it.write(cipher.doFinal(plaintext)); it.fd.sync() }
+    sql(root, "INSERT INTO session (id, value) VALUES (1, ?)", session.toString().toByteArray())
+    insertSealedPending(root, pending)
     val restored = makeStore(root)
     assertEquals(1, restored.open().getJSONArray("pending").length())
     assertFalse(restored.canRestoreSession())
@@ -757,78 +707,54 @@ class StateStoreInstrumentedTest {
   @Test fun corruptedPublicationDoesNotBecomeEmptyInstallation() {
     val root = freshRoot
     makeStore(root).open()
-    val file = File(directory(root), "state.bin")
-    val bytes = file.readBytes(); bytes[bytes.lastIndex] = (bytes.last().toInt() xor 1).toByte(); file.writeBytes(bytes)
+    val bytes = stateFile(root).readBytes()
+    for (i in 0 until 16) bytes[i] = 0
+    stateFile(root).writeBytes(bytes)
     assertThrows(Exception::class.java) { makeStore(root).open() }
+    assertEquals(true, bytes.contentEquals(stateFile(root).readBytes()))
   }
 
   @Test fun establishedStateNeverRegeneratesMissingFileOrKeys() {
     val missingFile = freshRoot
     makeStore(missingFile).open()
-    File(directory(missingFile), "state.bin").delete()
+    stateFile(missingFile).delete()
     assertThrows(StateFailure::class.java) { makeStore(missingFile).open() }
 
     val missingRecoveryKey = freshRoot
     makeStore(missingRecoveryKey).open()
-    val headerBytes = File(directory(missingRecoveryKey), "state.bin").readBytes()
-    val headerSize = java.nio.ByteBuffer.wrap(headerBytes, 8, 4).int
-    val id = org.json.JSONObject(String(headerBytes, 12, headerSize, Charsets.UTF_8)).getString("recoveryKeyId")
-    val namespace = missingRecoveryKey.name.removePrefix("state-test-").replace("-", "")
+    val id = creationRecord(missingRecoveryKey).getString("recoveryKeyId")
+    val namespace = namespace(missingRecoveryKey)
     java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
       .deleteEntry("yoyos.whatsapp.test.$namespace.key.$id")
     assertThrows(Exception::class.java) { makeStore(missingRecoveryKey).open() }
 
     val missingReadyMarker = freshRoot
     makeStore(missingReadyMarker).open()
-    val bytes = File(directory(missingReadyMarker), "state.bin").readBytes()
-    val size = java.nio.ByteBuffer.wrap(bytes, 8, 4).int
-    val storeId = org.json.JSONObject(String(bytes, 12, size, Charsets.UTF_8)).getString("storeId")
+    val storeId = creationRecord(missingReadyMarker).getString("storeId")
     val markerNamespace = missingReadyMarker.name.removePrefix("state-test-").replace("-", "")
     java.security.KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
       .deleteEntry("yoyos.whatsapp.test.$markerNamespace.ready.$storeId")
     assertThrows(StateFailure::class.java) { makeStore(missingReadyMarker).open() }
   }
 
-  @Test fun malformedEnvelopeNeverPromotesTemporaryOrCreatesEmptyState() {
-    for (mutate in listOf<(ByteArray) -> ByteArray>(
-      { it.copyOf().also { bytes -> bytes[0] = 0 } },
-      { it.copyOf().also { bytes -> java.nio.ByteBuffer.wrap(bytes, 8, 4).putInt(4097) } },
-      { it.copyOf().also { bytes -> java.nio.ByteBuffer.wrap(bytes, 8, 4).putInt(Int.MAX_VALUE) } },
-      { it.copyOf().also { bytes ->
-        val headerLength = java.nio.ByteBuffer.wrap(bytes, 8, 4).int
-        val header = String(bytes, 12, headerLength, Charsets.UTF_8)
-        val position = header.indexOf("\"revision\":\"0\"") + "\"revision\":\"".length
-        bytes[12 + position] = '1'.code.toByte()
-      } },
-      { it.copyOf().also { bytes ->
-        val headerLength = java.nio.ByteBuffer.wrap(bytes, 8, 4).int
-        bytes[12 + headerLength] = (bytes[12 + headerLength].toInt() xor 1).toByte()
-      } },
-      { it.copyOf().also { bytes ->
-        val headerLength = java.nio.ByteBuffer.wrap(bytes, 8, 4).int
-        java.nio.ByteBuffer.wrap(bytes, 12 + headerLength + 12, 8).putLong(Long.MAX_VALUE)
-      } },
-      { it.copyOf().also { bytes ->
-        val headerLength = java.nio.ByteBuffer.wrap(bytes, 8, 4).int
-        java.nio.ByteBuffer.wrap(bytes, 12 + headerLength + 12, 8).putLong(15)
-      } },
-      { it.copyOfRange(0, it.size - 1) },
-      { it + 0.toByte() },
-      { it.copyOf().also { bytes -> bytes[bytes.lastIndex] = (bytes.last().toInt() xor 1).toByte() } },
+  @Test fun tamperedRowsNeverLoadOrCreateEmptyState() {
+    val pending = pendingEntry("a", 0).put("createdRevision", "1")
+    for (tamper in listOf<(File) -> Unit>(
+      { sql(it, "DELETE FROM meta") },
+      { sql(it, "UPDATE meta SET store_id = ?", "0".repeat(32)) },
+      { sql(it, "UPDATE meta SET revision = '01'") },
+      { sql(it, "UPDATE meta SET control = ?", "{\"unexpected\":true}".toByteArray()) },
+      { sql(it, "UPDATE pending SET created_ordinal = 1") },
+      { sql(it, "UPDATE pending SET delivery_id = ?", "wa-delivery:v1:" + "b".repeat(32)) },
+      { sql(it, "UPDATE pending SET ciphertext = substr(ciphertext, 2) || x'00'") },
+      { sql(it, "INSERT INTO session (id, value) VALUES (1, ?)", "not json".toByteArray()) },
     )) {
       val root = freshRoot
-      makeStore(root).open()
-      val file = File(directory(root), "state.bin")
-      file.writeBytes(mutate(file.readBytes()))
+      makeStore(root).commit("0") { it.put("pending", org.json.JSONArray().put(org.json.JSONObject(pending.toString()))) }
+      tamper(root)
       assertThrows(Exception::class.java) { makeStore(root).open() }
-      assertEquals(true, file.exists())
+      assertEquals(true, stateFile(root).exists())
     }
-    val oversized = freshRoot
-    makeStore(oversized).open()
-    java.io.RandomAccessFile(File(directory(oversized), "state.bin"), "rw").use {
-      it.setLength(16L * 1024 * 1024 + 10L * 1024 * 1024 + 8245)
-    }
-    assertThrows(StateFailure::class.java) { makeStore(oversized).open() }
   }
 
   @Test fun invalidStateDoesNotAdvancePublishedRevision() {
@@ -851,10 +777,19 @@ class StateStoreInstrumentedTest {
     }
   }
 
-  private fun currentRevision(root: File): String {
-    val bytes = File(directory(root), "state.bin").readBytes()
-    val length = java.nio.ByteBuffer.wrap(bytes, 8, 4).int
-    return org.json.JSONObject(String(bytes, 12, length, Charsets.UTF_8)).getString("revision")
+  private fun currentRevision(root: File): String = database(root) { db ->
+    db.rawQuery("SELECT revision FROM meta", null).use { it.moveToFirst(); it.getString(0) }
+  }
+
+  /** Inserts [entry] the way the store seals it, bypassing every store check. */
+  private fun insertSealedPending(root: File, entry: org.json.JSONObject) {
+    val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+    cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, recoveryKey(root))
+    cipher.updateAAD(org.json.JSONArray().put("yoyos-whatsapp-pending").put(1).put(creationRecord(root).getString("storeId"))
+      .put(entry.getString("deliveryId")).put(entry.getString("createdRevision")).put(entry.getLong("createdOrdinal")).toString().toByteArray())
+    val nonce = cipher.iv
+    sql(root, "INSERT INTO pending (delivery_id, created_revision, created_ordinal, nonce, ciphertext) VALUES (?, ?, ?, ?, ?)",
+      entry.getString("deliveryId"), entry.getString("createdRevision"), entry.getLong("createdOrdinal"), nonce, cipher.doFinal(entry.toString().toByteArray()))
   }
 
   @Test fun protocolCallbackRequiresRegisteredGenerationAndPublishesRevision() {
@@ -862,20 +797,7 @@ class StateStoreInstrumentedTest {
     val writer = makeStore(root)
     writer.open()
     writer.registerFreshGeneration("generation")
-    fun b64(bytes: ByteArray) = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
-    val account = byteArrayOf(10, 2, 8, 1, 18, 32) + ByteArray(32) { 1 } +
-      byteArrayOf(26, 64) + ByteArray(64) { 1 } + byteArrayOf(34, 64) + ByteArray(64) { 1 }
-    val device = org.json.JSONObject().put("version", 1)
-      .put("noisePrivateKey", b64(ByteArray(32) { 1 })).put("identityPrivateKey", b64(ByteArray(32) { 2 }))
-      .put("signedPreKeyPrivate", b64(ByteArray(32) { 3 })).put("signedPreKeyId", 7)
-      .put("signedPreKeySignature", b64(ByteArray(64) { 4 })).put("registrationId", 9)
-      .put("advSecretKey", b64(ByteArray(32) { 1 })).put("id", "123:2@s.whatsapp.net")
-      .put("lid", "123:2@lid").put("account", b64(account)).put("platform", "")
-      .put("businessName", "").put("pushName", "").put("facebookUuid", "")
-      .put("lidMigrationTimestamp", 0).put("companionMetaNonce", "")
-    val first = org.json.JSONObject().put("contractVersion", 1).put("generationId", "generation")
-      .put("accountId", "123@lid").put("device", org.json.JSONObject().put("recordType", "device")
-        .put("recordKey", "W10").put("valueBase64", b64(device.toString().toByteArray()))).toString()
+    val first = freshSessionRequest("generation")
     assertTrue(org.json.JSONObject(writer.beginFreshProtocolSession(first)).getBoolean("success"))
     val value = android.util.Base64.encodeToString("{\"version\":1,\"nextId\":1,\"uploadedThrough\":0}".toByteArray(), android.util.Base64.NO_WRAP)
     fun request(generation: String, expected: String) = org.json.JSONObject()
@@ -934,6 +856,13 @@ class StateStoreInstrumentedTest {
     assertEquals(12L * 1024 * 1024, makeStore(root).recoveryReadBound())
   }
 
+  private fun resolvedMessage(): org.json.JSONObject {
+    val id = "wa-message:v1:" + android.util.Base64.encodeToString("[\"123@lid\",\"456@lid\",\"ABC\"]".toByteArray(),
+      android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
+    return org.json.JSONObject().put("id", id).put("accountId", "123@lid").put("whatsappMessageId", "ABC")
+      .put("chatId", "456@lid").put("direction", "incoming")
+  }
+
   private fun pendingEntry(letter: String, ordinal: Int) = org.json.JSONObject()
     .put("deliveryId", "wa-delivery:v1:" + letter.repeat(32)).put("accountId", "123@lid")
     .put("createdRevision", "2").put("createdOrdinal", ordinal).put("source", "live")
@@ -944,25 +873,22 @@ class StateStoreInstrumentedTest {
   // identity resolution and protocol-only publications still go through so the excess can drain.
   @Test fun reducedBudgetRefusesOnlyInsertions() {
     val root = freshRoot
-    val writer = makeStore(root)
-    writer.open()
-    writer.beginSession("123@lid", "{\"protocolSchemaVersion\":1,\"records\":[]}".toByteArray())
+    val writer = protocolWriter(root)
     val padding = "{\"padding\":\"${"A".repeat(2000)}\"}"
     fun padded(letter: String, ordinal: Int) = pendingEntry(letter, ordinal)
       .put("recovery", org.json.JSONObject().put("messageInfoJson", padding).put("items", org.json.JSONArray()))
     writer.commit("1") { state -> state.put("pending", org.json.JSONArray().put(padded("a", 0)).put(padded("b", 1))) }
     writer.updateOptions(1024L, 50L * 1024 * 1024) // far below the ~4 KB stored
-    writer.registerGeneration("generation", "123@lid")
     val sessionRevision = writer.open().getJSONObject("session").getString("sessionRevision")
     fun request(inserts: org.json.JSONArray, updates: org.json.JSONArray) = org.json.JSONObject()
       .put("contractVersion", 1).put("generationId", "generation").put("accountId", "123@lid")
       .put("expectedSessionRevision", sessionRevision).put("protocolChanges", org.json.JSONArray())
       .put("pendingInserts", inserts).put("pendingIdentityUpdates", updates).toString()
-    val insert = org.json.JSONObject(writer.applyProtocolChanges(request(org.json.JSONArray().put(padded("c", 0)), org.json.JSONArray())))
+    val insert = org.json.JSONObject(writer.applyProtocolChanges(request(org.json.JSONArray().put(padded("c", 0).apply { remove("createdRevision"); remove("createdOrdinal") }), org.json.JSONArray())))
     assertFalse(insert.getBoolean("success"))
     assertEquals("BUFFER_FULL", insert.getJSONObject("error").getString("code"))
     val update = org.json.JSONObject().put("deliveryId", "wa-delivery:v1:" + "a".repeat(32)).put("identityState", "resolved")
-      .put("message", org.json.JSONObject().put("id", "wa-message:v1:YQ"))
+      .put("message", resolvedMessage())
     assertTrue(org.json.JSONObject(writer.applyProtocolChanges(request(org.json.JSONArray(), org.json.JSONArray().put(update)))).getBoolean("success"))
     assertEquals("resolved", writer.open().getJSONArray("pending").getJSONObject(0).getString("identityState"))
     assertEquals(2, writer.open().getJSONArray("pending").length()) // nothing was discarded
@@ -1009,5 +935,98 @@ class StateStoreInstrumentedTest {
       assertEquals("INVALID_REQUEST", response.getJSONObject("error").getString("code"))
     }
     assertFalse(org.json.JSONObject(writer.readPending("{\"contractVersion\":2}")).getBoolean("success"))
+  }
+
+  /** Go's first-link request: a device record for 123@lid under [generation]. */
+  private fun freshSessionRequest(generation: String): String {
+    fun b64(bytes: ByteArray) = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+    val account = byteArrayOf(10, 2, 8, 1, 18, 32) + ByteArray(32) { 1 } +
+      byteArrayOf(26, 64) + ByteArray(64) { 1 } + byteArrayOf(34, 64) + ByteArray(64) { 1 }
+    val device = org.json.JSONObject().put("version", 1)
+      .put("noisePrivateKey", b64(ByteArray(32) { 1 })).put("identityPrivateKey", b64(ByteArray(32) { 2 }))
+      .put("signedPreKeyPrivate", b64(ByteArray(32) { 3 })).put("signedPreKeyId", 7)
+      .put("signedPreKeySignature", b64(ByteArray(64) { 4 })).put("registrationId", 9)
+      .put("advSecretKey", b64(ByteArray(32) { 1 })).put("id", "123:2@s.whatsapp.net")
+      .put("lid", "123:2@lid").put("account", b64(account)).put("platform", "")
+      .put("businessName", "").put("pushName", "").put("facebookUuid", "")
+      .put("lidMigrationTimestamp", 0).put("companionMetaNonce", "")
+    return org.json.JSONObject().put("contractVersion", 1).put("generationId", generation)
+      .put("accountId", "123@lid").put("device", org.json.JSONObject().put("recordType", "device")
+        .put("recordKey", "W10").put("valueBase64", b64(device.toString().toByteArray()))).toString()
+  }
+
+  /** A writer with a session and a registered generation, ready for Go's protocol callbacks. */
+  private fun protocolWriter(root: File, fault: ((String) -> Unit)? = null): NativeStateStore {
+    val writer = makeStore(root, fault)
+    writer.open()
+    writer.registerFreshGeneration("generation")
+    assertTrue(org.json.JSONObject(writer.beginFreshProtocolSession(freshSessionRequest("generation"))).getBoolean("success"))
+    return writer
+  }
+
+  private fun applyRequest(expected: String, inserts: org.json.JSONArray, updates: org.json.JSONArray = org.json.JSONArray()) =
+    org.json.JSONObject().put("contractVersion", 1).put("generationId", "generation").put("accountId", "123@lid")
+      .put("expectedSessionRevision", expected).put("protocolChanges", org.json.JSONArray())
+      .put("pendingInserts", inserts).put("pendingIdentityUpdates", updates).toString()
+
+  private fun insert(letter: String) = pendingEntry(letter, 0).apply { remove("createdRevision"); remove("createdOrdinal") }
+
+  // Confirming deletes one row: the stored session bytes and sessionRevision stay as they were.
+  @Test fun retirePendingLeavesTheStoredSessionUntouched() {
+    val root = freshRoot
+    val writer = protocolWriter(root)
+    assertTrue(org.json.JSONObject(writer.applyProtocolChanges(applyRequest("1", org.json.JSONArray().put(insert("a")).put(insert("b"))))).getBoolean("success"))
+    val session = sessionValue(root)
+    val retired = org.json.JSONObject(writer.retirePending("{\"contractVersion\":1,\"deliveryId\":\"wa-delivery:v1:${"a".repeat(32)}\"}"))
+    assertTrue(retired.getJSONObject("data").getBoolean("removed"))
+    assertEquals(session, sessionValue(root))
+    assertEquals("3", currentRevision(root))
+    val restored = makeStore(root).open()
+    assertEquals("1", restored.getJSONObject("session").getString("sessionRevision"))
+    assertEquals(listOf("wa-delivery:v1:" + "b".repeat(32)),
+      (0 until restored.getJSONArray("pending").length()).map { restored.getJSONArray("pending").getJSONObject(it).getString("deliveryId") })
+  }
+
+  // The inserts and the session publish together: a failure before the commit leaves neither.
+  @Test fun failedApplyPublishesNeitherPendingNorSession() {
+    val root = freshRoot
+    var active = false
+    val writer = protocolWriter(root) { if (active && it == "beforeCommit") throw StateFailure("STORAGE_FAILED") }
+    val value = android.util.Base64.encodeToString("{\"version\":1,\"nextId\":1,\"uploadedThrough\":0}".toByteArray(), android.util.Base64.NO_WRAP)
+    val request = org.json.JSONObject(applyRequest("1", org.json.JSONArray().put(insert("a"))))
+      .put("protocolChanges", org.json.JSONArray().put(org.json.JSONObject().put("operation", "put")
+        .put("recordType", "prekey-state").put("recordKey", "W10").put("valueBase64", value))).toString()
+    active = true
+    assertFalse(org.json.JSONObject(writer.applyProtocolChanges(request)).getBoolean("success"))
+    active = false
+    assertEquals("1", currentRevision(root))
+    val restored = makeStore(root).open()
+    assertEquals(0, restored.getJSONArray("pending").length())
+    assertEquals("1", restored.getJSONObject("session").getString("sessionRevision"))
+    assertTrue(org.json.JSONObject(writer.applyProtocolChanges(request)).getBoolean("success"))
+    assertEquals(1, makeStore(root).open().getJSONArray("pending").length())
+  }
+
+  // An identity update never recreates an entry that was already confirmed.
+  @Test fun identityUpdateCannotRecreateARetiredEntry() {
+    val root = freshRoot
+    val writer = protocolWriter(root)
+    assertTrue(org.json.JSONObject(writer.applyProtocolChanges(applyRequest("1", org.json.JSONArray().put(insert("a"))))).getBoolean("success"))
+    writer.retirePending("{\"contractVersion\":1,\"deliveryId\":\"wa-delivery:v1:${"a".repeat(32)}\"}")
+    val update = org.json.JSONObject().put("deliveryId", "wa-delivery:v1:" + "a".repeat(32)).put("identityState", "resolved").put("message", resolvedMessage())
+    val response = org.json.JSONObject(writer.applyProtocolChanges(applyRequest("1", org.json.JSONArray(), org.json.JSONArray().put(update))))
+    assertFalse(response.getBoolean("success"))
+    assertEquals(0, makeStore(root).open().getJSONArray("pending").length())
+  }
+
+  // A second instance sees a confirmation made by the first without keeping a stale copy.
+  @Test fun anotherInstanceSeesARetirement() {
+    val root = freshRoot
+    val writer = protocolWriter(root)
+    assertTrue(org.json.JSONObject(writer.applyProtocolChanges(applyRequest("1", org.json.JSONArray().put(insert("a")).put(insert("b"))))).getBoolean("success"))
+    val reader = makeStore(root)
+    assertEquals(2, org.json.JSONObject(reader.readPending("{\"contractVersion\":1}")).getJSONObject("data").getJSONArray("pending").length())
+    writer.retirePending("{\"contractVersion\":1,\"deliveryId\":\"wa-delivery:v1:${"a".repeat(32)}\"}")
+    assertEquals(1, org.json.JSONObject(reader.readPending("{\"contractVersion\":1}")).getJSONObject("data").getJSONArray("pending").length())
   }
 }

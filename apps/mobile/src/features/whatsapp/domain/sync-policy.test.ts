@@ -62,3 +62,28 @@ test("rejects any transition out of synced, rejected or orphaned", () => {
 test("rejects INVALID_MESSAGE as INVALID_INPUT instead of retrying it", () => {
   expect(failure("INVALID_MESSAGE")).toEqual({ action: "reject", code: "INVALID_INPUT" });
 });
+
+test("decides reupload for API_ERROR 404 on registration", () => {
+  expect(failure("API_ERROR", 404)).toEqual({ action: "reupload" });
+});
+
+test("rejects an expired or missing WhatsApp image with IMAGE_UNAVAILABLE", () => {
+  expect(failure("IMAGE_UNAVAILABLE")).toEqual({ action: "reject", code: "IMAGE_UNAVAILABLE" });
+});
+
+test("retries with backoff when WhatsApp is disconnected or the download fails", () => {
+  for (const code of ["ACCOUNT_NOT_CONNECTED", "CONNECTION_FAILED", "IMAGE_DOWNLOAD_FAILED", "NOT_INITIALIZED"])
+    expect(failure(code)).toEqual({ action: "retry", stopBatch: false });
+});
+
+test("rejects uploads refused with INVALID_IMAGE, IMAGE_TOO_LARGE or UNSUPPORTED_MEDIA_TYPE", () => {
+  expect(failure("INVALID_IMAGE", 400)).toEqual({ action: "reject", code: "INVALID_INPUT" });
+  expect(failure("IMAGE_TOO_LARGE", 413)).toEqual({ action: "reject", code: "PAYLOAD_TOO_LARGE" });
+  expect(failure("UNSUPPORTED_MEDIA_TYPE", 415)).toEqual({ action: "reject", code: "UNSUPPORTED_MEDIA_TYPE" });
+});
+
+test("retries with backoff on network errors and 5xx during upload", () => {
+  expect(failure("NETWORK_ERROR")).toEqual({ action: "retry", stopBatch: true });
+  expect(failure("SERVER_ERROR", 500)).toEqual({ action: "retry", stopBatch: false });
+  expect(failure("IMAGE_STORAGE_UNAVAILABLE", 502)).toEqual({ action: "retry", stopBatch: false });
+});

@@ -217,7 +217,7 @@ test("seller manages overlapping zones with delivery options and preserves an ed
       return (await prisma.productVariant.findFirstOrThrow({ where: { productId: created.data } })).id;
     });
     const orderId = crypto.randomUUID();
-    expect((await page.request.post("/api/orders", { data: { id: orderId, contactId: null, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
+    expect((await page.request.post("/api/orders", { data: { id: orderId, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
     const enabled = await page.request.post(`/api/orders/${orderId}/checkout-link`);
     expect(enabled.ok()).toBe(true);
     const buyerPage = await buyer.newPage();

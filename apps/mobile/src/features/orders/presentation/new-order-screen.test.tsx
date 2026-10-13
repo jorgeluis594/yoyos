@@ -44,7 +44,6 @@ jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   resolvePendingOrderConfirmation: (...args: unknown[]) => mockResolvePending(...args),
   searchOrderCatalog: async () => ({ success: true, data: [{ id: mockId(4), name: "Camisa", currency: "PEN",
     variants: [{ id: mockId(2), attributes: { Talla: "M" }, sku: "CAM-M", price: 10, stock: 3 }] }] }),
-  searchOrderContacts: async () => ({ success: true, data: [] }),
   completeOrder: (...args: unknown[]) => mockCompleteOrder(...args),
 } }));
 jest.mock("@mobile/features/delivery-settings/composition", () => ({ deliverySettings: {
@@ -196,7 +195,7 @@ test("an attempt saved in an older format cannot be read and is discarded to con
 });
 
 test("known stock rejection after uncertain resend returns to the editable cart", async () => {
-  const pending = { version: 2, companyId: mockId(1), id: mockId(3), shownTotal: { amount: 10, currency: "PEN" }, request: { id: mockId(3), contactId: null, items: [{ variantId: mockId(2), quantity: 1 }] } };
+  const pending = { version: 2, companyId: mockId(1), id: mockId(3), shownTotal: { amount: 10, currency: "PEN" }, request: { id: mockId(3), items: [{ variantId: mockId(2), quantity: 1 }] } };
   mockCompleteOrder.mockResolvedValueOnce(ok({ kind: "uncertain", pending }));
   mockResendPending.mockResolvedValueOnce(err({
     code: "INSUFFICIENT_STOCK", message: "No stock", issues: [{ field: "items", reason: "STOCK", variantId: mockId(2) }],
@@ -351,7 +350,7 @@ test("decimal comma in an initial payment updates the summary and allows saving"
 
 test("restart verifies and resends a saved request without rebuilding another order", async () => {
   const pending = { version: 2, companyId: mockId(1), id: mockId(3), shownTotal: { amount: 10, currency: "PEN" },
-    request: { id: mockId(3), contactId: null, items: [{ variantId: mockId(2), quantity: 1 }], payments: [] } };
+    request: { id: mockId(3), items: [{ variantId: mockId(2), quantity: 1 }], payments: [] } };
   mockReadPending.mockResolvedValue(ok(pending));
   mockResolvePending.mockResolvedValue(ok({ kind: "uncertain", pending }));
   mockResendPending.mockResolvedValue(ok({ kind: "completed", shownTotal: pending.shownTotal, order: { id: pending.id, status: "active" } }));
@@ -370,7 +369,7 @@ test("restart verifies and resends a saved request without rebuilding another or
 
 test("saved-delivery recovery reviews an explicit rate while retaining recipient and original payment identities", async () => {
   const pending = { version: 2, companyId: mockId(1), id: mockId(3), shownTotal: { amount: 18, currency: "PEN" },
-    request: { id: mockId(3), contactId: null, items: [{ variantId: mockId(2), quantity: 1 }],
+    request: { id: mockId(3), items: [{ variantId: mockId(2), quantity: 1 }],
       payments: [{ paymentId: mockId(8), amount: { amount: 4.5, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false }],
       delivery: { expectedPrice: { amount: 8, currency: "PEN" }, delivery: { method: "home", rateId: mockId(9), recipient: { name: "Ana", phone: "999001", identity: { kind: "absent" } },
         destination: { districtCode: "150122", address: "Original street", instructions: "Door 2" } } } } };
@@ -590,7 +589,7 @@ test("disabled delivery after a rejection preserves the form and can be explicit
 
 test("a saved rated delivery can be reviewed without charging its old fee twice", async () => {
   const pending = { version: 2, companyId: mockId(1), id: mockId(3), shownTotal: { amount: 18, currency: "PEN" },
-    request: { id: mockId(3), contactId: null, items: [{ variantId: mockId(2), quantity: 1 }],
+    request: { id: mockId(3), items: [{ variantId: mockId(2), quantity: 1 }],
       delivery: { expectedPrice: { amount: 8, currency: "PEN" }, delivery: { method: "home", rateId: mockId(9),
         recipient: { name: "Ana", phone: "999001", identity: { kind: "absent" } },
         destination: { address: "Original street", districtCode: "150122", instructions: null } } } } };
@@ -619,20 +618,19 @@ test("a saved rated delivery can be reviewed without charging its old fee twice"
 
 test("restarted seller corrects missing references and payments before saving the same attempt", async () => {
   const pending = { version: 2, companyId: mockId(1), id: mockId(3), shownTotal: { amount: 30, currency: "PEN" },
-    request: { id: mockId(3), contactId: mockId(7), items: [{ variantId: mockId(2), quantity: 2 }, { variantId: mockId(6), quantity: 1 }],
+    request: { id: mockId(3), items: [{ variantId: mockId(2), quantity: 2 }, { variantId: mockId(6), quantity: 1 }],
       payments: [{ paymentId: mockId(8), amount: { amount: 4.5, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false }] } };
-  const draft = { kind: "items", id: pending.id, customer: { kind: "contact", contactId: mockId(7), name: null, phone: "" },
+  const draft = { kind: "items", id: pending.id,
     items: [{ variantId: mockId(2), quantity: 2, productName: "Camisa", variantAttributes: {}, sku: null,
       shownUnitPrice: { amount: 10, currency: "PEN" }, shownStock: 1 }],
     payments: [{ paymentId: mockId(8), amount: "4.5", method: "bank_transfer", deductStockIfPartial: false }] };
   mockReadPending.mockResolvedValue(ok(pending));
-  mockLoadReview.mockResolvedValue(ok({ kind: "review", pending, draft, unavailableVariantIds: [mockId(6)], contactUnavailable: true }));
+  mockLoadReview.mockResolvedValue(ok({ kind: "review", pending, draft, unavailableVariantIds: [mockId(6)] }));
   const screen = render(<NewOrderScreen />);
   const reviewButton = await screen.findByRole("button", { name: "Corregir intento guardado" });
   await act(async () => { fireEvent.press(reviewButton); });
   expect(mockLoadReview).toHaveBeenCalledWith(mockId(1));
   expect(screen.getByText(/Revisa los productos no disponibles/)).toBeTruthy();
-  expect(screen.getByText(/El cliente guardado ya no está disponible/)).toBeTruthy();
   expect(screen.getByRole("button", { name: "Guardar correcciones" })).toBeDisabled();
   expect(screen.queryByRole("button", { name: "Reenviar mismo intento" })).toBeNull();
   fireEvent.press(screen.getByRole("button", { name: "Editar productos" }));
@@ -640,15 +638,13 @@ test("restarted seller corrects missing references and payments before saving th
   fireEvent.press(screen.getByRole("button", { name: "Quitar producto no disponible 1" }));
   fireEvent.press(screen.getByRole("button", { name: "−" }));
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  expect(screen.getByRole("button", { name: "Guardar correcciones" })).toBeDisabled();
-  fireEvent.press(screen.getByRole("button", { name: "Quitar contacto" }));
   fireEvent.changeText(screen.getByLabelText(/Monto/), "5.50");
   expect(screen.getByRole("button", { name: "Guardar correcciones" })).toBeEnabled();
   mockReviewOrder.mockResolvedValueOnce(err({ code: "PENDING_STORAGE_UNAVAILABLE", message: "Cannot save" }));
   await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar correcciones" })); });
   expect(screen.getByLabelText(/Monto/)).toHaveProp("value", "5.50");
   expect(mockReviewOrder).toHaveBeenLastCalledWith(mockId(1), expect.objectContaining({ id: pending.id,
-    customer: { kind: "general_public" }, items: [expect.objectContaining({ variantId: mockId(2), quantity: 1 })],
+    items: [expect.objectContaining({ variantId: mockId(2), quantity: 1 })],
     payments: [expect.objectContaining({ paymentId: mockId(8), amount: "5.50" })] }));
   mockReviewOrder.mockResolvedValueOnce(ok({ kind: "uncertain", pending }));
   await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar correcciones" })); });

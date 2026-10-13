@@ -7,14 +7,12 @@ import i18n from "@mobile/i18n";
 const mockPush = jest.fn();
 const mockLoadOrders = jest.fn();
 const mockReadPending = jest.fn();
-const mockSearchContacts = jest.fn();
 let mockCountry = "PE";
 jest.mock("expo-router", () => ({ useRouter: () => ({ push: mockPush }),
   useFocusEffect: (callback: () => void) => jest.requireActual("react").useEffect(callback, [callback]) }));
 jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   loadMixedOrders: (...args: unknown[]) => mockLoadOrders(...args),
   readPendingOrderConfirmation: (...args: unknown[]) => mockReadPending(...args),
-  searchOrderContacts: (...args: unknown[]) => mockSearchContacts(...args),
 } }));
 const mockOpenDispatchPrint = jest.fn();
 jest.mock("@mobile/features/orders/presentation/dispatch-print-review", () => ({ useDispatchPrint: () => ({ open: mockOpenDispatchPrint, active: false, show: jest.fn() }) }));
@@ -27,7 +25,6 @@ jest.mock("@mobile/features/orders/presentation/order-result", () => ({ useOrder
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 
 beforeEach(() => { jest.clearAllMocks(); mockCountry = "PE"; mockReadPending.mockResolvedValue(ok(null));
-  mockSearchContacts.mockResolvedValue(ok([]));
   mockSettings.mockResolvedValue(ok({ couriers: [{ id: "00000000-0000-4000-8000-0000000000c1", courierId: "00000000-0000-4000-8000-0000000000c2", name: "Olva", enabled: false }] })); mockLoadOrders.mockResolvedValue(ok({ items: [], page: 1, pageSize: 20, total: 0 })); });
 
 test("history distinguishes empty sales from filtered results and sends full Lima days", async () => {
@@ -104,7 +101,7 @@ test.each(["success", "error"])("history ignores a replaced request's %s before 
   fireEvent.press(screen.getByRole("button", { name: "Público general" }));
   fireEvent.press(screen.getByRole("button", { name: "Aplicar filtros" }));
   const stale: ListResult = outcome === "error" ? err({ code: "NETWORK_ERROR", message: "Offline" }) : ok({
-    items: [{ number: 1001, id: "old", sellerId: "seller", buyer: { contactId: "contact", name: "Venta anterior", phone: "999999999" }, checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null,
+    items: [{ number: 1001, id: "old", sellerId: "seller", source: "manual", buyer: { contactId: "contact", name: "Venta anterior", phone: "999999999" }, checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null,
       createdAt: "2026-09-28T12:00:00.000Z", deliveredAt: null, completedAt: null, status: "active", paymentStatus: "pending",
       deliveryStatus: "pending", stockDeducted: false, total: { amount: 10, currency: "PEN" } }], page: 1, pageSize: 20, total: 80,
   });
@@ -114,7 +111,7 @@ test.each(["success", "error"])("history ignores a replaced request's %s before 
   fireEvent.press(screen.getByRole("button", { name: "Filtros" }));
   fireEvent.press(screen.getByRole("button", { name: "Aplicar filtros" }));
   await act(async () => { requests[2](ok({
-    items: [{ number: 1002, id: "latest", sellerId: "seller", buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, createdAt: "2026-09-29T12:00:00.000Z",
+    items: [{ number: 1002, id: "latest", sellerId: "seller", source: "manual", buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, createdAt: "2026-09-29T12:00:00.000Z",
       deliveredAt: null, completedAt: null, status: "active", paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false,
       total: { amount: 20, currency: "PEN" } }],
     page: 1, pageSize: 20, total: 1,
@@ -167,7 +164,7 @@ test("search and task filters query all orders and remain selected after clearin
   await waitFor(() => expect(mockLoadOrders).toHaveBeenLastCalledWith({ page: 1, customer: { kind: "all" }, search: "", view: "unpaid" }));
 });
 
-const dispatchOrder = (number: number) => ({ number: 1000 + number, id: `00000000-0000-4000-8000-${String(number).padStart(12, "0")}`, buyer: null,
+const dispatchOrder = (number: number) => ({ number: 1000 + number, id: `00000000-0000-4000-8000-${String(number).padStart(12, "0")}`, buyer: null, source: "manual",
   checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: number === 1 ? "2026-10-20" : null, courier: number <= 2 ? { id: "00000000-0000-4000-8000-0000000000c1", name: "Olva" } : null, shippedAt: null, createdAt: "2026-09-28T12:00:00.000Z",
   deliveredAt: null, completedAt: null, status: "active", paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false, total: { amount: number, currency: "PEN" } });
 const pagedOrders = () => mockLoadOrders.mockImplementation(async ({ page }: { page: number }) => ok({
@@ -253,4 +250,37 @@ test("Android prints labels for the selected orders", async () => {
 
 test("iOS offers no label printing", async () => {
   expect((await selectedOn("ios")).queryByRole("button", { name: "Imprimir rótulos" })).toBeNull();
+});
+
+describe("WhatsApp orders", () => {
+  const date = "2026-10-05T00:00:00.000Z";
+  const summary = (id: string, buyer: { contactId: null; name: string | null; phone: string | null } | null, source: "manual" | "whatsapp") => ({
+    id, number: 1001, source, buyer, sellerId: "seller", createdAt: date, scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, completedAt: null, checkoutEnabledAt: null,
+    checkoutConfirmedAt: null, status: "active", paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false,
+    total: { amount: 10, currency: "PEN" } });
+  const load = (...items: ReturnType<typeof summary>[]) => mockLoadOrders.mockResolvedValue(ok({ page: 1, pageSize: 20, total: items.length, items }));
+
+  test("shows the WhatsApp icon with the accessible label \"WhatsApp\" for chat orders", async () => {
+    load(summary("chat", { contactId: null, name: "Ana", phone: "999" }, "whatsapp"), summary("manual", { contactId: null, name: "Luis", phone: "888" }, "manual"));
+    const screen = render(<OrderHistoryScreen />);
+    await screen.findByText("Ana");
+    expect(screen.getAllByLabelText("WhatsApp")).toHaveLength(1);
+  });
+
+  test("shows the buyer as name or phone and hides a missing phone", async () => {
+    load(summary("a", { contactId: null, name: null, phone: "999111222" }, "whatsapp"), summary("b", { contactId: null, name: "Ana", phone: null }, "whatsapp"));
+    const screen = render(<OrderHistoryScreen />);
+    await screen.findByText("999111222");
+    expect(screen.getByText("Ana")).toBeTruthy();
+    expect(screen.queryByText("—")).toBeNull();
+    expect(screen.queryByText("Público general")).toBeNull();
+  });
+
+  test("shows only the icon when the buyer has no name or phone", async () => {
+    load(summary("a", { contactId: null, name: null, phone: null }, "whatsapp"));
+    const screen = render(<OrderHistoryScreen />);
+    await screen.findByLabelText("WhatsApp");
+    expect(screen.queryByText("—")).toBeNull();
+    expect(screen.queryByText("Público general")).toBeNull();
+  });
 });

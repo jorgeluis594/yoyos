@@ -13,7 +13,7 @@ adb install -r "$test_apk"
 instrumentation=$(adb shell pm list instrumentation | sed -n '/AndroidJUnitRunner/ s/^instrumentation:\([^ ]*\).*/\1/p' | head -1 | tr -d '\r')
 test -n "$instrumentation" || { adb shell pm list instrumentation; exit 1; }
 run_id="$(date +%s)-$$"
-for phase in cipher write sync close replace directorySync response; do
+for phase in beforeCommit afterCommit response; do
   crash_output=$(mktemp)
   recovery_output=$(mktemp)
   timeout 45s adb shell am instrument -w -e class expo.modules.whatsapp.StateStoreCrashInstrumentedTest\#crashAtPublicationBoundary -e phase "$phase" -e runId "$run_id" "$instrumentation" > "$crash_output" 2>&1 || true

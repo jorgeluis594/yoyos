@@ -20,7 +20,7 @@ import { usePreventRemove } from "expo-router/react-navigation";
 import * as Crypto from "expo-crypto";
 import * as Network from "expo-network";
 import { z } from "zod";
-import { orderCatalogSchema, orderContactsSchema } from "@shared/contracts/orders";
+import { orderCatalogSchema } from "@shared/contracts/orders";
 import { orders } from "@mobile/features/orders/composition";
 import { ThemedText } from "@mobile/components/themed-text";
 import { ThemedView } from "@mobile/components/themed-view";
@@ -31,7 +31,7 @@ import { ListRow } from "@mobile/components/ui/list-row";
 import { ScreenState } from "@mobile/components/ui/screen-state";
 import { showConfirmation } from "@mobile/components/ui/show-confirmation";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
-import { addDraftItem, changeDraftQuantity, emptyOrderDraft, prepareOrder, removeDraftItem, setDraftCustomer,
+import { addDraftItem, changeDraftQuantity, emptyOrderDraft, prepareOrder, removeDraftItem,
   type OrderDraft } from "@mobile/features/orders/domain/order-draft";
 import type { PendingOrderConfirmation, ConfirmOrderOutcome, ConfirmOrderError } from "@mobile/features/orders/application/order-operations";
 import { useOrderDraft } from "@mobile/features/orders/presentation/order-draft-guard";
@@ -40,12 +40,11 @@ import { useTheme } from "@mobile/hooks/use-theme";
 import translations from "@mobile/i18n";
 
 type Catalog = z.infer<typeof orderCatalogSchema>;
-type Contacts = z.infer<typeof orderContactsSchema>;
 const money = (amount: number, currency: string, locale: string) => new Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
 const errorKeys: Record<string, string> = {
   TOTAL_CHANGED: 'orderDeliveryPriceChanged', RATE_UNAVAILABLE: 'orderDeliveryRateUnavailable', INVALID_DELIVERY_RATE: 'orderDeliveryRateUnavailable', INVALID_DISTRICT: 'invalidHomeDestination',
   INSUFFICIENT_STOCK: 'insufficientStock', VARIANT_NOT_FOUND: 'variantNotFound',
-  CONTACT_NOT_FOUND: 'contactNotFound', CURRENCY_MISMATCH: 'currencyMismatch',
+  CURRENCY_MISMATCH: 'currencyMismatch',
   INVALID_ORDER: 'invalidOrder', INVALID_PAYMENT: 'invalidOrder', PAYMENT_REQUIRED: 'immediateRequirements',
   DELIVERY_UNAVAILABLE: 'orderDeliveryUnavailable', DELIVERY_METHOD_DISABLED: 'orderDeliveryDisabled', PENDING_STORAGE_UNAVAILABLE: 'pendingStorageUnavailable',
   INVALID_PENDING_DATA: 'invalidPendingData', PENDING_CONFIRMATION: 'pendingConfirmation',
@@ -74,14 +73,11 @@ function CompanyOrderScreen() {
   const [catalog, setCatalog] = useState<Catalog>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [selected, setSelected] = useState<Catalog[number] | null>(null);
-  const [contactSearch, setContactSearch] = useState("");
-  const [contacts, setContacts] = useState<Contacts>([]);
   const [pending, setPending] = useState<PendingOrderConfirmation | null>(null);
   const [reviewingDelivery, setReviewingDelivery] = useState(false);
   const [invalidPending, setInvalidPending] = useState(false);
   const [reviewingOrder, setReviewingOrder] = useState(false);
   const [unavailableVariants, setUnavailableVariants] = useState<readonly string[]>([]);
-  const [contactUnavailable, setContactUnavailable] = useState(false);
   const [pendingStatus, setPendingStatus] = useState<"loading" | "none" | "uncertain" | "error">("loading");
   const [checks, setChecks] = useState(0);
   const [checking, setChecking] = useState(false);
@@ -170,7 +166,7 @@ function CompanyOrderScreen() {
     setDraft(emptyOrderDraft());
     setStage("products"); setPaidPaymentId(null);
     setInitialDelivery(null);
-    setReviewingDelivery(false); setReviewingOrder(false); setUnavailableVariants([]); setContactUnavailable(false);
+    setReviewingDelivery(false); setReviewingOrder(false); setUnavailableVariants([]);
     setQuoteAttempt(value => value + 1);
   }, [discardVersion]);
   usePreventRemove(dirty, ({ data }) => {
@@ -201,14 +197,6 @@ function CompanyOrderScreen() {
     }); }, 250);
     return () => { active = false; clearTimeout(timer); };
   }, [companyId, pendingStatus, reviewingOrder, search, stage]);
-  useEffect(() => {
-    if (!companyId || (pendingStatus !== "none" && !reviewingOrder) || stage !== "review") return;
-    let active = true;
-    const timer = setTimeout(() => { void orders.searchOrderContacts(contactSearch.trim()).then((result) => {
-      if (active) setContacts(result.success ? result.data : []);
-    }); }, 250);
-    return () => { active = false; clearTimeout(timer); };
-  }, [companyId, contactSearch, pendingStatus, reviewingOrder, stage]);
 
   if (state.status !== "ready") return null;
 
@@ -261,7 +249,7 @@ function CompanyOrderScreen() {
       setChecks(0); setError(t('uncertainOrder'));
     } finally { saving.current = false; setSending(false); }
   };
-  const complete = () => { if (deliveryReady && prepared.success && !unavailableVariants.length && !contactUnavailable)
+  const complete = () => { if (deliveryReady && prepared.success && !unavailableVariants.length)
     return performSave(() => reviewingOrder ? orders.reviewPendingOrder(companyId, saveDraft) : orders.completeOrder(saveDraft, companyId)); };
   const restoreDelivery = (selection: NonNullable<typeof savedDelivery>, currency: Money["currency"]) => {
     const recipient = selection.recipient;
@@ -283,7 +271,7 @@ function CompanyOrderScreen() {
     if (result.data.kind === "completed") { openCompleted(result.data); return; }
     if (result.data.kind !== "review") return;
     setPending(result.data.pending); setDraft(result.data.draft);
-    setUnavailableVariants(result.data.unavailableVariantIds); setContactUnavailable(result.data.contactUnavailable);
+    setUnavailableVariants(result.data.unavailableVariantIds);
     setReviewingDelivery(false); setReviewingOrder(true); setStage("review"); setPaidPaymentId(null); setError("");
     const delivery = result.data.pending.request.delivery?.delivery;
     if (delivery) restoreDelivery(delivery, result.data.pending.shownTotal.currency);
@@ -306,7 +294,7 @@ function CompanyOrderScreen() {
   const showDeliveryFields = () => {
     if (!settings) return;
     const { name, phone, documentType, document, method, address, instructions } = deliveryDraftFromOrder({ delivery: null,
-      buyer: draft.customer.kind === "contact" ? { contactId: draft.customer.contactId, name: draft.customer.name, phone: draft.customer.phone } : null,
+      buyer: null,
       deliveryCharge: { amount: 0, currency: "PEN" } }, settings);
     setInitialDelivery({ name, phone, documentType, document, method, address, instructions, rateId: "", agencyId: "", price: null, districtCode: "",
       currency: productTotal.success ? productTotal.data.shownTotal.currency : "PEN" });
@@ -395,15 +383,6 @@ function CompanyOrderScreen() {
             <OrderItemsCard items={draft.items} total={productTotal.success ? money(productTotal.data.shownTotal.amount, productTotal.data.shownTotal.currency, locale) : null}
               format={(amount, currency) => money(amount, currency, locale)} onEdit={pendingStatus === "none" || reviewingOrder ? backToProducts : undefined} />
             {unavailableVariants.length ? <ThemedText accessibilityRole="alert">{t('savedProductsNeedReview')}</ThemedText> : null}
-            <View style={[styles.card, card]}>
-            <ThemedText type="subtitle" accessibilityRole="header">{t('customer')}</ThemedText>
-            {contactUnavailable ? <ThemedText accessibilityRole="alert">{t('savedContactUnavailable')}</ThemedText> : null}
-            <ThemedText>{draft.customer.kind === "contact" ? draft.customer.name ?? draft.customer.phone : t('generalPublic')}</ThemedText>
-            {draft.customer.kind === "contact" ? <Button variant="ghost" onPress={() => { setDraft(setDraftCustomer(draft, { kind: "general_public" })); setContactUnavailable(false); }}>{t('removeContact')}</Button> : null}
-            <Input value={contactSearch} onChangeText={setContactSearch} accessibilityLabel={t('searchContact')} placeholder={t('searchContactByNameOrPhone')} />
-            {contacts.map((contact) => <ListRow key={contact.id} title={contact.name ?? contact.phone} description={contact.name ? contact.phone : undefined}
-              onPress={() => { setContactUnavailable(false); setDraft(setDraftCustomer(draft, { kind: "contact", contactId: contact.id, name: contact.name, phone: contact.phone })); setContactSearch(""); setContacts([]); }} />)}
-            </View>
             <OrderPaymentCard payments={draft.payments ?? []} paidPaymentId={paidPaymentId} onPaidChange={setPaidPaymentId}
               currency={currency} busy={sending} newId={() => Crypto.randomUUID()} format={amount => money(amount, currency, locale)}
               total={orderTotal ? orderTotal.amount : null} balance={orderTotal ? money(orderTotal.amount, orderTotal.currency, locale) : null}
@@ -439,7 +418,7 @@ function CompanyOrderScreen() {
             {paidAmount?.success ? <View style={styles.amountRow}><ThemedText>{t('initialPaid')}</ThemedText><ThemedText style={styles.amount}>{money(paidAmount.data.amount, paidAmount.data.currency, locale)}</ThemedText></View> : null}
             {balance?.success ? <View style={styles.amountRow}><ThemedText>{t('estimatedBalance')}</ThemedText><ThemedText style={styles.amount}>{money(Math.max(0, balance.data.amount), balance.data.currency, locale)}</ThemedText></View> : null}
             <ThemedText themeColor="textSecondary">{t('creationPriceHint')}</ThemedText>
-            <Button disabled={!prepared.success || !deliveryReady || offline || !!unavailableVariants.length || contactUnavailable || !!(draft.deliverImmediately && balance?.success && balance.data.amount > 0) || !!(draft.deliverImmediately && draft.items.some(item => item.quantity > item.shownStock))} loading={sending} onPress={() => void complete()}>{t(reviewingOrder ? 'saveReviewedOrder' : 'saveOrder')}</Button>
+            <Button disabled={!prepared.success || !deliveryReady || offline || !!unavailableVariants.length || !!(draft.deliverImmediately && balance?.success && balance.data.amount > 0) || !!(draft.deliverImmediately && draft.items.some(item => item.quantity > item.shownStock))} loading={sending} onPress={() => void complete()}>{t(reviewingOrder ? 'saveReviewedOrder' : 'saveOrder')}</Button>
             {offline ? <ThemedText type="small" accessibilityRole="alert">{t('offlineEditing')}</ThemedText> : null}
             </View>
           </View>}

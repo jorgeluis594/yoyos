@@ -10,7 +10,8 @@ export type OrderNumber = number & { readonly __brand: "OrderNumber" };
 export type BuyerName = string & { readonly __brand: "BuyerName" };
 export type PhoneNumber = string & { readonly __brand: "PhoneNumber" };
 export type BuyerData = Readonly<{ name: BuyerName; phone: PhoneNumber }>;
-export type OrderBuyer = Readonly<{ contactId: ContactId | null; name: string | null; phone: string }>;
+export type OrderBuyer = Readonly<{ contactId: ContactId | null; name: string | null; phone: string | null }>;
+export type ConfirmedBuyer = OrderBuyer & Readonly<{ phone: string }>;
 export type CheckoutAccess = Readonly<{ companyId: CompanyId; orderId: OrderId }>;
 export type CheckoutError = Readonly<{
   code: "CHECKOUT_UNAVAILABLE" | "ORDER_CANCELLED" | "INVALID_BUYER" | "TOTAL_CHANGED" | "INVALID_CHECKOUT" | "PERSISTENCE_UNAVAILABLE";
@@ -40,7 +41,7 @@ export type CheckoutState =
 export type CheckoutView = Readonly<{
   companyName: string;
   number: OrderNumber;
-  buyer: Readonly<{ name: string | null; phone: string }> | null;
+  buyer: Readonly<{ name: string | null; phone: string | null }> | null;
   items: readonly Pick<OrderItem, "productName" | "variantAttributes" | "sku" | "quantity" | "unitPrice" | "subtotal">[];
   itemsTotal: Money;
   total: Money;

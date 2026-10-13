@@ -32,6 +32,7 @@ public final class NativeStateStore {
   private var revision: UInt64 = 0
   private var readBudget = defaultBuffer
   private var state: [String: Any]?
+  private var database: StateDatabase?
   private var uncertain = false
   private var sessionUsable = true
   private var registeredGeneration: String?
@@ -45,8 +46,8 @@ public final class NativeStateStore {
     let support = try directory ?? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
     let storageDirectory = support.appendingPathComponent("whatsapp", isDirectory: true)
     self.directory = storageDirectory
-    self.published = storageDirectory.appendingPathComponent("state.bin")
-    self.temporary = storageDirectory.appendingPathComponent("state.next")
+    self.published = storageDirectory.appendingPathComponent("state.db")
+    self.temporary = storageDirectory.appendingPathComponent("state.db.next")
   }
 
   public func open() throws -> [String: Any] {
@@ -54,6 +55,7 @@ public final class NativeStateStore {
     if uncertain { state = nil; uncertain = false }
     if observedPublication == Self.publication, let state { return state }
     state = nil
+    database = nil
     let existed = try existsChecked(directory)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     try protect(directory)
@@ -71,11 +73,9 @@ public final class NativeStateStore {
     guard let store = record["storeId"] as? String, Self.validId(store),
           let recovery = record["recoveryKeyId"] as? String, Self.validId(recovery),
           let bound = record["readBudget"] as? Int, bound > 0 else { throw StateStoreError.invalid }
-    guard let preparedText = record["preparedRevision"] as? String, let preparedRevision = Self.parseRevision(preparedText) else { throw StateStoreError.invalid }
     storeId = store; recoveryId = recovery; readBudget = bound
     if try existsChecked(published) {
       let loaded = try readSnapshot()
-      guard revision <= preparedRevision else { throw StateStoreError.invalid }
       if record["status"] as? String == "creating" {
         record["status"] = "ready"; try writeRecord(record)
       }
@@ -99,7 +99,7 @@ public final class NativeStateStore {
     try removeIfPresent(temporary)
     try keychain.ensureKey(recoveryId)
     let initial = Self.emptyState()
-    try publish(initial, revision: 0)
+    try createDatabase(initial)
     try fault?("initialPublication")
     record["status"] = "ready"; try writeRecord(record)
     try ensureImagesDirectory()
@@ -116,24 +116,31 @@ public final class NativeStateStore {
     guard revision < Self.maxRevision else { throw StateStoreError.invalid }
     let next = try change(old)
     guard let options = next["options"] as? [String: Any], let requested = Self.safeInt(options["maxRecoveryBufferBytes"]) else { throw StateStoreError.invalid }
-    guard var record = try readRecord() else { throw StateStoreError.invalid }
     let nextBound = max(readBudget, requested)
-    try validate(next, revision: revision + 1, bound: nextBound, allowSessionFailure: !sessionUsable && (try Self.json(next["session"] ?? NSNull())) == originalSession)
-    record["readBudget"] = nextBound
-    record["preparedRevision"] = String(revision + 1)
-    try writeRecord(record)
-    readBudget = nextBound
-    try publish(next, revision: revision + 1)
-    state = next
-    observedPublication = Self.publication
+    let nextSession = try Self.json(next["session"] ?? NSNull())
+    try validate(next, revision: revision + 1, bound: nextBound, allowSessionFailure: !sessionUsable && nextSession == originalSession)
+    if nextBound != readBudget {
+      // Raised before publishing: a larger bound than the published state needs is harmless, a smaller one is not.
+      guard var record = try readRecord() else { throw StateStoreError.invalid }
+      record["readBudget"] = nextBound
+      try writeRecord(record)
+      readBudget = nextBound
+    }
+    // A changed entry is rewritten as delete plus insert, so its ordering columns follow its content.
+    let before = try Self.pendingById(old)
+    let after = try Self.pendingById(next)
+    let kept = Set(after.filter { before[$0.key] == $0.value }.keys)
+    let added = (next["pending"] as? [[String: Any]] ?? []).filter { !kept.contains($0["deliveryId"] as? String ?? "") }
+    try persist(next, revision: revision + 1, sessionChanged: nextSession != originalSession,
+                deletes: before.keys.filter { !kept.contains($0) }, inserts: try added.map { try seal($0) })
     committed = true
     return next
   }
 
   public func beginSession(accountId: String, protocolBytes: Data) throws {
     retireGeneration()
-    lock.lock(); defer { state = nil; lock.unlock() }
-    state = nil
+    // On failure the next read reloads and cleans up a provisional key left behind.
+    lock.lock(); var succeeded = false; defer { if !succeeded { state = nil }; lock.unlock() }
     let existing = try open()
     guard Self.validAccount(accountId), existing["session"] is NSNull,
           let retired = existing["sessionKeysToDelete"] as? [String], retired.isEmpty else { throw StateStoreError.invalid }
@@ -162,6 +169,7 @@ public final class NativeStateStore {
     try fault?("sessionPublished")
     guard var committedRecord = try readRecord() else { throw StateStoreError.invalid }
     committedRecord["provisionalSessionKeyId"] = NSNull(); try writeRecord(committedRecord)
+    succeeded = true
   }
 
   /// The reliable read bound: the largest recovery budget the container ever accepted. It does not
@@ -308,11 +316,11 @@ public final class NativeStateStore {
       let kept = existing.filter { $0["deliveryId"] as? String != id }
       let removed = kept.count != existing.count
       if removed {
-        try commit(expectedRevision: String(revision)) { old in
-          var next = old
-          next["pending"] = kept
-          return next
-        }
+        guard revision < Self.maxRevision else { throw StateStoreError.invalid }
+        // Deletes one row; the session and every other entry stay untouched on disk.
+        var next = snapshot
+        next["pending"] = kept
+        try persist(next, revision: revision + 1, sessionChanged: false, deletes: [id])
       }
       return ["revision": String(revision), "removed": removed]
     }
@@ -393,12 +401,14 @@ public final class NativeStateStore {
         item["createdOrdinal"] = ordinal
         pending.append(item)
       }
+      var resolved = [Int]()
       for update in updates {
         guard let id = update["deliveryId"] as? String,
               let position = existing.firstIndex(where: { $0["deliveryId"] as? String == id }),
               pending[position]["identityState"] as? String == "pendingLid" else { throw StateStoreError.invalidRequest }
         pending[position]["identityState"] = "resolved"
         pending[position]["message"] = update["message"]
+        resolved.append(position)
       }
       // Same rule as Go (protocolstore.Decide): only insertions are admitted against the budget. A
       // publication that inserts nothing (identity resolution, protocol-only) must still go through when
@@ -407,6 +417,10 @@ public final class NativeStateStore {
       guard let options = snapshot["options"] as? [String: Any], let budget = Self.safeInt(options["maxRecoveryBufferBytes"]) else { throw StateStoreError.bufferFull }
       let capacity = inserts.isEmpty ? max(budget, readBudget) : budget
       guard try Self.json(pending).count <= capacity else { throw StateStoreError.bufferFull }
+      guard revision < Self.maxRevision else { throw StateStoreError.invalid }
+      let added = Array(pending[existing.count...])
+      let changed = resolved.map { pending[$0] }
+      for item in added + changed { try validatePendingEntry(item, revision: nextRevision, bound: max(budget, readBudget)) }
       var nextSession = session
       if !changes.isEmpty {
         guard let id = session["sessionKeyId"] as? String else { throw StateStoreError.invalid }
@@ -417,11 +431,12 @@ public final class NativeStateStore {
         nextSession["nonceBase64"] = Data(nonce).base64EncodedString()
         nextSession["ciphertextBase64"] = sealed.ciphertext.appended(sealed.tag).base64EncodedString()
       }
-      let committed = try commit(expectedRevision: String(revision)) { old in
-        var next = old; next["session"] = nextSession; next["pending"] = pending; return next
-      }
-      guard let finalSession = committed["session"] as? [String: Any],
-            let finalRevision = finalSession["sessionRevision"] as? String else { throw StateStoreError.invalid }
+      var next = snapshot
+      next["session"] = nextSession
+      next["pending"] = pending
+      try persist(next, revision: nextRevision, sessionChanged: !changes.isEmpty,
+                  inserts: try added.map { try seal($0) }, updates: try changed.map { try seal($0) })
+      guard let finalRevision = nextSession["sessionRevision"] as? String else { throw StateStoreError.invalid }
       return ["revision": String(revision), "sessionRevision": finalRevision]
     }
   }
@@ -618,7 +633,8 @@ public final class NativeStateStore {
 
   public func endSession() throws {
     retireGeneration()
-    lock.lock(); defer { state = nil; lock.unlock() }
+    // On failure the next read reloads and finishes the interrupted retirement.
+    lock.lock(); var succeeded = false; defer { if !succeeded { state = nil }; lock.unlock() }
     var old = try open()
     if let session = old["session"] as? [String: Any], let id = session["sessionKeyId"] as? String {
       old = try commit(expectedRevision: String(revision)) { current in
@@ -636,18 +652,19 @@ public final class NativeStateStore {
         var next = current; next["sessionKeysToDelete"] = [String](); return next
       }
     }
+    succeeded = true
   }
 
   private func create() throws -> [String: Any] {
     storeId = try Self.randomId(); recoveryId = try Self.randomId(); readBudget = Self.defaultBuffer
     var record: [String: Any] = ["status": "creating", "storeId": storeId, "recoveryKeyId": recoveryId,
-                                 "readBudget": readBudget, "preparedRevision": "0", "provisionalSessionKeyId": NSNull()]
+                                 "readBudget": readBudget, "provisionalSessionKeyId": NSNull()]
     try writeRecord(record)
     try fault?("creationRecord")
     try keychain.ensureKey(recoveryId)
     try fault?("recoveryKey")
     let initial = Self.emptyState()
-    try publish(initial, revision: 0)
+    try createDatabase(initial)
     try fault?("initialPublication")
     record["status"] = "ready"; try writeRecord(record)
     try ensureImagesDirectory()
@@ -667,55 +684,104 @@ public final class NativeStateStore {
     record["provisionalSessionKeyId"] = NSNull(); try writeRecord(record)
   }
 
-  private func publish(_ next: [String: Any], revision newRevision: UInt64) throws {
-    let plaintext = try Self.json(next)
-    let header = try Self.json(["formatVersion": 1, "storeId": storeId, "revision": String(newRevision), "recoveryKeyId": recoveryId])
-    guard header.count <= 4096, plaintext.count <= Self.maxSession + readBudget + 4096 else { throw StateStoreError.invalid }
-    let nonce = AES.GCM.Nonce()
-    var prefix = Data("YOYOWA01".utf8)
-    prefix.append(Self.be32(UInt32(header.count))); prefix.append(header); prefix.append(contentsOf: nonce)
-    prefix.append(Self.be64(UInt64(plaintext.count + 16)))
-    try fault?("cipher")
-    let sealed = try AES.GCM.seal(plaintext, using: try keychain.key(recoveryId), nonce: nonce, authenticating: prefix)
-    let bytes = prefix + sealed.ciphertext + sealed.tag
-    uncertain = true
-    try durableWrite(bytes, to: temporary, replacing: published)
-    Self.publication &+= 1
-    try fault?("directorySync")
+  /// The first publication: a complete database is built aside and renamed into place, so it exists whole or not at all.
+  private func createDatabase(_ initial: [String: Any]) throws {
+    let journal = URL(fileURLWithPath: temporary.path + "-journal")
+    try removeIfPresent(temporary)
+    try removeIfPresent(journal)
+    try StateDatabase.create(path: temporary.path, storeId: storeId, control: try control(initial))
+    try protect(temporary)
+    guard rename(temporary.path, published.path) == 0 else { throw StateStoreError.storage }
+    try removeIfPresent(journal) // the creation transaction's empty journal
     try syncDirectory()
-    revision = newRevision
-    try fault?("response")
-    uncertain = false
+    Self.publication &+= 1
+    revision = 0
   }
 
-  private func readSnapshot() throws -> [String: Any] {
-    let attributes = try FileManager.default.attributesOfItem(atPath: published.path)
-    guard let size = attributes[.size] as? NSNumber,
-          size.int64Value >= 48, size.int64Value <= Int64(Self.maxSession + readBudget + 8244) else { throw StateStoreError.invalid }
-    let handle = try FileHandle(forReadingFrom: published)
-    defer { try? handle.close() }
-    var bytes = Data()
-    while bytes.count <= size.intValue {
-      let chunk = try handle.read(upToCount: min(64 * 1024, size.intValue + 1 - bytes.count)) ?? Data()
-      if chunk.isEmpty { break }
-      bytes.append(chunk)
+  /// Publishes [next] at [nextRevision] in one transaction; the cache follows only a committed write.
+  private func persist(_ next: [String: Any], revision nextRevision: UInt64, sessionChanged: Bool,
+                       deletes: [String] = [], inserts: [SealedPending] = [], updates: [SealedPending] = []) throws {
+    let session: Data? = next["session"] is NSNull ? nil : try Self.json(next["session"] ?? NSNull())
+    let change = StateChange(revision: String(nextRevision), control: try control(next), sessionChanged: sessionChanged,
+                             session: session, deletes: deletes, inserts: inserts, updates: updates)
+    do {
+      uncertain = true
+      try db().write(change) { try fault?("beforeCommit") }
+      Self.publication &+= 1
+      try fault?("afterCommit")
+      revision = nextRevision
+      state = next
+      observedPublication = Self.publication
+      try fault?("response")
+      uncertain = false
+    } catch {
+      state = nil
+      throw error is StateStoreError ? error : StateStoreError.storage
     }
-    guard bytes.count == size.intValue, bytes.prefix(8) == Data("YOYOWA01".utf8) else { throw StateStoreError.invalid }
-    var offset = 8
-    let headerLength = Int(Self.uint32(bytes, at: offset)); offset += 4
-    guard headerLength > 0, headerLength <= 4096, headerLength <= bytes.count - offset - 36 else { throw StateStoreError.invalid }
-    let header = try Self.parseObject(bytes.subdata(in: offset..<offset+headerLength)); offset += headerLength
-    try Self.exact(header, ["formatVersion", "storeId", "revision", "recoveryKeyId"])
-    guard Self.safeInt(header["formatVersion"]) == 1,
-          header["storeId"] as? String == storeId, header["recoveryKeyId"] as? String == recoveryId,
-          let number = header["revision"] as? String, let loadedRevision = Self.parseRevision(number) else { throw StateStoreError.invalid }
-    let nonce = try AES.GCM.Nonce(data: bytes.subdata(in: offset..<offset+12)); offset += 12
-    let length = Self.uint64(bytes, at: offset); offset += 8
-    guard length >= 16, length <= UInt64(Self.maxSession + readBudget + 4096 + 16), length == UInt64(bytes.count - offset) else { throw StateStoreError.invalid }
-    let body = bytes.subdata(in: offset..<bytes.count)
-    let box = try AES.GCM.SealedBox(nonce: nonce, ciphertext: body.dropLast(16), tag: body.suffix(16))
-    let plaintext = try AES.GCM.open(box, using: try keychain.key(recoveryId), authenticating: bytes.prefix(offset))
-    let loaded = try Self.parseObject(plaintext)
+  }
+
+  private func db() throws -> StateDatabase {
+    if let database { return database }
+    do {
+      let opened = try StateDatabase(path: published.path)
+      database = opened
+      return opened
+    } catch { throw StateStoreError.invalid }
+  }
+
+  /// Everything except the session and the pending entries: the small control part of the state.
+  private func control(_ snapshot: [String: Any]) throws -> Data {
+    try Self.json(["sessionKeysToDelete": snapshot["sessionKeysToDelete"] ?? [String](), "options": snapshot["options"] ?? [String: Any](),
+                   "androidService": snapshot["androidService"] ?? NSNull()])
+  }
+
+  private static func pendingById(_ snapshot: [String: Any]) throws -> [String: Data] {
+    guard let pending = snapshot["pending"] as? [[String: Any]] else { throw StateStoreError.invalid }
+    var result = [String: Data]()
+    for item in pending {
+      guard let id = item["deliveryId"] as? String else { throw StateStoreError.invalid }
+      result[id] = try json(item)
+    }
+    return result
+  }
+
+  private func pendingAAD(_ id: String, _ createdRevision: String, _ ordinal: Int64) -> Data {
+    Data("[\"yoyos-whatsapp-pending\",1,\"\(storeId)\",\"\(id)\",\"\(createdRevision)\",\(ordinal)]".utf8)
+  }
+
+  private func seal(_ entry: [String: Any]) throws -> SealedPending {
+    guard let id = entry["deliveryId"] as? String, let created = entry["createdRevision"] as? String,
+          let ordinal = Self.safeInt(entry["createdOrdinal"]) else { throw StateStoreError.invalid }
+    let sealed = try AES.GCM.seal(try Self.json(entry), using: try keychain.key(recoveryId), authenticating: pendingAAD(id, created, Int64(ordinal)))
+    return SealedPending(deliveryId: id, createdRevision: created, createdOrdinal: Int64(ordinal),
+                         nonce: Data(sealed.nonce), ciphertext: sealed.ciphertext + sealed.tag)
+  }
+
+  private func unseal(_ sealed: SealedPending) throws -> [String: Any] {
+    guard sealed.nonce.count == 12, sealed.ciphertext.count >= 16 else { throw StateStoreError.invalid }
+    let box = try AES.GCM.SealedBox(nonce: try AES.GCM.Nonce(data: sealed.nonce),
+                                    ciphertext: sealed.ciphertext.dropLast(16), tag: sealed.ciphertext.suffix(16))
+    let plain = try AES.GCM.open(box, using: try keychain.key(recoveryId),
+                                 authenticating: pendingAAD(sealed.deliveryId, sealed.createdRevision, sealed.createdOrdinal))
+    let entry = try Self.parseObject(plain)
+    guard entry["deliveryId"] as? String == sealed.deliveryId, entry["createdRevision"] as? String == sealed.createdRevision,
+          Self.safeInt(entry["createdOrdinal"]).map(Int64.init) == sealed.createdOrdinal else { throw StateStoreError.invalid }
+    return entry
+  }
+
+  /// Loads and validates the whole published state once; afterwards it is served from the cache.
+  private func readSnapshot() throws -> [String: Any] {
+    let stored = try db().read(sessionLimit: Self.maxSession * 2, entryLimit: readBudget + 1024)
+    guard stored.storeId == storeId, let loadedRevision = Self.parseRevision(stored.revision) else { throw StateStoreError.invalid }
+    _ = try keychain.key(recoveryId) // an established store without its recovery key is invalid even with no pending entry
+    var loaded = try Self.parseObject(stored.control)
+    try Self.exact(loaded, ["sessionKeysToDelete", "options", "androidService"])
+    if let session = stored.session { loaded["session"] = try Self.parseObject(session) } else { loaded["session"] = NSNull() }
+    let entries = try stored.pending.map { try unseal($0) }
+    func order(_ entry: [String: Any]) -> (UInt64, Int) {
+      (UInt64(entry["createdRevision"] as? String ?? "") ?? 0, Self.safeInt(entry["createdOrdinal"]) ?? 0)
+    }
+    loaded["pending"] = entries.sorted { order($0) < order($1) }
     try validate(loaded, revision: loadedRevision, bound: readBudget, allowSessionFailure: true)
     revision = loadedRevision
     return loaded
@@ -771,41 +837,45 @@ public final class NativeStateStore {
     var ordinals = Set<String>()
     var deliveryIds = Set<String>()
     for item in pending {
-      var fields: Set<String> = ["deliveryId", "accountId", "createdRevision", "createdOrdinal", "source", "identityState", "recovery"]
-      if item["message"] != nil { fields.insert("message") }
-      try Self.exact(item, fields)
-      guard let delivery = item["deliveryId"] as? String, delivery.range(of: "^wa-delivery:v1:[0-9a-f]{32}\\z", options: .regularExpression) != nil,
-            let account = item["accountId"] as? String, Self.validAccount(account),
-            let createdText = item["createdRevision"] as? String, let created = Self.parseRevision(createdText), created <= revision,
-            let ordinal = Self.safeInt(item["createdOrdinal"]), ordinal >= 0, ordinal <= Int(UInt32.max),
-            ordinals.insert("\(created):\(ordinal)").inserted,
-            deliveryIds.insert(delivery).inserted,
-            let source = item["source"] as? String, ["live", "history"].contains(source),
-            let identity = item["identityState"] as? String, ["pendingLid", "resolved"].contains(identity),
-            (identity == "resolved") == (item["message"] != nil),
-            let recovery = item["recovery"] as? [String: Any] else { throw StateStoreError.invalid }
-      if let message = item["message"] {
-        guard let object = message as? [String: Any] else { throw StateStoreError.invalid }
-        try Self.validateMessage(object, account: account)
-      }
-      try Self.exact(recovery, ["messageInfoJson", "items"])
-      guard let info = recovery["messageInfoJson"] as? String, let infoData = info.data(using: .utf8),
-            (try? Self.parseObject(infoData)) != nil, let children = recovery["items"] as? [[String: Any]] else { throw StateStoreError.invalid }
-      for child in children {
-        var expected: Set<String> = ["format", "plaintextBase64"]
-        if child["ciphertextHashBase64"] != nil { expected.insert("ciphertextHashBase64") }
-        try Self.exact(child, expected)
-        guard let format = child["format"] as? String, ["v2", "v3", "history"].contains(format),
-              let body = child["plaintextBase64"] as? String, Self.decode(body, max: bound) != nil else { throw StateStoreError.invalid }
-        guard (source == "history") == (format == "history") else { throw StateStoreError.invalid }
-        if format == "history" && child["ciphertextHashBase64"] != nil { throw StateStoreError.invalid }
-        if format != "history" {
-          guard let hash = child["ciphertextHashBase64"] as? String, Self.decode(hash, max: 32)?.count == 32 else { throw StateStoreError.invalid }
-        }
-      }
+      try validatePendingEntry(item, revision: revision, bound: bound)
+      guard ordinals.insert("\(item["createdRevision"] as? String ?? ""):\(Self.safeInt(item["createdOrdinal"]) ?? -1)").inserted,
+            deliveryIds.insert(item["deliveryId"] as? String ?? "").inserted else { throw StateStoreError.invalid }
     }
     let total = try Self.json(snapshot).count
     guard total - sessionData.count - (try Self.json(pending)).count <= 4096 else { throw StateStoreError.invalid }
+  }
+
+  private func validatePendingEntry(_ item: [String: Any], revision: UInt64, bound: Int) throws {
+    var fields: Set<String> = ["deliveryId", "accountId", "createdRevision", "createdOrdinal", "source", "identityState", "recovery"]
+    if item["message"] != nil { fields.insert("message") }
+    try Self.exact(item, fields)
+    guard let delivery = item["deliveryId"] as? String, delivery.range(of: "^wa-delivery:v1:[0-9a-f]{32}\\z", options: .regularExpression) != nil,
+          let account = item["accountId"] as? String, Self.validAccount(account),
+          let createdText = item["createdRevision"] as? String, let created = Self.parseRevision(createdText), created <= revision,
+          let ordinal = Self.safeInt(item["createdOrdinal"]), ordinal >= 0, ordinal <= Int(UInt32.max),
+          let source = item["source"] as? String, ["live", "history"].contains(source),
+          let identity = item["identityState"] as? String, ["pendingLid", "resolved"].contains(identity),
+          (identity == "resolved") == (item["message"] != nil),
+          let recovery = item["recovery"] as? [String: Any] else { throw StateStoreError.invalid }
+    if let message = item["message"] {
+      guard let object = message as? [String: Any] else { throw StateStoreError.invalid }
+      try Self.validateMessage(object, account: account)
+    }
+    try Self.exact(recovery, ["messageInfoJson", "items"])
+    guard let info = recovery["messageInfoJson"] as? String, let infoData = info.data(using: .utf8),
+          (try? Self.parseObject(infoData)) != nil, let children = recovery["items"] as? [[String: Any]] else { throw StateStoreError.invalid }
+    for child in children {
+      var expected: Set<String> = ["format", "plaintextBase64"]
+      if child["ciphertextHashBase64"] != nil { expected.insert("ciphertextHashBase64") }
+      try Self.exact(child, expected)
+      guard let format = child["format"] as? String, ["v2", "v3", "history"].contains(format),
+            let body = child["plaintextBase64"] as? String, Self.decode(body, max: bound) != nil else { throw StateStoreError.invalid }
+      guard (source == "history") == (format == "history") else { throw StateStoreError.invalid }
+      if format == "history" && child["ciphertextHashBase64"] != nil { throw StateStoreError.invalid }
+      if format != "history" {
+        guard let hash = child["ciphertextHashBase64"] as? String, Self.decode(hash, max: 32)?.count == 32 else { throw StateStoreError.invalid }
+      }
+    }
   }
 
   private static func validateMessage(_ message: [String: Any], account: String) throws {
@@ -856,7 +926,7 @@ public final class NativeStateStore {
     guard let data = try keychain.data("record") else { return nil }
     guard data.count <= 4096 else { throw StateStoreError.invalid }
     let record = try Self.parseObject(data)
-    try Self.exact(record, ["status", "storeId", "recoveryKeyId", "readBudget", "preparedRevision", "provisionalSessionKeyId"])
+    try Self.exact(record, ["status", "storeId", "recoveryKeyId", "readBudget", "provisionalSessionKeyId"])
     guard let status = record["status"] as? String, ["creating", "ready"].contains(status) else { throw StateStoreError.invalid }
     return record
   }
@@ -871,33 +941,6 @@ public final class NativeStateStore {
       state = nil
       throw error
     }
-  }
-
-  private func durableWrite(_ bytes: Data, to next: URL, replacing target: URL) throws {
-    try removeIfPresent(next)
-    let fd = Darwin.open(next.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, mode_t(S_IRUSR | S_IWUSR))
-    guard fd >= 0 else { throw StateStoreError.storage }
-    var closed = false
-    defer { if !closed { _ = Darwin.close(fd) } }
-    try protect(next)
-    if target == published { try fault?("write") }
-    try bytes.withUnsafeBytes { buffer in
-      guard let base = buffer.baseAddress else { throw StateStoreError.storage }
-      var offset = 0
-      while offset < bytes.count {
-        let count = Darwin.write(fd, base.advanced(by: offset), bytes.count - offset)
-        if count <= 0 { throw StateStoreError.storage }
-        offset += count
-      }
-    }
-    if target == published { try fault?("sync") }
-    guard fsync(fd) == 0 else { throw StateStoreError.storage }
-    if target == published { try fault?("close") }
-    let closeStatus = Darwin.close(fd)
-    closed = true
-    guard closeStatus == 0 else { throw StateStoreError.storage }
-    if target == published { try fault?("replace") }
-    guard rename(next.path, target.path) == 0 else { throw StateStoreError.storage }
   }
 
   private func syncDirectory() throws {
@@ -1000,10 +1043,6 @@ public final class NativeStateStore {
   private static func sessionAAD(_ store: String, _ account: String, _ key: String, _ revision: String) -> Data {
     Data("[\"yoyos-whatsapp-session\",1,\"\(store)\",\"\(account)\",\"\(key)\",\"\(revision)\"]".utf8)
   }
-  private static func be32(_ value: UInt32) -> Data { withUnsafeBytes(of: value.bigEndian) { Data($0) } }
-  private static func be64(_ value: UInt64) -> Data { withUnsafeBytes(of: value.bigEndian) { Data($0) } }
-  private static func uint32(_ data: Data, at offset: Int) -> UInt32 { data[offset..<offset+4].reduce(0) { ($0 << 8) | UInt32($1) } }
-  private static func uint64(_ data: Data, at offset: Int) -> UInt64 { data[offset..<offset+8].reduce(0) { ($0 << 8) | UInt64($1) } }
 }
 
 private final class StateKeychain {

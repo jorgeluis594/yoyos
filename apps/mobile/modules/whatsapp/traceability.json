@@ -1170,14 +1170,14 @@
     "tests": [
       {
         "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
-        "test": "malformedEnvelopeNeverPromotesTemporaryOrCreatesEmptyState",
+        "test": "tamperedRowsNeverLoadOrCreateEmptyState",
         "via": "link",
         "native": true,
         "result": "none"
       },
       {
         "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
-        "test": "testMalformedEnvelopeDoesNotBecomeEmptyInstall",
+        "test": "testTamperedRowsNeverLoadOrCreateEmptyState",
         "via": "link",
         "native": true,
         "result": "none"
@@ -2083,7 +2083,7 @@
       },
       {
         "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
-        "test": "malformedEnvelopeNeverPromotesTemporaryOrCreatesEmptyState",
+        "test": "tamperedRowsNeverLoadOrCreateEmptyState",
         "via": "link",
         "native": true,
         "result": "none"
@@ -2118,7 +2118,7 @@
       },
       {
         "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
-        "test": "testMalformedEnvelopeDoesNotBecomeEmptyInstall",
+        "test": "testTamperedRowsNeverLoadOrCreateEmptyState",
         "via": "link",
         "native": true,
         "result": "none"
@@ -4163,14 +4163,14 @@
     "tests": [
       {
         "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
-        "test": "malformedEnvelopeNeverPromotesTemporaryOrCreatesEmptyState",
+        "test": "tamperedRowsNeverLoadOrCreateEmptyState",
         "via": "link",
         "native": true,
         "result": "none"
       },
       {
         "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
-        "test": "testMalformedEnvelopeDoesNotBecomeEmptyInstall",
+        "test": "testTamperedRowsNeverLoadOrCreateEmptyState",
         "via": "link",
         "native": true,
         "result": "none"
@@ -4249,7 +4249,7 @@
       },
       {
         "file": "android/src/androidTest/java/expo/modules/whatsapp/StateStoreInstrumentedTest.kt",
-        "test": "malformedEnvelopeNeverPromotesTemporaryOrCreatesEmptyState",
+        "test": "tamperedRowsNeverLoadOrCreateEmptyState",
         "via": "link",
         "native": true,
         "result": "none"
@@ -4270,7 +4270,7 @@
       },
       {
         "file": "ios/Tests/WhatsAppBridgeTests/StateStoreTests.swift",
-        "test": "testMalformedEnvelopeDoesNotBecomeEmptyInstall",
+        "test": "testTamperedRowsNeverLoadOrCreateEmptyState",
         "via": "link",
         "native": true,
         "result": "none"

@@ -23,7 +23,7 @@ const mockCheckCancellation = jest.fn();
 let mockUserId = "seller";
 jest.mock("expo-clipboard", () => ({ setStringAsync: jest.fn(async () => true) }));
 const initialOrder: OrderAggregateResponse = { number: 1001, id: mockId, companyId: "00000000-0000-4000-8000-000000000001", sellerId: "seller",
-  buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, createdAt: "2026-09-29T11:00:00.000Z", deliveredAt: "2026-09-29T12:00:00.000Z", completedAt: "2026-09-29T12:00:00.000Z",
+  buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, createdAt: "2026-09-29T11:00:00.000Z", deliveredAt: "2026-09-29T12:00:00.000Z", completedAt: "2026-09-29T12:00:00.000Z",
   status: "completed", paymentStatus: "paid", paidAmount: { amount: 12, currency: "PEN" },
   balanceDue: { amount: 0, currency: "PEN" }, overpaidAmount: { amount: 0, currency: "PEN" }, cancelled: false,
   delivery: null, deliveryStatus: "delivered", stockDeducted: true, itemsTotal: { amount: 12, currency: "PEN" },
@@ -573,4 +573,35 @@ test("pending order reschedules and clears the dispatch date; shipped order has 
   await shipped.findByText(/Despachado el/);
   expect(shipped.queryByText("pick")).toBeNull();
   expect(shipped.getByText(/2026-10-15/)).toBeTruthy();
+});
+
+describe("WhatsApp orders", () => {
+  const withBuyer = (buyer: { contactId: null; name: string | null; phone: string | null }) => { mockOrder = { ...initialOrder, source: "whatsapp", buyer }; };
+
+  test("shows the WhatsApp icon with the accessible label \"WhatsApp\" for chat orders", async () => {
+    withBuyer({ contactId: null, name: "Ana", phone: "999" });
+    const screen = render(<OrderDetailScreen />);
+    await screen.findByLabelText("WhatsApp");
+    mockOrder = initialOrder;
+  });
+
+  test("shows the buyer as name or phone and hides a missing phone", async () => {
+    withBuyer({ contactId: null, name: null, phone: "999111222" });
+    const screen = render(<OrderDetailScreen />);
+    await screen.findByText("999111222");
+    expect(screen.getAllByText("999111222")).toHaveLength(1);
+    screen.unmount();
+    withBuyer({ contactId: null, name: "Ana", phone: null });
+    const named = render(<OrderDetailScreen />);
+    await named.findByText("Ana");
+    expect(named.queryByText("—")).toBeNull();
+  });
+
+  test("shows only the icon when the buyer has no name or phone", async () => {
+    withBuyer({ contactId: null, name: null, phone: null });
+    const screen = render(<OrderDetailScreen />);
+    await screen.findByLabelText("WhatsApp");
+    expect(screen.queryByText("—")).toBeNull();
+    expect(screen.queryByText("Público general")).toBeNull();
+  });
 });

@@ -39,11 +39,11 @@ test("order API validates filters before reading orders", async () => {
   expect(list).not.toHaveBeenCalled();
 });
 
-test("order API maps a validated contact and UTC interval to the existing list operation", async () => {
+test("order API maps a validated customer and UTC interval to the existing list operation", async () => {
   const list = vi.spyOn(orders, "list").mockResolvedValue({ success: true, data: { items: [], page: 2, pageSize: 20, total: 0 } });
-  const response = await request(`/?page=2&customer=contact&contactId=${contactId}&completedFrom=2026-09-28T05%3A00%3A00.000Z&completedBefore=2026-09-29T05%3A00%3A00.000Z`, "CL");
+  const response = await request(`/?page=2&customer=general_public&completedFrom=2026-09-28T05%3A00%3A00.000Z&completedBefore=2026-09-29T05%3A00%3A00.000Z`, "CL");
   expect(response).toMatchObject({ status: 200, body: { page: 2, items: [] } });
-  expect(list).toHaveBeenCalledWith({ page: 2, customer: { kind: "contact", contactId },
+  expect(list).toHaveBeenCalledWith({ page: 2, customer: { kind: "general_public" },
     completedFrom: new Date("2026-09-28T05:00:00.000Z"), completedBefore: new Date("2026-09-29T05:00:00.000Z") });
 });
 
@@ -52,7 +52,7 @@ test("order API takes company and seller from access and identifies rejected sto
     error: { code: "INSUFFICIENT_STOCK", message: "No stock", variantId: contactId } });
   const pending = vi.spyOn(orderComposition, "createConfiguredOrder").mockResolvedValue({ success: false,
     error: { code: "ORDER_ALREADY_EXISTS", message: "Exists" } });
-  const input = { id: "00000000-0000-4000-8000-000000000003", contactId: null,
+  const input = { id: "00000000-0000-4000-8000-000000000003",
     items: [{ variantId: contactId, quantity: 2 }] };
   expect(await request("/", "PE", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...input, sellerId: "intruder" }) }))
     .toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
@@ -147,7 +147,7 @@ test("creation API rejects obsolete delivery choices without dispatching a save"
   const create = vi.spyOn(orderComposition, "createConfiguredOrder");
   const immediate = vi.spyOn(orders, "registerImmediateSale");
   for (const obsoleteCharge of [true, false]) {
-    const body = { id: "00000000-0000-4000-8000-000000000003", contactId: null, items: [{ variantId: contactId, quantity: 1 }],
+    const body = { id: "00000000-0000-4000-8000-000000000003", items: [{ variantId: contactId, quantity: 1 }],
       delivery: { delivery: { method: "store", recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } } }, obsoleteCharge } };
     expect(await request("/", "PE", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
   }

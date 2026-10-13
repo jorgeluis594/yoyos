@@ -27,14 +27,24 @@ import { registerShipment, registerDelivery, type FulfillOrderDependencies } fro
 import { getOrderAggregate } from "@core/src/features/orders/application/read-order-aggregate";
 import { listOrderAggregates } from "@core/src/features/orders/application/list-order-aggregates";
 import { listOrders } from "@core/src/features/orders/application/read-orders";
-import { allocateOrderNumber, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderAggregate, findOrderAggregates, findOrderForUpdate, findOrders, orderExists, resolveBuyerOrderCompany } from "@core/src/features/orders/infrastructure/order-repository";
-import { findSellableVariant, deductProductStock, searchSaleCatalog } from "@core/src/features/products";
-import { findContactById, searchSaleContacts } from "@core/src/features/contacts";
-import { findAvailablePublicImage, resolvePublicImage } from "@core/src/shared/images";
+import { allocateOrderNumber, findProcessedMessage, findOpenChatOrderCandidate, saveAddedItems, recordProcessedMessage, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderAggregate, findOrderAggregates, findOrderForUpdate, findOrders, orderExists, resolveBuyerOrderCompany } from "@core/src/features/orders/infrastructure/order-repository";
+import { findSellableVariant, findSellableVariantsByQrCodes, deductProductStock, searchSaleCatalog } from "@core/src/features/products";
+import { ensureCustomerForContact } from "@core/src/features/contacts";
+import { findOrderSourceMessage } from "@core/src/features/chats";
+import { addMessageProductsToOrder, type AddMessageProductsDependencies, type AddMessageProductsError } from "@core/src/features/orders/application/add-message-products-to-order";
+import { messageOrderPolicy } from "@core/src/features/orders/application/message-order-policy";
+import { readQrCodes } from "@core/src/features/orders/infrastructure/qr-code-reader";
+import type { ChatId, VariantQrCode } from "@core/src/features/orders/domain/message-order";
+import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
+import type { CustomerId } from "@core/src/features/contacts/domain/contact";
+import type { EventHandler } from "@core/src/shared/events/application/contracts";
+import type { AppEvents } from "@core/src/shared/events/application/app-events";
+import { findAvailablePublicImage, readImageBytes, resolvePublicImage } from "@core/src/shared/images";
 import { companyPaymentSettings } from "@core/src/features/companies";
+import type { ImageId } from "@core/src/features/products/domain/product";
 import { orderStateMachine } from "@core/src/features/orders/domain/order-state-machine";
 import type { BuyerPaymentView } from "@shared/contracts/orders";
-import type { CompanyId, OrderId, OrderItemId, PaymentId } from "@core/src/features/orders/domain/order";
+import type { CompanyId, ContactId, OrderId, OrderItemId, PaymentId, UserId } from "@core/src/features/orders/domain/order";
 
 async function orderTransaction<T, E extends AppError>(callback: () => Promise<Result<T, E>>, deliveryContext?: Readonly<{ orderId: string; userId: string }>): Promise<Result<T, E | Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>>> {
   try {
@@ -245,7 +255,7 @@ export const orders = {
   },
   registerImmediateSale: (input: Parameters<typeof registerImmediateSale>[0], context: Parameters<typeof registerImmediateSale>[1]) =>
     registerImmediateSale(input, context, { transaction: immediateTransaction, orderExists,
-      findContact: findContactById, findVariant: findSellableVariant, saveOrder: savePendingOrder, allocateNumber: allocateOrderNumber,
+      findVariant: findSellableVariant, saveOrder: savePendingOrder, allocateNumber: allocateOrderNumber,
       savePayment, deductProductStock, saveStockDeduction, saveFulfillment,
       newItemId: () => randomUUID() as OrderItemId, newPaymentId: () => randomUUID() as PaymentId, clock: () => new Date() }),
   registerPayment: async (input: Parameters<typeof registerPayment>[0], context: Parameters<typeof registerPayment>[1]) => {
@@ -294,10 +304,66 @@ export const orders = {
     deductStock(id, context, { transaction: stockTransaction, findOrderForUpdate, deductProductStock, saveStockDeduction }),
   create: (input: Parameters<typeof createOrder>[0], context: Parameters<typeof createOrder>[1]) =>
     createOrder(input, context, { transaction: pendingTransaction, orderExists,
-      findContact: findContactById, findVariant: findSellableVariant, saveOrder: savePendingOrder, allocateNumber: allocateOrderNumber,
+      findVariant: findSellableVariant, saveOrder: savePendingOrder, allocateNumber: allocateOrderNumber,
       newItemId: () => randomUUID() as OrderItemId, clock: () => new Date() }),
   list: (criteria: Parameters<typeof listOrders>[0]) => listOrders(criteria, findOrders),
   searchProducts: searchSaleCatalog,
-  searchContacts: searchSaleContacts,
-  contactById: findContactById,
+};
+
+type Persistence = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
+
+// Chats and contacts return plain strings; the brands belong to orders and are applied only here.
+const messageOrderDependencies: AddMessageProductsDependencies = {
+  findSourceMessage: async (id) => {
+    const found = await findOrderSourceMessage(id);
+    if (!found.success || !found.data) return found as Result<null, Persistence>;
+    const message = found.data;
+    return ok({ ...message, companyId: message.companyId as string as CompanyId, chatId: message.chatId as ChatId,
+      contactId: message.contactId as ContactId, uploadedByUserId: message.uploadedByUserId as string as UserId, imageId: message.imageId as ImageId | null });
+  },
+  readImage: (imageId) => readImageBytes(imageId),
+  readQrCodes,
+  findVariantsByCodes: async (codes) => {
+    const found = await findSellableVariantsByQrCodes(codes);
+    return found.success ? ok(found.data.map((item) => ({ ...item, qrCode: item.qrCode as VariantQrCode }))) : found;
+  },
+  findProcessedMessage,
+  transaction: scopedOrderTransaction,
+  ensureCustomerForContact: async (contactId) => {
+    const ensured = await ensureCustomerForContact(contactId);
+    return ensured.success ? ok({ ...ensured.data, customerId: ensured.data.customerId as CustomerId, contactId: ensured.data.contactId as ContactId }) : ensured;
+  },
+  findOpenChatOrderCandidate,
+  findOrderForUpdate: (id) => findOrderForUpdate(id, getCompanyId() as CompanyId),
+  allocateNumber: allocateOrderNumber,
+  saveNewOrder: (order, source) => savePendingOrder(order, source),
+  saveAddedItems,
+  recordProcessedMessage,
+  newOrderId: () => randomUUID() as OrderId,
+  newItemId: () => randomUUID() as OrderItemId,
+  clock: () => new Date(),
+};
+
+export { messageOrderPolicy };
+const retryableCodes: readonly AddMessageProductsError["code"][] = ["PERSISTENCE_UNAVAILABLE", "IMAGE_STORAGE_UNAVAILABLE", "QR_READER_UNAVAILABLE"];
+
+/** Handler of `message_created`: logs each outcome and tells the bus which failures deserve a retry. */
+export const addMessageProductsHandler: EventHandler<AppEvents, "message_created"> = async (payload, metadata, context) => {
+  const started = performance.now();
+  const base = () => ({ companyId: payload.companyId, messageId: payload.messageId, eventId: metadata.eventId,
+    attempt: context.attempt, durationMs: Math.round(performance.now() - started) });
+  const result = await withTenantIsolation(payload.companyId, () => addMessageProductsToOrder(
+    { companyId: payload.companyId as CompanyId, messageId: payload.messageId as ChatMessageId }, messageOrderDependencies));
+  if (result.success) {
+    const outcome = result.data;
+    if (outcome.kind === "order_created" || outcome.kind === "items_added") log.info({ event: outcome.kind === "order_created" ? "orders_message_order_created" : "orders_message_order_items_added",
+      ...base(), orderId: outcome.orderId, variantCount: outcome.variantIds.length, unknownCodes: outcome.unknownCodes }, "Message products added to order");
+    else log.info({ event: "orders_message_order_skipped", ...base(), ...(outcome.kind === "already_processed" ? { orderId: outcome.orderId, reason: "already_processed" } : { reason: outcome.reason }) },
+      "Message skipped for orders");
+    return ok(undefined);
+  }
+  const retryable = retryableCodes.includes(result.error.code);
+  // A retryable failure is a warning until the last attempt: then the job stays failed.
+  log[retryable && context.attempt <= messageOrderPolicy.retries ? "warn" : "error"]({ event: "orders_message_order_failed", ...base(), code: result.error.code, retryable }, "Message order failed");
+  return err({ code: result.error.code, message: result.error.message, retryable });
 };

@@ -9,7 +9,7 @@ import type { VariantId } from "@core/src/features/products/domain/product";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const context = { companyId: id(1) as CompanyId, userId: "seller" as UserId };
-const input: CreateCompleteOrderInput = { id: id(2) as OrderId, contactId: null,
+const input: CreateCompleteOrderInput = { id: id(2) as OrderId, 
   items: [{ variantId: id(3) as VariantId, quantity: 1 as PositiveInteger }] };
 const payment = { paymentId: id(4) as PaymentId, amount: { amount: 10, currency: "PEN" as const }, method: "digital_wallet" as const, deductStockIfPartial: false };
 
@@ -20,7 +20,7 @@ function fixture() {
   if (!built.success) throw new Error("Invalid fixture");
   const order = built.data;
   const create = vi.fn(async (selection: Parameters<typeof createOrder>[0]) => createOrder(selection, context, {
-    transaction: async (_companyId, work) => work(), orderExists: async () => ok(false), findContact: async () => ok(null),
+    transaction: async (_companyId, work) => work(), orderExists: async () => ok(false), 
     findVariant: async () => ok(order.items[0]), allocateNumber: async () => ok(order.number),
     saveOrder: async () => ok(null), newItemId: () => order.items[0].id, clock: () => order.createdAt }));
   const registerPayment = vi.fn(async () => ok({ order, stock: { kind: "not_requested" as const } }));
