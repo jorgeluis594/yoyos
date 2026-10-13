@@ -86,6 +86,12 @@ export async function measureDispatchLabel(label: DispatchLabel, profile: Render
   }
 }
 
+/** Loads the font once and returns a synchronous "does it fit" check for the preflight of a whole selection. */
+export async function createDispatchLabelFit(profile: RenderProfile): Promise<(label: DispatchLabel) => boolean> {
+  const measure = await measurer(profile);
+  return (label) => layoutDispatchLabel(label, profile, measure).success;
+}
+
 export async function renderDispatchLabel(label: DispatchLabel, profile: RenderProfile): Promise<Result<RenderedDocument, RenderError>> {
   const { widthPx, heightPx, dpiX, dpiY } = profile;
   if (![widthPx, heightPx].every((value) => Number.isSafeInteger(value) && value > 0) || ![dpiX, dpiY].every((value) => Number.isFinite(value) && value > 0)) {

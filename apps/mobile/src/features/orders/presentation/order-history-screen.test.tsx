@@ -16,6 +16,8 @@ jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   readPendingOrderConfirmation: (...args: unknown[]) => mockReadPending(...args),
   searchOrderContacts: (...args: unknown[]) => mockSearchContacts(...args),
 } }));
+const mockOpenDispatchPrint = jest.fn();
+jest.mock("@mobile/features/orders/presentation/dispatch-print-review", () => ({ useDispatchPrint: () => ({ open: mockOpenDispatchPrint, active: false, show: jest.fn() }) }));
 const mockSettings = jest.fn();
 jest.mock("@mobile/features/delivery-settings/composition", () => ({ deliverySettings: { get: (...args: unknown[]) => mockSettings(...args) } }));
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAccess: () => ({ state: {
@@ -216,4 +218,27 @@ test("select all covers only the visible page and can be cleared", async () => {
   expect(screen.queryByText(/seleccionados/)).toBeNull();
   fireEvent.press(screen.getByRole("checkbox", { name: "Seleccionar pedido 1003" }));
   expect(screen.getByText(/1 seleccionados/)).toBeTruthy();
+});
+
+async function selectedOn(os: "android" | "ios") {
+  const { Platform } = jest.requireActual("react-native");
+  const original = Platform.OS;
+  Platform.OS = os;
+  try {
+    pagedOrders();
+    const screen = render(<OrderHistoryScreen />);
+    await screen.findByRole("button", { name: "Siguiente" });
+    fireEvent.press(screen.getByRole("checkbox", { name: "Seleccionar pedido 1003" }));
+    return screen;
+  } finally { Platform.OS = original; }
+}
+
+test("Android prints labels for the selected orders", async () => {
+  const screen = await selectedOn("android");
+  fireEvent.press(screen.getByRole("button", { name: "Imprimir rótulos" }));
+  expect(mockOpenDispatchPrint).toHaveBeenCalledWith([expect.objectContaining({ number: 1003 })]);
+});
+
+test("iOS offers no label printing", async () => {
+  expect((await selectedOn("ios")).queryByRole("button", { name: "Imprimir rótulos" })).toBeNull();
 });
