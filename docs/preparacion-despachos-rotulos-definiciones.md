@@ -141,3 +141,77 @@ Pendiente de definir:
 Programación y estado se actualizan mediante shipping; las fechas reales y el estado resultante se determinan por lógica de negocio. Repetir el estado actual conserva sus fechas originales.
 
 La edición general unificada de dirección, teléfono y otros datos de envío queda para la tarea [Ampliar edición de shipping del pedido](https://app.todoist.com/app/task/6hhW82C43r83JPx3). El MVP reutiliza la asignación de entrega con tarifa existente (`PUT /:id/delivery` con `rateId` y precio esperado) para los datos que necesitan los rótulos.
+
+## Pruebas de integración y E2E
+
+Títulos de las pruebas que acreditan el comportamiento definido en este documento. Siguen la convención del repositorio (títulos en inglés, en `*.integration.test.ts` colocados junto al código y en `apps/core/tests/e2e/*.spec.ts`). Las pruebas E2E de mobile usan las operaciones móviles contra la API real e impresora falsa, como `mobile-product-printing.spec.ts`; la impresión física en la Brother sigue en la validación pendiente.
+
+### Integración (Core, base de datos real)
+
+Fechas y shipping:
+
+- `stores the scheduled dispatch date given at order creation and leaves it empty when omitted`
+- `accepts a scheduled dispatch date earlier than today at creation and when rescheduling`
+- `rejects a scheduled dispatch date that is not a real calendar day`
+- `reschedules and unschedules a pending order without changing shipping cost, payments or stock`
+- `rejects scheduling an order that is cancelled or already shipped`
+- `records the dispatch date once when the order is marked as shipped`
+- `keeps the original dispatch date when two shipments of the same order race`
+- `keeps the original dates when the current status is requested again`
+- `leaves the dispatch date empty when a pending order is delivered directly`
+- `reverts the new schedule when the status change requested with it fails`
+- `does not let a company schedule or ship another company's order`
+
+Consulta de Ventas:
+
+- `filters orders by dispatch status without including cancelled orders as pending`
+- `filters orders by scheduled dispatch date range`
+- `returns only unscheduled orders when the Sin programar filter is used`
+- `rejects combining Sin programar with a scheduled date range`
+- `filters orders by real dispatch date range with an exclusive upper bound`
+- `filters orders by courier, including disabled couriers of existing orders`
+- `combines the new dispatch filters with the existing customer and sale date filters`
+- `paginates filtered orders in a stable order`
+- `lists only orders of the current company for every dispatch filter`
+
+Datos de entrega para el rótulo:
+
+- `keeps the courier and agency snapshot when they are later renamed or disabled`
+- `lets a pending order complete its delivery data and blocks it after dispatch`
+
+### E2E
+
+Fechas y estado (Core y app móvil contra la API real):
+
+- `seller schedules a dispatch date when creating an order and sees it in the order detail`
+- `seller reschedules, unschedules and schedules an overdue date for a pending order`
+- `seller cannot change the scheduled date once the order is shipped`
+- `seller ships an order and sees the real dispatch date while the scheduled date is kept`
+- `seller delivers a pending order directly and no dispatch date is shown`
+- `seller finds orders to prepare with dispatch status, scheduled date, Sin programar, real date and courier filters`
+
+Selección y revisión de rótulos (mobile):
+
+- `seller keeps the selected orders across pages and loses them when filters change`
+- `seller loses the selection when switching company`
+- `select all only selects the orders on the visible page`
+- `print review reports ready labels and orders that need completing, with what is missing`
+- `print review excludes store pickup, unassigned delivery and cancelled orders with a visible reason`
+- `print review excludes an agency order without courier or document`
+- `print review excludes an order whose content does not fit the label`
+- `seller opens an excluded order from the review, completes its data and it becomes ready`
+- `orders with pending payments are ready to print`
+
+Impresión por lote (mobile, impresora falsa):
+
+- `prints one label per ready order and skips the excluded ones`
+- `home and agency labels show the stored sender, recipient, destination and footer without products`
+- `label footer omits the date when the order has no scheduled dispatch`
+- `printing tells which roll to load for dispatch labels and for QR labels`
+- `printing a batch does not change order statuses or dates`
+- `shipped and delivered orders can be reprinted without changing statuses or dates`
+- `stopping the batch finishes the label being sent and does not start the next one`
+- `a failed label stops the batch and continuing skips the confirmed ones`
+- `an uncertain label is not resent until the seller decides after checking the output`
+- `QR printing is rejected while a dispatch batch is printing and the rest of the app stays usable`
+- `the printer is released after a batch finishes or stops on error`

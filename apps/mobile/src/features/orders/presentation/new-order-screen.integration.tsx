@@ -150,7 +150,7 @@ test("mobile recovers a persisted pending creation after a lost response and res
   const screen = await review();
   mockLoseResponse = true; mockOfflineRead = true;
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
-  await screen.findByText("Venta pendiente de confirmar");
+  await screen.findByText("Venta sin confirmar");
   expect(mockReplace).not.toHaveBeenCalled();
   const saved = await mockOrders.readPendingOrderConfirmation(process.env.ORDER_JOURNEY_COMPANY!);
   expect(saved).toMatchObject({ success: true, data: { version: 2, request: { id: expect.any(String) } } });
@@ -159,9 +159,7 @@ test("mobile recovers a persisted pending creation after a lost response and res
   screen.unmount();
   mockOfflineRead = false; mockLoseResponse = false;
   restartOperations();
-  const reopened = render(<NewOrderScreen />);
-  await reopened.findByText("Venta pendiente de confirmar");
-  fireEvent.press(reopened.getByRole("button", { name: "Verificar venta" }));
+  render(<NewOrderScreen />);
   await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(`/orders/${id}`));
   expect(await mockOrders.loadOrder(id)).toMatchObject({ success: true, data: {
     status: "active", payments: [], stockDeducted: false, deliveryStatus: "pending", completedAt: null,
@@ -254,7 +252,7 @@ test("rated mobile creation recovers the same charge after a lost response and r
   const screen = await ratedReview("home", 1);
   mockLoseResponse = true; mockOfflineRead = true;
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
-  await screen.findByText("Venta pendiente de confirmar");
+  await screen.findByText("Venta sin confirmar");
   const saved = await mockOrders.readPendingOrderConfirmation(process.env.ORDER_JOURNEY_COMPANY!);
   expect(saved).toMatchObject({ success: true, data: { version: 2, shownTotal: { amount: 22, currency: "PEN" },
     request: { delivery: { expectedPrice: { amount: 12, currency: "PEN" }, delivery: { method: "home", rateId: expect.any(String) } } } } });
@@ -262,9 +260,7 @@ test("rated mobile creation recovers the same charge after a lost response and r
   const id = saved.data.id;
   screen.unmount(); mockOfflineRead = false; mockLoseResponse = false;
   restartOperations();
-  const reopened = render(<NewOrderScreen />);
-  await reopened.findByText("Venta pendiente de confirmar");
-  fireEvent.press(reopened.getByRole("button", { name: "Verificar venta" }));
+  render(<NewOrderScreen />);
   await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(`/orders/${id}`));
   expect(await mockOrders.loadOrder(id)).toMatchObject({ success: true, data: {
     total: { amount: 22, currency: "PEN" }, deliveryCharge: { amount: 12, currency: "PEN" }, stockDeducted: false, payments: [],
@@ -272,7 +268,7 @@ test("rated mobile creation recovers the same charge after a lost response and r
   expect(mockPosts).toBe(1);
 });
 
-test("saved-delivery recovery reviews a current rate and resends the same order and payments through the real API", async () => {
+test("restarted saved sale opens on its page, reviews a current rate and saves the same order and payments through the real API", async () => {
   const catalog = await mockOrders.searchOrderCatalog("Journey product");
   if (!catalog.success || !catalog.data[0]?.variants[0]) throw new Error("Missing recovery product");
   const orderId = randomUUID();
@@ -287,7 +283,7 @@ test("saved-delivery recovery reviews a current rate and resends the same order 
   writeFileSync(join(directory, `yoyos_pending_order_${companyId}`), JSON.stringify(pending));
   restartOperations();
   const screen = render(<NewOrderScreen />);
-  fireEvent.press(await screen.findByRole("button", { name: "Revisar entrega guardada" }));
+  await screen.findByText("Venta sin confirmar");
   await screen.findByLabelText(/Dirección de entrega/);
   expect(screen.getByLabelText(/Dirección de entrega/)).toHaveProp("value", "Recovery street");
   const district = getPeruDistrict("150122")!;
@@ -297,22 +293,8 @@ test("saved-delivery recovery reviews a current rate and resends the same order 
   fireEvent(screen.getByTestId("delivery-district"), "valueChange", 0);
   await screen.findByTestId("delivery-rate");
   fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 1);
-  expect(screen.getByText(/Total:\sS\/\s22\.00/)).toBeTruthy();
-  fireEvent.press(screen.getByRole("button", { name: "Guardar entrega revisada" }));
-  await waitFor(() => expect(screen.queryByRole("button", { name: "Guardar entrega revisada" })).toBeNull(), { timeout: 10000 });
-  expect(mockPosts).toBe(0);
-  expect(await mockOrders.readPendingOrderConfirmation(companyId)).toMatchObject({ success: true, data: {
-    id: orderId, request: { id: orderId, payments: pending.request.payments,
-      delivery: { expectedPrice: { amount: 12, currency: "PEN" }, delivery: { method: "home", destination: { address: "Recovery street", districtCode: "150122" } } } },
-  } });
-  screen.unmount(); restartOperations();
-  const reopened = render(<NewOrderScreen />);
-  await reopened.findByText("Venta pendiente de confirmar");
-  for (let index = 0; index < 2; index++) {
-    fireEvent.press(reopened.getByRole("button", { name: "Verificar venta" }));
-    await waitFor(() => expect(reopened.getByRole("button", { name: "Verificar venta" })).toBeEnabled());
-  }
-  fireEvent.press(await reopened.findByRole("button", { name: "Reenviar mismo intento" }));
+  expect(screen.getAllByText(/S\/\s22\.00/).length).toBeGreaterThan(0);
+  fireEvent.press(screen.getByRole("button", { name: "Guardar otra vez" }));
   await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(`/orders/${orderId}`));
   expect(await mockOrders.loadOrder(orderId)).toMatchObject({ success: true, data: {
     total: { amount: 22, currency: "PEN" }, deliveryCharge: { amount: 12, currency: "PEN" }, stockDeducted: false,
@@ -321,7 +303,7 @@ test("saved-delivery recovery reviews a current rate and resends the same order 
   expect(mockPosts).toBe(1);
 }, 20000);
 
-test("a restarted rated attempt retains a real HTTP price conflict and saves a fresh review", async () => {
+test("a restarted rated attempt with a real HTTP price conflict saves a fresh rate on its page", async () => {
   const companyId = process.env.ORDER_JOURNEY_COMPANY!;
   const catalog = await mockOrders.searchOrderCatalog("Journey product");
   const quote = await deliverySettings.createQuotation("150122");
@@ -340,7 +322,7 @@ test("a restarted rated attempt retains a real HTTP price conflict and saves a f
     error: { code: "TOTAL_CHANGED", currentPrice: { amount: 10, currency: "PEN" } } });
   expect(await mockOrders.readPendingOrderConfirmation(companyId)).toEqual(ok(pending));
   const screen = render(<NewOrderScreen />);
-  fireEvent.press(await screen.findByRole("button", { name: "Revisar entrega guardada" }));
+  await screen.findByText("Venta sin confirmar");
   expect(await screen.findByLabelText(/Dirección de entrega/)).toHaveProp("value", "Restart street");
   const district = getPeruDistrict("150122")!;
   fireEvent(screen.getByTestId("delivery-department"), "valueChange", peruDepartments.findIndex(value => value.code === district.departmentCode));
@@ -349,14 +331,13 @@ test("a restarted rated attempt retains a real HTTP price conflict and saves a f
   fireEvent(screen.getByTestId("delivery-district"), "valueChange", 0);
   await screen.findByTestId("delivery-rate");
   fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 1);
-  expect(screen.getByText(/Total:\sS\/\s22\.00/)).toBeTruthy();
-  fireEvent.press(screen.getByRole("button", { name: "Guardar entrega revisada" }));
-  await waitFor(() => expect(screen.queryByRole("button", { name: "Guardar entrega revisada" })).toBeNull(), { timeout: 10000 });
-  expect(await mockOrders.readPendingOrderConfirmation(companyId)).toMatchObject({ success: true,
-    data: { id: orderId, shownTotal: { amount: 22, currency: "PEN" }, request: { items: pending.request.items,
-      delivery: { expectedPrice: { amount: 12, currency: "PEN" } } } } });
-  expect(mockPosts).toBe(1);
-  expect(mockReplace).not.toHaveBeenCalled();
+  expect(screen.getAllByText(/S\/\s22\.00/).length).toBeGreaterThan(0);
+  fireEvent.press(screen.getByRole("button", { name: "Guardar otra vez" }));
+  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(`/orders/${orderId}`), { timeout: 10000 });
+  expect(await mockOrders.loadOrder(orderId)).toMatchObject({ success: true, data: {
+    total: { amount: 22, currency: "PEN" }, deliveryCharge: { amount: 12, currency: "PEN" }, items: [expect.objectContaining({ quantity: 1 })],
+  } });
+  expect(mockPosts).toBe(2);
 }, 20000);
 
 
@@ -375,26 +356,13 @@ test("restarted stock rejection keeps the paid attempt editable and resends its 
   expect(await mockOrders.resendPendingOrder(companyId)).toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
   expect(await mockOrders.readPendingOrderConfirmation(companyId)).toEqual(ok(pending));
   const screen = render(<NewOrderScreen />);
-  fireEvent.press(await screen.findByRole("button", { name: "Corregir intento guardado" }));
-  await screen.findByRole("button", { name: "Guardar correcciones" });
+  await screen.findByRole("button", { name: "Guardar otra vez" });
   expect(screen.getByLabelText(/Monto/)).toHaveProp("value", "40");
   fireEvent.press(screen.getByRole("button", { name: "Editar productos" }));
   for (let count = 0; count < 3; count++) fireEvent.press(screen.getByRole("button", { name: "−" }));
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  fireEvent.press(screen.getByRole("button", { name: "Guardar correcciones" }));
-  await waitFor(() => expect(screen.queryByRole("button", { name: "Guardar correcciones" })).toBeNull(), { timeout: 10000 });
-  expect(await mockOrders.readPendingOrderConfirmation(companyId)).toEqual(ok({ ...pending, shownTotal: { amount: 10, currency: "PEN" },
-    request: { ...pending.request, items: [{ variantId, quantity: 1 }] } }));
-  expect(mockPosts).toBe(1);
-  screen.unmount(); restartOperations();
-  const reopened = render(<NewOrderScreen />);
-  await reopened.findByText("Venta pendiente de confirmar");
-  for (let count = 0; count < 2; count++) {
-    fireEvent.press(reopened.getByRole("button", { name: "Verificar venta" }));
-    await waitFor(() => expect(reopened.getByRole("button", { name: "Verificar venta" })).toBeEnabled());
-  }
-  fireEvent.press(await reopened.findByRole("button", { name: "Reenviar mismo intento" }));
-  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(`/orders/${orderId}`));
+  fireEvent.press(screen.getByRole("button", { name: "Guardar otra vez" }));
+  await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(`/orders/${orderId}`), { timeout: 10000 });
   expect(await mockOrders.loadOrder(orderId)).toMatchObject({ success: true, data: {
     total: { amount: 10, currency: "PEN" }, stockDeducted: true, overpaidAmount: { amount: 30, currency: "PEN" },
     payments: [expect.objectContaining({ id: paymentId, amount: { amount: 40, currency: "PEN" } })],

@@ -5,9 +5,10 @@ import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { isCurrency } from "@shared/money";
+import { parseDispatchDate } from "@shared/dispatch-date";
 import { getCompanyId, prisma, systemPrisma, requireActiveTransaction } from "@core/src/shared/infrastructure/persistance";
 import { buildOrder, type OrderItemId, type OrderId, type ContactId, type CompanyId, type UserId, type PositiveInteger } from "@core/src/features/orders/domain/order";
-import { orderStateMachine, parseDeliverySnapshot, type OrderAggregate, type Payment } from "@core/src/features/orders/domain/order-state-machine";
+import { orderStateMachine, parseDeliverySnapshot, type DispatchScheduleChange, type FulfillmentChange, type OrderAggregate, type Payment } from "@core/src/features/orders/domain/order-state-machine";
 import { parsePayment } from "@core/src/features/orders/domain/payment";
 import type { OrderCriteria } from "@core/src/features/orders/application/read-orders";
 import type { AggregateCriteria, AggregatePage } from "@core/src/features/orders/application/list-order-aggregates";
@@ -106,13 +107,16 @@ function mapAggregate(row: DbAggregate, operation = "get_order_aggregate"): Orde
       unitPrice: { amount: item.unitPrice.toNumber(), currency: row.currency }, subtotal: { amount: item.subtotal.toNumber(), currency: row.currency } };
   }) as [OrderAggregate["items"][number], ...OrderAggregate["items"][number][]];
   const payments: Payment[] = row.payments.map(mapPayment);
+  const parsedDate = row.scheduledDispatchDate ? parseDispatchDate(row.scheduledDispatchDate.toISOString().slice(0, 10)) : null;
+  if (parsedDate && !parsedDate.success) throw new InvalidStoredOrderError("Invalid stored dispatch date");
+  const scheduledDispatchDate = parsedDate ? parsedDate.data : null;
   const number = parseOrderNumber(Number(row.number));
   if (!number.success) throw new InvalidStoredOrderError("Invalid stored order number");
   const order: OrderAggregate = { number: number.data, id: row.id as OrderId, companyId: row.companyId as CompanyId, sellerId: row.sellerId as UserId,
     buyer: row.buyer ? { contactId: row.buyer.contactId as ContactId | null, name: row.buyer.name, phone: row.buyer.phone } : null,
     ...(row.chatId ? { chatId: row.chatId as ChatId } : {}),
     checkoutEnabledAt: row.checkoutEnabledAt, checkoutConfirmedAt: row.checkoutConfirmedAt,
-    createdAt: row.createdAt, deliveredAt: row.deliveredAt, completedAt: row.completedAt, cancelled: row.cancelled, items, payments,
+    createdAt: row.createdAt, scheduledDispatchDate, shippedAt: row.shippedAt, deliveredAt: row.deliveredAt, completedAt: row.completedAt, cancelled: row.cancelled, items, payments,
     delivery: delivery === null ? null : delivery.data, deliveryStatus: row.deliveryStatus, stockDeducted: row.stockDeducted,
     itemsTotal: { amount: row.itemsTotal.toNumber(), currency: row.currency },
     deliveryCost: { amount: row.deliveryCost.toNumber(), currency: row.currency },
@@ -145,7 +149,7 @@ export async function savePendingOrder(order: OrderAggregate, source?: OrderChat
       deliveryCharge: new Prisma.Decimal(order.deliveryCharge.amount.toString()),
       delivery: Prisma.JsonNull,
       deliveryStatus: order.deliveryStatus, stockDeducted: order.stockDeducted, cancelled: order.cancelled,
-      createdAt: order.createdAt, deliveredAt: order.deliveredAt, completedAt: order.completedAt,
+      createdAt: order.createdAt, scheduledDispatchDate: order.scheduledDispatchDate && new Date(order.scheduledDispatchDate), shippedAt: order.shippedAt, deliveredAt: order.deliveredAt, completedAt: order.completedAt,
       items: { create: order.items.map((item) => ({ id: item.id, variantId: item.variantId, productName: item.productName,
         variantAttributes: item.variantAttributes as Prisma.InputJsonObject, sku: item.sku, quantity: BigInt(item.quantity),
         unitPrice: new Prisma.Decimal(item.unitPrice.amount.toString()), subtotal: new Prisma.Decimal(item.subtotal.amount.toString()) })) },
@@ -271,12 +275,26 @@ export async function saveCompletion(id: OrderId, companyId: CompanyId, complete
   }
 }
 
-export async function saveFulfillment(id: OrderId, companyId: CompanyId, change: Pick<OrderAggregate, "deliveryStatus" | "deliveredAt" | "completedAt">) {
+export async function saveDispatchSchedule(id: OrderId, companyId: CompanyId, change: DispatchScheduleChange) {
+  requireActiveTransaction(companyId);
+  try {
+    const updated = await prisma.order.updateMany({ where: { id, companyId, cancelled: false, deliveryStatus: "pending" },
+      data: { scheduledDispatchDate: change.scheduledDispatchDate && new Date(change.scheduledDispatchDate) } });
+    if (updated.count !== 1) throw new Error("Locked order was not available for scheduling");
+    return ok<null>(null);
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_save_dispatch_schedule", err: cause }, "unable_to_save_dispatch_schedule");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save dispatch schedule" });
+  }
+}
+
+export async function saveFulfillment(id: OrderId, companyId: CompanyId, change: FulfillmentChange) {
   requireActiveTransaction(companyId);
   try {
     const updated = await prisma.order.updateMany({ where: { id, companyId, cancelled: false, stockDeducted: true,
       deliveryStatus: change.deliveryStatus === "shipped" ? "pending" : { in: ["pending", "shipped"] } },
-    data: { deliveryStatus: change.deliveryStatus, deliveredAt: change.deliveredAt, completedAt: change.completedAt } });
+    data: { deliveryStatus: change.deliveryStatus, shippedAt: change.shippedAt, deliveredAt: change.deliveredAt, completedAt: change.completedAt } });
     if (updated.count !== 1) throw new Error("Locked order was not available for fulfillment");
     return ok<null>(null);
   } catch (cause) {
@@ -369,6 +387,15 @@ export async function findOrderAggregates(criteria: AggregateCriteria, companyId
   if (criteria.customer.kind === "general_public") predicates.push(Prisma.sql`b."orderId" IS NULL`);
   if (criteria.createdFrom) predicates.push(Prisma.sql`o."createdAt" >= ${criteria.createdFrom}`);
   if (criteria.createdBefore) predicates.push(Prisma.sql`o."createdAt" < ${criteria.createdBefore}`);
+  if (criteria.deliveryStatus) predicates.push(Prisma.sql`o."deliveryStatus" = ${criteria.deliveryStatus}`);
+  if (criteria.deliveryStatus === "pending") predicates.push(Prisma.sql`o.cancelled = false`);
+  if (criteria.courierId) predicates.push(Prisma.sql`o.delivery -> 'courier' ->> 'id' = ${criteria.courierId}`);
+  const scheduled = criteria.scheduled;
+  if (scheduled?.kind === "unscheduled") predicates.push(Prisma.sql`o."scheduledDispatchDate" IS NULL`);
+  if (scheduled && "from" in scheduled) predicates.push(Prisma.sql`o."scheduledDispatchDate" >= ${scheduled.from}::date`);
+  if (scheduled && "through" in scheduled) predicates.push(Prisma.sql`o."scheduledDispatchDate" <= ${scheduled.through}::date`);
+  if (criteria.shippedFrom) predicates.push(Prisma.sql`o."shippedAt" >= ${criteria.shippedFrom}`);
+  if (criteria.shippedBefore) predicates.push(Prisma.sql`o."shippedAt" < ${criteria.shippedBefore}`);
   if (criteria.search) {
     const number = /^#?\d+$/.test(criteria.search) ? Number(criteria.search.replace(/^#/, "")) : NaN;
     predicates.push(Prisma.sql`(strpos(lower(coalesce(b.name, '')), lower(${criteria.search})) > 0

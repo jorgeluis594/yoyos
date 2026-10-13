@@ -29,7 +29,7 @@ export async function createCompleteOrder(input: CreateCompleteOrderInput, conte
     new Set(input.payments?.map(payment => payment.paymentId)).size !== (input.payments?.length ?? 0))
     return err({ code: "INVALID_ORDER", message: "Invalid creation options or duplicate payment identifiers" });
   return deps.transaction(context.companyId, async () => {
-    const result = await deps.create({ id: input.id, items: input.items }, context);
+    const result = await deps.create({ id: input.id, scheduledDispatchDate: input.scheduledDispatchDate, items: input.items }, context);
     if (!result.success) return result;
     let order = result.data;
     if (input.delivery) {

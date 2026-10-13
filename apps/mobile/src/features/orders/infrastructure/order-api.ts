@@ -4,7 +4,7 @@ import { cancelOrderParamsSchema, cancelOrderResponseSchema, cancelOrderErrorSch
 import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
 import { z } from "zod";
 import { createOrderSchema, listOrderAggregatesResponseSchema, listOrderAggregatesSchema, listOrdersResponseSchema, listOrdersSchema, orderAggregateSchema, orderApiErrorSchema,
-  orderCatalogSchema, setRatedOrderDeliverySchema, type SetRatedOrderDeliveryRequest, registerPaymentResponseSchema, registerPaymentSchema, type CreateRatedOrderRequest, type CreateOrderRequest, type ListOrderAggregatesRequest, type ListOrdersRequest, type RegisterPaymentRequest,
+  orderCatalogSchema, setRatedOrderDeliverySchema, type SetRatedOrderDeliveryRequest, registerPaymentResponseSchema, registerPaymentSchema, type CreateRatedOrderRequest, type CreateOrderRequest, type UpdateOrderShippingRequest, updateOrderShippingSchema, type ListOrderAggregatesRequest, type ListOrdersRequest, type RegisterPaymentRequest,
   type OrderAggregateResponse, type OrderApiError } from "@shared/contracts/orders";
 import { err, ok } from "@shared/functional";
 import { imageResponseSchema } from "@shared/contracts/images";
@@ -14,7 +14,7 @@ import type { TransportError } from "@mobile/shared/application/transport-error"
 import type { OrderRequestError } from "@mobile/features/orders/application/order-operations";
 
 type Request = (path: string, init?: RequestInit) => Promise<Result<unknown, TransportError>>;
-type Operation = "fulfillment" | "delivery" | "checkout" | "list" | "mixed" | "get" | "aggregate" | "create" | "payment" | "void" | "deduct" | "catalog";
+type Operation = "fulfillment" | "delivery" | "checkout" | "list" | "mixed" | "get" | "aggregate" | "create" | "payment" | "void" | "deduct" | "catalog" | "shipping";
 
 const statusByCode: Record<OrderApiError["code"], number> = {
   INVALID_INPUT: 400, UNSUPPORTED_MEDIA_TYPE: 415, PAYLOAD_TOO_LARGE: 413,
@@ -53,6 +53,8 @@ const errorSchemas = {
     "RATE_UNAVAILABLE", "TOTAL_CHANGED", "INVALID_DISTRICT", "INVALID_DELIVERY_RATE",
     "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]),
   fulfillment: httpErrorSchema(["ORDER_NOT_FOUND", "INVALID_ORDER", "INVALID_TRANSITION", "PAYMENT_REQUIRED", "STOCK_NOT_DEDUCTED", "ORDER_CANCELLED", "CURRENCY_MISMATCH"]),
+  shipping: httpErrorSchema(["ORDER_NOT_FOUND", "INVALID_ORDER", "INVALID_TRANSITION", "PAYMENT_REQUIRED", "STOCK_NOT_DEDUCTED", "ORDER_CANCELLED",
+    "CURRENCY_MISMATCH", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]),
   deduct: httpErrorSchema(["ORDER_NOT_FOUND", "INSUFFICIENT_STOCK", "ORDER_CANCELLED", "INVALID_ORDER"]),
   get: getErrorSchema,
   aggregate: getErrorSchema,
@@ -179,6 +181,13 @@ export function createOrderApi(request: Request) {
       if (!z.uuid().safeParse(orderId).success || !parsed.success) return err({ code: "INVALID_INPUT", message: "Invalid payment request" });
       return response(await request(`/api/orders/${orderId}/payments`, { method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify(parsed.data) }), registerPaymentResponseSchema, "payment");
+    },
+    updateShipping: async (orderId: string, input: UpdateOrderShippingRequest): Promise<Result<OrderAggregateResponse, OrderRequestError>> => {
+      const parsed = updateOrderShippingSchema.safeParse(input);
+      if (!z.uuid().safeParse(orderId).success || !parsed.success) return err({ code: "INVALID_INPUT", message: "Invalid shipping request" });
+      const result = response(await request(`/api/orders/${orderId}/shipping`, { method: "PATCH", headers: { "content-type": "application/json" },
+        body: JSON.stringify(parsed.data) }), orderAggregateSchema, "shipping");
+      return result.success && result.data.id !== orderId ? err({ code: "INVALID_RESPONSE", message: "Unexpected order shipping" }) : result;
     },
     deductStock: async (orderId: string): Promise<Result<OrderAggregateResponse, OrderRequestError>> => {
       if (!z.uuid().safeParse(orderId).success) return err({ code: "INVALID_INPUT", message: "Invalid order ID" });

@@ -2,7 +2,8 @@ import { z } from "zod";
 import { err, ok } from "@shared/functional";
 import { discoverBrother, resolveBrother, sendBrother, type BrotherDevice } from "@mobile/modules/brother-printer";
 import type { PrinterAdapter } from "@mobile/features/printing/application/contracts";
-import type { AdapterId, PrinterId, PrinterLocator, PrinterSelection } from "@mobile/features/printing/domain/printing";
+import { dispatchLabelFormat } from "@mobile/features/printing/domain/printing";
+import type { AdapterId, LabelFormat, PrinterId, PrinterLocator, PrinterSelection } from "@mobile/features/printing/domain/printing";
 
 const adapterId = "brother" as AdapterId;
 const locatorSchema = z.object({
@@ -11,6 +12,12 @@ const locatorSchema = z.object({
   lastKnownIp: z.ipv4(),
 });
 type Locator = z.infer<typeof locatorSchema>;
+// Brother paper id and printable dots at 300 dpi per label format (62 × 100 = DK-11202).
+const paperFor = (format: LabelFormat) => format.heightMm === 100
+  ? { labelSize: "DK-11202" as const, profile: { widthPx: 696, heightPx: 1109, dpiX: 300, dpiY: 300 } }
+  : { labelSize: "DK-1209" as const, profile: { widthPx: 696, heightPx: 271, dpiX: 300, dpiY: 300 } };
+/** Printable area of the dispatch roll, used to measure labels before a printer is resolved. */
+export const dispatchPaperProfile = paperFor(dispatchLabelFormat).profile;
 const idFor = (identity: Locator["identity"]) => `${identity.kind}:${identity.value}` as PrinterId;
 const identityFor = (device: BrotherDevice): Locator["identity"] | null => device.serial
   ? { kind: "serial", value: device.serial }
@@ -56,18 +63,18 @@ export const brotherAdapter: PrinterAdapter = {
   async resolve(selection, format) {
     const locator = parseBrotherSelection(selection);
     if (!locator) return err({ code: "PRINTER_IDENTITY_MISMATCH", message: "Saved printer identity is invalid" });
-    if (format.widthMm !== 62 || format.heightMm !== 29) return err({ code: "UNSUPPORTED_FORMAT", message: "Brother QL-810W requires 62 × 29 mm labels" });
+    if (format.widthMm !== 62 || (format.heightMm !== 29 && format.heightMm !== 100)) return err({ code: "UNSUPPORTED_FORMAT", message: "Brother QL-810W supports 62 × 29 and 62 × 100 mm labels" });
     const found = await resolveBrother({ model: "QL-810W", identityKind: locator.identity.kind, identityValue: locator.identity.value, lastKnownIp: locator.lastKnownIp });
     if (!found.success) return err({ code: found.error.code === "DISCOVERY_FAILED" ? "CONNECTION_FAILED" : found.error.code, message: found.error.message });
     if (found.data.model !== "QL-810W" || !sameIdentity(found.data, locator.identity))
       return err({ code: "PRINTER_IDENTITY_MISMATCH", message: "Selected printer could not be verified" });
     const refreshed = selectionFor(found.data);
     if (!refreshed) return err({ code: "PRINTER_IDENTITY_MISMATCH", message: "Selected printer has no stable identity" });
-    return ok({ selection: refreshed, profile: { widthPx: 696, heightPx: 271, dpiX: 300, dpiY: 300 } });
+    return ok({ selection: refreshed, profile: paperFor(format).profile });
   },
-  async send({ printer, document, copies }) {
+  async send({ printer, format, document, copies }) {
     const locator = parseBrotherSelection(printer.selection);
     if (!locator) return err({ code: "PRINTER_REJECTED", message: "Printer identity is invalid", outcome: "not-sent" });
-    return sendBrother({ model: "QL-810W", labelSize: "DK-1209", ip: locator.lastKnownIp, identityKind: locator.identity.kind, identityValue: locator.identity.value, uri: document.uri, copies });
+    return sendBrother({ model: "QL-810W", labelSize: paperFor(format).labelSize, ip: locator.lastKnownIp, identityKind: locator.identity.kind, identityValue: locator.identity.value, uri: document.uri, copies });
   },
 };

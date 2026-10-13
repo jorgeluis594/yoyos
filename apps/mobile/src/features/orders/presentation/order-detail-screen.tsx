@@ -27,6 +27,7 @@ import { ScreenState } from "@mobile/components/ui/screen-state";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
 import { deliveryMethodLabel, deliveryStatusLabel, documentTypeLabel, orderLanguage, orderStatusLabel } from "@mobile/features/orders/presentation/order-labels";
+import { OrderDayField } from "@mobile/features/orders/presentation/order-day-field";
 import { OrderBuyerName } from "@mobile/features/orders/presentation/order-buyer";
 import { useTheme } from "@mobile/hooks/use-theme";
 import translations from "@mobile/i18n";
@@ -59,6 +60,7 @@ export default function OrderDetailScreen() {
   const [paymentError, setPaymentError] = useState("");
   const [savingPayment, setSavingPayment] = useState<string | null>(null);
   const [fulfilling, setFulfilling] = useState<"ship" | "deliver" | null>(null);
+  const [rescheduling, setRescheduling] = useState(false);
   const [fulfillmentMessage, setFulfillmentMessage] = useState("");
   const [fulfillmentError, setFulfillmentError] = useState("");
   const manualPaymentId = useRef<string | null>(null);
@@ -81,7 +83,7 @@ export default function OrderDetailScreen() {
   useLayoutEffect(() => { currentScope.current = scope; }, [scope]);
   const cancellationBusy = cancellation.kind === "submitting" || cancellation.kind === "verifying";
   const cancellationBlocked = cancellationBusy || cancellation.kind === "uncertain" || detailRefreshFailed;
-  const writeBusy = cancellationBlocked || !!savingPayment || !!fulfilling || checkoutBusy;
+  const writeBusy = cancellationBlocked || !!savingPayment || !!fulfilling || rescheduling || checkoutBusy;
   const reload = useCallback(async () => {
     const generation = checkoutGeneration.current;
     const requestScope = scope;
@@ -126,6 +128,16 @@ export default function OrderDetailScreen() {
       else setFulfillmentError(t(`orderFulfillment.${result.error.code}`, { defaultValue: t("orderFulfillment.saveError") }));
     } catch { setFulfillmentError(t("orderFulfillment.saveError")); }
     finally { setFulfilling(null); }
+  }
+  async function reschedule(day: string) {
+    if (!order || cancellationLock.current || writeBusy) return;
+    setRescheduling(true); setFulfillmentError(""); setFulfillmentMessage("");
+    try {
+      const result = await orders.updateOrderShipping(order.id, { scheduledDispatchDate: day || null });
+      if (result.success) setOrder(result.data);
+      else setFulfillmentError(t("scheduledSaveError"));
+    } catch { setFulfillmentError(t("scheduledSaveError")); }
+    finally { setRescheduling(false); }
   }
   async function viewReceipt(imageId: string) {
     const result = await orders.receiptUrl(imageId);
@@ -362,6 +374,9 @@ export default function OrderDetailScreen() {
             </View> : null}
           </> : null}
           {!order.cancelled ? <View style={styles.section}>
+            {canEditDelivery ? <OrderDayField label={t('scheduledDispatch')} value={order.scheduledDispatchDate ?? ""} onChange={day => void reschedule(day)} />
+              : <ThemedText type="small" themeColor="textSecondary">{t('scheduledDispatch')}: {order.scheduledDispatchDate ?? t('noScheduledDispatch')}</ThemedText>}
+            {order.shippedAt ? <ThemedText type="small" themeColor="textSecondary">{t('shippedOn', { date: date(order.shippedAt, locale) })}</ThemedText> : null}
             {fulfillmentActions.length > 0 ? <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.border }}>
               {fulfillmentActions.map(operation => <OrderAction key={operation} label={t(`orderFulfillment.${operation}`)}
                 loading={fulfilling === operation} disabled={writeBusy} onPress={() => void fulfill(operation)} />)}

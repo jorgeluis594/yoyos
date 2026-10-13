@@ -450,6 +450,8 @@ model Order {
   stockDeducted Boolean @default(false)
   cancelled Boolean @default(false)
   createdAt DateTime
+  scheduledDispatchDate DateTime? @db.Date
+  shippedAt DateTime?
   deliveredAt DateTime?
   completedAt DateTime?
   items OrderItem[]

@@ -2,13 +2,15 @@ import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import express, { type Request, type Response } from "express";
 import { z } from "zod";
-import { cancelOrderResponseSchema, createOrderSchema, setRatedOrderDeliverySchema, orderApiErrorSchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, registerPaymentResponseSchema, registerPaymentSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
+import { cancelOrderResponseSchema, createOrderSchema, setRatedOrderDeliverySchema, orderApiErrorSchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, registerPaymentResponseSchema, registerPaymentSchema, updateOrderShippingSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
 import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { apiError, type PrivateLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { orders, createConfiguredOrder } from "@core/src/features/orders/composition";
 import { toLegacyOrderJson, toOrderAggregateJson, toOrderAggregateListJson, toOrderListJson } from "@core/src/features/orders/presentation/order-json";
 import type { CreateOrderInput, OrderAccess } from "@core/src/features/orders/application/create-order";
 import type { CompanyId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
+import { parseScheduledDispatchFilter } from "@core/src/features/orders/application/list-order-aggregates";
+import type { DispatchDate } from "@shared/dispatch-date";
 import type { Money } from "@shared/money";
 import type { RatedSetDeliveryInput } from "@core/src/features/orders/application/set-delivery";
 import type { RegisterPaymentInput } from "@core/src/features/orders/application/register-payment";
@@ -77,11 +79,11 @@ const orderContext = (response: Response<unknown, PrivateLocals>): OrderAccess =
   companyId: response.locals.auth.company.id as CompanyId, userId: response.locals.auth.user.id as UserId,
 });
 const orderId = (value: string | undefined) => z.uuid().safeParse(value);
-function toCreateOrderInput(value: OrderSelectionRequest): CreateOrderInput {
+function toCreateOrderInput(value: OrderSelectionRequest & Readonly<{ scheduledDispatchDate?: string }>): CreateOrderInput {
   const [first, ...rest] = value.items;
   if (!first) throw new Error("Validated order has no items");
   const item = (selection: typeof first) => ({ variantId: selection.variantId as VariantId, quantity: selection.quantity as PositiveInteger });
-  return { id: value.id as OrderId, items: [item(first), ...rest.map(item)] };
+  return { id: value.id as OrderId, scheduledDispatchDate: value.scheduledDispatchDate as DispatchDate | undefined, items: [item(first), ...rest.map(item)] };
 }
 
 orderRoutes.get("/", async (request, response) => {
@@ -105,9 +107,14 @@ orderRoutes.get("/mixed", async (request, response: Response<unknown, PrivateLoc
   if (!query) return;
   const parsed = listOrderAggregatesSchema.safeParse(query);
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order filters");
-  const { page, customer, createdFrom, createdBefore, search, view } = parsed.data;
+  const { page, customer, createdFrom, createdBefore, search, view, deliveryStatus, courierId, shippedFrom, shippedBefore } = parsed.data;
+  const scheduled = parseScheduledDispatchFilter({ scheduledFrom: parsed.data.scheduledFrom as DispatchDate | undefined,
+    scheduledThrough: parsed.data.scheduledThrough as DispatchDate | undefined, unscheduled: parsed.data.unscheduled });
+  if (!scheduled.success || (shippedFrom && shippedBefore && new Date(shippedFrom) >= new Date(shippedBefore))) return apiError(response, 400, "INVALID_INPUT", "Invalid order filters");
   try {
-    const result = await orders.listAggregates({ page, search, view,
+    const result = await orders.listAggregates({ page, search, view, deliveryStatus, courierId, scheduled: scheduled.data,
+      ...(shippedFrom ? { shippedFrom: new Date(shippedFrom) } : {}),
+      ...(shippedBefore ? { shippedBefore: new Date(shippedBefore) } : {}),
       customer: { kind: customer },
       ...(createdFrom ? { createdFrom: new Date(createdFrom) } : {}),
       ...(createdBefore ? { createdBefore: new Date(createdBefore) } : {}),
@@ -216,6 +223,17 @@ for (const [path, operation] of [
     } catch (error) { return unexpected(response, error); }
   });
 }
+
+orderRoutes.patch("/:id/shipping", async (request, response: Response<unknown, PrivateLocals>) => {
+  if (!request.is("application/json")) return apiError(response, 415, "UNSUPPORTED_MEDIA_TYPE", "JSON body required");
+  const parsedId = orderId(request.params.id);
+  const parsed = updateOrderShippingSchema.safeParse(request.body);
+  if (!parsedId.success || !parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid shipping input");
+  try {
+    const result = await orders.updateShipping({ ...parsed.data, orderId: parsedId.data as OrderId, scheduledDispatchDate: parsed.data.scheduledDispatchDate as DispatchDate | null | undefined }, orderContext(response));
+    return result.success ? response.json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
+  } catch (error) { return unexpected(response, error); }
+});
 
 orderRoutes.post("/", async (request, response: Response<unknown, PrivateLocals>) => {
   if (!request.is("application/json")) return apiError(response, 415, "UNSUPPORTED_MEDIA_TYPE", "JSON body required");

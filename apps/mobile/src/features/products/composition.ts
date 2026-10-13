@@ -9,5 +9,8 @@ export const products = createProductOperations(createProductApi(request, sessio
 export const productPrinting = createProductPrintingOperations({
   loadProduct: products.loadProduct,
   renderProductLabel,
-  printDocument: printing.printDocument,
+  printDocument: async (request, execution) => {
+    const reserved = await printing.withPrinter((session) => session.printDocument(request, execution));
+    return reserved.success ? reserved.data : reserved;
+  },
 });

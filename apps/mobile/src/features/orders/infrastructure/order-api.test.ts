@@ -70,7 +70,7 @@ test("order error schemas preserve transport failures and the checkout status ex
 test("order API reads mixed summaries and validates complete aggregate states", async () => {
   const total = { amount: 10, currency: "PEN" as const };
   const zero = { amount: 0, currency: "PEN" as const };
-  const summary = { number: 1001, id: id(1), buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, sellerId: "seller",
+  const summary = { number: 1001, id: id(1), buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, sellerId: "seller",
     createdAt: "2026-09-29T12:00:00.000Z", deliveredAt: null, completedAt: null, status: "active", paymentStatus: "pending",
     deliveryStatus: "pending", stockDeducted: false, total };
   const order = { ...summary, companyId: id(2), paidAmount: zero, balanceDue: total, overpaidAmount: zero,
@@ -123,7 +123,7 @@ test("delivery API validates the complete authored snapshot and updated aggregat
   const delivery = { method: "store" as const, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } },
     pickupPoint: { name: "Store", address: "Lima", instructions: null }, settingsVersion: 1, recordedBy: { kind: "seller" as const, userId: "current-editor" } };
   const input = { delivery: { method: "store" as const, recipient: delivery.recipient }, expectedPrice: zero };
-  const order = { id: id(1), companyId: id(2), sellerId: "original-seller", number: 1001, buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, deliveredAt: null, createdAt: "2026-10-05T12:00:00.000Z", completedAt: null,
+  const order = { id: id(1), companyId: id(2), sellerId: "original-seller", number: 1001, buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, createdAt: "2026-10-05T12:00:00.000Z", completedAt: null,
     status: "active", paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false, total, paidAmount: zero, balanceDue: total, overpaidAmount: zero,
     cancelled: false, delivery, payments: [], itemsTotal: total, deliveryCost: { amount: 3, currency: "PEN" }, deliveryCharge: zero,
     items: [{ id: id(3), variantId: id(4), productName: "Item", variantAttributes: {}, sku: null, quantity: 1, unitPrice: total, subtotal: total }] };
@@ -234,7 +234,7 @@ function cancellationFixture() {
   const total = { amount: 10, currency: "PEN" as const };
   const zero = { amount: 0, currency: "PEN" as const };
   return { id: id(1), companyId: id(2), sellerId: "seller", number: 1001, buyer: null, source: "manual",
-    checkoutEnabledAt: null, checkoutConfirmedAt: null, deliveredAt: null, completedAt: null,
+    checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, completedAt: null,
     createdAt: "2026-10-05T12:00:00.000Z", status: "cancelled", paymentStatus: "pending",
     deliveryStatus: "pending", cancelled: true, stockDeducted: true, delivery: null, payments: [],
     total, paidAmount: zero, balanceDue: total, overpaidAmount: zero, itemsTotal: total, deliveryCost: zero, deliveryCharge: zero,
@@ -290,4 +290,14 @@ test.each([401, 403])("cancellation treats HTTP %s as an authorization failure e
   const api = createOrderApi(async () => err({ code: "API_ERROR", message: "Access rejected", http: { status, body: { code: "EMAIL_VERIFICATION_REQUIRED", error: "Access rejected" } } }));
   expect(await api.cancel(id(1))).toEqual(err({ code: "UNAUTHENTICATED", message: "Access rejected" }));
   expect(await api.readCancellationState(id(1))).toEqual(err({ code: "UNAUTHENTICATED", message: "Access rejected" }));
+});
+
+test("order API patches shipping only with a valid body and order ID", async () => {
+  const request = jest.fn(async () => ok({ unexpected: true }));
+  const api = createOrderApi(request);
+  expect(await api.updateShipping(id(1), { scheduledDispatchDate: "2026-02-30" })).toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
+  expect(await api.updateShipping(id(1), {})).toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
+  expect(request).not.toHaveBeenCalled();
+  expect(await api.updateShipping(id(1), { scheduledDispatchDate: null })).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+  expect(request).toHaveBeenCalledWith(`/api/orders/${id(1)}/shipping`, expect.objectContaining({ method: "PATCH", body: JSON.stringify({ scheduledDispatchDate: null }) }));
 });

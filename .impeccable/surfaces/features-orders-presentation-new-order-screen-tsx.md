@@ -22,3 +22,9 @@ Three HTML-rendered comps (no image generation available): `.impeccable/mocks/ne
 - Receipt upload is a disabled placeholder: image upload endpoint exists, but seller/manual payment evidence and the create-order payment contract carry no `receiptImageId`; mobile lacks an image picker.
 - No native capture: no emulator/device available. Android/iOS rendering, dark/light, large text and keyboard over the sheet unverified.
 - The dock with total from comp A was not built; save stays at the end of Resumen.
+
+## Round 2026-10-13 · Unconfirmed sale inline
+- An uncertain save no longer replaces the page with a blocking "pending sale" card. The sale stays on its own review page under a warning status strip (`pending-sale-status.tsx`: amber triangle + "Venta sin confirmar", note, secondary "Comprobar").
+- Reopening Nueva venta with a saved attempt auto-loads it into the same review page. If it cannot be loaded (no connection), the strip shows the connection note above a compact summary (units · total) until "Comprobar" succeeds.
+- The primary action becomes "Guardar otra vez": stores edits on the same attempt and resends it with the same ID (server rejects duplicate IDs). The separate saved-delivery review, two-check resend gate and raw UUID copy were removed.
+- Unverified: on-device rendering (Android/iOS, dark mode, large text).

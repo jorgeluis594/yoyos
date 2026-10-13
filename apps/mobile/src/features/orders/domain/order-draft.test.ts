@@ -100,3 +100,12 @@ test("replacing the last cart item preserves the order and payment identities", 
     shownTotal: { amount: 12, currency: "PEN" },
   } });
 });
+
+test("prepareOrder sends a valid scheduled dispatch date and omits it when absent or invalid", () => {
+  const added = addDraftItem(emptyOrderDraft(), item(1, 10), () => id(9));
+  if (!added.success) throw new Error("Expected item");
+  expect(prepareOrder({ ...added.data, scheduledDispatchDate: "2026-10-20" })).toMatchObject({ success: true, data: { request: { scheduledDispatchDate: "2026-10-20" } } });
+  const plain = prepareOrder(added.data);
+  expect(plain.success && "scheduledDispatchDate" in plain.data.request).toBe(false);
+  expect(prepareOrder({ ...added.data, scheduledDispatchDate: "2026-02-30" }).success).toBe(false);
+});

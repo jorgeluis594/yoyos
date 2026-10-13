@@ -26,7 +26,7 @@ const message = (overrides: Partial<OrderSourceMessage> = {}): OrderSourceMessag
   uploadedByUserId: sellerId, imageId: id(5) as ImageId, ...overrides });
 const existingOrder = (overrides: Partial<OrderAggregate> = {}): OrderAggregate => ({
   number: 1007 as OrderNumber, id: id(9) as OrderId, companyId, sellerId, chatId, buyer: { contactId, name: null, phone: null },
-  checkoutEnabledAt: null, checkoutConfirmedAt: null, createdAt: at, deliveredAt: null, completedAt: null, cancelled: false,
+  checkoutEnabledAt: null, checkoutConfirmedAt: null, createdAt: at, scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, completedAt: null, cancelled: false,
   items: [{ id: id(10) as OrderItemId, variantId: variant(1).variantId, productName: "Variant 1", variantAttributes: {}, sku: null,
     quantity: 1 as PositiveInteger, unitPrice: money(10), subtotal: money(10) }],
   payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false,

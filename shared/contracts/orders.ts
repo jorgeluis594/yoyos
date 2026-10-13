@@ -3,6 +3,9 @@ import { currencies } from "@shared/money";
 import { moneySchema } from "@shared/contracts/money";
 import { peruDeliveryDistrictSchema, peruDistrictCodeSchema } from "@shared/contracts/peru-location";
 import { pickupPointSchema } from "@shared/contracts/delivery-settings";
+import { parseDispatchDate } from "@shared/dispatch-date";
+
+export const dispatchDateSchema = z.string().refine((value) => parseDispatchDate(value).success, { message: "Invalid dispatch date" });
 
 export const orderSelectionSchema = z.strictObject({
   id: z.uuid(),
@@ -50,6 +53,7 @@ export const completeOrderSchema = orderSelectionSchema.extend({
     method: z.enum(["digital_wallet", "bank_transfer"]), deductStockIfPartial: z.boolean() })).optional(),
   delivery: setRatedOrderDeliverySchema.optional(),
   deliverImmediately: z.boolean().optional(),
+  scheduledDispatchDate: dispatchDateSchema.optional(),
 });
 export const createRatedOrderSchema = completeOrderSchema.extend({ delivery: setRatedOrderDeliverySchema });
 export type CreateRatedOrderRequest = z.infer<typeof createRatedOrderSchema>;
@@ -59,6 +63,7 @@ export const createOrderSchema = z.union([
   orderSelectionSchema.extend({
     payment: z.strictObject({ method: z.literal("digital_wallet") }),
     delivery: z.strictObject({ method: z.literal("handover") }),
+    scheduledDispatchDate: dispatchDateSchema.optional(),
   }),
 ]);
 export type CreateOrderRequest = z.infer<typeof createOrderSchema>;
@@ -89,7 +94,7 @@ export const paymentSchema = z.discriminatedUnion("status", [
     method: z.enum(["digital_wallet", "bank_transfer"]), data: confirmationDataSchema.extend({ voidedAt: z.iso.datetime(), voidedBy: z.string().min(1) }) }),
 ]);
 export const orderAggregateSchema = z.strictObject({ checkoutEnabledAt: z.iso.datetime().nullable(), checkoutConfirmedAt: z.iso.datetime().nullable(), number: z.number().int().safe().min(1001), id: z.uuid(), companyId: z.uuid(), sellerId: z.string(), buyer: orderBuyerSchema.nullable(), source: orderSourceSchema,
-  createdAt: z.iso.datetime(), deliveredAt: z.iso.datetime().nullable(), completedAt: z.iso.datetime().nullable(), status: z.enum(["active", "cancelled", "completed"]),
+  createdAt: z.iso.datetime(), scheduledDispatchDate: dispatchDateSchema.nullable(), shippedAt: z.iso.datetime().nullable(), deliveredAt: z.iso.datetime().nullable(), completedAt: z.iso.datetime().nullable(), status: z.enum(["active", "cancelled", "completed"]),
   paymentStatus: z.enum(["pending", "paid"]), paidAmount: moneySchema, balanceDue: moneySchema, overpaidAmount: moneySchema,
   cancelled: z.boolean(), delivery: deliverySnapshotSchema.nullable(), deliveryStatus: z.enum(["pending", "shipped", "delivered"]),
   stockDeducted: z.boolean(), items: z.array(z.strictObject({ id: z.uuid(), variantId: z.uuid(), productName: z.string(),
@@ -103,17 +108,28 @@ export const listOrderAggregatesSchema = z.strictObject({
   page: z.coerce.number().int().positive().safe().default(1),
   customer: z.enum(["all", "general_public"]).default("all"),
   createdFrom: z.iso.datetime().optional(), createdBefore: z.iso.datetime().optional(),
+  deliveryStatus: z.enum(["pending", "shipped", "delivered"]).optional(), courierId: z.uuid().optional(),
+  scheduledFrom: dispatchDateSchema.optional(), scheduledThrough: dispatchDateSchema.optional(),
+  unscheduled: z.literal("true").optional(),
+  shippedFrom: z.iso.datetime().optional(), shippedBefore: z.iso.datetime().optional(),
 }).refine((value) => Number.isSafeInteger((value.page - 1) * 20),
     { message: "Page exceeds safe offset", path: ["page"] })
   .refine((value) => !value.createdFrom || !value.createdBefore ||
     new Date(value.createdFrom).getTime() < new Date(value.createdBefore).getTime(),
     { message: "Invalid date interval", path: ["createdBefore"] });
 export type ListOrderAggregatesRequest = z.infer<typeof listOrderAggregatesSchema>;
-export const orderAggregateSummarySchema = orderAggregateSchema.pick({ checkoutEnabledAt: true, checkoutConfirmedAt: true, number: true, id: true, createdAt: true, deliveredAt: true, completedAt: true, status: true,
-  paymentStatus: true, deliveryStatus: true, stockDeducted: true, buyer: true, source: true, sellerId: true, total: true });
+export const orderAggregateSummarySchema = orderAggregateSchema.pick({ checkoutEnabledAt: true, checkoutConfirmedAt: true, number: true, id: true, createdAt: true, scheduledDispatchDate: true, shippedAt: true, deliveredAt: true, completedAt: true, status: true,
+  paymentStatus: true, deliveryStatus: true, stockDeducted: true, buyer: true, source: true, sellerId: true, total: true })
+  .extend({ courier: snapshotCourierSchema.nullable().optional() });
 export const listOrderAggregatesResponseSchema = z.strictObject({ items: z.array(orderAggregateSummarySchema),
   page: z.number().int().positive(), pageSize: z.literal(20), total: z.number().int().nonnegative() });
 export type ListOrderAggregatesResponse = z.infer<typeof listOrderAggregatesResponseSchema>;
+export const updateOrderShippingSchema = z.strictObject({
+  scheduledDispatchDate: dispatchDateSchema.nullable().optional(),
+  status: z.enum(["shipped", "delivered"]).optional(),
+}).refine((value) => value.scheduledDispatchDate !== undefined || value.status !== undefined,
+  { message: "At least one field is required" });
+export type UpdateOrderShippingRequest = z.infer<typeof updateOrderShippingSchema>;
 export const registerPaymentSchema = z.strictObject({ paymentId: z.uuid(), source: z.enum(["manual", "buyer_report"]).optional(),
   amount: moneySchema, method: z.enum(["digital_wallet", "bank_transfer"]), deductStockIfPartial: z.boolean() });
 export type RegisterPaymentRequest = z.infer<typeof registerPaymentSchema>;

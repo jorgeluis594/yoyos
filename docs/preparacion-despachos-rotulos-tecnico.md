@@ -1,6 +1,6 @@
 # Preparación de despachos y rótulos: diseño técnico
 
-Estado: el refactor de zonas, opciones, couriers y agencias (secciones "Destino y courier" y "Zonas, opciones, couriers y agencias") está implementado y se revisó contra el código el 12 de octubre de 2026; el resto sigue siendo definición previa a implementación. Complementa las [definiciones de producto](preparacion-despachos-rotulos-definiciones.md) y recoge las decisiones técnicas posteriores. Los nombres nuevos de operaciones, campos y archivos son propuestas de implementación.
+Estado: el refactor de zonas, opciones, couriers y agencias (secciones "Destino y courier" y "Zonas, opciones, couriers y agencias") está implementado y se revisó contra el código el 12 de octubre de 2026. Las tareas A0–A2, B1, B2, C0–C4, D1 y D2 del [plan](preparacion-despachos-rotulos-tareas.md) están implementadas e integradas (estado a 13 de octubre de 2026); lo pendiente está en la sección "Estado de implementación". Complementa las [definiciones de producto](preparacion-despachos-rotulos-definiciones.md) y recoge las decisiones técnicas posteriores. Los nombres nuevos de operaciones, campos y archivos son propuestas de implementación.
 
 ## 1. Decisiones confirmadas
 
@@ -245,6 +245,22 @@ Incluir comprobaciones de las decisiones finales: programación pasada aceptada 
 - Validar carga de detalles por selección con el volumen real antes de añadir un endpoint por lote.
 - La detención no revierte un envío iniciado; el cierre de la app no permite asegurar si el último rótulo salió.
 - No se añaden soporte iOS, impresión web, persistencia de tandas, guías oficiales ni integración con couriers. El catálogo geográfico ya existe y se reutiliza.
+
+## Estado de implementación
+
+**Implementado y probado**
+
+- Core: fechas programada/real, `PATCH /api/orders/:id/shipping` (programación y transiciones atómicas, despacho concurrente una sola vez, aislamiento por empresa) y filtros de despacho (estado, courier, Sin programar, intervalos programado y real). Cubiertos por pruebas de integración HTTP en `api-routes.integration.test.ts`, que incluyen que leer pedidos mixtos (agregados y listados con filtros, pagados y pendientes, completos e incompletos, despachados y cancelados) no cambia estados, pagos ni fechas.
+- Móvil: fecha en creación y detalle, filtros y selección entre páginas en Ventas, revisión y tanda de impresión con impresora falsa. La fila de Ventas muestra el courier del snapshot junto a la fecha programada.
+- Imprimir no escribe en el servidor: la preparación solo lee, por lo que no cambia estados ni fechas.
+
+**Pendiente**
+
+- Prueba física en Android con ambos rollos (QR anterior y Brother 62 × 100) y textos extensos: no es posible en el entorno de desarrollo; verificar salida, corte y legibilidad.
+- Fijar el mínimo tipográfico con el negocio piloto y muestras de direcciones largas.
+- Courier de domicilio y asignación posterior (decisión de producto abierta): el rótulo de domicilio no muestra courier y el filtro por courier solo encuentra pedidos de agencia.
+- Edición general de shipping (dirección, teléfono): diferida a la tarea de Todoist ya referenciada.
+- Menores conocidos: el recorrido de impresión se prueba con impresora falsa; el cierre de la app no permite saber si el último rótulo salió.
 
 ## 11. Tipado fuerte y contratos entre capas
 

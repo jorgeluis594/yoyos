@@ -1,7 +1,7 @@
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 import { createPrintingOperations } from "@mobile/features/printing/application/printing-operations";
-import { brotherAdapter, parseBrotherSelection } from "@mobile/features/printing/infrastructure/brother-adapter";
+import { brotherAdapter, dispatchPaperProfile, parseBrotherSelection } from "@mobile/features/printing/infrastructure/brother-adapter";
 import { createPrinterPreference } from "@mobile/features/printing/infrastructure/printer-preference";
 import { temporaryDocuments } from "@mobile/features/printing/infrastructure/temporary-documents";
 
@@ -16,3 +16,4 @@ export const cleanOldPrintDocuments = temporaryDocuments.removeOrphans;
 export type { PrintExecution, PrintFailure, PrintOutcome, PrintStage } from "@mobile/features/printing/application/contracts";
 export type { CopyCount, PrinterSelection, PrintReceipt } from "@mobile/features/printing/domain/printing";
 export { makeCopyCount } from "@mobile/features/printing/domain/printing";
+export { dispatchPaperProfile };

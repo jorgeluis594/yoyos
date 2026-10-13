@@ -1,6 +1,6 @@
 import { err, ok } from "@shared/functional";
 import { brotherAdapter, parseBrotherSelection } from "@mobile/features/printing/infrastructure/brother-adapter";
-import { productLabelFormat } from "@mobile/features/printing/domain/printing";
+import { dispatchLabelFormat, productLabelFormat } from "@mobile/features/printing/domain/printing";
 
 const mockDiscover = jest.fn();
 const mockResolve = jest.fn();
@@ -55,6 +55,20 @@ test("keeps native uncertainty when sending", async () => {
   const resolved = await brotherAdapter.resolve(discovered.data[0], productLabelFormat);
   if (!resolved.success) throw new Error("Expected resolution");
   mockSend.mockResolvedValue(err({ code: "COMMUNICATION_FAILED", message: "Disconnected", outcome: "unknown" }));
-  expect(await brotherAdapter.send({ printer: resolved.data, document: { uri: "file:///label.png", widthPx: 696, heightPx: 271 }, copies: 2 as never })).toMatchObject({ success: false, error: { outcome: "unknown" } });
+  expect(await brotherAdapter.send({ printer: resolved.data, format: productLabelFormat, document: { uri: "file:///label.png", widthPx: 696, heightPx: 271 }, copies: 2 as never })).toMatchObject({ success: false, error: { outcome: "unknown" } });
   expect(mockSend).toHaveBeenCalledWith({ model: "QL-810W", labelSize: "DK-1209", ip: "192.168.1.10", identityKind: "serial", identityValue: "ABC", uri: "file:///label.png", copies: 2 });
+});
+
+test("resolves and sends 62 × 100 labels with the DK-11202 paper", async () => {
+  mockDiscover.mockResolvedValue(ok([{ model: "QL-810W", ip: "192.168.1.10", serial: "ABC" }]));
+  mockResolve.mockResolvedValue(ok({ model: "QL-810W", ip: "192.168.1.10", serial: "ABC" }));
+  const discovered = await brotherAdapter.discover();
+  if (!discovered.success) throw new Error("Expected discovery");
+  const resolved = await brotherAdapter.resolve(discovered.data[0], dispatchLabelFormat);
+  expect(resolved).toMatchObject({ success: true, data: { profile: { widthPx: 696, heightPx: 1109 } } });
+  if (!resolved.success) return;
+  mockSend.mockResolvedValue(ok({ confirmation: "sdk" }));
+  await brotherAdapter.send({ printer: resolved.data, format: dispatchLabelFormat, document: { uri: "file:///label.png", widthPx: 696, heightPx: 1109 }, copies: 1 as never });
+  expect(mockSend).toHaveBeenCalledWith(expect.objectContaining({ labelSize: "DK-11202" }));
+  expect(await brotherAdapter.resolve(discovered.data[0], { widthMm: 62, heightMm: 60 } as never)).toMatchObject({ success: false, error: { code: "UNSUPPORTED_FORMAT" } });
 });

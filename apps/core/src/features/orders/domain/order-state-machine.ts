@@ -2,6 +2,7 @@ import { parseOrderNumber, type OrderNumber, type OrderBuyer } from "@core/src/f
 import { add, compare, isCurrency, subtract, type Currency, type Money } from "@shared/money";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
+import { type DispatchDate } from "@shared/dispatch-date";
 import { z } from "zod";
 import { buildOrder, type BuildOrderInput, type BuildOrderError, type CompanyId, type OrderId, type OrderItem, type OrderItemId, type PositiveInteger, type UserId } from "@core/src/features/orders/domain/order";
 import { parsePayment, voidPayment, type ConfirmedPayment, type Payment, type ReportedPayment } from "@core/src/features/orders/domain/payment";
@@ -46,6 +47,8 @@ export type OrderAggregate = Readonly<{
   checkoutEnabledAt: Date | null;
   checkoutConfirmedAt: Date | null;
   createdAt: Date;
+  scheduledDispatchDate: DispatchDate | null;
+  shippedAt: Date | null;
   deliveredAt: Date | null;
   completedAt: Date | null;
   cancelled: boolean;
@@ -74,7 +77,9 @@ export type CancelledOrder = OrderAggregate & Readonly<{ cancelled: true; delive
 export type AggregateValidationError = Readonly<{ code: "INVALID_ORDER" | "INVALID_PAYMENT" | "CURRENCY_MISMATCH"; message: string }>;
 export type CancellationDomainError = AggregateValidationError | Readonly<{ code: "INVALID_TRANSITION"; message: string }>;
 export type CancellationPlan = Readonly<{ nextOrder: CancelledOrder; emitOrderCancelled: boolean }>;
-export type BuildPendingOrderInput = BuildOrderInput & Readonly<{ number: OrderNumber }>;
+export type BuildPendingOrderInput = BuildOrderInput & Readonly<{ number: OrderNumber; scheduledDispatchDate?: DispatchDate }>;
+export type DispatchScheduleChange = Pick<OrderAggregate, "scheduledDispatchDate">;
+export type FulfillmentChange = Pick<OrderAggregate, "deliveryStatus" | "shippedAt" | "deliveredAt" | "completedAt">;
 
 export function buildPendingOrder(input: BuildPendingOrderInput): Result<OrderAggregate, BuildOrderError> {
   if (!parseOrderNumber(input.number).success) return err({ code: "INVALID_ORDER", message: "Invalid order number" });
@@ -85,7 +90,7 @@ export function buildPendingOrder(input: BuildPendingOrderInput): Result<OrderAg
   return ok({ number: input.number, id: snapshot.id, companyId: snapshot.companyId, sellerId: snapshot.sellerId,
     buyer: snapshot.customer.kind === "contact" ? { contactId: snapshot.customer.contactId, name: snapshot.customer.name, phone: snapshot.customer.phone } : null,
     checkoutEnabledAt: null, checkoutConfirmedAt: null, items: snapshot.items, total: snapshot.total,
-    createdAt: new Date(input.createdAt), deliveredAt: null, completedAt: null, cancelled: false,
+    createdAt: new Date(input.createdAt), scheduledDispatchDate: input.scheduledDispatchDate ?? null, shippedAt: null, deliveredAt: null, completedAt: null, cancelled: false,
     payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false,
     itemsTotal: snapshot.total, deliveryCost: zero, deliveryCharge: zero });
 }
@@ -321,10 +326,17 @@ function requireFulfillment(order: OrderAggregate): Result<null, OrderDomainErro
   return ok(null);
 }
 
-function registerShipment(order: OrderAggregate): Result<OrderAggregate, OrderDomainError> {
+function registerShipment(order: OrderAggregate, shippedAt: Date): Result<OrderAggregate, OrderDomainError> {
   const allowed = requireFulfillment(order);
   if (!allowed.success) return allowed;
-  return order.deliveryStatus === "pending" ? ok({ ...order, deliveryStatus: "shipped" }) : failure("INVALID_TRANSITION", "Delivery is not pending");
+  if (!validDate(shippedAt)) return failure("INVALID_TRANSITION", "Invalid shipment date");
+  return order.deliveryStatus === "pending" ? ok({ ...order, deliveryStatus: "shipped", shippedAt: new Date(shippedAt) }) : failure("INVALID_TRANSITION", "Delivery is not pending");
+}
+
+function scheduleDispatch(order: OrderAggregate, scheduledDispatchDate: DispatchDate | null): Result<OrderAggregate, OrderDomainError> {
+  if (order.cancelled) return failure("ORDER_CANCELLED", "Order is cancelled");
+  if (order.deliveryStatus !== "pending") return failure("INVALID_TRANSITION", "Dispatch can only be scheduled while pending");
+  return ok({ ...order, scheduledDispatchDate });
 }
 
 function registerDelivery(order: OrderAggregate, completedAt: Date): Result<OrderAggregate, OrderDomainError> {
@@ -345,5 +357,5 @@ function cancel(order: OrderAggregate): Result<CancellationPlan, CancellationDom
     emitOrderCancelled: !order.cancelled });
 }
 
-export const orderStateMachine = { appendItems, setDelivery, canSetDelivery, registerPayment, addReportedPayment, voidConfirmedPayment, planStockDeduction, registerShipment,
+export const orderStateMachine = { appendItems, setDelivery, canSetDelivery, registerPayment, addReportedPayment, voidConfirmedPayment, planStockDeduction, registerShipment, scheduleDispatch,
   registerDelivery, cancel, getPaymentSummary: paymentSummary, getLifecycle: lifecycle } as const;

@@ -1,5 +1,6 @@
 import { OrderItemsCard } from "@mobile/features/orders/presentation/order-items-card";
 import { OrderPaymentCard } from "@mobile/features/orders/presentation/order-payment-card";
+import { PendingSaleStatus } from "@mobile/features/orders/presentation/pending-sale-status";
 import { OptionSelector } from "@mobile/components/ui/option-selector";
 import { Field, FieldLabel } from "@mobile/components/ui/field";
 import { DeliveryFields, deliveryDraftFromOrder } from "@mobile/features/orders/presentation/delivery-fields";
@@ -26,11 +27,12 @@ import { ThemedText } from "@mobile/components/themed-text";
 import { ThemedView } from "@mobile/components/themed-view";
 import { Button } from "@mobile/components/ui/button";
 import { Input } from "@mobile/components/ui/input";
+import { OrderDayField } from "@mobile/features/orders/presentation/order-day-field";
 import { ListRow } from "@mobile/components/ui/list-row";
 import { ScreenState } from "@mobile/components/ui/screen-state";
 import { showConfirmation } from "@mobile/components/ui/show-confirmation";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
-import { addDraftItem, changeDraftQuantity, emptyOrderDraft, prepareOrder, removeDraftItem,
+import { addDraftItem, changeDraftQuantity, emptyOrderDraft, prepareOrder, removeDraftItem, type RatedDeliveryAssignment,
   type OrderDraft } from "@mobile/features/orders/domain/order-draft";
 import type { PendingOrderConfirmation, ConfirmOrderOutcome, ConfirmOrderError } from "@mobile/features/orders/application/order-operations";
 import { useOrderDraft } from "@mobile/features/orders/presentation/order-draft-guard";
@@ -73,12 +75,11 @@ function CompanyOrderScreen() {
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [selected, setSelected] = useState<Catalog[number] | null>(null);
   const [pending, setPending] = useState<PendingOrderConfirmation | null>(null);
-  const [reviewingDelivery, setReviewingDelivery] = useState(false);
   const [invalidPending, setInvalidPending] = useState(false);
   const [reviewingOrder, setReviewingOrder] = useState(false);
   const [unavailableVariants, setUnavailableVariants] = useState<readonly string[]>([]);
   const [pendingStatus, setPendingStatus] = useState<"loading" | "none" | "uncertain" | "error">("loading");
-  const [checks, setChecks] = useState(0);
+  const [pendingNote, setPendingNote] = useState<"pendingUncertain" | "pendingMissing" | "pendingUnreachable">("pendingUncertain");
   const [checking, setChecking] = useState(false);
   const [sending, setSending] = useState(false);
   const [settings, setSettings] = useState<DeliverySettingsResponse | null>(null);
@@ -93,15 +94,11 @@ function CompanyOrderScreen() {
   const companyId = state.status === "ready" ? state.company.id : "";
   const activeCompany = useRef(companyId);
   const offline = network.isConnected === false || network.isInternetReachable === false;
-  const savedDelivery = pending?.request.delivery?.delivery;
-  const savedProducts = pending?.request.delivery
-    ? subtract(pending.request.delivery.expectedPrice)(pending.shownTotal) : pending ? ok(pending.shownTotal) : null;
-  const productTotal = reviewingDelivery && savedProducts?.success ? ok({ shownTotal: savedProducts.data })
-    : prepareOrder({ ...draft, payments: undefined, ratedDelivery: undefined });
+  const productTotal = prepareOrder({ ...draft, payments: undefined, ratedDelivery: undefined });
   const method = initialDelivery?.method;
   const districtCode = initialDelivery?.districtCode ?? "";
   const deliveryEnabled = !!method && !!settings?.[method].enabled;
-  const canQuote = !!initialDelivery && deliveryEnabled && (method === "home" || method === "agency") && !!districtCode && (pendingStatus === "none" || reviewingDelivery || reviewingOrder);
+  const canQuote = !!initialDelivery && deliveryEnabled && (method === "home" || method === "agency") && !!districtCode && (pendingStatus === "none" || reviewingOrder);
   const requestKey = `${companyId}/${method}/${districtCode}/${quoteAttempt}/${settings?.version}`;
   const quotation = canQuote && quoteResult?.key === requestKey ? quoteResult.quotation : null;
   const quoting = canQuote && quoteResult?.key !== requestKey;
@@ -155,8 +152,8 @@ function CompanyOrderScreen() {
   }, [companyId]);
   useEffect(() => {
     if (draft.kind === "empty") leaveAllowed.current = false;
-    setDirty((draft.kind === "items" || reviewingDelivery || reviewingOrder) && !leaveAllowed.current);
-  }, [draft, reviewingDelivery, reviewingOrder, setDirty]);
+    setDirty((draft.kind === "items" || reviewingOrder) && !leaveAllowed.current);
+  }, [draft, reviewingOrder, setDirty]);
   useEffect(() => () => setDirty(false), [setDirty]);
   useEffect(() => {
     if (version.current === discardVersion) return;
@@ -165,7 +162,7 @@ function CompanyOrderScreen() {
     setDraft(emptyOrderDraft());
     setStage("products"); setPaidPaymentId(null);
     setInitialDelivery(null);
-    setReviewingDelivery(false); setReviewingOrder(false); setUnavailableVariants([]);
+    setReviewingOrder(false); setUnavailableVariants([]);
     setQuoteAttempt(value => value + 1);
   }, [discardVersion]);
   usePreventRemove(dirty, ({ data }) => {
@@ -197,25 +194,23 @@ function CompanyOrderScreen() {
     return () => { active = false; clearTimeout(timer); };
   }, [companyId, pendingStatus, reviewingOrder, search, stage]);
 
-  if (state.status !== "ready") return null;
-
   const openCompleted = (outcome: Extract<ConfirmOrderOutcome, { kind: "completed" }>) => {
     leaveAllowed.current = true;
     setDirty(false);
     show({ id: outcome.order.id, shownTotal: outcome.shownTotal });
     router.replace(`/orders/${outcome.order.id}`);
   };
-  const verify = async () => {
+  const check = async () => {
+    if (draft.kind === "empty") return reviewSavedOrder();
     if (checking) return;
     setChecking(true);
     const result = await orders.resolvePendingOrderConfirmation(companyId);
+    if (activeCompany.current !== companyId) return;
     setChecking(false);
-    if (!result.success) { setError(t('verifyOrderOffline')); return; }
-    if (!result.data) { setPending(null); setPendingStatus("none"); setReviewingDelivery(false); setChecks(0); return; }
+    if (!result.success) { setPendingNote("pendingUnreachable"); return; }
+    if (!result.data) { setPending(null); setPendingStatus("none"); setReviewingOrder(false); return; }
     if (result.data.kind === "completed") { openCompleted(result.data); return; }
-    setPending(result.data.pending);
-    setChecks((current) => current + 1);
-    setError(t('orderMissingHistory'));
+    setPending(result.data.pending); setPendingNote("pendingMissing");
   };
   const performSave = async (work: () => Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>>) => {
     if (saving.current) return;
@@ -238,19 +233,21 @@ function CompanyOrderScreen() {
         setProblemVariantId("issues" in result.error ? result.error.issues?.find(issue => issue.variantId)?.variantId ?? null : null);
         const current = await orders.readPendingOrderConfirmation(companyId);
         if (!current.success) setPendingStatus("error");
-        else { setPending(current.data); setPendingStatus(current.data ? "uncertain" : "none"); }
+        else { setPending(current.data); setPendingStatus(current.data ? "uncertain" : "none"); if (!current.data) setReviewingOrder(false); }
         return;
       }
       if (result.data.kind === "completed") { openCompleted(result.data); return; }
-      setPending(result.data.pending); setPendingStatus("uncertain");
-      if (reviewingDelivery) { setReviewingDelivery(false); setInitialDelivery(null); }
-      if (reviewingOrder) { setReviewingOrder(false); setDraft(emptyOrderDraft()); setInitialDelivery(null); }
-      setChecks(0); setError(t('uncertainOrder'));
+      // The sale stays on this page as an unconfirmed attempt; saving again reuses its ID, so it never duplicates.
+      setPending(result.data.pending); setPendingStatus("uncertain"); setReviewingOrder(true);
+      setPendingNote("pendingUncertain"); setError(""); scroll.current?.scrollTo({ y: 0, animated: true });
     } finally { saving.current = false; setSending(false); }
   };
   const complete = () => { if (deliveryReady && prepared.success && !unavailableVariants.length)
-    return performSave(() => reviewingOrder ? orders.reviewPendingOrder(companyId, saveDraft) : orders.completeOrder(saveDraft, companyId)); };
-  const restoreDelivery = (selection: NonNullable<typeof savedDelivery>, currency: Money["currency"]) => {
+    return performSave(reviewingOrder ? async () => {
+      const reviewed = await orders.reviewPendingOrder(companyId, saveDraft);
+      return reviewed.success && reviewed.data.kind === "uncertain" ? orders.resendPendingOrder(companyId) : reviewed;
+    } : () => orders.completeOrder(saveDraft, companyId)); };
+  const restoreDelivery = (selection: RatedDeliveryAssignment["delivery"], currency: Money["currency"]) => {
     const recipient = selection.recipient;
     setInitialDelivery({ method: selection.method, name: recipient.name, phone: recipient.phone,
       documentType: recipient.identity.kind === "document" ? recipient.identity.documentType : "absent",
@@ -266,12 +263,17 @@ function CompanyOrderScreen() {
     const result = await orders.loadPendingOrderReview(companyId);
     if (activeCompany.current !== companyId) return;
     setChecking(false);
-    if (!result.success) { setError(translations.t(errorKeys[result.error.code] ?? 'confirmOrderError')); return; }
+    if (!result.success) {
+      if (["PENDING_STORAGE_UNAVAILABLE", "INVALID_PENDING_DATA", "CURRENCY_MISMATCH", "INVALID_CART"].includes(result.error.code))
+        setError(translations.t(errorKeys[result.error.code] ?? 'confirmOrderError'));
+      else setPendingNote("pendingUnreachable");
+      return;
+    }
     if (result.data.kind === "completed") { openCompleted(result.data); return; }
     if (result.data.kind !== "review") return;
     setPending(result.data.pending); setDraft(result.data.draft);
     setUnavailableVariants(result.data.unavailableVariantIds);
-    setReviewingDelivery(false); setReviewingOrder(true); setStage("review"); setPaidPaymentId(null); setError("");
+    setReviewingOrder(true); setStage("review"); setPaidPaymentId(null); setError(""); setPendingNote("pendingMissing");
     const delivery = result.data.pending.request.delivery?.delivery;
     if (delivery) restoreDelivery(delivery, result.data.pending.shownTotal.currency);
     else setInitialDelivery(null);
@@ -300,6 +302,14 @@ function CompanyOrderScreen() {
     setQuoteAttempt(value => value + 1);
   };
 
+  // Reopening with an unconfirmed attempt shows that sale here instead of a blank new one.
+  useEffect(() => {
+    if (pendingStatus === "uncertain" && draft.kind === "empty" && !reviewingOrder) void reviewSavedOrder();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- load once per pending read, not on every render
+  }, [pendingStatus]);
+
+  if (state.status !== "ready") return null;
+
   return <ThemedView style={styles.page}><SafeAreaView style={styles.page} edges={["top", "left", "right"]}>
     <KeyboardAvoidingView style={styles.page} behavior={Platform.OS === "ios" ? "padding" : undefined}>
     <View testID="new-order-viewport" style={styles.page}>
@@ -307,6 +317,8 @@ function CompanyOrderScreen() {
       keyboardDismissMode="on-drag" contentInsetAdjustmentBehavior="never">
       <View style={styles.heading}><Button variant="ghost" onPress={stage === "review" && (pendingStatus === "none" || reviewingOrder) ? backToProducts : () => router.back()}>{t(stage === "review" && (pendingStatus === "none" || reviewingOrder) ? 'editProducts' : 'backToOrders')}</Button>
         <ThemedText type="title" accessibilityRole="header">{t('newOrder')}</ThemedText></View>
+      {pendingStatus === "uncertain" ? <PendingSaleStatus title={t('pendingSale')} description={t(pendingNote)} actionLabel={t('checkPendingSale')}
+        checking={checking} disabled={sending} onCheck={() => void check()} /> : null}
       {pendingStatus === "loading" ? <ScreenState status="loading" title={t('checkingPendingOrder')} />
         : pendingStatus === "error" ? <ScreenState status="error" title={t('pendingAttemptError')}
             description={invalidPending ? t('discardInvalidAttemptHint') : t('pendingAttemptHint')}
@@ -318,36 +330,11 @@ function CompanyOrderScreen() {
               if (result.success) { setPending(null); setInvalidPending(false); setPendingStatus("none"); setError(""); }
               else setError(translations.t('pendingStorageUnavailable'));
             }); }}>{t('discardInvalidAttempt')}</Button> : undefined} />
-        : pendingStatus === "uncertain" && !reviewingOrder ? <View style={[styles.section, { backgroundColor: theme.backgroundElement, padding: 16, borderRadius: 8 }]}>
-            <ThemedText type="subtitle" accessibilityRole="header">{t('pendingSale')}</ThemedText>
-            <ThemedText>{t('verifyPendingId', { id: pending?.id })}</ThemedText>
-            <Button disabled={sending} loading={checking} onPress={() => void verify()}>{t('verifyOrder')}</Button>
-            {pending && !reviewingDelivery ? <Button variant="secondary" disabled={sending} loading={checking} onPress={() => void reviewSavedOrder()}>{t('reviewSavedOrder')}</Button> : null}
-            {savedDelivery && pending && !reviewingDelivery ? <Button variant="secondary" disabled={checking || sending} onPress={() => {
-              restoreDelivery(savedDelivery, pending.shownTotal.currency);
-              setReviewingDelivery(true); setQuoteAttempt(value => value + 1); setError("");
-            }}>{t('reviewSavedDelivery')}</Button> : null}
-            {reviewingDelivery && initialDelivery && pending ? <>
-              <ThemedText>{t('savedDeliveryReviewHint')}</ThemedText>
-              <ThemedText>{t('itemCount', { count: pending.request.items.reduce((count, item) => count + item.quantity, 0) })}</ThemedText>
-              {pending.request.payments?.map(payment => <ThemedText key={payment.paymentId}>{t('initialPaid')}: {money(payment.amount.amount, payment.amount.currency, locale)}</ThemedText>)}
-              {settings ? <DeliveryFields value={initialDelivery} onChange={next => {
-                if (next.method !== initialDelivery.method || next.districtCode !== initialDelivery.districtCode) setQuoteAttempt(value => value + 1);
-                setInitialDelivery(next);
-              }} settings={settings} busy={sending || checking} language={orderLanguage(state.company.country, i18n.language)}
-                rates={rates} quoting={quoting} quoteError={quoteError} onRetry={retryQuotation} /> : <ThemedText>{t('loadOrderDeliveryError')}</ThemedText>}
-              <ThemedText>{t('orderDeliveryProductsAmount', { amount: money(productTotal.success ? productTotal.data.shownTotal.amount : pending.shownTotal.amount, pending.shownTotal.currency, locale) })}</ThemedText>
-              {reviewedPrice && reviewedTotal?.success ? <>
-                <ThemedText>{t('orderDeliveryAmount', { amount: money(reviewedPrice.amount, reviewedPrice.currency, locale) })}</ThemedText>
-                <ThemedText>{t('orderDeliveryTotalAmount', { amount: money(reviewedTotal.data.amount, reviewedTotal.data.currency, locale) })}</ThemedText>
-              </> : null}
-              <ThemedText themeColor="textSecondary">{t('creationPriceHint')}</ThemedText>
-              <Button disabled={!ratedDelivery || offline || checking} loading={sending} onPress={() => {
-                if (ratedDelivery) void performSave(() => orders.reviewPendingDelivery(companyId, ratedDelivery));
-              }}>{t('saveReviewedDelivery')}</Button>
-            </> : null}
-            {checks >= 2 && pending && !reviewingDelivery ? <Button variant="secondary" loading={sending} onPress={() => void performSave(() => orders.resendPendingOrder(companyId))}>{t('resendAttempt')}</Button> : null}
-          </View>
+        : pendingStatus === "uncertain" && draft.kind === "empty" ? (pending ? <View style={[styles.card, card]}>
+            <ThemedText type="subtitle" accessibilityRole="header">{t('creationSummary')}</ThemedText>
+            <View style={styles.amountRow}><ThemedText>{t('itemCount', { count: pending.request.items.reduce((count, item) => count + item.quantity, 0) })}</ThemedText>
+              <ThemedText style={styles.amount}>{money(pending.shownTotal.amount, pending.shownTotal.currency, locale)}</ThemedText></View>
+          </View> : null)
         : stage === "products" ? <View style={styles.section}>
             <Input value={search} onChangeText={(value) => { setCatalogLoading(true); setSearch(value); }} accessibilityLabel={t('searchProductsByName')} placeholder={t('searchProductsByName')} />
             {catalogLoading ? <ScreenState status="loading" title={t('searchingProducts')} /> : selected ? <View style={styles.section}>
@@ -391,6 +378,8 @@ function CompanyOrderScreen() {
             <Field disabled={sending}><FieldLabel>{t('deliveryStatus')}</FieldLabel><OptionSelector testID="delivery-status" value={draft.deliverImmediately ? "delivered" : "pending"}
               options={[{ value: "pending", label: t('deliveryPending') }, { value: "delivered", label: t('deliveryDelivered') }]}
               onValueChange={value => setDraft(current => ({ ...current, deliverImmediately: value === "delivered" }))} /></Field>
+            <OrderDayField label={t('scheduledDispatch')} value={draft.scheduledDispatchDate ?? ""}
+              onChange={day => setDraft(current => ({ ...current, scheduledDispatchDate: day || undefined }))} />
             {settings && (initialDelivery || settings.home.enabled || settings.store.enabled || settings.agency.enabled) ? <>
               <Button variant="ghost" disabled={sending} onPress={() => {
                 if (initialDelivery) { setInitialDelivery(null); setQuoteAttempt(value => value + 1); }

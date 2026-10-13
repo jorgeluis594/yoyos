@@ -18,11 +18,12 @@ const mockEnableCheckout = jest.fn();
 const mockShip = jest.fn();
 const mockDeliver = jest.fn();
 const mockCancel = jest.fn();
+const mockUpdateShipping = jest.fn();
 const mockCheckCancellation = jest.fn();
 let mockUserId = "seller";
 jest.mock("expo-clipboard", () => ({ setStringAsync: jest.fn(async () => true) }));
 const initialOrder: OrderAggregateResponse = { number: 1001, id: mockId, companyId: "00000000-0000-4000-8000-000000000001", sellerId: "seller",
-  buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, createdAt: "2026-09-29T11:00:00.000Z", deliveredAt: "2026-09-29T12:00:00.000Z", completedAt: "2026-09-29T12:00:00.000Z",
+  buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, createdAt: "2026-09-29T11:00:00.000Z", deliveredAt: "2026-09-29T12:00:00.000Z", completedAt: "2026-09-29T12:00:00.000Z",
   status: "completed", paymentStatus: "paid", paidAmount: { amount: 12, currency: "PEN" },
   balanceDue: { amount: 0, currency: "PEN" }, overpaidAmount: { amount: 0, currency: "PEN" }, cancelled: false,
   delivery: null, deliveryStatus: "delivered", stockDeducted: true, itemsTotal: { amount: 12, currency: "PEN" },
@@ -39,6 +40,7 @@ jest.mock("expo-router", () => ({ useRouter: () => ({ back: jest.fn(), push: moc
   useLocalSearchParams: () => ({ id: mockId }),
   useFocusEffect: (callback: () => void) => { mockFocus = callback; jest.requireActual("react").useEffect(callback, [callback]); } }));
 jest.mock("@mobile/features/orders/composition", () => ({ orders: {
+  updateOrderShipping: (...args: unknown[]) => mockUpdateShipping(...args),
   cancelOrder: (...args: unknown[]) => mockCancel(...args),
   checkCancellation: (...args: unknown[]) => mockCheckCancellation(...args),
   ship: (...args: unknown[]) => mockShip(...args),
@@ -53,6 +55,10 @@ jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAcc
   status: "ready", user: { id: mockUserId }, company: { id: "00000000-0000-4000-8000-000000000001", country: mockCountry },
 } }) }));
 jest.mock("@mobile/features/orders/presentation/order-result", () => ({ useOrderResult: () => ({ notice: mockNotice, clear: mockClear }) }));
+jest.mock("@mobile/features/orders/presentation/order-day-field", () => ({ OrderDayField: ({ value, onChange }: { value: string; onChange: (day: string) => void }) => {
+  const { Text } = jest.requireActual("react-native");
+  return <><Text>{`day:${value}`}</Text><Text onPress={() => onChange("2026-10-20")}>pick</Text><Text onPress={() => onChange("")}>clear</Text></>;
+} }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 
 test("immediate result shows the amount difference; history detail shows only the recorded total", async () => {
@@ -547,6 +553,26 @@ test("a known cancellation failure restores the permitted interaction and transl
     expect(screen.queryByText(/Os pagamentos são mantidos/)).toBeNull();
     screen.unmount();
   } finally { await i18n.changeLanguage("es"); }
+});
+
+test("pending order reschedules and clears the dispatch date; shipped order has no editor", async () => {
+  const pending = { ...initialOrder, status: "active" as const, completedAt: null, deliveredAt: null, deliveryStatus: "pending" as const, scheduledDispatchDate: "2026-10-15" };
+  mockOrder = pending;
+  mockUpdateShipping.mockImplementation(async (_id: string, input: { scheduledDispatchDate: string | null }) => ({ success: true, data: { ...pending, scheduledDispatchDate: input.scheduledDispatchDate } }));
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("day:2026-10-15");
+  fireEvent.press(screen.getByText("pick"));
+  await screen.findByText("day:2026-10-20");
+  expect(mockUpdateShipping).toHaveBeenLastCalledWith(mockId, { scheduledDispatchDate: "2026-10-20" });
+  fireEvent.press(screen.getByText("clear"));
+  await screen.findByText("day:");
+  expect(mockUpdateShipping).toHaveBeenLastCalledWith(mockId, { scheduledDispatchDate: null });
+  screen.unmount();
+  mockOrder = { ...pending, deliveryStatus: "shipped", shippedAt: "2026-10-16T15:00:00.000Z" };
+  const shipped = render(<OrderDetailScreen />);
+  await shipped.findByText(/Despachado el/);
+  expect(shipped.queryByText("pick")).toBeNull();
+  expect(shipped.getByText(/2026-10-15/)).toBeTruthy();
 });
 
 describe("WhatsApp orders", () => {

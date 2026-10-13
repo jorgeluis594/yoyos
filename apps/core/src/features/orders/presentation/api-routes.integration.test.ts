@@ -361,6 +361,50 @@ test("orders HTTP combines Lima-day UTC bounds with stable pages", async () => {
   expect((await call(`/api/orders?${filters}`, seller.cookie)).status).toBe(400);
 });
 
+test("orders HTTP filters by dispatch status, courier, scheduled and shipped dates within the tenant", async () => {
+  const seller = await fixture("PE");
+  const other = await fixture("PE");
+  const courierId = randomUUID();
+  const location = { country: "PE", districtCode: "150122", district: "Miraflores", province: "Lima", department: "Lima" };
+  const delivery = { method: "agency", recipient: { name: "Ana", phone: "999", identity: { kind: "document", documentType: "national_id", document: "12345678" } },
+    destination: location, pricing: { quotationId: randomUUID(), rateId: randomUUID(), optionId: randomUUID(), settingsVersion: 1 },
+    courier: { id: courierId, name: "Shalom" }, agency: { id: randomUUID(), name: "Agencia", address: "Av. 1", location },
+    recordedBy: { kind: "seller", userId: seller.userId } };
+  const base = { currency: "PEN", total: 10, itemsTotal: 10, stockDeducted: true, createdAt: new Date("2026-09-28T12:00:00.000Z") };
+  const ids = Array.from({ length: 5 }, () => randomUUID());
+  const [pendingScheduled, pendingUnscheduled, cancelledPending, shipped, otherTenant] = ids;
+  await withTenantIsolation(seller.companyId, async () => {
+    await prisma.order.createMany({ data: [
+      { ...base, number: 1001n, id: pendingScheduled, sellerId: seller.userId, scheduledDispatchDate: new Date("2026-10-05"), delivery },
+      { ...base, number: 1002n, id: pendingUnscheduled, sellerId: seller.userId },
+      { ...base, number: 1003n, id: cancelledPending, sellerId: seller.userId, cancelled: true, scheduledDispatchDate: new Date("2026-10-05") },
+      { ...base, number: 1004n, id: shipped, sellerId: seller.userId, deliveryStatus: "shipped", shippedAt: new Date("2026-10-06T15:00:00.000Z"), scheduledDispatchDate: new Date("2026-10-06") },
+    ] });
+    await prisma.orderItem.createMany({ data: [pendingScheduled, pendingUnscheduled, cancelledPending, shipped].map((orderId) => ({ orderId, variantId: seller.variantId,
+      productName: "Sample product", variantAttributes: {}, quantity: 1n, unitPrice: 10, subtotal: 10 })) });
+  });
+  await withTenantIsolation(other.companyId, async () => {
+    await prisma.order.create({ data: { ...base, number: 1001n, id: otherTenant, sellerId: other.userId, scheduledDispatchDate: new Date("2026-10-05") } });
+  });
+  const list = async (query: string) => {
+    const response = await call(`/api/orders/mixed?${query}`, seller.cookie);
+    return response.status === 200 ? (await response.json()).items.map((item: { id: string }) => item.id).sort() : response.status;
+  };
+  expect(await list("deliveryStatus=pending")).toEqual([pendingScheduled, pendingUnscheduled].sort());
+  expect(await list("deliveryStatus=shipped")).toEqual([shipped]);
+  expect((await (await call(`/api/orders/mixed?courierId=${courierId}`, seller.cookie)).json()).items[0].courier).toEqual({ id: courierId, name: "Shalom" });
+  expect(await list(`courierId=${courierId}`)).toEqual([pendingScheduled]);
+  expect(await list("unscheduled=true")).toEqual([pendingUnscheduled]);
+  expect(await list("scheduledFrom=2026-10-06")).toEqual([shipped]);
+  expect(await list("scheduledThrough=2026-10-05&deliveryStatus=pending")).toEqual([pendingScheduled]);
+  expect(await list("scheduledFrom=2026-10-05&scheduledThrough=2026-10-06")).toEqual([pendingScheduled, cancelledPending, shipped].sort());
+  expect(await list("shippedFrom=2026-10-06T00%3A00%3A00.000Z&shippedBefore=2026-10-06T15%3A00%3A00.000Z")).toEqual([]);
+  expect(await list("shippedFrom=2026-10-06T15%3A00%3A00.000Z&shippedBefore=2026-10-07T00%3A00%3A00.000Z")).toEqual([shipped]);
+  expect(await list("unscheduled=true&scheduledFrom=2026-10-05")).toBe(400);
+  expect(await list("scheduledFrom=2026-10-06&scheduledThrough=2026-10-05")).toBe(400);
+  expect(await list("shippedFrom=2026-10-07T00%3A00%3A00.000Z&shippedBefore=2026-10-06T00%3A00%3A00.000Z")).toBe(400);
+});
+
 test("home HTTP uses persisted enablement, requires district and replaces store without retaining its destination", async () => {
   const seller = await fixture("PE");
   const orderId = randomUUID();
@@ -895,4 +939,70 @@ test("cancellation rejects a session without a company or without verification b
   expect(unverified.status).toBe(403); expect(await unverified.json()).toMatchObject({ code: "EMAIL_VERIFICATION_REQUIRED" });
   await systemPrisma.user.update({ where: { id: session.userId }, data: { emailVerified: true } });
   expect(await (await call(`/api/orders/${id}/aggregate`, seller.cookie)).json()).toEqual(before);
+});
+
+test("shipping HTTP schedules, dispatches once, rolls back failed transitions and isolates companies", async () => {
+  const seller = await fixture("PE");
+  const other = await fixture("CL");
+  const patch = (orderId: string, body: unknown, cookie = seller.cookie) => call(`/api/orders/${orderId}/shipping`, cookie, body, "PATCH");
+  const create = async () => {
+    const id = randomUUID();
+    const created = await call("/api/orders", seller.cookie, { id, scheduledDispatchDate: "2026-10-15", items: [{ variantId: seller.variantId, quantity: 1 }] }, "POST");
+    expect(await created.json()).toMatchObject({ id, scheduledDispatchDate: "2026-10-15", shippedAt: null });
+    return id;
+  };
+  const pay = async (id: string) => expect((await call(`/api/orders/${id}/payments`, seller.cookie,
+    { paymentId: randomUUID(), amount: { amount: 10, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false })).status).toBe(200);
+
+  const unpaid = await create();
+  expect(await (await patch(unpaid, { scheduledDispatchDate: "2020-01-01" })).json()).toMatchObject({ scheduledDispatchDate: "2020-01-01" });
+  expect((await patch(unpaid, { scheduledDispatchDate: "2026-02-30" })).status).toBe(400);
+  expect((await patch(unpaid, {})).status).toBe(400);
+  expect((await patch(unpaid, { scheduledDispatchDate: "2026-10-20" }, other.cookie)).status).toBe(404);
+  expect((await patch(unpaid, { scheduledDispatchDate: "2026-10-20", status: "shipped" })).status).toBe(409);
+  expect(await (await call(`/api/orders/${unpaid}/aggregate`, seller.cookie)).json()).toMatchObject({ scheduledDispatchDate: "2020-01-01", deliveryStatus: "pending" });
+  expect(await (await patch(unpaid, { scheduledDispatchDate: null })).json()).toMatchObject({ scheduledDispatchDate: null });
+  expect((await call(`/api/orders/${unpaid}/cancel`, seller.cookie, undefined, "POST")).status).toBe(200);
+  expect((await patch(unpaid, { scheduledDispatchDate: "2026-10-20" })).status).toBe(409);
+
+  const paid = await create();
+  await pay(paid);
+  const [first, second] = await Promise.all([patch(paid, { status: "shipped" }), patch(paid, { status: "shipped" })]);
+  expect([first.status, second.status]).toEqual([200, 200]);
+  const shippedAt = (await (await call(`/api/orders/${paid}/aggregate`, seller.cookie)).json()).shippedAt;
+  expect(shippedAt).toEqual(expect.any(String));
+  expect((await first.json()).shippedAt).toBe(shippedAt);
+  expect((await second.json()).shippedAt).toBe(shippedAt);
+  expect((await patch(paid, { scheduledDispatchDate: "2026-10-21" })).status).toBe(409);
+  expect(await (await patch(paid, { status: "delivered" })).json()).toMatchObject({ shippedAt, deliveryStatus: "delivered" });
+
+  const direct = await create();
+  await pay(direct);
+  expect(await (await patch(direct, { status: "delivered" })).json()).toMatchObject({ shippedAt: null, deliveryStatus: "delivered" });
+});
+
+test("reading mixed orders for label preparation never changes states, payments or dates", async () => {
+  const seller = await fixture("PE");
+  const location = { country: "PE", districtCode: "150122", district: "Miraflores", province: "Lima", department: "Lima" };
+  const agency = { method: "agency", recipient: { name: "Ana", phone: "999", identity: { kind: "document", documentType: "national_id", document: "12345678" } },
+    destination: location, pricing: { quotationId: randomUUID(), rateId: randomUUID(), optionId: randomUUID(), settingsVersion: 1 },
+    courier: { id: shalomId, name: "Shalom" }, agency: { id: randomUUID(), name: "Agencia", address: "Av. 1", location },
+    recordedBy: { kind: "seller", userId: seller.userId } };
+  const base = { currency: "PEN", total: 10, itemsTotal: 10, stockDeducted: true, sellerId: seller.userId, createdAt: new Date("2026-09-28T12:00:00.000Z") };
+  const [complete, incomplete, shipped, cancelled] = [1, 2, 3, 4].map(() => randomUUID());
+  await withTenantIsolation(seller.companyId, async () => {
+    await prisma.order.createMany({ data: [
+      { ...base, id: complete, number: 2001n, scheduledDispatchDate: new Date("2026-10-05"), delivery: agency },
+      { ...base, id: incomplete, number: 2002n },
+      { ...base, id: shipped, number: 2003n, deliveryStatus: "shipped", shippedAt: new Date("2026-10-06T15:00:00.000Z"), delivery: agency },
+      { ...base, id: cancelled, number: 2004n, cancelled: true, delivery: agency },
+    ] });
+    await prisma.orderItem.createMany({ data: [complete, incomplete, shipped, cancelled].map((orderId) => ({ orderId, variantId: seller.variantId,
+      productName: "Sample product", variantAttributes: {}, quantity: 1n, unitPrice: 10, subtotal: 10 })) });
+  });
+  const snapshot = () => withTenantIsolation(seller.companyId, async () => await prisma.order.findMany({ orderBy: { number: "asc" } }));
+  const before = await snapshot();
+  for (const id of [complete, incomplete, shipped, cancelled]) expect((await call(`/api/orders/${id}/aggregate`, seller.cookie)).status).toBe(200);
+  for (const query of ["view=unpaid", "deliveryStatus=pending", `courierId=${shalomId}`, "unscheduled=true"]) expect((await call(`/api/orders/mixed?${query}`, seller.cookie)).status).toBe(200);
+  expect(await snapshot()).toEqual(before);
 });

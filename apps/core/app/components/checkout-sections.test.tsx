@@ -1,10 +1,17 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot } from "react-dom/client";
+import { createInstance } from "i18next";
+import { I18nextProvider, initReactI18next } from "react-i18next";
+import resources from "@core/app/locales";
 import { describe, expect, test } from "vitest";
 import type { CheckoutDeliveryDraft } from "@core/app/components/checkout-delivery-fields";
 import { CheckoutShell, checkoutTotal } from "@core/app/components/checkout-sections";
 import { previewCheckout } from "@core/src/features/checkout-appearance/presentation/preview-fixtures";
+
+const i18n = createInstance();
+await i18n.use(initReactI18next).init({ lng: "es", resources });
+const withI18n = (element: React.ReactElement) => <I18nextProvider i18n={i18n}>{element}</I18nextProvider>;
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -32,7 +39,7 @@ describe("CheckoutShell", () => {
   test("puts the brand inside the header with the order title", () => {
     const container = document.body.appendChild(document.createElement("div"));
     const root = createRoot(container);
-    act(() => root.render(<CheckoutShell appearance={null} checkout={pending}><p>Contenido</p></CheckoutShell>));
+    act(() => root.render(withI18n(<CheckoutShell appearance={null} checkout={pending}><p>Contenido</p></CheckoutShell>)));
     const header = container.querySelector("header")!;
     expect(header.textContent).toContain("Lima Studio");
     expect(header.querySelector("h1")?.textContent).toBe("Pedido #1001");
