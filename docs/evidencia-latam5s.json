@@ -1,0 +1,330 @@
+{
+  "review_date": "2026-09-29",
+  "review_timezone": "America/Lima",
+  "tool": "playwright-cli",
+  "account_scope": "Entrepreneur account, Pro plan; personal identifiers omitted",
+  "yoyos_commit": "c1b37e149f451975862caba435544b014846103f",
+  "surfaces": [
+    {
+      "name": "Login",
+      "url": "https://www.latam5s.com/login",
+      "checks": [
+        "Authorized login with local environment credentials"
+      ]
+    },
+    {
+      "name": "Configuration",
+      "checks": [
+        "Public identity fields",
+        "Password control observed only",
+        "Seven delivery methods",
+        "Dispatch weekdays",
+        "Cutoff",
+        "Lead days",
+        "Advanced statuses; no changes saved"
+      ]
+    },
+    {
+      "name": "Share",
+      "checks": [
+        "Active personalized form URL",
+        "Copy/WhatsApp/new-tab controls observed",
+        "Form opened; messages not sent"
+      ]
+    },
+    {
+      "name": "Shipments",
+      "checks": [
+        "All six status filters",
+        "Shipment-date filter",
+        "Shalom search",
+        "Grouping by carrier",
+        "Selection of one existing card to inspect status menu; no status chosen",
+        "Label format menu",
+        "Excel menu",
+        "General export download"
+      ]
+    },
+    {
+      "name": "Public form",
+      "url_pattern": "https://www.latam5s.com/form?merchant=<merchant>",
+      "checks": [
+        "Progressive fields using unsent synthetic input",
+        "Shalom agency search/selection",
+        "Olva agency search",
+        "Delivery district search/selection",
+        "Name and eligible dispatch dates",
+        "Reloaded to discard unsent inputs; submit never clicked"
+      ]
+    },
+    {
+      "name": "Marketing",
+      "url": "https://www.latam5s.com/",
+      "checks": [
+        "Published plans and pricing",
+        "Product positioning",
+        "Demo and contact links inspected; no contact sent"
+      ]
+    }
+  ],
+  "account_aggregates_at_read": {
+    "total": 1413,
+    "statuses": {
+      "PENDIENTE": 24,
+      "ENVIADO": 1389
+    },
+    "carriers": {
+      "Delivery": 416,
+      "Shalom": 949,
+      "Olva Courier": 39,
+      "Marvisur": 9
+    }
+  },
+  "current_logistics_config": {
+    "couriers": [
+      "Shalom",
+      "Olva Courier",
+      "Delivery"
+    ],
+    "shippingDays": [
+      "Mar"
+    ],
+    "cutoff": "23:00",
+    "leadDays": 3,
+    "advancedStatuses": true
+  },
+  "filter_observations": {
+    "preparing": 0,
+    "packed": 0,
+    "sent": 1389,
+    "cancelled": 0,
+    "pending_on_2026_10_03": 13,
+    "pending_search_Shalom": 17,
+    "initial_pending_total": 24
+  },
+  "public_form_date_options_observed": [
+    "2026-10-06",
+    "2026-10-13"
+  ],
+  "published_plans": {
+    "Basic": {
+      "pricePEN": 0
+    },
+    "Pro": {
+      "pricePEN": 49.9,
+      "period": "month"
+    },
+    "ProTrialDays": 7
+  },
+  "export_verification": {
+    "format": "xlsx",
+    "sheet": "Reporte",
+    "dataRows": 24,
+    "headers": [
+      "Fecha de Creación",
+      "Fecha Envío",
+      "Courier",
+      "Cliente",
+      "Teléfono",
+      "Agencia / Distrito",
+      "Dirección / Ref",
+      "DNI",
+      "Estado"
+    ],
+    "containsPersonalData": true,
+    "includedInDeliverable": false
+  },
+  "network_controls": {
+    "businessMutationsBlocked": true,
+    "allowedReadMethods": [
+      "GET",
+      "HEAD",
+      "OPTIONS"
+    ],
+    "authenticationPOSTExceptions": [
+      "/legacy/auth/login",
+      "/legacy/auth/guest/<merchant>"
+    ],
+    "note": "Guest auth initially blocked by the read-only guard, then specifically allowed; not a product defect."
+  },
+  "network_evidence": {
+    "methodsInRecordedLogs": {
+      "POST": 5,
+      "GET": 17
+    },
+    "nonReadRequests": [
+      {
+        "method": "POST",
+        "path": "/legacy/auth/login",
+        "result": "[200] OK"
+      },
+      {
+        "method": "POST",
+        "path": "/legacy/auth/guest/<merchant>",
+        "result": "[FAILED] net::ERR_BLOCKED_BY_CLIENT.Inspector"
+      },
+      {
+        "method": "POST",
+        "path": "/legacy/auth/guest/<merchant>",
+        "result": "[FAILED] net::ERR_BLOCKED_BY_CLIENT.Inspector"
+      },
+      {
+        "method": "POST",
+        "path": "/legacy/auth/guest/<merchant>",
+        "result": "[200] OK"
+      },
+      {
+        "method": "POST",
+        "path": "/legacy/auth/guest/<merchant>",
+        "result": "[200] OK"
+      }
+    ],
+    "businessMutationRequestsFound": 0,
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/legacy/auth/login",
+        "result": "[200] OK"
+      },
+      {
+        "method": "GET",
+        "path": "/legacy/config",
+        "result": "[200] OK"
+      },
+      {
+        "method": "GET",
+        "path": "/legacy/merchant",
+        "result": "[200] OK"
+      },
+      {
+        "method": "GET",
+        "path": "/legacy/orders",
+        "result": "[200] OK"
+      },
+      {
+        "method": "GET",
+        "path": "/assets/login-CDk8jSsS.js",
+        "result": "[200] "
+      },
+      {
+        "method": "GET",
+        "path": "/",
+        "result": "[200] "
+      },
+      {
+        "method": "POST",
+        "path": "/legacy/auth/guest/<merchant>",
+        "result": "[FAILED] net::ERR_BLOCKED_BY_CLIENT.Inspector"
+      },
+      {
+        "method": "POST",
+        "path": "/legacy/auth/guest/<merchant>",
+        "result": "[FAILED] net::ERR_BLOCKED_BY_CLIENT.Inspector"
+      },
+      {
+        "method": "GET",
+        "path": "/assets/rest-client-DgUmF1dG.js",
+        "result": "[200] "
+      },
+      {
+        "method": "GET",
+        "path": "/assets/form-B-F_SX8m.js",
+        "result": "[200] "
+      },
+      {
+        "method": "POST",
+        "path": "/legacy/auth/guest/<merchant>",
+        "result": "[200] OK"
+      },
+      {
+        "method": "GET",
+        "path": "/legacy/config",
+        "result": "[200] OK"
+      },
+      {
+        "method": "GET",
+        "path": "/lstDistritos.json",
+        "result": "[200] "
+      },
+      {
+        "method": "GET",
+        "path": "/lstShalom.json",
+        "result": "[200] "
+      },
+      {
+        "method": "GET",
+        "path": "/lstOlvaCourier.json",
+        "result": "[200] "
+      },
+      {
+        "method": "GET",
+        "path": "/lstDistritos.json",
+        "result": "[200] "
+      },
+      {
+        "method": "GET",
+        "path": "/legacy/orders",
+        "result": "[200] OK"
+      },
+      {
+        "method": "GET",
+        "path": "/legacy/config",
+        "result": "[200] OK"
+      },
+      {
+        "method": "POST",
+        "path": "/legacy/auth/guest/<merchant>",
+        "result": "[200] OK"
+      },
+      {
+        "method": "GET",
+        "path": "/legacy/config",
+        "result": "[200] OK"
+      },
+      {
+        "method": "GET",
+        "path": "/lstDistritos.json",
+        "result": "[200] "
+      },
+      {
+        "method": "GET",
+        "path": "/assets/main-KIu0F9MY.js",
+        "result": "[200] "
+      }
+    ]
+  },
+  "public_assets": [
+    {
+      "url": "https://www.latam5s.com/assets/login-CDk8jSsS.js",
+      "sha256": "9a411c9f29f9196595cda5382b6d6fb1197d744181049ec6401ba84d304b3ff5"
+    },
+    {
+      "url": "https://www.latam5s.com/assets/form-B-F_SX8m.js",
+      "sha256": "7b5701193663fb7f65206a463a6f159e4d6032c3f6323374128f1a53a832247f"
+    },
+    {
+      "url": "https://www.latam5s.com/assets/rest-client-DgUmF1dG.js",
+      "sha256": "2e6dc8b3eb1f936e236faf3034cdf804884dc42554787fc11abf6793db680701"
+    }
+  ],
+  "not_executed": [
+    "Create shipment",
+    "Save configuration",
+    "Change password",
+    "Change shipment status",
+    "Cancel shipment",
+    "Delete shipment",
+    "Activate trial",
+    "Change plan",
+    "Send WhatsApp message",
+    "Upload to courier",
+    "Physical printing"
+  ],
+  "limits": [
+    "Accessible account modules only; no restricted admin exploration",
+    "Backend write behavior inferred from client code, not tested",
+    "Yoyos source inspection only; no runtime or test run",
+    "Published marketing figures not independently verified",
+    "Inactive delivery options inspected in config/code without enabling them"
+  ]
+}
