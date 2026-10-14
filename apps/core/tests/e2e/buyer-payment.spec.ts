@@ -58,7 +58,7 @@ test("buyer reports a receipt and sees the seller confirmed balance", async ({ p
     await page.getByLabel("Nombre", { exact: true }).fill("Ana Torres");
     await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
     expect((await request.post(`/api/buyer/orders/${orderId}/reports`, { data: { paymentId: crypto.randomUUID(), receiptImageId: crypto.randomUUID() } })).status()).toBe(409);
-    await page.getByLabel("Forma de entrega").selectOption("store");
+    await page.getByRole("radio", { name: "Recojo en tienda · Gratis" }).check();
     await page.getByLabel("Nombre del destinatario").fill("Ana Torres");
     await page.getByLabel("Teléfono del destinatario").fill("+51987654321");
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();

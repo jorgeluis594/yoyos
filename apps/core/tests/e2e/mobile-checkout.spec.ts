@@ -40,7 +40,7 @@ test("mobile seller copies checkout and sees the anonymous buyer confirmation in
     await buyer.goto(url);
     await buyer.getByLabel("Nombre", { exact: true }).fill("Ana");
     await buyer.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
-    await buyer.getByLabel("Forma de entrega", { exact: true }).selectOption("store");
+    await buyer.getByRole("radio", { name: "Recojo en tienda · Gratis" }).check();
     await buyer.getByLabel("Nombre del destinatario", { exact: true }).fill("Ana");
     await buyer.getByLabel("Teléfono del destinatario", { exact: true }).fill("+51987654321");
     await buyer.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
