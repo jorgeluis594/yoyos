@@ -4,7 +4,7 @@ import { SymbolView } from "expo-symbols";
 import { z } from "zod";
 import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BackHandler, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, SectionList, StyleSheet, View } from "react-native";
+import { Alert, BackHandler, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, FlatList, StyleSheet, ToastAndroid, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import type { ListOrderAggregatesResponse } from "@shared/contracts/orders";
@@ -28,8 +28,9 @@ import translations from "@mobile/i18n";
 
 type Summary = ListOrderAggregatesResponse["items"][number];
 const money = (amount: number, currency: string, locale: string) => new Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
-const dayKey = (value: string | Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Lima", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(value));
-const timeLabel = (value: string, locale: string) => new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", timeZone: "America/Lima" }).format(new Date(value));
+const notify = (message: string) => Platform.OS === "android" ? ToastAndroid.show(message, ToastAndroid.SHORT) : Alert.alert(message);
+const yearOf = (value: string | Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Lima", year: "numeric" }).format(new Date(value));
+const dateTimeLabel = (value: string, locale: string, now: Date) => new Intl.DateTimeFormat(locale, { day: "numeric", month: "short", ...(yearOf(value) !== yearOf(now) ? { year: "numeric" } : {}), hour: "2-digit", minute: "2-digit", timeZone: "America/Lima" }).format(new Date(value));
 
 export default function OrderHistoryScreen() {
   const router = useRouter();
@@ -136,18 +137,6 @@ export default function OrderHistoryScreen() {
     setShippedFromDay(criteria.shippedFromDay ?? ""); setShippedThroughDay(criteria.shippedThroughDay ?? "");
     setFilterError(""); setFiltersOpen(true);
   };
-  const sections: { title: string; data: Summary[] }[] = [];
-  for (const item of items) {
-    const title = dayKey(item.createdAt);
-    const last = sections[sections.length - 1];
-    if (last?.title === title) last.data.push(item);
-    else sections.push({ title, data: [item] });
-  }
-  const sectionTitle = (date: string) => {
-    const label = new Intl.DateTimeFormat(locale, { day: "numeric", month: "long", ...(date.slice(0, 4) !== dayKey(now).slice(0, 4) ? { year: "numeric" } : {}), timeZone: "America/Lima" }).format(new Date(`${date}T12:00:00Z`));
-    const relative = date === dayKey(now) ? t('orderListToday') : date === dayKey(new Date(now.getTime() - 86400000)) ? t('orderListYesterday') : "";
-    return relative ? `${relative} · ${label}` : label;
-  };
   const header = <View style={styles.header}>
     <View style={styles.business}><SymbolView name={{ ios: "storefront", android: "storefront" }} size={20} tintColor={theme.primary} /><ThemedText type="small" themeColor="textSecondary" style={styles.customer}>{state.company.name}</ThemedText></View>
     <View style={styles.heading}><ThemedText accessibilityRole="header" style={styles.title}>{t('orders')}</ThemedText>
@@ -235,46 +224,46 @@ export default function OrderHistoryScreen() {
 
   return <ThemedView style={styles.page}><SafeAreaView style={styles.page} edges={["top", "left", "right"]}>
     <View style={styles.container}>
-      <SectionList sections={error ? [] : sections} keyExtractor={(item) => item.id} style={styles.page}
-        keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" stickySectionHeadersEnabled={false}
+      <FlatList data={error ? [] : items} keyExtractor={(item) => item.id} style={styles.page}
+        keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag"
         refreshing={loading && items.length > 0} onRefresh={() => void reload(companyId, criteria)}
         contentContainerStyle={styles.content} ListHeaderComponent={header}
-        renderSectionHeader={({ section }) => <ThemedText type="small" themeColor="textSecondary" accessibilityRole="header" style={styles.day}>{sectionTitle(section.title)}</ThemedText>}
         ListEmptyComponent={<ScreenState status={loading ? "loading" : error ? "error" : filtered ? "no-results" : "empty"}
           title={loading ? t('loadingOrders') : error ? t('loadOrdersTitle') : filtered ? t('noResults') : t('noOrders')}
           description={error || (!loading ? t('ordersEmptyHint') : undefined)} onRetry={error ? () => void reload(companyId, criteria) : undefined} />}
-        renderItem={({ item, index, section }) => {
+        renderItem={({ item }) => {
           const selected = selection.orders.has(item.id);
-          const first = index === 0, last = index === section.data.length - 1;
           return <Pressable accessibilityRole="button" accessibilityState={{ selected }} accessibilityHint={t('orderListSelectHint')}
             accessibilityActions={[{ name: "select", label: t('orderListSelect', { number: item.number }) }]} onAccessibilityAction={() => selection.toggle(item)}
             onPress={() => selection.count ? selection.toggle(item) : router.push(`/orders/${item.id}`)} onLongPress={() => { if (!selected) selection.toggle(item); }}
             style={({ pressed }) => [styles.order, {
               backgroundColor: selected || pressed ? theme.backgroundSelected : theme.backgroundElement, borderColor: theme.border,
-              borderTopWidth: first ? StyleSheet.hairlineWidth : 0,
-              borderTopLeftRadius: first ? 12 : 0, borderTopRightRadius: first ? 12 : 0,
-              borderBottomLeftRadius: last ? 12 : 0, borderBottomRightRadius: last ? 12 : 0,
             }]}>
           {selection.count ? <SymbolView name={{ ios: selected ? "checkmark.circle.fill" : "circle", android: selected ? "check_circle" : "radio_button_unchecked" }} size={24} tintColor={selected ? theme.primary : theme.textSecondary} /> : null}
           <View style={styles.orderText}>
             <OrderBuyerName buyer={item.buyer} source={item.source} style={styles.customerName} />
-            <ThemedText type="small" themeColor="textSecondary">#{item.number} · {timeLabel(item.createdAt, locale)}</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">#{item.number} · {dateTimeLabel(item.createdAt, locale, now)}</ThemedText>
             {item.status === "cancelled" || item.status === "completed" ? <View style={[styles.badge, { backgroundColor: item.status === "completed" ? theme.successSurface : theme.secondary }]}>
               <ThemedText type="small" style={{ color: item.status === "completed" ? theme.success : theme.textSecondary }}>{t(item.status === "completed" ? 'orderListCompleted' : 'orderListCancelled')}</ThemedText>
             </View> : <View style={styles.badges}>
               <View style={styles.statusLine}>
                 <SymbolView name={{ ios: item.paymentStatus === "paid" ? "checkmark.circle.fill" : "clock", android: item.paymentStatus === "paid" ? "check_circle" : "schedule" }} size={16} tintColor={item.paymentStatus === "paid" ? theme.success : theme.warning} />
-                <ThemedText type="small" style={{ flexShrink: 1, color: item.paymentStatus === "paid" ? theme.success : theme.warning }}>{t(item.paymentStatus === "paid" ? 'orderListPaid' : 'orderListPaymentPending')}</ThemedText>
+                <ThemedText type="small" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={{ flexShrink: 1, color: item.paymentStatus === "paid" ? theme.success : theme.warning }}>{t(item.paymentStatus === "paid" ? 'orderListPaid' : 'orderListPaymentPending')}</ThemedText>
               </View>
               <View style={styles.statusLine}>
                 <SymbolView name={{ ios: "shippingbox", android: "local_shipping" }} size={16} tintColor={theme.textSecondary} />
-                <ThemedText type="small" themeColor="textSecondary" style={styles.statusText}>{deliveryStatusLabel(item.deliveryStatus, language)}</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75} style={styles.statusText}>{deliveryStatusLabel(item.deliveryStatus, language)}</ThemedText>
               </View>
             </View>}
             {item.scheduledDispatchDate || item.courier ? <ThemedText type="small" themeColor="textSecondary">{[item.scheduledDispatchDate && t('orderListScheduledOn', { date: item.scheduledDispatchDate }), item.courier?.name].filter(Boolean).join(" · ")}</ThemedText> : null}
-            {item.checkoutEnabledAt ? <ThemedText type="small" themeColor="textSecondary">{t(item.status === "cancelled" ? "checkoutCancelled" : item.checkoutConfirmedAt ? "checkoutConfirmed" : "checkoutPending")}</ThemedText> : null}
           </View>
           <ThemedText style={styles.amount}>{money(item.total.amount, item.total.currency, locale)}</ThemedText>
+          {item.checkoutEnabledAt && item.status !== "cancelled" ? <Pressable accessibilityRole="button" hitSlop={14} style={styles.checkout}
+            accessibilityLabel={t(item.checkoutConfirmedAt ? 'checkoutConfirmed' : 'orderListCheckoutPending')}
+            onPress={() => notify(t(item.checkoutConfirmedAt ? 'checkoutConfirmed' : 'orderListCheckoutPending'))}>
+            <SymbolView name={item.checkoutConfirmedAt ? { ios: "person.crop.circle.badge.checkmark", android: "how_to_reg" } : { ios: "hourglass", android: "pending_actions" }}
+              size={20} tintColor={item.checkoutConfirmedAt ? theme.success : theme.warning} />
+          </Pressable> : null}
         </Pressable>;
         }}
         ListFooterComponent={!error && items.length ? <View style={styles.footer}>
@@ -301,7 +290,7 @@ export default function OrderHistoryScreen() {
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1 }, container: { flex: 1, width: "100%", maxWidth: 640, alignSelf: "center" }, content: { paddingBottom: 24 },
+  page: { flex: 1 }, container: { flex: 1, width: "100%", maxWidth: 640, alignSelf: "center" }, content: { paddingBottom: 24, gap: 8 },
   header: { gap: 8, paddingHorizontal: 16, paddingTop: 4, paddingBottom: 4 },
   business: { flexDirection: "row", alignItems: "center", gap: 8 }, customer: { flex: 1 },
   heading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" },
@@ -317,13 +306,13 @@ const styles = StyleSheet.create({
   chip: { minHeight: 48, borderWidth: 1, borderRadius: 28, paddingHorizontal: 8, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0, justifyContent: "center" },
   filterButton: { minHeight: 48, minWidth: 48, borderRadius: 24, borderWidth: StyleSheet.hairlineWidth, alignItems: "center", justifyContent: "center" },
   applied: { minHeight: 48, justifyContent: "center" },
-  day: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10 },
   selectionBar: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
-  order: { marginHorizontal: 16, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 12, paddingVertical: 10, minHeight: 72, borderBottomWidth: StyleSheet.hairlineWidth, borderLeftWidth: StyleSheet.hairlineWidth, borderRightWidth: StyleSheet.hairlineWidth },
+  order: { marginHorizontal: 16, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 12, paddingVertical: 10, minHeight: 72, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth },
   orderText: { flex: 1, minWidth: 0, gap: 2 },
   customerName: { fontWeight: "600" }, amount: { fontWeight: "600", fontVariant: ["tabular-nums"], textAlign: "right", maxWidth: "40%" },
-  badges: { flexDirection: "row", flexWrap: "wrap", columnGap: 12, rowGap: 2 }, badge: { alignSelf: "flex-start", borderRadius: 20, paddingHorizontal: 9, paddingVertical: 2 },
-  statusLine: { flexDirection: "row", alignItems: "center", gap: 4 }, statusText: { flexShrink: 1 },
+  badges: { flexDirection: "row", columnGap: 12 }, badge: { alignSelf: "flex-start", borderRadius: 20, paddingHorizontal: 9, paddingVertical: 2 },
+  statusLine: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1 }, statusText: { flexShrink: 1 },
+  checkout: { position: "absolute", top: 10, right: 12 },
   footer: { gap: 8, padding: 16 }, filters: { gap: 16 },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8, alignItems: "center" },
   field: { gap: 8 }, date: { flex: 1, minWidth: 130, gap: 4 }, notice: { gap: 8, padding: 16, borderRadius: 8 },

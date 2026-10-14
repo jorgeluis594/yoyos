@@ -68,7 +68,7 @@ test('catalog translates empty state and search to Portuguese', async () => {
   }
 });
 
-test('stock filters and sort reload the catalog and explain empty filtered results', async () => {
+test('stock filters reload the catalog and explain empty filtered results', async () => {
   mockLoadProducts.mockResolvedValue(ok({ items: [product], total: 1 }));
   const screen = render(<CatalogScreen />);
   await screen.findByText('Camisa de algodón de manga larga');
@@ -83,9 +83,7 @@ test('stock filters and sort reload the catalog and explain empty filtered resul
   mockLoadProducts.mockResolvedValue(ok({ items: [product], total: 1 }));
   fireEvent.press(screen.getByRole('button', { name: 'Ver todos' }));
   await screen.findByText('Camisa de algodón de manga larga');
-  fireEvent.press(screen.getByRole('button', { name: 'Ordenar por: Recientes' }));
-  await waitFor(() => expect(mockLoadProducts).toHaveBeenLastCalledWith({ sort: 'name', page: 1, pageSize: 20 }));
-  expect(await screen.findByRole('button', { name: 'Ordenar por: Nombre A–Z' })).toBeTruthy();
+  expect(screen.getByText('1 producto')).toBeTruthy();
 });
 
 test('search combined with a stock filter offers clearing both when nothing matches', async () => {

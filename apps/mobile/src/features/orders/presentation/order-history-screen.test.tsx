@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react-native";
 import type { orders } from "@mobile/features/orders/composition";
+import { Alert } from "react-native";
 import { err, ok } from "@shared/functional";
 import OrderHistoryScreen from "@mobile/features/orders/presentation/order-history-screen";
 import i18n from "@mobile/i18n";
@@ -149,9 +150,12 @@ test("history distinguishes checkout states and preserves numbers beyond 9999", 
   })) }));
   const screen = render(<OrderHistoryScreen />);
   await screen.findByText(/#10000 ·/);
-  expect(screen.getByText("Confirmado por el comprador")).toBeTruthy();
-  expect(screen.getByText("Pendiente de confirmación")).toBeTruthy();
-  expect(screen.getByText("Pedido cancelado")).toBeTruthy();
+  expect(screen.getByLabelText("Confirmado por el comprador")).toBeTruthy();
+  const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+  fireEvent.press(screen.getByLabelText("El comprador aún no confirma su pedido"));
+  expect(alert).toHaveBeenCalledWith("El comprador aún no confirma su pedido");
+  expect(mockPush).not.toHaveBeenCalled();
+  expect(screen.getByText("Cancelado")).toBeTruthy();
   expect(screen.getByText(/#1001 ·/)).toBeTruthy();
 });
 
