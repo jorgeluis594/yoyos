@@ -387,7 +387,7 @@ test("buyer pickup confirms explicit zero without district or quotation", async 
         store: { enabled: true, pickupPoint: { name: "Shop", address: "Pickup address", instructions: "Door 2" } } }, { companyId: f.companyId, userId: f.userId })).success).toBe(true);
     });
     await page.goto(f.path);
-    await page.getByLabel("Forma de entrega").selectOption("store");
+    await page.getByRole("radio", { name: "Recojo en tienda · Gratis" }).check();
     await browserExpect(page.getByText("Pickup address", { exact: true })).toBeVisible();
     await page.getByLabel("Nombre", { exact: true }).fill("Ana");
     await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
@@ -544,11 +544,11 @@ test("buyer distinguishes uncovered shipping from an explicit free home rate", a
     await browserExpect(confirm).toBeDisabled();
     await browserExpect(page.getByLabel("Tarifa de envío")).toHaveCount(0);
     await browserExpect(page.getByText("Gratis", { exact: true })).toHaveCount(0);
-    await page.getByLabel("Forma de entrega").selectOption("store");
+    await page.getByRole("radio", { name: "Recojo en tienda · Gratis" }).check();
     await browserExpect(confirm).toBeEnabled();
     await browserExpect(page.getByText("Pickup address", { exact: true })).toBeVisible();
     await browserExpect(page.getByText("Door 2", { exact: true })).toBeVisible();
-    await page.getByLabel("Forma de entrega").selectOption("ship");
+    await page.getByRole("radiogroup", { name: "Forma de entrega" }).locator('input[value="ship"]').check();
     await page.getByLabel("Departamento", { exact: true }).selectOption("15");
     await page.getByLabel("Provincia", { exact: true }).selectOption("1501");
     await page.getByLabel("Distrito", { exact: true }).selectOption("150122");
@@ -672,29 +672,29 @@ test("buyer pickup removes the shipping rate and ignores a quotation still in fl
     const originalRate = await rate.inputValue();
     await page.getByLabel("Dirección de entrega").fill("Original street");
     await browserExpect(page.getByText("Total a pagar", { exact: true }).locator("..")).toContainText(/18[.,]00/);
-    const mode = page.getByLabel("Forma de entrega");
-    await mode.selectOption("store");
+    const mode = (value: string) => page.getByRole("radiogroup", { name: "Forma de entrega" }).locator(`input[value="${value}"]`);
+    await mode("store").check();
     await browserExpect(page.getByText("Total a pagar", { exact: true }).locator("..")).toContainText(/10[.,]00/);
     await browserExpect(rate).toHaveCount(0);
     expect(attempts).toBe(1);
-    await mode.selectOption("ship");
+    await mode("ship").check();
     await heldResponse;
     await browserExpect(page.getByRole("button", { name: "Confirmar pedido", exact: true })).toBeDisabled();
-    await mode.selectOption("store");
+    await mode("store").check();
     release();
     await releasedResponse;
-    await browserExpect(mode).toHaveValue("store");
+    await browserExpect(mode("store")).toBeChecked();
     await browserExpect(rate).toHaveCount(0);
     await browserExpect(page.getByText("Gratis", { exact: true })).toBeVisible();
     await browserExpect(page.getByText("Total a pagar", { exact: true }).locator("..")).toContainText(/10[.,]00/);
-    await mode.selectOption("ship");
+    await mode("ship").check();
     await browserExpect(rate.locator("option")).toHaveCount(2);
     await browserExpect(rate).toHaveValue("");
     expect(attempts).toBe(3);
     await rate.selectOption({ index: 1 });
     expect(await rate.inputValue()).not.toBe(originalRate);
     await browserExpect(page.getByLabel("Dirección de entrega")).toHaveValue("Original street");
-    await mode.selectOption("store");
+    await mode("store").check();
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
     await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
     const stored = await f.read();
@@ -712,8 +712,8 @@ test("buyer cannot use disabled pickup or confirm pickup disabled after opening 
   page.on("request", request => { if (request.url().endsWith("/api/quotations")) quotations++; });
   try {
     await page.goto(f.path);
-    const mode = page.getByLabel("Forma de entrega");
-    await browserExpect(mode.locator('option[value="store"]')).toHaveCount(0);
+    const mode = (value: string) => page.getByRole("radiogroup", { name: "Forma de entrega" }).locator(`input[value="${value}"]`);
+    await browserExpect(mode("store")).toHaveCount(0);
     const savePickup = (enabled: boolean, expectedVersion: number) => withTenantIsolation(f.companyId, () => deliverySettings.save({
       expectedVersion, home: { enabled: true }, agency: { enabled: false }, couriers: [],
       store: enabled ? { enabled: true, pickupPoint: { name: "Shop", address: "Pickup address", instructions: "Door 2" } } : { enabled: false, pickupPoint: null },
@@ -722,7 +722,7 @@ test("buyer cannot use disabled pickup or confirm pickup disabled after opening 
     await page.reload();
     await page.getByLabel("Nombre", { exact: true }).fill("Ana");
     await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
-    await mode.selectOption("store");
+    await mode("store").check();
     await page.getByLabel("Nombre del destinatario").fill("Recipient");
     await page.getByLabel("Teléfono del destinatario").fill("999");
     await browserExpect(page.getByText("Pickup address", { exact: true })).toBeVisible();
@@ -735,7 +735,7 @@ test("buyer cannot use disabled pickup or confirm pickup disabled after opening 
     expect(await f.read()).toEqual(before);
     expect(quotations).toBe(0);
     await page.reload();
-    await browserExpect(mode.locator('option[value="store"]')).toHaveCount(0);
+    await browserExpect(mode("store")).toHaveCount(0);
   } finally { await f.cleanup(); }
 });
 
@@ -770,14 +770,14 @@ test("buyer keeps a historical rate after its zone changes or replaces it with a
       page.on("request", countQuotation);
       try {
         await page.goto(f.path);
-        await browserExpect(page.getByLabel("Forma de entrega")).toHaveValue("keep");
+        await browserExpect(page.getByRole("radiogroup", { name: "Forma de entrega" }).locator('input[value="keep"]')).toBeChecked();
         await browserExpect(page.getByText("Historical street, MIRAFLORES", { exact: true })).toBeVisible();
         await browserExpect(page.getByText("Total a pagar", { exact: true }).locator("..")).toContainText(/18[.,]00/);
         expect(quotations).toBe(0);
         await page.getByLabel("Nombre", { exact: true }).fill("Ana");
         await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
         if (replace) {
-          await page.getByLabel("Forma de entrega").selectOption("ship");
+          await page.getByRole("radiogroup", { name: "Forma de entrega" }).locator('input[value="ship"]').check();
           const rates = page.getByLabel("Tarifa de envío");
           await browserExpect(rates.locator("option")).toHaveCount(2);
           await browserExpect(rates).toContainText(/12[.,]00/);

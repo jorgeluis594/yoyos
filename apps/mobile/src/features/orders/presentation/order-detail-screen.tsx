@@ -152,7 +152,7 @@ export default function OrderDetailScreen() {
     if (companyId) void reload();
     return () => {
       checkoutGeneration.current += 1;
-      if (notice?.id === id && loaded.current) { void orders.clearPendingOrderConfirmation(companyId ?? "", id); clear(); }
+      if (notice?.id === id && loaded.current) clear();
     };
   }, [companyId, id, notice, clear, reload]));
 

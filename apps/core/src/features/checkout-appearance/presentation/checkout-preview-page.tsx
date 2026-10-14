@@ -2,7 +2,7 @@ import { useMemo, useState, type ChangeEvent, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { CheckoutDeliveryFields, type CheckoutDeliveryDraft } from "@core/app/components/checkout-delivery-fields";
 import {
-  CheckoutBuyerDetails, CheckoutOrderSummary, CheckoutPayment, CheckoutReviewFields, CheckoutShell, checkoutTotal,
+  CheckoutBuyerDetails, CheckoutConfirmAction, CheckoutOrderSummary, CheckoutPayment, CheckoutReviewFields, CheckoutShell, checkoutTotal,
 } from "@core/app/components/checkout-sections";
 import type { PreviewPaymentMethod } from "@core/src/features/checkout-appearance/application/checkout-appearance";
 import type { PublicCheckoutAppearance } from "@core/src/features/checkout-appearance/presentation/checkout-appearance-schemas";
@@ -35,13 +35,13 @@ export function CheckoutPreviewPage({ companyName, appearance, state, paymentMet
   const checkout = useMemo(() => previewCheckout(companyName, state), [companyName, state]);
   const total = checkoutTotal(checkout, deliveryDraft);
   return <CheckoutShell appearance={appearance} checkout={checkout}
-    banner={<p data-slot="preview-bar" className="sticky top-0 z-10 border-b bg-muted px-4 py-2 text-center text-sm font-medium text-muted-foreground">{t("checkoutPreview.bar")}</p>}>
-    <CheckoutOrderSummary checkout={checkout} deliveryDraft={deliveryDraft} />
+    banner={<p data-slot="preview-bar" className="sticky top-0 z-10 border-b bg-muted px-4 py-2 text-center text-sm font-medium text-muted-foreground">{t("checkoutPreview.bar")}</p>}
+    summary={<CheckoutOrderSummary checkout={checkout} deliveryDraft={deliveryDraft}
+      action={state === "review" && <CheckoutConfirmAction type="button" disabled={!deliveryDraft || !total} pending={false} />} />}>
     {state === "review"
-      ? <form noValidate className="flex flex-col gap-5" onSubmit={keepFromSubmitting}>
+      ? <form noValidate className="flex flex-col gap-4" onSubmit={keepFromSubmitting}>
         <CheckoutReviewFields message={null} name={{ defaultValue: "Ana Pérez" }} phone={{ defaultValue: "+51987654321" }}
-          delivery={<CheckoutDeliveryFields orderId={previewOrderId} checkout={checkout} options={previewDeliveryOptions} onChange={setDeliveryDraft} />}
-          confirm={{ type: "button", disabled: !deliveryDraft || !total, pending: false }} />
+          delivery={<CheckoutDeliveryFields orderId={previewOrderId} checkout={checkout} options={previewDeliveryOptions} onChange={setDeliveryDraft} />} />
       </form>
       : <>
         <CheckoutBuyerDetails buyer={checkout.buyer} />

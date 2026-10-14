@@ -571,19 +571,20 @@ test.each([false, true])("mobile restart recovers a committed order after losing
     if (init?.method === "POST") { sends++; expect(response.status).toBe(201); return err({ code: "NETWORK_ERROR", message: "Response lost after commit" }); }
     return response.ok ? ok(body) : err({ code: "API_ERROR", message: "HTTP failure", http: { status: response.status, body } });
   });
+  const orderId = randomUUID();
   const selected = addDraftItem(emptyOrderDraft(), { variantId: f.variantId, productName: "Camisa", variantAttributes: {}, sku: null,
-    shownUnitPrice: { amount: 10, currency: "PEN" }, shownStock: 3, quantity: 1 }, randomUUID);
+    shownUnitPrice: { amount: 10, currency: "PEN" }, shownStock: 3, quantity: 1 }, () => orderId);
   if (!selected.success) throw new Error("Invalid mobile fixture");
   const paymentId = randomUUID();
   const draft = { ...selected.data, payments: paid ? [{ paymentId, amount: "10", method: "bank_transfer" as const, deductStockIfPartial: false }] : [], deliverImmediately: false };
   const first = createOrderOperations(api, createPendingOrderConfirmationStore(storage));
-  expect(await first.completeOrder(draft, f.companyId)).toMatchObject({ success: true, data: { kind: "uncertain" } });
+  expect(await first.completeOrder(draft, f.companyId)).toMatchObject({ success: true, data: { kind: "queued" } });
   lost = false;
   const restarted = createOrderOperations(api, createPendingOrderConfirmationStore(storage));
-  expect(await restarted.readPendingOrderConfirmation(randomUUID())).toEqual(ok(null));
-  const recovered = await restarted.resendPendingOrder(f.companyId);
-  expect(recovered).toMatchObject({ success: true, data: { kind: "completed", order: { status: "active", deliveryStatus: "pending",
-    paymentStatus: paid ? "paid" : "pending", stockDeducted: paid } } });
+  expect(await restarted.syncPendingOrders(f.companyId)).toEqual({ waiting: 0 });
+  expect(await restarted.listPendingOrders(f.companyId)).toEqual(ok([]));
+  expect(await restarted.loadOrder(orderId)).toMatchObject({ success: true, data: { status: "active", deliveryStatus: "pending",
+    paymentStatus: paid ? "paid" : "pending", stockDeducted: paid } });
   expect(sends).toBe(1);
   await withTenantIsolation(f.companyId, async () => {
     expect(await prisma.order.count()).toBe(1);

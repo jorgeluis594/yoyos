@@ -7,13 +7,12 @@ import i18n from "@mobile/i18n";
 
 const mockPush = jest.fn();
 const mockLoadOrders = jest.fn();
-const mockReadPending = jest.fn();
+let mockPending: unknown = ok([]);
 let mockCountry = "PE";
 jest.mock("expo-router", () => ({ useRouter: () => ({ push: mockPush }),
   useFocusEffect: (callback: () => void) => jest.requireActual("react").useEffect(callback, [callback]) }));
 jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   loadMixedOrders: (...args: unknown[]) => mockLoadOrders(...args),
-  readPendingOrderConfirmation: (...args: unknown[]) => mockReadPending(...args),
 } }));
 const mockOpenDispatchPrint = jest.fn();
 jest.mock("@mobile/features/orders/presentation/dispatch-print-review", () => ({ useDispatchPrint: () => ({ open: mockOpenDispatchPrint, active: false, show: jest.fn() }) }));
@@ -22,10 +21,10 @@ jest.mock("@mobile/features/delivery-settings/composition", () => ({ deliverySet
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAccess: () => ({ state: {
   status: "ready", company: { id: "00000000-0000-4000-8000-000000000001", name: "Mi tienda", country: mockCountry },
 } }) }));
-jest.mock("@mobile/features/orders/presentation/order-result", () => ({ useOrderResult: () => ({ show: jest.fn() }) }));
+jest.mock("@mobile/features/orders/presentation/pending-order-sync-provider", () => ({ usePendingOrders: () => ({ pending: mockPending }) }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 
-beforeEach(() => { jest.clearAllMocks(); mockCountry = "PE"; mockReadPending.mockResolvedValue(ok(null));
+beforeEach(() => { jest.clearAllMocks(); mockCountry = "PE"; mockPending = ok([]);
   mockSettings.mockResolvedValue(ok({ couriers: [{ id: "00000000-0000-4000-8000-0000000000c1", courierId: "00000000-0000-4000-8000-0000000000c2", name: "Olva", enabled: false }] })); mockLoadOrders.mockResolvedValue(ok({ items: [], page: 1, pageSize: 20, total: 0 })); });
 
 test("history distinguishes empty sales from filtered results and sends full Lima days", async () => {
@@ -92,11 +91,22 @@ test("history offers retry after a load error", async () => {
   await screen.findByText("Aún no hay pedidos");
 });
 
+test("history shows queued sales passively and sends refused ones to review", async () => {
+  const sale = (n: number, rejection?: { code: string; message: string }) => ({ companyId: "00000000-0000-4000-8000-000000000001",
+    id: `00000000-0000-4000-8000-00000000000${n}`, shownTotal: { amount: 10, currency: "PEN" }, version: 2, request: { id: "x", items: [] }, ...(rejection ? { rejection } : {}) });
+  mockPending = ok([sale(2), sale(3), sale(4, { code: "INSUFFICIENT_STOCK", message: "No stock" })]);
+  const screen = render(<OrderHistoryScreen />);
+  await screen.findByText("2 ventas enviándose…");
+  expect(screen.queryByText(/por verificar/)).toBeNull();
+  expect(screen.getByText("1 venta necesita revisión.")).toBeTruthy();
+  fireEvent.press(screen.getByRole("button", { name: "Revisar venta" }));
+  expect(mockPush).toHaveBeenCalledWith("/orders/new");
+});
+
 test.each(["success", "error"])("history ignores a replaced request's %s before and after the latest load", async (outcome) => {
   type ListResult = Awaited<ReturnType<typeof orders.loadMixedOrders>>;
   const requests: ((result: ListResult) => void)[] = [];
   mockLoadOrders.mockImplementation(() => new Promise<ListResult>((resolve) => requests.push(resolve)));
-  mockReadPending.mockResolvedValueOnce(err({ code: "PENDING_STORAGE_UNAVAILABLE", message: "Unavailable" }));
   const screen = render(<OrderHistoryScreen />);
   fireEvent.press(screen.getByRole("button", { name: "Filtros" }));
   fireEvent.press(screen.getByRole("button", { name: "Público general" }));

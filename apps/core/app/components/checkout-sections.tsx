@@ -12,6 +12,7 @@ import type { PublicCheckoutAppearance } from "@core/src/features/checkout-appea
 import { CheckoutBrandHeader } from "@core/src/features/checkout-appearance/presentation/checkout-brand-header";
 import { CheckoutTheme } from "@core/src/features/checkout-appearance/presentation/checkout-theme";
 import { BuyerPaymentContent } from "@core/src/features/orders/presentation/buyer-payment-content";
+import { CircleCheck } from "lucide-react";
 
 const checkoutAmount = (money: Money, language: string) => formatCurrency(money.amount, money.currency, language);
 
@@ -21,55 +22,97 @@ export function checkoutTotal(checkout: PublicCheckoutResponse, deliveryDraft: C
   return checkout.state.kind !== "pending" || deliveryDraft?.delivery.kind === "keep" ? checkout.total : summed?.success ? summed.data : null;
 }
 
-export function CheckoutShell({ appearance, checkout, banner, children }: Readonly<{
+/** One coherent group of the checkout; every section shares this surface so groups read apart from each other. */
+export const checkoutCard = "flex flex-col gap-4 rounded-[var(--radius-card)] border bg-card p-4 text-card-foreground sm:p-6";
+const sectionTitle = "text-lg font-semibold";
+const page = "mx-auto w-full max-w-5xl px-4 sm:px-8";
+
+export function CheckoutShell({ appearance, checkout, banner, summary, children }: Readonly<{
   appearance: PublicCheckoutAppearance | null;
-  checkout: Pick<PublicCheckoutResponse, "companyName" | "number">;
+  checkout: Pick<PublicCheckoutResponse, "companyName" | "number" | "state">;
   /** Rendered inside the theme, above the page (the preview bar). */
   banner?: ReactNode;
+  /** `<CheckoutOrderSummary>`: products above the form on small screens, beside it on wide ones. */
+  summary?: ReactNode;
   children: ReactNode;
 }>) {
   const { t } = useTranslation();
-  return <CheckoutTheme appearance={appearance}>{banner}<main className="mx-auto flex max-w-lg flex-col gap-6 p-5 py-8">
-    <header><CheckoutBrandHeader companyName={checkout.companyName} logoUrl={appearance?.logoUrl ?? null} /><h1 className="text-2xl font-semibold">{t("checkoutSections.order", { number: checkout.number })}</h1><p>{t("checkoutSections.reviewHint")}</p></header>
-    {children}
-  </main></CheckoutTheme>;
+  return <CheckoutTheme appearance={appearance}>{banner}
+    <header>
+      <div className="border-b bg-card"><div className={`${page} flex min-h-16 items-center py-3`}><CheckoutBrandHeader companyName={checkout.companyName} logoUrl={appearance?.logoUrl ?? null} /></div></div>
+      <div className={`${page} pt-6 pb-5 sm:pt-10 sm:pb-8`}><h1 className="text-2xl font-semibold tracking-tight text-balance sm:text-3xl">{t("checkoutSections.order", { number: checkout.number })}</h1><p className="mt-1 text-muted-foreground">{t("checkoutSections.reviewHint")}</p><CheckoutStatus state={checkout.state} /></div>
+    </header>
+    <main className={`${page} grid gap-4 pb-12 [grid-template-areas:'products'_'main'_'totals'] lg:grid-cols-[minmax(0,1fr)_22rem] lg:grid-rows-[auto_1fr] lg:gap-x-10 lg:[grid-template-areas:'main_products'_'main_totals']`}>
+      <div className="flex min-w-0 flex-col gap-4 [grid-area:main]">{children}</div>
+      {summary}
+    </main>
+  </CheckoutTheme>;
 }
 
-export function CheckoutOrderSummary({ checkout, deliveryDraft }: Readonly<{ checkout: PublicCheckoutResponse; deliveryDraft: CheckoutDeliveryDraft | null }>) {
+function CheckoutStatus({ state }: Readonly<{ state: PublicCheckoutResponse["state"] }>) {
+  const { t } = useTranslation();
+  if (state.kind === "cancelled") return <section role="status" className="mt-5 flex flex-col gap-1 rounded-[var(--radius-card)] border border-transparent bg-[var(--error-surface)] p-4 text-[var(--error)] sm:p-6"><h2 className={sectionTitle}>{t("checkoutSections.cancelledTitle")}</h2><p>{t("checkoutSections.cancelledBody")}</p></section>;
+  if (state.kind === "confirmed") return <section role="status" className="mt-5 flex flex-col gap-1 rounded-[var(--radius-card)] border border-transparent bg-[var(--success-surface)] p-4 text-[var(--success)] sm:p-6"><h2 className={`${sectionTitle} flex items-center gap-2`}><CircleCheck className="size-5" aria-hidden="true" />{t("checkoutSections.confirmedTitle")}</h2><p>{t("checkoutSections.confirmedBody")}</p><p>{t("checkoutSections.confirmedChanges")}</p></section>;
+  return null;
+}
+
+export function CheckoutOrderSummary({ checkout, deliveryDraft, action }: Readonly<{
+  checkout: PublicCheckoutResponse; deliveryDraft: CheckoutDeliveryDraft | null;
+  /** `<CheckoutConfirmAction>`, kept beside the amount it commits to. */
+  action?: ReactNode;
+}>) {
   const { t, i18n } = useTranslation();
   const amount = (money: Money) => checkoutAmount(money, i18n.language);
   const total = checkoutTotal(checkout, deliveryDraft);
+  const delivery = checkout.state.kind !== "pending" ? checkout.deliveryCharge : deliveryDraft?.price;
   return <>
-    {checkout.state.kind === "cancelled" && <section role="status"><h2 className="text-xl font-semibold">{t("checkoutSections.cancelledTitle")}</h2><p>{t("checkoutSections.cancelledBody")}</p></section>}
-    {checkout.state.kind === "confirmed" && <section role="status"><h2 className="text-xl font-semibold">{t("checkoutSections.confirmedTitle")}</h2><p>{t("checkoutSections.confirmedBody")}</p><p>{t("checkoutSections.confirmedChanges")}</p></section>}
-    <section aria-labelledby="products-title"><h2 id="products-title" className="font-semibold">{t("checkoutSections.products")}</h2><ul className="divide-y">{checkout.items.map((item, index) => <li key={index} className="flex justify-between gap-4 py-4"><div className="min-w-0 break-words"><p className="font-medium">{item.productName}</p><p className="text-sm text-muted-foreground">{Object.values(item.variantAttributes).join(" · ")}</p><p>{item.quantity} × {amount(item.unitPrice)}</p></div><strong className="shrink-0">{amount(item.subtotal)}</strong></li>)}</ul></section>
-    <dl className="flex flex-col gap-2"><div className="flex justify-between gap-4"><dt>{t("checkoutSections.subtotal")}</dt><dd>{amount(checkout.itemsTotal)}</dd></div><div className="flex justify-between gap-4"><dt>{t("checkoutSections.delivery")}</dt><dd>{checkout.state.kind !== "pending" ? (checkout.deliveryCharge.amount === 0 ? t("checkoutSections.free") : amount(checkout.deliveryCharge)) : deliveryDraft ? (deliveryDraft.price.amount === 0 ? t("checkoutSections.free") : amount(deliveryDraft.price)) : t("checkoutSections.selectOption")}</dd></div><div className="flex justify-between gap-4 text-xl font-semibold"><dt>{t("checkoutSections.total")}</dt><dd>{total ? amount(total) : t("checkoutSections.selectDelivery")}</dd></div></dl>
+    <section aria-labelledby="products-title" className={`${checkoutCard} [grid-area:products]`}><h2 id="products-title" className={sectionTitle}>{t("checkoutSections.products")}</h2>
+      <ul className="-my-3 divide-y">{checkout.items.map((item, index) => <li key={index} className="flex justify-between gap-4 py-3">
+        <div className="min-w-0 break-words"><p className="font-medium">{item.productName}</p>{Object.keys(item.variantAttributes).length > 0 && <p className="text-sm text-muted-foreground">{Object.values(item.variantAttributes).join(" · ")}</p>}<p className="text-sm text-muted-foreground tabular-nums">{item.quantity} × {amount(item.unitPrice)}</p></div>
+        <span className="shrink-0 font-medium tabular-nums">{amount(item.subtotal)}</span></li>)}</ul>
+    </section>
+    <section aria-label={t("checkoutSections.total")} className={`${checkoutCard} self-start [grid-area:totals] lg:sticky lg:top-6 ${checkout.state.kind === "confirmed" ? "max-lg:hidden" : ""}`}>
+      <dl className="flex flex-col gap-2 text-sm">
+        <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("checkoutSections.subtotal")}</dt><dd className="tabular-nums">{amount(checkout.itemsTotal)}</dd></div>
+        <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("checkoutSections.delivery")}</dt><dd className={delivery ? "tabular-nums" : "text-muted-foreground"}>{delivery ? (delivery.amount === 0 ? t("checkoutSections.free") : amount(delivery)) : t("checkoutSections.selectOption")}</dd></div>
+        <div className="mt-2 flex items-baseline justify-between gap-4 border-t pt-4"><dt className="text-base font-semibold">{t("checkoutSections.total")}</dt><dd className={total ? "text-2xl font-semibold tabular-nums" : "text-muted-foreground"}>{total ? amount(total) : t("checkoutSections.selectDelivery")}</dd></div>
+      </dl>
+      {action}
+    </section>
   </>;
 }
 
 /** The content of the review form; whoever renders it supplies the `<form>`. */
-export function CheckoutReviewFields({ message, name, nameError, phone, phoneError, delivery, confirm }: Readonly<{
+export function CheckoutReviewFields({ message, name, nameError, phone, phoneError, delivery }: Readonly<{
   message: string | null;
   name: ComponentProps<typeof Input>; nameError?: string;
   phone: ComponentProps<typeof Input>; phoneError?: string;
   /** The delivery fieldset (`<CheckoutDeliveryFields>`). */
   delivery: ReactNode;
-  confirm: Readonly<{ type: "submit" | "button"; disabled: boolean; pending: boolean }>;
 }>) {
   const { t } = useTranslation();
   return <>
-    <h2 className="text-lg font-semibold">{t("checkoutSections.yourData")}</h2>
-    {message && <p role="alert">{message}</p>}
-    <Field data-invalid={Boolean(nameError)}><FieldLabel htmlFor="buyer-name">{t("checkoutSections.name")}</FieldLabel><Input {...name} id="buyer-name" autoComplete="name" required aria-invalid={Boolean(nameError)} aria-describedby={nameError ? "name-error" : undefined} />{nameError && <FieldError id="name-error">{nameError}</FieldError>}</Field>
-    <Field data-invalid={Boolean(phoneError)}><FieldLabel htmlFor="buyer-phone">{t("checkoutSections.phone")}</FieldLabel><Input {...phone} id="buyer-phone" type="tel" autoComplete="tel" required aria-invalid={Boolean(phoneError)} aria-describedby="phone-hint phone-error" /><p id="phone-hint" className="text-sm text-muted-foreground">{t("checkoutSections.phoneHint")}</p>{phoneError && <FieldError id="phone-error">{phoneError}</FieldError>}</Field>
-    {delivery}
-    <Button type={confirm.type} disabled={confirm.disabled}>{confirm.pending ? t("checkoutSections.confirming") : t("checkoutSections.confirm")}</Button><p className="text-sm text-muted-foreground">{t("checkoutSections.confirmNote")}</p>
+    {message && <p role="alert" className="rounded-[var(--radius-card)] border border-transparent bg-[var(--error-surface)] p-4 text-[var(--error)]">{message}</p>}
+    <section aria-labelledby="buyer-title" className={checkoutCard}><h2 id="buyer-title" className={sectionTitle}>{t("checkoutSections.yourData")}</h2>
+      <Field data-invalid={Boolean(nameError)}><FieldLabel htmlFor="buyer-name">{t("checkoutSections.name")}</FieldLabel><Input {...name} id="buyer-name" autoComplete="name" required aria-invalid={Boolean(nameError)} aria-describedby={nameError ? "name-error" : undefined} />{nameError && <FieldError id="name-error">{nameError}</FieldError>}</Field>
+      <Field data-invalid={Boolean(phoneError)}><FieldLabel htmlFor="buyer-phone">{t("checkoutSections.phone")}</FieldLabel><Input {...phone} id="buyer-phone" type="tel" autoComplete="tel" required aria-invalid={Boolean(phoneError)} aria-describedby="phone-hint phone-error" /><p id="phone-hint" className="text-sm text-muted-foreground">{t("checkoutSections.phoneHint")}</p>{phoneError && <FieldError id="phone-error">{phoneError}</FieldError>}</Field>
+    </section>
+    <div className={checkoutCard}>{delivery}</div>
   </>;
+}
+
+/** The single confirmation button; `form` ties it to the review form when it renders outside it. */
+export function CheckoutConfirmAction({ form, type, disabled, pending }: Readonly<{ form?: string; type: "submit" | "button"; disabled: boolean; pending: boolean }>) {
+  const { t } = useTranslation();
+  return <div className="flex flex-col gap-3">
+    <Button form={form} type={type} disabled={disabled} className="h-12 w-full text-base">{pending ? t("checkoutSections.confirming") : t("checkoutSections.confirm")}</Button>
+    <p className="text-center text-sm text-muted-foreground text-pretty">{t("checkoutSections.confirmNote")}</p>
+  </div>;
 }
 
 export function CheckoutBuyerDetails({ buyer }: Readonly<{ buyer: PublicCheckoutResponse["buyer"] }>) {
   const { t } = useTranslation();
-  return buyer && <section><h2 className="font-semibold">{t("checkoutSections.buyerDetails")}</h2><p>{buyer.name}</p><p>{buyer.phone}</p></section>;
+  return buyer && <section className={checkoutCard}><h2 className={sectionTitle}>{t("checkoutSections.buyerDetails")}</h2><div><p className="font-medium">{buyer.name}</p><p className="text-muted-foreground tabular-nums">{buyer.phone}</p></div></section>;
 }
 
 export function CheckoutPayment({ view, notice }: Readonly<{ view: BuyerPaymentView; notice?: ReactNode }>) {

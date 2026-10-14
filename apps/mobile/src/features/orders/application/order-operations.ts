@@ -2,11 +2,12 @@ import { z } from "zod";
 import { listOrderAggregatesResponseSchema, listOrderAggregatesSchema, listOrdersResponseSchema, listOrdersSchema, orderCatalogSchema,
   type ListOrderAggregatesRequest, type UpdateOrderShippingRequest, type ListOrdersRequest, type OrderAggregateResponse, type OrderApiError, type OrderApiIssue } from "@shared/contracts/orders";
 import { err, ok } from "@shared/functional";
-import { add, subtract, type Money } from "@shared/money";
+import type { Money } from "@shared/money";
 import { limaMidnightUtc, nextCalendarDay } from "@shared/orders-date";
 import type { Result } from "@shared/result";
 import { addDraftItem, emptyOrderDraft, prepareOrder, ratedDeliveryAssignmentSchema, type CartError, type OrderDraft, type OrderSubmission, type RatedDeliveryAssignment } from "@mobile/features/orders/domain/order-draft";
 import type { TransportError } from "@mobile/shared/application/transport-error";
+import type { PendingOrderSyncSummary } from "@mobile/features/orders/application/pending-order-sync";
 
 export type PendingOrderConfirmation = Readonly<{
   companyId: OrderAggregateResponse["companyId"];
@@ -14,6 +15,8 @@ export type PendingOrderConfirmation = Readonly<{
   shownTotal: Money;
   version: 2;
   request: OrderSubmission;
+  /** Set when core refused the sale; it is no longer retried until the seller reviews it. */
+  rejection?: Readonly<{ code: string; message: string }>;
 }>;
 export type PendingOrderStoreError = Readonly<{
   code: "PENDING_CONFIRMATION" | "PENDING_STORAGE_UNAVAILABLE" | "INVALID_PENDING_DATA";
@@ -28,7 +31,7 @@ export type OrderRequestError = Readonly<{
 export type ConfirmOrderError = OrderRequestError | PendingOrderStoreError | CartError;
 export type ConfirmOrderOutcome =
   | Readonly<{ kind: "completed"; order: OrderAggregateResponse; shownTotal: Money }>
-  | Readonly<{ kind: "uncertain"; pending: PendingOrderConfirmation }>;
+  | Readonly<{ kind: "queued"; pending: PendingOrderConfirmation }>;
 
 export type PendingOrderReview = Readonly<{
   kind: "review"; pending: PendingOrderConfirmation; draft: OrderDraft;
@@ -66,7 +69,8 @@ type Api = Readonly<{
   searchCatalog: (search: string) => Promise<Result<z.infer<typeof orderCatalogSchema>, OrderRequestError>>;
 }>;
 type PendingStore = Readonly<{
-  read: (companyId: string) => Promise<Result<PendingOrderConfirmation | null, PendingOrderStoreError>>;
+  list: (companyId: string) => Promise<Result<PendingOrderConfirmation[], PendingOrderStoreError>>;
+  read: (companyId: string, id: string) => Promise<Result<PendingOrderConfirmation | null, PendingOrderStoreError>>;
   save: (pending: PendingOrderConfirmation) => Promise<Result<PendingOrderConfirmation, PendingOrderStoreError>>;
   clear: (companyId: string, id: string) => Promise<Result<void, PendingOrderStoreError>>;
   discard: (companyId: string) => Promise<Result<void, PendingOrderStoreError>>;
@@ -105,64 +109,73 @@ function mixedListRequest(criteria: OrderListCriteria): Result<ListOrderAggregat
   return parsed.success ? ok(parsed.data) : err({ code: "INVALID_INPUT", message: "Invalid order filters" });
 }
 
-const definitive = new Set<OrderRequestError["code"]>(["INVALID_INPUT", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE",
+const definitive = new Set<string>(["INVALID_INPUT", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE",
   "INVALID_ORDER", "CURRENCY_MISMATCH", "VARIANT_NOT_FOUND", "INSUFFICIENT_STOCK",
   "INVALID_PAYMENT", "PAYMENT_CONFLICT", "PAYMENT_REQUIRED", "INVALID_TRANSITION", "STOCK_NOT_DEDUCTED",
-  "DELIVERY_UNAVAILABLE", "DELIVERY_METHOD_DISABLED", "RATE_UNAVAILABLE", "TOTAL_CHANGED", "INVALID_DISTRICT", "INVALID_DELIVERY_RATE"]);
+  "DELIVERY_UNAVAILABLE", "DELIVERY_METHOD_DISABLED", "RATE_UNAVAILABLE", "TOTAL_CHANGED", "INVALID_DISTRICT", "INVALID_DELIVERY_RATE"] satisfies OrderRequestError["code"][]);
+type Outcome = Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>>;
+
 export function createOrderOperations(api: Api, pendingStore: PendingStore) {
-  const inFlight = new Map<string, { id?: string; promise: Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>> }>();
-  const confirmed = (order: OrderAggregateResponse, pending: PendingOrderConfirmation): Result<ConfirmOrderOutcome, ConfirmOrderError> => {
+  // One request per sale at a time: a double tap and the background sync share the same attempt.
+  const inFlight = new Map<string, Outcome>();
+  const once = (companyId: string, id: string, work: () => Outcome): Outcome => {
+    const key = `${companyId}/${id}`;
+    const current = inFlight.get(key);
+    if (current) return current;
+    const promise = work().finally(() => { inFlight.delete(key); });
+    inFlight.set(key, promise);
+    return promise;
+  };
+  const confirmed = async (order: OrderAggregateResponse, pending: PendingOrderConfirmation): Outcome => {
     if (order.companyId !== pending.companyId || order.id !== pending.id ||
       (order.status === "completed" && (order.paymentStatus !== "paid" || order.balanceDue.amount !== 0 || order.deliveryStatus !== "delivered" || !order.stockDeducted)))
       return err({ code: "INVALID_RESPONSE", message: "Order identity or state mismatch" });
+    // A failed clear leaves the sale queued; the next sync finds it in core and clears it then.
+    await pendingStore.clear(pending.companyId, pending.id);
     return ok({ kind: "completed", order, shownTotal: pending.shownTotal });
   };
-  const resolvePendingOrderConfirmation = async (companyId: string): Promise<Result<ConfirmOrderOutcome | null, ConfirmOrderError>> => {
-    const pending = await pendingStore.read(companyId);
-    if (!pending.success) return pending;
-    if (!pending.data) return ok(null);
-    const found = await api.get(pending.data.id);
-    if (!found.success) return found.error.code === "ORDER_NOT_FOUND"
-      ? ok({ kind: "uncertain", pending: pending.data }) : found;
-    return confirmed(found.data, pending.data);
+  const queued = (pending: PendingOrderConfirmation): Outcome => Promise.resolve(ok({ kind: "queued", pending }));
+  /** Core refused the sale: it stops retrying and waits for the seller to review it. */
+  const reject = async (pending: PendingOrderConfirmation, error: OrderRequestError): Outcome => {
+    await pendingStore.replace(pending, { ...pending, rejection: { code: error.code, message: error.message.slice(0, 500) } });
+    return err(error);
   };
-  const post = async (pending: PendingOrderConfirmation, retainRejectedAttempt = false): Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>> => {
+  const post = async (pending: PendingOrderConfirmation, onRejected: "clear" | "keep"): Outcome => {
     const result = await api.create(pending.request);
     if (result.success) return confirmed(result.data, pending);
     if (definitive.has(result.error.code)) {
-      if (retainRejectedAttempt) return result;
+      if (onRejected === "keep") return reject(pending, result.error);
       const cleared = await pendingStore.clear(pending.companyId, pending.id);
       return cleared.success ? result : cleared;
     }
+    // A lost response or ORDER_ALREADY_EXISTS may mean core already has it.
     const found = await api.get(pending.id);
-    return found.success ? confirmed(found.data, pending) : ok({ kind: "uncertain", pending });
+    return found.success ? confirmed(found.data, pending) : queued(pending);
   };
-  const retry = async (pending: PendingOrderConfirmation): Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>> => {
+  /** Checks core first and only resends the stored request when the sale is not there. */
+  const attempt = async (pending: PendingOrderConfirmation): Outcome => {
     const found = await api.get(pending.id);
     if (found.success) return confirmed(found.data, pending);
-    if (found.error.code !== "ORDER_NOT_FOUND") return found;
-    return post(pending, true);
+    return found.error.code === "ORDER_NOT_FOUND" ? post(pending, "keep") : queued(pending);
   };
-  const send = async (draft: OrderDraft, companyId: string): Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>> => {
-    const current = await pendingStore.read(companyId);
-    if (!current.success) return current;
-    if (current.data) {
-      if (draft.kind !== "items" || current.data.id !== draft.id)
-        return err({ code: "PENDING_CONFIRMATION", message: "Another order needs verification" });
-      return retry(current.data);
-    }
+  const send = async (draft: OrderDraft, companyId: string): Outcome => {
     const prepared = prepareOrder(draft);
     if (!prepared.success) return prepared;
     const saved = await pendingStore.save({ version: 2, companyId, id: prepared.data.request.id,
       shownTotal: prepared.data.shownTotal, request: prepared.data.request });
-    return saved.success ? post(saved.data) : saved;
+    if (!saved.success) return saved;
+    return saved.data.rejection ? err({ code: "PENDING_CONFIRMATION", message: "Saved sale needs review" }) : post(saved.data, "clear");
   };
-  const run = (companyId: string, id: string | undefined, work: () => Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>>) => {
-    const current = inFlight.get(companyId);
-    if (current) return current.id === id ? current.promise : Promise.resolve(err({ code: "PENDING_CONFIRMATION" as const, message: "Another order needs verification" }));
-    const promise = work().finally(() => { inFlight.delete(companyId); });
-    inFlight.set(companyId, { id, promise });
-    return promise;
+  const syncPendingOrders = async (companyId: string): Promise<PendingOrderSyncSummary> => {
+    const pending = await pendingStore.list(companyId);
+    if (!pending.success) return { waiting: pending.error.code === "PENDING_STORAGE_UNAVAILABLE" ? 1 : 0 };
+    let waiting = 0;
+    for (const entry of pending.data.filter(entry => !entry.rejection)) {
+      const result = await once(companyId, entry.id, () => attempt(entry));
+      if (result.success && result.data.kind === "queued") waiting += 1;
+      else if (!result.success && !definitive.has(result.error.code)) waiting += 1;
+    }
+    return { waiting };
   };
   return {
     setDelivery: api.setDelivery,
@@ -180,15 +193,14 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
     loadOrder: api.get,
     searchOrderCatalog: api.searchCatalog,
     loadOrderCatalog: api.findCatalog,
-    readPendingOrderConfirmation: pendingStore.read,
+    listPendingOrders: pendingStore.list,
     discardPendingOrderConfirmation: pendingStore.discard,
-    resolvePendingOrderConfirmation,
-    clearPendingOrderConfirmation: pendingStore.clear,
-    completeOrder: (draft: OrderDraft, companyId: string) => run(companyId, draft.kind === "items" ? draft.id : undefined, () => send(draft, companyId)),
-    loadPendingOrderReview: async (companyId: string): Promise<Result<PendingOrderReview | ConfirmOrderOutcome, ConfirmOrderError>> => {
-      const pending = await pendingStore.read(companyId);
+    syncPendingOrders,
+    completeOrder: (draft: OrderDraft, companyId: string) => draft.kind === "items" ? once(companyId, draft.id, () => send(draft, companyId)) : send(draft, companyId),
+    loadPendingOrderReview: async (companyId: string, id: string): Promise<Result<PendingOrderReview | ConfirmOrderOutcome, ConfirmOrderError>> => {
+      const pending = await pendingStore.read(companyId, id);
       if (!pending.success) return pending;
-      if (!pending.data?.request) return err({ code: "PENDING_CONFIRMATION", message: "No saved request to review" });
+      if (!pending.data) return err({ code: "PENDING_CONFIRMATION", message: "No saved request to review" });
       const saved = pending.data;
       const request = pending.data.request;
       const found = await api.get(saved.id);
@@ -219,43 +231,21 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
       }
       return ok({ kind: "review", pending: saved, draft, unavailableVariantIds });
     },
-    reviewPendingOrder: (companyId: string, draft: OrderDraft) => run(companyId, undefined, async () => {
-      const pending = await pendingStore.read(companyId);
-      if (!pending.success) return pending;
-      if (!pending.data?.request || draft.kind !== "items" || draft.id !== pending.data.id)
-        return err({ code: "PENDING_CONFIRMATION", message: "No matching saved attempt to review" });
-      const found = await api.get(pending.data.id);
-      if (found.success) return confirmed(found.data, pending.data);
-      if (found.error.code !== "ORDER_NOT_FOUND") return found;
-      const prepared = prepareOrder(draft);
-      if (!prepared.success) return prepared;
-      const next = { ...pending.data, shownTotal: prepared.data.shownTotal, request: prepared.data.request };
-      const saved = await pendingStore.replace(pending.data, next);
-      return saved.success ? ok({ kind: "uncertain", pending: saved.data }) : saved;
-    }),
-    reviewPendingDelivery: (companyId: string, delivery: RatedDeliveryAssignment) => run(companyId, undefined, async () => {
-      const pending = await pendingStore.read(companyId);
-      if (!pending.success) return pending;
-      if (!pending.data?.request.delivery)
-        return err({ code: "PENDING_CONFIRMATION", message: "No delivery attempt to review" });
-      const found = await api.get(pending.data.id);
-      if (found.success) return confirmed(found.data, pending.data);
-      if (found.error.code !== "ORDER_NOT_FOUND") return found;
-      const parsed = ratedDeliveryAssignmentSchema.safeParse(delivery);
-      if (!parsed.success) return err({ code: "INVALID_CART", message: "Invalid reviewed delivery" });
-      const previous = pending.data.request.delivery;
-      const products = "expectedPrice" in previous ? subtract(previous.expectedPrice)(pending.data.shownTotal) : ok(pending.data.shownTotal);
-      if (!products.success || products.data.amount <= 0) return err({ code: "INVALID_CART", message: "Invalid saved product total" });
-      const total = add(parsed.data.expectedPrice)(products.data);
-      if (!total.success) return err({ code: "INVALID_CART", message: "Invalid reviewed total" });
-      const next = { ...pending.data, shownTotal: total.data, request: { ...pending.data.request, delivery: parsed.data } };
-      const saved = await pendingStore.replace(pending.data, next);
-      return saved.success ? ok({ kind: "uncertain", pending: saved.data }) : saved;
-    }),
-    resendPendingOrder: (companyId: string) => run(companyId, undefined, async () => {
-      const pending = await pendingStore.read(companyId);
-      if (!pending.success) return pending;
-      return pending.data ? retry(pending.data) : err({ code: "PENDING_CONFIRMATION", message: "No pending attempt to resend" });
-    }),
+    /** Saves the seller's corrections to a refused sale under the same identities and sends it again. */
+    reviewPendingOrder: (companyId: string, draft: OrderDraft) => draft.kind !== "items"
+      ? Promise.resolve(err({ code: "PENDING_CONFIRMATION" as const, message: "No matching saved attempt to review" }))
+      : once(companyId, draft.id, async () => {
+        const pending = await pendingStore.read(companyId, draft.id);
+        if (!pending.success) return pending;
+        if (!pending.data) return err({ code: "PENDING_CONFIRMATION", message: "No matching saved attempt to review" });
+        const found = await api.get(pending.data.id);
+        if (found.success) return confirmed(found.data, pending.data);
+        if (found.error.code !== "ORDER_NOT_FOUND") return found;
+        const prepared = prepareOrder(draft);
+        if (!prepared.success) return prepared;
+        const { rejection: _rejection, ...current } = pending.data;
+        const saved = await pendingStore.replace(pending.data, { ...current, shownTotal: prepared.data.shownTotal, request: prepared.data.request });
+        return saved.success ? post(saved.data, "keep") : saved;
+      }),
   };
 }
