@@ -15,18 +15,17 @@ import { ScreenState } from "@mobile/components/ui/screen-state";
 import { products } from "@mobile/features/products/composition";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { usePrint } from "@mobile/features/printing/presentation/print-provider";
-import type { ProductListItem, ProductSort, StockFilter } from "@mobile/features/products/domain/product";
+import type { ProductListItem, StockFilter } from "@mobile/features/products/domain/product";
 import translations from "@mobile/i18n";
 
 const PAGE_SIZE = 20;
 const STOCK_FILTERS = ["all", "in_stock", "sold_out"] as const;
 type Filter = (typeof STOCK_FILTERS)[number];
-type Query = Readonly<{ search: string; stock: Filter; sort: ProductSort }>;
-const queryKey = (query: Query) => `${query.stock}:${query.sort}:${query.search}`;
+type Query = Readonly<{ search: string; stock: Filter }>;
+const queryKey = (query: Query) => `${query.stock}:${query.search}`;
 const criteriaOf = (query: Query, page: number) => ({
   ...(query.search ? { search: query.search } : {}),
   ...(query.stock === "all" ? {} : { stock: query.stock as StockFilter }),
-  ...(query.sort === "recent" ? {} : { sort: query.sort }),
   page, pageSize: PAGE_SIZE,
 } as const);
 const formatMoney = (amount: number, currency: string, locale: string) => new Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
@@ -40,7 +39,6 @@ export default function CatalogScreen() {
   const { showPrinterPicker } = usePrint();
   const [search, setSearch] = useState("");
   const [stock, setStock] = useState<Filter>("all");
-  const [sort, setSort] = useState<ProductSort>("recent");
   const [items, setItems] = useState<readonly ProductListItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loadedKey, setLoadedKey] = useState<string | null>(null);
@@ -53,7 +51,7 @@ export default function CatalogScreen() {
   const itemsRef = useRef(items);
   const hasLoadedRef = useRef(false);
   const loadingMoreRef = useRef(false);
-  const query = useMemo<Query>(() => ({ search: search.trim(), stock, sort }), [search, stock, sort]);
+  const query = useMemo<Query>(() => ({ search: search.trim(), stock }), [search, stock]);
   const currentKey = queryKey(query);
   const queryRef = useRef(query);
   useEffect(() => { itemsRef.current = items; }, [items]);
@@ -174,15 +172,6 @@ export default function CatalogScreen() {
         </Pressable>;
       })}
     </ScrollView>
-    <View style={styles.toolbar}>
-      <ThemedText type="small" themeColor="textSecondary" style={styles.flexText}>{pending ? " " : t('productCount', { count: total })}</ThemedText>
-      <Pressable accessibilityRole="button" accessibilityLabel={t('catalogSortLabel', { sort: t(sort === "recent" ? 'catalogSortRecent' : 'catalogSortName') })}
-        accessibilityHint={t('catalogSortHint')} onPress={() => setSort(sort === "recent" ? "name" : "recent")}
-        style={({ pressed }) => [styles.sort, pressed ? { backgroundColor: theme.backgroundSelected } : null]}>
-        <SymbolView name={{ ios: "arrow.up.arrow.down", android: "swap_vert" }} size={18} tintColor={theme.text} />
-        <ThemedText type="small" style={{ fontWeight: "600" }}>{t(sort === "recent" ? 'catalogSortRecent' : 'catalogSortName')}</ThemedText>
-      </Pressable>
-    </View>
   </View>;
 
   const empty = pending ? <ScreenState status="loading" title={t('loadingProducts')} />
@@ -203,16 +192,11 @@ export default function CatalogScreen() {
         keyboardDismissMode="on-drag"
         ListHeaderComponent={header}
         ListEmptyComponent={<View style={styles.state}>{empty}</View>}
-        renderItem={({ item, index }) => <Pressable
+        renderItem={({ item }) => <Pressable
           accessibilityRole="button"
           accessibilityHint={t('viewEditProduct')}
           onPress={() => router.push(`/products/${item.id}`)}
-          style={({ pressed }) => [styles.product, {
-            backgroundColor: pressed ? theme.backgroundSelected : theme.backgroundElement, borderColor: theme.border,
-            borderTopWidth: index === 0 ? StyleSheet.hairlineWidth : 0,
-            borderTopLeftRadius: index === 0 ? 12 : 0, borderTopRightRadius: index === 0 ? 12 : 0,
-            borderBottomLeftRadius: index === data.length - 1 ? 12 : 0, borderBottomRightRadius: index === data.length - 1 ? 12 : 0,
-          }]}
+          style={({ pressed }) => [styles.product, { backgroundColor: pressed ? theme.backgroundSelected : theme.backgroundElement, borderColor: theme.border }]}
         >
           {item.photo ? <Image source={{ uri: item.photo.url }} style={[styles.thumb, { backgroundColor: theme.backgroundSelected }]} contentFit="cover" accessible={false} />
             : <View style={[styles.thumb, styles.noPhoto, { borderColor: theme.border, backgroundColor: theme.background }]}>
@@ -231,7 +215,10 @@ export default function CatalogScreen() {
           </View>
         </Pressable>}
         ListFooterComponent={error && items.length ? <View style={styles.footer}><ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{error}</ThemedText><Button variant="secondary" loading={loadingMore || refreshing} onPress={() => retryMode === "more" ? void loadMore() : void reload(queryRef.current, true)}>{t('retry')}</Button></View>
-          : !pending && items.length < total ? <View style={styles.footer}><Button variant="secondary" loading={loadingMore} onPress={() => void loadMore()}>{t('loadMore')}</Button></View> : null}
+          : !pending && items.length ? <View style={styles.footer}>
+            <ThemedText type="small" themeColor="textSecondary">{t('productCount', { count: total })}</ThemedText>
+            {items.length < total ? <Button variant="secondary" loading={loadingMore} onPress={() => void loadMore()}>{t('loadMore')}</Button> : null}
+          </View> : null}
         contentContainerStyle={styles.list}
       />
     </View>
@@ -241,8 +228,8 @@ export default function CatalogScreen() {
 const styles = StyleSheet.create({
   page: { flex: 1 },
   container: { flex: 1, width: "100%", maxWidth: 640, alignSelf: "center" },
-  list: { paddingHorizontal: 16, paddingBottom: 24 },
-  header: { gap: 12, paddingTop: 4, paddingBottom: 8 },
+  list: { paddingHorizontal: 16, paddingBottom: 24, gap: 8 },
+  header: { gap: 8, paddingTop: 4, paddingBottom: 4 },
   business: { flexDirection: "row", alignItems: "center", gap: 8 },
   flexText: { flex: 1 },
   heading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" },
@@ -254,11 +241,9 @@ const styles = StyleSheet.create({
   searchIcon: { position: "absolute", left: 14, top: 0, bottom: 0, justifyContent: "center" },
   clearSearch: { position: "absolute", right: 0, top: 0, bottom: 0, width: 48, alignItems: "center", justifyContent: "center" },
   chips: { gap: 8, alignItems: "center" },
-  chip: { minHeight: 48, borderWidth: 1, borderRadius: 28, paddingHorizontal: 14, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 6 },
-  toolbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  sort: { minHeight: 48, paddingHorizontal: 8, borderRadius: 6, flexDirection: "row", alignItems: "center", gap: 6 },
+  chip: { minHeight: 48, borderWidth: 1, borderRadius: 28, paddingHorizontal: 8, paddingVertical: 8, flexDirection: "row", alignItems: "center", gap: 6 },
   state: { paddingVertical: 24 },
-  product: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 12, paddingVertical: 10, minHeight: 72, borderBottomWidth: StyleSheet.hairlineWidth, borderLeftWidth: StyleSheet.hairlineWidth, borderRightWidth: StyleSheet.hairlineWidth },
+  product: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 12, paddingVertical: 10, minHeight: 72, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth },
   thumb: { width: 48, height: 48, borderRadius: 8 },
   noPhoto: { borderWidth: 1, borderStyle: "dashed", alignItems: "center", justifyContent: "center" },
   productText: { flex: 1, minWidth: 0, gap: 2 },
