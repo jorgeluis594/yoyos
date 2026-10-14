@@ -21,6 +21,8 @@ import { buyerPaymentRoutes } from "@core/src/features/orders/presentation/buyer
 import { log, requestLogging } from "@core/src/shared/infrastructure/logger";
 
 export const app = express();
+// Coolify's proxy terminates HTTPS; without this React Router sees http and rejects actions as CSRF.
+app.set("trust proxy", "loopback, uniquelocal");
 const images = imageRoutes(createR2ImageStorage({
   endpoint: process.env.R2_ENDPOINT ?? "",
   bucket: process.env.R2_BUCKET ?? "",

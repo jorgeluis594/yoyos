@@ -305,3 +305,24 @@ test("seller manages overlapping zones with delivery options and preserves an ed
     if (agencyId) await deleteAgencies([agencyId]);
   }
 });
+
+test("seller saves delivery settings behind an HTTPS-terminating proxy", async ({ page }) => {
+  const email = `delivery-proxy-${crypto.randomUUID()}@example.test`;
+  let companyId: string | undefined;
+  try {
+    companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "Proxy store", country: "PE" });
+    const host = `127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}`;
+    const response = await page.request.post("/es-PE/settings/delivery.data", {
+      headers: { origin: `https://${host}`, "x-forwarded-proto": "https", "content-type": "application/json" },
+      data: { expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: true }, store: { enabled: false, pickupPoint: null } },
+    });
+    expect(response.status()).toBe(200);
+    expect(await (await page.request.get("/api/delivery-settings")).json()).toMatchObject({ version: 1, home: { enabled: true } });
+  } finally {
+    if (companyId) await withTenantIsolation(companyId, async () => {
+      await prisma.companyDeliverySettings.deleteMany();
+      await systemPrisma.user.deleteMany({ where: { email } });
+      await prisma.company.delete({ where: { id: companyId } });
+    });
+  }
+});
