@@ -57,10 +57,11 @@ test("mobile seller copies checkout and sees the anonymous buyer confirmation in
     }
     expect((await page.request.post(`http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}/api/orders/${cancelled}/cancel`)).status()).toBe(200);
     await page.goto(`${mobile.origin}/orders`);
-    await browserExpect(page.getByRole("button").filter({ hasText: /#10000 ·/ }).getByText("Confirmado por el comprador", { exact: true })).toBeVisible();
+    // The checkout status is an icon-only button; SymbolView draws nothing on web, so only its label is checkable.
+    await browserExpect(page.getByRole("button").filter({ hasText: /#10000 ·/ }).getByLabel("Confirmado por el comprador", { exact: true })).toBeAttached();
     await browserExpect(page.getByText(/#9999 ·/)).toBeVisible();
-    await browserExpect(page.getByRole("button").filter({ hasText: /#10001 ·/ }).getByText("Pendiente de confirmación", { exact: true })).toBeVisible();
-    await browserExpect(page.getByRole("button").filter({ hasText: /#10002 ·/ }).getByText("Pedido cancelado", { exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("button").filter({ hasText: /#10001 ·/ }).getByLabel("El comprador aún no confirma su pedido", { exact: true })).toBeAttached();
+    await browserExpect(page.getByRole("button").filter({ hasText: /#10002 ·/ }).getByText("Cancelado", { exact: true })).toBeVisible();
     await page.goto(`${mobile.origin}/orders/${historical}`);
     await browserExpect(page.getByText("Enlace aún no habilitado", { exact: true })).toBeVisible();
     await page.goto(`${mobile.origin}/orders/${cancelled}`);
