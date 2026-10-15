@@ -81,6 +81,9 @@ export default function DeliverySettingsScreen() {
       setZones(result.data);
       setDraft(previous => previous ? { ...previous, expectedVersion: result.data.version } : null);
       setZoneConflict(false);
+      // Zone saves are the only writer of company couriers, and the zones response does not carry them.
+      const settings = await deliverySettings.get();
+      if (settings.success) setSavedCouriers(settings.data.couriers);
     } else setZoneConflict(!["INVALID_INPUT", "INVALID_DELIVERY_ZONE", "INVALID_DELIVERY_OPTION"].includes(result.error.code));
     inFlight.current = false; setBusy(false);
     return result;

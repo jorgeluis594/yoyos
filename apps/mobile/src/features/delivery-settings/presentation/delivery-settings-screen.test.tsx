@@ -207,7 +207,7 @@ test("uncertain zone save preserves the draft and blocks all saves until explici
 const agencyOf = (n: number, name: string, enabled = true) => ({ id: `00000000-0000-4000-8000-0000000002${n}0`, courierId: shalomId, name, address: `Av. ${name} 1`, enabled,
   location: { country: "PE" as const, districtCode: "150122", district: "MIRAFLORES", province: "LIMA METROPOLITANA", department: "LIMA" } });
 
-test("agency options list their catalog agencies, flag options without eligible ones and save the chosen associations", async () => {
+test("agency options list their catalog agencies, flag options without eligible ones, save the chosen associations and refresh couriers", async () => {
   const central = agencyOf(1, "Central");
   const north = agencyOf(2, "Norte");
   const closed = agencyOf(3, "Cerrada", false);
@@ -216,13 +216,14 @@ test("agency options list their catalog agencies, flag options without eligible 
   const state = { ...zonesState, agency: { enabled: true }, agencies: [central, closed], zones: [{ ...homeZone, options: [agencyOption, orphan] }] };
   getZones.mockResolvedValue(ok(state));
   getAgencyCatalog.mockResolvedValue(ok({ agencies: [central, north] }));
-  get.mockResolvedValue(ok({ version: 5, home: { enabled: true }, agency: { enabled: true }, couriers: [{ id: "00000000-0000-4000-8000-0000000000a1", courierId: shalomId, name: "Shalom", enabled: true }],
-    store: { enabled: false, pickupPoint: null } }));
+  const shalom = { id: "00000000-0000-4000-8000-0000000000a1", courierId: shalomId, name: "Shalom", enabled: true };
+  get.mockResolvedValueOnce(ok({ version: 5, home: { enabled: true }, agency: { enabled: true }, couriers: [{ ...shalom, enabled: false }],
+    store: { enabled: false, pickupPoint: null } }))
+    .mockResolvedValueOnce(ok({ version: 6, home: { enabled: true }, agency: { enabled: true }, couriers: [shalom], store: { enabled: false, pickupPoint: null } }));
   saveZones.mockResolvedValue(ok({ ...state, version: 6 }));
   const screen = render(<DeliverySettingsScreen />);
   await screen.findByText("Lima");
-  expect(screen.getByText(/A agencia · Agencia · S\/ 5.00$/)).toBeTruthy();
-  expect(screen.getByText(/Sin agencia · Agencia · S\/ 5.00 · Sin agencias elegibles/)).toBeTruthy();
+  expect(screen.getByText(/A agencia · Agencia · S\/ 5.00 · Sin agencias elegibles/)).toBeTruthy();
   await waitFor(() => expect(screen.getByRole("button", { name: "Editar Lima" }).props.accessibilityState.disabled).toBe(false));
   fireEvent.press(screen.getByText("Editar Lima"));
   await screen.findAllByText(/Norte · MIRAFLORES/);
@@ -235,6 +236,8 @@ test("agency options list their catalog agencies, flag options without eligible 
     expect.objectContaining({ kind: "existing", id: optionId, method: "agency", agencyIds: [central.id, north.id] }),
     expect.objectContaining({ kind: "existing", id: orphan.id, method: "agency", agencyIds: [closed.id] }),
   ] })] });
+  expect(await screen.findByText(/A agencia · Agencia · S\/ 5.00$/)).toBeTruthy();
+  expect(screen.getByText(/Sin agencia · Agencia · S\/ 5.00 · Sin agencias elegibles/)).toBeTruthy();
 });
 
 test("a new agency option is offered only when agency delivery is enabled and needs a name and price before saving", async () => {
