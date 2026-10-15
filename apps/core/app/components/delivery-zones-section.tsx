@@ -55,9 +55,9 @@ export const uniqueOptionName = (base: string, taken: readonly string[]) => {
   for (let n = 2; used.has(name.toLowerCase()); n++) name = `${base} ${n}`;
   return name;
 };
-/** Whether a name was generated from a courier, so courier changes may still rename it. */
-export const isCourierName = (name: string, couriers: readonly Readonly<{ name: string }>[]) =>
-  couriers.some(courier => name === courier.name || (name.startsWith(`${courier.name} `) && /^\d+$/.test(name.slice(courier.name.length + 1))));
+/** The option name after a courier change: it follows the courier while empty or still the name generated for the previous courier. */
+export const courierOptionName = (name: string, previous: string | undefined, next: string, taken: readonly string[]) =>
+  !name.trim() || (previous !== undefined && name.trim() === uniqueOptionName(previous, taken)) ? uniqueOptionName(next, taken) : name;
 
 type Courier = DeliverySettingsResponse["couriers"][number];
 type Option = Zone["options"][number];
@@ -145,12 +145,11 @@ export function DeliveryZonesSection({ state, couriers, catalog, pending, error,
               {method === "agency" && <Controller name={`options.${index}.agencyIds`} control={form.control} render={({ field, fieldState }) => <div className="flex min-w-0 flex-col gap-2">
                 <AgencyPicker id={`${id}-agencies-${index}`} couriers={catalogCouriers} knownCouriers={couriers} known={state.agencies} value={field.value} onChange={field.onChange}
                   errorId={fieldState.error ? `${id}-agencies-${index}-error` : undefined}
-                  onCourierChange={courier => {
+                  onCourierChange={(courier, previous) => {
                     const options = form.getValues("options");
-                    const name = options[index]?.name.trim() ?? "";
-                    // Prefill only while the name is empty or still generated from a courier.
-                    if (!name || isCourierName(name, catalog)) form.setValue(`options.${index}.name`,
-                      uniqueOptionName(courier.name, options.filter((_, other) => other !== index).map(option => option.name)), { shouldDirty: true });
+                    const current = options[index]?.name ?? "";
+                    const name = courierOptionName(current, previous?.name, courier.name, options.filter((_, other) => other !== index).map(option => option.name));
+                    if (name !== current) form.setValue(`options.${index}.name`, name, { shouldDirty: true });
                   }} />
                 {fieldState.error && <FieldError id={`${id}-agencies-${index}-error`}>{t("deliveryZones.agenciesRequired")}</FieldError>}
               </div>} />}

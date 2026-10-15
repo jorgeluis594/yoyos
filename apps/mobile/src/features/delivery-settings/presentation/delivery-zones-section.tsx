@@ -17,7 +17,9 @@ import { AgencyPicker, type AgencyCourier } from "@mobile/features/delivery-sett
 const amountSchema = z.string().regex(/^\d+(?:[.,]\d{1,2})?$/).refine(value => Number(value.replace(",", ".")) <= 9999999999999.99);
 const draftSchema = z.object({ name: z.string().trim().min(1).max(120), enabled: z.boolean(),
   districtCodes: z.array(z.string().refine(code => getPeruDistrict(code) !== null)).min(1).refine(codes => new Set(codes).size === codes.length),
-  options: z.array(z.object({ name: z.string().trim().min(1).max(120), amount: amountSchema }).loose())
+  options: z.array(z.object({ name: z.string().trim().min(1).max(120), amount: amountSchema, kind: z.enum(["new", "existing"]), agencyIds: z.array(z.string()).optional() }).loose()
+    // Saved agency options without agencies stay saveable, as the server accepts them; only new ones must pick an agency.
+    .refine(option => option.kind === "existing" || option.agencyIds === undefined || option.agencyIds.length > 0))
     .refine(options => new Set(options.map(option => option.name.trim().toLowerCase())).size === options.length),
 });
 type Draft = Readonly<{ name: string; enabled: boolean; districtCodes: string[]; options: DeliveryOptionDraft[] }>;
@@ -108,6 +110,8 @@ export function DeliveryZonesSection({ state, couriers, catalog, loadAgencies, d
           <Field disabled={locked} required><FieldLabel>{t("zonesPrice")}</FieldLabel><Input accessibilityLabel={t("zonesPrice")} keyboardType="decimal-pad" value={option.amount} onChangeText={amount => setOption(index, { amount })} /></Field>
           {option.method === "agency" ? <AgencyPicker couriers={catalog.map(courier => ({ courierId: courier.id, name: courier.name }))} knownCouriers={couriers} known={state.agencies} value={option.agencyIds} disabled={locked} loadCatalog={loadAgencies}
             onChange={agencyIds => setOption(index, { agencyIds })} /> : null}
+          {error === "zonesInvalid" && option.kind === "new" && option.method === "agency" && option.agencyIds.length === 0
+            ? <ThemedText type="small" style={{ color: theme.error }}>{t("agenciesRequired")}</ThemedText> : null}
           <View style={styles.toggle}><ThemedText style={styles.label}>{t("optionActive")}</ThemedText><Switch accessibilityLabel={`${t("optionActive")} ${index + 1}`} value={option.enabled} disabled={locked} trackColor={{ true: theme.primary }} onValueChange={enabled => setOption(index, { enabled })} /></View>
           {option.kind === "new" ? <Button variant="ghost" disabled={locked} onPress={() => setDraft({ ...draft, options: draft.options.filter((_, i) => i !== index) })}>{t("optionRemove")}</Button> : null}
         </View>)}

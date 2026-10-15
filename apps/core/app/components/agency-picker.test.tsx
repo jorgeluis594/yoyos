@@ -43,6 +43,15 @@ test("a saved option whose courier left the catalog keeps showing that courier i
   expect(render(<AgencyPicker id="x" couriers={[{ courierId: id(200), name: "Olva" }]} known={catalog} value={[id(1)]} onChange={() => undefined} />)).toContain("Courier no disponible");
 });
 
+test("a legacy option mixing couriers keeps every saved agency and warns that choosing a courier keeps only its agencies", () => {
+  const mixed = [...catalog, { ...agency(4, "Sur", "Surco"), courierId: id(200) }];
+  const html = render(<AgencyPicker id="x" couriers={[{ courierId: id(100), name: "Shalom" }, { courierId: id(200), name: "Olva" }]} known={mixed} value={[id(1), id(4)]} onChange={() => undefined} />);
+  expect(html).toContain(describeAgency(mixed[0]));
+  expect(html).toContain(describeAgency(mixed[3]));
+  expect(html).toContain("tiene agencias de varios couriers");
+  expect(render(<AgencyPicker id="x" couriers={[{ courierId: id(100), name: "Shalom" }]} known={catalog} value={[id(1), id(2)]} onChange={() => undefined} />)).not.toContain("varios couriers");
+});
+
 test("an agency option without an enabled agency of an enabled courier is flagged as not offered", () => {
   const state = { agencies: catalog } as unknown as DeliveryZonesResponse;
   const option = (...agencyIds: string[]) => ({ id: id(50), method: "agency" as const, name: "A", enabled: true, price: { amount: 1, currency: "PEN" as const }, agencyIds });

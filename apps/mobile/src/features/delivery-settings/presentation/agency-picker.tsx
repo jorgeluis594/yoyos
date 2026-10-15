@@ -43,6 +43,8 @@ export function AgencyPicker({ couriers, knownCouriers, known, value, disabled, 
     return () => { active = false; };
   }, [courierId, key, loadCatalog]);
   const details = new Map([...known, ...picked.values()].map(agency => [agency.id, agency] as const));
+  // Options saved before the one-courier rule may mix couriers; their agencies stay as saved until a courier is chosen.
+  const mixed = new Set(value.flatMap(agencyId => details.get(agencyId)?.courierId ?? [])).size > 1;
   const toggle = (agency: CatalogAgencyContract, selected: boolean) => {
     if (!selected) return onChange(value.filter(item => item !== agency.id));
     setPicked(previous => new Map(previous).set(agency.id, agency));
@@ -67,6 +69,7 @@ export function AgencyPicker({ couriers, knownCouriers, known, value, disabled, 
             setCourierId(next); setQuery("");
             onChange(value.filter(agencyId => details.get(agencyId)?.courierId === next));
           }} /></Field>
+      {mixed ? <ThemedText type="small" themeColor="textSecondary">{t("mixedCouriersHint")}</ThemedText> : null}
       {retired ? <ThemedText type="small" themeColor="textSecondary">{t("retiredCourierHint")}</ThemedText> : <>
       <Field disabled={disabled}><FieldLabel>{t("agencySearch")}</FieldLabel><Input accessibilityLabel={t("agencySearch")} value={query} onChangeText={setQuery} /></Field>
       {!current ? <ThemedText type="small" themeColor="textSecondary" accessibilityLiveRegion="polite">{t("agenciesLoading")}</ThemedText> : null}

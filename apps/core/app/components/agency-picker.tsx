@@ -19,7 +19,7 @@ type Courier = Readonly<{ courierId: string; name: string }>;
 /** Chooses the catalog agencies of an agency option: the courier first, its catalog with a search box, and the chosen agencies below. */
 export function AgencyPicker({ id, couriers, knownCouriers = [], known, value, onChange, onCourierChange, errorId }: Readonly<{
   id: string; couriers: readonly Courier[]; knownCouriers?: readonly Courier[]; known: readonly CatalogAgencyContract[]; value: readonly string[]; onChange: (agencyIds: string[]) => void;
-  onCourierChange?: (courier: Courier) => void; errorId?: string;
+  onCourierChange?: (courier: Courier, previous: Courier | undefined) => void; errorId?: string;
 }>) {
   const { t } = useTranslation();
   // A saved option opens on the courier of its agencies, even when that courier left the catalog, so agencies of two couriers never mix.
@@ -45,6 +45,8 @@ export function AgencyPicker({ id, couriers, knownCouriers = [], known, value, o
     return () => { active = false; };
   }, [courierId, key, browsable]);
   const details = new Map([...known, ...picked.values()].map(agency => [agency.id, agency] as const));
+  // Options saved before the one-courier rule may mix couriers; their agencies stay as saved until a courier is chosen.
+  const mixed = new Set(value.flatMap(agencyId => details.get(agencyId)?.courierId ?? [])).size > 1;
   const toggle = (agency: CatalogAgencyContract) => {
     if (value.includes(agency.id)) return onChange(value.filter(item => item !== agency.id));
     setPicked(previous => new Map(previous).set(agency.id, agency));
@@ -69,11 +71,12 @@ export function AgencyPicker({ id, couriers, knownCouriers = [], known, value, o
         // An option ships with one courier: the agencies of the previous one are dropped.
         setCourierId(courier.courierId); setQuery("");
         onChange(value.filter(agencyId => details.get(agencyId)?.courierId === courier.courierId));
-        onCourierChange?.(courier);
+        onCourierChange?.(courier, choices.find(entry => entry.courierId === courierId));
       }} items={choices.map(courier => ({ value: courier.courierId, label: courier.name }))}>
         <SelectTrigger id={`${id}-courier`}><SelectValue /></SelectTrigger>
         <SelectContent>{choices.map(courier => <SelectItem key={courier.courierId} value={courier.courierId} disabled={courier === retired}>{courier.name}</SelectItem>)}</SelectContent>
-      </Select>{retired && <FieldDescription>{t("deliveryZones.retiredCourierHint")}</FieldDescription>}</Field>
+      </Select>{retired && <FieldDescription>{t("deliveryZones.retiredCourierHint")}</FieldDescription>}
+      {mixed && <FieldDescription>{t("deliveryZones.mixedCouriersHint")}</FieldDescription>}</Field>
     <div className="flex min-w-0 flex-col gap-2">
       <p className="text-sm font-medium">{t("deliveryZones.agencies", { count: value.length })}</p>
       {chosen}

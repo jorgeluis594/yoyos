@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { isCourierName, uniqueOptionName, zoneDraftSchema } from "@core/app/components/delivery-zones-section";
+import { courierOptionName, uniqueOptionName, zoneDraftSchema } from "@core/app/components/delivery-zones-section";
 
 const option = { method: "home", name: "Standard", amount: "0", enabled: true, agencyIds: [] };
 
@@ -25,12 +25,13 @@ test("only new agency options require agencies, so saved legacy options without 
   expect(zoneDraftSchema.safeParse({ ...zone, options: [{ ...legacy, id: undefined }] }).success).toBe(false);
 });
 
-test("a prefilled agency option name is unique in the zone and still counts as generated from a courier", () => {
+test("a prefilled agency option name is unique in the zone and follows the courier only while the seller has not changed it", () => {
   expect(uniqueOptionName("Olva", [])).toBe("Olva");
   expect(uniqueOptionName("Olva", ["olva", "Olva 2", "Shalom"])).toBe("Olva 3");
-  const catalog = [{ name: "Olva" }, { name: "Shalom" }];
-  expect(isCourierName("Olva", catalog)).toBe(true);
-  expect(isCourierName("Olva 2", catalog)).toBe(true);
-  expect(isCourierName("Olva Express", catalog)).toBe(false);
-  expect(isCourierName("Recojo 2", catalog)).toBe(false);
+  expect(courierOptionName("", undefined, "Shalom", [])).toBe("Shalom");
+  expect(courierOptionName("Olva", "Olva", "Shalom", ["Shalom"])).toBe("Shalom 2");
+  expect(courierOptionName("Olva 2", "Olva", "Shalom", ["Olva"])).toBe("Shalom");
+  expect(courierOptionName("Olva 24", "Olva", "Shalom", [])).toBe("Olva 24");
+  expect(courierOptionName("Olva 2", "Olva", "Shalom", [])).toBe("Olva 2");
+  expect(courierOptionName("Recojo", "Olva", "Shalom", [])).toBe("Recojo");
 });

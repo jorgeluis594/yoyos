@@ -31,3 +31,16 @@ test("a saved option keeps its retired courier without browsing another catalog,
   fireEvent.press(screen.getByRole("menuitem", { name: "Olva" }));
   expect(onChange).toHaveBeenCalledWith([]);
 });
+
+test("a legacy option mixing couriers keeps every saved agency and warns that choosing a courier keeps only its agencies", () => {
+  const olvaAgency = { ...agency, id: "00000000-0000-4000-8000-000000000220", courierId: olvaId, name: "Sur" };
+  const onChange = jest.fn();
+  const screen = render(<AgencyPicker couriers={[{ courierId: olvaId, name: "Olva" }, { courierId: retiredId, name: "Shalom" }]} knownCouriers={[]}
+    known={[agency, olvaAgency]} value={[agency.id, olvaAgency.id]} disabled={false} loadCatalog={jest.fn(async () => ok({ agencies: [] }))} onChange={onChange} />);
+  expect(screen.getByText(/Central · MIRAFLORES/)).toBeTruthy();
+  expect(screen.getByText(/Sur · MIRAFLORES/)).toBeTruthy();
+  expect(screen.getByText(/tiene agencias de varios couriers/)).toBeTruthy();
+  expect(onChange).not.toHaveBeenCalled();
+  fireEvent.press(screen.getByRole("menuitem", { name: "Olva" }));
+  expect(onChange).toHaveBeenCalledWith([olvaAgency.id]);
+});
