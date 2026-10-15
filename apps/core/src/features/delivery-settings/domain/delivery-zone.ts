@@ -5,7 +5,6 @@ import type { Currency, Money } from "@shared/money";
 import type { Result } from "@shared/result";
 import { parseDeliveryPrice } from "@core/src/features/delivery-settings/domain/delivery-price";
 import type { DeliveryAgency, DeliveryAgencyId } from "@core/src/features/delivery-settings/domain/delivery-agency";
-import type { Courier } from "@core/src/features/delivery-settings/domain/delivery-settings";
 
 export type DeliveryZoneId = string & { readonly __brand: "DeliveryZoneId" };
 export type DeliveryOptionId = string & { readonly __brand: "DeliveryOptionId" };
@@ -83,7 +82,7 @@ export function parseDeliveryZone(value: unknown, currency: Currency): Result<De
 }
 
 export type PrepareDeliveryZonesContext = Readonly<{
-  current: readonly DeliveryZone[]; agencies: readonly DeliveryAgency[]; couriers: readonly Courier[]; currency: Currency;
+  current: readonly DeliveryZone[]; agencies: readonly DeliveryAgency[]; currency: Currency;
   generateZoneId: () => string; generateOptionId: () => string;
 }>;
 
@@ -121,7 +120,6 @@ export function prepareDeliveryZones(input: readonly DeliveryZoneInput[], contex
     return err({ code: "INVALID_DELIVERY_ZONE", field: "zones", message: "Existing zones must be retained; disable a zone instead" });
   if ([...currentOptions.keys()].some(id => !optionIds.has(id)))
     return err({ code: "INVALID_DELIVERY_OPTION", field: "options", message: "Existing options must be retained; disable an option instead" });
-  const known = new Set(context.couriers.map(courier => courier.catalogId as string));
   const agencies = new Map(context.agencies.map(agency => [agency.id as string, agency]));
   const seenZones = new Set<string>();
   const seenOptions = new Set<string>();
@@ -146,9 +144,16 @@ export function prepareDeliveryZones(input: readonly DeliveryZoneInput[], contex
       const key = option.name.toLowerCase();
       if (names.has(key)) return err({ code: "INVALID_DELIVERY_OPTION", field: "name", index, optionIndex, message: "Option names must be unique within a zone" });
       names.add(key);
-      const couriersOf = new Set(option.method === "agency" ? option.agencyIds.map(id => agencies.get(id)?.courierId) : []);
-      if (couriersOf.size > 1 || [...couriersOf].some(courierId => courierId === undefined || !known.has(courierId)))
-        return err({ code: "INVALID_DELIVERY_OPTION", field: "agencyIds", index, optionIndex, message: "An option's agencies must exist and belong to a single courier of the company" });
+      if (option.method !== "agency") continue;
+      const couriersOf = new Set(option.agencyIds.map(id => agencies.get(id)?.courierId));
+      if (couriersOf.has(undefined)) return err({ code: "INVALID_DELIVERY_OPTION", field: "agencyIds", index, optionIndex, message: "An option's agencies must exist" });
+      const previous = stored?.method === "agency" ? stored.agencyIds : undefined;
+      if (!previous && option.agencyIds.length === 0)
+        return err({ code: "INVALID_DELIVERY_OPTION", field: "agencyIds", index, optionIndex, message: "A new agency option requires agencies" });
+      // Options stored before the single-courier rule may mix couriers: they stay saveable until their agencies change.
+      const changed = !previous || previous.length !== option.agencyIds.length || option.agencyIds.some(id => !previous.includes(id));
+      if (changed && couriersOf.size > 1)
+        return err({ code: "INVALID_DELIVERY_OPTION", field: "agencyIds", index, optionIndex, message: "An option's agencies must belong to a single courier" });
     }
     zones.push(result.data);
   }

@@ -24,7 +24,7 @@ function repository(configuration = initial()) {
   const deps: SaveDeliveryZonesDependencies = {
     transaction: async (_companyId, work) => work(), readForUpdate: async () => ok(stored),
     generateZoneId: () => id(sequence++), generateOptionId: () => id(sequence++), generateCourierId: () => id(sequence++) as CourierId,
-    readCourierCatalog: async () => ok([{ id: id(500) as CourierCatalogId, code: "shalom" as CourierCode, name: "Shalom" }]),
+    readCourierCatalog: async () => ok([{ id: id(500) as CourierCatalogId, code: "shalom" as CourierCode, name: "Shalom", enabled: true }]),
     saveSettings: async (_companyId, settings) => { stored = { ...stored, settings }; return ok(null); },
     saveZones: async (_companyId, zones) => { stored = { ...stored, zones }; return ok(null); },
     readAgencies: async ids => ok(stored.agencies.filter(agency => ids.includes(agency.id))),
@@ -132,4 +132,12 @@ test("an inactive agency option, or one in an inactive zone, with a courier new 
     expect(await saveDeliveryZones({ expectedVersion: 0, zones }, context, repo.deps)).toMatchObject({ success: true });
     expect(repo.read().settings.couriers).toMatchObject([{ catalogId, name: "Shalom", enabled: false }]);
   }
+});
+
+test("a save without agencies skips the courier catalog and still disables the company couriers", async () => {
+  const shalom = { id: id(501) as CourierId, catalogId: id(500) as CourierCatalogId, name: "Shalom", enabled: true, catalogEnabled: true };
+  const repo = repository({ ...initial(), settings: { ...initialDeliverySettings(), couriers: [shalom] } });
+  const deps = { ...repo.deps, readCourierCatalog: async () => { throw new Error("catalog read"); } };
+  expect(await saveDeliveryZones({ expectedVersion: 0, zones: [{ kind: "new", ...fields, options: [newOption] }] }, context, deps)).toMatchObject({ success: true });
+  expect(repo.read().settings.couriers).toEqual([{ ...shalom, enabled: false }]);
 });

@@ -144,12 +144,11 @@ test("mobile settings adapter exchanges authenticated settings and preserves a r
 });
 
 
-test("settings HTTP rejects courier inputs and carries the company couriers over unchanged", async () => {
+test("settings HTTP ignores courier inputs from older mobile builds and carries the company couriers over unchanged", async () => {
   const seller = await fixture();
   await withCourier(seller, shalomId);
   const input = { expectedVersion: 1, home: { enabled: false }, store: { enabled: false as const, pickupPoint: null }, agency: { enabled: false } };
-  expect((await request("/api/delivery-settings", seller.cookie, { ...input, couriers: [{ kind: "new", courierId: shalomId, enabled: false }] }, "PUT")).status).toBe(400);
-  const saved = await request("/api/delivery-settings", seller.cookie, input, "PUT");
+  const saved = await request("/api/delivery-settings", seller.cookie, { ...input, couriers: [{ kind: "existing", id: "ignored", enabled: false }] }, "PUT");
   expect(saved.status).toBe(200);
   expect(await saved.json()).toMatchObject({ version: 2, agency: { enabled: false }, couriers: [{ courierId: shalomId, name: "Shalom", enabled: true }] });
 });
@@ -186,7 +185,7 @@ test("zone HTTP persists zones with options, retains existing ones and returns m
   const option = { kind: "new", method: "home", name: "Standard", enabled: true, price: { amount: 8, currency: "PEN" } };
   const fields = { kind: "new", name: " Nearby ", enabled: true, districtCodes: ["150122"], options: [option] };
   const free = { ...fields, name: "Free", options: [{ ...option, name: "Free", price: { amount: 0, currency: "PEN" } },
-    { kind: "new", method: "agency", name: "Agency", enabled: true, price: { amount: 5, currency: "PEN" }, agencyIds: [] }] };
+    { ...option, name: "Express", price: { amount: 5, currency: "PEN" } }] };
   const input = { expectedVersion: 0, zones: [fields, free] };
   for (const body of [{ ...input, companyId: other.companyId }, { ...input, method: "home" }, { ...input, zones: [{ ...fields, id: randomUUID() }] },
     { ...input, zones: [{ ...fields, options: [{ ...option, price: undefined }] }] }, { ...input, zones: [{ ...fields, options: [{ ...option, agencyIds: [] }] }] },
@@ -209,11 +208,14 @@ test("zone HTTP persists zones with options, retains existing ones and returns m
   const unknownAgency = await request(path, seller.cookie, { ...input, zones: [{ ...fields, options: [{ ...option, method: "agency", agencyIds: [randomUUID()] }] }] }, "PUT");
   expect(unknownAgency.status).toBe(422);
   expect(await unknownAgency.json()).toMatchObject({ code: "INVALID_DELIVERY_OPTION", field: "agencyIds" });
+  const withoutAgencies = await request(path, seller.cookie, { ...input, zones: [{ ...fields, options: [{ ...option, method: "agency", agencyIds: [] }] }] }, "PUT");
+  expect(withoutAgencies.status).toBe(422);
+  expect(await withoutAgencies.json()).toMatchObject({ code: "INVALID_DELIVERY_OPTION", field: "agencyIds", index: 0, optionIndex: 0 });
   const saved = await request(path, seller.cookie, input, "PUT");
   expect(saved.status).toBe(200);
   const home = deliveryZonesSchema.parse(await saved.json());
   expect(home).toMatchObject({ version: 1, home: { enabled: false }, zones: [{ name: "Nearby", options: [{ method: "home", price: { amount: 8 } }] },
-    { name: "Free", options: [{ price: { amount: 0 } }, { method: "agency", agencyIds: [] }] }] });
+    { name: "Free", options: [{ price: { amount: 0 } }, { method: "home", name: "Express" }] }] });
   expect((await request("/api/delivery-settings", seller.cookie, { expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, store: { enabled: false, pickupPoint: null } }, "PUT")).status).toBe(200);
   const existing = home.zones.map(zone => ({ kind: "existing", id: zone.id, name: zone.name, enabled: zone.enabled, districtCodes: zone.districtCodes,
     options: zone.options.map(value => ({ kind: "existing", ...value })) }));

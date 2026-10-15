@@ -6,7 +6,7 @@ export type PickupPoint = Readonly<{ name: string; address: string; instructions
 export type CourierId = string & { readonly __brand: "CourierId" };
 export type CourierCatalogId = string & { readonly __brand: "CourierCatalogId" };
 export type CourierCode = string & { readonly __brand: "CourierCode" };
-export type CourierCatalogEntry = Readonly<{ id: CourierCatalogId; code: CourierCode; name: string }>;
+export type CourierCatalogEntry = Readonly<{ id: CourierCatalogId; code: CourierCode; name: string; enabled: boolean }>;
 export type StoreDeliverySettings =
   | Readonly<{ enabled: false; pickupPoint: PickupPoint | null }>
   | Readonly<{ enabled: true; pickupPoint: PickupPoint }>;
@@ -52,7 +52,7 @@ export function initialDeliverySettings(): DeliverySettings {
 export type Courier = Readonly<{ id: CourierId; catalogId: CourierCatalogId; name: string; enabled: boolean; catalogEnabled: boolean }>;
 
 export function parseCourierCatalogEntry(value: unknown): Result<CourierCatalogEntry, DeliverySettingsReadError> {
-  const parsed = z.strictObject({ id: courierCatalogId, code: z.string().regex(/^[a-z0-9]+(_[a-z0-9]+)*$/).max(40).transform(code => code as CourierCode), name: courierName }).safeParse(value);
+  const parsed = z.strictObject({ id: courierCatalogId, code: z.string().regex(/^[a-z0-9]+(_[a-z0-9]+)*$/).max(40).transform(code => code as CourierCode), name: courierName, enabled: z.boolean() }).safeParse(value);
   return parsed.success ? ok(parsed.data) : err({ code: "INVALID_STORED_DATA", message: "Stored courier catalog is invalid" });
 }
 
@@ -61,6 +61,6 @@ export function syncCouriers(current: readonly Courier[], referenced: readonly C
   catalog: readonly CourierCatalogEntry[], generateId: () => CourierId): readonly Courier[] {
   const wanted = new Set(catalog.filter(entry => shipping.includes(entry.id)).map(entry => entry.id));
   const added = catalog.filter(entry => referenced.includes(entry.id) && !current.some(courier => courier.catalogId === entry.id))
-    .map(entry => ({ id: generateId(), catalogId: entry.id, name: entry.name, enabled: wanted.has(entry.id), catalogEnabled: true }));
+    .map(entry => ({ id: generateId(), catalogId: entry.id, name: entry.name, enabled: wanted.has(entry.id), catalogEnabled: entry.enabled }));
   return [...current.map(courier => ({ ...courier, enabled: wanted.has(courier.catalogId) })), ...added];
 }

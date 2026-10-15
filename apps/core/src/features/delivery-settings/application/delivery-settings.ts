@@ -17,8 +17,9 @@ export async function getDeliverySettings(context: Pick<DeliverySettingsAccess, 
   return found.success ? ok(found.data ?? initialDeliverySettings()) : found;
 }
 
-export function getCourierCatalog(read: ReadCourierCatalog): Promise<Result<readonly CourierCatalogEntry[], DeliverySettingsReadError>> {
-  return read();
+export async function getCourierCatalog(read: ReadCourierCatalog): Promise<Result<readonly Omit<CourierCatalogEntry, "enabled">[], DeliverySettingsReadError>> {
+  const catalog = await read();
+  return catalog.success ? ok(catalog.data.map(({ id, code, name }) => ({ id, code, name }))) : catalog;
 }
 
 export async function saveDeliverySettings(input: SaveDeliverySettingsInput, context: DeliverySettingsAccess, deps: SaveDeliverySettingsDependencies): Promise<Result<DeliverySettings, DeliverySettingsError>> {

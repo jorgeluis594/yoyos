@@ -56,14 +56,14 @@ export async function saveDeliveryZones(input: SaveDeliveryZonesInput, context: 
     const requested = [...new Set(input.zones.flatMap(zone => zone.options.flatMap(option => option.method === "agency" ? option.agencyIds : [])))];
     const agencies = await deps.readAgencies(requested);
     if (!agencies.success) return agencies;
-    const catalog = await deps.readCourierCatalog();
+    const catalog = requested.length > 0 ? await deps.readCourierCatalog() : ok([]); // with no agencies there is no courier to add, only to disable
     if (!catalog.success) return catalog;
     // Choosing a courier's agencies is how a company ships with it: its company courier follows the agencies of the enabled options in the same write.
     const shipping = new Set(input.zones.flatMap(zone => zone.enabled
       ? zone.options.flatMap(option => option.method === "agency" && option.enabled ? option.agencyIds : []) : []));
     const couriers = syncCouriers(configuration.settings.couriers, agencies.data.map(agency => agency.courierId),
       agencies.data.filter(agency => shipping.has(agency.id)).map(agency => agency.courierId), catalog.data, deps.generateCourierId);
-    const zones = prepareDeliveryZones(input.zones, { current: configuration.zones, agencies: agencies.data, couriers,
+    const zones = prepareDeliveryZones(input.zones, { current: configuration.zones, agencies: agencies.data,
       currency: configuration.currency, generateZoneId: deps.generateZoneId, generateOptionId: deps.generateOptionId });
     if (!zones.success) return zones;
     const settings: DeliverySettings = { ...configuration.settings, couriers, version: input.expectedVersion + 1 };

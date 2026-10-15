@@ -7,7 +7,7 @@ import type { DeliveryAgency } from "@core/src/features/delivery-settings/domain
 const listed = "00000000-0000-4000-8000-000000000101" as CourierCatalogId;
 const unlisted = "00000000-0000-4000-8000-000000000102" as CourierCatalogId;
 const agencies: readonly DeliveryAgency[] = [];
-const deps = (read = vi.fn(async () => ok(agencies))) => ({ readCourierCatalog: async () => ok([{ id: listed, code: "shalom" as CourierCode, name: "Shalom" }]), readAgencyCatalog: read });
+const deps = (read = vi.fn(async () => ok(agencies))) => ({ readCourierCatalog: async () => ok([{ id: listed, code: "shalom" as CourierCode, name: "Shalom", enabled: true }]), readAgencyCatalog: read });
 
 test("a company lists the agencies of any enabled catalog courier, before shipping with it", async () => {
   const read = vi.fn(async () => ok(agencies));

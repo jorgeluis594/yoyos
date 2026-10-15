@@ -40,7 +40,7 @@ test("zone saves keep general settings, retain disabled zones and options and ne
       const saved = await deliverySettings.saveZones({ expectedVersion: 0, zones: [
         { kind: "new", ...fields },
         { kind: "new", ...fields, name: "Free", options: [{ ...option, name: "Free", price: { amount: 0, currency: "PEN" } },
-          { kind: "new", method: "agency", name: "Agency", enabled: true, price: { amount: 5, currency: "PEN" }, agencyIds: [] }] },
+          { ...option, name: "Express", price: { amount: 5, currency: "PEN" } }] },
       ] }, f.context);
       if (!saved.success) throw new Error(saved.error.message);
       expect(saved.data).toMatchObject({ version: 1, home: { enabled: false }, agency: { enabled: false }, zones: [{ name: "Nearby" }, { name: "Free" }] });
