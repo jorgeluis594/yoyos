@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { deleteAgencies, insertAgency, seededCatalogId, seededCourier } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
+import { deleteAgencies, insertAgency, seededCourier } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
 import { expect, test } from "vitest";
 import { ok } from "@shared/functional";
 import type { DeliveryZone } from "@core/src/features/delivery-settings/domain/delivery-zone";
@@ -33,7 +33,6 @@ async function fixture() {
 
 test("zone saves keep general settings, retain disabled zones and options and never generate rates", async () => {
   const f = await fixture();
-  const catalogId = await seededCatalogId();
   try {
     await f.run(async () => {
       expect(await deliverySettings.getZones(f.context)).toEqual(ok({ home: { enabled: false }, agency: { enabled: false }, version: 0, currency: "PEN", zones: [], agencies: [] }));
@@ -48,7 +47,7 @@ test("zone saves keep general settings, retain disabled zones and options and ne
       expect(await prisma.deliveryZoneDistrict.count({ where: { districtCode: "150122" } })).toBe(2);
       expect(await prisma.deliveryOption.count()).toBe(3);
       expect(await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: true },
-        couriers: [{ kind: "new", catalogId, enabled: true }], store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } }, f.context))
+        store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } }, f.context))
         .toMatchObject({ success: true, data: { version: 2 } });
       const changed = await deliverySettings.saveZones({ expectedVersion: 2, zones: saved.data.zones.map(zone => ({ ...existing(zone), enabled: false,
         name: `${zone.name} disabled`, options: existing(zone).options.map(value => ({ ...value, enabled: false })) })) }, f.context);
@@ -57,7 +56,7 @@ test("zone saves keep general settings, retain disabled zones and options and ne
       expect(changed.data.zones.every(zone => !zone.enabled && zone.options.every(value => !value.enabled) && zone.districtCodes.some(code => code === "150122"))).toBe(true);
       expect(changed.data.zones.map(zone => zone.options.map(value => value.id))).toEqual(saved.data.zones.map(zone => zone.options.map(value => value.id)));
       expect(await deliverySettings.get(f.context)).toMatchObject({ success: true, data: { version: 3, home: { enabled: true }, agency: { enabled: true },
-        couriers: [{ name: "Shalom", enabled: true }], store: { enabled: true, pickupPoint: { name: "Shop", address: "Street" } } } });
+        couriers: [], store: { enabled: true, pickupPoint: { name: "Shop", address: "Street" } } } });
       expect(await prisma.quotation.count()).toBe(0);
       expect(await prisma.deliveryRate.count()).toBe(0);
       expect(await deliverySettings.saveZones({ expectedVersion: 3, zones: [] }, f.context)).toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_ZONE" } });
@@ -169,7 +168,7 @@ test("agency options keep their catalog associations, replace them on save and r
   try {
     await f.run(async () => {
       expect(await deliverySettings.save({ expectedVersion: 0, home: { enabled: false }, agency: { enabled: true },
-        couriers: [{ kind: "new", catalogId: courier.id as never, enabled: true }], store: { enabled: false, pickupPoint: null } }, f.context)).toMatchObject({ success: true });
+        store: { enabled: false, pickupPoint: null } }, f.context)).toMatchObject({ success: true });
       // An agency outside the catalog is rejected and nothing is written.
       expect(await deliverySettings.saveZones({ expectedVersion: 1, zones: [{ kind: "new", ...fields, options: [agencyOption([first, randomUUID()])] }] }, f.context))
         .toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_OPTION", field: "agencyIds", optionIndex: 0 } });
@@ -185,10 +184,10 @@ test("agency options keep their catalog associations, replace them on save and r
       expect((await prisma.deliveryOptionAgency.findMany()).map(row => row.agencyId)).toEqual([second]);
       const loaded = await deliverySettings.getZones(f.context);
       expect(loaded).toMatchObject({ success: true, data: { agencies: [{ id: second, enabled: false }], zones: [{ options: [{ agencyIds: [second] }] }] } });
-      // The company ships with Shalom only: choosing an Olva agency enables Olva in the same write.
-      expect(await deliverySettings.saveZones({ expectedVersion: 3, zones: [{ ...existing(zone), options: [{ kind: "existing", id: zone.options[0].id, method: "agency", name: "Agency", enabled: true, price: { amount: 5, currency: "PEN" }, agencyIds: [second, other] }] }] }, f.context))
+      // The company ships with Shalom only: switching the option to an Olva agency enables Olva and disables Shalom in the same write.
+      expect(await deliverySettings.saveZones({ expectedVersion: 3, zones: [{ ...existing(zone), options: [{ kind: "existing", id: zone.options[0].id, method: "agency", name: "Agency", enabled: true, price: { amount: 5, currency: "PEN" }, agencyIds: [other] }] }] }, f.context))
         .toMatchObject({ success: true, data: { version: 4 } });
-      expect(await deliverySettings.get(f.context)).toMatchObject({ success: true, data: { couriers: expect.arrayContaining([expect.objectContaining({ name: "Olva Courier", enabled: true })]) } });
+      expect(await deliverySettings.get(f.context)).toMatchObject({ success: true, data: { couriers: expect.arrayContaining([expect.objectContaining({ name: "Shalom", enabled: false }), expect.objectContaining({ name: "Olva Courier", enabled: true })]) } });
     });
   } finally { await f.cleanup(); await deleteAgencies([first, second, other]); }
 });

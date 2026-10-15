@@ -15,7 +15,7 @@ test("web creation rejects a stale rate atomically and retries the same order wi
       return (await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } })).id;
     });
     expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 0, home: { enabled: true }, agency: { enabled: false },
-      store: { enabled: false, pickupPoint: null }, couriers: [] } })).ok()).toBe(true);
+      store: { enabled: false, pickupPoint: null } } })).ok()).toBe(true);
     const zone = { kind: "new", name: "Zone", enabled: true, districtCodes: ["040110"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount: 8, currency: "PEN" } }] };
     expect((await page.request.put("/api/delivery-settings/zones", { data: { expectedVersion: 1, zones: [zone] } })).ok()).toBe(true);
     const quoted = await page.request.post("/api/quotations", { data: { destination: { country: "PE", districtCode: "040110" } } });

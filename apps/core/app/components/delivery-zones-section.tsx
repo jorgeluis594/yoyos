@@ -24,7 +24,8 @@ const optionDraftSchema = z.object({
   amount: z.string().regex(/^\d+(?:[.,]\d{1,2})?$/).refine(value => parseDeliveryPrice({ amount: Number(value.replace(",", ".")), currency: "PEN" }, "PEN").success),
   enabled: z.boolean(),
   agencyIds: z.array(z.string()),
-}).refine(option => option.method === "home" || option.agencyIds.length > 0, { path: ["agencyIds"] });
+// Saved agency options without agencies stay saveable, as the server accepts them; only new ones must pick an agency.
+}).refine(option => option.method === "home" || option.id !== undefined || option.agencyIds.length > 0, { path: ["agencyIds"] });
 export const zoneDraftSchema = z.object({
   name: z.string().trim().min(1).max(120),
   districtCodes: z.array(z.string().refine(code => getPeruDistrict(code) !== null)).min(1).refine(codes => new Set(codes).size === codes.length),
@@ -47,6 +48,17 @@ const toZoneInput = (zone: Draft, id?: string): SaveDeliveryZonesRequest["zones"
   ...(id ? { kind: "existing" as const, id } : { kind: "new" as const }),
   name: zone.name, enabled: zone.enabled, districtCodes: zone.districtCodes, options: zone.options.map(toOptionInput) });
 
+/** The first free name in the zone: the courier name, then "Olva 2", "Olva 3"… */
+export const uniqueOptionName = (base: string, taken: readonly string[]) => {
+  const used = new Set(taken.map(name => name.trim().toLowerCase()));
+  let name = base;
+  for (let n = 2; used.has(name.toLowerCase()); n++) name = `${base} ${n}`;
+  return name;
+};
+/** Whether a name was generated from a courier, so courier changes may still rename it. */
+export const isCourierName = (name: string, couriers: readonly Readonly<{ name: string }>[]) =>
+  couriers.some(courier => name === courier.name || (name.startsWith(`${courier.name} `) && /^\d+$/.test(name.slice(courier.name.length + 1))));
+
 type Courier = DeliverySettingsResponse["couriers"][number];
 type Option = Zone["options"][number];
 /** An agency option is only offered when an associated agency is enabled and so is its courier (the catalog rows are checked server-side). */
@@ -65,9 +77,9 @@ export function DeliveryZonesSection({ state, couriers, catalog, pending, error,
   const form = useForm<Draft>({ resolver: zodResolver(zoneDraftSchema), defaultValues: empty });
   const { fields, append, remove } = useFieldArray({ control: form.control, name: "options", keyName: "fieldKey" });
   const catalogCouriers = catalog.map(courier => ({ courierId: courier.id, name: courier.name }));
-  // An agency option starts named after the first courier; choosing another courier renames it while the name is untouched.
-  const newOption = (method: Draft["options"][number]["method"]): Draft["options"][number] =>
-    ({ method, name: method === "agency" ? catalog[0]?.name ?? "" : "", amount: "", enabled: true, agencyIds: [] });
+  // An agency option starts named after the first courier, unique in the zone; choosing another courier renames it while the name is untouched.
+  const newOption = (method: Draft["options"][number]["method"]): Draft["options"][number] => ({ method,
+    name: method === "agency" && catalog[0] ? uniqueOptionName(catalog[0].name, form.getValues("options").map(option => option.name)) : "", amount: "", enabled: true, agencyIds: [] });
   const zones = state.zones;
   const blocked = error === "DELIVERY_SETTINGS_CONFLICT" || error === "INTERNAL_ERROR" || error === "SERVICE_UNAVAILABLE" || error === "PERSISTENCE_UNAVAILABLE";
   const { reset } = form;
@@ -131,12 +143,14 @@ export function DeliveryZonesSection({ state, couriers, catalog, pending, error,
                 {!option.id && <Button type="button" variant="ghost" className="max-md:min-h-touch" onClick={() => remove(index)}>{t("deliveryZones.removeOption")}</Button>}
               </div>
               {method === "agency" && <Controller name={`options.${index}.agencyIds`} control={form.control} render={({ field, fieldState }) => <div className="flex min-w-0 flex-col gap-2">
-                <AgencyPicker id={`${id}-agencies-${index}`} couriers={catalogCouriers} known={state.agencies} value={field.value} onChange={field.onChange}
+                <AgencyPicker id={`${id}-agencies-${index}`} couriers={catalogCouriers} knownCouriers={couriers} known={state.agencies} value={field.value} onChange={field.onChange}
                   errorId={fieldState.error ? `${id}-agencies-${index}-error` : undefined}
                   onCourierChange={courier => {
-                    const name = form.getValues(`options.${index}.name`).trim();
-                    // Prefill only while the name is empty or still another courier's name.
-                    if (!name || catalog.some(entry => entry.name === name)) form.setValue(`options.${index}.name`, courier.name, { shouldDirty: true });
+                    const options = form.getValues("options");
+                    const name = options[index]?.name.trim() ?? "";
+                    // Prefill only while the name is empty or still generated from a courier.
+                    if (!name || isCourierName(name, catalog)) form.setValue(`options.${index}.name`,
+                      uniqueOptionName(courier.name, options.filter((_, other) => other !== index).map(option => option.name)), { shouldDirty: true });
                   }} />
                 {fieldState.error && <FieldError id={`${id}-agencies-${index}-error`}>{t("deliveryZones.agenciesRequired")}</FieldError>}
               </div>} />}

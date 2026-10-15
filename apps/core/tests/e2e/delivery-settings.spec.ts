@@ -43,7 +43,7 @@ test("seller configures store pickup, preserves a conflicting draft and explicit
     await browserExpect(page.getByRole("status")).toHaveCount(0);
     await browserExpect(page.getByLabel("Dirección", { exact: true })).toHaveValue("Mi borrador");
     const concurrent = await page.request.put("/api/delivery-settings", { data: { expectedVersion: 1,
-      agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Otra tienda", address: "Dirección concurrente", instructions: null } } } });
+      agency: { enabled: false }, home: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Otra tienda", address: "Dirección concurrente", instructions: null } } } });
     expect(concurrent.ok()).toBe(true);
     await page.getByRole("button", { name: "Guardar configuración" }).click();
     await browserExpect(page.getByRole("alert")).toContainText("Otra persona cambió");
@@ -93,8 +93,7 @@ test("seller configures store pickup, preserves a conflicting draft and explicit
     expect(await (await page.request.get("/api/delivery-settings")).json()).toEqual({ ...agencySettings, version: 6, home: { enabled: false } });
     const current = deliverySettingsSchema.parse(await (await page.request.get("/api/delivery-settings")).json());
     await page.getByLabel("Oferecer envio para agência").uncheck();
-    expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: current.version, home: { enabled: !current.home.enabled }, store: current.store, agency: current.agency,
-      couriers: [] } })).ok()).toBe(true);
+    expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: current.version, home: { enabled: !current.home.enabled }, store: current.store, agency: current.agency } })).ok()).toBe(true);
     await page.getByRole("button", { name: "Salvar configuração" }).click();
     await browserExpect(page.getByRole("alert")).toContainText("Outra pessoa alterou");
     await browserExpect(page.getByLabel("Oferecer envio para agência")).not.toBeChecked();
@@ -189,7 +188,7 @@ test("seller manages overlapping zones with delivery options and preserves an ed
     await browserExpect(buyerRates).not.toContainText(/Moto/);
     const current = await (await page.request.get("/api/delivery-settings")).json();
     const concurrent = await page.request.put("/api/delivery-settings", { data: {
-      expectedVersion: current.version, home: current.home, agency: current.agency, store: current.store, couriers: [],
+      expectedVersion: current.version, home: current.home, agency: current.agency, store: current.store,
     } });
     expect(concurrent.status()).toBe(200);
     await page.getByRole("button", { name: "Editar Extendida", exact: true }).click();
@@ -267,7 +266,7 @@ test("seller saves delivery settings behind an HTTPS-terminating proxy", async (
     const host = `127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}`;
     const response = await page.request.post("/es-PE/settings/delivery.data", {
       headers: { origin: `https://${host}`, "x-forwarded-proto": "https", "content-type": "application/json" },
-      data: { expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: true }, store: { enabled: false, pickupPoint: null } },
+      data: { expectedVersion: 0, agency: { enabled: false }, home: { enabled: true }, store: { enabled: false, pickupPoint: null } },
     });
     expect(response.status()).toBe(200);
     expect(await (await page.request.get("/api/delivery-settings")).json()).toMatchObject({ version: 1, home: { enabled: true } });

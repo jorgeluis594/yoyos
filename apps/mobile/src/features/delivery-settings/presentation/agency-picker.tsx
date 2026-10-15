@@ -18,14 +18,18 @@ export const describeAgency = (agency: CatalogAgencyContract) => `${agency.name}
 export type AgencyCourier = Readonly<{ courierId: string; name: string }>;
 
 /** Chooses the catalog agencies of an agency option: the selected ones, then the courier's catalog with a search box. */
-export function AgencyPicker({ couriers, known, value, disabled, loadCatalog, onChange }: Readonly<{
-  couriers: readonly AgencyCourier[]; known: readonly CatalogAgencyContract[]; value: readonly string[]; disabled: boolean;
+export function AgencyPicker({ couriers, knownCouriers, known, value, disabled, loadCatalog, onChange }: Readonly<{
+  couriers: readonly AgencyCourier[]; knownCouriers: readonly AgencyCourier[]; known: readonly CatalogAgencyContract[]; value: readonly string[]; disabled: boolean;
   loadCatalog: (courierId: string) => Promise<Result<AgencyCatalogResponse, DeliverySettingsError>>; onChange: (agencyIds: string[]) => void;
 }>) {
   const { t } = useTranslation();
   const theme = useTheme();
-  const [chosenCourierId, setCourierId] = useState<string | null>(couriers[0]?.courierId ?? null);
-  const courierId = couriers.some(courier => courier.courierId === chosenCourierId) ? chosenCourierId : couriers[0]?.courierId ?? null;
+  // A saved option opens on the courier of its agencies, even when that courier left the catalog, so agencies of two couriers never mix.
+  const savedCourierId = known.find(agency => value.includes(agency.id))?.courierId;
+  const retired = savedCourierId && !couriers.some(courier => courier.courierId === savedCourierId)
+    ? knownCouriers.find(courier => courier.courierId === savedCourierId)?.name ?? t("retiredCourier") : null;
+  const [chosenCourierId, setCourierId] = useState<string | null>(savedCourierId ?? couriers[0]?.courierId ?? null);
+  const courierId = retired ? null : couriers.some(courier => courier.courierId === chosenCourierId) ? chosenCourierId : couriers[0]?.courierId ?? null;
   const [query, setQuery] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [loaded, setLoaded] = useState<{ key: string; agencies: readonly CatalogAgencyContract[] | null }>();
@@ -55,10 +59,15 @@ export function AgencyPicker({ couriers, known, value, disabled, loadCatalog, on
         <Button variant="ghost" disabled={disabled} accessibilityLabel={t("agencyRemove", { name })} onPress={() => onChange(value.filter(item => item !== agencyId))}>{t("agencyRemove", { name: agency?.name ?? agencyId })}</Button>
       </View>;
     })}
-    {couriers.length === 0 ? <ThemedText type="small" themeColor="textSecondary">{t("agenciesNoCouriers")}</ThemedText> : <>
+    {couriers.length === 0 && !retired ? <ThemedText type="small" themeColor="textSecondary">{t("agenciesNoCouriers")}</ThemedText> : <>
       <Field disabled={disabled}><FieldLabel>{t("agencyCourier")}</FieldLabel>
         <OptionSelector testID="agency-courier" options={couriers.map(courier => ({ value: courier.courierId, label: courier.name }))} value={courierId}
-          onValueChange={next => { if (next) { setCourierId(next); setQuery(""); } }} /></Field>
+          placeholder={retired ?? undefined} onValueChange={next => {
+            if (!next) return;
+            setCourierId(next); setQuery("");
+            onChange(value.filter(agencyId => details.get(agencyId)?.courierId === next));
+          }} /></Field>
+      {retired ? <ThemedText type="small" themeColor="textSecondary">{t("retiredCourierHint")}</ThemedText> : <>
       <Field disabled={disabled}><FieldLabel>{t("agencySearch")}</FieldLabel><Input accessibilityLabel={t("agencySearch")} value={query} onChangeText={setQuery} /></Field>
       {!current ? <ThemedText type="small" themeColor="textSecondary" accessibilityLiveRegion="polite">{t("agenciesLoading")}</ThemedText> : null}
       {current && !current.agencies ? <View style={styles.section}><ThemedText type="small" accessibilityRole="alert" style={{ color: theme.error }}>{t("agenciesError")}</ThemedText>
@@ -72,6 +81,7 @@ export function AgencyPicker({ couriers, known, value, disabled, loadCatalog, on
         </View>)}
       </ScrollView> : null}
       {matches.length > maxShown ? <ThemedText type="small" themeColor="textSecondary">{t("agenciesMore", { count: matches.length - maxShown })}</ThemedText> : null}
+    </>}
     </>}
   </View>;
 }

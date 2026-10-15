@@ -17,14 +17,19 @@ export const describeAgency = (agency: CatalogAgencyContract) => `${agency.name}
 type Courier = Readonly<{ courierId: string; name: string }>;
 
 /** Chooses the catalog agencies of an agency option: the courier first, its catalog with a search box, and the chosen agencies below. */
-export function AgencyPicker({ id, couriers, known, value, onChange, onCourierChange, errorId }: Readonly<{
-  id: string; couriers: readonly Courier[]; known: readonly CatalogAgencyContract[]; value: readonly string[]; onChange: (agencyIds: string[]) => void;
+export function AgencyPicker({ id, couriers, knownCouriers = [], known, value, onChange, onCourierChange, errorId }: Readonly<{
+  id: string; couriers: readonly Courier[]; knownCouriers?: readonly Courier[]; known: readonly CatalogAgencyContract[]; value: readonly string[]; onChange: (agencyIds: string[]) => void;
   onCourierChange?: (courier: Courier) => void; errorId?: string;
 }>) {
   const { t } = useTranslation();
-  // A saved option opens on the courier of its first agency.
-  const [chosenCourierId, setCourierId] = useState(() => known.find(agency => value.includes(agency.id))?.courierId ?? couriers[0]?.courierId ?? "");
-  const courierId = couriers.some(courier => courier.courierId === chosenCourierId) ? chosenCourierId : couriers[0]?.courierId ?? "";
+  // A saved option opens on the courier of its agencies, even when that courier left the catalog, so agencies of two couriers never mix.
+  const savedCourierId = known.find(agency => value.includes(agency.id))?.courierId;
+  const retired = savedCourierId && !couriers.some(courier => courier.courierId === savedCourierId)
+    ? { courierId: savedCourierId, name: knownCouriers.find(courier => courier.courierId === savedCourierId)?.name ?? t("deliveryZones.retiredCourier") } : null;
+  const [chosenCourierId, setCourierId] = useState(() => savedCourierId ?? couriers[0]?.courierId ?? "");
+  const courierId = retired?.courierId ?? (couriers.some(courier => courier.courierId === chosenCourierId) ? chosenCourierId : couriers[0]?.courierId ?? "");
+  const choices = retired ? [retired, ...couriers] : couriers;
+  const browsable = retired === null;
   const [query, setQuery] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [loaded, setLoaded] = useState<{ key: string; agencies: readonly CatalogAgencyContract[] | null; error: AgencyCatalogClientError | null }>();
@@ -32,13 +37,13 @@ export function AgencyPicker({ id, couriers, known, value, onChange, onCourierCh
   const key = `${courierId}/${attempt}`;
   const current = loaded?.key === key ? loaded : null;
   useEffect(() => {
-    if (!courierId) return;
+    if (!courierId || !browsable) return;
     let active = true;
     void readAgencyCatalog(courierId).then(result => {
       if (active) setLoaded({ key, agencies: result.success ? result.data.agencies : null, error: result.success ? null : result.error });
     });
     return () => { active = false; };
-  }, [courierId, key]);
+  }, [courierId, key, browsable]);
   const details = new Map([...known, ...picked.values()].map(agency => [agency.id, agency] as const));
   const toggle = (agency: CatalogAgencyContract) => {
     if (value.includes(agency.id)) return onChange(value.filter(item => item !== agency.id));
@@ -55,7 +60,7 @@ export function AgencyPicker({ id, couriers, known, value, onChange, onCourierCh
           onClick={() => onChange(value.filter(item => item !== agencyId))}>{t("deliveryZones.remove")}</Button>
       </li>;
     })}</ul>;
-  if (couriers.length === 0) return <div className="flex min-w-0 flex-col gap-2">{chosen}<FieldDescription>{t("deliveryZones.noCatalog")}</FieldDescription></div>;
+  if (choices.length === 0) return <div className="flex min-w-0 flex-col gap-2">{chosen}<FieldDescription>{t("deliveryZones.noCatalog")}</FieldDescription></div>;
   return <div className="flex min-w-0 flex-col gap-4">
     <Field><FieldLabel htmlFor={`${id}-courier`}>{t("deliveryZones.agencyCourier")}</FieldLabel>
       <Select value={courierId} onValueChange={next => {
@@ -65,17 +70,17 @@ export function AgencyPicker({ id, couriers, known, value, onChange, onCourierCh
         setCourierId(courier.courierId); setQuery("");
         onChange(value.filter(agencyId => details.get(agencyId)?.courierId === courier.courierId));
         onCourierChange?.(courier);
-      }} items={couriers.map(courier => ({ value: courier.courierId, label: courier.name }))}>
+      }} items={choices.map(courier => ({ value: courier.courierId, label: courier.name }))}>
         <SelectTrigger id={`${id}-courier`}><SelectValue /></SelectTrigger>
-        <SelectContent>{couriers.map(courier => <SelectItem key={courier.courierId} value={courier.courierId}>{courier.name}</SelectItem>)}</SelectContent>
-      </Select></Field>
+        <SelectContent>{choices.map(courier => <SelectItem key={courier.courierId} value={courier.courierId} disabled={courier === retired}>{courier.name}</SelectItem>)}</SelectContent>
+      </Select>{retired && <FieldDescription>{t("deliveryZones.retiredCourierHint")}</FieldDescription>}</Field>
     <div className="flex min-w-0 flex-col gap-2">
       <p className="text-sm font-medium">{t("deliveryZones.agencies", { count: value.length })}</p>
       {chosen}
     </div>
-    <Field><FieldLabel htmlFor={`${id}-search`}>{t("deliveryZones.searchAgencies")}</FieldLabel>
-      <Input id={`${id}-search`} type="search" value={query} onChange={event => setQuery(event.target.value)} aria-invalid={errorId !== undefined} aria-describedby={errorId} /></Field>
-    {!current && <FieldDescription role="status">{t("deliveryZones.loadingAgencies")}</FieldDescription>}
+    {browsable && <Field><FieldLabel htmlFor={`${id}-search`}>{t("deliveryZones.searchAgencies")}</FieldLabel>
+      <Input id={`${id}-search`} type="search" value={query} onChange={event => setQuery(event.target.value)} aria-invalid={errorId !== undefined} aria-describedby={errorId} /></Field>}
+    {!current && browsable && <FieldDescription role="status">{t("deliveryZones.loadingAgencies")}</FieldDescription>}
     {current?.error && <div className="flex flex-col items-start gap-2"><Alert variant="destructive"><AlertDescription>{t("deliveryZones.agenciesError")}</AlertDescription></Alert>
       <Button type="button" variant="outline" onClick={() => setAttempt(value => value + 1)}>{t("deliveryZones.retryAgencies")}</Button></div>}
     {current?.agencies && matches.length === 0 && <FieldDescription>{t("deliveryZones.noAgencyMatches")}</FieldDescription>}

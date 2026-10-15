@@ -19,10 +19,6 @@ export type CourierCatalogResponse = z.infer<typeof courierCatalogSchema>;
 export const companyCourierSchema = z.strictObject({
   id: z.uuid(), courierId: z.uuid(), name: z.string().trim().min(1).max(120), enabled: z.boolean(),
 });
-export const courierInputSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("new"), courierId: z.uuid(), enabled: z.boolean() }),
-  z.strictObject({ kind: z.literal("existing"), id: z.uuid(), enabled: z.boolean() }),
-]);
 export const deliverySettingsSchema = z.strictObject({
   version: z.number().int().min(0).max(2147483647),
   agency: z.strictObject({ enabled: z.boolean() }),
@@ -34,7 +30,6 @@ export const deliverySettingsSchema = z.strictObject({
 export type DeliverySettingsResponse = z.infer<typeof deliverySettingsSchema>;
 export const saveDeliverySettingsSchema = z.strictObject({
   agency: z.strictObject({ enabled: z.boolean() }),
-  couriers: z.array(courierInputSchema),
   expectedVersion: z.number().int().min(0).max(2147483646),
   home: z.strictObject({ enabled: z.boolean() }),
   store: storeDeliverySettingsSchema,

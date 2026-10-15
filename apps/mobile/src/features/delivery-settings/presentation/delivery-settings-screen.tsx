@@ -17,7 +17,7 @@ import { ScreenState } from "@mobile/components/ui/screen-state";
 import { useTheme } from "@mobile/hooks/use-theme";
 
 function draftFrom(settings: DeliverySettingsResponse): DeliverySettingsDraft {
-  return { expectedVersion: settings.version, agencyEnabled: settings.agency.enabled, couriers: settings.couriers.map(courier => ({ ...courier, kind: "existing" as const })), homeEnabled: settings.home.enabled, storeEnabled: settings.store.enabled, pickupName: settings.store.pickupPoint?.name ?? "",
+  return { expectedVersion: settings.version, agencyEnabled: settings.agency.enabled, homeEnabled: settings.home.enabled, storeEnabled: settings.store.enabled, pickupName: settings.store.pickupPoint?.name ?? "",
     pickupAddress: settings.store.pickupPoint?.address ?? "", pickupInstructions: settings.store.pickupPoint?.instructions ?? "" };
 }
 
@@ -39,7 +39,6 @@ export default function DeliverySettingsScreen() {
   const [conflict, setConflict] = useState(false);
   const inFlight = useRef(false);
   const initialized = useRef(false);
-  const nextCourierKey = useRef(0);
   const load = useCallback(async () => {
     if (!companyId || inFlight.current) return;
     inFlight.current = true;
@@ -114,24 +113,9 @@ export default function DeliverySettingsScreen() {
           value={draft.agencyEnabled} disabled={busy} hitSlop={10} trackColor={{ true: theme.primary }}
           onValueChange={value => { setDraft({ ...draft, agencyEnabled: value }); setSaved(false); }} /></View>
         <ThemedText type="small" themeColor="textSecondary">{t("courierHint")}</ThemedText>
-        {draft.couriers.length === 0 ? <ThemedText themeColor="textSecondary">{t("noCouriers")}</ThemedText> : null}
-        {draft.couriers.map(courier => {
-          const key = courier.kind === "existing" ? courier.id : `new-${courier.localKey}`;
-          const update = (enabled: boolean) => { setDraft({ ...draft, couriers: draft.couriers.map(row => row === courier ? { ...row, enabled } : row) }); setSaved(false); };
-          return <View key={key} style={[styles.courier, { borderColor: theme.input }]}>
-            <ThemedText type="subtitle">{courier.name}</ThemedText>
-            <View style={styles.toggle}><ThemedText style={styles.label}>{t("courierEnabled", { name: courier.name })}</ThemedText><Switch accessibilityLabel={t("courierEnabled", { name: courier.name })}
-              value={courier.enabled} disabled={busy} hitSlop={10} trackColor={{ true: theme.primary }} onValueChange={update} /></View>
-            {courier.kind === "new" ? <Button variant="ghost" disabled={busy} accessibilityLabel={t("removeCourierLabel", { name: courier.name })}
-              onPress={() => { setDraft({ ...draft, couriers: draft.couriers.filter(row => row !== courier) }); setSaved(false); }}>{t("removeCourier")}</Button> : null}
-          </View>;
-        })}
-        {catalog.filter(entry => !draft.couriers.some(courier => courier.courierId === entry.id)).map(entry =>
-          <Button key={entry.id} variant="secondary" disabled={busy} accessibilityLabel={t("addCourierNamed", { name: entry.name })}
-            onPress={() => { setDraft({ ...draft, couriers: [...draft.couriers, { kind: "new", localKey: ++nextCourierKey.current, courierId: entry.id, name: entry.name, enabled: true }] }); setSaved(false); }}>{t("addCourierNamed", { name: entry.name })}</Button>)}
       </View>
       {zones ? <View style={[styles.section, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}><DeliveryZonesSection key={`zones-${generation}`} state={zones} loadAgencies={deliverySettings.getAgencyCatalog}
-        couriers={savedCouriers} disabled={busy} blocked={zoneConflict || conflict} onSave={saveZones} onReload={() => void load()} /></View> : null}
+        couriers={savedCouriers} catalog={catalog} disabled={busy} blocked={zoneConflict || conflict} onSave={saveZones} onReload={() => void load()} /></View> : null}
     </ScrollView>
     <View style={[styles.footer, { backgroundColor: theme.background, borderColor: theme.border }]}>
       {error ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t(error)}</ThemedText> : null}
@@ -145,4 +129,4 @@ export default function DeliverySettingsScreen() {
 
 const styles = StyleSheet.create({ page: { flex: 1 }, content: { padding: 16, gap: 24, paddingBottom: 24, width: "100%", maxWidth: 640, alignSelf: "center" },
   footer: { gap: 8, padding: 16, borderTopWidth: StyleSheet.hairlineWidth, width: "100%", maxWidth: 640, alignSelf: "center" },
-  courier: { gap: 12, borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 16 }, heading: { gap: 8 }, section: { gap: 16, padding: 16, borderWidth: 1, borderRadius: 8 }, toggle: { flexDirection: "row", alignItems: "center", gap: 16, minHeight: 48 }, label: { flex: 1 } });
+  heading: { gap: 8 }, section: { gap: 16, padding: 16, borderWidth: 1, borderRadius: 8 }, toggle: { flexDirection: "row", alignItems: "center", gap: 16, minHeight: 48 }, label: { flex: 1 } });

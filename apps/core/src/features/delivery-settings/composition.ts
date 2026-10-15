@@ -59,21 +59,19 @@ export const deliverySettings = {
     readAgencies: async ids => {
       const read = await readAgencies(ids);
       return read.success ? read : err({ code: read.error.code === "PERSISTENCE_UNAVAILABLE" ? "SERVICE_UNAVAILABLE" : "INTERNAL_ERROR", message: read.error.message });
-    }, readCourierCatalog, generateZoneId: randomUUID, generateOptionId: randomUUID, generateCourierId: () => randomUUID() as CourierId,
+    }, readCourierCatalog: () => readCourierCatalog("all"), generateZoneId: randomUUID, generateOptionId: randomUUID, generateCourierId: () => randomUUID() as CourierId,
   }),
   get: (context: DeliverySettingsAccess, operation = "get_delivery_settings") => settingsTransaction(context, operation, undefined,
     () => getDeliverySettings(context, (companyId) => readDeliverySettings(companyId, "shared", undefined, operation))),
-  getCourierCatalog: (context: DeliverySettingsAccess) => settingsTransaction(context, "get_courier_catalog", undefined, () => getCourierCatalog(readCourierCatalog)),
+  getCourierCatalog: (context: DeliverySettingsAccess) => settingsTransaction(context, "get_courier_catalog", undefined, () => getCourierCatalog(() => readCourierCatalog())),
   getAgencyCatalog: (courierId: CourierCatalogId, context: DeliverySettingsAccess) => settingsTransaction(context, "get_agency_catalog", undefined,
-    () => getAgencyCatalog(courierId, { readCourierCatalog, readAgencyCatalog })),
+    () => getAgencyCatalog(courierId, { readCourierCatalog: () => readCourierCatalog(), readAgencyCatalog })),
   async save(input: SaveDeliverySettingsInput, context: DeliverySettingsAccess) {
     const started = performance.now();
     const result = await saveDeliverySettings(input, context, {
       transaction: (_companyId, work) => settingsTransaction(context, "save_delivery_settings", input.expectedVersion, work),
       findForUpdate: (companyId) => readDeliverySettings(companyId, "exclusive", input.expectedVersion),
       save: writeDeliverySettings,
-      readCourierCatalog,
-      generateCourierId: () => randomUUID() as CourierId,
     });
     const durationMs = Math.round(performance.now() - started);
     if (result.success) afterTransactionCommit(() => log.info({ event: "delivery_settings_saved", operation: "save_delivery_settings", companyId: context.companyId,

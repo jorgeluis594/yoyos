@@ -13,7 +13,7 @@ test("mobile seller copies checkout and sees the anonymous buyer confirmation in
     companyId = await prepareVerifiedCompany(page, { email, name: "Mobile seller", companyName: "Mobile checkout", country: "PE" });
     const tenant = companyId;
     expect((await page.request.put("/api/delivery-settings", { data: {
-      expectedVersion: 0, home: { enabled: false }, agency: { enabled: false }, couriers: [],
+      expectedVersion: 0, home: { enabled: false }, agency: { enabled: false },
       store: { enabled: true, pickupPoint: { name: "Tienda", address: "Lima", instructions: null } },
     } })).status()).toBe(200);
     const product = await withTenantIsolation(tenant, () => products.create({ name: "Producto móvil", currency: "PEN", variants: [{ attributes: {}, salePrice: 10, initialStock: 3 }] }));

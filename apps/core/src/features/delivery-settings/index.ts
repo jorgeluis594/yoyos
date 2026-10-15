@@ -7,5 +7,5 @@ export type { ResolveRateError } from "@core/src/features/delivery-settings/appl
 export type { QuotationId, DeliveryRateId, DeliverySettingsVersion } from "@core/src/features/delivery-settings/domain/quotation";
 export type { DeliveryAgencyId } from "@core/src/features/delivery-settings/domain/delivery-agency";
 export type { DeliveryZoneId, DeliveryOptionId } from "@core/src/features/delivery-settings/domain/delivery-zone";
-export { toCourierInputs, toDeliverySettingsResponse } from "@core/src/features/delivery-settings/presentation/settings-response";
+export { toDeliverySettingsResponse } from "@core/src/features/delivery-settings/presentation/settings-response";
 export { toDeliveryZonesResponse } from "@core/src/features/delivery-settings/presentation/zones-response";

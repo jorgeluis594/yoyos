@@ -2,7 +2,7 @@ import { useState } from "react";
 import { StyleSheet, Switch, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
-import type { AgencyCatalogResponse, DeliveryZonesResponse, SaveDeliveryZonesRequest } from "@shared/contracts/delivery-settings";
+import type { AgencyCatalogResponse, CourierCatalogResponse, DeliveryZonesResponse, SaveDeliveryZonesRequest } from "@shared/contracts/delivery-settings";
 import type { Result } from "@shared/result";
 import { getPeruDistrict, type PeruDistrictCode } from "@shared/peru-geography";
 import type { DeliveryOptionDraft, DeliverySettingsError, DeliveryZonesError } from "@mobile/features/delivery-settings/application/delivery-settings";
@@ -46,8 +46,9 @@ export const hasEligibleAgency = (option: ZoneOption, state: DeliveryZonesRespon
     return !!agency?.enabled && couriers.some(courier => courier.courierId === agency.courierId && courier.enabled);
   });
 
-export function DeliveryZonesSection({ state, couriers, loadAgencies, disabled, blocked, onSave, onReload }: Readonly<{
+export function DeliveryZonesSection({ state, couriers, catalog, loadAgencies, disabled, blocked, onSave, onReload }: Readonly<{
   state: DeliveryZonesResponse; couriers: readonly (AgencyCourier & Readonly<{ enabled: boolean }>)[]; disabled: boolean; blocked: boolean;
+  catalog: CourierCatalogResponse["couriers"];
   loadAgencies: (courierId: string) => Promise<Result<AgencyCatalogResponse, DeliverySettingsError>>;
   onSave: (request: SaveDeliveryZonesRequest) => Promise<Result<DeliveryZonesResponse, DeliveryZonesError>>;
   onReload: () => void;
@@ -105,7 +106,7 @@ export function DeliveryZonesSection({ state, couriers, loadAgencies, disabled, 
           <ThemedText type="small">{t(option.method === "home" ? "optionHome" : "optionAgency")}</ThemedText>
           <Field disabled={locked} required><FieldLabel>{t("optionName")}</FieldLabel><Input accessibilityLabel={t("optionName")} maxLength={120} value={option.name} onChangeText={name => setOption(index, { name })} /></Field>
           <Field disabled={locked} required><FieldLabel>{t("zonesPrice")}</FieldLabel><Input accessibilityLabel={t("zonesPrice")} keyboardType="decimal-pad" value={option.amount} onChangeText={amount => setOption(index, { amount })} /></Field>
-          {option.method === "agency" ? <AgencyPicker couriers={couriers} known={state.agencies} value={option.agencyIds} disabled={locked} loadCatalog={loadAgencies}
+          {option.method === "agency" ? <AgencyPicker couriers={catalog.map(courier => ({ courierId: courier.id, name: courier.name }))} knownCouriers={couriers} known={state.agencies} value={option.agencyIds} disabled={locked} loadCatalog={loadAgencies}
             onChange={agencyIds => setOption(index, { agencyIds })} /> : null}
           <View style={styles.toggle}><ThemedText style={styles.label}>{t("optionActive")}</ThemedText><Switch accessibilityLabel={`${t("optionActive")} ${index + 1}`} value={option.enabled} disabled={locked} trackColor={{ true: theme.primary }} onValueChange={enabled => setOption(index, { enabled })} /></View>
           {option.kind === "new" ? <Button variant="ghost" disabled={locked} onPress={() => setDraft({ ...draft, options: draft.options.filter((_, i) => i !== index) })}>{t("optionRemove")}</Button> : null}

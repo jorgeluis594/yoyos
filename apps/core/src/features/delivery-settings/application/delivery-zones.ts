@@ -21,7 +21,7 @@ export type SaveDeliveryZonesDependencies = Readonly<{
   readForUpdate: ReadDeliveryConfiguration;
   saveSettings: (companyId: string, settings: DeliverySettings) => Promise<Result<null, DeliverySettingsError>>;
   readAgencies: (ids: readonly string[]) => Promise<Result<readonly DeliveryAgency[], QuotationStorageError>>;
-  readCourierCatalog: () => Promise<Result<readonly CourierCatalogEntry[], DeliverySettingsReadError>>;
+  readCourierCatalog: () => Promise<Result<readonly CourierCatalogEntry[], DeliverySettingsReadError>>; // every catalog courier, enabled or not: quotation gates on catalog availability
   saveZones: (companyId: string, zones: readonly DeliveryZone[]) => Promise<Result<null, QuotationStorageError>>;
   generateZoneId: () => string;
   generateOptionId: () => string;
@@ -61,8 +61,8 @@ export async function saveDeliveryZones(input: SaveDeliveryZonesInput, context: 
     // Choosing a courier's agencies is how a company ships with it: its company courier follows the agencies of the enabled options in the same write.
     const shipping = new Set(input.zones.flatMap(zone => zone.enabled
       ? zone.options.flatMap(option => option.method === "agency" && option.enabled ? option.agencyIds : []) : []));
-    const couriers = syncCouriers(configuration.settings.couriers, agencies.data.filter(agency => shipping.has(agency.id)).map(agency => agency.courierId),
-      catalog.data, deps.generateCourierId);
+    const couriers = syncCouriers(configuration.settings.couriers, agencies.data.map(agency => agency.courierId),
+      agencies.data.filter(agency => shipping.has(agency.id)).map(agency => agency.courierId), catalog.data, deps.generateCourierId);
     const zones = prepareDeliveryZones(input.zones, { current: configuration.zones, agencies: agencies.data, couriers,
       currency: configuration.currency, generateZoneId: deps.generateZoneId, generateOptionId: deps.generateOptionId });
     if (!zones.success) return zones;

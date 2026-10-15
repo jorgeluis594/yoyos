@@ -122,3 +122,14 @@ test("the company couriers follow the agencies of the enabled options in the sam
   expect(await saveDeliveryZones({ expectedVersion: 0, zones: [{ kind: "new", ...fields, options: [option] }] }, context, retiredRepo.deps)).toMatchObject({ success: true });
   expect(retiredRepo.read().settings.couriers).toMatchObject([{ catalogId: delisted, enabled: false }]);
 });
+
+test("an inactive agency option, or one in an inactive zone, with a courier new to the company is saved with that courier disabled", async () => {
+  const catalogId = id(500) as CourierCatalogId;
+  const agency = { id: id(60), courierId: catalogId, name: "Agency", address: "Street", districtCode: "150122", enabled: true, courierEnabled: true } as unknown as DeliveryAgency;
+  const option = { kind: "new" as const, method: "agency" as const, name: "Shalom", enabled: true, price: price(5), agencyIds: [id(60)] };
+  for (const zones of [[{ kind: "new" as const, ...fields, options: [{ ...option, enabled: false }] }], [{ kind: "new" as const, ...fields, enabled: false, options: [option] }]]) {
+    const repo = repository({ ...initial(), agencies: [agency] });
+    expect(await saveDeliveryZones({ expectedVersion: 0, zones }, context, repo.deps)).toMatchObject({ success: true });
+    expect(repo.read().settings.couriers).toMatchObject([{ catalogId, name: "Shalom", enabled: false }]);
+  }
+});

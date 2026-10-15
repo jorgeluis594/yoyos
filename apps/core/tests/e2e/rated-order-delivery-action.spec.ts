@@ -20,7 +20,7 @@ test("private web rated pickup rejects an obsolete price without writes and retu
       expect(await orders.create({ id: orderId as OrderId, items: [{ variantId: variant.id as VariantId, quantity: 1 as PositiveInteger }] },
         { companyId: tenantId as CompanyId, userId: userId as UserId })).toMatchObject({ success: true });
     });
-    expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: false },
+    expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 0, agency: { enabled: false }, home: { enabled: false },
       store: { enabled: true, pickupPoint: { name: "Pickup", address: "Street", instructions: null } } } })).ok()).toBe(true);
     const url = `/es-PE/orders/${orderId}`;
     const delivery = { method: "store", recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } } };
@@ -37,7 +37,7 @@ test("private web rated pickup rejects an obsolete price without writes and retu
     const aggregate = await page.request.get(`/api/orders/${orderId}/aggregate`);
     expect(await aggregate.json()).toMatchObject({ id: orderId, delivery: { method: "store", recordedBy: { kind: "seller", userId } },
       deliveryCost: { amount: 0 }, deliveryCharge: { amount: 0 }, total: { amount: 10 }, stockDeducted: false });
-    expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 1, agency: { enabled: false }, couriers: [], home: { enabled: true },
+    expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 1, agency: { enabled: false }, home: { enabled: true },
       store: { enabled: true, pickupPoint: { name: "Pickup", address: "Street", instructions: null } } } })).ok()).toBe(true);
     const zones = [8, 12].map((amount, index) => ({ kind: "new", name: `Zone ${index}`, enabled: true, districtCodes: ["040110"],
       options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount, currency: "PEN" } }] }));

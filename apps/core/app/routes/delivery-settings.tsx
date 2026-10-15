@@ -9,7 +9,7 @@ import { useFetcher, useActionData, useLoaderData, useNavigation, useSubmit, typ
 import { courierCatalogSchema, saveDeliverySettingsSchema, saveDeliveryZonesSchema, type CourierCatalogResponse, type DeliveryZonesResponse, type DeliverySettingsResponse, type SaveDeliverySettingsRequest } from "@shared/contracts/delivery-settings";
 import { privateUserContext } from "@core/app/private-user-context";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
-import { toCourierInputs, toDeliverySettingsResponse } from "@core/src/features/delivery-settings/presentation/settings-response";
+import { toDeliverySettingsResponse } from "@core/src/features/delivery-settings/presentation/settings-response";
 import { toDeliveryZonesResponse } from "@core/src/features/delivery-settings/presentation/zones-response";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { PageContainer } from "@core/app/components/ui/page-container";
@@ -63,9 +63,7 @@ export async function action({ context, request }: ActionFunctionArgs) {
   if (!parsed.success) return { error: "invalid" as const };
   const access = context.get(privateUserContext);
   try {
-    const couriers = toCourierInputs(parsed.data.couriers);
-    if (!couriers.success) return { error: "invalid" as const };
-    const result = await deliverySettings.save({ ...parsed.data, couriers: couriers.data }, { companyId: access.company.id, userId: access.user.id });
+    const result = await deliverySettings.save(parsed.data, { companyId: access.company.id, userId: access.user.id });
     if (result.success) return { saved: toDeliverySettingsResponse(result.data) };
     return { error: result.error.code === "DELIVERY_SETTINGS_CONFLICT" ? "conflict" as const
       : result.error.code === "INVALID_DELIVERY_SETTINGS" ? "invalid" as const : "saveError" as const };
@@ -150,8 +148,6 @@ function SettingsForm({ settings }: { settings: DeliverySettingsResponse & { cou
     const request: SaveDeliverySettingsRequest = {
       expectedVersion: values.version,
       agency: { enabled: values.agencyEnabled },
-      // Couriers are enabled by choosing their agencies in a zone; this form only retains them as loaded.
-      couriers: settings.couriers.map(courier => ({ kind: "existing", id: courier.id, enabled: courier.enabled })),
       home: { enabled: values.homeEnabled },
       store: values.enabled
         ? { enabled: true, pickupPoint: { name: values.name, address: values.address, instructions: values.instructions.trim() || null } }

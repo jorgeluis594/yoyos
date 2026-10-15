@@ -13,6 +13,7 @@ import { afterAll, afterEach, expect, test, vi } from "vitest";
 import { err, ok } from "@shared/functional";
 import { createOrderApi } from "@mobile/features/orders/infrastructure/order-api";
 import { quotationResponseSchema } from "@shared/contracts/quotations";
+import { deliverySettingsSchema } from "@shared/contracts/delivery-settings";
 import { cancelOrderResponseSchema, cancelOrderErrorSchema, orderAggregateSchema } from "@shared/contracts/orders";
 import { app } from "@core/src/app";
 import { deleteAgencies, insertAgency, seededCourier, withCatalogAdmin } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
@@ -102,7 +103,7 @@ test("delivery HTTP resolves real configuration, preserves snapshots, replaces a
   const second = await fixture("PE");
   const orderId = randomUUID();
   const store = { enabled: true, pickupPoint: { name: "Tienda", address: "Dirección original", instructions: null } };
-  expect((await call("/api/delivery-settings", seller.cookie, { expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: false }, store }, "PUT")).status).toBe(200);
+  expect((await call("/api/delivery-settings", seller.cookie, { expectedVersion: 0, agency: { enabled: false }, home: { enabled: false }, store }, "PUT")).status).toBe(200);
   expect((await call("/api/orders/pending", seller.cookie, { id: orderId, 
     items: [{ variantId: seller.variantId, quantity: 2 }] })).status).toBe(201);
   const input = { delivery: { method: "store", recipient: { name: "Destinatario distinto", phone: "987", identity: { kind: "absent" } } }, expectedPrice: { amount: 0, currency: "PEN" } } as const;
@@ -127,7 +128,7 @@ test("delivery HTTP resolves real configuration, preserves snapshots, replaces a
     recordedBy: { kind: "seller", userId: seller.userId } }, total: { amount: 20 }, deliveryCost: { amount: 0 }, deliveryCharge: { amount: 0 } });
   expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toEqual(first);
   const nextStore = { ...store, pickupPoint: { ...store.pickupPoint, address: "Dirección nueva" } };
-  expect((await call("/api/delivery-settings", seller.cookie, { expectedVersion: 1, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: nextStore }, "PUT")).status).toBe(200);
+  expect((await call("/api/delivery-settings", seller.cookie, { expectedVersion: 1, agency: { enabled: false }, home: { enabled: false }, store: nextStore }, "PUT")).status).toBe(200);
   expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toEqual(first);
   expect((await call(`/api/orders/${orderId}/payments`, seller.cookie, { paymentId: randomUUID(), amount: { amount: 20, currency: "PEN" },
     method: "digital_wallet", deductStockIfPartial: false })).status).toBe(200);
@@ -409,7 +410,7 @@ test("home HTTP uses persisted enablement, requires district and replaces store 
   const seller = await fixture("PE");
   const orderId = randomUUID();
   const store = { enabled: true, pickupPoint: { name: "Store", address: "Historic pickup", instructions: null } };
-  const settings = { expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: true }, store };
+  const settings = { expectedVersion: 0, agency: { enabled: false }, home: { enabled: true }, store };
   expect((await call("/api/delivery-settings", seller.cookie, settings, "PUT")).status).toBe(200);
   expect((await call("/api/orders/pending", seller.cookie, { id: orderId, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
   const recipient = { name: "Different recipient", phone: "00123", identity: { kind: "absent" } } as const;
@@ -436,7 +437,7 @@ test("home HTTP uses persisted enablement, requires district and replaces store 
     recordedBy: { kind: "seller", userId: seller.userId } }, deliveryCost: { amount: 6 }, deliveryCharge: { amount: 6 }, total: { amount: 16 } });
   expect(assigned.delivery).not.toHaveProperty("pickupPoint");
   expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toEqual(assigned);
-  expect((await call("/api/delivery-settings", seller.cookie, { ...settings, expectedVersion: 2, agency: { enabled: false }, couriers: [], home: { enabled: false } }, "PUT")).status).toBe(200);
+  expect((await call("/api/delivery-settings", seller.cookie, { ...settings, expectedVersion: 2, agency: { enabled: false }, home: { enabled: false } }, "PUT")).status).toBe(200);
   const blocked = await call(`/api/orders/${orderId}/delivery`, seller.cookie, home, "PUT");
   expect(blocked.status).toBe(422); expect(await blocked.json()).toMatchObject({ code: "RATE_UNAVAILABLE" });
   expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toEqual(assigned);
@@ -460,14 +461,14 @@ test("rated agency adapters preserve snapshots and reject unavailable, unassocia
   const [associated, unassociated] = await Promise.all([insertAgency({ courierId: shalomId, name: "Associated branch", districtCode: "150122" }),
     insertAgency({ courierId: shalomId, name: "Other branch", districtCode: "150122" })]);
   catalogAgencies.push(associated, unassociated);
-  const settingsInput = { expectedVersion: 0, home: { enabled: true }, store: { enabled: false as const, pickupPoint: null }, agency: { enabled: true }, couriers: [{ kind: "new" as const, courierId: shalomId, enabled: true }] };
-  const configured = await settingsApi.save(settingsInput);
-  if (!configured.success) throw new Error("Expected agency configuration");
-  const courier = configured.data.couriers[0];
+  const settingsInput = { expectedVersion: 0, home: { enabled: true }, store: { enabled: false as const, pickupPoint: null }, agency: { enabled: true } };
+  expect(await settingsApi.save(settingsInput)).toMatchObject({ success: true });
   const agencyZone = (agencyId: string, name = "Agency") => ({ kind: "new" as const, name, enabled: true, districtCodes: ["040110"],
     options: [{ kind: "new" as const, method: "agency" as const, name, enabled: true, price: { amount: 3, currency: "PEN" as const }, agencyIds: [agencyId] }] });
   expect((await call("/api/orders/pending", seller.cookie, { id: orderId, items: [{ variantId: seller.variantId, quantity: 2 }] })).status).toBe(201);
   expect((await call("/api/delivery-settings/zones", seller.cookie, { expectedVersion: 1, zones: [agencyZone(associated)] }, "PUT")).status).toBe(200);
+  // Choosing the agency in a zone is what creates the company courier.
+  const courier = deliverySettingsSchema.parse(await (await call("/api/delivery-settings", seller.cookie)).json()).couriers[0];
   const quotation = quotationResponseSchema.parse(await (await call("/api/quotations", seller.cookie, { destination: { country: "PE", districtCode: "040110" } })).json());
   const rate = quotation.rates[0];
   if (rate.method !== "agency") throw new Error("Expected an agency rate");
@@ -497,7 +498,7 @@ test("rated agency adapters preserve snapshots and reject unavailable, unassocia
   expect(rejection).toHaveBeenCalledWith(expect.objectContaining({ event: "order_delivery_rejected", errorCode: "RATE_UNAVAILABLE", agencyId: associated }), "Order delivery rejected");
   await withCatalogAdmin(query => query('UPDATE "DeliveryAgency" SET enabled = true WHERE id = $1', [associated]));
   expect(await mobile.setDelivery(orderId, input)).toMatchObject({ success: true });
-  const nextSettings = { ...settingsInput, expectedVersion: 2, agency: { enabled: false }, couriers: [{ kind: "existing" as const, id: courier.id, enabled: false }] };
+  const nextSettings = { ...settingsInput, expectedVersion: 2, agency: { enabled: false } };
   expect(await settingsApi.save(nextSettings)).toMatchObject({ success: true, data: { version: 3 } });
   expect(await mobile.setDelivery(orderId, input)).toMatchObject({ success: false, error: { code: "RATE_UNAVAILABLE" } });
   for (const privateText of ["Different recipient", "00-A-001"]) expect(JSON.stringify([...summary.mock.calls, ...rejection.mock.calls])).not.toContain(privateText);
@@ -506,7 +507,7 @@ test("rated agency adapters preserve snapshots and reject unavailable, unassocia
   expect((await call("/api/delivery-settings/zones", other.cookie, { expectedVersion: 1, zones: [agencyZone(associated, "Foreign")] }, "PUT")).status).toBe(200);
   const foreign = quotationResponseSchema.parse(await (await call("/api/quotations", other.cookie, { destination: { country: "PE", districtCode: "040110" } })).json());
   expect(await mobile.setDelivery(orderId, { ...input, delivery: { ...delivery, rateId: foreign.rates[0].id } })).toMatchObject({ success: false, error: { code: "RATE_UNAVAILABLE" } });
-  expect(await settingsApi.save({ ...settingsInput, expectedVersion: 3, couriers: [{ kind: "existing", id: courier.id, enabled: true }] })).toMatchObject({ success: true });
+  expect(await settingsApi.save({ ...settingsInput, expectedVersion: 3 })).toMatchObject({ success: true });
   expect((await call(`/api/orders/${orderId}/payments`, seller.cookie, { paymentId: randomUUID(), amount: { amount: 23, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false })).status).toBe(200);
   expect(await mobile.setDelivery(orderId, input)).toMatchObject({ success: true, data: { total: { amount: 23 }, paidAmount: { amount: 23 }, stockDeducted: true } });
   expect(await withTenantIsolation(seller.companyId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId: seller.variantId } })).quantity)).toBe(1n);
@@ -611,7 +612,7 @@ test("quotation HTTP uses the checkout order tenant even with a foreign seller s
   expect((await call("/api/delivery-settings/zones", seller.cookie, { expectedVersion: 0,
     zones: [0, 8, 8].map(amount => ({ kind: "new", name: "Private zone", enabled: true, districtCodes: ["150122"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount, currency: "PEN" } }] })) }, "PUT")).status).toBe(200);
   expect((await call("/api/delivery-settings", seller.cookie, { expectedVersion: 1, home: { enabled: true }, agency: { enabled: true },
-    couriers: [{ kind: "new", courierId: shalomId, enabled: true }], store: { enabled: false, pickupPoint: null } }, "PUT")).status).toBe(200);
+    store: { enabled: false, pickupPoint: null } }, "PUT")).status).toBe(200);
   const orderBefore = await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json();
   const browserFetch: typeof fetch = (url, init) => fetch(new URL(String(url), base), {
     ...init, headers: { ...Object.fromEntries(new Headers(init?.headers)), origin },
@@ -688,7 +689,7 @@ test("rated delivery HTTP assigns the selected option, reports price conflicts a
     expect((await call("/api/delivery-settings/zones", owner.cookie, { expectedVersion: 0,
       zones: amounts.map(amount => ({ kind: "new", name: "Zone", enabled: true, districtCodes: ["150122"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount, currency: "PEN" } }] })) }, "PUT")).status).toBe(200);
     expect((await call("/api/delivery-settings", owner.cookie, { expectedVersion: 1, home: { enabled: true }, agency: { enabled: true },
-      couriers: [{ kind: "new", courierId: shalomId, enabled: true }], store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } }, "PUT")).status).toBe(200);
+      store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } }, "PUT")).status).toBe(200);
   }
   await configure(seller, [0, 8]);
   await configure(foreign, [10]);
@@ -761,8 +762,7 @@ test("rated delivery HTTP assigns the selected option, reports price conflicts a
 test("public checkout delivery action persists buyer pickup and redirects to existing payment", async () => {
   const seller = await fixture("PE");
   const orderId = randomUUID();
-  expect((await call("/api/delivery-settings", seller.cookie, { expectedVersion: 0, agency: { enabled: false }, home: { enabled: false }, couriers: [],
-    store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } }, "PUT")).status).toBe(200);
+  expect((await call("/api/delivery-settings", seller.cookie, { expectedVersion: 0, agency: { enabled: false }, home: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } }, "PUT")).status).toBe(200);
   expect((await call("/api/orders/pending", seller.cookie, { id: orderId, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
   await withTenantIsolation(seller.companyId, async () => {
     await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: new Date() } });

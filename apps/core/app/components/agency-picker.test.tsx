@@ -34,6 +34,15 @@ test("the picker lists selected agencies with their courier-independent details 
   expect(render(<AgencyPicker id="x" couriers={[]} known={[]} value={[]} onChange={() => undefined} />)).toContain("Todavía no hay couriers disponibles");
 });
 
+test("a saved option whose courier left the catalog keeps showing that courier instead of switching to another", () => {
+  const html = render(<AgencyPicker id="x" couriers={[{ courierId: id(200), name: "Olva" }]} knownCouriers={[{ courierId: id(100), name: "Shalom" }]}
+    known={catalog} value={[id(1)]} onChange={() => undefined} />);
+  expect(html).toContain("Shalom");
+  expect(html).toContain("Este courier ya no está disponible");
+  expect(html).not.toContain("Buscar agencia");
+  expect(render(<AgencyPicker id="x" couriers={[{ courierId: id(200), name: "Olva" }]} known={catalog} value={[id(1)]} onChange={() => undefined} />)).toContain("Courier no disponible");
+});
+
 test("an agency option without an enabled agency of an enabled courier is flagged as not offered", () => {
   const state = { agencies: catalog } as unknown as DeliveryZonesResponse;
   const option = (...agencyIds: string[]) => ({ id: id(50), method: "agency" as const, name: "A", enabled: true, price: { amount: 1, currency: "PEN" as const }, agencyIds });

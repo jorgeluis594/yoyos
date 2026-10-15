@@ -83,8 +83,7 @@ test("rated agency requires a document and a catalog agency, preserves its snaps
     await chooseRate();
     await chooseOption(page, "Agencia de destino", "Sucursal Cercado");
     await page.getByLabel("Nombre del destinatario").fill("Preserved recipient");
-    expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: config.version, home: config.home, store: config.store, agency: { enabled: false },
-      couriers: config.couriers.map(value => ({ kind: "existing", id: value.id, enabled: false })) } })).ok()).toBe(true);
+    expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: config.version, home: config.home, store: config.store, agency: { enabled: false } } })).ok()).toBe(true);
     await withCatalogAdmin(query => query('UPDATE "DeliveryAgency" SET enabled = false WHERE id = $1', [agencyIds[1]]));
     await save();
     await browserExpect(page.getByRole("alert")).toContainText("La tarifa ya no está disponible");

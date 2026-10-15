@@ -21,7 +21,7 @@ test("mobile creation screen integrates with real order API, database and persis
     const courier = await seededCourier();
     agencyId = await insertAgency({ courierId: courier.id, name: "Journey branch" });
     expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 0, home: { enabled: true }, agency: { enabled: true },
-      couriers: [{ kind: "new", courierId: courier.id, enabled: true }], store: { enabled: true, pickupPoint: { name: "Journey pickup", address: "Pickup street", instructions: null } },
+      store: { enabled: true, pickupPoint: { name: "Journey pickup", address: "Pickup street", instructions: null } },
     } })).status()).toBe(200);
     const zone = (name: string, amount: number) => ({ kind: "new", name, enabled: true, districtCodes: ["150122"],
       options: [{ kind: "new", method: "home", name, enabled: true, price: { amount, currency: "PEN" } }] });

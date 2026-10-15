@@ -143,7 +143,7 @@ test.describe("buyer checkout with appearance", () => {
       await withTenantIsolation(f.companyId, async () => {
         const access = { companyId: f.companyId, userId: f.userId };
         expect((await deliverySettings.save({ expectedVersion: 0, home: { enabled: false }, agency: { enabled: true },
-          couriers: [{ kind: "new", catalogId, enabled: true }], store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
+          store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
         expect((await deliverySettings.saveZones({ expectedVersion: 1, zones: [{ kind: "new", name: "Agency zone", enabled: true, districtCodes: ["150122"],
           options: [{ kind: "new", method: "agency", name: "Retiro en agencia", enabled: true, price: { amount: 8, currency: "PEN" }, agencyIds: agencies }] }] }, access)).success).toBe(true);
         expect((await companyPaymentSettings.save(f.companyId, f.userId, [{ method: "bank_transfer", bank: "BCP", holder: "Tienda",

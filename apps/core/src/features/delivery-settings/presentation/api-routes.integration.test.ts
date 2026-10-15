@@ -110,20 +110,20 @@ test("authenticated configuration HTTP persists, conflicts, rejects manipulation
   expect(initial.status).toBe(200);
   expect(await initial.json()).toEqual({ version: 0, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: false, pickupPoint: null } });
   const store = { enabled: true, pickupPoint: { name: "Tienda", address: "Av. Lima 123", instructions: null } };
-  const input = { expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: false }, store };
+  const input = { expectedVersion: 0, agency: { enabled: false }, home: { enabled: false }, store };
   for (const extra of [{ companyId: other.companyId }, { userId: "other" }, { version: 99 }, { recordedBy: { kind: "buyer" } }]) {
     expect((await request("/api/delivery-settings", seller.cookie, { ...input, ...extra }, "PUT")).status).toBe(400);
   }
   const saved = await request("/api/delivery-settings", seller.cookie, input, "PUT");
   expect(saved.status).toBe(200);
   expect(deliverySettingsSchema.parse(await saved.json())).toEqual({ version: 1, agency: { enabled: false }, couriers: [], home: { enabled: false }, store });
-  const stale = await request("/api/delivery-settings", seller.cookie, { expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: false, pickupPoint: null } }, "PUT");
+  const stale = await request("/api/delivery-settings", seller.cookie, { expectedVersion: 0, agency: { enabled: false }, home: { enabled: false }, store: { enabled: false, pickupPoint: null } }, "PUT");
   expect(stale.status).toBe(409);
   expect(await stale.json()).toMatchObject({ code: "DELIVERY_SETTINGS_CONFLICT" });
   expect(await (await request("/api/delivery-settings", seller.cookie)).json()).toEqual({ version: 1, agency: { enabled: false }, couriers: [], home: { enabled: false }, store });
   expect(await (await request("/api/delivery-settings", other.cookie)).json()).toEqual({ version: 0, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: false, pickupPoint: null } });
   const disabled = { ...store, enabled: false };
-  expect((await request("/api/delivery-settings", seller.cookie, { expectedVersion: 1, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: disabled }, "PUT")).status).toBe(200);
+  expect((await request("/api/delivery-settings", seller.cookie, { expectedVersion: 1, agency: { enabled: false }, home: { enabled: false }, store: disabled }, "PUT")).status).toBe(200);
   expect(await (await request("/api/delivery-settings", seller.cookie)).json()).toEqual({ version: 2, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: disabled });
 });
 
@@ -136,7 +136,7 @@ test("mobile settings adapter exchanges authenticated settings and preserves a r
     return response.ok ? ok(body) : err({ code: "API_ERROR", message: "HTTP failure", http: { status: response.status, body } });
   });
   expect(await mobile.get()).toEqual({ success: true, data: { version: 0, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: false, pickupPoint: null } } });
-  const input = { expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: true as const, pickupPoint: { name: " Store ", address: " Lima ", instructions: null } } };
+  const input = { expectedVersion: 0, agency: { enabled: false }, home: { enabled: false }, store: { enabled: true as const, pickupPoint: { name: " Store ", address: " Lima ", instructions: null } } };
   const saved = await mobile.save(input);
   expect(saved).toMatchObject({ success: true, data: { version: 1, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { pickupPoint: { name: "Store", address: "Lima" } } } });
   expect(await mobile.save(input)).toMatchObject({ success: false, error: { code: "DELIVERY_SETTINGS_CONFLICT" } });
@@ -144,32 +144,17 @@ test("mobile settings adapter exchanges authenticated settings and preserves a r
 });
 
 
-test("courier HTTP generates IDs, rejects omission and foreign IDs, and retains deactivated couriers through the mobile adapter", async () => {
-  const [seller, other] = await Promise.all([fixture(), fixture()]);
-  const input = { expectedVersion: 0, home: { enabled: false }, store: { enabled: false as const, pickupPoint: null }, agency: { enabled: true }, couriers: [{ kind: "new" as const, courierId: shalomId, enabled: true }] };
-  expect((await request("/api/delivery-settings", seller.cookie, { ...input, couriers: [{ ...input.couriers[0], id: randomUUID() }] }, "PUT")).status).toBe(400);
-  expect((await request("/api/delivery-settings", seller.cookie, { ...input, couriers: [{ ...input.couriers[0], name: "Forged" }] }, "PUT")).status).toBe(400);
+test("settings HTTP rejects courier inputs and carries the company couriers over unchanged", async () => {
+  const seller = await fixture();
+  await withCourier(seller, shalomId);
+  const input = { expectedVersion: 1, home: { enabled: false }, store: { enabled: false as const, pickupPoint: null }, agency: { enabled: false } };
+  expect((await request("/api/delivery-settings", seller.cookie, { ...input, couriers: [{ kind: "new", courierId: shalomId, enabled: false }] }, "PUT")).status).toBe(400);
   const saved = await request("/api/delivery-settings", seller.cookie, input, "PUT");
   expect(saved.status).toBe(200);
-  const first = deliverySettingsSchema.parse(await saved.json());
-  expect(first).toMatchObject({ version: 1, agency: { enabled: true }, couriers: [{ courierId: shalomId, name: "Shalom", enabled: true }] });
-  const courier = first.couriers[0];
-  expect(courier.id).toMatch(/^[0-9a-f-]{36}$/);
-  expect((await request("/api/delivery-settings", seller.cookie, input, "PUT")).status).toBe(409);
-  expect(await (await request("/api/delivery-settings", seller.cookie)).json()).toEqual(first);
-  const edit = { ...input, expectedVersion: 1, couriers: [{ kind: "existing", id: courier.id, enabled: false }] };
-  for (const couriers of [[], [edit.couriers[0], edit.couriers[0]], [{ ...edit.couriers[0], id: randomUUID() }]]) {
-    expect((await request("/api/delivery-settings", seller.cookie, { ...edit, agency: { enabled: false }, couriers }, "PUT")).status).toBe(422);
-  }
-  expect((await request("/api/delivery-settings", other.cookie, { ...edit, expectedVersion: 0 }, "PUT")).status).toBe(422);
-  // Agency delivery stays on without enabled couriers; its options simply produce no rates.
-  const disabled = await request("/api/delivery-settings", seller.cookie, edit, "PUT");
-  expect(disabled.status).toBe(200);
-  expect(await disabled.json()).toMatchObject({ version: 2, agency: { enabled: true }, couriers: [{ id: courier.id, courierId: shalomId, name: "Shalom", enabled: false }] });
-  expect(await withTenantIsolation(seller.companyId ?? "", async () => await prisma.companyCourier.count())).toBe(1);
+  expect(await saved.json()).toMatchObject({ version: 2, agency: { enabled: false }, couriers: [{ courierId: shalomId, name: "Shalom", enabled: true }] });
 });
 
-test("a lost settings response after commit recovers persisted courier IDs without replaying the save", async () => {
+test("a lost settings response after commit recovers the persisted settings without replaying the save", async () => {
   const seller = await fixture();
   let dropResponse = true;
   const mobile = createDeliverySettingsApi(async (path, init) => {
@@ -183,13 +168,12 @@ test("a lost settings response after commit recovers persisted courier IDs witho
     const body: unknown = await response.json();
     return response.ok ? ok(body) : err({ code: "API_ERROR", message: "HTTP failure", http: { status: response.status, body } });
   });
-  const input = { expectedVersion: 0, home: { enabled: false }, store: { enabled: false as const, pickupPoint: null }, agency: { enabled: true }, couriers: [{ kind: "new" as const, courierId: shalomId, enabled: true }] };
+  const input = { expectedVersion: 0, home: { enabled: false }, store: { enabled: false as const, pickupPoint: null }, agency: { enabled: true } };
   expect(await mobile.save(input)).toMatchObject({ success: false, error: { code: "NETWORK_ERROR" } });
   const confirmed = await mobile.get();
-  expect(confirmed).toMatchObject({ success: true, data: { version: 1, couriers: [{ name: "Shalom" }] } });
+  expect(confirmed).toMatchObject({ success: true, data: { version: 1, agency: { enabled: true } } });
   expect(await mobile.save(input)).toMatchObject({ success: false, error: { code: "DELIVERY_SETTINGS_CONFLICT" } });
   expect(await mobile.get()).toEqual(confirmed);
-  expect(await withTenantIsolation(seller.companyId ?? "", async () => await prisma.companyCourier.count())).toBe(1);
 });
 
 test("zone HTTP persists zones with options, retains existing ones and returns meaningful validation and version conflicts", async () => {
@@ -230,7 +214,7 @@ test("zone HTTP persists zones with options, retains existing ones and returns m
   const home = deliveryZonesSchema.parse(await saved.json());
   expect(home).toMatchObject({ version: 1, home: { enabled: false }, zones: [{ name: "Nearby", options: [{ method: "home", price: { amount: 8 } }] },
     { name: "Free", options: [{ price: { amount: 0 } }, { method: "agency", agencyIds: [] }] }] });
-  expect((await request("/api/delivery-settings", seller.cookie, { expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [], store: { enabled: false, pickupPoint: null } }, "PUT")).status).toBe(200);
+  expect((await request("/api/delivery-settings", seller.cookie, { expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, store: { enabled: false, pickupPoint: null } }, "PUT")).status).toBe(200);
   const existing = home.zones.map(zone => ({ kind: "existing", id: zone.id, name: zone.name, enabled: zone.enabled, districtCodes: zone.districtCodes,
     options: zone.options.map(value => ({ kind: "existing", ...value })) }));
   const moved = await request(path, seller.cookie, { expectedVersion: 2, zones: [{ ...existing[0], options: [] },
@@ -334,8 +318,7 @@ test("mobile zone adapter consumes real authenticated saves and preserves confli
 test("mobile seller quotation adapter consumes overlapping real rates, empty coverage and new IDs per request", async () => {
   const seller = await fixture();
   expect((await request("/api/delivery-settings", seller.cookie, { expectedVersion: 0, home: { enabled: true },
-    agency: { enabled: true }, couriers: [{ kind: "new", courierId: shalomId, enabled: true }],
-    store: { enabled: false, pickupPoint: null } }, "PUT")).status).toBe(200);
+    agency: { enabled: true }, store: { enabled: false, pickupPoint: null } }, "PUT")).status).toBe(200);
   const zone = (name: string, amount: number) => ({ kind: "new", name, enabled: true, districtCodes: ["150122"],
     options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount, currency: "PEN" } }] });
   expect((await request("/api/delivery-settings/zones", seller.cookie, { expectedVersion: 1,
@@ -378,42 +361,32 @@ test("courier catalog endpoint lists enabled catalog couriers by name for authen
   expect(couriers.map(courier => courier.name)).toEqual([...couriers.map(courier => courier.name)].sort((a, b) => a.localeCompare(b, "en")));
 });
 
-test("courier saves reject missing, disabled and duplicated catalog couriers, keep existing ones and show renamed catalog names", async () => {
+test("company couriers show renamed catalog names and stay configured when delisted from the catalog", async () => {
   const seller = await fixture();
-  const disabled = await temporaryCourier(false);
   const renamed = await temporaryCourier(true, "Before rename");
-  const base = { expectedVersion: 0, home: { enabled: false }, store: { enabled: false as const, pickupPoint: null }, agency: { enabled: false } };
-  for (const courierId of [randomUUID(), disabled.id]) {
-    expect((await request("/api/delivery-settings", seller.cookie, { ...base, couriers: [{ kind: "new", courierId, enabled: true }] }, "PUT")).status).toBe(422);
-  }
-  expect((await request("/api/delivery-settings", seller.cookie, { ...base, couriers: [{ kind: "new", courierId: shalomId, enabled: true }, { kind: "new", courierId: shalomId, enabled: false }] }, "PUT")).status).toBe(422);
-  const created = await request("/api/delivery-settings", seller.cookie, { ...base, couriers: [{ kind: "new", courierId: shalomId, enabled: true }, { kind: "new", courierId: renamed.id, enabled: true }] }, "PUT");
-  expect(created.status).toBe(200);
-  const first = deliverySettingsSchema.parse(await created.json());
+  await withCourier(seller, renamed.id);
+  await withTenantIsolation(seller.companyId ?? "", async () => { await prisma.companyCourier.create({ data: { id: randomUUID(), courierId: shalomId, enabled: true } }); });
+  const first = deliverySettingsSchema.parse(await (await request("/api/delivery-settings", seller.cookie)).json());
   expect(first.couriers.map(courier => courier.name).sort()).toEqual(["Before rename", "Shalom"]);
-  const existing = first.couriers.map(courier => ({ kind: "existing" as const, id: courier.id, enabled: courier.enabled }));
-  expect((await request("/api/delivery-settings", seller.cookie, { ...base, expectedVersion: 1, couriers: [...existing, { kind: "new", courierId: shalomId, enabled: true }] }, "PUT")).status).toBe(422);
-  expect((await request("/api/delivery-settings", seller.cookie, { ...base, expectedVersion: 1, couriers: existing.slice(0, 1) }, "PUT")).status).toBe(422);
   // A catalog rename (what repeating the seed does) changes the displayed name without a settings write.
   await withCatalogAdmin(query => query('UPDATE "Courier" SET name = $1 WHERE id = $2', ["After rename", renamed.id]));
   const reloaded = deliverySettingsSchema.parse(await (await request("/api/delivery-settings", seller.cookie)).json());
   expect(reloaded).toEqual({ ...first, couriers: expect.arrayContaining(first.couriers.map(courier => courier.courierId === renamed.id ? { ...courier, name: "After rename" } : courier)) });
   expect(reloaded.couriers).toHaveLength(2);
-  // Delisted catalog couriers stay configured and can be disabled.
+  // Delisted catalog couriers stay configured across settings saves.
   await withCatalogAdmin(query => query('UPDATE "Courier" SET enabled = false WHERE id = $1', [renamed.id]));
-  const disabledResponse = await request("/api/delivery-settings", seller.cookie, { ...base, expectedVersion: 1, couriers: existing.map(courier => ({ ...courier, enabled: false })) }, "PUT");
-  expect(disabledResponse.status).toBe(200);
-  expect(deliverySettingsSchema.parse(await disabledResponse.json()).couriers).toHaveLength(2);
+  const saved = await request("/api/delivery-settings", seller.cookie, { expectedVersion: 1, home: { enabled: false }, store: { enabled: false, pickupPoint: null }, agency: { enabled: false } }, "PUT");
+  expect(saved.status).toBe(200);
+  expect(deliverySettingsSchema.parse(await saved.json()).couriers).toHaveLength(2);
 });
 
-test("two courier saves with the same version produce one 409 DELIVERY_SETTINGS_CONFLICT", async () => {
+test("two settings saves with the same version produce one 409 DELIVERY_SETTINGS_CONFLICT", async () => {
   const seller = await fixture();
-  const input = { expectedVersion: 0, home: { enabled: false }, store: { enabled: false as const, pickupPoint: null }, agency: { enabled: false }, couriers: [{ kind: "new", courierId: shalomId, enabled: true }] };
+  const input = { expectedVersion: 0, home: { enabled: false }, store: { enabled: false as const, pickupPoint: null }, agency: { enabled: false } };
   const responses = await Promise.all([request("/api/delivery-settings", seller.cookie, input, "PUT"), request("/api/delivery-settings", seller.cookie, input, "PUT")]);
   expect(responses.map(response => response.status).sort()).toEqual([200, 409]);
   const conflict = responses.find(response => response.status === 409);
   expect(await conflict?.json()).toMatchObject({ code: "DELIVERY_SETTINGS_CONFLICT" });
-  expect(await withTenantIsolation(seller.companyId ?? "", async () => await prisma.companyCourier.count())).toBe(1);
 });
 
 test("agency catalog lists enabled agencies of an enabled catalog courier, shared across companies whether or not they ship with it", async () => {
