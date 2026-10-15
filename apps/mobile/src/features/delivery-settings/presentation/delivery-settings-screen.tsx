@@ -84,6 +84,7 @@ export default function DeliverySettingsScreen() {
       // Zone saves are the only writer of company couriers, and the zones response does not carry them.
       const settings = await deliverySettings.get();
       if (settings.success) setSavedCouriers(settings.data.couriers);
+      else setError("deliverySettingsLoadError"); // couriers shown may be stale until reload
     } else setZoneConflict(!["INVALID_INPUT", "INVALID_DELIVERY_ZONE", "INVALID_DELIVERY_OPTION"].includes(result.error.code));
     inFlight.current = false; setBusy(false);
     return result;
@@ -124,7 +125,7 @@ export default function DeliverySettingsScreen() {
       {error ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t(error)}</ThemedText> : null}
       {saved ? <ThemedText accessibilityLiveRegion="polite">{t("deliverySettingsSaved")}</ThemedText> : null}
       <Button onPress={() => void save()} disabled={busy || conflict || zoneConflict} loading={busy}>{t("saveDeliverySettings")}</Button>
-      {conflict ? <Button variant="secondary" onPress={() => void load()} disabled={busy}>{t("reloadDeliverySettings")}</Button> : null}
+      {conflict || error === "deliverySettingsLoadError" ? <Button variant="secondary" onPress={() => void load()} disabled={busy}>{t("reloadDeliverySettings")}</Button> : null}
     </View>
     </KeyboardAvoidingView>
   </SafeAreaView></ThemedView>;

@@ -204,6 +204,23 @@ test("uncertain zone save preserves the draft and blocks all saves until explici
   });
 });
 
+test("a failed courier refresh after a zone save is reported and offers a reload", async () => {
+  getZones.mockResolvedValue(ok(zonesState));
+  get.mockResolvedValueOnce(ok({ version: 5, home: { enabled: true }, agency: { enabled: false }, couriers: [], store: { enabled: false, pickupPoint: null } }))
+    .mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "Private detail" }));
+  saveZones.mockResolvedValue(ok({ ...zonesState, version: 6 }));
+  const screen = render(<DeliverySettingsScreen />);
+  await screen.findByText("Lima");
+  await waitFor(() => expect(screen.getByRole("button", { name: "Editar Lima" }).props.accessibilityState.disabled).toBe(false));
+  fireEvent.press(screen.getByText("Editar Lima"));
+  fireEvent.press(screen.getByText("Guardar zona"));
+  await screen.findByText("Zona guardada.");
+  expect(await screen.findByRole("alert", { name: "No se pudo cargar la configuración" })).toBeTruthy();
+  fireEvent.press(screen.getByText("Recargar configuración"));
+  await waitFor(() => expect(get).toHaveBeenCalledTimes(3));
+  await waitFor(() => expect(screen.queryByText("No se pudo cargar la configuración")).toBeNull());
+});
+
 const agencyOf = (n: number, name: string, enabled = true) => ({ id: `00000000-0000-4000-8000-0000000002${n}0`, courierId: shalomId, name, address: `Av. ${name} 1`, enabled,
   location: { country: "PE" as const, districtCode: "150122", district: "MIRAFLORES", province: "LIMA METROPOLITANA", department: "LIMA" } });
 

@@ -39,7 +39,7 @@ test("configuration HTTP validates inputs and uses authenticated context", async
   expect(await request()).toMatchObject({ status: 200, body: { version: 0 } });
   expect(get).toHaveBeenCalledWith(context);
   for (const invalid of [{ ...input, companyId: "other" }, { ...input, userId: "other" }, { ...input, expectedVersion: -1 },
-    { ...input, couriers: [] }, { ...input, store: { enabled: true, pickupPoint: null } }]) {
+    { ...input, store: { enabled: true, pickupPoint: null } }]) {
     expect(await request(put(invalid))).toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
   }
   expect(save).not.toHaveBeenCalled();
@@ -47,6 +47,8 @@ test("configuration HTTP validates inputs and uses authenticated context", async
     .toMatchObject({ status: 415, body: { code: "UNSUPPORTED_MEDIA_TYPE" } });
   expect(await request(put(input))).toMatchObject({ status: 200, body: { version: 1, agency: { enabled: false }, couriers: [], home: { enabled: false }, store } });
   expect(save).toHaveBeenCalledWith(input, context);
+  expect(await request(put({ ...input, couriers: [{ courierId: "old-build", enabled: true }] }))).toMatchObject({ status: 200 });
+  expect(save).toHaveBeenLastCalledWith(input, context);
 });
 
 test.each([

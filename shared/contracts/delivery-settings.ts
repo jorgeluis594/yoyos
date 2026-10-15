@@ -33,7 +33,8 @@ export const saveDeliverySettingsSchema = z.strictObject({
   expectedVersion: z.number().int().min(0).max(2147483646),
   home: z.strictObject({ enabled: z.boolean() }),
   store: storeDeliverySettingsSchema,
-});
+  couriers: z.unknown().optional(), // shortcut: accepted and ignored for mobile builds before 2026-10-15; remove once they're gone
+}).transform(({ couriers: _ignored, ...input }) => input);
 export type SaveDeliverySettingsRequest = z.infer<typeof saveDeliverySettingsSchema>;
 export const deliverySettingsApiErrorSchema = z.strictObject({
   code: z.enum(["INVALID_INPUT", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE", "INVALID_DELIVERY_SETTINGS",
@@ -61,7 +62,7 @@ export const deliveryZoneSchema = z.strictObject({
   id: z.uuid(), name: z.string().min(1).max(120), enabled: z.boolean(),
   districtCodes: z.array(peruDistrictCodeSchema).min(1), options: z.array(deliveryOptionSchema),
 });
-export const deliveryZonesSchema = z.strictObject({
+export const deliveryZonesSchema = z.object({ // not strict at the root: older mobile builds must ignore fields added later
   home: z.strictObject({ enabled: z.boolean() }), agency: z.strictObject({ enabled: z.boolean() }),
   version: z.number().int().min(0).max(2147483647), currency: z.enum(currencies), zones: z.array(deliveryZoneSchema),
   agencies: z.array(catalogAgencySchema), // referenced by the options' agencyIds, including disabled ones

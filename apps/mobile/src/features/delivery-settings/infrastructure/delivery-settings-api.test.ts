@@ -49,6 +49,7 @@ test("zone adapter returns definitive identities, validates the complete respons
   const request = jest.fn<ReturnType<Parameters<typeof createDeliverySettingsApi>[0]>, Parameters<Parameters<typeof createDeliverySettingsApi>[0]>>(async () => ok(zoneState));
   const api = createDeliverySettingsApi(request);
   expect(await api.getZones()).toEqual(ok(zoneState));
+  expect(await createDeliverySettingsApi(async () => ok({ ...zoneState, addedLater: [] })).getZones()).toEqual(ok(zoneState));
   expect(await api.saveZones(zoneInput)).toEqual(ok(zoneState));
   expect(JSON.parse(String(request.mock.calls[1][1]?.body))).toEqual(zoneInput);
   expect(request.mock.calls[1][0]).toBe("/api/delivery-settings/zones");
