@@ -79,7 +79,7 @@ export function DeliveryZonesSection({ state, couriers, pending, error, saved, o
     onSave({ expectedVersion: state.version, zones: inputs });
   };
   const price = (amount: number, currency: Zone["options"][number]["price"]["currency"]) => amount === 0 ? t("deliveryZones.free") : formatCurrency(amount, currency, "es");
-  return <Card className="min-w-0" role="region" aria-labelledby={`${id}-title`}>
+  return <Card id="delivery-zones" className="min-w-0 scroll-mt-6" role="region" aria-labelledby={`${id}-title`}>
     <CardHeader><CardTitle id={`${id}-title`}>{t("deliveryZones.title")}</CardTitle></CardHeader>
     <CardContent className="flex min-w-0 flex-col gap-4">
     <FieldDescription>{t("deliveryZones.hint")}</FieldDescription>

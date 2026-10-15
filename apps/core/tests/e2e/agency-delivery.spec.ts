@@ -28,7 +28,6 @@ test("rated agency requires a document and a catalog agency, preserves its snaps
     });
     await page.goto(`/es-PE/orders/${orderId}`);
     await page.getByRole("link", { name: "Configurar modalidades de entrega" }).click();
-    await page.getByRole("tab", { name: "Agencia", exact: false }).click();
     await page.getByLabel("Ofrecer envío a agencia").check();
     for (const name of ["Shalom", "Olva Courier"]) {
       await page.getByLabel("Courier disponible", { exact: true }).click();
