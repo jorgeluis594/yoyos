@@ -14,27 +14,21 @@ const lima = getPeruDistrict("150122");
 const arequipa = getPeruDistrict("040110");
 if (!lima || !arequipa) throw new Error("Official districts missing");
 
-test("multiple selection retains equally named districts in different provinces with their official identity", () => {
+test("selection lists names once and names the province only for districts outside the current one", () => {
   const html = renderToStaticMarkup(withI18n(<PeruDistrictMultiSelect value={[lima.code, arequipa.code]} onChange={() => undefined} />));
   expect(html).toContain("2 distritos seleccionados");
-  expect(html).toContain("MIRAFLORES · LIMA METROPOLITANA · LIMA · 150122");
-  expect(html).toContain("MIRAFLORES · AREQUIPA · AREQUIPA · 040110");
+  expect(html).toContain(": MIRAFLORES, MIRAFLORES (AREQUIPA)");
   expect(html).toContain('value="1501" selected=""');
-  expect((html.match(/checked=""/g) ?? []).length).toBe(1);
-  expect((html.match(/aria-label="Quitar/g) ?? []).length).toBe(2);
 });
 
-test("empty coverage requires hierarchy and never marks any district implicitly", () => {
+test("empty coverage requires hierarchy before searching districts", () => {
   const html = renderToStaticMarkup(withI18n(<PeruDistrictMultiSelect value={[]} onChange={() => undefined} />));
   expect(html).toContain("0 distritos seleccionados");
-  expect(html).toContain("Selecciona departamento y provincia");
-  expect(html).not.toContain('type="checkbox"');
-  expect(html).not.toContain('aria-label="Quitar');
+  expect(html).toContain('placeholder="Selecciona departamento y provincia');
+  expect(html).toMatch(/<input[^>]*role="combobox"[^>]*disabled=""/);
 });
 
-test("disabled coverage disables the native fieldset including selection and removal controls", () => {
+test("disabled coverage disables the native fieldset", () => {
   const html = renderToStaticMarkup(withI18n(<PeruDistrictMultiSelect value={[lima.code]} onChange={() => undefined} disabled />));
   expect(html).toContain('<fieldset disabled=""');
-  expect(html).toContain('type="checkbox"');
-  expect(html).toContain('aria-label="Quitar MIRAFLORES');
 });

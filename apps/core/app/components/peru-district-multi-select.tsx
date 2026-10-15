@@ -1,10 +1,8 @@
 import { useTranslation } from "react-i18next";
 import { useId, useState } from "react";
-import { Input } from "@core/app/components/ui/input";
-import { Button } from "@core/app/components/ui/button";
 import { controlClass } from "@core/app/components/ui/field";
-import { filterPeruDistricts } from "@core/app/components/peru-district-select";
-import { getPeruDistrict, getPeruDistricts, getPeruProvinces, peruDepartments, type PeruDistrictCode } from "@shared/peru-geography";
+import { Combobox, ComboboxCheckboxItem, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxList } from "@core/app/components/ui/combobox";
+import { filterPeruDistricts, getPeruDistrict, getPeruDistricts, getPeruProvinces, peruDepartments, type PeruDistrict, type PeruDistrictCode } from "@shared/peru-geography";
 
 export function PeruDistrictMultiSelect({ value, onChange, disabled = false }: Readonly<{
   value: readonly PeruDistrictCode[]; onChange: (value: readonly PeruDistrictCode[]) => void; disabled?: boolean;
@@ -18,14 +16,11 @@ export function PeruDistrictMultiSelect({ value, onChange, disabled = false }: R
   const department = peruDepartments.find(item => item.code === departmentCode);
   const provinces = department ? getPeruProvinces(department.code) : [];
   const province = provinces.find(item => item.code === provinceCode);
-  const districts = filterPeruDistricts(province ? getPeruDistricts(province.code) : [], query);
-  const selected = value.flatMap(code => {
-    const district = getPeruDistrict(code);
-    if (!district) return [];
-    const department = peruDepartments.find(item => item.code === district.departmentCode);
-    const province = getPeruProvinces(district.departmentCode).find(item => item.code === district.provinceCode);
-    return [{ ...district, location: `${district.name} · ${province?.name} · ${department?.name} · ${district.code}` }];
-  });
+  // Catalog districts are shared references, so the combobox can compare them by identity.
+  const selected = value.flatMap(code => getPeruDistrict(code) ?? []);
+  const options = province ? [...selected.filter(district => district.provinceCode !== province.code), ...getPeruDistricts(province.code)] : selected;
+  const label = (district: PeruDistrict) => district.provinceCode === province?.code ? district.name
+    : `${district.name} (${getPeruProvinces(district.departmentCode).find(item => item.code === district.provinceCode)?.name})`;
   return <fieldset disabled={disabled} className="flex min-w-0 flex-col gap-3">
     <legend className="mb-3 font-medium">{t("peruDistrict.zoneTitle")}</legend>
     <div className="grid min-w-0 gap-3 sm:grid-cols-2">
@@ -40,23 +35,18 @@ export function PeruDistrictMultiSelect({ value, onChange, disabled = false }: R
         }}><option value="">{t("peruDistrict.selectProvince")}</option>{provinces.map(item => <option key={item.code} value={item.code}>{item.name}</option>)}</select>
       </div>
     </div>
-    <div className="flex flex-col gap-1.5"><label htmlFor={`${id}-search`} className="text-sm font-medium">{t("peruDistrict.search")}</label>
-      <Input id={`${id}-search`} type="search" disabled={!province} value={query} onChange={event => setQuery(event.target.value)} placeholder={t("peruDistrict.searchPlaceholder")} />
+    <div className="flex flex-col gap-1.5"><label htmlFor={`${id}-search`} className="text-sm font-medium">{t("peruDistrict.districts")}</label>
+      <Combobox multiple items={options} filteredItems={filterPeruDistricts(options, query)} value={selected} disabled={disabled || !province}
+        inputValue={query} onInputValueChange={setQuery} itemToStringLabel={label}
+        onValueChange={districts => onChange(districts.map(district => district.code))}>
+        <ComboboxInput id={`${id}-search`} placeholder={province ? t("peruDistrict.searchPlaceholder") : t("peruDistrict.pickParents")} />
+        <ComboboxContent>
+          <ComboboxEmpty>{t("peruDistrict.noMatches")}</ComboboxEmpty>
+          <ComboboxList>{(district: PeruDistrict) => <ComboboxCheckboxItem key={district.code} value={district}>{label(district)}</ComboboxCheckboxItem>}</ComboboxList>
+        </ComboboxContent>
+      </Combobox>
     </div>
-    <p role="status" className="text-sm text-muted-foreground">{!province ? t("peruDistrict.pickParents") : districts.length === 0 ? t("peruDistrict.noMatches") : t("peruDistrict.available", { count: districts.length, province: province.name })}</p>
-    {province && <div className="max-h-64 overflow-y-auto rounded-md border border-border p-2" aria-label={t("peruDistrict.districtsOf", { province: province.name })}>
-      {districts.map(district => <label key={district.code} className="flex min-h-touch cursor-pointer items-center gap-3 rounded px-2 py-2 hover:bg-muted">
-        <input type="checkbox" className="size-4 shrink-0 accent-primary" checked={value.includes(district.code)} onChange={event => {
-          onChange(event.target.checked ? [...value.filter(code => code !== district.code), district.code] : value.filter(code => code !== district.code));
-        }} /><span className="text-sm">{district.name} · {district.code}</span>
-      </label>)}
-    </div>}
-    <div className="flex flex-col gap-2"><p className="text-sm font-medium">{t("peruDistrict.selected", { count: selected.length })}</p>
-      <p className="text-sm text-muted-foreground">{t("peruDistrict.multiHint")}</p>
-      <ul className="divide-y divide-border">{selected.map(district => <li key={district.code} className="flex min-w-0 items-center justify-between gap-3 py-2">
-        <span className="min-w-0 break-words text-sm">{district.location}</span>
-        <Button type="button" variant="ghost" className="shrink-0 max-md:min-h-touch" aria-label={t("peruDistrict.removeNamed", { name: district.location })} onClick={() => onChange(value.filter(code => code !== district.code))}>{t("peruDistrict.remove")}</Button>
-      </li>)}</ul>
-    </div>
+    <p className="text-sm"><span className="font-medium">{t("peruDistrict.selected", { count: selected.length })}</span>
+      {selected.length > 0 && <span className="text-muted-foreground">: {selected.map(label).join(", ")}</span>}</p>
   </fieldset>;
 }
