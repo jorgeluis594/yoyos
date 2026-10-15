@@ -21,7 +21,7 @@ Todas están implementadas; las que eran *propuesta* se confirmaron al implement
 | D7 | Agencia pendiente | Se elimina `courier: null, agency: null`. `agencyId` es obligatorio al elegir agencia. | Decidido |
 | D8 | Error de agencia | Una agencia o courier no disponible al resolver produce `RATE_UNAVAILABLE` (ya dispara recotización). Se elimina `COURIER_UNAVAILABLE`, que no se produce. | Decidido |
 | D9 | `Order.checkoutDeliveryRequest` | Se elimina la columna en la migración del refactor. | Decidido |
-| D10 | Refine de agencia | Se mantiene “agencia habilitada ⇒ algún courier habilitado”. No se exige agencia habilitada: una opción sin agencias elegibles simplemente no aplica. | Decidido |
+| D10 | Refine de agencia | Reemplazada el 2026-10-15 ([decisiones de couriers](couriers-y-opciones-de-entrega-decisiones.md), C5): ya no se exige “agencia habilitada ⇒ algún courier habilitado”. Guardar una zona habilita los couriers de las sedes elegidas. Una opción sin agencias elegibles simplemente no aplica. | Decidido |
 | D11 | Nombres repetidos | Nombre de opción único por zona (sin distinguir mayúsculas, tras `trim`). La tarifa expone `zoneName` para desambiguar entre zonas. | Decidido |
 | D12 | Inmutables | En opciones existentes no cambian `zoneId` ni `method`. Zonas, opciones y couriers de empresa se deshabilitan, no se borran. En el catálogo, agencias y couriers también se deshabilitan por SQL en lugar de borrarse (las FK `Restrict` lo impiden si están referenciados). | Decidido |
 | D13 | Compatibilidad | Sin backfill ni lectura compatible: la app no está en producción. | Decidido |
@@ -63,7 +63,7 @@ Siguen vigentes sin cambios `6206483d` (IDs generados por el servidor y conjunto
 | Toda fila por empresa pertenece a `app.company_id`. | RLS + `companyId` en PK/FK compuestas. |
 | Opción, tarifa y asociación opción–agencia comparten `method`. | FK `(companyId, method, optionId)` → `DeliveryOption(companyId, method, id)`. |
 | Solo opciones `agency` tienen agencias. | `DeliveryOptionAgency.method` con CHECK `= 'agency'` dentro de la FK; en tipos, `agencyIds` solo existe en la variante `agency`. |
-| La empresa solo asocia agencias de couriers que tiene como `CompanyCourier` (habilitado o no). | `prepareDeliveryZones`. |
+| Las agencias de una opción son de un solo courier del catálogo; al guardar la zona, los `CompanyCourier` se derivan de las agencias de las opciones habilitadas en la misma escritura. | `syncCouriers` + `prepareDeliveryZones`. |
 | La app no escribe `Courier` ni `DeliveryAgency`. | `REVOKE INSERT, UPDATE, DELETE` a `core_app`. |
 | Opción de agencia aplicable ⇔ `settings.agency.enabled`, zona y opción habilitadas, y al menos una agencia asociada habilitada cuyo courier del catálogo esté habilitado y la empresa lo tenga como `CompanyCourier` habilitado. | `applicableDeliveryOptions` (dominio puro). |
 | Opción `home` aplicable ⇔ `settings.home.enabled` y zona y opción habilitadas. | `applicableDeliveryOptions`. |

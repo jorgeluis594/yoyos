@@ -18,7 +18,7 @@ const agency = (courierId = courier.catalogId) => ({ id: id(70), courierId, name
   enabled: true, courierEnabled: true }) as unknown as DeliveryAgency;
 let sequence = 200;
 const context = (overrides: Partial<PrepareDeliveryZonesContext> = {}): PrepareDeliveryZonesContext => ({
-  current: [], agencies: [], couriers: [courier], currency: "PEN",
+  current: [], agencies: [], currency: "PEN",
   generateZoneId: () => id(sequence++), generateOptionId: () => id(sequence++), ...overrides,
 });
 const fields = { name: "Nearby", enabled: true, districtCodes: ["150122"] };
@@ -101,16 +101,32 @@ test("prices must use the business currency and report their option row", () => 
     .toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_ZONE", field: "districtCodes", index: 0 } });
 });
 
-test("agency options accept only catalog agencies of the company's couriers, including disabled ones", () => {
+test("agency options accept only catalog agencies of a single courier, including disabled ones, and new ones require agencies", () => {
   const input = (agencyIds: string[]): DeliveryZoneInput[] => [{ kind: "new", ...fields,
     options: [{ kind: "new", method: "agency", name: "Agency", enabled: true, price: price(10), agencyIds }] }];
-  expect(prepareDeliveryZones(input([]), context()).success).toBe(true);
+  expect(prepareDeliveryZones(input([]), context())).toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_OPTION", field: "agencyIds", optionIndex: 0 } });
   expect(prepareDeliveryZones(input([id(70)]), context())).toMatchObject({ success: false, error: { field: "agencyIds", optionIndex: 0 } });
   expect(prepareDeliveryZones(input([id(70)]), context({ agencies: [agency()] })).success).toBe(true);
   expect(prepareDeliveryZones(input([id(70)]), context({ agencies: [{ ...agency(), enabled: false }] })).success).toBe(true);
-  expect(prepareDeliveryZones(input([id(70)]), context({ agencies: [agency(id(99) as typeof courier.catalogId)] })))
-    .toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_OPTION", field: "agencyIds" } });
   expect(prepareDeliveryZones(input([id(70), id(70)]), context({ agencies: [agency()] })).success).toBe(false);
+  const other = { ...agency(id(62) as typeof courier.catalogId), id: id(71) } as unknown as DeliveryAgency;
+  expect(prepareDeliveryZones(input([id(70), id(71)]), context({ agencies: [agency(), other] })))
+    .toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_OPTION", field: "agencyIds", optionIndex: 0 } });
+});
+
+test("stored agency options stay saveable without agencies or with mixed couriers until their agencies change", () => {
+  const other = { ...agency(id(62) as typeof courier.catalogId), id: id(71) } as unknown as DeliveryAgency;
+  const stored = (agencyIds: string[]) => [zone(1, [{ ...homeOption(2), method: "agency", agencyIds }])];
+  const input = (agencyIds: string[]): DeliveryZoneInput[] => [{ kind: "existing", id: id(1), ...fields,
+    options: [{ kind: "existing", id: id(2), method: "agency", name: "Agency", enabled: true, price: price(10), agencyIds }] }];
+  const agencies = [agency(), other, { ...agency(), id: id(72) } as unknown as DeliveryAgency];
+  expect(prepareDeliveryZones(input([]), context({ current: stored([]) })).success).toBe(true);
+  expect(prepareDeliveryZones(input([id(71), id(70)]), context({ current: stored([id(70), id(71)]), agencies })).success).toBe(true);
+  expect(prepareDeliveryZones(input([id(70), id(71), id(72)]), context({ current: stored([id(70), id(71)]), agencies })))
+    .toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_OPTION", field: "agencyIds", index: 0, optionIndex: 0 } });
+  expect(prepareDeliveryZones(input([id(70), id(71)]), context({ current: stored([]), agencies })))
+    .toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_OPTION", field: "agencyIds" } });
+  expect(prepareDeliveryZones(input([id(70), id(72)]), context({ current: stored([id(70), id(71)]), agencies })).success).toBe(true);
 });
 
 test("generated identities must be valid and unique across the configuration", () => {

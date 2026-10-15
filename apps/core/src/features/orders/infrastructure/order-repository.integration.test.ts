@@ -16,7 +16,6 @@ import { buildPendingOrder, orderStateMachine, parseRatedDeliverySelection } fro
 import { findOpenChatOrderCandidate, findOrderAggregate, findOrderAggregates, findOrders, findOrderForUpdate, findProcessedMessage, recordProcessedMessage, saveAddedItems, saveDelivery, savePendingOrder, saveStockDeduction } from "@core/src/features/orders/infrastructure/order-repository";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
 import type { DeliveryZone } from "@core/src/features/delivery-settings/domain/delivery-zone";
-import { seededCatalogId } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
 import { deductProductStock } from "@core/src/features/products";
 import type { CompanyId, ContactId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { ImageId } from "@core/src/features/orders/domain/payment";
@@ -26,7 +25,6 @@ import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-messa
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { CustomerId } from "@core/src/features/contacts/domain/contact";
 
-const shalomId = await seededCatalogId("shalom");
 
 async function fixture() {
   const companyId = randomUUID();
@@ -402,8 +400,7 @@ test.each([2, 4])("replaces a paid delivery with a free rate atomically for quan
       expect(await deliverySettings.saveZones({ expectedVersion: 0, zones: [0.1, 0].map(amount => ({
         kind: "new" as const, name: "Replacement zone", enabled: true, districtCodes: ["150122"], options: [{ kind: "new" as const, method: "home" as const, name: "Home", enabled: true, price: { amount, currency: "PEN" as const } }],
       })) }, context)).toMatchObject({ success: true });
-      expect(await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [],
-        store: { enabled: false, pickupPoint: null } }, context)).toMatchObject({ success: true });
+      expect(await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, store: { enabled: false, pickupPoint: null } }, context)).toMatchObject({ success: true });
       const quote = await deliverySettings.createQuotation({ companyId: f.companyId, country: "PE", districtCode: "150122", address: null, instructions: null });
       if (!quote.success) throw new Error(quote.error.message);
       const selection = (amount: number, address: string) => {
@@ -643,7 +640,7 @@ test("rolls back earlier stock deductions and the configured snapshot when a lat
       const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
       const orderId = randomUUID() as OrderId;
       const [first, second] = [...f.variantIds].sort();
-      expect(await deliverySettings.save({ expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: true }, store: { enabled: true,
+      expect(await deliverySettings.save({ expectedVersion: 0, agency: { enabled: false }, home: { enabled: true }, store: { enabled: true,
         pickupPoint: { name: "Store", address: "Original", instructions: null } } }, context)).toMatchObject({ success: true });
       expect(await deliverySettings.saveZones({ expectedVersion: 1, zones: [{ kind: "new", name: "Paid delivery", enabled: true,
         districtCodes: ["150122"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount: 1, currency: "PEN" } }] }] }, context)).toMatchObject({ success: true });
@@ -712,10 +709,8 @@ test("store assignment and disabling configuration serialize in both orders", as
   const run = <T>(work: () => Promise<T>) => withTenantIsolation(f.companyId, async () => await work());
   const recipient = { name: "Recipient", phone: "00123", identity: { kind: "document" as const, documentType: "passport" as const, document: "00-A" } };
   try {
-    const configured = await run(() => deliverySettings.save({ expectedVersion: 0, home: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Original store", address: "Original address", instructions: null } }, agency: { enabled: true }, couriers: [{ kind: "new", catalogId: shalomId, enabled: true }] }, context));
+    const configured = await run(() => deliverySettings.save({ expectedVersion: 0, home: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Original store", address: "Original address", instructions: null } }, agency: { enabled: true } }, context));
     if (!configured.success) throw new Error("Expected configuration");
-    const courier = configured.data.couriers.find(current => current.catalogId === shalomId);
-    if (!courier) throw new Error("Expected original courier");
     const orderId = randomUUID() as OrderId;
     expect(await run(() => orders.create({ id: orderId, items: [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }] }, context))).toMatchObject({ success: true });
     const parsed = parseRatedDeliverySelection({ method: "store", recipient });
@@ -730,7 +725,7 @@ test("store assignment and disabling configuration serialize in both orders", as
       arrived(); await held; return result;
     }));
     await protectedConfiguration;
-    const disableInput = { expectedVersion: 1, home: { enabled: false }, store: { ...configured.data.store, enabled: false as const }, agency: { enabled: false }, couriers: configured.data.couriers.map(current => ({ kind: "existing" as const, id: current.id, enabled: current.id !== courier.id })) };
+    const disableInput = { expectedVersion: 1, home: { enabled: false }, store: { ...configured.data.store, enabled: false as const }, agency: { enabled: false } };
     const disable = run(() => deliverySettings.save(disableInput, context));
     try { await waitForDeliveryLock(); } finally { release(); }
     expect(await assignment).toMatchObject({ success: true, data: { delivery: { pickupPoint: { address: "Original address" } } } });
@@ -739,7 +734,7 @@ test("store assignment and disabling configuration serialize in both orders", as
     expect(await run(() => orders.setDelivery(input, context))).toMatchObject({ success: false, error: { code: "DELIVERY_METHOD_DISABLED" } });
     expect(await run(() => orderDetail(orderId, f))).toEqual(before);
     // Reactivate, then hold the disabling transaction before starting the second assignment.
-    expect(await run(() => deliverySettings.save({ ...disableInput, expectedVersion: 2, store: configured.data.store, agency: { enabled: true }, couriers: configured.data.couriers.map(current => ({ kind: "existing" as const, id: current.id, enabled: current.enabled })) }, context))).toMatchObject({ success: true });
+    expect(await run(() => deliverySettings.save({ ...disableInput, expectedVersion: 2, store: configured.data.store, agency: { enabled: true } }, context))).toMatchObject({ success: true });
     let unblock!: () => void;
     let disabled!: () => void;
     const holdDisable = new Promise<void>(resolve => { unblock = resolve; });
@@ -762,7 +757,7 @@ test.each(["ship", "cancel"] as const)("delivery editing and %s serialize withou
   const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
   const run = <T>(work: () => Promise<T>) => withTenantIsolation(f.companyId, async () => await work());
   try {
-    expect(await run(() => deliverySettings.save({ expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: true }, store: { enabled: false, pickupPoint: null } }, context))).toMatchObject({ success: true });
+    expect(await run(() => deliverySettings.save({ expectedVersion: 0, agency: { enabled: false }, home: { enabled: true }, store: { enabled: false, pickupPoint: null } }, context))).toMatchObject({ success: true });
     expect(await run(() => deliverySettings.saveZones({ expectedVersion: 1, zones: [{ kind: "new", name: "Free delivery", enabled: true,
       districtCodes: ["150122"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount: 0, currency: "PEN" } }] }] }, context))).toMatchObject({ success: true });
     const quote = await run(() => deliverySettings.createQuotation({ companyId: f.companyId, country: "PE", districtCode: "150122", address: null, instructions: null }));
@@ -957,7 +952,7 @@ test("concurrent delivery assignment and stock deduction consume stock once", as
   try {
     const orderId = randomUUID() as OrderId;
     await run(async () => {
-      expect(await deliverySettings.save({ expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Store", address: "Address", instructions: null } } }, context)).toMatchObject({ success: true });
+      expect(await deliverySettings.save({ expectedVersion: 0, agency: { enabled: false }, home: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Store", address: "Address", instructions: null } } }, context)).toMatchObject({ success: true });
       expect(await orders.create({ id: orderId, items: [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }] }, context)).toMatchObject({ success: true });
       await prisma.payment.create({ data: { id: randomUUID(), orderId, amount: 0.1, currency: "PEN", method: "digital_wallet", status: "confirmed", data: { confirmedAt: new Date().toISOString(), confirmedBy: { kind: "seller", userId: f.sellerId }, evidence: { kind: "manual" } } } });
     });
@@ -991,7 +986,7 @@ test("two delivery edits serialize complete snapshots, authors and amounts", asy
   try {
     const orderId = randomUUID() as OrderId;
     await run(async () => {
-      expect(await deliverySettings.save({ expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: true }, store: { enabled: false, pickupPoint: null } }, context)).toMatchObject({ success: true });
+      expect(await deliverySettings.save({ expectedVersion: 0, agency: { enabled: false }, home: { enabled: true }, store: { enabled: false, pickupPoint: null } }, context)).toMatchObject({ success: true });
       expect(await orders.create({ id: orderId, items: [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }] }, context)).toMatchObject({ success: true });
     });
     const quote = await run(async () => {
@@ -1038,7 +1033,7 @@ test.each(["CompanyDeliverySettings", "Order"] as const)("a deferred %s commit f
   try {
     await withTenantIsolation(f.companyId, async () => {
       const orderId = randomUUID() as OrderId;
-      expect(await deliverySettings.save({ expectedVersion: 0, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Store", address: "Address", instructions: null } } }, context)).toMatchObject({ success: true });
+      expect(await deliverySettings.save({ expectedVersion: 0, agency: { enabled: false }, home: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Store", address: "Address", instructions: null } } }, context)).toMatchObject({ success: true });
       expect(await orders.create({ id: orderId, items: [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }] }, context)).toMatchObject({ success: true });
       const store = parseRatedDeliverySelection({ method: "store", recipient: { name: "Recipient", phone: "00123", identity: { kind: "absent" } } });
       if (!store.success) throw new Error(store.error.message);
@@ -1048,7 +1043,7 @@ test.each(["CompanyDeliverySettings", "Order"] as const)("a deferred %s commit f
       await admin.$executeRawUnsafe(`CREATE CONSTRAINT TRIGGER ${trigger} AFTER UPDATE ON "${table}" DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.${trigger}()`);
       summary.mockClear(); failure.mockClear();
       const operation = () => table === "CompanyDeliverySettings"
-        ? deliverySettings.save({ expectedVersion: 1, agency: { enabled: false }, couriers: [{ kind: "new", catalogId: shalomId, enabled: true }], home: { enabled: false }, store: { enabled: false, pickupPoint: null } }, context)
+        ? deliverySettings.save({ expectedVersion: 1, agency: { enabled: false }, home: { enabled: false }, store: { enabled: false, pickupPoint: null } }, context)
         : orders.setDelivery({ orderId, delivery: store.data, expectedPrice: { amount: 0, currency: "PEN" } }, context);
       expect(await operation()).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
       expect(summary).not.toHaveBeenCalled();
@@ -1364,8 +1359,7 @@ test("complete creation resolves delivery charge before coverage and retains its
   try {
     await withTenantIsolation(f.companyId, async () => {
       const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
-      expect(await deliverySettings.save({ expectedVersion: 0, agency: { enabled: false }, couriers: [],
-        home: { enabled: true }, store: { enabled: false, pickupPoint: null } }, context)).toMatchObject({ success: true });
+      expect(await deliverySettings.save({ expectedVersion: 0, agency: { enabled: false }, home: { enabled: true }, store: { enabled: false, pickupPoint: null } }, context)).toMatchObject({ success: true });
       expect(await deliverySettings.saveZones({ expectedVersion: 1, zones: [{ kind: "new", name: "Creation zone", enabled: true,
         districtCodes: ["150122"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount: 0.1, currency: "PEN" } }] }] }, context)).toMatchObject({ success: true });
       const quote = await deliverySettings.createQuotation({ companyId: f.companyId, country: "PE", districtCode: "150122", address: null, instructions: null });
@@ -1444,8 +1438,7 @@ test("rated assignment and initial creation persist prices atomically and deduct
         kind: "new" as const, name: "Zone", enabled: true, districtCodes: ["150122"], options: [{ kind: "new" as const, method: "home" as const, name: "Home", enabled: true, price: { amount, currency: "PEN" as const } }],
       })) }, context);
       if (!saved.success) throw new Error(saved.error.message);
-      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [],
-        store: { enabled: false, pickupPoint: null } }, context)).success).toBe(true);
+      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, store: { enabled: false, pickupPoint: null } }, context)).success).toBe(true);
       const quote = await deliverySettings.createQuotation({ companyId: f.companyId, country: "PE", districtCode: "150122", address: null, instructions: null });
       if (!quote.success) throw new Error(quote.error.message);
       const selection = (amount: number) => {
@@ -1511,8 +1504,7 @@ test("checkout delivery, buyer, confirmation and covered stock commit together a
     const input = { buyer: buyer.data, expectedTotal: { amount: 0.2, currency: "PEN" as const },
       delivery: { kind: "replace" as const, selection: parsed.data, expectedPrice: { amount: 0, currency: "PEN" as const } } };
     await withTenantIsolation(f.companyId, async () => {
-      expect((await deliverySettings.save({ expectedVersion: 0, home: { enabled: false }, agency: { enabled: false }, couriers: [],
-        store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } }, context)).success).toBe(true);
+      expect((await deliverySettings.save({ expectedVersion: 0, home: { enabled: false }, agency: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } }, context)).success).toBe(true);
     });
     const create = async (quantity: number) => {
       const id = randomUUID() as OrderId;
@@ -1572,7 +1564,7 @@ test("checkout validates immutable home rate and current price before total and 
       const saved = await deliverySettings.saveZones({ expectedVersion: 0,
         zones: [{ kind: "new", name: "Home", enabled: true, districtCodes: ["150122"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount: 8, currency: "PEN" } }] }] }, context);
       if (!saved.success) throw new Error(saved.error.message);
-      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [], store: { enabled: false, pickupPoint: null } }, context)).success).toBe(true);
+      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, store: { enabled: false, pickupPoint: null } }, context)).success).toBe(true);
       expect((await orders.create({ id: access.orderId, items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] }, context)).success).toBe(true);
       await prisma.order.update({ where: { id: access.orderId }, data: { checkoutEnabledAt: new Date() } });
       const quote = await deliverySettings.createQuotation({ companyId: f.companyId, country: "PE", districtCode: "150122", address: null, instructions: null });

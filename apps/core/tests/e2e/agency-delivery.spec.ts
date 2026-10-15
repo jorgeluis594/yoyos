@@ -29,21 +29,18 @@ test("rated agency requires a document and a catalog agency, preserves its snaps
     await page.goto(`/es-PE/orders/${orderId}`);
     await page.getByRole("link", { name: "Configurar modalidades de entrega" }).click();
     await page.getByLabel("Ofrecer envío a agencia").check();
-    for (const name of ["Shalom", "Olva Courier"]) {
-      await page.getByLabel("Courier disponible", { exact: true }).click();
-      await page.getByRole("option", { name, exact: true }).click();
-      await page.getByRole("button", { name: "Agregar courier" }).click();
-    }
-    await page.getByLabel("Habilitar Olva Courier", { exact: true }).uncheck();
     await page.getByRole("button", { name: "Guardar configuración" }).click();
     await browserExpect(page.getByRole("status").filter({ hasText: "Configuración guardada." })).toHaveText("Configuración guardada.");
-    const config = deliverySettingsSchema.parse(await (await page.request.get("/api/delivery-settings")).json());
-    expect(config.couriers.map(courier => courier.name).sort()).toEqual(["Olva Courier", "Shalom"]);
+    const initial = deliverySettingsSchema.parse(await (await page.request.get("/api/delivery-settings")).json());
+    expect(initial).toMatchObject({ agency: { enabled: true }, couriers: [] });
     const shalom = await seededCourier("shalom");
     agencyIds.push(await insertAgency({ courierId: shalom.id, name: "Sucursal Arequipa", districtCode: "040110" }),
       await insertAgency({ courierId: shalom.id, name: "Sucursal Cercado", districtCode: "040110" }));
-    expect((await page.request.put("/api/delivery-settings/zones", { data: { expectedVersion: config.version, zones: [{ kind: "new", name: "Agency", enabled: true,
+    expect((await page.request.put("/api/delivery-settings/zones", { data: { expectedVersion: initial.version, zones: [{ kind: "new", name: "Agency", enabled: true,
       districtCodes: ["040110"], options: [{ kind: "new", method: "agency", name: "Agency", enabled: true, price: { amount: 3, currency: "PEN" }, agencyIds }] }] } })).ok()).toBe(true);
+    // Choosing Shalom agencies is what enables Shalom for the company.
+    const config = deliverySettingsSchema.parse(await (await page.request.get("/api/delivery-settings")).json());
+    expect(config.couriers).toMatchObject([{ name: "Shalom", enabled: true }]);
     await page.goto(`/es-PE/orders/${orderId}`);
     await browserExpect(page.getByLabel("Modalidad de entrega")).toBeHidden();
     await page.getByRole("button", { name: "Asignar entrega", exact: true }).focus();
@@ -86,8 +83,7 @@ test("rated agency requires a document and a catalog agency, preserves its snaps
     await chooseRate();
     await chooseOption(page, "Agencia de destino", "Sucursal Cercado");
     await page.getByLabel("Nombre del destinatario").fill("Preserved recipient");
-    expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: config.version + 1, home: config.home, store: config.store, agency: { enabled: false },
-      couriers: config.couriers.map(value => ({ kind: "existing", id: value.id, enabled: false })) } })).ok()).toBe(true);
+    expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: config.version, home: config.home, store: config.store, agency: { enabled: false } } })).ok()).toBe(true);
     await withCatalogAdmin(query => query('UPDATE "DeliveryAgency" SET enabled = false WHERE id = $1', [agencyIds[1]]));
     await save();
     await browserExpect(page.getByRole("alert")).toContainText("La tarifa ya no está disponible");

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { StyleSheet, Switch, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
-import type { AgencyCatalogResponse, DeliveryZonesResponse, SaveDeliveryZonesRequest } from "@shared/contracts/delivery-settings";
+import type { AgencyCatalogResponse, CourierCatalogResponse, DeliveryZonesResponse, SaveDeliveryZonesRequest } from "@shared/contracts/delivery-settings";
 import type { Result } from "@shared/result";
 import { getPeruDistrict, type PeruDistrictCode } from "@shared/peru-geography";
 import type { DeliveryOptionDraft, DeliverySettingsError, DeliveryZonesError } from "@mobile/features/delivery-settings/application/delivery-settings";
@@ -17,7 +17,9 @@ import { AgencyPicker, type AgencyCourier } from "@mobile/features/delivery-sett
 const amountSchema = z.string().regex(/^\d+(?:[.,]\d{1,2})?$/).refine(value => Number(value.replace(",", ".")) <= 9999999999999.99);
 const draftSchema = z.object({ name: z.string().trim().min(1).max(120), enabled: z.boolean(),
   districtCodes: z.array(z.string().refine(code => getPeruDistrict(code) !== null)).min(1).refine(codes => new Set(codes).size === codes.length),
-  options: z.array(z.object({ name: z.string().trim().min(1).max(120), amount: amountSchema }).loose())
+  options: z.array(z.object({ name: z.string().trim().min(1).max(120), amount: amountSchema, kind: z.enum(["new", "existing"]), agencyIds: z.array(z.string()).optional() }).loose()
+    // Saved agency options without agencies stay saveable, as the server accepts them; only new ones must pick an agency.
+    .refine(option => option.kind === "existing" || option.agencyIds === undefined || option.agencyIds.length > 0))
     .refine(options => new Set(options.map(option => option.name.trim().toLowerCase())).size === options.length),
 });
 type Draft = Readonly<{ name: string; enabled: boolean; districtCodes: string[]; options: DeliveryOptionDraft[] }>;
@@ -46,8 +48,9 @@ export const hasEligibleAgency = (option: ZoneOption, state: DeliveryZonesRespon
     return !!agency?.enabled && couriers.some(courier => courier.courierId === agency.courierId && courier.enabled);
   });
 
-export function DeliveryZonesSection({ state, couriers, loadAgencies, disabled, blocked, onSave, onReload }: Readonly<{
+export function DeliveryZonesSection({ state, couriers, catalog, loadAgencies, disabled, blocked, onSave, onReload }: Readonly<{
   state: DeliveryZonesResponse; couriers: readonly (AgencyCourier & Readonly<{ enabled: boolean }>)[]; disabled: boolean; blocked: boolean;
+  catalog: CourierCatalogResponse["couriers"];
   loadAgencies: (courierId: string) => Promise<Result<AgencyCatalogResponse, DeliverySettingsError>>;
   onSave: (request: SaveDeliveryZonesRequest) => Promise<Result<DeliveryZonesResponse, DeliveryZonesError>>;
   onReload: () => void;
@@ -105,8 +108,10 @@ export function DeliveryZonesSection({ state, couriers, loadAgencies, disabled, 
           <ThemedText type="small">{t(option.method === "home" ? "optionHome" : "optionAgency")}</ThemedText>
           <Field disabled={locked} required><FieldLabel>{t("optionName")}</FieldLabel><Input accessibilityLabel={t("optionName")} maxLength={120} value={option.name} onChangeText={name => setOption(index, { name })} /></Field>
           <Field disabled={locked} required><FieldLabel>{t("zonesPrice")}</FieldLabel><Input accessibilityLabel={t("zonesPrice")} keyboardType="decimal-pad" value={option.amount} onChangeText={amount => setOption(index, { amount })} /></Field>
-          {option.method === "agency" ? <AgencyPicker couriers={couriers} known={state.agencies} value={option.agencyIds} disabled={locked} loadCatalog={loadAgencies}
+          {option.method === "agency" ? <AgencyPicker couriers={catalog.map(courier => ({ courierId: courier.id, name: courier.name }))} knownCouriers={couriers} known={state.agencies} value={option.agencyIds} disabled={locked} loadCatalog={loadAgencies}
             onChange={agencyIds => setOption(index, { agencyIds })} /> : null}
+          {error === "zonesInvalid" && option.kind === "new" && option.method === "agency" && option.agencyIds.length === 0
+            ? <ThemedText type="small" style={{ color: theme.error }}>{t("agenciesRequired")}</ThemedText> : null}
           <View style={styles.toggle}><ThemedText style={styles.label}>{t("optionActive")}</ThemedText><Switch accessibilityLabel={`${t("optionActive")} ${index + 1}`} value={option.enabled} disabled={locked} trackColor={{ true: theme.primary }} onValueChange={enabled => setOption(index, { enabled })} /></View>
           {option.kind === "new" ? <Button variant="ghost" disabled={locked} onPress={() => setDraft({ ...draft, options: draft.options.filter((_, i) => i !== index) })}>{t("optionRemove")}</Button> : null}
         </View>)}

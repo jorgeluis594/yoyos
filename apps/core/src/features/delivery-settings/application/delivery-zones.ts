@@ -1,7 +1,7 @@
 import { err, ok } from "@shared/functional";
 import type { Currency } from "@shared/money";
 import type { Result } from "@shared/result";
-import { initialDeliverySettings, parseDeliverySettings, type DeliverySettings, type DeliverySettingsError } from "@core/src/features/delivery-settings/domain/delivery-settings";
+import { syncCouriers, initialDeliverySettings, parseDeliverySettings, type CourierCatalogEntry, type CourierId, type DeliverySettings, type DeliverySettingsError, type DeliverySettingsReadError } from "@core/src/features/delivery-settings/domain/delivery-settings";
 import { prepareDeliveryZones, type DeliveryZone, type DeliveryZoneInput, type DeliveryZoneError } from "@core/src/features/delivery-settings/domain/delivery-zone";
 import type { DeliverySettingsAccess } from "@core/src/features/delivery-settings/application/delivery-settings";
 import type { QuotationStorageError } from "@core/src/features/delivery-settings/application/create-quotation";
@@ -21,9 +21,11 @@ export type SaveDeliveryZonesDependencies = Readonly<{
   readForUpdate: ReadDeliveryConfiguration;
   saveSettings: (companyId: string, settings: DeliverySettings) => Promise<Result<null, DeliverySettingsError>>;
   readAgencies: (ids: readonly string[]) => Promise<Result<readonly DeliveryAgency[], QuotationStorageError>>;
+  readCourierCatalog: () => Promise<Result<readonly CourierCatalogEntry[], DeliverySettingsReadError>>; // every catalog courier, enabled or not: quotation gates on catalog availability
   saveZones: (companyId: string, zones: readonly DeliveryZone[]) => Promise<Result<null, QuotationStorageError>>;
   generateZoneId: () => string;
   generateOptionId: () => string;
+  generateCourierId: () => CourierId;
 }>;
 
 function zonesState(configuration: DeliveryConfiguration): DeliveryZonesState {
@@ -54,10 +56,17 @@ export async function saveDeliveryZones(input: SaveDeliveryZonesInput, context: 
     const requested = [...new Set(input.zones.flatMap(zone => zone.options.flatMap(option => option.method === "agency" ? option.agencyIds : [])))];
     const agencies = await deps.readAgencies(requested);
     if (!agencies.success) return agencies;
-    const zones = prepareDeliveryZones(input.zones, { current: configuration.zones, agencies: agencies.data, couriers: configuration.settings.couriers,
+    const catalog = requested.length > 0 ? await deps.readCourierCatalog() : ok([]); // with no agencies there is no courier to add, only to disable
+    if (!catalog.success) return catalog;
+    // Choosing a courier's agencies is how a company ships with it: its company courier follows the agencies of the enabled options in the same write.
+    const shipping = new Set(input.zones.flatMap(zone => zone.enabled
+      ? zone.options.flatMap(option => option.method === "agency" && option.enabled ? option.agencyIds : []) : []));
+    const couriers = syncCouriers(configuration.settings.couriers, agencies.data.map(agency => agency.courierId),
+      agencies.data.filter(agency => shipping.has(agency.id)).map(agency => agency.courierId), catalog.data, deps.generateCourierId);
+    const zones = prepareDeliveryZones(input.zones, { current: configuration.zones, agencies: agencies.data,
       currency: configuration.currency, generateZoneId: deps.generateZoneId, generateOptionId: deps.generateOptionId });
     if (!zones.success) return zones;
-    const settings: DeliverySettings = { ...configuration.settings, version: input.expectedVersion + 1 };
+    const settings: DeliverySettings = { ...configuration.settings, couriers, version: input.expectedVersion + 1 };
     const savedSettings = await deps.saveSettings(context.companyId, settings);
     if (!savedSettings.success) return savedSettings;
     const savedZones = await deps.saveZones(context.companyId, zones.data);

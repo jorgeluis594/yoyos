@@ -55,7 +55,7 @@ test("rated pickup freezes its point and replacement preserves author and stock 
     expect(apiAssigned.ok()).toBe(true);
     expect(await apiAssigned.json()).toEqual(assigned);
     const changed = await page.request.put("/api/delivery-settings", { data: { expectedVersion: 1,
-      agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Tienda nueva", address: "Av. Nueva 456", instructions: null } } } });
+      agency: { enabled: false }, home: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Tienda nueva", address: "Av. Nueva 456", instructions: null } } } });
     expect(changed.ok()).toBe(true);
     await page.reload();
     await browserExpect(page.getByText("Av. Original 123", { exact: true })).toBeVisible();
@@ -85,7 +85,7 @@ test("rated pickup freezes its point and replacement preserves author and stock 
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
     await page.screenshot({ path: "../../.impeccable/review/order-redesign-store-mobile.png", fullPage: true });
-    expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 2, agency: { enabled: false }, couriers: [], home: { enabled: true },
+    expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 2, agency: { enabled: false }, home: { enabled: true },
       store: { enabled: true, pickupPoint: { name: "Tienda nueva", address: "Av. Nueva 456", instructions: null } } } })).ok()).toBe(true);
     await page.reload();
     await page.getByRole("button", { name: "Editar entrega", exact: true }).click();
