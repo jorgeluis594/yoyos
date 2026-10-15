@@ -63,7 +63,7 @@ Siguen vigentes sin cambios `6206483d` (IDs generados por el servidor y conjunto
 | Toda fila por empresa pertenece a `app.company_id`. | RLS + `companyId` en PK/FK compuestas. |
 | Opción, tarifa y asociación opción–agencia comparten `method`. | FK `(companyId, method, optionId)` → `DeliveryOption(companyId, method, id)`. |
 | Solo opciones `agency` tienen agencias. | `DeliveryOptionAgency.method` con CHECK `= 'agency'` dentro de la FK; en tipos, `agencyIds` solo existe en la variante `agency`. |
-| La empresa solo asocia agencias de couriers habilitados del catálogo; al guardar la zona, su `CompanyCourier` se crea o habilita en la misma escritura. | `enableCouriers` + `prepareDeliveryZones`. |
+| Las agencias de una opción son de un solo courier del catálogo; al guardar la zona, los `CompanyCourier` se derivan de las agencias de las opciones habilitadas en la misma escritura. | `syncCouriers` + `prepareDeliveryZones`. |
 | La app no escribe `Courier` ni `DeliveryAgency`. | `REVOKE INSERT, UPDATE, DELETE` a `core_app`. |
 | Opción de agencia aplicable ⇔ `settings.agency.enabled`, zona y opción habilitadas, y al menos una agencia asociada habilitada cuyo courier del catálogo esté habilitado y la empresa lo tenga como `CompanyCourier` habilitado. | `applicableDeliveryOptions` (dominio puro). |
 | Opción `home` aplicable ⇔ `settings.home.enabled` y zona y opción habilitadas. | `applicableDeliveryOptions`. |

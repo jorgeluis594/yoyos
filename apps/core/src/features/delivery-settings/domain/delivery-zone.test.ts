@@ -101,7 +101,7 @@ test("prices must use the business currency and report their option row", () => 
     .toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_ZONE", field: "districtCodes", index: 0 } });
 });
 
-test("agency options accept only catalog agencies of the company's couriers, including disabled ones", () => {
+test("agency options accept only catalog agencies of a single courier of the company, including disabled ones", () => {
   const input = (agencyIds: string[]): DeliveryZoneInput[] => [{ kind: "new", ...fields,
     options: [{ kind: "new", method: "agency", name: "Agency", enabled: true, price: price(10), agencyIds }] }];
   expect(prepareDeliveryZones(input([]), context()).success).toBe(true);
@@ -111,6 +111,11 @@ test("agency options accept only catalog agencies of the company's couriers, inc
   expect(prepareDeliveryZones(input([id(70)]), context({ agencies: [agency(id(99) as typeof courier.catalogId)] })))
     .toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_OPTION", field: "agencyIds" } });
   expect(prepareDeliveryZones(input([id(70), id(70)]), context({ agencies: [agency()] })).success).toBe(false);
+  const otherCatalogId = id(62) as typeof courier.catalogId;
+  const other = { ...agency(otherCatalogId), id: id(71) } as unknown as DeliveryAgency;
+  expect(prepareDeliveryZones(input([id(70), id(71)]), context({ agencies: [agency(), other],
+    couriers: [courier, { ...courier, id: id(63), catalogId: otherCatalogId } as unknown as Courier] })))
+    .toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_OPTION", field: "agencyIds", optionIndex: 0 } });
 });
 
 test("generated identities must be valid and unique across the configuration", () => {

@@ -146,10 +146,9 @@ export function prepareDeliveryZones(input: readonly DeliveryZoneInput[], contex
       const key = option.name.toLowerCase();
       if (names.has(key)) return err({ code: "INVALID_DELIVERY_OPTION", field: "name", index, optionIndex, message: "Option names must be unique within a zone" });
       names.add(key);
-      if (option.method === "agency" && !option.agencyIds.every(id => {
-        const agency = agencies.get(id);
-        return agency !== undefined && known.has(agency.courierId);
-      })) return err({ code: "INVALID_DELIVERY_OPTION", field: "agencyIds", index, optionIndex, message: "Agencies must exist and belong to the company's couriers" });
+      const couriersOf = new Set(option.method === "agency" ? option.agencyIds.map(id => agencies.get(id)?.courierId) : []);
+      if (couriersOf.size > 1 || [...couriersOf].some(courierId => courierId === undefined || !known.has(courierId)))
+        return err({ code: "INVALID_DELIVERY_OPTION", field: "agencyIds", index, optionIndex, message: "An option's agencies must exist and belong to a single courier of the company" });
     }
     zones.push(result.data);
   }

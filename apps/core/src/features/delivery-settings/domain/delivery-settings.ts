@@ -97,11 +97,11 @@ export function prepareCouriers(input: Readonly<{ couriers: readonly CourierInpu
   return ok(couriers);
 }
 
-/** Enables the company couriers of the given catalog couriers, adding the ones it lacks; unknown catalog IDs are left out for the caller to reject. */
-export function enableCouriers(current: readonly Courier[], catalogIds: readonly CourierCatalogId[], catalog: readonly CourierCatalogEntry[],
+/** Derives the company couriers from the catalog couriers the company ships with, adding the ones it lacks; a courier missing from the catalog is never enabled. */
+export function syncCouriers(current: readonly Courier[], catalogIds: readonly CourierCatalogId[], catalog: readonly CourierCatalogEntry[],
   generateId: () => CourierId): readonly Courier[] {
-  const wanted = new Set(catalogIds);
+  const wanted = new Set(catalog.filter(entry => catalogIds.includes(entry.id)).map(entry => entry.id));
   const added = catalog.filter(entry => wanted.has(entry.id) && !current.some(courier => courier.catalogId === entry.id))
     .map(entry => ({ id: generateId(), catalogId: entry.id, name: entry.name, enabled: true, catalogEnabled: true }));
-  return [...current.map(courier => wanted.has(courier.catalogId) ? { ...courier, enabled: true } : courier), ...added];
+  return [...current.map(courier => ({ ...courier, enabled: wanted.has(courier.catalogId) })), ...added];
 }

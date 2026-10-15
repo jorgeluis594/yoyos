@@ -17,9 +17,9 @@ export const describeAgency = (agency: CatalogAgencyContract) => `${agency.name}
 type Courier = Readonly<{ courierId: string; name: string }>;
 
 /** Chooses the catalog agencies of an agency option: the courier first, its catalog with a search box, and the chosen agencies below. */
-export function AgencyPicker({ id, couriers, known, value, onChange, onCourierChange }: Readonly<{
+export function AgencyPicker({ id, couriers, known, value, onChange, onCourierChange, errorId }: Readonly<{
   id: string; couriers: readonly Courier[]; known: readonly CatalogAgencyContract[]; value: readonly string[]; onChange: (agencyIds: string[]) => void;
-  onCourierChange?: (courier: Courier) => void;
+  onCourierChange?: (courier: Courier) => void; errorId?: string;
 }>) {
   const { t } = useTranslation();
   // A saved option opens on the courier of its first agency.
@@ -61,7 +61,10 @@ export function AgencyPicker({ id, couriers, known, value, onChange, onCourierCh
       <Select value={courierId} onValueChange={next => {
         const courier = couriers.find(entry => entry.courierId === next);
         if (!courier) return;
-        setCourierId(courier.courierId); setQuery(""); onCourierChange?.(courier);
+        // An option ships with one courier: the agencies of the previous one are dropped.
+        setCourierId(courier.courierId); setQuery("");
+        onChange(value.filter(agencyId => details.get(agencyId)?.courierId === courier.courierId));
+        onCourierChange?.(courier);
       }} items={couriers.map(courier => ({ value: courier.courierId, label: courier.name }))}>
         <SelectTrigger id={`${id}-courier`}><SelectValue /></SelectTrigger>
         <SelectContent>{couriers.map(courier => <SelectItem key={courier.courierId} value={courier.courierId}>{courier.name}</SelectItem>)}</SelectContent>
@@ -71,7 +74,7 @@ export function AgencyPicker({ id, couriers, known, value, onChange, onCourierCh
       {chosen}
     </div>
     <Field><FieldLabel htmlFor={`${id}-search`}>{t("deliveryZones.searchAgencies")}</FieldLabel>
-      <Input id={`${id}-search`} type="search" value={query} onChange={event => setQuery(event.target.value)} /></Field>
+      <Input id={`${id}-search`} type="search" value={query} onChange={event => setQuery(event.target.value)} aria-invalid={errorId !== undefined} aria-describedby={errorId} /></Field>
     {!current && <FieldDescription role="status">{t("deliveryZones.loadingAgencies")}</FieldDescription>}
     {current?.error && <div className="flex flex-col items-start gap-2"><Alert variant="destructive"><AlertDescription>{t("deliveryZones.agenciesError")}</AlertDescription></Alert>
       <Button type="button" variant="outline" onClick={() => setAttempt(value => value + 1)}>{t("deliveryZones.retryAgencies")}</Button></div>}

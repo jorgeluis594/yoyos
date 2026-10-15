@@ -101,7 +101,7 @@ test("agency options reference catalog agencies read for the request, including 
   expect(repo.read().zones[0].options[0]).toMatchObject({ agencyIds: [id(60), id(61)] });
 });
 
-test("choosing agencies of a courier the company lacks or disabled enables that courier in the same versioned write", async () => {
+test("the company couriers follow the agencies of the enabled options in the same versioned write", async () => {
   const catalogId = id(500) as CourierCatalogId;
   const agency = { id: id(60), courierId: catalogId, name: "Agency", address: "Street", districtCode: "150122", enabled: true, courierEnabled: true } as unknown as DeliveryAgency;
   const option = { kind: "new" as const, method: "agency" as const, name: "Shalom", enabled: true, price: price(5), agencyIds: [id(60)] };
@@ -112,4 +112,13 @@ test("choosing agencies of a courier the company lacks or disabled enables that 
   const again = repository({ ...initial(), settings: disabled, agencies: [agency] });
   expect(await saveDeliveryZones({ expectedVersion: 3, zones: [{ kind: "new", ...fields, options: [option] }] }, context, again.deps)).toMatchObject({ success: true });
   expect(again.read().settings.couriers).toEqual([{ ...disabled.couriers[0], enabled: true }]);
+  const enabled = { ...initialDeliverySettings(), version: 1, couriers: [{ id: id(501), catalogId, name: "Shalom", enabled: true, catalogEnabled: true }] } as never;
+  const off = repository({ ...initial(), settings: enabled, agencies: [agency] });
+  expect(await saveDeliveryZones({ expectedVersion: 1, zones: [{ kind: "new", ...fields, options: [{ ...option, enabled: false }] }] }, context, off.deps)).toMatchObject({ success: true });
+  expect(off.read().settings.couriers).toMatchObject([{ catalogId, enabled: false }]);
+  const delisted = id(599);
+  const retired = { ...initialDeliverySettings(), couriers: [{ id: id(502), catalogId: delisted, name: "Olva", enabled: false, catalogEnabled: false }] } as never;
+  const retiredRepo = repository({ ...initial(), settings: retired, agencies: [{ ...agency, courierId: delisted } as unknown as DeliveryAgency] });
+  expect(await saveDeliveryZones({ expectedVersion: 0, zones: [{ kind: "new", ...fields, options: [option] }] }, context, retiredRepo.deps)).toMatchObject({ success: true });
+  expect(retiredRepo.read().settings.couriers).toMatchObject([{ catalogId: delisted, enabled: false }]);
 });

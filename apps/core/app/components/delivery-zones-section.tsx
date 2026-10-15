@@ -132,12 +132,13 @@ export function DeliveryZonesSection({ state, couriers, catalog, pending, error,
               </div>
               {method === "agency" && <Controller name={`options.${index}.agencyIds`} control={form.control} render={({ field, fieldState }) => <div className="flex min-w-0 flex-col gap-2">
                 <AgencyPicker id={`${id}-agencies-${index}`} couriers={catalogCouriers} known={state.agencies} value={field.value} onChange={field.onChange}
+                  errorId={fieldState.error ? `${id}-agencies-${index}-error` : undefined}
                   onCourierChange={courier => {
                     const name = form.getValues(`options.${index}.name`).trim();
                     // Prefill only while the name is empty or still another courier's name.
                     if (!name || catalog.some(entry => entry.name === name)) form.setValue(`options.${index}.name`, courier.name, { shouldDirty: true });
                   }} />
-                {fieldState.error && <FieldError>{t("deliveryZones.agenciesRequired")}</FieldError>}
+                {fieldState.error && <FieldError id={`${id}-agencies-${index}-error`}>{t("deliveryZones.agenciesRequired")}</FieldError>}
               </div>} />}
               <div className="grid gap-4 sm:grid-cols-2">
                 <Controller name={`options.${index}.name`} control={form.control} render={({ field, fieldState }) => <Field>

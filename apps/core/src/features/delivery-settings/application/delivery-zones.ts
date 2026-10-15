@@ -1,7 +1,7 @@
 import { err, ok } from "@shared/functional";
 import type { Currency } from "@shared/money";
 import type { Result } from "@shared/result";
-import { enableCouriers, initialDeliverySettings, parseDeliverySettings, type CourierCatalogEntry, type CourierId, type DeliverySettings, type DeliverySettingsError, type DeliverySettingsReadError } from "@core/src/features/delivery-settings/domain/delivery-settings";
+import { syncCouriers, initialDeliverySettings, parseDeliverySettings, type CourierCatalogEntry, type CourierId, type DeliverySettings, type DeliverySettingsError, type DeliverySettingsReadError } from "@core/src/features/delivery-settings/domain/delivery-settings";
 import { prepareDeliveryZones, type DeliveryZone, type DeliveryZoneInput, type DeliveryZoneError } from "@core/src/features/delivery-settings/domain/delivery-zone";
 import type { DeliverySettingsAccess } from "@core/src/features/delivery-settings/application/delivery-settings";
 import type { QuotationStorageError } from "@core/src/features/delivery-settings/application/create-quotation";
@@ -58,8 +58,11 @@ export async function saveDeliveryZones(input: SaveDeliveryZonesInput, context: 
     if (!agencies.success) return agencies;
     const catalog = await deps.readCourierCatalog();
     if (!catalog.success) return catalog;
-    // Choosing a courier's agencies is how a company starts shipping with it: its company courier is enabled in the same write.
-    const couriers = enableCouriers(configuration.settings.couriers, agencies.data.map(agency => agency.courierId), catalog.data, deps.generateCourierId);
+    // Choosing a courier's agencies is how a company ships with it: its company courier follows the agencies of the enabled options in the same write.
+    const shipping = new Set(input.zones.flatMap(zone => zone.enabled
+      ? zone.options.flatMap(option => option.method === "agency" && option.enabled ? option.agencyIds : []) : []));
+    const couriers = syncCouriers(configuration.settings.couriers, agencies.data.filter(agency => shipping.has(agency.id)).map(agency => agency.courierId),
+      catalog.data, deps.generateCourierId);
     const zones = prepareDeliveryZones(input.zones, { current: configuration.zones, agencies: agencies.data, couriers,
       currency: configuration.currency, generateZoneId: deps.generateZoneId, generateOptionId: deps.generateOptionId });
     if (!zones.success) return zones;
