@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { err, ok } from "@shared/functional";
-import { initialDeliverySettings } from "@core/src/features/delivery-settings/domain/delivery-settings";
+import { initialDeliverySettings, type CourierCatalogId, type CourierCode, type CourierId } from "@core/src/features/delivery-settings/domain/delivery-settings";
 import { parseDeliveryZone, type DeliveryZone } from "@core/src/features/delivery-settings/domain/delivery-zone";
 import { getDeliveryZones, saveDeliveryZones, type SaveDeliveryZonesDependencies } from "@core/src/features/delivery-settings/application/delivery-zones";
 import type { DeliveryAgency } from "@core/src/features/delivery-settings/domain/delivery-agency";
@@ -23,7 +23,8 @@ function repository(configuration = initial()) {
   let sequence = 10;
   const deps: SaveDeliveryZonesDependencies = {
     transaction: async (_companyId, work) => work(), readForUpdate: async () => ok(stored),
-    generateZoneId: () => id(sequence++), generateOptionId: () => id(sequence++),
+    generateZoneId: () => id(sequence++), generateOptionId: () => id(sequence++), generateCourierId: () => id(sequence++) as CourierId,
+    readCourierCatalog: async () => ok([{ id: id(500) as CourierCatalogId, code: "shalom" as CourierCode, name: "Shalom" }]),
     saveSettings: async (_companyId, settings) => { stored = { ...stored, settings }; return ok(null); },
     saveZones: async (_companyId, zones) => { stored = { ...stored, zones }; return ok(null); },
     readAgencies: async ids => ok(stored.agencies.filter(agency => ids.includes(agency.id))),
@@ -98,4 +99,17 @@ test("agency options reference catalog agencies read for the request, including 
     { kind: "existing", id: id(11), method: "agency", name: "Agency", enabled: true, price: price(5), agencyIds: [id(99)] }] }] }, context, repo.deps);
   expect(rejected).toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_OPTION", field: "agencyIds" } });
   expect(repo.read().zones[0].options[0]).toMatchObject({ agencyIds: [id(60), id(61)] });
+});
+
+test("choosing agencies of a courier the company lacks or disabled enables that courier in the same versioned write", async () => {
+  const catalogId = id(500) as CourierCatalogId;
+  const agency = { id: id(60), courierId: catalogId, name: "Agency", address: "Street", districtCode: "150122", enabled: true, courierEnabled: true } as unknown as DeliveryAgency;
+  const option = { kind: "new" as const, method: "agency" as const, name: "Shalom", enabled: true, price: price(5), agencyIds: [id(60)] };
+  const repo = repository({ ...initial(), agencies: [agency] });
+  expect(await saveDeliveryZones({ expectedVersion: 0, zones: [{ kind: "new", ...fields, options: [option] }] }, context, repo.deps)).toMatchObject({ success: true });
+  expect(repo.read().settings).toMatchObject({ version: 1, agency: { enabled: false }, couriers: [{ id: id(10), catalogId, name: "Shalom", enabled: true }] });
+  const disabled = { ...initialDeliverySettings(), version: 3, couriers: [{ id: id(501) as CourierId, catalogId, name: "Shalom", enabled: false, catalogEnabled: true }] };
+  const again = repository({ ...initial(), settings: disabled, agencies: [agency] });
+  expect(await saveDeliveryZones({ expectedVersion: 3, zones: [{ kind: "new", ...fields, options: [option] }] }, context, again.deps)).toMatchObject({ success: true });
+  expect(again.read().settings.couriers).toEqual([{ ...disabled.couriers[0], enabled: true }]);
 });

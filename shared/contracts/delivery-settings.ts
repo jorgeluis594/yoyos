@@ -30,7 +30,7 @@ export const deliverySettingsSchema = z.strictObject({
   home: z.strictObject({ enabled: z.boolean() }),
   store: storeDeliverySettingsSchema,
 }).refine(value => new Set(value.couriers.map(courier => courier.id)).size === value.couriers.length
-  && new Set(value.couriers.map(courier => courier.courierId)).size === value.couriers.length && (!value.agency.enabled || value.couriers.some(courier => courier.enabled)));
+  && new Set(value.couriers.map(courier => courier.courierId)).size === value.couriers.length);
 export type DeliverySettingsResponse = z.infer<typeof deliverySettingsSchema>;
 export const saveDeliverySettingsSchema = z.strictObject({
   agency: z.strictObject({ enabled: z.boolean() }),

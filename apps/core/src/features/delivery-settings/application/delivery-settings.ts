@@ -37,7 +37,7 @@ export async function saveDeliverySettings(input: SaveDeliverySettingsInput, con
     if (currentVersion !== input.expectedVersion) return err({ code: "DELIVERY_SETTINGS_CONFLICT", message: "Settings changed since they were loaded", currentVersion, reason: "stale_version" });
     const catalog = await deps.readCourierCatalog();
     if (!catalog.success) return catalog;
-    const couriers = prepareCouriers({ agencyEnabled: input.agency.enabled, couriers: courierInputs.data }, found.data?.couriers ?? [], catalog.data, deps.generateCourierId);
+    const couriers = prepareCouriers({ couriers: courierInputs.data }, found.data?.couriers ?? [], catalog.data, deps.generateCourierId);
     if (!couriers.success) return couriers;
     const next: DeliverySettings = { ...validated.data, agency: input.agency, couriers: couriers.data, version: currentVersion + 1 };
     const complete = parseDeliverySettings(next);

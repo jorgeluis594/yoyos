@@ -183,7 +183,8 @@ test("courier write failure rolls back settings and earlier courier edits; inval
       expect(failure.mock.calls[0][0]).toMatchObject({ event: "delivery_settings_write_failed", stage: "save_couriers" });
       await prisma.companyCourier.update({ where: { id }, data: { enabled: false } });
       await prisma.companyDeliverySettings.update({ where: { companyId: f.context.companyId }, data: { agencyEnabled: true } });
-      expect(await deliverySettings.get(f.context)).toMatchObject({ success: false, error: { code: "INVALID_STORED_DATA" } });
+      // Agency delivery may stay on with every courier disabled: its options are simply not quoted.
+      expect(await deliverySettings.get(f.context)).toMatchObject({ success: true, data: { agency: { enabled: true }, couriers: [{ id, enabled: false }] } });
     });
   } finally { summary.mockRestore(); failure.mockRestore(); await f.cleanup(); }
 });

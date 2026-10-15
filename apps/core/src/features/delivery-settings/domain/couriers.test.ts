@@ -13,7 +13,7 @@ const added: CourierInput = { kind: "new", catalogId: olvaId, enabled: true };
 
 test("new courier takes the catalog name and a server ID; existing couriers keep identity and only change enablement", () => {
   const generateId = vi.fn(() => newId);
-  expect(prepareCouriers({ agencyEnabled: true, couriers: [{ ...retained, enabled: true }, added] }, current, catalog, generateId))
+  expect(prepareCouriers({ couriers: [{ ...retained, enabled: true }, added] }, current, catalog, generateId))
     .toEqual(ok([{ ...current[0], enabled: true }, { id: newId, catalogId: olvaId, name: "Olva Courier", enabled: true, catalogEnabled: true }]));
   expect(generateId).toHaveBeenCalledOnce();
   expect(current[0]).toMatchObject({ enabled: false });
@@ -22,7 +22,7 @@ test("new courier takes the catalog name and a server ID; existing couriers keep
 test("existing courier omission, repeated IDs and unknown or foreign IDs fail before generating new IDs", () => {
   const generateId = vi.fn(() => newId);
   for (const couriers of [[], [retained, retained], [{ ...retained, id: newId }]]) {
-    expect(prepareCouriers({ agencyEnabled: false, couriers }, current, catalog, generateId)).toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_SETTINGS" } });
+    expect(prepareCouriers({ couriers }, current, catalog, generateId)).toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_SETTINGS" } });
   }
   expect(generateId).not.toHaveBeenCalled();
 });
@@ -31,27 +31,25 @@ test("a courier outside the enabled catalog or already configured cannot be adde
   const unknown: CourierInput = { kind: "new", catalogId: "00000000-0000-4000-8000-000000000199" as CourierCatalogId, enabled: true };
   const duplicated: CourierInput = { kind: "new", catalogId: shalomId, enabled: true };
   for (const couriers of [[retained, unknown], [retained, duplicated], [retained, added, added]]) {
-    expect(prepareCouriers({ agencyEnabled: false, couriers }, current, catalog, () => newId).success).toBe(false);
+    expect(prepareCouriers({ couriers }, current, catalog, () => newId).success).toBe(false);
   }
   // A courier disabled in the catalog is absent from the enabled catalog read.
-  expect(prepareCouriers({ agencyEnabled: false, couriers: [retained, added] }, current, [catalog[0]], () => newId).success).toBe(false);
+  expect(prepareCouriers({ couriers: [retained, added] }, current, [catalog[0]], () => newId).success).toBe(false);
   // Existing couriers whose catalog entry was later disabled are retained and can only be disabled.
   const delisted: readonly Courier[] = [{ ...current[0], catalogEnabled: false }];
-  expect(prepareCouriers({ agencyEnabled: false, couriers: [retained] }, delisted, [], () => newId)).toEqual(ok(delisted));
+  expect(prepareCouriers({ couriers: [retained] }, delisted, [], () => newId)).toEqual(ok(delisted));
 });
 
-test("last courier deactivation requires disabling agency in the same configuration", () => {
-  expect(prepareCouriers({ agencyEnabled: true, couriers: [retained] }, current, catalog, () => newId).success).toBe(false);
-  expect(prepareCouriers({ agencyEnabled: false, couriers: [retained] }, current, catalog, () => newId)).toEqual(ok(current));
-  expect(prepareCouriers({ agencyEnabled: true, couriers: [] }, [], catalog, () => newId).success).toBe(false);
-  expect(prepareCouriers({ agencyEnabled: false, couriers: [] }, [], catalog, () => newId)).toEqual(ok([]));
+test("agency delivery may be offered without enabled couriers: options without eligible agencies are simply not quoted", () => {
+  expect(prepareCouriers({ couriers: [retained] }, current, catalog, () => newId)).toEqual(ok(current));
+  expect(prepareCouriers({ couriers: [] }, [], catalog, () => newId)).toEqual(ok([]));
 });
 
 test("unknown fields, names supplied by the client, supplied new IDs and invalid IDs are rejected", () => {
-  expect(prepareCouriers({ agencyEnabled: true, couriers: [added] }, [], catalog, () => newId).success).toBe(true);
+  expect(prepareCouriers({ couriers: [added] }, [], catalog, () => newId).success).toBe(true);
   for (const value of [{ ...added, name: "Forged" }, { ...added, id: newId }, { ...added, enabled: "true" }, { ...added, catalogId: "invalid" },
     { ...added, kind: "unknown" }, { ...retained, id: "invalid" }, { ...retained, name: "Forged" }]) {
-    expect(prepareCouriers({ agencyEnabled: false, couriers: [value as CourierInput] }, [], catalog, () => newId).success).toBe(false);
+    expect(prepareCouriers({ couriers: [value as CourierInput] }, [], catalog, () => newId).success).toBe(false);
   }
-  expect(prepareCouriers({ agencyEnabled: false, couriers: [retained, { ...added, enabled: "x" } as unknown as CourierInput] }, current, catalog, () => id).success).toBe(false);
+  expect(prepareCouriers({ couriers: [retained, { ...added, enabled: "x" } as unknown as CourierInput] }, current, catalog, () => id).success).toBe(false);
 });

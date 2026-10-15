@@ -98,9 +98,8 @@ it("saves courier edits and server IDs under the settings lock; a stale retry ne
   expect(await saveDeliverySettings(input, context, deps)).toMatchObject({ success: false, error: { code: "DELIVERY_SETTINGS_CONFLICT" } });
   expect(generateCourierId).toHaveBeenCalledOnce();
   const edit = { ...input, expectedVersion: 1, couriers: [{ kind: "existing" as const, id, enabled: false }] };
-  expect(await saveDeliverySettings(edit, context, deps)).toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_SETTINGS" } });
-  expect(await saveDeliverySettings({ ...edit, agency: { enabled: false } }, context, deps))
-    .toMatchObject({ success: true, data: { version: 2, agency: { enabled: false }, couriers: [{ id, catalogId, name: "Shalom", enabled: false, catalogEnabled: true }] } });
+  expect(await saveDeliverySettings(edit, context, deps))
+    .toMatchObject({ success: true, data: { version: 2, agency: { enabled: true }, couriers: [{ id, catalogId, name: "Shalom", enabled: false, catalogEnabled: true }] } });
   expect(await saveDeliverySettings({ ...edit, expectedVersion: 2, agency: { enabled: false }, couriers: [] }, context, deps)).toMatchObject({ success: false });
   expect(persisted).toMatchObject({ version: 2, couriers: [{ id }] });
 });

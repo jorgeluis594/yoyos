@@ -31,7 +31,7 @@ test("the picker lists selected agencies with their courier-independent details 
   expect(html).toContain("Ñandú");
   expect(html).toContain("Desactivada");
   expect(html).toContain("Shalom");
-  expect(render(<AgencyPicker id="x" couriers={[]} known={[]} value={[]} onChange={() => undefined} />)).toContain("Habilita un courier");
+  expect(render(<AgencyPicker id="x" couriers={[]} known={[]} value={[]} onChange={() => undefined} />)).toContain("Todavía no hay couriers disponibles");
 });
 
 test("an agency option without an enabled agency of an enabled courier is flagged as not offered", () => {

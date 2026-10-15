@@ -38,7 +38,7 @@ const settings = z.strictObject({
   couriers: z.array(z.strictObject({ id: courierId, catalogId: courierCatalogId, name: courierName, enabled: z.boolean(), catalogEnabled: z.boolean() })),
   store,
 }).refine(value => new Set(value.couriers.map(courier => courier.id)).size === value.couriers.length
-  && new Set(value.couriers.map(courier => courier.catalogId)).size === value.couriers.length && (!value.agency.enabled || value.couriers.some(courier => courier.enabled)));
+  && new Set(value.couriers.map(courier => courier.catalogId)).size === value.couriers.length);
 
 export function parseDeliverySettings(value: unknown): Result<DeliverySettings, DeliverySettingsError> {
   const parsed = settings.safeParse(value);
@@ -69,9 +69,9 @@ export function parseCourierCatalogEntry(value: unknown): Result<CourierCatalogE
   return parsed.success ? ok(parsed.data) : err({ code: "INVALID_STORED_DATA", message: "Stored courier catalog is invalid" });
 }
 
-export function prepareCouriers(input: Readonly<{ agencyEnabled: boolean; couriers: readonly CourierInput[] }>,
+export function prepareCouriers(input: Readonly<{ couriers: readonly CourierInput[] }>,
   current: readonly Courier[], catalog: readonly CourierCatalogEntry[], generateId: () => CourierId): Result<readonly Courier[], DeliverySettingsError> {
-  const parsed = z.strictObject({ agencyEnabled: z.boolean(), couriers: z.array(courierInput) }).safeParse(input);
+  const parsed = z.strictObject({ couriers: z.array(courierInput) }).safeParse(input);
   if (!parsed.success) return err({ code: "INVALID_DELIVERY_SETTINGS", message: "Invalid couriers" });
   const existing = new Map(current.map(courier => [courier.id, courier]));
   const retained = new Set<string>();
@@ -82,8 +82,6 @@ export function prepareCouriers(input: Readonly<{ agencyEnabled: boolean; courie
     retained.add(courier.id);
   }
   if (retained.size !== existing.size) return err({ code: "INVALID_DELIVERY_SETTINGS", message: "Existing couriers must be retained" });
-  if (parsed.data.agencyEnabled && !parsed.data.couriers.some(courier => courier.enabled))
-    return err({ code: "INVALID_DELIVERY_SETTINGS", message: "Agency delivery requires an enabled courier" });
   const catalogById = new Map(catalog.map(entry => [entry.id, entry]));
   const couriers: Courier[] = [];
   for (const courier of parsed.data.couriers) {
@@ -97,4 +95,13 @@ export function prepareCouriers(input: Readonly<{ agencyEnabled: boolean; courie
   if (new Set(couriers.map(courier => courier.id)).size !== couriers.length || couriers.some(courier => !z.uuid().safeParse(courier.id).success))
     return err({ code: "INVALID_DELIVERY_SETTINGS", message: "Generated courier identities must be unique UUIDs" });
   return ok(couriers);
+}
+
+/** Enables the company couriers of the given catalog couriers, adding the ones it lacks; unknown catalog IDs are left out for the caller to reject. */
+export function enableCouriers(current: readonly Courier[], catalogIds: readonly CourierCatalogId[], catalog: readonly CourierCatalogEntry[],
+  generateId: () => CourierId): readonly Courier[] {
+  const wanted = new Set(catalogIds);
+  const added = catalog.filter(entry => wanted.has(entry.id) && !current.some(courier => courier.catalogId === entry.id))
+    .map(entry => ({ id: generateId(), catalogId: entry.id, name: entry.name, enabled: true, catalogEnabled: true }));
+  return [...current.map(courier => wanted.has(courier.catalogId) ? { ...courier, enabled: true } : courier), ...added];
 }

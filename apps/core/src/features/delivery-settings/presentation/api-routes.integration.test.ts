@@ -162,10 +162,10 @@ test("courier HTTP generates IDs, rejects omission and foreign IDs, and retains 
     expect((await request("/api/delivery-settings", seller.cookie, { ...edit, agency: { enabled: false }, couriers }, "PUT")).status).toBe(422);
   }
   expect((await request("/api/delivery-settings", other.cookie, { ...edit, expectedVersion: 0 }, "PUT")).status).toBe(422);
-  expect((await request("/api/delivery-settings", seller.cookie, edit, "PUT")).status).toBe(422);
-  const disabled = await request("/api/delivery-settings", seller.cookie, { ...edit, agency: { enabled: false } }, "PUT");
+  // Agency delivery stays on without enabled couriers; its options simply produce no rates.
+  const disabled = await request("/api/delivery-settings", seller.cookie, edit, "PUT");
   expect(disabled.status).toBe(200);
-  expect(await disabled.json()).toMatchObject({ version: 2, agency: { enabled: false }, couriers: [{ id: courier.id, courierId: shalomId, name: "Shalom", enabled: false }] });
+  expect(await disabled.json()).toMatchObject({ version: 2, agency: { enabled: true }, couriers: [{ id: courier.id, courierId: shalomId, name: "Shalom", enabled: false }] });
   expect(await withTenantIsolation(seller.companyId ?? "", async () => await prisma.companyCourier.count())).toBe(1);
 });
 
@@ -416,7 +416,7 @@ test("two courier saves with the same version produce one 409 DELIVERY_SETTINGS_
   expect(await withTenantIsolation(seller.companyId ?? "", async () => await prisma.companyCourier.count())).toBe(1);
 });
 
-test("agency catalog lists enabled agencies of a courier the company has, shared across companies and hidden from others", async () => {
+test("agency catalog lists enabled agencies of an enabled catalog courier, shared across companies whether or not they ship with it", async () => {
   const [seller, second, outsider, noCompany] = await Promise.all([fixture(), fixture(), fixture(), fixture(false)]);
   const courier = await temporaryCourier(true, "Agency courier");
   const other = await temporaryCourier(true, "Other courier");
@@ -433,9 +433,10 @@ test("agency catalog lists enabled agencies of a courier the company has, shared
   expect((await request("/api/delivery-settings/agency-catalog", seller.cookie)).status).toBe(400);
   expect((await request(path("not-a-uuid"), seller.cookie)).status).toBe(400);
   expect((await request(`${path(courier.id)}&companyId=${outsider.companyId}`, seller.cookie)).status).toBe(400);
-  const foreign = await request(path(courier.id), outsider.cookie);
-  expect(foreign.status).toBe(404);
-  expect(await foreign.json()).toMatchObject({ code: "NOT_FOUND" });
+  const disabledCourier = await temporaryCourier(false, "Disabled courier");
+  const hidden = await request(path(disabledCourier.id), seller.cookie);
+  expect(hidden.status).toBe(404);
+  expect(await hidden.json()).toMatchObject({ code: "NOT_FOUND" });
   expect((await request(path(randomUUID()), seller.cookie)).status).toBe(404);
   const [first, again] = await Promise.all([request(path(courier.id), seller.cookie), request(path(courier.id), second.cookie)]);
   expect(first.status).toBe(200);
@@ -445,6 +446,7 @@ test("agency catalog lists enabled agencies of a courier the company has, shared
   expect(listed.agencies[1]).toEqual({ id: lima, courierId: courier.id, name: "Alpha", address: "Av. Test 123", enabled: true,
     location: { country: "PE", districtCode: "150101", district: "LIMA", province: "LIMA METROPOLITANA", department: "LIMA" } });
   expect(agencyCatalogSchema.parse(await again.json())).toEqual(listed);
+  expect(agencyCatalogSchema.parse(await (await request(path(courier.id), outsider.cookie)).json())).toEqual(listed);
 });
 
 test("an agency with a district missing from the Peru catalog answers 500 INTERNAL_ERROR with a log and no partial list", async () => {

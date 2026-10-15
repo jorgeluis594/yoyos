@@ -77,64 +77,30 @@ test("seller configures store pickup, preserves a conflicting draft and explicit
     await browserExpect(page.getByLabel("Oferecer entrega em domicílio")).toBeChecked();
     await browserExpect(page.getByText("Guardamos seu ponto para quando você reativar: Otra tienda · Dirección concurrente")).toBeVisible();
 
+    // Agency delivery no longer depends on enabling couriers first: they are chosen per agency option in each zone.
     await page.getByLabel("Oferecer envio para agência").check();
-    await page.getByRole("button", { name: "Salvar configuração" }).click();
-    await browserExpect(page.getByLabel("Oferecer envio para agência")).toBeFocused();
-    await browserExpect(page.getByLabel("Oferecer envio para agência")).toHaveAttribute("aria-invalid", "true");
-    const catalog = page.getByLabel("Transportadora disponível");
-    const choose = async (name: string) => { await catalog.click(); await page.getByRole("option", { name, exact: true }).click(); };
-    await choose("Shalom");
-    await page.getByRole("button", { name: "Adicionar transportadora" }).click();
-    await catalog.click();
-    await browserExpect(page.getByRole("listbox")).toBeVisible();
-    await browserExpect(page.getByRole("option", { name: "Shalom", exact: true })).toHaveCount(0);
-    await page.keyboard.press("Escape");
-    await page.getByRole("button", { name: "Remover Shalom não salva" }).click();
-    await catalog.click();
-    await browserExpect(page.getByRole("option", { name: "Shalom", exact: true })).toHaveCount(1);
-    await page.keyboard.press("Escape");
-    await choose("Shalom");
-    await page.getByRole("button", { name: "Adicionar transportadora" }).click();
-    await choose("Olva Courier");
-    await page.getByRole("button", { name: "Adicionar transportadora" }).click();
-    await page.getByLabel("Habilitar Olva Courier").uncheck();
+    await browserExpect(page.getByText("Em cada zona, adicione uma opção de agência", { exact: false })).toBeVisible();
+    await browserExpect(page.getByLabel("Transportadora disponível")).toHaveCount(0);
     const agencySaved = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname.includes("/settings/delivery"));
     await page.getByRole("button", { name: "Salvar configuração" }).click();
     await agencySaved;
     const agencySettings = deliverySettingsSchema.parse(await (await page.request.get("/api/delivery-settings")).json());
-    expect(agencySettings).toMatchObject({ version: 5, agency: { enabled: true }, couriers: expect.arrayContaining([expect.objectContaining({ name: "Shalom", enabled: true }), expect.objectContaining({ name: "Olva Courier", enabled: false })]) });
-    expect(agencySettings.couriers).toHaveLength(2);
-    await browserExpect(page.getByText("Remover cadastro não salvo")).toHaveCount(0);
+    expect(agencySettings).toMatchObject({ version: 5, agency: { enabled: true }, couriers: [] });
     await page.getByLabel("Oferecer entrega em domicílio").uncheck();
     const preserved = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname.includes("/settings/delivery"));
     await page.getByRole("button", { name: "Salvar configuração" }).click();
     await preserved;
-    expect(await (await page.request.get("/api/delivery-settings")).json()).toEqual({ ...agencySettings, version: 6, home: { enabled: false }, couriers: expect.arrayContaining(agencySettings.couriers) });
-    await page.getByLabel("Habilitar Shalom").uncheck();
-    await page.getByRole("button", { name: "Salvar configuração" }).click();
-    await browserExpect(page.getByRole("alert")).toContainText("habilite pelo menos uma transportadora");
-    expect(await (await page.request.get("/api/delivery-settings")).json()).toMatchObject({ version: 6, agency: { enabled: true } });
-    await browserExpect(page.getByLabel("Habilitar Shalom")).not.toBeChecked();
-    await page.getByLabel("Oferecer envio para agência").uncheck();
-    const disabled = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname.includes("/settings/delivery"));
-    await page.getByRole("button", { name: "Salvar configuração" }).click();
-    await disabled;
-    expect(await (await page.request.get("/api/delivery-settings")).json()).toMatchObject({ version: 7, agency: { enabled: false }, couriers: expect.arrayContaining(agencySettings.couriers.map(courier => ({ ...courier, enabled: false }))) });
-    await page.getByLabel("Oferecer envio para agência").check();
-    await page.getByLabel("Habilitar Shalom").check();
-    const enabledAgain = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname.includes("/settings/delivery"));
-    await page.getByRole("button", { name: "Salvar configuração" }).click();
-    await enabledAgain;
+    expect(await (await page.request.get("/api/delivery-settings")).json()).toEqual({ ...agencySettings, version: 6, home: { enabled: false } });
     const current = deliverySettingsSchema.parse(await (await page.request.get("/api/delivery-settings")).json());
-    await page.getByLabel("Habilitar Olva Courier").check();
+    await page.getByLabel("Oferecer envio para agência").uncheck();
     expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: current.version, home: { enabled: !current.home.enabled }, store: current.store, agency: current.agency,
-      couriers: current.couriers.map(courier => ({ kind: "existing", id: courier.id, enabled: courier.enabled })) } })).ok()).toBe(true);
+      couriers: [] } })).ok()).toBe(true);
     await page.getByRole("button", { name: "Salvar configuração" }).click();
     await browserExpect(page.getByRole("alert")).toContainText("Outra pessoa alterou");
-    await browserExpect(page.getByLabel("Habilitar Olva Courier")).toBeChecked();
+    await browserExpect(page.getByLabel("Oferecer envio para agência")).not.toBeChecked();
     await browserExpect(page.getByRole("button", { name: "Salvar configuração" })).toBeDisabled();
     await page.getByRole("link", { name: "Recarregar configuração" }).click();
-    await browserExpect(page.getByLabel("Habilitar Olva Courier")).not.toBeChecked();
+    await browserExpect(page.getByLabel("Oferecer envio para agência")).toBeChecked();
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.screenshot({ path: "../../.impeccable/review/delivery-methods-agency-desktop.png", fullPage: true, animations: "disabled" });
@@ -182,8 +148,8 @@ test("seller manages overlapping zones with delivery options and preserves an ed
         await page.getByRole("checkbox", { name: "MIRAFLORES · 040110", exact: true }).check();
         await browserExpect(page.getByText("2 distritos seleccionados", { exact: true })).toBeVisible();
       }
-      await page.getByRole("button", { name: "Agregar opción", exact: true }).click();
-      await page.getByLabel("Nombre de la opción", { exact: true }).fill(option);
+      await page.getByRole("button", { name: "Agregar opción a domicilio", exact: true }).click();
+      await page.getByLabel("Nombre que ve el cliente", { exact: true }).fill(option);
       await page.getByLabel("Tarifa de la opción (S/)", { exact: true }).fill(price);
       if (name === "Cercana") {
         await page.setViewportSize({ width: 1280, height: 900 });
@@ -242,35 +208,37 @@ test("seller manages overlapping zones with delivery options and preserves an ed
     await browserExpect(page.getByRole("button", { name: "Editar Extendida", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Reactivar Cercana", exact: true }).click();
     await browserExpect(page.getByRole("button", { name: "Desactivar Cercana", exact: true })).toBeVisible();
-    // An agency option can be configured, but without associated agencies it never produces a rate.
-    await page.getByRole("button", { name: "Editar Extendida", exact: true }).click();
-    await page.getByRole("button", { name: "Agregar opción", exact: true }).click();
-    await page.getByLabel("Modalidad", { exact: true }).last().click();
-    await page.getByRole("option", { name: "Agencia", exact: true }).click();
-    await page.getByLabel("Nombre de la opción", { exact: true }).last().fill("Agencia");
-    await page.getByLabel("Tarifa de la opción (S/)", { exact: true }).last().fill("0");
-    await page.getByRole("button", { name: "Guardar zona", exact: true }).click();
-    await browserExpect(page.getByText("Agencia · Agencia").first()).toBeVisible();
-    const quoted = await page.request.post("/api/quotations", { data: { destination: { country: "PE", districtCode: "150122" } } });
-    expect(quoted.status()).toBe(201);
-    expect((await quoted.json()).rates).toMatchObject([{ method: "home", name: "Moto", zoneName: "Cercana" }, { method: "home", name: "Camión", zoneName: "Extendida" }]);
-    await browserExpect(page.getByText("Sin agencias elegibles: no se ofrece al cotizar.", { exact: true })).toBeVisible();
-    // The seller associates a catalog agency of an enabled courier through the zone editor and the option starts being quoted.
+    // Agency delivery is offered without enabling couriers first: the courier and its agencies are chosen inside the zone option.
     const courier = await seededCourier("shalom");
     agencyId = await insertAgency({ courierId: courier.id, name: "Sucursal E2E", districtCode: "150122" });
-    const latest = deliverySettingsSchema.parse(await (await page.request.get("/api/delivery-settings")).json());
-    expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: latest.version, home: latest.home, store: latest.store, agency: { enabled: true },
-      couriers: [{ kind: "new", courierId: courier.id, enabled: true }] } })).ok()).toBe(true);
-    await page.reload();
+    await page.getByLabel("Ofrecer envío a agencia").check();
+    await page.getByRole("button", { name: "Guardar configuración", exact: true }).click();
+    await browserExpect(page.getByText("Configuración guardada.", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Editar Extendida", exact: true }).click();
+    await page.getByRole("button", { name: "Agregar opción de agencia", exact: true }).click();
+    await browserExpect(page.getByLabel("Nombre que ve el cliente", { exact: true }).last()).toHaveValue("Olva Courier");
+    await page.getByLabel("Courier", { exact: true }).click();
+    await page.getByRole("option", { name: "Shalom", exact: true }).click();
+    await browserExpect(page.getByLabel("Nombre que ve el cliente", { exact: true }).last()).toHaveValue("Shalom");
+    await page.getByLabel("Tarifa de la opción (S/)", { exact: true }).last().fill("0");
+    await page.getByRole("button", { name: "Guardar zona", exact: true }).click();
+    await browserExpect(page.getByText("Elige al menos una agencia de destino.", { exact: true })).toBeVisible();
     await page.getByLabel("Buscar agencia por nombre, distrito o dirección", { exact: true }).fill("e2e");
     await page.getByRole("checkbox", { name: /Sucursal E2E/ }).check();
+    await browserExpect(page.getByText("1 agencia de destino elegida", { exact: true })).toBeVisible();
+    for (const [width, height, device] of [[1280, 900, "desktop"], [390, 844, "mobile"]] as const) {
+      await page.setViewportSize({ width, height });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      await page.screenshot({ path: `../../.impeccable/review/delivery-zones-agency-option-${device}.png`, fullPage: true, animations: "disabled" });
+    }
+    await page.setViewportSize({ width: 1280, height: 900 });
     await page.getByRole("button", { name: "Guardar zona", exact: true }).click();
     await browserExpect(page.getByText("Zona guardada.", { exact: true })).toBeVisible();
     await browserExpect(page.getByText("Sin agencias elegibles: no se ofrece al cotizar.", { exact: true })).toBeHidden();
+    expect(deliverySettingsSchema.parse(await (await page.request.get("/api/delivery-settings")).json()).couriers).toMatchObject([{ courierId: courier.id, name: "Shalom", enabled: true }]);
     const agencyQuote = await page.request.post("/api/quotations", { data: { destination: { country: "PE", districtCode: "150122" } } });
     expect((await agencyQuote.json()).rates).toMatchObject([{ method: "home" }, { method: "home" },
-      { method: "agency", name: "Agencia", agencies: [{ id: agencyId, name: "Sucursal E2E", courier: { name: "Shalom" }, location: { districtCode: "150122" } }] }]);
+      { method: "agency", name: "Shalom", agencies: [{ id: agencyId, name: "Sucursal E2E", courier: { name: "Shalom" }, location: { districtCode: "150122" } }] }]);
   } finally {
     await buyer.close();
     if (companyId) await withTenantIsolation(companyId, async () => {

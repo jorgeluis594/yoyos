@@ -59,13 +59,13 @@ export const deliverySettings = {
     readAgencies: async ids => {
       const read = await readAgencies(ids);
       return read.success ? read : err({ code: read.error.code === "PERSISTENCE_UNAVAILABLE" ? "SERVICE_UNAVAILABLE" : "INTERNAL_ERROR", message: read.error.message });
-    }, generateZoneId: randomUUID, generateOptionId: randomUUID,
+    }, readCourierCatalog, generateZoneId: randomUUID, generateOptionId: randomUUID, generateCourierId: () => randomUUID() as CourierId,
   }),
   get: (context: DeliverySettingsAccess, operation = "get_delivery_settings") => settingsTransaction(context, operation, undefined,
     () => getDeliverySettings(context, (companyId) => readDeliverySettings(companyId, "shared", undefined, operation))),
   getCourierCatalog: (context: DeliverySettingsAccess) => settingsTransaction(context, "get_courier_catalog", undefined, () => getCourierCatalog(readCourierCatalog)),
   getAgencyCatalog: (courierId: CourierCatalogId, context: DeliverySettingsAccess) => settingsTransaction(context, "get_agency_catalog", undefined,
-    () => getAgencyCatalog(courierId, context, { readSettings: companyId => readDeliverySettings(companyId, "shared", undefined, "get_agency_catalog"), readAgencyCatalog })),
+    () => getAgencyCatalog(courierId, { readCourierCatalog, readAgencyCatalog })),
   async save(input: SaveDeliverySettingsInput, context: DeliverySettingsAccess) {
     const started = performance.now();
     const result = await saveDeliverySettings(input, context, {

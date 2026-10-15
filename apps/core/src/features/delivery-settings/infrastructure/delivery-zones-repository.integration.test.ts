@@ -170,8 +170,8 @@ test("agency options keep their catalog associations, replace them on save and r
     await f.run(async () => {
       expect(await deliverySettings.save({ expectedVersion: 0, home: { enabled: false }, agency: { enabled: true },
         couriers: [{ kind: "new", catalogId: courier.id as never, enabled: true }], store: { enabled: false, pickupPoint: null } }, f.context)).toMatchObject({ success: true });
-      // The company has Shalom only: an Olva agency is rejected and nothing is written.
-      expect(await deliverySettings.saveZones({ expectedVersion: 1, zones: [{ kind: "new", ...fields, options: [agencyOption([first, other])] }] }, f.context))
+      // An agency outside the catalog is rejected and nothing is written.
+      expect(await deliverySettings.saveZones({ expectedVersion: 1, zones: [{ kind: "new", ...fields, options: [agencyOption([first, randomUUID()])] }] }, f.context))
         .toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_OPTION", field: "agencyIds", optionIndex: 0 } });
       expect(await prisma.deliveryZone.count()).toBe(0);
       const saved = await deliverySettings.saveZones({ expectedVersion: 1, zones: [{ kind: "new", ...fields, options: [agencyOption([first, second])] }] }, f.context);
@@ -185,6 +185,10 @@ test("agency options keep their catalog associations, replace them on save and r
       expect((await prisma.deliveryOptionAgency.findMany()).map(row => row.agencyId)).toEqual([second]);
       const loaded = await deliverySettings.getZones(f.context);
       expect(loaded).toMatchObject({ success: true, data: { agencies: [{ id: second, enabled: false }], zones: [{ options: [{ agencyIds: [second] }] }] } });
+      // The company ships with Shalom only: choosing an Olva agency enables Olva in the same write.
+      expect(await deliverySettings.saveZones({ expectedVersion: 3, zones: [{ ...existing(zone), options: [{ kind: "existing", id: zone.options[0].id, method: "agency", name: "Agency", enabled: true, price: { amount: 5, currency: "PEN" }, agencyIds: [second, other] }] }] }, f.context))
+        .toMatchObject({ success: true, data: { version: 4 } });
+      expect(await deliverySettings.get(f.context)).toMatchObject({ success: true, data: { couriers: expect.arrayContaining([expect.objectContaining({ name: "Olva Courier", enabled: true })]) } });
     });
   } finally { await f.cleanup(); await deleteAgencies([first, second, other]); }
 });
