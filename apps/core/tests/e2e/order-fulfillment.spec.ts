@@ -14,7 +14,7 @@ test("seller ships or delivers directly, refreshes details and list, and preserv
       if (!product.success) throw new Error("Product setup failed");
       return (await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } })).id;
     });
-    expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 0, agency: { enabled: false }, couriers: [],
+    expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 0, agency: { enabled: false },
       home: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Store", address: "Lima", instructions: null } } } })).ok()).toBe(true);
     for (const mode of ["shipment", "handover", "pickup"] as const) {
       const orderId = crypto.randomUUID();

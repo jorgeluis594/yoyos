@@ -242,7 +242,7 @@ test("new order saves partial payments, paid pending delivery and configured del
       variants: [{ attributes: {}, sku: "AGENDA", salePrice: 10, initialStock: 5 }] }));
     expect(product.success).toBe(true);
     expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 0, home: { enabled: true },
-      store: { enabled: false, pickupPoint: null }, agency: { enabled: false }, couriers: [] } })).ok()).toBe(true);
+      store: { enabled: false, pickupPoint: null }, agency: { enabled: false } } })).ok()).toBe(true);
     expect((await page.request.put("/api/delivery-settings/zones", { data: { expectedVersion: 1,
       zones: [{ kind: "new", name: "Creation zone", enabled: true, districtCodes: ["040110"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount: 3, currency: "PEN" } }] }] } })).ok()).toBe(true);
     for (const scenario of ["partial", "paid", "delivery", "no-stock"] as const) {

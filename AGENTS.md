@@ -35,6 +35,8 @@ Run `pnpm --dir apps/core test:unit` or `pnpm --dir apps/mobile test`. From `app
 
 Use concise imperative commit subjects, following history: “Add manual POS sales in core”. Keep changes focused. PRs should explain behavior changes, link relevant issues, report checks run, and include screenshots for UI changes. Ensure CI passes.
 
+Run the `happy-memory-recall` skill before designing or implementing. Before reporting a task as complete, run the `happy-memory-maintainer` skill when the work changed business rules, domain validation, contracts, or recorded decisions, and state the outcome (created, updated, or no change) in the final report.
+
 ## Security & Database Changes
 
 Keep credentials out of Git. Preserve company isolation and restricted database roles. Follow `.agents/skills/database-migrations/SKILL.md` for schema changes; never delete persistent volumes during upgrades.

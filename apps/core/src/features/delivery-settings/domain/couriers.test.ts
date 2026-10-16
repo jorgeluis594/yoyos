@@ -1,57 +1,24 @@
-import { expect, test, vi } from "vitest";
-import { ok } from "@shared/functional";
-import { prepareCouriers, type Courier, type CourierCatalogEntry, type CourierCatalogId, type CourierCode, type CourierId, type CourierInput } from "@core/src/features/delivery-settings/domain/delivery-settings";
+import { expect, test } from "vitest";
+import { syncCouriers, type Courier, type CourierCatalogEntry, type CourierCatalogId, type CourierCode, type CourierId } from "@core/src/features/delivery-settings/domain/delivery-settings";
 
 const id = "00000000-0000-4000-8000-000000000001" as CourierId;
 const newId = "00000000-0000-4000-8000-000000000002" as CourierId;
 const shalomId = "00000000-0000-4000-8000-000000000101" as CourierCatalogId;
 const olvaId = "00000000-0000-4000-8000-000000000102" as CourierCatalogId;
-const catalog: readonly CourierCatalogEntry[] = [{ id: shalomId, code: "shalom" as CourierCode, name: "Shalom" }, { id: olvaId, code: "olva" as CourierCode, name: "Olva Courier" }];
-const current: readonly Courier[] = [{ id, catalogId: shalomId, name: "Shalom", enabled: false, catalogEnabled: true }];
-const retained: CourierInput = { kind: "existing", id, enabled: false };
-const added: CourierInput = { kind: "new", catalogId: olvaId, enabled: true };
+const catalog: readonly CourierCatalogEntry[] = [{ id: shalomId, code: "shalom" as CourierCode, name: "Shalom", enabled: true }, { id: olvaId, code: "olva" as CourierCode, name: "Olva Courier", enabled: false }];
+const shalom: Courier = { id, catalogId: shalomId, name: "Shalom", enabled: true, catalogEnabled: true };
 
-test("new courier takes the catalog name and a server ID; existing couriers keep identity and only change enablement", () => {
-  const generateId = vi.fn(() => newId);
-  expect(prepareCouriers({ agencyEnabled: true, couriers: [{ ...retained, enabled: true }, added] }, current, catalog, generateId))
-    .toEqual(ok([{ ...current[0], enabled: true }, { id: newId, catalogId: olvaId, name: "Olva Courier", enabled: true, catalogEnabled: true }]));
-  expect(generateId).toHaveBeenCalledOnce();
-  expect(current[0]).toMatchObject({ enabled: false });
+test("a courier referenced only by inactive options is added disabled, so the option can still be saved", () => {
+  expect(syncCouriers([], [olvaId], [], catalog, () => newId))
+    .toEqual([{ id: newId, catalogId: olvaId, name: "Olva Courier", enabled: false, catalogEnabled: false }]);
+  expect(syncCouriers([], [shalomId], [shalomId], catalog, () => newId))
+    .toEqual([{ id: newId, catalogId: shalomId, name: "Shalom", enabled: true, catalogEnabled: true }]);
 });
 
-test("existing courier omission, repeated IDs and unknown or foreign IDs fail before generating new IDs", () => {
-  const generateId = vi.fn(() => newId);
-  for (const couriers of [[], [retained, retained], [{ ...retained, id: newId }]]) {
-    expect(prepareCouriers({ agencyEnabled: false, couriers }, current, catalog, generateId)).toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_SETTINGS" } });
-  }
-  expect(generateId).not.toHaveBeenCalled();
-});
-
-test("a courier outside the enabled catalog or already configured cannot be added", () => {
-  const unknown: CourierInput = { kind: "new", catalogId: "00000000-0000-4000-8000-000000000199" as CourierCatalogId, enabled: true };
-  const duplicated: CourierInput = { kind: "new", catalogId: shalomId, enabled: true };
-  for (const couriers of [[retained, unknown], [retained, duplicated], [retained, added, added]]) {
-    expect(prepareCouriers({ agencyEnabled: false, couriers }, current, catalog, () => newId).success).toBe(false);
-  }
-  // A courier disabled in the catalog is absent from the enabled catalog read.
-  expect(prepareCouriers({ agencyEnabled: false, couriers: [retained, added] }, current, [catalog[0]], () => newId).success).toBe(false);
-  // Existing couriers whose catalog entry was later disabled are retained and can only be disabled.
-  const delisted: readonly Courier[] = [{ ...current[0], catalogEnabled: false }];
-  expect(prepareCouriers({ agencyEnabled: false, couriers: [retained] }, delisted, [], () => newId)).toEqual(ok(delisted));
-});
-
-test("last courier deactivation requires disabling agency in the same configuration", () => {
-  expect(prepareCouriers({ agencyEnabled: true, couriers: [retained] }, current, catalog, () => newId).success).toBe(false);
-  expect(prepareCouriers({ agencyEnabled: false, couriers: [retained] }, current, catalog, () => newId)).toEqual(ok(current));
-  expect(prepareCouriers({ agencyEnabled: true, couriers: [] }, [], catalog, () => newId).success).toBe(false);
-  expect(prepareCouriers({ agencyEnabled: false, couriers: [] }, [], catalog, () => newId)).toEqual(ok([]));
-});
-
-test("unknown fields, names supplied by the client, supplied new IDs and invalid IDs are rejected", () => {
-  expect(prepareCouriers({ agencyEnabled: true, couriers: [added] }, [], catalog, () => newId).success).toBe(true);
-  for (const value of [{ ...added, name: "Forged" }, { ...added, id: newId }, { ...added, enabled: "true" }, { ...added, catalogId: "invalid" },
-    { ...added, kind: "unknown" }, { ...retained, id: "invalid" }, { ...retained, name: "Forged" }]) {
-    expect(prepareCouriers({ agencyEnabled: false, couriers: [value as CourierInput] }, [], catalog, () => newId).success).toBe(false);
-  }
-  expect(prepareCouriers({ agencyEnabled: false, couriers: [retained, { ...added, enabled: "x" } as unknown as CourierInput] }, current, catalog, () => id).success).toBe(false);
+test("enablement follows the shipping options only, and a catalog-disabled courier keeps its company flag", () => {
+  // The catalog read is unfiltered: a temporarily disabled catalog entry is gated at quote time through catalogEnabled.
+  const delisted: Courier = { ...shalom, catalogEnabled: false };
+  expect(syncCouriers([delisted], [shalomId], [shalomId], catalog, () => newId)).toEqual([delisted]);
+  expect(syncCouriers([shalom], [shalomId], [], catalog, () => newId)).toEqual([{ ...shalom, enabled: false }]);
+  expect(syncCouriers([shalom], [], [], catalog, () => newId)).toEqual([{ ...shalom, enabled: false }]);
 });

@@ -7,7 +7,7 @@ import { deliverySettings } from "@core/src/features/delivery-settings/compositi
 import { parseAgencyCatalogResponse } from "@core/src/features/delivery-settings/presentation/agency-catalog-response";
 import type { AgencyCatalogError } from "@core/src/features/delivery-settings/application/agency-catalog";
 import type { CourierCatalogId } from "@core/src/features/delivery-settings/domain/delivery-settings";
-import { toCourierInputs, toDeliverySettingsResponse } from "@core/src/features/delivery-settings/presentation/settings-response";
+import { toDeliverySettingsResponse } from "@core/src/features/delivery-settings/presentation/settings-response";
 import type { DeliverySettingsError } from "@core/src/features/delivery-settings/domain/delivery-settings";
 import type { DeliveryZonesError, DeliveryZonesState } from "@core/src/features/delivery-settings/application/delivery-zones";
 
@@ -121,9 +121,7 @@ deliverySettingsRoutes.put("/", async (request, response: Response<unknown, Priv
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid delivery settings input");
   const context = { companyId: response.locals.auth.company.id, userId: response.locals.auth.user.id };
   try {
-    const couriers = toCourierInputs(parsed.data.couriers);
-    if (!couriers.success) return deliverySettingsHttpError(response, couriers.error);
-    const result = await deliverySettings.save({ ...parsed.data, couriers: couriers.data }, context);
+    const result = await deliverySettings.save(parsed.data, context);
     return result.success ? response.json(toDeliverySettingsResponse(result.data)) : deliverySettingsHttpError(response, result.error);
   } catch (cause) {
     log.error({ event: "delivery_settings_request_failed", operation: "save_delivery_settings", entryPoint: "api", userId: context.userId,

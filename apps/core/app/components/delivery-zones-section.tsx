@@ -1,19 +1,19 @@
 import { useId, useState } from "react";
-import { useForm, useFieldArray, useWatch, Controller } from "react-hook-form";
+import { useForm, useFieldArray, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useTranslation } from "react-i18next";
+import { Package, Truck } from "lucide-react";
 import { Button } from "@core/app/components/ui/button";
 import { Input } from "@core/app/components/ui/input";
 import { Field, FieldLabel, FieldError, FieldDescription, FieldLegend, FieldSet } from "@core/app/components/ui/field";
 import { Card, CardContent, CardHeader, CardTitle } from "@core/app/components/ui/card";
 import { Checkbox } from "@core/app/components/ui/checkbox";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@core/app/components/ui/select";
 import { PeruDistrictMultiSelect } from "@core/app/components/peru-district-multi-select";
 import { getPeruDistrict, type PeruDistrictCode } from "@shared/peru-geography";
 import { parseDeliveryPrice } from "@core/src/features/delivery-settings/domain/delivery-price";
-import type { DeliverySettingsResponse, DeliveryZonesResponse, SaveDeliveryZonesRequest } from "@shared/contracts/delivery-settings";
+import type { CourierCatalogResponse, DeliverySettingsResponse, DeliveryZonesResponse, SaveDeliveryZonesRequest } from "@shared/contracts/delivery-settings";
 import { formatCurrency } from "@core/app/format-currency";
 import { AgencyPicker } from "@core/app/components/agency-picker";
 
@@ -24,7 +24,8 @@ const optionDraftSchema = z.object({
   amount: z.string().regex(/^\d+(?:[.,]\d{1,2})?$/).refine(value => parseDeliveryPrice({ amount: Number(value.replace(",", ".")), currency: "PEN" }, "PEN").success),
   enabled: z.boolean(),
   agencyIds: z.array(z.string()),
-});
+// Saved agency options without agencies stay saveable, as the server accepts them; only new ones must pick an agency.
+}).refine(option => option.method === "home" || option.id !== undefined || option.agencyIds.length > 0, { path: ["agencyIds"] });
 export const zoneDraftSchema = z.object({
   name: z.string().trim().min(1).max(120),
   districtCodes: z.array(z.string().refine(code => getPeruDistrict(code) !== null)).min(1).refine(codes => new Set(codes).size === codes.length),
@@ -34,7 +35,6 @@ export const zoneDraftSchema = z.object({
 type Draft = z.infer<typeof zoneDraftSchema>;
 type Zone = DeliveryZonesResponse["zones"][number];
 const empty: Draft = { name: "", districtCodes: [], enabled: true, options: [] };
-const emptyOption: Draft["options"][number] = { method: "home", name: "", amount: "", enabled: true, agencyIds: [] };
 
 const toDraft = (zone: Zone): Draft => ({ name: zone.name, districtCodes: zone.districtCodes, enabled: zone.enabled,
   options: zone.options.map(option => ({ id: option.id, method: option.method, name: option.name, amount: String(option.price.amount),
@@ -48,14 +48,25 @@ const toZoneInput = (zone: Draft, id?: string): SaveDeliveryZonesRequest["zones"
   ...(id ? { kind: "existing" as const, id } : { kind: "new" as const }),
   name: zone.name, enabled: zone.enabled, districtCodes: zone.districtCodes, options: zone.options.map(toOptionInput) });
 
+/** The first free name in the zone: the courier name, then "Olva 2", "Olva 3"… */
+export const uniqueOptionName = (base: string, taken: readonly string[]) => {
+  const used = new Set(taken.map(name => name.trim().toLowerCase()));
+  let name = base;
+  for (let n = 2; used.has(name.toLowerCase()); n++) name = `${base} ${n}`;
+  return name;
+};
+/** The option name after a courier change: it follows the courier while empty or still the name generated for the previous courier. */
+export const courierOptionName = (name: string, previous: string | undefined, next: string, taken: readonly string[]) =>
+  !name.trim() || (previous !== undefined && name.trim() === uniqueOptionName(previous, taken)) ? uniqueOptionName(next, taken) : name;
+
 type Courier = DeliverySettingsResponse["couriers"][number];
 type Option = Zone["options"][number];
 /** An agency option is only offered when an associated agency is enabled and so is its courier (the catalog rows are checked server-side). */
 export const hasEligibleAgency = (option: Option, state: DeliveryZonesResponse, couriers: readonly Courier[]) => option.method === "agency" &&
   option.agencyIds.some(id => { const agency = state.agencies.find(value => value.id === id); return agency?.enabled && couriers.some(courier => courier.courierId === agency.courierId && courier.enabled); });
 
-export function DeliveryZonesSection({ state, couriers, pending, error, saved, onSave }: Readonly<{
-  state: DeliveryZonesResponse; couriers: readonly Courier[]; pending: boolean; error?: string; saved?: DeliveryZonesResponse;
+export function DeliveryZonesSection({ state, couriers, catalog, pending, error, saved, onSave }: Readonly<{
+  state: DeliveryZonesResponse; couriers: readonly Courier[]; catalog: CourierCatalogResponse["couriers"]; pending: boolean; error?: string; saved?: DeliveryZonesResponse;
   onSave: (request: SaveDeliveryZonesRequest) => void;
 }>) {
   const { t } = useTranslation();
@@ -65,7 +76,10 @@ export function DeliveryZonesSection({ state, couriers, pending, error, saved, o
   const setEditing = (id: string | null | undefined) => setEditor(id === undefined ? undefined : { id, saved });
   const form = useForm<Draft>({ resolver: zodResolver(zoneDraftSchema), defaultValues: empty });
   const { fields, append, remove } = useFieldArray({ control: form.control, name: "options", keyName: "fieldKey" });
-  const methods = useWatch({ control: form.control, name: "options" });
+  const catalogCouriers = catalog.map(courier => ({ courierId: courier.id, name: courier.name }));
+  // An agency option starts named after the first courier, unique in the zone; choosing another courier renames it while the name is untouched.
+  const newOption = (method: Draft["options"][number]["method"]): Draft["options"][number] => ({ method,
+    name: method === "agency" && catalog[0] ? uniqueOptionName(catalog[0].name, form.getValues("options").map(option => option.name)) : "", amount: "", enabled: true, agencyIds: [] });
   const zones = state.zones;
   const blocked = error === "DELIVERY_SETTINGS_CONFLICT" || error === "INTERNAL_ERROR" || error === "SERVICE_UNAVAILABLE" || error === "PERSISTENCE_UNAVAILABLE";
   const { reset } = form;
@@ -118,33 +132,49 @@ export function DeliveryZonesSection({ state, couriers, pending, error, saved, o
         <div className="flex flex-col gap-4">
           <h4 className="font-semibold">{t("deliveryZones.options")}</h4>
           {fields.length === 0 && <FieldDescription>{t("deliveryZones.noOptions")}</FieldDescription>}
-          {fields.map((option, index) => <div key={option.fieldKey} className="flex min-w-0 flex-col gap-3 border-l-2 border-border pl-3">
-            <Controller name={`options.${index}.method`} control={form.control} render={({ field }) => <Field>
-              <FieldLabel htmlFor={`${id}-method-${index}`}>{t("deliveryZones.optionMethod")}</FieldLabel>
-              {/* A saved option keeps its method: changing it would be rejected by the server. */}
-              <Select value={field.value} disabled={Boolean(option.id)} onValueChange={field.onChange} items={(["home", "agency"] as const).map(method => ({ value: method, label: t(`deliveryZones.method.${method}`) }))}>
-                <SelectTrigger id={`${id}-method-${index}`} onBlur={field.onBlur}><SelectValue /></SelectTrigger>
-                <SelectContent>{(["home", "agency"] as const).map(method => <SelectItem key={method} value={method}>{t(`deliveryZones.method.${method}`)}</SelectItem>)}</SelectContent>
-              </Select>
-            </Field>} />
-            <Controller name={`options.${index}.name`} control={form.control} render={({ field, fieldState }) => <Field>
-              <FieldLabel htmlFor={`${id}-option-name-${index}`}>{t("deliveryZones.optionName")}</FieldLabel><Input {...field} name={undefined} id={`${id}-option-name-${index}`} maxLength={120} aria-invalid={fieldState.invalid} />
-              {fieldState.error && <FieldError>{t("deliveryZones.invalidOptionName")}</FieldError>}
-            </Field>} />
-            <Controller name={`options.${index}.amount`} control={form.control} render={({ field, fieldState }) => <Field>
-              <FieldLabel htmlFor={`${id}-amount-${index}`}>{t("deliveryZones.price")}</FieldLabel><Input {...field} name={undefined} id={`${id}-amount-${index}`} inputMode="decimal" aria-invalid={fieldState.invalid} />
-              <FieldDescription>{t("deliveryZones.priceHint")}</FieldDescription>
-              {fieldState.error && <FieldError>{t("deliveryZones.invalidPrice")}</FieldError>}
-            </Field>} />
-            {methods?.[index]?.method === "agency" && <Controller name={`options.${index}.agencyIds`} control={form.control} render={({ field }) =>
-              <AgencyPicker id={`${id}-agencies-${index}`} couriers={couriers} known={state.agencies} value={field.value} onChange={field.onChange} />} />}
-            <Controller name={`options.${index}.enabled`} control={form.control} render={({ field }) => <Field orientation="horizontal">
-              <Checkbox id={`${id}-option-active-${index}`} checked={field.value} onCheckedChange={checked => field.onChange(checked === true)} /><FieldLabel htmlFor={`${id}-option-active-${index}`}>{t("deliveryZones.optionActive")}</FieldLabel>
-            </Field>} />
-            {!option.id && <Button type="button" variant="ghost" className="self-start max-md:min-h-touch" onClick={() => remove(index)}>{t("deliveryZones.removeOption")}</Button>}
-          </div>)}
+          {fields.map((option, index) => {
+            // A saved option keeps its method: changing it would be rejected by the server.
+            const method = option.method;
+            const Icon = method === "home" ? Truck : Package;
+            return <section key={option.fieldKey} aria-labelledby={`${id}-option-${index}-title`} className="flex min-w-0 flex-col gap-4 rounded-[var(--radius-card)] border border-border p-4">
+              <div className="flex items-center gap-2">
+                <Icon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+                <h5 id={`${id}-option-${index}-title`} className="flex-1 text-sm font-semibold">{t(`deliveryZones.optionTitle.${method}`)}</h5>
+                {!option.id && <Button type="button" variant="ghost" className="max-md:min-h-touch" onClick={() => remove(index)}>{t("deliveryZones.removeOption")}</Button>}
+              </div>
+              {method === "agency" && <Controller name={`options.${index}.agencyIds`} control={form.control} render={({ field, fieldState }) => <div className="flex min-w-0 flex-col gap-2">
+                <AgencyPicker id={`${id}-agencies-${index}`} couriers={catalogCouriers} knownCouriers={couriers} known={state.agencies} value={field.value} onChange={field.onChange}
+                  errorId={fieldState.error ? `${id}-agencies-${index}-error` : undefined}
+                  onCourierChange={(courier, previous) => {
+                    const options = form.getValues("options");
+                    const current = options[index]?.name ?? "";
+                    const name = courierOptionName(current, previous?.name, courier.name, options.filter((_, other) => other !== index).map(option => option.name));
+                    if (name !== current) form.setValue(`options.${index}.name`, name, { shouldDirty: true });
+                  }} />
+                {fieldState.error && <FieldError id={`${id}-agencies-${index}-error`}>{t("deliveryZones.agenciesRequired")}</FieldError>}
+              </div>} />}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Controller name={`options.${index}.name`} control={form.control} render={({ field, fieldState }) => <Field>
+                  <FieldLabel htmlFor={`${id}-option-name-${index}`}>{t("deliveryZones.optionName")}</FieldLabel><Input {...field} name={undefined} id={`${id}-option-name-${index}`} maxLength={120} aria-invalid={fieldState.invalid} />
+                  {fieldState.error && <FieldError>{t("deliveryZones.invalidOptionName")}</FieldError>}
+                </Field>} />
+                <Controller name={`options.${index}.amount`} control={form.control} render={({ field, fieldState }) => <Field>
+                  <FieldLabel htmlFor={`${id}-amount-${index}`}>{t("deliveryZones.price")}</FieldLabel><Input {...field} name={undefined} id={`${id}-amount-${index}`} inputMode="decimal" aria-invalid={fieldState.invalid} aria-describedby={`${id}-amount-${index}-hint`} />
+                  {fieldState.error && <FieldError>{t("deliveryZones.invalidPrice")}</FieldError>}
+                </Field>} />
+              </div>
+              <FieldDescription id={`${id}-amount-${index}-hint`} className="-mt-2">{t("deliveryZones.priceHint")}</FieldDescription>
+              <Controller name={`options.${index}.enabled`} control={form.control} render={({ field }) => <Field orientation="horizontal">
+                <Checkbox id={`${id}-option-active-${index}`} checked={field.value} onCheckedChange={checked => field.onChange(checked === true)} /><FieldLabel htmlFor={`${id}-option-active-${index}`}>{t("deliveryZones.optionActive")}</FieldLabel>
+              </Field>} />
+            </section>;
+          })}
           {form.formState.errors.options?.root && <FieldError>{t("deliveryZones.duplicateOption")}</FieldError>}
-          <Button type="button" variant="outline" className="self-start max-md:min-h-touch" onClick={() => append(emptyOption)}>{t("deliveryZones.addOption")}</Button>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" className="max-md:min-h-touch" onClick={() => append(newOption("home"))}><Truck aria-hidden="true" />{t("deliveryZones.addHomeOption")}</Button>
+            {catalog.length > 0 && <Button type="button" variant="outline" className="max-md:min-h-touch" onClick={() => append(newOption("agency"))}><Package aria-hidden="true" />{t("deliveryZones.addAgencyOption")}</Button>}
+          </div>
+          {catalog.length === 0 && <FieldDescription>{t("deliveryZones.noCatalog")}</FieldDescription>}
         </div>
         <div className="flex flex-wrap gap-3"><Button type="button" disabled={pending || blocked} onClick={form.handleSubmit(draft => write(draft))}>{t(pending ? "deliverySettings.saving" : "deliveryZones.save")}</Button>
           <Button type="button" variant="ghost" disabled={pending} onClick={() => { reset(empty); setEditing(undefined); }}>{t("deliveryZones.cancel")}</Button></div>

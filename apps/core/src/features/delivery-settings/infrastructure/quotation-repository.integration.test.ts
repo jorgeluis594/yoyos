@@ -20,8 +20,7 @@ test("quotations persist all overlapping rates, remain immutable, isolate tenant
         options: [{ kind: "new" as const, method: "home" as const, name: "Home", enabled: true, price: { amount, currency: "PEN" as const } }],
       })) }, context);
       expect(zones.success).toBe(true);
-      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [],
-        store: { enabled: false, pickupPoint: null } }, context)).success).toBe(true);
+      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, store: { enabled: false, pickupPoint: null } }, context)).success).toBe(true);
       const request = { companyId, country: "PE", districtCode: "150122", address: null, instructions: null };
       const first = await deliverySettings.createQuotation(request);
       const second = await deliverySettings.createQuotation(request);
@@ -88,8 +87,7 @@ test("quotation generation waits for a complete concurrent price and coverage up
         options: [{ kind: "new" as const, method: "home" as const, name: "Home", enabled: true, price: { amount, currency: "PEN" as const } }],
       })) }, context);
       if (!saved.success) throw new Error("Expected zones");
-      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [],
-        store: { enabled: false, pickupPoint: null } }, context)).success).toBe(true);
+      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, store: { enabled: false, pickupPoint: null } }, context)).success).toBe(true);
       return saved.data.zones;
     });
     const writer = run(() => withinTransaction(async () => {

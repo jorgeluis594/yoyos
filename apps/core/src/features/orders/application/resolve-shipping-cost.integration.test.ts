@@ -20,8 +20,7 @@ test("shipping resolution reads persisted rates under the configuration transact
         options: [{ kind: "new" as const, method: "home" as const, name: "Home", enabled: true, price: { amount, currency: "PEN" as const } }],
       })) }, context);
       if (!saved.success) throw new Error(saved.error.message);
-      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [],
-        store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } }, context)).success).toBe(true);
+      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } }, context)).success).toBe(true);
       const quote = await deliverySettings.createQuotation({ companyId, country: "PE", districtCode: "150122", address: null, instructions: null });
       if (!quote.success) throw new Error(quote.error.message);
       const rate = quote.data.rates.find(value => value.rate.price.amount === 8)?.rate;
@@ -81,7 +80,7 @@ test("agency resolution is serialized with zone saves: a snapshot never mixes an
   try {
     await run(async () => {
       await prisma.company.create({ data: { id: companyId, name: "Agency resolution", country: "PE" } });
-      expect((await deliverySettings.save({ expectedVersion: 0, home: { enabled: false }, agency: { enabled: true }, couriers: [{ kind: "new", catalogId, enabled: true }],
+      expect((await deliverySettings.save({ expectedVersion: 0, home: { enabled: false }, agency: { enabled: true },
         store: { enabled: false, pickupPoint: null } }, context)).success).toBe(true);
       const saved = await deliverySettings.saveZones({ expectedVersion: 1, zones: [{ kind: "new", name: "Zone", enabled: true, districtCodes: ["040110"], options: [
         { kind: "new", method: "agency", name: "Agency", enabled: true, price: { amount: 4, currency: "PEN" }, agencyIds: [kept, dropped] }] }] }, context);

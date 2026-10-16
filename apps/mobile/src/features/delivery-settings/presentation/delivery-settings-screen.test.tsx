@@ -45,11 +45,11 @@ test("initial empty settings can be enabled and saved, then disabled without los
   fireEvent.changeText(screen.getByLabelText("Dirección"), "Original");
   fireEvent.press(screen.getByText("Guardar configuración"));
   await screen.findByText("Configuración guardada.");
-  expect(save).toHaveBeenLastCalledWith({ expectedVersion: 0, agencyEnabled: false, couriers: [], homeEnabled: false, storeEnabled: true, pickupName: "Store", pickupAddress: "Original", pickupInstructions: "" });
+  expect(save).toHaveBeenLastCalledWith({ expectedVersion: 0, agencyEnabled: false, homeEnabled: false, storeEnabled: true, pickupName: "Store", pickupAddress: "Original", pickupInstructions: "" });
   fireEvent(screen.getByLabelText("Ofrecer recojo en tienda"), "valueChange", false);
   fireEvent.press(screen.getByText("Guardar configuración"));
   await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
-  expect(save).toHaveBeenLastCalledWith({ expectedVersion: 1, agencyEnabled: false, couriers: [], homeEnabled: false, storeEnabled: false, pickupName: "Store", pickupAddress: "Original", pickupInstructions: "" });
+  expect(save).toHaveBeenLastCalledWith({ expectedVersion: 1, agencyEnabled: false, homeEnabled: false, storeEnabled: false, pickupName: "Store", pickupAddress: "Original", pickupInstructions: "" });
   expect(screen.getByLabelText("Dirección").props.value).toBe("Original");
 });
 
@@ -102,71 +102,29 @@ test("home can be enabled alone and store changes preserve its enablement", asyn
   fireEvent(screen.getByLabelText("Ofrecer entrega a domicilio"), "valueChange", true);
   fireEvent.press(screen.getByText("Guardar configuración"));
   await screen.findByText("Configuración guardada.");
-  expect(save).toHaveBeenLastCalledWith({ expectedVersion: 0, agencyEnabled: false, couriers: [], homeEnabled: true, storeEnabled: false, pickupName: "", pickupAddress: "", pickupInstructions: "" });
+  expect(save).toHaveBeenLastCalledWith({ expectedVersion: 0, agencyEnabled: false, homeEnabled: true, storeEnabled: false, pickupName: "", pickupAddress: "", pickupInstructions: "" });
   fireEvent(screen.getByLabelText("Ofrecer recojo en tienda"), "valueChange", true);
   fireEvent.changeText(screen.getByLabelText("Nombre del punto de recojo"), "Store");
   fireEvent.changeText(screen.getByLabelText("Dirección"), "Original");
   fireEvent.press(screen.getByText("Guardar configuración"));
   await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
-  expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ expectedVersion: 1, agencyEnabled: false, couriers: [], homeEnabled: true, storeEnabled: true }));
+  expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ expectedVersion: 1, agencyEnabled: false, homeEnabled: true, storeEnabled: true }));
 });
 
 
-test("editing home preserves every loaded courier and agency enablement in the whole-configuration draft", async () => {
-  const couriers = [{ id: "00000000-0000-4000-8000-000000000003", courierId: shalomId, name: "Shalom", enabled: true }, { id: "00000000-0000-4000-8000-000000000004", courierId: olvaId, name: "Olva Courier", enabled: false }];
+test("editing home preserves the loaded agency enablement and never sends couriers", async () => {
+  const couriers = [{ id: "00000000-0000-4000-8000-000000000003", courierId: shalomId, name: "Shalom", enabled: true }];
   get.mockResolvedValue(ok({ version: 4, agency: { enabled: true }, couriers, home: { enabled: false }, store: { enabled: false, pickupPoint: null } }));
   save.mockResolvedValue(err({ code: "NETWORK_ERROR", message: "Offline" }));
   const screen = render(<DeliverySettingsScreen />);
   await screen.findByText("Entrega a domicilio");
+  expect(screen.queryByLabelText("Habilitar Shalom")).toBeNull();
+  expect(screen.queryByLabelText("Agregar Olva Courier")).toBeNull();
   fireEvent(screen.getByLabelText("Ofrecer entrega a domicilio"), "valueChange", true);
   fireEvent.press(screen.getByText("Guardar configuración"));
   await screen.findByText(/No se pudo guardar/);
-  expect(save).toHaveBeenCalledWith(expect.objectContaining({ expectedVersion: 4, homeEnabled: true, agencyEnabled: true, couriers: couriers.map(courier => ({ ...courier, kind: "existing" })) }));
+  expect(save).toHaveBeenCalledWith({ expectedVersion: 4, homeEnabled: true, agencyEnabled: true, storeEnabled: false, pickupName: "", pickupAddress: "", pickupInstructions: "" });
 });
-
-test("couriers are added from the catalog, offered once, removable while unsaved and keep catalog names after saving", async () => {
-  const id = "00000000-0000-4000-8000-000000000003";
-  save.mockResolvedValueOnce(ok({ version: 1, home: { enabled: false }, store: { enabled: false, pickupPoint: null }, agency: { enabled: true }, couriers: [{ id, courierId: olvaId, name: "Olva Courier", enabled: true }] }))
-    .mockResolvedValueOnce(ok({ version: 2, home: { enabled: false }, store: { enabled: false, pickupPoint: null }, agency: { enabled: false }, couriers: [{ id, courierId: olvaId, name: "Olva Courier", enabled: false }] }));
-  const screen = render(<DeliverySettingsScreen />);
-  await screen.findByText("Envío a agencia");
-  fireEvent(screen.getByLabelText("Ofrecer envío a agencia"), "valueChange", true);
-  fireEvent.press(screen.getByLabelText("Agregar Shalom"));
-  expect(screen.queryByLabelText("Agregar Shalom")).toBeNull();
-  fireEvent.press(screen.getByLabelText("Quitar Shalom sin guardar"));
-  expect(screen.getByLabelText("Agregar Shalom")).toBeTruthy();
-  fireEvent.press(screen.getByLabelText("Agregar Olva Courier"));
-  fireEvent.press(screen.getByText("Guardar configuración"));
-  await screen.findByText("Configuración guardada.");
-  expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ agencyEnabled: true, couriers: [{ kind: "new", courierId: olvaId, name: "Olva Courier", enabled: true, localKey: 2 }] }));
-  expect(screen.queryByText("Quitar alta sin guardar")).toBeNull();
-  fireEvent(screen.getByLabelText("Habilitar Olva Courier"), "valueChange", false);
-  fireEvent(screen.getByLabelText("Ofrecer envío a agencia"), "valueChange", false);
-  fireEvent.press(screen.getByText("Guardar configuración"));
-  await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
-  expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ expectedVersion: 1, agencyEnabled: false, couriers: [{ kind: "existing", id, courierId: olvaId, name: "Olva Courier", enabled: false }] }));
-});
-
-test("courier configuration conflict retains new and existing rows and flags until explicit reload", async () => {
-  const id = "00000000-0000-4000-8000-000000000003";
-  get.mockResolvedValueOnce(ok({ version: 1, home: { enabled: false }, store: { enabled: false, pickupPoint: null }, agency: { enabled: true }, couriers: [{ id, courierId: shalomId, name: "Shalom", enabled: true }] }))
-    .mockResolvedValueOnce(ok({ version: 2, home: { enabled: false }, store: { enabled: false, pickupPoint: null }, agency: { enabled: false }, couriers: [{ id, courierId: shalomId, name: "Shalom", enabled: false }] }));
-  save.mockResolvedValue(err({ code: "DELIVERY_SETTINGS_CONFLICT", message: "Changed" }));
-  const screen = render(<DeliverySettingsScreen />);
-  await screen.findByText("Envío a agencia");
-  fireEvent(screen.getByLabelText("Habilitar Shalom"), "valueChange", false);
-  fireEvent.press(screen.getByLabelText("Agregar Olva Courier"));
-  fireEvent.press(screen.getByText("Guardar configuración"));
-  await screen.findByText(/Otra persona cambió/);
-  expect(screen.getByLabelText("Habilitar Shalom").props.value).toBe(false);
-  expect(screen.getByLabelText("Habilitar Olva Courier").props.value).toBe(true);
-  expect(screen.getByLabelText("Ofrecer envío a agencia").props.value).toBe(true);
-  expect(screen.getByRole("button", { name: "Guardar configuración" }).props.accessibilityState.disabled).toBe(true);
-  fireEvent.press(screen.getByText("Recargar configuración"));
-  await waitFor(() => expect(screen.queryByLabelText("Habilitar Olva Courier")).toBeNull());
-  expect(screen.getByLabelText("Habilitar Shalom").props.value).toBe(false);
-});
-
 
 const zoneId = "00000000-0000-4000-8000-000000000010";
 const optionId = "00000000-0000-4000-8000-000000000011";
@@ -246,10 +204,27 @@ test("uncertain zone save preserves the draft and blocks all saves until explici
   });
 });
 
+test("a failed courier refresh after a zone save is reported and offers a reload", async () => {
+  getZones.mockResolvedValue(ok(zonesState));
+  get.mockResolvedValueOnce(ok({ version: 5, home: { enabled: true }, agency: { enabled: false }, couriers: [], store: { enabled: false, pickupPoint: null } }))
+    .mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "Private detail" }));
+  saveZones.mockResolvedValue(ok({ ...zonesState, version: 6 }));
+  const screen = render(<DeliverySettingsScreen />);
+  await screen.findByText("Lima");
+  await waitFor(() => expect(screen.getByRole("button", { name: "Editar Lima" }).props.accessibilityState.disabled).toBe(false));
+  fireEvent.press(screen.getByText("Editar Lima"));
+  fireEvent.press(screen.getByText("Guardar zona"));
+  await screen.findByText("Zona guardada.");
+  expect(await screen.findByRole("alert", { name: "No se pudo cargar la configuración" })).toBeTruthy();
+  fireEvent.press(screen.getByText("Recargar configuración"));
+  await waitFor(() => expect(get).toHaveBeenCalledTimes(3));
+  await waitFor(() => expect(screen.queryByText("No se pudo cargar la configuración")).toBeNull());
+});
+
 const agencyOf = (n: number, name: string, enabled = true) => ({ id: `00000000-0000-4000-8000-0000000002${n}0`, courierId: shalomId, name, address: `Av. ${name} 1`, enabled,
   location: { country: "PE" as const, districtCode: "150122", district: "MIRAFLORES", province: "LIMA METROPOLITANA", department: "LIMA" } });
 
-test("agency options list their catalog agencies, flag options without eligible ones and save the chosen associations", async () => {
+test("agency options list their catalog agencies, flag options without eligible ones, save the chosen associations and refresh couriers", async () => {
   const central = agencyOf(1, "Central");
   const north = agencyOf(2, "Norte");
   const closed = agencyOf(3, "Cerrada", false);
@@ -258,13 +233,14 @@ test("agency options list their catalog agencies, flag options without eligible 
   const state = { ...zonesState, agency: { enabled: true }, agencies: [central, closed], zones: [{ ...homeZone, options: [agencyOption, orphan] }] };
   getZones.mockResolvedValue(ok(state));
   getAgencyCatalog.mockResolvedValue(ok({ agencies: [central, north] }));
-  get.mockResolvedValue(ok({ version: 5, home: { enabled: true }, agency: { enabled: true }, couriers: [{ id: "00000000-0000-4000-8000-0000000000a1", courierId: shalomId, name: "Shalom", enabled: true }],
-    store: { enabled: false, pickupPoint: null } }));
+  const shalom = { id: "00000000-0000-4000-8000-0000000000a1", courierId: shalomId, name: "Shalom", enabled: true };
+  get.mockResolvedValueOnce(ok({ version: 5, home: { enabled: true }, agency: { enabled: true }, couriers: [{ ...shalom, enabled: false }],
+    store: { enabled: false, pickupPoint: null } }))
+    .mockResolvedValueOnce(ok({ version: 6, home: { enabled: true }, agency: { enabled: true }, couriers: [shalom], store: { enabled: false, pickupPoint: null } }));
   saveZones.mockResolvedValue(ok({ ...state, version: 6 }));
   const screen = render(<DeliverySettingsScreen />);
   await screen.findByText("Lima");
-  expect(screen.getByText(/A agencia · Agencia · S\/ 5.00$/)).toBeTruthy();
-  expect(screen.getByText(/Sin agencia · Agencia · S\/ 5.00 · Sin agencias elegibles/)).toBeTruthy();
+  expect(screen.getByText(/A agencia · Agencia · S\/ 5.00 · Sin agencias elegibles/)).toBeTruthy();
   await waitFor(() => expect(screen.getByRole("button", { name: "Editar Lima" }).props.accessibilityState.disabled).toBe(false));
   fireEvent.press(screen.getByText("Editar Lima"));
   await screen.findAllByText(/Norte · MIRAFLORES/);
@@ -277,6 +253,8 @@ test("agency options list their catalog agencies, flag options without eligible 
     expect.objectContaining({ kind: "existing", id: optionId, method: "agency", agencyIds: [central.id, north.id] }),
     expect.objectContaining({ kind: "existing", id: orphan.id, method: "agency", agencyIds: [closed.id] }),
   ] })] });
+  expect(await screen.findByText(/A agencia · Agencia · S\/ 5.00$/)).toBeTruthy();
+  expect(screen.getByText(/Sin agencia · Agencia · S\/ 5.00 · Sin agencias elegibles/)).toBeTruthy();
 });
 
 test("a new agency option is offered only when agency delivery is enabled and needs a name and price before saving", async () => {
@@ -294,8 +272,11 @@ test("a new agency option is offered only when agency delivery is enabled and ne
   await waitFor(() => expect(screen.getByRole("button", { name: "Agregar zona" }).props.accessibilityState.disabled).toBe(false));
   fireEvent.press(screen.getByText("Agregar zona"));
   fireEvent.changeText(screen.getByLabelText("Nombre de la zona *"), "Lima");
+  getAgencyCatalog.mockClear();
   fireEvent.press(screen.getByText("Agregar opción a agencia"));
   expect(screen.getByText("Sin agencias: la opción no se ofrecerá al cotizar.")).toBeTruthy();
+  // No courier is saved yet: the picker offers the catalog, since saving the zone is what enables a courier.
+  await waitFor(() => expect(getAgencyCatalog).toHaveBeenCalledWith(shalomId));
   fireEvent.press(screen.getByText("Guardar zona"));
   await screen.findByText(/Ingresa nombre, distritos/);
   expect(saveZones).not.toHaveBeenCalled();

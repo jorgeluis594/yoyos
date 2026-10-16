@@ -43,7 +43,7 @@ test("buyer reports a receipt and sees the seller confirmed balance", async ({ p
     const unknown = await page.goto(`/pago/${crypto.randomUUID()}`);
     expect(unknown?.status()).toBe(404);
     await browserExpect(page.getByRole("heading", { name: "Pedido no encontrado" })).toBeVisible();
-    expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 0, home: { enabled: true }, agency: { enabled: false }, couriers: [], store: { enabled: true, pickupPoint: { name: "Tienda", address: "Av. Arequipa 123, Lima", instructions: null } } } })).ok()).toBe(true);
+    expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 0, home: { enabled: true }, agency: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Tienda", address: "Av. Arequipa 123, Lima", instructions: null } } } })).ok()).toBe(true);
     await page.goto(`/es-PE/orders/${orderId}`);
     await browserExpect(page.getByRole("link", { name: "Abrir enlace de pago" })).toHaveAttribute("href", `/pago/${orderId}`);
     await browserExpect(page.getByRole("link", { name: "Abrir checkout del pedido" })).toHaveCount(0);

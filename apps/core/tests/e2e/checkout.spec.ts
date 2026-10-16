@@ -314,7 +314,7 @@ test("buyer selects a district rate, preserves the form on price conflict and co
       const saved = await deliverySettings.saveZones({ expectedVersion: 0, zones: [8, 8].map(amount => ({ kind: "new", name: "Zone", enabled: true, districtCodes: ["150122"],
         options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount, currency: "PEN" } }] })) }, access);
       if (!saved.success) throw new Error(saved.error.message);
-      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [],
+      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false },
         store: { enabled: true, pickupPoint: { name: "Shop", address: "Pickup address", instructions: "Door 2" } } }, access)).success).toBe(true);
       return saved.data.zones;
     });
@@ -383,7 +383,7 @@ test("buyer pickup confirms explicit zero without district or quotation", async 
   page.on("request", request => { if (request.url().endsWith("/api/quotations")) quotations++; });
   try {
     await withTenantIsolation(f.companyId, async () => {
-      expect((await deliverySettings.save({ expectedVersion: 0, home: { enabled: false }, agency: { enabled: false }, couriers: [],
+      expect((await deliverySettings.save({ expectedVersion: 0, home: { enabled: false }, agency: { enabled: false },
         store: { enabled: true, pickupPoint: { name: "Shop", address: "Pickup address", instructions: "Door 2" } } }, { companyId: f.companyId, userId: f.userId })).success).toBe(true);
     });
     await page.goto(f.path);
@@ -420,7 +420,7 @@ test("buyer chooses an agency rate and its catalog agency and reaches payment wi
     await withTenantIsolation(f.companyId, async () => {
       const access = { companyId: f.companyId, userId: f.userId };
       expect((await deliverySettings.save({ expectedVersion: 0, home: { enabled: false }, agency: { enabled: true },
-        couriers: [{ kind: "new", catalogId, enabled: true }], store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
+        store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
       expect((await deliverySettings.saveZones({ expectedVersion: 1,
         zones: [{ kind: "new", name: "Agency zone", enabled: true, districtCodes: ["150122"], options: [
           { kind: "new", method: "agency", name: "Retiro en agencia", enabled: true, price: { amount: 8, currency: "PEN" }, agencyIds: agencies }] }] }, access)).success).toBe(true);
@@ -475,7 +475,7 @@ test("buyer waits for a district and recovers a failed quotation without losing 
       const access = { companyId: f.companyId, userId: f.userId };
       expect((await deliverySettings.saveZones({ expectedVersion: 0,
         zones: [{ kind: "new", name: "Home", enabled: true, districtCodes: ["150122"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount: 8, currency: "PEN" } }] }] }, access)).success).toBe(true);
-      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [],
+      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false },
         store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
     });
     await page.route("**/api/quotations", async route => {
@@ -528,7 +528,7 @@ test("buyer distinguishes uncovered shipping from an explicit free home rate", a
       const access = { companyId: f.companyId, userId: f.userId };
       expect((await deliverySettings.saveZones({ expectedVersion: 0,
         zones: [{ kind: "new", name: "Free home", enabled: true, districtCodes: ["150122"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount: 0, currency: "PEN" } }] }] }, access)).success).toBe(true);
-      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [],
+      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false },
         store: { enabled: true, pickupPoint: { name: "Shop", address: "Pickup address", instructions: "Door 2" } } }, access)).success).toBe(true);
     });
     await page.goto(f.path);
@@ -586,7 +586,7 @@ test("buyer keeps the selected district rate when an earlier real quotation arri
         { kind: "new", name: "District A", enabled: true, districtCodes: ["150122"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount: 8, currency: "PEN" } }] },
         { kind: "new", name: "District B", enabled: true, districtCodes: ["040110"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount: 12, currency: "PEN" } }] },
       ] }, access)).success).toBe(true);
-      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [],
+      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false },
         store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
     });
     await page.route("**/api/quotations", async route => {
@@ -645,7 +645,7 @@ test("buyer pickup removes the shipping rate and ignores a quotation still in fl
       const access = { companyId: f.companyId, userId: f.userId };
       expect((await deliverySettings.saveZones({ expectedVersion: 0,
         zones: [{ kind: "new", name: "Home", enabled: true, districtCodes: ["150122"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount: 8, currency: "PEN" } }] }] }, access)).success).toBe(true);
-      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [],
+      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false },
         store: { enabled: true, pickupPoint: { name: "Shop", address: "Pickup address", instructions: "Door 2" } } }, access)).success).toBe(true);
     });
     await page.route("**/api/quotations", async route => {
@@ -715,7 +715,7 @@ test("buyer cannot use disabled pickup or confirm pickup disabled after opening 
     const mode = (value: string) => page.getByRole("radiogroup", { name: "Forma de entrega" }).locator(`input[value="${value}"]`);
     await browserExpect(mode("store")).toHaveCount(0);
     const savePickup = (enabled: boolean, expectedVersion: number) => withTenantIsolation(f.companyId, () => deliverySettings.save({
-      expectedVersion, home: { enabled: true }, agency: { enabled: false }, couriers: [],
+      expectedVersion, home: { enabled: true }, agency: { enabled: false },
       store: enabled ? { enabled: true, pickupPoint: { name: "Shop", address: "Pickup address", instructions: "Door 2" } } : { enabled: false, pickupPoint: null },
     }, { companyId: f.companyId, userId: f.userId }));
     expect((await savePickup(true, 0)).success).toBe(true);
@@ -748,7 +748,7 @@ test("buyer keeps a historical rate after its zone changes or replaces it with a
         const saved = await deliverySettings.saveZones({ expectedVersion: 0,
           zones: [{ kind: "new", name: "Original", enabled: true, districtCodes: ["150122"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount: 8, currency: "PEN" } }] }] }, access);
         if (!saved.success) throw new Error(saved.error.message);
-        expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, couriers: [],
+        expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false },
           store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
         const quote = await deliverySettings.createQuotation({ companyId: f.companyId, country: "PE", districtCode: "150122", address: null, instructions: null });
         if (!quote.success) throw new Error(quote.error.message);

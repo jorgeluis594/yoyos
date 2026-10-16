@@ -64,9 +64,9 @@ export async function writeDeliverySettings(companyId: string, settings: Deliver
   }
 }
 
-export async function readCourierCatalog(): Promise<Result<readonly CourierCatalogEntry[], DeliverySettingsReadError>> {
+export async function readCourierCatalog(scope: "enabled" | "all" = "enabled"): Promise<Result<readonly CourierCatalogEntry[], DeliverySettingsReadError>> {
   try {
-    const rows = await prisma.courier.findMany({ where: { enabled: true }, select: { id: true, code: true, name: true }, orderBy: [{ name: "asc" }, { id: "asc" }] });
+    const rows = await prisma.courier.findMany({ where: scope === "enabled" ? { enabled: true } : {}, select: { id: true, code: true, name: true, enabled: true }, orderBy: [{ name: "asc" }, { id: "asc" }] });
     const catalog: CourierCatalogEntry[] = [];
     for (const row of rows) {
       const parsed = parseCourierCatalogEntry(row);
