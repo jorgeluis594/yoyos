@@ -126,6 +126,14 @@ test("seller manages overlapping zones with delivery options and preserves an ed
   let companyId: string | undefined;
   let agencyId: string | undefined;
   const buyer = await page.context().browser()!.newContext({ baseURL: `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}` });
+  const pickDistrict = async (code: string, selectedText: string) => {
+    const listbox = page.getByRole("listbox");
+    await page.getByLabel("Distritos", { exact: true }).fill(code);
+    await listbox.getByRole("option", { name: "MIRAFLORES", exact: true }).click();
+    // Picking closes the list; never press Escape afterwards, because Escape on a closed multiple combobox clears the selection.
+    await browserExpect(listbox).toBeHidden();
+    await browserExpect(page.getByText(selectedText, { exact: true })).toBeVisible();
+  };
   try {
     companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "Zones store", country: "PE" });
     await page.goto("/es-PE/settings/delivery");
@@ -138,16 +146,11 @@ test("seller manages overlapping zones with delivery options and preserves an ed
       await page.getByLabel("Nombre de la zona", { exact: true }).fill(name);
       await page.getByLabel("Departamento", { exact: true }).selectOption("15");
       await page.getByLabel("Provincia", { exact: true }).selectOption("1501");
-      await page.getByLabel("Distritos", { exact: true }).fill("150122");
-      await page.getByRole("option", { name: "MIRAFLORES", exact: true }).click();
-      await page.keyboard.press("Escape");
+      await pickDistrict("150122", "1 distrito seleccionado");
       if (name === "Cercana") {
         await page.getByLabel("Departamento", { exact: true }).selectOption("04");
         await page.getByLabel("Provincia", { exact: true }).selectOption("0401");
-        await page.getByLabel("Distritos", { exact: true }).fill("040110");
-        await page.getByRole("option", { name: "MIRAFLORES", exact: true }).click();
-        await page.keyboard.press("Escape");
-        await browserExpect(page.getByText("2 distritos seleccionados", { exact: true })).toBeVisible();
+        await pickDistrict("040110", "2 distritos seleccionados");
       }
       await page.getByRole("button", { name: "Agregar opción a domicilio", exact: true }).click();
       await page.getByLabel("Nombre que ve el cliente", { exact: true }).fill(option);
