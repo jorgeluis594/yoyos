@@ -1007,3 +1007,38 @@ test("reading mixed orders for label preparation never changes states, payments 
   for (const query of ["view=unpaid", "deliveryStatus=pending", `courierId=${shalomId}`, "unscheduled=true"]) expect((await call(`/api/orders/mixed?${query}`, seller.cookie)).status).toBe(200);
   expect(await snapshot()).toEqual(before);
 });
+
+test("seller list and detail do not include unconfirmed catalog orders, and include them after confirmation", async () => {
+  const seller = await fixture("PE");
+  const [open, completed] = [randomUUID(), randomUUID()];
+  const enabledAt = new Date("2026-10-17T12:00:00.000Z");
+  const base = { currency: "PEN", total: 10, itemsTotal: 10, sellerId: null, fromCatalog: true, checkoutEnabledAt: enabledAt, createdAt: enabledAt };
+  await withTenantIsolation(seller.companyId, async () => {
+    await prisma.order.createMany({ data: [
+      { ...base, id: open, number: 3001n },
+      // Unreachable in practice; proves the legacy completed-sales list filters too.
+      { ...base, id: completed, number: 3002n, completedAt: enabledAt },
+    ] });
+    await prisma.orderItem.createMany({ data: [open, completed].map((orderId) => ({ orderId, variantId: seller.variantId,
+      productName: "Camisa", variantAttributes: {}, quantity: 1n, unitPrice: 10, subtotal: 10 })) });
+  });
+  const ids = async (path: string) => ((await (await call(path, seller.cookie)).json()).items as { id: string }[]).map((item) => item.id);
+  const confirm = (orderId: string) => withTenantIsolation(seller.companyId, async () => {
+    await prisma.orderBuyer.create({ data: { orderId, name: "Ana", phone: "+51999999999" } });
+    await prisma.order.update({ where: { id: orderId }, data: { checkoutConfirmedAt: new Date() } });
+  });
+
+  expect(await ids("/api/orders/mixed")).toEqual([]);
+  expect(await ids("/api/orders")).toEqual([]);
+  for (const path of [`/api/orders/${open}`, `/api/orders/${open}/aggregate`]) expect((await call(path, seller.cookie)).status).toBe(404);
+  expect((await call(`/api/orders/${open}/cancel`, seller.cookie, {})).status).toBe(404);
+
+  await confirm(open);
+  expect(await ids("/api/orders/mixed")).toEqual([open]);
+  const detail = await call(`/api/orders/${open}/aggregate`, seller.cookie);
+  expect(detail.status).toBe(200);
+  expect(orderAggregateSchema.parse(await detail.json())).toMatchObject({ source: "catalog", sellerId: null, number: 3001 });
+
+  await confirm(completed);
+  expect(await ids("/api/orders")).toEqual([completed]);
+});

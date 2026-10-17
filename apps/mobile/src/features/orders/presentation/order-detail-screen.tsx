@@ -258,6 +258,7 @@ export default function OrderDetailScreen() {
             </ThemedText>
             <StatusBadge label={title} tone={order.status === "cancelled" ? "neutral" : "success"} />
           </View>
+          {order.source === "catalog" ? <ThemedText type="small" themeColor="textSecondary">{t('fromCatalog')}</ThemedText> : null}
           <OrderBuyerName buyer={order.buyer} source={order.source} labelled />
           {order.buyer?.name && order.buyer.phone ? <ThemedText type="small" themeColor="textSecondary" selectable>{order.buyer.phone}</ThemedText> : null}
         </View>
@@ -403,7 +404,7 @@ export default function OrderDetailScreen() {
           <Disclosure label={t('detailInternal')} open={internalOpen} onPress={() => setInternalOpen(!internalOpen)} />
           {internalOpen ? <>
             <ThemedText type="small">{order.stockDeducted ? t('stockDeducted') : t('stockPending')}</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary" selectable>{t('detailSeller', { id: order.sellerId })}</ThemedText>
+            {order.sellerId ? <ThemedText type="small" themeColor="textSecondary" selectable>{t('detailSeller', { id: order.sellerId })}</ThemedText> : null}
             {order.completedAt ? <ThemedText type="small" themeColor="textSecondary">{t('completedOn', { date: date(order.completedAt, locale) })}</ThemedText> : null}
             {order.delivery ? <>
               <ThemedText type="small">{t('orderDeliveryCost', { amount: format(order.deliveryCost) })}</ThemedText>

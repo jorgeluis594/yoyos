@@ -12,7 +12,7 @@ export async function startServer() {
   await provider.start();
   app.use(express.static("build/client", { index: false }));
   app.all("/{*splat}", createRequestHandler({ build, mode: process.env.NODE_ENV,
-    getLoadContext: () => build.entry.module.createRequestContext(),
+    getLoadContext: (req) => build.entry.module.createRequestContext(req.ip),
   }));
   const server = app.listen(port, () => log.info({ event: "server_started", port }, "Core listening"));
   for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => {

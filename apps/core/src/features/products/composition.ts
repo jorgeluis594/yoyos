@@ -10,6 +10,8 @@ import { getProduct } from "@core/src/features/products/application/get";
 import { listProducts, type ListImageDependencies, type ListImageFailure } from "@core/src/features/products/application/list";
 import { updateProduct } from "@core/src/features/products/application/update";
 import { productRepository } from "@core/src/features/products/infrastructure/repository";
+import { findCatalogProduct, listCatalogProducts } from "@core/src/features/products/application/catalog-products";
+import { catalogProductRepository } from "@core/src/features/products/infrastructure/catalog-products-repository";
 
 const imageStorage = createR2ImageStorage({
   endpoint: process.env.R2_ENDPOINT ?? "", bucket: process.env.R2_BUCKET ?? "",
@@ -58,4 +60,8 @@ export const products = {
     updateProduct(id, input, { repository: productRepository, findImage, clock: () => new Date() }),
   list: (input: Parameters<typeof listProducts>[0], options: ListOptions = {}) =>
     listProducts(input, { repository: productRepository, ...(options.includeImages ? { images: listImages } : {}) }),
+  listForCatalog: (criteria: Parameters<typeof listCatalogProducts>[0]) =>
+    listCatalogProducts(criteria, { repository: catalogProductRepository, images: listImages }),
+  findForCatalog: (id: Parameters<typeof findCatalogProduct>[0], currency: Parameters<typeof findCatalogProduct>[1]) =>
+    findCatalogProduct(id, currency, { repository: catalogProductRepository, images: listImages }),
 };

@@ -38,6 +38,30 @@ export async function findSellableVariant(id: string) {
   }
 }
 
+type SellableVariant = CatalogItem & Readonly<{ productId: string; imageId: string | null; available: number }>;
+
+/** Active variants of active products with their current stock, read without lock: nothing is reserved. */
+export async function findSellableVariants(ids: readonly string[]) {
+  try {
+    const rows = await prisma.productVariant.findMany({ where: { id: { in: [...ids] }, status: "active", product: { status: "active" } }, include: { product: true, stock: true } });
+    const items: SellableVariant[] = [];
+    for (const row of rows) {
+      const item = toCatalogItem(row);
+      const stock = row.stock?.quantity ?? 0n;
+      if (!item) {
+        log.error({ event: "invalid_stored_sale_variant", variantId: row.id }, "invalid_stored_sale_variant");
+        return err({ code: "INVALID_STORED_DATA" as const, message: "Unable to read catalog" });
+      }
+      items.push({ ...item, productId: row.productId, imageId: row.product.imageId, available: stock > 99n ? 99 : Number(stock) });
+    }
+    return ok<readonly SellableVariant[]>(items);
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_read_sale_variants", err: cause }, "unable_to_read_sale_variants");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
+  }
+}
+
 export async function findSellableVariantsByQrCodes(codes: readonly string[]) {
   try {
     const rows = await prisma.productVariant.findMany({ where: { qrCode: { in: [...codes] }, status: "active", product: { status: "active" } }, include: { product: true } });

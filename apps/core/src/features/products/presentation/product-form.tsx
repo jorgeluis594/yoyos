@@ -8,6 +8,7 @@ import { Field, FieldError, FieldLabel } from "@core/app/components/ui/field";
 import { Input } from "@core/app/components/ui/input";
 import { Textarea } from "@core/app/components/ui/textarea";
 import { uploadImageFile } from "@core/src/shared/images/presentation/client";
+import { useClientReady } from "@core/app/use-client-ready";
 import type { Currency } from "@shared/money";
 import type { FormErrors } from "@core/src/features/products/presentation/messages";
 
@@ -39,6 +40,8 @@ export function ProductForm({ currency, cancelTo, errors, pending, onSave, value
   const [removed, setRemoved] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [photoError, setPhotoError] = useState("");
+  // The form submits only through React, so a click before hydration would navigate with a native GET.
+  const ready = useClientReady();
   const fields: readonly (keyof ProductFormValues)[] = variantFields === "hidden"
     ? ["name", "description"]
     : ["name", "description", "sku", "salePrice", "purchasePrice"];
@@ -116,7 +119,7 @@ export function ProductForm({ currency, cancelTo, errors, pending, onSave, value
     </div>
     {errors.form && <Alert variant="destructive"><AlertDescription>{errors.form}</AlertDescription></Alert>}
     <div className="flex flex-wrap gap-3 border-t border-border pt-5">
-      <Button type="submit" disabled={pending || uploading}>{pending ? t("products.saving") : submitLabel ?? t("products.save")}</Button>
+      <Button type="submit" disabled={pending || uploading || !ready}>{pending ? t("products.saving") : submitLabel ?? t("products.save")}</Button>
       <Button asChild variant="outline"><Link to={cancelTo}>{t("products.cancel")}</Link></Button>
     </div>
   </form>;
