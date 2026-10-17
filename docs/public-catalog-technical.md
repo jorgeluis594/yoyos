@@ -327,6 +327,7 @@ Rate limit: `catalog/presentation/rate-limit.ts`, `Map<ip, { windowStart, count 
 | Event | Level | Where | Fields |
 | --- | --- | --- | --- |
 | `catalog_publication_changed` | info | `catalog` composition after the write | `["companyId", "userId", "published"]` |
+| `unable_to_save_catalog_settings` | error | `savePublished` adapter | `["companyId", "errorCode", "err"]` |
 | `catalog_order_created` | info | `orders` composition after commit, only when inserted (not on retry) | `["companyId", "orderNumber", "linesCount"]` |
 | `catalog_order_rejected` | debug | `continueToCheckout` route | `["companyId", "errorCode", "issuesCount"]` |
 | `catalog_order_rate_limited` | warn | rate limiter | `["companyId"]` |

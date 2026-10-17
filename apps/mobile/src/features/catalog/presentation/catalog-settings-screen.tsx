@@ -56,11 +56,13 @@ export default function CatalogSettingsScreen() {
           <ThemedText type="small" themeColor="textSecondary">{t("catalogLink")}</ThemedText>
           <ThemedText selectable>{settings.url}</ThemedText>
           <Button onPress={() => void copy()}>{t("catalogCopy")}</Button>
-          <Button variant="secondary" onPress={() => void Share.share({ message: settings.url })}>{t("catalogShare")}</Button>
-          <Button variant="secondary" onPress={() => void Linking.openURL(settings.url)}>{t("catalogView")}</Button>
+          <Button variant="secondary" onPress={() => void Share.share({ message: settings.url }).catch(() => undefined)}>{t("catalogShare")}</Button>
+          <Button variant="secondary" onPress={() => void Linking.openURL(settings.url).catch(() => undefined)}>{t("catalogView")}</Button>
         </View> : null}
       </View>
-      {notice === "catalogSaveError" ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t(notice)}</ThemedText>
+      {notice === "catalogSaveError" ? <View style={styles.heading}><ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t(notice)}</ThemedText>
+        {/* The hide was already confirmed, so retrying does not ask again. */}
+        <Button variant="secondary" disabled={busy} onPress={() => void save(!settings.published)}>{t("catalogRetry")}</Button></View>
         : notice ? <ThemedText accessibilityLiveRegion="polite">{t(notice)}</ThemedText> : null}
     </ScrollView>
   </SafeAreaView></ThemedView>;

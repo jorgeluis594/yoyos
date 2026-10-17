@@ -1,4 +1,4 @@
-import { Alert } from "react-native";
+import { Alert, Linking, Share } from "react-native";
 import { act, fireEvent, render } from "@testing-library/react-native";
 import { err, ok } from "@shared/functional";
 import { catalogSettings } from "@mobile/features/catalog/composition";
@@ -22,7 +22,7 @@ test("catalog settings screen restores the switch when saving fails", async () =
   expect(screen.getByLabelText("Publicar catálogo").props.value).toBe(false);
   expect(screen.queryByText(url)).toBeNull();
 
-  fireEvent(screen.getByLabelText("Publicar catálogo"), "valueChange", true);
+  fireEvent.press(screen.getByText("Reintentar"));
   await screen.findByText("Catálogo publicado");
   expect(screen.getByLabelText("Publicar catálogo").props.value).toBe(true);
   expect(screen.getByText(url)).toBeTruthy();
@@ -42,4 +42,17 @@ test("hiding the catalog asks for confirmation before saving", async () => {
   await screen.findByText("Catálogo oculto");
   expect(setPublished).toHaveBeenCalledWith(false);
   alert.mockRestore();
+});
+
+test("share and view failures do not leave unhandled rejections", async () => {
+  get.mockResolvedValue(ok({ published: true, url }));
+  const share = jest.spyOn(Share, "share").mockRejectedValue(new Error("cancelled"));
+  const open = jest.spyOn(Linking, "openURL").mockRejectedValue(new Error("no browser"));
+  const screen = render(<CatalogSettingsScreen />);
+  fireEvent.press(await screen.findByText("Compartir", {}, { timeout: 5000 }));
+  fireEvent.press(screen.getByText("Ver catálogo"));
+  await act(async () => { await Promise.resolve(); });
+  expect(share).toHaveBeenCalledWith({ message: url });
+  expect(open).toHaveBeenCalledWith(url);
+  share.mockRestore(); open.mockRestore();
 });

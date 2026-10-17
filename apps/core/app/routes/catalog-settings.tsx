@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { data, useFetcher, useLoaderData, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
-import { setCatalogPublicationSchema } from "@shared/contracts/catalog";
+import { data, isRouteErrorResponse, useFetcher, useLoaderData, type ActionFunctionArgs, type ClientActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
+import { z } from "zod";
 import { privateUserContext } from "@core/app/private-user-context";
 import { Alert } from "@core/app/components/ui/alert";
 import { Button } from "@core/app/components/ui/button";
@@ -26,12 +26,22 @@ export async function loader({ context }: LoaderFunctionArgs) {
   return toCatalogSettingsResponse(result.data, access.companyId);
 }
 
+const publishedField = z.enum(["true", "false"]).transform(value => value === "true");
+
 export async function action({ context, request }: ActionFunctionArgs) {
-  const form = await request.formData();
-  const parsed = setCatalogPublicationSchema.safeParse({ published: form.get("published") === "true" });
+  const parsed = publishedField.safeParse((await request.formData()).get("published"));
   if (!parsed.success) return data({ error: true as const }, { status: 400 });
-  const result = await catalogSettings.setPublication(parsed.data.published, accessOf(context));
+  const result = await catalogSettings.setPublication(parsed.data, accessOf(context));
   return result.success ? { published: result.data.published } : data({ error: true as const }, { status: 503 });
+}
+
+// A lost request shows the save error instead of replacing the page with the load error.
+export async function clientAction({ serverAction }: ClientActionFunctionArgs) {
+  try { return await serverAction<typeof action>(); }
+  catch (cause) {
+    if (cause instanceof Response || isRouteErrorResponse(cause)) throw cause;
+    return { error: true as const };
+  }
 }
 
 export function ErrorBoundary() {
@@ -43,7 +53,7 @@ export function ErrorBoundary() {
 export default function CatalogSettings() {
   const { t } = useTranslation();
   const settings = useLoaderData<typeof loader>();
-  const fetcher = useFetcher<typeof action>();
+  const fetcher = useFetcher<typeof clientAction>();
   const [confirmHide, setConfirmHide] = useState(false);
   const [copied, setCopied] = useState(false);
   const submitted = fetcher.formData?.get("published");
