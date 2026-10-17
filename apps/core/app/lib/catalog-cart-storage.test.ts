@@ -16,10 +16,19 @@ test("adding the same variant twice keeps one line and the order id changes only
   expect(cart.lines).toEqual([line(id(3), 3)]);
   expect(cart.lines.reduce((sum, item) => sum + item.price.amount * item.quantity, 0)).toBe(135);
   expect(cart.orderId).not.toBe(first.orderId);
-  expect(added(addToCart(cart, line(id(3), 1), 3, nextId)).lines[0].quantity).toBe(3);
+  expect(addToCart(cart, line(id(3), 1), 3, nextId)).toEqual({ kind: "at_limit" });
   expect(setLineQuantity(cart, id(3), 3, nextId)).toEqual(cart);
   expect(setLineQuantity(cart, id(3), 2, nextId).orderId).not.toBe(cart.orderId);
   expect(removeLine(cart, id(3), nextId).lines).toEqual([]);
+});
+
+test("an add that passes the available quantity is clamped and says so", () => {
+  const cart = added(addToCart(emptyCart(id(1)), line(id(3), 2), 3));
+  const result = addToCart(cart, line(id(3), 2), 3);
+  expect(result).toMatchObject({ kind: "added", clamped: true });
+  expect(added(result).lines[0].quantity).toBe(3);
+  expect(addToCart(cart, line(id(3), 1), 3)).toMatchObject({ kind: "added", clamped: false });
+  expect(addToCart(emptyCart(id(1)), line(id(3), 120), 200)).toMatchObject({ kind: "added", clamped: true });
 });
 
 test("refreshing keeps the order id unless a shown price changed", () => {

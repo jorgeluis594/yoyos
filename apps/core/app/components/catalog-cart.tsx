@@ -1,12 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 import { Minus, Plus, ShoppingBag } from "lucide-react";
 import { Alert, AlertAction, AlertDescription } from "@core/app/components/ui/alert";
 import { Button } from "@core/app/components/ui/button";
 import { Empty, EmptyHeader, EmptyTitle } from "@core/app/components/ui/empty";
-import { Sheet, SheetContent, SheetTrigger } from "@core/app/components/ui/sheet";
-import { CheckoutTheme } from "@core/src/features/checkout-appearance/presentation/checkout-theme";
-import type { PublicCheckoutAppearance } from "@core/src/features/checkout-appearance/presentation/checkout-appearance-schemas";
+import { Sheet, SheetClose, SheetContent, SheetTrigger } from "@core/app/components/ui/sheet";
 import { formatCurrency } from "@core/app/format-currency";
 import { emptyCart, removeLine, setLineQuantity, applyRefresh, readCart, useCatalogCart, type CatalogCart, type CatalogCartLine } from "@core/app/lib/catalog-cart-storage";
 import type { CartRefreshResponse, ContinueResponse } from "@core/app/routes/catalog-cart";
@@ -25,9 +23,10 @@ const money = (amount: number, currency: string) => formatCurrency(amount, curre
 const issueText = (issue: LineIssue) => issue.reason === "sold_out" ? "Se agotó" : issue.reason === "unavailable" ? "Ya no está disponible"
   : issue.reason === "other_currency" ? "No se puede pedir junto con los demás productos" : issue.available === 1 ? "Solo queda 1" : `Solo quedan ${issue.available}`;
 
-/** The buyer's cart: refreshes prices on open and turns into an order with **Continuar**, through the `catalogo/:companyId/carrito` resource route. */
+/** The buyer's cart inside the cart sheet: refreshes prices on open and turns into an order with **Continuar**, through the `catalogo/:companyId/carrito` resource route. */
 export function CatalogCartPanel({ companyId, catalogPath }: Readonly<{ companyId: string; catalogPath: string }>) {
   const [cart, update] = useCatalogCart(companyId);
+  const { pathname } = useLocation();
   const [maxQuantities, setMaxQuantities] = useState<ReadonlyMap<string, number>>(new Map());
   const [issues, setIssues] = useState<ReadonlyMap<string, LineIssue>>(new Map());
   const [failure, setFailure] = useState<Failure | null>(null);
@@ -93,11 +92,11 @@ export function CatalogCartPanel({ companyId, catalogPath }: Readonly<{ companyI
   const undo = removed && <Alert><AlertDescription>Producto quitado</AlertDescription>
     <AlertAction><Button variant="outline" size="sm" onClick={() => { update(removed); setRemoved(null); }}>Deshacer</Button></AlertAction></Alert>;
   if (!cart.lines.length) return <div className="flex flex-col gap-4">{undo}<Empty><EmptyHeader><EmptyTitle>Tu carrito está vacío</EmptyTitle></EmptyHeader>
-    <Button asChild><Link to={catalogPath}>Ver productos</Link></Button></Empty></div>;
+    {/* On the catalog itself, closing the sheet is enough and keeps the buyer's search. */}
+    <SheetClose asChild>{pathname === catalogPath ? <Button>Ver productos</Button> : <Button asChild><Link to={catalogPath}>Ver productos</Link></Button>}</SheetClose></Empty></div>;
   const currency = cart.lines[0].price.currency;
   const subtotal = cart.lines.reduce((sum, line) => sum + Math.round(line.price.amount * 100) * line.quantity, 0) / 100;
-  return <section aria-labelledby="catalog-cart-title" className="flex flex-col gap-4">
-    <h2 id="catalog-cart-title" className="text-lg font-semibold">Carrito</h2>
+  return <div className="flex flex-col gap-4">
     {undo}
     <ul className="flex flex-col divide-y">
       {cart.lines.map((line) => {
@@ -133,23 +132,26 @@ export function CatalogCartPanel({ companyId, catalogPath }: Readonly<{ companyI
     {failure && <Alert variant="destructive"><AlertDescription>{failures[failure]}</AlertDescription>
       {(failure === "offline" || failure === "in_doubt" || failure === "failed") && <AlertAction><Button variant="outline" size="sm" disabled={busy} onClick={() => void submit()}>Reintentar</Button></AlertAction>}</Alert>}
     <Button size="lg" disabled={busy} aria-busy={busy} onClick={() => void submit()}><ShoppingBag aria-hidden="true" />{busy ? "Continuando…" : "Continuar"}</Button>
-  </section>;
+  </div>;
 }
 
-/** Fixed **Carrito** button with the unit count; opens the cart in a side sheet themed like the catalog. */
-export function CatalogCartButton({ companyId, appearance }: Readonly<{ companyId: string; appearance: PublicCheckoutAppearance | null }>) {
+/** Fixed **Carrito** button with the unit count; opens the cart in a side sheet. Render it inside `CatalogShell`: the sheet portals next to the button so it keeps the store theme. */
+export function CatalogCartButton({ companyId }: Readonly<{ companyId: string }>) {
   const [cart] = useCatalogCart(companyId);
+  const [host, setHost] = useState<HTMLDivElement | null>(null);
   const units = cart.lines.reduce((sum, line) => sum + line.quantity, 0);
+  const unitsText = `${units} ${units === 1 ? "unidad" : "unidades"}`;
   return <Sheet>
+    <div ref={setHost} />
     <SheetTrigger asChild>
-      <Button size="lg" className="fixed right-4 bottom-4 z-40 h-12 shadow-lg" aria-label={`Carrito, ${units} ${units === 1 ? "unidad" : "unidades"}`}>
+      <Button size="lg" className="fixed right-4 bottom-4 z-40 h-12 shadow-lg" aria-label={`Carrito, ${unitsText}`}>
         <ShoppingBag aria-hidden="true" />Carrito{units > 0 && <span className="rounded-full bg-background px-2 text-xs font-semibold text-foreground tabular-nums">{units}</span>}
       </Button>
     </SheetTrigger>
-    <SheetContent title="Carrito" description="El envío se calcula en el siguiente paso">
-      <div className="flex-1 overflow-y-auto"><CheckoutTheme appearance={appearance}><div className="p-5">
+    <SheetContent title="Carrito" description={unitsText} container={host}>
+      <div className="flex-1 overflow-y-auto p-5">
         <CatalogCartPanel companyId={companyId} catalogPath={`/catalogo/${companyId}`} />
-      </div></CheckoutTheme></div>
+      </div>
     </SheetContent>
   </Sheet>;
 }

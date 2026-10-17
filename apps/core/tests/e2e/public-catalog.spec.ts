@@ -42,7 +42,7 @@ test("seller publishes the catalog, buyer adds two variants, continues, confirms
     await browserExpect(async () => {
       await buyerPage.getByRole("button", { name: "M", exact: true }).click();
       await browserExpect(buyerPage.getByRole("button", { name: "M", exact: true })).toHaveAttribute("aria-pressed", "true", { timeout: 1000 });
-    }).toPass();
+    }).toPass({ timeout: 10_000 });
     await buyerPage.getByRole("button", { name: "Negro", exact: true }).click();
     await buyerPage.getByRole("button", { name: "Agregar uno" }).click();
     await buyerPage.getByRole("button", { name: "Agregar al carrito" }).click();
@@ -58,7 +58,9 @@ test("seller publishes the catalog, buyer adds two variants, continues, confirms
     await buyerPage.waitForURL(new RegExp(`/checkout/${companyId}/`));
     await browserExpect(buyerPage.getByRole("heading", { name: "Pedido #1001" })).toBeVisible();
     const orderId = buyerPage.url().split("/").at(-1)!;
-    expect(JSON.stringify(await (await page.request.get("/api/orders")).json())).not.toContain(orderId);
+    const orders = await page.request.get("/api/orders");
+    expect(orders.status()).toBe(200);
+    expect(JSON.stringify(await orders.json())).not.toContain(orderId);
     expect((await page.request.get(`/api/orders/${orderId}`)).status()).toBe(404);
 
     await buyerPage.getByLabel("Nombre", { exact: true }).fill("Ana");

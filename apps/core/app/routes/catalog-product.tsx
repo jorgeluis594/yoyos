@@ -44,7 +44,9 @@ export default function CatalogProductPage() {
   const { storeName, appearance, product } = useLoaderData<typeof loader>();
   const { companyId = "" } = useParams();
   const [cart, updateCart] = useCatalogCart(companyId);
-  const [notice, setNotice] = useState("");
+  // `id` changes on every add so the status region gets new content and screen readers repeat an identical message.
+  const [notice, setNotice] = useState({ text: "", id: 0 });
+  const notify = (text: string) => setNotice((current) => ({ text, id: current.id + 1 }));
   const [selection, setSelection] = useState<VariantSelection>({});
   const [quantity, setQuantity] = useState(1);
   const variant = selectedVariant(product, selection);
@@ -54,13 +56,14 @@ export default function CatalogProductPage() {
     if (!variant) return;
     const result = addToCart(cart, { variantId: variant.id, productId: product.id, quantity: shown, price: variant.price,
       productName: product.name, attributes: { ...variant.attributes }, imageUrl: product.imageUrl }, variant.maxQuantity);
-    if (result.kind === "line_limit") { setNotice(`Tu carrito ya tiene ${maxCartLines} productos distintos`); return; }
+    if (result.kind === "line_limit") { notify(`Tu carrito ya tiene ${maxCartLines} productos distintos`); return; }
+    if (result.kind === "at_limit") { notify("Ya tienes el máximo disponible en tu carrito"); return; }
     updateCart(result.cart);
     setQuantity(1);
-    setNotice("Agregado al carrito");
+    notify(result.clamped ? "Agregado al carrito. Ya tienes el máximo disponible" : "Agregado al carrito");
   };
 
-  return <CatalogShell appearance={appearance} storeName={storeName} cart={<CatalogCartButton companyId={companyId} appearance={appearance} />}>
+  return <CatalogShell appearance={appearance} storeName={storeName} cart={<CatalogCartButton companyId={companyId} />}>
     <BackToCatalog />
     <article className="grid gap-6 md:grid-cols-2 md:gap-10">
       <CatalogProductImage name={product.name} url={product.imageUrl} />
@@ -76,7 +79,7 @@ export default function CatalogProductPage() {
             {values.map((value) => {
               const state = optionState(product, selection, name, value);
               return <Button key={value} type="button" variant={selection[name] === value ? "default" : "outline"} aria-pressed={selection[name] === value}
-                disabled={state !== "available"} onClick={() => { setSelection({ ...selection, [name]: value }); setNotice(""); }}>
+                disabled={state !== "available"} onClick={() => { setSelection({ ...selection, [name]: value }); notify(""); }}>
                 {value}{state === "sold_out" && " · Agotado"}
               </Button>;
             })}
@@ -91,7 +94,7 @@ export default function CatalogProductPage() {
           </div>
         </div>
         <Button type="button" size="lg" className="h-11" disabled={!variant || max === 0} onClick={add}>Agregar al carrito</Button>
-        <p role="status" className="text-sm font-medium empty:hidden">{notice}</p>
+        <p role="status" className="text-sm font-medium has-[span:empty]:hidden"><span key={notice.id}>{notice.text}</span></p>
         {product.description && <p className="whitespace-pre-line text-muted-foreground">{product.description}</p>}
       </div>
     </article>

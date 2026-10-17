@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { CatalogCartPanel } from "@core/app/components/catalog-cart";
-import { writeCart, type CatalogCartLine } from "@core/app/lib/catalog-cart-storage";
+import { CatalogCartButton, CatalogCartPanel } from "@core/app/components/catalog-cart";
+import { Sheet } from "@core/app/components/ui/sheet";
+import { emptyCart, writeCart, type CatalogCartLine } from "@core/app/lib/catalog-cart-storage";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -32,7 +33,7 @@ beforeEach(() => {
   writeCart(companyId, { orderId, lines: [line(id(3), "Polo negro", 2), line(id(4), "Polo beige", 1)] });
   container = document.body.appendChild(document.createElement("div"));
   root = createRoot(container);
-  act(() => root.render(<MemoryRouter><CatalogCartPanel companyId={companyId} catalogPath={`/catalogo/${companyId}`} /></MemoryRouter>));
+  act(() => root.render(<MemoryRouter><Sheet><CatalogCartPanel companyId={companyId} catalogPath={`/catalogo/${companyId}`} /></Sheet></MemoryRouter>));
 });
 afterEach(() => {
   act(() => root.unmount());
@@ -70,4 +71,14 @@ test("ORDER_ID_CONFLICT retries once with a new order id, then shows the generic
   expect(posts[0]).toMatchObject({ orderId });
   expect(posts[1]).not.toMatchObject({ orderId });
   expect(container.textContent).toContain("No pudimos continuar. Vuelve a intentar");
+});
+
+test("«Ver productos» in the empty sheet on the catalog closes it and keeps the search", async () => {
+  writeCart(companyId, emptyCart(orderId));
+  const Search = () => <output>{useLocation().search}</output>;
+  act(() => root.render(<MemoryRouter key="catalog" initialEntries={[`/catalogo/${companyId}?q=polo`]}><Search /><CatalogCartButton companyId={companyId} /></MemoryRouter>));
+  await click(button("Carrito, 0 unidades"));
+  await click(button("Ver productos"));
+  expect(container.querySelector("[role=dialog]")).toBeNull();
+  expect(container.querySelector("output")!.textContent).toBe("?q=polo");
 });

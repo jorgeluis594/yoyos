@@ -22,16 +22,19 @@ export function withLines(cart: CatalogCart, lines: CatalogCartLine[], nextId = 
   return content(lines) === content(cart.lines) ? { ...cart, lines } : { orderId: nextId(), lines };
 }
 
-export type AddToCartResult = Readonly<{ kind: "added"; cart: CatalogCart }> | Readonly<{ kind: "line_limit" }>;
+/** `clamped` when the limit kept some units out; `at_limit` when none fit and the cart is unchanged. */
+export type AddToCartResult = Readonly<{ kind: "added"; cart: CatalogCart; clamped: boolean }> | Readonly<{ kind: "line_limit" }> | Readonly<{ kind: "at_limit" }>;
 /** Adding a variant already in the cart adds to its line, without passing the variant's available quantity or 99. */
 export function addToCart(cart: CatalogCart, line: CatalogCartLine, maxQuantity: number, nextId = newOrderId): AddToCartResult {
   const existing = cart.lines.find((item) => item.variantId === line.variantId);
   if (!existing && cart.lines.length >= maxCartLines) return { kind: "line_limit" };
-  const limit = Math.min(maxQuantity, maxCartQuantity);
+  const before = existing?.quantity ?? 0;
+  const quantity = Math.min(before + line.quantity, maxQuantity, maxCartQuantity);
+  if (quantity <= before) return { kind: "at_limit" };
   const lines = existing
-    ? cart.lines.map((item) => item.variantId === line.variantId ? { ...line, quantity: Math.min(item.quantity + line.quantity, limit) } : item)
-    : [...cart.lines, { ...line, quantity: Math.min(line.quantity, limit) }];
-  return { kind: "added", cart: withLines(cart, lines, nextId) };
+    ? cart.lines.map((item) => item.variantId === line.variantId ? { ...line, quantity } : item)
+    : [...cart.lines, { ...line, quantity }];
+  return { kind: "added", cart: withLines(cart, lines, nextId), clamped: quantity < before + line.quantity };
 }
 
 export const setLineQuantity = (cart: CatalogCart, variantId: string, quantity: number, nextId = newOrderId) =>

@@ -49,7 +49,7 @@ export default function Catalog() {
   const searching = pending !== null && (new URLSearchParams(pending.search).get("q") ?? "") !== active;
   const more = new URLSearchParams({ ...(active ? { q: active } : {}), page: String(pages + 1) });
 
-  return <CatalogShell appearance={appearance} storeName={storeName} cart={<CatalogCartButton companyId={companyId} appearance={appearance} />}>
+  return <CatalogShell appearance={appearance} storeName={storeName} cart={<CatalogCartButton companyId={companyId} />}>
     <form role="search" onSubmit={(event) => event.preventDefault()}>
       <Input type="search" name="q" value={text} maxLength={80} onChange={(event) => setText(event.target.value)}
         placeholder="Buscar productos" aria-label="Buscar productos" autoComplete="off" />
