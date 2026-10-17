@@ -17,6 +17,7 @@ export type ImageIdentification =
 export type IdentificationMissReason =
   | "unreadable_image"          // QR step could not decode the image; visual is not attempted
   | "unknown_qr_codes"          // product QR present but no sellable variant (other company, deleted)
+  | "unrecognized_qr_code"      // only non-product QR codes (Yape/Plin, URLs); visual is not attempted
   | "visual_search_disabled"
   | "no_indexed_products"
   | "no_visual_match"           // model answered none
@@ -55,12 +56,13 @@ export type IdentifyProductsDependencies = Readonly<{
 type Identified = Result<ImageIdentification, IdentifyProductsError>;
 const notFound = (reason: IdentificationMissReason): Identified => ok({ kind: "not_found", reason });
 
-/** Cascade: printed QR first; visual search only when the image carries no product QR. */
+/** Cascade: printed QR first; visual search only when the image carries no QR code at all. */
 export async function identifyProductsInImage(image: ImageBytes, deps: IdentifyProductsDependencies): Promise<Identified> {
   const decoded = await deps.readQrCodes(image);
   // Una imagen ilegible se omite: reintentar no cambia el resultado.
   if (!decoded.success) return decoded.error.code === "QR_READER_UNAVAILABLE" ? err({ code: decoded.error.code, message: decoded.error.message }) : notFound("unreadable_image");
   const selection = selectProductCode(decoded.data);
+  if (selection.kind === "skip" && selection.reason === "unrecognized_qr_code") return notFound("unrecognized_qr_code");
   if (selection.kind === "skip") return deps.visual ? searchVisually(image, deps.visual) : notFound("visual_search_disabled");
   const variants = await deps.findVariantsByCodes(selection.codes);
   if (!variants.success) return variants;

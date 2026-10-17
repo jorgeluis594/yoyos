@@ -59,10 +59,10 @@ describe("identifyProductsInImage", () => {
     expect(h.calls).toEqual(["readQrCodes", "embedImage", "findNearestProductImages", "readImage", "readImage", "chooseProduct", "findSellableVariantsOfProduct"]);
   });
 
-  test("runs visual search when the image only has non-product QR codes", async () => {
+  test("stops with unrecognized_qr_code without calling visual search when the image only has non-product QR codes", async () => {
     const h = harness({ decoded: ["https://pay.example/yape"] });
-    expect(await h.run()).toMatchObject({ success: true, data: { kind: "found", method: "visual" } });
-    expect(h.calls).not.toContain("findVariantsByCodes");
+    expect(await h.run()).toEqual(ok({ kind: "not_found", reason: "unrecognized_qr_code" }));
+    expect(h.calls).toEqual(["readQrCodes"]);
   });
 
   test("returns visual_search_disabled when visual search is not configured", async () => {

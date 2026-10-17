@@ -136,12 +136,16 @@ describe("addMessageProductsToOrder", () => {
     expect(h.state.calls).not.toContain("readImage");
   });
 
-  test("skips photos without product QR codes as visual_search_disabled when visual search is off", async () => {
-    for (const decoded of [[], ["https://pay.example/yape"]]) {
-      const h = harness({ decoded });
-      expect(await h.run()).toEqual(ok({ kind: "skipped", reason: "visual_search_disabled" }));
-      expect(h.state.calls).not.toContain("findVariantsByCodes");
-    }
+  test("skips photos without QR codes as visual_search_disabled when visual search is off", async () => {
+    const h = harness({ decoded: [] });
+    expect(await h.run()).toEqual(ok({ kind: "skipped", reason: "visual_search_disabled" }));
+    expect(h.state.calls).not.toContain("findVariantsByCodes");
+  });
+
+  test("skips photos with only non-product QR codes as unrecognized_qr_code", async () => {
+    const h = harness({ decoded: ["https://pay.example/yape"] });
+    expect(await h.run()).toEqual(ok({ kind: "skipped", reason: "unrecognized_qr_code" }));
+    expect(h.state.calls).not.toContain("findVariantsByCodes");
   });
 
   const visual = (outcome: ImageIdentification) => ({ identifyProducts: async () => ok(outcome) });

@@ -398,7 +398,7 @@ const messageOrderDependencies: AddMessageProductsDependencies = {
 
 export { messageOrderPolicy };
 const retryableCodes: readonly AddMessageProductsError["code"][] = ["PERSISTENCE_UNAVAILABLE", "IMAGE_STORAGE_UNAVAILABLE", "QR_READER_UNAVAILABLE",
-  "EMBEDDER_UNAVAILABLE", "PRODUCT_MATCHER_UNAVAILABLE", "INVALID_MATCHER_RESPONSE"];
+  "EMBEDDER_UNAVAILABLE", "PRODUCT_MATCHER_UNAVAILABLE"];
 
 const matchFields = (match: MessageProductMatch) => match.method === "qr" ? { matchMethod: match.method, unknownCodes: match.unknownCodes }
   : { matchMethod: match.method, confidence: match.confidence, candidates: match.candidates };

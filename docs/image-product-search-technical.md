@@ -30,7 +30,7 @@ product create/update with new image ──→ product_image_changed ──→ p
 | Topic | Decision |
 | --- | --- |
 | Scope | Core only. Images of incoming messages only. Text messages and captions are not searched. Mobile and contracts do not change. |
-| Cascade order | QR → visual. Visual runs only when the image has no product QR (`no_qr_code`, `unrecognized_qr_code`). Unknown product QR codes and unreadable images stop the cascade without AI. |
+| Cascade order | QR → visual. Visual runs only when the image has no QR code at all (`no_qr_code`). Images whose QR codes are all non-product (Yape/Plin payment, URLs), unknown product QR codes and unreadable images stop the cascade without AI. |
 | Owner of the cascade | `products` (`identifyProductsInImage`). `orders` only adds what products identifies. The QR reader and `selectProductCode` move from `orders` to `products`. |
 | Products per image | QR keeps one item per distinct variant. Visual returns at most one product per image (a live screenshot shows the product being offered). |
 | Variant of a visual match | Product images live at product level. Only products with exactly one sellable variant are added; otherwise `ambiguous_variant`. |
@@ -45,7 +45,7 @@ product create/update with new image ──→ product_image_changed ──→ p
 | Customer text in prompts | Captions are not sent to the model (prompt injection surface, no measured gain). |
 | Traceability | Match method and confidence go to logs only, consistent with message-to-order ("visibility of skips: logs only"). No new column on `OrderMessage`. |
 | Initial values (adjustable, env) | `PRODUCT_MATCH_CANDIDATES=5`, `PRODUCT_MATCH_MIN_CONFIDENCE=0.8`, `PRODUCT_MATCH_TIMEOUT_MS=20000`, images resized to ≤1024 px before sending. |
-| Retries | Handler policy unchanged (`concurrency: 2, retries: 8`). Provider unavailable and invalid model response are retryable. |
+| Retries | Handler policy unchanged (`concurrency: 2, retries: 8`). Provider unavailable is retryable; invalid model response is permanent (§15). |
 | Backward compatibility | Not in production (memory): migration without backfill; development products are indexed with the command. |
 
 ## 3. Verified current state
@@ -124,6 +124,7 @@ export type ImageIdentification =
 export type IdentificationMissReason =
   | "unreadable_image"          // QR step could not decode the image; visual is not attempted
   | "unknown_qr_codes"          // product QR present but no sellable variant (other company, deleted)
+  | "unrecognized_qr_code"      // only non-product QR codes (Yape/Plin, URLs); visual is not attempted
   | "visual_search_disabled"
   | "no_indexed_products"
   | "no_visual_match"           // model answered none
@@ -162,7 +163,8 @@ Flow:
 
 1. **QR.** `readQrCodes(image)`. `UNREADABLE_IMAGE` → `not_found unreadable_image`. `selectProductCode`:
    - `codes` → `findVariantsByCodes`. At least one → `found qr` (with `unknownCodes`). None → `not_found unknown_qr_codes`.
-   - `skip` (`no_qr_code`, `unrecognized_qr_code`) → step 2.
+   - `skip unrecognized_qr_code` → `not_found unrecognized_qr_code` (a payment or URL QR says the image is not a product photo).
+   - `skip no_qr_code` → step 2.
 2. **Visual.** `visual === null` → `not_found visual_search_disabled`.
    1. `embedImage(image)`.
    2. `findNearestProductImages(vector, model, candidates)`. Empty → `no_indexed_products`.
@@ -177,9 +179,9 @@ Exact changes:
 
 - Dependencies: `readQrCodes` and `findVariantsByCodes` are replaced by `identifyProducts: (image: ImageBytes) => Promise<Result<ImageIdentification, IdentifyProductsError>>`.
 - Step 3 (outside the transaction): `readImage` → `identifyProducts`. `found` → `variants = items`; `not_found` → `skipped` with the mapped reason.
-- `MessageOrderSkipReason` becomes exactly `not_image | outgoing_message | unreadable_image | product_not_found | visual_search_disabled | no_indexed_products | no_visual_match | low_confidence | ambiguous_variant`. `unknown_qr_codes` maps to the existing `product_not_found`; the other miss reasons pass unchanged. `no_qr_code` and `unrecognized_qr_code` stop being final reasons because they continue to visual search.
+- `MessageOrderSkipReason` becomes exactly `not_image | outgoing_message | unreadable_image | unrecognized_qr_code | product_not_found | visual_search_disabled | no_indexed_products | no_visual_match | low_confidence | ambiguous_variant`. `unknown_qr_codes` maps to the existing `product_not_found`; the other miss reasons pass unchanged (`unrecognized_qr_code` keeps its existing meaning). `no_qr_code` stops being a final reason because it continues to visual search.
 - Outcomes `order_created` and `items_added` add `match: Readonly<{ method: "qr"; unknownCodes } | { method: "visual"; confidence; candidates }>` (replaces the top-level `unknownCodes`).
-- `AddMessageProductsError` adds `EMBEDDER_UNAVAILABLE`, `INVALID_EMBEDDING`, `PRODUCT_MATCHER_UNAVAILABLE`, `INVALID_MATCHER_RESPONSE`. Retryable in the handler adapter: the current three plus `EMBEDDER_UNAVAILABLE`, `PRODUCT_MATCHER_UNAVAILABLE`, `INVALID_MATCHER_RESPONSE`. `INVALID_EMBEDDING` is permanent (wrong model configuration).
+- `AddMessageProductsError` adds `EMBEDDER_UNAVAILABLE`, `INVALID_EMBEDDING`, `PRODUCT_MATCHER_UNAVAILABLE`, `INVALID_MATCHER_RESPONSE`. Retryable in the handler adapter: the current three plus `EMBEDDER_UNAVAILABLE`, `PRODUCT_MATCHER_UNAVAILABLE`. `INVALID_EMBEDDING` (wrong model configuration) and `INVALID_MATCHER_RESPONSE` (§15) are permanent.
 - Transaction, locks, idempotency through `OrderMessage` and `appendItems` do not change.
 
 ### 5.4 Products create and update (modified)
@@ -427,7 +429,7 @@ Never logged: image bytes, base64, prompts, raw model responses, captions, produ
 - `test("stops with unknown_qr_codes when product codes match no sellable variant")`
 - `test("stops with unreadable_image without calling visual search")`
 - `test("runs visual search when the image has no QR code")`
-- `test("runs visual search when the image only has non-product QR codes")`
+- `test("stops with unrecognized_qr_code without calling visual search when the image only has non-product QR codes")`
 - `test("returns visual_search_disabled when visual search is not configured")`
 - `test("returns no_indexed_products when the company has no embeddings of the model")`
 - `test("drops candidates whose image no longer exists and asks the model with the rest")`
@@ -484,14 +486,16 @@ Never logged: image bytes, base64, prompts, raw model responses, captions, produ
 
 - `test("adds the variant identified visually to the chat's open order")`
 - `test("creates an order from a visual match when the chat has no open order")`
+- `test("skips photos without QR codes as visual_search_disabled when visual search is off")`
+- `test("skips photos with only non-product QR codes as unrecognized_qr_code")`
 - `test("skips with the identification miss reason when no product is identified")`
 - `test("identifies the products before opening the transaction")`
 - `test("propagates embedder and matcher failures")`
 
 `features/orders/composition.test.ts` (updated)
 
-- `test("treats embedder and matcher unavailability and invalid matcher responses as retryable")`
-- `test("treats INVALID_EMBEDDING as permanent")`
+- `test("treats embedder and matcher unavailability as retryable")`
+- `test("treats INVALID_EMBEDDING and INVALID_MATCHER_RESPONSE as permanent")`
 - `test("logs the match method and confidence without images or product names")`
 
 `composition/event-handlers.test.ts`
@@ -535,5 +539,5 @@ Never logged: image bytes, base64, prompts, raw model responses, captions, produ
 - Verify that `pgvector/pgvector:*-pg18` uses the same `PGDATA` path as `postgres:18-alpine` (`/var/lib/postgresql`), and that it is Debian-based (the volume starts with its data, but musl and glibc sort text differently, so text indexes are silently inconsistent until `REINDEX DATABASE core`; `REFRESH COLLATION VERSION` fails on these volumes; procedure in `README.md`).
 - Verify the chosen providers' data terms: customer screenshots and product photos must not be retained for training. Choose zero-retention options where available.
   Checked 2026-10-17: the embedder's Responses call sends `store: false`; the Decisions API has no `store` or retention parameter and keeps no application state, only up to 30-day abuse-monitoring logs that Zero Data Retention (account-level, eligible customers) removes.
-- `INVALID_MATCHER_RESPONSE` is retryable because model output is not deterministic; 8 retries bound the cost of a misbehaving model per message.
+- `INVALID_MATCHER_RESPONSE` is permanent: its causes (provider 4xx, malformed output, undecodable catalog images, unsupported candidate count) repeat on every paid attempt, so retrying only multiplies cost.
 - Cost per message is at most one embedding + one vision call with K+1 images; QR-labelled photos cost nothing.

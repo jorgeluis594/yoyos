@@ -110,22 +110,24 @@ test("treats persistence, image storage and QR reader failures as retryable", as
   } finally { error.mockRestore(); warn.mockRestore(); addMessageProductsToOrder.mockReset(); }
 });
 
-test("treats embedder and matcher unavailability and invalid matcher responses as retryable", async () => {
+test("treats embedder and matcher unavailability as retryable", async () => {
   const warn = vi.spyOn(log, "warn").mockImplementation(() => undefined);
   try {
-    for (const code of ["EMBEDDER_UNAVAILABLE", "PRODUCT_MATCHER_UNAVAILABLE", "INVALID_MATCHER_RESPONSE"] as const) {
+    for (const code of ["EMBEDDER_UNAVAILABLE", "PRODUCT_MATCHER_UNAVAILABLE"] as const) {
       addMessageProductsToOrder.mockResolvedValueOnce(err({ code, message: "Unavailable" }));
       expect(await handle()).toEqual(err({ code, message: "Unavailable", retryable: true }));
     }
   } finally { warn.mockRestore(); addMessageProductsToOrder.mockReset(); }
 });
 
-test("treats INVALID_EMBEDDING as permanent", async () => {
+test("treats INVALID_EMBEDDING and INVALID_MATCHER_RESPONSE as permanent", async () => {
   const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
   try {
-    addMessageProductsToOrder.mockResolvedValueOnce(err({ code: "INVALID_EMBEDDING", message: "Wrong dimension" }));
-    expect(await handle()).toEqual(err({ code: "INVALID_EMBEDDING", message: "Wrong dimension", retryable: false }));
-    expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "orders_message_order_failed", code: "INVALID_EMBEDDING", retryable: false }), expect.any(String));
+    for (const code of ["INVALID_EMBEDDING", "INVALID_MATCHER_RESPONSE"] as const) {
+      addMessageProductsToOrder.mockResolvedValueOnce(err({ code, message: "Invalid" }));
+      expect(await handle()).toEqual(err({ code, message: "Invalid", retryable: false }));
+      expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "orders_message_order_failed", code, retryable: false }), expect.any(String));
+    }
   } finally { error.mockRestore(); addMessageProductsToOrder.mockReset(); }
 });
 

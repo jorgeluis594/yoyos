@@ -299,7 +299,7 @@ Una orden con checkout habilitado pero no confirmado sigue abierta: si el total 
 
 ### 3.6 Caso de uso `addMessageProductsToOrder`
 
-Vigente: dependencias, omisiones (`no_qr_code` y `unrecognized_qr_code` ya no son finales: continúan a búsqueda visual), `match` en los resultados y errores según [`image-product-search-technical.md`](image-product-search-technical.md) §5.3.
+Vigente: dependencias, omisiones (`no_qr_code` ya no es final: continúa a búsqueda visual; `unrecognized_qr_code` sigue siendo final), `match` en los resultados y errores según [`image-product-search-technical.md`](image-product-search-technical.md) §5.3.
 
 `features/orders/application/add-message-products-to-order.ts`. Las omisiones de negocio son resultados exitosos (el job termina sin reintento); los errores son técnicos o de datos.
 
