@@ -12,7 +12,10 @@ export async function indexProductImages() {
   await provider.start();
   try {
     let published = 0;
-    for (const { id } of await systemPrisma.company.findMany({ select: { id: true } })) {
+    // Company has RLS for core_app, so companies are found through their users (auth tables have no RLS).
+    // shortcut: a company without users is skipped, upgrade to a SECURITY DEFINER listing if one ever needs indexing.
+    const users = await systemPrisma.user.findMany({ where: { companyId: { not: null } }, select: { companyId: true }, distinct: ["companyId"] });
+    for (const { companyId: id } of users) {
       const companyId = id as CompanyId;
       await withTenantIsolation(companyId, async () => {
         const missing = await listProductsMissingEmbedding(model);
@@ -30,4 +33,11 @@ export async function indexProductImages() {
   }
 }
 
-await indexProductImages();
+try {
+  await indexProductImages();
+} catch (error) {
+  console.error(error);
+  process.exitCode = 1;
+} finally {
+  await systemPrisma.$disconnect();
+}
