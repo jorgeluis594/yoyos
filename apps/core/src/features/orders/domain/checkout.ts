@@ -32,6 +32,7 @@ export type CheckoutOrder = Readonly<{
   cancelled: boolean;
   checkoutEnabledAt: Date | null;
   checkoutConfirmedAt: Date | null;
+  fromCatalog: boolean;
 }>;
 export type CheckoutState =
   | Readonly<{ kind: "not_enabled" }>

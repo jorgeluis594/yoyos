@@ -4,6 +4,9 @@ import { Minus, Plus, ShoppingBag } from "lucide-react";
 import { Alert, AlertAction, AlertDescription } from "@core/app/components/ui/alert";
 import { Button } from "@core/app/components/ui/button";
 import { Empty, EmptyHeader, EmptyTitle } from "@core/app/components/ui/empty";
+import { Sheet, SheetContent, SheetTrigger } from "@core/app/components/ui/sheet";
+import { CheckoutTheme } from "@core/src/features/checkout-appearance/presentation/checkout-theme";
+import type { PublicCheckoutAppearance } from "@core/src/features/checkout-appearance/presentation/checkout-appearance-schemas";
 import { formatCurrency } from "@core/app/format-currency";
 import { emptyCart, removeLine, setLineQuantity, applyRefresh, readCart, useCatalogCart, type CatalogCart, type CatalogCartLine } from "@core/app/lib/catalog-cart-storage";
 import type { CartRefreshResponse, ContinueResponse } from "@core/app/routes/catalog-cart";
@@ -128,4 +131,22 @@ export function CatalogCartPanel({ companyId, catalogPath }: Readonly<{ companyI
       {(failure === "offline" || failure === "in_doubt" || failure === "failed") && <AlertAction><Button variant="outline" size="sm" disabled={busy} onClick={() => void submit()}>Reintentar</Button></AlertAction>}</Alert>}
     <Button size="lg" disabled={busy} aria-busy={busy} onClick={() => void submit()}><ShoppingBag aria-hidden="true" />{busy ? "Continuando…" : "Continuar"}</Button>
   </section>;
+}
+
+/** Fixed **Carrito** button with the unit count; opens the cart in a side sheet themed like the catalog. */
+export function CatalogCartButton({ companyId, appearance }: Readonly<{ companyId: string; appearance: PublicCheckoutAppearance | null }>) {
+  const [cart] = useCatalogCart(companyId);
+  const units = cart.lines.reduce((sum, line) => sum + line.quantity, 0);
+  return <Sheet>
+    <SheetTrigger asChild>
+      <Button size="lg" className="fixed right-4 bottom-4 z-40 h-12 shadow-lg" aria-label={`Carrito, ${units} ${units === 1 ? "unidad" : "unidades"}`}>
+        <ShoppingBag aria-hidden="true" />Carrito{units > 0 && <span className="rounded-full bg-background px-2 text-xs font-semibold text-foreground tabular-nums">{units}</span>}
+      </Button>
+    </SheetTrigger>
+    <SheetContent title="Carrito" description="El envío se calcula en el siguiente paso">
+      <div className="flex-1 overflow-y-auto"><CheckoutTheme appearance={appearance}><div className="p-5">
+        <CatalogCartPanel companyId={companyId} catalogPath={`/catalogo/${companyId}`} />
+      </div></CheckoutTheme></div>
+    </SheetContent>
+  </Sheet>;
 }

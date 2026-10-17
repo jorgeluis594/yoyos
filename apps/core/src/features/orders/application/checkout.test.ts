@@ -20,7 +20,7 @@ const base: CheckoutOrder = {
   items: [{ id: uuid(3) as OrderItemId, variantId: uuid(4) as VariantId, productName: "Product", variantAttributes: {}, sku: null,
     quantity: 2 as PositiveInteger, unitPrice: { amount: 50, currency: "PEN" }, subtotal: { amount: 100, currency: "PEN" } }],
   delivery: null, deliveryCharge: { amount: 20, currency: "PEN" }, itemsTotal: { amount: 100, currency: "PEN" }, total, cancelled: false,
-  checkoutEnabledAt: new Date("2020-01-01T00:00:00Z"), checkoutConfirmedAt: null,
+  checkoutEnabledAt: new Date("2020-01-01T00:00:00Z"), checkoutConfirmedAt: null, fromCatalog: false,
 };
 
 function fixture(initial: CheckoutOrder | null = base) {
