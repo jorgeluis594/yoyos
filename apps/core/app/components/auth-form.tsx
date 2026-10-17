@@ -14,6 +14,7 @@ import { createCompanyRequestSchema } from "@shared/contracts/registration";
 import { z } from "zod";
 import { authClient } from "@core/src/shared/infrastructure/auth-client";
 import { createCompanyForCurrentUser, registerWeb } from "@core/app/register";
+import { BrandLogo } from "@core/app/components/brand-logo";
 
 const credentialsSchema = z.object({ email: z.email(), password: z.string().min(1) });
 const authResultSchema = z.object({ error: z.object({ message: z.string().optional() }).nullable(), data: z.unknown().nullable() });
@@ -67,7 +68,7 @@ export function AuthForm({ mode, pendingCompany = false }: { mode: "login" | "re
 
   return <AuthLayout>
     <AuthLayoutHeader>
-      <Link to={path("/")} className="text-sm font-semibold text-primary">Yoyos</Link>
+      <Link to={path("/")} className="self-start focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring"><BrandLogo /></Link>
       <AuthLayoutTitle>{pendingCompany ? t("auth.companyTitle") : isRegister ? t("auth.createAccount") : t("common.login")}</AuthLayoutTitle>
       <AuthLayoutDescription>{pendingCompany ? t("auth.companyDescription") : isRegister ? t("auth.registerDescription") : t("auth.loginDescription")}</AuthLayoutDescription>
     </AuthLayoutHeader>

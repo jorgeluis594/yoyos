@@ -3,9 +3,9 @@ import { useTranslation } from "react-i18next";
 import { Check, ChevronRight, House, LogOut, Menu, Moon, ShoppingBag, Sun, ReceiptText, Truck, CreditCard, Palette, Store } from "lucide-react";
 import { Link, Outlet, useLoaderData, useLocation, useNavigate, type LoaderFunctionArgs } from "react-router";
 import { cn } from "@core/app/lib/utils";
+import { BrandLogo } from "@core/app/components/brand-logo";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Button } from "@core/app/components/ui/button";
-import { Card } from "@core/app/components/ui/card";
 import { PageContainer } from "@core/app/components/ui/page-container";
 import { Sheet, SheetContent, SheetTrigger } from "@core/app/components/ui/sheet";
 import { TextLink } from "@core/app/components/ui/text-link";
@@ -20,8 +20,7 @@ export function loader({ context, request }: LoaderFunctionArgs) {
   return { company: company.name, home: companyPath(new URL(request.url).pathname, company.country, "/dashboard"), name: user.name };
 }
 
-function Navigation({ company, name, home, productPath, orderPath, settingsPath, paymentPath, appearancePath, catalogPath, active, dark, pending, error, onTheme, onSignOut, onNavigate }: {
-  company: string;
+function Navigation({ name, home, productPath, orderPath, settingsPath, paymentPath, appearancePath, catalogPath, active, dark, pending, error, onTheme, onSignOut, onNavigate }: {
   name: string;
   home: string;
   productPath: string;
@@ -41,16 +40,9 @@ function Navigation({ company, name, home, productPath, orderPath, settingsPath,
   const { t } = useTranslation();
   return (
     <div className="flex min-h-full flex-col gap-section bg-background px-4 pb-4 pt-3">
-      <Link to={home} onClick={onNavigate} className="flex min-h-app-header items-center gap-3 px-3 text-2xl font-semibold tracking-tight focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">
-        <ShoppingBag className="size-icon-navigation text-primary" aria-hidden="true" />yoyos
+      <Link to={home} onClick={onNavigate} className="flex min-h-app-header items-center px-3 focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">
+        <BrandLogo />
       </Link>
-      <Card className="flex min-w-0 flex-row items-center gap-3 rounded-md px-3 py-3">
-        <span className="grid size-8 shrink-0 place-items-center rounded-sm bg-secondary text-sm font-medium text-secondary-foreground" aria-hidden="true">{company.slice(0, 1).toUpperCase()}</span>
-        <div className="min-w-0">
-          <p className="break-words text-sm font-medium leading-5">{company}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{t("nav.workspace")}</p>
-        </div>
-      </Card>
       <nav aria-label={t("nav.main")}>
         <Link to={home} onClick={onNavigate} data-slot="navigation-link" aria-current={active === "home" ? "page" : undefined} className={`flex min-h-control items-center gap-3 rounded-sm px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background max-md:min-h-touch ${active === "home" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent"}`}>
           <House className="size-icon-navigation shrink-0" aria-hidden="true" />{t("nav.home")}
@@ -135,7 +127,7 @@ export default function PrivateLayout() {
   const appearancePath = home.replace(/\/dashboard$/, "/settings/checkout-appearance");
   const catalogPath = home.replace(/\/dashboard$/, "/settings/catalog");
   const active: "home" | "products" | "new" | "detail" | "orders" | "settings" | "payments" | "appearance" | "catalog" = location.pathname.includes("/settings/catalog") ? "catalog" : location.pathname.includes("/settings/checkout-appearance") ? "appearance" : location.pathname.includes("/settings/payments") ? "payments" : location.pathname.includes("/settings/delivery") ? "settings" : location.pathname.includes("/orders") ? "orders" : location.pathname.endsWith("/products") ? "products" : location.pathname.endsWith("/products/new") ? "new" : location.pathname.includes("/products/") ? "detail" : "home";
-  const navigation = { company, name, home, productPath, orderPath, settingsPath, paymentPath, appearancePath, catalogPath, active, dark, pending, error, onTheme: toggleTheme, onSignOut: signOut };
+  const navigation = { name, home, productPath, orderPath, settingsPath, paymentPath, appearancePath, catalogPath, active, dark, pending, error, onTheme: toggleTheme, onSignOut: signOut };
 
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">

@@ -138,13 +138,15 @@ test("seller manages overlapping zones with delivery options and preserves an ed
       await page.getByLabel("Nombre de la zona", { exact: true }).fill(name);
       await page.getByLabel("Departamento", { exact: true }).selectOption("15");
       await page.getByLabel("Provincia", { exact: true }).selectOption("1501");
-      await page.getByLabel("Buscar distrito", { exact: true }).fill("150122");
-      await page.getByRole("checkbox", { name: "MIRAFLORES · 150122", exact: true }).check();
+      await page.getByLabel("Distritos", { exact: true }).fill("150122");
+      await page.getByRole("option", { name: "MIRAFLORES", exact: true }).click();
+      await page.keyboard.press("Escape");
       if (name === "Cercana") {
         await page.getByLabel("Departamento", { exact: true }).selectOption("04");
         await page.getByLabel("Provincia", { exact: true }).selectOption("0401");
-        await page.getByLabel("Buscar distrito", { exact: true }).fill("040110");
-        await page.getByRole("checkbox", { name: "MIRAFLORES · 040110", exact: true }).check();
+        await page.getByLabel("Distritos", { exact: true }).fill("040110");
+        await page.getByRole("option", { name: "MIRAFLORES", exact: true }).click();
+        await page.keyboard.press("Escape");
         await browserExpect(page.getByText("2 distritos seleccionados", { exact: true })).toBeVisible();
       }
       await page.getByRole("button", { name: "Agregar opción a domicilio", exact: true }).click();
