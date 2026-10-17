@@ -1,6 +1,6 @@
 # Image product search: implementation tasks
 
-**Status:** pending. Design: `docs/image-product-search-technical.md`.
+**Status:** implemented (T0–T3); manual checks with real providers pending (no keys connected). Design: `docs/image-product-search-technical.md`.
 
 ## Order and parallelism
 
