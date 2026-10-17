@@ -8,6 +8,7 @@ import { translations as orderTranslations } from '@mobile/features/orders/prese
 import { orderDetailTranslations } from '@mobile/features/orders/presentation/order-detail-translations';
 import { translations as productTranslations } from '@mobile/features/products/presentation/translations';
 import { translations as deliverySettingsTranslations } from '@mobile/features/delivery-settings/presentation/translations';
+import { translations as catalogTranslations } from '@mobile/features/catalog/presentation/translations';
 import { translations as whatsappTranslations } from '@mobile/features/whatsapp/presentation/translations';
 import { translations as printTranslations } from '@mobile/features/printing/presentation/translations';
 
@@ -25,6 +26,7 @@ const resources = {
     ...productTranslations.es,
     ...printTranslations.es,
     ...deliverySettingsTranslations.es,
+    ...catalogTranslations.es,
     ...whatsappTranslations.es,
   } },
   'pt-BR': { translation: {
@@ -37,6 +39,7 @@ const resources = {
     ...productTranslations['pt-BR'],
     ...printTranslations['pt-BR'],
     ...deliverySettingsTranslations['pt-BR'],
+    ...catalogTranslations['pt-BR'],
     ...whatsappTranslations['pt-BR'],
   } },
 } as const;
