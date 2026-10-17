@@ -3,6 +3,7 @@ import type { Result } from "@shared/result";
 import type { ImageReadError } from "@core/src/shared/images";
 import type { ImageId, ProductId } from "@core/src/features/products/domain/product";
 import type { ReadQrCodes } from "@core/src/features/products/infrastructure/qr-code-reader";
+import type { EmbedImage } from "@core/src/features/products/application/index-product-image";
 import {
   acceptVisualMatch, selectProductCode, selectVisualVariant,
   type CatalogItem, type EmbeddingModel, type EmbeddingVector, type ImageBytes, type MatchConfidence, type VariantQrCode, type VisualCandidate, type VisualChoice,
@@ -30,7 +31,6 @@ export type IdentifyProductsError = Readonly<{
 
 type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 
-export type EmbedImage = (image: ImageBytes) => Promise<Result<EmbeddingVector, Readonly<{ code: "EMBEDDER_UNAVAILABLE" | "INVALID_EMBEDDING"; message: string }>>>;
 export type ChooseProduct = (input: Readonly<{ query: ImageBytes; candidates: readonly Readonly<{ productId: ProductId; image: ImageBytes }>[] }>) =>
   Promise<Result<VisualChoice, Readonly<{ code: "PRODUCT_MATCHER_UNAVAILABLE" | "INVALID_MATCHER_RESPONSE"; message: string }>>>;
 

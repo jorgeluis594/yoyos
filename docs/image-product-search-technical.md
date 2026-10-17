@@ -36,6 +36,7 @@ product create/update with new image ──→ product_image_changed ──→ p
 | Variant of a visual match | Product images live at product level. Only products with exactly one sellable variant are added; otherwise `ambiguous_variant`. |
 | Effect of a visual match | Added to the order like a QR variant when confidence ≥ threshold. No suggestion or confirmation step; the seller removes a wrong item as today. |
 | Vector storage | pgvector in the same PostgreSQL, exact search (no ANN index) filtered by company and model. |
+| Image embedder (founder, 2026-10-17) | OpenAI is the only v1 provider and has no image embedding endpoint (`/v1/embeddings` is text only, checked 2026-10-17), so `openai-image-embedder.ts` implements `EmbedImage` as describe-then-embed: a vision model (`IMAGE_EMBEDDER_MODEL`, default `gpt-6-luna`, Responses API) writes a visual description of the product from the image resized to ≤1024 px JPEG, with a fixed prompt and no seller data or captions; `text-embedding-3-small` (1536 dimensions) embeds that description. `EmbeddingModel` is `openai/<vision-model>+text-embedding-3-small`, so changing either model requires `products:index-images`. Env: `IMAGE_EMBEDDER_PROVIDER=openai`, `IMAGE_EMBEDDER_MODEL`, `OPENAI_API_KEY`; the client timeout is `PRODUCT_MATCH_TIMEOUT_MS` and SDK retries are off (the job retries). |
 | Providers | The founder chooses the embedding model and the vision model before the real adapters are implemented. Vision candidates come from memory: Claude Haiku 5.5, Claude Sonnet 5.5, OpenAI GPT-6 Luna, OpenAI Decisions API. The design is provider-neutral: one adapter per provider behind `EmbedImage` and `ChooseProduct`, selected by env, all passing the same contract tests (§12). v1 implements only the chosen provider of each port. Accuracy evaluations (evals) are out of this design and will be added later. |
 | Where AI code lives | `features/products/infrastructure/product-matching/`. SDK clients are created in `products/composition.ts` from env, like `createR2ImageStorage`. No `ai` feature and no shared AI client while there is one consumer. |
 | Indexing | Event `product_image_changed { companyId, productId }` published after a create or update that sets a new image; handler `index-product-image` embeds it. Command `index-product-images` publishes the event for every product missing an embedding of the current model (recovery and model change). |
@@ -343,7 +344,7 @@ features/products/
 │       ├── product-chooser.contract.ts   # shared contract test suite every ChooseProduct adapter runs
 │       ├── <provider>-product-chooser.ts # one ChooseProduct adapter per provider (only the chosen one in v1)
 │       ├── image-embedder.contract.ts    # shared contract test suite every EmbedImage adapter runs
-│       └── <provider>-image-embedder.ts  # one EmbedImage adapter per provider (only the chosen one in v1)
+│       └── openai-image-embedder.ts      # EmbedImage via describe (vision model) + text-embedding-3-small
 └── composition.ts                        # + provider selection from env, identifyProductsInImage, indexProductImageHandler, publish wiring
 ```
 
@@ -368,6 +369,7 @@ export type EmbedImage = (image: ImageBytes) =>
 ```
 
 - **What is shared and what is per provider.** `product-chooser.ts` owns everything that must be identical across providers so results are comparable: the prompt text, labelling candidates `A`, `B`, …, the output schema `z.strictObject({ choice: z.union([z.enum(labels), z.literal("none")]), confidence: z.number().min(0).max(1) })`, mapping the label back to `productId`, and resizing images. A provider adapter only builds the request in its SDK's format, asks for structured output, extracts the JSON and translates transport errors.
+- **Embedder port location.** `EmbedImage` is declared in `application/index-product-image.ts` (its first consumer); `identify-products-in-image.ts` imports it from there.
 - **Selection.** `products/composition.ts` reads `PRODUCT_MATCHER_PROVIDER` + `PRODUCT_MATCHER_MODEL` and `IMAGE_EMBEDDER_PROVIDER` + `IMAGE_EMBEDDER_MODEL` and builds the adapter with an exhaustive `switch` over the provider names that exist. Unknown provider → startup error. Missing key → `visual: null` (`visual_search_disabled`).
 - **Changing the vision provider** = set the two env variables and redeploy; no data changes.
 - **Changing the embedding provider or model** = set the env variables, redeploy and run `products:index-images`. `EmbeddingModel` is `"<provider>/<model>"`, so searches ignore vectors of the previous model until reindexing finishes.
