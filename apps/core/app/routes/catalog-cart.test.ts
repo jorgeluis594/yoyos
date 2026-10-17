@@ -39,6 +39,18 @@ test("rejects carts over 99 units per line, repeated variants and more than 30 l
   expect(continueToCheckout).not.toHaveBeenCalled();
 });
 
+test("rejects a body over 16 KB before parsing it, with or without Content-Length", async () => {
+  const continueToCheckout = vi.spyOn(catalogCart, "continueToCheckout");
+  // Valid JSON once parsed, so only the size limit rejects it.
+  const padded = post(cart, "198.51.100.3");
+  padded.request = new Request(padded.request.url, { method: "POST", body: JSON.stringify(cart) + " ".repeat(20_000) });
+  expect(await action(padded)).toMatchObject({ data: { code: "INVALID_CART" }, init: { status: 400 } });
+  const declared = post(cart, "198.51.100.3");
+  declared.request = new Request(declared.request.url, { method: "POST", headers: { "Content-Length": "50000000" }, body: JSON.stringify(cart) });
+  expect(await action(declared)).toMatchObject({ data: { code: "INVALID_CART" }, init: { status: 400 } });
+  expect(continueToCheckout).not.toHaveBeenCalled();
+});
+
 test("a 21st Continuar from one IP within 10 minutes returns 429", async () => {
   vi.spyOn(catalogCart, "continueToCheckout").mockResolvedValue(ok({ id: id(2) } as OrderAggregate));
   for (let attempt = 0; attempt < 20; attempt++) expect(await action(post(cart, "192.0.2.50"))).toMatchObject({ init: { status: 200 } });

@@ -125,6 +125,7 @@ type LineIssue = Readonly<{ variantId: VariantId } & (
   | { reason: "unavailable" }                       // deleted or inactive product/variant
   | { reason: "sold_out" }
   | { reason: "insufficient"; available: number }   // 1..98, shown as «Solo quedan n»
+  | { reason: "other_currency" }                    // priced in a currency other than the first sellable line's
 )>;
 type CreateCatalogOrderError =
   | Readonly<{ code: "LINES_UNAVAILABLE"; message: string; issues: readonly LineIssue[] }>
