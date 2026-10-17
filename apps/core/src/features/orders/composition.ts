@@ -28,14 +28,13 @@ import { getOrderAggregate } from "@core/src/features/orders/application/read-or
 import { listOrderAggregates } from "@core/src/features/orders/application/list-order-aggregates";
 import { listOrders } from "@core/src/features/orders/application/read-orders";
 import { allocateOrderNumber, findProcessedMessage, findOpenChatOrderCandidate, saveAddedItems, recordProcessedMessage, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderAggregate, findOrderAggregates, findOrderForUpdate, findOrders, orderExists, resolveBuyerOrderCompany } from "@core/src/features/orders/infrastructure/order-repository";
-import { findSellableVariant, findSellableVariantsByQrCodes, deductProductStock, searchSaleCatalog } from "@core/src/features/products";
+import { findSellableVariant, deductProductStock, searchSaleCatalog } from "@core/src/features/products";
 import { ensureCustomerForContact } from "@core/src/features/contacts";
 import { findOrderSourceMessage } from "@core/src/features/chats";
-import { addMessageProductsToOrder, type AddMessageProductsDependencies, type AddMessageProductsError } from "@core/src/features/orders/application/add-message-products-to-order";
+import { addMessageProductsToOrder, type AddMessageProductsDependencies, type AddMessageProductsError, type MessageProductMatch } from "@core/src/features/orders/application/add-message-products-to-order";
 import { messageOrderPolicy } from "@core/src/features/orders/application/message-order-policy";
-import { readQrCodes } from "@core/src/features/products/infrastructure/qr-code-reader";
+import { products } from "@core/src/features/products/composition";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
-import type { VariantQrCode } from "@core/src/features/products/domain/image-identification";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { CustomerId } from "@core/src/features/contacts/domain/contact";
 import type { EventHandler } from "@core/src/shared/events/application/contracts";
@@ -323,11 +322,7 @@ const messageOrderDependencies: AddMessageProductsDependencies = {
       contactId: message.contactId as ContactId, uploadedByUserId: message.uploadedByUserId as string as UserId, imageId: message.imageId as ImageId | null });
   },
   readImage: (imageId) => readImageBytes(imageId),
-  readQrCodes,
-  findVariantsByCodes: async (codes) => {
-    const found = await findSellableVariantsByQrCodes(codes);
-    return found.success ? ok(found.data.map((item) => ({ ...item, qrCode: item.qrCode as VariantQrCode }))) : found;
-  },
+  identifyProducts: (image) => products.identifyProductsInImage(image),
   findProcessedMessage,
   transaction: scopedOrderTransaction,
   ensureCustomerForContact: async (contactId) => {
@@ -346,7 +341,11 @@ const messageOrderDependencies: AddMessageProductsDependencies = {
 };
 
 export { messageOrderPolicy };
-const retryableCodes: readonly AddMessageProductsError["code"][] = ["PERSISTENCE_UNAVAILABLE", "IMAGE_STORAGE_UNAVAILABLE", "QR_READER_UNAVAILABLE"];
+const retryableCodes: readonly AddMessageProductsError["code"][] = ["PERSISTENCE_UNAVAILABLE", "IMAGE_STORAGE_UNAVAILABLE", "QR_READER_UNAVAILABLE",
+  "EMBEDDER_UNAVAILABLE", "PRODUCT_MATCHER_UNAVAILABLE", "INVALID_MATCHER_RESPONSE"];
+
+const matchFields = (match: MessageProductMatch) => match.method === "qr" ? { matchMethod: match.method, unknownCodes: match.unknownCodes }
+  : { matchMethod: match.method, confidence: match.confidence, candidates: match.candidates };
 
 /** Handler of `message_created`: logs each outcome and tells the bus which failures deserve a retry. */
 export const addMessageProductsHandler: EventHandler<AppEvents, "message_created"> = async (payload, metadata, context) => {
@@ -358,7 +357,7 @@ export const addMessageProductsHandler: EventHandler<AppEvents, "message_created
   if (result.success) {
     const outcome = result.data;
     if (outcome.kind === "order_created" || outcome.kind === "items_added") log.info({ event: outcome.kind === "order_created" ? "orders_message_order_created" : "orders_message_order_items_added",
-      ...base(), orderId: outcome.orderId, variantCount: outcome.variantIds.length, unknownCodes: outcome.unknownCodes }, "Message products added to order");
+      ...base(), orderId: outcome.orderId, variantCount: outcome.variantIds.length, ...matchFields(outcome.match) }, "Message products added to order");
     else log.info({ event: "orders_message_order_skipped", ...base(), ...(outcome.kind === "already_processed" ? { orderId: outcome.orderId, reason: "already_processed" } : { reason: outcome.reason }) },
       "Message skipped for orders");
     return ok(undefined);

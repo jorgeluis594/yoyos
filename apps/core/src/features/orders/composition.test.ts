@@ -25,8 +25,9 @@ vi.mock("@core/src/features/orders/infrastructure/order-repository", () => ({
 }));
 vi.mock("@core/src/features/products", () => ({
   findSellableVariant: async (variantId: string) => ok({ variantId, productName: "Product", variantAttributes: {}, sku: null,
-    unitPrice: { amount: 1, currency: "PEN" } }), deductProductStock: async () => ok(null), searchSaleCatalog: vi.fn(), findSellableVariantsByQrCodes: vi.fn(),
+    unitPrice: { amount: 1, currency: "PEN" } }), deductProductStock: async () => ok(null), searchSaleCatalog: vi.fn(),
 }));
+vi.mock("@core/src/features/products/composition", () => ({ products: { identifyProductsInImage: vi.fn() } }));
 vi.mock("@core/src/features/contacts", () => ({ findContactById: vi.fn(), searchSaleContacts: vi.fn(), ensureCustomerForContact: vi.fn() }));
 vi.mock("@core/src/features/chats", () => ({ findOrderSourceMessage: vi.fn() }));
 const { addMessageProductsToOrder } = vi.hoisted(() => ({ addMessageProductsToOrder: vi.fn() }));
@@ -108,6 +109,25 @@ test("treats persistence, image storage and QR reader failures as retryable", as
   } finally { error.mockRestore(); warn.mockRestore(); addMessageProductsToOrder.mockReset(); }
 });
 
+test("treats embedder and matcher unavailability and invalid matcher responses as retryable", async () => {
+  const warn = vi.spyOn(log, "warn").mockImplementation(() => undefined);
+  try {
+    for (const code of ["EMBEDDER_UNAVAILABLE", "PRODUCT_MATCHER_UNAVAILABLE", "INVALID_MATCHER_RESPONSE"] as const) {
+      addMessageProductsToOrder.mockResolvedValueOnce(err({ code, message: "Unavailable" }));
+      expect(await handle()).toEqual(err({ code, message: "Unavailable", retryable: true }));
+    }
+  } finally { warn.mockRestore(); addMessageProductsToOrder.mockReset(); }
+});
+
+test("treats INVALID_EMBEDDING as permanent", async () => {
+  const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  try {
+    addMessageProductsToOrder.mockResolvedValueOnce(err({ code: "INVALID_EMBEDDING", message: "Wrong dimension" }));
+    expect(await handle()).toEqual(err({ code: "INVALID_EMBEDDING", message: "Wrong dimension", retryable: false }));
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "orders_message_order_failed", code: "INVALID_EMBEDDING", retryable: false }), expect.any(String));
+  } finally { error.mockRestore(); addMessageProductsToOrder.mockReset(); }
+});
+
 test("treats every other error as permanent", async () => {
   const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
   try {
@@ -150,21 +170,32 @@ test("logs created, items added, skipped and failed outcomes with ids and withou
   const unknownCodes = [id(14)];
   const common = { companyId: context.companyId, messageId, eventId, attempt: 2, durationMs: expect.any(Number) };
   try {
-    addMessageProductsToOrder.mockResolvedValueOnce(ok({ kind: "order_created", orderId, variantIds, unknownCodes }));
-    addMessageProductsToOrder.mockResolvedValueOnce(ok({ kind: "items_added", orderId, variantIds, unknownCodes }));
-    addMessageProductsToOrder.mockResolvedValueOnce(ok({ kind: "skipped", reason: "no_qr_code" }));
+    addMessageProductsToOrder.mockResolvedValueOnce(ok({ kind: "order_created", orderId, variantIds, match: { method: "qr", unknownCodes } }));
+    addMessageProductsToOrder.mockResolvedValueOnce(ok({ kind: "items_added", orderId, variantIds, match: { method: "qr", unknownCodes } }));
+    addMessageProductsToOrder.mockResolvedValueOnce(ok({ kind: "skipped", reason: "low_confidence" }));
     addMessageProductsToOrder.mockResolvedValueOnce(ok({ kind: "already_processed", orderId }));
     addMessageProductsToOrder.mockResolvedValueOnce(err({ code: "PERSISTENCE_UNAVAILABLE", message: "+51987654321 bytes" }));
     addMessageProductsToOrder.mockResolvedValueOnce(err({ code: "IMAGE_NOT_FOUND", message: "Image is not available" }));
     for (let call = 0; call < 6; call += 1) await handle(2);
     expect(info.mock.calls.map(([fields]) => fields)).toEqual([
-      { event: "orders_message_order_created", ...common, orderId, variantCount: 1, unknownCodes },
-      { event: "orders_message_order_items_added", ...common, orderId, variantCount: 1, unknownCodes },
-      { event: "orders_message_order_skipped", ...common, reason: "no_qr_code" },
+      { event: "orders_message_order_created", ...common, orderId, variantCount: 1, matchMethod: "qr", unknownCodes },
+      { event: "orders_message_order_items_added", ...common, orderId, variantCount: 1, matchMethod: "qr", unknownCodes },
+      { event: "orders_message_order_skipped", ...common, reason: "low_confidence" },
       { event: "orders_message_order_skipped", ...common, orderId, reason: "already_processed" },
     ]);
     expect(warn.mock.calls.map(([fields]) => fields)).toEqual([{ event: "orders_message_order_failed", ...common, code: "PERSISTENCE_UNAVAILABLE", retryable: true }]);
     expect(error.mock.calls.map(([fields]) => fields)).toEqual([{ event: "orders_message_order_failed", ...common, code: "IMAGE_NOT_FOUND", retryable: false }]);
     expect(JSON.stringify([info.mock.calls, warn.mock.calls, error.mock.calls])).not.toMatch(/51987654321|bytes/);
   } finally { info.mockRestore(); warn.mockRestore(); error.mockRestore(); addMessageProductsToOrder.mockReset(); }
+});
+
+test("logs the match method and confidence without images or product names", async () => {
+  const info = vi.spyOn(log, "info").mockImplementation(() => undefined);
+  try {
+    addMessageProductsToOrder.mockResolvedValueOnce(ok({ kind: "items_added", orderId: id(12), variantIds: [id(13)],
+      match: { method: "visual", confidence: 0.87, candidates: 5 } }));
+    await handle(1);
+    expect(info).toHaveBeenCalledWith({ event: "orders_message_order_items_added", companyId: context.companyId, messageId, eventId, attempt: 1,
+      durationMs: expect.any(Number), orderId: id(12), variantCount: 1, matchMethod: "visual", confidence: 0.87, candidates: 5 }, expect.any(String));
+  } finally { info.mockRestore(); addMessageProductsToOrder.mockReset(); }
 });

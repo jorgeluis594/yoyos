@@ -5,10 +5,13 @@ export type ChatId = string & { readonly __brand: "ChatId" };
 export type MessageOrderSkipReason =
   | "not_image"
   | "outgoing_message"
-  | "no_qr_code"
   | "unreadable_image"
-  | "unrecognized_qr_code"
-  | "product_not_found";
+  | "product_not_found"
+  | "visual_search_disabled"
+  | "no_indexed_products"
+  | "no_visual_match"
+  | "low_confidence"
+  | "ambiguous_variant";
 
 export function isOpenForMessageItems(order: OrderAggregate, chatId: ChatId): boolean {
   return order.chatId === chatId && !order.cancelled && order.completedAt === null

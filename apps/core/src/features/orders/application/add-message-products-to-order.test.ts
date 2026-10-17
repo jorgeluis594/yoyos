@@ -4,7 +4,9 @@ import type { Result } from "@shared/result";
 import { addMessageProductsToOrder, type AddMessageProductsDependencies, type AddMessageProductsError, type OrderSourceMessage, type OrderChatSource,
   type MessageCustomer } from "@core/src/features/orders/application/add-message-products-to-order";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
-import type { VariantQrCode } from "@core/src/features/products/domain/image-identification";
+import type { MatchConfidence, VariantQrCode } from "@core/src/features/products/domain/image-identification";
+import type { ReadQrCodes } from "@core/src/features/products/infrastructure/qr-code-reader";
+import { identifyProductsInImage, type ImageIdentification } from "@core/src/features/products/application/identify-products-in-image";
 import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { CompanyId, ContactId, OrderId, OrderItemId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
@@ -37,7 +39,7 @@ type State = { customers: Map<string, CustomerId>; orders: Map<string, OrderAggr
 
 /** In-memory ports; `transaction` snapshots the state and restores it when the work fails. */
 function harness(options: Readonly<{ message?: OrderSourceMessage | null; decoded?: readonly string[]; variants?: ReturnType<typeof variant>[];
-  orders?: OrderAggregate[]; processed?: [string, OrderId][]; overrides?: Partial<AddMessageProductsDependencies> }> = {}) {
+  readQrCodes?: ReadQrCodes; orders?: OrderAggregate[]; processed?: [string, OrderId][]; overrides?: Partial<AddMessageProductsDependencies> }> = {}) {
   const state: State = { customers: new Map(), orders: new Map((options.orders ?? []).map((order) => [order.id, order])),
     processed: new Map(options.processed ?? []), sources: [], calls: [] };
   const called = <T>(name: string, value: T): T => { state.calls.push(name); return value; };
@@ -45,8 +47,11 @@ function harness(options: Readonly<{ message?: OrderSourceMessage | null; decode
   const deps: AddMessageProductsDependencies = {
     findSourceMessage: async () => called("findSourceMessage", ok(options.message === undefined ? message() : options.message)),
     readImage: async () => called("readImage", ok({ bytes: new Uint8Array([1]), contentType: "image/jpeg" })),
-    readQrCodes: async () => called("readQrCodes", ok(options.decoded ?? [qr(1)])),
-    findVariantsByCodes: async (codes) => called("findVariantsByCodes", ok((options.variants ?? [variant(1), variant(2)]).filter((item) => codes.includes(item.qrCode)))),
+    // The real cascade over fake QR ports; visual search stays disabled unless a test replaces identifyProducts.
+    identifyProducts: (image) => identifyProductsInImage(image, { visual: null,
+      readQrCodes: async (bytes) => called("readQrCodes", options.readQrCodes ? await options.readQrCodes(bytes) : ok(options.decoded ?? [qr(1)])),
+      findVariantsByCodes: async (codes) => called("findVariantsByCodes", ok((options.variants ?? [variant(1), variant(2)]).filter((item) => codes.includes(item.qrCode)))),
+    }),
     findProcessedMessage: async (key) => called("findProcessedMessage", ok(state.processed.get(key) ?? null)),
     transaction: async (_company, work) => {
       state.calls.push("transaction");
@@ -78,7 +83,7 @@ describe("addMessageProductsToOrder", () => {
   test("creates an order for the contact's customer and chat with one item per variant and the uploader as seller", async () => {
     const h = harness({ decoded: [qr(1), qr(2)] });
     const result = await h.run();
-    expect(result).toEqual(ok({ kind: "order_created", orderId: id(500), variantIds: [variant(1).variantId, variant(2).variantId], unknownCodes: [] }));
+    expect(result).toEqual(ok({ kind: "order_created", orderId: id(500), variantIds: [variant(1).variantId, variant(2).variantId], match: { method: "qr", unknownCodes: [] } }));
     expect(h.state.sources).toEqual([{ chatId, customerId: id(400) }]);
     const order = h.state.orders.get(id(500))!;
     expect(order).toMatchObject({ number: 1008, sellerId, buyer: { contactId, name: null, phone: null }, total: money(20), cancelled: false });
@@ -88,7 +93,7 @@ describe("addMessageProductsToOrder", () => {
 
   test("adds the scanned variants to the chat's open order", async () => {
     const h = harness({ decoded: [qr(2)], orders: [existingOrder()] });
-    expect(await h.run()).toEqual(ok({ kind: "items_added", orderId: id(9), variantIds: [variant(2).variantId], unknownCodes: [] }));
+    expect(await h.run()).toEqual(ok({ kind: "items_added", orderId: id(9), variantIds: [variant(2).variantId], match: { method: "qr", unknownCodes: [] } }));
     expect(h.state.orders.get(id(9))).toMatchObject({ total: money(20), items: [{ quantity: 1 }, { variantId: variant(2).variantId, quantity: 1 }] });
     expect(h.state.sources).toEqual([]);
   });
@@ -115,7 +120,7 @@ describe("addMessageProductsToOrder", () => {
 
   test("adds the codes found and reports the unknown ones", async () => {
     const h = harness({ decoded: [qr(1), qr(9)] });
-    expect(await h.run()).toEqual(ok({ kind: "order_created", orderId: id(500), variantIds: [variant(1).variantId], unknownCodes: [qr(9)] }));
+    expect(await h.run()).toEqual(ok({ kind: "order_created", orderId: id(500), variantIds: [variant(1).variantId], match: { method: "qr", unknownCodes: [qr(9)] } }));
   });
 
   test("skips text messages as not_image without reading images", async () => {
@@ -131,14 +136,35 @@ describe("addMessageProductsToOrder", () => {
     expect(h.state.calls).not.toContain("readImage");
   });
 
-  test("skips photos without QR codes as no_qr_code", async () => {
-    expect(await harness({ decoded: [] }).run()).toEqual(ok({ kind: "skipped", reason: "no_qr_code" }));
+  test("skips photos without product QR codes as visual_search_disabled when visual search is off", async () => {
+    for (const decoded of [[], ["https://pay.example/yape"]]) {
+      const h = harness({ decoded });
+      expect(await h.run()).toEqual(ok({ kind: "skipped", reason: "visual_search_disabled" }));
+      expect(h.state.calls).not.toContain("findVariantsByCodes");
+    }
   });
 
-  test("skips photos with only non-product QR codes as unrecognized_qr_code", async () => {
-    const h = harness({ decoded: ["https://pay.example/yape"] });
-    expect(await h.run()).toEqual(ok({ kind: "skipped", reason: "unrecognized_qr_code" }));
-    expect(h.state.calls).not.toContain("findVariantsByCodes");
+  const visual = (outcome: ImageIdentification) => ({ identifyProducts: async () => ok(outcome) });
+  const visualMatch: ImageIdentification = { kind: "found", method: "visual", items: [variant(2)], confidence: 0.9 as MatchConfidence, candidates: 5 };
+
+  test("adds the variant identified visually to the chat's open order", async () => {
+    const h = harness({ orders: [existingOrder()], overrides: visual(visualMatch) });
+    expect(await h.run()).toEqual(ok({ kind: "items_added", orderId: id(9), variantIds: [variant(2).variantId], match: { method: "visual", confidence: 0.9, candidates: 5 } }));
+    expect(h.state.orders.get(id(9))).toMatchObject({ items: [{ variantId: variant(1).variantId }, { variantId: variant(2).variantId, quantity: 1 }] });
+  });
+
+  test("creates an order from a visual match when the chat has no open order", async () => {
+    const h = harness({ overrides: visual(visualMatch) });
+    expect(await h.run()).toEqual(ok({ kind: "order_created", orderId: id(500), variantIds: [variant(2).variantId], match: { method: "visual", confidence: 0.9, candidates: 5 } }));
+    expect(h.state.sources).toEqual([{ chatId, customerId: id(400) }]);
+  });
+
+  test("skips with the identification miss reason when no product is identified", async () => {
+    for (const reason of ["no_indexed_products", "no_visual_match", "low_confidence", "ambiguous_variant"] as const) {
+      const h = harness({ overrides: visual({ kind: "not_found", reason }) });
+      expect(await h.run()).toEqual(ok({ kind: "skipped", reason }));
+      expect(h.state.calls).not.toContain("transaction");
+    }
   });
 
   test("skips as product_not_found when no code matches a sellable variant", async () => {
@@ -171,7 +197,7 @@ describe("addMessageProductsToOrder", () => {
     expect(h.state.customers.size).toBe(0);
   });
 
-  test("reads the image and QR codes before opening the transaction", async () => {
+  test("identifies the products before opening the transaction", async () => {
     const h = harness();
     await h.run();
     const calls = h.state.calls;
@@ -180,7 +206,7 @@ describe("addMessageProductsToOrder", () => {
 
   const failure = (code: AddMessageProductsError["code"]) => err({ code, message: code } as AddMessageProductsError);
   test("skips unreadable images as unreadable_image", async () => {
-    const h = harness({ overrides: { readQrCodes: async () => err({ code: "UNREADABLE_IMAGE" as const, message: "Unreadable image" }) } });
+    const h = harness({ readQrCodes: async () => err({ code: "UNREADABLE_IMAGE" as const, message: "Unreadable image" }) });
     expect(await h.run()).toEqual(ok({ kind: "skipped", reason: "unreadable_image" }));
     expect(h.state.calls).not.toContain("transaction");
   });
@@ -201,16 +227,25 @@ describe("addMessageProductsToOrder", () => {
     }
   });
 
+  test("propagates embedder and matcher failures", async () => {
+    for (const code of ["EMBEDDER_UNAVAILABLE", "INVALID_EMBEDDING", "PRODUCT_MATCHER_UNAVAILABLE", "INVALID_MATCHER_RESPONSE"] as const) {
+      const h = harness({ overrides: { identifyProducts: async () => err({ code, message: code }) } });
+      expect(await h.run()).toEqual(err({ code, message: code }));
+      expect(h.state.calls).not.toContain("transaction");
+    }
+  });
+
   test("propagates PERSISTENCE_UNAVAILABLE, IMAGE_STORAGE_UNAVAILABLE and QR_READER_UNAVAILABLE", async () => {
     const cases = [
     ["PERSISTENCE_UNAVAILABLE", { findProcessedMessage: async () => failure("PERSISTENCE_UNAVAILABLE") }],
     ["IMAGE_STORAGE_UNAVAILABLE", { readImage: async () => failure("IMAGE_STORAGE_UNAVAILABLE") }],
-    ["QR_READER_UNAVAILABLE", { readQrCodes: async () => failure("QR_READER_UNAVAILABLE") }],
     ] as const;
     for (const [code, overrides] of cases) {
       const h = harness({ overrides: overrides as Partial<AddMessageProductsDependencies> });
       expect(await h.run()).toMatchObject({ success: false, error: { code } });
       expect(h.state.orders.size).toBe(0);
     }
+    const unavailable = harness({ readQrCodes: async () => err({ code: "QR_READER_UNAVAILABLE" as const, message: "down" }) });
+    expect(await unavailable.run()).toMatchObject({ success: false, error: { code: "QR_READER_UNAVAILABLE" } });
   });
 });
