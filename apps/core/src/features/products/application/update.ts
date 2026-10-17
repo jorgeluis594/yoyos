@@ -6,6 +6,7 @@ import type { ValidationError } from "@core/src/features/products/domain/errors"
 import type { ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
 import type { ProductReadError, ProductRepository, UpdateChanges } from "@core/src/features/products/application/repository";
 import type { ImageLookupError } from "@core/src/shared/images/application/images";
+import type { EventBusError } from "@core/src/shared/events/application/contracts";
 
 export type UpdateVariantInput = Readonly<{ id: VariantId; sku?: string | null; salePrice?: number; purchasePrice?: number | null }>;
 export type UpdateInput = Readonly<{ name?: string; description?: string | null; imageId?: ImageId | null; variants?: readonly UpdateVariantInput[] }>;
@@ -19,6 +20,8 @@ export type UpdateDependencies = Readonly<{
   repository: Pick<ProductRepository, "get" | "update">;
   findImage: (imageId: ImageId) => Promise<Result<boolean, ImageLookupError>>;
   clock: () => Date;
+  /** Failures are logged by the adapter and recovered by products:index-images; the product stays saved. */
+  publishProductImageChanged: (productId: ProductId) => Promise<Result<void, EventBusError>>;
 }>;
 
 export async function updateProduct(productId: ProductId, input: UpdateInput, deps: UpdateDependencies): Promise<Result<ProductId, UpdateError>> {
@@ -47,5 +50,8 @@ export async function updateProduct(productId: ProductId, input: UpdateInput, de
       ...(variant.purchasePrice === undefined ? {} : { purchasePrice: variant.purchasePrice === null ? null : money(variant.purchasePrice) }),
     })),
   };
-  return deps.repository.update(productId, changes);
+  const updated = await deps.repository.update(productId, changes);
+  // Removing the image publishes nothing: searches filter by the current imageId.
+  if (updated.success && typeof plan.product.imageId === "string") await deps.publishProductImageChanged(productId);
+  return updated;
 }

@@ -6,6 +6,7 @@ import type { ValidationError } from "@core/src/features/products/domain/errors"
 import type { ImageId, Product, ProductId, ProductVariant, VariantId } from "@core/src/features/products/domain/product";
 import type { ProductReadError, ProductRepository } from "@core/src/features/products/application/repository";
 import type { ImageLookupError } from "@core/src/shared/images/application/images";
+import type { EventBusError } from "@core/src/shared/events/application/contracts";
 
 export type CreateVariantInput = RawVariant;
 export type CreateInput = Readonly<{
@@ -27,6 +28,8 @@ export type CreateDependencies = Readonly<{
   findImage: (imageId: ImageId) => Promise<Result<boolean, ImageLookupError>>;
   newId: () => string;
   clock: () => Date;
+  /** Failures are logged by the adapter and recovered by products:index-images; the product stays saved. */
+  publishProductImageChanged: (productId: ProductId) => Promise<Result<void, EventBusError>>;
 }>;
 
 export async function createProduct(input: CreateInput, deps: CreateDependencies): Promise<Result<ProductId, CreateError>> {
@@ -61,5 +64,7 @@ export async function createProduct(input: CreateInput, deps: CreateDependencies
     currency: validated.value.currency, qrCode: deps.newId(), status: "active",
     createdAt: new Date(now), updatedAt: new Date(now), variants,
   };
-  return deps.repository.create(product);
+  const created = await deps.repository.create(product);
+  if (created.success && product.imageId !== undefined) await deps.publishProductImageChanged(created.data);
+  return created;
 }
