@@ -15,6 +15,7 @@ import { setOrderDelivery, type SetDeliveryInput } from "@core/src/features/orde
 import { resolveShippingCost as resolveRatedShippingCost } from "@core/src/features/orders/application/resolve-delivery-selection";
 import { type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import { rejectPendingCatalogOrder } from "@core/src/features/orders/application/reject-pending-catalog-order";
+import { createCatalogOrder, type CatalogOrderAccess, type CreateCatalogOrderError, type CreateCatalogOrderInput } from "@core/src/features/orders/application/create-catalog-order";
 import { z } from "zod";
 import { createOrder, type CreateOrderDependencies } from "@core/src/features/orders/application/create-order";
 import { deductStock, type DeductStockDependencies } from "@core/src/features/orders/application/deduct-stock";
@@ -31,7 +32,7 @@ import { listOrders } from "@core/src/features/orders/application/read-orders";
 import { deleteExpiredCatalogOrders, type DeleteExpiredCatalogOrdersInput } from "@core/src/features/orders/application/delete-expired-catalog-orders";
 import { allocateOrderNumber, findProcessedMessage, findOpenChatOrderCandidate, saveAddedItems, recordProcessedMessage, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderAggregate as findAnyOrderAggregate, findOrderAggregates, findOrderForUpdate as findAnyOrderForUpdate, findOrders, orderExists, resolveBuyerOrderCompany } from "@core/src/features/orders/infrastructure/order-repository";
 import { listCompaniesWithExpiredCatalogOrders, deleteExpiredCatalogOrders as deleteCompanyExpiredCatalogOrders } from "@core/src/features/orders/infrastructure/order-repository";
-import { findSellableVariant, findSellableVariantsByQrCodes, deductProductStock, searchSaleCatalog } from "@core/src/features/products";
+import { findSellableVariant, findSellableVariants, findSellableVariantsByQrCodes, deductProductStock, searchSaleCatalog } from "@core/src/features/products";
 import { ensureCustomerForContact } from "@core/src/features/contacts";
 import { findOrderSourceMessage } from "@core/src/features/chats";
 import { addMessageProductsToOrder, type AddMessageProductsDependencies, type AddMessageProductsError } from "@core/src/features/orders/application/add-message-products-to-order";
@@ -44,7 +45,7 @@ import type { EventHandler } from "@core/src/shared/events/application/contracts
 import type { AppEvents } from "@core/src/shared/events/application/app-events";
 import { findAvailablePublicImage, readImageBytes, resolvePublicImage } from "@core/src/shared/images";
 import { companyPaymentSettings } from "@core/src/features/companies";
-import type { ImageId } from "@core/src/features/products/domain/product";
+import type { ImageId, VariantId } from "@core/src/features/products/domain/product";
 import { orderStateMachine } from "@core/src/features/orders/domain/order-state-machine";
 import type { BuyerPaymentView } from "@shared/contracts/orders";
 import type { CompanyId, ContactId, OrderId, OrderItemId, PaymentId, UserId } from "@core/src/features/orders/domain/order";
@@ -165,7 +166,8 @@ export async function getBuyerPaymentView(id: string) {
   if (!access.success) return access;
   return withTenantIsolation(access.data.companyId, async () => {
     const [found, settings] = await Promise.all([
-      findAnyOrderAggregate(access.data.orderId, access.data.companyId), companyPaymentSettings.get(access.data.companyId),
+      // A pending catalog order is not found here either: payment starts only after the buyer confirms.
+      findOrderAggregate(access.data.orderId, access.data.companyId), companyPaymentSettings.get(access.data.companyId),
     ]);
     if (!found.success) return found;
     if (!found.data) return err({ code: "ORDER_NOT_FOUND" as const, message: "Order not found" });
@@ -204,6 +206,39 @@ export function deleteConfiguredExpiredCatalogOrders(input: DeleteExpiredCatalog
       () => orderTransaction(() => deleteCompanyExpiredCatalogOrders(companyId, cutoff, limit))) });
 }
 
+const checkoutUrl = (companyId: CompanyId, orderId: OrderId) =>
+  new URL(`/checkout/${companyId}/${orderId}`, process.env.BETTER_AUTH_URL ?? "http://localhost:3000").toString();
+
+async function createConfiguredCatalogOrder(input: CreateCatalogOrderInput, access: CatalogOrderAccess): Promise<Result<OrderAggregate, CreateCatalogOrderError>> {
+  requireNoActiveTransaction();
+  let inserted = false;
+  const result = await withTenantIsolation(access.companyId, () => createCatalogOrder(input, access, {
+    transaction: scopedOrderTransaction,
+    findOrder: async (id) => {
+      const found = await findAnyOrderAggregate(id, access.companyId, "create_catalog_order");
+      if (found.success) return found;
+      return err({ code: found.error.code === "PERSISTENCE_UNAVAILABLE" ? found.error.code : "INVALID_STORED_DATA" as const, message: found.error.message });
+    },
+    findSellableVariants: async (ids) => {
+      const found = await findSellableVariants(ids);
+      return found.success ? ok(found.data.map((variant) => ({ ...variant, variantId: variant.variantId as VariantId }))) : found;
+    },
+    allocateNumber: allocateOrderNumber,
+    saveCatalogOrder: async (order) => {
+      const saved = await savePendingOrder(order);
+      if (saved.success) { inserted = true; return saved; }
+      if (saved.error.code === "ORDER_ALREADY_EXISTS") return err({ code: "ORDER_ID_CONFLICT" as const, message: saved.error.message });
+      log.error({ event: "unable_to_save_catalog_order", companyId: access.companyId, errorCode: saved.error.code }, "unable_to_save_catalog_order");
+      return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: saved.error.message });
+    },
+    newItemId: () => randomUUID() as OrderItemId,
+    clock: () => new Date(),
+  }));
+  if (result.success && inserted) log.info({ event: "catalog_order_created", companyId: access.companyId, orderNumber: result.data.number,
+    linesCount: result.data.items.length }, "Catalog order created");
+  return result;
+}
+
 export const orders = {
   confirmCheckoutDelivery: async (input: ConfirmCheckoutDeliveryInput, access: CheckoutAccess) => {
     requireNoActiveTransaction();
@@ -225,6 +260,8 @@ export const orders = {
     return ok(result.data.checkout);
   },
   setDelivery: (input: SetDeliveryInput, context: OrderAccess) => setConfiguredOrderDelivery(input, context),
+  createCatalogOrder: createConfiguredCatalogOrder,
+  checkoutUrl,
   resolveBuyerAccess,
   getBuyerPaymentView,
   enableCheckout: async (orderId: OrderId, access: OrderAccess) => {
@@ -234,7 +271,7 @@ export const orders = {
     if (!result.success) { rejectedCheckout(result.error); return result; }
     bindRequestOperation({ outcome: result.data.changed ? "enabled" : "already_enabled", orderNumber: result.data.number });
     if (result.data.changed) log.info({ event: "order_checkout_enabled", companyId: access.companyId, orderNumber: result.data.number, userId: access.userId }, "Order checkout enabled");
-    return ok({ url: new URL(`/checkout/${access.companyId}/${orderId}`, process.env.BETTER_AUTH_URL ?? "http://localhost:3000").toString() });
+    return ok({ url: checkoutUrl(access.companyId, orderId) });
   },
   getCheckout: async (access: CheckoutAccess) => {
     bindRequestOperation({ operation: "get_checkout" });

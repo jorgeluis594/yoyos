@@ -111,3 +111,24 @@ test("web list counts units across product lines and shows the remaining balance
   const result = await loader(args("http://localhost/es-PE/orders"));
   expect(result.list.items[0]).toMatchObject({ itemCount: 5, balanceDue: money(30), total: money(50) });
 });
+
+test("order list shows «Desde el catálogo» for catalog orders only", async () => {
+  const i18n = createInstance();
+  await i18n.init({ lng: "es", resources });
+  const item = (number: number, source: string) => ({ id: `sale-${number}`, number, source, buyer: { contactId: null, name: "Ana", phone: "+51987654321" },
+    createdAt: "2026-10-17T12:00:00.000Z", itemCount: 1, balanceDue: { amount: 10, currency: "PEN" }, status: "active", paymentStatus: "pending",
+    deliveryStatus: "pending", total: { amount: 10, currency: "PEN" }, checkoutEnabledAt: "2026-10-17T12:00:00.000Z",
+    checkoutConfirmedAt: "2026-10-17T12:05:00.000Z", deliveredAt: null, completedAt: null });
+  const router = createMemoryRouter([{ id: "orders", path: "/", element: createElement(OrderList), loader: () => null }], {
+    hydrationData: { loaderData: { orders: { list: { items: [item(1042, "catalog"), item(1043, "manual")], page: 1, pageSize: 20, total: 2 },
+      filters: { customer: "all", page: 1 }, contacts: [], customerSearch: "", base: "/es-PE/orders" } } },
+  });
+  try {
+    const rows = renderToStaticMarkup(createElement(I18nextProvider, { i18n }, createElement(RouterProvider, { router }))).split("<tr").slice(2);
+    expect(rows[0]).toContain("#1042");
+    expect(rows[0]).toContain("Desde el catálogo");
+    expect(rows[1]).not.toContain("Desde el catálogo");
+  } finally {
+    router.dispose();
+  }
+});

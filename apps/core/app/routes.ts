@@ -13,6 +13,7 @@ export default [
   route("pago/:orderId", "routes/buyer-payment.tsx"),
   route("catalogo/:companyId", "routes/catalog.tsx"),
   route("catalogo/:companyId/productos/:productId", "routes/catalog-product.tsx"),
+  route("catalogo/:companyId/carrito", "routes/catalog-cart.tsx"),
   route("settings/checkout-appearance/preview", "routes/checkout-appearance-preview.tsx", { id: "public-checkout-appearance-preview" }),
   layout("routes/private-layout.tsx", { id: "public-private-layout" }, [
     route("dashboard", "routes/dashboard.tsx", { id: "public-dashboard" }),

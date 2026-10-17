@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useController, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { CheckoutDeliveryFields, type CheckoutDeliveryDraft } from "@core/app/components/checkout-delivery-fields";
@@ -18,6 +18,7 @@ import { bindRequestOperation, log } from "@core/src/shared/infrastructure/logge
 import { buyerPaymentViewSchema, type BuyerPaymentView } from "@shared/contracts/orders";
 import { checkoutAppearance, parseCompanyId } from "@core/src/features/checkout-appearance";
 import { publicCheckoutAppearanceSchema, type PublicCheckoutAppearance } from "@core/src/features/checkout-appearance/presentation/checkout-appearance-schemas";
+import { clearCartForOrder } from "@core/app/lib/catalog-cart-storage";
 import { checkoutBuyerSchema, checkoutPathSchema, checkoutDeliveryOptionsSchema, confirmCheckoutDeliverySchema, publicCheckoutSchema, type CheckoutDeliveryOptions, type PublicCheckoutResponse } from "@shared/contracts/order-checkout";
 
 const privacyHeaders = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
@@ -183,9 +184,11 @@ export default function Checkout() {
   const { t } = useTranslation();
   const initialData = useLoaderData<typeof loader>();
   const initial = initialData.checkout!;
-  const { orderId = "" } = useParams();
+  const { companyId = "", orderId = "" } = useParams();
   const fetcher = useFetcher<typeof action>();
   const checkout = initial.state.kind === "confirmed" ? initial : fetcher.data?.checkout ?? initial;
+  // A catalog cart that created this order is emptied once the buyer confirms it.
+  useEffect(() => { if (checkout.state.kind === "confirmed") clearCartForOrder(companyId, orderId); }, [checkout.state.kind, companyId, orderId]);
   const buyerForm = useForm<{ name: string; phone: string }>({ resolver: zodResolver(checkoutBuyerSchema),
     defaultValues: { name: initial.buyer?.name ?? "", phone: initial.buyer?.phone ?? "" } });
   const name = useController({ name: "name", control: buyerForm.control });

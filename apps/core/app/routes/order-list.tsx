@@ -7,6 +7,7 @@ import { z } from "zod";
 import { Form, isRouteErrorResponse, Link, useLoaderData, useLocation, type LoaderFunctionArgs } from "react-router";
 import { orderBuyerText, WhatsAppMark } from "@core/app/components/order-buyer-label";
 import { BadgeDollarSign, Check, CircleCheck, CircleX, Coins, PackageCheck, Send, SlidersHorizontal, Truck } from "lucide-react";
+import { Badge } from "@core/app/components/ui/badge";
 import { listOrderAggregatesSchema, orderListLoaderSchema } from "@shared/contracts/orders";
 import { limaMidnightUtc } from "@shared/orders-date";
 import { privateUserContext } from "@core/app/private-user-context";
@@ -60,6 +61,7 @@ export default function OrderList() {
   const columns: TableColumn<Sale>[] = [
     { id: "number", header: t("orders.listOrder"), mobile: "title", cell: (item) => <div className="flex flex-col items-start">
       <TextLink asChild><Link to={`${base}/${item.id}`} aria-label={t("orders.orderNumber", { number: item.number })}>#{item.number}</Link></TextLink>
+      {item.source === "catalog" && <Badge variant="secondary">{t("orders.fromCatalog")}</Badge>}
       <OrderStateIndicators states={item.status === "active" ? [
         { kind: "payment", state: item.paymentStatus, label: item.paymentStatus === "paid" ? t("orders.listStatus.paid") : t("orders.listBalance", { amount: formatCurrency(item.balanceDue.amount, item.balanceDue.currency, i18n.language) }) },
         { kind: "delivery", state: item.deliveryStatus, label: `${t("orders.delivery")}: ${t(`orders.deliveryStatus.${item.deliveryStatus}`)}` },
