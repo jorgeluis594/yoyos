@@ -13,22 +13,22 @@ T1 and T2 run in parallel. Their use cases and tests use fake adapters; the real
 
 ## T0. pgvector, embeddings table and `product_image_changed` type
 
-**Scope:** database image `pgvector/pgvector:0.8.1-pg18` in `compose.yaml` and `compose.prod.yaml`; Prisma `extensions = [vector]`; model `ProductImageEmbedding` with RLS; migration `add_product_image_embeddings` generated with the CLI (`.agents/skills/database-migrations/SKILL.md`); `features/products/application/events.ts` with `ProductImageChanged` and `parseProductImageChanged` in `products/infrastructure/event-payloads.ts`.
+**Scope:** database image `pgvector/pgvector:0.8.1-pg18` in `compose.yaml` and `compose.prod.yaml`; Prisma `extensions = [vector]`; model `ProductImageEmbedding` with RLS (since replaced by `ImageEmbedding`, keyed by company, image and model; see technical design §7); migration `add_product_image_embeddings` generated with the CLI (`.agents/skills/database-migrations/SKILL.md`); `features/products/application/events.ts` with `ProductImageChanged` and `parseProductImageChanged` in `products/infrastructure/event-payloads.ts`.
 **Out of scope:** repository functions, use cases, providers.
 **Acceptance criteria:**
 1. `docker compose up --build` with the existing volume starts PostgreSQL with the previous data and `SELECT extname FROM pg_extension` lists `vector`.
 2. As `core_app` with company A set, a row inserted for company B is invisible.
 3. `parseProductImageChanged({ companyId, productId, extra: 1 })` fails with `INVALID_EVENT`.
-4. Deleting a product deletes its embedding rows.
+4. Deleting a product deletes its embedding rows. (Superseded: embeddings belong to the image, so deleting the image deletes them; technical design §7.)
 **Depends on:** nothing.
 
 ## T1. Product image indexing
 
-**Scope:** `indexProductImage`; publication of `product_image_changed` in `createProduct` and `updateProduct`; `product-image-embeddings.ts` (`findImageIndexState`, `saveEmbedding`, `listProductsMissingEmbedding`); `<provider>-image-embedder.ts` for the chosen provider, passing `image-embedder.contract.ts`; handler `index-product-image` in `composition/event-handlers.ts` and `products/composition.ts`; command `products:index-images`; logs from §13. Tests from §14: `index-product-image.test.ts`, create/update publication tests, the embedder contract tests, `event-payloads.test.ts`, embeddings integration tests on save and isolation, `index-product-image.integration.test.ts`, handler registration.
+**Scope:** `indexProductImage`; publication of `product_image_changed` in `createProduct` and `updateProduct`; `product-image-embeddings.ts`, now `image-embeddings.ts` (`findImageIndexState`, `saveEmbedding`, `listProductsMissingEmbedding`); `<provider>-image-embedder.ts` for the chosen provider, passing `image-embedder.contract.ts`; handler `index-product-image` in `composition/event-handlers.ts` and `products/composition.ts`; command `products:index-images`; logs from §13. Tests from §14: `index-product-image.test.ts`, create/update publication tests, the embedder contract tests, `event-payloads.test.ts`, embeddings integration tests on save and isolation, `index-product-image.integration.test.ts`, handler registration.
 **Out of scope:** search.
 **Acceptance criteria:**
-1. Creating a product with an image leaves one `ProductImageEmbedding` row with the configured model after the worker runs.
-2. Changing the image replaces the row; an event for the old image arriving late ends `image_replaced` and leaves the new embedding.
+1. Creating a product with an image leaves one `ImageEmbedding` row (originally `ProductImageEmbedding`) with the configured model after the worker runs.
+2. Changing the image replaces the row; an event for the old image arriving late ends `image_replaced` and leaves the new embedding. (Superseded by `ImageEmbedding`: the new image gets its own row, the old image's row stays cached and search ignores it; there is no `image_replaced` outcome; technical design §5.1, §7.)
 3. Updating name or price publishes nothing.
 4. With the embedder returning 503, the job is retried and the product is saved anyway.
 5. Running the command twice publishes events only for products without an embedding of the current model.

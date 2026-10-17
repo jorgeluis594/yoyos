@@ -12,8 +12,9 @@ message_created ──→ orders.addMessageProductsToOrder
                         ▼
                     products.identifyProductsInImage           ← cascade, owned by products
                         ├─ 1. readQrCodes → selectProductCode → findSellableVariantsByQrCodes
-                        │      found / unknown codes / unreadable → stop
-                        └─ 2. no product QR → embedImage → findNearestProductImages (pgvector, top K)
+                        │      found / unknown codes / only non-product QR / unreadable → stop
+                        └─ 2. no QR code at all → hasIndexedProducts (false → no_indexed_products, no embedder call)
+                               → embedImage → findNearestProductImages (pgvector, top K)
                                → readImageBytes ×K → chooseProduct (vision model)
                                → acceptVisualMatch (domain) → findSellableVariantsOfProduct
                         ▼
