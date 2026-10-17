@@ -46,3 +46,8 @@ export interface EventSubscriber<Events extends object> {
   ): Promise<Result<Unsubscribe, EventBusError>>;
 }
 export interface EventBusProvider<Events extends object> extends EventPublisher<Events>, EventSubscriber<Events> {}
+export type ScheduledJobHandler = (context: EventHandlerContext) => Promise<Result<void, EventHandlerError>>;
+export type ScheduleOptions = Readonly<{ tz: string }>;
+export interface JobScheduler {
+  schedule(name: string, cron: string, handler: ScheduledJobHandler, options: ScheduleOptions): Promise<Result<Unsubscribe, EventBusError>>;
+}

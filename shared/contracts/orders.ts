@@ -18,9 +18,9 @@ export const orderCustomerSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("contact"), contactId: z.uuid(), name: z.string().nullable(), phone: z.string().nullable() }),
 ]);
 export const orderBuyerSchema = z.strictObject({ contactId: z.uuid().nullable(), name: z.string().nullable(), phone: z.string().nullable() });
-export const orderSourceSchema = z.enum(["manual", "whatsapp"]);
+export const orderSourceSchema = z.enum(["manual", "whatsapp", "catalog"]);
 export const orderItemSchema = z.strictObject({ id: z.uuid(), variantId: z.uuid(), productName: z.string(), variantAttributes: z.record(z.string(), z.string()), sku: z.string().nullable(), quantity: z.number().int().positive().safe(), unitPrice: z.number().positive(), subtotal: z.number().positive() });
-export const orderSchema = z.strictObject({ number: z.number().int().safe().min(1001), id: z.uuid(), companyId: z.uuid(), sellerId: z.string(), buyer: orderBuyerSchema.nullable(), source: orderSourceSchema, paymentMethod: z.literal("digital_wallet"), completedAt: z.iso.datetime(), currency: z.enum(currencies), items: z.array(orderItemSchema).min(1), total: z.number().positive() });
+export const orderSchema = z.strictObject({ number: z.number().int().safe().min(1001), id: z.uuid(), companyId: z.uuid(), sellerId: z.string().nullable(), buyer: orderBuyerSchema.nullable(), source: orderSourceSchema, paymentMethod: z.literal("digital_wallet"), completedAt: z.iso.datetime(), currency: z.enum(currencies), items: z.array(orderItemSchema).min(1), total: z.number().positive() });
 export type OrderResponse = z.infer<typeof orderSchema>;
 
 export { moneySchema } from "@shared/contracts/money";
@@ -93,7 +93,7 @@ export const paymentSchema = z.discriminatedUnion("status", [
   z.strictObject({ ...paymentIdentitySchema, status: z.literal("voided"), amount: moneySchema,
     method: z.enum(["digital_wallet", "bank_transfer"]), data: confirmationDataSchema.extend({ voidedAt: z.iso.datetime(), voidedBy: z.string().min(1) }) }),
 ]);
-export const orderAggregateSchema = z.strictObject({ checkoutEnabledAt: z.iso.datetime().nullable(), checkoutConfirmedAt: z.iso.datetime().nullable(), number: z.number().int().safe().min(1001), id: z.uuid(), companyId: z.uuid(), sellerId: z.string(), buyer: orderBuyerSchema.nullable(), source: orderSourceSchema,
+export const orderAggregateSchema = z.strictObject({ checkoutEnabledAt: z.iso.datetime().nullable(), checkoutConfirmedAt: z.iso.datetime().nullable(), number: z.number().int().safe().min(1001), id: z.uuid(), companyId: z.uuid(), sellerId: z.string().nullable(), buyer: orderBuyerSchema.nullable(), source: orderSourceSchema,
   createdAt: z.iso.datetime(), scheduledDispatchDate: dispatchDateSchema.nullable(), shippedAt: z.iso.datetime().nullable(), deliveredAt: z.iso.datetime().nullable(), completedAt: z.iso.datetime().nullable(), status: z.enum(["active", "cancelled", "completed"]),
   paymentStatus: z.enum(["pending", "paid"]), paidAmount: moneySchema, balanceDue: moneySchema, overpaidAmount: moneySchema,
   cancelled: z.boolean(), delivery: deliverySnapshotSchema.nullable(), deliveryStatus: z.enum(["pending", "shipped", "delivered"]),

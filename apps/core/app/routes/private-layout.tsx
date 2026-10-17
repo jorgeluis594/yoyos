@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, ChevronRight, House, LogOut, Menu, Moon, ShoppingBag, Sun, ReceiptText, Truck, CreditCard, Palette } from "lucide-react";
+import { Check, ChevronRight, House, LogOut, Menu, Moon, ShoppingBag, Sun, ReceiptText, Truck, CreditCard, Palette, Store } from "lucide-react";
 import { Link, Outlet, useLoaderData, useLocation, useNavigate, type LoaderFunctionArgs } from "react-router";
 import { cn } from "@core/app/lib/utils";
+import { BrandLogo } from "@core/app/components/brand-logo";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Button } from "@core/app/components/ui/button";
-import { Card } from "@core/app/components/ui/card";
 import { PageContainer } from "@core/app/components/ui/page-container";
 import { Sheet, SheetContent, SheetTrigger } from "@core/app/components/ui/sheet";
 import { TextLink } from "@core/app/components/ui/text-link";
@@ -20,8 +20,7 @@ export function loader({ context, request }: LoaderFunctionArgs) {
   return { company: company.name, home: companyPath(new URL(request.url).pathname, company.country, "/dashboard"), name: user.name };
 }
 
-function Navigation({ company, name, home, productPath, orderPath, settingsPath, paymentPath, appearancePath, active, dark, pending, error, onTheme, onSignOut, onNavigate }: {
-  company: string;
+function Navigation({ name, home, productPath, orderPath, settingsPath, paymentPath, appearancePath, catalogPath, active, dark, pending, error, onTheme, onSignOut, onNavigate }: {
   name: string;
   home: string;
   productPath: string;
@@ -29,7 +28,8 @@ function Navigation({ company, name, home, productPath, orderPath, settingsPath,
   settingsPath: string;
   paymentPath: string;
   appearancePath: string;
-  active: "home" | "products" | "new" | "detail" | "orders" | "settings" | "payments" | "appearance";
+  catalogPath: string;
+  active: "home" | "products" | "new" | "detail" | "orders" | "settings" | "payments" | "appearance" | "catalog";
   dark: boolean;
   pending: boolean;
   error: string;
@@ -40,16 +40,9 @@ function Navigation({ company, name, home, productPath, orderPath, settingsPath,
   const { t } = useTranslation();
   return (
     <div className="flex min-h-full flex-col gap-section bg-background px-4 pb-4 pt-3">
-      <Link to={home} onClick={onNavigate} className="flex min-h-app-header items-center gap-3 px-3 text-2xl font-semibold tracking-tight focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">
-        <ShoppingBag className="size-icon-navigation text-primary" aria-hidden="true" />yoyos
+      <Link to={home} onClick={onNavigate} className="flex min-h-app-header items-center px-3 focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring">
+        <BrandLogo />
       </Link>
-      <Card className="flex min-w-0 flex-row items-center gap-3 rounded-md px-3 py-3">
-        <span className="grid size-8 shrink-0 place-items-center rounded-sm bg-secondary text-sm font-medium text-secondary-foreground" aria-hidden="true">{company.slice(0, 1).toUpperCase()}</span>
-        <div className="min-w-0">
-          <p className="break-words text-sm font-medium leading-5">{company}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{t("nav.workspace")}</p>
-        </div>
-      </Card>
       <nav aria-label={t("nav.main")}>
         <Link to={home} onClick={onNavigate} data-slot="navigation-link" aria-current={active === "home" ? "page" : undefined} className={`flex min-h-control items-center gap-3 rounded-sm px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background max-md:min-h-touch ${active === "home" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent"}`}>
           <House className="size-icon-navigation shrink-0" aria-hidden="true" />{t("nav.home")}
@@ -63,6 +56,7 @@ function Navigation({ company, name, home, productPath, orderPath, settingsPath,
         <Link to={settingsPath} onClick={onNavigate} data-slot="navigation-link" aria-current={active === "settings" ? "page" : undefined} className={cn("mt-1 flex min-h-control items-center gap-3 rounded-sm px-3 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring max-md:min-h-touch", active === "settings" ? "bg-accent text-accent-foreground" : "text-muted-foreground")}><Truck className="size-icon-navigation shrink-0" aria-hidden="true" />{t("deliverySettings.title")}{active === "settings" && <Check className="ml-auto size-icon-inline" aria-hidden="true" />}</Link>
         <Link to={paymentPath} onClick={onNavigate} data-slot="navigation-link" aria-current={active === "payments" ? "page" : undefined} className={`mt-1 flex min-h-control items-center gap-3 rounded-sm px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-background max-md:min-h-touch ${active === "payments" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent"}`}><CreditCard className="size-icon-navigation shrink-0" aria-hidden="true" />{t("nav.paymentSettings")}{active === "payments" && <Check className="ml-auto size-icon-inline" aria-hidden="true" />}</Link>
         <Link to={appearancePath} onClick={onNavigate} data-slot="navigation-link" aria-current={active === "appearance" ? "page" : undefined} className={cn("mt-1 flex min-h-control items-center gap-3 rounded-sm px-3 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring max-md:min-h-touch", active === "appearance" ? "bg-accent text-accent-foreground" : "text-muted-foreground")}><Palette className="size-icon-navigation shrink-0" aria-hidden="true" />{t("nav.checkoutAppearance")}{active === "appearance" && <Check className="ml-auto size-icon-inline" aria-hidden="true" />}</Link>
+        <Link to={catalogPath} onClick={onNavigate} data-slot="navigation-link" aria-current={active === "catalog" ? "page" : undefined} className={cn("mt-1 flex min-h-control items-center gap-3 rounded-sm px-3 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring max-md:min-h-touch", active === "catalog" ? "bg-accent text-accent-foreground" : "text-muted-foreground")}><Store className="size-icon-navigation shrink-0" aria-hidden="true" />{t("nav.catalogSettings")}{active === "catalog" && <Check className="ml-auto size-icon-inline" aria-hidden="true" />}</Link>
       </nav>
       <div className="mt-auto flex flex-col gap-2 border-t border-border pt-4">
         <div className="flex min-w-0 items-center gap-3 px-3 pb-2">
@@ -131,8 +125,9 @@ export default function PrivateLayout() {
   const paymentPath = home.replace(/\/dashboard$/, "/settings/payments");
   const settingsPath = home.replace(/\/dashboard$/, "/settings/delivery");
   const appearancePath = home.replace(/\/dashboard$/, "/settings/checkout-appearance");
-  const active: "home" | "products" | "new" | "detail" | "orders" | "settings" | "payments" | "appearance" = location.pathname.includes("/settings/checkout-appearance") ? "appearance" : location.pathname.includes("/settings/payments") ? "payments" : location.pathname.includes("/settings/delivery") ? "settings" : location.pathname.includes("/orders") ? "orders" : location.pathname.endsWith("/products") ? "products" : location.pathname.endsWith("/products/new") ? "new" : location.pathname.includes("/products/") ? "detail" : "home";
-  const navigation = { company, name, home, productPath, orderPath, settingsPath, paymentPath, appearancePath, active, dark, pending, error, onTheme: toggleTheme, onSignOut: signOut };
+  const catalogPath = home.replace(/\/dashboard$/, "/settings/catalog");
+  const active: "home" | "products" | "new" | "detail" | "orders" | "settings" | "payments" | "appearance" | "catalog" = location.pathname.includes("/settings/catalog") ? "catalog" : location.pathname.includes("/settings/checkout-appearance") ? "appearance" : location.pathname.includes("/settings/payments") ? "payments" : location.pathname.includes("/settings/delivery") ? "settings" : location.pathname.includes("/orders") ? "orders" : location.pathname.endsWith("/products") ? "products" : location.pathname.endsWith("/products/new") ? "new" : location.pathname.includes("/products/") ? "detail" : "home";
+  const navigation = { name, home, productPath, orderPath, settingsPath, paymentPath, appearancePath, catalogPath, active, dark, pending, error, onTheme: toggleTheme, onSignOut: signOut };
 
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
@@ -153,7 +148,7 @@ export default function PrivateLayout() {
               <li className="min-w-0 truncate text-muted-foreground" title={company}>{company}</li>
               <li className="flex shrink-0 items-center gap-3" aria-current="page">
                 <ChevronRight className="size-icon-inline text-muted-foreground" aria-hidden="true" />
-                <span className="font-medium">{active === "settings" ? t("deliverySettings.title") : active === "payments" ? t("nav.paymentSettings") : active === "appearance" ? t("nav.checkoutAppearance") : active === "home" ? t("nav.home") : active === "products" ? t("nav.products") : active === "new" ? t("nav.newProduct") : active === "orders" ? t("nav.orders") : t("nav.product")}</span>
+                <span className="font-medium">{active === "settings" ? t("deliverySettings.title") : active === "payments" ? t("nav.paymentSettings") : active === "appearance" ? t("nav.checkoutAppearance") : active === "catalog" ? t("nav.catalogSettings") : active === "home" ? t("nav.home") : active === "products" ? t("nav.products") : active === "new" ? t("nav.newProduct") : active === "orders" ? t("nav.orders") : t("nav.product")}</span>
               </li>
             </ol>
           </nav>

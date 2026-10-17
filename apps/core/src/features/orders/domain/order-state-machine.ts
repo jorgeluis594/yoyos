@@ -40,7 +40,9 @@ export type OrderAggregate = Readonly<{
   number: OrderNumber;
   id: OrderId;
   companyId: CompanyId;
-  sellerId: UserId;
+  /** null only for catalog orders, which have no creating user. */
+  sellerId: UserId | null;
+  fromCatalog: boolean;
   buyer: OrderBuyer | null;
   /** Chat que originó la orden; ausente o null en órdenes manuales. */
   chatId?: ChatId | null;
@@ -77,11 +79,26 @@ export type CancelledOrder = OrderAggregate & Readonly<{ cancelled: true; delive
 export type AggregateValidationError = Readonly<{ code: "INVALID_ORDER" | "INVALID_PAYMENT" | "CURRENCY_MISMATCH"; message: string }>;
 export type CancellationDomainError = AggregateValidationError | Readonly<{ code: "INVALID_TRANSITION"; message: string }>;
 export type CancellationPlan = Readonly<{ nextOrder: CancelledOrder; emitOrderCancelled: boolean }>;
-export type BuildPendingOrderInput = BuildOrderInput & Readonly<{ number: OrderNumber; scheduledDispatchDate?: DispatchDate }>;
+export type BuildPendingOrderInput = Omit<BuildOrderInput, "sellerId"> & Readonly<{ sellerId: UserId; number: OrderNumber; scheduledDispatchDate?: DispatchDate }>;
+export type BuildPendingCatalogOrderInput = Omit<BuildPendingOrderInput, "sellerId">;
 export type DispatchScheduleChange = Pick<OrderAggregate, "scheduledDispatchDate">;
 export type FulfillmentChange = Pick<OrderAggregate, "deliveryStatus" | "shippedAt" | "deliveredAt" | "completedAt">;
 
+export function orderSource(order: Readonly<{ fromCatalog: boolean; chatId?: string | null }>) {
+  return order.fromCatalog ? "catalog" as const : order.chatId ? "whatsapp" as const : "manual" as const;
+}
+
 export function buildPendingOrder(input: BuildPendingOrderInput): Result<OrderAggregate, BuildOrderError> {
+  if (!input.sellerId) return err({ code: "INVALID_ORDER", message: "Order requires a seller" });
+  return newPendingOrder(input, false);
+}
+
+/** The only order built without a seller: a catalog order has none until the seller takes it. */
+export function buildPendingCatalogOrder(input: BuildPendingCatalogOrderInput): Result<OrderAggregate, BuildOrderError> {
+  return newPendingOrder({ ...input, sellerId: null }, true);
+}
+
+function newPendingOrder(input: BuildOrderInput & Pick<BuildPendingOrderInput, "number" | "scheduledDispatchDate">, fromCatalog: boolean): Result<OrderAggregate, BuildOrderError> {
   if (!parseOrderNumber(input.number).success) return err({ code: "INVALID_ORDER", message: "Invalid order number" });
   const built = buildOrder(input);
   if (!built.success) return built;
@@ -89,7 +106,7 @@ export function buildPendingOrder(input: BuildPendingOrderInput): Result<OrderAg
   const zero: Money = { amount: 0, currency: snapshot.total.currency };
   return ok({ number: input.number, id: snapshot.id, companyId: snapshot.companyId, sellerId: snapshot.sellerId,
     buyer: snapshot.customer.kind === "contact" ? { contactId: snapshot.customer.contactId, name: snapshot.customer.name, phone: snapshot.customer.phone } : null,
-    checkoutEnabledAt: null, checkoutConfirmedAt: null, items: snapshot.items, total: snapshot.total,
+    fromCatalog, checkoutEnabledAt: null, checkoutConfirmedAt: null, items: snapshot.items, total: snapshot.total,
     createdAt: new Date(input.createdAt), scheduledDispatchDate: input.scheduledDispatchDate ?? null, shippedAt: null, deliveredAt: null, completedAt: null, cancelled: false,
     payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false,
     itemsTotal: snapshot.total, deliveryCost: zero, deliveryCharge: zero });
@@ -178,7 +195,7 @@ export function validateDeliveryCost(cost: Money, currency: Currency): Result<Mo
 }
 
 function paymentSummary(order: OrderAggregate): Result<PaymentSummary, AggregateValidationError> {
-  if (!uuid.test(order.id) || !uuid.test(order.companyId) || !order.sellerId || !order.items.length ||
+  if (!uuid.test(order.id) || !uuid.test(order.companyId) || (order.sellerId === null ? !order.fromCatalog : !order.sellerId) || !order.items.length ||
     (order.delivery !== null && !delivery.safeParse(order.delivery).success) ||
     !validMoney(order.total, true) || !validMoney(order.itemsTotal, true) || !validMoney(order.deliveryCost, false) || !validMoney(order.deliveryCharge, false) ||
     order.itemsTotal.currency !== order.total.currency || order.deliveryCost.currency !== order.total.currency || order.deliveryCharge.currency !== order.total.currency ||
