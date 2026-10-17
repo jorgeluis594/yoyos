@@ -26,6 +26,7 @@ export default [
     route("orders/:orderId", "routes/order-detail.tsx", { id: "public-order-detail" }),
     route("settings/payments", "routes/payment-settings.tsx", { id: "public-payment-settings" }),
     route("settings/checkout-appearance", "routes/checkout-appearance-settings.tsx", { id: "public-checkout-appearance-settings" }),
+    route("settings/catalog", "routes/catalog-settings.tsx", { id: "public-catalog-settings" }),
   ]),
   route(":locale", "routes/locale-layout.tsx", [
     index("routes/home.tsx"),
@@ -48,6 +49,7 @@ export default [
       route("orders/:orderId", "routes/order-detail.tsx", { id: "localized-order-detail" }),
       route("settings/payments", "routes/payment-settings.tsx", { id: "localized-payment-settings" }),
       route("settings/checkout-appearance", "routes/checkout-appearance-settings.tsx", { id: "localized-checkout-appearance-settings" }),
+      route("settings/catalog", "routes/catalog-settings.tsx", { id: "localized-catalog-settings" }),
     ]),
   ]),
 ] satisfies RouteConfig;
