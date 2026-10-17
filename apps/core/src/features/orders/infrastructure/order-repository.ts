@@ -39,6 +39,37 @@ export async function resolveBuyerOrderCompany(id: OrderId) {
   }
 }
 
+/** Definer function: returns only company ids, so each delete still runs under RLS. */
+export async function listCompaniesWithExpiredCatalogOrders(cutoff: Date) {
+  try {
+    const rows = await systemPrisma.$queryRaw<{ companyId: string }[]>`SELECT public.list_companies_with_expired_catalog_orders(${cutoff}::timestamptz) AS "companyId"`;
+    return ok(rows.map((row) => row.companyId as CompanyId));
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to list companies with expired catalog orders" });
+  }
+}
+
+/** SKIP LOCKED leaves an order being confirmed; the re-evaluated WHERE then no longer matches it. */
+export async function deleteExpiredCatalogOrders(companyId: CompanyId, cutoff: Date, limit: number) {
+  requireActiveTransaction(companyId);
+  try {
+    const deleted = await prisma.$executeRaw`WITH doomed AS (
+        SELECT id FROM "Order"
+        WHERE "companyId" = ${companyId}::uuid AND "fromCatalog" AND "checkoutConfirmedAt" IS NULL AND "createdAt" < ${cutoff}::timestamptz
+          AND NOT EXISTS (SELECT 1 FROM "Payment" p WHERE p."orderId" = "Order".id)
+        ORDER BY "createdAt" LIMIT ${limit}
+        FOR UPDATE SKIP LOCKED
+      ), items AS (DELETE FROM "OrderItem" WHERE "orderId" IN (SELECT id FROM doomed))
+      DELETE FROM "Order" WHERE id IN (SELECT id FROM doomed)`;
+    return ok(deleted);
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_delete_catalog_orders", companyId, errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "Unable to delete catalog orders");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to delete catalog orders" });
+  }
+}
+
 function mapPaymentUnsafe(row: DbAggregate["payments"][number]): Payment {
   if (!isCurrency(row.currency)) throw new InvalidStoredOrderError("Invalid stored payment currency");
   let candidate: unknown;

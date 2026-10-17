@@ -28,7 +28,9 @@ import { registerShipment, registerDelivery, type FulfillOrderDependencies } fro
 import { getOrderAggregate } from "@core/src/features/orders/application/read-order-aggregate";
 import { listOrderAggregates } from "@core/src/features/orders/application/list-order-aggregates";
 import { listOrders } from "@core/src/features/orders/application/read-orders";
+import { deleteExpiredCatalogOrders, type DeleteExpiredCatalogOrdersInput } from "@core/src/features/orders/application/delete-expired-catalog-orders";
 import { allocateOrderNumber, findProcessedMessage, findOpenChatOrderCandidate, saveAddedItems, recordProcessedMessage, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderAggregate as findAnyOrderAggregate, findOrderAggregates, findOrderForUpdate as findAnyOrderForUpdate, findOrders, orderExists, resolveBuyerOrderCompany } from "@core/src/features/orders/infrastructure/order-repository";
+import { listCompaniesWithExpiredCatalogOrders, deleteExpiredCatalogOrders as deleteCompanyExpiredCatalogOrders } from "@core/src/features/orders/infrastructure/order-repository";
 import { findSellableVariant, findSellableVariantsByQrCodes, deductProductStock, searchSaleCatalog } from "@core/src/features/products";
 import { ensureCustomerForContact } from "@core/src/features/contacts";
 import { findOrderSourceMessage } from "@core/src/features/chats";
@@ -193,6 +195,13 @@ export async function getBuyerPaymentView(id: string) {
         receiptImageUrl: imageId ? images.get(imageId) ?? null : null }; }) };
     return { success: true as const, data: view };
   });
+}
+
+/** Worker sweep: each company's batch runs in its own transaction under RLS. */
+export function deleteConfiguredExpiredCatalogOrders(input: DeleteExpiredCatalogOrdersInput) {
+  return deleteExpiredCatalogOrders(input, { listCompaniesWithExpiredCatalogOrders,
+    deleteExpiredCatalogOrders: (companyId, cutoff, limit) => withTenantIsolation(companyId,
+      () => orderTransaction(() => deleteCompanyExpiredCatalogOrders(companyId, cutoff, limit))) });
 }
 
 export const orders = {
