@@ -128,7 +128,7 @@ test("rated pickup freezes its point and replacement preserves author and stock 
     await browserExpect(page.getByText("Calle Destino 789", { exact: true })).toBeVisible();
     await browserExpect(page.getByText(/La entrega no se puede cambiar/)).toBeVisible();
   } finally {
-    await page.goto("/");
+    await page.goto("about:blank");
     if (companyId) await withTenantIsolation(companyId, async () => {
       await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
       await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
