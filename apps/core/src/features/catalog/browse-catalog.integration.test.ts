@@ -62,7 +62,9 @@ test("catalog projection never contains SKU, cost or stock quantity", async () =
   } } });
   if (!detail.success) return;
   expect(detail.data.product.variants.map(({ maxQuantity }) => maxQuantity).sort()).toEqual([0, 99]);
-  for (const projection of [JSON.stringify(page), JSON.stringify(detail)])
+  const list = JSON.stringify(page);
+  for (const detailOnly of ["maxQuantity", "variants", "attributes", "description"]) expect(list).not.toContain(detailOnly);
+  for (const projection of [list, JSON.stringify(detail)])
     for (const secret of ["SKU-SECRET", "12.34", "13.57", "qrCode", "sku", "purchasePrice", "stock"]) expect(projection).not.toContain(secret);
 });
 

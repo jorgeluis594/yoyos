@@ -5,7 +5,6 @@ import { products } from "@core/src/features/products/composition";
 import { checkoutAppearance } from "@core/src/features/checkout-appearance";
 import { publicCheckoutAppearanceSchema, type PublicCheckoutAppearance } from "@core/src/features/checkout-appearance/presentation/checkout-appearance-schemas";
 import { browseCatalog, getCatalogProduct, type BrowseCatalogInput, type CatalogAccess } from "@core/src/features/catalog/application/browse-catalog";
-import { readPublished } from "@core/src/features/catalog/infrastructure/catalog-settings-repository";
 import { readStore } from "@core/src/features/catalog/infrastructure/catalog-store-repository";
 import type { ProductId } from "@core/src/features/products/domain/product";
 
@@ -25,8 +24,8 @@ async function appearance(companyId: CompanyId): Promise<PublicCheckoutAppearanc
 
 export const catalogBrowse = {
   browse: (input: BrowseCatalogInput, access: CatalogAccess) => withTenantIsolation(access.companyId, () =>
-    browseCatalog(input, access, { readPublished, readStore, listCatalogProducts: products.listForCatalog })),
-  getProduct: (productId: ProductId, access: CatalogAccess) => withTenantIsolation(access.companyId, () =>
-    getCatalogProduct(productId, access, { readPublished, readStore, findCatalogProduct: products.findForCatalog })),
+    browseCatalog(input, access, { readStore, listCatalogProducts: products.listForCatalog })),
+  getProduct: (productId: ProductId | null, access: CatalogAccess) => withTenantIsolation(access.companyId, () =>
+    getCatalogProduct(productId, access, { readStore, findCatalogProduct: products.findForCatalog })),
   appearance,
 };

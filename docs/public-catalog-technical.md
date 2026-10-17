@@ -88,19 +88,20 @@ Flow: write the flag scoped to `access.companyId`; return the stored value. Idem
 
 ```ts
 type CatalogAccess = Readonly<{ companyId: CompanyId }>;  // from the URL, validated as UUID
-type BrowseCatalogInput = Readonly<{ search: CatalogSearch | null; page: number }>;
+type BrowseCatalogInput = Readonly<{ search: CatalogSearch | null; pages: number }>; // pages shown, 1..20
+type CatalogStore = Readonly<{ name: string; currency: Currency }>;
 type CatalogUnavailable = Readonly<{ code: "CATALOG_UNAVAILABLE"; message: string }>;
 type BrowseCatalogDependencies = Readonly<{
-  readPublished: (companyId: CompanyId) => Promise<Result<boolean, PersistenceError>>;
+  readStore: (companyId: CompanyId) => Promise<Result<CatalogStore | null, PersistenceError>>;          // null = hidden or unknown
   listCatalogProducts: (criteria: CatalogCriteria) => Promise<Result<CatalogPage, PersistenceError>>;   // products.listForCatalog
 }>;
 type GetCatalogProductDependencies = Readonly<{
-  readPublished: BrowseCatalogDependencies["readPublished"];
-  findCatalogProduct: (productId: ProductId) => Promise<Result<CatalogProduct | null, PersistenceError>>; // products.findForCatalog
+  readStore: BrowseCatalogDependencies["readStore"];
+  findCatalogProduct: (productId: ProductId, currency: Currency) => Promise<Result<CatalogProduct | null, PersistenceError>>; // products.findForCatalog
 }>;
 ```
 
-Flow: (1) `readPublished`; `false` → `CATALOG_UNAVAILABLE`. (2) query with normalized criteria `{ search, offset: page * 24, limit: 24 }`, newest first, tie-breaker `id`. `getCatalogProduct` returns `PRODUCT_UNAVAILABLE` for `null`. Errors: `CATALOG_UNAVAILABLE | PRODUCT_UNAVAILABLE | PERSISTENCE_UNAVAILABLE`. An unknown company and an unpublished one both read `published = false` under RLS (no row visible) and yield the same `CATALOG_UNAVAILABLE`.
+Flow: (1) `readStore` reads `catalogPublished`, name and country in one query; hidden or unknown → `CATALOG_UNAVAILABLE`. The business currency comes from `countryCurrencies[country]`; products in another currency are not listed or opened. (2) query with normalized criteria `{ currency, search, offset: 0, limit: pages * 24 }` plus one extra row for `hasMore`, newest first, tie-breaker `id`. `?page=N` is the number of pages shown, not an index, so a reload or a return from a product restores everything loaded; invalid values fall back to 1 and values above 20 clamp to 20, where `hasMore` is `false` («Ver más» hidden). `getCatalogProduct` returns `PRODUCT_UNAVAILABLE` for `null`; a malformed product id is passed as `null` and still checked against publication, so on a hidden catalog it shows «Catálogo no disponible». The route loads the appearance in parallel with the use case. Errors: `CATALOG_UNAVAILABLE | PRODUCT_UNAVAILABLE | PERSISTENCE_UNAVAILABLE`. An unknown company and an unpublished one both read `published = false` under RLS (no row visible) and yield the same `CATALOG_UNAVAILABLE`.
 
 ### 5.3 `continueToCheckout` (feature `catalog`, owns the intention)
 
@@ -176,7 +177,7 @@ Flow: (1) list companies. (2) per company, repeat `deleteExpiredCatalogOrders(co
 | `CatalogSearch` | branded, `parseCatalogSearch` trimmed, 2..80 chars | The 2-character rule belongs to the catalog. |
 | `CartLine`, `LineIssue` | new | Input and per-line rejection; no existing type carries the reason. |
 | `SellableVariant` | `CatalogItem` + `available: number` | The order creation needs stock to reject; `CatalogItem` stays as is for other callers. |
-| `CatalogProduct`, `CatalogPage` (products) | new public read models without SKU, cost, stock quantity or QR | The seller `Product` exposes those fields. `CatalogProduct` = `{ id, name, description, imageId, price: { kind: "single"; amount } \| { kind: "from"; amount }, soldOut, attributes, variants: { id, attributes, price, maxQuantity }[] }` where `maxQuantity = min(stock, 99)` and `0` means «Agotado». |
+| `CatalogProduct`, `CatalogPage` (products) | new public read models without SKU, cost, stock quantity or QR | The seller `Product` exposes those fields. `CatalogProduct` = `{ id, name, description, imageUrl, price: { kind: "single"; amount } \| { kind: "from"; amount }, soldOut, attributes, variants: { id, attributes, price, maxQuantity }[] }` where `maxQuantity = min(stock, 99)` and `0` means «Agotado». The list returns `CatalogCard` = `{ id, name, imageUrl, price, soldOut }` so no stock-derived value reaches it; only the product page carries `maxQuantity`. `imageUrl` is resolved server-side because the browser needs a URL. |
 
 Rules (pure, `orders/domain/catalog-order.ts`): `checkCartAvailability`, `buildCatalogOrder`, `isPendingCatalogOrder(order) = order.fromCatalog && order.checkoutConfirmedAt === null`.
 
@@ -241,7 +242,7 @@ export const setCatalogPublicationSchema = z.strictObject({ published: z.boolean
 
 `shared/contracts/orders.ts`: `orderSourceSchema` adds `"catalog"`; `sellerId: z.string().nullable()` in `orderSchema`, `orderAggregateSchema` and summaries. The checkout contract does not change.
 
-Public catalog routes are web-only and validate with schemas in `src/features/catalog/presentation/schemas.ts`:
+Public catalog routes are web-only and validate with schemas in `src/features/catalog/presentation/browse-schemas.ts` (pages) and `cart-schemas.ts` (cart):
 
 | Route | Kind | Result |
 | --- | --- | --- |
@@ -308,8 +309,9 @@ Rate limit: `catalog/presentation/rate-limit.ts`, `Map<ip, { windowStart, count 
 | `src/features/catalog/application/browse-catalog.ts` | §5.2. |
 | `src/features/catalog/application/continue-to-checkout.ts` | §5.3. |
 | `src/features/catalog/infrastructure/catalog-settings-repository.ts` | `readPublished`, `savePublished` on `Company`. |
-| `src/features/catalog/presentation/api-routes.ts`, `schemas.ts`, `rate-limit.ts` | Settings API, public schemas, limiter. |
-| `src/features/catalog/composition.ts` | Wires settings, browse, continue. |
+| `src/features/catalog/infrastructure/catalog-store-repository.ts` | `readStore`: publication, name and currency in one read. |
+| `src/features/catalog/presentation/api-routes.ts`, `browse-schemas.ts`, `cart-schemas.ts`, `rate-limit.ts` | Settings API, public schemas, limiter. |
+| `src/features/catalog/composition.ts`, `browse-composition.ts`, `cart-composition.ts` | Wire settings; browse and appearance; cart and continue. |
 | `app/routes/catalog.tsx`, `catalog-product.tsx`, `catalog-cart.tsx`, `catalog-settings.tsx`; `app/routes.ts` | Public pages, cart resource route, seller settings (web). |
 | `src/features/products/application/catalog-products.ts`, `infrastructure/catalog-products-repository.ts` | `listForCatalog`, `findForCatalog`. |
 | `src/features/products/infrastructure/order-stock.ts` | `findSellableVariants(ids)` with `available`. |

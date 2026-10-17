@@ -6,11 +6,14 @@ import { log } from "@core/src/shared/infrastructure/logger";
 import { getCompanyId, prisma } from "@core/src/shared/infrastructure/persistance";
 import type { CatalogProductRepository } from "@core/src/features/products/application/catalog-products";
 import type { StoredCatalogProduct } from "@core/src/features/products/domain/catalog-product";
+import type { ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
 
+const variantSchema = z.object({ id: z.string().transform((value) => value as VariantId), attributes: z.record(z.string(), z.string()),
+  salePrice: z.number().nonnegative(), stock: z.number().int().nonnegative() });
 const storedSchema = z.object({
-  id: z.string(), name: z.string(), description: z.string().nullable(), imageId: z.string().nullable(), currency: z.enum(currencies),
-  variants: z.array(z.object({ id: z.string(), attributes: z.record(z.string(), z.string()), salePrice: z.number().nonnegative(),
-    stock: z.number().int().nonnegative() })).min(1),
+  id: z.string().transform((value) => value as ProductId), name: z.string(), description: z.string().nullable(),
+  imageId: z.string().transform((value) => value as ImageId).nullable(), currency: z.enum(currencies),
+  variants: z.tuple([variantSchema], variantSchema),
 });
 
 const sellable = { status: "active", variants: { some: { status: "active" } } } as const;
@@ -20,7 +23,7 @@ type Row = Prisma.ProductGetPayload<{ include: typeof include }>;
 function parseRow(row: Row): StoredCatalogProduct | null {
   const parsed = storedSchema.safeParse({ ...row, variants: row.variants.map((variant) => ({ id: variant.id, attributes: variant.attributes,
     salePrice: variant.salePrice.toNumber(), stock: variant.stock && variant.stock.quantity <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(variant.stock.quantity) : null })) });
-  return parsed.success ? parsed.data as unknown as StoredCatalogProduct : null;
+  return parsed.success ? parsed.data : null;
 }
 
 const unavailable = (operation: string, cause: unknown) => {
@@ -52,9 +55,9 @@ export const catalogProductRepository: CatalogProductRepository = {
     } catch (cause) {
       return unavailable("list_catalog_products", cause);
     }
-    const parsed = rows.map(parseRow);
-    if (parsed.some((row) => row === null)) return invalid("list_catalog_products");
-    return ok({ rows: parsed as StoredCatalogProduct[], hasMore });
+    const parsed = rows.map(parseRow).filter((row) => row !== null);
+    if (parsed.length !== rows.length) return invalid("list_catalog_products");
+    return ok({ rows: parsed, hasMore });
   },
   async find(id, currency) {
     let row: Row | null;

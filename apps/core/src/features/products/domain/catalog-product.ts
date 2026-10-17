@@ -14,6 +14,8 @@ export type CatalogProduct = Readonly<{
   attributes: readonly CatalogAttribute[];
   variants: readonly CatalogVariant[];
 }>;
+/** List card: the list never sends variants, so no stock-derived quantity reaches it. */
+export type CatalogCard = Pick<CatalogProduct, "id" | "name" | "imageUrl" | "price" | "soldOut">;
 
 export type StoredCatalogVariant = Readonly<{ id: VariantId; attributes: Readonly<Record<string, string>>; salePrice: number; stock: number }>;
 export type StoredCatalogProduct = Readonly<{
@@ -38,3 +40,5 @@ export function toCatalogProduct(product: StoredCatalogProduct, imageUrl: string
     variants,
   };
 }
+
+export const toCatalogCard = ({ id, name, imageUrl, price, soldOut }: CatalogProduct): CatalogCard => ({ id, name, imageUrl, price, soldOut });

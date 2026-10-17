@@ -18,15 +18,15 @@ export async function loader({ params }: LoaderFunctionArgs) {
   const company = catalogPathSchema.safeParse(params);
   if (!company.success) throw data(null, { status: 404, headers: catalogHeaders });
   const path = catalogProductPathSchema.safeParse(params);
-  if (!path.success) throw data(productUnavailable, { status: 404, headers: catalogHeaders });
-  const result = await catalogBrowse.getProduct(path.data.productId, { companyId: path.data.companyId });
+  const appearance = catalogBrowse.appearance(company.data.companyId);
+  const result = await catalogBrowse.getProduct(path.success ? path.data.productId : null, company.data);
   if (!result.success) {
     const code = result.error.code;
     bindRequestOperation({ outcome: code === "CATALOG_UNAVAILABLE" || code === "PRODUCT_UNAVAILABLE" ? "unavailable" : "technical_failure" });
     if (code === "PRODUCT_UNAVAILABLE") throw data(productUnavailable, { status: 404, headers: catalogHeaders });
     throw data(null, { status: code === "CATALOG_UNAVAILABLE" ? 404 : 503, headers: catalogHeaders });
   }
-  return data({ ...result.data, appearance: await catalogBrowse.appearance(path.data.companyId) }, { headers: catalogHeaders });
+  return data({ ...result.data, appearance: await appearance }, { headers: catalogHeaders });
 }
 
 /** Returns to the list entry when coming from it, so search, pages and scroll come back as they were. */

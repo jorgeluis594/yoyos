@@ -14,3 +14,10 @@ test("sold out and missing combinations are not selectable and a full selection 
   expect(selectedVariant(polo, { Talla: "M" })).toBeNull();
   expect(selectedVariant(polo, { Talla: "M", Color: "Negro" })).toMatchObject({ id: "mn", maxQuantity: 3 });
 });
+
+test("a product without attributes picks a variant in stock over a sold-out one", () => {
+  const plain = (id: string, stock: number) => ({ id: id as VariantId, attributes: {}, salePrice: 30, stock });
+  const bolso = toCatalogProduct({ id: "b" as ProductId, name: "Bolso", description: null, imageId: null, currency: "PEN",
+    variants: [plain("a", 0), plain("b", 5)] }, null);
+  expect(selectedVariant(bolso, {})).toMatchObject({ id: "b", maxQuantity: 5 });
+});

@@ -7,11 +7,11 @@ import { prisma } from "@core/src/shared/infrastructure/persistance";
 import type { CatalogStore } from "@core/src/features/catalog/application/browse-catalog";
 import type { PersistenceError } from "@core/src/features/catalog/infrastructure/catalog-settings-repository";
 
-/** Name for the header and the business currency: products in another currency are not shown. */
+/** Null when hidden or unknown (RLS reads both the same). The currency is the business's: products in another one are not shown. */
 export async function readStore(companyId: CompanyId): Promise<Result<CatalogStore | null, PersistenceError>> {
   try {
-    const company = await prisma.company.findUnique({ where: { id: companyId }, select: { name: true, country: true } });
-    if (!company) return ok(null);
+    const company = await prisma.company.findUnique({ where: { id: companyId }, select: { catalogPublished: true, name: true, country: true } });
+    if (!company?.catalogPublished) return ok(null);
     if (isCountry(company.country)) return ok({ name: company.name, currency: countryCurrencies[company.country] });
     log.error({ event: "unable_to_read_catalog", companyId, operation: "read_store", errorCode: "INVALID_STORED_DATA" }, "unable_to_read_catalog");
   } catch (cause) {

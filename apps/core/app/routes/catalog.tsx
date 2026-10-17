@@ -18,13 +18,15 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   const path = catalogPathSchema.safeParse(params);
   if (!path.success) throw data(null, { status: 404, headers: catalogHeaders });
   const query = parseCatalogQuery(new URL(request.url).searchParams);
+  // Appearance never fails and is only returned on success, so it can load alongside the products.
+  const appearance = catalogBrowse.appearance(path.data.companyId);
   const result = await catalogBrowse.browse({ search: query.search, pages: query.pages }, path.data);
   if (!result.success) {
     const missing = result.error.code === "CATALOG_UNAVAILABLE";
     bindRequestOperation({ outcome: missing ? "unavailable" : "technical_failure" });
     throw data(null, { status: missing ? 404 : 503, headers: catalogHeaders });
   }
-  return data({ ...result.data, appearance: await catalogBrowse.appearance(path.data.companyId), q: query.q, pages: query.pages }, { headers: catalogHeaders });
+  return data({ ...result.data, appearance: await appearance, q: query.q, pages: query.pages }, { headers: catalogHeaders });
 }
 
 const searchTerm = (value: string) => (value.trim().length >= 2 ? value.trim() : "");

@@ -16,5 +16,7 @@ export function optionState(product: CatalogProduct, selection: VariantSelection
 export function selectedVariant(product: CatalogProduct, selection: VariantSelection): CatalogVariant | null {
   if (product.variants.length === 1) return product.variants[0];
   if (product.attributes.some(({ name }) => selection[name] === undefined)) return null;
-  return product.variants.find((variant) => matches(variant, selection)) ?? null;
+  // Variants without attributes all match: prefer one in stock over a sold-out one.
+  return product.variants.find((variant) => matches(variant, selection) && variant.maxQuantity > 0)
+    ?? product.variants.find((variant) => matches(variant, selection)) ?? null;
 }
