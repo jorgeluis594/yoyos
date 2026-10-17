@@ -33,6 +33,7 @@ test("describes a resized JPEG with the vision model and embeds the description"
   expect(embedder.model).toBe("openai/gpt-6-luna+text-embedding-3-small");
   expect((await embedder.embedImage({ bytes, contentType: "image/png" })).success).toBe(true);
   expect(requests.map(({ url }) => new URL(url).pathname)).toEqual(["/v1/responses", "/v1/embeddings"]);
+  expect(requests[0].body).toMatchObject({ model: "gpt-6-luna", store: false });
   const imageUrl = (requests[0].body as { input: Array<{ content: Array<{ image_url?: string }> }> }).input[0].content[1].image_url!;
   expect(imageUrl.startsWith("data:image/jpeg;base64,")).toBe(true);
   const sent = await sharp(Buffer.from(imageUrl.split(",")[1], "base64")).metadata();

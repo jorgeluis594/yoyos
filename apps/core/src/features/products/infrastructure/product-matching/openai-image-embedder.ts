@@ -6,6 +6,7 @@ import type { EmbedImage } from "@core/src/features/products/application/index-p
 import { parseEmbeddingModel, parseEmbeddingVector, type EmbeddingModel, type ImageBytes } from "@core/src/features/products/domain/image-identification";
 
 // OpenAI has no image embedding endpoint: a vision model describes the product and a text model embeds the description.
+// store: false keeps product photos and customer screenshots out of OpenAI's stored responses (design §15).
 const textModel = "text-embedding-3-small";
 const dimensions = 1536;
 const describePrompt = "Describe the product shown in this image so it can be matched against catalog photos: "
@@ -42,7 +43,7 @@ export function createOpenAiImageEmbedder(options: OpenAiImageEmbedderOptions): 
     catch (cause) { return fail("INVALID_EMBEDDING", "Image cannot be decoded", undefined, cause); }
     let values: number[];
     try {
-      const described = await options.client.responses.create({ model: options.describeModel, input: [{ role: "user", content: [
+      const described = await options.client.responses.create({ model: options.describeModel, store: false, input: [{ role: "user", content: [
         { type: "input_text", text: describePrompt }, { type: "input_image", image_url: imageUrl, detail: "auto" }] }] });
       const description = described.output_text.trim();
       if (!description) return fail("EMBEDDER_UNAVAILABLE", "Vision model returned no description");
