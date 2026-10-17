@@ -40,6 +40,7 @@ export type VisualSearch = Readonly<{
   candidates: number;
   minConfidence: MatchConfidence;
   embedImage: EmbedImage;
+  hasIndexedProducts: (model: EmbeddingModel) => Promise<Result<boolean, PersistenceError>>;
   findNearestProductImages: (vector: EmbeddingVector, model: EmbeddingModel, limit: number) =>
     Promise<Result<readonly VisualCandidate[], PersistenceError>>;
   readImage: (imageId: ImageId) => Promise<Result<ImageBytes, ImageReadError>>;
@@ -72,6 +73,10 @@ export async function identifyProductsInImage(image: ImageBytes, deps: IdentifyP
 }
 
 async function searchVisually(image: ImageBytes, visual: VisualSearch): Promise<Identified> {
+  // Cheap check first: without indexed products, embedding the customer image is a wasted provider call.
+  const indexed = await visual.hasIndexedProducts(visual.model);
+  if (!indexed.success) return indexed;
+  if (!indexed.data) return notFound("no_indexed_products");
   const vector = await visual.embedImage(image);
   if (!vector.success) return vector;
   const nearest = await visual.findNearestProductImages(vector.data, visual.model, visual.candidates);

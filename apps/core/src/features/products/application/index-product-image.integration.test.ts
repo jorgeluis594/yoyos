@@ -39,7 +39,7 @@ test("a product created with an image is indexed by the worker, reindexed on ima
   const jobs = async (productId: string) => (await pool.query<{ state: string; retry_count: number }>(
     "SELECT state, retry_count FROM pgboss.job WHERE name = $1 AND data->'payload'->>'productId' = $2 ORDER BY created_on", [definition.id, productId])).rows;
   const stored = () => withTenantIsolation(companyId, async () => await
-    prisma.$queryRaw<Array<{ imageId: string; model: string }>>`SELECT "imageId", model FROM "ProductImageEmbedding"`);
+    prisma.$queryRaw<Array<{ imageId: string; model: string }>>`SELECT "imageId", model FROM "ImageEmbedding" ORDER BY "createdAt"`);
   try {
     await producer.start();
     await worker.start();
@@ -62,7 +62,8 @@ test("a product created with an image is indexed by the worker, reindexed on ima
 
     expect((await withTenantIsolation(companyId, () => products.update(productId, { imageId: second }))).success).toBe(true);
     await vi.waitFor(async () => expect((await jobs(productId)).map(({ state }) => state)).toEqual(["completed", "completed"]), { timeout: 20_000, interval: 100 });
-    expect(await stored()).toEqual([{ imageId: second, model: "openai/fake+text-embedding-3-small" }]);
+    // The old image keeps its cached embedding; search only joins the product's current image.
+    expect(await stored()).toEqual([first, second].map((imageId) => ({ imageId, model: "openai/fake+text-embedding-3-small" })));
   } finally {
     global.__yoyosEvents = previousBus;
     await worker.stop();

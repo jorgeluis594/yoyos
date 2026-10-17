@@ -17,6 +17,7 @@ function harness(options: Readonly<{ decoded?: readonly string[]; qrError?: "UNR
   const called = <T>(name: string, value: T): T => { calls.push(name); return value; };
   const visual: VisualSearch = {
     model: "openai/test" as EmbeddingModel, candidates: 5, minConfidence: 0.8 as MatchConfidence,
+    hasIndexedProducts: async () => called("hasIndexedProducts", ok(true)),
     embedImage: async () => called("embedImage", ok([0.1, 0.2] as unknown as EmbeddingVector)),
     findNearestProductImages: async () => called("findNearestProductImages", ok([candidate(productP, 1), candidate(productQ, 2)])),
     readImage: async () => called("readImage", ok(image)),
@@ -56,7 +57,7 @@ describe("identifyProductsInImage", () => {
   test("runs visual search when the image has no QR code", async () => {
     const h = harness();
     expect(await h.run()).toMatchObject({ success: true, data: { kind: "found", method: "visual" } });
-    expect(h.calls).toEqual(["readQrCodes", "embedImage", "findNearestProductImages", "readImage", "readImage", "chooseProduct", "findSellableVariantsOfProduct"]);
+    expect(h.calls).toEqual(["readQrCodes", "hasIndexedProducts", "embedImage", "findNearestProductImages", "readImage", "readImage", "chooseProduct", "findSellableVariantsOfProduct"]);
   });
 
   test("stops with unrecognized_qr_code without calling visual search when the image only has non-product QR codes", async () => {
@@ -69,10 +70,22 @@ describe("identifyProductsInImage", () => {
     expect(await harness({ visual: null }).run()).toEqual(ok({ kind: "not_found", reason: "visual_search_disabled" }));
   });
 
-  test("returns no_indexed_products when the company has no embeddings of the model", async () => {
+  test("returns no_indexed_products without embedding the image when the company has no indexed products", async () => {
+    const h = harness({ visual: { hasIndexedProducts: async () => ok(false) } });
+    expect(await h.run()).toEqual(ok({ kind: "not_found", reason: "no_indexed_products" }));
+    expect(h.calls).toEqual(["readQrCodes"]);
+  });
+
+  test("returns no_indexed_products when no sellable product is near", async () => {
     const h = harness({ visual: { findNearestProductImages: async () => ok([]) } });
     expect(await h.run()).toEqual(ok({ kind: "not_found", reason: "no_indexed_products" }));
     expect(h.calls).not.toContain("chooseProduct");
+  });
+
+  test("propagates a failure of the indexed products check without embedding", async () => {
+    const h = harness({ visual: { hasIndexedProducts: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "db" }) } });
+    expect(await h.run()).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
+    expect(h.calls).toEqual(["readQrCodes"]);
   });
 
   test("drops candidates whose image no longer exists and asks the model with the rest", async () => {

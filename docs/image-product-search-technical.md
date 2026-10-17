@@ -22,7 +22,7 @@ message_created ──→ orders.addMessageProductsToOrder
                     existing transaction: open order → appendItems | new order
 
 product create/update with new image ──→ product_image_changed ──→ products.indexProductImage
-                                                                     → embedImage → ProductImageEmbedding
+                                                                     → embedImage → ImageEmbedding
 ```
 
 ## 2. Decisions
@@ -35,7 +35,7 @@ product create/update with new image ──→ product_image_changed ──→ p
 | Products per image | QR keeps one item per distinct variant. Visual returns at most one product per image (a live screenshot shows the product being offered). |
 | Variant of a visual match | Product images live at product level. Only products with exactly one sellable variant are added; otherwise `ambiguous_variant`. |
 | Effect of a visual match | Added to the order like a QR variant when confidence ≥ threshold. No suggestion or confirmation step; the seller removes a wrong item as today. |
-| Vector storage | pgvector in the same PostgreSQL, exact search (no ANN index) filtered by company and model. |
+| Vector storage | pgvector in the same PostgreSQL, exact search (no ANN index) filtered by company and model. Embeddings belong to the image, not the product (founder, PR review 2026-10-17): table `ImageEmbedding` keyed by company, image and model, so it can later also cache embeddings of customer-uploaded images. |
 | Image embedder (founder, 2026-10-17) | OpenAI is the only v1 provider and has no image embedding endpoint (`/v1/embeddings` is text only, checked 2026-10-17), so `openai-image-embedder.ts` implements `EmbedImage` as describe-then-embed: a vision model (`IMAGE_EMBEDDER_MODEL`, default `gpt-6-luna`, Responses API) writes a visual description of the product from the image resized to ≤1024 px JPEG, with a fixed prompt and no seller data or captions; `text-embedding-3-small` (1536 dimensions) embeds that description. `EmbeddingModel` is `openai/<vision-model>+text-embedding-3-small`, so changing either model requires `products:index-images`. Env: `IMAGE_EMBEDDER_PROVIDER=openai`, `IMAGE_EMBEDDER_MODEL`, `OPENAI_API_KEY`; the client timeout is `PRODUCT_MATCH_TIMEOUT_MS` and SDK retries are off (the job retries). |
 | Providers | The founder chooses the embedding model and the vision model before the real adapters are implemented. Vision candidates come from memory: Claude Haiku 5.5, Claude Sonnet 5.5, OpenAI GPT-6 Luna, OpenAI Decisions API. The design is provider-neutral: one adapter per provider behind `EmbedImage` and `ChooseProduct`, selected by env, all passing the same contract tests (§12). v1 implements only the chosen provider of each port. Accuracy evaluations (evals) are out of this design and will be added later. |
 | Where AI code lives | `features/products/infrastructure/product-matching/`. SDK clients are created in `products/composition.ts` from env, like `createR2ImageStorage`. No `ai` feature and no shared AI client while there is one consumer. |
@@ -86,17 +86,17 @@ product create/update with new image ──→ product_image_changed ──→ p
 export type IndexProductImageInput = Readonly<{ productId: ProductId }>;
 export type IndexProductImageOutcome =
   | Readonly<{ kind: "indexed"; imageId: ImageId }>
-  | Readonly<{ kind: "skipped"; reason: "product_not_found" | "no_image" | "already_indexed" | "image_replaced" }>;
+  | Readonly<{ kind: "skipped"; reason: "product_not_found" | "no_image" | "already_indexed" }>;
 export type IndexProductImageError = Readonly<{
   code: "PERSISTENCE_UNAVAILABLE" | "IMAGE_STORAGE_UNAVAILABLE" | "IMAGE_NOT_FOUND" | "EMBEDDER_UNAVAILABLE" | "INVALID_EMBEDDING";
   message: string;
 }>;
 export type IndexProductImageDependencies = Readonly<{
   findImageIndexState: (productId: ProductId, model: EmbeddingModel) =>
-    Promise<Result<Readonly<{ imageId: ImageId | null; indexedImageId: ImageId | null }> | null, PersistenceError>>;
+    Promise<Result<Readonly<{ imageId: ImageId | null; indexed: boolean }> | null, PersistenceError>>;
   readImage: (imageId: ImageId) => Promise<Result<ImageBytes, ImageReadError>>;
   embedImage: EmbedImage;
-  saveEmbedding: (embedding: ProductImageEmbedding) => Promise<Result<"saved" | "image_replaced", PersistenceError>>;
+  saveEmbedding: (embedding: ImageEmbedding) => Promise<Result<void, PersistenceError>>;
   model: EmbeddingModel;
 }>;
 export async function indexProductImage(input: IndexProductImageInput, deps: IndexProductImageDependencies):
@@ -105,9 +105,9 @@ export async function indexProductImage(input: IndexProductImageInput, deps: Ind
 
 Flow:
 
-1. `findImageIndexState`. `null` → `product_not_found`; no `imageId` → `no_image`; `indexedImageId === imageId` → `already_indexed`.
+1. `findImageIndexState`: the product's current image and whether that image has an embedding of the model. `null` → `product_not_found`; no `imageId` → `no_image`; `indexed` → `already_indexed`.
 2. `readImage(imageId)` → `embedImage` (adapter validates the vector length of the model).
-3. `saveEmbedding({ productId, imageId, model, vector })`: conditional upsert that only writes if the product still has that `imageId` (§11). Otherwise `image_replaced` (the newer event indexes the new image).
+3. `saveEmbedding({ imageId, model, vector })` → `indexed`. Idempotent insert keyed by image and model (§11). If the product replaced its image meanwhile, the row caches the old image's embedding, search ignores it (it joins the product's current image) and the newer event indexes the new image; there is no `image_replaced` outcome.
 
 Handler: `PERSISTENCE_UNAVAILABLE`, `IMAGE_STORAGE_UNAVAILABLE`, `EMBEDDER_UNAVAILABLE` retryable; the rest permanent. Policy `{ concurrency: 2, retries: 8 }`.
 
@@ -166,8 +166,9 @@ Flow:
    - `skip unrecognized_qr_code` → `not_found unrecognized_qr_code` (a payment or URL QR says the image is not a product photo).
    - `skip no_qr_code` → step 2.
 2. **Visual.** `visual === null` → `not_found visual_search_disabled`.
+   0. `hasIndexedProducts(model)`: cheap `EXISTS` over `ImageEmbedding` of the model joined to the company's active products by their current image. False → `no_indexed_products` without calling the embedder (a provider call per customer image of a company with no indexed catalog is wasted).
    1. `embedImage(image)`.
-   2. `findNearestProductImages(vector, model, candidates)`. Empty → `no_indexed_products`.
+   2. `findNearestProductImages(vector, model, candidates)`. Empty (no indexed product is sellable) → `no_indexed_products`.
    3. `readImage` of each candidate image, in parallel. `IMAGE_NOT_FOUND` drops that candidate; other errors propagate. All dropped → `no_indexed_products`.
    4. `chooseProduct({ query: image, candidates })` → `VisualChoice`.
    5. `acceptVisualMatch(choice, candidates, minConfidence)` (domain) → `productId` or miss reason.
@@ -200,7 +201,7 @@ Exact changes:
 | `ImageBytes = Readonly<{ bytes: Uint8Array; contentType: string }>` | Named once; today repeated inline in several deps. |
 | `EmbeddingModel` (brand, `parseEmbeddingModel`: non-empty, ≤100 chars) | Prevents comparing vectors of different models. |
 | `EmbeddingVector` (brand over `readonly number[]`, `parseEmbeddingVector(values, dimensions)`: exact length, finite numbers) | Rejects truncated or NaN vectors before persisting. |
-| `ProductImageEmbedding = { productId; imageId; model; vector }` | Persisted entity; no existing type covers it. |
+| `ImageEmbedding = { imageId; model; vector }` | Persisted entity, owned by the image (no product); no existing type covers it. |
 | `MatchConfidence` (brand, `parseMatchConfidence`: number in [0, 1]) | Threshold comparison over a validated value. |
 | `VisualCandidate = { productId; imageId; distance: number }` | Result of the vector query. |
 | `VisualChoice = { kind: "product"; productId; confidence: MatchConfidence } \| { kind: "none" }` | The model can and must be able to say "none". |
@@ -240,43 +241,45 @@ datasource db {
   extensions = [vector] // requires previewFeatures "postgresqlExtensions" if Prisma 7.10 still gates it: verify (§15)
 }
 
-model ProductImageEmbedding {
-  companyId String                 @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
-  productId String                 @db.Uuid
-  product   Product                @relation(fields: [companyId, productId], references: [companyId, id], onDelete: Cascade, onUpdate: NoAction)
-  imageId   String                 @db.Uuid
-  image     Image                  @relation(fields: [companyId, imageId], references: [companyId, id], onDelete: Cascade, onUpdate: NoAction)
+model ImageEmbedding {
+  companyId String                @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  imageId   String                @db.Uuid
+  image     Image                 @relation(fields: [companyId, imageId], references: [companyId, id], onDelete: Cascade, onUpdate: NoAction)
   model     String
   embedding Unsupported("vector")
   createdAt DateTime
 
-  @@id([companyId, productId, model])
+  @@id([companyId, imageId, model])
 }
 ```
 
-- One embedding per product and model; the row is overwritten when the image changes.
+- One embedding per image and model, never overwritten; deleting the image deletes it. A product uses the embedding of its current image (`Product.imageId = ImageEmbedding.imageId`), so products sharing an image share its embedding, and an image change only needs the new image embedded. No product column: the table will later also cache embeddings of customer-uploaded images.
 - `vector` without dimension: exact search only, and every query filters by `model`, so all compared vectors have the same length.
 - No ANN index (HNSW) while catalogs have hundreds of products per company; exact scan is cheaper than maintaining the index. Revisit beyond ~10 000 embeddings per company.
-- Migration `add_product_image_embeddings` (Prisma CLI, `--create-only`): `CREATE EXTENSION IF NOT EXISTS vector;`, table, `companyId` default, `ENABLE`/`FORCE ROW LEVEL SECURITY` and policy `ProductImageEmbedding_company_isolation` in the same transaction, `lock_timeout = '5s'`. New table: no lock on existing ones.
+- Migration `add_product_image_embeddings` created the `vector` extension and the first, product-keyed table. Migration `replace_product_image_embeddings_with_image_embeddings` (Prisma CLI, `--create-only`) drops `ProductImageEmbedding` (not in production, nothing to backfill; `products:index-images` rebuilds) and creates `ImageEmbedding` with its `companyId` default, `ENABLE`/`FORCE ROW LEVEL SECURITY` and policy `image_embedding_company_isolation` in the same transaction, `lock_timeout = '5s'`. New table: no lock on existing ones.
 - `compose.yaml` and `compose.prod.yaml`: `postgres:18-alpine` → `pgvector/pgvector:0.8.1-pg18` (same data directory layout; verify the volume path, §15). `CREATE EXTENSION` runs as the migration owner `core`, not `core_app`.
 
 Queries (raw SQL with parameters; Prisma does not type `vector`):
 
 ```sql
--- findNearestProductImages(vector, model, limit)
-SELECT e."productId", e."imageId", e.embedding <=> $1::vector AS distance
-FROM "ProductImageEmbedding" e
-JOIN "Product" p ON p."companyId" = e."companyId" AND p.id = e."productId"
-WHERE e."companyId" = $companyId AND e.model = $2 AND p."imageId" = e."imageId" AND p.status = 'active'
+-- findNearestProductImages(vector, model, limit): company by RLS
+SELECT p.id AS "productId", e."imageId", e.embedding <=> $1::vector AS distance
+FROM "ImageEmbedding" e
+JOIN "Product" p ON p."companyId" = e."companyId" AND p."imageId" = e."imageId"
+WHERE e.model = $2 AND p.status = 'active'
   AND EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."companyId" = p."companyId" AND v."productId" = p.id AND v.status = 'active')
-ORDER BY distance, e."productId"
+ORDER BY distance, p.id
 LIMIT $3;
 
--- saveEmbedding: writes only if the product still has that image
-INSERT INTO "ProductImageEmbedding" ("productId", "imageId", model, embedding, "createdAt")
-SELECT p.id, $imageId, $model, $vector::vector, now() FROM "Product" p WHERE p.id = $productId AND p."imageId" = $imageId
-ON CONFLICT ("companyId", "productId", model) DO UPDATE SET "imageId" = EXCLUDED."imageId", embedding = EXCLUDED.embedding, "createdAt" = EXCLUDED."createdAt";
--- 0 rows → "image_replaced"
+-- hasIndexedProducts(model): checked before embedding the customer image
+SELECT EXISTS (SELECT 1 FROM "ImageEmbedding" e
+  JOIN "Product" p ON p."companyId" = e."companyId" AND p."imageId" = e."imageId"
+  WHERE e.model = $1 AND p.status = 'active');
+
+-- saveEmbedding: idempotent; a deleted image writes nothing
+INSERT INTO "ImageEmbedding" ("imageId", model, embedding, "createdAt")
+SELECT i.id, $model, $vector::vector, now() FROM "Image" i WHERE i.id = $imageId
+ON CONFLICT ("companyId", "imageId", model) DO NOTHING;
 ```
 
 Rows read are validated with Zod (`distance: z.number().finite()`, ids `z.uuid()`); invalid stored data → `PERSISTENCE_UNAVAILABLE` with log `INVALID_STORED_DATA` in the adapter.
@@ -308,7 +311,7 @@ declare module "@core/src/shared/events/application/app-events" {
 | --- | --- | --- |
 | Publication fails after saving the product | Log `product_image_changed_publish_failed`; product saved. | That product is not found visually until `index-product-images` runs. |
 | Embedding provider down | Retried 8 times (~21 min), then failed job. | Same; reprocess with `boss.retry` or the command. |
-| Image replaced while indexing | Conditional write returns `image_replaced`. | Nothing; the newer event indexes it. |
+| Image replaced while indexing | The old image's embedding is stored and ignored by search. | Nothing; the newer event indexes the new image. |
 | Duplicate event | `already_indexed`. | Nothing. |
 
 ### 9.2 Orders → products
@@ -322,8 +325,8 @@ declare module "@core/src/shared/events/application/app-events" {
 ## 11. Transactions and concurrency
 
 - Visual search is read-only and runs outside the order transaction, like QR reading today. Provider calls never hold a lock.
-- `saveEmbedding` is one statement: the `INSERT … SELECT … WHERE p."imageId" = $imageId` guarantees an embedding never belongs to an image the product no longer has, without locking the product row.
-- A product image change concurrent with a search: the query filters `p."imageId" = e."imageId"`, so a stale embedding is ignored.
+- `saveEmbedding` is one idempotent statement (`ON CONFLICT DO NOTHING`) keyed by image and model, so concurrent or duplicate indexing of the same image never conflicts and needs no product lock. An embedding is a fact about its image, so a product image change during indexing cannot store a wrong row.
+- A product image change concurrent with a search: the query joins `p."imageId" = e."imageId"`, so the old image's embedding is ignored.
 - A retry of `add-message-products-to-order` after a visual match but before commit repeats the provider calls and may choose differently; nothing was committed, so there is no inconsistency. Committed results are idempotent through `OrderMessage`.
 
 ## 12. Code organization
@@ -339,7 +342,7 @@ features/products/
 ├── infrastructure/
 │   ├── event-payloads.ts                 # parseProductImageChanged
 │   ├── order-stock.ts                    # + findSellableVariantsOfProduct
-│   ├── product-image-embeddings.ts       # findImageIndexState, saveEmbedding, findNearestProductImages, listProductsMissingEmbedding
+│   ├── image-embeddings.ts               # findImageIndexState, saveEmbedding, listProductsMissingEmbedding, hasIndexedProducts, findNearestProductImages
 │   ├── qr-code-reader.ts                 # moved from orders
 │   └── product-matching/
 │       ├── product-chooser.ts            # provider-neutral: prompt, labels A/B/…, output Zod schema, label → productId, image resize
@@ -431,7 +434,9 @@ Never logged: image bytes, base64, prompts, raw model responses, captions, produ
 - `test("runs visual search when the image has no QR code")`
 - `test("stops with unrecognized_qr_code without calling visual search when the image only has non-product QR codes")`
 - `test("returns visual_search_disabled when visual search is not configured")`
-- `test("returns no_indexed_products when the company has no embeddings of the model")`
+- `test("returns no_indexed_products without embedding the image when the company has no indexed products")`
+- `test("returns no_indexed_products when no sellable product is near")`
+- `test("propagates a failure of the indexed products check without embedding")`
 - `test("drops candidates whose image no longer exists and asks the model with the rest")`
 - `test("returns the only variant of the chosen product with its confidence")`
 - `test("returns low_confidence, no_visual_match or ambiguous_variant from the domain rules")`
@@ -439,10 +444,10 @@ Never logged: image bytes, base64, prompts, raw model responses, captions, produ
 
 `features/products/application/index-product-image.test.ts`
 
-- `test("embeds the current product image and saves it with the model")`
+- `test("embeds the current product image and saves it under the image and model")`
 - `test("skips a product without image, a missing product and an already indexed image")`
-- `test("reports image_replaced when the product changed its image before saving")`
 - `test("propagates image storage and embedder failures without saving")`
+- `test("propagates a save failure")`
 
 `features/products/application/create.test.ts`, `update.test.ts`
 
@@ -504,14 +509,15 @@ Never logged: image bytes, base64, prompts, raw model responses, captions, produ
 
 ### Integration (core, PostgreSQL)
 
-`features/products/infrastructure/product-image-embeddings.integration.test.ts`
+`features/products/infrastructure/image-embeddings.integration.test.ts`
 
+- `test("saveEmbedding keeps the first embedding of an image and model and the index state follows the product's current image")`
+- `test("saveEmbedding writes nothing for a deleted image and deleting an image deletes its embeddings")`
+- `test("listProductsMissingEmbedding lists only active products whose current image lacks an embedding of the model")`
+- `test("tenant isolation hides embeddings of another company")`
+- `test("hasIndexedProducts is true only when a product of the company has its current image embedded with the model")`
 - `test("findNearestProductImages returns the closest products of the company ordered by distance")`
 - `test("findNearestProductImages ignores embeddings of another model, of a replaced image and of another company")`
-- `test("saveEmbedding overwrites the embedding of the same product and model")`
-- `test("saveEmbedding writes nothing when the product no longer has that image")`
-- `test("deleting a product deletes its embeddings")`
-- `test("tenant isolation hides embeddings of another company")`
 
 `features/products/infrastructure/repository.integration.test.ts`
 

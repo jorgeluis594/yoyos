@@ -7,7 +7,7 @@ import { orders } from "@core/src/features/orders/composition";
 import { addMessageProductsToOrder, type AddMessageProductsDependencies, type OrderSourceMessage } from "@core/src/features/orders/application/add-message-products-to-order";
 import { allocateOrderNumber, findOpenChatOrderCandidate, findOrderForUpdate, findProcessedMessage, recordProcessedMessage, saveAddedItems, savePendingOrder } from "@core/src/features/orders/infrastructure/order-repository";
 import { findSellableVariantsByQrCodes, findSellableVariantsOfProduct } from "@core/src/features/products/infrastructure/order-stock";
-import { findNearestProductImages, saveEmbedding } from "@core/src/features/products/infrastructure/product-image-embeddings";
+import { findNearestProductImages, hasIndexedProducts, saveEmbedding } from "@core/src/features/products/infrastructure/image-embeddings";
 import { identifyProductsInImage, type VisualSearch } from "@core/src/features/products/application/identify-products-in-image";
 import type { EmbeddingModel, EmbeddingVector, MatchConfidence } from "@core/src/features/products/domain/image-identification";
 import { parseBuyer } from "@core/src/features/orders/domain/checkout";
@@ -88,7 +88,7 @@ const model = "openai/fake+text-embedding-3-small" as EmbeddingModel;
 const visualCalls: string[] = [];
 const visual: VisualSearch = { model, candidates: 5, minConfidence: 0.75 as MatchConfidence,
   embedImage: async () => { visualCalls.push("embedImage"); return ok([1, 0, 0] as unknown as EmbeddingVector); },
-  findNearestProductImages, readImage: async () => ok({ bytes: new Uint8Array([1]), contentType: "image/jpeg" }),
+  hasIndexedProducts, findNearestProductImages, readImage: async () => ok({ bytes: new Uint8Array([1]), contentType: "image/jpeg" }),
   chooseProduct: async ({ candidates }) => { visualCalls.push("chooseProduct"); return ok({ kind: "product", productId: candidates[0]!.productId, confidence: 0.9 as MatchConfidence }); },
   findSellableVariantsOfProduct };
 
@@ -324,7 +324,7 @@ async function indexedProduct(f: Fixture) {
     await prisma.image.create({ data: { id: imageId, storageKey: `images/${imageId}` } });
     await prisma.product.create({ data: { id: productId, name: "Cap", currency: "PEN", qrCode: productId, status: "active", imageId, createdAt: new Date(), updatedAt: new Date() } });
     await prisma.productVariant.create({ data: { id: variantId, productId, attributes: {}, sku: null, salePrice: 30, qrCode: variantId, status: "active" } });
-    expect(await saveEmbedding({ productId, imageId, model, vector: [1, 0, 0] as unknown as EmbeddingVector })).toEqual(ok("saved"));
+    expect(await saveEmbedding({ imageId, model, vector: [1, 0, 0] as unknown as EmbeddingVector })).toEqual(ok(undefined));
   });
   return variantId;
 }

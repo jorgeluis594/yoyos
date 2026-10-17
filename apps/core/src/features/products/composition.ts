@@ -14,7 +14,7 @@ import { createProduct } from "@core/src/features/products/application/create";
 import type { ImageId, ProductId } from "@core/src/features/products/domain/product";
 import { indexProductImage, indexProductImagePolicy, type EmbedImage, type IndexProductImageError } from "@core/src/features/products/application/index-product-image";
 import type { EmbeddingModel } from "@core/src/features/products/domain/image-identification";
-import { findImageIndexState, saveEmbedding } from "@core/src/features/products/infrastructure/product-image-embeddings";
+import { findImageIndexState, saveEmbedding } from "@core/src/features/products/infrastructure/image-embeddings";
 import { createOpenAiImageEmbedder } from "@core/src/features/products/infrastructure/product-matching/openai-image-embedder";
 import { getProduct } from "@core/src/features/products/application/get";
 import { listProducts, type ListImageDependencies, type ListImageFailure } from "@core/src/features/products/application/list";
@@ -24,7 +24,7 @@ import { z } from "zod";
 import { identifyProductsInImage, type VisualSearch } from "@core/src/features/products/application/identify-products-in-image";
 import type { ImageBytes, MatchConfidence, VariantQrCode } from "@core/src/features/products/domain/image-identification";
 import { findSellableVariantsByQrCodes, findSellableVariantsOfProduct } from "@core/src/features/products/infrastructure/order-stock";
-import { findNearestProductImages } from "@core/src/features/products/infrastructure/product-image-embeddings";
+import { findNearestProductImages, hasIndexedProducts } from "@core/src/features/products/infrastructure/image-embeddings";
 import { readQrCodes } from "@core/src/features/products/infrastructure/qr-code-reader";
 import { createOpenAIProductChooser } from "@core/src/features/products/infrastructure/product-matching/openai-product-chooser";
 import { MAX_CANDIDATES } from "@core/src/features/products/infrastructure/product-matching/product-chooser";
@@ -110,7 +110,7 @@ export function createVisualSearch(env: Env): VisualSearchSetup {
   }
   return { embedder, visual: { model: embedder.model, embedImage: embedder.embedImage, candidates: config.PRODUCT_MATCH_CANDIDATES,
     minConfidence: config.PRODUCT_MATCH_MIN_CONFIDENCE as MatchConfidence, chooseProduct,
-    findNearestProductImages, readImage: (imageId) => readImageBytes(imageId, imageStorage, imageRepository), findSellableVariantsOfProduct } };
+    hasIndexedProducts, findNearestProductImages, readImage: (imageId) => readImageBytes(imageId, imageStorage, imageRepository), findSellableVariantsOfProduct } };
 }
 
 const visualSearchSetup = createVisualSearch(process.env);

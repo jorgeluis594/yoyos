@@ -306,7 +306,7 @@ model Image {
   messages           ChatMessage[]
   products Product[]
   checkoutAppearances CompanyCheckoutAppearance[]
-  productEmbeddings  ProductImageEmbedding[]
+  embeddings         ImageEmbedding[]
 
   @@index([companyId])
   @@unique([companyId, id])
@@ -326,25 +326,22 @@ model Product {
   createdAt DateTime
   updatedAt DateTime
   variants ProductVariant[]
-  imageEmbeddings ProductImageEmbedding[]
 
   @@unique([companyId, id])
   @@index([companyId])
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
 }
 
-// vector has no fixed dimension: every query filters by model, so compared vectors share a length.
-model ProductImageEmbedding {
+// Embeddings belong to the image, not the product. vector has no fixed dimension: every query filters by model, so compared vectors share a length.
+model ImageEmbedding {
   companyId String                @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
-  productId String                @db.Uuid
-  product   Product               @relation(fields: [companyId, productId], references: [companyId, id], onDelete: Cascade, onUpdate: NoAction)
   imageId   String                @db.Uuid
   image     Image                 @relation(fields: [companyId, imageId], references: [companyId, id], onDelete: Cascade, onUpdate: NoAction)
   model     String
   embedding Unsupported("vector")
   createdAt DateTime
 
-  @@id([companyId, productId, model])
+  @@id([companyId, imageId, model])
 }
 
 model ProductVariant {

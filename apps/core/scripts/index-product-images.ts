@@ -1,7 +1,7 @@
 import type { CompanyId } from "@shared/identity";
 import { applicationEventBus } from "@core/src/composition/event-bus";
 import { imageEmbedder } from "@core/src/features/products/composition";
-import { listProductsMissingEmbedding } from "@core/src/features/products/infrastructure/product-image-embeddings";
+import { listProductsMissingEmbedding } from "@core/src/features/products/infrastructure/image-embeddings";
 import { systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
 /** Publishes product_image_changed for every product missing an embedding of the current model; the worker indexes them. */

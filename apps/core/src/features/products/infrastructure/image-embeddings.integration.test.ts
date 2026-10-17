@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
-import { findImageIndexState, findNearestProductImages, listProductsMissingEmbedding, saveEmbedding } from "@core/src/features/products/infrastructure/product-image-embeddings";
+import { findImageIndexState, findNearestProductImages, hasIndexedProducts, listProductsMissingEmbedding, saveEmbedding } from "@core/src/features/products/infrastructure/image-embeddings";
 import type { EmbeddingModel, EmbeddingVector } from "@core/src/features/products/domain/image-identification";
 import type { ImageId, ProductId } from "@core/src/features/products/domain/product";
 
@@ -26,7 +26,7 @@ async function image(companyId: string) {
 }
 
 const stored = (companyId: string) => withTenantIsolation(companyId, async () => await
-  prisma.$queryRaw<Array<{ productId: string; imageId: string; model: string; embedding: string }>>`SELECT "productId", "imageId", model, embedding::text FROM "ProductImageEmbedding" ORDER BY model`);
+  prisma.$queryRaw<Array<{ imageId: string; model: string; embedding: string }>>`SELECT "imageId", model, embedding::text FROM "ImageEmbedding" ORDER BY model`);
 
 /** Active product with one active variant whose current image has an embedding of the search model. */
 async function indexedSellable(companyId: string, values: number[], embeddingModel = searchModel) {
@@ -34,7 +34,7 @@ async function indexedSellable(companyId: string, values: number[], embeddingMod
   const productId = await product(companyId, imageId);
   await withTenantIsolation(companyId, async () => {
     await prisma.productVariant.create({ data: { id: randomUUID(), productId, qrCode: randomUUID(), attributes: {}, sku: null, salePrice: 10, status: "active" } });
-    await saveEmbedding({ productId, imageId, model: embeddingModel, vector: vector(...values) });
+    await saveEmbedding({ imageId, model: embeddingModel, vector: vector(...values) });
   });
   return { productId, imageId };
 }
@@ -53,26 +53,33 @@ afterAll(async () => {
   });
 });
 
-test("saveEmbedding overwrites the embedding of the same product and model", async () => {
+test("saveEmbedding keeps the first embedding of an image and model and the index state follows the product's current image", async () => {
   const [first, second] = [await image(companyA), await image(companyA)];
   const productId = await product(companyA, first);
   await withTenantIsolation(companyA, async () => {
-    expect(await saveEmbedding({ productId, imageId: first, model, vector: vector(1, 0, 0) })).toEqual({ success: true, data: "saved" });
-    expect(await findImageIndexState(productId, model)).toEqual({ success: true, data: { imageId: first, indexedImageId: first } });
+    expect(await findImageIndexState(productId, model)).toEqual({ success: true, data: { imageId: first, indexed: false } });
+    expect(await saveEmbedding({ imageId: first, model, vector: vector(1, 0, 0) })).toEqual({ success: true, data: undefined });
+    expect(await saveEmbedding({ imageId: first, model, vector: vector(0, 0, 1) })).toEqual({ success: true, data: undefined });
+    expect(await findImageIndexState(productId, model)).toEqual({ success: true, data: { imageId: first, indexed: true } });
+    expect(await findImageIndexState(productId, otherModel)).toEqual({ success: true, data: { imageId: first, indexed: false } });
     await prisma.product.update({ where: { id: productId }, data: { imageId: second } });
-    expect(await findImageIndexState(productId, model)).toEqual({ success: true, data: { imageId: second, indexedImageId: first } });
-    expect(await saveEmbedding({ productId, imageId: second, model, vector: vector(0, 1, 0) })).toEqual({ success: true, data: "saved" });
+    expect(await findImageIndexState(productId, model)).toEqual({ success: true, data: { imageId: second, indexed: false } });
     expect(await findImageIndexState(randomUUID() as ProductId, model)).toEqual({ success: true, data: null });
   });
-  expect((await stored(companyA)).filter((row) => row.productId === productId)).toEqual([{ productId, imageId: second, model, embedding: "[0,1,0]" }]);
+  expect((await stored(companyA)).filter((row) => row.imageId === first)).toEqual([{ imageId: first, model, embedding: "[1,0,0]" }]);
 });
 
-test("saveEmbedding writes nothing when the product no longer has that image", async () => {
-  const [old, current] = [await image(companyA), await image(companyA)];
-  const productId = await product(companyA, current);
-  await withTenantIsolation(companyA, async () =>
-    expect(await saveEmbedding({ productId, imageId: old, model, vector: vector(1, 1, 1) })).toEqual({ success: true, data: "image_replaced" }));
-  expect((await stored(companyA)).filter((row) => row.productId === productId)).toEqual([]);
+test("saveEmbedding writes nothing for a deleted image and deleting an image deletes its embeddings", async () => {
+  const [kept, deleted] = [await image(companyA), await image(companyA)];
+  await withTenantIsolation(companyA, async () => {
+    expect(await saveEmbedding({ imageId: randomUUID() as ImageId, model, vector: vector(1, 1, 1) })).toEqual({ success: true, data: undefined });
+    await saveEmbedding({ imageId: kept, model, vector: vector(1, 0, 0) });
+    await saveEmbedding({ imageId: deleted, model, vector: vector(1, 0, 0) });
+    await prisma.image.delete({ where: { id: deleted } });
+  });
+  const images = (await stored(companyA)).map((row) => row.imageId);
+  expect(images).toContain(kept);
+  expect(images).not.toContain(deleted);
 });
 
 test("listProductsMissingEmbedding lists only active products whose current image lacks an embedding of the model", async () => {
@@ -83,10 +90,10 @@ test("listProductsMissingEmbedding lists only active products whose current imag
   const missingId = await product(companyA, missing);
   const withoutImage = await product(companyA, null);
   await withTenantIsolation(companyA, async () => {
-    await saveEmbedding({ productId: indexedId, imageId: indexed, model, vector: vector(1, 0, 0) });
-    await saveEmbedding({ productId: staleId, imageId: stale, model, vector: vector(1, 0, 0) });
+    await saveEmbedding({ imageId: indexed, model, vector: vector(1, 0, 0) });
+    await saveEmbedding({ imageId: stale, model, vector: vector(1, 0, 0) });
     await prisma.product.update({ where: { id: staleId }, data: { imageId: await image(companyA) } });
-    await saveEmbedding({ productId: otherModelId, imageId: otherModelOnly, model: otherModel, vector: vector(1) });
+    await saveEmbedding({ imageId: otherModelOnly, model: otherModel, vector: vector(1) });
     const result = await listProductsMissingEmbedding(model);
     expect(result.success).toBe(true);
     if (!result.success) return;
@@ -97,26 +104,42 @@ test("listProductsMissingEmbedding lists only active products whose current imag
   await withTenantIsolation(companyB, async () => expect(await listProductsMissingEmbedding(model)).toEqual({ success: true, data: [] }));
 });
 
-test("deleting a product deletes its embeddings", async () => {
-  const imageId = await image(companyA);
-  const productId = await product(companyA, imageId);
-  await withTenantIsolation(companyA, async () => {
-    await saveEmbedding({ productId, imageId, model, vector: vector(1, 0, 0) });
-    await prisma.product.delete({ where: { id: productId } });
-  });
-  expect((await stored(companyA)).filter((row) => row.productId === productId)).toEqual([]);
-});
-
 test("tenant isolation hides embeddings of another company", async () => {
   const imageId = await image(companyB);
   const productId = await product(companyB, imageId);
-  await withTenantIsolation(companyB, () => saveEmbedding({ productId, imageId, model, vector: vector(1, 0, 0) }));
+  await withTenantIsolation(companyB, () => saveEmbedding({ imageId, model, vector: vector(1, 0, 0) }));
   await withTenantIsolation(companyA, async () => {
     expect(await findImageIndexState(productId, model)).toEqual({ success: true, data: null });
-    expect(await saveEmbedding({ productId, imageId, model, vector: vector(0, 0, 1) })).toEqual({ success: true, data: "image_replaced" });
+    await saveEmbedding({ imageId, model, vector: vector(0, 0, 1) });
   });
-  expect((await stored(companyA)).map((row) => row.productId)).not.toContain(productId);
-  expect(await stored(companyB)).toEqual([{ productId, imageId, model, embedding: "[1,0,0]" }]);
+  expect((await stored(companyA)).map((row) => row.imageId)).not.toContain(imageId);
+  expect(await stored(companyB)).toEqual([{ imageId, model, embedding: "[1,0,0]" }]);
+});
+
+test("hasIndexedProducts is true only when a product of the company has its current image embedded with the model", async () => {
+  const company = randomUUID();
+  await withTenantIsolation(company, async () => await prisma.company.create({ data: { id: company, name: company, country: "PE" } }));
+  try {
+    const [current, replaced, orphan] = [await image(company), await image(company), await image(company)];
+    const productId = await product(company, replaced);
+    await withTenantIsolation(company, async () => {
+      expect(await hasIndexedProducts(model)).toEqual({ success: true, data: false });
+      await saveEmbedding({ imageId: replaced, model, vector: vector(1, 0, 0) });
+      await saveEmbedding({ imageId: orphan, model, vector: vector(1, 0, 0) });
+      await saveEmbedding({ imageId: current, model: otherModel, vector: vector(1) });
+      await prisma.product.update({ where: { id: productId }, data: { imageId: current } });
+      expect(await hasIndexedProducts(model)).toEqual({ success: true, data: false });
+      expect(await hasIndexedProducts(otherModel)).toEqual({ success: true, data: true });
+    });
+    await indexedSellable(companyA, [1, 0, 0], model);
+    await withTenantIsolation(company, async () => expect(await hasIndexedProducts(model)).toEqual({ success: true, data: false }));
+  } finally {
+    await withTenantIsolation(company, async () => {
+      await prisma.product.deleteMany();
+      await prisma.image.deleteMany();
+      await prisma.company.delete({ where: { id: company } });
+    });
+  }
 });
 
 test("findNearestProductImages returns the closest products of the company ordered by distance", async () => {
