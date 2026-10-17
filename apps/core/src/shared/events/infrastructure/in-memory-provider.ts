@@ -2,7 +2,7 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type {
   EventBusError, EventBusProvider, EventHandlerContext, EventMetadata, EventName,
-  EventPayload, EventSubscription, Unsubscribe,
+  EventPayload, EventSubscription, JobScheduler, ScheduledJobHandler, ScheduleOptions, Unsubscribe,
 } from "@core/src/shared/events/application/contracts";
 
 type Registered = {
@@ -10,10 +10,24 @@ type Registered = {
   deliver: (payload: unknown, metadata: EventMetadata) => Promise<Result<void, EventBusError>>;
 };
 
-/** Application-test adapter. Delivery is awaited and each handler runs independently. */
-export function createInMemoryEventBus<Events extends object>(): EventBusProvider<Events> {
+export type ScheduledRegistration = Readonly<{ name: string; cron: string; handler: ScheduledJobHandler } & ScheduleOptions>;
+
+/** Application-test adapter. Delivery is awaited and each handler runs independently; schedules are only recorded. */
+export function createInMemoryEventBus<Events extends object>(): EventBusProvider<Events> & JobScheduler
+  & Readonly<{ scheduled: () => readonly ScheduledRegistration[] }> {
   const subscriptions = new Map<string, Registered>();
+  const scheduled = new Map<string, ScheduledRegistration>();
   return {
+    scheduled: () => [...scheduled.values()],
+    async schedule(name, cron, handler, options) {
+      if (!name || scheduled.has(name)) return err({ code: "INVALID_SUBSCRIPTION", message: "Scheduled job name must be unique and nonempty" });
+      const registration = { name, cron, handler, ...options };
+      scheduled.set(name, registration);
+      return ok(async () => {
+        if (scheduled.get(name) === registration) scheduled.delete(name);
+        return ok(undefined);
+      });
+    },
     async subscribe<Name extends EventName<Events>>(
       subscription: EventSubscription<Events, Name>,
     ): Promise<Result<Unsubscribe, EventBusError>> {
