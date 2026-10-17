@@ -68,7 +68,7 @@ export function AuthForm({ mode, pendingCompany = false }: { mode: "login" | "re
 
   return <AuthLayout>
     <AuthLayoutHeader>
-      <Link to={path("/")} className="self-start focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring"><BrandLogo /></Link>
+      <Link to={path("/login")} className="self-start focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring"><BrandLogo /></Link>
       <AuthLayoutTitle>{pendingCompany ? t("auth.companyTitle") : isRegister ? t("auth.createAccount") : t("common.login")}</AuthLayoutTitle>
       <AuthLayoutDescription>{pendingCompany ? t("auth.companyDescription") : isRegister ? t("auth.registerDescription") : t("auth.loginDescription")}</AuthLayoutDescription>
     </AuthLayoutHeader>

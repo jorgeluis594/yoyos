@@ -30,10 +30,11 @@ test("localized home without a session goes straight to login", async ({ page })
   await browserExpect(page).toHaveURL(/\/es-PE\/login$/);
   await page.getByRole("link", { name: "Regístrate" }).click();
   await browserExpect(page).toHaveURL(/\/register$/);
-  await page.getByRole("link", { name: "Inicia sesión" }).click();
-  await browserExpect(page).toHaveURL(/\/login$/);
   await page.getByRole("link", { name: "Yoyos" }).click();
   await browserExpect(page).toHaveURL(/\/es-PE\/login$/);
+  await page.getByRole("link", { name: "Regístrate" }).click();
+  await page.getByRole("link", { name: "Inicia sesión" }).click();
+  await browserExpect(page).toHaveURL(/\/login$/);
 });
 
 test("Portuguese navigation keeps its route locale", async ({ page }) => {

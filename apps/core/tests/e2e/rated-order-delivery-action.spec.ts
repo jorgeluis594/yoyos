@@ -85,7 +85,7 @@ test("private web rated pickup rejects an obsolete price without writes and retu
     expect(finalOrder.deliveryCharge.amount).toBeGreaterThan(0);
     expect(finalOrder.total.amount).toBe(10 + finalOrder.deliveryCharge.amount);
   } finally {
-    await page.goto("/");
+    await page.goto("about:blank");
     if (companyId) await withTenantIsolation(companyId, async () => {
       await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
       await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
