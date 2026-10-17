@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import pg from "pg";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { ok } from "@shared/functional";
-import { deleteConfiguredExpiredCatalogOrders } from "@core/src/features/orders/composition";
+import { deleteCompanyCatalogOrderBatch, deleteConfiguredExpiredCatalogOrders } from "@core/src/features/orders/composition";
+import { log } from "@core/src/shared/infrastructure/logger";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
 // Rows live in 2001 so the sweep cannot touch data of tests running in parallel.
@@ -88,6 +89,24 @@ test("cleanup leaves orders with payments untouched", async () => {
   await withTenantIsolation(store.companyId, async () => await prisma.payment.create({ data: { id: randomUUID(), orderId, amount: 10, currency: "PEN",
     method: "digital_wallet", status: "reported", data: { receiptImageId: randomUUID(), reportedAt: daysAgo(8).toISOString() } } }));
 
-  expect(await deleteConfiguredExpiredCatalogOrders({ cutoff })).toEqual(ok({ companies: 1, deleted: 0, failedCompanies: 0 }));
+  expect(await deleteConfiguredExpiredCatalogOrders({ cutoff })).toEqual(ok({ companies: 0, deleted: 0, failedCompanies: 0 }));
   expect(await store.remaining()).toEqual({ orders: [orderId], items: [orderId] });
+});
+
+test("cleanup logs an unexpected error for one company and still cleans the next one", async () => {
+  const [broken, healthy] = [await company(), await company()];
+  const kept = await broken.order({ createdAt: daysAgo(8) });
+  await healthy.order({ createdAt: daysAgo(8) });
+  const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  const failure = new Error("unexpected");
+
+  const result = await deleteConfiguredExpiredCatalogOrders({ cutoff }, (companyId, ...rest) =>
+    companyId === broken.companyId ? Promise.reject(failure) : deleteCompanyCatalogOrderBatch(companyId, ...rest));
+
+  expect(result).toEqual(ok({ companies: 2, deleted: 1, failedCompanies: 1 }));
+  expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "unable_to_delete_catalog_orders", companyId: broken.companyId,
+    errorCode: "PERSISTENCE_UNAVAILABLE", err: failure }), expect.any(String));
+  expect(await broken.remaining()).toEqual({ orders: [kept], items: [kept] });
+  expect((await healthy.remaining()).orders).toEqual([]);
+  error.mockRestore();
 });

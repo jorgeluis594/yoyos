@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { checkoutState, parseOrderNumber, type OrderNumber } from "@core/src/features/orders/domain/checkout";
 import { log } from "@core/src/shared/infrastructure/logger";
+import { isPersistenceFailure } from "@core/src/shared/infrastructure/persistence-error";
 import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
@@ -45,7 +46,7 @@ export async function listCompaniesWithExpiredCatalogOrders(cutoff: Date) {
     const rows = await systemPrisma.$queryRaw<{ companyId: string }[]>`SELECT public.list_companies_with_expired_catalog_orders(${cutoff}::timestamptz) AS "companyId"`;
     return ok(rows.map((row) => row.companyId as CompanyId));
   } catch (cause) {
-    if (!knownFailure(cause)) throw cause;
+    if (!isPersistenceFailure(cause)) throw cause;
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to list companies with expired catalog orders" });
   }
 }
@@ -64,7 +65,7 @@ export async function deleteExpiredCatalogOrders(companyId: CompanyId, cutoff: D
       DELETE FROM "Order" WHERE id IN (SELECT id FROM doomed)`;
     return ok(deleted);
   } catch (cause) {
-    if (!knownFailure(cause)) throw cause;
+    if (!isPersistenceFailure(cause)) throw cause;
     log.error({ event: "unable_to_delete_catalog_orders", companyId, errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "Unable to delete catalog orders");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to delete catalog orders" });
   }
