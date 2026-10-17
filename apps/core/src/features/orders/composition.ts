@@ -256,7 +256,7 @@ export const orders = {
     }
     bindRequestOperation({ outcome: result.data.changed ? "confirmed" : "already_confirmed", orderNumber: result.data.checkout.number });
     if (result.data.changed) log.info({ event: "order_checkout_confirmed", companyId: access.companyId,
-      orderNumber: result.data.checkout.number }, "Order checkout confirmed");
+      orderNumber: result.data.checkout.number, fromCatalog: result.data.fromCatalog }, "Order checkout confirmed");
     return ok(result.data.checkout);
   },
   setDelivery: (input: SetDeliveryInput, context: OrderAccess) => setConfiguredOrderDelivery(input, context),
@@ -286,7 +286,7 @@ export const orders = {
     const result = await withTenantIsolation(access.companyId, () => confirmOrderCheckout(input, access, new Date(), checkoutDependencies));
     if (!result.success) { rejectedCheckout(result.error); return result; }
     bindRequestOperation({ outcome: result.data.changed ? "confirmed" : "already_confirmed", orderNumber: result.data.checkout.number });
-    if (result.data.changed) log.info({ event: "order_checkout_confirmed", companyId: access.companyId, orderNumber: result.data.checkout.number }, "Order checkout confirmed");
+    if (result.data.changed) log.info({ event: "order_checkout_confirmed", companyId: access.companyId, orderNumber: result.data.checkout.number, fromCatalog: result.data.fromCatalog }, "Order checkout confirmed");
     return ok(result.data.checkout);
   },
   listAggregates: (criteria: Parameters<typeof listOrderAggregates>[0], context: Parameters<typeof listOrderAggregates>[1]) =>

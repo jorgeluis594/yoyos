@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { data, isRouteErrorResponse, Link, useLoaderData, useLocation, useNavigation, useSubmit, type LoaderFunctionArgs, type MetaArgs } from "react-router";
+import { data, isRouteErrorResponse, Link, useLoaderData, useLocation, useNavigation, useParams, useSubmit, type LoaderFunctionArgs, type MetaArgs } from "react-router";
 import { catalogBrowse } from "@core/src/features/catalog/browse-composition";
 import { catalogPathSchema, parseCatalogQuery } from "@core/src/features/catalog/presentation/browse-schemas";
 import { bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import { CatalogLoadError, CatalogMessage, CatalogProductImage, CatalogShell, catalogHeaders, catalogMeta, formatCatalogPrice } from "@core/app/components/catalog-sections";
+import { CatalogCartButton } from "@core/app/components/catalog-cart";
 import { Button } from "@core/app/components/ui/button";
 import { Input } from "@core/app/components/ui/input";
 import { Skeleton } from "@core/app/components/ui/skeleton";
@@ -33,6 +34,7 @@ export default function Catalog() {
   const navigation = useNavigation();
   const location = useLocation();
   const submit = useSubmit();
+  const { companyId = "" } = useParams();
   const [text, setText] = useState(q);
   const active = searchTerm(q);
   useEffect(() => {
@@ -45,7 +47,7 @@ export default function Catalog() {
   const searching = pending !== null && (new URLSearchParams(pending.search).get("q") ?? "") !== active;
   const more = new URLSearchParams({ ...(active ? { q: active } : {}), page: String(pages + 1) });
 
-  return <CatalogShell appearance={appearance} storeName={storeName}>
+  return <CatalogShell appearance={appearance} storeName={storeName} cart={<CatalogCartButton companyId={companyId} appearance={appearance} />}>
     <form role="search" onSubmit={(event) => event.preventDefault()}>
       <Input type="search" name="q" value={text} maxLength={80} onChange={(event) => setText(event.target.value)}
         placeholder="Buscar productos" aria-label="Buscar productos" autoComplete="off" />

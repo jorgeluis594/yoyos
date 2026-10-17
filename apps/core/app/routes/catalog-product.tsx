@@ -5,7 +5,9 @@ import { catalogPathSchema, catalogProductPathSchema } from "@core/src/features/
 import { optionState, selectedVariant, type VariantSelection } from "@core/src/features/catalog/presentation/variant-selection";
 import { bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import { CatalogLoadError, CatalogMessage, CatalogProductImage, CatalogShell, catalogHeaders, catalogMeta, formatCatalogAmount, formatCatalogPrice } from "@core/app/components/catalog-sections";
+import { CatalogCartButton } from "@core/app/components/catalog-cart";
 import { Button } from "@core/app/components/ui/button";
+import { addToCart, maxCartLines, useCatalogCart } from "@core/app/lib/catalog-cart-storage";
 
 const productUnavailable = "product";
 export const headers = () => catalogHeaders;
@@ -40,13 +42,25 @@ function BackToCatalog() {
 
 export default function CatalogProductPage() {
   const { storeName, appearance, product } = useLoaderData<typeof loader>();
+  const { companyId = "" } = useParams();
+  const [cart, updateCart] = useCatalogCart(companyId);
+  const [notice, setNotice] = useState("");
   const [selection, setSelection] = useState<VariantSelection>({});
   const [quantity, setQuantity] = useState(1);
   const variant = selectedVariant(product, selection);
   const max = variant?.maxQuantity ?? 0;
   const shown = Math.max(1, Math.min(quantity, max));
+  const add = () => {
+    if (!variant) return;
+    const result = addToCart(cart, { variantId: variant.id, productId: product.id, quantity: shown, price: variant.price,
+      productName: product.name, attributes: { ...variant.attributes }, imageUrl: product.imageUrl }, variant.maxQuantity);
+    if (result.kind === "line_limit") { setNotice(`Tu carrito ya tiene ${maxCartLines} productos distintos`); return; }
+    updateCart(result.cart);
+    setQuantity(1);
+    setNotice("Agregado al carrito");
+  };
 
-  return <CatalogShell appearance={appearance} storeName={storeName}>
+  return <CatalogShell appearance={appearance} storeName={storeName} cart={<CatalogCartButton companyId={companyId} appearance={appearance} />}>
     <BackToCatalog />
     <article className="grid gap-6 md:grid-cols-2 md:gap-10">
       <CatalogProductImage name={product.name} url={product.imageUrl} />
@@ -62,7 +76,7 @@ export default function CatalogProductPage() {
             {values.map((value) => {
               const state = optionState(product, selection, name, value);
               return <Button key={value} type="button" variant={selection[name] === value ? "default" : "outline"} aria-pressed={selection[name] === value}
-                disabled={state !== "available"} onClick={() => setSelection({ ...selection, [name]: value })}>
+                disabled={state !== "available"} onClick={() => { setSelection({ ...selection, [name]: value }); setNotice(""); }}>
                 {value}{state === "sold_out" && " · Agotado"}
               </Button>;
             })}
@@ -76,8 +90,8 @@ export default function CatalogProductPage() {
             <Button type="button" variant="ghost" size="icon" aria-label="Agregar uno" disabled={shown >= max} onClick={() => setQuantity(shown + 1)}>+</Button>
           </div>
         </div>
-        {/* Mount point for the cart: browsing only decides when adding is possible. */}
-        <Button type="button" size="lg" className="h-11" disabled={!variant || max === 0}>Agregar al carrito</Button>
+        <Button type="button" size="lg" className="h-11" disabled={!variant || max === 0} onClick={add}>Agregar al carrito</Button>
+        <p role="status" className="text-sm font-medium empty:hidden">{notice}</p>
         {product.description && <p className="whitespace-pre-line text-muted-foreground">{product.description}</p>}
       </div>
     </article>
