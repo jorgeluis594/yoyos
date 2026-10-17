@@ -87,6 +87,15 @@ test("pending detail shows the actual balance, stock and creation date", async (
   expect(screen.queryByText(/Completada el/)).toBeNull();
 });
 
+test("catalog order detail shows «Desde el catálogo» and no seller", async () => {
+  mockOrder = { ...mockOrder, source: "catalog", sellerId: null };
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Desde el catálogo");
+  fireEvent.press(screen.getByRole("button", { name: "Detalles internos" }));
+  expect(screen.getByText("Stock descontado")).toBeTruthy();
+  expect(screen.queryByText(/Vendedor:/)).toBeNull();
+});
+
 test("seller confirms a reported partial amount from the mobile order", async () => {
   const reportId = "00000000-0000-4000-8000-000000000099";
   mockOrder = { ...initialOrder, status: "active", paymentStatus: "pending", completedAt: null,
