@@ -30,7 +30,7 @@ const validAmount = (amount: number, maxCents: number) => {
 };
 
 export function buildOrder(input: BuildOrderInput): Result<PricedOrder, BuildOrderError> {
-  if (!uuid.test(input.id) || !uuid.test(input.companyId) || input.sellerId === "" || !(input.createdAt instanceof Date) || !Number.isFinite(input.createdAt.getTime()) || !input.items.length ||
+  if (!uuid.test(input.id) || !uuid.test(input.companyId) || (input.sellerId !== null && !input.sellerId) || !(input.createdAt instanceof Date) || !Number.isFinite(input.createdAt.getTime()) || !input.items.length ||
     !["contact", "general_public"].includes(input.customer.kind) ||
     (input.customer.kind === "contact" && (!uuid.test(input.customer.contactId) || (input.customer.name !== null && typeof input.customer.name !== "string")))) {
     return err({ code: "INVALID_ORDER", message: "Invalid order header" });

@@ -3,6 +3,7 @@ import pg from "pg";
 import { afterEach, expect, test } from "vitest";
 import { ok } from "@shared/functional";
 import { deleteConfiguredExpiredCatalogOrders } from "@core/src/features/orders/composition";
+import { listCompaniesWithExpiredCatalogOrders } from "@core/src/features/orders/infrastructure/order-repository";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
 // Rows live in 2001 so the sweep cannot touch data of tests running in parallel.
@@ -90,4 +91,17 @@ test("cleanup leaves orders with payments untouched", async () => {
 
   expect(await deleteConfiguredExpiredCatalogOrders({ cutoff })).toEqual(ok({ companies: 1, deleted: 0, failedCompanies: 0 }));
   expect(await store.remaining()).toEqual({ orders: [orderId], items: [orderId] });
+});
+
+test("the definer lookup run as core_app lists every company with expired catalog orders and only those", async () => {
+  const [first, second, fresh] = [await company(), await company(), await company()];
+  await first.order({ createdAt: daysAgo(8) });
+  await second.order({ createdAt: daysAgo(9) });
+  await fresh.order({ createdAt: daysAgo(6) });
+  await fresh.order({ createdAt: daysAgo(30), confirmed: true });
+
+  const listed = await listCompaniesWithExpiredCatalogOrders(cutoff);
+
+  expect(listed.success && listed.data).toEqual(expect.arrayContaining([first.companyId, second.companyId]));
+  expect(listed.success && listed.data).not.toContain(fresh.companyId);
 });
