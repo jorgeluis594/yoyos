@@ -13,6 +13,7 @@ export type LineIssue = Readonly<{ variantId: VariantId } & (
   | { reason: "unavailable" }
   | { reason: "sold_out" }
   | { reason: "insufficient"; available: number }
+  | { reason: "other_currency" }
 )>;
 
 export const maxCartQuantity = 99;
@@ -28,12 +29,14 @@ export function isPendingCatalogOrder(order: Pick<OrderAggregate, "fromCatalog" 
   return order.fromCatalog && order.checkoutConfirmedAt === null;
 }
 
-/** Every line that cannot be sold as asked, all at once, so the buyer fixes the cart in one pass. */
+/** Every line that cannot be sold as asked, all at once, so the buyer fixes the cart in one pass. The order takes the currency of the first sellable line. */
 export function checkCartAvailability(lines: readonly CartLine[], variants: readonly SellableVariant[]): readonly LineIssue[] {
   const byId = new Map(variants.map((variant) => [variant.variantId, variant]));
+  const currency = lines.map((line) => byId.get(line.variantId)?.unitPrice.currency).find(Boolean);
   return lines.flatMap((line): LineIssue[] => {
     const variant = byId.get(line.variantId);
     if (!variant) return [{ variantId: line.variantId, reason: "unavailable" }];
+    if (variant.unitPrice.currency !== currency) return [{ variantId: line.variantId, reason: "other_currency" }];
     if (variant.available <= 0) return [{ variantId: line.variantId, reason: "sold_out" }];
     return line.quantity > variant.available ? [{ variantId: line.variantId, reason: "insufficient", available: variant.available }] : [];
   });

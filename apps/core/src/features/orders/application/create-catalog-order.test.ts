@@ -49,6 +49,13 @@ test("reports the available quantity when a line asks for more than the stock", 
     error: { code: "LINES_UNAVAILABLE", issues: [{ variantId: black, reason: "insufficient", available: 1 }] } });
 });
 
+test("rejects a line priced in another currency instead of failing the whole order", async () => {
+  const { deps, allocateNumber } = dependencies([variant(black, 45, 3), { ...variant(beige, 12, 10), unitPrice: { amount: 12, currency: "USD" } }]);
+  expect(await createCatalogOrder(input, { companyId }, deps)).toMatchObject({ success: false,
+    error: { code: "LINES_UNAVAILABLE", issues: [{ variantId: beige, reason: "other_currency" }] } });
+  expect(allocateNumber).not.toHaveBeenCalled();
+});
+
 test("returns the existing catalog order when Continuar repeats the same id", async () => {
   const first = dependencies();
   const created = await createCatalogOrder(input, { companyId }, first.deps);

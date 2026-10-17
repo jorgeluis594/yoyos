@@ -14,6 +14,22 @@ export type ContinueResponse =
 
 const privacyHeaders = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
 const reply = <T,>(value: T, status = 200) => data(value, { status, headers: privacyHeaders });
+// 30 lines of two UUIDs and a quantity stay well under 4 KB.
+const maxBodyBytes = 16_384;
+
+/** The JSON body, or `null` when it is not JSON or passes `maxBodyBytes`; stops reading at the limit, even without `Content-Length`. */
+async function readBody(request: Request): Promise<unknown> {
+  if (!request.body || Number(request.headers.get("Content-Length")) > maxBodyBytes) return null;
+  const decoder = new TextDecoder();
+  let text = "";
+  let size = 0;
+  for await (const chunk of request.body) {
+    size += chunk.byteLength;
+    if (size > maxBodyBytes) return null;
+    text += decoder.decode(chunk, { stream: true });
+  }
+  try { return JSON.parse(text + decoder.decode()); } catch { return null; }
+}
 
 /** `GET ?v=<variantIds>`: current price and availability of the cart variants; missing ones are no longer available. */
 export async function loader({ params, request }: LoaderFunctionArgs) {
@@ -35,7 +51,7 @@ export async function action({ params, request, context }: ActionFunctionArgs) {
     log.warn({ event: "catalog_order_rate_limited", companyId: companyId.data }, "catalog_order_rate_limited");
     return reply<ContinueResponse>({ code: "RATE_LIMITED" }, 429);
   }
-  const body = continueToCheckoutSchema.safeParse(await request.json().catch(() => null));
+  const body = continueToCheckoutSchema.safeParse(await readBody(request));
   if (!body.success) return reply<ContinueResponse>({ code: "INVALID_CART" }, 400);
   const result = await catalogCart.continueToCheckout(body.data, companyId.data);
   if (result.success) return reply<ContinueResponse>({ checkoutUrl: catalogCart.checkoutUrl(companyId.data, result.data.id) });

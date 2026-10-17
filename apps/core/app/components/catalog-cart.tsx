@@ -23,7 +23,7 @@ const failures: Record<Failure, string> = {
 };
 const money = (amount: number, currency: string) => formatCurrency(amount, currency, "es");
 const issueText = (issue: LineIssue) => issue.reason === "sold_out" ? "Se agotó" : issue.reason === "unavailable" ? "Ya no está disponible"
-  : issue.available === 1 ? "Solo queda 1" : `Solo quedan ${issue.available}`;
+  : issue.reason === "other_currency" ? "No se puede pedir junto con los demás productos" : issue.available === 1 ? "Solo queda 1" : `Solo quedan ${issue.available}`;
 
 /** The buyer's cart: refreshes prices on open and turns into an order with **Continuar**, through the `catalogo/:companyId/carrito` resource route. */
 export function CatalogCartPanel({ companyId, catalogPath }: Readonly<{ companyId: string; catalogPath: string }>) {
@@ -53,11 +53,14 @@ export function CatalogCartPanel({ companyId, catalogPath }: Readonly<{ companyI
   }, [companyId, route, update, variantIds]);
   useEffect(() => () => clearTimeout(undoTimer.current), []);
 
-  const edit = (next: CatalogCart) => { setFailure(null); update(next); };
+  const edit = (line: CatalogCartLine, next: CatalogCart) => {
+    setFailure(null);
+    setIssues((current) => { const without = new Map(current); without.delete(line.variantId); return without; });
+    update(next);
+  };
   const remove = (line: CatalogCartLine) => {
     setRemoved(cart);
-    setIssues((current) => { const next = new Map(current); next.delete(line.variantId); return next; });
-    edit(removeLine(cart, line.variantId));
+    edit(line, removeLine(cart, line.variantId));
     clearTimeout(undoTimer.current);
     undoTimer.current = setTimeout(() => setRemoved(null), 5000);
   };
@@ -112,9 +115,9 @@ export function CatalogCartPanel({ companyId, catalogPath }: Readonly<{ companyI
             <p className="text-sm text-muted-foreground tabular-nums">{money(line.price.amount, line.price.currency)} c/u</p>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-1" role="group" aria-label={`Cantidad de ${line.productName}`}>
-                <Button variant="outline" size="icon" aria-label="Quitar una unidad" disabled={line.quantity <= 1} onClick={() => edit(setLineQuantity(cart, line.variantId, line.quantity - 1))}><Minus aria-hidden="true" /></Button>
+                <Button variant="outline" size="icon" aria-label="Quitar una unidad" disabled={line.quantity <= 1} onClick={() => edit(line, setLineQuantity(cart, line.variantId, line.quantity - 1))}><Minus aria-hidden="true" /></Button>
                 <span className="min-w-8 text-center tabular-nums" aria-live="polite">{line.quantity}</span>
-                <Button variant="outline" size="icon" aria-label="Agregar una unidad" disabled={line.quantity >= max} onClick={() => edit(setLineQuantity(cart, line.variantId, line.quantity + 1))}><Plus aria-hidden="true" /></Button>
+                <Button variant="outline" size="icon" aria-label="Agregar una unidad" disabled={line.quantity >= max} onClick={() => edit(line, setLineQuantity(cart, line.variantId, line.quantity + 1))}><Plus aria-hidden="true" /></Button>
               </div>
               <strong className="tabular-nums">{money(Math.round(line.price.amount * 100) * line.quantity / 100, line.price.currency)}</strong>
             </div>

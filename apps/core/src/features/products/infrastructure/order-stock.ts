@@ -48,7 +48,7 @@ export async function findSellableVariants(ids: readonly string[]) {
     for (const row of rows) {
       const item = toCatalogItem(row);
       const stock = row.stock?.quantity ?? 0n;
-      if (!item || stock < 0n) {
+      if (!item) {
         log.error({ event: "invalid_stored_sale_variant", variantId: row.id }, "invalid_stored_sale_variant");
         return err({ code: "INVALID_STORED_DATA" as const, message: "Unable to read catalog" });
       }

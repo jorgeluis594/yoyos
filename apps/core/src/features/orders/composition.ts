@@ -44,7 +44,7 @@ import type { EventHandler } from "@core/src/shared/events/application/contracts
 import type { AppEvents } from "@core/src/shared/events/application/app-events";
 import { findAvailablePublicImage, readImageBytes, resolvePublicImage } from "@core/src/shared/images";
 import { companyPaymentSettings } from "@core/src/features/companies";
-import type { ImageId, VariantId } from "@core/src/features/products/domain/product";
+import type { ImageId } from "@core/src/features/products/domain/product";
 import { orderStateMachine } from "@core/src/features/orders/domain/order-state-machine";
 import type { BuyerPaymentView } from "@shared/contracts/orders";
 import type { CompanyId, ContactId, OrderId, OrderItemId, PaymentId, UserId } from "@core/src/features/orders/domain/order";
@@ -227,10 +227,7 @@ async function createConfiguredCatalogOrder(input: CreateCatalogOrderInput, acce
       if (found.success) return found;
       return err({ code: found.error.code === "PERSISTENCE_UNAVAILABLE" ? found.error.code : "INVALID_STORED_DATA" as const, message: found.error.message });
     },
-    findSellableVariants: async (ids) => {
-      const found = await findSellableVariants(ids);
-      return found.success ? ok(found.data.map((variant) => ({ ...variant, variantId: variant.variantId as VariantId }))) : found;
-    },
+    findSellableVariants,
     allocateNumber: allocateOrderNumber,
     saveCatalogOrder: async (order) => {
       const saved = await savePendingOrder(order);
