@@ -3,7 +3,8 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { addMessageProductsToOrder, type AddMessageProductsDependencies, type AddMessageProductsError, type OrderSourceMessage, type OrderChatSource,
   type MessageCustomer } from "@core/src/features/orders/application/add-message-products-to-order";
-import type { ChatId, VariantQrCode } from "@core/src/features/orders/domain/message-order";
+import type { ChatId } from "@core/src/features/orders/domain/message-order";
+import type { VariantQrCode } from "@core/src/features/products/domain/image-identification";
 import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { CompanyId, ContactId, OrderId, OrderItemId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";

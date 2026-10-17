@@ -17,7 +17,7 @@ vi.mock("@core/src/shared/images", async (importOriginal) => ({ ...await importO
   readImageBytes: async (imageId: string) => images.get(imageId) === "missing"
     ? { success: false, error: { code: "IMAGE_NOT_FOUND", message: "Image is not available" } }
     : { success: true, data: { bytes: new TextEncoder().encode(imageId), contentType: "image/jpeg" } } }));
-vi.mock("@core/src/features/orders/infrastructure/qr-code-reader", () => ({
+vi.mock("@core/src/features/products/infrastructure/qr-code-reader", () => ({
   readQrCodes: async ({ bytes }: { bytes: Uint8Array }) => {
     const next = scans.get(new TextDecoder().decode(bytes))?.shift();
     return next && "error" in next ? err({ code: next.error, message: "QR reader unavailable" }) : ok(next?.codes ?? []);

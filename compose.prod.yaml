@@ -68,6 +68,10 @@ services:
       R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
       R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
       R2_PUBLIC_BASE_URL: ${R2_PUBLIC_BASE_URL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      PRODUCT_MATCHER_PROVIDER: ${PRODUCT_MATCHER_PROVIDER:-openai}
+      PRODUCT_MATCHER_MODEL: ${PRODUCT_MATCHER_MODEL:-gpt-6-luna}
+      IMAGE_EMBEDDER_PROVIDER: ${IMAGE_EMBEDDER_PROVIDER:-openai}
     depends_on:
       migrate:
         condition: service_completed_successfully

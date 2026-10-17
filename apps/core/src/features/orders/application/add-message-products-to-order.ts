@@ -1,11 +1,12 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { buildPendingOrder, orderStateMachine, type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
-import { isOpenForMessageItems, selectProductCode, type ChatId, type MessageOrderSkipReason, type VariantQrCode } from "@core/src/features/orders/domain/message-order";
+import { isOpenForMessageItems, type ChatId, type MessageOrderSkipReason } from "@core/src/features/orders/domain/message-order";
+import { selectProductCode, type VariantQrCode } from "@core/src/features/products/domain/image-identification";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { CompanyId, ContactId, OrderId, OrderItemId, UserId } from "@core/src/features/orders/domain/order";
 import type { CatalogItem } from "@core/src/features/orders/application/order-snapshots";
-import type { ReadQrCodes } from "@core/src/features/orders/infrastructure/qr-code-reader";
+import type { ReadQrCodes } from "@core/src/features/products/infrastructure/qr-code-reader";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { CustomerId } from "@core/src/features/contacts/domain/contact";
 import type { ImageId, VariantId } from "@core/src/features/products/domain/product";

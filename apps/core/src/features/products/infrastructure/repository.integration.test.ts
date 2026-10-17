@@ -180,3 +180,18 @@ test("findSellableVariantsByQrCodes skips a variant with invalid stored data and
     expect(await find([mine.qrCode, corrupt.qrCode])).toMatchObject({ success: true, data: [{ variantId: mine.id }] });
   });
 }));
+
+test("findSellableVariantsOfProduct returns the active variants of the product with price and currency", () => withSeededVariants(async ({ mine, companyA, withTenantIsolation }) => {
+  const { prisma } = await import("@core/src/shared/infrastructure/persistance");
+  const { findSellableVariantsOfProduct } = await import("@core/src/features/products/infrastructure/order-stock");
+  await withTenantIsolation(companyA, async () => {
+    const { productId } = await prisma.productVariant.findUniqueOrThrow({ where: { id: mine.id } });
+    const second = randomUUID();
+    await prisma.productVariant.create({ data: { id: second, productId, qrCode: randomUUID(), attributes: { color: "rojo" }, sku: null, salePrice: 25, status: "active" } });
+    const found = await findSellableVariantsOfProduct(productId as ProductId);
+    expect(found.success && [...found.data].sort((a, b) => a.variantId.localeCompare(b.variantId))).toEqual([
+      { variantId: mine.id, productName: "Camisa", variantAttributes: { color: "azul" }, sku: "CAM-1", unitPrice: { amount: 19.99, currency: "PEN" } },
+      { variantId: second, productName: "Camisa", variantAttributes: { color: "rojo" }, sku: null, unitPrice: { amount: 25, currency: "PEN" } },
+    ].sort((a, b) => a.variantId.localeCompare(b.variantId)));
+  });
+}));
