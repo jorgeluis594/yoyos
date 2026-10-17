@@ -34,6 +34,7 @@ const { addMessageProductsToOrder } = vi.hoisted(() => ({ addMessageProductsToOr
 vi.mock("@core/src/features/orders/application/add-message-products-to-order", () => ({ addMessageProductsToOrder }));
 
 import { findOrderForUpdate } from "@core/src/features/orders/infrastructure/order-repository";
+import { products } from "@core/src/features/products/composition";
 import { orders, addMessageProductsHandler, messageOrderPolicy } from "@core/src/features/orders/composition";
 
 const id = (n: number) => `00000000-0000-4000-8000-${n.toString().padStart(12, "0")}`;
@@ -197,5 +198,20 @@ test("logs the match method and confidence without images or product names", asy
     await handle(1);
     expect(info).toHaveBeenCalledWith({ event: "orders_message_order_items_added", companyId: context.companyId, messageId, eventId, attempt: 1,
       durationMs: expect.any(Number), orderId: id(12), variantCount: 1, matchMethod: "visual", confidence: 0.87, candidates: 5 }, expect.any(String));
+  } finally { info.mockRestore(); addMessageProductsToOrder.mockReset(); }
+});
+
+test("identifies message images through products identifyProductsInImage", async () => {
+  const image = { bytes: new Uint8Array([1]), mimeType: "image/jpeg" };
+  const identified = ok({ method: "qr", variants: [] });
+  vi.mocked(products.identifyProductsInImage).mockResolvedValueOnce(identified as never);
+  addMessageProductsToOrder.mockImplementationOnce(async (_input, deps) => {
+    expect(await deps.identifyProducts(image)).toBe(identified);
+    return ok({ kind: "skipped", reason: "no_image" });
+  });
+  const info = vi.spyOn(log, "info").mockImplementation(() => undefined);
+  try {
+    await handle();
+    expect(products.identifyProductsInImage).toHaveBeenCalledWith(image);
   } finally { info.mockRestore(); addMessageProductsToOrder.mockReset(); }
 });

@@ -12,8 +12,8 @@ export async function indexProductImages() {
   await provider.start();
   try {
     let published = 0;
-    // Company has RLS for core_app, so companies are found through their users (auth tables have no RLS).
-    // shortcut: a company without users is skipped, upgrade to a SECURITY DEFINER listing if one ever needs indexing.
+    // Company has FORCE RLS for core_app, so companies are found through their users (auth tables have no RLS).
+    // Complete by invariant: only a company user creates products, so a company without users has nothing to index.
     const users = await systemPrisma.user.findMany({ where: { companyId: { not: null } }, select: { companyId: true }, distinct: ["companyId"] });
     for (const { companyId: id } of users) {
       const companyId = id as CompanyId;

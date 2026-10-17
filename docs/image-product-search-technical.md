@@ -298,7 +298,7 @@ declare module "@core/src/shared/events/application/app-events" {
 ```
 
 - Carries ids, not the `imageId`: the handler reads the current image (an old event never indexes a replaced image).
-- `eventId`: `${productId}:${imageId}` so duplicate publications of the same image collapse to one fact in logs; correctness does not depend on it (the use case is idempotent).
+- `eventId`: the bus's random UUID, like every event; the bus contract requires a UUID, and correctness does not depend on collapsing duplicate publications (the use case is idempotent; a duplicate ends as `already_indexed`).
 - Strict parser `parseProductImageChanged` in `features/products/infrastructure/event-payloads.ts` (pattern `parseMessageCreated`).
 - Subscription `index-product-image` in `composition/event-handlers.ts`, handler from `products/composition.ts`.
 
@@ -315,7 +315,7 @@ declare module "@core/src/shared/events/application/app-events" {
 
 ### 9.3 Command `index-product-images`
 
-`apps/core/scripts/index-product-images.ts` (`pnpm --dir apps/core products:index-images`). Lists companies with `systemPrisma`, and per company inside `withTenantIsolation` lists active products with an image and without an embedding of the current model, and publishes `product_image_changed` for each. Indexing runs in the worker; the command does not call providers.
+`apps/core/scripts/index-product-images.ts` (`pnpm --dir apps/core products:index-images`). Lists companies through their users with `systemPrisma` (Company has FORCE RLS for `core_app`; a company without users has no products), and per company inside `withTenantIsolation` lists active products with an image and without an embedding of the current model, and publishes `product_image_changed` for each. Indexing runs in the worker; the command does not call providers.
 
 ## 11. Transactions and concurrency
 
