@@ -24,23 +24,21 @@ test("public routes accept supported locales and reject unknown locales", async 
   expect((await page.request.get("/es-ZZ/register")).status()).toBe(404);
 });
 
-test("public navigation works from localized home", async ({ page }) => {
+test("localized home without a session goes straight to login", async ({ page }) => {
   await page.goto("/es-PE/");
   await browserExpect(page.locator("html")).toHaveAttribute("lang", "es-PE");
-  await page.getByRole("link", { name: "Iniciar sesión" }).click();
-  await browserExpect(page).toHaveURL(/\/login$/);
+  await browserExpect(page).toHaveURL(/\/es-PE\/login$/);
   await page.getByRole("link", { name: "Regístrate" }).click();
   await browserExpect(page).toHaveURL(/\/register$/);
   await page.getByRole("link", { name: "Inicia sesión" }).click();
   await browserExpect(page).toHaveURL(/\/login$/);
   await page.getByRole("link", { name: "Yoyos" }).click();
-  await browserExpect(page).toHaveURL(/\/es-PE\/$/);
+  await browserExpect(page).toHaveURL(/\/es-PE\/login$/);
 });
 
 test("Portuguese navigation keeps its route locale", async ({ page }) => {
   await page.goto("/pt-BR/");
   await browserExpect(page.locator("html")).toHaveAttribute("lang", "pt-BR");
-  await page.getByRole("link", { name: "Entrar" }).click();
   await browserExpect(page).toHaveURL(/\/pt-BR\/login$/);
   await browserExpect(page.getByRole("heading", { name: "Entrar" })).toBeVisible();
   await page.getByRole("link", { name: "Cadastre-se" }).click();
