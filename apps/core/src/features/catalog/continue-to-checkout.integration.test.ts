@@ -106,3 +106,17 @@ test("buyer payment routes reject an unconfirmed catalog order, and the seller s
   expect(await listed()).toMatchObject({ success: true, data: { items: [{ id: orderId, fromCatalog: true, sellerId: null }] } });
   expect((await fetch(`${base}/api/buyer/orders/${orderId}/payment`)).status).toBe(200);
 });
+
+test("Continuar takes the current price and the checkout keeps working after the catalog is hidden", async () => {
+  const { companyId, black } = await store();
+  await withTenantIsolation(companyId, async () => await prisma.productVariant.update({ where: { id: black }, data: { salePrice: 50 } }));
+  const orderId = randomUUID() as OrderId;
+  const created = await catalogCart.continueToCheckout({ orderId, lines: [line(black, 2)] }, companyId);
+  expect(created).toMatchObject({ success: true, data: { total: { amount: 100, currency: "PEN" } } });
+  if (!created.success) return;
+  await withTenantIsolation(companyId, async () => await prisma.company.update({ where: { id: companyId }, data: { catalogPublished: false } }));
+  expect(await orders.getCheckout({ companyId, orderId })).toMatchObject({ success: true, data: { number: created.data.number } });
+  const buyer = parseBuyer({ name: "Ana", phone: "+51987654321" });
+  if (!buyer.success) throw new Error(buyer.error.code);
+  expect(await orders.confirmCheckout({ buyer: buyer.data, expectedTotal: created.data.total }, { companyId, orderId })).toMatchObject({ success: true });
+});

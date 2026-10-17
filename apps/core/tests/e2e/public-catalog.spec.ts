@@ -36,7 +36,17 @@ test("seller publishes the catalog, buyer adds two variants, continues, confirms
     const url = new URL(await page.getByLabel("Link del catálogo").inputValue());
     expect(url.pathname).toBe(`/catalogo/${companyId}`);
 
-    await buyerPage.goto(url.pathname);
+    const catalog = await buyerPage.goto(url.pathname);
+    expect(catalog?.headers()["referrer-policy"]).toBe("no-referrer");
+    await browserExpect(buyerPage.locator('meta[name="robots"]')).toHaveAttribute("content", "noindex, nofollow");
+    await browserExpect(async () => {
+      await buyerPage.getByRole("searchbox", { name: "Buscar productos" }).fill("polo");
+      await buyerPage.waitForURL(/\?q=polo$/, { timeout: 1000 });
+    }).toPass({ timeout: 10_000 });
+    await buyerPage.getByRole("link", { name: /Polo básico/ }).click();
+    await buyerPage.getByRole("button", { name: "Volver al catálogo" }).click();
+    await buyerPage.waitForURL(/\?q=polo$/);
+    await browserExpect(buyerPage.getByRole("searchbox", { name: "Buscar productos" })).toHaveValue("polo");
     await buyerPage.getByRole("link", { name: /Polo básico/ }).click();
     // Clicks before hydration are lost: retry the first choice until React reflects it.
     await browserExpect(async () => {

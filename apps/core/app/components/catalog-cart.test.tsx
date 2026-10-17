@@ -82,3 +82,11 @@ test("«Ver productos» in the empty sheet on the catalog closes it and keeps th
   expect(container.querySelector("[role=dialog]")).toBeNull();
   expect(container.querySelector("output")!.textContent).toBe("?q=polo");
 });
+
+test("Continuar on a hidden catalog says the store stopped taking orders and keeps the cart", async () => {
+  answers.push(() => Promise.resolve(json({ code: "CATALOG_UNAVAILABLE" }, 409)));
+  await click(button("Continuar"));
+  expect(container.textContent).toContain("Esta tienda ya no está recibiendo pedidos por el catálogo");
+  expect(lineItem("Polo negro")).toBeDefined();
+  expect(lineItem("Polo beige")).toBeDefined();
+});
