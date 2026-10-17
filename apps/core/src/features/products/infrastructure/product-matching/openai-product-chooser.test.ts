@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { describe } from "vitest";
+import { describe, expect } from "vitest";
 import { createOpenAIProductChooser } from "@core/src/features/products/infrastructure/product-matching/openai-product-chooser";
 import { productChooserContract, type ProviderReply } from "@core/src/features/products/infrastructure/product-matching/product-chooser.contract";
 
@@ -24,6 +24,8 @@ describe("createOpenAIProductChooser", () => {
     const client = new OpenAI({ apiKey: "test-key", fetch: async (url, init) => {
       if (String(url).endsWith("/decisions")) {
         const body = JSON.parse(String(init?.body)) as DecisionBody;
+        // Decisions has no store flag and keeps no response state; pin the body so no retention option slips in (design §15).
+        expect(Object.keys(body).sort()).toEqual(["input", "model", "questions"]);
         sent.push(body.input.flatMap(({ content }) => content).filter(({ type }) => type === "input_image").length);
       }
       return respond(reply, init?.signal);

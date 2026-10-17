@@ -70,7 +70,7 @@ async function findImage(imageId: ImageId) {
 async function publishProductImageChanged(productId: ProductId) {
   const companyId = getCompanyId() as CompanyId;
   const published = await applicationEventBus().publishEvent("product_image_changed", { companyId, productId });
-  if (!published.success) log.error({ event: "product_image_changed_publish_failed", companyId, productId, errorCode: published.error.code }, "product_image_changed_publish_failed");
+  if (!published.success) log.error({ event: "product_image_changed_publish_failed", companyId, productId, errorCode: published.error.code, err: published.error }, "product_image_changed_publish_failed");
   return published;
 }
 
@@ -147,7 +147,7 @@ export const indexProductImageHandler: EventHandler<AppEvents, "product_image_ch
   const retryable = retryableIndexCodes.includes(result.error.code);
   // A retryable failure is a warning until the last attempt: then the job stays failed.
   log[retryable && context.attempt <= indexProductImagePolicy.retries ? "warn" : "error"]({ event: "product_image_index_failed", ...base,
-    eventId: metadata.eventId, errorCode: result.error.code, retryable, attempt: context.attempt }, "product_image_index_failed");
+    eventId: metadata.eventId, errorCode: result.error.code, retryable, attempt: context.attempt, err: result.error }, "product_image_index_failed");
   return err({ code: result.error.code, message: result.error.message, retryable });
 };
 
