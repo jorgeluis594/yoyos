@@ -1,6 +1,6 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import { buildPendingOrder, type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
+import { buildPendingCatalogOrder, type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { BuildOrderError, BuildOrderItem, CompanyId, OrderId, OrderItemId } from "@core/src/features/orders/domain/order";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { VariantId } from "@core/src/features/products/domain/product";
@@ -49,7 +49,7 @@ export function buildCatalogOrder(input: BuildCatalogOrderInput): Result<OrderAg
     const { variantId, productName, variantAttributes, sku, unitPrice } = byId.get(line.variantId)!;
     return { id: input.itemIds[index], variantId, productName, variantAttributes, sku, unitPrice, quantity: line.quantity };
   });
-  const built = buildPendingOrder({ id: input.id, companyId: input.companyId, number: input.number, sellerId: null,
+  const built = buildPendingCatalogOrder({ id: input.id, companyId: input.companyId, number: input.number,
     customer: { kind: "general_public" }, createdAt: input.now, items });
-  return built.success ? ok({ ...built.data, fromCatalog: true, checkoutEnabledAt: new Date(input.now) }) : built;
+  return built.success ? ok({ ...built.data, checkoutEnabledAt: new Date(input.now) }) : built;
 }

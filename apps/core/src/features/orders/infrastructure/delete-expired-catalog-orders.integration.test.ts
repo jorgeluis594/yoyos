@@ -4,6 +4,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { ok } from "@shared/functional";
 import { deleteCompanyCatalogOrderBatch, deleteConfiguredExpiredCatalogOrders } from "@core/src/features/orders/composition";
 import { log } from "@core/src/shared/infrastructure/logger";
+import { listCompaniesWithExpiredCatalogOrders } from "@core/src/features/orders/infrastructure/order-repository";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
 // Rows live in 2001 so the sweep cannot touch data of tests running in parallel.
@@ -109,4 +110,17 @@ test("cleanup logs an unexpected error for one company and still cleans the next
   expect(await broken.remaining()).toEqual({ orders: [kept], items: [kept] });
   expect((await healthy.remaining()).orders).toEqual([]);
   error.mockRestore();
+});
+
+test("the definer lookup run as core_app lists every company with expired catalog orders and only those", async () => {
+  const [first, second, fresh] = [await company(), await company(), await company()];
+  await first.order({ createdAt: daysAgo(8) });
+  await second.order({ createdAt: daysAgo(9) });
+  await fresh.order({ createdAt: daysAgo(6) });
+  await fresh.order({ createdAt: daysAgo(30), confirmed: true });
+
+  const listed = await listCompaniesWithExpiredCatalogOrders(cutoff);
+
+  expect(listed.success && listed.data).toEqual(expect.arrayContaining([first.companyId, second.companyId]));
+  expect(listed.success && listed.data).not.toContain(fresh.companyId);
 });
