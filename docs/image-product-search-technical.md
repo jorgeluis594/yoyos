@@ -532,7 +532,7 @@ Never logged: image bytes, base64, prompts, raw model responses, captions, produ
 
 - Out of scope: text messages and captions; several products in one visual image; suggestions for the seller to confirm; variant detection by attributes or per-variant images; ANN index; accuracy evaluations (evals); showing the match method in UI; seller feedback to measure accuracy in production.
 - Verify that Prisma 7.10 supports `extensions = [vector]` and `Unsupported("vector")` in `migrate dev` without a preview flag; if not, enable `postgresqlExtensions` or create the extension in the SQL migration only.
-- Verify that `pgvector/pgvector:*-pg18` uses the same `PGDATA` path as `postgres:18-alpine` (`/var/lib/postgresql`), and that it is Debian-based (the volume is compatible; collation versions may warn: run `ALTER DATABASE … REFRESH COLLATION VERSION` if so).
+- Verify that `pgvector/pgvector:*-pg18` uses the same `PGDATA` path as `postgres:18-alpine` (`/var/lib/postgresql`), and that it is Debian-based (the volume starts with its data, but musl and glibc sort text differently, so text indexes are silently inconsistent until `REINDEX DATABASE core`; `REFRESH COLLATION VERSION` fails on these volumes; procedure in `README.md`).
 - Verify the chosen providers' data terms: customer screenshots and product photos must not be retained for training. Choose zero-retention options where available.
 - `INVALID_MATCHER_RESPONSE` is retryable because model output is not deterministic; 8 retries bound the cost of a misbehaving model per message.
 - Cost per message is at most one embedding + one vision call with K+1 images; QR-labelled photos cost nothing.
