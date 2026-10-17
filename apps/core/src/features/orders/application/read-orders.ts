@@ -4,7 +4,7 @@ import type { Result } from "@shared/result";
 export type OrderCriteria = Readonly<{ page: number; customer: { kind: "all" } | { kind: "general_public" }; completedFrom?: Date; completedBefore?: Date }>;
 
 type ReadError = Readonly<{ code: "INVALID_ORDER" | "PERSISTENCE_UNAVAILABLE"; message: string }>;
-type Summary = Readonly<{ number: number; id: string; completedAt: Date; sellerId: string; buyer: { contactId: string | null; name: string | null; phone: string | null } | null; source: "manual" | "whatsapp"; total: { amount: number; currency: string } }>;
+type Summary = Readonly<{ number: number; id: string; completedAt: Date; sellerId: string | null; buyer: { contactId: string | null; name: string | null; phone: string | null } | null; source: "manual" | "whatsapp" | "catalog"; total: { amount: number; currency: string } }>;
 export type ListOrdersOutput = Readonly<{ items: readonly Summary[]; page: number; pageSize: number; total: number }>;
 
 export async function listOrders(criteria: OrderCriteria, find: (criteria: OrderCriteria) => Promise<Result<ListOrdersOutput, ReadError>>): Promise<Result<ListOrdersOutput, ReadError>> {

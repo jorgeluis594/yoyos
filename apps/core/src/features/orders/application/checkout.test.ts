@@ -116,7 +116,7 @@ test("technical failures propagate without a false success or subsequent writes"
 
 
 function deliveryFixture() {
-  const order = { ...base, items: [base.items[0]] as const, sellerId: seller.userId, createdAt: now, scheduledDispatchDate: null, shippedAt: null,
+  const order = { ...base, items: [base.items[0]] as const, sellerId: seller.userId, fromCatalog: false, createdAt: now, scheduledDispatchDate: null, shippedAt: null,
     completedAt: null, deliveredAt: null, deliveryStatus: "pending" as const, stockDeducted: false, payments: [],
     delivery: null, deliveryCost: { amount: 0, currency: "PEN" as const }, deliveryCharge: { amount: 0, currency: "PEN" as const }, total: base.itemsTotal };
   const deps: ConfirmCheckoutDeliveryDependencies = {

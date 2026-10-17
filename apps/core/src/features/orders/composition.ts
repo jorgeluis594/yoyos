@@ -1,7 +1,7 @@
 import { applicationEventBus } from "@core/src/composition/event-bus";
 import { createCompleteOrder, type CreateCompleteOrderInput, type CreateCompleteOrderError } from "@core/src/features/orders/application/create-complete-order";
 import { enableOrderCheckout, getOrderCheckout, confirmOrderCheckout, confirmCheckoutDelivery, type CheckoutDependencies, type ConfirmOrderCheckoutInput, type ConfirmCheckoutDeliveryInput } from "@core/src/features/orders/application/checkout";
-import { findCheckoutOrder, findCheckoutOrderForUpdate, saveCheckoutEnabled, saveCheckoutBuyer, saveCheckoutConfirmed } from "@core/src/features/orders/infrastructure/checkout-repository";
+import { findCheckoutOrder, findCheckoutOrderForUpdate as findAnyCheckoutOrderForUpdate, saveCheckoutEnabled, saveCheckoutBuyer, saveCheckoutConfirmed } from "@core/src/features/orders/infrastructure/checkout-repository";
 import { canAccessBuyerPayment, type CheckoutAccess, type CheckoutError } from "@core/src/features/orders/domain/checkout";
 import type { OrderAccess } from "@core/src/features/orders/application/create-order";
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
@@ -14,6 +14,7 @@ import { deliverySettings } from "@core/src/features/delivery-settings";
 import { setOrderDelivery, type SetDeliveryInput } from "@core/src/features/orders/application/set-delivery";
 import { resolveShippingCost as resolveRatedShippingCost } from "@core/src/features/orders/application/resolve-delivery-selection";
 import { type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
+import { rejectPendingCatalogOrder } from "@core/src/features/orders/application/reject-pending-catalog-order";
 import { z } from "zod";
 import { createOrder, type CreateOrderDependencies } from "@core/src/features/orders/application/create-order";
 import { deductStock, type DeductStockDependencies } from "@core/src/features/orders/application/deduct-stock";
@@ -27,7 +28,7 @@ import { registerShipment, registerDelivery, type FulfillOrderDependencies } fro
 import { getOrderAggregate } from "@core/src/features/orders/application/read-order-aggregate";
 import { listOrderAggregates } from "@core/src/features/orders/application/list-order-aggregates";
 import { listOrders } from "@core/src/features/orders/application/read-orders";
-import { allocateOrderNumber, findProcessedMessage, findOpenChatOrderCandidate, saveAddedItems, recordProcessedMessage, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderAggregate, findOrderAggregates, findOrderForUpdate, findOrders, orderExists, resolveBuyerOrderCompany } from "@core/src/features/orders/infrastructure/order-repository";
+import { allocateOrderNumber, findProcessedMessage, findOpenChatOrderCandidate, saveAddedItems, recordProcessedMessage, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderAggregate as findAnyOrderAggregate, findOrderAggregates, findOrderForUpdate as findAnyOrderForUpdate, findOrders, orderExists, resolveBuyerOrderCompany } from "@core/src/features/orders/infrastructure/order-repository";
 import { findSellableVariant, findSellableVariantsByQrCodes, deductProductStock, searchSaleCatalog } from "@core/src/features/products";
 import { ensureCustomerForContact } from "@core/src/features/contacts";
 import { findOrderSourceMessage } from "@core/src/features/chats";
@@ -56,6 +57,10 @@ async function orderTransaction<T, E extends AppError>(callback: () => Promise<R
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to complete order transaction" });
   }
 }
+
+const findOrderAggregate = rejectPendingCatalogOrder(findAnyOrderAggregate);
+const findOrderForUpdate = rejectPendingCatalogOrder(findAnyOrderForUpdate);
+const findSellerCheckoutOrderForUpdate = rejectPendingCatalogOrder(findAnyCheckoutOrderForUpdate);
 
 function scopedOrderTransaction<T, E extends AppError>(companyId: string, callback: () => Promise<Result<T, E>>): Promise<Result<T, E | Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>>> {
   if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
@@ -135,7 +140,7 @@ export function createConfiguredOrder(input: CreateCompleteOrderInput, context: 
 }
 
 const checkoutDependencies: CheckoutDependencies = { transaction: scopedOrderTransaction,
-  findOrder: findCheckoutOrder, findOrderForUpdate: findCheckoutOrderForUpdate,
+  findOrder: findCheckoutOrder, findOrderForUpdate: findAnyCheckoutOrderForUpdate,
   saveEnabled: saveCheckoutEnabled, saveBuyer: saveCheckoutBuyer, saveConfirmed: saveCheckoutConfirmed,
 };
 function rejectedCheckout(error: CheckoutError) {
@@ -158,7 +163,7 @@ export async function getBuyerPaymentView(id: string) {
   if (!access.success) return access;
   return withTenantIsolation(access.data.companyId, async () => {
     const [found, settings] = await Promise.all([
-      findOrderAggregate(access.data.orderId, access.data.companyId), companyPaymentSettings.get(access.data.companyId),
+      findAnyOrderAggregate(access.data.orderId, access.data.companyId), companyPaymentSettings.get(access.data.companyId),
     ]);
     if (!found.success) return found;
     if (!found.data) return err({ code: "ORDER_NOT_FOUND" as const, message: "Order not found" });
@@ -195,7 +200,7 @@ export const orders = {
     requireNoActiveTransaction();
     bindRequestOperation({ operation: "confirm_checkout" });
     const result = await withTenantIsolation(access.companyId, () => confirmCheckoutDelivery(input, access, new Date(), {
-      transaction: scopedOrderTransaction, findOrderForUpdate: findCheckoutOrderForUpdate,
+      transaction: scopedOrderTransaction, findOrderForUpdate: findAnyCheckoutOrderForUpdate,
       saveBuyer: saveCheckoutBuyer, saveConfirmed: saveCheckoutConfirmed,
       saveDelivery, deductProductStock, saveStockDeduction,
       getStoreSettings: deliverySettings.getForCompany, resolveSelectedDeliveryRate: deliverySettings.resolveSelectedDeliveryRate,
@@ -216,7 +221,7 @@ export const orders = {
   enableCheckout: async (orderId: OrderId, access: OrderAccess) => {
     requireNoActiveTransaction();
     bindRequestOperation({ operation: "enable_checkout" });
-    const result = await enableOrderCheckout(orderId, access, new Date(), checkoutDependencies);
+    const result = await enableOrderCheckout(orderId, access, new Date(), { ...checkoutDependencies, findOrderForUpdate: findSellerCheckoutOrderForUpdate });
     if (!result.success) { rejectedCheckout(result.error); return result; }
     bindRequestOperation({ outcome: result.data.changed ? "enabled" : "already_enabled", orderNumber: result.data.number });
     if (result.data.changed) log.info({ event: "order_checkout_enabled", companyId: access.companyId, orderNumber: result.data.number, userId: access.userId }, "Order checkout enabled");
