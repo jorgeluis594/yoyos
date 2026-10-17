@@ -11,8 +11,9 @@ export type ScheduledJob = Readonly<{ name: string; cron: string; tz: string; ha
 
 const dayMs = 24 * 60 * 60 * 1000;
 
-export function catalogOrderTtlDays(value = process.env.CATALOG_ORDER_TTL_DAYS): number {
-  return z.coerce.number().int().min(1).default(7).parse(value);
+export function catalogOrderTtlDays(value = process.env.CATALOG_ORDER_TTL_DAYS): Result<number, Readonly<{ code: "INVALID_CONFIGURATION"; message: string }>> {
+  const parsed = z.coerce.number().int().min(1).default(7).safeParse(value);
+  return parsed.success ? ok(parsed.data) : err({ code: "INVALID_CONFIGURATION", message: "CATALOG_ORDER_TTL_DAYS must be a positive integer" });
 }
 
 export function deleteExpiredCatalogOrdersJob(
@@ -34,15 +35,15 @@ export function deleteExpiredCatalogOrdersJob(
   };
 }
 
-export function scheduledJobs(): readonly ScheduledJob[] {
+export function scheduledJobs(catalogOrderTtl: number): readonly ScheduledJob[] {
   return [{ name: "delete-expired-catalog-orders", cron: "0 4 * * *", tz: "America/Lima",
-    handler: deleteExpiredCatalogOrdersJob(catalogOrderTtlDays()) }];
+    handler: deleteExpiredCatalogOrdersJob(catalogOrderTtl) }];
 }
 
 /** Worker only; the web process never schedules. Registered jobs are released when a later one fails. */
 export async function registerScheduledJobs(
   scheduler: JobScheduler,
-  jobs: readonly ScheduledJob[] = scheduledJobs(),
+  jobs: readonly ScheduledJob[],
 ): Promise<Result<Unsubscribe, EventBusError>> {
   const cleanups: Unsubscribe[] = [];
   const cleanup: Unsubscribe = async () => {

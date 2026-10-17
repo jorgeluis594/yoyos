@@ -29,9 +29,8 @@ import { registerShipment, registerDelivery, type FulfillOrderDependencies } fro
 import { getOrderAggregate } from "@core/src/features/orders/application/read-order-aggregate";
 import { listOrderAggregates } from "@core/src/features/orders/application/list-order-aggregates";
 import { listOrders } from "@core/src/features/orders/application/read-orders";
-import { deleteExpiredCatalogOrders, type DeleteExpiredCatalogOrdersInput } from "@core/src/features/orders/application/delete-expired-catalog-orders";
-import { allocateOrderNumber, findProcessedMessage, findOpenChatOrderCandidate, saveAddedItems, recordProcessedMessage, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderAggregate as findAnyOrderAggregate, findOrderAggregates, findOrderForUpdate as findAnyOrderForUpdate, findOrders, orderExists, resolveBuyerOrderCompany } from "@core/src/features/orders/infrastructure/order-repository";
-import { listCompaniesWithExpiredCatalogOrders, deleteExpiredCatalogOrders as deleteCompanyExpiredCatalogOrders } from "@core/src/features/orders/infrastructure/order-repository";
+import { deleteExpiredCatalogOrders, type DeleteExpiredCatalogOrdersDependencies, type DeleteExpiredCatalogOrdersInput } from "@core/src/features/orders/application/delete-expired-catalog-orders";
+import { allocateOrderNumber, findProcessedMessage, findOpenChatOrderCandidate, saveAddedItems, recordProcessedMessage, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderAggregate as findAnyOrderAggregate, findOrderAggregates, findOrderForUpdate as findAnyOrderForUpdate, findOrders, orderExists, resolveBuyerOrderCompany, listCompaniesWithExpiredCatalogOrders, deleteExpiredCatalogOrders as deleteCompanyExpiredCatalogOrders } from "@core/src/features/orders/infrastructure/order-repository";
 import { findSellableVariant, findSellableVariants, findSellableVariantsByQrCodes, deductProductStock, searchSaleCatalog } from "@core/src/features/products";
 import { ensureCustomerForContact } from "@core/src/features/contacts";
 import { findOrderSourceMessage } from "@core/src/features/chats";
@@ -199,11 +198,20 @@ export async function getBuyerPaymentView(id: string) {
   });
 }
 
-/** Worker sweep: each company's batch runs in its own transaction under RLS. */
-export function deleteConfiguredExpiredCatalogOrders(input: DeleteExpiredCatalogOrdersInput) {
+export const deleteCompanyCatalogOrderBatch: DeleteExpiredCatalogOrdersDependencies["deleteExpiredCatalogOrders"] = (companyId, cutoff, limit) =>
+  withTenantIsolation(companyId, () => scopedOrderTransaction(companyId, () => deleteCompanyExpiredCatalogOrders(companyId, cutoff, limit)));
+
+/** Worker sweep: each company's batch runs in its own transaction under RLS; an unexpected error fails only that company. */
+export function deleteConfiguredExpiredCatalogOrders(input: DeleteExpiredCatalogOrdersInput, deleteBatch = deleteCompanyCatalogOrderBatch) {
   return deleteExpiredCatalogOrders(input, { listCompaniesWithExpiredCatalogOrders,
-    deleteExpiredCatalogOrders: (companyId, cutoff, limit) => withTenantIsolation(companyId,
-      () => orderTransaction(() => deleteCompanyExpiredCatalogOrders(companyId, cutoff, limit))) });
+    deleteExpiredCatalogOrders: async (companyId, cutoff, limit) => {
+      try {
+        return await deleteBatch(companyId, cutoff, limit);
+      } catch (cause) {
+        log.error({ event: "unable_to_delete_catalog_orders", companyId, errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "Unable to delete catalog orders");
+        return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to delete catalog orders" });
+      }
+    } });
 }
 
 const checkoutUrl = (companyId: CompanyId, orderId: OrderId) =>

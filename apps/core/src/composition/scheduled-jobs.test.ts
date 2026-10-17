@@ -8,7 +8,7 @@ const context = { signal: new AbortController().signal, attempt: 1 };
 
 test("registers the daily catalog cleanup at 04:00 Lima and releases it on cleanup", async () => {
   const bus = createInMemoryEventBus();
-  const registered = await registerScheduledJobs(bus);
+  const registered = await registerScheduledJobs(bus, scheduledJobs(7));
   expect(bus.scheduled()).toEqual([expect.objectContaining({ name: "delete-expired-catalog-orders", cron: "0 4 * * *", tz: "America/Lima" })]);
   if (registered.success) await registered.data();
   expect(bus.scheduled()).toEqual([]);
@@ -16,15 +16,15 @@ test("registers the daily catalog cleanup at 04:00 Lima and releases it on clean
 
 test("releases already registered jobs when a later job cannot be scheduled", async () => {
   const bus = createInMemoryEventBus();
-  const [job] = scheduledJobs();
+  const [job] = scheduledJobs(7);
   expect(await registerScheduledJobs(bus, [job, job])).toMatchObject({ success: false, error: { code: "INVALID_SUBSCRIPTION" } });
   expect(bus.scheduled()).toEqual([]);
 });
 
 test("catalog order ttl defaults to 7 days and rejects invalid values", () => {
-  expect(catalogOrderTtlDays(undefined)).toBe(7);
-  expect(catalogOrderTtlDays("3")).toBe(3);
-  for (const value of ["0", "1.5", "abc", ""]) expect(() => catalogOrderTtlDays(value)).toThrow();
+  expect(catalogOrderTtlDays(undefined)).toEqual(ok(7));
+  expect(catalogOrderTtlDays("3")).toEqual(ok(3));
+  for (const value of ["0", "1.5", "abc", ""]) expect(catalogOrderTtlDays(value)).toMatchObject({ success: false, error: { code: "INVALID_CONFIGURATION" } });
 });
 
 test("cleanup job deletes before the ttl cutoff and fails for a retry when the listing fails", async () => {
