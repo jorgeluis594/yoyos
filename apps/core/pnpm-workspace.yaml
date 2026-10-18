@@ -3,6 +3,7 @@ allowBuilds:
   '@newrelic/native-metrics': false
   '@prisma/engines': true
   esbuild: true
+  onnxruntime-node: false
   prisma: true
   protobufjs: false
 overrides:
