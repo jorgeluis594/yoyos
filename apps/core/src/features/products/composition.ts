@@ -85,7 +85,7 @@ const visualEnvSchema = z.object({
   PRODUCT_MATCHER_PROVIDER: z.enum(["openai"]).default("openai"),
   PRODUCT_MATCHER_MODEL: z.string().default("gpt-6-luna"),
   IMAGE_EMBEDDER_PROVIDER: z.enum(["openai"]).default("openai"),
-  IMAGE_EMBEDDER_MODEL: z.string().optional(),
+  IMAGE_EMBEDDER_MODEL: z.string().default("gpt-6-luna"),
   OPENAI_API_KEY: z.string().optional(),
   PRODUCT_MATCH_CANDIDATES: z.coerce.number().int().min(1).max(MAX_CANDIDATES).default(5),
   PRODUCT_MATCH_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.8),
@@ -102,7 +102,7 @@ export function createVisualSearch(env: Env): VisualSearchSetup {
   const client = new OpenAI({ apiKey: config.OPENAI_API_KEY, timeout: config.PRODUCT_MATCH_TIMEOUT_MS, maxRetries: 0 });
   let embedder: ImageEmbedder;
   switch (config.IMAGE_EMBEDDER_PROVIDER) {
-    case "openai": embedder = createOpenAiImageEmbedder({ client, describeModel: config.IMAGE_EMBEDDER_MODEL ?? "gpt-6-luna", currentCompanyId: getCompanyId });
+    case "openai": embedder = createOpenAiImageEmbedder({ client, describeModel: config.IMAGE_EMBEDDER_MODEL, currentCompanyId: getCompanyId });
   }
   let chooseProduct: VisualSearch["chooseProduct"];
   switch (config.PRODUCT_MATCHER_PROVIDER) {
