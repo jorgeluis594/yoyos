@@ -3,14 +3,15 @@ import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { expect, test } from "vitest";
 
-const model = "openai/gpt-6-luna+text-embedding-3-small";
+// The default embedder (local) needs no download to publish: the model loads only when the worker embeds.
+const model = "local/Xenova/mobileclip_s0";
 
 test("products:index-images publishes only for products of every company missing an embedding of the current model", async () => {
   if (!process.env.DATABASE_URL?.includes("core_test")) throw new Error("Run sh scripts/run-tests.sh integration");
   const { systemPrisma, prisma, withTenantIsolation } = await import("../src/shared/infrastructure/persistance.ts");
   const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
   const run = () => execFileSync("pnpm", ["--silent", "products:index-images"], {
-    cwd: process.cwd(), env: { ...process.env, OPENAI_API_KEY: "test", IMAGE_EMBEDDER_MODEL: "" }, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+    cwd: process.cwd(), env: { ...process.env, OPENAI_API_KEY: "test", IMAGE_EMBEDDER_PROVIDER: "", IMAGE_EMBEDDER_MODEL: "" }, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
   });
   const companies = [randomUUID(), randomUUID()];
   const missing = [randomUUID(), randomUUID()];

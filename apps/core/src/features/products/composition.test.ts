@@ -31,6 +31,21 @@ describe("createVisualSearch", () => {
     expect(info).toHaveBeenLastCalledWith({ event: "product_visual_search_disabled", reason: "missing_api_key" }, "product_visual_search_disabled");
   });
 
+  test("selects the local embedder by default and the configured provider and model otherwise", () => {
+    const local = createVisualSearch({ OPENAI_API_KEY: "key" });
+    expect(local.embedder?.model).toBe("local/Xenova/mobileclip_s0");
+    expect(local.visual?.model).toBe(local.embedder?.model);
+    expect(createVisualSearch({ OPENAI_API_KEY: "key", IMAGE_EMBEDDER_PROVIDER: "local", IMAGE_EMBEDDER_MODEL: "Xenova/clip-vit-base-patch16" }).embedder?.model)
+      .toBe("local/Xenova/clip-vit-base-patch16");
+    expect(createVisualSearch({ OPENAI_API_KEY: "key", IMAGE_EMBEDDER_PROVIDER: "openai", IMAGE_EMBEDDER_MODEL: "" }).embedder?.model)
+      .toBe("openai/gpt-6-luna+text-embedding-3-small");
+  });
+
+  test("keeps visual search disabled without the key even though the local embedder needs none", () => {
+    vi.spyOn(log, "info").mockImplementation(() => {});
+    expect(createVisualSearch({ IMAGE_EMBEDDER_PROVIDER: "local" })).toEqual({ embedder: null, visual: null });
+  });
+
   test("fails at startup for an unknown provider name", () => {
     expect(() => createVisualSearch({ PRODUCT_MATCHER_PROVIDER: "acme", OPENAI_API_KEY: "key" })).toThrow();
     expect(() => createVisualSearch({ IMAGE_EMBEDDER_PROVIDER: "acme" })).toThrow();

@@ -12,8 +12,8 @@ const { embeddings } = vi.hoisted(() => {
   process.env.OPENAI_API_KEY = "test";
   return { embeddings: [] as Array<"unavailable" | number[]> };
 });
-vi.mock("@core/src/features/products/infrastructure/product-matching/openai-image-embedder", () => ({
-  createOpenAiImageEmbedder: () => ({ model: "openai/fake+text-embedding-3-small", embedImage: async () => {
+vi.mock("@core/src/features/products/infrastructure/product-matching/local-image-embedder", () => ({
+  DEFAULT_LOCAL_IMAGE_MODEL: "fake", createLocalImageEmbedder: () => ({ model: "local/fake", embedImage: async () => {
     const next = embeddings.shift() ?? [1, 0, 0];
     return next === "unavailable" ? err({ code: "EMBEDDER_UNAVAILABLE", message: "503" }) : ok(next);
   } }),
@@ -55,7 +55,7 @@ test("a product created with an image is indexed by the worker, reindexed on ima
     expect(created.success).toBe(true);
     const productId = (created.success ? created.data : "") as ProductId;
     await vi.waitFor(async () => expect(await jobs(productId)).toMatchObject([{ state: "completed", retry_count: 1 }]), { timeout: 20_000, interval: 100 });
-    expect(await stored()).toEqual([{ imageId: first, model: "openai/fake+text-embedding-3-small" }]);
+    expect(await stored()).toEqual([{ imageId: first, model: "local/fake" }]);
 
     expect((await withTenantIsolation(companyId, () => products.update(productId, { name: "Shirt v2" }))).success).toBe(true);
     expect(await jobs(productId)).toHaveLength(1);
@@ -63,7 +63,7 @@ test("a product created with an image is indexed by the worker, reindexed on ima
     expect((await withTenantIsolation(companyId, () => products.update(productId, { imageId: second }))).success).toBe(true);
     await vi.waitFor(async () => expect((await jobs(productId)).map(({ state }) => state)).toEqual(["completed", "completed"]), { timeout: 20_000, interval: 100 });
     // The old image keeps its cached embedding; search only joins the product's current image.
-    expect(await stored()).toEqual([first, second].map((imageId) => ({ imageId, model: "openai/fake+text-embedding-3-small" })));
+    expect(await stored()).toEqual([first, second].map((imageId) => ({ imageId, model: "local/fake" })));
   } finally {
     global.__yoyosEvents = previousBus;
     await worker.stop();

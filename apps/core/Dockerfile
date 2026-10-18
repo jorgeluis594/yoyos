@@ -1,8 +1,9 @@
-FROM node:24-alpine
+# Debian slim, not Alpine: onnxruntime-node (local image embedder) ships glibc binaries only.
+FROM node:24-slim
 
 WORKDIR /workspace/apps/core
 
-RUN apk add --no-cache postgresql-client
+RUN apt-get update && apt-get install -y --no-install-recommends postgresql-client && rm -rf /var/lib/apt/lists/*
 
 RUN corepack enable && corepack prepare pnpm@12.5.1 --activate
 
@@ -14,6 +15,13 @@ COPY patches /workspace/patches
 COPY apps/core/prisma ./prisma
 COPY apps/core/prisma.config.ts ./
 RUN pnpm install --frozen-lockfile
+
+# Bakes the default local image embedder into the transformers.js cache so the worker never downloads it.
+# Same default model as local-image-embedder.ts; loading it here also proves the native runtime works in this image.
+ARG IMAGE_EMBEDDER_MODEL=Xenova/mobileclip_s0
+RUN node --input-type=module -e "const t = await import('@huggingface/transformers'); \
+  await t.AutoProcessor.from_pretrained(process.env.IMAGE_EMBEDDER_MODEL); \
+  await t.AutoModelForImageFeatureExtraction.from_pretrained(process.env.IMAGE_EMBEDDER_MODEL);"
 
 COPY apps/core/. .
 COPY shared /workspace/shared

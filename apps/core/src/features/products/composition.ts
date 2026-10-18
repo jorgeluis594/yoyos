@@ -16,6 +16,7 @@ import { indexProductImage, indexProductImagePolicy, type EmbedImage, type Index
 import type { EmbeddingModel } from "@core/src/features/products/domain/image-identification";
 import { findImageIndexState, saveEmbedding } from "@core/src/features/products/infrastructure/image-embeddings";
 import { createOpenAiImageEmbedder } from "@core/src/features/products/infrastructure/product-matching/openai-image-embedder";
+import { createLocalImageEmbedder, DEFAULT_LOCAL_IMAGE_MODEL } from "@core/src/features/products/infrastructure/product-matching/local-image-embedder";
 import { getProduct } from "@core/src/features/products/application/get";
 import { listProducts, type ListImageDependencies, type ListImageFailure } from "@core/src/features/products/application/list";
 import { updateProduct } from "@core/src/features/products/application/update";
@@ -84,8 +85,9 @@ export type VisualSearchSetup = Readonly<{ embedder: ImageEmbedder | null; visua
 const visualEnvSchema = z.object({
   PRODUCT_MATCHER_PROVIDER: z.enum(["openai"]).default("openai"),
   PRODUCT_MATCHER_MODEL: z.string().default("gpt-6-luna"),
-  IMAGE_EMBEDDER_PROVIDER: z.enum(["openai"]).default("openai"),
-  IMAGE_EMBEDDER_MODEL: z.string().default("gpt-6-luna"),
+  IMAGE_EMBEDDER_PROVIDER: z.enum(["local", "openai"]).default("local"),
+  // Unset means the provider's default model.
+  IMAGE_EMBEDDER_MODEL: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   PRODUCT_MATCH_CANDIDATES: z.coerce.number().int().min(1).max(MAX_CANDIDATES).default(5),
   PRODUCT_MATCH_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.8),
@@ -102,7 +104,8 @@ export function createVisualSearch(env: Env): VisualSearchSetup {
   const client = new OpenAI({ apiKey: config.OPENAI_API_KEY, timeout: config.PRODUCT_MATCH_TIMEOUT_MS, maxRetries: 0 });
   let embedder: ImageEmbedder;
   switch (config.IMAGE_EMBEDDER_PROVIDER) {
-    case "openai": embedder = createOpenAiImageEmbedder({ client, describeModel: config.IMAGE_EMBEDDER_MODEL, currentCompanyId: getCompanyId });
+    case "local": embedder = createLocalImageEmbedder({ modelId: config.IMAGE_EMBEDDER_MODEL ?? DEFAULT_LOCAL_IMAGE_MODEL, currentCompanyId: getCompanyId }); break;
+    case "openai": embedder = createOpenAiImageEmbedder({ client, describeModel: config.IMAGE_EMBEDDER_MODEL ?? "gpt-6-luna", currentCompanyId: getCompanyId });
   }
   let chooseProduct: VisualSearch["chooseProduct"];
   switch (config.PRODUCT_MATCHER_PROVIDER) {
