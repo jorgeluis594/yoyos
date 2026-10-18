@@ -16,13 +16,7 @@ COPY apps/core/prisma ./prisma
 COPY apps/core/prisma.config.ts ./
 RUN pnpm install --frozen-lockfile
 
-# Bakes the default local image embedder into the transformers.js cache so the worker never downloads it.
-# Same default model as local-image-embedder.ts; loading it here also proves the native runtime works in this image.
-ARG IMAGE_EMBEDDER_MODEL=Xenova/mobileclip_s0
-RUN node --input-type=module -e "const t = await import('@huggingface/transformers'); \
-  await t.AutoProcessor.from_pretrained(process.env.IMAGE_EMBEDDER_MODEL); \
-  await t.AutoModelForImageFeatureExtraction.from_pretrained(process.env.IMAGE_EMBEDDER_MODEL);"
-
+# Copies apps/core/models too: the local image embedder loads only from there and never downloads (models/README.md).
 COPY apps/core/. .
 COPY shared /workspace/shared
 COPY docs/design-tokens.json /workspace/docs/design-tokens.json

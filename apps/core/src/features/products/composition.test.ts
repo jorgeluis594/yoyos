@@ -37,8 +37,10 @@ describe("createVisualSearch", () => {
     expect(local.visual?.model).toBe(local.embedder?.model);
     expect(createVisualSearch({ OPENAI_API_KEY: "key", IMAGE_EMBEDDER_PROVIDER: "local", IMAGE_EMBEDDER_MODEL: "Xenova/clip-vit-base-patch16" }).embedder?.model)
       .toBe("local/Xenova/clip-vit-base-patch16");
-    expect(createVisualSearch({ OPENAI_API_KEY: "key", IMAGE_EMBEDDER_PROVIDER: "openai", IMAGE_EMBEDDER_MODEL: "" }).embedder?.model)
+    expect(createVisualSearch({ OPENAI_API_KEY: "key", IMAGE_EMBEDDER_PROVIDER: "openai", IMAGE_EMBEDDER_MODEL: "", IMAGE_DESCRIBE_MODEL: "" }).embedder?.model)
       .toBe("openai/gpt-6-luna+text-embedding-3-small");
+    expect(createVisualSearch({ OPENAI_API_KEY: "key", IMAGE_EMBEDDER_PROVIDER: "openai", IMAGE_EMBEDDER_MODEL: "text-embedding-3-large", IMAGE_DESCRIBE_MODEL: "gpt-6" })
+      .embedder?.model).toBe("openai/gpt-6+text-embedding-3-large");
   });
 
   test("keeps visual search disabled without the key even though the local embedder needs none", () => {

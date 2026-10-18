@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import sharp from "sharp";
 import { err, ok } from "@shared/functional";
 import { log } from "@core/src/shared/infrastructure/logger";
@@ -5,8 +6,9 @@ import type { EmbedImage } from "@core/src/features/products/application/index-p
 import { parseEmbeddingModel, parseEmbeddingVector, type EmbeddingModel, type ImageBytes } from "@core/src/features/products/domain/image-identification";
 
 // Runs a CLIP/SigLIP vision encoder in the worker process with onnxruntime-node: one local inference, no key, no image leaves the server.
-// The Dockerfile bakes this model into the image; chosen by measurement (design §2). Its repo's transformers.js_config pins fp32
-// (quantized MobileCLIP loses most of its recall).
+// Chosen by measurement (design §2). Its repo's transformers.js_config pins fp32 (quantized MobileCLIP loses most of its recall).
+// shortcut: MobileCLIP weights are research-only (Apple ML Research Model Terms, design §15), so they are not committed and must not ship;
+// replace this default with a commercially licensed model committed under models/ before merge.
 export const DEFAULT_LOCAL_IMAGE_MODEL = "Xenova/mobileclip_s0";
 
 export type RgbImage = Readonly<{ data: Uint8Array; width: number; height: number }>;
@@ -16,10 +18,15 @@ export type LoadImageFeatureModel = (modelId: string) => Promise<ImageFeatureMod
 
 export type LocalImageEmbedderOptions = Readonly<{ modelId: string; currentCompanyId: () => string; load?: LoadImageFeatureModel }>;
 
-/** Loads processor and vision tower from the transformers.js cache (baked in the image) or, the first time, from the Hugging Face Hub. */
+/** Model files live in apps/core/models/<model id>/ (models/README.md); cwd-relative because the web build bundles this module. */
+export const localModelPath = resolve("models");
+
+/** Loads processor and vision tower only from localModelPath; remote downloads are disabled. */
 export const loadImageFeatureModel: LoadImageFeatureModel = async (modelId) => {
   // Imported lazily so web, scripts and tests that never embed do not load the native runtime.
-  const { AutoModelForImageFeatureExtraction, AutoProcessor, RawImage } = await import("@huggingface/transformers");
+  const { AutoModelForImageFeatureExtraction, AutoProcessor, RawImage, env } = await import("@huggingface/transformers");
+  env.allowRemoteModels = false;
+  env.localModelPath = localModelPath;
   const [processor, model] = await Promise.all([AutoProcessor.from_pretrained(modelId), AutoModelForImageFeatureExtraction.from_pretrained(modelId)]);
   // CLIP returns projected image_embeds and SigLIP a pooled output.
   const embed = async ({ data, width, height }: RgbImage) => {

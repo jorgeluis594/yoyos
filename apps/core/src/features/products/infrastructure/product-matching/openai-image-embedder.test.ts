@@ -10,7 +10,7 @@ const described = json(200, { id: "resp_1", object: "response", status: "complet
 
 function build(transport: Transport) {
   const client = new OpenAI({ apiKey: "test", fetch: transport, maxRetries: 0, timeout: 50 });
-  return createOpenAiImageEmbedder({ client, describeModel: "gpt-6-luna", currentCompanyId: () => "company" });
+  return createOpenAiImageEmbedder({ client, describeModel: "gpt-6-luna", embedModel: "text-embedding-3-small", currentCompanyId: () => "company" });
 }
 
 function answering(values: readonly (number | null)[]): Transport {
