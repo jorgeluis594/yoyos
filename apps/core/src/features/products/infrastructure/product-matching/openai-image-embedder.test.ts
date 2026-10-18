@@ -2,7 +2,7 @@ import OpenAI from "openai";
 import sharp from "sharp";
 import { describe, expect, test } from "vitest";
 import { createOpenAiImageEmbedder } from "@core/src/features/products/infrastructure/product-matching/openai-image-embedder";
-import { imageEmbedderContract, type Transport } from "@core/src/features/products/infrastructure/product-matching/image-embedder.contract";
+import { imageEmbedderContract, unavailableTransports, type Transport } from "@core/src/features/products/infrastructure/product-matching/image-embedder.contract";
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const described = json(200, { id: "resp_1", object: "response", status: "completed", model: "gpt-6-luna",
@@ -19,7 +19,7 @@ function answering(values: readonly (number | null)[]): Transport {
 }
 
 describe("openai image embedder contract", () => {
-  imageEmbedderContract({ dimensions: 1536, build: (transport) => build(transport).embedImage, answering });
+  imageEmbedderContract({ dimensions: 1536, build: (transport) => build(transport).embedImage, answering, unavailable: unavailableTransports });
 });
 
 test("describes a resized JPEG with the vision model and embeds the description", async () => {
