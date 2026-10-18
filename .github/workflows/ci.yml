@@ -35,6 +35,15 @@ jobs:
         working-directory: apps/core
       - run: pnpm test:unit
         working-directory: apps/core
+      # The real-model test loads the local image model offline from apps/core/models (models/README.md).
+      - uses: actions/cache@v6
+        with:
+          path: |
+            apps/core/models/*/*/*.json
+            apps/core/models/*/*/onnx
+          key: image-model-${{ hashFiles('apps/core/scripts/fetch-image-model.ts') }}
+      - run: pnpm models:fetch
+        working-directory: apps/core
       - run: sudo apt-get update && sudo apt-get install -y postgresql-client
       - run: pnpm exec playwright install --with-deps chromium
         working-directory: apps/core

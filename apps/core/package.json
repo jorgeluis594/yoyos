@@ -9,6 +9,7 @@
     "worker": "tsx src/worker.ts",
     "seed": "tsx scripts/seed.ts",
     "products:index-images": "tsx scripts/index-product-images.ts",
+    "models:fetch": "tsx scripts/fetch-image-model.ts",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "test:unit": "sh scripts/run-tests.sh unit",

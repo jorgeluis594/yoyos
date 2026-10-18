@@ -4,7 +4,7 @@ import pg from "pg";
 import { expect, test } from "vitest";
 
 // The default embedder (local) needs no download to publish: the model loads only when the worker embeds.
-const model = "local/Xenova/mobileclip_s0";
+const model = "local/onnx-community/siglip2-base-patch16-224-ONNX";
 
 test("products:index-images publishes only for products of every company missing an embedding of the current model", async () => {
   if (!process.env.DATABASE_URL?.includes("core_test")) throw new Error("Run sh scripts/run-tests.sh integration");

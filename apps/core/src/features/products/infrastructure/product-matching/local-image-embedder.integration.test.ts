@@ -10,8 +10,8 @@ const fixture = async (name: string) =>
   ({ bytes: new Uint8Array(await readFile(new URL(`./embedding-fixtures/${name}`, import.meta.url))), contentType: "image/jpeg" });
 const dot = (left: readonly number[], right: readonly number[]) => left.reduce((sum, value, index) => sum + value * right[index], 0);
 
-// shortcut: skipped while the default model's weights are not committed (license, design §15); drop the skip when they are.
-test.skipIf(!existsSync(join(localModelPath, DEFAULT_LOCAL_IMAGE_MODEL)))("two photos of the same product are closer than photos of different products", async () => {
+// The files come from `pnpm models:fetch` (CI runs it before the suite), so only a local run without them skips; CI never does.
+test.skipIf(!process.env.CI && !existsSync(join(localModelPath, DEFAULT_LOCAL_IMAGE_MODEL, "onnx")))("two photos of the same product are closer than photos of different products", async () => {
   vi.stubGlobal("fetch", () => { throw new Error("Network disabled in the real-model test"); });
   const embedder = createLocalImageEmbedder({ modelId: DEFAULT_LOCAL_IMAGE_MODEL, currentCompanyId: () => "test" });
   const first = await embedder.embedImage(await fixture("product-a-front.jpg"));

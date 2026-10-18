@@ -2,5 +2,6 @@ build/
 .react-router/
 test-results/
 
-# Research-only weights (models/README.md); never commit them.
-/models/Xenova/mobileclip_s0/
+# Model files are fetched by pnpm models:fetch (models/README.md); only README and licenses are committed.
+/models/*/*/*.json
+/models/*/*/onnx/

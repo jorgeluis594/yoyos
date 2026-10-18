@@ -33,7 +33,7 @@ describe("createVisualSearch", () => {
 
   test("selects the local embedder by default and the configured provider and model otherwise", () => {
     const local = createVisualSearch({ OPENAI_API_KEY: "key" });
-    expect(local.embedder?.model).toBe("local/Xenova/mobileclip_s0");
+    expect(local.embedder?.model).toBe("local/onnx-community/siglip2-base-patch16-224-ONNX");
     expect(local.visual?.model).toBe(local.embedder?.model);
     expect(createVisualSearch({ OPENAI_API_KEY: "key", IMAGE_EMBEDDER_PROVIDER: "local", IMAGE_EMBEDDER_MODEL: "Xenova/clip-vit-base-patch16" }).embedder?.model)
       .toBe("local/Xenova/clip-vit-base-patch16");

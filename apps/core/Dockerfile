@@ -16,7 +16,11 @@ COPY apps/core/prisma ./prisma
 COPY apps/core/prisma.config.ts ./
 RUN pnpm install --frozen-lockfile
 
-# Copies apps/core/models too: the local image embedder loads only from there and never downloads (models/README.md).
+# The local image model is fetched at build from a pinned revision and verified by sha256; the embedder loads only from models/ and never
+# downloads at runtime (models/README.md). Its own layer, so the 372 MB download is cached until the script changes.
+COPY apps/core/scripts/fetch-image-model.ts ./scripts/
+RUN pnpm models:fetch
+
 COPY apps/core/. .
 COPY shared /workspace/shared
 COPY docs/design-tokens.json /workspace/docs/design-tokens.json

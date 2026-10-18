@@ -6,10 +6,8 @@ import type { EmbedImage } from "@core/src/features/products/application/index-p
 import { parseEmbeddingModel, parseEmbeddingVector, type EmbeddingModel, type ImageBytes } from "@core/src/features/products/domain/image-identification";
 
 // Runs a CLIP/SigLIP vision encoder in the worker process with onnxruntime-node: one local inference, no key, no image leaves the server.
-// Chosen by measurement (design §2). Its repo's transformers.js_config pins fp32 (quantized MobileCLIP loses most of its recall).
-// shortcut: MobileCLIP weights are research-only (Apple ML Research Model Terms, design §15), so they are not committed and must not ship;
-// replace this default with a commercially licensed model committed under models/ before merge.
-export const DEFAULT_LOCAL_IMAGE_MODEL = "Xenova/mobileclip_s0";
+// SigLIP 2 base (Apache-2.0 weights), chosen by measurement (design §2); fetched by `pnpm models:fetch` (models/README.md).
+export const DEFAULT_LOCAL_IMAGE_MODEL = "onnx-community/siglip2-base-patch16-224-ONNX";
 
 export type RgbImage = Readonly<{ data: Uint8Array; width: number; height: number }>;
 /** Image feature model loaded once per process; `embed` returns the raw (unnormalized) image features. */
@@ -27,7 +25,8 @@ export const loadImageFeatureModel: LoadImageFeatureModel = async (modelId) => {
   const { AutoModelForImageFeatureExtraction, AutoProcessor, RawImage, env } = await import("@huggingface/transformers");
   env.allowRemoteModels = false;
   env.localModelPath = localModelPath;
-  const [processor, model] = await Promise.all([AutoProcessor.from_pretrained(modelId), AutoModelForImageFeatureExtraction.from_pretrained(modelId)]);
+  const [processor, model] = await Promise.all([AutoProcessor.from_pretrained(modelId), AutoModelForImageFeatureExtraction.from_pretrained(modelId, { dtype: "fp32" })]);
+  // fp32 only: the quantized SigLIP 2 and MobileCLIP files lose much of their recall (design §2).
   // CLIP returns projected image_embeds and SigLIP a pooled output.
   const embed = async ({ data, width, height }: RgbImage) => {
     const outputs = await model(await processor(new RawImage(data, width, height, 3)));

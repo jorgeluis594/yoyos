@@ -86,7 +86,7 @@ const visualEnvSchema = z.object({
   PRODUCT_MATCHER_PROVIDER: z.enum(["openai"]).default("openai"),
   PRODUCT_MATCHER_MODEL: z.string().default("gpt-6-luna"),
   IMAGE_EMBEDDER_PROVIDER: z.enum(["local", "openai"]).default("local"),
-  // The model that produces the embedding; unset means the provider's default (local: Xenova/mobileclip_s0, openai: text-embedding-3-small).
+  // The model that produces the embedding; unset means the provider's default (local: onnx-community/siglip2-base-patch16-224-ONNX, openai: text-embedding-3-small).
   IMAGE_EMBEDDER_MODEL: z.string().optional(),
   // Vision model the openai embedder uses to describe the image before embedding the description.
   IMAGE_DESCRIBE_MODEL: z.string().default("gpt-6-luna"),
