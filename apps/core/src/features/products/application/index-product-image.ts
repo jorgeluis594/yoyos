@@ -11,7 +11,8 @@ export type EmbedImage = (image: ImageBytes) =>
   Promise<Result<EmbeddingVector, Readonly<{ code: "EMBEDDER_UNAVAILABLE" | "INVALID_EMBEDDING"; message: string }>>>;
 
 /** Retry policy of index-product-image; this module stays free of runtime imports so event-handlers can read it while loading. */
-export const indexProductImagePolicy = { concurrency: 2, retries: 8 } as const;
+// One job at a time: the local model saturates the CPU, so parallel indexing only slows customer image searches and raises RAM.
+export const indexProductImagePolicy = { concurrency: 1, retries: 8 } as const;
 
 export type IndexProductImageInput = Readonly<{ productId: ProductId }>;
 export type IndexProductImageOutcome =

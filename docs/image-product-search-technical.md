@@ -113,7 +113,7 @@ Flow:
 2. `readImage(imageId)` → `embedImage` (adapter validates the vector length of the model).
 3. `saveEmbedding({ imageId, model, vector })` → `indexed`. Idempotent insert keyed by image and model (§11). If the product replaced its image meanwhile, the row caches the old image's embedding, search ignores it (it joins the product's current image) and the newer event indexes the new image; there is no `image_replaced` outcome.
 
-Handler: `PERSISTENCE_UNAVAILABLE`, `IMAGE_STORAGE_UNAVAILABLE`, `EMBEDDER_UNAVAILABLE` retryable; the rest permanent. Policy `{ concurrency: 2, retries: 8 }`.
+Handler: `PERSISTENCE_UNAVAILABLE`, `IMAGE_STORAGE_UNAVAILABLE`, `EMBEDDER_UNAVAILABLE` retryable; the rest permanent. Policy `{ concurrency: 1, retries: 8 }` (founder, 2026-10-19): the local model saturates the worker's CPU, so indexing one image at a time keeps a catalog upload from slowing customer image searches and bounds RAM; at most three embeddings run at once (one indexing, two `message_created`).
 
 ### 5.2 `identifyProductsInImage` (new, products): the cascade
 
@@ -512,7 +512,7 @@ Never logged: image bytes, base64, prompts, raw model responses, captions, produ
 
 `composition/event-handlers.test.ts`
 
-- `test("registers index-product-image for product_image_changed with concurrency 2 and 8 retries")`
+- `test("registers index-product-image for product_image_changed with concurrency 1 and 8 retries")`
 
 ### Integration (core, PostgreSQL)
 
