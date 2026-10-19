@@ -7,6 +7,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends postgresql-clie
 
 RUN corepack enable && corepack prepare pnpm@12.5.1 --activate
 
+# The local image model is fetched at build from a pinned revision and verified by sha256; the embedder loads only from models/ and never
+# downloads at runtime (models/README.md). Before the installs, with plain node (type stripping), so the 372 MB layer stays cached until
+# the script changes, not on every dependency or schema change.
+COPY apps/core/scripts/fetch-image-model.ts ./scripts/
+RUN node scripts/fetch-image-model.ts
+
 COPY shared/package.json shared/pnpm-lock.yaml /workspace/shared/
 RUN pnpm --dir /workspace/shared install --frozen-lockfile
 
@@ -15,11 +21,6 @@ COPY patches /workspace/patches
 COPY apps/core/prisma ./prisma
 COPY apps/core/prisma.config.ts ./
 RUN pnpm install --frozen-lockfile
-
-# The local image model is fetched at build from a pinned revision and verified by sha256; the embedder loads only from models/ and never
-# downloads at runtime (models/README.md). Its own layer, so the 372 MB download is cached until the script changes.
-COPY apps/core/scripts/fetch-image-model.ts ./scripts/
-RUN pnpm models:fetch
 
 COPY apps/core/. .
 COPY shared /workspace/shared

@@ -13,7 +13,7 @@ A model with id `<owner>/<name>` lives in `<owner>/<name>/` and needs exactly th
 The default model's vision tower is 372 MB, over GitHub's 100 MB file limit, and Git LFS is not used: Coolify would pull it on every deploy
 and CI on every run, which exhausts the free 10 GiB monthly LFS bandwidth in about 27 pulls, after which GitHub disables LFS and checkouts
 get pointer files. Instead `pnpm models:fetch` (`scripts/fetch-image-model.ts`) downloads the files from a pinned Hugging Face revision
-and rejects any whose sha256 differs. The Dockerfile runs it in its own cached layer before copying the sources, CI runs it (cached) before
+and rejects any whose sha256 differs. The Dockerfile runs it in its own cached layer before installing dependencies, CI runs it (cached) before
 the integration suite, and a developer runs it once. Only this README and the license are committed; `.gitignore` and `.dockerignore`
 exclude the fetched files. Changing the model requires updating the script, this README and `pnpm products:index-images`.
 
