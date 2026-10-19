@@ -52,9 +52,9 @@ it("parses its payload with parseMessageCreated", () => {
   expect(registered?.parsePayload({ companyId: "invalid", messageId: "invalid" })).toMatchObject({ success: false, error: { code: "INVALID_EVENT" } });
 });
 
-it("registers index-product-image for product_image_changed with concurrency 2 and 8 retries", () => {
+it("registers index-product-image for product_image_changed with concurrency 1 and 8 retries", () => {
   const registered = eventHandlers.filter(handler => handler.name === "product_image_changed");
   expect(registered.map(handler => handler.id)).toEqual(["index-product-image"]);
-  expect(registered[0].policy).toMatchObject({ concurrency: 2, retries: 8 });
+  expect(registered[0].policy).toMatchObject({ concurrency: 1, retries: 8 });
   expect(registered[0].parsePayload({ companyId: "x", productId: "y" })).toMatchObject({ success: false, error: { code: "INVALID_EVENT" } });
 });

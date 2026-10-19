@@ -7,3 +7,6 @@
 .pnpm-store
 apps/core/playwright-report
 apps/core/test-results
+# Fetched in the image by pnpm models:fetch; the local copies would only enlarge the build context.
+apps/core/models/*/*/*.json
+apps/core/models/*/*/onnx
