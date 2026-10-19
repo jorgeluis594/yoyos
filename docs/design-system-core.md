@@ -288,7 +288,7 @@ Unifica los dos anchos (`max-w-sm` con card en auth-form y `max-w-lg` sin card e
 ## Ya existen: usar, no crear
 
 - `Card` (`CardHeader`/`CardTitle`/`CardContent`) para las secciones con borde de order-new, order-detail, buyer-payment-content y settings.
-- `PageContainer` y `PageHeader` en order-new, order-detail, checkout, buyer-payment, home, private-layout, product-list y appearance-settings.
+- `PageContainer` y `PageHeader` en order-new, order-detail, checkout, buyer-payment, private-layout, product-list y appearance-settings.
 - `Field` + `FieldLabel` en lugar de `<label>` + `Input`.
 - `DataTable`/`Table` para la tabla de productos de order-detail.
 - `Sheet` para el drawer de navegación.
@@ -346,7 +346,6 @@ Las líneas son del 2026-10-12 (rama `preparacion-despachos-rotulos`, con cambio
 | app/routes/forgot-password.tsx:27 | AuthLayout + Alert |
 | app/routes/reset-password.tsx:41 | AuthLayout + Alert + TextLink |
 | app/routes/account-verified.tsx:11 | AuthLayout + TextLink |
-| app/routes/home.tsx:42 | TextLink |
 | app/routes/product-list.tsx:48, 96 | TextLink |
 | app/routes/product-list.tsx:98 | Pagination |
 | app/routes/product-detail.tsx:99 | Alert |

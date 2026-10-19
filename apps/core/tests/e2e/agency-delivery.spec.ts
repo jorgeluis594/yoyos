@@ -129,7 +129,7 @@ test("rated agency requires a document and a catalog agency, preserves its snaps
     await browserExpect(page.getByRole("button", { name: "Guardar entrega" })).toHaveCount(0);
     await browserExpect(page.getByText("Entrega por definir", { exact: true })).toHaveCount(0);
   } finally {
-    await page.goto("/");
+    await page.goto("about:blank");
     if (companyId) await withTenantIsolation(companyId, async () => {
       await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
       await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();

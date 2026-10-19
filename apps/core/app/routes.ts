@@ -30,7 +30,7 @@ export default [
     route("settings/catalog", "routes/catalog-settings.tsx", { id: "public-catalog-settings" }),
   ]),
   route(":locale", "routes/locale-layout.tsx", [
-    index("routes/home.tsx"),
+    index("routes/home.ts"),
     route("login", "routes/login.tsx", { id: "localized-login" }),
     route("register", "routes/register.tsx", { id: "localized-register" }),
     route("check-email", "routes/check-email.tsx", { id: "localized-check-email" }),
