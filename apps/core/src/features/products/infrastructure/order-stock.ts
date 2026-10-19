@@ -1,11 +1,10 @@
 import { log } from "@core/src/shared/infrastructure/logger";
 import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
-import { isCurrency, type Money } from "@shared/money";
+import { isCurrency } from "@shared/money";
 import { prisma } from "@core/src/shared/infrastructure/persistance";
-import type { VariantId } from "@core/src/features/products/domain/product";
-
-type CatalogItem = Readonly<{ variantId: VariantId; productName: string; variantAttributes: Readonly<Record<string, string>>; sku: string | null; unitPrice: Money }>;
+import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
+import type { CatalogItem } from "@core/src/features/products/domain/image-identification";
 type StockError = Readonly<{ code: "INSUFFICIENT_STOCK" | "PERSISTENCE_UNAVAILABLE"; message: string; variantId?: string }>;
 
 function knownFailure(cause: unknown) {
@@ -38,6 +37,30 @@ export async function findSellableVariant(id: string) {
   }
 }
 
+type SellableVariant = CatalogItem & Readonly<{ productId: string; imageId: string | null; available: number }>;
+
+/** Active variants of active products with their current stock, read without lock: nothing is reserved. */
+export async function findSellableVariants(ids: readonly string[]) {
+  try {
+    const rows = await prisma.productVariant.findMany({ where: { id: { in: [...ids] }, status: "active", product: { status: "active" } }, include: { product: true, stock: true } });
+    const items: SellableVariant[] = [];
+    for (const row of rows) {
+      const item = toCatalogItem(row);
+      const stock = row.stock?.quantity ?? 0n;
+      if (!item) {
+        log.error({ event: "invalid_stored_sale_variant", variantId: row.id }, "invalid_stored_sale_variant");
+        return err({ code: "INVALID_STORED_DATA" as const, message: "Unable to read catalog" });
+      }
+      items.push({ ...item, productId: row.productId, imageId: row.product.imageId, available: stock > 99n ? 99 : Number(stock) });
+    }
+    return ok<readonly SellableVariant[]>(items);
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_read_sale_variants", err: cause }, "unable_to_read_sale_variants");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
+  }
+}
+
 export async function findSellableVariantsByQrCodes(codes: readonly string[]) {
   try {
     const rows = await prisma.productVariant.findMany({ where: { qrCode: { in: [...codes] }, status: "active", product: { status: "active" } }, include: { product: true } });
@@ -52,6 +75,23 @@ export async function findSellableVariantsByQrCodes(codes: readonly string[]) {
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
     log.error({ event: "unable_to_read_sale_variants_by_qr_code", err: cause }, "unable_to_read_sale_variants_by_qr_code");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
+  }
+}
+
+export async function findSellableVariantsOfProduct(productId: ProductId) {
+  try {
+    const rows = await prisma.productVariant.findMany({ where: { productId, status: "active", product: { status: "active" } }, include: { product: true }, orderBy: { id: "asc" } });
+    const items: CatalogItem[] = [];
+    for (const row of rows) {
+      const item = toCatalogItem(row);
+      if (!item) { log.error({ event: "invalid_stored_sale_variant", variantId: row.id }, "invalid_stored_sale_variant"); continue; }
+      items.push(item);
+    }
+    return ok<readonly CatalogItem[]>(items);
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_read_sale_variants_of_product", err: cause }, "unable_to_read_sale_variants_of_product");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
   }
 }

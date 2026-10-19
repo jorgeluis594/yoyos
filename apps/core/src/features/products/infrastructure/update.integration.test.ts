@@ -15,6 +15,7 @@ test("product updates persist effective changes, ignore no-ops, and roll back at
     repository: productRepository,
     findImage: async () => ok(true),
     clock: () => new Date("2026-12-01T00:00:00.000Z"),
+    publishProductImageChanged: async () => ok(undefined),
   };
   const createDeps = { ...deps, newId: randomUUID, clock: () => new Date("2026-09-24T00:00:00.000Z") };
   const base: CreateInput = { name: "Camisa", description: "Algodón", currency: "PEN", variants: [

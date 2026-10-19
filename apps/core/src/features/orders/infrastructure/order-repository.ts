@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { checkoutState, parseOrderNumber, type OrderNumber } from "@core/src/features/orders/domain/checkout";
 import { log } from "@core/src/shared/infrastructure/logger";
+import { isPersistenceFailure } from "@core/src/shared/infrastructure/persistence-error";
 import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
@@ -8,7 +9,7 @@ import { isCurrency } from "@shared/money";
 import { parseDispatchDate } from "@shared/dispatch-date";
 import { getCompanyId, prisma, systemPrisma, requireActiveTransaction } from "@core/src/shared/infrastructure/persistance";
 import { buildOrder, type OrderItemId, type OrderId, type ContactId, type CompanyId, type UserId, type PositiveInteger } from "@core/src/features/orders/domain/order";
-import { orderStateMachine, parseDeliverySnapshot, type DispatchScheduleChange, type FulfillmentChange, type OrderAggregate, type Payment } from "@core/src/features/orders/domain/order-state-machine";
+import { orderSource, orderStateMachine, parseDeliverySnapshot, type DispatchScheduleChange, type FulfillmentChange, type OrderAggregate, type Payment } from "@core/src/features/orders/domain/order-state-machine";
 import { parsePayment } from "@core/src/features/orders/domain/payment";
 import type { OrderCriteria } from "@core/src/features/orders/application/read-orders";
 import type { AggregateCriteria, AggregatePage } from "@core/src/features/orders/application/list-order-aggregates";
@@ -36,6 +37,37 @@ export async function resolveBuyerOrderCompany(id: OrderId) {
     if (!knownFailure(cause)) throw cause;
     log.error({ event: "unable_to_resolve_buyer_order", err: cause }, "unable_to_resolve_buyer_order");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to resolve buyer order" });
+  }
+}
+
+/** Definer function: returns only company ids, so each delete still runs under RLS. */
+export async function listCompaniesWithExpiredCatalogOrders(cutoff: Date) {
+  try {
+    const rows = await systemPrisma.$queryRaw<{ companyId: string }[]>`SELECT public.list_companies_with_expired_catalog_orders(${cutoff}::timestamptz) AS "companyId"`;
+    return ok(rows.map((row) => row.companyId as CompanyId));
+  } catch (cause) {
+    if (!isPersistenceFailure(cause)) throw cause;
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to list companies with expired catalog orders" });
+  }
+}
+
+/** SKIP LOCKED leaves an order being confirmed; the re-evaluated WHERE then no longer matches it. */
+export async function deleteExpiredCatalogOrders(companyId: CompanyId, cutoff: Date, limit: number) {
+  requireActiveTransaction(companyId);
+  try {
+    const deleted = await prisma.$executeRaw`WITH doomed AS (
+        SELECT id FROM "Order"
+        WHERE "companyId" = ${companyId}::uuid AND "fromCatalog" AND "checkoutConfirmedAt" IS NULL AND "createdAt" < ${cutoff}::timestamptz
+          AND NOT EXISTS (SELECT 1 FROM "Payment" p WHERE p."orderId" = "Order".id)
+        ORDER BY "createdAt" LIMIT ${limit}
+        FOR UPDATE SKIP LOCKED
+      ), items AS (DELETE FROM "OrderItem" WHERE "orderId" IN (SELECT id FROM doomed))
+      DELETE FROM "Order" WHERE id IN (SELECT id FROM doomed)`;
+    return ok(deleted);
+  } catch (cause) {
+    if (!isPersistenceFailure(cause)) throw cause;
+    log.error({ event: "unable_to_delete_catalog_orders", companyId, errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "Unable to delete catalog orders");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to delete catalog orders" });
   }
 }
 
@@ -112,7 +144,7 @@ function mapAggregate(row: DbAggregate, operation = "get_order_aggregate"): Orde
   const scheduledDispatchDate = parsedDate ? parsedDate.data : null;
   const number = parseOrderNumber(Number(row.number));
   if (!number.success) throw new InvalidStoredOrderError("Invalid stored order number");
-  const order: OrderAggregate = { number: number.data, id: row.id as OrderId, companyId: row.companyId as CompanyId, sellerId: row.sellerId as UserId,
+  const order: OrderAggregate = { number: number.data, id: row.id as OrderId, companyId: row.companyId as CompanyId, sellerId: row.sellerId as UserId | null, fromCatalog: row.fromCatalog,
     buyer: row.buyer ? { contactId: row.buyer.contactId as ContactId | null, name: row.buyer.name, phone: row.buyer.phone } : null,
     ...(row.chatId ? { chatId: row.chatId as ChatId } : {}),
     checkoutEnabledAt: row.checkoutEnabledAt, checkoutConfirmedAt: row.checkoutConfirmedAt,
@@ -139,7 +171,7 @@ export function savePendingOrder(order: OrderAggregate): Promise<Result<null, Pe
 export function savePendingOrder(order: OrderAggregate, source: OrderChatSource): Promise<Result<null, Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }> | SellerUnavailable>>;
 export async function savePendingOrder(order: OrderAggregate, source?: OrderChatSource): Promise<Result<null, PendingOrderFailure | SellerUnavailable>> {
   try {
-    await prisma.order.create({ data: { number: BigInt(order.number), id: order.id, companyId: order.companyId, sellerId: order.sellerId,
+    await prisma.order.create({ data: { number: BigInt(order.number), id: order.id, companyId: order.companyId, sellerId: order.sellerId, fromCatalog: order.fromCatalog,
       ...(source ? { chatId: source.chatId, customerId: source.customerId } : {}),
       buyer: order.buyer ? { create: { contactId: order.buyer.contactId, name: order.buyer.name, phone: order.buyer.phone } } : undefined,
       checkoutEnabledAt: order.checkoutEnabledAt, checkoutConfirmedAt: order.checkoutConfirmedAt,
@@ -354,12 +386,13 @@ export async function findOrders(criteria: OrderCriteria) {
   const where: Prisma.OrderWhereInput = {
     companyId: getCompanyId(),
     ...(criteria.customer.kind === "general_public" ? { buyer: { is: null } } : {}),
+    NOT: { fromCatalog: true, checkoutConfirmedAt: null },
     completedAt: { not: null, ...(criteria.completedFrom ? { gte: criteria.completedFrom } : {}), ...(criteria.completedBefore ? { lt: criteria.completedBefore } : {}) },
   };
   try {
     const [rows, total] = await Promise.all([
       prisma.order.findMany({ where, orderBy: [{ completedAt: "desc" }, { id: "asc" }], skip: (criteria.page - 1) * 20, take: 20,
-        select: { number: true, id: true, completedAt: true, buyer: true, chatId: true, sellerId: true, currency: true, total: true } }),
+        select: { number: true, id: true, completedAt: true, buyer: true, chatId: true, fromCatalog: true, sellerId: true, currency: true, total: true } }),
       prisma.order.count({ where }),
     ]);
     return ok({ items: rows.map((row) => {
@@ -367,7 +400,7 @@ export async function findOrders(criteria: OrderCriteria) {
         throw new InvalidStoredOrderError("Invalid stored order summary");
       return { number: storedNumber(row.number), id: row.id, completedAt: row.completedAt, sellerId: row.sellerId,
         buyer: row.buyer ? { contactId: row.buyer.contactId, name: row.buyer.name, phone: row.buyer.phone } : null,
-        source: row.chatId === null ? "manual" as const : "whatsapp" as const,
+        source: orderSource(row),
         total: { amount: row.total.toNumber(), currency: row.currency } };
     }), page: criteria.page, pageSize: 20, total });
   } catch (cause) {
@@ -383,7 +416,7 @@ export async function findOrders(criteria: OrderCriteria) {
 
 export async function findOrderAggregates(criteria: AggregateCriteria, companyId: CompanyId) {
   if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
-  const predicates = [Prisma.sql`o."companyId" = ${companyId}::uuid`];
+  const predicates = [Prisma.sql`o."companyId" = ${companyId}::uuid`, Prisma.sql`NOT (o."fromCatalog" AND o."checkoutConfirmedAt" IS NULL)`];
   if (criteria.customer.kind === "general_public") predicates.push(Prisma.sql`b."orderId" IS NULL`);
   if (criteria.createdFrom) predicates.push(Prisma.sql`o."createdAt" >= ${criteria.createdFrom}`);
   if (criteria.createdBefore) predicates.push(Prisma.sql`o."createdAt" < ${criteria.createdBefore}`);

@@ -1,4 +1,4 @@
-// Regenerates the QR photos: node src/features/orders/infrastructure/qr-fixtures/generate-fixtures.mjs
+// Regenerates the QR photos: node src/features/products/infrastructure/qr-fixtures/generate-fixtures.mjs
 import { readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";

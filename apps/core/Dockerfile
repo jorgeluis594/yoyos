@@ -1,10 +1,17 @@
-FROM node:24-alpine
+# Debian slim, not Alpine: onnxruntime-node (local image embedder) ships glibc binaries only.
+FROM node:24-slim
 
 WORKDIR /workspace/apps/core
 
-RUN apk add --no-cache postgresql-client
+RUN apt-get update && apt-get install -y --no-install-recommends postgresql-client && rm -rf /var/lib/apt/lists/*
 
 RUN corepack enable && corepack prepare pnpm@12.5.1 --activate
+
+# The local image model is fetched at build from a pinned revision and verified by sha256; the embedder loads only from models/ and never
+# downloads at runtime (models/README.md). Before the installs, with plain node (type stripping), so the 372 MB layer stays cached until
+# the script changes, not on every dependency or schema change.
+COPY apps/core/scripts/fetch-image-model.ts ./scripts/
+RUN node scripts/fetch-image-model.ts
 
 COPY shared/package.json shared/pnpm-lock.yaml /workspace/shared/
 RUN pnpm --dir /workspace/shared install --frozen-lockfile

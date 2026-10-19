@@ -6,7 +6,7 @@ import type { Result } from "@shared/result";
 import { getCompanyId, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import type {
   AnyEventSubscription, EventBusError, EventBusProvider, EventMetadata, EventName, EventPayload,
-  EventSubscription, HandlerPolicy, Unsubscribe,
+  EventSubscription, HandlerPolicy, JobScheduler, Unsubscribe,
 } from "@core/src/shared/events/application/contracts";
 
 const metadataSchema = z.strictObject({ eventId: z.uuid(), occurredAt: z.iso.datetime({ offset: false }) });
@@ -33,7 +33,7 @@ type Options<Events extends object> = {
 /** Runtime adapter. The same subscription registry prepares queues in producers and workers. */
 export function createPgBossProvider<Events extends object>(options: Options<Events>) {
   const boss = new PgBoss({ connectionString: options.connectionString, schema: "pgboss",
-    migrate: false, createSchema: false, reindex: false });
+    migrate: false, createSchema: false, reindex: false, schedule: options.consume === true });
   const pool = new pg.Pool({ connectionString: options.connectionString });
   const subscriptions = new Map<string, Subscription<Events>>();
   const consumers = new Map<string, string>();
@@ -201,5 +201,41 @@ export function createPgBossProvider<Events extends object>(options: Options<Eve
       }
     },
   };
-  return { ...provider, start, stop };
+  const scheduler: JobScheduler = {
+    /** Worker only: pg-boss sends the cron job, and a missed run (worker down at that time) is sent once on restart. */
+    async schedule(name, cron, handler, { tz }) {
+      if (!started || !options.consume) return err({ code: "EVENT_BUS_UNAVAILABLE", message: "Worker is not ready" });
+      if (!/^[a-z][a-z0-9-]*$/.test(name) || subscriptions.has(name) || consumers.has(name)) {
+        return err({ code: "INVALID_SUBSCRIPTION", message: "Unknown or duplicate scheduled job" });
+      }
+      try {
+        const policy = { retryLimit: 3, retryDelay: 300, retryBackoff: false };
+        await boss.createQueue(name, policy);
+        await boss.updateQueue(name, policy);
+        await boss.schedule(name, cron, null, { tz, missed: "once" });
+        const workId = await boss.work(name, async jobs => {
+          for (const job of jobs) {
+            const result = await handler({ signal: job.signal, attempt: job.retryCount + 1 });
+            if (!result.success) throw new Error(result.error.message);
+          }
+        });
+        consumers.set(name, workId);
+        return ok(async () => {
+          if (consumers.get(name) !== workId) return ok(undefined);
+          try {
+            await boss.offWork(name, { id: workId, wait: false });
+            consumers.delete(name);
+            return ok(undefined);
+          } catch (cause) {
+            console.error("Scheduled job cleanup failed", cause);
+            return err({ code: "EVENT_BUS_UNAVAILABLE", message: "Could not stop scheduled job" });
+          }
+        });
+      } catch (cause) {
+        console.error("Scheduled job registration failed", cause);
+        return err({ code: "EVENT_BUS_UNAVAILABLE", message: "Could not schedule job" });
+      }
+    },
+  };
+  return { ...provider, ...scheduler, start, stop };
 }

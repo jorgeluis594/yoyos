@@ -6,13 +6,16 @@ import { getCompanyId, prisma, systemPrisma, withLockedForUpdate, withTenantIsol
 import { orders } from "@core/src/features/orders/composition";
 import { addMessageProductsToOrder, type AddMessageProductsDependencies, type OrderSourceMessage } from "@core/src/features/orders/application/add-message-products-to-order";
 import { allocateOrderNumber, findOpenChatOrderCandidate, findOrderForUpdate, findProcessedMessage, recordProcessedMessage, saveAddedItems, savePendingOrder } from "@core/src/features/orders/infrastructure/order-repository";
-import { findSellableVariantsByQrCodes } from "@core/src/features/products";
+import { findSellableVariantsByQrCodes, findSellableVariantsOfProduct } from "@core/src/features/products/infrastructure/order-stock";
+import { findNearestProductImages, hasIndexedProducts, saveEmbedding } from "@core/src/features/products/infrastructure/image-embeddings";
+import { identifyProductsInImage, type VisualSearch } from "@core/src/features/products/application/identify-products-in-image";
+import type { EmbeddingModel, EmbeddingVector, MatchConfidence } from "@core/src/features/products/domain/image-identification";
 import { parseBuyer } from "@core/src/features/orders/domain/checkout";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
 import type { CompanyId, ContactId, OrderId, OrderItemId, UserId } from "@core/src/features/orders/domain/order";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { CustomerId } from "@core/src/features/contacts/domain/contact";
-import type { ImageId } from "@core/src/features/products/domain/product";
+import type { ImageId, ProductId } from "@core/src/features/products/domain/product";
 
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 
@@ -80,6 +83,15 @@ const ensureCustomerForContact: AddMessageProductsDependencies["ensureCustomerFo
   });
 };
 
+// Embedder and chooser are faked: the query embeds next to every indexed image and the chooser picks the closest candidate.
+const model = "openai/fake+text-embedding-3-small" as EmbeddingModel;
+const visualCalls: string[] = [];
+const visual: VisualSearch = { model, candidates: 5, minConfidence: 0.75 as MatchConfidence,
+  embedImage: async () => { visualCalls.push("embedImage"); return ok([1, 0, 0] as unknown as EmbeddingVector); },
+  hasIndexedProducts, findNearestProductImages, readImage: async () => ok({ bytes: new Uint8Array([1]), contentType: "image/jpeg" }),
+  chooseProduct: async ({ candidates }) => { visualCalls.push("chooseProduct"); return ok({ kind: "product", productId: candidates[0]!.productId, confidence: 0.9 as MatchConfidence }); },
+  findSellableVariantsOfProduct };
+
 function dependencies(f: Fixture, over: Partial<AddMessageProductsDependencies> = {}): AddMessageProductsDependencies {
   const companyId = f.companyId as CompanyId;
   return {
@@ -89,8 +101,9 @@ function dependencies(f: Fixture, over: Partial<AddMessageProductsDependencies> 
         uploadedByUserId: row.uploadedByUserId as UserId, imageId: row.imageId as ImageId | null } satisfies OrderSourceMessage);
     },
     readImage: async (imageId) => ok({ bytes: new TextEncoder().encode(imageId), contentType: "image/jpeg" }),
-    readQrCodes: async ({ bytes }) => ok(photos.get(new TextDecoder().decode(bytes)) ?? []),
-    findVariantsByCodes: async (codes) => { const found = await findSellableVariantsByQrCodes(codes); return found.success ? ok(found.data as never) : found; },
+    identifyProducts: (image) => identifyProductsInImage(image, { visual,
+      readQrCodes: async ({ bytes }) => ok(photos.get(new TextDecoder().decode(bytes)) ?? []),
+      findVariantsByCodes: async (codes) => { const found = await findSellableVariantsByQrCodes(codes); return found.success ? ok(found.data as never) : found; } }),
     findProcessedMessage,
     transaction: (_company, work) => withinTransaction(work),
     ensureCustomerForContact,
@@ -120,7 +133,7 @@ test("an incoming label photo creates an order for the contact's new customer li
   const f = await fixture();
   try {
     const result = await process(f, await photo(f, [f.variantIds[0]!, "https://pay.example/yape"]));
-    expect(result).toMatchObject({ success: true, data: { kind: "order_created", variantIds: [f.variantIds[0]], unknownCodes: [] } });
+    expect(result).toMatchObject({ success: true, data: { kind: "order_created", variantIds: [f.variantIds[0]], match: { method: "qr", unknownCodes: [] } } });
     const [order] = await chatOrders(f);
     const contact = await inTenant(f, () => prisma.contact.findUniqueOrThrow({ where: { id: f.contactId } }));
     expect(contact.customerId).not.toBeNull();
@@ -299,5 +312,43 @@ test("a failure inside the transaction rolls back customer, order and items", as
     expect(await inTenant(f, () => prisma.orderItem.count())).toBe(0);
     expect(await inTenant(f, () => prisma.customer.count())).toBe(0);
     expect((await inTenant(f, () => prisma.contact.findUniqueOrThrow({ where: { id: f.contactId } }))).customerId).toBeNull();
+  } finally { await f.cleanup(); }
+});
+
+/** A product with one sellable variant whose image is indexed for the fake model. */
+async function indexedProduct(f: Fixture) {
+  const productId = randomUUID() as ProductId;
+  const imageId = randomUUID() as ImageId;
+  const variantId = randomUUID();
+  await withTenantIsolation(f.companyId, async () => {
+    await prisma.image.create({ data: { id: imageId, storageKey: `images/${imageId}` } });
+    await prisma.product.create({ data: { id: productId, name: "Cap", currency: "PEN", qrCode: productId, status: "active", imageId, createdAt: new Date(), updatedAt: new Date() } });
+    await prisma.productVariant.create({ data: { id: variantId, productId, attributes: {}, sku: null, salePrice: 30, qrCode: variantId, status: "active" } });
+    expect(await saveEmbedding({ imageId, model, vector: [1, 0, 0] as unknown as EmbeddingVector })).toEqual(ok(undefined));
+  });
+  return variantId;
+}
+
+test("a screenshot without QR adds the visually identified variant to the chat order", async () => {
+  const f = await fixture();
+  try {
+    const variantId = await indexedProduct(f);
+    await process(f, await photo(f, [f.variantIds[0]!]));
+    const result = await process(f, await photo(f, []));
+    expect(result).toEqual(ok({ kind: "items_added", orderId: expect.any(String), variantIds: [variantId], match: { method: "visual", confidence: 0.9, candidates: 1, topDistance: 0, chosenDistance: 0 } }));
+    const all = await chatOrders(f);
+    expect(all).toHaveLength(1);
+    expect(quantities(all[0]!)).toEqual({ [f.variantIds[0]!]: 1, [variantId]: 1 });
+  } finally { await f.cleanup(); }
+});
+
+test("a label photo still adds by QR without calling the visual adapters", async () => {
+  const f = await fixture();
+  try {
+    await indexedProduct(f);
+    visualCalls.length = 0;
+    const result = await process(f, await photo(f, [f.variantIds[1]!]));
+    expect(result).toMatchObject({ success: true, data: { kind: "order_created", variantIds: [f.variantIds[1]], match: { method: "qr", unknownCodes: [] } } });
+    expect(visualCalls).toEqual([]);
   } finally { await f.cleanup(); }
 });

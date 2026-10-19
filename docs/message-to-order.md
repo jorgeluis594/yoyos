@@ -4,6 +4,8 @@ Estado: diseño cerrado, pendiente de implementación. Ningún código, migraci�
 
 Tareas de implementación: [`message-to-order-tasks.md`](message-to-order-tasks.md).
 
+> **Identificación de productos:** reemplazada por la cascada QR → búsqueda visual de [`image-product-search-technical.md`](image-product-search-technical.md) (§5.2, §5.3). El lector QR y `selectProductCode` viven ahora en `features/products`; `addMessageProductsToOrder` recibe `identifyProducts` en lugar de `readQrCodes` + `findVariantsByCodes`, y las razones de omisión, errores reintentables y campos de log vigentes son los de ese documento. Lo descrito aquí sobre QR sigue valiendo como primer paso de la cascada.
+
 ## 1. Objetivo
 
 Cuando core persiste un mensaje recibido desde la app móvil, publica el evento **`message_created`**. El módulo de órdenes lo escucha y, si la imagen del mensaje contiene QR de productos:
@@ -199,6 +201,8 @@ Todas las imágenes (entrantes y salientes) se suben, porque el contrato exige `
 
 ### 3.4 Lectura del QR
 
+Movido a `features/products/infrastructure/qr-code-reader.ts`; ver [`image-product-search-technical.md`](image-product-search-technical.md) §5.2.
+
 `zxing-wasm@3.1.5` (MIT), importando solo `zxing-wasm/reader`. Es la única opción que lee varios QR por foto sin trucos (`jsqr` lee uno; `@zxing/library` no expone lector múltiple en su API documentada).
 
 - Por defecto descarga el `.wasm` desde jsDelivr: se carga el binario local con `prepareZXingModule({ overrides: { wasmBinary } })`.
@@ -294,6 +298,8 @@ Una orden con checkout habilitado pero no confirmado sigue abierta: si el total 
 - No exige stock.
 
 ### 3.6 Caso de uso `addMessageProductsToOrder`
+
+Vigente: dependencias, omisiones (`no_qr_code` ya no es final: continúa a búsqueda visual; `unrecognized_qr_code` sigue siendo final), `match` en los resultados y errores según [`image-product-search-technical.md`](image-product-search-technical.md) §5.3.
 
 `features/orders/application/add-message-products-to-order.ts`. Las omisiones de negocio son resultados exitosos (el job termina sin reintento); los errores son técnicos o de datos.
 
@@ -537,7 +543,7 @@ Notas de migración (`.agents/skills/database-migrations/SKILL.md`):
 | Mensaje saliente | `outgoing_message`. |
 | `imageId` inexistente o de otra empresa en el POST | 404 `IMAGE_NOT_FOUND`, sin evento; mobile vuelve a subir. |
 | Imagen inaccesible al procesar | `IMAGE_NOT_FOUND`, permanente, log de fallo. |
-| Sin QR / QR no UUID (Yape, Plin, URL) | `no_qr_code` / `unrecognized_qr_code`. |
+| Sin QR / QR no UUID (Yape, Plin, URL) | Continúa a búsqueda visual ([`image-product-search-technical.md`](image-product-search-technical.md) §5.2); sin claves del proveedor, `visual_search_disabled`. |
 | Imagen ilegible o de más de 24 MP | `unreadable_image` (omisión, sin reintento). |
 | Mismo código repetido en la foto | Un ítem, cantidad 1. |
 | Varios productos | Un ítem por variante. |

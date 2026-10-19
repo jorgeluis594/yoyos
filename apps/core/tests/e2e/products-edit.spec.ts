@@ -43,6 +43,8 @@ test("edit products from the private form, preserve unchanged data, and enforce 
     await page.getByRole("button", { name: "Alternar tema" }).click();
     await browserExpect(page.locator("html")).not.toHaveClass(/dark/);
     await page.getByRole("dialog").getByRole("button", { name: "Cerrar", exact: true }).click();
+    // The sheet returns focus to its trigger after closing; wait so it cannot steal focus from the field below.
+    await browserExpect(page.getByRole("button", { name: "Abrir menú" })).toBeFocused();
     await page.getByLabel("Nombre *").focus();
     await page.keyboard.press("Tab");
     await browserExpect(page.getByLabel("Descripción")).toBeFocused();

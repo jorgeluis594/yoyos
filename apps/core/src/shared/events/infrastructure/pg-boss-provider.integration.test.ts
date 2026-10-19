@@ -269,4 +269,36 @@ describe("pg-boss event delivery", () => {
       await admin.end();
     }
   });
+
+  it("schedules a job only in the worker and runs its handler with the restricted role", async () => {
+    const name = `scheduled-test-${randomUUID().slice(0, 8)}`;
+    const handler = vi.fn(async () => ok(undefined));
+    const producer = createPgBossProvider<Events>({ connectionString: process.env.DATABASE_URL!, subscriptions: [] });
+    const worker = createPgBossProvider<Events>({ connectionString: process.env.DATABASE_URL!, subscriptions: [], consume: true });
+    const sender = new PgBoss({ connectionString: process.env.DATABASE_URL!, schema: "pgboss", migrate: false, createSchema: false,
+      reindex: false, schedule: false, supervise: false });
+    const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+    try {
+      await Promise.all([producer.start(), worker.start(), sender.start()]);
+      expect(await producer.schedule(name, "0 4 * * *", handler, { tz: "America/Lima" }))
+        .toEqual(err({ code: "EVENT_BUS_UNAVAILABLE", message: "Worker is not ready" }));
+      const scheduled = await worker.schedule(name, "0 4 * * *", handler, { tz: "America/Lima" });
+      expect(scheduled.success).toBe(true);
+      expect((await worker.schedule(name, "0 4 * * *", handler, { tz: "America/Lima" })).success).toBe(false);
+      const rows = await pool.query("SELECT cron, timezone FROM pgboss.schedule WHERE name = $1", [name]);
+      expect(rows.rows).toEqual([{ cron: "0 4 * * *", timezone: "America/Lima" }]);
+
+      await sender.send(name, null);
+      await vi.waitFor(() => expect(handler).toHaveBeenCalledWith(expect.objectContaining({ attempt: 1 })), { timeout: 15_000, interval: 100 });
+      if (scheduled.success) expect(await scheduled.data()).toEqual(ok(undefined));
+    } finally {
+      await sender.stop({ graceful: false });
+      await worker.stop();
+      await producer.stop();
+      await pool.query("DELETE FROM pgboss.schedule WHERE name = $1", [name]);
+      await pool.query("DELETE FROM pgboss.job WHERE name = $1", [name]);
+      await pool.query("DELETE FROM pgboss.queue WHERE name = $1", [name]);
+      await pool.end();
+    }
+  });
 });
