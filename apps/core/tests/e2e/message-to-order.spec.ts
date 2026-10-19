@@ -16,7 +16,7 @@ process.env.R2_ACCESS_KEY_ID ??= "test";
 process.env.R2_SECRET_ACCESS_KEY ??= "test";
 process.env.R2_PUBLIC_BASE_URL ??= `http://127.0.0.1:${e2ePort}/test-images`;
 
-const fixtures = new URL("../../src/features/orders/infrastructure/qr-fixtures/", import.meta.url);
+const fixtures = new URL("../../src/features/products/infrastructure/qr-fixtures/", import.meta.url);
 const label = (name: string) => readFileSync(new URL(name, fixtures));
 // UUIDs encoded by label.jpg and label-second.jpg (see generate-fixtures.mjs).
 const firstQr = "3f2b8c1e-5a47-4d0e-9b6a-1c7d2e8f4a90";

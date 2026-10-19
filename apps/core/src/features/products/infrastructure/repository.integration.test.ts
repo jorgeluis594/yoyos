@@ -30,7 +30,7 @@ test("product persistence is atomic, isolated, and constrained", async () => {
   const { createProduct } = await import("@core/src/features/products/application/create");
   const { getProduct } = await import("@core/src/features/products/application/get");
   await expect(productRepository.get(randomUUID() as ProductId)).resolves.toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
-  const newDeps = () => ({ repository: productRepository, findImage: async (id: ImageId) => ok(!!(await prisma.image.findUnique({ where: { id } }))), newId: randomUUID, clock: () => new Date("2026-09-24T00:00:00.000Z") });
+  const newDeps = () => ({ repository: productRepository, findImage: async (id: ImageId) => ok(!!(await prisma.image.findUnique({ where: { id } }))), newId: randomUUID, clock: () => new Date("2026-09-24T00:00:00.000Z"), publishProductImageChanged: async () => ok(undefined) });
   const base = (sku?: string): CreateInput => ({ name: "Camisa", currency: "PEN", variants: [{ attributes: {}, salePrice: 19.99, purchasePrice: 0, ...(sku === undefined ? {} : { sku }), initialStock: 4 }] });
   try {
     for (const id of [companyA, companyB]) await withTenantIsolation(id, async () => await prisma.company.create({ data: { id, name: id, country: "PE" } }));
@@ -178,5 +178,20 @@ test("findSellableVariantsByQrCodes skips a variant with invalid stored data and
     const { productId } = await prisma.productVariant.findUniqueOrThrow({ where: { id: mine.id } });
     await prisma.productVariant.create({ data: { ...corrupt, productId, attributes: { talla: 1 }, sku: null, salePrice: 5, status: "active" } });
     expect(await find([mine.qrCode, corrupt.qrCode])).toMatchObject({ success: true, data: [{ variantId: mine.id }] });
+  });
+}));
+
+test("findSellableVariantsOfProduct returns the active variants of the product with price and currency", () => withSeededVariants(async ({ mine, companyA, withTenantIsolation }) => {
+  const { prisma } = await import("@core/src/shared/infrastructure/persistance");
+  const { findSellableVariantsOfProduct } = await import("@core/src/features/products/infrastructure/order-stock");
+  await withTenantIsolation(companyA, async () => {
+    const { productId } = await prisma.productVariant.findUniqueOrThrow({ where: { id: mine.id } });
+    const second = randomUUID();
+    await prisma.productVariant.create({ data: { id: second, productId, qrCode: randomUUID(), attributes: { color: "rojo" }, sku: null, salePrice: 25, status: "active" } });
+    const found = await findSellableVariantsOfProduct(productId as ProductId);
+    expect(found.success && [...found.data].sort((a, b) => a.variantId.localeCompare(b.variantId))).toEqual([
+      { variantId: mine.id, productName: "Camisa", variantAttributes: { color: "azul" }, sku: "CAM-1", unitPrice: { amount: 19.99, currency: "PEN" } },
+      { variantId: second, productName: "Camisa", variantAttributes: { color: "rojo" }, sku: null, unitPrice: { amount: 25, currency: "PEN" } },
+    ].sort((a, b) => a.variantId.localeCompare(b.variantId)));
   });
 }));

@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:18-alpine
+    image: pgvector/pgvector:0.8.1-pg18
     environment:
       POSTGRES_USER: core
       POSTGRES_PASSWORD: core
@@ -14,7 +14,7 @@ services:
       - postgres_data:/var/lib/postgresql
 
   db_test:
-    image: postgres:18-alpine
+    image: pgvector/pgvector:0.8.1-pg18
     profiles: [test]
     environment:
       POSTGRES_USER: core

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { isOpenForMessageItems, selectProductCode, type ChatId } from "@core/src/features/orders/domain/message-order";
+import { isOpenForMessageItems, type ChatId } from "@core/src/features/orders/domain/message-order";
 import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { ConfirmedPayment, ReportedPayment } from "@core/src/features/orders/domain/payment";
 import type { CompanyId, OrderId, OrderItemId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
@@ -22,22 +22,6 @@ const confirmed: ConfirmedPayment = { id: id(60) as PaymentId, orderId: id(1) as
   data: { confirmedAt: at, confirmedBy: { kind: "seller", userId: "seller" as UserId }, evidence: { kind: "manual" } } };
 const reported: ReportedPayment = { id: id(61) as PaymentId, orderId: id(1) as OrderId, status: "reported", currency: "PEN", amount: null, method: null,
   data: { receiptImageId: id(70) as never, reportedAt: at } };
-const code = (n: number) => id(n);
-
-describe("selectProductCode", () => {
-  test("selectProductCode skips with no_qr_code when nothing was decoded", () => {
-    expect(selectProductCode([])).toEqual({ kind: "skip", reason: "no_qr_code" });
-  });
-
-  test("selectProductCode skips with unrecognized_qr_code when no decoded value is a UUID", () => {
-    expect(selectProductCode(["https://pay.example/yape", "12345"])).toEqual({ kind: "skip", reason: "unrecognized_qr_code" });
-  });
-
-  test("selectProductCode keeps only UUID codes without duplicates in reading order", () => {
-    expect(selectProductCode([code(2), "https://x.test", code(1), code(2)])).toEqual({ kind: "codes", codes: [code(2), code(1)] });
-  });
-});
-
 describe("isOpenForMessageItems", () => {
   test("an active pending order of the message chat without payments is open", () => {
     expect(isOpenForMessageItems(open(), chatId)).toBe(true);

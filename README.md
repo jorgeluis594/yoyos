@@ -87,6 +87,16 @@ docker compose up --build -d web
 
 Do not use `docker compose down -v` during an update: it deletes the data.
 
+A volume created with the former `postgres:18-alpine` image (musl) sorts text differently from the Debian-based `pgvector/pgvector` image (glibc), so its text indexes become silently inconsistent. Reindex once, right after the first start on the new image and before writes resume:
+
+```sh
+docker compose stop web worker
+docker compose up -d db
+docker compose exec db psql -U core -d core -c 'REINDEX DATABASE core'
+```
+
+In Coolify, run the same `REINDEX DATABASE core` in the `db` container's terminal right after the first deployment on the new image. `ALTER DATABASE … REFRESH COLLATION VERSION` does not fix this and fails on these volumes.
+
 ## Staging deployment with Coolify
 
 The Git-based Coolify application uses [`compose.prod.yaml`](compose.prod.yaml) from the repository root. It runs PostgreSQL with a persistent volume, applies migrations with the database administrator role, then starts the web server and event worker with the restricted `core_app` role. The database has no public port.

@@ -230,8 +230,7 @@ test("mobile creates free rated agency delivery with the courier and catalog age
   } });
 });
 
-test("mobile price conflict leaves no order and preserves fields for explicit rate review", async () => {
-  const screen = await ratedReview();
+async function priceJourneyHomeAt10() {
   const configuration = await mockRequest("/api/delivery-settings/zones");
   if (!configuration.success) throw new Error("Cannot read zones");
   const { version, zones } = deliveryZonesSchema.parse(configuration.data);
@@ -240,6 +239,11 @@ test("mobile price conflict leaves no order and preserves fields for explicit ra
       options: options.map(option => ({ kind: "existing", ...option, price: option.name === "Journey home" ? { amount: 10, currency: "PEN" } : option.price })) })),
   }) });
   expect(saved.success).toBe(true);
+}
+
+test("mobile price conflict leaves no order and preserves fields for explicit rate review", async () => {
+  const screen = await ratedReview();
+  await priceJourneyHomeAt10();
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   await screen.findByText(/La tarifa cambió/);
   expect(mockReplace).not.toHaveBeenCalled();
@@ -307,6 +311,7 @@ test("a refused saved sale opens on its page, reviews a current rate and saves t
 
 test("a restarted rated attempt with a real HTTP price conflict saves a fresh rate on its page", async () => {
   const companyId = process.env.ORDER_JOURNEY_COMPANY!;
+  await priceJourneyHomeAt10();
   const catalog = await mockOrders.searchOrderCatalog("Journey product");
   const quote = await deliverySettings.createQuotation("150122");
   if (!catalog.success || !catalog.data[0]?.variants[0] || !quote.success) throw new Error("Missing recovery fixtures");

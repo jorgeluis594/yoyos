@@ -3,6 +3,9 @@ import { restoreCancelledOrderStock, restoreProductStock } from "@core/src/featu
 import { parseMessageCreated } from "@core/src/features/chats/infrastructure/event-payloads";
 import { messageOrderPolicy } from "@core/src/features/orders/application/message-order-policy";
 import { addMessageProductsHandler } from "@core/src/features/orders/composition";
+import { indexProductImagePolicy } from "@core/src/features/products/application/index-product-image";
+import { indexProductImageHandler } from "@core/src/features/products/composition";
+import { parseProductImageChanged } from "@core/src/features/products/infrastructure/event-payloads";
 import { parseOrderCancelled } from "@core/src/features/orders/infrastructure/event-payloads";
 import { findOrderForUpdate, saveStockRestoration } from "@core/src/features/orders/infrastructure/order-repository";
 import { getCompanyId, withinTransaction, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
@@ -50,7 +53,10 @@ export const restoreCancelledStock = defineEventHandler<AppEvents, "order_cancel
 export const addMessageProductsToOrder = defineEventHandler<AppEvents, "message_created">("message_created",
   (payload, metadata, context) => addMessageProductsHandler(payload, metadata, context),
   { id: "add-message-products-to-order", parsePayload: parseMessageCreated, policy: messageOrderPolicy });
-export const eventHandlers: AnyEventSubscription<AppEvents>[] = [restoreCancelledStock, addMessageProductsToOrder];
+export const indexProductImage = defineEventHandler<AppEvents, "product_image_changed">("product_image_changed",
+  (payload, metadata, context) => indexProductImageHandler(payload, metadata, context),
+  { id: "index-product-image", parsePayload: parseProductImageChanged, policy: indexProductImagePolicy });
+export const eventHandlers: AnyEventSubscription<AppEvents>[] = [restoreCancelledStock, addMessageProductsToOrder, indexProductImage];
 
 export function subscribeToEvent<Events extends object, Name extends EventName<Events>>(
   subscriber: EventSubscriber<Events>,
