@@ -38,9 +38,9 @@ services:
       PORT: 3000
       DATABASE_URL: postgresql://core_app:${SERVICE_PASSWORD_64_APPDB}@db:5432/core
       BETTER_AUTH_SECRET: ${SERVICE_PASSWORD_64_AUTH}
-      BETTER_AUTH_URL: https://yoyos.kogozstaging.lat
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://yoyos.kogozstaging.lat}
       EMAIL_TRANSPORT: resend
-      EMAIL_FROM: Yoyos <cuentas@kogozstaging.lat>
+      EMAIL_FROM: ${EMAIL_FROM:-Yoyos <cuentas@kogozstaging.lat>}
       RESEND_API_KEY: ${RESEND_API_KEY:?Set the Resend API key in Coolify}
       R2_ENDPOINT: ${R2_ENDPOINT:-}
       R2_BUCKET: ${R2_BUCKET:-}
