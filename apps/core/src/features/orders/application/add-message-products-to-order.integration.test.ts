@@ -335,7 +335,7 @@ test("a screenshot without QR adds the visually identified variant to the chat o
     const variantId = await indexedProduct(f);
     await process(f, await photo(f, [f.variantIds[0]!]));
     const result = await process(f, await photo(f, []));
-    expect(result).toEqual(ok({ kind: "items_added", orderId: expect.any(String), variantIds: [variantId], match: { method: "visual", confidence: 0.9, candidates: 1 } }));
+    expect(result).toEqual(ok({ kind: "items_added", orderId: expect.any(String), variantIds: [variantId], match: { method: "visual", confidence: 0.9, candidates: 1, topDistance: 0, chosenDistance: 0 } }));
     const all = await chatOrders(f);
     expect(all).toHaveLength(1);
     expect(quantities(all[0]!)).toEqual({ [f.variantIds[0]!]: 1, [variantId]: 1 });

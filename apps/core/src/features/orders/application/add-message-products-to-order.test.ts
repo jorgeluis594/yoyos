@@ -149,24 +149,24 @@ describe("addMessageProductsToOrder", () => {
   });
 
   const visual = (outcome: ImageIdentification) => ({ identifyProducts: async () => ok(outcome) });
-  const visualMatch: ImageIdentification = { kind: "found", method: "visual", items: [variant(2)], confidence: 0.9 as MatchConfidence, candidates: 5 };
+  const visualMatch: ImageIdentification = { kind: "found", method: "visual", items: [variant(2)], confidence: 0.9 as MatchConfidence, candidates: 5, topDistance: 0.1, chosenDistance: 0.2 };
 
   test("adds the variant identified visually to the chat's open order", async () => {
     const h = harness({ orders: [existingOrder()], overrides: visual(visualMatch) });
-    expect(await h.run()).toEqual(ok({ kind: "items_added", orderId: id(9), variantIds: [variant(2).variantId], match: { method: "visual", confidence: 0.9, candidates: 5 } }));
+    expect(await h.run()).toEqual(ok({ kind: "items_added", orderId: id(9), variantIds: [variant(2).variantId], match: { method: "visual", confidence: 0.9, candidates: 5, topDistance: 0.1, chosenDistance: 0.2 } }));
     expect(h.state.orders.get(id(9))).toMatchObject({ items: [{ variantId: variant(1).variantId }, { variantId: variant(2).variantId, quantity: 1 }] });
   });
 
   test("creates an order from a visual match when the chat has no open order", async () => {
     const h = harness({ overrides: visual(visualMatch) });
-    expect(await h.run()).toEqual(ok({ kind: "order_created", orderId: id(500), variantIds: [variant(2).variantId], match: { method: "visual", confidence: 0.9, candidates: 5 } }));
+    expect(await h.run()).toEqual(ok({ kind: "order_created", orderId: id(500), variantIds: [variant(2).variantId], match: { method: "visual", confidence: 0.9, candidates: 5, topDistance: 0.1, chosenDistance: 0.2 } }));
     expect(h.state.sources).toEqual([{ chatId, customerId: id(400) }]);
   });
 
   test("skips with the identification miss reason when no product is identified", async () => {
     for (const reason of ["no_indexed_products", "no_visual_match", "low_confidence", "ambiguous_variant"] as const) {
-      const h = harness({ overrides: visual({ kind: "not_found", reason }) });
-      expect(await h.run()).toEqual(ok({ kind: "skipped", reason }));
+      const h = harness({ overrides: visual({ kind: "not_found", reason, topDistance: 0.4, chosenDistance: 0.5 }) });
+      expect(await h.run()).toEqual(ok({ kind: "skipped", reason, topDistance: 0.4, chosenDistance: 0.5 }));
       expect(h.state.calls).not.toContain("transaction");
     }
   });

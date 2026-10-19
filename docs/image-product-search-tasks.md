@@ -57,6 +57,16 @@ T1 and T2 run in parallel. Their use cases and tests use fake adapters; the real
 4. A screenshot of a product not in the catalog creates no order and logs `orders_message_order_skipped` with `no_visual_match` or `low_confidence`.
 **Depends on:** T2.
 
+## T4. Log visual candidate distances (after launch)
+
+**Scope:** no proximity threshold yet (founder, 2026-10-19: measure first). `identifyProductsInImage` returns `topDistance` (nearest candidate) and `chosenDistance` (chosen candidate) for visual outcomes; orders carries them to `orders_message_order_created` / `_items_added` / `_skipped` (technical design §2, §13).
+**Out of scope:** any threshold or change to which candidates reach the chooser.
+**Acceptance criteria:**
+1. A visual match logs `topDistance` and `chosenDistance` next to `confidence`.
+2. `no_visual_match` logs `topDistance` only; `low_confidence` and `ambiguous_variant` log both.
+3. No image, vector or product name is logged.
+**Depends on:** T3.
+
 ## Final verification
 
 - Manual checks of §14 with real providers on the test phone.
