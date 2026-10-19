@@ -11,8 +11,11 @@ import {
 
 export type ImageIdentification =
   | Readonly<{ kind: "found"; method: "qr"; items: readonly CatalogItem[]; unknownCodes: readonly VariantQrCode[] }>
-  | Readonly<{ kind: "found"; method: "visual"; items: readonly [CatalogItem]; confidence: MatchConfidence; candidates: number }>
-  | Readonly<{ kind: "not_found"; reason: IdentificationMissReason }>;
+  | Readonly<{ kind: "found"; method: "visual"; items: readonly [CatalogItem]; confidence: MatchConfidence; candidates: number } & VisualDistances>
+  | Readonly<{ kind: "not_found"; reason: IdentificationMissReason } & Partial<VisualDistances>>;
+
+// Cosine distances only for logs: measure hits vs non-product images before choosing a threshold.
+export type VisualDistances = Readonly<{ topDistance: number; chosenDistance?: number }>;
 
 export type IdentificationMissReason =
   | "unreadable_image"          // QR step could not decode the image; visual is not attempted
@@ -55,7 +58,7 @@ export type IdentifyProductsDependencies = Readonly<{
 }>;
 
 type Identified = Result<ImageIdentification, IdentifyProductsError>;
-const notFound = (reason: IdentificationMissReason): Identified => ok({ kind: "not_found", reason });
+const notFound = (reason: IdentificationMissReason, distances?: VisualDistances): Identified => ok({ kind: "not_found", reason, ...distances });
 
 /** Cascade: printed QR first; visual search only when the image carries no QR code at all. */
 export async function identifyProductsInImage(image: ImageBytes, deps: IdentifyProductsDependencies): Promise<Identified> {
@@ -90,10 +93,14 @@ async function searchVisually(image: ImageBytes, visual: VisualSearch): Promise<
   const choice = await visual.chooseProduct({ query: image, candidates: available.map(({ candidate, image }) => ({ productId: candidate.productId, image })) });
   if (!choice.success) return choice;
   const match = acceptVisualMatch(choice.data, available.map(({ candidate }) => candidate), visual.minConfidence);
-  if (match.kind === "rejected") return notFound(match.reason);
+  const chosenId = choice.data.kind === "product" ? choice.data.productId : null;
+  const chosen = available.find(({ candidate }) => candidate.productId === chosenId);
+  const distances: VisualDistances = { topDistance: Math.min(...available.map(({ candidate }) => candidate.distance)),
+    ...(chosen && { chosenDistance: chosen.candidate.distance }) };
+  if (match.kind === "rejected") return notFound(match.reason, distances);
   const variants = await visual.findSellableVariantsOfProduct(match.productId);
   if (!variants.success) return variants;
   const selected = selectVisualVariant(variants.data);
-  return selected.kind === "rejected" ? notFound(selected.reason)
-    : ok({ kind: "found", method: "visual", items: [selected.item], confidence: match.confidence, candidates: available.length });
+  return selected.kind === "rejected" ? notFound(selected.reason, distances)
+    : ok({ kind: "found", method: "visual", items: [selected.item], confidence: match.confidence, candidates: available.length, ...distances });
 }

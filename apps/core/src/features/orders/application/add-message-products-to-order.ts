@@ -3,7 +3,7 @@ import type { Result } from "@shared/result";
 import { buildPendingOrder, orderStateMachine, type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import { isOpenForMessageItems, type ChatId, type MessageOrderSkipReason } from "@core/src/features/orders/domain/message-order";
 import type { ImageBytes, MatchConfidence, VariantQrCode } from "@core/src/features/products/domain/image-identification";
-import type { IdentificationMissReason, IdentifyProductsError, ImageIdentification } from "@core/src/features/products/application/identify-products-in-image";
+import type { IdentificationMissReason, IdentifyProductsError, ImageIdentification, VisualDistances } from "@core/src/features/products/application/identify-products-in-image";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { CompanyId, ContactId, OrderId, OrderItemId, UserId } from "@core/src/features/orders/domain/order";
 import type { CatalogItem } from "@core/src/features/orders/application/order-snapshots";
@@ -29,13 +29,13 @@ export type MessageCustomer = Readonly<{
 
 export type MessageProductMatch =
   | Readonly<{ method: "qr"; unknownCodes: readonly VariantQrCode[] }>
-  | Readonly<{ method: "visual"; confidence: MatchConfidence; candidates: number }>;
+  | Readonly<{ method: "visual"; confidence: MatchConfidence; candidates: number } & VisualDistances>;
 
 export type AddMessageProductsOutcome =
   | Readonly<{ kind: "order_created"; orderId: OrderId; variantIds: readonly VariantId[]; match: MessageProductMatch }>
   | Readonly<{ kind: "items_added"; orderId: OrderId; variantIds: readonly VariantId[]; match: MessageProductMatch }>
   | Readonly<{ kind: "already_processed"; orderId: OrderId }>
-  | Readonly<{ kind: "skipped"; reason: MessageOrderSkipReason }>;
+  | Readonly<{ kind: "skipped"; reason: MessageOrderSkipReason } & Partial<VisualDistances>>;
 
 export type AddMessageProductsError = Readonly<{
   code:
@@ -90,7 +90,7 @@ type Input = Readonly<{ companyId: CompanyId; messageId: ChatMessageId }>;
 type Scan = Readonly<{ variants: readonly CatalogItem[]; match: MessageProductMatch }>;
 type TransactionOutcome = Extract<AddMessageProductsOutcome, { kind: "order_created" | "items_added" | "already_processed" }>;
 
-const skipped = (reason: MessageOrderSkipReason) => ok<AddMessageProductsOutcome>({ kind: "skipped", reason });
+const skipped = (reason: MessageOrderSkipReason, distances?: Partial<VisualDistances>) => ok<AddMessageProductsOutcome>({ kind: "skipped", reason, ...distances });
 
 export async function addMessageProductsToOrder(input: Input, deps: AddMessageProductsDependencies): Promise<Result<AddMessageProductsOutcome, AddMessageProductsError>> {
   const processed = await deps.findProcessedMessage(input.messageId);
@@ -105,7 +105,7 @@ export async function addMessageProductsToOrder(input: Input, deps: AddMessagePr
   const scan = await scanMessage(message.imageId, deps);
   if (!scan.success) return scan;
   const products = scan.data;
-  if ("reason" in products) return skipped(products.reason);
+  if ("reason" in products) return skipped(products.reason, products.distances);
   const entered = await deps.transaction(input.companyId, () => addInTransaction(input, message, products, deps));
   if (entered.success) return entered;
   if (entered.error.code !== "MESSAGE_ALREADY_PROCESSED") return err(entered.error);
@@ -116,15 +116,15 @@ export async function addMessageProductsToOrder(input: Input, deps: AddMessagePr
     : err({ code: "PERSISTENCE_UNAVAILABLE", message: "Processed message is not visible" });
 }
 
-async function scanMessage(imageId: ImageId, deps: AddMessageProductsDependencies): Promise<Result<Scan | Readonly<{ reason: MessageOrderSkipReason }>, AddMessageProductsError>> {
+async function scanMessage(imageId: ImageId, deps: AddMessageProductsDependencies): Promise<Result<Scan | Readonly<{ reason: MessageOrderSkipReason; distances: Partial<VisualDistances> }>, AddMessageProductsError>> {
   const image = await deps.readImage(imageId);
   if (!image.success) return image;
   const identified = await deps.identifyProducts(image.data);
   if (!identified.success) return identified;
   const found = identified.data;
-  if (found.kind === "not_found") return ok({ reason: skipReason(found.reason) });
+  if (found.kind === "not_found") return ok({ reason: skipReason(found.reason), distances: { topDistance: found.topDistance, chosenDistance: found.chosenDistance } });
   return ok({ variants: found.items, match: found.method === "qr" ? { method: "qr", unknownCodes: found.unknownCodes }
-    : { method: "visual", confidence: found.confidence, candidates: found.candidates } });
+    : { method: "visual", confidence: found.confidence, candidates: found.candidates, topDistance: found.topDistance, chosenDistance: found.chosenDistance } });
 }
 
 const skipReason = (reason: IdentificationMissReason): MessageOrderSkipReason => reason === "unknown_qr_codes" ? "product_not_found" : reason;

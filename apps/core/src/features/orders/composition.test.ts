@@ -175,7 +175,7 @@ test("logs created, items added, skipped and failed outcomes with ids and withou
   try {
     addMessageProductsToOrder.mockResolvedValueOnce(ok({ kind: "order_created", orderId, variantIds, match: { method: "qr", unknownCodes } }));
     addMessageProductsToOrder.mockResolvedValueOnce(ok({ kind: "items_added", orderId, variantIds, match: { method: "qr", unknownCodes } }));
-    addMessageProductsToOrder.mockResolvedValueOnce(ok({ kind: "skipped", reason: "low_confidence" }));
+    addMessageProductsToOrder.mockResolvedValueOnce(ok({ kind: "skipped", reason: "low_confidence", topDistance: 0.31, chosenDistance: 0.42 }));
     addMessageProductsToOrder.mockResolvedValueOnce(ok({ kind: "already_processed", orderId }));
     addMessageProductsToOrder.mockResolvedValueOnce(err({ code: "PERSISTENCE_UNAVAILABLE", message: "+51987654321 bytes" }));
     addMessageProductsToOrder.mockResolvedValueOnce(err({ code: "IMAGE_NOT_FOUND", message: "Image is not available" }));
@@ -183,7 +183,7 @@ test("logs created, items added, skipped and failed outcomes with ids and withou
     expect(info.mock.calls.map(([fields]) => fields)).toEqual([
       { event: "orders_message_order_created", ...common, orderId, variantCount: 1, matchMethod: "qr", unknownCodes },
       { event: "orders_message_order_items_added", ...common, orderId, variantCount: 1, matchMethod: "qr", unknownCodes },
-      { event: "orders_message_order_skipped", ...common, reason: "low_confidence" },
+      { event: "orders_message_order_skipped", ...common, reason: "low_confidence", topDistance: 0.31, chosenDistance: 0.42 },
       { event: "orders_message_order_skipped", ...common, orderId, reason: "already_processed" },
     ]);
     expect(warn.mock.calls.map(([fields]) => fields)).toEqual([{ event: "orders_message_order_failed", ...common, code: "PERSISTENCE_UNAVAILABLE", retryable: true }]);
@@ -192,14 +192,14 @@ test("logs created, items added, skipped and failed outcomes with ids and withou
   } finally { info.mockRestore(); warn.mockRestore(); error.mockRestore(); addMessageProductsToOrder.mockReset(); }
 });
 
-test("logs the match method and confidence without images or product names", async () => {
+test("logs the match method, confidence and distances without images or product names", async () => {
   const info = vi.spyOn(log, "info").mockImplementation(() => undefined);
   try {
     addMessageProductsToOrder.mockResolvedValueOnce(ok({ kind: "items_added", orderId: id(12), variantIds: [id(13)],
-      match: { method: "visual", confidence: 0.87, candidates: 5 } }));
+      match: { method: "visual", confidence: 0.87, candidates: 5, topDistance: 0.12, chosenDistance: 0.12 } }));
     await handle(1);
     expect(info).toHaveBeenCalledWith({ event: "orders_message_order_items_added", companyId: context.companyId, messageId, eventId, attempt: 1,
-      durationMs: expect.any(Number), orderId: id(12), variantCount: 1, matchMethod: "visual", confidence: 0.87, candidates: 5 }, expect.any(String));
+      durationMs: expect.any(Number), orderId: id(12), variantCount: 1, matchMethod: "visual", confidence: 0.87, candidates: 5, topDistance: 0.12, chosenDistance: 0.12 }, expect.any(String));
   } finally { info.mockRestore(); addMessageProductsToOrder.mockReset(); }
 });
 

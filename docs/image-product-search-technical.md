@@ -48,6 +48,7 @@ product create/update with new image ──→ product_image_changed ──→ p
 | Visual search not configured | If the provider keys are missing, composition wires a disabled matcher: visual step returns `not_found` `visual_search_disabled`. Dev and tests run without keys. |
 | Customer text in prompts | Captions are not sent to the model (prompt injection surface, no measured gain). |
 | Traceability | Match method and confidence go to logs only, consistent with message-to-order ("visibility of skips: logs only"). No new column on `OrderMessage`. |
+| Proximity threshold (founder, 2026-10-19) | None yet: measure first, threshold later. `findNearestProductImages` always returns the K nearest products, so non-product images (selfies, memes, receipts) still reach the chooser. Visual outcomes log the cosine distance of the nearest candidate (`topDistance`) and of the chosen one (`chosenDistance`, when the chooser picks a candidate) so hits and non-product images can be compared before choosing a cutoff (§13). |
 | Initial values (adjustable, env) | `PRODUCT_MATCH_CANDIDATES=5`, `PRODUCT_MATCH_MIN_CONFIDENCE=0.8`, `PRODUCT_MATCH_TIMEOUT_MS=20000`, images resized to ≤1024 px before sending. |
 | Retries | Handler policy unchanged (`concurrency: 2, retries: 8`). Provider unavailable is retryable; invalid model response is permanent (§15). |
 | Backward compatibility | Not in production (memory): migration without backfill; development products are indexed with the command. |
@@ -401,8 +402,8 @@ Vision adapter rules:
 
 | Event | Level | Where | Fields |
 | --- | --- | --- | --- |
-| `orders_message_order_created` / `_items_added` (existing) | info | orders handler adapter | add `["matchMethod", "confidence", "candidates"]` to the current fields |
-| `orders_message_order_skipped` (existing) | info | orders handler adapter | `reason` takes the new values |
+| `orders_message_order_created` / `_items_added` (existing) | info | orders handler adapter | add `["matchMethod", "confidence", "candidates"]` to the current fields; visual matches also `["topDistance", "chosenDistance"]` (cosine distances, §2 proximity threshold) |
+| `orders_message_order_skipped` (existing) | info | orders handler adapter | `reason` takes the new values; `no_visual_match`, `low_confidence` and `ambiguous_variant` also log `topDistance` and, when the chooser picked a candidate, `chosenDistance` |
 | `orders_message_order_failed` (existing) | warn/error | orders handler adapter | `code` takes the new values |
 | `product_visual_match_completed` | info | `<provider>-product-chooser.ts` | `["companyId", "candidates", "choice", "confidence", "model", "durationMs", "inputTokens", "outputTokens"]` (`choice`: `"product"` or `"none"`, never the label content) |
 | `product_matcher_request_failed` | warn | `<provider>-product-chooser.ts` | `["companyId", "model", "errorCode", "httpStatus", "durationMs", "err"]` |
@@ -414,7 +415,7 @@ Vision adapter rules:
 | `product_image_changed_publish_failed` | error | products composition | `["companyId", "productId", "errorCode", "err"]` |
 | `product_visual_search_disabled` | info | products composition, at startup | `["reason"]` |
 
-Never logged: image bytes, base64, prompts, raw model responses, captions, product names, vectors, API keys.
+Never logged: image bytes, base64, prompts, raw model responses, captions, product names, vectors, API keys. Distances are plain numbers and are allowed.
 
 ## 14. Tests
 

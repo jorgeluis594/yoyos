@@ -96,17 +96,17 @@ describe("identifyProductsInImage", () => {
     expect(await none.run()).toEqual(ok({ kind: "not_found", reason: "no_indexed_products" }));
   });
 
-  test("returns the only variant of the chosen product with its confidence", async () => {
-    expect(await harness().run()).toEqual(ok({ kind: "found", method: "visual", items: [item(1)], confidence: 0.9, candidates: 2 }));
+  test("returns the only variant of the chosen product with its confidence and distances", async () => {
+    expect(await harness().run()).toEqual(ok({ kind: "found", method: "visual", items: [item(1)], confidence: 0.9, candidates: 2, topDistance: 0.1, chosenDistance: 0.1 }));
   });
 
-  test("returns low_confidence, no_visual_match or ambiguous_variant from the domain rules", async () => {
-    const low = harness({ visual: { chooseProduct: async () => ok({ kind: "product", productId: productP, confidence: 0.6 as MatchConfidence }) } });
-    expect(await low.run()).toEqual(ok({ kind: "not_found", reason: "low_confidence" }));
+  test("returns low_confidence, no_visual_match or ambiguous_variant from the domain rules, with the candidate distances", async () => {
+    const low = harness({ visual: { chooseProduct: async () => ok({ kind: "product", productId: productQ, confidence: 0.6 as MatchConfidence }) } });
+    expect(await low.run()).toEqual(ok({ kind: "not_found", reason: "low_confidence", topDistance: 0.1, chosenDistance: 0.2 }));
     const none = harness({ visual: { chooseProduct: async () => ok({ kind: "none" }) } });
-    expect(await none.run()).toEqual(ok({ kind: "not_found", reason: "no_visual_match" }));
+    expect(await none.run()).toStrictEqual(ok({ kind: "not_found", reason: "no_visual_match", topDistance: 0.1 }));
     const ambiguous = harness({ visual: { findSellableVariantsOfProduct: async () => ok([item(1), item(2)]) } });
-    expect(await ambiguous.run()).toEqual(ok({ kind: "not_found", reason: "ambiguous_variant" }));
+    expect(await ambiguous.run()).toEqual(ok({ kind: "not_found", reason: "ambiguous_variant", topDistance: 0.1, chosenDistance: 0.1 }));
   });
 
   test("propagates embedder, matcher, storage and persistence failures", async () => {
