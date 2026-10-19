@@ -9,8 +9,9 @@ import type { Result } from "@shared/result";
 
 const base: CreateInput = { name: " Camisa ", currency: "PEN", variants: [{ attributes: {}, salePrice: 20 }] };
 
-function setup(image: Result<boolean, ImageLookupError> = ok(true)) {
+function setup(image: Result<boolean, ImageLookupError> = ok(true), publishFails = false) {
   let stored: Product | null = null;
+  const published: ProductId[] = [];
   let writes = 0;
   let counter = 0;
   const deps = {
@@ -21,8 +22,12 @@ function setup(image: Result<boolean, ImageLookupError> = ok(true)) {
     findImage: async () => image,
     newId: () => `00000000-0000-4000-8000-${String(++counter).padStart(12, "0")}`,
     clock: () => new Date("2026-09-24T00:00:00.000Z"),
+    publishProductImageChanged: async (productId: ProductId) => {
+      published.push(productId);
+      return publishFails ? err({ code: "EVENT_BUS_UNAVAILABLE" as const, message: "down" }) : ok(undefined);
+    },
   };
-  return { deps, get writes() { return writes; }, get stored() { return stored; } };
+  return { deps, published, get writes() { return writes; }, get stored() { return stored; } };
 }
 
 describe("create product", () => {
@@ -160,5 +165,22 @@ describe("create product", () => {
     const readFailure = err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "database down" });
     expect(await getProduct(created.data, { repository: { ...context.deps.repository, get: async () => readFailure }, resolveImage: async () => ok(null) })).toEqual(readFailure);
     await expect(getProduct(created.data, { repository: withImage, resolveImage: async () => { throw new Error("storage failed"); } })).rejects.toThrow("storage failed");
+  });
+
+  test("publishes product_image_changed after creating a product with an image", async () => {
+    const imageId = "00000000-0000-4000-8000-000000000099" as ImageId;
+    const withImage = setup();
+    const result = await createProduct({ ...base, imageId }, withImage.deps);
+    expect(withImage.published).toEqual([result.success && result.data]);
+    const withoutImage = setup();
+    await createProduct(base, withoutImage.deps);
+    expect(withoutImage.published).toEqual([]);
+  });
+
+  test("returns the saved product when publishing the event fails", async () => {
+    const context = setup(ok(true), true);
+    const result = await createProduct({ ...base, imageId: "00000000-0000-4000-8000-000000000099" as ImageId }, context.deps);
+    expect(result).toMatchObject({ success: true });
+    expect(context.writes).toBe(1);
   });
 });

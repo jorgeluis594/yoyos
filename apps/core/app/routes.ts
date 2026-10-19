@@ -11,6 +11,9 @@ export default [
   route("checkout/:companyId/:orderId", "routes/checkout.tsx"),
   route("checkout/*", "routes/checkout.tsx", { id: "unavailable-checkout" }),
   route("pago/:orderId", "routes/buyer-payment.tsx"),
+  route("catalogo/:companyId", "routes/catalog.tsx"),
+  route("catalogo/:companyId/productos/:productId", "routes/catalog-product.tsx"),
+  route("catalogo/:companyId/carrito", "routes/catalog-cart.tsx"),
   route("settings/checkout-appearance/preview", "routes/checkout-appearance-preview.tsx", { id: "public-checkout-appearance-preview" }),
   layout("routes/private-layout.tsx", { id: "public-private-layout" }, [
     route("dashboard", "routes/dashboard.tsx", { id: "public-dashboard" }),
@@ -24,6 +27,7 @@ export default [
     route("orders/:orderId", "routes/order-detail.tsx", { id: "public-order-detail" }),
     route("settings/payments", "routes/payment-settings.tsx", { id: "public-payment-settings" }),
     route("settings/checkout-appearance", "routes/checkout-appearance-settings.tsx", { id: "public-checkout-appearance-settings" }),
+    route("settings/catalog", "routes/catalog-settings.tsx", { id: "public-catalog-settings" }),
   ]),
   route(":locale", "routes/locale-layout.tsx", [
     index("routes/home.tsx"),
@@ -46,6 +50,7 @@ export default [
       route("orders/:orderId", "routes/order-detail.tsx", { id: "localized-order-detail" }),
       route("settings/payments", "routes/payment-settings.tsx", { id: "localized-payment-settings" }),
       route("settings/checkout-appearance", "routes/checkout-appearance-settings.tsx", { id: "localized-checkout-appearance-settings" }),
+      route("settings/catalog", "routes/catalog-settings.tsx", { id: "localized-catalog-settings" }),
     ]),
   ]),
 ] satisfies RouteConfig;

@@ -20,7 +20,7 @@ const base: CheckoutOrder = {
   items: [{ id: uuid(3) as OrderItemId, variantId: uuid(4) as VariantId, productName: "Product", variantAttributes: {}, sku: null,
     quantity: 2 as PositiveInteger, unitPrice: { amount: 50, currency: "PEN" }, subtotal: { amount: 100, currency: "PEN" } }],
   delivery: null, deliveryCharge: { amount: 20, currency: "PEN" }, itemsTotal: { amount: 100, currency: "PEN" }, total, cancelled: false,
-  checkoutEnabledAt: new Date("2020-01-01T00:00:00Z"), checkoutConfirmedAt: null,
+  checkoutEnabledAt: new Date("2020-01-01T00:00:00Z"), checkoutConfirmedAt: null, fromCatalog: false,
 };
 
 function fixture(initial: CheckoutOrder | null = base) {
@@ -116,7 +116,7 @@ test("technical failures propagate without a false success or subsequent writes"
 
 
 function deliveryFixture() {
-  const order = { ...base, items: [base.items[0]] as const, sellerId: seller.userId, createdAt: now, scheduledDispatchDate: null, shippedAt: null,
+  const order = { ...base, items: [base.items[0]] as const, sellerId: seller.userId, fromCatalog: false, createdAt: now, scheduledDispatchDate: null, shippedAt: null,
     completedAt: null, deliveredAt: null, deliveryStatus: "pending" as const, stockDeducted: false, payments: [],
     delivery: null, deliveryCost: { amount: 0, currency: "PEN" as const }, deliveryCharge: { amount: 0, currency: "PEN" as const }, total: base.itemsTotal };
   const deps: ConfirmCheckoutDeliveryDependencies = {

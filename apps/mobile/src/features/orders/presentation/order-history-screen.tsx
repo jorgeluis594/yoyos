@@ -242,7 +242,7 @@ export default function OrderHistoryScreen() {
           {selection.count ? <SymbolView name={{ ios: selected ? "checkmark.circle.fill" : "circle", android: selected ? "check_circle" : "radio_button_unchecked" }} size={24} tintColor={selected ? theme.primary : theme.textSecondary} /> : null}
           <View style={styles.orderText}>
             <OrderBuyerName buyer={item.buyer} source={item.source} style={styles.customerName} />
-            <ThemedText type="small" themeColor="textSecondary">#{item.number} · {dateTimeLabel(item.createdAt, locale, now)}</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">#{item.number}{item.source === "catalog" ? ` · ${t('fromCatalog')}` : ""} · {dateTimeLabel(item.createdAt, locale, now)}</ThemedText>
             {item.status === "cancelled" || item.status === "completed" ? <View style={[styles.badge, { backgroundColor: item.status === "completed" ? theme.successSurface : theme.secondary }]}>
               <ThemedText type="small" style={{ color: item.status === "completed" ? theme.success : theme.textSecondary }}>{t(item.status === "completed" ? 'orderListCompleted' : 'orderListCancelled')}</ThemedText>
             </View> : <View style={styles.badges}>

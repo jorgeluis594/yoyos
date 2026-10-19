@@ -86,6 +86,7 @@ model Jwks {
 
 model Company {
   nextOrderNumber BigInt @default(1001)
+  catalogPublished Boolean @default(false)
   id      String @id @db.Uuid
   name    String
   country String
@@ -305,6 +306,7 @@ model Image {
   messages           ChatMessage[]
   products Product[]
   checkoutAppearances CompanyCheckoutAppearance[]
+  embeddings         ImageEmbedding[]
 
   @@index([companyId])
   @@unique([companyId, id])
@@ -328,6 +330,18 @@ model Product {
   @@unique([companyId, id])
   @@index([companyId])
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+// Embeddings belong to the image, not the product. vector has no fixed dimension: every query filters by model, so compared vectors share a length.
+model ImageEmbedding {
+  companyId String                @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  imageId   String                @db.Uuid
+  image     Image                 @relation(fields: [companyId, imageId], references: [companyId, id], onDelete: Cascade, onUpdate: NoAction)
+  model     String
+  embedding Unsupported("vector")
+  createdAt DateTime
+
+  @@id([companyId, imageId, model])
 }
 
 model ProductVariant {
@@ -435,8 +449,9 @@ model Order {
   id String @id @db.Uuid
   companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
   company Company @relation(fields: [companyId], references: [id])
-  sellerId String
-  seller User @relation(fields: [companyId, sellerId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
+  sellerId String?
+  seller User? @relation(fields: [companyId, sellerId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
+  fromCatalog Boolean @default(false)
   buyer OrderBuyer?
   checkoutEnabledAt DateTime?
   checkoutConfirmedAt DateTime?
@@ -466,6 +481,7 @@ model Order {
   @@unique([companyId, number])
   @@index([companyId, chatId])
   @@index([companyId, completedAt(sort: Desc), id])
+  @@index([fromCatalog, checkoutConfirmedAt, createdAt])
 }
 
 model Payment {

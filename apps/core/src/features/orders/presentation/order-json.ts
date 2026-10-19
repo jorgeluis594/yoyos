@@ -1,9 +1,7 @@
 import { listOrderAggregatesResponseSchema, listOrdersResponseSchema, orderAggregateSchema, orderAggregateSummarySchema, orderSchema } from "@shared/contracts/orders";
-import { orderStateMachine, type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
+import { orderSource, orderStateMachine, type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { ListOrdersOutput } from "@core/src/features/orders/application/read-orders";
 import type { AggregatePage } from "@core/src/features/orders/application/list-order-aggregates";
-
-const orderSource = (order: OrderAggregate) => order.chatId ? "whatsapp" as const : "manual" as const;
 
 export function toLegacyOrderJson(order: OrderAggregate) {
   if (!order.completedAt || order.deliveryStatus !== "delivered") throw new Error("Immediate sale is not completed");
@@ -18,8 +16,8 @@ export function toOrderAggregateJson(order: OrderAggregate) {
   const lifecycle = orderStateMachine.getLifecycle(order);
   const payment = orderStateMachine.getPaymentSummary(order);
   if (!lifecycle.success || !payment.success) throw new Error("Invalid order aggregate response");
-  // The contract exposes `source`, not the chat id.
-  const fields = Object.fromEntries(Object.entries(order).filter(([key]) => key !== "chatId"));
+  // The contract exposes `source`, not the chat id or the catalog flag.
+  const fields = Object.fromEntries(Object.entries(order).filter(([key]) => key !== "chatId" && key !== "fromCatalog"));
   return orderAggregateSchema.parse({ ...fields, source: orderSource(order), checkoutEnabledAt: order.checkoutEnabledAt?.toISOString() ?? null, checkoutConfirmedAt: order.checkoutConfirmedAt?.toISOString() ?? null, createdAt: order.createdAt.toISOString(), shippedAt: order.shippedAt?.toISOString() ?? null, deliveredAt: order.deliveredAt?.toISOString() ?? null,
     completedAt: order.completedAt?.toISOString() ?? null, status: lifecycle.data.status,
     paymentStatus: payment.data.status, paidAmount: payment.data.paidAmount,

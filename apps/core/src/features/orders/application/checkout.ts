@@ -20,7 +20,7 @@ export type ConfirmCheckoutDeliveryDependencies = Pick<CheckoutDependencies, "sa
     transaction: <T>(companyId: CompanyId, work: () => Promise<Result<T, ConfirmCheckoutDeliveryError>>) => Promise<Result<T, ConfirmCheckoutDeliveryError>>;
     findOrderForUpdate: (access: CheckoutAccess) => Promise<Result<(CheckoutOrder & OrderAggregate) | null, ConfirmCheckoutDeliveryError>>;
   }>;
-export type CheckoutMutation = Readonly<{ checkout: CheckoutView; changed: boolean }>;
+export type CheckoutMutation = Readonly<{ checkout: CheckoutView; changed: boolean; fromCatalog: boolean }>;
 export type CheckoutDependencies = Readonly<{
   transaction: <T>(companyId: CompanyId, work: () => Promise<Result<T, CheckoutError>>) => Promise<Result<T, CheckoutError>>;
   findOrder: (access: CheckoutAccess) => Promise<Result<CheckoutOrder | null, CheckoutError>>;
@@ -72,7 +72,7 @@ export async function confirmOrderCheckout(input: ConfirmOrderCheckoutInput, acc
     const view = checkoutView(order);
     if (!view.success) return view;
     if (order.cancelled) return err({ code: "ORDER_CANCELLED", message: "Order is cancelled" });
-    if (order.checkoutConfirmedAt) return ok({ checkout: view.data, changed: false });
+    if (order.checkoutConfirmedAt) return ok({ checkout: view.data, changed: false, fromCatalog: order.fromCatalog });
     const buyer = parseBuyer(input.buyer);
     if (!buyer.success) return buyer;
     const total = checkExpectedTotal(input.expectedTotal, order.total);
@@ -83,7 +83,7 @@ export async function confirmOrderCheckout(input: ConfirmOrderCheckoutInput, acc
     const savedConfirmation = await deps.saveConfirmed(access, now);
     if (!savedConfirmation.success) return savedConfirmation;
     const confirmed = checkoutView({ ...order, buyer: snapshot, checkoutConfirmedAt: now });
-    return confirmed.success ? ok({ checkout: confirmed.data, changed: true }) : confirmed;
+    return confirmed.success ? ok({ checkout: confirmed.data, changed: true, fromCatalog: order.fromCatalog }) : confirmed;
   });
 }
 
@@ -98,7 +98,7 @@ export async function confirmCheckoutDelivery(input: ConfirmCheckoutDeliveryInpu
     const view = checkoutView(order);
     if (!view.success) return view;
     if (order.cancelled) return err({ code: "ORDER_CANCELLED", message: "Order is cancelled" });
-    if (order.checkoutConfirmedAt) return ok({ checkout: view.data, changed: false });
+    if (order.checkoutConfirmedAt) return ok({ checkout: view.data, changed: false, fromCatalog: order.fromCatalog });
     const buyer = parseBuyer(input.buyer);
     if (!buyer.success) return buyer;
     if (!deliveryChangeSchema.safeParse(input.delivery).success)
@@ -126,6 +126,6 @@ export async function confirmCheckoutDelivery(input: ConfirmCheckoutDeliveryInpu
     const savedConfirmation = await deps.saveConfirmed(access, now);
     if (!savedConfirmation.success) return savedConfirmation;
     const confirmed = checkoutView({ ...savedDelivery.data, companyName: order.companyName, buyer: snapshot, checkoutConfirmedAt: now });
-    return confirmed.success ? ok({ checkout: confirmed.data, changed: true }) : confirmed;
+    return confirmed.success ? ok({ checkout: confirmed.data, changed: true, fromCatalog: order.fromCatalog }) : confirmed;
   });
 }

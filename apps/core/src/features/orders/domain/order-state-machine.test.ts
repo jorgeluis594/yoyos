@@ -1,6 +1,6 @@
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import { describe, expect, test } from "vitest";
-import { buildPendingOrder, orderStateMachine, type CourierId, type OrderAggregate, type DeliverySnapshot, type DeliveryPricing, type PeruDeliveryDistrict } from "@core/src/features/orders/domain/order-state-machine";
+import { buildPendingCatalogOrder, buildPendingOrder, orderStateMachine, type CourierId, type OrderAggregate, type DeliverySnapshot, type DeliveryPricing, type PeruDeliveryDistrict } from "@core/src/features/orders/domain/order-state-machine";
 import type { ConfirmedPayment } from "@core/src/features/orders/domain/payment";
 import type { CompanyId, OrderId, OrderItemId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
@@ -11,7 +11,7 @@ const paymentAt = new Date("2026-09-30T12:00:00Z");
 const money = (amount: number) => ({ amount, currency: "PEN" as const });
 const order = (): OrderAggregate => ({
   number: 1001 as OrderNumber, id: id(1) as OrderId, companyId: id(2) as CompanyId, sellerId: "seller" as UserId,
-  buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, createdAt, scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, completedAt: null, cancelled: false,
+  buyer: null, fromCatalog: false, checkoutEnabledAt: null, checkoutConfirmedAt: null, createdAt, scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, completedAt: null, cancelled: false,
   items: [{ id: id(3) as OrderItemId, variantId: id(4) as VariantId, productName: "Item", variantAttributes: {}, sku: null,
     quantity: 1 as PositiveInteger, unitPrice: money(10), subtotal: money(10) }],
   payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false,
@@ -55,6 +55,17 @@ describe("pending order construction", () => {
     expect(buildPendingOrder({ ...input, items: [input.items[0], { ...input.items[0], id: id(5) as OrderItemId,
       variantId: id(6) as VariantId, unitPrice: { amount: 1, currency: "USD" as const } }] }))
       .toMatchObject({ success: false, error: { code: "CURRENCY_MISMATCH" } });
+  });
+
+  test("only a catalog order is built without a seller", () => {
+    const input = { number: 1001 as OrderNumber, id: id(1) as OrderId, companyId: id(2) as CompanyId,
+      customer: { kind: "general_public" as const }, createdAt,
+      items: [{ id: id(3) as OrderItemId, variantId: id(4) as VariantId, productName: "Item", variantAttributes: {},
+        sku: null, quantity: 1, unitPrice: money(10) }] };
+    for (const sellerId of [null, undefined, ""]) {
+      expect(buildPendingOrder({ ...input, sellerId: sellerId as unknown as UserId })).toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
+    }
+    expect(buildPendingCatalogOrder(input)).toMatchObject({ success: true, data: { sellerId: null, fromCatalog: true } });
   });
 });
 

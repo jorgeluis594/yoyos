@@ -290,6 +290,16 @@ describe("WhatsApp orders", () => {
     expect(screen.queryByText("Público general")).toBeNull();
   });
 
+  test("order list shows «Desde el catálogo» for catalog orders and no seller", async () => {
+    load({ ...summary("catalog", { contactId: null, name: "Ana", phone: "999" }, "manual"), number: 1042, source: "catalog", sellerId: null } as unknown as ReturnType<typeof summary>,
+      summary("manual", { contactId: null, name: "Luis", phone: "888" }, "manual"));
+    const screen = render(<OrderHistoryScreen />);
+    await screen.findByText("Ana");
+    expect(screen.getByText(/#1042 · Desde el catálogo · /)).toBeTruthy();
+    expect(screen.getAllByText(/Desde el catálogo/)).toHaveLength(1);
+    expect(screen.queryByLabelText("WhatsApp")).toBeNull();
+  });
+
   test("shows only the icon when the buyer has no name or phone", async () => {
     load(summary("a", { contactId: null, name: null, phone: null }, "whatsapp"));
     const screen = render(<OrderHistoryScreen />);

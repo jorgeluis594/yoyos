@@ -30,10 +30,11 @@ function multiVariant(): Product {
   }] };
 }
 
-function setup(initial: Product = sample(), options: { imageExists?: boolean; imageError?: boolean; readError?: boolean; updateFails?: boolean } = {}) {
+function setup(initial: Product = sample(), options: { imageExists?: boolean; imageError?: boolean; readError?: boolean; updateFails?: boolean; publishFails?: boolean } = {}) {
   const stored = initial;
   const updates: UpdateChanges[] = [];
   let clockReads = 0;
+  const published: ProductId[] = [];
   const deps: UpdateDependencies = {
     repository: {
       async get(id) { return options.readError ? err({ code: "INVALID_STORED_DATA" as const, message: "Stored product data is invalid" }) : ok(stored.id === id ? stored : null); },
@@ -44,8 +45,12 @@ function setup(initial: Product = sample(), options: { imageExists?: boolean; im
     },
     findImage: async () => options.imageError ? err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "database down" }) : ok(options.imageExists ?? true),
     clock: () => { clockReads += 1; return new Date("2026-10-01T00:00:00.000Z"); },
+    publishProductImageChanged: async (id) => {
+      published.push(id);
+      return options.publishFails ? err({ code: "EVENT_BUS_UNAVAILABLE" as const, message: "down" }) : ok(undefined);
+    },
   };
-  return { deps, updates, get clockReads() { return clockReads; }, get stored() { return stored; } };
+  return { deps, updates, published, get clockReads() { return clockReads; }, get stored() { return stored; } };
 }
 
 describe("update product", () => {
@@ -154,5 +159,27 @@ describe("update product", () => {
     const context = setup(sample(), { updateFails: true });
     const result = await updateProduct(productId, { variants: [{ id: variantId, sku: "TAKEN" }] }, context.deps);
     expect(result).toMatchObject({ success: false, error: { code: "DUPLICATE_SKU" } });
+  });
+
+  test("publishes product_image_changed when an update sets a different image", async () => {
+    const context = setup();
+    await updateProduct(productId, { imageId: "00000000-0000-4000-8000-000000000099" as ImageId }, context.deps);
+    expect(context.published).toEqual([productId]);
+  });
+
+  test("does not publish when an update keeps or removes the image", async () => {
+    const imageId = "00000000-0000-4000-8000-000000000099" as ImageId;
+    const context = setup({ ...sample(), imageId });
+    await updateProduct(productId, { imageId }, context.deps);
+    await updateProduct(productId, { imageId: null }, context.deps);
+    await updateProduct(productId, { name: "Otra", variants: [{ id: variantId, salePrice: 99 }] }, context.deps);
+    expect(context.updates).toHaveLength(2);
+    expect(context.published).toEqual([]);
+  });
+
+  test("returns the saved product when publishing the event fails", async () => {
+    const context = setup(sample(), { publishFails: true });
+    expect(await updateProduct(productId, { imageId: "00000000-0000-4000-8000-000000000099" as ImageId }, context.deps)).toEqual({ success: true, data: productId });
+    expect(context.updates).toHaveLength(1);
   });
 });
