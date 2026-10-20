@@ -4,7 +4,7 @@ import { I18nextProvider, initReactI18next } from "react-i18next";
 import resources from "@core/app/locales";
 import { expect, test } from "vitest";
 import { CheckoutDeliveryFields } from "@core/app/components/checkout-delivery-fields";
-import type { PublicCheckoutResponse } from "@shared/contracts/order-checkout";
+import type { CheckoutDeliveryOptions, PublicCheckoutResponse } from "@shared/contracts/order-checkout";
 
 const i18n = createInstance();
 await i18n.use(initReactI18next).init({ lng: "es", resources });
@@ -15,7 +15,8 @@ const checkout: PublicCheckoutResponse = { companyName: "Shop", number: 1001, bu
   deliveryCharge: { amount: 0, currency: "PEN" }, itemsTotal: total, total,
   items: [{ productName: "Product", variantAttributes: {}, sku: null, quantity: 1, unitPrice: total, subtotal: total }], state: { kind: "pending" } };
 const options = { home: { enabled: true }, agency: { enabled: false, covered: false }, store: { enabled: false as const, pickupPoint: null } };
-const render = (value = checkout, settings = options) => renderToStaticMarkup(withI18n(<CheckoutDeliveryFields orderId="00000000-0000-4000-8000-000000000001" checkout={value} options={settings} onChange={() => undefined} />));
+const pickup = { enabled: true as const, pickupPoint: { name: "Shop", address: "Street", instructions: null } };
+const render = (value = checkout, settings: CheckoutDeliveryOptions = options) => renderToStaticMarkup(withI18n(<CheckoutDeliveryFields orderId="00000000-0000-4000-8000-000000000001" checkout={value} options={settings} onChange={() => undefined} />));
 
 test("delivery controls wait for client hydration before accepting selections", () => {
   expect(render()).toMatch(/<fieldset disabled=""/);
@@ -44,6 +45,30 @@ test("historical delivery shows saved address and charge without consulting a cu
   expect(html).not.toContain("Nombre del destinatario");
 });
 
+test("a buyer without saved delivery sees Entrega a domicilio, Envío a agencia and Recojo en tienda with home delivery selected", () => {
+  const html = render(checkout, { home: { enabled: true }, agency: { enabled: true, covered: true }, store: pickup });
+  expect(html).toContain("Entrega a domicilio");
+  expect(html).toContain("Envío a agencia");
+  expect(html).toContain("Recojo en tienda · Gratis");
+  expect(html).toMatch(/checked="" value="home"/);
+  expect(html).not.toMatch(/checked="" value="agency"/);
+});
+
+test("without home delivery the agency method is preselected when the business has agency coverage", () => {
+  const html = render(checkout, { home: { enabled: false }, agency: { enabled: true, covered: true }, store: pickup });
+  expect(html).toMatch(/checked="" value="agency"/);
+  expect(html).not.toContain("Entrega a domicilio");
+  expect(html).toContain("Distrito de entrega");
+});
+
+test("hides Envío a agencia when the agency switch is off or the business has no agency coverage", () => {
+  for (const agency of [{ enabled: false, covered: true }, { enabled: true, covered: false }]) {
+    const html = render(checkout, { ...options, agency });
+    expect(html).not.toContain("Envío a agencia");
+    expect(html).not.toContain('value="agency"');
+  }
+});
+
 test("pickup is offered explicitly only with an enabled configured point", () => {
   const html = renderToStaticMarkup(withI18n(<CheckoutDeliveryFields orderId="00000000-0000-4000-8000-000000000001" checkout={checkout}
     options={{ ...options, store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } }} onChange={() => undefined} />));
@@ -56,19 +81,21 @@ test("pickup-only businesses show the configured point without offering shipping
       pickupPoint: { name: "Shop", address: "Pickup street", instructions: "Door 2" } } }} onChange={() => undefined} />));
   expect(html).toContain("Pickup street");
   expect(html).toContain("Door 2");
-  expect(html).not.toContain('value="ship"');
+  expect(html).not.toContain('value="home"');
+  expect(html).not.toContain('value="agency"');
   expect(html).not.toContain("Distrito de entrega");
 });
 
 test("businesses without available delivery methods cannot offer an implicit delivery", () => {
   const html = render(checkout, { ...options, home: { enabled: false } });
   expect(html).toContain("No hay modalidades de entrega disponibles");
-  expect(html).not.toContain('value="ship"');
+  expect(html).not.toContain('value="home"');
+  expect(html).not.toContain('value="agency"');
   expect(html).not.toContain("Distrito de entrega");
   expect(html).not.toContain("Nombre del destinatario");
 });
 
-test("a saved agency delivery shows its courier and catalog agency instead of a pending assignment", () => {
+test("a saved agency delivery is summarized as Envío a agencia with courier, agency and address", () => {
   const district = { country: "PE" as const, districtCode: "150122", district: "Miraflores", province: "Lima", department: "Lima" };
   const html = render({ ...checkout, deliveryCharge: { amount: 5, currency: "PEN" }, total: { amount: 15, currency: "PEN" }, delivery: {
     method: "agency", recipient: { name: "Ana", phone: "999", identity: { kind: "document", documentType: "national_id", document: "12345678" } }, destination: district,
@@ -76,6 +103,6 @@ test("a saved agency delivery shows its courier and catalog agency instead of a 
     courier: { id: "00000000-0000-4000-8000-000000000023", name: "Shalom" },
     agency: { id: "00000000-0000-4000-8000-000000000024", name: "Branch", address: "Av. Test 123", location: district },
   } });
-  expect(html).toContain("Retiro en agencia");
+  expect(html).toContain("Envío a agencia");
   expect(html).toContain("Shalom · Branch · Av. Test 123");
 });
