@@ -96,9 +96,8 @@ test("lost cancellation response reads once, preserves uncertainty and manual ch
 
 test("buyer link opens the checkout only when it is enabled and the order is active", () => {
   const order = { id: orderId, companyId, cancelled: false, checkoutEnabledAt: null };
-  const legacy = { href: `/pago/${orderId}`, label: "orders.legacyPaymentLink" };
-  expect(buyerLink(order)).toEqual(legacy);
-  expect(buyerLink({ ...order, cancelled: true })).toEqual(legacy);
+  expect(buyerLink(order)).toBeNull();
+  expect(buyerLink({ ...order, cancelled: true })).toBeNull();
   const enabled = { ...order, checkoutEnabledAt: "2026-10-05T00:00:00.000Z" };
   expect(buyerLink(enabled)).toEqual({ href: `/checkout/${companyId}/${orderId}`, label: "orders.buyerPaymentLink" });
   expect(buyerLink({ ...enabled, cancelled: true })).toBeNull();

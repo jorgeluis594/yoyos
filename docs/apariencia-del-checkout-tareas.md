@@ -72,6 +72,8 @@ T3 y T4 se encuentran en un solo punto: el editor renderiza `<CheckoutPreviewFra
 
 ## T1 · Retirada de `/pago/:orderId`
 
+> **Superado:** la redirección de `/pago` se retiró por completo; `/pago/:orderId` responde 404. Ver `docs/retirada-enlace-pago-legacy.md`.
+
 **Flujo:** el vendedor comparte el enlace desde el detalle del pedido y el comprador llega directo al checkout. Un enlace `/pago` compartido antes redirige al checkout del mismo pedido.
 
 **Alcance**

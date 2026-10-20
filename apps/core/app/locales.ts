@@ -2,7 +2,6 @@ import type { Resource } from "i18next";
 
 const es = {
   checkoutPage: { unavailable: "Enlace no disponible", askSeller: "Solicita el enlace al vendedor.", nameRequired: "Ingresa tu nombre.", phoneInvalid: "Ingresa un teléfono con código de país, por ejemplo +51987654321.", loadError: "No se pudo cargar el pedido", loadErrorHint: "Reintenta para consultar el estado actual de tu pedido.", retry: "Reintentar" },
-  buyerPayment: { title: "Pago del pedido", hint: "Elige cómo pagar y adjunta tu comprobante.", notFound: "Pedido no encontrado", notFoundHint: "Revisa el enlace con el vendedor.", loadError: "No se pudo cargar el pago", loadErrorHint: "Inténtalo de nuevo más tarde." },
   checkoutQuote: { title: "Entrega por cotizar", hint: "El comprador confirmó sus datos. Confirma el costo para habilitar el pago en su checkout.", cost: "Costo de entrega", invalid: "Ingresa un importe válido, incluso 0 si no hay costo.", charge: "Cobrar la entrega al comprador", error: "No se pudo confirmar el costo. Actualiza el pedido y vuelve a intentarlo.", save: "Confirmar costo y habilitar pago", saving: "Confirmando…" },
   common: { email: "Correo electrónico", password: "Contraseña", name: "Nombre", login: "Iniciar sesión", forgotPassword: "Recuperar contraseña", sending: "Enviando…", retry: "Inténtalo de nuevo.", loading: "Cargando {{caption}}…", noResults: "Sin resultados.", close: "Cerrar" },
   auth: {
@@ -108,7 +107,7 @@ const es = {
     paymentMethod: "Medio de pago", wallet: "Billetera digital", bankTransfer: "Transferencia bancaria",
     deductStockIfPartial: "Descontar stock aunque sea un abono parcial", confirmPayment: "Confirmar pago",
     paymentSaveError: "No se pudo guardar el pago. Revisa los datos e inténtalo de nuevo.", paymentStockError: "No hay stock suficiente para confirmar este pago.",
-    paymentSaved: "Pago actualizado.", buyerPaymentLink: "Abrir checkout del pedido", legacyPaymentLink: "Abrir enlace de pago",
+    paymentSaved: "Pago actualizado.", buyerPaymentLink: "Abrir checkout del pedido",
     paid: "Cubierto",
     balanceDue: "Pendiente: {{amount}}",
     stockDeducted: "Descontado",
@@ -143,7 +142,6 @@ const es = {
 
 const pt = {
   checkoutPage: { unavailable: "Link indisponível", askSeller: "Peça o link ao vendedor.", nameRequired: "Informe seu nome.", phoneInvalid: "Informe um telefone com código do país, por exemplo +5511987654321.", loadError: "Não foi possível carregar o pedido", loadErrorHint: "Tente novamente para consultar o status atual do seu pedido.", retry: "Tentar novamente" },
-  buyerPayment: { title: "Pagamento do pedido", hint: "Escolha como pagar e anexe seu comprovante.", notFound: "Pedido não encontrado", notFoundHint: "Confira o link com o vendedor.", loadError: "Não foi possível carregar o pagamento", loadErrorHint: "Tente novamente mais tarde." },
   checkoutQuote: { title: "Entrega para cotação", hint: "O comprador confirmou os dados. Confirme o custo para liberar o pagamento no checkout.", cost: "Custo de entrega", invalid: "Informe um valor válido, inclusive 0 se não houver custo.", charge: "Cobrar a entrega do comprador", error: "Não foi possível confirmar o custo. Atualize o pedido e tente novamente.", save: "Confirmar custo e liberar pagamento", saving: "Confirmando…" },
   common: { email: "E-mail", password: "Senha", name: "Nome", login: "Entrar", forgotPassword: "Recuperar senha", sending: "Enviando…", retry: "Tente novamente.", loading: "Carregando {{caption}}…", noResults: "Nenhum resultado.", close: "Fechar" },
   auth: {
@@ -249,7 +247,7 @@ const pt = {
     paymentMethod: "Meio de pagamento", wallet: "Carteira digital", bankTransfer: "Transferência bancária",
     deductStockIfPartial: "Descontar estoque mesmo com pagamento parcial", confirmPayment: "Confirmar pagamento",
     paymentSaveError: "Não foi possível salvar o pagamento. Confira os dados e tente novamente.", paymentStockError: "Estoque insuficiente para confirmar este pagamento.",
-    paymentSaved: "Pagamento atualizado.", buyerPaymentLink: "Abrir checkout do pedido", legacyPaymentLink: "Abrir link de pagamento",
+    paymentSaved: "Pagamento atualizado.", buyerPaymentLink: "Abrir checkout do pedido",
     paid: "Pago",
     balanceDue: "Pendente: {{amount}}",
     stockDeducted: "Descontado",

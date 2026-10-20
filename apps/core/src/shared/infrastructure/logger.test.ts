@@ -117,29 +117,6 @@ it("normalizes checkout URLs while logging orderId as an explicit field", () => 
   ]);
 });
 
-it("normalizes legacy buyer payment URLs with an explicit outcome", () => {
-  const output = execFileSync(process.execPath, ["--import", "tsx", "-e", `
-    import express from "express";
-    import { requestLogging, bindRequestOperation } from "./src/shared/infrastructure/logger.ts";
-    const app = express();
-    app.use(requestLogging);
-    app.get("/{*splat}", (req, res) => {
-      bindRequestOperation({ outcome: req.query.o });
-      res.sendStatus(req.query.o === "rendered" ? 200 : 301);
-    });
-    const server = app.listen(0);
-    const base = "http://127.0.0.1:" + server.address().port;
-    await fetch(base + "/pago/secret-order-uuid?o=redirected", { redirect: "manual" });
-    await fetch(base + "/pago/secret-order-uuid?o=rendered", { redirect: "manual" });
-    server.close();
-  `], { cwd: process.cwd(), encoding: "utf8" });
-  expect(output).not.toContain("secret-order-uuid");
-  expect(output.trim().split("\n").map((line) => JSON.parse(line)).filter((entry) => entry.event === "http_request_completed")).toEqual([
-    expect.objectContaining({ route: "/pago/:orderId", operation: "redirect_buyer_payment", outcome: "redirected", statusCode: 301 }),
-    expect.objectContaining({ route: "/pago/:orderId", operation: "redirect_buyer_payment", outcome: "rendered", statusCode: 200 }),
-  ]);
-});
-
 it("normalizes the checkout preview route with an explicit outcome", () => {
   const output = execFileSync(process.execPath, ["--import", "tsx", "-e", `
     import express from "express";
@@ -211,7 +188,6 @@ it("names the four routes of the feature in New Relic without capturing one anot
   const require = createRequire(import.meta.url);
   const rules: { pattern: string; name: string }[] = require("../../../newrelic.cjs").config.rules.name;
   const nameOf = (path: string) => rules.find((rule) => new RegExp(rule.pattern).test(path))?.name;
-  expect(nameOf("/pago/0b6f3a5e-0000-4000-8000-000000000000")).toBe("pago");
   expect(nameOf("/checkout/6d2a7c1e-0000-4000-8000-000000000000/0b6f3a5e-0000-4000-8000-000000000000")).toBe("checkout");
   expect(nameOf("/es-PE/settings/checkout-appearance")).toBe("settings/checkout-appearance");
   expect(nameOf("/es-PE/settings/checkout-appearance.data")).toBe("settings/checkout-appearance");

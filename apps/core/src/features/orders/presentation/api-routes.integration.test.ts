@@ -193,6 +193,14 @@ test("buyer order link resolves one company and reports only its receipt", async
   expect((await call("/api/orders/pending", seller.cookie, { id: orderId, 
     items: [{ variantId: seller.variantId, quantity: 1 }] }, "POST")).status).toBe(201);
   const path = `/api/buyer/orders/${orderId}`;
+  const unavailable = await call(`${path}/payment`);
+  expect(unavailable.status).toBe(409);
+  expect(await unavailable.json()).toMatchObject({ code: "CHECKOUT_UNAVAILABLE" });
+  expect((await call(`${path}/reports`, undefined, { paymentId, receiptImageId: randomUUID() }, "POST")).status).toBe(409);
+  await withTenantIsolation(seller.companyId, async () => {
+    await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: new Date(), checkoutConfirmedAt: new Date(),
+      buyer: { create: { name: "Ana", phone: "+51987654321" } } } });
+  });
   const view = await call(`${path}/payment`);
   expect(view.status).toBe(200);
   expect(await view.json()).toMatchObject({ orderId, total: { amount: 10, currency: "PEN" }, balanceDue: { amount: 10 }, payments: [] });
