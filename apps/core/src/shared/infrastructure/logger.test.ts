@@ -92,7 +92,7 @@ it("adds request and company context only to logs in that request", () => {
   expect(entries.find((entry) => entry.event === "outside_request")).not.toHaveProperty("requestId");
 });
 
-it("normalizes checkout URLs and redacts the UUID credential even in separate fields", () => {
+it("normalizes checkout URLs while logging orderId as an explicit field", () => {
   const output = execFileSync(process.execPath, ["--import", "tsx", "-e", `
     import express from "express";
     import { log, requestLogging, bindRequestOperation, bindCompanyToRequest } from "./src/shared/infrastructure/logger.ts";
@@ -102,7 +102,7 @@ it("normalizes checkout URLs and redacts the UUID credential even in separate fi
       bindCompanyToRequest("verified-company");
       bindRequestOperation({ outcome: "pending", orderNumber: 1001 });
       const error = new Error("secret-link"); error.name = "secret-link";
-      log.error({ event: "privacy_probe", orderId: "secret-order-uuid", nested: { url: "secret-link" }, buyer: { name: "Private buyer", phone: "Private phone" }, err: error }, "Privacy probe");
+      log.error({ event: "privacy_probe", orderId: "logged-order-uuid", nested: { url: "secret-link" }, buyer: { name: "Private buyer", phone: "Private phone" }, err: error }, "Privacy probe");
       res.sendStatus(200);
     });
     const server = app.listen(0);
@@ -111,31 +111,9 @@ it("normalizes checkout URLs and redacts the UUID credential even in separate fi
   `], { cwd: process.cwd(), encoding: "utf8" });
   for (const value of ["secret-order-uuid", "secret-link", "Private buyer", "Private phone", "claimed-company"]) expect(output).not.toContain(value);
   const entries = output.trim().split("\n").map((line) => JSON.parse(line));
+  expect(entries.find((entry) => entry.event === "privacy_probe")).toMatchObject({ orderId: "logged-order-uuid" });
   expect(entries.filter((entry) => entry.event === "http_request_completed")).toEqual([
     expect.objectContaining({ route: "/checkout/:companyId/:orderId", operation: "get_checkout", outcome: "pending", orderNumber: 1001, companyId: "verified-company" }),
-  ]);
-});
-
-it("normalizes legacy buyer payment URLs with an explicit outcome", () => {
-  const output = execFileSync(process.execPath, ["--import", "tsx", "-e", `
-    import express from "express";
-    import { requestLogging, bindRequestOperation } from "./src/shared/infrastructure/logger.ts";
-    const app = express();
-    app.use(requestLogging);
-    app.get("/{*splat}", (req, res) => {
-      bindRequestOperation({ outcome: req.query.o });
-      res.sendStatus(req.query.o === "rendered" ? 200 : 301);
-    });
-    const server = app.listen(0);
-    const base = "http://127.0.0.1:" + server.address().port;
-    await fetch(base + "/pago/secret-order-uuid?o=redirected", { redirect: "manual" });
-    await fetch(base + "/pago/secret-order-uuid?o=rendered", { redirect: "manual" });
-    server.close();
-  `], { cwd: process.cwd(), encoding: "utf8" });
-  expect(output).not.toContain("secret-order-uuid");
-  expect(output.trim().split("\n").map((line) => JSON.parse(line)).filter((entry) => entry.event === "http_request_completed")).toEqual([
-    expect.objectContaining({ route: "/pago/:orderId", operation: "redirect_buyer_payment", outcome: "redirected", statusCode: 301 }),
-    expect.objectContaining({ route: "/pago/:orderId", operation: "redirect_buyer_payment", outcome: "rendered", statusCode: 200 }),
   ]);
 });
 
@@ -210,7 +188,6 @@ it("names the four routes of the feature in New Relic without capturing one anot
   const require = createRequire(import.meta.url);
   const rules: { pattern: string; name: string }[] = require("../../../newrelic.cjs").config.rules.name;
   const nameOf = (path: string) => rules.find((rule) => new RegExp(rule.pattern).test(path))?.name;
-  expect(nameOf("/pago/0b6f3a5e-0000-4000-8000-000000000000")).toBe("pago");
   expect(nameOf("/checkout/6d2a7c1e-0000-4000-8000-000000000000/0b6f3a5e-0000-4000-8000-000000000000")).toBe("checkout");
   expect(nameOf("/es-PE/settings/checkout-appearance")).toBe("settings/checkout-appearance");
   expect(nameOf("/es-PE/settings/checkout-appearance.data")).toBe("settings/checkout-appearance");

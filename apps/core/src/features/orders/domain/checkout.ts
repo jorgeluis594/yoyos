@@ -97,6 +97,7 @@ export function canAccessBuyerPayment(order: Pick<CheckoutOrder, "checkoutEnable
   const state = checkoutState(order);
   if (!state.success) return state;
   if (state.data.kind === "cancelled") return err({ code: "ORDER_CANCELLED", message: "Order is cancelled" });
+  if (state.data.kind === "not_enabled") return err({ code: "CHECKOUT_UNAVAILABLE", message: "Checkout is unavailable" });
   if (state.data.kind === "pending") return err({ code: "CHECKOUT_UNAVAILABLE", message: "Confirm checkout before paying" });
   return ok(null);
 }

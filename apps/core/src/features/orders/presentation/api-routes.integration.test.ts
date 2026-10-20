@@ -193,6 +193,14 @@ test("buyer order link resolves one company and reports only its receipt", async
   expect((await call("/api/orders/pending", seller.cookie, { id: orderId, 
     items: [{ variantId: seller.variantId, quantity: 1 }] }, "POST")).status).toBe(201);
   const path = `/api/buyer/orders/${orderId}`;
+  const unavailable = await call(`${path}/payment`);
+  expect(unavailable.status).toBe(409);
+  expect(await unavailable.json()).toMatchObject({ code: "CHECKOUT_UNAVAILABLE" });
+  expect((await call(`${path}/reports`, undefined, { paymentId, receiptImageId: randomUUID() }, "POST")).status).toBe(409);
+  await withTenantIsolation(seller.companyId, async () => {
+    await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: new Date(), checkoutConfirmedAt: new Date(),
+      buyer: { create: { name: "Ana", phone: "+51987654321" } } } });
+  });
   const view = await call(`${path}/payment`);
   expect(view.status).toBe(200);
   expect(await view.json()).toMatchObject({ orderId, total: { amount: 10, currency: "PEN" }, balanceDue: { amount: 10 }, payments: [] });
@@ -917,7 +925,9 @@ test("HTTP cancellation commits and logs a failed publication without restoring 
     expect(cancelOrderResponseSchema.parse(await response.json())).toMatchObject({ id, cancelled: true, stockDeducted: true });
   }
   expect(publish).toHaveBeenCalledTimes(1);
-  expect(logging).toHaveBeenCalledWith(expect.objectContaining({ event: "event_publication_failed", name: "order_cancelled", companyId: seller.companyId, orderId: id, eventId: expect.any(String), errorCode: "EVENT_BUS_UNAVAILABLE" }), "Event publication failed");
+  expect(logging).toHaveBeenCalledWith(expect.objectContaining({ event: "event_publication_failed", name: "order_cancelled", companyId: seller.companyId, eventId: expect.any(String), errorCode: "EVENT_BUS_UNAVAILABLE" }), "Event publication failed");
+  expect(logging.mock.calls.find(([fields]) => (fields as { event: string }).event === "event_publication_failed")?.[0]).not.toHaveProperty("orderId");
+  expect(logging).toHaveBeenCalledWith(expect.objectContaining({ event: "order_cancelled_publish_failed", companyId: seller.companyId, orderId: id, orderNumber: expect.any(Number), errorCode: "EVENT_BUS_UNAVAILABLE" }), "order_cancelled_publish_failed");
   await withTenantIsolation(seller.companyId, async () => {
     expect(await prisma.order.findUniqueOrThrow({ where: { id } })).toMatchObject({ cancelled: true, stockDeducted: true });
     expect(await prisma.payment.findMany({ where: { orderId: id } })).toEqual(before);

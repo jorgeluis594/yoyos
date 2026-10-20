@@ -21,7 +21,7 @@ vi.mock("@core/src/features/orders/infrastructure/checkout-repository", () => ({
 vi.mock("@core/src/features/orders/infrastructure/order-repository", () => ({
   allocateOrderNumber: async () => ok(1001 as OrderNumber), orderExists: async () => ok(false), savePendingOrder: async () => ok(null), savePayment: async () => ok(null),
   saveStockDeduction: async () => ok(null), findOrders: vi.fn(), findOrderForUpdate: vi.fn(), findOrderAggregate: vi.fn(), saveFulfillment: async () => ok(null),
-  findProcessedMessage: vi.fn(), findOpenChatOrderCandidate: vi.fn(), saveAddedItems: vi.fn(), recordProcessedMessage: vi.fn(),
+  findProcessedMessage: vi.fn(), findOpenChatOrderCandidate: vi.fn(), saveAddedItems: vi.fn(), recordProcessedMessage: vi.fn(), saveCancellation: vi.fn(),
 }));
 vi.mock("@core/src/features/products", () => ({
   findSellableVariant: async (variantId: string) => ok({ variantId, productName: "Product", variantAttributes: {}, sku: null,
@@ -32,6 +32,9 @@ vi.mock("@core/src/features/contacts", () => ({ findContactById: vi.fn(), search
 vi.mock("@core/src/features/chats", () => ({ findOrderSourceMessage: vi.fn() }));
 const { addMessageProductsToOrder } = vi.hoisted(() => ({ addMessageProductsToOrder: vi.fn() }));
 vi.mock("@core/src/features/orders/application/add-message-products-to-order", () => ({ addMessageProductsToOrder }));
+const { publishEvent, cancelOrder } = vi.hoisted(() => ({ publishEvent: vi.fn(), cancelOrder: vi.fn() }));
+vi.mock("@core/src/composition/event-bus", () => ({ applicationEventBus: () => ({ publishEvent }) }));
+vi.mock("@core/src/features/orders/application/cancel-order", () => ({ cancelOrder }));
 
 import { findOrderForUpdate } from "@core/src/features/orders/infrastructure/order-repository";
 import { products } from "@core/src/features/products/composition";
@@ -216,4 +219,18 @@ test("identifies message images through products identifyProductsInImage", async
     await handle();
     expect(products.identifyProductsInImage).toHaveBeenCalledWith(image);
   } finally { info.mockRestore(); addMessageProductsToOrder.mockReset(); }
+});
+
+test("logs order_cancelled_publish_failed with the order number when order_cancelled cannot be published", async () => {
+  const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  const failure = { code: "EVENT_BUS_UNAVAILABLE", message: "Event bus is not ready" } as const;
+  const payload = { companyId: context.companyId, orderId: input.id };
+  publishEvent.mockResolvedValueOnce(err(failure));
+  cancelOrder.mockImplementationOnce(async (_id, _context, deps) => { await deps.publishOrderCancelled(payload); return ok({ number: 1001, cancelled: true }); });
+  try {
+    expect(await orders.cancel(input.id, context)).toEqual(ok({ number: 1001, cancelled: true }));
+    expect(publishEvent).toHaveBeenCalledWith("order_cancelled", payload);
+    expect(error).toHaveBeenCalledWith({ event: "order_cancelled_publish_failed", companyId: context.companyId, orderId: input.id, orderNumber: 1001,
+      errorCode: "EVENT_BUS_UNAVAILABLE", err: failure }, "order_cancelled_publish_failed");
+  } finally { error.mockRestore(); cancelOrder.mockReset(); publishEvent.mockReset(); }
 });

@@ -10,7 +10,6 @@ export default [
   route("reset-password", "routes/reset-password.tsx"),
   route("checkout/:companyId/:orderId", "routes/checkout.tsx"),
   route("checkout/*", "routes/checkout.tsx", { id: "unavailable-checkout" }),
-  route("pago/:orderId", "routes/buyer-payment.tsx"),
   route("catalogo/:companyId", "routes/catalog.tsx"),
   route("catalogo/:companyId/productos/:productId", "routes/catalog-product.tsx"),
   route("catalogo/:companyId/carrito", "routes/catalog-cart.tsx"),
@@ -53,4 +52,5 @@ export default [
       route("settings/catalog", "routes/catalog-settings.tsx", { id: "localized-catalog-settings" }),
     ]),
   ]),
+  route("*", "routes/not-found.tsx"),
 ] satisfies RouteConfig;

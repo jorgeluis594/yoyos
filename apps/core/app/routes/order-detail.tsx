@@ -112,10 +112,9 @@ export async function clientAction({ request, params, serverAction }: ClientActi
   return { operation: "cancellation", orderId: id, outcome: { kind: "failed", error: result.error } } satisfies CancellationClientResult;
 }
 
-type BuyerLink = Readonly<{ href: string; label: "orders.buyerPaymentLink" | "orders.legacyPaymentLink" }>;
+type BuyerLink = Readonly<{ href: string; label: "orders.buyerPaymentLink" }>;
 export function buyerLink(order: Pick<OrderAggregateResponse, "id" | "companyId" | "cancelled" | "checkoutEnabledAt">): BuyerLink | null {
-  if (!order.checkoutEnabledAt) return { href: `/pago/${order.id}`, label: "orders.legacyPaymentLink" };
-  return order.cancelled ? null : { href: `/checkout/${order.companyId}/${order.id}`, label: "orders.buyerPaymentLink" };
+  return !order.checkoutEnabledAt || order.cancelled ? null : { href: `/checkout/${order.companyId}/${order.id}`, label: "orders.buyerPaymentLink" };
 }
 
 export function shouldRevalidate({ actionResult, defaultShouldRevalidate }: { actionResult: unknown; defaultShouldRevalidate: boolean }) {
