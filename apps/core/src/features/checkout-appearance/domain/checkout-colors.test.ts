@@ -49,6 +49,7 @@ const scale: Record<Mode, Readonly<Record<string, readonly [number, number]>>> =
 const lightnessTolerance = 0.02;
 const hueTolerance = 20;
 const minimumChromaForHue = 0.005;
+const chromaRoundingTolerance = 0.003; // HEX rounding moves chroma slightly
 const minimumDistanceBetweenBackgrounds = 0.015;
 const minimumDecorativeBorder = 1.15;
 
@@ -125,6 +126,13 @@ describe("palette construction", () => {
     for (const [name, [lightness]] of Object.entries(scale[mode])) {
       expect(Math.abs(oklch(tones[name as keyof typeof tones]).L - lightness), `${name} of ${color} in ${mode}`).toBeLessThanOrEqual(lightnessTolerance);
     }
+  });
+
+  test.each(derivedModes)("$label caps the chroma of every derived tone at the scale maximum and the chroma of its main tone", ({ color, mode }) => {
+    const tones = tonesOf(color, mode);
+    const mainChroma = oklch(tones.primary).C;
+    for (const [name, [, maximum]] of Object.entries(scale[mode]))
+      expect(oklch(tones[name as keyof typeof tones]).C, `${name} of ${color} in ${mode}`).toBeLessThanOrEqual(Math.min(maximum, mainChroma) + chromaRoundingTolerance);
   });
 
   test.each(derivedModes)("$label derives every tinted tone from the hue of its main tone", ({ color, mode }) => {

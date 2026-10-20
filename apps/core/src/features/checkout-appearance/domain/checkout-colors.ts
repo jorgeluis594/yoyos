@@ -99,14 +99,14 @@ export function catalogPalette(brandColor: CheckoutBrandColor, background: Check
   };
 }
 
-const global = tokens.colors;
+const system = tokens.colors;
 const yoyosTones = (mode: "light" | "dark", soft: string, brandBackground: string): CheckoutPaletteTones => ({
-  soft: hex(soft), medium: hex(global[mode].background), "brand-background": hex(brandBackground),
-  foreground: hex(global[mode].foreground), card: hex(global[mode].card), muted: hex(global[mode].muted), "muted-foreground": hex(global[mode]["muted-foreground"]),
-  border: hex(global[mode].border), input: hex(global[mode].input),
-  primary: hex(global[mode].primary), "primary-foreground": hex(global[mode]["primary-foreground"]),
-  "primary-hover": hex(global[mode]["primary-hover"]), "primary-pressed": hex(global[mode]["primary-pressed"]),
-  accent: hex(global[mode].accent), "accent-foreground": hex(global[mode]["accent-foreground"]),
+  soft: hex(soft), medium: hex(system[mode].background), "brand-background": hex(brandBackground),
+  foreground: hex(system[mode].foreground), card: hex(system[mode].card), muted: hex(system[mode].muted), "muted-foreground": hex(system[mode]["muted-foreground"]),
+  border: hex(system[mode].border), input: hex(system[mode].input),
+  primary: hex(system[mode].primary), "primary-foreground": hex(system[mode]["primary-foreground"]),
+  "primary-hover": hex(system[mode]["primary-hover"]), "primary-pressed": hex(system[mode]["primary-pressed"]),
+  accent: hex(system[mode].accent), "accent-foreground": hex(system[mode]["accent-foreground"]),
 });
 
 /**

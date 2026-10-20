@@ -35,7 +35,7 @@ function CheckoutSample({ brandColor, background, logoUrl = null, companyName = 
         </dl>
         <p className="text-sm text-muted-foreground">Incluye el código de país, por ejemplo +51987654321.</p>
         <label className="flex items-center gap-3 rounded-[var(--radius-card)] border border-primary bg-accent p-3 text-accent-foreground">
-          <input type="radio" name={`delivery-${id}`} defaultChecked /> Envío a domicilio
+          <input type="radio" name={`delivery-${id}`} defaultChecked className="size-4 accent-primary" /> Envío a domicilio
         </label>
         <Field><FieldLabel htmlFor={`name-${id}`}>Nombre</FieldLabel><Input id={`name-${id}`} defaultValue="Ana Pérez" /></Field>
         <div className="flex flex-wrap items-center gap-4">
