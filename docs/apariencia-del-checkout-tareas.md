@@ -221,7 +221,7 @@ T3 y T4 se encuentran en un solo punto: el editor renderiza `<CheckoutPreviewFra
 
 ## Ajuste del 19 de octubre de 2026 · Fondos con tono y paleta por color
 
-**Estado:** pendiente. Diseño: [§15 del diseño técnico](apariencia-del-checkout-implementacion.md#15-ajuste-fondos-con-tono-y-paleta-por-color). Producto: [apariencia-del-checkout.md](apariencia-del-checkout.md) (Todoist 6hpQqCf4X2RX2fr3).
+**Estado:** T6 y T7 hechas. Diseño: [§15 del diseño técnico](apariencia-del-checkout-implementacion.md#15-ajuste-fondos-con-tono-y-paleta-por-color). Producto: [apariencia-del-checkout.md](apariencia-del-checkout.md) (Todoist 6hpQqCf4X2RX2fr3).
 
 Dos tareas secuenciales en el mismo worktree. T6 renombra los fondos y deja el editor con las opciones nuevas, con los colores de hoy. T7 construye las paletas y su prueba de contraste. Van en este orden porque T7 reescribe `checkout-colors.ts` sobre los identificadores que deja T6. No dependen de 6hpQ6v6PCQ55pgM3 (checkout con agencias), que no cambia la apariencia.
 
@@ -268,6 +268,8 @@ flowchart LR
 
 ## T7 · Paleta por color y contraste
 
+**Estado:** hecha el 20 de octubre de 2026.
+
 **Flujo:** el vendedor cambia de Yoyos a Océano. En la vista previa y, tras guardar, en el checkout real, en claro y en oscuro, cambian el fondo, los bordes de tarjetas, cabecera y separadores, los bordes de campos, el foco, las zonas atenuadas y los textos secundarios. El catálogo público de la empresa se ve como antes.
 
 **Alcance**
@@ -288,14 +290,14 @@ flowchart LR
 
 **Criterios de aceptación**
 
-- [ ] Con Océano y Medio en la vista previa y en un enlace ya compartido tras guardar, ningún borde de tarjeta, cabecera, separador o campo usa `#DCD4C9` ni `#484249`, en claro y oscuro.
-- [ ] Una empresa sin apariencia, o con Yoyos y Medio, ve en claro el fondo `#F7F4EF` y los bordes, campos y textos con los mismos valores de `design-tokens.json` que antes del ajuste.
-- [ ] Con Terracota, Suave, Medio y De marca son tres fondos distintos con matiz terracota, ninguno `#FFFFFF`, en claro y oscuro.
-- [ ] El test de contraste recorre las 54 variantes; al cambiar a mano un `muted-foreground` por uno que no llega a 4,5:1, el test falla y su título nombra color, fondo y modo, y el mensaje nombra el elemento.
-- [ ] Los ocho colores no Yoyos pasan los tests de construcción (luminosidad ±0,02 y matiz ±20° de la tabla) con los mismos umbrales para todos.
-- [ ] Con Bosque y Suave guardados, el catálogo público muestra fondo `#FFFFFF` en claro, bordes `#DCD4C9` y el botón `#2F6B4F`.
-- [ ] Las historias de `checkout-theme.stories.tsx` muestran Suave, Medio y De marca por color y modo, y la revisión de Impeccable queda registrada sin hallazgos materiales abiertos.
-- [ ] Capturas antes y después del checkout en celular y escritorio muestran las mismas posiciones y tamaños; solo cambian colores.
-- [ ] Pasan `typecheck`, `lint`, los unitarios de checkout-appearance (dominio, tema, vista previa), la integración del repositorio y las E2E `checkout-appearance*.spec.ts` y `public-catalog.spec.ts`.
+- [x] Con Océano y Medio en la vista previa y en un enlace ya compartido tras guardar, ningún borde de tarjeta, cabecera, separador o campo usa `#DCD4C9` ni `#484249`, en claro y oscuro.
+- [x] Una empresa sin apariencia, o con Yoyos y Medio, ve en claro el fondo `#F7F4EF` y los bordes, campos y textos con los mismos valores de `design-tokens.json` que antes del ajuste.
+- [x] Con Terracota, Suave, Medio y De marca son tres fondos distintos con matiz terracota, ninguno `#FFFFFF`, en claro y oscuro.
+- [x] El test de contraste recorre las 54 variantes; al cambiar a mano un `muted-foreground` por uno que no llega a 4,5:1, el test falla y su título nombra color, fondo y modo, y el mensaje nombra el elemento.
+- [x] Los ocho colores no Yoyos pasan los tests de construcción (luminosidad ±0,02 y matiz ±20° de la tabla) con los mismos umbrales para todos.
+- [x] Con Bosque y Suave guardados, el catálogo público muestra fondo `#FFFFFF` en claro, bordes `#DCD4C9` y el botón `#2F6B4F`.
+- [x] Las historias de `checkout-theme.stories.tsx` muestran Suave, Medio y De marca por color y modo, y la revisión de Impeccable queda registrada sin hallazgos materiales abiertos.
+- [x] Capturas antes y después del checkout en celular y escritorio muestran las mismas posiciones y tamaños; solo cambian colores.
+- [x] Pasan `typecheck`, `lint`, los unitarios de checkout-appearance (dominio, tema, vista previa), la integración del repositorio y las E2E `checkout-appearance*.spec.ts` y `public-catalog.spec.ts`.
 
 **Depende de:** T6.

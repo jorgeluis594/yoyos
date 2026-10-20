@@ -854,7 +854,7 @@ describe("legacy payment link")
 
 ## 15. Ajuste: fondos con tono y paleta por color
 
-**Estado:** diseño cerrado, pendiente de implementación. Parte de la [definición de producto](apariencia-del-checkout.md) cerrada en `4db4d522` (Todoist 6hpQqCf4X2RX2fr3, decisiones del CTO del 19 de octubre de 2026). Base: `main` en `c5563e16`. Tareas: T6 y T7 de [apariencia-del-checkout-tareas.md](apariencia-del-checkout-tareas.md#t6--fondos-suave-y-medio).
+**Estado:** implementado (T6 y T7, 20 de octubre de 2026). Parte de la [definición de producto](apariencia-del-checkout.md) cerrada en `4db4d522` (Todoist 6hpQqCf4X2RX2fr3, decisiones del CTO del 19 de octubre de 2026). Base: `main` en `c5563e16`. Tareas: T6 y T7 de [apariencia-del-checkout-tareas.md](apariencia-del-checkout-tareas.md#t6--fondos-suave-y-medio).
 
 ### 15.1 Objetivo técnico
 
@@ -983,7 +983,7 @@ export function checkoutPalette(brandColor: CheckoutBrandColor, background: Chec
 
 Tonos fuera de la tabla: `primary` es el tono principal del producto (no cambia); `primary-foreground` es `#FFFFFF` en claro y `#1C1B1D` en oscuro; `primary-hover` y `primary-pressed` conservan los valores actuales del catálogo (ya cumplen 1,15:1 y 1,3:1 frente a `primary`); `accent-foreground` = `primary`.
 
-La tabla se comprobó durante el diseño para los ocho colores: con estos valores todas las parejas de [§15.9](#159-pruebas) superan el mínimo y el redondeo a HEX desvía el matiz como mucho 13° y la luminosidad menos de 0,002. Si al implementar un tono no cumple, se ajusta solo ese tono dentro de las tolerancias de la tabla; si hace falta salir de ellas, se ajusta la fila de la tabla para todos los colores.
+La tabla se comprobó durante el diseño para los ocho colores: con estos valores todas las parejas de [§15.9](#159-pruebas) superan el mínimo y el redondeo a HEX desvía el matiz como mucho 13° y la luminosidad menos de 0,002. Al implementar, el brand-background de Yoyos pasó de `#F7EFE6`/`#1F1B19` a `#FAE9DE`/`#271F16` por la distancia con Medio, y el mínimo de `primary-pressed` de Yoyos en el test es 1,15:1 (su token global oscuro llega a 1,18:1). Si al implementar un tono no cumple, se ajusta solo ese tono dentro de las tolerancias de la tabla; si hace falta salir de ellas, se ajusta la fila de la tabla para todos los colores.
 
 Ejemplo (Bosque, claro): Suave `#F7FBF9`, Medio `#EEF7F2`, De marca `#E0F2E8`, texto `#1F2522`, atenuado `#E0EBE5`, texto secundario `#56675E`, borde `#CADAD1`, campo `#72877B`, realce `#D4EBDE`.
 
@@ -1126,6 +1126,6 @@ No hay eventos nuevos. `checkout_appearance_saved.background` pasa a registrar `
 
 **Construido:** T0 a T5 de [apariencia-del-checkout-tareas.md](apariencia-del-checkout-tareas.md) están integradas en la rama de la feature (`jorgeluis594/checkout-editable`). Incluye la migración `20261010142043_add_company_checkout_appearance`, el editor con vista previa en vivo, el checkout con marca y la redirección de `/pago/:orderId`.
 
-**Ajuste del 19 de octubre de 2026 (pendiente):** T6 (identificadores de fondo y editor) y T7 (paleta por color y contraste), definidos en [§15](#15-ajuste-fondos-con-tono-y-paleta-por-color) y en [apariencia-del-checkout-tareas.md](apariencia-del-checkout-tareas.md#t6--fondos-suave-y-medio).
+**Ajuste del 19 de octubre de 2026 (construido el 20 de octubre):** T6 (identificadores de fondo y editor) y T7 (paleta por color y contraste), definidos en [§15](#15-ajuste-fondos-con-tono-y-paleta-por-color) y en [apariencia-del-checkout-tareas.md](apariencia-del-checkout-tareas.md#t6--fondos-suave-y-medio).
 
 **Pendiente:** la verificación en staging de logs y transacciones de New Relic de las cuatro rutas, a cargo del equipo que despliega. El detalle está en el criterio de T5 de [apariencia-del-checkout-tareas.md](apariencia-del-checkout-tareas.md#t5--cierre-del-lanzamiento).
