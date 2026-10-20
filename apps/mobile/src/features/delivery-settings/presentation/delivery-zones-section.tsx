@@ -4,9 +4,10 @@ import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import type { AgencyCatalogResponse, CourierCatalogResponse, DeliveryZonesResponse, SaveDeliveryZonesRequest } from "@shared/contracts/delivery-settings";
 import type { Result } from "@shared/result";
-import { getPeruDistrict, type PeruDistrictCode } from "@shared/peru-geography";
 import type { DeliveryOptionDraft, DeliverySettingsError, DeliveryZonesError } from "@mobile/features/delivery-settings/application/delivery-settings";
 import { PeruDistrictMultiSelect } from "@mobile/components/peru-district-multi-select";
+import { peruAreaEntries } from "@shared/peru-geography";
+import { overlapMessage, toSelection, zoneEntries, zoneOverlaps } from "@mobile/components/zone-entries";
 import { ThemedText } from "@mobile/components/themed-text";
 import { Button } from "@mobile/components/ui/button";
 import { Field, FieldLabel } from "@mobile/components/ui/field";
@@ -16,8 +17,7 @@ import { AgencyPicker, type AgencyCourier } from "@mobile/features/delivery-sett
 
 const amountSchema = z.string().regex(/^\d+(?:[.,]\d{1,2})?$/).refine(value => Number(value.replace(",", ".")) <= 9999999999999.99);
 const draftSchema = z.object({ name: z.string().trim().min(1).max(120), enabled: z.boolean(),
-  departmentCodes: z.array(z.string()), provinceCodes: z.array(z.string()),
-  districtCodes: z.array(z.string().refine(code => getPeruDistrict(code) !== null)).min(1).refine(codes => new Set(codes).size === codes.length),
+  departmentCodes: z.array(z.string()), provinceCodes: z.array(z.string()), districtCodes: z.array(z.string()),
   options: z.array(z.object({ name: z.string().trim().min(1).max(120), amount: amountSchema, kind: z.enum(["new", "existing"]), agencyIds: z.array(z.string()).optional() }).loose()
     // Saved agency options without agencies stay saveable, as the server accepts them; only new ones must pick an agency.
     .refine(option => option.kind === "existing" || option.agencyIds === undefined || option.agencyIds.length > 0))
@@ -78,6 +78,7 @@ export function DeliveryZonesSection({ state, couriers, catalog, loadAgencies, d
   const save = async (toggle?: string) => {
     if (disabled || blocked) return;
     const parsed = toggle ? null : draftSchema.safeParse(draft);
+    if (parsed?.success && peruAreaEntries(toSelection(draft)).length === 0) { setError("zonesEmptySelection"); return; }
     if (parsed && !parsed.success) { setError("zonesInvalid"); return; }
     const values = parsed?.success ? draft : null;
     const inputs: ZoneInput[] = zones.map(zone => values && editing === zone.id
@@ -99,13 +100,14 @@ export function DeliveryZonesSection({ state, couriers, catalog, loadAgencies, d
   const setOption = (index: number, change: Partial<Pick<DeliveryOptionDraft, "name" | "amount" | "enabled">> | { agencyIds: string[] }) =>
     setDraft({ ...draft, options: draft.options.map((option, i) => i === index ? { ...option, ...change } : option) });
   const locked = disabled || blocked;
+  const overlaps = editing === undefined ? [] : zoneOverlaps(draft, zones, typeof editing === "string" ? editing : null);
   return <View testID="delivery-zones" style={styles.section}>
     <ThemedText type="subtitle" accessibilityRole="header">{t("zonesTitle")}</ThemedText>
     <ThemedText type="small" themeColor="textSecondary">{t("zonesHint")}</ThemedText>
     {zones.length === 0 ? <ThemedText themeColor="textSecondary">{t("zonesEmpty")}</ThemedText> : null}
     {zones.map(zone => <View key={zone.id} style={[styles.zone, { borderColor: theme.input }]}>
       <ThemedText style={styles.name}>{zone.name}</ThemedText>
-      <ThemedText type="small" themeColor="textSecondary">{zone.districtCodes.map(code => `${getPeruDistrict(code)?.name} · ${code}`).join(", ")}</ThemedText>
+      <ThemedText type="small" themeColor="textSecondary">{zoneEntries(zone, t)}</ThemedText>
       {zone.options.map(option => <ThemedText key={option.id} type="small">{`${option.name} · ${t(option.method === "home" ? "optionHome" : "optionAgency")} · ${option.price.amount === 0 ? t("zonesFree") : `S/ ${option.price.amount.toFixed(2)}`}${option.enabled ? "" : ` · ${t("optionInactive")}`}${option.method === "agency" && !hasEligibleAgency(option, state, couriers) ? ` · ${t("optionNoEligibleAgencies")}` : ""}`}</ThemedText>)}
       <ThemedText type="small">{t(zone.enabled ? "zonesActive" : "zonesInactive")}</ThemedText>
       <Button variant="secondary" disabled={locked} onPress={() => { setDraft({ name: zone.name, enabled: zone.enabled, departmentCodes: zone.departmentCodes, provinceCodes: zone.provinceCodes,
@@ -115,7 +117,8 @@ export function DeliveryZonesSection({ state, couriers, catalog, loadAgencies, d
     {editing === undefined ? <Button variant="secondary" disabled={locked} onPress={() => { setDraft(empty); setEditing(null); setSaved(false); setError(""); }}>{t("zonesAdd")}</Button> :
       <View style={styles.section}>
         <Field disabled={locked} required><FieldLabel>{t("zonesName")}</FieldLabel><Input accessibilityLabel={t("zonesName")} maxLength={120} value={draft.name} onChangeText={name => setDraft({ ...draft, name })} /></Field>
-        <PeruDistrictMultiSelect value={draft.districtCodes as PeruDistrictCode[]} disabled={locked} onChange={codes => setDraft({ ...draft, districtCodes: [...codes] })} />
+        <PeruDistrictMultiSelect value={toSelection(draft)} disabled={locked} onChange={selection => setDraft({ ...draft, departmentCodes: [...selection.departmentCodes],
+          provinceCodes: [...selection.provinceCodes], districtCodes: [...selection.districtCodes] })} />
         <View style={styles.toggle}><ThemedText style={styles.label}>{t("zonesActive")}</ThemedText><Switch accessibilityLabel={t("zonesActive")} value={draft.enabled} disabled={locked} trackColor={{ true: theme.primary }} onValueChange={enabled => setDraft({ ...draft, enabled })} /></View>
         <ThemedText type="subtitle" accessibilityRole="header">{t("optionsTitle")}</ThemedText>
         <ThemedText type="small" themeColor="textSecondary">{t("zonesPriceHint")}</ThemedText>
@@ -132,6 +135,7 @@ export function DeliveryZonesSection({ state, couriers, catalog, loadAgencies, d
         </View>)}
         <Button variant="secondary" disabled={locked} onPress={() => setDraft({ ...draft, options: [...draft.options, { kind: "new", localKey: nextKey(draft.options), method: "home", name: "", amount: "", enabled: true }] })}>{t("optionAddHome")}</Button>
         {state.agency.enabled ? <Button variant="secondary" disabled={locked} onPress={() => setDraft({ ...draft, options: [...draft.options, { kind: "new", localKey: nextKey(draft.options), method: "agency", agencyIds: [], name: "", amount: "", enabled: true }] })}>{t("optionAddAgency")}</Button> : null}
+        {overlaps.length > 0 ? <ThemedText type="small" accessibilityRole="alert">{overlapMessage(overlaps, t)}</ThemedText> : null}
         {zoneChanged ? <ThemedText type="small" accessibilityRole="alert">{t("zonesChanged")}</ThemedText> : null}
         <Button disabled={locked} loading={disabled} onPress={() => void save()}>{t("zonesSave")}</Button>
         <Button variant="ghost" disabled={locked} onPress={() => { setDraft(empty); setEditing(undefined); setError(""); }}>{t("zonesCancel")}</Button>
