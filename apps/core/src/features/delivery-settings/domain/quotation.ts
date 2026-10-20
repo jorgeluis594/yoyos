@@ -105,6 +105,11 @@ function eligibleAgencies(configuration: DeliveryConfiguration, option: AgencyDe
   });
 }
 
+export function hasAgencyCoverage(configuration: DeliveryConfiguration): boolean {
+  return configuration.zones.some(zone => zone.enabled && zone.options.some(option =>
+    option.enabled && option.method === "agency" && eligibleAgencies(configuration, option).length > 0));
+}
+
 export function applicableDeliveryOptions(configuration: DeliveryConfiguration, districtCode: PeruDistrictCode): readonly ApplicableDeliveryOption[] {
   const { settings } = configuration;
   const applicable = configuration.zones.filter(zone => zone.enabled && zone.districtCodes.includes(districtCode)).flatMap((zone): ApplicableDeliveryOption[] =>

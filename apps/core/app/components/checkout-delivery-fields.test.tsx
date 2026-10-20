@@ -14,7 +14,7 @@ const total = { amount: 10, currency: "PEN" as const };
 const checkout: PublicCheckoutResponse = { companyName: "Shop", number: 1001, buyer: null, delivery: null,
   deliveryCharge: { amount: 0, currency: "PEN" }, itemsTotal: total, total,
   items: [{ productName: "Product", variantAttributes: {}, sku: null, quantity: 1, unitPrice: total, subtotal: total }], state: { kind: "pending" } };
-const options = { home: { enabled: true }, agency: { enabled: false }, store: { enabled: false as const, pickupPoint: null } };
+const options = { home: { enabled: true }, agency: { enabled: false, covered: false }, store: { enabled: false as const, pickupPoint: null } };
 const render = (value = checkout, settings = options) => renderToStaticMarkup(withI18n(<CheckoutDeliveryFields orderId="00000000-0000-4000-8000-000000000001" checkout={value} options={settings} onChange={() => undefined} />));
 
 test("delivery controls wait for client hydration before accepting selections", () => {
@@ -52,7 +52,7 @@ test("pickup is offered explicitly only with an enabled configured point", () =>
 
 test("pickup-only businesses show the configured point without offering shipping or a district", () => {
   const html = renderToStaticMarkup(withI18n(<CheckoutDeliveryFields orderId="00000000-0000-4000-8000-000000000001" checkout={checkout}
-    options={{ home: { enabled: false }, agency: { enabled: false }, store: { enabled: true,
+    options={{ home: { enabled: false }, agency: { enabled: false, covered: false }, store: { enabled: true,
       pickupPoint: { name: "Shop", address: "Pickup street", instructions: "Door 2" } } }} onChange={() => undefined} />));
   expect(html).toContain("Pickup street");
   expect(html).toContain("Door 2");

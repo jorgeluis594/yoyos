@@ -17,7 +17,7 @@ export const confirmCheckoutDeliverySchema = confirmCheckoutSchema.extend({ deli
 export type ConfirmCheckoutDeliveryRequest = z.infer<typeof confirmCheckoutDeliverySchema>;
 export const checkoutLinkSchema = z.strictObject({ url: z.url() });
 export const checkoutDeliveryOptionsSchema = z.strictObject({
-  home: z.strictObject({ enabled: z.boolean() }), agency: z.strictObject({ enabled: z.boolean() }), store: storeDeliverySettingsSchema,
+  home: z.strictObject({ enabled: z.boolean() }), agency: z.strictObject({ enabled: z.boolean(), covered: z.boolean() }), store: storeDeliverySettingsSchema,
 });
 export type CheckoutDeliveryOptions = z.infer<typeof checkoutDeliveryOptionsSchema>;
 export const publicCheckoutDeliverySchema = z.discriminatedUnion("method", [

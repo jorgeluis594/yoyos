@@ -14,6 +14,8 @@ import { readDeliveryConfiguration, writeDeliveryZones } from "@core/src/feature
 import { createQuotation, type CreateQuotationInput, type QuotationStorageError } from "@core/src/features/delivery-settings/application/create-quotation";
 import { findRateWithQuotation, insertQuotationWithRates } from "@core/src/features/delivery-settings/infrastructure/quotation-repository";
 
+import { getCheckoutDeliveryOptions } from "@core/src/features/delivery-settings/application/get-checkout-delivery-options";
+import type { CompanyId } from "@shared/identity";
 import { resolveSelectedDeliveryRate } from "@core/src/features/delivery-settings/application/resolve-selected-delivery-rate";
 import type { ResolveSelectedRateInput } from "@core/src/features/delivery-settings/domain/selected-delivery-rate";
 
@@ -42,6 +44,8 @@ async function settingsTransaction<T, E extends AppError>(context: DeliverySetti
 export const deliverySettings = {
   getForCompany: (companyId: string) => quotationTransaction(companyId,
     () => getDeliverySettings({ companyId }, id => readDeliverySettings(id, "shared", undefined, "confirm_checkout"))),
+  getCheckoutDeliveryOptions: (companyId: string) => quotationTransaction(companyId,
+    () => getCheckoutDeliveryOptions({ companyId: companyId as CompanyId }, { readConfigurationForShare: id => readDeliveryConfiguration(id, "shared") })),
   createQuotation: (input: CreateQuotationInput) => createQuotation(input, {
     generateId: randomUUID, now: () => new Date(), insertQuotationWithRates,
     readConfigurationForShare: companyId => readDeliveryConfiguration(companyId, "shared"),
