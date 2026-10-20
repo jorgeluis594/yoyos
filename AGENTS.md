@@ -8,6 +8,7 @@ Yoyos manages sales for businesses selling through social media.
 - `apps/mobile/`: Expo/React Native application; routes in `src/app/`, features in `src/features/`, reusable UI in `src/components/ui/`, images/fonts in `assets/`.
 - `shared/`: cross-application contracts, money utilities, and Result helpers.
 - `docs/`: architecture, programming, persistence, and testing guidance. Older `apps/api/` references describe the current core backend.
+  Follow `.agents/skills/documentation/SKILL.md` before writing, moving or reviewing anything under `docs/`; feature designs go in `docs/drafts/`.
 
 Keep domain rules pure, application dependencies explicit, and persistence/network operations in infrastructure adapters.
 

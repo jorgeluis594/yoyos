@@ -1,6 +1,6 @@
 ---
 name: product
-description: Defines a Yoyos feature at the product level and writes its document in docs/ following the founder's product guide, deciding only what is routine and grouping into one block the few questions that need the founder's answer. Use when asked to define, design or document a feature, a flow or a screen at the product level, or when a Todoist task needs definition before implementation. Do not use for architecture, data, technical contracts, implementation or executable tests.
+description: Defines a Yoyos feature at the product level and writes its draft in docs/drafts/ following the founder's product guide, deciding only what is routine and grouping into one block the few questions that need the founder's answer. Use when asked to define, design or document a feature, a flow or a screen at the product level, or when a Todoist task needs definition before implementation. Do not use for architecture, data, technical contracts, implementation or executable tests.
 ---
 
 # Product
@@ -29,11 +29,11 @@ This skill contains only the method. The current state of the product (what exis
 
 3. **Design by walking through the twelve steps of the guide.** For each screen, apply the usability checklist. For each rule, an example with real data. For each action with effect, the four possible outcomes. For each new concept, one line saying why an existing one does not work; if there is none, it is not created. Never re-propose what memory or a current document records as discarded or deferred.
 
-4. **Write the complete document** in `docs/<topic>.md` using [document-template.md](document-template.md). If a current document on the topic exists, update it without losing detail instead of creating another. The document describes behavior: what each actor sees and does, rules, states, failures, what is kept. It does not describe data structure, technical contracts, code organization or executable tests. Do not implement or commit during definition.
+4. **Write the complete document** as a draft in `docs/drafts/<concept>.md` using [document-template.md](document-template.md) and following the [Documentation](../documentation/SKILL.md) skill. If a draft on the concept exists, update it without losing detail instead of creating another; the permanent doc of the concept in `docs/` is the current state and changes only when the feature is merged. The document describes behavior: what each actor sees and does, rules, states, failures, what is kept. It does not describe data structure, technical contracts, code organization or executable tests. Do not implement or commit during definition.
 
 5. **Deliver in the chat** the absolute path of the document, the "Questions" block in the format of Step 12 of the guide (numbered, recommended option first, consequence of each alternative) and the "Decided unless objected" list with the routine decisions the founder should see. Nothing else: the content is in the document.
 
-6. **Close with the answers.** On receiving the answers, update the document, remove the resolved questions from "Open items and questions", set the status to "definition ready to implement", update the Todoist task with what was agreed, create in Todoist the tasks for deferred items with real risk, and record with [Happy Memory Maintainer](../happy-memory-maintainer/SKILL.md) the business facts, fixed values and decisions that should govern future features. If an answer contradicts a rule in the guide, apply it and propose to the founder updating the rule in [product-guide.md](product-guide.md).
+6. **Close with the answers.** On receiving the answers, update the document, remove the resolved questions from "Open items and questions", set the status to "definition ready to implement", update the Todoist task with what was agreed, list the deferred items with real risk so the founder can ask for their Todoist tasks (they are created only if the founder asks), and record with [Happy Memory Maintainer](../happy-memory-maintainer/SKILL.md) the business facts, fixed values and decisions that should govern future features. If an answer contradicts a rule in the guide, apply it and propose to the founder updating the rule in [product-guide.md](product-guide.md).
 
 ## Guardrails
 
@@ -46,4 +46,4 @@ This skill contains only the method. The current state of the product (what exis
 
 ## After this skill
 
-Architecture, data structure, contracts between web and mobile, code organization, tests and observability are defined with the [Implementation](../implementation/SKILL.md) skill, which takes this document as the behavior definition.
+Architecture, data structure, contracts between web and mobile, code organization, tests and observability are defined with the [Implementation](../implementation/SKILL.md) skill, which takes this draft as the behavior definition. When the feature is merged, the draft is promoted into the permanent doc of the concept and deleted, following the [Documentation](../documentation/SKILL.md) skill.

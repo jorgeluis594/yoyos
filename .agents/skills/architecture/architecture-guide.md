@@ -218,6 +218,8 @@ For each critical point (transaction start, business rejection, technical failur
 
 ## Step 9. Split into tasks for agents
 
+The split is the "Implementation plan" section of the technical draft; no separate tasks document is written.
+
 **9.1 A task covers a probable flow, not a file.**
 Each task leaves something verifiable end to end (migration + use case + route + tests for that flow). Tasks are not split by layer or by file.
 
@@ -227,8 +229,8 @@ What everyone needs (a schema change, a shared type, a contract) is the first ta
 **9.3 Each task carries scope, out of scope and acceptance criteria.**
 Criteria are concrete scenarios with data and an observable result, not categories.
 
-**9.4 Deferred items with real risk go to Todoist and are linked.**
-If what is left out can cause loss, duplication or blocking, it is a backlog task. What is only an improvement is listed in the document.
+**9.4 Deferred items with real risk are flagged to the founder.**
+If what is left out can cause loss, duplication or blocking, the draft marks it and the delivery lists it so the founder can ask for a Todoist task; the agent creates it only if asked, and the draft links it. What is only an improvement is listed in the document.
 
 ---
 
