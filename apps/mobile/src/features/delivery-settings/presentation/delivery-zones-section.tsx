@@ -6,7 +6,7 @@ import type { AgencyCatalogResponse, CourierCatalogResponse, DeliveryZonesRespon
 import type { Result } from "@shared/result";
 import type { DeliveryOptionDraft, DeliverySettingsError, DeliveryZonesError } from "@mobile/features/delivery-settings/application/delivery-settings";
 import { PeruDistrictMultiSelect } from "@mobile/components/peru-district-multi-select";
-import { peruAreaEntries } from "@shared/peru-geography";
+import { parsePeruAreaSelection } from "@shared/peru-geography";
 import { overlapMessage, toSelection, zoneEntries, zoneOverlaps } from "@mobile/components/zone-entries";
 import { ThemedText } from "@mobile/components/themed-text";
 import { Button } from "@mobile/components/ui/button";
@@ -78,7 +78,8 @@ export function DeliveryZonesSection({ state, couriers, catalog, loadAgencies, d
   const save = async (toggle?: string) => {
     if (disabled || blocked) return;
     const parsed = toggle ? null : draftSchema.safeParse(draft);
-    if (parsed?.success && peruAreaEntries(toSelection(draft)).length === 0) { setError("zonesEmptySelection"); return; }
+    const selection = parsed?.success ? parsePeruAreaSelection(draft) : null;
+    if (selection && !selection.success) { setError(selection.error.reason === "empty" ? "zonesEmptySelection" : "zonesInvalid"); return; }
     if (parsed && !parsed.success) { setError("zonesInvalid"); return; }
     const values = parsed?.success ? draft : null;
     const inputs: ZoneInput[] = zones.map(zone => values && editing === zone.id

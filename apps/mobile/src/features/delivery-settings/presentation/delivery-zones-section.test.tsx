@@ -71,3 +71,13 @@ test("a zone without any entry is not saved and asks for a district, province or
   expect(screen.getByText("Selecciona al menos un distrito, provincia o departamento.")).toBeTruthy();
   expect(onSave).not.toHaveBeenCalled();
 });
+
+test("a draft with a district inside a complete department is reported as invalid, not as empty", () => {
+  const broken = zone("00000000-0000-4000-8000-000000000024", "Rota", true, { departmentCodes: ["04"], districtCodes: ["040103"] });
+  const { screen, onSave } = renderSection([broken]);
+  fireEvent.press(screen.getByText("Editar Rota"));
+  fireEvent.press(screen.getByText("Guardar zona"));
+  expect(screen.queryByText("Selecciona al menos un distrito, provincia o departamento.")).toBeNull();
+  expect(screen.getByText(/Ingresa nombre, distritos y opciones/)).toBeTruthy();
+  expect(onSave).not.toHaveBeenCalled();
+});

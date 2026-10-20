@@ -37,7 +37,7 @@ test("district selection persists across provinces, search and language changes 
   fireEvent.changeText(screen.getByLabelText("Buscar distrito"), "150122");
   fireEvent(screen.getByLabelText("MIRAFLORES · 150122"), "valueChange", true);
   fireEvent(screen.getByLabelText("MIRAFLORES · 150122"), "valueChange", true);
-  expect(screen.getByText("1 distritos seleccionados")).toBeTruthy();
+  expect(screen.getByText("1 distrito seleccionado")).toBeTruthy();
   fireEvent.changeText(screen.getByLabelText("Buscar distrito"), "not a district");
   expect(screen.getByText("No hay distritos con esa búsqueda.")).toBeTruthy();
   expect(screen.getByText("Miraflores · 150122")).toBeTruthy();
@@ -51,7 +51,7 @@ test("district selection persists across provinces, search and language changes 
     expect(screen.getByText("2 distritos selecionados")).toBeTruthy();
     expect(screen.getByText("Miraflores · 040110")).toBeTruthy();
     fireEvent.press(screen.getByRole("button", { name: "Remover Miraflores · 150122" }));
-    expect(screen.getByText("1 distritos selecionados")).toBeTruthy();
+    expect(screen.getByText("1 distrito selecionado")).toBeTruthy();
     expect(screen.queryByText("Miraflores · 150122")).toBeNull();
   } finally { screen.unmount(); await act(async () => { await i18n.changeLanguage("es"); }); }
 });
@@ -87,4 +87,13 @@ test("marking a province complete shows it as Lima and unmarking leaves nothing"
   expect(screen.getByText("Lima (provincia) ya está completa en la zona.")).toBeTruthy();
   fireEvent(screen.getByLabelText("Todos los distritos de la provincia Lima"), "valueChange", false);
   expect(screen.queryByText("Lima (provincia), todos los distritos")).toBeNull();
+});
+
+test("unchecking the whole department switch removes the department and leaves no districts", () => {
+  const screen = render(<Selection initial={{ ...none, departmentCodes: [arequipaDepartment.code] }} />);
+  expect(screen.getByText("109 distritos seleccionados")).toBeTruthy();
+  fireEvent(screen.getByLabelText("Todos los distritos de Arequipa"), "valueChange", false);
+  expect(screen.getByText("0 distritos seleccionados")).toBeTruthy();
+  expect(screen.queryByText("Arequipa, todos los distritos")).toBeNull();
+  expect(screen.queryByText("Arequipa ya está completo en la zona.")).toBeNull();
 });
