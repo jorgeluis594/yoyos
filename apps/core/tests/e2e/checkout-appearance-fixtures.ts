@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { Page } from "@playwright/test";
 import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import {
   parseCompanyId, parseImageId, type CheckoutBackground, type CheckoutBrandColor,
@@ -27,3 +28,14 @@ export async function removeCompanyAppearance(companyId: string) {
     await prisma.image.deleteMany();
   });
 }
+
+export const rgb = (hex: string) => {
+  const value = parseInt(hex.slice(1), 16);
+  return `rgb(${value >> 16}, ${(value >> 8) & 255}, ${value & 255})`;
+};
+
+/** Every border color painted inside the checkout theme, as the browser computes it. */
+export const usedBorderColors = (page: Page) => page.locator("[data-checkout-theme]").evaluate((root) =>
+  [...new Set([root, ...root.querySelectorAll("*")]
+    .filter((element) => parseFloat(getComputedStyle(element).borderTopWidth) > 0)
+    .map((element) => getComputedStyle(element).borderTopColor))]);

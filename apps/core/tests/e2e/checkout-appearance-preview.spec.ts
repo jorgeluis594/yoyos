@@ -1,5 +1,7 @@
 import type { FrameLocator, Page } from "@playwright/test";
 import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
+import { checkoutPalette } from "@core/src/features/checkout-appearance";
+import { rgb, usedBorderColors } from "@core/tests/e2e/checkout-appearance-fixtures";
 import { systemPrisma } from "@core/src/shared/infrastructure/persistance";
 
 const previewPath = "/settings/checkout-appearance/preview";
@@ -77,6 +79,19 @@ test("applies valid updates and ignores other origins or shapes", async ({ page 
     expect(await primary(page)).toBe(initial);
     await post(page, update({ appearance: { logoUrl: null, brandColor: "raspberry", background: "soft" } }));
     await browserExpect.poll(() => primary(page)).not.toBe(initial);
+  }, page);
+});
+
+test("changes borders and fields with the brand color in the preview", async ({ page }) => {
+  await withCompany(async () => {
+    await openPreview(page);
+    const ocean = checkoutPalette("ocean", "medium");
+    for (const mode of ["light", "dark"] as const) {
+      await post(page, update({ mode, appearance: { logoUrl: null, brandColor: "ocean", background: "medium" } }));
+      await browserExpect.poll(() => usedBorderColors(page)).toContain(rgb(ocean[mode].border));
+      expect(await usedBorderColors(page)).not.toContain(rgb(mode === "light" ? "#DCD4C9" : "#484249"));
+      await browserExpect.poll(() => page.locator("[data-slot=input]").first().evaluate((node) => getComputedStyle(node).borderTopColor)).toBe(rgb(ocean[mode].input));
+    }
   }, page);
 });
 

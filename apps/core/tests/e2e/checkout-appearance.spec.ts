@@ -5,6 +5,8 @@ import { products } from "@core/src/features/products/composition";
 import { orders } from "@core/src/features/orders/composition";
 import type { ContactId, OrderId, PositiveInteger, UserId, CompanyId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
+import { checkoutPalette } from "@core/src/features/checkout-appearance";
+import { rgb, usedBorderColors } from "@core/tests/e2e/checkout-appearance-fixtures";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==", "base64");
@@ -332,6 +334,8 @@ describe("checkout appearance editor with the live preview", () => {
     await browserExpect(page.getByRole("status").filter({ hasText: "Apariencia actualizada" })).toBeVisible();
     await buyer.reload();
     await browserExpect(confirm).toHaveCSS("background-color", "rgb(47, 107, 79)");
+    expect(await usedBorderColors(buyer)).toContain(rgb(checkoutPalette("forest", "medium").light.border));
+    expect(await usedBorderColors(buyer)).not.toContain(rgb("#DCD4C9"));
   });
 
   test("switches the preview between phone and desktop, light and dark, review and payment", async ({ page }) => {
