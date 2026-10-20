@@ -349,3 +349,86 @@ test("seller saves delivery settings behind an HTTPS-terminating proxy", async (
     });
   }
 });
+
+test("seller creates Zona sur with Arequipa and Cusco complete and a Cayma buyer gets its rate at checkout", async ({ page }) => {
+  const email = `delivery-zona-sur-${crypto.randomUUID()}@example.test`;
+  let companyId: string | undefined;
+  const buyer = await page.context().browser()!.newContext({ baseURL: `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}` });
+  const zones = page.getByRole("region", { name: "Zonas y tarifas de envío" });
+  const mark = async (department: string, name: string) => {
+    await page.getByLabel("Departamento", { exact: true }).selectOption(department);
+    await page.getByLabel(`Todos los distritos de ${name}`, { exact: true }).check();
+  };
+  try {
+    companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "Zona sur store", country: "PE" });
+    await page.goto("/es-PE/settings/delivery");
+    await page.getByLabel("Ofrecer entrega a domicilio").check();
+    await browserExpect(page.getByText("Guardado", { exact: true })).toBeVisible();
+    // An existing zone covers Cayma only, so Zona sur overlaps it by one district.
+    const first = await page.request.put("/api/delivery-settings/zones", { data: { expectedVersion: (await (await page.request.get("/api/delivery-settings")).json()).version,
+      zones: [{ kind: "new", name: "Arequipa ciudad", enabled: true, districtCodes: ["040103"],
+        options: [{ kind: "new", method: "home", name: "Moto", enabled: true, price: { amount: 6, currency: "PEN" } }] }] } });
+    expect(first.status()).toBe(200);
+    await page.reload();
+
+    await page.getByRole("button", { name: "Agregar zona", exact: true }).click();
+    await page.getByRole("button", { name: "Guardar zona", exact: true }).click();
+    await browserExpect(page.getByText("Selecciona al menos un distrito, provincia o departamento.", { exact: true })).toBeVisible();
+    await page.getByLabel("Nombre de la zona", { exact: true }).fill("Zona sur");
+    await mark("04", "Arequipa");
+    await browserExpect(page.getByText("109 distritos seleccionados", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Arequipa ya está completo en la zona.", { exact: true })).toBeVisible();
+    await browserExpect(page.getByLabel("Provincia", { exact: true })).toBeDisabled();
+    await browserExpect(page.getByLabel("Distritos", { exact: true })).toBeDisabled();
+    await browserExpect(page.getByText("Comparte 1 distrito con Arequipa ciudad. Esos distritos recibirán las tarifas de ambas zonas.", { exact: true })).toBeVisible();
+    await mark("08", "Cusco");
+    await browserExpect(page.getByText("225 distritos seleccionados: Arequipa, todos los distritos; Cusco, todos los distritos", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Agregar opción a domicilio", exact: true }).click();
+    await page.getByLabel("Nombre que ve el cliente", { exact: true }).fill("Moto sur");
+    await page.getByLabel("Tarifa de la opción (S/)", { exact: true }).fill("15");
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    }
+    await page.getByRole("button", { name: "Guardar zona", exact: true }).click();
+    await browserExpect(zones.getByText("Arequipa, todos los distritos; Cusco, todos los distritos", { exact: true })).toBeVisible();
+    expect((await (await page.request.get("/api/delivery-settings/zones")).json()).zones.find((zone: { name: string }) => zone.name === "Zona sur"))
+      .toMatchObject({ departmentCodes: ["04", "08"], provinceCodes: [], districtCodes: [] });
+
+    await page.getByRole("button", { name: "Editar Zona sur", exact: true }).click();
+    await browserExpect(page.getByLabel("Departamento", { exact: true })).toHaveValue("04");
+    await browserExpect(page.getByLabel("Todos los distritos de Arequipa", { exact: true })).toBeChecked();
+    await browserExpect(page.getByText("225 distritos seleccionados: Arequipa, todos los distritos; Cusco, todos los distritos", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Cancelar edición", exact: true }).click();
+
+    const variantId = await withTenantIsolation(companyId, async () => {
+      const created = await products.create({ name: "Sur product", currency: "PEN", variants: [{ attributes: {}, salePrice: 10, initialStock: 3 }] });
+      if (!created.success) throw new Error(created.error.message);
+      return (await prisma.productVariant.findFirstOrThrow({ where: { productId: created.data } })).id;
+    });
+    const orderId = crypto.randomUUID();
+    expect((await page.request.post("/api/orders", { data: { id: orderId, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
+    const link = await page.request.post(`/api/orders/${orderId}/checkout-link`);
+    expect(link.ok()).toBe(true);
+    const buyerPage = await buyer.newPage();
+    await buyerPage.goto((await link.json()).url);
+    await buyerPage.getByLabel("Departamento", { exact: true }).selectOption("04");
+    await buyerPage.getByLabel("Provincia", { exact: true }).selectOption("0401");
+    await buyerPage.getByLabel("Distrito", { exact: true }).selectOption("040103");
+    const rates = buyerPage.getByLabel("Tarifa de envío");
+    await browserExpect(rates).toContainText(/Moto sur · S\/\s?15[.,]00/);
+    await browserExpect(rates).toContainText(/Moto · S\/\s?6[.,]00/);
+  } finally {
+    await buyer.close();
+    if (companyId) await withTenantIsolation(companyId, async () => {
+      await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
+      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+      await prisma.deliveryRate.deleteMany(); await prisma.quotation.deleteMany();
+      await prisma.deliveryOptionAgency.deleteMany(); await prisma.deliveryOption.deleteMany();
+      await prisma.deliveryZoneDistrict.deleteMany(); await prisma.deliveryZoneProvince.deleteMany(); await prisma.deliveryZoneDepartment.deleteMany();
+      await prisma.deliveryZone.deleteMany(); await prisma.companyCourier.deleteMany(); await prisma.companyDeliverySettings.deleteMany();
+      await systemPrisma.user.deleteMany({ where: { email } });
+      await prisma.company.delete({ where: { id: companyId } });
+    });
+  }
+});
