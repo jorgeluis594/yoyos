@@ -1,6 +1,6 @@
 # Guardado al instante de modalidades y zonas por departamento: definición de producto
 
-**Estado:** definición lista para implementar. 19 de octubre de 2026. Parte de la pantalla de entregas que existe hoy en web (`settings/delivery`) y en móvil: tres modalidades con un botón «Guardar configuración» y zonas que agrupan distritos elegidos de uno en uno. Complementa las [decisiones de couriers y opciones](couriers-y-opciones-de-entrega-decisiones.md) (C1–C7) y el [refactor de zonas, opciones y agencias](refactor-zonas-opciones-agencias.md) (D1–D14), que siguen vigentes. Tarea de Todoist 6hpQPg75pr9H38gV. El diseño técnico va en [entregas-guardado-instante-zonas-departamento-technical.md](entregas-guardado-instante-zonas-departamento-technical.md).
+**Estado:** implementado. 19 de octubre de 2026. Parte de la pantalla de entregas que existe hoy en web (`settings/delivery`) y en móvil: tres modalidades con un botón «Guardar configuración» y zonas que agrupan distritos elegidos de uno en uno. Complementa las [decisiones de couriers y opciones](couriers-y-opciones-de-entrega-decisiones.md) (C1–C7) y el [refactor de zonas, opciones y agencias](refactor-zonas-opciones-agencias.md) (D1–D14), que siguen vigentes. Tarea de Todoist 6hpQPg75pr9H38gV. El diseño técnico va en [entregas-guardado-instante-zonas-departamento-technical.md](entregas-guardado-instante-zonas-departamento-technical.md).
 
 ## Problema y situación
 

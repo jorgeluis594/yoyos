@@ -1,6 +1,6 @@
 # Instant delivery settings save and whole-department zones: implementation tasks
 
-**Status:** pending. Design: `docs/entregas-guardado-instante-zonas-departamento-technical.md`. Product: `docs/entregas-guardado-instante-zonas-departamento.md`.
+**Status:** implemented (T1–T5). Design: `docs/entregas-guardado-instante-zonas-departamento-technical.md`. Product: `docs/entregas-guardado-instante-zonas-departamento.md`.
 
 ## Order and parallelism
 

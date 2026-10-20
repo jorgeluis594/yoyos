@@ -1,6 +1,6 @@
 # Instant delivery settings save and whole-department zones: technical design
 
-**Status:** design closed, pending implementation. Based on `docs/entregas-guardado-instante-zonas-departamento.md`. Base: `7860429c` (branch `jorgeluis594/tarea-6hpQPg75pr9H38gV`). Tasks: `docs/entregas-guardado-instante-zonas-departamento-tasks.md`.
+**Status:** implemented. Based on `docs/entregas-guardado-instante-zonas-departamento.md`. Base: `7860429c` (branch `jorgeluis594/tarea-6hpQPg75pr9H38gV`). Tasks: `docs/entregas-guardado-instante-zonas-departamento-tasks.md`.
 
 ## 1. Technical goal
 
