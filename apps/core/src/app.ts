@@ -31,6 +31,8 @@ const images = imageRoutes(createR2ImageStorage({
   secretAccessKey: process.env.R2_SECRET_ACCESS_KEY ?? "",
   publicBaseUrl: process.env.R2_PUBLIC_BASE_URL ?? "",
 }), imageRepository);
+// Before request logging so Coolify's container healthcheck doesn't flood the logs.
+app.get("/health", (_request, response) => { response.send("ok"); });
 app.use(requestLogging);
 
 app.all("/api/auth/{*splat}", toNodeHandler(auth));
