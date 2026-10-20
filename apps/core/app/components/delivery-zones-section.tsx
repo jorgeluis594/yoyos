@@ -65,15 +65,21 @@ type Option = Zone["options"][number];
 export const hasEligibleAgency = (option: Option, state: DeliveryZonesResponse, couriers: readonly Courier[]) => option.method === "agency" &&
   option.agencyIds.some(id => { const agency = state.agencies.find(value => value.id === id); return agency?.enabled && couriers.some(courier => courier.courierId === agency.courierId && courier.enabled); });
 
-export function DeliveryZonesSection({ state, couriers, catalog, pending, error, saved, onSave }: Readonly<{
+/** A method that is on but has no active option in an active zone (agency: with an eligible agency) cannot be quoted. */
+export const lacksCoverage = (method: "home" | "agency", state: DeliveryZonesResponse, couriers: readonly Courier[]) => state[method].enabled &&
+  !state.zones.some(zone => zone.enabled && zone.options.some(option => option.enabled && option.method === method && (method === "home" || hasEligibleAgency(option, state, couriers))));
+
+export function DeliveryZonesSection({ state, couriers, catalog, pending, error, saved, onSave, onReload }: Readonly<{
   state: DeliveryZonesResponse; couriers: readonly Courier[]; catalog: CourierCatalogResponse["couriers"]; pending: boolean; error?: string; saved?: DeliveryZonesResponse;
-  onSave: (request: SaveDeliveryZonesRequest) => void;
+  onSave: (request: SaveDeliveryZonesRequest) => void; onReload: () => void;
 }>) {
   const { t } = useTranslation();
   const id = useId();
-  const [editor, setEditor] = useState<{ id: string | null; saved: DeliveryZonesResponse | undefined }>();
+  // `baseline` is the zone as it was when editing started, to notice that someone else changed it under the draft.
+  const [editor, setEditor] = useState<{ id: string | null; saved: DeliveryZonesResponse | undefined; baseline: Zone | null }>();
   const editing = editor?.saved === saved ? editor?.id : undefined;
-  const setEditing = (id: string | null | undefined) => setEditor(id === undefined ? undefined : { id, saved });
+  const setEditing = (id: string | null | undefined) => setEditor(id === undefined ? undefined : { id, saved, baseline: state.zones.find(zone => zone.id === id) ?? null });
+  const zoneChanged = editing !== undefined && editing !== null && JSON.stringify(state.zones.find(zone => zone.id === editing)) !== JSON.stringify(editor?.baseline);
   const form = useForm<Draft>({ resolver: zodResolver(zoneDraftSchema), defaultValues: empty });
   const { fields, append, remove } = useFieldArray({ control: form.control, name: "options", keyName: "fieldKey" });
   const catalogCouriers = catalog.map(courier => ({ courierId: courier.id, name: courier.name }));
@@ -97,8 +103,6 @@ export function DeliveryZonesSection({ state, couriers, catalog, pending, error,
     <CardHeader><CardTitle id={`${id}-title`}>{t("deliveryZones.title")}</CardTitle></CardHeader>
     <CardContent className="flex min-w-0 flex-col gap-4">
     <FieldDescription>{t("deliveryZones.hint")}</FieldDescription>
-    {(["home", "agency"] as const).filter(method => state[method].enabled && !zones.some(zone => zone.enabled && zone.options.some(option => option.enabled && option.method === method))).map(method =>
-      <FieldDescription key={method}>{t(`deliveryZones.missing.${method}`)}</FieldDescription>)}
     {zones.length === 0 && <FieldDescription>{t("deliveryZones.empty")}</FieldDescription>}
     <ul className="divide-y divide-border">{zones.map(zone => <li key={zone.id} className="flex min-w-0 flex-col gap-2 py-4">
       <strong className="break-words">{zone.name}</strong>
@@ -176,11 +180,12 @@ export function DeliveryZonesSection({ state, couriers, catalog, pending, error,
           </div>
           {catalog.length === 0 && <FieldDescription>{t("deliveryZones.noCatalog")}</FieldDescription>}
         </div>
+        {zoneChanged && <Alert><AlertDescription>{t("deliveryZones.zoneChanged")}</AlertDescription></Alert>}
         <div className="flex flex-wrap gap-3"><Button type="button" disabled={pending || blocked} onClick={form.handleSubmit(draft => write(draft))}>{t(pending ? "deliverySettings.saving" : "deliveryZones.save")}</Button>
           <Button type="button" variant="ghost" disabled={pending} onClick={() => { reset(empty); setEditing(undefined); }}>{t("deliveryZones.cancel")}</Button></div>
       </FieldSet>}
     {error && <Alert variant="destructive"><AlertDescription>{t(blocked ? "deliveryZones.reloadRequired" : "deliveryZones.invalid")}</AlertDescription></Alert>}
-    {blocked && <Button asChild variant="outline" className="self-start"><a href="">{t("deliverySettings.reload")}</a></Button>}
+    {blocked && <Button type="button" variant="outline" className="self-start" onClick={onReload}>{t("deliverySettings.reload")}</Button>}
     {saved && !error && editing === undefined && <Alert variant="success"><AlertDescription>{t("deliveryZones.saved")}</AlertDescription></Alert>}
     </CardContent>
   </Card>;
