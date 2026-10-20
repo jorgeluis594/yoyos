@@ -34,7 +34,7 @@ describe("CheckoutTheme", () => {
 
   test("keeps each theme's colors inside its own checkout", () => {
     const html = renderToStaticMarkup(<>
-      <CheckoutTheme appearance={{ ...appearance, background: "white" }}><p /></CheckoutTheme>
+      <CheckoutTheme appearance={{ ...appearance, background: "soft" }}><p /></CheckoutTheme>
       <CheckoutTheme appearance={appearance}><p /></CheckoutTheme>
     </>);
     const styles = [...html.matchAll(/<style>(.*?)<\/style>/gs)].map((match) => match[1]);
@@ -44,7 +44,7 @@ describe("CheckoutTheme", () => {
     scopes.forEach((scope, index) => {
       expect([...styles[index].matchAll(/\[data-checkout-theme="([^"]+)"\]/g)].map((match) => match[1])).toEqual([scope, scope]);
     });
-    expect(styles[0]).toContain(`--background:${checkoutPalette("forest", "white").light.background}`);
+    expect(styles[0]).toContain(`--background:${checkoutPalette("forest", "soft").light.background}`);
     expect(styles[1]).toContain("--background:#F1F6F2");
   });
 

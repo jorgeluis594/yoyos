@@ -35,7 +35,7 @@ describe("save checkout appearance", () => {
 
   test("logs checkout_appearance_saved without logoImageId when there is no logo", async () => {
     const info = vi.spyOn(log, "info").mockImplementation(() => {});
-    await checkoutAppearance.save(companyId, userId, { logoImageId: null, brandColor: "yoyos", background: "neutral" });
+    await checkoutAppearance.save(companyId, userId, { logoImageId: null, brandColor: "yoyos", background: "medium" });
     const payload = info.mock.calls[0][0];
     expect(payload).toMatchObject({ event: "checkout_appearance_saved", hasLogo: false, isDefault: true });
     expect(payload).not.toHaveProperty("logoImageId");
@@ -43,7 +43,7 @@ describe("save checkout appearance", () => {
 
   test("does not log the event when the appearance is invalid", async () => {
     const info = vi.spyOn(log, "info").mockImplementation(() => {});
-    const saved = await checkoutAppearance.save(companyId, userId, { logoImageId: null, brandColor: "#ff0000", background: "white" });
+    const saved = await checkoutAppearance.save(companyId, userId, { logoImageId: null, brandColor: "#ff0000", background: "soft" });
     expect(saved).toMatchObject({ success: false, error: { code: "INVALID_CHECKOUT_APPEARANCE" } });
     expect(info).not.toHaveBeenCalled();
   });

@@ -71,11 +71,11 @@ test("applies valid updates and ignores other origins or shapes", async ({ page 
   await withCompany(async () => {
     await openPreview(page);
     const initial = await primary(page);
-    await post(page, update({ appearance: { logoUrl: null, brandColor: "raspberry", background: "white" } }), "https://evil.example");
-    await post(page, { ...update({ appearance: { logoUrl: null, brandColor: "raspberry", background: "white" } }), extra: true });
-    await post(page, update({ appearance: { logoUrl: null, brandColor: "#ff0000", background: "white" } }));
+    await post(page, update({ appearance: { logoUrl: null, brandColor: "raspberry", background: "soft" } }), "https://evil.example");
+    await post(page, { ...update({ appearance: { logoUrl: null, brandColor: "raspberry", background: "soft" } }), extra: true });
+    await post(page, update({ appearance: { logoUrl: null, brandColor: "#ff0000", background: "soft" } }));
     expect(await primary(page)).toBe(initial);
-    await post(page, update({ appearance: { logoUrl: null, brandColor: "raspberry", background: "white" } }));
+    await post(page, update({ appearance: { logoUrl: null, brandColor: "raspberry", background: "soft" } }));
     await browserExpect.poll(() => primary(page)).not.toBe(initial);
   }, page);
 });
@@ -129,7 +129,7 @@ test("embedded at 390 px the preview activates the phone breakpoints and cannot 
     await page.evaluate(() => {
       const frame = document.querySelector<HTMLIFrameElement>("#preview")!;
       frame.contentWindow!.postMessage({ type: "checkout-appearance:update", mode: "dark", state: "payment",
-        appearance: { logoUrl: null, brandColor: "ocean", background: "neutral" } }, window.location.origin);
+        appearance: { logoUrl: null, brandColor: "ocean", background: "medium" } }, window.location.origin);
     });
     await browserExpect(preview.getByRole("heading", { name: "Cómo pagar" })).toBeVisible();
     await browserExpect(preview.locator("html")).toHaveClass(/dark/);

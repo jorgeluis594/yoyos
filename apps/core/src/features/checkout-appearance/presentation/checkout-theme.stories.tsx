@@ -59,13 +59,13 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 type Mode = "light" | "dark";
 
-const backgroundNames: Record<CheckoutBackground, string> = { white: "Blanco", neutral: "Neutro", brand_tint: "De marca" };
+const backgroundNames: Record<CheckoutBackground, string> = { soft: "Suave", medium: "Medio", brand_tint: "De marca" };
 
 /** One color combined with the three backgrounds, in the mode chosen in the toolbar. */
 function colorStory(brandColor: CheckoutBrandColor, theme: Mode): Story {
   return {
     name: `${checkoutBrandColorCatalog[brandColor].name} · ${theme === "light" ? "claro" : "oscuro"}`,
-    args: { brandColor, background: "neutral" },
+    args: { brandColor, background: "medium" },
     globals: { theme },
     render: ({ logoUrl }) => (
       <div className="grid gap-4 lg:grid-cols-3">

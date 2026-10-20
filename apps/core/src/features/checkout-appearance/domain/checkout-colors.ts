@@ -68,8 +68,8 @@ const systemBackground = { light: hex(tokens.colors.light.background), dark: hex
 const white = hex("#FFFFFF");
 
 function lightBackground(background: CheckoutBackground, brandBackground: HexColor): HexColor {
-  if (background === "white") return white;
-  return background === "neutral" ? systemBackground.light : brandBackground;
+  if (background === "soft") return white;
+  return background === "medium" ? systemBackground.light : brandBackground;
 }
 
 function darkBackground(background: CheckoutBackground, brandBackground: HexColor): HexColor {

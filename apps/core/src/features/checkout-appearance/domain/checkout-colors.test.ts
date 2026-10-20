@@ -100,17 +100,17 @@ describe("accent surface", () => {
 
 describe("page background", () => {
   test("is pure white for the white option in light mode", () => {
-    for (const color of checkoutBrandColors) expect(checkoutPalette(color, "white").light.background).toBe("#FFFFFF");
+    for (const color of checkoutBrandColors) expect(checkoutPalette(color, "soft").light.background).toBe("#FFFFFF");
   });
 
   test("keeps the system dark background for the white option in dark mode", () => {
-    for (const color of checkoutBrandColors) expect(checkoutPalette(color, "white").dark.background).toBe(system.dark.background);
+    for (const color of checkoutBrandColors) expect(checkoutPalette(color, "soft").dark.background).toBe(system.dark.background);
   });
 
   test("keeps the system background for the neutral option", () => {
     for (const color of checkoutBrandColors) {
-      expect(checkoutPalette(color, "neutral").light.background).toBe(system.light.background);
-      expect(checkoutPalette(color, "neutral").dark.background).toBe(system.dark.background);
+      expect(checkoutPalette(color, "medium").light.background).toBe(system.light.background);
+      expect(checkoutPalette(color, "medium").dark.background).toBe(system.dark.background);
     }
   });
 

@@ -12,22 +12,22 @@ describe("parseCheckoutAppearance", () => {
   });
 
   test("accepts an appearance without logo", () => {
-    expect(parseCheckoutAppearance({ logoImageId: null, brandColor: "yoyos", background: "white" }))
+    expect(parseCheckoutAppearance({ logoImageId: null, brandColor: "yoyos", background: "soft" }))
       .toMatchObject({ success: true, data: { logoImageId: null } });
   });
 
   test("accepts every color of the catalog", () => {
     for (const brandColor of checkoutBrandColors)
-      expect(parseCheckoutAppearance({ logoImageId: null, brandColor, background: "neutral" })).toMatchObject({ success: true });
+      expect(parseCheckoutAppearance({ logoImageId: null, brandColor, background: "medium" })).toMatchObject({ success: true });
   });
 
   test.each(["#2F6B4F", "green", "Bosque", "", null])("rejects %s as brand color", (brandColor) => {
-    expect(parseCheckoutAppearance({ logoImageId: null, brandColor, background: "neutral" }))
+    expect(parseCheckoutAppearance({ logoImageId: null, brandColor, background: "medium" }))
       .toMatchObject({ success: false, error: { code: "INVALID_CHECKOUT_APPEARANCE", invalidFields: ["brandColor"] } });
   });
 
   test("rejects a logo id that is not a UUID", () => {
-    expect(parseCheckoutAppearance({ logoImageId: "logo.png", brandColor: "yoyos", background: "neutral" }))
+    expect(parseCheckoutAppearance({ logoImageId: "logo.png", brandColor: "yoyos", background: "medium" }))
       .toMatchObject({ success: false, error: { invalidFields: ["logoImageId"] } });
   });
 
@@ -37,7 +37,7 @@ describe("parseCheckoutAppearance", () => {
   });
 
   test("rejects unknown fields", () => {
-    expect(parseCheckoutAppearance({ logoImageId: null, brandColor: "yoyos", background: "neutral", companyId: "other" }))
+    expect(parseCheckoutAppearance({ logoImageId: null, brandColor: "yoyos", background: "medium", companyId: "other" }))
       .toMatchObject({ success: false, error: { invalidFields: ["companyId"] } });
   });
 
@@ -47,13 +47,17 @@ describe("parseCheckoutAppearance", () => {
 });
 
 describe("isDefaultCheckoutAppearance", () => {
+  test("uses Yoyos with Medio as the default appearance", () => {
+    expect(defaultCheckoutAppearance).toEqual({ logoImageId: null, brandColor: "yoyos", background: "medium" });
+  });
+
   test("recognizes the Yoyos default appearance", () => {
     expect(isDefaultCheckoutAppearance(defaultCheckoutAppearance)).toBe(true);
   });
 
   test("treats a different color, background or logo as customized", () => {
     expect(isDefaultCheckoutAppearance({ ...defaultCheckoutAppearance, brandColor: "forest" })).toBe(false);
-    expect(isDefaultCheckoutAppearance({ ...defaultCheckoutAppearance, background: "white" })).toBe(false);
+    expect(isDefaultCheckoutAppearance({ ...defaultCheckoutAppearance, background: "soft" })).toBe(false);
     const parsed = parseCheckoutAppearance({ ...defaultCheckoutAppearance, logoImageId });
     expect(parsed.success && isDefaultCheckoutAppearance(parsed.data)).toBe(false);
   });
