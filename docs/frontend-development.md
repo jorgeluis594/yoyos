@@ -27,8 +27,7 @@ Client-side validation provides immediate feedback. Keep server-side Zod
 validation and domain rules authoritative, including version conflict checks.
 Follow [Programming Style](programming-style.md) for JSON boundary validation.
 
-Apply this convention to new forms and when refactoring existing forms. Existing
-forms may still use manual state until they are migrated.
+Apply this convention to new forms and when refactoring existing forms.
 
 ### Example
 
@@ -69,3 +68,13 @@ function NameForm({ onSave }: { onSave: (values: Values) => Promise<void> }) {
   );
 }
 ```
+
+## List filters
+
+List pages such as Products and Sales use the shared
+[`FilterBar`](../apps/core/app/components/ui/filter-bar.tsx): a GET search form
+with a visible label, optional hidden fields that keep the active filters, and an
+optional extra action (such as the Sales filters drawer) rendered outside the
+form so it does not submit the search. The bar knows nothing about the domain;
+filter state, queries and URL construction stay in each route. Labels describe
+exactly what the search matches.
