@@ -2,9 +2,7 @@
 
 This document describes the Go library that powers the mobile WhatsApp receiver: the module at `apps/mobile/modules/whatsapp/go` (Go module `yoyos-whatsapp`). It explains how the code is layered, what each package owns, how the main flows work, and the invariants that hold the design together.
 
-For the public TypeScript API, configuration, guarantees, evidence and per-task history (WA-01 … WA-14), see [`apps/mobile/modules/whatsapp/README.md`](../apps/mobile/modules/whatsapp/README.md). For the original design proposal (in Spanish), see [`whatsmeow-go-expo-implementation.md`](whatsmeow-go-expo-implementation.md).
-
-> **Status.** The Go code is tested with `go test -race` and `go vet` against controlled transports and in-memory doubles of the native storage. It has not been run against the real WhatsApp service or on a physical device.
+For the public TypeScript API, configuration, guarantees and build commands, see [`apps/mobile/modules/whatsapp/README.md`](../apps/mobile/modules/whatsapp/README.md). For the product rules and the end-to-end flow up to core, see [`whatsapp.md`](whatsapp.md).
 
 ## 1. Purpose and boundaries
 
@@ -130,18 +128,7 @@ Key ideas:
 - **Logout.** `Logout(prepare)` invalidates the generation, runs `prepare` (identity resolution) and asks WhatsApp to unlink through a dedicated unlink transport within `LogoutTimeout` (15 s). Concurrent `Connect`/`Disconnect` calls wait for it.
 - **Events are delivered in order** on a dedicated goroutine (`deliver`), never while holding the controller lock. A QR event is dropped if it is no longer the current, unexpired one.
 
-`whatsmeow.go` configures the pinned client for this receive-only, durability-first model:
-
-```go
-client.EnableAutoReconnect = false        // the controller owns reconnection
-client.UseRetryMessageStore = false       // receive-only
-client.EnableDecryptedEventBuffer = true  // decrypted content goes through the store
-client.SynchronousAck = true              // handler result decides the ACK
-client.PreDecryptMessage = receive.PreDecrypt
-client.MessageReceiveFinished = receive.Finished
-client.ManualHistorySyncDownload = true   // history order is ours
-client.DisableManualHistorySyncReceipt = true
-```
+`whatsmeow.go` configures the pinned client for this receive-only, durability-first model: the controller owns reconnection (whatsmeow auto-reconnect is off), there is no retry message store (receive-only), decrypted content goes through the store's event buffer, the handler result decides the ACK (synchronous ACK with the `PreDecryptMessage` and `MessageReceiveFinished` hooks), and history download and receipt are manual so the library controls their order.
 
 `media.go` exposes `AdmitMedia`/`AcquireMedia`/`MediaLease`: an image download is admitted against the current generation and its result can only be published while that generation is alive.
 
@@ -149,19 +136,7 @@ client.DisableManualHistorySyncReceipt = true
 
 Files: `store.go`, `signal.go`, `prekeys.go`, `auxiliary.go`, `recovery.go`, `receive.go`, `history.go`, `firstlink.go`, `ledger.go`, `budget.go`.
 
-`Store` implements whatsmeow's `store.AllStores` and `DeviceContainer` over the native container instead of SQL. It keeps an in-memory copy of the session records read at `Open`, and every write goes to native as one `ApplyChanges` request:
-
-```json
-{
-  "contractVersion": 1,
-  "generationId": "…",
-  "accountId": "…@lid",
-  "expectedSessionRevision": "41",
-  "protocolChanges": [{ "operation": "put", "recordType": "signal-session", "recordKey": "…", "valueBase64": "…" }],
-  "pendingInserts": [ … ],
-  "pendingIdentityUpdates": [ … ]
-}
-```
+`Store` implements whatsmeow's `store.AllStores` and `DeviceContainer` over the native container instead of SQL. It keeps an in-memory copy of the session records read at `Open`, and every write goes to native as one versioned `ApplyChanges` request carrying the generation, the account, the expected session revision, the protocol record changes, the pending inserts and the pending identity updates.
 
 Native validates generation, account, expected revision, capacity and record shapes, then publishes **one** encrypted snapshot. Success means durable publication.
 
@@ -331,7 +306,23 @@ When an admission does not fit the recovery buffer, `Finished` receives `BUFFER_
 
 `ConnectionSession.Logout()` stops reception, runs `ResolveIdentities` so stored mappings are applied durably, then asks WhatsApp to unlink within 15 s. It returns `""` (confirmed), `REMOTE_LOGOUT_UNCONFIRMED`, or a storage code (nothing was retired). Native then retires the session and its key. History captures of the unlinked account are retired; real pending messages keep their `accountId` and remain confirmable.
 
-## 5. Concurrency model
+## 5. Native storage
+
+Kotlin and Swift keep the session, the pending entries (the recovery queue) and control metadata in one native SQLite database per installation, `whatsapp/state.db` (`StateDatabase.kt`, `StateDatabase.swift`), written only through `NativeStateStore`. The app's own messages live in a different database, `yoyos-whatsapp.db`, owned by the JavaScript feature.
+
+- **Every publication is one SQLite transaction.** `ApplyChanges` inserts pending entries and updates the session together; confirming a message deletes one row and bumps the revision without touching the session. Reason: confirmation cost must not grow with the session or the queue size.
+- **The queue is durable no later than the session that decrypted the message.** If the session advanced without the entry, the message would be lost; an entry without its session advance is only redelivered by WhatsApp and deduplicated by `message.id`.
+- **Encryption.** The session is sealed with `K_session`, each pending row with `K_recovery` (AES-GCM, keys in Android Keystore or iOS Keychain). Only IDs, revisions, options and the Android service intent are stored in clear. The recovery key survives logout so old pending entries stay confirmable.
+- **Rollback journal, not WAL**, with `synchronous = FULL` and `secure_delete = ON`: one file plus its journal, and a returned `COMMIT` is durable.
+- **Corruption is never recreated as empty.** A corrupt database, a tampered row or a missing key fails with `SESSION_STATE_INVALID` and the file is kept.
+
+Rejected alternatives:
+
+- *The queue in the app's database (`yoyos-whatsapp.db`):* Go needs a synchronous, durable answer inside the decryption transaction, JavaScript may not be running (Android receives with the app minimized) and the queue holds decrypted plaintext that must be sealed with native keys.
+- *A separate Go callback to insert pending entries:* Go would have to order and recover two writes in two stores, with no benefit.
+- *One encrypted file per entry:* identity updates would need versioned files and orphan cleanup; one transaction covers both.
+
+## 6. Concurrency model
 
 - **Locks are never held across native calls that can block on Go, nor across waits.** The controller builds transports outside its lock; the coordinator emits outside its lock; history capacity waits hold no store or writer lock.
 - **Single goroutines own ordered work:** the controller's event delivery goroutine, the coordinator's traversal goroutine, the history processor's run loop, and the image service's ordered queue.
@@ -339,7 +330,7 @@ When an admission does not fit the recovery buffer, `Finished` receives `BUFFER_
 - **Generations and tokens** replace cancellation flags: stale work checks its generation (controller) or token (consumer) and discards itself.
 - Wakeups use channels and condition variables; nothing polls.
 
-## 6. Patched whatsmeow
+## 7. Patched whatsmeow
 
 The library depends on a pinned whatsmeow revision (`v0.0.0-20261006124319-9399289b022b`) plus three patches in `apps/mobile/modules/whatsapp/patches/`:
 
@@ -351,7 +342,7 @@ The library depends on a pinned whatsmeow revision (`v0.0.0-20261006124319-93992
 
 Because of these patches, **do not run `go test` or `go vet` directly in `go/`**: `protocolstore` does not compile against the unpatched module in Go's cache. Use the scripts below, which apply the patches to a temporary copy.
 
-## 7. Build and test
+## 8. Build and test
 
 From the repository root:
 
@@ -370,11 +361,10 @@ sh scripts/measure-go.sh               # Go-side cost snapshot (MEASUREMENTS.jso
 Testing conventions inside the module:
 
 - Tests are colocated (`*_test.go`). Fakes replace the transport (`fakewa_test.go`), the native container, the clock and the filesystem.
-- Tests cite case IDs (`UT-…`, `IT-…`) so `scripts/trace-matrix.ts` can generate [`TRACEABILITY.md`](../apps/mobile/modules/whatsapp/TRACEABILITY.md).
 - `bridge/security_test.go` checks that errors and panics carrying sensitive data never reach events or results, and that Go sources contain no logging.
 - `bridge/binding_names_test.go` guards names that would collide with generated Java/Objective-C methods.
 
-## 8. Extending the library
+## 9. Extending the library
 
 - **New public operation:** add it to `bridge` using gomobile-friendly types, return a public code (never a Go `error` with details), and update `types.ts`, `client.ts` and the native modules together. The public method set is pinned by `wa14.contract.test.ts`.
 - **New persisted protocol data:** add a record type to `protocolstate` (key components, versioned value, validation), implement the store method in `protocolstore`, and update the native writer's validation.

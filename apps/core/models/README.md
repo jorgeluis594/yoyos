@@ -21,10 +21,10 @@ exclude the fetched files. Changing the model requires updating the script, this
 
 - Source: https://huggingface.co/onnx-community/siglip2-base-patch16-224-ONNX, revision `ba1f3b0843f24bc5417d38e19c37b287d719b2f4`, the
   transformers.js ONNX export of https://huggingface.co/google/siglip2-base-patch16-224 (revision `75de2d55ec2d0b4efc50b3e9ad70dba96a7b2fa2`).
-- License: Apache-2.0 (checked 2026-10-18 on the Google model card, which licenses the weights; the ONNX repo is a format conversion of
+- License: Apache-2.0 (the Google model card licenses the weights; the ONNX repo is a format conversion of
   those weights and states no other terms). Commercial use and redistribution are allowed with the license text, which is in
   `onnx-community/siglip2-base-patch16-224-ONNX/LICENSE`; the Google repo ships no NOTICE file.
-- Output: 768-dimension pooled image embedding; fp32 (the quantized export loses much of its recall, design §2).
+- Output: 768-dimension pooled image embedding; fp32 (the quantized export loses much of its recall, see `docs/image-product-search.md`).
 - sha256:
   - `config.json` (435 bytes) `e43a9f7692d3819886a82cb2097048258d444f123c67d37ec825f9345b019cf2`
   - `preprocessor_config.json` (394 bytes) `9b36b57ebaf20f09bf4c22100ccc21877ea6bfe5aead0c00c59f8af8ccefacfc`
