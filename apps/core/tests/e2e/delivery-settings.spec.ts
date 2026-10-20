@@ -5,31 +5,81 @@ import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infr
 import { products } from "@core/src/features/products/composition";
 import { deleteAgencies, insertAgency, seededCourier } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
 
-test("seller configures store pickup, preserves a conflicting draft and explicitly reloads", async ({ page, request }) => {
+test("seller toggles delivery methods and the pickup point without a save button and they persist after reload", async ({ page, request }) => {
   const email = `delivery-settings-${crypto.randomUUID()}@example.test`;
   let companyId: string | undefined;
+  const api = async () => deliverySettingsSchema.parse(await (await page.request.get("/api/delivery-settings")).json());
+  const row = (title: string) => page.getByRole("region", { name: title, exact: true });
   try {
     expect((await request.get("/es-PE/settings/delivery", { maxRedirects: 0 })).status()).toBe(302);
     companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "Store pickup", country: "PE" });
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto("/es-PE/dashboard");
     await page.getByRole("complementary").getByRole("link", { name: "Modalidades de entrega" }).click();
+    await browserExpect(page.getByRole("button", { name: "Guardar configuración" })).toHaveCount(0);
+    await browserExpect(page.getByText("Tienes cambios sin guardar.")).toHaveCount(0);
     await browserExpect(page.getByLabel("Ofrecer recojo en tienda")).not.toBeChecked();
     expect(await withTenantIsolation(companyId, async () => await prisma.companyDeliverySettings.count())).toBe(0);
-    await browserExpect(page.getByRole("tab")).toHaveCount(0);
     await browserExpect(page.getByLabel("Nombre del punto de recojo")).toHaveCount(0);
-    await browserExpect(page.getByLabel("Ofrecer entrega a domicilio")).not.toBeChecked();
+
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      for (const enabled of [true, false]) {
+        const home = page.getByLabel("Ofrecer entrega a domicilio");
+        await (enabled ? home.check() : home.uncheck());
+        await browserExpect(row("Entrega a domicilio").getByText("Guardado", { exact: true })).toBeVisible();
+        expect((await api()).home.enabled).toBe(enabled);
+      }
+    }
+    await page.setViewportSize({ width: 1280, height: 900 });
     await page.getByLabel("Ofrecer entrega a domicilio").check();
-    await page.getByLabel("Ofrecer recojo en tienda").check();
-    await browserExpect(page.getByLabel("Nombre del punto de recojo")).toBeVisible();
-    await page.getByRole("button", { name: "Guardar configuración" }).click();
+    await browserExpect(row("Entrega a domicilio").getByText("Guardado", { exact: true })).toBeVisible();
+    await page.reload();
+    await browserExpect(page.getByLabel("Ofrecer entrega a domicilio")).toBeChecked();
+
+    // Tapping store pickup without a saved point keeps it off, opens the fields and asks for what is missing.
+    await page.getByLabel("Ofrecer recojo en tienda").click();
+    await browserExpect(page.getByLabel("Ofrecer recojo en tienda")).not.toBeChecked();
+    await browserExpect(page.getByText("Completa el nombre y la dirección para activar el recojo.", { exact: true })).toBeVisible();
     await browserExpect(page.getByLabel("Nombre del punto de recojo")).toBeFocused();
-    await browserExpect(page.getByLabel("Nombre del punto de recojo")).toHaveAttribute("aria-invalid", "true");
-    await page.getByLabel("Nombre del punto de recojo").fill("Tienda principal");
-    await page.getByLabel("Dirección", { exact: true }).fill("Av. Lima 123");
-    await page.getByLabel("Indicaciones (opcional)").fill("Puerta lateral");
-    await page.getByRole("button", { name: "Guardar configuración" }).click();
-    await browserExpect(page.getByRole("status").filter({ hasText: "Configuración guardada." })).toHaveText("Configuración guardada.");
+    await page.getByLabel("Nombre del punto de recojo").fill("Tienda Cercado");
+    await page.getByLabel("Dirección", { exact: true }).fill("Calle Mercaderes 210");
+    await page.getByLabel("Dirección", { exact: true }).blur();
+    await browserExpect(page.getByLabel("Ofrecer recojo en tienda")).toBeChecked();
+    await browserExpect(row("Recojo en tienda").getByText("Guardado", { exact: true })).toBeVisible();
+    expect(await api()).toMatchObject({ store: { enabled: true, pickupPoint: { name: "Tienda Cercado", address: "Calle Mercaderes 210", instructions: null } } });
+    await page.reload();
+    await browserExpect(page.getByLabel("Ofrecer recojo en tienda")).toBeChecked();
+    await browserExpect(page.getByLabel("Nombre del punto de recojo")).toHaveValue("Tienda Cercado");
+
+    // The instructions are saved once after the typing, not per keystroke.
+    const saves: string[] = [];
+    page.on("request", saved => { if (saved.method() === "POST" && new URL(saved.url()).pathname.includes("/settings/delivery")) saves.push(saved.url()); });
+    await page.getByLabel("Indicaciones (opcional)").pressSequentially("Timbre 2");
+    await browserExpect.poll(async () => (await api()).store.pickupPoint?.instructions).toBe("Timbre 2");
+    expect(saves).toHaveLength(1);
+
+    // An emptied required field is not saved: the last saved point stays and the store stays on.
+    await page.getByLabel("Nombre del punto de recojo").fill("");
+    await page.getByLabel("Nombre del punto de recojo").blur();
+    await browserExpect(page.getByText("Completa los campos obligatorios.", { exact: true })).toBeVisible();
+    await page.waitForTimeout(300);
+    expect(await api()).toMatchObject({ store: { enabled: true, pickupPoint: { name: "Tienda Cercado" } } });
+    await page.getByLabel("Nombre del punto de recojo").fill("Tienda Cercado");
+    await page.getByLabel("Nombre del punto de recojo").blur();
+    await browserExpect(page.getByText("Completa los campos obligatorios.", { exact: true })).toHaveCount(0);
+
+    // Offline the switch goes back and Reintentar saves once the connection returns.
+    await page.context().setOffline(true);
+    await page.getByLabel("Ofrecer envío a agencia").click();
+    await browserExpect(page.getByText("No se pudo guardar. Revisa tu conexión y vuelve a intentarlo.", { exact: true })).toBeVisible();
+    await browserExpect(page.getByLabel("Ofrecer envío a agencia")).not.toBeChecked();
+    await page.context().setOffline(false);
+    await page.getByRole("button", { name: "Reintentar", exact: true }).click();
+    await browserExpect(row("Envío a agencia").getByText("Guardado", { exact: true })).toBeVisible();
+    await browserExpect(page.getByLabel("Ofrecer envío a agencia")).toBeChecked();
+    expect((await api()).agency.enabled).toBe(true);
+
     await mkdir("../../.impeccable/review", { recursive: true });
     for (const [width, height, device] of [[1280, 900, "desktop"], [390, 844, "mobile"]] as const) {
       await page.setViewportSize({ width, height });
@@ -37,80 +87,60 @@ test("seller configures store pickup, preserves a conflicting draft and explicit
       await page.screenshot({ path: `../../.impeccable/review/delivery-methods-store-${device}.png`, fullPage: true, animations: "disabled" });
     }
     await page.setViewportSize({ width: 1280, height: 900 });
-    const saved = await page.request.get("/api/delivery-settings");
-    expect(await saved.json()).toMatchObject({ version: 1, agency: { enabled: false }, couriers: [], home: { enabled: true }, store: { enabled: true, pickupPoint: { address: "Av. Lima 123" } } });
-    await page.getByLabel("Dirección", { exact: true }).fill("Mi borrador");
-    await browserExpect(page.getByRole("status")).toHaveCount(0);
-    await browserExpect(page.getByLabel("Dirección", { exact: true })).toHaveValue("Mi borrador");
-    const concurrent = await page.request.put("/api/delivery-settings", { data: { expectedVersion: 1,
-      agency: { enabled: false }, home: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Otra tienda", address: "Dirección concurrente", instructions: null } } } });
-    expect(concurrent.ok()).toBe(true);
-    await page.getByRole("button", { name: "Guardar configuración" }).click();
-    await browserExpect(page.getByRole("alert")).toContainText("Otra persona cambió");
-    await browserExpect(page.getByLabel("Dirección", { exact: true })).toHaveValue("Mi borrador");
-    await browserExpect(page.getByLabel("Ofrecer entrega a domicilio")).toBeChecked();
-    await browserExpect(page.getByRole("button", { name: "Guardar configuración" })).toBeDisabled();
-    await page.getByRole("link", { name: "Recargar configuración" }).click();
-    await browserExpect(page.getByLabel("Dirección", { exact: true })).toHaveValue("Dirección concurrente");
-    await browserExpect(page.getByLabel("Ofrecer entrega a domicilio")).not.toBeChecked();
     await page.getByLabel("Ofrecer recojo en tienda").uncheck();
-    await page.getByRole("button", { name: "Guardar configuración" }).click();
-    await browserExpect(page.getByRole("status").filter({ hasText: "Configuración guardada." })).toHaveText("Configuración guardada.");
-    expect(await (await page.request.get("/api/delivery-settings")).json()).toMatchObject({ version: 3,
-      agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: false, pickupPoint: { address: "Dirección concurrente" } } });
-    await page.getByLabel("Ofrecer entrega a domicilio").check();
-    const homeSaved = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname.includes("/settings/delivery"));
-    await page.getByRole("button", { name: "Guardar configuración" }).click();
-    await homeSaved;
-    await browserExpect(page.getByRole("button", { name: "Guardar configuración" })).toBeEnabled();
-    await browserExpect(page.getByRole("status").filter({ hasText: "Configuración guardada." })).toHaveText("Configuración guardada.");
-    expect(await (await page.request.get("/api/delivery-settings")).json()).toMatchObject({ version: 4, agency: { enabled: false }, couriers: [], home: { enabled: true }, store: { enabled: false, pickupPoint: { address: "Dirección concurrente" } } });
-    await mkdir("../../.impeccable/review", { recursive: true });
-    await page.evaluate(() => window.scrollTo(0, 0));
-    await page.screenshot({ path: "../../.impeccable/review/delivery-methods-home-desktop.png", fullPage: true, animations: "disabled" });
-    await page.setViewportSize({ width: 390, height: 844 });
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    await page.evaluate(() => window.scrollTo(0, 0));
-    await page.screenshot({ path: "../../.impeccable/review/delivery-methods-home-mobile.png", fullPage: true, animations: "disabled" });
+    await browserExpect(row("Recojo en tienda").getByText("Guardado", { exact: true })).toBeVisible();
+    expect(await api()).toMatchObject({ home: { enabled: true }, agency: { enabled: true }, store: { enabled: false, pickupPoint: { name: "Tienda Cercado" } } });
     await page.goto("/pt-BR/settings/delivery");
     await browserExpect(page.getByLabel("Oferecer retirada na loja")).not.toBeChecked();
-    await browserExpect(page.getByLabel("Oferecer entrega em domicílio")).toBeChecked();
-    await browserExpect(page.getByText("Guardamos seu ponto para quando você reativar: Otra tienda · Dirección concurrente")).toBeVisible();
-
-    // Agency delivery no longer depends on enabling couriers first: they are chosen per agency option in each zone.
-    await page.getByLabel("Oferecer envio para agência").check();
-    await browserExpect(page.getByText("Em cada zona, adicione uma opção de agência", { exact: false })).toBeVisible();
-    await browserExpect(page.getByLabel("Transportadora disponível")).toHaveCount(0);
-    const agencySaved = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname.includes("/settings/delivery"));
-    await page.getByRole("button", { name: "Salvar configuração" }).click();
-    await agencySaved;
-    const agencySettings = deliverySettingsSchema.parse(await (await page.request.get("/api/delivery-settings")).json());
-    expect(agencySettings).toMatchObject({ version: 5, agency: { enabled: true }, couriers: [] });
-    await page.getByLabel("Oferecer entrega em domicílio").uncheck();
-    const preserved = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname.includes("/settings/delivery"));
-    await page.getByRole("button", { name: "Salvar configuração" }).click();
-    await preserved;
-    expect(await (await page.request.get("/api/delivery-settings")).json()).toEqual({ ...agencySettings, version: 6, home: { enabled: false } });
-    const current = deliverySettingsSchema.parse(await (await page.request.get("/api/delivery-settings")).json());
-    await page.getByLabel("Oferecer envio para agência").uncheck();
-    expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: current.version, home: { enabled: !current.home.enabled }, store: current.store, agency: current.agency } })).ok()).toBe(true);
-    await page.getByRole("button", { name: "Salvar configuração" }).click();
-    await browserExpect(page.getByRole("alert")).toContainText("Outra pessoa alterou");
-    await browserExpect(page.getByLabel("Oferecer envio para agência")).not.toBeChecked();
-    await browserExpect(page.getByRole("button", { name: "Salvar configuração" })).toBeDisabled();
-    await page.getByRole("link", { name: "Recarregar configuração" }).click();
     await browserExpect(page.getByLabel("Oferecer envio para agência")).toBeChecked();
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.evaluate(() => window.scrollTo(0, 0));
-    await page.screenshot({ path: "../../.impeccable/review/delivery-methods-agency-desktop.png", fullPage: true, animations: "disabled" });
+    await browserExpect(page.getByText("Guardamos seu ponto para quando você reativar: Tienda Cercado · Calle Mercaderes 210")).toBeVisible();
+    await page.getByLabel("Oferecer entrega em domicílio").uncheck();
+    await browserExpect(row("Entrega em domicílio").getByText("Salvo", { exact: true })).toBeVisible();
+    expect((await api()).home.enabled).toBe(false);
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    await page.evaluate(() => window.scrollTo(0, 0));
     await page.screenshot({ path: "../../.impeccable/review/delivery-methods-agency-mobile.png", fullPage: true, animations: "disabled" });
-    await page.evaluate(() => { localStorage.setItem("yoyos-theme", "dark"); document.documentElement.classList.add("dark"); });
-    await page.screenshot({ path: "../../.impeccable/review/delivery-methods-agency-mobile-dark.png", fullPage: true, animations: "disabled" });
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.screenshot({ path: "../../.impeccable/review/delivery-methods-agency-desktop-dark.png", fullPage: true, animations: "disabled" });
+  } finally {
+    await page.context().setOffline(false);
+    if (companyId) await withTenantIsolation(companyId, async () => {
+      await prisma.companyCourier.deleteMany();
+      await prisma.companyDeliverySettings.deleteMany();
+      await systemPrisma.user.deleteMany({ where: { email } });
+      await prisma.company.delete({ where: { id: companyId } });
+    });
+  }
+});
+
+test("seller keeps the pickup text and zone draft when reloading after a conflict from another tab", async ({ page }) => {
+  const email = `delivery-conflict-${crypto.randomUUID()}@example.test`;
+  let companyId: string | undefined;
+  const api = async () => deliverySettingsSchema.parse(await (await page.request.get("/api/delivery-settings")).json());
+  try {
+    companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "Conflict store", country: "PE" });
+    const store = { enabled: true, pickupPoint: { name: "Tienda Cercado", address: "Calle Mercaderes 210", instructions: null } };
+    expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 0, home: { enabled: false }, agency: { enabled: true }, store } })).ok()).toBe(true);
+    await page.goto("/es-PE/settings/delivery");
+    await browserExpect(page.getByLabel("Ofrecer envío a agencia")).toBeChecked();
+    await page.getByRole("button", { name: "Agregar zona", exact: true }).click();
+    await page.getByLabel("Nombre de la zona", { exact: true }).fill("Borrador de zona");
+    await page.getByLabel("Dirección", { exact: true }).fill("Av. Ejército 101");
+
+    // Another tab turns agency off while this one still has the old version.
+    const current = await api();
+    expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: current.version, home: current.home, agency: { enabled: false }, store: current.store } })).ok()).toBe(true);
+    await page.getByLabel("Ofrecer entrega a domicilio").click();
+    await browserExpect(page.getByRole("alert")).toContainText("Otra persona cambió la configuración. Recarga para ver los cambios.");
+    await browserExpect(page.getByLabel("Ofrecer entrega a domicilio")).not.toBeChecked();
+    await browserExpect(page.getByLabel("Ofrecer envío a agencia")).toBeDisabled();
+    await page.getByRole("button", { name: "Recargar configuración", exact: true }).click();
+    await browserExpect(page.getByLabel("Ofrecer envío a agencia")).not.toBeChecked();
+    await browserExpect(page.getByLabel("Ofrecer envío a agencia")).toBeEnabled();
+    await browserExpect(page.getByLabel("Dirección", { exact: true })).toHaveValue("Av. Ejército 101");
+    await browserExpect(page.getByLabel("Nombre de la zona", { exact: true })).toHaveValue("Borrador de zona");
+    expect((await api()).store.pickupPoint?.address).toBe("Calle Mercaderes 210");
+    await page.getByLabel("Ofrecer entrega a domicilio").check();
+    await browserExpect(page.getByRole("region", { name: "Entrega a domicilio", exact: true }).getByText("Guardado", { exact: true })).toBeVisible();
+    expect((await api()).home.enabled).toBe(true);
   } finally {
     if (companyId) await withTenantIsolation(companyId, async () => {
       await prisma.companyCourier.deleteMany();
@@ -138,9 +168,10 @@ test("seller manages overlapping zones with delivery options and preserves an ed
     companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "Zones store", country: "PE" });
     await page.goto("/es-PE/settings/delivery");
     await page.getByLabel("Ofrecer entrega a domicilio").check();
-    await page.getByRole("button", { name: "Guardar configuración", exact: true }).click();
-    await browserExpect(page.getByText("Configuración guardada.", { exact: true })).toBeVisible();
-    await browserExpect(page.getByText("Falta una opción de domicilio activa con cobertura", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Guardado", { exact: true })).toBeVisible();
+    // The coverage warning lives next to the switch, not in the zones section.
+    await browserExpect(page.getByRole("region", { name: "Entrega a domicilio", exact: true }).getByText("Falta una opción de domicilio activa con cobertura")).toBeVisible();
+    await browserExpect(page.getByRole("region", { name: "Zonas y tarifas de envío" }).getByText("Falta una opción de domicilio activa con cobertura")).toHaveCount(0);
     for (const [name, option, price] of [["Cercana", "Moto", "8"], ["Extendida", "Camión", "12"]]) {
       await page.getByRole("button", { name: "Agregar zona", exact: true }).click();
       await page.getByLabel("Nombre de la zona", { exact: true }).fill(name);
@@ -208,16 +239,23 @@ test("seller manages overlapping zones with delivery options and preserves an ed
     expect(stored.zones.find((zone: { name: string }) => zone.name === "Cercana")).toMatchObject({
       enabled: false, districtCodes: ["040110", "150122"], options: [{ method: "home", name: "Moto", price: { amount: 8, currency: "PEN" } }],
     });
-    await page.getByRole("link", { name: "Recargar configuración", exact: true }).click();
+    await page.getByRole("button", { name: "Recargar configuración", exact: true }).click();
     await browserExpect(page.getByRole("button", { name: "Editar Extendida", exact: true })).toBeVisible();
+    // The draft survives the reload and nobody changed the zone under it.
+    await browserExpect(page.getByLabel("Nombre de la zona", { exact: true })).toHaveValue("Mi borrador");
+    await browserExpect(page.getByText("Otra persona cambió esta zona. Revisa tu borrador antes de guardar.")).toHaveCount(0);
+    await page.getByRole("button", { name: "Cancelar edición", exact: true }).click();
     await page.getByRole("button", { name: "Reactivar Cercana", exact: true }).click();
     await browserExpect(page.getByRole("button", { name: "Desactivar Cercana", exact: true })).toBeVisible();
     // Agency delivery is offered without enabling couriers first: the courier and its agencies are chosen inside the zone option.
     const courier = await seededCourier("shalom");
     agencyId = await insertAgency({ courierId: courier.id, name: "Sucursal E2E", districtCode: "150122" });
     await page.getByLabel("Ofrecer envío a agencia").check();
-    await page.getByRole("button", { name: "Guardar configuración", exact: true }).click();
-    await browserExpect(page.getByText("Configuración guardada.", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Guardado", { exact: true }).last()).toBeVisible();
+    // No agency option yet: the warning sits under the switch and goes away once a zone option has an eligible agency, without reloading.
+    const agencyWarning = page.getByRole("region", { name: "Envío a agencia", exact: true }).getByText("Falta una opción de agencia activa con cobertura");
+    await browserExpect(agencyWarning).toBeVisible();
+    await browserExpect(page.getByRole("link", { name: "Ir a zonas y tarifas" }).first()).toBeVisible();
     await page.getByRole("button", { name: "Editar Extendida", exact: true }).click();
     await page.getByRole("button", { name: "Agregar opción de agencia", exact: true }).click();
     await browserExpect(page.getByLabel("Nombre que ve el cliente", { exact: true }).last()).toHaveValue("Olva Courier");
@@ -238,6 +276,7 @@ test("seller manages overlapping zones with delivery options and preserves an ed
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.getByRole("button", { name: "Guardar zona", exact: true }).click();
     await browserExpect(page.getByText("Zona guardada.", { exact: true })).toBeVisible();
+    await browserExpect(agencyWarning).toHaveCount(0);
     await browserExpect(page.getByText("Sin agencias elegibles: no se ofrece al cotizar.", { exact: true })).toBeHidden();
     expect(deliverySettingsSchema.parse(await (await page.request.get("/api/delivery-settings")).json()).couriers).toMatchObject([{ courierId: courier.id, name: "Shalom", enabled: true }]);
     const agencyQuote = await page.request.post("/api/quotations", { data: { destination: { country: "PE", districtCode: "150122" } } });

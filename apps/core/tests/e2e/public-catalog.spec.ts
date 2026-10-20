@@ -24,11 +24,12 @@ test("seller publishes the catalog, buyer adds two variants, continues, confirms
     ] }));
     if (!product.success) throw new Error("Product fixture failed");
     await page.goto("/es-PE/settings/delivery");
-    await page.getByLabel("Ofrecer recojo en tienda").check();
+    await page.getByLabel("Ofrecer recojo en tienda").click();
     await page.getByLabel("Nombre del punto de recojo").fill("Tienda");
     await page.getByLabel("Dirección", { exact: true }).fill("Av. Larco 123");
-    await page.getByRole("button", { name: "Guardar configuración" }).click();
-    await browserExpect(page.getByRole("status")).toHaveText("Configuración guardada.");
+    await page.getByLabel("Dirección", { exact: true }).blur();
+    await browserExpect(page.getByText("Guardado", { exact: true })).toBeVisible();
+    await browserExpect(page.getByLabel("Ofrecer recojo en tienda")).toBeChecked();
 
     await page.goto("/es-PE/settings/catalog");
     await page.getByRole("switch", { name: "Publicar catálogo" }).click();

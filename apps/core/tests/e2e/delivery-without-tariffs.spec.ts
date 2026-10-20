@@ -25,11 +25,12 @@ test("normal composition assigns configured pickup explicitly for free", async (
     companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "No tariffs", country: "PE" });
     const tenantId = companyId;
     await page.goto("/es-PE/settings/delivery");
-    await page.getByLabel("Ofrecer recojo en tienda").check();
+    await page.getByLabel("Ofrecer recojo en tienda").click();
     await page.getByLabel("Nombre del punto de recojo").fill("Pickup");
     await page.getByLabel("Dirección", { exact: true }).fill("Lima");
-    await page.getByRole("button", { name: "Guardar configuración" }).click();
-    await browserExpect(page.getByRole("status")).toHaveText("Configuración guardada.");
+    await page.getByLabel("Dirección", { exact: true }).blur();
+    await browserExpect(page.getByText("Guardado", { exact: true })).toBeVisible();
+    await browserExpect(page.getByLabel("Ofrecer recojo en tienda")).toBeChecked();
     await page.reload();
     await browserExpect(page.getByLabel("Dirección", { exact: true })).toHaveValue("Lima");
     const sellerId = (await systemPrisma.user.findUniqueOrThrow({ where: { email } })).id;
