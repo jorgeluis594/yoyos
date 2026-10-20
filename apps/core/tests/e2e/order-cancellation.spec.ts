@@ -58,9 +58,11 @@ test("core confirms cancellation, retains payments and updates operational views
       await browserExpect(dialog).toContainText("después de cancelar");
       await browserExpect(dialog).toContainText("No podrás reabrir");
       await dialog.getByRole("button", { name: "Conservar pedido" }).click();
+      await browserExpect(dialog).toBeHidden();
       expect((await f.detail(id)).cancelled).toBe(false);
       await page.getByRole("button", { name: "Cancelar pedido", exact: true }).click();
       await page.keyboard.press("Escape");
+      await browserExpect(dialog).toBeHidden();
       expect((await f.detail(id)).cancelled).toBe(false);
       await page.setViewportSize({ width: 390, height: 844 });
       await page.getByRole("button", { name: "Cancelar pedido", exact: true }).click();

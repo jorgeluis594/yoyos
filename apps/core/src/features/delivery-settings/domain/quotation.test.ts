@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { initialDeliverySettings, type Courier, type DeliverySettings } from "@core/src/features/delivery-settings/domain/delivery-settings";
 import type { DeliveryAgency } from "@core/src/features/delivery-settings/domain/delivery-agency";
 import { parseDeliveryZone, type DeliveryZone } from "@core/src/features/delivery-settings/domain/delivery-zone";
-import { applicableDeliveryOptions, buildQuotationWithRates, parseQuotationDestination, parseRateWithQuotation, type DeliveryConfiguration } from "@core/src/features/delivery-settings/domain/quotation";
+import { applicableDeliveryOptions, buildQuotationWithRates, hasAgencyCoverage, parseQuotationDestination, parseRateWithQuotation, type DeliveryConfiguration } from "@core/src/features/delivery-settings/domain/quotation";
 import type { PeruDistrictCode } from "@shared/peru-geography";
 
 const id = (value: number) => `00000000-0000-4000-8000-${String(value).padStart(12, "0")}`;
@@ -107,4 +107,26 @@ test("stored rates validate the immutable destination and quotation relationship
     { ...value.quotation.destination, districtCode: "999999" }, { ...value.quotation.destination, kind: "home" }]) {
     expect(parseRateWithQuotation({ ...value, quotation: { ...value.quotation, destination } }, "PEN").success).toBe(false);
   }
+});
+
+const agencyOption = (amount = 5, enabled = true): OptionSpec => ({ id: 11, amount, method: "agency", agencyIds: [id(60)], enabled });
+const covered = { settings: agencySettings(), agencies: [catalogAgency()] };
+
+test("agency coverage exists when an enabled zone has an enabled agency option with an eligible agency", () => {
+  expect(hasAgencyCoverage(configuration([zone(1, [agencyOption()])], covered))).toBe(true);
+  expect(hasAgencyCoverage(configuration([zone(1, [{ id: 12, amount: 8 }]), zone(2, [agencyOption()], "040103")], covered))).toBe(true);
+});
+
+test("agency coverage is absent when every agency option is disabled, in a disabled zone or has only disabled agencies or couriers", () => {
+  for (const config of [configuration([zone(1, [agencyOption(5, false)])], covered), configuration([zone(1, [agencyOption()], "150122", false)], covered),
+    configuration([zone(1, [agencyOption()])], { ...covered, agencies: [catalogAgency(false)] }),
+    configuration([zone(1, [agencyOption()])], { ...covered, agencies: [catalogAgency(true, false)] }),
+    configuration([zone(1, [agencyOption()])], { ...covered, settings: agencySettings({ enabled: false }) }),
+    configuration([zone(1, [agencyOption()])], { ...covered, settings: agencySettings({ catalogEnabled: false }) }),
+    configuration([zone(1, [{ id: 11, amount: 5, method: "agency", agencyIds: [] }])], covered)]) expect(hasAgencyCoverage(config)).toBe(false);
+});
+
+test("agency coverage is absent for a business with only home options or no zones", () => {
+  expect(hasAgencyCoverage(configuration([zone(1, [{ id: 12, amount: 8 }])], covered))).toBe(false);
+  expect(hasAgencyCoverage(configuration([], covered))).toBe(false);
 });
