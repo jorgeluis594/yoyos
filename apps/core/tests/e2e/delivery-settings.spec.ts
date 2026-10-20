@@ -141,6 +141,17 @@ test("seller keeps the pickup text and zone draft when reloading after a conflic
     await page.getByLabel("Ofrecer entrega a domicilio").check();
     await browserExpect(page.getByRole("region", { name: "Entrega a domicilio", exact: true }).getByText("Guardado", { exact: true })).toBeVisible();
     expect((await api()).home.enabled).toBe(true);
+
+    // A lost response reverts to the last confirmed state, never says "Guardado", and retrying an applied save ends in the conflict notice.
+    await page.route("**/settings/delivery.data*", async route => { if (route.request().method() === "POST") { await route.fetch(); await route.abort(); } else await route.continue(); });
+    await page.getByLabel("Ofrecer envío a agencia").check({ noWaitAfter: true });
+    await browserExpect(page.getByText("No pudimos confirmar el guardado.", { exact: true })).toBeVisible();
+    await browserExpect(page.getByLabel("Ofrecer envío a agencia")).not.toBeChecked();
+    await browserExpect(page.getByRole("region", { name: "Envío a agencia", exact: true }).getByText("Guardado", { exact: true })).toHaveCount(0);
+    await page.unroute("**/settings/delivery.data*");
+    await page.getByRole("button", { name: "Reintentar", exact: true }).click();
+    await browserExpect(page.getByRole("alert")).toContainText("Otra persona cambió la configuración");
+    expect((await api()).agency.enabled).toBe(true);
   } finally {
     if (companyId) await withTenantIsolation(companyId, async () => {
       await prisma.companyCourier.deleteMany();
