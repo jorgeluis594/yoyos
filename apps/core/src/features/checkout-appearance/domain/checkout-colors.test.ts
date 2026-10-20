@@ -41,16 +41,17 @@ const derivedModes = derivedColors.flatMap((color) => modes.map((mode) => ({ lab
 
 /** Shared scale of the design: lightness and maximum chroma of every derived tone (docs §15.6). */
 const scale: Record<Mode, Readonly<Record<string, readonly [number, number]>>> = {
-  light: { soft: [0.985, 0.006], medium: [0.968, 0.012], "brand-background": [0.945, 0.024], foreground: [0.258, 0.012], muted: [0.930, 0.014],
-    "muted-foreground": [0.497, 0.025], border: [0.873, 0.020], input: [0.602, 0.030], accent: [0.920, 0.030] },
-  dark: { soft: [0.205, 0.006], medium: [0.224, 0.012], "brand-background": [0.245, 0.020], card: [0.268, 0.012], foreground: [0.933, 0.012],
-    muted: [0.309, 0.014], "muted-foreground": [0.750, 0.025], border: [0.388, 0.020], input: [0.608, 0.030], accent: [0.336, 0.035] },
+  light: { soft: [0.990, 0.006], medium: [0.960, 0.014], "brand-background": [0.930, 0.028], foreground: [0.258, 0.012], muted: [0.900, 0.020],
+    "muted-foreground": [0.480, 0.025], border: [0.845, 0.030], input: [0.570, 0.040], accent: [0.920, 0.030] },
+  dark: { soft: [0.190, 0.006], medium: [0.222, 0.014], "brand-background": [0.256, 0.024], card: [0.268, 0.012], foreground: [0.933, 0.012],
+    muted: [0.342, 0.020], "muted-foreground": [0.750, 0.025], border: [0.420, 0.030], input: [0.640, 0.040], accent: [0.336, 0.035] },
 };
 const lightnessTolerance = 0.02;
 const hueTolerance = 20;
 const minimumChromaForHue = 0.005;
 const chromaRoundingTolerance = 0.003; // HEX rounding moves chroma slightly
-const minimumDistanceBetweenBackgrounds = 0.015;
+const minimumDistanceBetweenBackgrounds = 0.025;
+const minimumDistanceFromGlobal = 0.03;
 const minimumDecorativeBorder = 1.15;
 
 const productDefinition = {
@@ -143,6 +144,12 @@ describe("palette construction", () => {
       if (tone.C < minimumChromaForHue) continue;
       expect(hueGap(tone.h, mainHue), `${name} of ${color} in ${mode}`).toBeLessThanOrEqual(hueTolerance);
     }
+  });
+
+  test.each(derivedModes)("$label keeps borders, fields and muted areas visibly apart from the Yoyos ones", ({ color, mode }) => {
+    const tones = tonesOf(color, mode);
+    for (const name of ["border", "input", "muted"] as const)
+      expect(distance(tones[name], system[mode][name]), `${name} of ${color} in ${mode}`).toBeGreaterThanOrEqual(minimumDistanceFromGlobal);
   });
 });
 

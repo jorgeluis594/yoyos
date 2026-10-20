@@ -28,9 +28,9 @@ describe("CheckoutTheme", () => {
     const [lightCss, darkCss] = css.split(".dark ");
     expect(css).toMatch(/^\[data-checkout-theme="([^"]+)"\]\{.*\}\.dark \[data-checkout-theme="\1"\]\{.*\}$/);
     expect(lightCss).toContain("--primary:#2F6B4F;");
-    expect(lightCss).toContain("--background:#E0F2E8;");
+    expect(lightCss).toContain("--background:#D8EEE2;");
     expect(darkCss).toContain("--primary:#8FCBA8;");
-    expect(darkCss).toContain("--background:#18231D;");
+    expect(darkCss).toContain("--background:#19271F;");
     expect(scopeOf(html)).toBe(/^\[data-checkout-theme="([^"]+)"\]/.exec(css)?.[1]);
     expect(css).toContain(`--primary-foreground:${light["primary-foreground"]}`);
     expect(css).toContain(`--accent:${dark.accent}`);
@@ -50,7 +50,7 @@ describe("CheckoutTheme", () => {
       expect([...styles[index].matchAll(/\[data-checkout-theme="([^"]+)"\]/g)].map((match) => match[1])).toEqual([scope, scope]);
     });
     expect(styles[0]).toContain(`--background:${checkoutPalette("forest", "soft").light.background}`);
-    expect(styles[1]).toContain("--background:#E0F2E8");
+    expect(styles[1]).toContain("--background:#D8EEE2");
   });
 
   test("sets borders, fields, cards, muted areas and texts from the chosen palette", () => {

@@ -881,7 +881,7 @@ CompanyCheckoutAppearance.background (soft | medium | brand_tint)
 | Catálogo público | `CheckoutTheme` recibe `surface="catalog"` en `catalog-sections.tsx` y usa `catalogPalette`, que es el `checkoutPalette` actual renombrado, con sus valores congelados. |
 | Tarjetas en claro | `#FFFFFF` en los nueve colores, como pide el producto («superficie blanca de lectura»). |
 | `--brand-background` | La paleta del checkout deja de emitirlo: ningún componente lo usa; su valor llega como `--background` cuando el fondo es De marca. |
-| Umbrales del test | 4,5:1 y 3:1 fijados por producto. Iniciales y ajustables, iguales para todas las paletas: luminosidad ±0,02 y matiz ±20° respecto de la tabla, distancia OKLab ≥ 0,015 entre fondos vecinos, 1,15:1 para bordes decorativos. |
+| Umbrales del test | 4,5:1 y 3:1 fijados por producto. Iniciales y ajustables, iguales para todas las paletas: luminosidad ±0,02 y matiz ±20° respecto de la tabla, distancia OKLab ≥ 0,025 entre fondos vecinos y ≥ 0,03 de borde, campo y atenuado de los ocho colores frente a los globales, 1,15:1 para bordes decorativos. |
 
 ### 15.3 Estado verificado
 
@@ -966,26 +966,26 @@ export function checkoutPalette(brandColor: CheckoutBrandColor, background: Chec
 
 **Paleta Yoyos.** Sus 15 tonos de cada modo salen de `tokens.colors.light` / `tokens.colors.dark` de `docs/design-tokens.json`, con `medium` = `background` global (`#F7F4EF` y `#1C1B1D`). Solo `soft` y `brand-background` son tonos propios, construidos con la tabla de abajo y el matiz de `#8C552D` / `#D5A16C`; el `brand-background` actual (`#F7EFE6`, `#1F1B19`) es el punto de partida y se ajusta si no cumple la distancia entre fondos. Así, una empresa sin fila o con Yoyos y Medio ve exactamente los colores de hoy.
 
-**Criterio de construcción de los otros ocho.** Cada tono toma el matiz OKLCH del tono principal del mismo modo, la luminosidad L de la tabla y un croma C = mín(C máx de la tabla, C del tono principal). Las luminosidades son las de los tokens globales de Yoyos, así que todas las paletas ocupan las mismas posiciones relativas. El valor se redondea a HEX y se escribe en `checkoutColorPalettes`.
+**Criterio de construcción de los otros ocho.** Cada tono toma el matiz OKLCH del tono principal del mismo modo, la luminosidad L de la tabla y un croma C = mín(C máx de la tabla, C del tono principal). Las luminosidades parten de los tokens globales de Yoyos, con dos desplazamientos iguales para los ocho colores: `border`, `input` y `muted` se separan unos 0,03 de L del token global (más oscuros en claro, más claros en oscuro) y con más croma, para que ningún color repita a simple vista el borde, el campo o la superficie atenuada de Yoyos aunque comparta matiz (Mostaza) o croma casi nulo (Grafito); y los tres fondos se abren a unos 0,03 de L entre vecinos para distinguirse a simple vista también en oscuro. `muted-foreground` en claro baja a 0,480 para mantener 4,5:1 sobre el `muted` más oscuro. El valor se redondea a HEX y se escribe en `checkoutColorPalettes`.
 
 | Tono | Claro L | Claro C máx | Oscuro L | Oscuro C máx |
 | --- | --- | --- | --- | --- |
-| `soft` (Suave) | 0,985 | 0,006 | 0,205 | 0,006 |
-| `medium` (Medio) | 0,968 | 0,012 | 0,224 | 0,012 |
-| `brand-background` (De marca) | 0,945 | 0,024 | 0,245 | 0,020 |
+| `soft` (Suave) | 0,990 | 0,006 | 0,190 | 0,006 |
+| `medium` (Medio) | 0,960 | 0,014 | 0,222 | 0,014 |
+| `brand-background` (De marca) | 0,930 | 0,028 | 0,256 | 0,024 |
 | `card` | `#FFFFFF` | — | 0,268 | 0,012 |
 | `foreground` | 0,258 | 0,012 | 0,933 | 0,012 |
-| `muted` | 0,930 | 0,014 | 0,309 | 0,014 |
-| `muted-foreground` | 0,497 | 0,025 | 0,750 | 0,025 |
-| `border` | 0,873 | 0,020 | 0,388 | 0,020 |
-| `input` | 0,602 | 0,030 | 0,608 | 0,030 |
+| `muted` | 0,900 | 0,020 | 0,342 | 0,020 |
+| `muted-foreground` | 0,480 | 0,025 | 0,750 | 0,025 |
+| `border` | 0,845 | 0,030 | 0,420 | 0,030 |
+| `input` | 0,570 | 0,040 | 0,640 | 0,040 |
 | `accent` | 0,920 | 0,030 | 0,336 | 0,035 |
 
 Tonos fuera de la tabla: `primary` es el tono principal del producto (no cambia); `primary-foreground` es `#FFFFFF` en claro y `#1C1B1D` en oscuro; `primary-hover` y `primary-pressed` conservan los valores actuales del catálogo (ya cumplen 1,15:1 y 1,3:1 frente a `primary`); `accent-foreground` = `primary`.
 
-La tabla se comprobó durante el diseño para los ocho colores: con estos valores todas las parejas de [§15.9](#159-pruebas) superan el mínimo y el redondeo a HEX desvía el matiz como mucho 13° y la luminosidad menos de 0,002. Al implementar, el brand-background de Yoyos pasó de `#F7EFE6`/`#1F1B19` a `#FAE9DE`/`#271F16` por la distancia con Medio, y el mínimo de `primary-pressed` de Yoyos en el test es 1,15:1 (su token global oscuro llega a 1,18:1). Si al implementar un tono no cumple, se ajusta solo ese tono dentro de las tolerancias de la tabla; si hace falta salir de ellas, se ajusta la fila de la tabla para todos los colores.
+La tabla se comprobó durante el diseño para los ocho colores: con estos valores todas las parejas de [§15.9](#159-pruebas) superan el mínimo y el redondeo a HEX desvía el matiz como mucho 13° y la luminosidad menos de 0,002. Al implementar, el brand-background de Yoyos pasó de `#F7EFE6`/`#1F1B19` a `#FAE9DE`/`#2B2119` y su `soft` es `#FFFDF9`/`#171310` por la distancia con Medio (su Medio es el global y no se mueve), y el mínimo de `primary-pressed` de Yoyos en el test es 1,15:1 (su token global oscuro llega a 1,18:1). Si al implementar un tono no cumple, se ajusta solo ese tono dentro de las tolerancias de la tabla; si hace falta salir de ellas, se ajusta la fila de la tabla para todos los colores.
 
-Ejemplo (Bosque, claro): Suave `#F7FBF9`, Medio `#EEF7F2`, De marca `#E0F2E8`, texto `#1F2522`, atenuado `#E0EBE5`, texto secundario `#56675E`, borde `#CADAD1`, campo `#72877B`, realce `#D4EBDE`.
+Ejemplo (Bosque, claro): Suave `#F8FDFA`, Medio `#EAF5EF`, De marca `#D8EEE2`, texto `#1F2522`, atenuado `#D3E2DA`, texto secundario `#526259`, borde `#BCD3C6`, campo `#637F70`, realce `#D4EBDE`.
 
 ### 15.7 Tema y catálogo público
 
@@ -1040,6 +1040,7 @@ describe("palettes")
 describe("palette construction")                                              // 8 colores × 2 modos
   test.each("$color · $mode places every derived tone at the lightness of the shared scale")
   test.each("$color · $mode derives every tinted tone from the hue of its main tone")
+  test.each("$color · $mode keeps borders, fields and muted areas visibly apart from the Yoyos ones")
 
 describe("backgrounds")
   test("maps Suave, Medio and De marca to their tones of the chosen palette")
@@ -1063,7 +1064,7 @@ describe("public catalog palette")
   test("keeps the former De marca background of each color")
 ```
 
-Reglas del test: «escala» = en claro L(Suave) > L(Medio) > L(De marca); en oscuro L(Suave) < L(Medio) < L(De marca). «Distintos» = distancia OKLab ≥ 0,015 entre vecinos. «Sin teñir» = `#FFFFFF` o C < 0,004, salvo el Medio de Yoyos, que es el global por regla de producto. Construcción y matiz: solo los ocho colores no Yoyos; el matiz se mide en tonos con C ≥ 0,005.
+Reglas del test: «escala» = en claro L(Suave) > L(Medio) > L(De marca); en oscuro L(Suave) < L(Medio) < L(De marca). «Distintos» = distancia OKLab ≥ 0,025 entre fondos vecinos (el máximo que permite Yoyos claro, cuyo Medio es el global y cuyo Suave no puede ser blanco). «Separados de Yoyos» = en los ocho colores no Yoyos, `border`, `input` y `muted` a distancia OKLab ≥ 0,03 del token global del mismo modo. «Sin teñir» = `#FFFFFF` o C < 0,004, salvo el Medio de Yoyos, que es el global por regla de producto. Construcción y matiz: solo los ocho colores no Yoyos; el matiz se mide en tonos con C ≥ 0,005.
 
 **`domain/checkout-appearance.test.ts`** (cambios)
 
