@@ -18,7 +18,7 @@ export const log = state.log ??= pino({
   mixin: () => ({ ...requestLog.getStore() }),
   serializers: { err: safeError },
   redact: {
-    paths: ["password", "token", "authorization", "cookie", "email", "phone", "headers", "body", "secret", "accessToken", "refreshToken", "apiKey", "orderId", "url", "originalUrl", "referer", "buyer", "name", "address", "expectedTotal"]
+    paths: ["password", "token", "authorization", "cookie", "email", "phone", "headers", "body", "secret", "accessToken", "refreshToken", "apiKey", "url", "originalUrl", "referer", "buyer", "name", "address", "expectedTotal"]
       .flatMap((key) => [key, `*.${key}`, `*.*.${key}`, `*.*.*.${key}`]),
     censor: "[Redacted]",
   },
