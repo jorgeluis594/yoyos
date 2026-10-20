@@ -28,7 +28,7 @@ web checkout (mode "agency")
 | Cascade, dedup and order | Pure web function `agencyChoices(rates, districtCode)` in `apps/core/app/checkout-agency-choices.ts`. It is the buyer's view: it does not live in the quotation nor on the server. |
 | Current choice | Pure `chosenAgency(choices, agencyId)` in the same file: the single choice when the list has one, else the one whose `agency.id` equals the draft's `agencyId`, else none. Preselection is derived, never written with an effect. |
 | Selection | The «Agencia de destino» dropdown's value is the `agencyId`; the `rateId` comes from the deduplicated choice. Agency mode has no «Tarifa de envío» dropdown. |
-| Initial mode | Without a saved delivery, nothing is selected (`mode: ""`), whatever methods are offered (product flow step 1, criterion 1). With a saved delivery, `keep`, as today. This replaces today's preselection of «Envío» or of store pickup. |
+| Initial mode | Today's preselection, mapped to the new modes: with a saved delivery `keep`; else `home` if `options.home.enabled`; else `agency` if `options.agency.enabled && options.agency.covered`; else `store` if `options.store.enabled`; else `""` (product flow step 1, criterion 1). |
 | Draft modes | Draft `mode` goes from `"" \| "keep" \| "ship" \| "store"` to `"" \| "keep" \| "home" \| "agency" \| "store"`. |
 | Agency list rendering | New presentational component `CheckoutAgencyDestination` (`apps/core/app/components/checkout-agency-destination.tsx`) renders the notice, the dropdown or the no-agencies message from `AgencyChoices`. It exists so the cascade screen is testable with the static rendering core component tests use, and to keep `CheckoutDeliveryFields` from growing. |
 | Agency label | New `buyerAgencyLabel` in `checkout-agency-choices.ts`: «{agency} · {courier} · {address} · {district}, {province} · {price}», «Gratis» for 0. `agencyLabel` in `app/rate-label.ts` does not change: the seller form uses it. |
@@ -54,18 +54,18 @@ web checkout (mode "agency")
 | Quotation | `requestDeliveryQuotation` (`delivery-settings/infrastructure/quotation-api.ts`); contract `shared/contracts/quotations.ts` | Each rate carries `id`, `optionId`, `name`, `zoneName`, `price`; agency rates carry `agencies[]` (min 1) with `id`, `name`, `address`, `courier { id, name }`, `location { districtCode, district, province, department }`. |
 | Geography | `shared/peru-geography.ts` | `getPeruDistrict` and `peruDeliveryDistrict` give district, province and department names. The INEI code holds the province (4 digits) and department (2). Example codes: Cayma `040103`, Characato `040105`, Yanahuara `040126`, Yura `040128`, Mollendo `040701`, Callao `070101`, Miraflores `150122`. |
 | Web delivery fields | `apps/core/app/components/checkout-delivery-fields.tsx` | Radios `keep`/`ship`/`store`; initial mode `keep`, else `ship` if home or agency on, else `store`, else `""`. In `ship`: `PeruDistrictSelect`, mixed «Tarifa de envío» dropdown and «Agencia de destino» with `agencyLabel`. Radio change clears `rateId`, `agencyId` and the received quotation, keeps `districtCode`. District change clears `rateId` and `agencyId`. A quotation counts only if it matches the visible district, `revision` and `recoveryVersion`. |
-| Component tests | `apps/core/app/components/checkout-delivery-fields.test.tsx` | Static `renderToStaticMarkup` only (no DOM library in core). Two tests rely on the current preselection («unassigned delivery asks for a district…», «pickup-only businesses show the configured point…») and one asserts «Retiro en agencia». |
+| Component tests | `apps/core/app/components/checkout-delivery-fields.test.tsx` | Static `renderToStaticMarkup` only (no DOM library in core). «unassigned delivery asks for a district…» and «pickup-only businesses show the configured point…» rely on the current preselection, which is kept; `value="ship"` assertions and one «Retiro en agencia» assertion change. |
 | Recovery | `apps/core/app/routes/checkout.tsx` (`recoveryVersion`) | After `RATE_UNAVAILABLE` or `TOTAL_CHANGED` bumps `recoveryVersion`; the component requotes keeping the draft. |
 | Confirmation and snapshot | `ratedDeliverySelectionSchema` (`shared/contracts/orders`), `resolveSelectedDeliveryRate` | The agency variant requires `rateId`, `agencyId`, `districtCode`; revalidated under lock. Snapshot keeps destination, courier, agency with location and `pricing.optionId`. Unchanged. |
 | Texts | `apps/core/app/locales.ts` (`checkoutDelivery`) | `ship: "Envío"`, `method.agency: "Retiro en agencia"` (es) and pt equivalents. |
 | E2E agency fixtures | `delivery-settings/infrastructure/courier-catalog-fixture.ts` (`insertAgency`, `deleteAgencies`, `seededCatalogId`) | `insertAgency` takes `districtCode`, so specs can place agencies in Cayma, Yanahuara or Lima. |
-| Buyer checkout e2e | `tests/e2e/checkout.spec.ts` (home tests at lines 307, 468, 524, 574, 634, 742 select a district with «Envío» preselected or check `input[value="ship"]`; agency test at 414 uses «Tarifa de envío»), `checkout-appearance-buyer.spec.ts` (test «keeps delivery quote and payment flows working», agency via «Tarifa de envío»), `delivery-settings.spec.ts` (overlapping zones test, buyer page reads «Tarifa de envío») | Must be migrated to the new radios. `buyer-payment.spec.ts`, `public-catalog.spec.ts` and `mobile-checkout.spec.ts` already check «Recojo en tienda · Gratis» explicitly. `agency-delivery.spec.ts`, `store-delivery.spec.ts` and `delivery-without-tariffs.spec.ts` exercise the seller order form and do not change. |
+| Buyer checkout e2e | `tests/e2e/checkout.spec.ts` (home tests select a district with «Envío» preselected, which becomes «Entrega a domicilio» preselected; tests at lines 524 and 742 check `input[value="ship"]`; agency test at 414, with home off, uses «Tarifa de envío»), `checkout-appearance-buyer.spec.ts` (test «keeps delivery quote and payment flows working», home off, agency via «Tarifa de envío»), `delivery-settings.spec.ts` (overlapping zones test, home on, buyer page reads home rates in «Tarifa de envío») | `ship` checks and the agency flows must be migrated; home flows keep working through the preserved preselection. `buyer-payment.spec.ts`, `public-catalog.spec.ts` and `mobile-checkout.spec.ts` already check «Recojo en tienda · Gratis» explicitly. `agency-delivery.spec.ts`, `store-delivery.spec.ts` and `delivery-without-tariffs.spec.ts` exercise the seller order form and do not change. |
 
 ## 4. Gaps this design closes
 
 1. The public contract does not say whether there is agency coverage (§5.1, §8).
 2. Coverage cannot be computed without a district (§6).
-3. The checkout mixes home and agency in one radio and one rate dropdown, and preselects a method (§5.4).
+3. The checkout mixes home and agency in one radio and one rate dropdown (§5.4).
 4. There is no cascade by agency location, no dedup by lowest price, no product order (§5.2).
 5. There are no province or department notices, nor the no-agencies case with its two exits (§5.3).
 6. The texts say «Envío» and «Retiro en agencia» (§12).
@@ -138,7 +138,7 @@ type CheckoutAgencyDestinationProps = Readonly<{
 
 ### 5.4 `CheckoutDeliveryFields` (modified)
 
-- Radios in order: `keep` (if saved delivery), `home` (`method.home`, if `options.home.enabled`), `agency` (`method.agency`, if `options.agency.enabled && options.agency.covered`), `store` (`storeFree`). Initial mode `keep` with a saved delivery, else `""`. «No hay modalidades de entrega disponibles» when none.
+- Radios in order: `keep` (if saved delivery), `home` (`method.home`, if `options.home.enabled`), `agency` (`method.agency`, if `options.agency.enabled && options.agency.covered`), `store` (`storeFree`). Initial mode: `keep` with a saved delivery, else the first of `home`, `agency`, `store` that is offered, else `""` (today's preselection mapped to the new modes). «No hay modalidades de entrega disponibles» when none.
 - Radio change (and **Pasar a Entrega a domicilio**): clears `rateId`, `agencyId` and the received quotation; keeps `districtCode`; requotes if there is a district (current behavior).
 - Department, province or district change: clears `rateId` and `agencyId` (current) and the quotation is requested again.
 - Quotation: the same effect as today, active in `home` and `agency`. A late answer for another district, revision or recovery does not change the screen (current).
@@ -202,7 +202,7 @@ export const checkoutDeliveryOptionsSchema = z.strictObject({
 | `apps/core/app/components/checkout-delivery-fields.test.tsx` | Fixture `options` gets `covered` (T1); new and rewritten tests (T3). |
 | `apps/core/app/checkout-agency-choices.ts` | New: `agencyChoices`, `chosenAgency`, `buyerAgencyLabel`. |
 | `apps/core/app/components/checkout-agency-destination.tsx` | New presentational component. |
-| `apps/core/app/components/checkout-delivery-fields.tsx` | Radios per method, no preselection, filtered home rates, agency mode with `CheckoutAgencyDestination`, **Cambiar distrito** focus. |
+| `apps/core/app/components/checkout-delivery-fields.tsx` | Radios per method, preselection mapped to `home`/`agency`/`store`, filtered home rates, agency mode with `CheckoutAgencyDestination`, **Cambiar distrito** focus. |
 | `apps/core/app/locales.ts` | New and changed texts in es and pt (below). |
 
 Texts in `checkoutDelivery` (es; pt equivalent):
@@ -274,9 +274,10 @@ No event is added: the cascade happens in the browser and is not stored; confirm
 - `test("a single agency renders selected")`
 
 `apps/core/app/components/checkout-delivery-fields.test.tsx` (static render):
-- `test("a buyer without saved delivery sees Entrega a domicilio, Envío a agencia and Recojo en tienda with none selected")` (rewrites «unassigned delivery asks for a district and recipient…»)
+- `test("a buyer without saved delivery sees Entrega a domicilio, Envío a agencia and Recojo en tienda with home delivery selected")`
+- `test("without home delivery the agency method is preselected when the business has agency coverage")`
+- «unassigned delivery asks for a district and recipient…» stays (home preselected).
 - `test("hides Envío a agencia when the agency switch is off or the business has no agency coverage")`
-- `test("pickup-only businesses offer the configured point without preselecting it")` (rewrites «pickup-only businesses show the configured point…»)
 - `test("a saved agency delivery is summarized as Envío a agencia with courier, agency and address")` (rewrites «a saved agency delivery shows its courier…»)
 - Existing «historical delivery…», «pickup is offered explicitly…» and «businesses without available delivery methods…» stay, with `value="ship"` assertions moved to `home`/`agency`.
 
@@ -296,13 +297,13 @@ Agency confirmation and its snapshot are already covered (`resolve-selected-deli
 - `test("buyer picks another agency after the seller disables the chosen one before confirming")`
 - `test("mobile buyer at 390 px confirms Envío a agencia with a province agency")`
 
-Migrated to the new radios and kept green: in `checkout.spec.ts` the home tests at lines 307, 468, 524, 574, 634 and 742 (check «Entrega a domicilio» before the district; `input[value="ship"]` → `home`), «keeps delivery quote and payment flows working» in `checkout-appearance-buyer.spec.ts` (agency through «Envío a agencia» and «Agencia de destino»), and «seller manages overlapping zones…» in `delivery-settings.spec.ts` (buyer checks «Entrega a domicilio»). `buyer-payment.spec.ts`, `public-catalog.spec.ts`, `mobile-checkout.spec.ts`, `agency-delivery.spec.ts` and `store-delivery.spec.ts` stay green without changes.
+Migrated and kept green: in `checkout.spec.ts`, «buyer distinguishes uncovered shipping…» (line 524) and «buyer keeps a historical rate…» (line 742) change `input[value="ship"]` → `home`; «keeps delivery quote and payment flows working» in `checkout-appearance-buyer.spec.ts` (home off, so «Envío a agencia» is preselected; agency through «Agencia de destino»). The other home tests of `checkout.spec.ts` (307, 468, 574, 634) and «seller manages overlapping zones…» in `delivery-settings.spec.ts` keep working unchanged because «Entrega a domicilio» is preselected. `buyer-payment.spec.ts`, `public-catalog.spec.ts`, `mobile-checkout.spec.ts`, `agency-delivery.spec.ts` and `store-delivery.spec.ts` stay green without changes.
 
 ### Traceability
 
 | Product criterion / case | Function or use case | Tests | Task |
 |---|---|---|---|
-| 1 three radios, none selected | `CheckoutDeliveryFields` radios, initial mode | «a buyer without saved delivery sees…» | T3 |
+| 1 three radios, home preselected (else agency, else store) | `CheckoutDeliveryFields` radios, initial mode | «a buyer without saved delivery sees…», «without home delivery the agency method is preselected…», existing «pickup-only businesses show the configured point…» | T3 |
 | 2 agency hidden without switch or coverage | `hasAgencyCoverage`, `getCheckoutDeliveryOptions`, loader, radios | quotation coverage tests, use case tests, loader tests, repository integration, «hides Envío a agencia…» | T1, T3 |
 | 3 Cayma: two agencies, Olva first, no notice | `agencyChoices`, `buyerAgencyLabel`, `CheckoutAgencyDestination` | «buyer in Cayma sees only…», «district level…», «buyer label…», e2e Cayma | T2, T3 |
 | 4 Characato: province notice, three agencies | `agencyChoices` | «buyer in Characato falls back…», «province level…», e2e Cayma → Characato, e2e 390 px | T2, T3 |
@@ -339,5 +340,5 @@ Migrated to the new radios and kept green: in `checkout.spec.ts` the home tests 
 - Coverage does not guarantee agencies for a given district; that case is the no-agencies screen by product design.
 - The cascade uses the agency's `location.districtCode`; it is mandatory in `quotedAgencySchema`.
 - **Cambiar distrito** focuses the «Distrito» select; if it is disabled (no province), it focuses «Departamento».
-- Existing e2e that rely on «Envío», on `input[value="ship"]` or on the preselected method are migrated in the same task that changes the UI, so the branch never stays red.
+- Existing e2e that rely on «Envío», on `input[value="ship"]` or on agency rates in «Tarifa de envío» are migrated in the same task that changes the UI, so the branch never stays red.
 - No proximity catalog, maps or geolocation. No seller or mobile changes.

@@ -44,7 +44,7 @@ Meeting points with other features:
 
 ## Flow
 
-1. The buyer opens the checkout. In «Forma de entrega» they see, in this order and only when available: «Conservar entrega actual» (only with a saved delivery, selected by default as today), «Entrega a domicilio», «Envío a agencia», «Recojo en tienda · Gratis». Without a saved delivery nothing is preselected, as today.
+1. The buyer opens the checkout. In «Forma de entrega» they see, in this order and only when available: «Conservar entrega actual» (only with a saved delivery, selected by default as today), «Entrega a domicilio», «Envío a agencia», «Recojo en tienda · Gratis». Without a saved delivery, the first available method is preselected as today: «Entrega a domicilio» if available, else «Envío a agencia», else «Recojo en tienda · Gratis».
 2. The buyer selects «Envío a agencia». The current district selector appears: Departamento → Provincia → Buscar distrito → Distrito.
 3. On choosing the district, the checkout quotes it as today («Consultando opciones de envío…») and keeps only agency rates.
 4. Below the selector the «Agencia de destino» dropdown appears with the agencies of the first cascade level that has any. If the level is province or department, a notice above the dropdown says so.
@@ -153,7 +153,7 @@ Nothing new. On confirm, the order keeps what it keeps today: destination = the 
 
 ## Acceptance criteria
 
-1. A business with home, agency (with coverage) and store active: a buyer without saved delivery sees «Entrega a domicilio», «Envío a agencia» and «Recojo en tienda · Gratis», none selected.
+1. A business with home, agency (with coverage) and store active: a buyer without saved delivery sees «Entrega a domicilio», «Envío a agencia» and «Recojo en tienda · Gratis», with «Entrega a domicilio» selected. Without home, «Envío a agencia» is selected; with only store, «Recojo en tienda · Gratis».
 2. The same business with the agency switch off, or with the switch on and no active agency option with eligible agencies: «Envío a agencia» does not appear.
 3. Zone covering Cayma with «Shalom» S/ 12.00 (agencies in Cayma and Yanahuara) and «Olva» S/ 10.00 (agency in Cayma). Buyer chooses «Envío a agencia», Arequipa → Arequipa → Cayma: sees only the two Cayma agencies, Olva S/ 10.00 first, each with name, courier, address, district, province and price, no notice, without Yanahuara.
 4. Same zone also covering Characato: buyer in Characato sees «No hay agencias en CHARACATO; te mostramos las de la provincia de AREQUIPA» and the three agencies of Cayma and Yanahuara.

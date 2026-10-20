@@ -71,7 +71,7 @@ T3 only reads what T1 (`CheckoutDeliveryOptions` with `agency.covered`) and T2 (
 
 **Scope:**
 - `CheckoutAgencyDestination` (§5.3): notices, dropdown and no-agencies case with **Cambiar distrito** and **Pasar a Entrega a domicilio**.
-- `CheckoutDeliveryFields` with modes `home` and `agency` instead of `ship` (§5.4): radios «Entrega a domicilio» and «Envío a agencia» (the latter with `enabled && covered`), nothing preselected without a saved delivery, home with home rates only, agency with `agencyChoices` and `chosenAgency`, document fields in agency mode, draft with the choice's `rateId` and price.
+- `CheckoutDeliveryFields` with modes `home` and `agency` instead of `ship` (§5.4): radios «Entrega a domicilio» and «Envío a agencia» (the latter with `enabled && covered`), today's preselection mapped to the new modes (`keep`, else `home`, else `agency` with coverage, else `store`), home with home rates only, agency with `agencyChoices` and `chosenAgency`, document fields in agency mode, draft with the choice's `rateId` and price.
 - Clearing on district or method change and recovery after `recoveryVersion`, with the current behavior; **Cambiar distrito** focuses the «Distrito» select.
 - Texts of §12 in `app/locales.ts` (es and pt); `method.agency` becomes «Envío a agencia»; `ship` removed.
 - New e2e of §14 and migration of the existing buyer checkout e2e listed there.
@@ -79,7 +79,7 @@ T3 only reads what T1 (`CheckoutDeliveryOptions` with `agency.covered`) and T2 (
 **Out of scope:** contract, loader, `checkout-agency-choices.ts` (used as T1 and T2 leave them; a defect is reported to the coordinator), `PeruDistrictSelect`, `rate-label.ts`, seller form, mobile, quotation, confirmation and visual style.
 
 **Acceptance criteria:**
-1. Business with home, agency with coverage and store, no saved delivery: radios «Entrega a domicilio», «Envío a agencia», «Recojo en tienda · Gratis», none selected, no «Envío».
+1. Business with home, agency with coverage and store, no saved delivery: radios «Entrega a domicilio» (selected), «Envío a agencia», «Recojo en tienda · Gratis», no «Envío». Without home, «Envío a agencia» is selected; with only store, «Recojo en tienda · Gratis».
 2. Agency switch off or `covered: false`: no «Envío a agencia».
 3. Buyer in Cayma with the example zone: «Agencia de destino» lists Olva Cayma and Agencia Cayma, no notice, no «Tarifa de envío»; confirms Olva Cayma with DNI, reaches payment and the order keeps Cayma, Olva, the agency with its location and the S/ 10.00 option.
 4. Buyer in Characato: notice «No hay agencias en CHARACATO; te mostramos las de la provincia de AREQUIPA» and the three agencies.
@@ -92,7 +92,7 @@ T3 only reads what T1 (`CheckoutDeliveryOptions` with `agency.covered`) and T2 (
 11. The agency flow works at 390 px.
 12. Core typecheck, lint, unit, integration and e2e green.
 
-**Tests it leaves green (§14):** those of `checkout-agency-destination.test.tsx` and `checkout-delivery-fields.test.tsx`, the new e2e of `checkout.spec.ts`, and the migrated ones of `checkout.spec.ts`, `checkout-appearance-buyer.spec.ts` and `delivery-settings.spec.ts`, plus `buyer-payment.spec.ts`, `public-catalog.spec.ts`, `mobile-checkout.spec.ts`, `agency-delivery.spec.ts` and `store-delivery.spec.ts` unchanged.
+**Tests it leaves green (§14):** those of `checkout-agency-destination.test.tsx` and `checkout-delivery-fields.test.tsx`, the new e2e of `checkout.spec.ts`, the migrated ones of `checkout.spec.ts` and `checkout-appearance-buyer.spec.ts`, plus `delivery-settings.spec.ts`, `buyer-payment.spec.ts`, `public-catalog.spec.ts`, `mobile-checkout.spec.ts`, `agency-delivery.spec.ts` and `store-delivery.spec.ts` unchanged.
 
 **Depends on:** T1 and T2.
 
