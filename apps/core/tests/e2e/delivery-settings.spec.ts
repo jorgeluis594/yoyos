@@ -80,6 +80,20 @@ test("seller toggles delivery methods and the pickup point without a save button
     await browserExpect(page.getByLabel("Ofrecer envío a agencia")).toBeChecked();
     expect((await api()).agency.enabled).toBe(true);
 
+    // Leaving with a pickup text that failed to save asks for confirmation; staying keeps the text and Reintentar saves it.
+    await page.context().setOffline(true);
+    await page.getByLabel("Indicaciones (opcional)").fill("Portón verde");
+    await page.getByLabel("Indicaciones (opcional)").blur();
+    await browserExpect(page.getByText("No se pudo guardar. Revisa tu conexión y vuelve a intentarlo.", { exact: true })).toBeVisible();
+    await page.getByRole("complementary").getByRole("link").filter({ hasNotText: "Modalidades de entrega" }).first().click();
+    await browserExpect(page.getByRole("dialog").getByText("Hay cambios del punto de recojo sin guardar.")).toBeVisible();
+    await page.getByRole("button", { name: "Seguir editando", exact: true }).click();
+    await browserExpect(page.getByRole("dialog")).toHaveCount(0);
+    await browserExpect(page.getByLabel("Indicaciones (opcional)")).toHaveValue("Portón verde");
+    await page.context().setOffline(false);
+    await page.getByRole("button", { name: "Reintentar", exact: true }).click();
+    await browserExpect.poll(async () => (await api()).store.pickupPoint?.instructions).toBe("Portón verde");
+
     await mkdir("../../.impeccable/review", { recursive: true });
     for (const [width, height, device] of [[1280, 900, "desktop"], [390, 844, "mobile"]] as const) {
       await page.setViewportSize({ width, height });
@@ -123,13 +137,14 @@ test("seller keeps the pickup text and zone draft when reloading after a conflic
     await browserExpect(page.getByLabel("Ofrecer envío a agencia")).toBeChecked();
     await page.getByRole("button", { name: "Agregar zona", exact: true }).click();
     await page.getByLabel("Nombre de la zona", { exact: true }).fill("Borrador de zona");
-    await page.getByLabel("Dirección", { exact: true }).fill("Av. Ejército 101");
 
     // Another tab turns agency off while this one still has the old version.
     const current = await api();
     expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: current.version, home: current.home, agency: { enabled: false }, store: current.store } })).ok()).toBe(true);
     await page.getByLabel("Ofrecer entrega a domicilio").click();
     await browserExpect(page.getByRole("alert")).toContainText("Otra persona cambió la configuración. Recarga para ver los cambios.");
+    // Typed after the conflict, so the pickup timer cannot race the home click; the switches stay disabled meanwhile.
+    await page.getByLabel("Dirección", { exact: true }).fill("Av. Ejército 101");
     await browserExpect(page.getByLabel("Ofrecer entrega a domicilio")).not.toBeChecked();
     await browserExpect(page.getByLabel("Ofrecer envío a agencia")).toBeDisabled();
     await page.getByRole("button", { name: "Recargar configuración", exact: true }).click();
@@ -137,7 +152,8 @@ test("seller keeps the pickup text and zone draft when reloading after a conflic
     await browserExpect(page.getByLabel("Ofrecer envío a agencia")).toBeEnabled();
     await browserExpect(page.getByLabel("Dirección", { exact: true })).toHaveValue("Av. Ejército 101");
     await browserExpect(page.getByLabel("Nombre de la zona", { exact: true })).toHaveValue("Borrador de zona");
-    expect((await api()).store.pickupPoint?.address).toBe("Calle Mercaderes 210");
+    // The text left unsaved by the conflict saves after the reload without another blur or keystroke.
+    await browserExpect.poll(async () => (await api()).store.pickupPoint?.address).toBe("Av. Ejército 101");
     await page.getByLabel("Ofrecer entrega a domicilio").check();
     await browserExpect(page.getByRole("region", { name: "Entrega a domicilio", exact: true }).getByText("Guardado", { exact: true })).toBeVisible();
     expect((await api()).home.enabled).toBe(true);

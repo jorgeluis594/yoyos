@@ -68,6 +68,7 @@ export function useInstantDeliverySettings({ loaded, zonesSaved, zonesBusy, read
   const [conflict, setConflict] = useState(false);
   const [activating, setActivating] = useState(false);
   const queued = useRef(false);
+  const recommit = useRef<number | null>(null);
   const [draft, setDraft] = useState<PickupDraft>(() => pickupOf(settings.store.pickupPoint));
   const [blurred, setBlurred] = useState<readonly PickupField[]>([]);
   const [attempt, setAttempt] = useState(0);
@@ -126,6 +127,11 @@ export function useInstantDeliverySettings({ loaded, zonesSaved, zonesBusy, read
   useEffect(() => {
     if (queued.current && !busy) { queued.current = false; commitPickup(); }
   }, [busy, commitPickup]);
+  // Pickup text left unsaved by a conflict saves after the reload, without another blur or keystroke.
+  useEffect(() => {
+    // Only once the reloaded version is on screen: a conflict means the server version moved on.
+    if (recommit.current !== null && !conflict && settings.version !== recommit.current) { recommit.current = null; commitPickup(); }
+  }, [conflict, settings.version, commitPickup]);
   useEffect(() => () => clearTimeout(timer.current), []);
 
   const changePickup = (field: PickupField, value: string) => {
@@ -160,6 +166,7 @@ export function useInstantDeliverySettings({ loaded, zonesSaved, zonesBusy, read
   };
   const reload = async () => {
     await revalidator.revalidate();
+    recommit.current = latest.current.settings.version;
     setConflict(false);
     setRows({ store: idle, home: idle, agency: idle });
   };

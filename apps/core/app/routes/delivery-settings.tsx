@@ -19,6 +19,7 @@ import { Card, CardContent } from "@core/app/components/ui/card";
 import { Switch } from "@core/app/components/ui/switch";
 import { TextLink } from "@core/app/components/ui/text-link";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@core/app/components/ui/dialog";
 import { DeliveryZonesSection, lacksCoverage } from "@core/app/components/delivery-zones-section";
 import { useInstantDeliverySettings, type RowSaveState, type SaveTarget } from "@core/app/components/use-instant-delivery-settings";
 import { ErrorState } from "@core/app/components/ui/error-state";
@@ -141,12 +142,19 @@ function SettingsForm({ loaded }: { loaded: LoadedSettings }) {
         {settings.agency.enabled && <FieldDescription>{t(noCatalog ? "deliveryZones.noCatalog" : "deliverySettings.agencyHowTo")}</FieldDescription>}
         {!noCatalog && coverage("agency")}
       </MethodRow>
+      {(checked.home || checked.agency) && zonesState && <div className="p-4"><p className="text-sm text-muted-foreground">{t("deliverySettings.ratesByZone")} <TextLink href="#delivery-zones">{t("deliverySettings.goToZones")}</TextLink></p></div>}
     </FieldSet></CardContent></Card>
     {conflict && <Alert variant="destructive"><AlertDescription>{t("deliverySettings.conflict")}</AlertDescription>
       <Button type="button" variant="outline" className="mt-3 max-sm:w-full max-md:min-h-touch" onClick={() => void reloadAll()}>{t("deliverySettings.reload")}</Button></Alert>}
-    {blocker.state === "blocked" && <Alert variant="destructive"><AlertDescription>{t("deliverySettings.leave")}</AlertDescription>
-      <div className="mt-3 flex flex-wrap gap-3"><Button type="button" variant="outline" className="max-md:min-h-touch" onClick={() => blocker.proceed()}>{t("deliverySettings.leaveConfirm")}</Button>
-        <Button type="button" className="max-md:min-h-touch" onClick={() => blocker.reset()}>{t("deliverySettings.leaveStay")}</Button></div></Alert>}
+    <Dialog open={blocker.state === "blocked"} onOpenChange={open => { if (!open && blocker.state === "blocked") blocker.reset(); }}>
+      <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
+        <DialogHeader><DialogTitle>{t("deliverySettings.leave")}</DialogTitle></DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => blocker.state === "blocked" && blocker.proceed()}>{t("deliverySettings.leaveConfirm")}</Button>
+          <Button onClick={() => blocker.state === "blocked" && blocker.reset()}>{t("deliverySettings.leaveStay")}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     {zonesState && <DeliveryZonesSection state={zonesState} couriers={settings.couriers} catalog={loaded.courierCatalog.couriers}
       pending={busy || !ready} error={zonesError} saved={lastZonesSaved} onReload={() => void reloadAll()}
       onSave={request => zonesFetcher.submit({ intent: "zones", ...request }, { method: "post", encType: "application/json" })} />}
