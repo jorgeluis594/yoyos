@@ -1,4 +1,5 @@
 BEGIN;
+SET LOCAL lock_timeout = '5s';
 
 -- CreateTable
 CREATE TABLE "DeliveryZoneDepartment" (
