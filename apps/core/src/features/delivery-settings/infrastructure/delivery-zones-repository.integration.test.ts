@@ -276,3 +276,20 @@ test("settings saves with a stale version after a zones save return a conflict a
     });
   } finally { await f.cleanup(); }
 });
+
+test("checkout delivery options read real zones and report coverage lost when the only agency courier is disabled for the company", async () => {
+  const f = await fixture();
+  const courier = await seededCourier();
+  const branch = await insertAgency({ courierId: courier.id, name: "Branch" });
+  try {
+    await f.run(async () => {
+      expect(await deliverySettings.save({ expectedVersion: 0, home: { enabled: false }, agency: { enabled: true }, store: { enabled: false, pickupPoint: null } }, f.context))
+        .toMatchObject({ success: true });
+      const agencyOption = { kind: "new" as const, method: "agency" as const, name: "Agency", enabled: true, price: { amount: 5, currency: "PEN" as const }, agencyIds: [branch] };
+      expect(await deliverySettings.saveZones({ expectedVersion: 1, zones: [{ kind: "new", ...fields, options: [agencyOption] }] }, f.context)).toMatchObject({ success: true });
+      expect(await deliverySettings.getCheckoutDeliveryOptions(f.companyId)).toMatchObject({ success: true, data: { settings: { agency: { enabled: true } }, agencyCovered: true } });
+      await prisma.companyCourier.updateMany({ data: { enabled: false } });
+      expect(await deliverySettings.getCheckoutDeliveryOptions(f.companyId)).toMatchObject({ success: true, data: { settings: { agency: { enabled: true } }, agencyCovered: false } });
+    });
+  } finally { await f.cleanup(); await deleteAgencies([branch]); }
+});

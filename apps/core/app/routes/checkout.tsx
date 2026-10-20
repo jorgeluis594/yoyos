@@ -98,12 +98,13 @@ export async function loader({ params }: LoaderFunctionArgs) {
     return response({ checkout: serialize(result.data), payment, appearance: branded, message: null });
   }
   if (result.data.state.kind !== "pending") return response({ checkout: serialize(result.data), appearance: await appearance, message: null });
-  const [settings, branded] = await Promise.all([withTenantIsolation(path.data.companyId, () => deliverySettings.getForCompany(path.data.companyId)), appearance]);
+  const [settings, branded] = await Promise.all([withTenantIsolation(path.data.companyId, () => deliverySettings.getCheckoutDeliveryOptions(path.data.companyId)), appearance]);
   if (!settings.success) {
     bindRequestOperation({ outcome: "technical_failure" });
     throw new Response(retry, { status: 503, headers: privacyHeaders });
   }
-  const options = checkoutDeliveryOptionsSchema.safeParse({ home: settings.data.home, agency: settings.data.agency, store: settings.data.store });
+  const options = checkoutDeliveryOptionsSchema.safeParse({
+    home: settings.data.settings.home, agency: { enabled: settings.data.settings.agency.enabled, covered: settings.data.agencyCovered }, store: settings.data.settings.store });
   if (!options.success) {
     bindRequestOperation({ outcome: "technical_failure" });
     throw new Response(retry, { status: 503, headers: privacyHeaders });
