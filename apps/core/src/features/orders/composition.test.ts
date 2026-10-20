@@ -221,16 +221,16 @@ test("identifies message images through products identifyProductsInImage", async
   } finally { info.mockRestore(); addMessageProductsToOrder.mockReset(); }
 });
 
-test("logs order_cancelled_publish_failed with the order when order_cancelled cannot be published", async () => {
+test("logs order_cancelled_publish_failed with the order number when order_cancelled cannot be published", async () => {
   const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
   const failure = { code: "EVENT_BUS_UNAVAILABLE", message: "Event bus is not ready" } as const;
   const payload = { companyId: context.companyId, orderId: input.id };
   publishEvent.mockResolvedValueOnce(err(failure));
-  cancelOrder.mockImplementationOnce(async (_id, _context, deps) => { await deps.publishOrderCancelled(payload); return ok({ cancelled: true }); });
+  cancelOrder.mockImplementationOnce(async (_id, _context, deps) => { await deps.publishOrderCancelled(payload); return ok({ number: 1001, cancelled: true }); });
   try {
-    expect(await orders.cancel(input.id, context)).toEqual(ok({ cancelled: true }));
+    expect(await orders.cancel(input.id, context)).toEqual(ok({ number: 1001, cancelled: true }));
     expect(publishEvent).toHaveBeenCalledWith("order_cancelled", payload);
-    expect(error).toHaveBeenCalledWith({ event: "order_cancelled_publish_failed", companyId: context.companyId, orderId: input.id,
+    expect(error).toHaveBeenCalledWith({ event: "order_cancelled_publish_failed", companyId: context.companyId, orderId: input.id, orderNumber: 1001,
       errorCode: "EVENT_BUS_UNAVAILABLE", err: failure }, "order_cancelled_publish_failed");
   } finally { error.mockRestore(); cancelOrder.mockReset(); publishEvent.mockReset(); }
 });

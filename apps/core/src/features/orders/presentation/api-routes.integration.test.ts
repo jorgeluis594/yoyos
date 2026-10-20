@@ -919,7 +919,7 @@ test("HTTP cancellation commits and logs a failed publication without restoring 
   expect(publish).toHaveBeenCalledTimes(1);
   expect(logging).toHaveBeenCalledWith(expect.objectContaining({ event: "event_publication_failed", name: "order_cancelled", companyId: seller.companyId, eventId: expect.any(String), errorCode: "EVENT_BUS_UNAVAILABLE" }), "Event publication failed");
   expect(logging.mock.calls.find(([fields]) => (fields as { event: string }).event === "event_publication_failed")?.[0]).not.toHaveProperty("orderId");
-  expect(logging).toHaveBeenCalledWith(expect.objectContaining({ event: "order_cancelled_publish_failed", companyId: seller.companyId, orderId: id, errorCode: "EVENT_BUS_UNAVAILABLE" }), "order_cancelled_publish_failed");
+  expect(logging).toHaveBeenCalledWith(expect.objectContaining({ event: "order_cancelled_publish_failed", companyId: seller.companyId, orderId: id, orderNumber: expect.any(Number), errorCode: "EVENT_BUS_UNAVAILABLE" }), "order_cancelled_publish_failed");
   await withTenantIsolation(seller.companyId, async () => {
     expect(await prisma.order.findUniqueOrThrow({ where: { id } })).toMatchObject({ cancelled: true, stockDeducted: true });
     expect(await prisma.payment.findMany({ where: { orderId: id } })).toEqual(before);

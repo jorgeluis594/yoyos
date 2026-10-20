@@ -1,4 +1,5 @@
 import { applicationEventBus } from "@core/src/composition/event-bus";
+import type { EventBusError } from "@core/src/shared/events/application/contracts";
 import { createCompleteOrder, type CreateCompleteOrderInput, type CreateCompleteOrderError } from "@core/src/features/orders/application/create-complete-order";
 import { enableOrderCheckout, getOrderCheckout, confirmOrderCheckout, confirmCheckoutDelivery, type CheckoutDependencies, type ConfirmOrderCheckoutInput, type ConfirmCheckoutDeliveryInput } from "@core/src/features/orders/application/checkout";
 import { findCheckoutOrder, findCheckoutOrderForUpdate as findAnyCheckoutOrderForUpdate, saveCheckoutEnabled, saveCheckoutBuyer, saveCheckoutConfirmed } from "@core/src/features/orders/infrastructure/checkout-repository";
@@ -75,11 +76,6 @@ const reportTransaction: ReportPaymentDependencies["transaction"] = scopedOrderT
 const voidTransaction: VoidPaymentDependencies["transaction"] = scopedOrderTransaction;
 const immediateTransaction: RegisterImmediateSaleDependencies["transaction"] = scopedOrderTransaction;
 const cancellationTransaction: CancelOrderDependencies["transaction"] = scopedOrderTransaction;
-const publishOrderCancelled: CancelOrderDependencies["publishOrderCancelled"] = async (payload) => {
-  const published = await applicationEventBus().publishEvent("order_cancelled", payload);
-  if (!published.success) log.error({ event: "order_cancelled_publish_failed", companyId: payload.companyId, orderId: payload.orderId, errorCode: published.error.code, err: published.error }, "order_cancelled_publish_failed");
-  return published;
-};
 const fulfillmentTransaction: FulfillOrderDependencies["transaction"] = scopedOrderTransaction;
 const fulfillmentDependencies: FulfillOrderDependencies = { transaction: fulfillmentTransaction, findOrderForUpdate,
   saveFulfillment, clock: () => new Date() };
@@ -309,10 +305,17 @@ export const orders = {
     updateOrderShipping(input, context, { ...fulfillmentDependencies, saveDispatchSchedule } satisfies UpdateOrderShippingDependencies),
   deliver: (id: Parameters<typeof registerDelivery>[0], context: Parameters<typeof registerDelivery>[1]) =>
     registerDelivery(id, context, fulfillmentDependencies),
-  cancel: (id: Parameters<typeof cancelOrder>[0], context: Parameters<typeof cancelOrder>[1]) => {
+  cancel: async (id: Parameters<typeof cancelOrder>[0], context: Parameters<typeof cancelOrder>[1]) => {
     requireNoActiveTransaction();
-    return cancelOrder(id, context, { transaction: cancellationTransaction, findOrderForUpdate, saveCancellation,
-      publishOrderCancelled });
+    let failure: EventBusError | undefined;
+    const publishOrderCancelled: CancelOrderDependencies["publishOrderCancelled"] = async (payload) => {
+      const published = await applicationEventBus().publishEvent("order_cancelled", payload);
+      if (!published.success) failure = published.error;
+      return published;
+    };
+    const result = await cancelOrder(id, context, { transaction: cancellationTransaction, findOrderForUpdate, saveCancellation, publishOrderCancelled });
+    if (failure && result.success) log.error({ event: "order_cancelled_publish_failed", companyId: context.companyId, orderId: id, orderNumber: result.data.number, errorCode: failure.code, err: failure }, "order_cancelled_publish_failed");
+    return result;
   },
   registerImmediateSale: (input: Parameters<typeof registerImmediateSale>[0], context: Parameters<typeof registerImmediateSale>[1]) =>
     registerImmediateSale(input, context, { transaction: immediateTransaction, orderExists,
