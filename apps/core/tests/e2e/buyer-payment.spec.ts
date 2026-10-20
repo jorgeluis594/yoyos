@@ -60,6 +60,9 @@ test("buyer reports a receipt and sees the seller confirmed balance", async ({ p
     expect(opened?.status()).toBe(200);
     await browserExpect(page.getByRole("heading", { name: "Pedido confirmado" })).toBeVisible();
     expect((await request.get(`/pago/${orderId}`, { maxRedirects: 0 })).status()).toBe(404);
+    await page.goto(`/pago/${orderId}`);
+    await browserExpect(page.getByRole("heading", { name: "Página no encontrada" })).toBeVisible();
+    await page.goto(checkoutPath);
     await browserExpect(page.getByRole("radio", { name: "Yape" })).toBeVisible();
     await browserExpect(page.getByRole("img", { name: "Instrucciones de billetera digital" })).toBeVisible();
     await page.getByRole("radio", { name: "Transferencia", exact: true }).check();

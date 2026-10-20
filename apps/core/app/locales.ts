@@ -1,6 +1,7 @@
 import type { Resource } from "i18next";
 
 const es = {
+  notFoundPage: { title: "Página no encontrada", hint: "Revisa el enlace o pide uno nuevo a quien te lo compartió." },
   checkoutPage: { unavailable: "Enlace no disponible", askSeller: "Solicita el enlace al vendedor.", nameRequired: "Ingresa tu nombre.", phoneInvalid: "Ingresa un teléfono con código de país, por ejemplo +51987654321.", loadError: "No se pudo cargar el pedido", loadErrorHint: "Reintenta para consultar el estado actual de tu pedido.", retry: "Reintentar" },
   checkoutQuote: { title: "Entrega por cotizar", hint: "El comprador confirmó sus datos. Confirma el costo para habilitar el pago en su checkout.", cost: "Costo de entrega", invalid: "Ingresa un importe válido, incluso 0 si no hay costo.", charge: "Cobrar la entrega al comprador", error: "No se pudo confirmar el costo. Actualiza el pedido y vuelve a intentarlo.", save: "Confirmar costo y habilitar pago", saving: "Confirmando…" },
   common: { email: "Correo electrónico", password: "Contraseña", name: "Nombre", login: "Iniciar sesión", forgotPassword: "Recuperar contraseña", sending: "Enviando…", retry: "Inténtalo de nuevo.", loading: "Cargando {{caption}}…", noResults: "Sin resultados.", close: "Cerrar" },
@@ -141,6 +142,7 @@ const es = {
 } as const;
 
 const pt = {
+  notFoundPage: { title: "Página não encontrada", hint: "Confira o link ou peça um novo a quem o compartilhou." },
   checkoutPage: { unavailable: "Link indisponível", askSeller: "Peça o link ao vendedor.", nameRequired: "Informe seu nome.", phoneInvalid: "Informe um telefone com código do país, por exemplo +5511987654321.", loadError: "Não foi possível carregar o pedido", loadErrorHint: "Tente novamente para consultar o status atual do seu pedido.", retry: "Tentar novamente" },
   checkoutQuote: { title: "Entrega para cotação", hint: "O comprador confirmou os dados. Confirme o custo para liberar o pagamento no checkout.", cost: "Custo de entrega", invalid: "Informe um valor válido, inclusive 0 se não houver custo.", charge: "Cobrar a entrega do comprador", error: "Não foi possível confirmar o custo. Atualize o pedido e tente novamente.", save: "Confirmar custo e liberar pagamento", saving: "Confirmando…" },
   common: { email: "E-mail", password: "Senha", name: "Nome", login: "Entrar", forgotPassword: "Recuperar senha", sending: "Enviando…", retry: "Tente novamente.", loading: "Carregando {{caption}}…", noResults: "Nenhum resultado.", close: "Fechar" },

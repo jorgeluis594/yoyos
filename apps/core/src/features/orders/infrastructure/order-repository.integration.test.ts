@@ -90,6 +90,8 @@ test("reports a company receipt once without changing coverage or stock", async 
       await orders.create({ id: orderId, 
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] },
       { companyId: access.companyId, userId: f.sellerId as UserId });
+      await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: new Date(), checkoutConfirmedAt: new Date(),
+        buyer: { create: { name: "Ana", phone: "+51987654321" } } } });
       const input = { paymentId, receiptImageId };
       expect(await orders.reportPayment(input, access)).toMatchObject({ success: false, error: { code: "RECEIPT_NOT_FOUND" } });
       await prisma.image.create({ data: { id: receiptImageId, storageKey: `test/${receiptImageId}` } });
@@ -117,6 +119,8 @@ test("confirms a report and voids a delivered payment without changing stock or 
       const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
       await orders.create({ id: orderId, 
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] }, context);
+      await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: new Date(), checkoutConfirmedAt: new Date(),
+        buyer: { create: { name: "Ana", phone: "+51987654321" } } } });
       await prisma.image.create({ data: { id: receiptImageId, storageKey: `test/${receiptImageId}` } });
       const access = { kind: "buyer" as const, companyId: context.companyId, orderId };
       expect(await orders.reportPayment({ paymentId, receiptImageId }, access)).toMatchObject({ success: true });

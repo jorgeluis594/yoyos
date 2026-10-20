@@ -52,4 +52,5 @@ export default [
       route("settings/catalog", "routes/catalog-settings.tsx", { id: "localized-catalog-settings" }),
     ]),
   ]),
+  route("*", "routes/not-found.tsx"),
 ] satisfies RouteConfig;
