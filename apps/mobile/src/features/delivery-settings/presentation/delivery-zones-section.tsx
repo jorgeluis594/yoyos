@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { StyleSheet, Switch, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
@@ -48,6 +48,10 @@ export const hasEligibleAgency = (option: ZoneOption, state: DeliveryZonesRespon
     return !!agency?.enabled && couriers.some(courier => courier.courierId === agency.courierId && courier.enabled);
   });
 
+/** A method that is on but has no active option in an active zone (agency: with an eligible agency) cannot be quoted. */
+export const lacksCoverage = (method: "home" | "agency", state: DeliveryZonesResponse, couriers: readonly (AgencyCourier & Readonly<{ enabled: boolean }>)[]) => state[method].enabled &&
+  !state.zones.some(zone => zone.enabled && zone.options.some(option => option.enabled && option.method === method && (method === "home" || hasEligibleAgency(option, state, couriers))));
+
 export function DeliveryZonesSection({ state, couriers, catalog, loadAgencies, disabled, blocked, onSave, onReload }: Readonly<{
   state: DeliveryZonesResponse; couriers: readonly (AgencyCourier & Readonly<{ enabled: boolean }>)[]; disabled: boolean; blocked: boolean;
   catalog: CourierCatalogResponse["couriers"];
@@ -61,7 +65,15 @@ export function DeliveryZonesSection({ state, couriers, catalog, loadAgencies, d
   const [draft, setDraft] = useState<Draft>(empty);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  // The zone as it was when editing started, to notice that someone else changed it under the draft.
+  const [baseline, setBaseline] = useState<string | undefined>();
   const zones = state.zones;
+  const zoneChanged = typeof editing === "string" && JSON.stringify(zones.find(zone => zone.id === editing)) !== baseline;
+  const wasBlocked = useRef(blocked);
+  useEffect(() => { // a reload clears the conflict notice but keeps the draft
+    if (wasBlocked.current && !blocked) setError("");
+    wasBlocked.current = blocked;
+  }, [blocked]);
   const save = async (toggle?: string) => {
     if (disabled || blocked) return;
     const parsed = toggle ? null : draftSchema.safeParse(draft);
@@ -86,15 +98,13 @@ export function DeliveryZonesSection({ state, couriers, catalog, loadAgencies, d
   return <View testID="delivery-zones" style={styles.section}>
     <ThemedText type="subtitle" accessibilityRole="header">{t("zonesTitle")}</ThemedText>
     <ThemedText type="small" themeColor="textSecondary">{t("zonesHint")}</ThemedText>
-    {(["home", "agency"] as const).filter(method => state[method].enabled && !zones.some(zone => zone.enabled && zone.options.some(option => option.enabled && option.method === method))).map(method =>
-      <ThemedText key={method} type="small" themeColor="textSecondary" accessibilityLiveRegion="polite">{t(method === "home" ? "zonesMissingHome" : "zonesMissingAgency")}</ThemedText>)}
     {zones.length === 0 ? <ThemedText themeColor="textSecondary">{t("zonesEmpty")}</ThemedText> : null}
     {zones.map(zone => <View key={zone.id} style={[styles.zone, { borderColor: theme.input }]}>
       <ThemedText style={styles.name}>{zone.name}</ThemedText>
       <ThemedText type="small" themeColor="textSecondary">{zone.districtCodes.map(code => `${getPeruDistrict(code)?.name} · ${code}`).join(", ")}</ThemedText>
       {zone.options.map(option => <ThemedText key={option.id} type="small">{`${option.name} · ${t(option.method === "home" ? "optionHome" : "optionAgency")} · ${option.price.amount === 0 ? t("zonesFree") : `S/ ${option.price.amount.toFixed(2)}`}${option.enabled ? "" : ` · ${t("optionInactive")}`}${option.method === "agency" && !hasEligibleAgency(option, state, couriers) ? ` · ${t("optionNoEligibleAgencies")}` : ""}`}</ThemedText>)}
       <ThemedText type="small">{t(zone.enabled ? "zonesActive" : "zonesInactive")}</ThemedText>
-      <Button variant="secondary" disabled={locked} onPress={() => { setDraft({ name: zone.name, enabled: zone.enabled, districtCodes: zone.districtCodes, options: zone.options.map(optionDraft) }); setEditing(zone.id); setSaved(false); setError(""); }}>{t("zonesEdit", { name: zone.name })}</Button>
+      <Button variant="secondary" disabled={locked} onPress={() => { setDraft({ name: zone.name, enabled: zone.enabled, districtCodes: zone.districtCodes, options: zone.options.map(optionDraft) }); setEditing(zone.id); setBaseline(JSON.stringify(zone)); setSaved(false); setError(""); }}>{t("zonesEdit", { name: zone.name })}</Button>
       <Button variant="ghost" disabled={locked || editing !== undefined} onPress={() => void save(zone.id)}>{t(zone.enabled ? "zonesDisable" : "zonesEnable", { name: zone.name })}</Button>
     </View>)}
     {editing === undefined ? <Button variant="secondary" disabled={locked} onPress={() => { setDraft(empty); setEditing(null); setSaved(false); setError(""); }}>{t("zonesAdd")}</Button> :
@@ -117,6 +127,7 @@ export function DeliveryZonesSection({ state, couriers, catalog, loadAgencies, d
         </View>)}
         <Button variant="secondary" disabled={locked} onPress={() => setDraft({ ...draft, options: [...draft.options, { kind: "new", localKey: nextKey(draft.options), method: "home", name: "", amount: "", enabled: true }] })}>{t("optionAddHome")}</Button>
         {state.agency.enabled ? <Button variant="secondary" disabled={locked} onPress={() => setDraft({ ...draft, options: [...draft.options, { kind: "new", localKey: nextKey(draft.options), method: "agency", agencyIds: [], name: "", amount: "", enabled: true }] })}>{t("optionAddAgency")}</Button> : null}
+        {zoneChanged ? <ThemedText type="small" accessibilityRole="alert">{t("zonesChanged")}</ThemedText> : null}
         <Button disabled={locked} loading={disabled} onPress={() => void save()}>{t("zonesSave")}</Button>
         <Button variant="ghost" disabled={locked} onPress={() => { setDraft(empty); setEditing(undefined); setError(""); }}>{t("zonesCancel")}</Button>
       </View>}
