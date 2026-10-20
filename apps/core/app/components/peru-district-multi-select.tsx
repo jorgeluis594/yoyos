@@ -61,6 +61,6 @@ export function PeruDistrictMultiSelect({ value, onChange, disabled = false }: R
       </Combobox>
     </div>
     <p className="text-sm"><span className="font-medium">{t("peruDistrict.selected", { count: peruAreaDistricts(value).length })}</span>
-      {peruAreaEntries(value).length > 0 && <span className="text-muted-foreground">: {zoneEntries(value)}</span>}</p>
+      {peruAreaEntries(value).length > 0 && <span className="text-muted-foreground">: {zoneEntries(value, t)}</span>}</p>
   </fieldset>;
 }

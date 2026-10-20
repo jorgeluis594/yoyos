@@ -11,8 +11,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@core/app/components/u
 import { Checkbox } from "@core/app/components/ui/checkbox";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { PeruDistrictMultiSelect } from "@core/app/components/peru-district-multi-select";
-import { parsePeruAreaSelection, type PeruAreaSelection } from "@shared/peru-geography";
-import { zoneEntries, zoneOverlaps } from "@core/app/components/zone-entries";
+import { parsePeruAreaSelection } from "@shared/peru-geography";
+import { toSelection, zoneEntries, zoneOverlaps } from "@core/app/components/zone-entries";
 import { parseDeliveryPrice } from "@core/src/features/delivery-settings/domain/delivery-price";
 import type { CourierCatalogResponse, DeliverySettingsResponse, DeliveryZonesResponse, SaveDeliveryZonesRequest } from "@shared/contracts/delivery-settings";
 import { formatCurrency } from "@core/app/format-currency";
@@ -77,7 +77,7 @@ export function DeliveryZonesSection({ state, couriers, catalog, pending, error,
   state: DeliveryZonesResponse; couriers: readonly Courier[]; catalog: CourierCatalogResponse["couriers"]; pending: boolean; error?: string; saved?: DeliveryZonesResponse;
   onSave: (request: SaveDeliveryZonesRequest) => void; onReload: () => void;
 }>) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const id = useId();
   // `baseline` is the zone as it was when editing started, to notice that someone else changed it under the draft.
   const [editor, setEditor] = useState<{ id: string | null; saved: DeliveryZonesResponse | undefined; baseline: Zone | null }>();
@@ -113,7 +113,7 @@ export function DeliveryZonesSection({ state, couriers, catalog, pending, error,
     {zones.length === 0 && <FieldDescription>{t("deliveryZones.empty")}</FieldDescription>}
     <ul className="divide-y divide-border">{zones.map(zone => <li key={zone.id} className="flex min-w-0 flex-col gap-2 py-4">
       <strong className="break-words">{zone.name}</strong>
-      <p className="break-words text-sm text-muted-foreground">{zoneEntries(zone)}</p>
+      <p className="break-words text-sm text-muted-foreground">{zoneEntries(zone, t)}</p>
       <p className="text-sm">{t(zone.enabled ? "deliverySettings.active" : "deliverySettings.inactive")}</p>
       {zone.options.length === 0 && <p className="text-sm text-muted-foreground">{t("deliveryZones.noOptions")}</p>}
       <ul className="flex flex-col gap-1">{zone.options.map(option => <li key={option.id} className="flex flex-wrap justify-between gap-2 text-sm">
@@ -134,7 +134,7 @@ export function DeliveryZonesSection({ state, couriers, catalog, pending, error,
           {fieldState.error && <FieldError>{t("deliveryZones.invalidName")}</FieldError>}
         </Field>} />
         <Controller name="districtCodes" control={form.control} render={({ field, fieldState }) => <Field>
-          <PeruDistrictMultiSelect value={area as unknown as PeruAreaSelection} onChange={selection => {
+          <PeruDistrictMultiSelect value={toSelection(area)} onChange={selection => {
             // Validate right away only after a failed save attempt, as the other fields do.
             const options = { shouldDirty: true, shouldValidate: form.formState.isSubmitted };
             form.setValue("departmentCodes", [...selection.departmentCodes], options); form.setValue("provinceCodes", [...selection.provinceCodes], options);
@@ -192,8 +192,8 @@ export function DeliveryZonesSection({ state, couriers, catalog, pending, error,
           </div>
           {catalog.length === 0 && <FieldDescription>{t("deliveryZones.noCatalog")}</FieldDescription>}
         </div>
-        {overlaps.length > 0 && <Alert variant="info"><AlertDescription>{t("deliveryZones.overlap", { list: [t("deliveryZones.overlapFirst", { count: overlaps[0]!.count, name: overlaps[0]!.name }),
-          ...overlaps.slice(1).map(overlap => t("deliveryZones.overlapRest", overlap))].join(", ").replace(/, ([^,]*)$/, " y $1"),
+        {overlaps.length > 0 && <Alert variant="info"><AlertDescription>{t("deliveryZones.overlap", {
+          list: new Intl.ListFormat(i18n.language, { type: "conjunction" }).format(overlaps.map((overlap, index) => t(index === 0 ? "deliveryZones.overlapFirst" : "deliveryZones.overlapRest", overlap))),
           all: t(overlaps.length > 1 ? "deliveryZones.overlapAll" : "deliveryZones.overlapBoth") })}</AlertDescription></Alert>}
         {zoneChanged && <Alert><AlertDescription>{t("deliveryZones.zoneChanged")}</AlertDescription></Alert>}
         <div className="flex flex-wrap gap-3"><Button type="button" disabled={pending || blocked} onClick={form.handleSubmit(draft => write(draft))}>{t(pending ? "deliverySettings.saving" : "deliveryZones.save")}</Button>

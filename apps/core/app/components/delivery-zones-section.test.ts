@@ -1,8 +1,12 @@
+import { createInstance } from "i18next";
 import { expect, test } from "vitest";
+import resources from "@core/app/locales";
 import { courierOptionName, lacksCoverage, uniqueOptionName, zoneDraftSchema } from "@core/app/components/delivery-zones-section";
 import { zoneEntries, zoneOverlaps } from "@core/app/components/zone-entries";
 import type { DeliveryZonesResponse } from "@shared/contracts/delivery-settings";
 
+const i18n = createInstance();
+await i18n.init({ lng: "es", resources });
 const option = { method: "home", name: "Standard", amount: "0", enabled: true, agencyIds: [] };
 
 test("zone draft requires unique official districts, options with explicit prices and agency options with agencies, while accepting free delivery", () => {
@@ -57,10 +61,10 @@ test("a method without an active option in an active zone lacks coverage, and an
 const selection = (departmentCodes: string[], provinceCodes: string[], districtCodes: string[]) => ({ departmentCodes, provinceCodes, districtCodes }) as never;
 
 test("delivery zones section lists whole departments as one entry separated by semicolons", () => {
-  expect(zoneEntries(selection(["04", "08"], [], []))).toBe("Arequipa, todos los distritos; Cusco, todos los distritos");
-  expect(zoneEntries(selection([], ["1501"], []))).toBe("Lima (provincia), todos los distritos");
-  expect(zoneEntries(selection(["04"], ["1501"], ["150122", "150131"]))).toBe("Arequipa, todos los distritos; Lima (provincia), todos los distritos; Miraflores · 150122; San Isidro · 150131");
-  expect(zoneEntries(selection([], [], ["150122", "150131"]))).toBe("Miraflores · 150122; San Isidro · 150131");
+  expect(zoneEntries(selection(["04", "08"], [], []), i18n.t)).toBe("Arequipa, todos los distritos; Cusco, todos los distritos");
+  expect(zoneEntries(selection([], ["1501"], []), i18n.t)).toBe("Lima (provincia), todos los distritos");
+  expect(zoneEntries(selection(["04"], ["1501"], ["150201", "080102"]), i18n.t)).toBe("Arequipa, todos los distritos; Lima (provincia), todos los distritos; Barranca · 150201; Ccorca · 080102");
+  expect(zoneEntries(selection([], [], ["150122", "150131"]), i18n.t)).toBe("Miraflores · 150122; San Isidro · 150131");
 });
 
 test("zone overlap counts shared districts with each other enabled zone and ignores disabled ones", () => {
