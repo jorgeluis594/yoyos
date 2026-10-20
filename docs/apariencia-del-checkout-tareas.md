@@ -2,7 +2,7 @@
 
 Plan de trabajo del [diseño técnico](apariencia-del-checkout-implementacion.md), que define cada pieza citada aquí (las referencias numéricas, como 10.3 o 12.1, son secciones de ese documento). La especificación de producto está en [apariencia-del-checkout.md](apariencia-del-checkout.md).
 
-Son seis tareas. Cada una entrega un flujo completo que se puede probar de punta a punta, no una capa suelta. T0 construye la base (persistencia, dominio y catálogo de colores) y desbloquea al resto; T1 no depende de nada; T2, T3 y T4 avanzan en paralelo; T5 cierra el lanzamiento.
+Las tareas T6 y T7 del [ajuste del 19 de octubre de 2026](#ajuste-del-19-de-octubre-de-2026--fondos-con-tono-y-paleta-por-color) están al final. La primera versión tuvo seis tareas. Cada una entrega un flujo completo que se puede probar de punta a punta, no una capa suelta. T0 construye la base (persistencia, dominio y catálogo de colores) y desbloquea al resto; T1 no depende de nada; T2, T3 y T4 avanzan en paralelo; T5 cierra el lanzamiento.
 
 ```mermaid
 flowchart LR
@@ -218,3 +218,84 @@ T3 y T4 se encuentran en un solo punto: el editor renderiza `<CheckoutPreviewFra
 
     Se marca cuando el equipo que despliega adjunte, por ruta, el nombre de transacción visto en New Relic y una línea de log con `route`, `operation` y `outcome`. Si alguna ruta aparece como `/{*splat}`, se abre una tarea de corrección; T5 no la arregla.
 - [ ] El recorrido del flujo se completa en celular y escritorio, en claro y oscuro.
+
+## Ajuste del 19 de octubre de 2026 · Fondos con tono y paleta por color
+
+**Estado:** pendiente. Diseño: [§15 del diseño técnico](apariencia-del-checkout-implementacion.md#15-ajuste-fondos-con-tono-y-paleta-por-color). Producto: [apariencia-del-checkout.md](apariencia-del-checkout.md) (Todoist 6hpQqCf4X2RX2fr3).
+
+Dos tareas secuenciales en el mismo worktree. T6 renombra los fondos y deja el editor con las opciones nuevas, con los colores de hoy. T7 construye las paletas y su prueba de contraste. Van en este orden porque T7 reescribe `checkout-colors.ts` sobre los identificadores que deja T6. No dependen de 6hpQ6v6PCQ55pgM3 (checkout con agencias), que no cambia la apariencia.
+
+```mermaid
+flowchart LR
+  T6[T6 · Fondos Suave y Medio] --> T7[T7 · Paleta por color y contraste]
+```
+
+| Tarea | Flujo que se puede probar | Depende de |
+| --- | --- | --- |
+| T6 | Una empresa con Blanco o Neutro guardado abre su editor y ve «Suave» o «Medio» seleccionado; su checkout carga igual que antes | — |
+| T7 | Al elegir Océano, cambian fondo, bordes, campos, zonas atenuadas y textos secundarios del checkout y de la vista previa; el catálogo público sigue igual | T6 |
+
+## T6 · Fondos Suave y Medio
+
+**Flujo:** un vendedor que tenía Ciruela con Blanco abre el editor y ve Ciruela con «Suave» seleccionado y su línea de ayuda; guarda Medio y la base registra `medium`.
+
+**Alcance**
+
+- `schema.prisma` y la migración `rename_checkout_backgrounds` con los dos `ALTER TYPE … RENAME VALUE`, según `.agents/skills/database-migrations/SKILL.md` y [§15.5](apariencia-del-checkout-implementacion.md#155-identificadores-de-fondo-y-migración).
+- Dominio: `checkoutBackgrounds = ["soft", "medium", "brand_tint"]` y `defaultCheckoutAppearance` con `medium`. `checkoutPalette` conserva su comportamiento con los identificadores nuevos (`soft` = antiguo Blanco, `medium` = antiguo Neutro).
+- `checkout-appearance-schemas.ts`: `background` usa `z.enum(checkoutBackgrounds)`.
+- Editor y textos según [§15.8](apariencia-del-checkout-implementacion.md#158-editor-vista-previa-y-stories): etiquetas Suave/Medio/De marca (pt: Suave/Médio/Da marca) y una línea de ayuda para la opción activa.
+- `backgroundNames` de `checkout-theme.stories.tsx`.
+- Literales `white`/`neutral` de tests unitarios, de integración y E2E, y fixtures (`tests/e2e/checkout-appearance-fixtures.ts`).
+- Tests nuevos: `uses Yoyos with Medio as the default appearance`, `rejects the former white identifier at the database` y E2E `names the chosen color in the help line of each background`.
+
+**Fuera de alcance**
+
+- Tonos, paleta, `CheckoutTheme` y catálogo público (T7). En T6 el checkout y el catálogo se ven exactamente como antes.
+- `app/components/ui/radio-group.stories.tsx`.
+
+**Criterios de aceptación**
+
+- [ ] Con filas de desarrollo `white` y `neutral` creadas antes de migrar, tras `prisma migrate dev` se leen como `soft` y `medium`, el editor muestra «Suave» y «Medio», y el checkout carga sin `invalid_stored_checkout_appearance`.
+- [ ] La migración solo contiene los dos `RENAME VALUE`, y `prisma migrate diff` entre migraciones y esquema no reporta diferencias.
+- [ ] Con Bosque y Medio, la línea dice «Usa un fondo claro de Bosque. En modo oscuro cambia solo»; con Suave y De marca, sus textos de [§15.8](apariencia-del-checkout-implementacion.md#158-editor-vista-previa-y-stories).
+- [ ] **Restablecer apariencia** deja Yoyos con «Medio»; al guardar, la base registra `medium`.
+- [ ] Ningún archivo de `apps/core` fuera de `radio-group.stories.tsx` contiene `"white"` ni `"neutral"` como fondo, ni las claves `backgroundWhite`/`backgroundNeutral`.
+- [ ] El layout del editor no cambia, salvo la línea de ayuda, que ahora aparece con cualquier fondo.
+- [ ] Pasan `typecheck`, `lint`, los unitarios y de integración de checkout-appearance y las E2E `checkout-appearance*.spec.ts`.
+
+**Depende de:** nada.
+
+## T7 · Paleta por color y contraste
+
+**Flujo:** el vendedor cambia de Yoyos a Océano. En la vista previa y, tras guardar, en el checkout real, en claro y en oscuro, cambian el fondo, los bordes de tarjetas, cabecera y separadores, los bordes de campos, el foco, las zonas atenuadas y los textos secundarios. El catálogo público de la empresa se ve como antes.
+
+**Alcance**
+
+- `domain/checkout-colors.ts` según [§15.6](apariencia-del-checkout-implementacion.md#156-paleta-por-color):
+  - renombrar los tipos actuales a `CatalogTokens`, `CatalogPalette` y `catalogPalette`, sin cambiar sus valores;
+  - añadir `CheckoutPaletteTones`, `checkoutTokenNames`, `CheckoutTokens`, `CheckoutPalette`, `checkoutColorPalettes` (Yoyos desde `design-tokens.json` más su Suave y De marca; los otros ocho con la tabla del criterio) y el nuevo `checkoutPalette`.
+- `CheckoutTheme` y `checkoutThemeCss` con `surface`; `CatalogShell` pasa `surface="catalog"` ([§15.7](apariencia-del-checkout-implementacion.md#157-tema-y-catálogo-público)).
+- Reescribir `domain/checkout-colors.test.ts` y añadir los tests de `checkout-theme.test.tsx`, `catalog-sections.test.tsx` y E2E de [§15.9](apariencia-del-checkout-implementacion.md#159-pruebas).
+- Revisión visual con Impeccable: historias de los nueve colores × tres fondos en claro y oscuro, comparadas lado a lado, y el checkout real con al menos Océano y Mostaza. Resolver los hallazgos materiales ajustando tonos dentro del criterio y actualizar el registro de superficie.
+- Actualizar el estado de [§15](apariencia-del-checkout-implementacion.md#15-ajuste-fondos-con-tono-y-paleta-por-color) y de este bloque al terminar.
+
+**Fuera de alcance**
+
+- Layout, componentes y clases del checkout, salvo sustituir un color literal por su token si la revisión lo encuentra.
+- Panel privado, catálogo público y colores semánticos.
+- Generadores de paleta en el repositorio o conversión de color en tiempo de ejecución.
+
+**Criterios de aceptación**
+
+- [ ] Con Océano y Medio en la vista previa y en un enlace ya compartido tras guardar, ningún borde de tarjeta, cabecera, separador o campo usa `#DCD4C9` ni `#484249`, en claro y oscuro.
+- [ ] Una empresa sin apariencia, o con Yoyos y Medio, ve en claro el fondo `#F7F4EF` y los bordes, campos y textos con los mismos valores de `design-tokens.json` que antes del ajuste.
+- [ ] Con Terracota, Suave, Medio y De marca son tres fondos distintos con matiz terracota, ninguno `#FFFFFF`, en claro y oscuro.
+- [ ] El test de contraste recorre las 54 variantes; al cambiar a mano un `muted-foreground` por uno que no llega a 4,5:1, el test falla y su título nombra color, fondo y modo, y el mensaje nombra el elemento.
+- [ ] Los ocho colores no Yoyos pasan los tests de construcción (luminosidad ±0,02 y matiz ±20° de la tabla) con los mismos umbrales para todos.
+- [ ] Con Bosque y Suave guardados, el catálogo público muestra fondo `#FFFFFF` en claro, bordes `#DCD4C9` y el botón `#2F6B4F`.
+- [ ] Las historias de `checkout-theme.stories.tsx` muestran Suave, Medio y De marca por color y modo, y la revisión de Impeccable queda registrada sin hallazgos materiales abiertos.
+- [ ] Capturas antes y después del checkout en celular y escritorio muestran las mismas posiciones y tamaños; solo cambian colores.
+- [ ] Pasan `typecheck`, `lint`, los unitarios de checkout-appearance (dominio, tema, vista previa), la integración del repositorio y las E2E `checkout-appearance*.spec.ts` y `public-catalog.spec.ts`.
+
+**Depende de:** T6.

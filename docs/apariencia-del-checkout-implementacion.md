@@ -1,8 +1,8 @@
 # Apariencia del checkout · Diseño técnico
 
-Complementa la [definición de producto](apariencia-del-checkout.md). Fecha: 9 de octubre de 2026; actualizado el 10 de octubre de 2026 para usar colores predefinidos en lugar de un color HEX libre.
+Complementa la [definición de producto](apariencia-del-checkout.md). Fecha: 9 de octubre de 2026; actualizado el 10 de octubre de 2026 para usar colores predefinidos en lugar de un color HEX libre, y el 19 de octubre de 2026 con fondos con tono propio y una paleta completa por color ([§15](#15-ajuste-fondos-con-tono-y-paleta-por-color)).
 
-**Estado:** diseño definido; nada construido todavía (ver [Estado](#estado)).
+**Estado:** primera versión construida (T0–T5). Ajuste del 19 de octubre de 2026: diseño cerrado, pendiente de implementación (T6–T7, ver [Estado](#estado)).
 
 Se entrega en **un solo lanzamiento**: el editor, la apariencia pública y la retirada de la página `/pago/:orderId` salen juntos. Se construye con las tareas de [apariencia-del-checkout-tareas.md](apariencia-del-checkout-tareas.md), pensadas para trabajarse en paralelo.
 
@@ -283,8 +283,8 @@ enum CheckoutBrandColor {
 }
 
 enum CheckoutBackground {
-  white
-  neutral
+  soft
+  medium
   brand_tint
 }
 
@@ -322,7 +322,7 @@ CREATE POLICY company_checkout_appearance_isolation ON "CompanyCheckoutAppearanc
 | Solo colores y fondos del catálogo | Enums `CheckoutBrandColor` y `CheckoutBackground` |
 | La apariencia se borra con la empresa | `ON DELETE CASCADE` |
 
-La migración no bloquea tablas existentes: crea una tabla y dos enums nuevos, y solo añade una FK hacia `Image` desde esa tabla vacía. No toca datos.
+La migración no bloquea tablas existentes: crea una tabla y dos enums nuevos, y solo añade una FK hacia `Image` desde esa tabla vacía. No toca datos. Los valores `white` y `neutral` del enum se renombran a `soft` y `medium` en la migración `rename_checkout_backgrounds` ([§15.5](#155-identificadores-de-fondo-y-migración)).
 
 ### 4.4 Ciclo de vida de la fila
 
@@ -347,7 +347,8 @@ export type ImageId = string & { readonly __brand: "ImageId" };
 export type HexColor = string & { readonly __brand: "HexColor" };   // solo para los tonos del catálogo
 export const checkoutBrandColors = ["yoyos", "forest", "petrol", "ocean", "plum", "raspberry", "terracotta", "mustard", "graphite"] as const;
 export type CheckoutBrandColor = (typeof checkoutBrandColors)[number];
-export type CheckoutBackground = "white" | "neutral" | "brand_tint";
+export const checkoutBackgrounds = ["soft", "medium", "brand_tint"] as const;   // Suave, Medio, De marca
+export type CheckoutBackground = (typeof checkoutBackgrounds)[number];
 
 export type CheckoutAppearance = Readonly<{
   logoImageId: ImageId | null;
@@ -357,13 +358,15 @@ export type CheckoutAppearance = Readonly<{
 
 export type CheckoutAppearanceError = Readonly<{ code: "INVALID_CHECKOUT_APPEARANCE"; message: string }>;
 
-export const defaultCheckoutAppearance: CheckoutAppearance; // sin logo, "yoyos", "neutral"
+export const defaultCheckoutAppearance: CheckoutAppearance; // sin logo, "yoyos", "medium"
 export function parseCheckoutAppearance(value: unknown): Result<CheckoutAppearance, CheckoutAppearanceError>;
 ```
 
 `parseCheckoutAppearance` es la única forma de construir un `CheckoutAppearance` a partir de datos externos: valida que el color y el fondo pertenezcan al catálogo y aplica los *brands*; no acepta HEX. Se usa en dos puntos: al entrar al caso de uso y al leer una fila de la base, que también es un dato externo al proceso. `HexColor` solo tipa las constantes del catálogo, escritas en el código.
 
 ### 5.2 Catálogo de colores
+
+Desde el ajuste del 19 de octubre, este catálogo de ocho tonos es el que usa el **catálogo público** (congelado) y el que da nombre y muestra a cada color en el editor. El checkout usa la paleta completa de [§15.6](#156-paleta-por-color). Los tipos y la función de esta sección se renombran a `CatalogTokens`, `CatalogPalette` y `catalogPalette`, sin cambiar sus valores.
 
 ```ts
 export type CheckoutTokens = Readonly<{
@@ -377,7 +380,7 @@ export const checkoutBrandColorCatalog: Readonly<Record<CheckoutBrandColor, Bran
 export function checkoutPalette(brandColor: CheckoutBrandColor, background: CheckoutBackground): CheckoutPalette;
 ```
 
-Las claves coinciden con `docs/design-tokens.json`. El checkout ya usa `bg-primary`, `text-primary`, `ring` y `bg-accent`, así que no hace falta cambiar sus clases. No se tocan `card`, `border`, `input`, `muted*` ni los colores semánticos (`success`, `warning`, `error`, `destructive`).
+Las claves coinciden con `docs/design-tokens.json`. Este catálogo no toca `card`, `border`, `input`, `muted*` ni los colores semánticos; la paleta del checkout sí redefine los no semánticos ([§15.6](#156-paleta-por-color)).
 
 **Catálogo.** Cada color define a mano todos sus tokens en ambos modos. Los cuatro tonos base son los de la [definición de producto](apariencia-del-checkout.md#colores-disponibles):
 
@@ -401,7 +404,7 @@ El resto de tokens se fija en T0 con estas reglas, y los tests del catálogo las
 - **`accent`:** superficie de selección clara (claro) u oscura (oscuro) del tono de la marca; **`accent-foreground`:** un tono de la marca con 4,5:1 sobre `accent`.
 - **`primary` como texto:** se usa también en enlaces e iconos, así que debe alcanzar 4,5:1 contra `card`, `background` del sistema y su `brand-background`.
 
-`checkoutPalette` resuelve el fondo de cada modo: Blanco es `#FFFFFF` en claro; Neutro, el `background` del sistema; De marca (`brand_tint`), el `brand-background` del color. En oscuro, Blanco y Neutro usan el `background` oscuro del sistema.
+`catalogPalette` (el antiguo `checkoutPalette`) resuelve el fondo del catálogo público como antes del ajuste: Suave (`soft`) es `#FFFFFF` en claro; Medio (`medium`), el `background` del sistema; De marca (`brand_tint`), el `brand-background` de esta tabla. En oscuro, Suave y Medio usan el `background` oscuro del sistema.
 
 `checkoutBrandColorCatalog` es la única fuente de tonos. No hay conversión de espacios de color ni ajuste en tiempo de ejecución; el cálculo de contraste solo existe en los tests.
 
@@ -416,7 +419,7 @@ Solo hay esquemas donde hay una frontera JSON que no cubre el dominio:
 export const publicCheckoutAppearanceSchema = z.strictObject({
   logoUrl: z.url({ protocol: /^https?$/ }).nullable(),
   brandColor: z.enum(checkoutBrandColors),
-  background: z.enum(["white", "neutral", "brand_tint"]),
+  background: z.enum(checkoutBackgrounds),
 });
 
 // Editor → iframe de vista previa
@@ -516,8 +519,8 @@ Se reutiliza `POST /api/images` sin cambios:
 type CheckoutThemeProps = Readonly<{ appearance: PublicCheckoutAppearance | null; children: ReactNode }>;
 ```
 
-- Con `appearance === null` no emite estilos: el checkout se ve exactamente como hoy.
-- En otro caso, obtiene `checkoutPalette(brandColor, background)` y renderiza:
+- Con `appearance === null` no emite estilos: el checkout se ve con los tokens globales, que son la paleta Yoyos con fondo Medio.
+- En otro caso, obtiene `checkoutPalette(brandColor, background)` (o `catalogPalette` con `surface="catalog"`, [§15.7](#157-tema-y-catálogo-público)) y renderiza:
 
   ```html
   <style>[data-checkout-theme="…"]{--primary:#…;…}.dark [data-checkout-theme="…"]{--primary:#…;…}</style>
@@ -597,7 +600,7 @@ const canSave = dirty && activity.kind === "idle";
 
 - **Color:** una fila con una sola muestra del modo activo en la vista previa (`light.primary` o `dark.primary`), el nombre del color, «Tono para modo claro/oscuro» y «Cambiar». Abre `<BrandColorDialog>`.
 - **Diálogo de colores:** `role="dialog"` con título «Elige el color de tu marca»; cuadrícula de 3 × 3 implementada como `radiogroup`, con una muestra del modo activo y el nombre por opción, y «Predeterminado» en Yoyos. La opción marcada lleva borde e icono de verificación. Mantiene su propia selección hasta «Usar <color>», que actualiza `draft.appearance.brandColor`; «Cancelar», cerrar y Escape la descartan. Foco inicial en la opción actual, flechas para moverse, devolución del foco a la fila al cerrar.
-- **Fondo:** control segmentado Blanco / Neutro / De marca. Con De marca, la ayuda nombra el color elegido.
+- **Fondo:** control segmentado Suave / Medio / De marca. Debajo, una línea de ayuda por opción nombra el color elegido ([§15.8](#158-editor-vista-previa-y-stories)).
 - **Subida:** `POST /api/images`; si sale bien, se actualizan `draft.logoUrl` y `logoImageId`.
 - **Guardar:** `fetcher.submit(appearance, { method: "post", encType: "application/json" })`. Al terminar muestra «Apariencia actualizada», y lo guardado pasa a ser la nueva versión publicada.
 - **Descartar:** borrador = publicado. **Restablecer:** borrador = `defaultCheckoutAppearance`; hace falta guardar para publicarlo.
@@ -670,6 +673,8 @@ Las tareas, pensadas para trabajarse en paralelo, están en [apariencia-del-chec
 Un `test` por comportamiento. Los casos marcados con *(matriz)* se repiten para cada color del catálogo × fondo × modo.
 
 ### `domain/checkout-colors.test.ts`
+
+Reemplazado por las pruebas de [§15.9](#159-pruebas) en T7. Lo que sigue es la versión construida en T0.
 
 ```ts
 describe("catalog")
@@ -847,8 +852,280 @@ describe("legacy payment link")
   test("shows the generic error for an unknown payment link")
 ```
 
+## 15. Ajuste: fondos con tono y paleta por color
+
+**Estado:** diseño cerrado, pendiente de implementación. Parte de la [definición de producto](apariencia-del-checkout.md) cerrada en `4db4d522` (Todoist 6hpQqCf4X2RX2fr3, decisiones del CTO del 19 de octubre de 2026). Base: `main` en `c5563e16`. Tareas: T6 y T7 de [apariencia-del-checkout-tareas.md](apariencia-del-checkout-tareas.md#t6--fondos-suave-y-medio).
+
+### 15.1 Objetivo técnico
+
+Al terminar, `CheckoutTheme` redefine en el checkout y en la vista previa todos los tokens de color no semánticos que usan sus componentes, tomados de la paleta del color elegido, en claro y en oscuro. Los fondos Blanco y Neutro pasan a ser Suave y Medio, dos tonos de esa paleta, con sus identificadores renombrados en Postgres y en el código sin invalidar ninguna fila. El catálogo público sigue pintándose con el catálogo de ocho tonos y la regla de fondos anteriores. Un test de dominio recorre 9 colores × 3 fondos × 2 modos y comprueba contraste, escala de fondos y criterio de construcción. No cambia ningún layout, componente, contrato entre aplicaciones ni caso de uso.
+
+```text
+CompanyCheckoutAppearance.background (soft | medium | brand_tint)
+        │
+        ├── checkout y vista previa ──> checkoutPalette(color, fondo) ──> 19 tokens (claro y oscuro)
+        └── catálogo público ────────> catalogPalette(color, fondo)  ──> 8 tokens + background (sin cambios visuales)
+```
+
+### 15.2 Decisiones
+
+| Tema | Decisión |
+| --- | --- |
+| Identificadores de fondo | Se renombran: `white` → `soft` y `neutral` → `medium`; `brand_tint` se conserva. Un concepto, un nombre en base, código, logs y pantalla. |
+| Migración | `rename_checkout_backgrounds`, generada con `prisma migrate dev --create-only` y con su SQL reemplazado por dos `ALTER TYPE "CheckoutBackground" RENAME VALUE`. Solo cambia el catálogo de Postgres: no reescribe filas ni bloquea la tabla, y toda fila guardada queda con el valor equivalente. |
+| Valor predeterminado | `defaultCheckoutAppearance` = sin logo, `yoyos`, `medium`. Sin fila, el checkout sigue sin emitir estilos: los tokens globales son exactamente la paleta Yoyos con Medio. |
+| Tokens de la paleta | Los 19 tokens de color no semánticos de `docs/design-tokens.json` que usa el checkout ([§15.6](#156-paleta-por-color)). Los semánticos (`destructive*`, `success*`, `warning*`, `error*`, `info*`) quedan globales. |
+| Forma de los datos | Cada color guarda 15 tonos por modo como HEX escritos en el código; `checkoutPalette` los expande a los 19 tokens con alias fijos. Sin conversión de color en tiempo de ejecución. |
+| Criterio único | Una tabla de posiciones OKLCH por tono, igual para los ocho colores no Yoyos, con el matiz del tono principal de cada uno. El test de dominio la verifica; no hay generador en el repositorio. |
+| Paleta Yoyos | Toma los 19 tokens de `docs/design-tokens.json` (Medio = `background` global); solo Suave y De marca son tonos propios. |
+| Catálogo público | `CheckoutTheme` recibe `surface="catalog"` en `catalog-sections.tsx` y usa `catalogPalette`, que es el `checkoutPalette` actual renombrado, con sus valores congelados. |
+| Tarjetas en claro | `#FFFFFF` en los nueve colores, como pide el producto («superficie blanca de lectura»). |
+| `--brand-background` | La paleta del checkout deja de emitirlo: ningún componente lo usa; su valor llega como `--background` cuando el fondo es De marca. |
+| Umbrales del test | 4,5:1 y 3:1 fijados por producto. Iniciales y ajustables, iguales para todas las paletas: luminosidad ±0,02 y matiz ±20° respecto de la tabla, distancia OKLab ≥ 0,015 entre fondos vecinos, 1,15:1 para bordes decorativos. |
+
+### 15.3 Estado verificado
+
+| Pieza | Ubicación | Estado |
+| --- | --- | --- |
+| Enum `CheckoutBackground` (`white`, `neutral`, `brand_tint`) | `prisma/schema.prisma`, migración `20261010142043_add_company_checkout_appearance` | Se renombran dos valores |
+| `checkoutBackgrounds`, `defaultCheckoutAppearance` (`neutral`) | `domain/checkout-appearance.ts` | Cambian los literales |
+| `checkoutBrandColorCatalog` (9 colores × 8 tonos × 2 modos), `checkoutPalette` | `domain/checkout-colors.ts` | Pasa a ser `catalogPalette`; se añade la paleta completa |
+| `CheckoutTheme`, `checkoutThemeCss` | `presentation/checkout-theme.tsx` | Escribe solo `primary*`, `ring`, `accent*`, `brand-background` y `background`; se añade `surface` |
+| `CheckoutTheme` en el checkout | `app/components/checkout-sections.tsx` (`CheckoutShell`), usado por `routes/checkout.tsx` y la vista previa | Sin cambios |
+| `CheckoutTheme` en el catálogo | `app/components/catalog-sections.tsx` (`CatalogShell`) | Pasa `surface="catalog"` |
+| Esquema público | `presentation/checkout-appearance-schemas.ts` | Usa el enum de dominio |
+| Editor | `routes/checkout-appearance-settings.tsx` (líneas 161–219), textos en `app/locales.ts` (`backgroundWhite`, `backgroundNeutral`, `backgroundBrandTintHint`) | Cambian etiquetas y ayudas |
+| Stories | `presentation/checkout-theme.stories.tsx` (`backgroundNames`) | Cambian los nombres; las historias por color ya muestran los tres fondos |
+| Botón principal | `app/components/ui/button.tsx` usa `--primary-hover` y `--primary-pressed` | Sin cambios |
+| Bordes por defecto | `app/app.css`: `* { @apply border-border; }` | Toma `--border` del ámbito del tema sin cambios |
+| Contrato `shared/contracts` | — | La apariencia no viaja a mobile; nada cambia |
+
+### 15.4 Brechas que cierra
+
+1. Los fondos Blanco y Neutro no tienen el matiz del color ([§15.6](#156-paleta-por-color)).
+2. `--border`, `--input`, `--card`, `--muted`, `--foreground` y sus variantes quedan globales con cualquier color ([§15.6](#156-paleta-por-color)).
+3. Los identificadores `white` y `neutral` ya no describen la opción ([§15.5](#155-identificadores-de-fondo-y-migración)).
+4. No existe un criterio común verificado para construir las paletas ni un test de contraste sobre todas las superficies ([§15.9](#159-pruebas)).
+5. El catálogo público comparte la función de paleta con el checkout y cambiaría con ella ([§15.7](#157-tema-y-catálogo-público)).
+6. El editor muestra Blanco y Neutro y solo tiene ayuda para De marca ([§15.8](#158-editor-vista-previa-y-stories)).
+
+### 15.5 Identificadores de fondo y migración
+
+```prisma
+enum CheckoutBackground {
+  soft        // Suave (antes white)
+  medium      // Medio (antes neutral)
+  brand_tint  // De marca
+}
+```
+
+```sql
+-- migrations/<timestamp>_rename_checkout_backgrounds/migration.sql
+ALTER TYPE "CheckoutBackground" RENAME VALUE 'white' TO 'soft';
+ALTER TYPE "CheckoutBackground" RENAME VALUE 'neutral' TO 'medium';
+```
+
+- Se genera con `pnpm exec prisma migrate dev --create-only --name rename_checkout_backgrounds` tras editar el esquema. Prisma propone recrear el enum y convertir la columna, lo que fallaría con filas `white`; ese SQL se reemplaza por las dos sentencias de arriba.
+- `RENAME VALUE` actualiza `pg_enum`: las filas guardan el OID del valor, así que cada fila `white` se lee como `soft` sin reescribirse. Corre dentro de la transacción de la migración y no bloquea `CompanyCheckoutAppearance` más que un instante.
+- `brand_tint` no cambia. No hay valor por defecto en la columna; el predeterminado vive en el dominio.
+- **Despliegue:** la migración corre antes de arrancar la versión nueva. Durante ese intervalo, una instancia antigua que lea `soft` obtiene `INVALID_STORED_DATA` y el comprador ve la apariencia predeterminada; un guardado con `white` falla con 503 y el editor ofrece reintentar. No se pierde ni se corrompe nada.
+- Nada en el código acepta los identificadores antiguos: tras la migración no existen en la base, y el esquema del `postMessage` se carga en la misma versión que el editor.
+
+### 15.6 Paleta por color
+
+**Tokens que usa el checkout.** Clases presentes en `checkout-sections.tsx`, `routes/checkout.tsx`, `buyer-payment-content.tsx`, `checkout-brand-header.tsx`, `checkout-preview-page.tsx` y `components/ui/*`, más el borde por defecto de `app.css` y los estados de `button.tsx`:
+
+`background`, `foreground`, `card`, `card-foreground`, `popover`, `popover-foreground`, `primary`, `primary-foreground`, `primary-hover`, `primary-pressed`, `secondary`, `secondary-foreground`, `muted`, `muted-foreground`, `accent`, `accent-foreground`, `border`, `input`, `ring`.
+
+Quedan globales `destructive*`, `success*`, `warning*`, `error*` e `info*` (producto: colores semánticos), la superficie blanca del logo (`checkout-brand-header.tsx`) y las imágenes de pago.
+
+**Tipos** (`domain/checkout-colors.ts`):
+
+```ts
+/** The 15 tones each color writes per mode. */
+export type CheckoutPaletteTones = Readonly<{
+  soft: HexColor; medium: HexColor; "brand-background": HexColor;          // background scale
+  foreground: HexColor; card: HexColor; muted: HexColor; "muted-foreground": HexColor;
+  border: HexColor; input: HexColor;
+  primary: HexColor; "primary-foreground": HexColor; "primary-hover": HexColor; "primary-pressed": HexColor;
+  accent: HexColor; "accent-foreground": HexColor;
+}>;
+export const checkoutTokenNames = ["background", "foreground", "card", "card-foreground", "popover", "popover-foreground",
+  "primary", "primary-foreground", "primary-hover", "primary-pressed", "secondary", "secondary-foreground",
+  "muted", "muted-foreground", "accent", "accent-foreground", "border", "input", "ring"] as const;
+export type CheckoutTokens = Readonly<Record<(typeof checkoutTokenNames)[number], HexColor>>;
+export type CheckoutPalette = Readonly<{ light: CheckoutTokens; dark: CheckoutTokens }>;
+
+export const checkoutColorPalettes: Readonly<Record<CheckoutBrandColor, Readonly<{ light: CheckoutPaletteTones; dark: CheckoutPaletteTones }>>>;
+export function checkoutPalette(brandColor: CheckoutBrandColor, background: CheckoutBackground): CheckoutPalette;
+```
+
+- `CheckoutPaletteTones` existe porque cuatro pares de tokens son siempre iguales en el sistema y en todas las paletas; guardarlos una vez evita 72 literales duplicados.
+- `checkoutPalette` expande: `background` = el tono del fondo elegido (`soft`, `medium` o `brand-background`); `card-foreground`, `popover-foreground` y `secondary-foreground` = `foreground`; `popover` = `card`; `secondary` = `muted`; `ring` = `primary`. Son los mismos alias que ya cumplen los tokens globales.
+- Los tipos de 5.2 pasan a `CatalogTokens`, `CatalogPalette` y `catalogPalette`; `checkoutBrandColorCatalog` conserva nombre y valores.
+
+**Paleta Yoyos.** Sus 15 tonos de cada modo salen de `tokens.colors.light` / `tokens.colors.dark` de `docs/design-tokens.json`, con `medium` = `background` global (`#F7F4EF` y `#1C1B1D`). Solo `soft` y `brand-background` son tonos propios, construidos con la tabla de abajo y el matiz de `#8C552D` / `#D5A16C`; el `brand-background` actual (`#F7EFE6`, `#1F1B19`) es el punto de partida y se ajusta si no cumple la distancia entre fondos. Así, una empresa sin fila o con Yoyos y Medio ve exactamente los colores de hoy.
+
+**Criterio de construcción de los otros ocho.** Cada tono toma el matiz OKLCH del tono principal del mismo modo, la luminosidad L de la tabla y un croma C = mín(C máx de la tabla, C del tono principal). Las luminosidades son las de los tokens globales de Yoyos, así que todas las paletas ocupan las mismas posiciones relativas. El valor se redondea a HEX y se escribe en `checkoutColorPalettes`.
+
+| Tono | Claro L | Claro C máx | Oscuro L | Oscuro C máx |
+| --- | --- | --- | --- | --- |
+| `soft` (Suave) | 0,985 | 0,006 | 0,205 | 0,006 |
+| `medium` (Medio) | 0,968 | 0,012 | 0,224 | 0,012 |
+| `brand-background` (De marca) | 0,945 | 0,024 | 0,245 | 0,020 |
+| `card` | `#FFFFFF` | — | 0,268 | 0,012 |
+| `foreground` | 0,258 | 0,012 | 0,933 | 0,012 |
+| `muted` | 0,930 | 0,014 | 0,309 | 0,014 |
+| `muted-foreground` | 0,497 | 0,025 | 0,750 | 0,025 |
+| `border` | 0,873 | 0,020 | 0,388 | 0,020 |
+| `input` | 0,602 | 0,030 | 0,608 | 0,030 |
+| `accent` | 0,920 | 0,030 | 0,336 | 0,035 |
+
+Tonos fuera de la tabla: `primary` es el tono principal del producto (no cambia); `primary-foreground` es `#FFFFFF` en claro y `#1C1B1D` en oscuro; `primary-hover` y `primary-pressed` conservan los valores actuales del catálogo (ya cumplen 1,15:1 y 1,3:1 frente a `primary`); `accent-foreground` = `primary`.
+
+La tabla se comprobó durante el diseño para los ocho colores: con estos valores todas las parejas de [§15.9](#159-pruebas) superan el mínimo y el redondeo a HEX desvía el matiz como mucho 13° y la luminosidad menos de 0,002. Si al implementar un tono no cumple, se ajusta solo ese tono dentro de las tolerancias de la tabla; si hace falta salir de ellas, se ajusta la fila de la tabla para todos los colores.
+
+Ejemplo (Bosque, claro): Suave `#F7FBF9`, Medio `#EEF7F2`, De marca `#E0F2E8`, texto `#1F2522`, atenuado `#E0EBE5`, texto secundario `#56675E`, borde `#CADAD1`, campo `#72877B`, realce `#D4EBDE`.
+
+### 15.7 Tema y catálogo público
+
+```tsx
+type CheckoutThemeProps = Readonly<{
+  appearance: PublicCheckoutAppearance | null;
+  surface?: "checkout" | "catalog";   // "checkout" por defecto
+  children: ReactNode;
+}>;
+export function checkoutThemeCss(appearance: Pick<PublicCheckoutAppearance, "brandColor" | "background">, scope: string, surface?: "checkout" | "catalog"): string;
+```
+
+- `surface="checkout"` usa `checkoutPalette`; `surface="catalog"` usa `catalogPalette`. El resto del componente (ámbito `useId`, `<style>` en SSR, `.dark`, `appearance === null` sin estilos) no cambia.
+- `CatalogShell` (`app/components/catalog-sections.tsx`) es el único llamador con `surface="catalog"`. `CheckoutShell` y la vista previa no cambian.
+- Sin `appearance`, ninguna de las dos superficies emite estilos, igual que hoy.
+- Cuando se decida extender la paleta al catálogo, basta con quitar la prop en `CatalogShell` y borrar `catalogPalette` con su catálogo de ocho tonos, salvo `name` y `primary`.
+
+### 15.8 Editor, vista previa y stories
+
+- **Editor:** el mapa de etiquetas de `checkout-appearance-settings.tsx` pasa a `{ soft, medium, brand_tint }`. La línea de ayuda se muestra para la opción activa, sea cual sea, con su texto. Mismo `ToggleGroup`, mismas clases.
+- **Textos** (`app/locales.ts`): `backgroundWhite` y `backgroundNeutral` se sustituyen por `backgroundSoft` y `backgroundMedium`; `backgroundBrandTintHint` cambia de texto y se añaden `backgroundSoftHint` y `backgroundMediumHint`.
+
+  | Clave | es | pt |
+  | --- | --- | --- |
+  | `backgroundSoft` | Suave | Suave |
+  | `backgroundMedium` | Medio | Médio |
+  | `backgroundBrandTint` | De marca | Da marca |
+  | `backgroundSoftHint` | Usa el fondo más claro de {{color}}. En modo oscuro cambia solo. | Usa o fundo mais claro de {{color}}. No modo escuro muda sozinho. |
+  | `backgroundMediumHint` | Usa un fondo claro de {{color}}. En modo oscuro cambia solo. | Usa um fundo claro de {{color}}. No modo escuro muda sozinho. |
+  | `backgroundBrandTintHint` | Usa el fondo con más color de {{color}}. En modo oscuro cambia solo. | Usa o fundo com mais cor de {{color}}. No modo escuro muda sozinho. |
+
+- **Restablecer** usa `defaultCheckoutAppearance`, que ya queda con `medium`.
+- **Vista previa:** sin cambios de código; recibe la paleta nueva a través de `CheckoutTheme`. El protocolo valida `background` con el enum renombrado.
+- **Stories:** `backgroundNames` = `{ soft: "Suave", medium: "Medio", brand_tint: "De marca" }`. Las historias por color ya muestran los tres fondos lado a lado en cada modo, que es lo que pide la revisión color por color.
+- `app/components/ui/radio-group.stories.tsx` usa «Blanco» y «Neutro» como texto de ejemplo genérico: no es la apariencia y no se toca.
+
+### 15.9 Pruebas
+
+Contraste con la luminancia relativa de WCAG (helper actual del test). Luminosidad, croma y matiz en OKLCH con un helper de unas diez líneas que vive en el test. Las pruebas con matriz usan `test.each` y su título incluye color, fondo y modo; el mensaje de cada `expect` nombra el elemento y las dos superficies, así un fallo dice qué tono corregir.
+
+**`domain/checkout-colors.test.ts`** (reescrito)
+
+```ts
+describe("palettes")
+  test("defines the same tones for every color in light and dark mode")
+  test("keeps the main tones of the product definition")
+  test("uses the global Yoyos tokens for the Yoyos palette, with Medio as the system background")
+  test("uses white cards in light mode for every color")
+  test("uses white text on buttons in light mode and near black in dark mode")
+  test("expands the tones into every token the checkout uses and no semantic token")
+
+describe("palette construction")                                              // 8 colores × 2 modos
+  test.each("$color · $mode places every derived tone at the lightness of the shared scale")
+  test.each("$color · $mode derives every tinted tone from the hue of its main tone")
+
+describe("backgrounds")
+  test("maps Suave, Medio and De marca to their tones of the chosen palette")
+  test.each("$color · $mode orders Suave, Medio and De marca from the most sober to the most tinted")   // 9 × 2
+  test.each("$color · $mode keeps the three backgrounds visibly distinct")                              // 9 × 2
+  test("never uses pure white or an untinted gray as a background")
+
+describe("contrast")                                                          // 9 × 3 × 2 = 54
+  test.each("$color · $background · $mode main and secondary text reach 4.5:1 on the page, cards and muted areas")
+  test.each("$color · $background · $mode button text reaches 4.5:1 on primary, hover and pressed")
+  test.each("$color · $background · $mode brand-colored links reach 4.5:1 on the page, cards and the selection highlight")
+  test.each("$color · $background · $mode selection highlight text reaches 4.5:1 on its surface")
+  test.each("$color · $background · $mode field and control borders reach 3:1 on the page and cards")
+  test.each("$color · $background · $mode the focus ring reaches 3:1 on the page and cards")
+  test.each("$color · $background · $mode decorative borders stay visible on the page and cards")
+  test.each("$color · $mode hover and pressed are visibly different from primary")
+
+describe("public catalog palette")
+  test("keeps the pre-adjustment tones of every color")
+  test("shows Suave as the former white background and Medio as the former neutral one")
+  test("keeps the former De marca background of each color")
+```
+
+Reglas del test: «escala» = en claro L(Suave) > L(Medio) > L(De marca); en oscuro L(Suave) < L(Medio) < L(De marca). «Distintos» = distancia OKLab ≥ 0,015 entre vecinos. «Sin teñir» = `#FFFFFF` o C < 0,004, salvo el Medio de Yoyos, que es el global por regla de producto. Construcción y matiz: solo los ocho colores no Yoyos; el matiz se mide en tonos con C ≥ 0,005.
+
+**`domain/checkout-appearance.test.ts`** (cambios)
+
+```ts
+  test("uses Yoyos with Medio as the default appearance")
+  test("rejects a background outside the three options")          // ejemplos: "white", "neutral", ""
+```
+
+**`presentation/checkout-theme.test.tsx`** (cambios)
+
+```ts
+describe("CheckoutTheme")
+  test("sets borders, fields, cards, muted areas and texts from the chosen palette")
+  test("keeps the pre-adjustment colors and the global borders for the public catalog")
+  test("renders only palette colors in the style tag")              // renombra "renders only catalog colors…"
+```
+
+**`app/components/catalog-sections.test.tsx`** (nuevo)
+
+```ts
+describe("CatalogShell")
+  test("paints the public catalog with the former white background and the global borders")
+```
+
+**`infrastructure/checkout-appearance-repository.integration.test.ts`** (cambios)
+
+```ts
+  test("rejects the former white identifier at the database")
+```
+
+Los demás tests de la feature solo cambian literales (`white` → `soft`, `neutral` → `medium`).
+
+**E2E**
+
+| Archivo | Cambio |
+| --- | --- |
+| `tests/e2e/checkout-appearance.spec.ts` | Radios «Suave», «Medio»; valor guardado `medium`. Nuevo: `test("names the chosen color in the help line of each background")`. |
+| `tests/e2e/checkout-appearance-preview.spec.ts` | Literales `soft`/`medium`. Nuevo: `test("changes borders and fields with the brand color in the preview")`. |
+| `tests/e2e/checkout-appearance-buyer.spec.ts` | `shows the logo and brand colors in every order state` comprueba además que el borde de una tarjeta es el `border` de Bosque y no `#DCD4C9`. |
+| `tests/e2e/public-catalog.spec.ts` | Sin cambios; el aspecto lo cubre `CatalogShell`. |
+
+**Comprobaciones manuales**
+
+- Con datos de desarrollo que tengan filas `white` y `neutral`, aplicar la migración y comprobar que el editor muestra «Suave» y «Medio» y que el checkout carga sin `invalid_stored_checkout_appearance`.
+- Revisión visual con Impeccable de las historias de `checkout-theme.stories.tsx` (nueve colores × tres fondos, claro y oscuro) y del checkout real con dos colores, comparadas lado a lado; registrar el resultado en el registro de superficie.
+- Catálogo público con Bosque y Suave guardados: fondo blanco en claro, bordes globales, botón `#2F6B4F`.
+
+### 15.10 Observabilidad
+
+No hay eventos nuevos. `checkout_appearance_saved.background` pasa a registrar `soft`, `medium` o `brand_tint`. Si durante el despliegue una instancia antigua lee un valor renombrado, el evento existente `invalid_stored_checkout_appearance` (error, `invalidFields: ["background"]`) lo deja visible.
+
+### 15.11 Límites y comprobaciones al implementar
+
+- Fuera del ajuste: panel privado, catálogo público, colores semánticos, layout y componentes, colores HEX libres, colores nuevos.
+- Verificar que Postgres del entorno es 10 o superior (`RENAME VALUE`) y que, tras la migración, `prisma migrate diff --from-migrations … --to-schema-datamodel …` no reporta diferencias.
+- Verificar que la paleta Yoyos con los tokens globales cumple el test de contraste con sus nuevos Suave y De marca; si un global no cumple, se ajusta el fondo de Yoyos, nunca el token global.
+- Comprobar con Impeccable que ningún componente del checkout usa un color literal (`bg-white`, `text-stone-*`) que escape a la paleta; si aparece, se cambia por su token, sin tocar el layout.
+
 ## Estado
 
 **Construido:** T0 a T5 de [apariencia-del-checkout-tareas.md](apariencia-del-checkout-tareas.md) están integradas en la rama de la feature (`jorgeluis594/checkout-editable`). Incluye la migración `20261010142043_add_company_checkout_appearance`, el editor con vista previa en vivo, el checkout con marca y la redirección de `/pago/:orderId`.
+
+**Ajuste del 19 de octubre de 2026 (pendiente):** T6 (identificadores de fondo y editor) y T7 (paleta por color y contraste), definidos en [§15](#15-ajuste-fondos-con-tono-y-paleta-por-color) y en [apariencia-del-checkout-tareas.md](apariencia-del-checkout-tareas.md#t6--fondos-suave-y-medio).
 
 **Pendiente:** la verificación en staging de logs y transacciones de New Relic de las cuatro rutas, a cargo del equipo que despliega. El detalle está en el criterio de T5 de [apariencia-del-checkout-tareas.md](apariencia-del-checkout-tareas.md#t5--cierre-del-lanzamiento).
