@@ -1,6 +1,6 @@
 # Agency delivery in the buyer checkout: implementation tasks
 
-**Status:** design closed (diseño cerrado), pending implementation. Product: [`docs/checkout-envio-agencia.md`](checkout-envio-agencia.md). Design: [`docs/checkout-envio-agencia-technical.md`](checkout-envio-agencia-technical.md) (`§` references point to it). Integration branch: `jorgeluis594/tarea-6hpQ6v6PCQ55pgM3`.
+**Status:** implemented on branch `jorgeluis594/tarea-6hpQ6v6PCQ55pgM3` (pending merge), verified 20/10/2026. Product: [`docs/checkout-envio-agencia.md`](checkout-envio-agencia.md). Design: [`docs/checkout-envio-agencia-technical.md`](checkout-envio-agencia-technical.md) (`§` references point to it). Integration branch: `jorgeluis594/tarea-6hpQ6v6PCQ55pgM3`.
 
 ## Order and parallelism
 

@@ -1,6 +1,6 @@
 # Agency delivery in the buyer checkout: technical design
 
-**Status:** design closed (diseño cerrado), pending implementation. Product: [`docs/checkout-envio-agencia.md`](checkout-envio-agencia.md). Base: branch `jorgeluis594/tarea-6hpQ6v6PCQ55pgM3` (commit `2b0cdd6e`). Tasks: [`docs/checkout-envio-agencia-tasks.md`](checkout-envio-agencia-tasks.md). Todoist `6hpQ6v6PCQ55pgM3`.
+**Status:** implemented on branch `jorgeluis594/tarea-6hpQ6v6PCQ55pgM3` (pending merge), verified 20/10/2026. Product: [`docs/checkout-envio-agencia.md`](checkout-envio-agencia.md). Base: branch `jorgeluis594/tarea-6hpQ6v6PCQ55pgM3` (commit `2b0cdd6e`). Tasks: [`docs/checkout-envio-agencia-tasks.md`](checkout-envio-agencia-tasks.md). Todoist `6hpQ6v6PCQ55pgM3`.
 
 ## 1. Technical goal
 

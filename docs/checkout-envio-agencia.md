@@ -1,6 +1,6 @@
 # Agency delivery in the buyer checkout: product definition
 
-**Status:** definition ready to implement. 19/10/2026. The seller already turns on «Envío a agencia» in Settings → Delivery methods and defines, per zone, agency options with price and destination agencies. The buyer checkout ([Checkout by link](checkout-por-link.md)) offers a single «Envío» radio that mixes home and agency rates in one «Tarifa de envío» dropdown. This document splits that radio and defines how the buyer picks a destination agency. Zones, options, couriers and agencies keep the rules of [Zones, options, couriers and agencies](refactor-zonas-opciones-agencias.md) and [Couriers and delivery options](couriers-y-opciones-de-entrega-decisiones.md). Todoist task 6hpQ6v6PCQ55pgM3.
+**Status:** implemented on branch `jorgeluis594/tarea-6hpQ6v6PCQ55pgM3` (pending merge), verified 20/10/2026. Defined 19/10/2026. The seller already turns on «Envío a agencia» in Settings → Delivery methods and defines, per zone, agency options with price and destination agencies. The buyer checkout ([Checkout by link](checkout-por-link.md)) offers a single «Envío» radio that mixes home and agency rates in one «Tarifa de envío» dropdown. This document splits that radio and defines how the buyer picks a destination agency. Zones, options, couriers and agencies keep the rules of [Zones, options, couriers and agencies](refactor-zonas-opciones-agencias.md) and [Couriers and delivery options](couriers-y-opciones-de-entrega-decisiones.md). Todoist task 6hpQ6v6PCQ55pgM3.
 
 ## Problem and situation
 
