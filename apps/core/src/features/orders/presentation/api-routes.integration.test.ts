@@ -776,7 +776,7 @@ test("public checkout delivery action persists buyer pickup and redirects to exi
     await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: new Date() } });
   });
   const loaded = await checkoutLoader({ params: { companyId: seller.companyId, orderId } } as unknown as LoaderFunctionArgs);
-  expect(loaded.data.deliveryOptions).toEqual({ home: { enabled: false }, agency: { enabled: false },
+  expect(loaded.data.deliveryOptions).toEqual({ home: { enabled: false }, agency: { enabled: false, covered: false },
     store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } });
   const input = { buyer: { name: "Ana", phone: "+51987654321" }, expectedTotal: { amount: 10, currency: "PEN" }, delivery: { kind: "replace",
     selection: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } }, expectedPrice: { amount: 0, currency: "PEN" } } };

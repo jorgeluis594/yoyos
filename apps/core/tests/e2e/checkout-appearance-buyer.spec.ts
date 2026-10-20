@@ -162,9 +162,7 @@ test.describe("buyer checkout with appearance", () => {
       await page.getByLabel("Departamento", { exact: true }).selectOption("15");
       await page.getByLabel("Provincia", { exact: true }).selectOption("1501");
       await page.getByLabel("Distrito", { exact: true }).selectOption("150122");
-      const rates = page.getByLabel("Tarifa de envío");
-      await browserExpect(rates.locator("option")).toHaveCount(2);
-      await rates.selectOption({ index: 1 });
+      await browserExpect(page.getByLabel("Agencia de destino")).toHaveValue(agencies[0]);
       await page.getByLabel("Nombre", { exact: true }).fill("Ana");
       await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
       await page.getByLabel("Nombre del destinatario").fill("Recipient");

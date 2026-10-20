@@ -30,7 +30,7 @@ beforeEach(() => { vi.mocked(bindRequestOperation).mockClear(); vi.spyOn(checkou
 afterEach(() => vi.restoreAllMocks());
 
 test("public loader preserves wire amounts and privacy headers without requiring an authenticated context", async () => {
-  const settings = vi.spyOn(deliverySettings, "getForCompany").mockResolvedValue(ok({ version: 0, home: { enabled: false }, agency: { enabled: false }, couriers: [], store: { enabled: false, pickupPoint: null } }));
+  const settings = vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions").mockResolvedValue(ok({ settings: { version: 0, home: { enabled: false }, agency: { enabled: false }, couriers: [], store: { enabled: false, pickupPoint: null } }, agencyCovered: false }));
   vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(view));
   expect(await loader({ params } as unknown as LoaderFunctionArgs)).toMatchObject({ data: { checkout: view }, init: { headers: headers() } });
   await expect(loader({ params: { companyId: "bad", orderId: "1001" } } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 404 });
@@ -119,18 +119,42 @@ test("delivery form accepts exactly four fields and rejects repeated delivery va
 
 test("public checkout exposes current pickup configuration without courier names or seller identity", async () => {
   vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(view));
-  vi.spyOn(deliverySettings, "getForCompany").mockResolvedValue(ok({ version: 7, home: { enabled: true }, agency: { enabled: false }, couriers: [],
-    store: { enabled: true, pickupPoint: { name: "Shop", address: "Pickup address", instructions: "Door 2" } } }));
+  vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions").mockResolvedValue(ok({ settings: { version: 7, home: { enabled: true }, agency: { enabled: false }, couriers: [],
+    store: { enabled: true, pickupPoint: { name: "Shop", address: "Pickup address", instructions: "Door 2" } } }, agencyCovered: false }));
   const result = await loader({ params } as unknown as LoaderFunctionArgs);
-  expect(result.data.deliveryOptions).toEqual({ home: { enabled: true }, agency: { enabled: false },
+  expect(result.data.deliveryOptions).toEqual({ home: { enabled: true }, agency: { enabled: false, covered: false },
     store: { enabled: true, pickupPoint: { name: "Shop", address: "Pickup address", instructions: "Door 2" } } });
   expect(result.data.deliveryOptions).not.toHaveProperty("version");
   expect(result.data.deliveryOptions).not.toHaveProperty("couriers");
 });
 
+test("public loader exposes agency coverage only as a yes or no flag", async () => {
+  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(view));
+  vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions").mockResolvedValue(ok({ settings: { version: 7, home: { enabled: false }, agency: { enabled: true },
+    couriers: [{ id: "private" }] as never, store: { enabled: false, pickupPoint: null } }, agencyCovered: true }));
+  const result = await loader({ params } as unknown as LoaderFunctionArgs);
+  expect(result.data.deliveryOptions).toEqual({ home: { enabled: false }, agency: { enabled: true, covered: true }, store: { enabled: false, pickupPoint: null } });
+  expect(JSON.stringify(result.data.deliveryOptions)).not.toMatch(/zone|district|courier|agencies/i);
+});
+
+test("public loader reports no agency coverage when the switch is on but no option has eligible agencies", async () => {
+  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(view));
+  vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions").mockResolvedValue(ok({ settings: { version: 7, home: { enabled: false }, agency: { enabled: true },
+    couriers: [], store: { enabled: false, pickupPoint: null } }, agencyCovered: false }));
+  expect((await loader({ params } as unknown as LoaderFunctionArgs)).data.deliveryOptions?.agency).toEqual({ enabled: true, covered: false });
+});
+
+test("failed coverage read answers 503 without manufacturing delivery options", async () => {
+  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(view));
+  vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions").mockResolvedValue(err({ code: "SERVICE_UNAVAILABLE", message: "Private detail" }));
+  const failure = await loader({ params } as unknown as LoaderFunctionArgs).catch(error => error);
+  expect(failure).toMatchObject({ status: 503 });
+  expect(vi.mocked(bindRequestOperation)).toHaveBeenCalledWith({ outcome: "technical_failure" });
+});
+
 test("failed current configuration does not manufacture free shipping or enabled pickup", async () => {
   vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(view));
-  vi.spyOn(deliverySettings, "getForCompany").mockResolvedValue(err({ code: "PERSISTENCE_UNAVAILABLE", message: "Private detail" }));
+  vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions").mockResolvedValue(err({ code: "SERVICE_UNAVAILABLE", message: "Private detail" }));
   await expect(loader({ params } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 503 });
 });
 
@@ -141,7 +165,7 @@ const confirmed = ok({ ...view, buyer: body.buyer, state: { kind: "confirmed" as
 test("confirmed checkout keeps its saved summary and loads the payment view without requiring current delivery settings", async () => {
   vi.spyOn(orders, "getCheckout").mockResolvedValue(confirmed);
   const payment = vi.spyOn(orders, "getBuyerPaymentView").mockResolvedValue(ok(paymentView));
-  const settings = vi.spyOn(deliverySettings, "getForCompany");
+  const settings = vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions");
   expect(await loader({ params } as unknown as LoaderFunctionArgs)).toMatchObject({
     data: { checkout: { total, state: { kind: "confirmed" } }, payment: paymentView }, init: { headers: headers() } });
   expect(payment).toHaveBeenCalledWith(params.orderId);
@@ -166,7 +190,7 @@ test("confirmed checkout logs and answers 503 for an invalid payment view", asyn
 
 describe("checkout appearance", () => {
   const custom = { logoUrl: "https://images.example.test/logo.png", brandColor: "forest" as const, background: "brand_tint" as const };
-  const pendingSettings = () => vi.spyOn(deliverySettings, "getForCompany").mockResolvedValue(ok({ version: 0, home: { enabled: false }, agency: { enabled: false }, couriers: [], store: { enabled: false, pickupPoint: null } }));
+  const pendingSettings = () => vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions").mockResolvedValue(ok({ settings: { version: 0, home: { enabled: false }, agency: { enabled: false }, couriers: [], store: { enabled: false, pickupPoint: null } }, agencyCovered: false }));
   const load = () => loader({ params } as unknown as LoaderFunctionArgs);
 
   test("includes the company appearance after authorizing the order", async () => {
