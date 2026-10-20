@@ -1,3 +1,4 @@
+import { ScrollView, TextInput } from "react-native";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 import { err, ok } from "@shared/functional";
 import { deliverySettings } from "@mobile/features/delivery-settings/composition";
@@ -101,10 +102,12 @@ test("a conflict reverts the switch, disables switches and reload keeps the pick
 
 test("tapping store pickup without a point opens the fields and activates after name and address are saved", async () => {
   save.mockResolvedValueOnce(ok({ ...empty, version: 1, store: { enabled: true as const, pickupPoint: { name: "Tienda Cercado", address: "Calle Mercaderes 210", instructions: null } } }));
+  const focus = jest.spyOn(TextInput.prototype, "focus");
   const screen = render(<DeliverySettingsScreen />);
   await screen.findByText("Recojo en tienda");
-  expect(screen.queryByLabelText("Nombre del punto de recojo")).toBeNull();
+  expect(screen.getByLabelText("Nombre del punto de recojo")).toBeTruthy();
   fireEvent(switchOf(screen, "Ofrecer recojo en tienda"), "valueChange", true);
+  await waitFor(() => expect(focus).toHaveBeenCalledTimes(1));
   expect(save).not.toHaveBeenCalled();
   expect(switchOf(screen, "Ofrecer recojo en tienda").props.value).toBe(false);
   expect(screen.getByText("Completa el nombre y la dirección para activar el recojo.")).toBeTruthy();
@@ -314,6 +317,7 @@ test("agency warning shows next to the switch when the only agency option has no
   const orphan = { id: optionId, method: "agency" as const, name: "A agencia", enabled: true, price: { amount: 5, currency: "PEN" as const }, agencyIds: [closed.id] };
   getZones.mockResolvedValue(ok({ ...zonesState, agency: { enabled: true }, agencies: [closed], zones: [{ ...homeZone, options: [orphan] }] }));
   get.mockResolvedValue(ok({ ...empty, version: 5, home: { enabled: true }, agency: { enabled: true } }));
+  const scrollTo = jest.spyOn(ScrollView.prototype, "scrollTo");
   const screen = render(<DeliverySettingsScreen />);
   await screen.findByText("Lima");
   // Home is covered by nothing either, so both warnings show, one per switch, and none inside the zones section.
@@ -321,4 +325,47 @@ test("agency warning shows next to the switch when the only agency option has no
   expect(screen.getAllByText("Ir a zonas y tarifas")).toHaveLength(2);
   expect(screen.getByText("Falta una opción de domicilio activa con cobertura")).toBeTruthy();
   fireEvent.press(screen.getAllByText("Ir a zonas y tarifas")[1]!);
+  expect(scrollTo).toHaveBeenCalledWith({ y: 0, animated: true });
+});
+
+test("a rejected settings request shows the required-fields text without Reintentar", async () => {
+  save.mockResolvedValueOnce(err({ code: "INVALID_DELIVERY_SETTINGS", message: "Invalid" }));
+  const screen = render(<DeliverySettingsScreen />);
+  await screen.findByText("Entrega a domicilio");
+  fireEvent(switchOf(screen, "Ofrecer entrega a domicilio"), "valueChange", true);
+  await screen.findByText("Completa los campos obligatorios.");
+  expect(screen.queryByText("Reintentar")).toBeNull();
+  expect(switchOf(screen, "Ofrecer entrega a domicilio").props.value).toBe(false);
+});
+
+test("with an empty courier catalog the agency row explains it instead of a coverage warning", async () => {
+  getCourierCatalog.mockResolvedValue(ok({ couriers: [] }));
+  get.mockResolvedValue(ok({ ...empty, agency: { enabled: true } }));
+  getZones.mockResolvedValue(ok({ ...zonesState, agency: { enabled: true }, zones: [] }));
+  const screen = render(<DeliverySettingsScreen />);
+  await screen.findByText("Todavía no hay couriers disponibles para envío a agencia. Mientras tanto, ofrece entrega a domicilio o recojo en tienda.");
+  expect(screen.queryByText("Falta una opción de agencia activa con cobertura")).toBeNull();
+});
+
+test("the agency warning disappears after saving a zone option with an eligible agency, without a reload", async () => {
+  const closed = agencyOf(3, "Cerrada", false);
+  const open = agencyOf(4, "Abierta");
+  const orphan = { id: optionId, method: "agency" as const, name: "A agencia", enabled: true, price: { amount: 5, currency: "PEN" as const }, agencyIds: [closed.id] };
+  const state = { ...zonesState, agency: { enabled: true }, agencies: [closed, open], zones: [{ ...homeZone, options: [orphan] }] };
+  const shalom = { id: "00000000-0000-4000-8000-0000000000a1", courierId: shalomId, name: "Shalom", enabled: true };
+  getZones.mockResolvedValue(ok(state));
+  getAgencyCatalog.mockResolvedValue(ok({ agencies: [open] }));
+  get.mockResolvedValue(ok({ ...empty, version: 5, agency: { enabled: true }, couriers: [shalom] }));
+  saveZones.mockResolvedValue(ok({ ...state, version: 6, zones: [{ ...homeZone, options: [{ ...orphan, agencyIds: [open.id] }] }] }));
+  const screen = render(<DeliverySettingsScreen />);
+  await screen.findByText("Lima");
+  expect(screen.getByText("Falta una opción de agencia activa con cobertura")).toBeTruthy();
+  await waitFor(() => expect(screen.getByRole("button", { name: "Editar Lima" }).props.accessibilityState.disabled).toBe(false));
+  fireEvent.press(screen.getByText("Editar Lima"));
+  await screen.findAllByText(/Abierta · MIRAFLORES/);
+  fireEvent(screen.getAllByLabelText(/Abierta · MIRAFLORES/)[0]!, "valueChange", true);
+  fireEvent.press(screen.getByText("Guardar zona"));
+  await screen.findByText("Zona guardada.");
+  await waitFor(() => expect(screen.queryByText("Falta una opción de agencia activa con cobertura")).toBeNull());
+  expect(get).toHaveBeenCalledTimes(2);
 });

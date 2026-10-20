@@ -53,7 +53,11 @@ export function useInstantDeliverySettings({ settings, zonesBusy, ready, onSaved
     } else if (result.error.code === "DELIVERY_SETTINGS_CONFLICT") {
       setConflict(true);
       setRows(current => ({ ...current, [target]: { kind: "conflict" } }));
-    } else setRows(current => ({ ...current, [target]: { kind: "failed", reason: "not_sent", retry: request } }));
+    } else {
+      // A rejected request would fail again: only transport and server failures are worth retrying.
+      const rejected = ["INVALID_DELIVERY_SETTINGS", "INVALID_INPUT", "PAYLOAD_TOO_LARGE"].includes(result.error.code);
+      setRows(current => ({ ...current, [target]: rejected ? { kind: "invalid" } : { kind: "failed", reason: "not_sent", retry: request } }));
+    }
   };
 
   // A reload replaces the confirmed point but keeps the text that differs from the previous one.

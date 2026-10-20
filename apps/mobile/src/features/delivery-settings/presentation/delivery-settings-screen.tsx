@@ -24,6 +24,7 @@ function RowStatus({ state, onRetry }: Readonly<{ state: RowSaveState; onRetry: 
   const { t } = useTranslation();
   const theme = useTheme();
   if (state.kind === "saving" || state.kind === "saved") return <ThemedText type="small" themeColor="textSecondary" accessibilityLiveRegion="polite">{t(state.kind === "saving" ? "rowSaving" : "rowSaved")}</ThemedText>;
+  if (state.kind === "invalid") return <ThemedText type="small" accessibilityRole="alert" style={{ color: theme.error }}>{t("deliverySettingsInvalid")}</ThemedText>;
   if (state.kind !== "failed") return null;
   return <View style={styles.heading}><ThemedText type="small" accessibilityRole="alert" style={{ color: theme.error }}>{t("deliverySettingsSaveError")}</ThemedText>
     <Button variant="secondary" onPress={onRetry}>{t("retrySave")}</Button></View>;
@@ -92,7 +93,6 @@ export default function DeliverySettingsScreen() {
   const coverage = (method: "home" | "agency") => lacks(method) ? <View style={styles.heading}>
     <ThemedText type="small" themeColor="textSecondary">{t(method === "home" ? "zonesMissingHome" : "zonesMissingAgency")}</ThemedText>
     <Button variant="ghost" onPress={goToZones}>{t("goToZones")}</Button></View> : null;
-  const showPickup = checked.store || activating || instant.unsaved;
   const section = [styles.section, { backgroundColor: theme.backgroundElement, borderColor: theme.border }];
   const toggleProps = (target: "store" | "home" | "agency", label: string) => ({ accessibilityLabel: label, value: checked[target], disabled: busy || conflict, hitSlop: 10,
     trackColor: { true: theme.primary }, onValueChange: (value: boolean) => instant.toggle(target, value) });
@@ -104,20 +104,19 @@ export default function DeliverySettingsScreen() {
       {conflict || error ? <View style={styles.heading}>
         {error ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t(error)}</ThemedText> : null}
         {conflict ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t("deliverySettingsConflict")}</ThemedText> : null}
-        <Button variant="secondary" onPress={() => void instant.reload()} disabled={loading}>{t("reloadDeliverySettings")}</Button></View> : null}
+        <Button variant="secondary" onPress={() => void instant.reload()} disabled={loading || instant.saving}>{t("reloadDeliverySettings")}</Button></View> : null}
       <View style={section}><View style={styles.toggle}><View style={[styles.label, styles.heading]}><ThemedText type="subtitle" accessibilityRole="header">{t("pickupStoreTitle")}</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">{t("pickupEnabled")}</ThemedText></View><Switch {...toggleProps("store", t("pickupEnabled"))} /></View>
         <RowStatus state={rows.store} onRetry={() => instant.retry("store")} />
         <ThemedText type="small" themeColor="textSecondary">{t("pickupHint")}</ThemedText>
         {activating ? <ThemedText type="small" themeColor="textSecondary">{t("pickupActivate")}</ThemedText> : null}
-        {showPickup ? <FieldGroup>{(["name", "address", "instructions"] as const).map((name: PickupField) => {
+        <FieldGroup>{(["name", "address", "instructions"] as const).map((name: PickupField) => {
           const invalid = invalidFields.includes(name as "name" | "address");
           return <Field key={name} invalid={invalid}><FieldLabel>{t(name === "name" ? "pickupName" : name === "address" ? "pickupAddress" : "pickupInstructions")}</FieldLabel>
             <Input ref={name === "instructions" ? undefined : instant.fields[name]} value={draft[name]} onChangeText={value => instant.changePickup(name, value)} onBlur={() => instant.blurPickup(name)}
               maxLength={pickupMaxLength[name]} multiline={name !== "name"} accessibilityLabel={t(name === "name" ? "pickupName" : name === "address" ? "pickupAddress" : "pickupInstructions")} />
             {invalid ? <FieldError>{t("deliverySettingsInvalid")}</FieldError> : null}</Field>;
-        })}</FieldGroup> : settings.store.pickupPoint
-          ? <ThemedText type="small" themeColor="textSecondary">{t("pickupKept", { name: settings.store.pickupPoint.name, address: settings.store.pickupPoint.address })}</ThemedText> : null}
+        })}</FieldGroup>
       </View>
       <View style={section}><View style={styles.toggle}><View style={[styles.label, styles.heading]}><ThemedText type="subtitle" accessibilityRole="header">{t("homeDeliveryTitle")}</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">{t("homeDeliveryEnabled")}</ThemedText></View><Switch {...toggleProps("home", t("homeDeliveryEnabled"))} /></View>
@@ -128,7 +127,7 @@ export default function DeliverySettingsScreen() {
           <ThemedText type="small" themeColor="textSecondary">{t("agencyDeliveryEnabled")}</ThemedText></View><Switch {...toggleProps("agency", t("agencyDeliveryEnabled"))} /></View>
         <RowStatus state={rows.agency} onRetry={() => instant.retry("agency")} />
         <ThemedText type="small" themeColor="textSecondary">{t("courierHint")}</ThemedText>
-        {settings.agency.enabled && catalog.length === 0 ? <ThemedText type="small" themeColor="textSecondary">{t("agenciesNoCouriers")}</ThemedText> : null}
+        {settings.agency.enabled && catalog.length === 0 ? <ThemedText type="small" themeColor="textSecondary">{t("deliveryNoCatalog")}</ThemedText> : null}
         {catalog.length > 0 ? coverage("agency") : null}
       </View>
       {zonesState ? <View onLayout={event => { zonesTop.current = event.nativeEvent.layout.y; }} style={section}><DeliveryZonesSection state={zonesState} loadAgencies={deliverySettings.getAgencyCatalog}

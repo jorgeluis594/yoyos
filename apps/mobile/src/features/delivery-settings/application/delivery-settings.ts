@@ -29,6 +29,7 @@ export type RowSaveState =
   | Readonly<{ kind: "saving"; attempt: number }>
   | Readonly<{ kind: "saved" }>
   | Readonly<{ kind: "failed"; reason: "not_sent"; retry: SaveDeliverySettingsRequest }>
+  | Readonly<{ kind: "invalid" }>
   | Readonly<{ kind: "conflict" }>;
 export type PickupCommit =
   | Readonly<{ kind: "none" }>
