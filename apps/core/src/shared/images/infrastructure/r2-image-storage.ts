@@ -1,6 +1,6 @@
 import { log } from "@core/src/shared/infrastructure/logger";
 import { randomUUID } from "node:crypto";
-import { DeleteObjectCommand, GetObjectCommand, NoSuchKey, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, NoSuchKey, PutObjectCommand, S3Client, S3ServiceException } from "@aws-sdk/client-s3";
 import type { Result } from "@shared/result";
 import type { ImageStorage } from "@core/src/shared/images/application/images";
 
@@ -12,6 +12,10 @@ type Config = {
   publicBaseUrl: string;
 };
 const failed = <T>(code: "IMAGE_STORAGE_UNAVAILABLE" | "IMAGE_STORAGE_CONFIG_ERROR" | "IMAGE_NOT_FOUND", message: string): Result<T> => ({ success: false, error: { code, message } });
+// S3 error codes (AccessDenied, NoSuchBucket...) are fixed identifiers; safeError drops them.
+const providerFailure = (error: unknown) => error instanceof S3ServiceException
+  ? { providerErrorCode: error.name, providerStatusCode: error.$metadata.httpStatusCode }
+  : {};
 const configurationFailed = <T>(message: string): Result<T> => {
   log.error({ event: "image_storage_configuration_invalid", errorCode: "IMAGE_STORAGE_CONFIG_ERROR" }, "image_storage_configuration_invalid");
   return failed("IMAGE_STORAGE_CONFIG_ERROR", message);
@@ -50,7 +54,7 @@ export function createR2ImageStorage(config: Config): ImageStorage {
         await client.send(new PutObjectCommand({ Bucket: config.bucket, Key: key, Body: bytes, ContentType: contentType }));
         return { success: true, data: { key } };
       } catch (error) {
-        log.error({ event: "r2_image_upload_failed", err: error }, "r2_image_upload_failed");
+        log.error({ event: "r2_image_upload_failed", err: error, ...providerFailure(error) }, "r2_image_upload_failed");
         return failed("IMAGE_STORAGE_UNAVAILABLE", "Image upload failed");
       }
     },
@@ -62,7 +66,7 @@ export function createR2ImageStorage(config: Config): ImageStorage {
         return { success: true, data: { bytes: await object.Body.transformToByteArray(), contentType: object.ContentType ?? "application/octet-stream" } };
       } catch (error) {
         if (error instanceof NoSuchKey) return failed("IMAGE_NOT_FOUND", "Image object not found");
-        log.error({ event: "r2_image_read_failed", err: error }, "r2_image_read_failed");
+        log.error({ event: "r2_image_read_failed", err: error, ...providerFailure(error) }, "r2_image_read_failed");
         return failed("IMAGE_STORAGE_UNAVAILABLE", "Image is unavailable");
       }
     },
@@ -76,7 +80,7 @@ export function createR2ImageStorage(config: Config): ImageStorage {
         await client.send(new DeleteObjectCommand({ Bucket: config.bucket, Key: key }));
         return { success: true, data: undefined };
       } catch (error) {
-        log.error({ event: "r2_image_deletion_failed", err: error }, "r2_image_deletion_failed");
+        log.error({ event: "r2_image_deletion_failed", err: error, ...providerFailure(error) }, "r2_image_deletion_failed");
         return failed("IMAGE_STORAGE_UNAVAILABLE", "Image deletion failed");
       }
     },

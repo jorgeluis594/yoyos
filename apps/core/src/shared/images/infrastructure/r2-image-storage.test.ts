@@ -1,6 +1,6 @@
 import { log } from "@core/src/shared/infrastructure/logger";
 import { afterEach, expect, it, vi } from "vitest";
-import { DeleteObjectCommand, GetObjectCommand, NoSuchKey, PutObjectCommand } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, NoSuchKey, PutObjectCommand, S3ServiceException } from "@aws-sdk/client-s3";
 import { createR2ImageStorage } from "@core/src/shared/images/infrastructure/r2-image-storage";
 
 const send = vi.hoisted(() => vi.fn());
@@ -45,6 +45,13 @@ it("translates R2 upload and delete failures", async () => {
   send.mockRejectedValueOnce(new Error("R2 unavailable"));
   expect(await storage.delete("key")).toEqual({ success: false, error: { code: "IMAGE_STORAGE_UNAVAILABLE", message: "Image deletion failed" } });
   expect(logged).toHaveBeenCalledTimes(2);
+});
+
+it("logs the R2 error code when the provider rejects an upload", async () => {
+  const logged = vi.spyOn(log, "error").mockImplementation(() => {});
+  send.mockRejectedValueOnce(new S3ServiceException({ name: "AccessDenied", $fault: "client", $metadata: { httpStatusCode: 403 }, message: "Access Denied" }));
+  await createR2ImageStorage(config).upload({ bytes: new Uint8Array([1]), filename: "a.png", contentType: "image/png" });
+  expect(logged.mock.calls[0][0]).toMatchObject({ event: "r2_image_upload_failed", providerErrorCode: "AccessDenied", providerStatusCode: 403 });
 });
 
 it.each([
