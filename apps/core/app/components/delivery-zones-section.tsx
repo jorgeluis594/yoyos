@@ -1,5 +1,5 @@
 import { useId, useState } from "react";
-import { useForm, useFieldArray, Controller } from "react-hook-form";
+import { useForm, useFieldArray, useWatch, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useTranslation } from "react-i18next";
@@ -11,7 +11,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@core/app/components/u
 import { Checkbox } from "@core/app/components/ui/checkbox";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { PeruDistrictMultiSelect } from "@core/app/components/peru-district-multi-select";
-import { getPeruDistrict, type PeruDistrictCode } from "@shared/peru-geography";
+import { parsePeruAreaSelection, type PeruAreaSelection } from "@shared/peru-geography";
+import { zoneEntries, zoneOverlaps } from "@core/app/components/zone-entries";
 import { parseDeliveryPrice } from "@core/src/features/delivery-settings/domain/delivery-price";
 import type { CourierCatalogResponse, DeliverySettingsResponse, DeliveryZonesResponse, SaveDeliveryZonesRequest } from "@shared/contracts/delivery-settings";
 import { formatCurrency } from "@core/app/format-currency";
@@ -29,10 +30,11 @@ const optionDraftSchema = z.object({
 export const zoneDraftSchema = z.object({
   name: z.string().trim().min(1).max(120),
   departmentCodes: z.array(z.string()), provinceCodes: z.array(z.string()),
-  districtCodes: z.array(z.string().refine(code => getPeruDistrict(code) !== null)).min(1).refine(codes => new Set(codes).size === codes.length),
+  districtCodes: z.array(z.string()),
   enabled: z.boolean(),
   options: z.array(optionDraftSchema),
-}).refine(zone => new Set(zone.options.map(option => option.name.trim().toLowerCase())).size === zone.options.length, { path: ["options"] });
+}).refine(zone => new Set(zone.options.map(option => option.name.trim().toLowerCase())).size === zone.options.length, { path: ["options"] })
+  .refine(zone => parsePeruAreaSelection(zone).success, { path: ["districtCodes"] });
 type Draft = z.infer<typeof zoneDraftSchema>;
 type Zone = DeliveryZonesResponse["zones"][number];
 const empty: Draft = { name: "", departmentCodes: [], provinceCodes: [], districtCodes: [], enabled: true, options: [] };
@@ -83,6 +85,9 @@ export function DeliveryZonesSection({ state, couriers, catalog, pending, error,
   const setEditing = (id: string | null | undefined) => setEditor(id === undefined ? undefined : { id, saved, baseline: state.zones.find(zone => zone.id === id) ?? null });
   const zoneChanged = editing !== undefined && editing !== null && JSON.stringify(state.zones.find(zone => zone.id === editing)) !== JSON.stringify(editor?.baseline);
   const form = useForm<Draft>({ resolver: zodResolver(zoneDraftSchema), defaultValues: empty });
+  const [departmentCodes, provinceCodes, districtCodes] = useWatch({ control: form.control, name: ["departmentCodes", "provinceCodes", "districtCodes"] });
+  const area = { departmentCodes, provinceCodes, districtCodes };
+  const overlaps = editing === undefined ? [] : zoneOverlaps(area, state.zones, editing);
   const { fields, append, remove } = useFieldArray({ control: form.control, name: "options", keyName: "fieldKey" });
   const catalogCouriers = catalog.map(courier => ({ courierId: courier.id, name: courier.name }));
   // An agency option starts named after the first courier, unique in the zone; choosing another courier renames it while the name is untouched.
@@ -108,7 +113,7 @@ export function DeliveryZonesSection({ state, couriers, catalog, pending, error,
     {zones.length === 0 && <FieldDescription>{t("deliveryZones.empty")}</FieldDescription>}
     <ul className="divide-y divide-border">{zones.map(zone => <li key={zone.id} className="flex min-w-0 flex-col gap-2 py-4">
       <strong className="break-words">{zone.name}</strong>
-      <p className="break-words text-sm text-muted-foreground">{zone.districtCodes.map(code => { const district = getPeruDistrict(code); return district ? `${district.name} · ${code}` : code; }).join(", ")}</p>
+      <p className="break-words text-sm text-muted-foreground">{zoneEntries(zone)}</p>
       <p className="text-sm">{t(zone.enabled ? "deliverySettings.active" : "deliverySettings.inactive")}</p>
       {zone.options.length === 0 && <p className="text-sm text-muted-foreground">{t("deliveryZones.noOptions")}</p>}
       <ul className="flex flex-col gap-1">{zone.options.map(option => <li key={option.id} className="flex flex-wrap justify-between gap-2 text-sm">
@@ -129,7 +134,12 @@ export function DeliveryZonesSection({ state, couriers, catalog, pending, error,
           {fieldState.error && <FieldError>{t("deliveryZones.invalidName")}</FieldError>}
         </Field>} />
         <Controller name="districtCodes" control={form.control} render={({ field, fieldState }) => <Field>
-          <PeruDistrictMultiSelect value={field.value as PeruDistrictCode[]} onChange={field.onChange} />
+          <PeruDistrictMultiSelect value={area as unknown as PeruAreaSelection} onChange={selection => {
+            // Validate right away only after a failed save attempt, as the other fields do.
+            const options = { shouldDirty: true, shouldValidate: form.formState.isSubmitted };
+            form.setValue("departmentCodes", [...selection.departmentCodes], options); form.setValue("provinceCodes", [...selection.provinceCodes], options);
+            field.onChange([...selection.districtCodes]);
+          }} />
           {fieldState.error && <FieldError>{t("deliveryZones.invalidDistricts")}</FieldError>}
         </Field>} />
         <Controller name="enabled" control={form.control} render={({ field }) => <Field orientation="horizontal">
@@ -182,6 +192,9 @@ export function DeliveryZonesSection({ state, couriers, catalog, pending, error,
           </div>
           {catalog.length === 0 && <FieldDescription>{t("deliveryZones.noCatalog")}</FieldDescription>}
         </div>
+        {overlaps.length > 0 && <Alert variant="info"><AlertDescription>{t("deliveryZones.overlap", { list: [t("deliveryZones.overlapFirst", { count: overlaps[0]!.count, name: overlaps[0]!.name }),
+          ...overlaps.slice(1).map(overlap => t("deliveryZones.overlapRest", overlap))].join(", ").replace(/, ([^,]*)$/, " y $1"),
+          all: t(overlaps.length > 1 ? "deliveryZones.overlapAll" : "deliveryZones.overlapBoth") })}</AlertDescription></Alert>}
         {zoneChanged && <Alert><AlertDescription>{t("deliveryZones.zoneChanged")}</AlertDescription></Alert>}
         <div className="flex flex-wrap gap-3"><Button type="button" disabled={pending || blocked} onClick={form.handleSubmit(draft => write(draft))}>{t(pending ? "deliverySettings.saving" : "deliveryZones.save")}</Button>
           <Button type="button" variant="ghost" disabled={pending} onClick={() => { reset(empty); setEditing(undefined); }}>{t("deliveryZones.cancel")}</Button></div>

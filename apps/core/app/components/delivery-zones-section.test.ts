@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { courierOptionName, lacksCoverage, uniqueOptionName, zoneDraftSchema } from "@core/app/components/delivery-zones-section";
+import { zoneEntries, zoneOverlaps } from "@core/app/components/zone-entries";
 import type { DeliveryZonesResponse } from "@shared/contracts/delivery-settings";
 
 const option = { method: "home", name: "Standard", amount: "0", enabled: true, agencyIds: [] };
@@ -13,7 +14,7 @@ test("zone draft requires unique official districts, options with explicit price
     { ...valid, options: [{ ...option, amount: "8.123" }] }, { ...valid, options: [{ ...option, amount: "1e2" }] },
     { ...valid, options: [{ ...option, amount: "9999999999999999999999999999999999999999999999999999" }] },
     { ...valid, options: [{ ...option, name: " " }] }, { ...valid, options: [option, { ...option, name: " standard " }] },
-    { ...valid, name: " " }, { ...valid, districtCodes: [] }, { ...valid, districtCodes: ["000000"] },
+    { ...valid, name: " " }, { ...valid, districtCodes: ["000000"] },
     { ...valid, districtCodes: ["150122", "150122"] }, { ...valid, options: [option, { ...agency, agencyIds: [] }] }]) {
     expect(zoneDraftSchema.safeParse(invalid).success).toBe(false);
   }
@@ -51,4 +52,30 @@ test("a method without an active option in an active zone lacks coverage, and an
   expect(lacksCoverage("agency", state(true), couriers)).toBe(false);
   expect(lacksCoverage("agency", state(true, [{ ...agency, enabled: false }]), couriers)).toBe(true);
   expect(lacksCoverage("agency", state(true), [{ ...couriers[0]!, enabled: false }])).toBe(true);
+});
+
+const selection = (departmentCodes: string[], provinceCodes: string[], districtCodes: string[]) => ({ departmentCodes, provinceCodes, districtCodes }) as never;
+
+test("delivery zones section lists whole departments as one entry separated by semicolons", () => {
+  expect(zoneEntries(selection(["04", "08"], [], []))).toBe("Arequipa, todos los distritos; Cusco, todos los distritos");
+  expect(zoneEntries(selection([], ["1501"], []))).toBe("Lima (provincia), todos los distritos");
+  expect(zoneEntries(selection(["04"], ["1501"], ["150122", "150131"]))).toBe("Arequipa, todos los distritos; Lima (provincia), todos los distritos; Miraflores · 150122; San Isidro · 150131");
+  expect(zoneEntries(selection([], [], ["150122", "150131"]))).toBe("Miraflores · 150122; San Isidro · 150131");
+});
+
+test("zone overlap counts shared districts with each other enabled zone and ignores disabled ones", () => {
+  const zone = (id: string, name: string, enabled: boolean, districtCodes: string[]) => ({ id, name, enabled, departmentCodes: [], provinceCodes: [], districtCodes }) as never;
+  const zones = [zone("a", "Arequipa ciudad", true, ["040103"]), zone("b", "Apagada", false, ["040103"]), zone("c", "Lima", true, ["150122"]), zone("d", "Editada", true, ["040103"])];
+  expect(zoneOverlaps(selection(["04"], [], []), zones, "d")).toEqual([{ name: "Arequipa ciudad", count: 1 }]);
+  expect(zoneOverlaps(selection(["08"], [], []), zones, null)).toEqual([]);
+  expect(zoneOverlaps(selection([], ["1501"], ["040103"]), zones, null)).toEqual([{ name: "Arequipa ciudad", count: 1 }, { name: "Lima", count: 1 }, { name: "Editada", count: 1 }]);
+});
+
+test("zone draft rejects an empty selection with the department, province or district message", () => {
+  const draft = { name: "Zona", enabled: true, options: [], departmentCodes: [], provinceCodes: [], districtCodes: [] };
+  const empty = zoneDraftSchema.safeParse(draft);
+  expect(empty.success).toBe(false);
+  expect(!empty.success && empty.error.issues[0]?.path).toEqual(["districtCodes"]);
+  for (const complete of [{ departmentCodes: ["04"] }, { provinceCodes: ["1501"] }, { districtCodes: ["150122"] }]) expect(zoneDraftSchema.safeParse({ ...draft, ...complete }).success).toBe(true);
+  expect(zoneDraftSchema.safeParse({ ...draft, departmentCodes: ["04"], districtCodes: ["040103"] }).success).toBe(false);
 });
