@@ -161,7 +161,7 @@ test("leaving with an unsaved pickup text asks for confirmation", async () => {
 const zoneId = "00000000-0000-4000-8000-000000000010";
 const optionId = "00000000-0000-4000-8000-000000000011";
 const homeOption = { id: optionId, method: "home" as const, name: "Standard", enabled: true, price: { amount: 8, currency: "PEN" as const } };
-const homeZone = { id: zoneId, name: "Lima", enabled: true, districtCodes: ["150122"], options: [homeOption] };
+const homeZone = { id: zoneId, name: "Lima", enabled: true, departmentCodes: [], provinceCodes: [], districtCodes: ["150122"], options: [homeOption] };
 const zonesState = { version: 5, currency: "PEN" as const, home: { enabled: true }, agency: { enabled: false }, agencies: [], zones: [homeZone] };
 
 test("mobile zone edit validates explicit zero and advances the shared version for the next settings save", async () => {
@@ -181,7 +181,7 @@ test("mobile zone edit validates explicit zero and advances the shared version f
   fireEvent.press(screen.getByText("Guardar zona"));
   await screen.findByText("Zona guardada.");
   expect(saveZones).toHaveBeenCalledWith({ expectedVersion: 5, zones: [{
-    kind: "existing", id: zoneId, name: "Lima", enabled: true, districtCodes: ["150122"],
+    kind: "existing", id: zoneId, name: "Lima", enabled: true, departmentCodes: [], provinceCodes: [], districtCodes: ["150122"],
     options: [{ kind: "existing", id: optionId, method: "home", name: "Standard", enabled: true, price: { amount: 0, currency: "PEN" } }],
   }] });
   expect(screen.getByText(/Standard · Domicilio · Entrega gratis/)).toBeTruthy();

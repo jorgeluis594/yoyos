@@ -141,3 +141,9 @@ test("a save without agencies skips the courier catalog and still disables the c
   expect(await saveDeliveryZones({ expectedVersion: 0, zones: [{ kind: "new", ...fields, options: [newOption] }] }, context, deps)).toMatchObject({ success: true });
   expect(repo.read().settings.couriers).toEqual([{ ...shalom, enabled: false }]);
 });
+
+test("saveDeliveryZones accepts an input without unit arrays as districts only", async () => {
+  const repo = repository();
+  const result = await saveDeliveryZones({ expectedVersion: 0, zones: [{ kind: "new", ...fields, options: [newOption] }] }, context, repo.deps);
+  expect(result).toMatchObject({ success: true, data: { zones: [{ departmentCodes: [], provinceCodes: [], districtCodes: ["150122"] }] } });
+});

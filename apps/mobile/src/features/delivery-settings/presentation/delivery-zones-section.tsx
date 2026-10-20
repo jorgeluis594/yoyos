@@ -16,17 +16,18 @@ import { AgencyPicker, type AgencyCourier } from "@mobile/features/delivery-sett
 
 const amountSchema = z.string().regex(/^\d+(?:[.,]\d{1,2})?$/).refine(value => Number(value.replace(",", ".")) <= 9999999999999.99);
 const draftSchema = z.object({ name: z.string().trim().min(1).max(120), enabled: z.boolean(),
+  departmentCodes: z.array(z.string()), provinceCodes: z.array(z.string()),
   districtCodes: z.array(z.string().refine(code => getPeruDistrict(code) !== null)).min(1).refine(codes => new Set(codes).size === codes.length),
   options: z.array(z.object({ name: z.string().trim().min(1).max(120), amount: amountSchema, kind: z.enum(["new", "existing"]), agencyIds: z.array(z.string()).optional() }).loose()
     // Saved agency options without agencies stay saveable, as the server accepts them; only new ones must pick an agency.
     .refine(option => option.kind === "existing" || option.agencyIds === undefined || option.agencyIds.length > 0))
     .refine(options => new Set(options.map(option => option.name.trim().toLowerCase())).size === options.length),
 });
-type Draft = Readonly<{ name: string; enabled: boolean; districtCodes: string[]; options: DeliveryOptionDraft[] }>;
+type Draft = Readonly<{ name: string; enabled: boolean; departmentCodes: string[]; provinceCodes: string[]; districtCodes: string[]; options: DeliveryOptionDraft[] }>;
 type ZoneInput = SaveDeliveryZonesRequest["zones"][number];
 type OptionInput = ZoneInput["options"][number];
 const nextKey = (options: readonly DeliveryOptionDraft[]) => Math.max(0, ...options.map(value => value.kind === "new" ? value.localKey : 0)) + 1;
-const empty: Draft = { name: "", enabled: true, districtCodes: [], options: [] };
+const empty: Draft = { name: "", enabled: true, departmentCodes: [], provinceCodes: [], districtCodes: [], options: [] };
 
 const existingOptionInput = (option: DeliveryZonesResponse["zones"][number]["options"][number]): OptionInput => option.method === "home"
   ? { kind: "existing", id: option.id, method: "home", name: option.name, enabled: option.enabled, price: option.price }
@@ -80,11 +81,14 @@ export function DeliveryZonesSection({ state, couriers, catalog, loadAgencies, d
     if (parsed && !parsed.success) { setError("zonesInvalid"); return; }
     const values = parsed?.success ? draft : null;
     const inputs: ZoneInput[] = zones.map(zone => values && editing === zone.id
-      ? { kind: "existing", id: zone.id, name: values.name, enabled: values.enabled, districtCodes: values.districtCodes,
+      ? { kind: "existing", id: zone.id, name: values.name, enabled: values.enabled, departmentCodes: values.departmentCodes,
+        provinceCodes: values.provinceCodes, districtCodes: values.districtCodes,
         options: values.options.map(option => optionInput(option, state.currency)) }
-      : { kind: "existing", id: zone.id, name: zone.name, districtCodes: zone.districtCodes, enabled: toggle === zone.id ? !zone.enabled : zone.enabled,
+      : { kind: "existing", id: zone.id, name: zone.name, departmentCodes: zone.departmentCodes, provinceCodes: zone.provinceCodes,
+        districtCodes: zone.districtCodes, enabled: toggle === zone.id ? !zone.enabled : zone.enabled,
         options: zone.options.map(existingOptionInput) });
-    if (values && editing === null) inputs.push({ kind: "new", name: values.name, enabled: values.enabled, districtCodes: values.districtCodes,
+    if (values && editing === null) inputs.push({ kind: "new", name: values.name, enabled: values.enabled, departmentCodes: values.departmentCodes,
+      provinceCodes: values.provinceCodes, districtCodes: values.districtCodes,
       options: values.options.map(option => optionInput(option, state.currency)) });
     setSaved(false);
     const result = await onSave({ expectedVersion: state.version, zones: inputs });
@@ -104,7 +108,8 @@ export function DeliveryZonesSection({ state, couriers, catalog, loadAgencies, d
       <ThemedText type="small" themeColor="textSecondary">{zone.districtCodes.map(code => `${getPeruDistrict(code)?.name} · ${code}`).join(", ")}</ThemedText>
       {zone.options.map(option => <ThemedText key={option.id} type="small">{`${option.name} · ${t(option.method === "home" ? "optionHome" : "optionAgency")} · ${option.price.amount === 0 ? t("zonesFree") : `S/ ${option.price.amount.toFixed(2)}`}${option.enabled ? "" : ` · ${t("optionInactive")}`}${option.method === "agency" && !hasEligibleAgency(option, state, couriers) ? ` · ${t("optionNoEligibleAgencies")}` : ""}`}</ThemedText>)}
       <ThemedText type="small">{t(zone.enabled ? "zonesActive" : "zonesInactive")}</ThemedText>
-      <Button variant="secondary" disabled={locked} onPress={() => { setDraft({ name: zone.name, enabled: zone.enabled, districtCodes: zone.districtCodes, options: zone.options.map(optionDraft) }); setEditing(zone.id); setBaseline(JSON.stringify(zone)); setSaved(false); setError(""); }}>{t("zonesEdit", { name: zone.name })}</Button>
+      <Button variant="secondary" disabled={locked} onPress={() => { setDraft({ name: zone.name, enabled: zone.enabled, departmentCodes: zone.departmentCodes, provinceCodes: zone.provinceCodes,
+    districtCodes: zone.districtCodes, options: zone.options.map(optionDraft) }); setEditing(zone.id); setBaseline(JSON.stringify(zone)); setSaved(false); setError(""); }}>{t("zonesEdit", { name: zone.name })}</Button>
       <Button variant="ghost" disabled={locked || editing !== undefined} onPress={() => void save(zone.id)}>{t(zone.enabled ? "zonesDisable" : "zonesEnable", { name: zone.name })}</Button>
     </View>)}
     {editing === undefined ? <Button variant="secondary" disabled={locked} onPress={() => { setDraft(empty); setEditing(null); setSaved(false); setError(""); }}>{t("zonesAdd")}</Button> :

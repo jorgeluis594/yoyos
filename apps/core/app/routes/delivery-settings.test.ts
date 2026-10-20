@@ -35,7 +35,7 @@ test("reports unexpected failures safely", async () => {
   expect(failure.mock.calls[0][0]).toMatchObject({ event: "delivery_settings_request_failed", entryPoint: "web_action", operation: "save_delivery_settings", userId: access.user.id, errorCode: "INTERNAL_ERROR" });
 });
 
-const zoneInput = { intent: "zones", expectedVersion: 0, zones: [{ kind: "new", name: "Lima", enabled: true, districtCodes: ["150122"],
+const zoneInput = { intent: "zones", expectedVersion: 0, zones: [{ kind: "new", name: "Lima", enabled: true, departmentCodes: [], provinceCodes: [], districtCodes: ["150122"],
   options: [{ kind: "new", method: "home", name: "Standard", enabled: true, price: { amount: 8, currency: "PEN" } }] }] };
 
 test("zone action validates the request and persists the complete zones with options under session authority", async () => {

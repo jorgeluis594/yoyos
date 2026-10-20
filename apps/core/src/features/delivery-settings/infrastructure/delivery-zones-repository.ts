@@ -22,11 +22,14 @@ export async function readDeliveryConfiguration(companyId: string, lockMode: "sh
     // An absent settings row is the initial snapshot, even if another transaction creates it later.
     if (!settings.data) return ok({ country: company.country, currency, settings: initialDeliverySettings(), zones: [], agencies: [] });
     const rows = await prisma.deliveryZone.findMany({ where: { companyId }, orderBy: { id: "asc" }, include: {
+      departments: { where: { companyId }, orderBy: { departmentCode: "asc" } },
+      provinces: { where: { companyId }, orderBy: { provinceCode: "asc" } },
       districts: { where: { companyId }, orderBy: { districtCode: "asc" } },
       options: { where: { companyId }, orderBy: { id: "asc" }, include: { agencies: { where: { companyId }, orderBy: { agencyId: "asc" } } } } } });
     const zones: DeliveryZone[] = [];
     for (const row of rows) {
-      const parsed = parseDeliveryZone({ id: row.id, name: row.name, enabled: row.enabled, districtCodes: row.districts.map(district => district.districtCode),
+      const parsed = parseDeliveryZone({ id: row.id, name: row.name, enabled: row.enabled, departmentCodes: row.departments.map(department => department.departmentCode),
+        provinceCodes: row.provinces.map(province => province.provinceCode), districtCodes: row.districts.map(district => district.districtCode),
         options: row.options.map(option => ({ id: option.id, method: option.method, name: option.name, enabled: option.enabled,
           price: { amount: option.priceAmount.toNumber(), currency: option.priceCurrency },
           ...(option.method === "agency" ? { agencyIds: option.agencies.map(agency => agency.agencyId) } : {}) })) }, currency);
@@ -55,7 +58,14 @@ export async function writeDeliveryZones(companyId: string, zones: readonly Deli
       const updated = await prisma.deliveryZone.updateMany({ where: { companyId, id: zone.id }, data });
       if (updated.count === 0) await prisma.deliveryZone.create({ data: { companyId, id: zone.id, ...data } });
       await prisma.deliveryZoneDistrict.deleteMany({ where: { companyId, zoneId: zone.id } });
-      await prisma.deliveryZoneDistrict.createMany({ data: zone.districtCodes.map(districtCode => ({ companyId, zoneId: zone.id, districtCode })) });
+      await prisma.deliveryZoneDepartment.deleteMany({ where: { companyId, zoneId: zone.id } });
+      await prisma.deliveryZoneProvince.deleteMany({ where: { companyId, zoneId: zone.id } });
+      if (zone.departmentCodes.length > 0)
+        await prisma.deliveryZoneDepartment.createMany({ data: zone.departmentCodes.map(departmentCode => ({ companyId, zoneId: zone.id, departmentCode })) });
+      if (zone.provinceCodes.length > 0)
+        await prisma.deliveryZoneProvince.createMany({ data: zone.provinceCodes.map(provinceCode => ({ companyId, zoneId: zone.id, provinceCode })) });
+      if (zone.districtCodes.length > 0)
+        await prisma.deliveryZoneDistrict.createMany({ data: zone.districtCodes.map(districtCode => ({ companyId, zoneId: zone.id, districtCode })) });
       for (const option of zone.options) {
         const fields = { name: option.name, enabled: option.enabled, priceAmount: option.price.amount, priceCurrency: option.price.currency };
         const changed = await prisma.deliveryOption.updateMany({ where: { companyId, id: option.id }, data: fields });

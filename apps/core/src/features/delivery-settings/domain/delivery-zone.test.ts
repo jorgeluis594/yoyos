@@ -140,3 +140,20 @@ test("generated identities must be valid and unique across the configuration", (
   }
   expect(prepareDeliveryZones([{ kind: "new", ...fields, options: [newHome, { ...newHome, name: "Other" }] }], context({ generateOptionId: () => id(300) })).success).toBe(false);
 });
+
+test("parseDeliveryZone accepts a zone with only whole departments", () => {
+  expect(parseDeliveryZone({ ...zoneValue(1), departmentCodes: ["04", "08"], provinceCodes: [], districtCodes: [] }, "PEN"))
+    .toMatchObject({ success: true, data: { departmentCodes: ["04", "08"], provinceCodes: [], districtCodes: [] } });
+});
+
+test("prepareDeliveryZones reports the index and field of a non-canonical selection", () => {
+  const zones = (extra: object) => [{ kind: "new" as const, ...fields, options: [newHome] }, { kind: "new" as const, ...fields, ...extra, options: [newHome] }];
+  expect(prepareDeliveryZones(zones({ departmentCodes: ["04"], districtCodes: ["040103"] }), context()))
+    .toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_ZONE", field: "districtCodes", index: 1 } });
+  expect(prepareDeliveryZones(zones({ departmentCodes: ["04"], provinceCodes: ["0401"], districtCodes: [] }), context()))
+    .toMatchObject({ success: false, error: { field: "provinceCodes", index: 1 } });
+  expect(prepareDeliveryZones(zones({ departmentCodes: ["99"], districtCodes: [] }), context()))
+    .toMatchObject({ success: false, error: { field: "departmentCodes", index: 1 } });
+  expect(prepareDeliveryZones(zones({ districtCodes: [] }), context()))
+    .toMatchObject({ success: false, error: { field: "districtCodes", index: 1 } });
+});

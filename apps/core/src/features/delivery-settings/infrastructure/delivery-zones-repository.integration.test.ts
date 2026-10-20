@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { deleteAgencies, insertAgency, seededCourier } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
 import { expect, test } from "vitest";
 import { ok } from "@shared/functional";
+import type { CompanyId } from "@shared/identity";
 import type { DeliveryZone } from "@core/src/features/delivery-settings/domain/delivery-zone";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
 import { readDeliveryConfiguration, writeDeliveryZones } from "@core/src/features/delivery-settings/infrastructure/delivery-zones-repository";
@@ -23,6 +24,8 @@ async function fixture() {
     await prisma.quotation.deleteMany();
     await prisma.deliveryOptionAgency.deleteMany();
     await prisma.deliveryOption.deleteMany();
+    await prisma.deliveryZoneDepartment.deleteMany();
+    await prisma.deliveryZoneProvince.deleteMany();
     await prisma.deliveryZoneDistrict.deleteMany();
     await prisma.deliveryZone.deleteMany();
     await prisma.companyCourier.deleteMany();
@@ -190,4 +193,86 @@ test("agency options keep their catalog associations, replace them on save and r
       expect(await deliverySettings.get(f.context)).toMatchObject({ success: true, data: { couriers: expect.arrayContaining([expect.objectContaining({ name: "Shalom", enabled: false }), expect.objectContaining({ name: "Olva Courier", enabled: true })]) } });
     });
   } finally { await f.cleanup(); await deleteAgencies([first, second, other]); }
+});
+
+const zonaSur = { kind: "new" as const, name: "Zona sur", enabled: true, departmentCodes: ["04", "08"], provinceCodes: [], districtCodes: [],
+  options: [{ ...option, name: "Domicilio", price: { amount: 15, currency: "PEN" as const } }] };
+const enableHome = { home: { enabled: true }, agency: { enabled: false }, store: { enabled: false as const, pickupPoint: null } };
+
+test("delivery zones repository stores and reads whole departments and provinces as units", async () => {
+  const f = await fixture();
+  try {
+    await f.run(async () => {
+      const saved = await deliverySettings.saveZones({ expectedVersion: 0, zones: [zonaSur,
+        { ...zonaSur, name: "Lima", departmentCodes: [], provinceCodes: ["1501"], districtCodes: ["040103"] }] }, f.context);
+      if (!saved.success) throw new Error(saved.error.message);
+      const byName = <T extends { name: string }>(zones: readonly T[]) => [...zones].sort((x, y) => x.name.localeCompare(y.name));
+      expect(byName(saved.data.zones).map(({ departmentCodes, provinceCodes, districtCodes }) => ({ departmentCodes, provinceCodes, districtCodes }))).toEqual([
+        { departmentCodes: [], provinceCodes: ["1501"], districtCodes: ["040103"] }, { departmentCodes: ["04", "08"], provinceCodes: [], districtCodes: [] }]);
+      expect(await prisma.deliveryZoneDistrict.count()).toBe(1);
+      const loaded = await withinTransaction(() => readDeliveryConfiguration(f.companyId, "shared"));
+      expect(loaded).toMatchObject({ success: true, data: { zones: [...saved.data.zones].sort((x, y) => x.id.localeCompare(y.id)) } });
+      const [lima, sur] = byName(saved.data.zones);
+      const edited = await deliverySettings.saveZones({ expectedVersion: 1, zones: [{ ...existing(sur), departmentCodes: ["04"] },
+        { ...existing(lima), provinceCodes: [...lima.provinceCodes] }] }, f.context);
+      expect(edited).toMatchObject({ success: true, data: { zones: expect.arrayContaining([expect.objectContaining({ id: sur.id, departmentCodes: ["04"] })]) } });
+      expect(await prisma.deliveryZoneDepartment.count()).toBe(1);
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("delivery zone unit rows are isolated by company", async () => {
+  const [a, b] = [await fixture(), await fixture()];
+  try {
+    await a.run(async () => { await deliverySettings.saveZones({ expectedVersion: 0, zones: [zonaSur] }, a.context); });
+    await b.run(async () => {
+      expect(await prisma.deliveryZoneDepartment.count()).toBe(0);
+      expect(await prisma.deliveryZoneProvince.count()).toBe(0);
+    });
+    await a.run(async () => { expect(await prisma.deliveryZoneDepartment.count()).toBe(2); });
+  } finally { await a.cleanup(); await b.cleanup(); }
+});
+
+test("quotation for Cayma returns the rate of a zone with Arequipa complete and Miraflores gets none", async () => {
+  const f = await fixture();
+  try {
+    await f.run(async () => {
+      expect((await deliverySettings.saveZones({ expectedVersion: 0, zones: [zonaSur] }, f.context)).success).toBe(true);
+      expect((await deliverySettings.save({ expectedVersion: 1, ...enableHome }, f.context)).success).toBe(true);
+      const quote = (districtCode: string) => deliverySettings.createQuotation({ companyId: f.companyId as CompanyId, country: "PE", districtCode, address: null, instructions: null });
+      expect(await quote("040103")).toMatchObject({ success: true, data: { rates: [{ zoneName: "Zona sur", rate: { price: { amount: 15, currency: "PEN" } } }] } });
+      expect(await quote("080101")).toMatchObject({ success: true, data: { rates: [{ zoneName: "Zona sur" }] } });
+      expect(await quote("150122")).toMatchObject({ success: true, data: { rates: [] } });
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("resolving a rate quoted through a complete province succeeds at order creation", async () => {
+  const f = await fixture();
+  try {
+    await f.run(async () => {
+      expect((await deliverySettings.saveZones({ expectedVersion: 0, zones: [{ ...zonaSur, departmentCodes: [], provinceCodes: ["1501"] }] }, f.context)).success).toBe(true);
+      expect((await deliverySettings.save({ expectedVersion: 1, ...enableHome }, f.context)).success).toBe(true);
+      const quote = async (districtCode: string) => await deliverySettings.createQuotation({ companyId: f.companyId as CompanyId, country: "PE", districtCode, address: null, instructions: null });
+      const miraflores = await quote("150122");
+      const huaral = await quote("150601");
+      if (!miraflores.success || !huaral.success) throw new Error("Expected quotations");
+      expect(huaral.data.rates).toEqual([]);
+      const { rate } = miraflores.data.rates[0];
+      expect(await deliverySettings.resolveSelectedDeliveryRate({ companyId: f.companyId as CompanyId, rateId: rate.id, method: "home", districtCode: rate.districtCode }))
+        .toMatchObject({ success: true, data: { price: { amount: 15, currency: "PEN" } } });
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("settings saves with a stale version after a zones save return a conflict and keep the zones", async () => {
+  const f = await fixture();
+  try {
+    await f.run(async () => {
+      expect((await deliverySettings.saveZones({ expectedVersion: 0, zones: [zonaSur] }, f.context)).success).toBe(true);
+      expect(await deliverySettings.save({ expectedVersion: 0, ...enableHome }, f.context))
+        .toMatchObject({ success: false, error: { code: "DELIVERY_SETTINGS_CONFLICT", currentVersion: 1 } });
+      expect(await deliverySettings.getZones(f.context)).toMatchObject({ success: true, data: { zones: [{ departmentCodes: ["04", "08"] }] } });
+    });
+  } finally { await f.cleanup(); }
 });

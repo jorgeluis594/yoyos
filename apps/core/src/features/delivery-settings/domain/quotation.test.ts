@@ -108,3 +108,34 @@ test("stored rates validate the immutable destination and quotation relationship
     expect(parseRateWithQuotation({ ...value, quotation: { ...value.quotation, destination } }, "PEN").success).toBe(false);
   }
 });
+
+const unitZone = (value: number, units: object, name = "Zona sur") => {
+  const parsed = parseDeliveryZone({ id: id(value), name, enabled: true, departmentCodes: [], provinceCodes: [], districtCodes: [], ...units,
+    options: [{ id: id(value + 100), method: "home", name: `Option ${value}`, enabled: true, price: { amount: 15, currency: "PEN" } }] }, "PEN");
+  if (!parsed.success) throw new Error(parsed.error.message);
+  return parsed.data;
+};
+const applicableIds = (zones: readonly DeliveryZone[], district: string) =>
+  applicableDeliveryOptions(configuration(zones), district as PeruDistrictCode).map(value => value.option.id);
+
+test("applicableDeliveryOptions applies a zone to a district of its complete department", () => {
+  const zones = [unitZone(1, { departmentCodes: ["04", "08"] })];
+  expect(applicableIds(zones, "040103")).toEqual([id(101)]);
+  expect(applicableIds(zones, "080101")).toEqual([id(101)]);
+  expect(applicableIds(zones, "150122")).toEqual([]);
+});
+
+test("applicableDeliveryOptions applies a zone to a district of its complete province and not to another province of the department", () => {
+  const zones = [unitZone(1, { provinceCodes: ["1501"] })];
+  expect(applicableIds(zones, "150122")).toEqual([id(101)]);
+  expect(applicableIds(zones, "150601")).toEqual([]);
+});
+
+test("applicableDeliveryOptions keeps applying district-by-district zones", () => {
+  expect(applicableIds([unitZone(1, { districtCodes: ["150122"] })], "150122")).toEqual([id(101)]);
+});
+
+test("applicableDeliveryOptions yields one rate per zone when a whole department overlaps a loose district", () => {
+  const zones = [unitZone(1, { departmentCodes: ["04"] }), unitZone(2, { districtCodes: ["040103"] }, "Cayma")];
+  expect(applicableIds(zones, "040103")).toEqual([id(101), id(102)]);
+});

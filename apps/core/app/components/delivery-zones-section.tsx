@@ -28,15 +28,16 @@ const optionDraftSchema = z.object({
 }).refine(option => option.method === "home" || option.id !== undefined || option.agencyIds.length > 0, { path: ["agencyIds"] });
 export const zoneDraftSchema = z.object({
   name: z.string().trim().min(1).max(120),
+  departmentCodes: z.array(z.string()), provinceCodes: z.array(z.string()),
   districtCodes: z.array(z.string().refine(code => getPeruDistrict(code) !== null)).min(1).refine(codes => new Set(codes).size === codes.length),
   enabled: z.boolean(),
   options: z.array(optionDraftSchema),
 }).refine(zone => new Set(zone.options.map(option => option.name.trim().toLowerCase())).size === zone.options.length, { path: ["options"] });
 type Draft = z.infer<typeof zoneDraftSchema>;
 type Zone = DeliveryZonesResponse["zones"][number];
-const empty: Draft = { name: "", districtCodes: [], enabled: true, options: [] };
+const empty: Draft = { name: "", departmentCodes: [], provinceCodes: [], districtCodes: [], enabled: true, options: [] };
 
-const toDraft = (zone: Zone): Draft => ({ name: zone.name, districtCodes: zone.districtCodes, enabled: zone.enabled,
+const toDraft = (zone: Zone): Draft => ({ name: zone.name, departmentCodes: zone.departmentCodes, provinceCodes: zone.provinceCodes, districtCodes: zone.districtCodes, enabled: zone.enabled,
   options: zone.options.map(option => ({ id: option.id, method: option.method, name: option.name, amount: String(option.price.amount),
     enabled: option.enabled, agencyIds: option.method === "agency" ? option.agencyIds : [] })) });
 const toOptionInput = (option: Draft["options"][number]): SaveDeliveryZonesRequest["zones"][number]["options"][number] => {
@@ -46,7 +47,8 @@ const toOptionInput = (option: Draft["options"][number]): SaveDeliveryZonesReque
 };
 const toZoneInput = (zone: Draft, id?: string): SaveDeliveryZonesRequest["zones"][number] => ({
   ...(id ? { kind: "existing" as const, id } : { kind: "new" as const }),
-  name: zone.name, enabled: zone.enabled, districtCodes: zone.districtCodes, options: zone.options.map(toOptionInput) });
+  name: zone.name, enabled: zone.enabled, departmentCodes: zone.departmentCodes,
+  provinceCodes: zone.provinceCodes, districtCodes: zone.districtCodes, options: zone.options.map(toOptionInput) });
 
 /** The first free name in the zone: the courier name, then "Olva 2", "Olva 3"… */
 export const uniqueOptionName = (base: string, taken: readonly string[]) => {

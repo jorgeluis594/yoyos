@@ -10,7 +10,7 @@ export type DeliveryZonesError = Readonly<{
   message: string;
   currentVersion?: number;
   reason?: "stale_version" | "concurrent_creation";
-  field?: "id" | "name" | "enabled" | "districtCodes" | "zones" | "options" | "method" | "price" | "agencyIds";
+  field?: "id" | "name" | "enabled" | "departmentCodes" | "provinceCodes" | "districtCodes" | "zones" | "options" | "method" | "price" | "agencyIds";
   index?: number;
   optionIndex?: number;
 }>;

@@ -10,7 +10,7 @@ jest.mock("@expo/ui/community/menu", () => ({
 const olva = { id: "00000000-0000-4000-8000-000000000102", code: "olva", name: "Olva" };
 const legacy = { id: "00000000-0000-4000-8000-000000000011", method: "agency" as const, name: "Legado", enabled: true, price: { amount: 5, currency: "PEN" as const }, agencyIds: [] };
 const state = { version: 5, currency: "PEN" as const, home: { enabled: true }, agency: { enabled: true }, agencies: [],
-  zones: [{ id: "00000000-0000-4000-8000-000000000010", name: "Lima", enabled: true, districtCodes: ["150122"], options: [legacy] }] };
+  zones: [{ id: "00000000-0000-4000-8000-000000000010", name: "Lima", enabled: true, departmentCodes: [], provinceCodes: [], districtCodes: ["150122"], options: [legacy] }] };
 
 test("a new agency option needs an agency before saving, while a saved one without agencies stays saveable", async () => {
   const onSave = jest.fn(async () => ok(state));

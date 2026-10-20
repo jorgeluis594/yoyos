@@ -39,11 +39,11 @@ test("preserves save conflicts without retry and checks error status and operati
 
 const zoneId = "00000000-0000-4000-8000-000000000010";
 const optionId = "00000000-0000-4000-8000-000000000011";
-const zoneInput = { expectedVersion: 0, zones: [{ kind: "new" as const, name: "Lima", enabled: true, districtCodes: ["150122"],
+const zoneInput = { expectedVersion: 0, zones: [{ kind: "new" as const, name: "Lima", enabled: true, departmentCodes: [] as string[], provinceCodes: [] as string[], districtCodes: ["150122"],
   options: [{ kind: "new" as const, method: "home" as const, name: "Standard", enabled: true, price: { amount: 0, currency: "PEN" as const } }] }] };
 const homeOption = { id: optionId, method: "home", name: "Standard", enabled: true, price: { amount: 0, currency: "PEN" } };
 const zoneState = { version: 1, currency: "PEN", home: { enabled: true }, agency: { enabled: false }, agencies: [],
-  zones: [{ id: zoneId, name: "Lima", enabled: true, districtCodes: ["150122"], options: [homeOption] }] };
+  zones: [{ id: zoneId, name: "Lima", enabled: true, departmentCodes: [], provinceCodes: [], districtCodes: ["150122"], options: [homeOption] }] };
 
 test("zone adapter returns definitive identities, validates the complete response and saves only a strict request", async () => {
   const request = jest.fn<ReturnType<Parameters<typeof createDeliverySettingsApi>[0]>, Parameters<Parameters<typeof createDeliverySettingsApi>[0]>>(async () => ok(zoneState));
@@ -110,4 +110,12 @@ test("reads an agency catalog for a courier, maps 404 to NOT_FOUND and rejects f
     expect(await createDeliverySettingsApi(async () => ok({ agencies: [invalid] })).getAgencyCatalog(courierId)).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
   expect(await createDeliverySettingsApi(async () => err({ code: "API_ERROR" as const, message: "Failed", http: { status: 404, body: { code: "NOT_FOUND", error: "Courier not found" } } })).getAgencyCatalog(courierId))
     .toMatchObject({ success: false, error: { code: "NOT_FOUND" } });
+});
+
+test("zones response with an unknown department code is an invalid response", async () => {
+  const zone = (units: object) => ({ ...zoneState, zones: [{ ...zoneState.zones[0], districtCodes: [], ...units }] });
+  expect(await createDeliverySettingsApi(async () => ok(zone({ departmentCodes: ["04", "08"] }))).getZones()).toMatchObject({ success: true });
+  for (const units of [{ departmentCodes: ["99"] }, { departmentCodes: ["04"], provinceCodes: ["0401"] }, { provinceCodes: ["1501"], districtCodes: ["150122"] }]) {
+    expect(await createDeliverySettingsApi(async () => ok(zone(units))).getZones()).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+  }
 });
