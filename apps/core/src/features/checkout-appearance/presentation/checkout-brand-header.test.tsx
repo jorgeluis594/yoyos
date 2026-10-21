@@ -51,4 +51,11 @@ describe("CheckoutBrandHeader", () => {
       ["height", "2.5rem"], ["border-radius", "var(--radius-sm)"], ["border", "1px solid var(--border)"], ["box-shadow", "none"], ["padding", "0.25rem 0.5rem"],
     ]) expect(html, property).toMatch(new RegExp(`${property}:var\\(--checkout-logo-[a-z]+,\\s*${fallback.replace(/[().]/g, "\\$&")}\\)`));
   });
+
+  test("sets the store name in the theme's heading font and weight", () => {
+    const html = renderToStaticMarkup(<CheckoutBrandHeader companyName="Lima Studio" logoUrl={null} />);
+    expect(html).toContain("font-family:var(--checkout-font-heading, inherit)");
+    expect(html).toContain("font-weight:var(--checkout-weight-heading, 600)");
+    expect(html).not.toContain("font-semibold");
+  });
 });

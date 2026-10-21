@@ -11,6 +11,12 @@ const plate: CSSProperties = {
   padding: "var(--checkout-logo-padding, 0.25rem 0.5rem)",
 };
 
+/** The store name takes the theme's heading font and weight; without a theme it keeps today's semibold. */
+const storeName: CSSProperties = {
+  fontFamily: "var(--checkout-font-heading, inherit)",
+  fontWeight: "var(--checkout-weight-heading, 600)",
+};
+
 function BrandLogo({ url }: Readonly<{ url: string }>) {
   const [failed, setFailed] = useState(false);
   const image = useRef<HTMLImageElement>(null);
@@ -27,6 +33,6 @@ function BrandLogo({ url }: Readonly<{ url: string }>) {
 export function CheckoutBrandHeader({ companyName, logoUrl }: CheckoutBrandHeaderProps) {
   return <div data-checkout-part="header-brand" className="flex min-w-0 items-center gap-3">
     {logoUrl && <BrandLogo key={logoUrl} url={logoUrl} />}
-    <p className="min-w-0 break-words font-semibold">{companyName}</p>
+    <p style={storeName} className="min-w-0 break-words">{companyName}</p>
   </div>;
 }
