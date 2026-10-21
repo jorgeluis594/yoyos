@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { err, ok } from "@shared/functional";
-import { getPeruDistrict, type PeruDistrictCode } from "@shared/peru-geography";
+import { getPeruDistrict, parsePeruAreaSelection, peruAreaIncludes, type PeruAreaSelection, type PeruDistrictCode } from "@shared/peru-geography";
 import type { Currency, Money } from "@shared/money";
 import type { Result } from "@shared/result";
 import { parseDeliveryPrice } from "@core/src/features/delivery-settings/domain/delivery-price";
@@ -17,18 +17,18 @@ export type DeliveryZone = Readonly<{
   id: DeliveryZoneId;
   name: string;
   enabled: boolean;
-  districtCodes: readonly [PeruDistrictCode, ...PeruDistrictCode[]];
   options: readonly DeliveryOption[];
-}>;
+}> & PeruAreaSelection;
 type OptionInputFields = Readonly<{ name: string; enabled: boolean; price: Money }>;
 export type DeliveryOptionInput = (Readonly<{ kind: "new" }> | Readonly<{ kind: "existing"; id: string }>) & OptionInputFields
   & (Readonly<{ method: "home" }> | Readonly<{ method: "agency"; agencyIds: readonly string[] }>);
 export type DeliveryZoneInput = (Readonly<{ kind: "new" }> | Readonly<{ kind: "existing"; id: string }>)
-  & Readonly<{ name: string; enabled: boolean; districtCodes: readonly string[]; options: readonly DeliveryOptionInput[] }>;
+  & Readonly<{ name: string; enabled: boolean; departmentCodes?: readonly string[]; provinceCodes?: readonly string[];
+    districtCodes: readonly string[]; options: readonly DeliveryOptionInput[] }>;
 export type DeliveryZoneError = Readonly<{
   code: "INVALID_DELIVERY_ZONE" | "INVALID_DELIVERY_OPTION";
   message: string;
-  field?: "id" | "name" | "enabled" | "districtCodes" | "zones" | "options" | "method" | "price" | "agencyIds";
+  field?: "id" | "name" | "enabled" | "departmentCodes" | "provinceCodes" | "districtCodes" | "zones" | "options" | "method" | "price" | "agencyIds";
   index?: number;
   optionIndex?: number;
 }>;
@@ -45,10 +45,7 @@ const optionSchema = z.discriminatedUnion("method", [
 const zoneFields = {
   name: z.string().trim().min(1).max(120),
   enabled: z.boolean(),
-  districtCodes: z.array(z.string().refine(value => getPeruDistrict(value) !== null)
-    .transform(value => value as PeruDistrictCode)).min(1)
-    .refine(values => new Set(values).size === values.length)
-    .transform(([first, ...rest]): readonly [PeruDistrictCode, ...PeruDistrictCode[]] => [first, ...rest]),
+  departmentCodes: z.array(z.string()).default([]), provinceCodes: z.array(z.string()).default([]), districtCodes: z.array(z.string()),
 };
 const zoneSchema = z.strictObject({ id: zoneId, ...zoneFields, options: z.array(z.unknown()) });
 const inputFields = { name: z.string(), enabled: z.boolean(), price: z.unknown() };
@@ -58,7 +55,8 @@ const optionInputSchema = z.union([
   z.strictObject({ kind: z.literal("existing"), id: z.string(), method: z.literal("home"), ...inputFields }),
   z.strictObject({ kind: z.literal("existing"), id: z.string(), method: z.literal("agency"), ...inputFields, agencyIds: z.array(z.string()) }),
 ]);
-const zoneInputFields = { name: z.string(), enabled: z.boolean(), districtCodes: z.array(z.string()), options: z.array(optionInputSchema) };
+const zoneInputFields = { name: z.string(), enabled: z.boolean(), departmentCodes: z.array(z.string()).default([]),
+  provinceCodes: z.array(z.string()).default([]), districtCodes: z.array(z.string()), options: z.array(optionInputSchema) };
 const inputSchema = z.array(z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("new"), ...zoneInputFields }),
   z.strictObject({ kind: z.literal("existing"), id: z.string(), ...zoneInputFields }),
@@ -67,9 +65,11 @@ const inputSchema = z.array(z.discriminatedUnion("kind", [
 export function parseDeliveryZone(value: unknown, currency: Currency): Result<DeliveryZone, DeliveryZoneError> {
   const parsed = zoneSchema.safeParse(value);
   if (!parsed.success) {
-    const field = (["id", "name", "enabled", "districtCodes"] as const).find(field => field === parsed.error.issues[0].path[0]);
-    return err({ code: "INVALID_DELIVERY_ZONE", field, message: "A zone requires an identity, name and unique Peru districts" });
+    const field = (["id", "name", "enabled", "departmentCodes", "provinceCodes", "districtCodes"] as const).find(field => field === parsed.error.issues[0].path[0]);
+    return err({ code: "INVALID_DELIVERY_ZONE", field, message: "A zone requires an identity, name and Peru departments, provinces or districts" });
   }
+  const area = parsePeruAreaSelection(parsed.data);
+  if (!area.success) return err({ code: "INVALID_DELIVERY_ZONE", field: area.error.field, message: area.error.message });
   const options: DeliveryOption[] = [];
   for (const [optionIndex, raw] of parsed.data.options.entries()) {
     const option = optionSchema.safeParse(typeof raw === "object" && raw !== null ? { ...raw, zoneId: parsed.data.id } : raw);
@@ -78,7 +78,7 @@ export function parseDeliveryZone(value: unknown, currency: Currency): Result<De
     if (!price.success) return err({ code: "INVALID_DELIVERY_OPTION", field: "price", optionIndex, message: price.error.message });
     options.push({ ...option.data, price: price.data });
   }
-  return ok({ ...parsed.data, options });
+  return ok({ ...parsed.data, ...area.data, options });
 }
 
 export type PrepareDeliveryZonesContext = Readonly<{
@@ -89,7 +89,7 @@ export type PrepareDeliveryZonesContext = Readonly<{
 function invalidInput(issuePath: readonly PropertyKey[]): DeliveryZoneError {
   const index = typeof issuePath[0] === "number" ? issuePath[0] : undefined;
   if (issuePath[1] !== "options") {
-    const field = (["id", "name", "enabled", "districtCodes"] as const).find(field => field === issuePath[1]);
+    const field = (["id", "name", "enabled", "departmentCodes", "provinceCodes", "districtCodes"] as const).find(field => field === issuePath[1]);
     return { code: "INVALID_DELIVERY_ZONE", message: "Invalid delivery zones", field, index };
   }
   const optionIndex = typeof issuePath[2] === "number" ? issuePath[2] : undefined;
@@ -129,7 +129,8 @@ export function prepareDeliveryZones(input: readonly DeliveryZoneInput[], contex
     const options = zone.options.map(option => ({ id: option.kind === "existing" ? option.id : context.generateOptionId(), zoneId: id,
       method: option.method, name: option.name, enabled: option.enabled, price: option.price,
       ...(option.method === "agency" ? { agencyIds: option.agencyIds } : {}) }));
-    const result = parseDeliveryZone({ id, name: zone.name, enabled: zone.enabled, districtCodes: zone.districtCodes, options }, context.currency);
+    const result = parseDeliveryZone({ id, name: zone.name, enabled: zone.enabled, departmentCodes: zone.departmentCodes,
+      provinceCodes: zone.provinceCodes, districtCodes: zone.districtCodes, options }, context.currency);
     if (!result.success) return err({ ...result.error, index });
     if (seenZones.has(result.data.id)) return err({ code: "INVALID_DELIVERY_ZONE", field: "id", index, message: "Zone identities must be unique" });
     seenZones.add(result.data.id);
@@ -158,4 +159,9 @@ export function prepareDeliveryZones(input: readonly DeliveryZoneInput[], contex
     zones.push(result.data);
   }
   return ok(zones);
+}
+
+export function zoneCoversDistrict(zone: DeliveryZone, districtCode: PeruDistrictCode): boolean {
+  const district = getPeruDistrict(districtCode);
+  return district !== null && peruAreaIncludes(zone, district);
 }

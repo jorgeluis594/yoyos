@@ -1,12 +1,10 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { Controller, useForm, useWatch, type FieldErrors } from "react-hook-form";
+import { useState, type ReactNode } from "react";
 import { z } from "zod";
 import { Store, Truck, Package } from "lucide-react";
 import { useClientReady } from "@core/app/use-client-ready";
 import { useTranslation } from "react-i18next";
-import { useFetcher, useActionData, useLoaderData, useNavigation, useSubmit, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
-import { courierCatalogSchema, saveDeliverySettingsSchema, saveDeliveryZonesSchema, type CourierCatalogResponse, type DeliveryZonesResponse, type DeliverySettingsResponse, type SaveDeliverySettingsRequest } from "@shared/contracts/delivery-settings";
+import { isRouteErrorResponse, useFetcher, useLoaderData, type ActionFunctionArgs, type ClientActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
+import { courierCatalogSchema, saveDeliverySettingsSchema, saveDeliveryZonesSchema, type CourierCatalogResponse, type DeliveryZonesResponse, type DeliverySettingsResponse } from "@shared/contracts/delivery-settings";
 import { privateUserContext } from "@core/app/private-user-context";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
 import { toDeliverySettingsResponse } from "@core/src/features/delivery-settings/presentation/settings-response";
@@ -21,7 +19,9 @@ import { Card, CardContent } from "@core/app/components/ui/card";
 import { Switch } from "@core/app/components/ui/switch";
 import { TextLink } from "@core/app/components/ui/text-link";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
-import { DeliveryZonesSection } from "@core/app/components/delivery-zones-section";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@core/app/components/ui/dialog";
+import { DeliveryZonesSection, lacksCoverage } from "@core/app/components/delivery-zones-section";
+import { useInstantDeliverySettings, type RowSaveState, type SaveTarget } from "@core/app/components/use-instant-delivery-settings";
 import { ErrorState } from "@core/app/components/ui/error-state";
 
 export async function loader({ context }: LoaderFunctionArgs) {
@@ -74,125 +74,106 @@ export async function action({ context, request }: ActionFunctionArgs) {
   }
 }
 
-const formSchema = z.object({
-  version: z.number().int(),
-  agencyEnabled: z.boolean(),
-  homeEnabled: z.boolean(),
-  enabled: z.boolean(),
-  name: z.string().max(120),
-  address: z.string().max(500),
-  instructions: z.string().max(1000),
-}).superRefine((values, context) => {
-  const configured = values.enabled || [values.name, values.address, values.instructions].some(value => value.trim());
-  if (configured) {
-    if (!values.name.trim()) context.addIssue({ code: "custom", path: ["name"], message: "required" });
-    if (!values.address.trim()) context.addIssue({ code: "custom", path: ["address"], message: "required" });
+// A lost response is in doubt, not failed: the save may have been applied. Redirects and client errors keep their usual handling.
+export async function clientAction({ request, serverAction }: ClientActionFunctionArgs) {
+  const zones = await request.clone().json().then((raw: unknown) => typeof raw === "object" && raw !== null && "intent" in raw, () => false);
+  try { return await serverAction<typeof action>(); }
+  catch (cause) {
+    if ((cause instanceof Response && cause.status < 500) || isRouteErrorResponse(cause)) throw cause;
+    return zones ? { zonesError: { code: "INTERNAL_ERROR" as const } } : { error: "in_doubt" as const };
   }
-});
-type FormValues = z.infer<typeof formSchema>;
-
-function createDraft(settings: DeliverySettingsResponse): FormValues {
-  return {
-    version: settings.version,
-    agencyEnabled: settings.agency.enabled,
-    homeEnabled: settings.home.enabled,
-    enabled: settings.store.enabled,
-    name: settings.store.pickupPoint?.name ?? "",
-    address: settings.store.pickupPoint?.address ?? "",
-    instructions: settings.store.pickupPoint?.instructions ?? "",
-  };
 }
 
-function SettingsForm({ settings }: { settings: DeliverySettingsResponse & { courierCatalog: CourierCatalogResponse; zones: DeliveryZonesResponse | null } }) {
+// A failed save leaves the screen as it is: the conflict notice decides when to reload.
+export function shouldRevalidate({ actionResult, defaultShouldRevalidate }: { actionResult: unknown; defaultShouldRevalidate: boolean }) {
+  return actionResult && typeof actionResult === "object" && ("error" in actionResult || "zonesError" in actionResult) ? false : defaultShouldRevalidate;
+}
+
+const pickupMaxLength = { name: 120, address: 500, instructions: 1000 } as const;
+type LoadedSettings = DeliverySettingsResponse & { courierCatalog: CourierCatalogResponse; zones: DeliveryZonesResponse | null };
+
+function SettingsForm({ loaded }: { loaded: LoadedSettings }) {
   const { t } = useTranslation();
-  const submit = useSubmit();
   const ready = useClientReady();
-  const navigation = useNavigation();
-  const result = useActionData<typeof action>();
-  const zonesFetcher = useFetcher<typeof action>();
-  const [zoneHistory, setZoneHistory] = useState<{ state: DeliveryZonesResponse | null; saved?: DeliveryZonesResponse }>({ state: settings.zones });
-  const form = useForm<FormValues>({ resolver: zodResolver(formSchema), defaultValues: createDraft(settings), shouldFocusError: false });
-  const [enabled, homeEnabled, agencyEnabled, pickupName, pickupAddress, pickupInstructions] = useWatch({ control: form.control, name: ["enabled", "homeEnabled", "agencyEnabled", "name", "address", "instructions"] });
-  const storeIncomplete = [pickupName, pickupAddress, pickupInstructions].some(value => value.trim()) && !(pickupName.trim() && pickupAddress.trim());
-  const { isDirty } = form.formState;
-  const saved = result?.saved;
-  const { getValues, reset } = form;
-  // Loader revalidation must not replace unsaved edits.
-  useEffect(() => {
-    if (saved && saved.version !== getValues("version")) reset(createDraft(saved));
-  }, [saved, getValues, reset]);
-  const zonesSaved = zonesFetcher.data?.zonesSaved;
-  const { setValue } = form;
-  useEffect(() => {
-    if (zonesSaved) setValue("version", zonesSaved.version);
-  }, [zonesSaved, setValue]);
-  if (zonesSaved && zoneHistory.saved !== zonesSaved) setZoneHistory({ state: zonesSaved, saved: zonesSaved });
-  const baseZones = zoneHistory.state;
-  const zonesState = baseZones ? { ...baseZones, version: Math.max(baseZones.version, saved?.version ?? 0),
-    ...(saved && saved.version > baseZones.version ? { home: saved.home, agency: saved.agency } : {}) } : null;
-  const zoneSection = zonesState && <DeliveryZonesSection state={zonesState} couriers={settings.couriers} catalog={settings.courierCatalog.couriers}
-    pending={navigation.state !== "idle" || zonesFetcher.state !== "idle" || !ready}
-    error={zonesFetcher.data?.zonesError?.code}
-    saved={zoneHistory.saved}
-    onSave={request => zonesFetcher.submit({ intent: "zones", ...request }, { method: "post", encType: "application/json" })} />;
-  const zonesLink = zonesState && <p className="text-sm text-muted-foreground">{t("deliverySettings.ratesByZone")} <TextLink href="#delivery-zones">{t("deliverySettings.goToZones")}</TextLink></p>;
-  const pending = navigation.state !== "idle" || zonesFetcher.state !== "idle";
-  const conflict = result?.error === "conflict";
-  const invalidMessage = t("deliverySettings.invalid");
-  const revealInvalid = (errors: FieldErrors<FormValues>) => {
-    if (errors.name || errors.address || errors.instructions) form.setFocus(errors.name ? "name" : errors.address ? "address" : "instructions");
-  };
-  const save = (values: FormValues) => {
-    if (!ready) return;
-    const configured = values.enabled || [values.name, values.address, values.instructions].some(value => value.trim());
-    const request: SaveDeliverySettingsRequest = {
-      expectedVersion: values.version,
-      agency: { enabled: values.agencyEnabled },
-      home: { enabled: values.homeEnabled },
-      store: values.enabled
-        ? { enabled: true, pickupPoint: { name: values.name, address: values.address, instructions: values.instructions.trim() || null } }
-        : { enabled: false, pickupPoint: configured
-          ? { name: values.name, address: values.address, instructions: values.instructions.trim() || null } : null },
-    };
-    submit(request, { method: "post", encType: "application/json" });
-  };
-  return <form className="flex flex-col gap-6" noValidate onSubmit={form.handleSubmit(save, revealInvalid)}>
-    <Card><CardContent className="p-0"><FieldSet disabled={pending || !ready} className="gap-0 divide-y divide-border">
+  const zonesFetcher = useFetcher<typeof clientAction>();
+  const [lastZonesSaved, setLastZonesSaved] = useState<DeliveryZonesResponse>();
+  const [dismissed, setDismissed] = useState<unknown>();
+  const zonesSaved = zonesFetcher.data && "zonesSaved" in zonesFetcher.data ? zonesFetcher.data.zonesSaved : undefined;
+  if (zonesSaved && zonesSaved !== lastZonesSaved) setLastZonesSaved(zonesSaved);
+  const instant = useInstantDeliverySettings({ loaded, zonesSaved: lastZonesSaved, zonesBusy: zonesFetcher.state !== "idle", ready });
+  const { settings, rows, checked, draft, activating, busy, conflict, blocker, invalidFields } = instant;
+  const zonesBase = loaded.zones && lastZonesSaved && lastZonesSaved.version > loaded.zones.version ? lastZonesSaved : loaded.zones;
+  const zonesState = zonesBase && { ...zonesBase, version: settings.version, home: settings.home, agency: settings.agency };
+  const reloadAll = async () => { await instant.reload(); setDismissed(zonesFetcher.data); };
+  const noCatalog = loaded.courierCatalog.couriers.length === 0;
+  const lacks = (method: "home" | "agency") => zonesState !== null && lacksCoverage(method, zonesState, settings.couriers);
+  const switchProps = (target: SaveTarget, label: string) => ({ id: `${target}-enabled`, checked: checked[target], "aria-label": label, "aria-describedby": `${target}-description`,
+    disabled: busy || conflict || !ready, onCheckedChange: (value: boolean) => instant.toggle(target, value) });
+  const coverage = (method: "home" | "agency") => lacks(method) && <FieldDescription>{t(`deliveryZones.missing.${method}`)} <TextLink href="#delivery-zones">{t("deliverySettings.goToZones")}</TextLink></FieldDescription>;
+  const showPickup = checked.store || activating || instant.unsaved;
+  const zonesError = zonesFetcher.data !== dismissed ? (zonesFetcher.data && "zonesError" in zonesFetcher.data ? zonesFetcher.data.zonesError?.code : undefined) : undefined;
+  return <div className="flex flex-col gap-6">
+    <Card><CardContent className="p-0"><FieldSet className="gap-0 divide-y divide-border">
       <FieldLegend className="sr-only">{t("deliverySettings.title")}</FieldLegend>
       <MethodRow id="store" icon={Store} title={t("deliverySettings.store")} description={t("deliverySettings.storeScope")}
-        control={<Controller name="enabled" control={form.control} render={({ field }) => <Switch id="store-enabled" checked={field.value} onCheckedChange={field.onChange} ref={field.ref} aria-label={t("deliverySettings.enabled")} aria-describedby="store-description" />} />}>
-        {/* Incomplete pickup data stays visible so its validation errors can be fixed. */}
-        {enabled || storeIncomplete ? <FieldGroup>
-          {(["name", "address", "instructions"] as const).map(name => <Controller key={name} name={name} control={form.control} render={({ field, fieldState }) => <Field data-invalid={fieldState.invalid}>
-            <FieldLabel htmlFor={`pickup-${name}`}>{t(`deliverySettings.${name}`)}</FieldLabel>
-            <Input {...field} id={`pickup-${name}`} maxLength={name === "name" ? 120 : name === "address" ? 500 : 1000} aria-invalid={fieldState.invalid} aria-describedby={fieldState.invalid ? `pickup-${name}-error` : undefined} />
-            {fieldState.error && <FieldError id={`pickup-${name}-error`}>{invalidMessage}</FieldError>}
-          </Field>} />)}
-        </FieldGroup> : pickupName && <FieldDescription>{t("deliverySettings.storeKept", { name: pickupName, address: pickupAddress })}</FieldDescription>}
+        control={<Switch {...switchProps("store", t("deliverySettings.enabled"))} />}
+        status={<RowStatus state={rows.store} onRetry={() => instant.retry("store")} />}>
+        {activating && <FieldDescription>{t("deliverySettings.activateStore")}</FieldDescription>}
+        {showPickup ? <FieldGroup>
+          {(["name", "address", "instructions"] as const).map(name => {
+            const invalid = invalidFields.some(field => field === name);
+            return <Field key={name} data-invalid={invalid}>
+              <FieldLabel htmlFor={`pickup-${name}`}>{t(`deliverySettings.${name}`)}</FieldLabel>
+              <Input id={`pickup-${name}`} value={draft[name]} maxLength={pickupMaxLength[name]} aria-invalid={invalid} aria-describedby={invalid ? `pickup-${name}-error` : undefined}
+                onChange={event => instant.changePickup(name, event.target.value)} onBlur={() => instant.blurPickup(name)} />
+              {invalid && <FieldError id={`pickup-${name}-error`}>{t("deliverySettings.invalid")}</FieldError>}
+            </Field>;
+          })}
+        </FieldGroup> : settings.store.pickupPoint && <FieldDescription>{t("deliverySettings.storeKept", { name: settings.store.pickupPoint.name, address: settings.store.pickupPoint.address })}</FieldDescription>}
       </MethodRow>
       <MethodRow id="home" icon={Truck} title={t("deliverySettings.home")} description={t("deliverySettings.homeScope")}
-        control={<Controller name="homeEnabled" control={form.control} render={({ field }) => <Switch id="home-enabled" checked={field.value} onCheckedChange={field.onChange} ref={field.ref} aria-label={t("deliverySettings.homeEnabled")} aria-describedby="home-description" />} />}>
+        control={<Switch {...switchProps("home", t("deliverySettings.homeEnabled"))} />}
+        status={<RowStatus state={rows.home} onRetry={() => instant.retry("home")} />}>
+        {coverage("home")}
       </MethodRow>
       <MethodRow id="agency" icon={Package} title={t("deliverySettings.agency")} description={t("deliverySettings.agencyScope")}
-        control={<Controller name="agencyEnabled" control={form.control} render={({ field }) => <Switch id="agency-enabled" checked={field.value} onCheckedChange={field.onChange} ref={field.ref} aria-label={t("deliverySettings.agencyEnabled")} aria-describedby="agency-description" />} />}>
-        {agencyEnabled && <FieldDescription>{t(settings.courierCatalog.couriers.length > 0 ? "deliverySettings.agencyHowTo" : "deliveryZones.noCatalog")}</FieldDescription>}
+        control={<Switch {...switchProps("agency", t("deliverySettings.agencyEnabled"))} />}
+        status={<RowStatus state={rows.agency} onRetry={() => instant.retry("agency")} />}>
+        {settings.agency.enabled && <FieldDescription>{t(noCatalog ? "deliveryZones.noCatalog" : "deliverySettings.agencyHowTo")}</FieldDescription>}
+        {!noCatalog && coverage("agency")}
       </MethodRow>
-      {(homeEnabled || agencyEnabled) && zonesLink && <div className="p-4">{zonesLink}</div>}
+      {(checked.home || checked.agency) && zonesState && <div className="p-4"><p className="text-sm text-muted-foreground">{t("deliverySettings.ratesByZone")} <TextLink href="#delivery-zones">{t("deliverySettings.goToZones")}</TextLink></p></div>}
     </FieldSet></CardContent></Card>
-    <div className="flex flex-col gap-3">
-      {result?.error && <Alert variant="destructive"><AlertDescription>{t(`deliverySettings.${result.error}`)}</AlertDescription></Alert>}
-      {saved && !isDirty && <Alert variant="success"><AlertDescription>{t("deliverySettings.saved")}</AlertDescription></Alert>}
-      <div className="flex flex-wrap items-center gap-3"><Button type="submit" className="max-sm:w-full max-md:min-h-touch" disabled={pending || !ready || Boolean(conflict)}>{t(pending ? "deliverySettings.saving" : "deliverySettings.save")}</Button>
-        {conflict && <Button asChild variant="outline"><a href="">{t("deliverySettings.reload")}</a></Button>}
-        {isDirty && <FieldDescription>{t("deliverySettings.unsaved")}</FieldDescription>}</div>
-    </div>
-    {zoneSection}
-  </form>;
+    {conflict && <Alert variant="destructive"><AlertDescription>{t("deliverySettings.conflict")}</AlertDescription>
+      <Button type="button" variant="outline" className="mt-3 max-sm:w-full max-md:min-h-touch" onClick={() => void reloadAll()}>{t("deliverySettings.reload")}</Button></Alert>}
+    <Dialog open={blocker.state === "blocked"} onOpenChange={open => { if (!open && blocker.state === "blocked") blocker.reset(); }}>
+      <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
+        <DialogHeader><DialogTitle>{t("deliverySettings.leave")}</DialogTitle></DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => blocker.state === "blocked" && blocker.proceed()}>{t("deliverySettings.leaveConfirm")}</Button>
+          <Button onClick={() => blocker.state === "blocked" && blocker.reset()}>{t("deliverySettings.leaveStay")}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    {zonesState && <DeliveryZonesSection state={zonesState} couriers={settings.couriers} catalog={loaded.courierCatalog.couriers}
+      pending={busy || !ready} error={zonesError} saved={lastZonesSaved} onReload={() => void reloadAll()}
+      onSave={request => zonesFetcher.submit({ intent: "zones", ...request }, { method: "post", encType: "application/json" })} />}
+  </div>;
+}
+
+/** The save state of one method, under its description. */
+function RowStatus({ state, onRetry }: Readonly<{ state: RowSaveState; onRetry: () => void }>) {
+  const { t } = useTranslation();
+  if (state.kind === "saving") return <FieldDescription role="status">{t("deliverySettings.saving")}</FieldDescription>;
+  if (state.kind === "saved") return <FieldDescription role="status">{t("deliverySettings.rowSaved")}</FieldDescription>;
+  if (state.kind !== "failed") return null;
+  return <Alert variant="destructive"><AlertDescription>{t(state.reason === "in_doubt" ? "deliverySettings.inDoubt" : "deliverySettings.notSent")}</AlertDescription>
+    <Button type="button" variant="outline" className="mt-3 max-md:min-h-touch" onClick={onRetry}>{t("deliverySettings.retrySave")}</Button></Alert>;
 }
 
 /** One delivery method: its switch in the header, its settings revealed below while it is offered. */
-function MethodRow({ id, icon: Icon, title, description, control, children }: Readonly<{
-  id: string; icon: typeof Store; title: string; description: string; control: ReactNode; children?: ReactNode;
+function MethodRow({ id, icon: Icon, title, description, control, status, children }: Readonly<{
+  id: string; icon: typeof Store; title: string; description: string; control: ReactNode; status?: ReactNode; children?: ReactNode;
 }>) {
   return <section aria-labelledby={`${id}-title`} className="flex min-w-0 flex-col gap-4 p-4">
     <div className="flex items-start gap-3">
@@ -203,7 +184,7 @@ function MethodRow({ id, icon: Icon, title, description, control, children }: Re
       </div>
       <div className="flex min-h-6 items-center">{control}</div>
     </div>
-    {children && <div className="flex min-w-0 flex-col gap-4 sm:pl-7">{children}</div>}
+    <div className="flex min-w-0 flex-col gap-4 empty:hidden sm:pl-7">{status}{children}</div>
   </section>;
 }
 
@@ -212,7 +193,7 @@ export default function DeliverySettings() {
   const settings = useLoaderData<typeof loader>();
   return <PageContainer width="form" className="flex flex-col gap-6"><PageHeader><PageHeader.Heading>
     <PageHeader.Title>{t("deliverySettings.title")}</PageHeader.Title><PageHeader.Description>{t("deliverySettings.description")}</PageHeader.Description>
-  </PageHeader.Heading></PageHeader><SettingsForm settings={settings} /></PageContainer>;
+  </PageHeader.Heading></PageHeader><SettingsForm loaded={settings} /></PageContainer>;
 }
 
 export function ErrorBoundary() {

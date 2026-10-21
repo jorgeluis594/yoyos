@@ -5,20 +5,29 @@ import { useTranslation } from "react-i18next";
 import { err, ok } from "@shared/functional";
 import type { CourierCatalogResponse, DeliveryZonesResponse, SaveDeliveryZonesRequest, DeliverySettingsResponse } from "@shared/contracts/delivery-settings";
 import { deliverySettings } from "@mobile/features/delivery-settings/composition";
-import { DeliveryZonesSection } from "@mobile/features/delivery-settings/presentation/delivery-zones-section";
-import type { DeliverySettingsDraft } from "@mobile/features/delivery-settings/application/delivery-settings";
+import { DeliveryZonesSection, lacksCoverage } from "@mobile/features/delivery-settings/presentation/delivery-zones-section";
+import { useInstantDeliverySettings } from "@mobile/features/delivery-settings/presentation/use-instant-delivery-settings";
+import type { PickupField, RowSaveState } from "@mobile/features/delivery-settings/application/delivery-settings";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { ThemedText } from "@mobile/components/themed-text";
 import { ThemedView } from "@mobile/components/themed-view";
 import { Button } from "@mobile/components/ui/button";
-import { Field, FieldGroup, FieldLabel } from "@mobile/components/ui/field";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@mobile/components/ui/field";
 import { Input } from "@mobile/components/ui/input";
 import { ScreenState } from "@mobile/components/ui/screen-state";
 import { useTheme } from "@mobile/hooks/use-theme";
 
-function draftFrom(settings: DeliverySettingsResponse): DeliverySettingsDraft {
-  return { expectedVersion: settings.version, agencyEnabled: settings.agency.enabled, homeEnabled: settings.home.enabled, storeEnabled: settings.store.enabled, pickupName: settings.store.pickupPoint?.name ?? "",
-    pickupAddress: settings.store.pickupPoint?.address ?? "", pickupInstructions: settings.store.pickupPoint?.instructions ?? "" };
+const pickupMaxLength = { name: 120, address: 500, instructions: 1000 } as const;
+
+/** The save state of one method, under its description. */
+function RowStatus({ state, onRetry }: Readonly<{ state: RowSaveState; onRetry: () => void }>) {
+  const { t } = useTranslation();
+  const theme = useTheme();
+  if (state.kind === "saving" || state.kind === "saved") return <ThemedText type="small" themeColor="textSecondary" accessibilityLiveRegion="polite">{t(state.kind === "saving" ? "rowSaving" : "rowSaved")}</ThemedText>;
+  if (state.kind === "invalid") return <ThemedText type="small" accessibilityRole="alert" style={{ color: theme.error }}>{t("deliverySettingsInvalid")}</ThemedText>;
+  if (state.kind !== "failed") return null;
+  return <View style={styles.heading}><ThemedText type="small" accessibilityRole="alert" style={{ color: theme.error }}>{t("deliverySettingsSaveError")}</ThemedText>
+    <Button variant="secondary" onPress={onRetry}>{t("retrySave")}</Button></View>;
 }
 
 export default function DeliverySettingsScreen() {
@@ -26,111 +35,107 @@ export default function DeliverySettingsScreen() {
   const { state } = useAccess();
   const theme = useTheme();
   const companyId = state.status === "ready" ? state.company.id : "";
-  const [draft, setDraft] = useState<DeliverySettingsDraft | null>(null);
+  const [settings, setSettings] = useState<DeliverySettingsResponse | null>(null);
   const country = state.status === "ready" ? state.company.country : "";
   const [catalog, setCatalog] = useState<CourierCatalogResponse["couriers"]>([]);
-  const [savedCouriers, setSavedCouriers] = useState<DeliverySettingsResponse["couriers"]>([]);
   const [zones, setZones] = useState<DeliveryZonesResponse | null>(null);
   const [zoneConflict, setZoneConflict] = useState(false);
-  const [generation, setGeneration] = useState(0);
-  const [busy, setBusy] = useState(true);
+  const [zonesBusy, setZonesBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [saved, setSaved] = useState(false);
-  const [conflict, setConflict] = useState(false);
   const inFlight = useRef(false);
   const initialized = useRef(false);
+  const scroll = useRef<ScrollView>(null);
+  const zonesTop = useRef(0);
   const load = useCallback(async () => {
-    if (!companyId || inFlight.current) return;
+    if (!companyId || inFlight.current) return false;
     inFlight.current = true;
-    setBusy(true);
+    setLoading(true);
     const [result, catalogResult, zoneResult] = await Promise.all([deliverySettings.get(), deliverySettings.getCourierCatalog(),
       country === "PE" ? deliverySettings.getZones() : Promise.resolve(ok(null))]);
-    if (result.success && catalogResult.success && zoneResult.success) { setCatalog(catalogResult.data.couriers); setZones(zoneResult.data); setZoneConflict(false); setGeneration(value => value + 1); }
-    if (result.success && catalogResult.success && zoneResult.success) { setDraft(draftFrom(result.data)); setSavedCouriers(result.data.couriers); setError(""); setConflict(false); setSaved(false); }
+    const loaded = result.success && catalogResult.success && zoneResult.success;
+    if (loaded) { setCatalog(catalogResult.data.couriers); setZones(zoneResult.data); setZoneConflict(false); setSettings(result.data); setError(""); }
     else setError("deliverySettingsLoadError");
     inFlight.current = false;
-    setBusy(false);
+    setLoading(false);
+    return loaded;
   }, [companyId, country]);
   useEffect(() => {
     if (companyId && !initialized.current) { initialized.current = true; void load(); }
   }, [companyId, load]);
 
-  const save = async () => {
-    if (!draft || inFlight.current || conflict || zoneConflict) return;
-    inFlight.current = true;
-    setBusy(true);
-    setSaved(false);
-    const result = await deliverySettings.save(draft);
-    if (result.success) {
-      setDraft(draftFrom(result.data)); setSavedCouriers(result.data.couriers); setError(""); setSaved(true);
-      setZones(previous => previous ? { ...previous, version: result.data.version, home: result.data.home, agency: result.data.agency } : null);
-    }
-    else {
-      setConflict(result.error.code === "DELIVERY_SETTINGS_CONFLICT");
-      setError(result.error.code === "DELIVERY_SETTINGS_CONFLICT" ? "deliverySettingsConflict"
-        : result.error.code === "INVALID_DELIVERY_SETTINGS" || result.error.code === "INVALID_INPUT" ? "deliverySettingsInvalid" : "deliverySettingsSaveError");
-    }
-    inFlight.current = false;
-    setBusy(false);
-  };
+  const instant = useInstantDeliverySettings({ settings, zonesBusy: zonesBusy || zoneConflict, ready: settings !== null && !loading, onReload: load,
+    onSaved: saved => { setSettings(saved); setError(""); } });
+  const { rows, checked, draft, activating, conflict, invalidFields } = instant;
+  const busy = loading || instant.busy;
   const saveZones = async (input: SaveDeliveryZonesRequest) => {
-    if (inFlight.current || zoneConflict || conflict) return err({ code: "INVALID_INPUT" as const, message: "Reload before saving" });
-    inFlight.current = true; setBusy(true);
+    if (busy || zoneConflict || conflict) return err({ code: "INVALID_INPUT" as const, message: "Reload before saving" });
+    setZonesBusy(true);
     const result = await deliverySettings.saveZones(input);
     if (result.success) {
       setZones(result.data);
-      setDraft(previous => previous ? { ...previous, expectedVersion: result.data.version } : null);
+      setSettings(previous => previous && { ...previous, version: result.data.version, home: result.data.home, agency: result.data.agency });
       setZoneConflict(false);
       // Zone saves are the only writer of company couriers, and the zones response does not carry them.
-      const settings = await deliverySettings.get();
-      if (settings.success) setSavedCouriers(settings.data.couriers);
+      const refreshed = await deliverySettings.get();
+      if (refreshed.success) setSettings(previous => previous && { ...previous, couriers: refreshed.data.couriers });
       else setError("deliverySettingsLoadError"); // couriers shown may be stale until reload
     } else setZoneConflict(!["INVALID_INPUT", "INVALID_DELIVERY_ZONE", "INVALID_DELIVERY_OPTION"].includes(result.error.code));
-    inFlight.current = false; setBusy(false);
+    setZonesBusy(false);
     return result;
   };
   if (state.status !== "ready") return null;
-  if (!draft) return busy ? <ScreenState status="loading" title={t("loadingDeliverySettings")} />
+  if (!settings) return loading ? <ScreenState status="loading" title={t("loadingDeliverySettings")} />
     : <ScreenState status="error" title={t("deliverySettingsLoadError")} description={t(error)} onRetry={() => void load()} />;
-  const setText = (field: "pickupName" | "pickupAddress" | "pickupInstructions", value: string) => { setDraft({ ...draft, [field]: value }); setSaved(false); };
+  const goToZones = () => scroll.current?.scrollTo({ y: zonesTop.current, animated: true });
+  const zonesState = zones && { ...zones, version: settings.version, home: settings.home, agency: settings.agency };
+  const lacks = (method: "home" | "agency") => zonesState !== null && lacksCoverage(method, zonesState, settings.couriers);
+  const coverage = (method: "home" | "agency") => lacks(method) ? <View style={styles.heading}>
+    <ThemedText type="small" themeColor="textSecondary">{t(method === "home" ? "zonesMissingHome" : "zonesMissingAgency")}</ThemedText>
+    <Button variant="ghost" onPress={goToZones}>{t("goToZones")}</Button></View> : null;
+  const section = [styles.section, { backgroundColor: theme.backgroundElement, borderColor: theme.border }];
+  const toggleProps = (target: "store" | "home" | "agency", label: string) => ({ accessibilityLabel: label, value: checked[target], disabled: busy || conflict, hitSlop: 10,
+    trackColor: { true: theme.primary }, onValueChange: (value: boolean) => instant.toggle(target, value) });
   return <ThemedView style={styles.page}><SafeAreaView style={styles.page} edges={Platform.OS === "ios" ? ["top", "left", "right", "bottom"] : ["top", "left", "right"]}>
     <KeyboardAvoidingView style={styles.page} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-    <ScrollView style={styles.page} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
+    <ScrollView ref={scroll} style={styles.page} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
       <View style={styles.heading}><ThemedText type="title" accessibilityRole="header">{t("deliverySettingsTitle")}</ThemedText>
         <ThemedText themeColor="textSecondary">{t("deliverySettingsDescription")}</ThemedText></View>
-      <View style={[styles.section, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}><View style={styles.toggle}><View style={[styles.label, styles.heading]}><ThemedText type="subtitle" accessibilityRole="header">{t("pickupStoreTitle")}</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">{t("pickupEnabled")}</ThemedText></View><Switch accessibilityLabel={t("pickupEnabled")}
-          value={draft.storeEnabled} disabled={busy} hitSlop={10} trackColor={{ true: theme.primary }}
-          onValueChange={value => { setDraft({ ...draft, storeEnabled: value }); setSaved(false); }} /></View>
+      {conflict || error ? <View style={styles.heading}>
+        {error ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t(error)}</ThemedText> : null}
+        {conflict ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t("deliverySettingsConflict")}</ThemedText> : null}
+        <Button variant="secondary" onPress={() => void instant.reload()} disabled={loading || instant.saving}>{t("reloadDeliverySettings")}</Button></View> : null}
+      <View style={section}><View style={styles.toggle}><View style={[styles.label, styles.heading]}><ThemedText type="subtitle" accessibilityRole="header">{t("pickupStoreTitle")}</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">{t("pickupEnabled")}</ThemedText></View><Switch {...toggleProps("store", t("pickupEnabled"))} /></View>
+        <RowStatus state={rows.store} onRetry={() => instant.retry("store")} />
         <ThemedText type="small" themeColor="textSecondary">{t("pickupHint")}</ThemedText>
-        <FieldGroup><Field disabled={busy}><FieldLabel>{t("pickupName")}</FieldLabel><Input value={draft.pickupName} onChangeText={value => setText("pickupName", value)} maxLength={120} accessibilityLabel={t("pickupName")} /></Field>
-          <Field disabled={busy}><FieldLabel>{t("pickupAddress")}</FieldLabel><Input value={draft.pickupAddress} onChangeText={value => setText("pickupAddress", value)} maxLength={500} multiline accessibilityLabel={t("pickupAddress")} /></Field>
-          <Field disabled={busy}><FieldLabel>{t("pickupInstructions")}</FieldLabel><Input value={draft.pickupInstructions} onChangeText={value => setText("pickupInstructions", value)} maxLength={1000} multiline accessibilityLabel={t("pickupInstructions")} /></Field></FieldGroup>
+        {activating ? <ThemedText type="small" themeColor="textSecondary">{t("pickupActivate")}</ThemedText> : null}
+        <FieldGroup>{(["name", "address", "instructions"] as const).map((name: PickupField) => {
+          const invalid = invalidFields.includes(name as "name" | "address");
+          return <Field key={name} invalid={invalid}><FieldLabel>{t(name === "name" ? "pickupName" : name === "address" ? "pickupAddress" : "pickupInstructions")}</FieldLabel>
+            <Input ref={name === "instructions" ? undefined : instant.fields[name]} value={draft[name]} onChangeText={value => instant.changePickup(name, value)} onBlur={() => instant.blurPickup(name)}
+              maxLength={pickupMaxLength[name]} multiline={name !== "name"} accessibilityLabel={t(name === "name" ? "pickupName" : name === "address" ? "pickupAddress" : "pickupInstructions")} />
+            {invalid ? <FieldError>{t("deliverySettingsInvalid")}</FieldError> : null}</Field>;
+        })}</FieldGroup>
       </View>
-      <View style={[styles.section, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}><View style={styles.toggle}><View style={[styles.label, styles.heading]}><ThemedText type="subtitle" accessibilityRole="header">{t("homeDeliveryTitle")}</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">{t("homeDeliveryEnabled")}</ThemedText></View><Switch accessibilityLabel={t("homeDeliveryEnabled")}
-          value={draft.homeEnabled} disabled={busy} hitSlop={10} trackColor={{ true: theme.primary }}
-          onValueChange={value => { setDraft({ ...draft, homeEnabled: value }); setSaved(false); }} /></View>
+      <View style={section}><View style={styles.toggle}><View style={[styles.label, styles.heading]}><ThemedText type="subtitle" accessibilityRole="header">{t("homeDeliveryTitle")}</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">{t("homeDeliveryEnabled")}</ThemedText></View><Switch {...toggleProps("home", t("homeDeliveryEnabled"))} /></View>
+        <RowStatus state={rows.home} onRetry={() => instant.retry("home")} />
+        {coverage("home")}
       </View>
-      <View style={[styles.section, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}><View style={styles.toggle}><View style={[styles.label, styles.heading]}><ThemedText type="subtitle" accessibilityRole="header">{t("agencyDeliveryTitle")}</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">{t("agencyDeliveryEnabled")}</ThemedText></View><Switch accessibilityLabel={t("agencyDeliveryEnabled")}
-          value={draft.agencyEnabled} disabled={busy} hitSlop={10} trackColor={{ true: theme.primary }}
-          onValueChange={value => { setDraft({ ...draft, agencyEnabled: value }); setSaved(false); }} /></View>
+      <View style={section}><View style={styles.toggle}><View style={[styles.label, styles.heading]}><ThemedText type="subtitle" accessibilityRole="header">{t("agencyDeliveryTitle")}</ThemedText>
+          <ThemedText type="small" themeColor="textSecondary">{t("agencyDeliveryEnabled")}</ThemedText></View><Switch {...toggleProps("agency", t("agencyDeliveryEnabled"))} /></View>
+        <RowStatus state={rows.agency} onRetry={() => instant.retry("agency")} />
         <ThemedText type="small" themeColor="textSecondary">{t("courierHint")}</ThemedText>
+        {settings.agency.enabled && catalog.length === 0 ? <ThemedText type="small" themeColor="textSecondary">{t("deliveryNoCatalog")}</ThemedText> : null}
+        {catalog.length > 0 ? coverage("agency") : null}
       </View>
-      {zones ? <View style={[styles.section, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}><DeliveryZonesSection key={`zones-${generation}`} state={zones} loadAgencies={deliverySettings.getAgencyCatalog}
-        couriers={savedCouriers} catalog={catalog} disabled={busy} blocked={zoneConflict || conflict} onSave={saveZones} onReload={() => void load()} /></View> : null}
+      {zonesState ? <View onLayout={event => { zonesTop.current = event.nativeEvent.layout.y; }} style={section}><DeliveryZonesSection state={zonesState} loadAgencies={deliverySettings.getAgencyCatalog}
+        couriers={settings.couriers} catalog={catalog} disabled={loading || zonesBusy || instant.saving} blocked={zoneConflict || conflict} onSave={saveZones} onReload={() => void instant.reload()} /></View> : null}
     </ScrollView>
-    <View style={[styles.footer, { backgroundColor: theme.background, borderColor: theme.border }]}>
-      {error ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t(error)}</ThemedText> : null}
-      {saved ? <ThemedText accessibilityLiveRegion="polite">{t("deliverySettingsSaved")}</ThemedText> : null}
-      <Button onPress={() => void save()} disabled={busy || conflict || zoneConflict} loading={busy}>{t("saveDeliverySettings")}</Button>
-      {conflict || error === "deliverySettingsLoadError" ? <Button variant="secondary" onPress={() => void load()} disabled={busy}>{t("reloadDeliverySettings")}</Button> : null}
-    </View>
     </KeyboardAvoidingView>
   </SafeAreaView></ThemedView>;
 }
 
 const styles = StyleSheet.create({ page: { flex: 1 }, content: { padding: 16, gap: 24, paddingBottom: 24, width: "100%", maxWidth: 640, alignSelf: "center" },
-  footer: { gap: 8, padding: 16, borderTopWidth: StyleSheet.hairlineWidth, width: "100%", maxWidth: 640, alignSelf: "center" },
   heading: { gap: 8 }, section: { gap: 16, padding: 16, borderWidth: 1, borderRadius: 8 }, toggle: { flexDirection: "row", alignItems: "center", gap: 16, minHeight: 48 }, label: { flex: 1 } });

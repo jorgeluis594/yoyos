@@ -1,29 +1,34 @@
-import { err, ok } from "@shared/functional";
-import { saveDeliverySettings } from "@mobile/features/delivery-settings/application/delivery-settings";
+import { pickupCommit, settingsRequest, type Confirmed } from "@mobile/features/delivery-settings/application/delivery-settings";
 
-const draft = { expectedVersion: 0, agencyEnabled: false, homeEnabled: false, storeEnabled: false, pickupName: "", pickupAddress: "", pickupInstructions: "" };
+const point = { name: "Tienda Cercado", address: "Calle Mercaderes 210", instructions: null };
+const confirmed = (store: Confirmed["store"] = { enabled: false, pickupPoint: null }): Confirmed =>
+  ({ version: 4, home: { enabled: true }, agency: { enabled: false }, store });
+const empty = { name: "", address: "", instructions: "" };
+const filled = { name: point.name, address: point.address, instructions: "" };
 
-test("sends a virtual empty point or a complete normalized point, retaining it when disabled", async () => {
-  const save = jest.fn(async () => ok({ version: 1, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: false as const, pickupPoint: null } }));
-  await saveDeliverySettings(draft, save);
-  expect(save).toHaveBeenLastCalledWith({ expectedVersion: 0, agency: { enabled: false }, home: { enabled: false }, store: { enabled: false, pickupPoint: null } });
-  await saveDeliverySettings({ ...draft, pickupName: " Store ", pickupAddress: " Lima ", pickupInstructions: "   " }, save);
-  expect(save).toHaveBeenLastCalledWith({ expectedVersion: 0, agency: { enabled: false }, home: { enabled: false }, store: { enabled: false, pickupPoint: { name: "Store", address: "Lima", instructions: null } } });
+test("settingsRequest changes only the toggled method over the confirmed settings", () => {
+  const base = confirmed({ enabled: true, pickupPoint: point });
+  expect(settingsRequest(base, { method: "agency", enabled: true })).toEqual({ expectedVersion: 4, home: { enabled: true }, agency: { enabled: true }, store: { enabled: true, pickupPoint: point } });
+  expect(settingsRequest(base, { method: "home", enabled: false })).toEqual({ expectedVersion: 4, home: { enabled: false }, agency: { enabled: false }, store: { enabled: true, pickupPoint: point } });
+  expect(settingsRequest(base, { method: "store", store: { enabled: false, pickupPoint: point } }).store).toEqual({ enabled: false, pickupPoint: point });
 });
 
-test("rejects partial points and keeps the draft and version after a conflict", async () => {
-  const save = jest.fn(async () => err({ code: "DELIVERY_SETTINGS_CONFLICT" as const, message: "Changed" }));
-  expect(await saveDeliverySettings({ ...draft, pickupName: "Partial" }, save)).toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_SETTINGS" } });
-  expect(await saveDeliverySettings({ ...draft, agencyEnabled: false, homeEnabled: false, storeEnabled: true }, save)).toMatchObject({ success: false, error: { code: "INVALID_DELIVERY_SETTINGS" } });
-  expect(save).not.toHaveBeenCalled();
-  const frozen = Object.freeze({ ...draft, agencyEnabled: false, homeEnabled: false, storeEnabled: true, pickupName: "Store", pickupAddress: "Lima" });
-  expect(await saveDeliverySettings(frozen, save)).toMatchObject({ success: false, error: { code: "DELIVERY_SETTINGS_CONFLICT" } });
-  expect(save).toHaveBeenCalledTimes(1);
-  expect(frozen.expectedVersion).toBe(0);
+test("pickupCommit activates store when name and address are saved during an activation attempt", () => {
+  expect(pickupCommit(confirmed(), { ...filled, name: " Tienda Cercado " }, true)).toEqual({ kind: "save", store: { enabled: true, pickupPoint: point } });
+  expect(pickupCommit(confirmed(), filled, false)).toEqual({ kind: "save", store: { enabled: false, pickupPoint: point } });
 });
 
-test("a store edit preserves the loaded home enablement in the complete settings request", async () => {
-  const save = jest.fn(async () => ok({ version: 1, agency: { enabled: false }, couriers: [], home: { enabled: true }, store: { enabled: false as const, pickupPoint: null } }));
-  await saveDeliverySettings({ ...draft, agencyEnabled: false, homeEnabled: true }, save);
-  expect(save).toHaveBeenCalledWith({ expectedVersion: 0, agency: { enabled: false }, home: { enabled: true }, store: { enabled: false, pickupPoint: null } });
+test("pickupCommit does not send an incomplete point and keeps the confirmed one", () => {
+  expect(pickupCommit(confirmed({ enabled: true, pickupPoint: point }), { ...filled, name: "" }, false)).toEqual({ kind: "invalid", fields: ["name"] });
+  expect(pickupCommit(confirmed(), { ...empty, instructions: "Timbre" }, true)).toEqual({ kind: "invalid", fields: ["name", "address"] });
+  expect(pickupCommit(confirmed({ enabled: true, pickupPoint: point }), empty, false)).toEqual({ kind: "invalid", fields: ["name", "address"] });
+});
+
+test("pickupCommit clears the point when the three fields are emptied with store disabled", () => {
+  expect(pickupCommit(confirmed({ enabled: false, pickupPoint: point }), empty, false)).toEqual({ kind: "save", store: { enabled: false, pickupPoint: null } });
+});
+
+test("pickupCommit sends nothing when the draft equals the confirmed point", () => {
+  expect(pickupCommit(confirmed({ enabled: true, pickupPoint: point }), { ...filled, name: " Tienda Cercado " }, false)).toEqual({ kind: "none" });
+  expect(pickupCommit(confirmed(), empty, false)).toEqual({ kind: "none" });
 });

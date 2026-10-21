@@ -34,11 +34,12 @@ test("rated pickup freezes its point and replacement preserves author and stock 
     await page.goto(`/es-PE/orders/${orderId}`);
     await browserExpect(page.getByRole("link", { name: "Configurar modalidades de entrega" })).toBeVisible();
     await page.getByRole("link", { name: "Configurar modalidades de entrega" }).click();
-    await page.getByLabel("Ofrecer recojo en tienda").check();
+    await page.getByLabel("Ofrecer recojo en tienda").click();
     await page.getByLabel("Nombre del punto de recojo").fill("Tienda original");
     await page.getByLabel("Dirección", { exact: true }).fill("Av. Original 123");
-    await page.getByRole("button", { name: "Guardar configuración" }).click();
-    await browserExpect(page.getByRole("status")).toHaveText("Configuración guardada.");
+    await page.getByLabel("Dirección", { exact: true }).blur();
+    await browserExpect(page.getByText("Guardado", { exact: true })).toBeVisible();
+    await browserExpect(page.getByLabel("Ofrecer recojo en tienda")).toBeChecked();
     await page.goto(`/es-PE/orders/${orderId}`);
     await page.getByRole("button", { name: "Asignar entrega", exact: true }).click();
     await page.getByLabel("Teléfono del destinatario").fill("999123456");
