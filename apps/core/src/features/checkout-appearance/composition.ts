@@ -56,7 +56,7 @@ export const checkoutAppearance = {
     const result = await saveCheckoutAppearance(companyId, value, dependencies);
     if (result.success) log.info({ event: "checkout_appearance_saved", companyId, userId,
       ...(result.data.logoImageId ? { logoImageId: result.data.logoImageId } : {}), hasLogo: result.data.logoImageId !== null,
-      brandColor: result.data.brandColor, background: result.data.background, isDefault: isDefaultCheckoutAppearance(result.data) },
+      theme: result.data.theme, isDefault: isDefaultCheckoutAppearance(result.data) },
     "checkout_appearance_saved");
     return result;
   },

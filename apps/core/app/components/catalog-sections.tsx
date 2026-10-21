@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { CheckoutTheme } from "@core/src/features/checkout-appearance/presentation/checkout-theme";
 import { CheckoutBrandHeader } from "@core/src/features/checkout-appearance/presentation/checkout-brand-header";
-import type { PublicCheckoutAppearance } from "@core/src/features/checkout-appearance/presentation/checkout-appearance-schemas";
 import type { CatalogProduct } from "@core/src/features/products/domain/catalog-product";
 import { formatCurrency } from "@core/app/format-currency";
 import { Button } from "@core/app/components/ui/button";
@@ -16,16 +14,16 @@ export const formatCatalogAmount = (money: Money) => formatCurrency(money.amount
 export const formatCatalogPrice = ({ kind, amount }: CatalogProduct["price"]) =>
   kind === "from" ? `Desde ${formatCatalogAmount(amount)}` : formatCatalogAmount(amount);
 
-/** `cart` is the mount point for the cart button. */
-export function CatalogShell({ appearance, storeName, cart, children }: Readonly<{
-  appearance: PublicCheckoutAppearance | null; storeName: string; cart?: ReactNode; children: ReactNode;
+/** The catalog keeps the global Yoyos tokens: only the logo of the company's appearance reaches it, never a checkout theme. `cart` is the mount point for the cart button. */
+export function CatalogShell({ logoUrl, storeName, cart, children }: Readonly<{
+  logoUrl: string | null; storeName: string; cart?: ReactNode; children: ReactNode;
 }>) {
-  return <CheckoutTheme appearance={appearance} surface="catalog">
+  return <div className="min-h-screen bg-background text-foreground">
     <header className="border-b bg-card"><div className={`${catalogPage} flex min-h-16 items-center justify-between gap-3 py-3`}>
-      <CheckoutBrandHeader companyName={storeName} logoUrl={appearance?.logoUrl ?? null} />{cart}
+      <CheckoutBrandHeader companyName={storeName} logoUrl={logoUrl} />{cart}
     </div></header>
     <main className={`${catalogPage} flex flex-col gap-4 py-6 pb-24`}>{children}</main>
-  </CheckoutTheme>;
+  </div>;
 }
 
 /** Without photo, or when it fails to load, a neutral block with the initial; never a broken image. */

@@ -1,0 +1,5 @@
+/* Self-hosted theme fonts. A browser downloads a font file only when rendered text uses its family, so a buyer gets the active theme's fonts only. */
+@import "@fontsource-variable/playfair-display/wght.css";
+@import "@fontsource-variable/fredoka/wght.css";
+@import "@fontsource-variable/nunito/wght.css";
+@import "@fontsource-variable/outfit/wght.css";

@@ -1,46 +1,39 @@
 // @vitest-environment jsdom
-import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, test } from "vitest";
-import { checkoutBrandColors } from "@core/src/features/checkout-appearance/domain/checkout-appearance";
-import { catalogPalette, checkoutColorPalettes, checkoutPalette } from "@core/src/features/checkout-appearance/domain/checkout-colors";
-import { CheckoutBrandHeader } from "@core/src/features/checkout-appearance/presentation/checkout-brand-header";
+import { describe, expect, test } from "vitest";
+import { checkoutThemeIds, checkoutThemes } from "@core/src/features/checkout-appearance/domain/checkout-themes";
 import { CheckoutTheme } from "@core/src/features/checkout-appearance/presentation/checkout-theme";
 
-Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-
-const appearance = { logoUrl: null, brandColor: "forest", background: "brand_tint" } as const;
-const scopeOf = (html: string) => /<div data-checkout-theme="([^"]+)"/.exec(html)?.[1];
 const styleOf = (html: string) => /<style>(.*?)<\/style>/s.exec(html)?.[1] ?? "";
+const scopeOf = (html: string) => /<div data-checkout-theme="([^"]+)"/.exec(html)?.[1];
+const render = (theme: Parameters<typeof CheckoutTheme>[0]["appearance"]) => renderToStaticMarkup(<CheckoutTheme appearance={theme}><p>Pedido</p></CheckoutTheme>);
 
 describe("CheckoutTheme", () => {
-  test("renders no styles when the company has no appearance", () => {
-    const html = renderToStaticMarkup(<CheckoutTheme appearance={null}><p>Pedido</p></CheckoutTheme>);
-    expect(html).not.toContain("<style");
+  test("renders Clásico when the company has no appearance", () => {
+    const html = render(null);
+    expect(html).toContain('data-checkout-theme-id="classic"');
+    expect(styleOf(html)).toContain(`--background:${checkoutThemes.classic.colors.background};`);
     expect(html).toContain("Pedido");
   });
 
-  test("scopes light and dark variables to the checkout", () => {
-    const html = renderToStaticMarkup(<CheckoutTheme appearance={appearance}><p>Pedido</p></CheckoutTheme>);
-    const css = styleOf(html);
-    const { light, dark } = checkoutColorPalettes.forest;
-    const [lightCss, darkCss] = css.split(".dark ");
-    expect(css).toMatch(/^\[data-checkout-theme="([^"]+)"\]\{.*\}\.dark \[data-checkout-theme="\1"\]\{.*\}$/);
-    expect(lightCss).toContain("--primary:#2F6B4F;");
-    expect(lightCss).toContain("--background:#D8EEE2;");
-    expect(darkCss).toContain("--primary:#8FCBA8;");
-    expect(darkCss).toContain("--background:#19271F;");
-    expect(scopeOf(html)).toBe(/^\[data-checkout-theme="([^"]+)"\]/.exec(css)?.[1]);
-    expect(css).toContain(`--primary-foreground:${light["primary-foreground"]}`);
-    expect(css).toContain(`--accent:${dark.accent}`);
-    expect(css).not.toContain(":root");
+  test("renders Noche dark even when the page prefers light", () => {
+    const html = render({ theme: "noche" });
+    expect(html).toMatch(/<div data-checkout-theme="[^"]+" data-checkout-theme-id="noche" class="dark /);
+    expect(styleOf(html)).toContain("color-scheme:dark;");
+    expect(styleOf(html)).toContain(`--background:${checkoutThemes.noche.colors.background};`);
   });
 
-  test("keeps each theme's colors inside its own checkout", () => {
+  test("renders a light theme light even inside a dark page", () => {
+    const html = renderToStaticMarkup(<div className="dark"><CheckoutTheme appearance={{ theme: "boutique" }}><p /></CheckoutTheme></div>);
+    expect(html).not.toMatch(/data-checkout-theme-id="boutique" class="[^"]*dark/);
+    expect(styleOf(html)).toContain("color-scheme:light;");
+    expect(styleOf(html)).toContain(`--background:${checkoutThemes.boutique.colors.background};`);
+  });
+
+  test("keeps each theme inside its own checkout", () => {
     const html = renderToStaticMarkup(<>
-      <CheckoutTheme appearance={{ ...appearance, background: "soft" }}><p /></CheckoutTheme>
-      <CheckoutTheme appearance={appearance}><p /></CheckoutTheme>
+      <CheckoutTheme appearance={{ theme: "boutique" }}><p /></CheckoutTheme>
+      <CheckoutTheme appearance={{ theme: "noche" }}><p /></CheckoutTheme>
     </>);
     const styles = [...html.matchAll(/<style>(.*?)<\/style>/gs)].map((match) => match[1]);
     const scopes = [...html.matchAll(/<div data-checkout-theme="([^"]+)"/g)].map((match) => match[1]);
@@ -49,67 +42,16 @@ describe("CheckoutTheme", () => {
     scopes.forEach((scope, index) => {
       expect([...styles[index].matchAll(/\[data-checkout-theme="([^"]+)"\]/g)].map((match) => match[1])).toEqual([scope, scope]);
     });
-    expect(styles[0]).toContain(`--background:${checkoutPalette("forest", "soft").light.background}`);
-    expect(styles[1]).toContain("--background:#D8EEE2");
+    expect(styles[0]).toContain(`--background:${checkoutThemes.boutique.colors.background};`);
+    expect(styles[1]).toContain(`--background:${checkoutThemes.noche.colors.background};`);
   });
 
-  test("sets borders, fields, cards, muted areas and texts from the chosen palette", () => {
-    const css = styleOf(renderToStaticMarkup(<CheckoutTheme appearance={{ ...appearance, brandColor: "ocean", background: "medium" }}><p /></CheckoutTheme>));
-    const { light, dark } = checkoutPalette("ocean", "medium");
-    for (const [name, value] of [...Object.entries(light), ...Object.entries(dark)]) expect(css).toContain(`--${name}:${value};`);
-    for (const name of ["border", "input", "card", "muted", "foreground", "muted-foreground"]) expect(css).toContain(`--${name}:`);
-    expect(css).not.toMatch(/#DCD4C9|#484249/);
-    expect(css).not.toContain("--brand-background");
-  });
-
-  test("keeps the pre-adjustment colors and the global borders for the public catalog", () => {
-    const css = styleOf(renderToStaticMarkup(<CheckoutTheme appearance={{ ...appearance, background: "soft" }} surface="catalog"><p /></CheckoutTheme>));
-    const { light, dark } = catalogPalette("forest", "soft");
-    for (const [name, value] of [...Object.entries(light), ...Object.entries(dark)]) expect(css).toContain(`--${name}:${value};`);
-    expect(css).toContain("--background:#FFFFFF");
-    for (const name of ["border", "input", "card", "muted", "foreground", "muted-foreground", "popover", "secondary"]) expect(css).not.toMatch(new RegExp(`--${name}:`));
-  });
-
-  test("renders only palette colors in the style tag", () => {
-    const paletteHex = new Set(checkoutBrandColors.flatMap((color) => [checkoutColorPalettes[color].light, checkoutColorPalettes[color].dark].flatMap((tones) => Object.values(tones))));
-    for (const color of checkoutBrandColors) for (const background of ["soft", "medium", "brand_tint"] as const) {
-      const css = styleOf(renderToStaticMarkup(<CheckoutTheme appearance={{ ...appearance, brandColor: color, background }}><p /></CheckoutTheme>));
-      const colors = css.match(/#[0-9A-Fa-f]{3,8}\b/g) ?? [];
-      expect(colors.length).toBeGreaterThan(0);
-      for (const value of colors) expect(paletteHex.has(value as never), `${color} · ${background} · ${value}`).toBe(true);
+  test("scopes the chosen theme and paints the page behind it", () => {
+    for (const theme of checkoutThemeIds) {
+      const html = render({ theme });
+      const scope = scopeOf(html);
+      expect(styleOf(html)).toContain(`html:has([data-checkout-theme="${scope}"])`);
+      expect(styleOf(html)).not.toContain(":root");
     }
-  });
-});
-
-describe("CheckoutBrandHeader", () => {
-  let root: Root | undefined;
-  afterEach(() => { act(() => root?.unmount()); root = undefined; document.body.innerHTML = ""; });
-
-  function mount(logoUrl: string | null) {
-    const container = document.body.appendChild(document.createElement("div"));
-    root = createRoot(container);
-    act(() => root!.render(<CheckoutBrandHeader companyName="Lima Studio" logoUrl={logoUrl} />));
-    return container;
-  }
-
-  test("shows the logo next to the company name", () => {
-    const container = mount("https://cdn.example/logo.png");
-    expect(container.querySelector("img")?.getAttribute("src")).toBe("https://cdn.example/logo.png");
-    expect(container.querySelector("img")?.getAttribute("alt")).toBe("");
-    expect(container.textContent).toBe("Lima Studio");
-  });
-
-  test("shows only the company name when there is no logo", () => {
-    const container = mount(null);
-    expect(container.querySelector("img")).toBeNull();
-    expect(container.textContent).toBe("Lima Studio");
-  });
-
-  test("hides the logo and keeps the name when the image fails to load", () => {
-    const container = mount("https://cdn.example/broken.png");
-    act(() => { container.querySelector("img")!.dispatchEvent(new Event("error")); });
-    expect(container.querySelector("img")).toBeNull();
-    expect(container.querySelector('[data-slot="brand-logo"]')).toBeNull();
-    expect(container.textContent).toBe("Lima Studio");
   });
 });

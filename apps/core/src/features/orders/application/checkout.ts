@@ -6,6 +6,7 @@ import { orderStateMachine, type OrderAggregate, type RatedDeliverySelection } f
 import { persistDeliveryChange, type SetDeliveryDependencies, type SetDeliveryError } from "@core/src/features/orders/application/set-delivery";
 import { resolveShippingCost, type ResolveShippingDependencies } from "@core/src/features/orders/application/resolve-delivery-selection";
 import type { CompanyId, OrderId } from "@core/src/features/orders/domain/order";
+import type { VariantId } from "@core/src/features/products/domain/product";
 import type { OrderAccess } from "@core/src/features/orders/application/create-order";
 import { checkoutState, checkoutView, checkExpectedTotal, parseBuyer,
   type BuyerData, type CheckoutAccess, type CheckoutError, type CheckoutOrder, type CheckoutView, type ConfirmedBuyer, type OrderNumber,
@@ -29,6 +30,14 @@ export type CheckoutDependencies = Readonly<{
   saveBuyer: (access: CheckoutAccess, buyer: ConfirmedBuyer) => Promise<Result<null, CheckoutError>>;
   saveConfirmed: (access: CheckoutAccess, at: Date) => Promise<Result<null, CheckoutError>>;
 }>;
+
+export type CheckoutPhotoError = Readonly<{ code: "PHOTOS_UNAVAILABLE"; message: string }>;
+export type GetOrderCheckoutDependencies = Pick<CheckoutDependencies, "findOrder"> & Readonly<{
+  /** Public URL of the current photo of each variant's product; variants without photo are absent. */
+  findItemPhotos: (variantIds: readonly VariantId[]) => Promise<Result<ReadonlyMap<VariantId, string>, CheckoutPhotoError>>;
+}>;
+/** The view of the order paired with the current product photos, which are not part of the order. */
+export type CheckoutPage = Readonly<{ checkout: CheckoutView; photos: ReadonlyMap<VariantId, string> }>;
 
 const accessSchema = z.strictObject({ companyId: z.uuid(), orderId: z.uuid() });
 const deliveryChangeSchema = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("keep") }),
@@ -55,11 +64,16 @@ export async function enableOrderCheckout(orderId: OrderId, context: OrderAccess
   });
 }
 
-export async function getOrderCheckout(access: CheckoutAccess, deps: Pick<CheckoutDependencies, "findOrder">): Promise<Result<CheckoutView, CheckoutError>> {
+export async function getOrderCheckout(access: CheckoutAccess, deps: GetOrderCheckoutDependencies): Promise<Result<CheckoutPage, CheckoutError>> {
   if (!accessSchema.safeParse(access).success) return unavailable();
   const found = await deps.findOrder(access);
   if (!found.success) return found;
-  return matches(found.data, access) ? checkoutView(found.data) : unavailable();
+  if (!matches(found.data, access)) return unavailable();
+  const checkout = checkoutView(found.data);
+  if (!checkout.success) return checkout;
+  // Photos are decorative: a failed lookup shows the markers instead of failing the checkout.
+  const photos = await deps.findItemPhotos([...new Set(checkout.data.items.map((item) => item.variantId))]);
+  return ok({ checkout: checkout.data, photos: photos.success ? photos.data : new Map() });
 }
 
 export async function confirmOrderCheckout(input: ConfirmOrderCheckoutInput, access: CheckoutAccess, now: Date, deps: Omit<CheckoutDependencies, "findOrder" | "saveEnabled">): Promise<Result<CheckoutMutation, CheckoutError>> {

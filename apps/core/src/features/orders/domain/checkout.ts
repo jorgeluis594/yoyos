@@ -43,7 +43,7 @@ export type CheckoutView = Readonly<{
   companyName: string;
   number: OrderNumber;
   buyer: Readonly<{ name: string | null; phone: string | null }> | null;
-  items: readonly Pick<OrderItem, "productName" | "variantAttributes" | "sku" | "quantity" | "unitPrice" | "subtotal">[];
+  items: readonly Pick<OrderItem, "variantId" | "productName" | "variantAttributes" | "sku" | "quantity" | "unitPrice" | "subtotal">[];
   itemsTotal: Money;
   total: Money;
   delivery: CheckoutDelivery | null;
@@ -89,7 +89,7 @@ export function checkoutView(order: CheckoutOrder): Result<CheckoutView, Checkou
   const delivery = order.delivery ? publicDelivery(order.delivery) : null;
   return ok({ companyName: order.companyName, number: order.number,
     buyer: order.buyer ? { name: order.buyer.name, phone: order.buyer.phone } : null,
-    items: order.items.map(({ productName, variantAttributes, sku, quantity, unitPrice, subtotal }) => ({ productName, variantAttributes, sku, quantity, unitPrice, subtotal })),
+    items: order.items.map(({ variantId, productName, variantAttributes, sku, quantity, unitPrice, subtotal }) => ({ variantId, productName, variantAttributes, sku, quantity, unitPrice, subtotal })),
     itemsTotal: order.itemsTotal, delivery, deliveryCharge: order.deliveryCharge, total: order.total, state: state.data });
 }
 

@@ -8,15 +8,17 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@core/app/components/ui/button";
 import { CheckoutBuyerDetails, CheckoutConfirmAction, CheckoutOrderSummary, CheckoutPayment, CheckoutReviewFields, CheckoutShell, checkoutTotal } from "@core/app/components/checkout-sections";
 import { orders } from "@core/src/features/orders/composition";
-import { parseBuyer, type CheckoutAccess, type CheckoutView } from "@core/src/features/orders/domain/checkout";
+import { parseBuyer, type CheckoutAccess } from "@core/src/features/orders/domain/checkout";
 import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
-import type { CheckoutDeliveryChange } from "@core/src/features/orders/application/checkout";
+import type { CheckoutDeliveryChange, CheckoutPage } from "@core/src/features/orders/application/checkout";
 import type { Money } from "@shared/money";
 import { deliverySettings } from "@core/src/features/delivery-settings";
 import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { bindRequestOperation, log } from "@core/src/shared/infrastructure/logger";
 import { buyerPaymentViewSchema, type BuyerPaymentView } from "@shared/contracts/orders";
 import { checkoutAppearance, parseCompanyId } from "@core/src/features/checkout-appearance";
+import { defaultCheckoutTheme } from "@core/src/features/checkout-appearance/domain/checkout-themes";
+import type { ColorSchemeHandle } from "@core/app/color-scheme";
 import { publicCheckoutAppearanceSchema, type PublicCheckoutAppearance } from "@core/src/features/checkout-appearance/presentation/checkout-appearance-schemas";
 import { clearCartForOrder } from "@core/app/lib/catalog-cart-storage";
 import { checkoutBuyerSchema, checkoutPathSchema, checkoutDeliveryOptionsSchema, confirmCheckoutDeliverySchema, publicCheckoutSchema, type CheckoutDeliveryOptions, type PublicCheckoutResponse } from "@shared/contracts/order-checkout";
@@ -26,15 +28,18 @@ export const headers = () => privacyHeaders;
 // A rejected confirmation keeps the buyer's input; a successful one redirects here and needs the payment view.
 export const shouldRevalidate = ({ formMethod, actionResult, defaultShouldRevalidate }: ShouldRevalidateFunctionArgs) =>
   formMethod?.toUpperCase() === "POST" && actionResult !== undefined ? false : defaultShouldRevalidate;
+/** A checkout renders a fixed theme; an unavailable link (the loader threw) keeps following the buyer's system preference. */
+export const handle = { colorScheme: (data: unknown) => (data as Partial<PageData> | undefined)?.checkout ? "fixed" : "system" } satisfies ColorSchemeHandle;
 export const meta = () => [{ title: "Revisa tu pedido" }, { name: "robots", content: "noindex, nofollow" }];
 const unavailable = "Enlace no disponible";
 const retry = "No se pudo completar la solicitud. Inténtalo de nuevo.";
 type PageData = { checkout: PublicCheckoutResponse | null; payment?: BuyerPaymentView; appearance?: PublicCheckoutAppearance | null; deliveryOptions?: CheckoutDeliveryOptions; message: string | null; fieldErrors?: { name?: string; phone?: string }; unavailable?: boolean; code?: string; currentPrice?: Money };
 const response = (value: PageData, status = 200) => data(value, { status, headers: privacyHeaders });
 
-function serialize(checkout: CheckoutView): PublicCheckoutResponse {
-  const parsed = publicCheckoutSchema.safeParse({ ...checkout, state: checkout.state.kind === "confirmed"
-    ? { kind: "confirmed", confirmedAt: checkout.state.confirmedAt.toISOString() } : checkout.state });
+function serialize({ checkout, photos }: CheckoutPage): PublicCheckoutResponse {
+  const parsed = publicCheckoutSchema.safeParse({ ...checkout,
+    items: checkout.items.map(({ variantId, ...item }) => ({ ...item, imageUrl: photos.get(variantId) ?? null })),
+    state: checkout.state.kind === "confirmed" ? { kind: "confirmed", confirmedAt: checkout.state.confirmedAt.toISOString() } : checkout.state });
   if (!parsed.success) {
     log.error({ event: "order_checkout_data_invalid", errorCode: "INVALID_CHECKOUT_RESPONSE" }, "Invalid checkout response");
     bindRequestOperation({ outcome: "technical_failure" });
@@ -48,7 +53,7 @@ async function loadAppearance(companyId: string): Promise<PublicCheckoutAppearan
   const id = parseCompanyId(companyId);
   if (!id.success) {
     log.error({ event: "order_checkout_appearance_failed", errorCode: id.error.code }, "Checkout appearance unavailable");
-    bindRequestOperation({ checkoutAppearance: "fallback" });
+    bindRequestOperation({ checkoutAppearance: "fallback", checkoutTheme: defaultCheckoutTheme });
     return null;
   }
   let kind: "default" | "custom" | "fallback";
@@ -68,7 +73,7 @@ async function loadAppearance(companyId: string): Promise<PublicCheckoutAppearan
     kind = "fallback";
     log.error({ event: "order_checkout_appearance_failed", err: cause }, "Checkout appearance unavailable");
   }
-  bindRequestOperation({ checkoutAppearance: kind });
+  bindRequestOperation({ checkoutAppearance: kind, checkoutTheme: appearance?.theme ?? defaultCheckoutTheme });
   return appearance;
 }
 
@@ -93,11 +98,11 @@ export async function loader({ params }: LoaderFunctionArgs) {
   if (!result.success) throw new Response(result.error.code === "CHECKOUT_UNAVAILABLE" ? unavailable : retry,
     { status: result.error.code === "CHECKOUT_UNAVAILABLE" ? 404 : 503, headers: privacyHeaders });
   const appearance = loadAppearance(path.data.companyId);
-  if (result.data.state.kind === "confirmed") {
+  if (result.data.checkout.state.kind === "confirmed") {
     const [payment, branded] = await Promise.all([loadPayment(path.data.orderId), appearance]);
     return response({ checkout: serialize(result.data), payment, appearance: branded, message: null });
   }
-  if (result.data.state.kind !== "pending") return response({ checkout: serialize(result.data), appearance: await appearance, message: null });
+  if (result.data.checkout.state.kind !== "pending") return response({ checkout: serialize(result.data), appearance: await appearance, message: null });
   const [settings, branded] = await Promise.all([withTenantIsolation(path.data.companyId, () => deliverySettings.getCheckoutDeliveryOptions(path.data.companyId)), appearance]);
   if (!settings.success) {
     bindRequestOperation({ outcome: "technical_failure" });

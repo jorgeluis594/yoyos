@@ -1,14 +1,14 @@
 import { applicationEventBus } from "@core/src/composition/event-bus";
 import type { EventBusError } from "@core/src/shared/events/application/contracts";
 import { createCompleteOrder, type CreateCompleteOrderInput, type CreateCompleteOrderError } from "@core/src/features/orders/application/create-complete-order";
-import { enableOrderCheckout, getOrderCheckout, confirmOrderCheckout, confirmCheckoutDelivery, type CheckoutDependencies, type ConfirmOrderCheckoutInput, type ConfirmCheckoutDeliveryInput } from "@core/src/features/orders/application/checkout";
+import { enableOrderCheckout, getOrderCheckout, confirmOrderCheckout, confirmCheckoutDelivery, type CheckoutDependencies, type CheckoutPhotoError, type GetOrderCheckoutDependencies, type ConfirmOrderCheckoutInput, type ConfirmCheckoutDeliveryInput } from "@core/src/features/orders/application/checkout";
 import { findCheckoutOrder, findCheckoutOrderForUpdate as findAnyCheckoutOrderForUpdate, saveCheckoutEnabled, saveCheckoutBuyer, saveCheckoutConfirmed } from "@core/src/features/orders/infrastructure/checkout-repository";
 import { canAccessBuyerPayment, type CheckoutAccess, type CheckoutError } from "@core/src/features/orders/domain/checkout";
 import type { OrderAccess } from "@core/src/features/orders/application/create-order";
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import { randomUUID } from "node:crypto";
 import { isPersistenceFailure } from "@core/src/shared/infrastructure/persistence-error";
-import { err, ok } from "@shared/functional";
+import { err, map, ok } from "@shared/functional";
 import type { AppError, Result } from "@shared/result";
 import { afterTransactionCommit, getCompanyId, requireNoActiveTransaction, withinTransaction, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { deliverySettings } from "@core/src/features/delivery-settings";
@@ -45,7 +45,7 @@ import type { EventHandler } from "@core/src/shared/events/application/contracts
 import type { AppEvents } from "@core/src/shared/events/application/app-events";
 import { findAvailablePublicImage, readImageBytes, resolvePublicImage } from "@core/src/shared/images";
 import { companyPaymentSettings } from "@core/src/features/companies";
-import type { ImageId } from "@core/src/features/products/domain/product";
+import type { ImageId, VariantId } from "@core/src/features/products/domain/product";
 import { orderStateMachine } from "@core/src/features/orders/domain/order-state-machine";
 import type { BuyerPaymentView } from "@shared/contracts/orders";
 import type { CompanyId, ContactId, OrderId, OrderItemId, PaymentId, UserId } from "@core/src/features/orders/domain/order";
@@ -146,6 +146,23 @@ const checkoutDependencies: CheckoutDependencies = { transaction: scopedOrderTra
   findOrder: findCheckoutOrder, findOrderForUpdate: findAnyCheckoutOrderForUpdate,
   saveEnabled: saveCheckoutEnabled, saveBuyer: saveCheckoutBuyer, saveConfirmed: saveCheckoutConfirmed,
 };
+/** Photos are decorative: the failure is logged here, where it is known, and the use case falls back to markers. */
+async function findItemPhotos(variantIds: readonly VariantId[]): Promise<Result<ReadonlyMap<VariantId, string>, CheckoutPhotoError>> {
+  const photos = await products.findVariantPhotos(variantIds);
+  if (photos.success) return photos;
+  log.error({ event: "order_checkout_photos_unavailable", companyId: getCompanyId(), errorCode: photos.error.code, variantCount: variantIds.length }, "order_checkout_photos_unavailable");
+  return err({ code: "PHOTOS_UNAVAILABLE" as const, message: "Unable to read product photos" });
+}
+const getCheckoutDependencies: GetOrderCheckoutDependencies = { findOrder: findCheckoutOrder, findItemPhotos };
+/** For callers that only need the checkout state: no photo lookup, so nothing is queried or logged about photos. */
+const getCheckoutViewDependencies: GetOrderCheckoutDependencies = { findOrder: findCheckoutOrder, findItemPhotos: async () => ok(new Map()) };
+async function readCheckout(access: CheckoutAccess, deps: GetOrderCheckoutDependencies) {
+  bindRequestOperation({ operation: "get_checkout" });
+  const result = await withTenantIsolation(access.companyId, () => getOrderCheckout(access, deps));
+  if (!result.success) rejectedCheckout(result.error);
+  else bindRequestOperation({ outcome: result.data.checkout.state.kind, orderNumber: result.data.checkout.number });
+  return result;
+}
 function rejectedCheckout(error: CheckoutError) {
   const outcomes = { CHECKOUT_UNAVAILABLE: "unavailable", ORDER_CANCELLED: "cancelled", INVALID_BUYER: "invalid_input",
     TOTAL_CHANGED: "total_changed", INVALID_CHECKOUT: "technical_failure", PERSISTENCE_UNAVAILABLE: "technical_failure",
@@ -279,13 +296,8 @@ export const orders = {
     if (result.data.changed) log.info({ event: "order_checkout_enabled", companyId: access.companyId, orderNumber: result.data.number, userId: access.userId }, "Order checkout enabled");
     return ok({ url: checkoutUrl(access.companyId, orderId) });
   },
-  getCheckout: async (access: CheckoutAccess) => {
-    bindRequestOperation({ operation: "get_checkout" });
-    const result = await withTenantIsolation(access.companyId, () => getOrderCheckout(access, checkoutDependencies));
-    if (!result.success) rejectedCheckout(result.error);
-    else bindRequestOperation({ outcome: result.data.state.kind, orderNumber: result.data.number });
-    return result;
-  },
+  getCheckout: (access: CheckoutAccess) => readCheckout(access, getCheckoutDependencies),
+  getCheckoutView: async (access: CheckoutAccess) => map(await readCheckout(access, getCheckoutViewDependencies), ({ checkout }) => checkout),
   confirmCheckout: async (input: ConfirmOrderCheckoutInput, access: CheckoutAccess) => {
     requireNoActiveTransaction();
     bindRequestOperation({ operation: "confirm_checkout" });

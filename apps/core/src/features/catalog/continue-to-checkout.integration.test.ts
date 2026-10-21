@@ -115,7 +115,7 @@ test("Continuar takes the current price and the checkout keeps working after the
   expect(created).toMatchObject({ success: true, data: { total: { amount: 100, currency: "PEN" } } });
   if (!created.success) return;
   await withTenantIsolation(companyId, async () => await prisma.company.update({ where: { id: companyId }, data: { catalogPublished: false } }));
-  expect(await orders.getCheckout({ companyId, orderId })).toMatchObject({ success: true, data: { number: created.data.number } });
+  expect(await orders.getCheckout({ companyId, orderId })).toMatchObject({ success: true, data: { checkout: { number: created.data.number } } });
   const buyer = parseBuyer({ name: "Ana", phone: "+51987654321" });
   if (!buyer.success) throw new Error(buyer.error.code);
   expect(await orders.confirmCheckout({ buyer: buyer.data, expectedTotal: created.data.total }, { companyId, orderId })).toMatchObject({ success: true });

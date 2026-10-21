@@ -75,17 +75,28 @@ test("buyer reports a receipt and sees the seller confirmed balance", async ({ p
     await page.setViewportSize({ width: 390, height: 938 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ animations: "disabled", path: "../../.impeccable/review/mobile.png", fullPage: true });
-    await page.evaluate(() => document.documentElement.classList.add("dark"));
+    // docs/checkout.md «Fixed mode»: a buyer with a dark system and a stored dark preference still gets the light Clásico checkout.
+    await page.emulateMedia({ colorScheme: "dark" });
+    await page.evaluate(() => localStorage.setItem("yoyos-theme", "dark"));
+    await page.reload();
+    await page.getByRole("radio", { name: "Transferencia", exact: true }).check();
+    await browserExpect(page.locator("html")).toHaveAttribute("data-color-scheme", "fixed");
+    await browserExpect(page.locator("html")).not.toHaveClass(/dark/);
     await page.screenshot({ animations: "disabled", path: "../../.impeccable/review/mobile-dark.png", fullPage: true });
     await expect.poll(() => page.getByRole("button", { name: "Copiar CCI" }).evaluate(element => {
+      const channels = (color: string) => color.match(/[\d.]+/g)!.map(Number);
       const luminance = (color: string) => {
-        const channels = color.match(/[\d.]+/g)!.slice(0, 3).map(value => { const channel = Number(value) / 255; return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4; });
-        return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+        const [red, green, blue] = channels(color).slice(0, 3).map(value => { const channel = value / 255; return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4; });
+        return red * 0.2126 + green * 0.7152 + blue * 0.0722;
       };
-      const text = luminance(getComputedStyle(element).color), background = luminance(getComputedStyle(document.body).backgroundColor);
+      // The text sits on the nearest painted ancestor: the themed surface, not the page body.
+      let surface: Element | null = element;
+      while (surface && (channels(getComputedStyle(surface).backgroundColor)[3] ?? 1) === 0) surface = surface.parentElement;
+      const text = luminance(getComputedStyle(element).color), background = luminance(getComputedStyle(surface ?? document.body).backgroundColor);
       return (Math.max(text, background) + 0.05) / (Math.min(text, background) + 0.05);
     })).toBeGreaterThanOrEqual(4.5);
-    await page.evaluate(() => document.documentElement.classList.remove("dark"));
+    await page.evaluate(() => localStorage.removeItem("yoyos-theme"));
+    await page.emulateMedia({ colorScheme: "light" });
     const imageId = crypto.randomUUID();
     await withTenantIsolation(tenantId, async () => await prisma.image.create({ data: { id: imageId, storageKey: `test/${imageId}` } }));
     let uploadFailed = false;

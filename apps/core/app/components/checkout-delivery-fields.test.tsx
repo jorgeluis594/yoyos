@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { renderToStaticMarkup } from "react-dom/server";
 import { createInstance } from "i18next";
 import { I18nextProvider, initReactI18next } from "react-i18next";
@@ -13,7 +14,7 @@ const withI18n = (element: React.ReactElement) => <I18nextProvider i18n={i18n}>{
 const total = { amount: 10, currency: "PEN" as const };
 const checkout: PublicCheckoutResponse = { companyName: "Shop", number: 1001, buyer: null, delivery: null,
   deliveryCharge: { amount: 0, currency: "PEN" }, itemsTotal: total, total,
-  items: [{ productName: "Product", variantAttributes: {}, sku: null, quantity: 1, unitPrice: total, subtotal: total }], state: { kind: "pending" } };
+  items: [{ productName: "Product", variantAttributes: {}, sku: null, imageUrl: null, quantity: 1, unitPrice: total, subtotal: total }], state: { kind: "pending" } };
 const options = { home: { enabled: true }, agency: { enabled: false, covered: false }, store: { enabled: false as const, pickupPoint: null } };
 const pickup = { enabled: true as const, pickupPoint: { name: "Shop", address: "Street", instructions: null } };
 const render = (value = checkout, settings: CheckoutDeliveryOptions = options) => renderToStaticMarkup(withI18n(<CheckoutDeliveryFields orderId="00000000-0000-4000-8000-000000000001" checkout={value} options={settings} onChange={() => undefined} />));
@@ -105,4 +106,16 @@ test("a saved agency delivery is summarized as Envío a agencia with courier, ag
   } });
   expect(html).toContain("Envío a agencia");
   expect(html).toContain("Shalom · Branch · Av. Test 123");
+});
+
+test("every text field and select of the delivery step sits in a field group, so each theme gives it the boundary of its buyer fields", () => {
+  const container = document.createElement("div");
+  container.innerHTML = render();
+  const controls = [...container.querySelectorAll("input:not([type=radio]):not([type=hidden]), select")];
+  expect(controls.map((control) => control.id)).toEqual(expect.arrayContaining(["delivery-name", "delivery-phone"]));
+  expect(controls.length).toBeGreaterThanOrEqual(6);
+  for (const control of controls) {
+    expect(control.closest("[data-checkout-part=field-group]"), control.id).not.toBeNull();
+    expect(control.closest("[data-checkout-part=field]"), control.id).not.toBeNull();
+  }
 });

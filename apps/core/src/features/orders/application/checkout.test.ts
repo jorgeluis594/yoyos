@@ -1,7 +1,7 @@
 import { parseDeliverySnapshot } from "@core/src/features/orders/domain/order-state-machine";
 import { expect, test, vi } from "vitest";
 import { err, ok } from "@shared/functional";
-import { confirmCheckoutDelivery, type ConfirmCheckoutDeliveryDependencies, confirmOrderCheckout, enableOrderCheckout, getOrderCheckout, type CheckoutDependencies } from "@core/src/features/orders/application/checkout";
+import { confirmCheckoutDelivery, type ConfirmCheckoutDeliveryDependencies, confirmOrderCheckout, enableOrderCheckout, getOrderCheckout, type CheckoutDependencies, type GetOrderCheckoutDependencies } from "@core/src/features/orders/application/checkout";
 import { parseBuyer, parseOrderNumber, type BuyerData, type CheckoutAccess, type CheckoutOrder } from "@core/src/features/orders/domain/checkout";
 import type { CompanyId, ContactId, OrderId, OrderItemId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
@@ -34,7 +34,8 @@ function fixture(initial: CheckoutOrder | null = base) {
     saveBuyer: async (_access, data) => { writes.push("buyer"); order = { ...order!, buyer: data }; return ok(null); },
     saveConfirmed: async (_access, at) => { writes.push("confirmed"); order = { ...order!, checkoutConfirmedAt: at }; return ok(null); },
   };
-  return { deps, writes, stored: () => order };
+  const findItemPhotos = vi.fn<GetOrderCheckoutDependencies["findItemPhotos"]>(async () => ok(new Map()));
+  return { deps: { ...deps, findItemPhotos } satisfies CheckoutDependencies & GetOrderCheckoutDependencies, writes, stored: () => order, findItemPhotos };
 }
 
 test("enables once and preserves the original enable timestamp on reuse", async () => {
@@ -48,10 +49,38 @@ test("enables once and preserves the original enable timestamp on reuse", async 
 test("public view exposes only checkout data and uses the order total, not a recomputed subtotal", async () => {
   const f = fixture({ ...base, buyer: { name: null, phone: buyer.phone, contactId: uuid(5) as ContactId } });
   const result = await getOrderCheckout(access, f.deps);
-  expect(result).toEqual({ success: true, data: { companyName: "Store", number: 1001, buyer: { name: null, phone: buyer.phone },
-    items: [{ productName: "Product", variantAttributes: {}, sku: null, quantity: 2, unitPrice: { amount: 50, currency: "PEN" }, subtotal: base.itemsTotal }],
-    itemsTotal: base.itemsTotal, delivery: null, deliveryCharge: base.deliveryCharge, total, state: { kind: "pending" } } });
+  expect(result).toEqual({ success: true, data: { photos: new Map(), checkout: { companyName: "Store", number: 1001, buyer: { name: null, phone: buyer.phone },
+    items: [{ variantId: uuid(4), productName: "Product", variantAttributes: {}, sku: null, quantity: 2, unitPrice: { amount: 50, currency: "PEN" }, subtotal: base.itemsTotal }],
+    itemsTotal: base.itemsTotal, delivery: null, deliveryCharge: base.deliveryCharge, total, state: { kind: "pending" } } } });
   expect(f.writes).toEqual([]);
+});
+
+test("returns the checkout with the current photo of each item's product", async () => {
+  const polo = uuid(4) as VariantId;
+  const taza = uuid(6) as VariantId;
+  const f = fixture({ ...base, items: [base.items[0], { ...base.items[0], id: uuid(7) as OrderItemId, variantId: taza, productName: "Taza blanca" }] });
+  f.findItemPhotos.mockResolvedValue(ok(new Map([[polo, "https://cdn.example/polo-new.webp"]])));
+  const result = await getOrderCheckout(access, f.deps);
+  expect(result).toMatchObject({ success: true, data: { photos: new Map([[polo, "https://cdn.example/polo-new.webp"]]), checkout: { items: [{ productName: "Product" }, { productName: "Taza blanca" }] } } });
+});
+
+test("returns the checkout without photos when the photos cannot be read", async () => {
+  const f = fixture();
+  f.findItemPhotos.mockResolvedValue(err({ code: "PHOTOS_UNAVAILABLE" as const, message: "down" }));
+  expect(await getOrderCheckout(access, f.deps)).toMatchObject({ success: true, data: { photos: new Map(), checkout: { number: 1001 } } });
+});
+
+test("asks for the photos of each variant once", async () => {
+  const f = fixture({ ...base, items: [base.items[0], { ...base.items[0], id: uuid(7) as OrderItemId }] });
+  await getOrderCheckout(access, f.deps);
+  expect(f.findItemPhotos).toHaveBeenCalledOnce();
+  expect(f.findItemPhotos).toHaveBeenCalledWith([uuid(4)]);
+});
+
+test("does not look for photos when the checkout is unavailable", async () => {
+  const f = fixture(null);
+  expect(await getOrderCheckout(access, f.deps)).toMatchObject({ error: { code: "CHECKOUT_UNAVAILABLE" } });
+  expect(f.findItemPhotos).not.toHaveBeenCalled();
 });
 
 test("confirms with new or prefilled buyer and preserves the server-owned contact reference", async () => {
@@ -86,7 +115,7 @@ test("unavailable links do not disclose or mutate absent, disabled or mismatched
 test("cancellation blocks enable and confirm and takes precedence over existing confirmation", async () => {
   for (const checkoutConfirmedAt of [null, now]) {
     const f = fixture({ ...base, cancelled: true, checkoutConfirmedAt, buyer: { ...buyer, contactId: null } });
-    expect(await getOrderCheckout(access, f.deps)).toMatchObject({ data: { state: { kind: "cancelled" } } });
+    expect(await getOrderCheckout(access, f.deps)).toMatchObject({ data: { checkout: { state: { kind: "cancelled" } } } });
     expect(await enableOrderCheckout(access.orderId, seller, now, f.deps)).toMatchObject({ error: { code: "ORDER_CANCELLED" } });
     expect(await confirmOrderCheckout({ buyer, expectedTotal: total }, access, now, f.deps)).toMatchObject({ error: { code: "ORDER_CANCELLED" } });
     expect(f.writes).toEqual([]);
@@ -108,7 +137,7 @@ test("invalid buyer or total rejects the first confirmation without writes", asy
 test("technical failures propagate without a false success or subsequent writes", async () => {
   const failure = err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unavailable" });
   const f = fixture();
-  expect(await getOrderCheckout(access, { findOrder: async () => failure })).toEqual(failure);
+  expect(await getOrderCheckout(access, { findOrder: async () => failure, findItemPhotos: f.findItemPhotos })).toEqual(failure);
   expect(await confirmOrderCheckout({ buyer, expectedTotal: total }, access, now, { ...f.deps, saveBuyer: async () => failure })).toEqual(failure);
   expect(f.writes).toEqual([]);
   expect(await confirmOrderCheckout({ buyer, expectedTotal: total }, access, now, { ...f.deps, transaction: async () => failure })).toEqual(failure);
@@ -186,10 +215,10 @@ test("checkout exposes the saved delivery and customer charge without seller ide
   if (!parsed.success) throw new Error("Invalid delivery fixture");
   const f = fixture({ ...base, delivery: parsed.data });
   const result = await getOrderCheckout(access, f.deps);
-  expect(result).toMatchObject({ success: true, data: { deliveryCharge: base.deliveryCharge, total: base.total,
-    delivery: { method: "home", destination: { address: "Historical street", district: "Historical district" } } } });
+  expect(result).toMatchObject({ success: true, data: { checkout: { deliveryCharge: base.deliveryCharge, total: base.total,
+    delivery: { method: "home", destination: { address: "Historical street", district: "Historical district" } } } } });
   if (!result.success) throw new Error("Expected checkout");
-  expect(result.data.delivery).not.toHaveProperty("recordedBy");
-  expect(result.data).not.toHaveProperty("deliveryCost");
+  expect(result.data.checkout.delivery).not.toHaveProperty("recordedBy");
+  expect(result.data.checkout).not.toHaveProperty("deliveryCost");
   expect(f.writes).toEqual([]);
 });
