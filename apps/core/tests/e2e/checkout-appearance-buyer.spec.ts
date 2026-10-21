@@ -235,7 +235,7 @@ test.describe("buyer checkout with appearance", () => {
       await saveCompanyAppearance(f.companyId, { theme: "boutique", withLogo: true });
       const receiptId = randomUUID();
       await configureAgencyDelivery(f, agencies);
-      await withTenantIsolation(f.companyId, () => prisma.image.create({ data: { id: receiptId, storageKey: `test/${receiptId}` } }));
+      await withTenantIsolation(f.companyId, async () => await prisma.image.create({ data: { id: receiptId, storageKey: `test/${receiptId}` } }));
       await page.route("**/test-images/**", (route) => route.fulfill({ status: 200, contentType: "image/svg+xml", body: logoSvg }));
       await page.route(`**/api/buyer/orders/${f.orderId}/images`, (route) => route.fulfill({ status: 201, contentType: "application/json",
         body: JSON.stringify({ id: receiptId, url: `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}/test-images/test%2F${receiptId}` }) }));
