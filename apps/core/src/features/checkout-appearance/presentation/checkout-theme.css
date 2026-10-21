@@ -1,0 +1,290 @@
+/*
+ * Maps the variables written by `checkoutThemeCss` onto the checkout parts. Rules are unlayered so they win over utilities, and every
+ * selector sits under [data-checkout-theme] so nothing leaks outside a themed checkout. The hooks are the shadcn `data-slot` attributes and
+ * the closed list of `data-checkout-part` attributes of docs/drafts/checkout-themes-technical.md §12.2. This file never sets content,
+ * order or visibility.
+ */
+
+/* Shadcn parts */
+/* Only the main button takes the theme's size, border and shadow; the other variants keep their own look and take the theme's shape and font. */
+[data-checkout-theme] [data-slot="button"] {
+  border-radius: var(--checkout-radius-button);
+  font-family: var(--checkout-font-button);
+}
+
+[data-checkout-theme] [data-slot="button"][data-variant="default"] {
+  height: var(--checkout-button-height);
+  border: var(--checkout-button-border);
+  box-shadow: var(--checkout-button-shadow);
+  font-size: var(--checkout-text-button);
+  font-weight: var(--checkout-weight-button);
+  letter-spacing: var(--checkout-tracking-button);
+  text-transform: var(--checkout-case-button);
+}
+
+[data-checkout-theme] :is([data-slot="input"], [data-slot="select"], [data-slot="select-trigger"]) {
+  height: var(--checkout-input-height);
+  min-height: var(--checkout-input-height);
+  padding-inline: var(--checkout-input-padding-x);
+  border: var(--checkout-input-border);
+  border-radius: var(--checkout-radius-input);
+  box-shadow: var(--checkout-input-shadow);
+  background-color: var(--input-surface);
+  color: var(--foreground);
+  font-family: var(--checkout-font-body);
+  /* 16 px keeps iOS from zooming into a focused field. */
+  font-size: 16px;
+}
+
+[data-checkout-theme] :is([data-slot="input"], [data-slot="select"], [data-slot="select-trigger"])::placeholder {
+  color: var(--placeholder);
+}
+
+/* A choice card is a label that wraps a field; only plain field labels take the label style. */
+[data-checkout-theme] :is([data-slot="field-label"], [data-slot="label"]):not(:has(> [data-slot="field"])) {
+  color: var(--label);
+  font-family: var(--checkout-font-body);
+  font-size: var(--checkout-text-label);
+  font-weight: var(--checkout-weight-label);
+  letter-spacing: var(--checkout-tracking-label);
+  text-transform: var(--checkout-case-label);
+}
+
+[data-checkout-theme] [data-slot="radio-group-item"] {
+  border-color: var(--control);
+  background-color: var(--input-surface);
+}
+
+[data-checkout-theme] [data-slot="radio-group-item"]:is([aria-checked="true"], [data-state="checked"], [data-checked]) {
+  border-color: var(--selected);
+  background-color: var(--input-surface);
+}
+
+[data-checkout-theme] [data-slot="radio-group-item"] [data-slot="radio-group-indicator"] > span {
+  background-color: var(--accent-strong);
+}
+
+/*
+ * Keyboard focus and invalid fields. The unlayered rules above replace the utilities' ring and border, so both states are declared here
+ * with the theme's ring and destructive tokens.
+ */
+[data-checkout-theme] :is([data-slot="button"], [data-slot="input"], [data-slot="select"], [data-slot="select-trigger"], [data-slot="radio-group-item"]):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+[data-checkout-theme] :is([data-slot="input"], [data-slot="select"], [data-slot="select-trigger"])[aria-invalid="true"] {
+  border-color: var(--destructive);
+  /* Themes without a field border (Boutique, Noche) show the state as an underline. */
+  box-shadow: inset 0 -2px 0 var(--destructive);
+}
+
+/* Header */
+[data-checkout-theme] [data-checkout-part="header"] {
+  display: flex;
+  justify-content: var(--checkout-header-justify);
+  padding-block: var(--checkout-header-padding-y);
+  padding-inline: var(--checkout-header-padding-x);
+  border-bottom: var(--checkout-header-border);
+  margin-bottom: var(--checkout-header-margin-bottom);
+}
+
+[data-checkout-theme] [data-checkout-part="header-brand"] {
+  flex-direction: var(--checkout-logo-direction);
+  align-items: center;
+  text-align: var(--checkout-logo-text-align);
+  font-family: var(--checkout-font-heading);
+  font-size: var(--checkout-text-store);
+  font-weight: var(--checkout-weight-heading);
+  letter-spacing: var(--checkout-tracking-heading);
+  line-height: 1.15;
+}
+
+[data-checkout-theme] [data-checkout-part="order-title"] {
+  font-family: var(--checkout-font-heading);
+  font-size: var(--checkout-text-order-title);
+  font-weight: var(--checkout-weight-heading);
+  letter-spacing: var(--checkout-tracking-heading);
+  color: var(--heading);
+}
+
+/* Sections */
+[data-checkout-theme] [data-checkout-part="card"] {
+  padding: var(--checkout-card-padding);
+  border: var(--checkout-card-border);
+  border-top: var(--checkout-card-border-top);
+  border-radius: var(--checkout-radius-card);
+  box-shadow: var(--checkout-card-shadow);
+  background-color: var(--card);
+  color: var(--card-foreground);
+}
+
+[data-checkout-theme] [data-checkout-part="section-title"] {
+  margin-bottom: var(--checkout-title-gap);
+  color: var(--heading);
+  font-family: var(--checkout-font-heading);
+  font-size: var(--checkout-text-section-title);
+  font-weight: var(--checkout-weight-heading);
+  letter-spacing: var(--checkout-tracking-heading);
+}
+
+/* Product rows */
+[data-checkout-theme] [data-checkout-part="product-row"] {
+  padding-bottom: var(--checkout-row-separator-padding);
+  border-bottom: var(--checkout-row-separator);
+}
+
+[data-checkout-theme] [data-checkout-part="product-row"] + [data-checkout-part="product-row"] {
+  margin-top: var(--checkout-row-gap);
+}
+
+[data-checkout-theme] [data-checkout-part="product-row"]:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+[data-checkout-theme] [data-checkout-part="product-name"] {
+  font-family: var(--checkout-font-product-name);
+  font-size: var(--checkout-text-product-name);
+  font-weight: var(--checkout-weight-product-name);
+  line-height: 1.25;
+}
+
+[data-checkout-theme] [data-checkout-part="product-meta"] {
+  color: var(--muted-foreground);
+  font-size: var(--checkout-text-small);
+}
+
+[data-checkout-theme] [data-checkout-part="price"] {
+  font-family: var(--checkout-font-body);
+  font-size: var(--checkout-text-price);
+  font-weight: var(--checkout-weight-price);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Buyer fields: a bordered group in Noche, plain stacked fields elsewhere */
+[data-checkout-theme] [data-checkout-part="field-group"] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--checkout-field-gap);
+  border: var(--checkout-group-border);
+  border-radius: var(--checkout-radius-group);
+  background-color: var(--checkout-group-surface);
+  overflow: hidden;
+}
+
+[data-checkout-theme] [data-checkout-part="field"] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--checkout-label-gap);
+  padding: var(--checkout-field-padding);
+  border-bottom: var(--checkout-field-separator);
+}
+
+[data-checkout-theme] [data-checkout-part="field"]:last-child {
+  border-bottom: none;
+}
+
+/* Delivery options */
+[data-checkout-theme] [data-checkout-part="option-group"] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--checkout-option-gap);
+  border: var(--checkout-group-border);
+  border-radius: var(--checkout-radius-group);
+  background-color: var(--checkout-group-surface);
+  overflow: hidden;
+}
+
+[data-checkout-theme] [data-checkout-part="option"] {
+  padding: var(--checkout-option-padding);
+  border: var(--checkout-option-border);
+  border-bottom: var(--checkout-option-separator);
+  border-radius: var(--checkout-radius-option);
+  background-color: var(--checkout-option-surface);
+  font-size: var(--checkout-text-option);
+  font-weight: var(--checkout-weight-strong);
+}
+
+[data-checkout-theme] [data-checkout-part="option"]:last-child {
+  border-bottom: var(--checkout-option-separator-last);
+}
+
+[data-checkout-theme] [data-checkout-part="option"]:is([data-state="checked"], [aria-checked="true"], :has([aria-checked="true"], :checked)) {
+  border-color: var(--selected);
+  background-color: var(--selected-surface);
+  box-shadow: var(--checkout-selected-shadow);
+  outline: var(--checkout-selected-outline);
+  outline-offset: -2px;
+  color: var(--foreground);
+}
+
+[data-checkout-theme] [data-checkout-part="option"]:has(:focus-visible) {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+[data-checkout-theme] [data-checkout-part="option-cost"] {
+  font-family: var(--checkout-font-body);
+  font-size: var(--checkout-text-option);
+  font-weight: var(--checkout-weight-price);
+  white-space: nowrap;
+}
+
+[data-checkout-theme] [data-checkout-part="free"] {
+  color: var(--free);
+}
+
+/* Total */
+[data-checkout-theme] [data-checkout-part="total"] {
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: var(--checkout-total-separator);
+}
+
+[data-checkout-theme] [data-checkout-part="total-label"] {
+  font-family: var(--checkout-font-heading);
+  font-size: var(--checkout-text-total-label);
+  font-weight: var(--checkout-weight-heading);
+}
+
+[data-checkout-theme] [data-checkout-part="total-amount"] {
+  font-family: var(--checkout-font-body);
+  font-size: var(--checkout-text-total);
+  font-weight: var(--checkout-weight-total);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Payment */
+[data-checkout-theme] [data-checkout-part="payment-method"] {
+  border: 1px solid var(--border);
+  border-radius: var(--checkout-radius-chip);
+  background-color: var(--checkout-option-surface);
+}
+
+/* Equivalent to `.pay.selected` of temas.css. */
+[data-checkout-theme] [data-checkout-part="payment-method"]:is([data-state="checked"], [aria-checked="true"], :has(:checked)) {
+  border-color: var(--selected);
+  background-color: var(--selected-surface);
+  box-shadow: var(--checkout-selected-shadow);
+  outline: var(--checkout-selected-outline);
+  outline-offset: -2px;
+  color: var(--foreground);
+}
+
+[data-checkout-theme] [data-checkout-part="payment-method"]:has(:focus-visible) {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Payment images (QR, bank cards) sit on a white plate in every theme and keep their colors. */
+[data-checkout-theme] [data-checkout-part="payment-image"] {
+  padding: 0.75rem;
+  border-radius: var(--checkout-radius-input);
+  background-color: #ffffff;
+}
+
+[data-checkout-theme] [data-checkout-part="status"] {
+  border-radius: var(--checkout-radius-card);
+}
