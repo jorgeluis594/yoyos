@@ -3,6 +3,7 @@ import sitemap from "@astrojs/sitemap";
 import { defineConfig } from "astro/config";
 import { loadEnv } from "vite";
 import { parseSiteConfig } from "./src/config/site-config";
+import { pruneUnreferencedScripts } from "./src/integrations/prune-unreferenced-scripts";
 
 const development = process.argv.includes("dev");
 const mode = development ? "development" : "production";
@@ -20,7 +21,7 @@ export default defineConfig({
   output: "static",
   trailingSlash: "never",
   build: { format: "file", inlineStylesheets: "always" },
-  integrations: [sitemap({ filter: (page) => !page.endsWith("/404") })],
+  integrations: [sitemap({ filter: (page) => !page.endsWith("/404") }), pruneUnreferencedScripts()],
   vite: {
     resolve: {
       alias: { "@docs": path("../docs"), "@landing": path("."), "@shared": path("../shared") },

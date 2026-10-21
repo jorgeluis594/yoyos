@@ -179,7 +179,7 @@ Manual, with results in the pull request: Lighthouse mobile on the production bu
 
 ## Known limits
 
-- Astro also emits JavaScript chunks for components that a variant does not render (for example the form enhancement when the form is disabled). Nothing references or loads them, so the budget and zero-JavaScript tests count only scripts referenced by the pages and the chunks they import.
+- Astro also emits JavaScript chunks for components that a variant does not render (for example the form enhancement when the form is disabled). The build removes every `.js` file, and its `.map`, that no page loads through `<script src>` or an import of a loaded script, and logs the removed names as one `pruned_unreferenced_scripts` JSON line. The minimal variant therefore ships no JavaScript file, and the budget and zero-JavaScript tests run over what `dist` holds.
 - The real 404 status depends on the host; Astro emits `404.html`.
 
 ## Provisional content

@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import {
   distHas,
@@ -10,9 +11,11 @@ import {
   pages,
   readDist,
   readPage,
+  distScripts,
   scriptElements,
   shippedScriptBytes,
 } from "./html";
+import { findUnreferencedScripts } from "@landing/src/lib/unreferenced-scripts";
 import { siteUrl, type VariantName } from "./variants";
 
 const variantNames: VariantName[] = ["minimal", "full"];
@@ -124,7 +127,7 @@ describe("budgets", () => {
   });
 
   test("the minimal variant ships no JavaScript and the analytics listener appears only in the full variant", () => {
-    // Astro also emits the chunks of components that are not rendered; nothing loads them, so only references count.
+    expect(distScripts("minimal")).toEqual([]);
     for (const file of pages) {
       expect(scriptElements(readPage("minimal", file))).toHaveLength(0);
       expect(readDist("minimal", file)).not.toMatch(/\.js\b/);
@@ -138,5 +141,13 @@ describe("budgets", () => {
     };
     expect(listener("full")).toHaveLength(1);
     expect(readDist("full", "index.html")).toMatch(/\.js\b|<script/);
+  });
+
+  test("the full variant ships only JavaScript that a page loads", () => {
+    const root = distPath("full");
+    const scripts = Object.fromEntries(distScripts("full").map((file) => [file, readFileSync(join(root, file), "utf8")]));
+    const pageSources = pages.map((file) => readDist("full", file));
+    expect(Object.keys(scripts).length).toBeGreaterThan(0);
+    expect(findUnreferencedScripts(pageSources, scripts)).toEqual([]);
   });
 });
