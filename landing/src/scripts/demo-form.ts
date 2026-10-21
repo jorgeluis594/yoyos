@@ -1,4 +1,4 @@
-import { contactMethodOptions, rubroOptions, type ContactMethod, type Rubro } from "@landing/src/content/demo-form";
+import { contactMethodValues, rubroValues, type ContactMethod, type Rubro } from "@landing/src/content/demo-form-values";
 import { track } from "@landing/src/lib/analytics";
 
 type Field = HTMLInputElement | HTMLSelectElement;
@@ -22,8 +22,8 @@ function clearError(field: Field): void {
   field.removeAttribute("aria-invalid");
 }
 
-const isRubro = (value: string): value is Rubro => rubroOptions.some((option) => option.value === value);
-const isContactMethod = (value: string): value is ContactMethod => contactMethodOptions.some((option) => option.value === value);
+const isRubro = (value: string): value is Rubro => rubroValues.some((option) => option === value);
+const isContactMethod = (value: string): value is ContactMethod => contactMethodValues.some((option) => option === value);
 
 if (form && button) {
   let submitting = false;
@@ -42,6 +42,9 @@ if (form && button) {
       return;
     }
     submitting = true;
+    // The endpoint accepts spaces between the 3-3-3 groups too, but this form submits the plain 9 digits.
+    const telefono = form.elements.namedItem("telefono");
+    if (telefono instanceof HTMLInputElement) telefono.value = telefono.value.replaceAll(" ", "");
     button.textContent = form.dataset.sendingLabel ?? button.textContent;
     const data = new FormData(form);
     const rubro = String(data.get("rubro"));

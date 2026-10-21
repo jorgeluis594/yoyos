@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
-import { readPage } from "./html";
+import { files, distPath, readPage } from "./html";
 import { demoText, phoneDisplay } from "./variants";
 
 const whatsapp = "https://wa.me/51912345678";
@@ -87,8 +88,8 @@ describe("demo form", () => {
     expect(telefono?.getAttribute("inputmode")).toBe("tel");
     expect(telefono?.getAttribute("autocomplete")).toBe("tel-national");
     const pattern = new RegExp(`^(?:${telefono?.getAttribute("pattern")})$`);
-    expect(["912345678", "999999999"].every((value) => pattern.test(value))).toBe(true);
-    expect(["91234567", "812345678", "9123456789", "9123abcde"].some((value) => pattern.test(value))).toBe(false);
+    expect(["912345678", "999999999", "912 345 678", "912 345678", "912345 678"].every((value) => pattern.test(value))).toBe(true);
+    expect(["91234567", "812345678", "9123456789", "9123abcde", "91 2345 678", "912  345 678", " 912345678"].some((value) => pattern.test(value))).toBe(false);
     expect(telefono?.getAttribute("data-error")).toBe("Escribe un celular de 9 dígitos que empiece con 9.");
   });
 
@@ -112,13 +113,26 @@ describe("demo form", () => {
     }
   });
 
-  test("the privacy note names the email when it is configured and only WhatsApp otherwise", () => {
+  test("the privacy note names the configured email and links the privacy policy", () => {
     const note = (variant: "minimal" | "full") =>
       readPage(variant, "index.html").querySelector("#demo .privacy-note")?.text.replace(/\s+/g, " ").trim();
     expect(note("full")).toBe(
       "Tus datos se guardan en nuestro sistema de gestión de clientes y solo los usamos para contactarte sobre Yoyos. Puedes pedir que los corrijamos o borremos, o dejar de recibir contacto, escribiéndonos por WhatsApp o a hola@example.test. Más detalles en nuestra Política de privacidad.",
     );
     expect(readPage("full", "index.html").querySelector("#demo .privacy-note a")?.getAttribute("href")).toBe("/privacidad");
+  });
+
+  test("without email and social variables their footer links and sentences are absent; with them they render", () => {
+    const footer = (variant: "minimal" | "full") => readPage(variant, "index.html").querySelector("footer");
+    const minimal = footer("minimal");
+    expect(minimal?.querySelectorAll("a").filter((link) => link.getAttribute("href")?.startsWith("mailto:"))).toHaveLength(0);
+    expect(minimal?.text).not.toContain("Correo:");
+    for (const label of ["TikTok", "Instagram"]) expect(minimal?.text).not.toContain(label);
+    const full = footer("full");
+    expect(full?.querySelector('a[href="mailto:hola@example.test"]')?.text.trim()).toBe("Correo: hola@example.test");
+    expect(full?.querySelector('a[href="https://www.tiktok.com/@yoyos-test"]')?.text.trim()).toBe("TikTok");
+    expect(full?.querySelector('a[href="https://www.instagram.com/yoyos-test"]')?.text.trim()).toBe("Instagram");
+    expect(homeText("minimal")).not.toContain("hola@example.test");
   });
 
   test("the success and error blocks exist with their target ids and literal messages", () => {
@@ -140,6 +154,15 @@ describe("demo form", () => {
     }
   });
 
+  test("the enhancement script carries no copy", () => {
+    const bundle = files(distPath("full", "_astro"))
+      .filter((file) => file.includes("demo-form"))
+      .map((file) => readFileSync(file, "utf8"))
+      .join("");
+    expect(bundle).toContain("telefono");
+    for (const copy of ["Ropa", "Por WhatsApp", "Enviando", "Escribe", "Elige"]) expect(bundle).not.toContain(copy);
+  });
+
   test("renders no success or error block without a form action", () => {
     const page = readPage("minimal", "index.html");
     for (const id of ["demo-ok-whatsapp", "demo-ok-llamada", "demo-error"]) expect(page.querySelector(`#${id}`)).toBeNull();
@@ -153,7 +176,7 @@ describe("pricing, integrations, FAQ and testimonials", () => {
       expect(page.querySelector("#testimonios")).toBeNull();
       expect(page.text).not.toContain("¿Qué pasa con mis datos y los de mis clientes?");
       expect(page.text).not.toContain("Vendedores de TikTok LIVE que ya ordenan");
-      expect(page.querySelector('#preguntas details[data-q="6"]')).toBeNull();
+      expect(page.querySelector('#preguntas details[data-faq-q="6"]')).toBeNull();
     }
   });
 
@@ -161,8 +184,10 @@ describe("pricing, integrations, FAQ and testimonials", () => {
     const faq = readPage("minimal", "index.html").querySelector("#preguntas");
     expect(faq?.querySelector("h2")?.text.trim()).toBe("Preguntas frecuentes");
     const entries = faq?.querySelectorAll("details") ?? [];
-    expect(entries.map((entry) => entry.getAttribute("data-q"))).toEqual(["1", "2", "3", "4", "5", "7", "8", "9", "10", "11"]);
-    expect(entries.every((entry) => entry.querySelector("summary h3") !== null && entry.getAttribute("data-event") === "faq_open")).toBe(true);
+    expect(entries.map((entry) => entry.getAttribute("data-faq-q"))).toEqual(["1", "2", "3", "4", "5", "7", "8", "9", "10", "11"]);
+    expect(entries.every((entry) => entry.querySelector("summary h3") !== null)).toBe(true);
+    // faq_open is built only by the toggle listener, so no FAQ element may carry data-event (the click listener matches it).
+    expect(faq?.querySelectorAll("[data-event]")).toHaveLength(0);
     expect(entries[2]?.querySelector("h3")?.text.trim()).toBe("¿Cuánto cuesta?");
     expect(entries.every((entry) => !entry.hasAttribute("open"))).toBe(true);
   });

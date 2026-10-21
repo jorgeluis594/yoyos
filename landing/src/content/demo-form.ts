@@ -1,4 +1,9 @@
-// Option values and field names of the demo form contract (landing-technical.md §8), plus the literal form copy.
+import type { ContactMethod, Rubro } from "@landing/src/content/demo-form-values";
+
+export type { ContactMethod, Rubro };
+
+// Labelled options of the demo form contract (landing-technical.md §8), plus the literal form copy. The values
+// live in demo-form-values.ts.
 export const rubroOptions = [
   { value: "ropa", label: "Ropa" },
   { value: "zapatillas", label: "Zapatillas" },
@@ -6,16 +11,12 @@ export const rubroOptions = [
   { value: "mascotas", label: "Mascotas" },
   { value: "cosmeticos", label: "Cosméticos" },
   { value: "otro", label: "Otro" },
-] as const;
-
-export type Rubro = (typeof rubroOptions)[number]["value"];
+] as const satisfies readonly Readonly<{ value: Rubro; label: string }>[];
 
 export const contactMethodOptions = [
   { value: "whatsapp", label: "Por WhatsApp" },
   { value: "llamada", label: "Por llamada" },
-] as const;
-
-export type ContactMethod = (typeof contactMethodOptions)[number]["value"];
+] as const satisfies readonly Readonly<{ value: ContactMethod; label: string }>[];
 
 /** Version of the consent text the form sends; it changes when the privacy text changes. */
 export const consentTextVersion = "privacidad-v1-2026-10";
@@ -30,7 +31,7 @@ export const demoFormContent = {
       prefix: "+51",
       placeholder: "9XX XXX XXX",
       error: "Escribe un celular de 9 dígitos que empiece con 9.",
-      pattern: "9[0-9]{8}",
+      pattern: "9[0-9]{2} ?[0-9]{3} ?[0-9]{3}",
     },
     rubro: { label: "¿Qué vendes?", placeholder: "Elige una opción", error: "Elige qué vendes." },
     contacto_preferido: { label: "¿Cómo prefieres que te contactemos?", error: "Elige cómo te contactamos." },
