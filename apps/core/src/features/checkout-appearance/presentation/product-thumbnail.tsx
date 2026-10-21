@@ -14,6 +14,11 @@ const frame: CSSProperties = {
 
 /** The product's photo, or its initial when it has none or the photo fails to load; never a broken image. */
 export function ProductThumbnail({ name, url }: ProductThumbnailProps) {
+  // A new photo gets a new attempt: the failure belongs to one URL.
+  return <Thumbnail key={url ?? ""} name={name} url={url} />;
+}
+
+function Thumbnail({ name, url }: ProductThumbnailProps) {
   const [failed, setFailed] = useState(false);
   const image = useRef<HTMLImageElement>(null);
   // The image can fail before React attaches `onError` during hydration.

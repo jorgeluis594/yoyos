@@ -10,6 +10,10 @@ describe("ProductThumbnail", () => {
   let root: Root | undefined;
   afterEach(() => { act(() => root?.unmount()); root = undefined; document.body.innerHTML = ""; });
 
+  function render(name: string, url: string | null) {
+    act(() => root!.render(<ProductThumbnail name={name} url={url} />));
+  }
+
   function mount(name: string, url: string | null) {
     const container = document.body.appendChild(document.createElement("div"));
     root = createRoot(container);
@@ -37,6 +41,14 @@ describe("ProductThumbnail", () => {
     act(() => { container.querySelector("img")!.dispatchEvent(new Event("error")); });
     expect(container.querySelector("img")).toBeNull();
     expect(container.textContent).toBe("T");
+  });
+
+  test("tries again when the photo changes after a failure", () => {
+    const container = mount("Taza blanca", "https://cdn.example/deleted.jpg");
+    act(() => { container.querySelector("img")!.dispatchEvent(new Event("error")); });
+    expect(container.querySelector("img")).toBeNull();
+    render("Taza blanca", "https://cdn.example/new.jpg");
+    expect(container.querySelector("img")?.getAttribute("src")).toBe("https://cdn.example/new.jpg");
   });
 
   test("takes its size and shape from the theme variables", () => {
