@@ -1,4 +1,4 @@
-import { parseBuyer, type OrderNumber } from "@core/src/features/orders/domain/checkout";
+import { parseBuyer, parseOrderNumber, type OrderNumber } from "@core/src/features/orders/domain/checkout";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { Prisma } from "@prisma/client";
 import { expect, test, vi } from "vitest";
@@ -27,7 +27,7 @@ vi.mock("@core/src/features/products", () => ({
   findSellableVariant: async (variantId: string) => ok({ variantId, productName: "Product", variantAttributes: {}, sku: null,
     unitPrice: { amount: 1, currency: "PEN" } }), deductProductStock: async () => ok(null), searchSaleCatalog: vi.fn(),
 }));
-vi.mock("@core/src/features/products/composition", () => ({ products: { identifyProductsInImage: vi.fn() } }));
+vi.mock("@core/src/features/products/composition", () => ({ products: { identifyProductsInImage: vi.fn(), findVariantPhotos: vi.fn() } }));
 vi.mock("@core/src/features/contacts", () => ({ findContactById: vi.fn(), searchSaleContacts: vi.fn(), ensureCustomerForContact: vi.fn() }));
 vi.mock("@core/src/features/chats", () => ({ findOrderSourceMessage: vi.fn() }));
 const { addMessageProductsToOrder } = vi.hoisted(() => ({ addMessageProductsToOrder: vi.fn() }));
@@ -37,6 +37,7 @@ vi.mock("@core/src/composition/event-bus", () => ({ applicationEventBus: () => (
 vi.mock("@core/src/features/orders/application/cancel-order", () => ({ cancelOrder }));
 
 import { findOrderForUpdate } from "@core/src/features/orders/infrastructure/order-repository";
+import { findCheckoutOrder } from "@core/src/features/orders/infrastructure/checkout-repository";
 import { products } from "@core/src/features/products/composition";
 import { orders, addMessageProductsHandler, messageOrderPolicy } from "@core/src/features/orders/composition";
 
@@ -234,3 +235,25 @@ test("logs order_cancelled_publish_failed with the order number when order_cance
       errorCode: "EVENT_BUS_UNAVAILABLE", err: failure }, "order_cancelled_publish_failed");
   } finally { error.mockRestore(); cancelOrder.mockReset(); publishEvent.mockReset(); }
 });
+
+test("loads the checkout with markers and logs order_checkout_photos_unavailable once when the photos cannot be read", async () => {
+  const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  const access = { companyId: context.companyId, orderId: input.id };
+  const number = parseOrderNumberForTest();
+  vi.mocked(findCheckoutOrder).mockResolvedValueOnce(ok({ ...access, id: access.orderId, companyName: "Store", number, buyer: null,
+    items: [{ id: id(5), variantId: id(2), productName: "Product", variantAttributes: {}, sku: null, quantity: 1, unitPrice: { amount: 1, currency: "PEN" }, subtotal: { amount: 1, currency: "PEN" } }],
+    itemsTotal: { amount: 1, currency: "PEN" }, total: { amount: 1, currency: "PEN" }, delivery: null, deliveryCharge: { amount: 0, currency: "PEN" }, cancelled: false,
+    checkoutEnabledAt: new Date("2026-01-01T00:00:00Z"), checkoutConfirmedAt: null, fromCatalog: false } as never));
+  vi.mocked(products.findVariantPhotos).mockResolvedValueOnce(err({ code: "PERSISTENCE_UNAVAILABLE", message: "down" }));
+  try {
+    expect(await orders.getCheckout(access)).toMatchObject({ success: true, data: { photos: new Map(), checkout: { number } } });
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledWith({ event: "order_checkout_photos_unavailable", companyId: "00000000-0000-4000-8000-000000000003", errorCode: "PERSISTENCE_UNAVAILABLE", variantCount: 1 }, "order_checkout_photos_unavailable");
+  } finally { error.mockRestore(); }
+});
+
+function parseOrderNumberForTest() {
+  const number = parseOrderNumber(1001);
+  if (!number.success) throw new Error("Invalid order number");
+  return number.data;
+}

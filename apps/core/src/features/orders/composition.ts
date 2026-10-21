@@ -1,7 +1,7 @@
 import { applicationEventBus } from "@core/src/composition/event-bus";
 import type { EventBusError } from "@core/src/shared/events/application/contracts";
 import { createCompleteOrder, type CreateCompleteOrderInput, type CreateCompleteOrderError } from "@core/src/features/orders/application/create-complete-order";
-import { enableOrderCheckout, getOrderCheckout, confirmOrderCheckout, confirmCheckoutDelivery, type CheckoutDependencies, type ConfirmOrderCheckoutInput, type ConfirmCheckoutDeliveryInput } from "@core/src/features/orders/application/checkout";
+import { enableOrderCheckout, getOrderCheckout, confirmOrderCheckout, confirmCheckoutDelivery, type CheckoutDependencies, type CheckoutPhotoError, type GetOrderCheckoutDependencies, type ConfirmOrderCheckoutInput, type ConfirmCheckoutDeliveryInput } from "@core/src/features/orders/application/checkout";
 import { findCheckoutOrder, findCheckoutOrderForUpdate as findAnyCheckoutOrderForUpdate, saveCheckoutEnabled, saveCheckoutBuyer, saveCheckoutConfirmed } from "@core/src/features/orders/infrastructure/checkout-repository";
 import { canAccessBuyerPayment, type CheckoutAccess, type CheckoutError } from "@core/src/features/orders/domain/checkout";
 import type { OrderAccess } from "@core/src/features/orders/application/create-order";
@@ -45,7 +45,7 @@ import type { EventHandler } from "@core/src/shared/events/application/contracts
 import type { AppEvents } from "@core/src/shared/events/application/app-events";
 import { findAvailablePublicImage, readImageBytes, resolvePublicImage } from "@core/src/shared/images";
 import { companyPaymentSettings } from "@core/src/features/companies";
-import type { ImageId } from "@core/src/features/products/domain/product";
+import type { ImageId, VariantId } from "@core/src/features/products/domain/product";
 import { orderStateMachine } from "@core/src/features/orders/domain/order-state-machine";
 import type { BuyerPaymentView } from "@shared/contracts/orders";
 import type { CompanyId, ContactId, OrderId, OrderItemId, PaymentId, UserId } from "@core/src/features/orders/domain/order";
@@ -146,6 +146,14 @@ const checkoutDependencies: CheckoutDependencies = { transaction: scopedOrderTra
   findOrder: findCheckoutOrder, findOrderForUpdate: findAnyCheckoutOrderForUpdate,
   saveEnabled: saveCheckoutEnabled, saveBuyer: saveCheckoutBuyer, saveConfirmed: saveCheckoutConfirmed,
 };
+/** Photos are decorative: the failure is logged here, where it is known, and the use case falls back to markers. */
+async function findItemPhotos(variantIds: readonly VariantId[]): Promise<Result<ReadonlyMap<VariantId, string>, CheckoutPhotoError>> {
+  const photos = await products.findVariantPhotos(variantIds);
+  if (photos.success) return photos;
+  log.error({ event: "order_checkout_photos_unavailable", companyId: getCompanyId(), errorCode: photos.error.code, variantCount: variantIds.length }, "order_checkout_photos_unavailable");
+  return err({ code: "PHOTOS_UNAVAILABLE" as const, message: "Unable to read product photos" });
+}
+const getCheckoutDependencies: GetOrderCheckoutDependencies = { findOrder: findCheckoutOrder, findItemPhotos };
 function rejectedCheckout(error: CheckoutError) {
   const outcomes = { CHECKOUT_UNAVAILABLE: "unavailable", ORDER_CANCELLED: "cancelled", INVALID_BUYER: "invalid_input",
     TOTAL_CHANGED: "total_changed", INVALID_CHECKOUT: "technical_failure", PERSISTENCE_UNAVAILABLE: "technical_failure",
@@ -281,9 +289,9 @@ export const orders = {
   },
   getCheckout: async (access: CheckoutAccess) => {
     bindRequestOperation({ operation: "get_checkout" });
-    const result = await withTenantIsolation(access.companyId, () => getOrderCheckout(access, checkoutDependencies));
+    const result = await withTenantIsolation(access.companyId, () => getOrderCheckout(access, getCheckoutDependencies));
     if (!result.success) rejectedCheckout(result.error);
-    else bindRequestOperation({ outcome: result.data.state.kind, orderNumber: result.data.number });
+    else bindRequestOperation({ outcome: result.data.checkout.state.kind, orderNumber: result.data.checkout.number });
     return result;
   },
   confirmCheckout: async (input: ConfirmOrderCheckoutInput, access: CheckoutAccess) => {

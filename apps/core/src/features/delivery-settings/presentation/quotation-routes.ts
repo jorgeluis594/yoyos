@@ -38,7 +38,7 @@ quotationRoutes.post("/", (request, response, next) => {
       ? apiError(response, 503, "SERVICE_UNAVAILABLE", "Checkout unavailable")
       : apiError(response, checkout.error.code === "CHECKOUT_UNAVAILABLE" ? 404 : 500,
         checkout.error.code === "CHECKOUT_UNAVAILABLE" ? "CHECKOUT_UNAVAILABLE" : "INTERNAL_ERROR", "Checkout unavailable");
-    if (checkout.data.state.kind === "cancelled") return apiError(response, 422, "ORDER_CANCELLED", "Order cancelled");
+    if (checkout.data.checkout.state.kind === "cancelled") return apiError(response, 422, "ORDER_CANCELLED", "Order cancelled");
     response.locals.quotationCompanyId = access.data.companyId;
     bindCompanyToRequest(access.data.companyId);
     return withTenantIsolation(access.data.companyId, next);
