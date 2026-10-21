@@ -147,9 +147,9 @@ const hex = (value: string) => value as HexColor;
 const css = (value: string) => value as CssValue;
 
 /**
- * Values translated from docs/drafts/checkout-themes-reference/temas.css. Translucent values are pre-composited over the theme
+ * Values translated from the original theme palettes (themes are described in docs/checkout.md). Translucent values are pre-composited over the theme
  * background so every color is an opaque HEX. A value that failed the contrast floor keeps its hue and chroma (OKLCH) and moves
- * only in lightness; its comment names the temas.css original. `card-foreground`, `popover-foreground` and `secondary-foreground`
+ * only in lightness; its comment names the original value. `card-foreground`, `popover-foreground` and `secondary-foreground`
  * repeat `foreground`.
  */
 export const checkoutThemes: Readonly<Record<CheckoutThemeId, CheckoutThemeDefinition>> = {
@@ -168,10 +168,10 @@ export const checkoutThemes: Readonly<Record<CheckoutThemeId, CheckoutThemeDefin
       secondary: hex("#F5F5F5"),
       "muted-foreground": hex("#6B6B6B"),
       label: hex("#222222"),
-      placeholder: hex("#767676"), // adjusted to meet the floor; temas.css #9A9A9A
+      placeholder: hex("#767676"), // adjusted to meet the floor; original #9A9A9A
       "input-surface": hex("#FFFFFF"),
-      input: hex("#949494"), // adjusted to meet the floor; temas.css #CFCFCF
-      control: hex("#949494"), // adjusted to meet the floor; temas.css #DCDCDC
+      input: hex("#949494"), // adjusted to meet the floor; original #CFCFCF
+      control: hex("#949494"), // adjusted to meet the floor; original #DCDCDC
       selected: hex("#111111"),
       "selected-surface": hex("#FAFAFA"),
       border: hex("#E5E5E5"),
@@ -292,9 +292,9 @@ export const checkoutThemes: Readonly<Record<CheckoutThemeId, CheckoutThemeDefin
       popover: hex("#F5F0E8"),
       muted: hex("#ECE6DB"),
       secondary: hex("#ECE6DB"),
-      "muted-foreground": hex("#696259"), // adjusted to meet the floor; temas.css #6E675D
+      "muted-foreground": hex("#696259"), // adjusted to meet the floor; original #6E675D
       label: hex("#3A352F"),
-      placeholder: hex("#746D62"), // adjusted to meet the floor; temas.css #9C9488
+      placeholder: hex("#746D62"), // adjusted to meet the floor; original #9C9488
       "input-surface": hex("#F5F0E8"),
       input: hex("#141210"),
       control: hex("#141210"),
@@ -420,7 +420,7 @@ export const checkoutThemes: Readonly<Record<CheckoutThemeId, CheckoutThemeDefin
       secondary: hex("#FFE6D2"),
       "muted-foreground": hex("#7A5A48"),
       label: hex("#2A1A12"),
-      placeholder: hex("#886957"), // adjusted to meet the floor; temas.css #B08F7C
+      placeholder: hex("#886957"), // adjusted to meet the floor; original #B08F7C
       "input-surface": hex("#FFFFFF"),
       input: hex("#2A1A12"),
       control: hex("#2A1A12"),
@@ -433,10 +433,10 @@ export const checkoutThemes: Readonly<Record<CheckoutThemeId, CheckoutThemeDefin
       "primary-pressed": hex("#FD9083"),
       accent: hex("#FFE0D9"),
       "accent-foreground": hex("#2A1A12"),
-      "accent-strong": hex("#F75348"), // adjusted to meet the floor; temas.css #FF5A4E
-      link: hex("#DC3730"), // adjusted to meet the floor; temas.css #FF5A4E
+      "accent-strong": hex("#F75348"), // adjusted to meet the floor; original #FF5A4E
+      link: hex("#DC3730"), // adjusted to meet the floor; original #FF5A4E
       ring: hex("#2A1A12"),
-      free: hex("#0B773E"), // adjusted to meet the floor; temas.css #1F8A4C
+      free: hex("#0B773E"), // adjusted to meet the floor; original #1F8A4C
       "thumbnail-surface": hex("#F1D9CC"),
       destructive: hex("#B33332"),
       "destructive-foreground": hex("#FFFFFF"),
@@ -544,12 +544,12 @@ export const checkoutThemes: Readonly<Record<CheckoutThemeId, CheckoutThemeDefin
       popover: hex("#FFFFFF"),
       muted: hex("#F3E9E5"),
       secondary: hex("#F3E9E5"),
-      "muted-foreground": hex("#6D6266"), // adjusted to meet the floor; temas.css #6F6468
+      "muted-foreground": hex("#6D6266"), // adjusted to meet the floor; original #6F6468
       label: hex("#2B2427"),
-      placeholder: hex("#6C6266"), // adjusted to meet the floor; temas.css #9E9397
+      placeholder: hex("#6C6266"), // adjusted to meet the floor; original #9E9397
       "input-surface": hex("#FFFFFF"),
       input: hex("#7D7276"),
-      control: hex("#877F7D"), // adjusted to meet the floor; temas.css #ECE3E0
+      control: hex("#877F7D"), // adjusted to meet the floor; original #ECE3E0
       selected: hex("#1F1A1C"),
       "selected-surface": hex("#FFFFFF"),
       border: hex("#ECE3E0"),
@@ -562,7 +562,7 @@ export const checkoutThemes: Readonly<Record<CheckoutThemeId, CheckoutThemeDefin
       "accent-strong": hex("#1F1A1C"),
       link: hex("#1F1A1C"),
       ring: hex("#1F1A1C"),
-      free: hex("#217251"), // adjusted to meet the floor; temas.css #2E7D5B
+      free: hex("#217251"), // adjusted to meet the floor; original #2E7D5B
       "thumbnail-surface": hex("#F0E4E4"),
       destructive: hex("#B33332"),
       "destructive-foreground": hex("#FFFFFF"),
@@ -672,9 +672,9 @@ export const checkoutThemes: Readonly<Record<CheckoutThemeId, CheckoutThemeDefin
       secondary: hex("#262A32"),
       "muted-foreground": hex("#A3AAB6"),
       label: hex("#C3C9D3"),
-      placeholder: hex("#88919E"), // adjusted to meet the floor; temas.css #7D8592
+      placeholder: hex("#88919E"), // adjusted to meet the floor; original #7D8592
       "input-surface": hex("#262A32"),
-      input: hex("#6D7381"), // adjusted to meet the floor; temas.css #333845
+      input: hex("#6D7381"), // adjusted to meet the floor; original #333845
       control: hex("#7D8592"),
       selected: hex("#3CC8E8"),
       "selected-surface": hex("#1D3A44"),

@@ -1,7 +1,7 @@
 /*
  * Maps the variables written by `checkoutThemeCss` onto the checkout parts. Rules are unlayered so they win over utilities, and every
  * selector sits under [data-checkout-theme] so nothing leaks outside a themed checkout. The hooks are the shadcn `data-slot` attributes and
- * the closed list of `data-checkout-part` attributes of docs/drafts/checkout-themes-technical.md §12.2. This file never sets content,
+ * the closed list of `data-checkout-part` attributes (see docs/checkout.md for the themes). This file never sets content,
  * order or visibility.
  */
 
@@ -276,7 +276,7 @@
   background-color: var(--checkout-option-surface);
 }
 
-/* Equivalent to `.pay.selected` of temas.css. */
+/* Selected state of a payment method. */
 [data-checkout-theme] [data-checkout-part="payment-method"]:is([data-state="checked"], [aria-checked="true"], :has(:checked)) {
   border-color: var(--selected);
   background-color: var(--selected-surface);

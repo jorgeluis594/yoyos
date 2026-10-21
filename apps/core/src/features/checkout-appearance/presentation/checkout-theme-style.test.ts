@@ -133,7 +133,7 @@ describe("checkout-theme.css", () => {
     expect(checked).toContain("box-shadow: var(--checkout-payment-selected-shadow)");
   });
 
-  test("keeps the checked state of Boutique and Noche free of a selected border, and Noche chips free of a selected shadow, as temas.css does", () => {
+  test("keeps the checked state of Boutique and Noche free of a selected border, and Noche chips free of a selected shadow", () => {
     for (const id of ["boutique", "noche"] as const) expect(checkoutThemes[id].style["selected-border"], id).toBe("transparent");
     expect(checkoutThemes.boutique.style["payment-selected-outline"]).toBe("1px solid var(--selected)");
     expect(checkoutThemes.noche.style["payment-selected-shadow"]).toBe("none");
