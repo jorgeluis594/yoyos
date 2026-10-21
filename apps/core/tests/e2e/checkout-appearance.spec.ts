@@ -1,24 +1,12 @@
 import type { Locator, Page } from "@playwright/test";
 import { describe } from "vitest";
-import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
-import { products } from "@core/src/features/products/composition";
-import { orders } from "@core/src/features/orders/composition";
-import type { ContactId, OrderId, PositiveInteger, UserId, CompanyId } from "@core/src/features/orders/domain/order";
-import type { VariantId } from "@core/src/features/products/domain/product";
-import { checkoutPalette } from "@core/src/features/checkout-appearance";
-import { rgb, usedBorderColors } from "@core/tests/e2e/checkout-appearance-fixtures";
-import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { browserExpect, expect, test } from "@core/tests/e2e/fixtures";
+import { checkoutThemeIds, checkoutThemes } from "@core/src/features/checkout-appearance/domain/checkout-themes";
+import { openEditor, rgb, sharedCheckoutPath } from "@core/tests/e2e/checkout-appearance-fixtures";
+import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==", "base64");
-const editorPath = "/es-PE/settings/checkout-appearance";
 const origin = `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}`;
-
-async function openEditor(page: Page, email = `appearance-${crypto.randomUUID()}@example.test`) {
-  const companyId = await prepareVerifiedCompany(page, { email, name: "Vendedora", companyName: "Lima Studio", country: "PE" });
-  await page.goto(editorPath, { waitUntil: "networkidle" });
-  await browserExpect(page.getByRole("heading", { name: "Apariencia del checkout", level: 1 })).toBeVisible();
-  return companyId;
-}
 
 /** The upload endpoint answers with a stored public image, or with a failure. */
 async function stubUpload(page: Page, companyId: string, outcome: "stored" | "missing" | "fails") {
@@ -33,125 +21,99 @@ async function stubUpload(page: Page, companyId: string, outcome: "stored" | "mi
 
 /** Moves focus with the keyboard until the target has it; fails if it is not reachable. */
 async function tabTo(page: Page, target: Locator, key: "Tab" | "Shift+Tab" = "Tab") {
-  for (let step = 0; step < 20 && !(await target.evaluate((element) => element === document.activeElement)); step++) await page.keyboard.press(key);
+  for (let step = 0; step < 30 && !(await target.evaluate((element) => element === document.activeElement)); step++) await page.keyboard.press(key);
   await browserExpect(target).toBeFocused();
 }
 
 const stored = (companyId: string) => withTenantIsolation(companyId, async () => await prisma.companyCheckoutAppearance.findUnique({ where: { companyId } }));
 const uploadLogo = (page: Page) => page.getByTestId("logo-upload").locator("input[type=file]").setInputFiles({ name: "logo.png", mimeType: "image/png", buffer: png });
-
-async function chooseColor(page: Page, name: string) {
-  await page.getByRole("button", { name: /Cambiar$/ }).last().click();
-  await page.getByRole("radio", { name }).click();
-  await page.getByRole("button", { name: `Usar ${name}` }).click();
-}
+const themeOption = (page: Page, name: string) => page.getByRole("radio", { name: new RegExp(`^${name}`) });
+const themeList = (page: Page) => page.getByRole("radiogroup", { name: "Temas del checkout" });
+const checkoutThemeId = (page: Page) => page.locator("[data-checkout-theme]").getAttribute("data-checkout-theme-id");
+const saveChanges = (page: Page) => page.getByRole("button", { name: "Guardar cambios" });
+const savedNotice = (page: Page) => page.getByRole("status").filter({ hasText: "Apariencia actualizada" });
+const unsaved = (page: Page) => page.getByText("Cambios sin guardar", { exact: true });
 
 describe("checkout appearance editor", () => {
-  test("publishes logo, color and background together when saving", async ({ page }) => {
-    const companyId = await openEditor(page);
+  test("publishes logo and theme together when saving and the buyer sees the theme on the next load", async ({ page }) => {
+    const email = `appearance-${crypto.randomUUID()}@example.test`;
+    const companyId = await openEditor(page, email);
+    const path = await sharedCheckoutPath(companyId, email);
+    const buyer = await page.context().newPage();
+    await buyer.goto(path);
+    expect(await checkoutThemeId(buyer)).toBe("classic");
     const logoId = await stubUpload(page, companyId, "stored");
     await uploadLogo(page);
     await browserExpect(page.getByText("Logo cargado", { exact: true })).toBeVisible();
-    await chooseColor(page, "Bosque");
-    await page.getByRole("radio", { name: "De marca" }).click();
+    await themeOption(page, "Antojo").click();
+    await browserExpect(unsaved(page)).toBeVisible();
     expect(await stored(companyId)).toBeNull();
-    await page.getByRole("button", { name: "Guardar cambios" }).click();
-    await browserExpect(page.getByRole("status").filter({ hasText: "Apariencia actualizada" })).toBeVisible();
-    expect(await stored(companyId)).toMatchObject({ logoImageId: logoId, brandColor: "forest", background: "brand_tint" });
+    await buyer.reload();
+    expect(await checkoutThemeId(buyer)).toBe("classic");
+    await saveChanges(page).click();
+    await browserExpect(savedNotice(page)).toBeVisible();
+    expect(await stored(companyId)).toMatchObject({ logoImageId: logoId, theme: "antojo" });
+    await buyer.reload();
+    expect(await checkoutThemeId(buyer)).toBe("antojo");
+    await browserExpect(buyer.getByRole("button", { name: "Confirmar pedido" })).toHaveCSS("background-color", rgb(checkoutThemes.antojo.colors.primary));
     await page.reload();
-    await browserExpect(page.getByText("Bosque", { exact: true })).toBeVisible();
-    await browserExpect(page.getByRole("radio", { name: "De marca" })).toBeChecked();
-    await browserExpect(page.getByText("Cambios sin guardar", { exact: true })).toHaveCount(0);
+    await browserExpect(themeOption(page, "Antojo")).toBeChecked();
+    await browserExpect(unsaved(page)).toHaveCount(0);
   });
 
-  test("names the chosen color in the help line of each background", async ({ page }) => {
+  test("offers the five themes and no color, background or light and dark control", async ({ page }) => {
     await openEditor(page);
-    await chooseColor(page, "Bosque");
-    await browserExpect(page.getByText("Usa un fondo claro de Bosque. En modo oscuro cambia solo.")).toBeVisible();
-    await page.getByRole("radio", { name: "Suave" }).click();
-    await browserExpect(page.getByText("Usa el fondo más claro de Bosque. En modo oscuro cambia solo.")).toBeVisible();
-    await page.getByRole("radio", { name: "De marca" }).click();
-    await browserExpect(page.getByText("Usa el fondo con más color de Bosque. En modo oscuro cambia solo.")).toBeVisible();
+    await browserExpect(page.getByText("Logo", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Tema", { exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("button", { name: "Restablecer apariencia" })).toBeVisible();
+    const options = themeList(page).getByRole("radio");
+    await browserExpect(options).toHaveCount(checkoutThemeIds.length);
+    for (const [index, id] of checkoutThemeIds.entries()) await browserExpect(options.nth(index)).toContainText(checkoutThemes[id].name);
+    await browserExpect(themeOption(page, "Clásico")).toBeChecked();
+    await browserExpect(themeOption(page, "Clásico")).toContainText("Blanco y negro, sobrio. El tema por defecto.");
+    for (const removed of ["Color de marca", "Fondo"]) await browserExpect(page.getByText(removed, { exact: true })).toHaveCount(0);
+    for (const removed of ["Claro", "Oscuro"]) await browserExpect(page.getByRole("button", { name: removed, exact: true })).toHaveCount(0);
+    await browserExpect(page.locator("input[type=color]")).toHaveCount(0);
   });
 
-  test("offers only the nine catalog colors, with no free color field", async ({ page }) => {
+  test("keeps the selection when the selected theme is chosen again", async ({ page }) => {
     await openEditor(page);
-    await page.getByRole("button", { name: /Cambiar$/ }).last().click();
-    await browserExpect(page.getByRole("dialog").getByRole("radio")).toHaveCount(9);
-    await browserExpect(page.getByRole("dialog").locator("input[type=text], input[type=color]")).toHaveCount(0);
-  });
-
-  test("keeps the previous color when the dialog is cancelled, closed or dismissed with Escape", async ({ page }) => {
-    await openEditor(page);
-    const row = page.getByRole("button", { name: /Cambiar$/ }).last();
-    for (const dismiss of [() => page.getByRole("button", { name: "Cancelar" }).click(), () => page.getByRole("button", { name: "Cerrar" }).click(), () => page.keyboard.press("Escape")]) {
-      await row.click();
-      await page.getByRole("radio", { name: "Océano" }).click();
-      await dismiss();
-      await browserExpect(page.getByRole("dialog")).toHaveCount(0);
-      await browserExpect(row).toContainText("Yoyos");
-      await browserExpect(row).toBeFocused();
-    }
-    await browserExpect(page.getByText("Cambios sin guardar", { exact: true })).toHaveCount(0);
-  });
-
-  test("chooses a color with the keyboard and changes only the draft", async ({ page }) => {
-    const companyId = await openEditor(page);
-    await page.getByRole("button", { name: /Cambiar$/ }).last().focus();
-    await page.keyboard.press("Enter");
-    await browserExpect(page.getByRole("radio", { name: /Yoyos/ })).toBeFocused();
-    await page.keyboard.press("ArrowRight");
-    await browserExpect(page.getByRole("radio", { name: "Bosque" })).toBeFocused();
-    await page.keyboard.press("Space");
-    await page.getByRole("button", { name: "Usar Bosque" }).click();
-    await browserExpect(page.getByText("Cambios sin guardar", { exact: true })).toBeVisible();
-    expect(await stored(companyId)).toBeNull();
-  });
-
-  test("shows the swatch of the active preview mode in the row and the dialog", async ({ page }) => {
-    await openEditor(page);
-    await chooseColor(page, "Bosque");
-    const swatch = page.getByTestId("color-swatch");
-    await browserExpect(swatch).toHaveCSS("background-color", "rgb(47, 107, 79)");
-    await page.getByRole("button", { name: "Oscuro" }).click();
-    await browserExpect(swatch).toHaveCSS("background-color", "rgb(143, 203, 168)");
-    await browserExpect(page.getByText("Tono para modo oscuro")).toBeVisible();
-    await page.getByRole("button", { name: /Cambiar$/ }).last().click();
-    await browserExpect(page.getByTestId("swatch-forest")).toHaveCSS("background-color", "rgb(143, 203, 168)");
-    await browserExpect(page.getByTestId("swatch-forest")).toHaveCount(1);
+    await themeOption(page, "Clásico").click();
+    await browserExpect(themeOption(page, "Clásico")).toBeChecked();
+    await browserExpect(unsaved(page)).toHaveCount(0);
   });
 
   test("restores the published appearance when discarding", async ({ page }) => {
     await openEditor(page);
-    await chooseColor(page, "Ciruela");
-    await page.getByRole("radio", { name: "Suave" }).click();
+    await themeOption(page, "Suave").click();
+    await browserExpect(unsaved(page)).toBeVisible();
     await page.getByRole("button", { name: "Descartar" }).click();
-    await browserExpect(page.getByText("Cambios sin guardar", { exact: true })).toHaveCount(0);
-    await browserExpect(page.getByRole("radio", { name: "Medio" })).toBeChecked();
-    await browserExpect(page.getByRole("button", { name: /Cambiar$/ }).last()).toContainText("Yoyos");
+    await browserExpect(unsaved(page)).toHaveCount(0);
+    await browserExpect(themeOption(page, "Clásico")).toBeChecked();
   });
 
   test("requires saving to publish a reset", async ({ page }) => {
     const companyId = await openEditor(page);
-    await chooseColor(page, "Bosque");
-    await page.getByRole("button", { name: "Guardar cambios" }).click();
-    await browserExpect(page.getByRole("status").filter({ hasText: "Apariencia actualizada" })).toBeVisible();
+    await themeOption(page, "Boutique").click();
+    await saveChanges(page).click();
+    await browserExpect(savedNotice(page)).toBeVisible();
     await page.getByRole("button", { name: "Restablecer apariencia" }).click();
-    await browserExpect(page.getByText("Cambios sin guardar", { exact: true })).toBeVisible();
-    expect(await stored(companyId)).toMatchObject({ brandColor: "forest" });
-    await page.getByRole("button", { name: "Guardar cambios" }).click();
-    await browserExpect(page.getByText("Cambios sin guardar", { exact: true })).toHaveCount(0);
-    expect(await stored(companyId)).toMatchObject({ logoImageId: null, brandColor: "yoyos", background: "medium" });
+    await browserExpect(unsaved(page)).toBeVisible();
+    await browserExpect(themeOption(page, "Clásico")).toBeChecked();
+    expect(await stored(companyId)).toMatchObject({ theme: "boutique" });
+    await saveChanges(page).click();
+    await browserExpect(unsaved(page)).toHaveCount(0);
+    expect(await stored(companyId)).toMatchObject({ logoImageId: null, theme: "classic" });
   });
 
   test("keeps the draft and the published appearance when an upload fails", async ({ page }) => {
     const companyId = await openEditor(page);
-    await chooseColor(page, "Bosque");
+    await themeOption(page, "Boutique").click();
     await stubUpload(page, companyId, "fails");
     await uploadLogo(page);
     await browserExpect(page.getByRole("alert").filter({ hasText: "No pudimos subir el logo" })).toBeVisible();
-    await browserExpect(page.getByRole("button", { name: /Cambiar$/ }).last()).toContainText("Bosque");
-    await browserExpect(page.getByRole("button", { name: "Guardar cambios" })).toBeEnabled();
+    await browserExpect(themeOption(page, "Boutique")).toBeChecked();
+    await browserExpect(saveChanges(page)).toBeEnabled();
     expect(await stored(companyId)).toBeNull();
   });
 
@@ -159,11 +121,11 @@ describe("checkout appearance editor", () => {
     const companyId = await openEditor(page);
     await stubUpload(page, companyId, "missing");
     await uploadLogo(page);
-    await chooseColor(page, "Bosque");
-    await page.getByRole("button", { name: "Guardar cambios" }).click();
+    await themeOption(page, "Boutique").click();
+    await saveChanges(page).click();
     await browserExpect(page.getByRole("alert").filter({ hasText: "No pudimos usar ese logo" })).toBeVisible();
-    await browserExpect(page.getByText("Cambios sin guardar", { exact: true })).toBeVisible();
-    await browserExpect(page.getByRole("button", { name: /Cambiar$/ }).last()).toContainText("Bosque");
+    await browserExpect(unsaved(page)).toBeVisible();
+    await browserExpect(themeOption(page, "Boutique")).toBeChecked();
     expect(await stored(companyId)).toBeNull();
     await page.getByRole("button", { name: "Descartar" }).click();
     await browserExpect(page.getByRole("alert").filter({ hasText: "No pudimos usar ese logo" })).toHaveCount(0);
@@ -171,20 +133,19 @@ describe("checkout appearance editor", () => {
 
   test("hides the saved notice once the draft changes, even after discarding", async ({ page }) => {
     await openEditor(page);
-    await chooseColor(page, "Bosque");
-    await page.getByRole("button", { name: "Guardar cambios" }).click();
-    const notice = page.getByRole("status").filter({ hasText: "Apariencia actualizada" });
-    await browserExpect(notice).toBeVisible();
-    await chooseColor(page, "Ciruela");
-    await browserExpect(notice).toHaveCount(0);
+    await themeOption(page, "Boutique").click();
+    await saveChanges(page).click();
+    await browserExpect(savedNotice(page)).toBeVisible();
+    await themeOption(page, "Antojo").click();
+    await browserExpect(savedNotice(page)).toHaveCount(0);
     await page.getByRole("button", { name: "Descartar" }).click();
-    await browserExpect(page.getByText("Cambios sin guardar", { exact: true })).toHaveCount(0);
-    await browserExpect(notice).toHaveCount(0);
+    await browserExpect(unsaved(page)).toHaveCount(0);
+    await browserExpect(savedNotice(page)).toHaveCount(0);
   });
 
   test("disables discard and reset while a logo is uploading", async ({ page }) => {
     await openEditor(page);
-    await chooseColor(page, "Bosque");
+    await themeOption(page, "Boutique").click();
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
     await page.route("**/api/images", async (route) => { await gate; await route.fulfill({ status: 500, contentType: "application/json", body: "{}" }); });
@@ -199,12 +160,12 @@ describe("checkout appearance editor", () => {
 
   test("asks to keep editing or discard when leaving with changes", async ({ page }) => {
     await openEditor(page);
-    await chooseColor(page, "Bosque");
+    await themeOption(page, "Boutique").click();
     await page.getByRole("link", { name: "Productos" }).first().click();
     await browserExpect(page.getByRole("dialog", { name: "Tienes cambios sin guardar" })).toBeVisible();
     await page.getByRole("button", { name: "Seguir editando" }).click();
     await browserExpect(page).toHaveURL(/settings\/checkout-appearance/);
-    await browserExpect(page.getByText("Cambios sin guardar", { exact: true })).toBeVisible();
+    await browserExpect(unsaved(page)).toBeVisible();
     await page.getByRole("link", { name: "Productos" }).first().click();
     await page.getByRole("button", { name: "Descartar y salir" }).click();
     await browserExpect(page).toHaveURL(/\/products/);
@@ -214,35 +175,25 @@ describe("checkout appearance editor", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     const companyId = await openEditor(page);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    const row = page.getByRole("button", { name: /Cambiar$/ }).last();
-    await tabTo(page, row);
-    await page.keyboard.press("Enter");
-    await browserExpect(page.getByRole("dialog")).toBeVisible();
-    await browserExpect(page.getByRole("radio", { name: /Yoyos/ })).toBeFocused();
+    await tabTo(page, themeOption(page, "Clásico"));
     // Radix moves focus on a timer and selects only while the arrow is still down, so hold it like a real key press.
-    await page.keyboard.press("ArrowRight", { delay: 50 });
-    await browserExpect(page.getByRole("radio", { name: "Bosque" })).toBeFocused();
-    await browserExpect(page.getByRole("radio", { name: "Bosque" })).toBeChecked();
-    await page.keyboard.press("Tab");
-    await browserExpect(page.getByRole("button", { name: "Cancelar" })).toBeFocused();
-    await page.keyboard.press("Tab");
-    await browserExpect(page.getByRole("button", { name: "Usar Bosque" })).toBeFocused();
+    await page.keyboard.press("ArrowDown", { delay: 50 });
+    await browserExpect(themeOption(page, "Boutique")).toBeFocused();
+    await browserExpect(themeOption(page, "Boutique")).toBeChecked();
+    await browserExpect(unsaved(page)).toBeVisible();
+    await tabTo(page, saveChanges(page), "Shift+Tab");
     await page.keyboard.press("Enter");
-    await browserExpect(page.getByRole("dialog")).toHaveCount(0);
-    await browserExpect(row).toBeFocused();
-    await browserExpect(row).toContainText("Bosque");
-    await browserExpect(page.getByText("Cambios sin guardar", { exact: true })).toBeVisible();
-    await page.keyboard.press("Tab");
-    await browserExpect(page.getByRole("radio", { name: "Medio" })).toBeFocused();
-    // The background picker is a toggle group: arrows move focus and Space selects.
-    await page.keyboard.press("ArrowRight");
-    await browserExpect(page.getByRole("radio", { name: "De marca" })).toBeFocused();
-    await page.keyboard.press("Space");
-    await browserExpect(page.getByRole("radio", { name: "De marca" })).toBeChecked();
-    await tabTo(page, page.getByRole("button", { name: "Guardar cambios" }), "Shift+Tab");
-    await page.keyboard.press("Enter");
-    await browserExpect(page.getByRole("status").filter({ hasText: "Apariencia actualizada" })).toBeVisible();
-    expect(await stored(companyId)).toMatchObject({ brandColor: "forest", background: "brand_tint" });
+    await browserExpect(savedNotice(page)).toBeVisible();
+    expect(await stored(companyId)).toMatchObject({ theme: "boutique" });
+  });
+
+  test("lists the themes in one column inside the 22 rem side panel on desktop", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await openEditor(page);
+    const [first, second] = [await themeOption(page, "Clásico").boundingBox(), await themeOption(page, "Boutique").boundingBox()];
+    expect(second!.y).toBeGreaterThan(first!.y);
+    expect(Math.abs(second!.x - first!.x)).toBeLessThan(1);
+    expect(first!.height).toBeGreaterThanOrEqual(44);
   });
 
   test("switches between edit and preview with the arrow keys on a phone and shows no tabs on desktop", async ({ page }) => {
@@ -261,7 +212,7 @@ describe("checkout appearance editor", () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await browserExpect(page.getByRole("tablist")).toHaveCount(0);
     await browserExpect(page.getByRole("tabpanel")).toHaveCount(0);
-    await browserExpect(page.getByRole("button", { name: /Cambiar$/ }).last()).toBeVisible();
+    await browserExpect(themeList(page)).toBeVisible();
     await browserExpect(page.getByRole("region", { name: "Vista previa del checkout" })).toBeVisible();
   });
 
@@ -272,81 +223,32 @@ describe("checkout appearance editor", () => {
     await page.reload({ waitUntil: "domcontentloaded" });
     await browserExpect(page.getByRole("tablist")).toHaveCount(0);
     const preview = page.getByRole("region", { name: "Vista previa del checkout" });
-    const changeColor = page.getByRole("button", { name: /Cambiar$/ }).last();
+    const themes = themeList(page);
     await browserExpect(preview).toBeVisible();
-    await browserExpect(changeColor).toBeVisible();
-    const [previewBox, colorBox] = [await preview.boundingBox(), await changeColor.boundingBox()];
-    expect(colorBox!.x).toBeGreaterThan(previewBox!.x + previewBox!.width);
+    await browserExpect(themes).toBeVisible();
+    const [previewBox, themesBox] = [await preview.boundingBox(), await themes.boundingBox()];
+    expect(themesBox!.x).toBeGreaterThan(previewBox!.x + previewBox!.width);
   });
 });
 
-/** A pending order of the company with its checkout enabled, as the seller shares it with a buyer. */
-async function sharedCheckoutPath(companyId: string, email: string) {
-  const user = await systemPrisma.user.findUniqueOrThrow({ where: { email }, select: { id: true } });
-  const [tenant, userId, orderId, contactId] = [companyId as CompanyId, user.id as UserId, crypto.randomUUID() as OrderId, crypto.randomUUID() as ContactId];
-  await withTenantIsolation(tenant, async () => {
-    const product = await products.create({ name: "Cuaderno", currency: "PEN", variants: [{ attributes: { Color: "Azul" }, salePrice: 10, initialStock: 3 }] });
-    if (!product.success) throw new Error("Product fixture failed");
-    const variant = await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } });
-    await prisma.contact.create({ data: { id: contactId, whatsappAccountId: "1@lid", whatsappLid: "2@lid" } });
-    const created = await orders.create({ id: orderId, items: [{ variantId: variant.id as VariantId, quantity: 1 as PositiveInteger }] }, { companyId: tenant, userId });
-    if (!created.success) throw new Error("Order fixture failed");
-    await prisma.orderBuyer.create({ data: { orderId, contactId, name: "Ana", phone: "+51987654321" } });
-    expect(await orders.enableCheckout(orderId, { companyId: tenant, userId })).toMatchObject({ success: true });
-  });
-  return `/checkout/${companyId}/${orderId}`;
-}
-
 describe("checkout appearance editor with the live preview", () => {
   const previewFrame = (page: Page) => page.frameLocator('iframe[title="Vista previa del checkout"]');
-  const confirmColor = (page: Page) => previewFrame(page).getByRole("button", { name: "Confirmar pedido" }).evaluate((node) => getComputedStyle(node).backgroundColor);
 
   test("shows the published appearance and a preview with sample data", async ({ page }) => {
     await openEditor(page);
     await browserExpect(previewFrame(page).getByText("Vista previa · Datos de ejemplo")).toBeVisible();
     await browserExpect(previewFrame(page).getByRole("heading", { name: "Pedido #1001" })).toBeVisible();
-    await browserExpect(page.getByRole("button", { name: /Cambiar$/ }).last()).toContainText("Yoyos");
+    await browserExpect(themeOption(page, "Clásico")).toBeChecked();
   });
 
-  test("updates the preview without changing the public checkout", async ({ page }) => {
-    const email = `appearance-${crypto.randomUUID()}@example.test`;
-    const companyId = await openEditor(page, email);
-    const path = await sharedCheckoutPath(companyId, email);
-    const before = await confirmColor(page);
-    await chooseColor(page, "Bosque");
-    await browserExpect.poll(() => confirmColor(page)).toBe("rgb(47, 107, 79)");
-    expect(await stored(companyId)).toBeNull();
-    const buyer = await page.context().newPage();
-    await buyer.goto(path);
-    await browserExpect(buyer.getByRole("button", { name: "Confirmar pedido" })).toHaveCSS("background-color", before);
-  });
-
-  test("applies the new appearance to a previously shared link on reload", async ({ page }) => {
-    const email = `appearance-${crypto.randomUUID()}@example.test`;
-    const companyId = await openEditor(page, email);
-    const path = await sharedCheckoutPath(companyId, email);
-    const buyer = await page.context().newPage();
-    await buyer.goto(path);
-    const confirm = buyer.getByRole("button", { name: "Confirmar pedido" });
-    await browserExpect(confirm).not.toHaveCSS("background-color", "rgb(47, 107, 79)");
-    await chooseColor(page, "Bosque");
-    await page.getByRole("button", { name: "Guardar cambios" }).click();
-    await browserExpect(page.getByRole("status").filter({ hasText: "Apariencia actualizada" })).toBeVisible();
-    await buyer.reload();
-    await browserExpect(confirm).toHaveCSS("background-color", "rgb(47, 107, 79)");
-    expect(await usedBorderColors(buyer)).toContain(rgb(checkoutPalette("forest", "medium").light.border));
-    expect(await usedBorderColors(buyer)).not.toContain(rgb("#DCD4C9"));
-  });
-
-  test("switches the preview between phone and desktop, light and dark, review and payment", async ({ page }) => {
+  test("switches the preview between phone and desktop and between review and payment, with no light or dark mode", async ({ page }) => {
     await openEditor(page);
     const frame = page.locator('iframe[title="Vista previa del checkout"]');
     await browserExpect(frame).toHaveAttribute("data-device", "phone");
     await page.getByRole("button", { name: "Escritorio" }).click();
     await browserExpect(frame).toHaveAttribute("data-device", "desktop");
-    await page.getByRole("button", { name: "Oscuro", exact: true }).click();
-    await browserExpect(previewFrame(page).locator("html.dark")).toBeAttached();
-    await page.getByRole("button", { name: "Claro", exact: true }).click();
+    await themeOption(page, "Noche").click();
+    await browserExpect(previewFrame(page).locator('[data-checkout-theme-id="noche"].dark')).toBeAttached();
     await browserExpect(previewFrame(page).locator("html.dark")).toHaveCount(0);
     await page.getByRole("button", { name: "Pago", exact: true }).click();
     await browserExpect(previewFrame(page).getByRole("heading", { name: "Cómo pagar" })).toBeVisible();
