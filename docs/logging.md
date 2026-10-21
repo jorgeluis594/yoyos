@@ -1,65 +1,113 @@
-# Logging y observabilidad
+# Logging and observability
 
-## Estado y alcance
+Logs explain what happened and give enough safe context to investigate a request
+or failure without recording private data. This applies to the `apps/core`
+server (Express and React Router). The New Relic Node.js agent is not loaded in
+the Expo app; mobile has no shared logging strategy.
 
-Esta infraestructura está lista en el servidor de `apps/core` (Express y React Router). Aún no hay entornos de staging ni producción; la comprobación de recepción en New Relic corresponde al primer despliegue. La aplicación móvil requiere una estrategia propia; el agente Node.js de New Relic no se carga en Expo.
+## Architecture
 
-El objetivo es poder seguir una solicitud y diagnosticar un fallo sin registrar datos privados. La fuente de logs de la aplicación es Pino; el agente de New Relic está configurado para enviar esos logs y aportar APM y trazas cuando se habilite. No se necesita una tabla de logs en PostgreSQL.
+| Decision | Reason |
+| --- | --- |
+| Pino is the only application log source, writing JSON to stdout | One structured format for containers and forwarding; no custom transport. |
+| The New Relic Node.js agent forwards Pino logs and provides APM and traces | Logs, transactions and traces correlate in one tool. |
+| No log table in PostgreSQL | Logs are diagnostics, not business data or an audit trail. |
 
 ```mermaid
 flowchart LR
-  R[Solicitud HTTP] --> E[Express y React Router]
-  E --> P[Pino: JSON a stdout]
-  E --> N[Agente Node.js de New Relic]
+  R[HTTP request] --> E[Express and React Router]
+  E --> P[Pino: JSON to stdout]
+  E --> N[New Relic Node.js agent]
   P --> N
-  N --> NR[New Relic: logs, APM y trazas]
+  N --> NR[New Relic: logs, APM and traces]
 ```
 
-## Integración
+- [`logger.ts`](../apps/core/src/shared/infrastructure/logger.ts) configures the
+  single logger. The level defaults to `info` and is changed with `LOG_LEVEL`.
+  Pino `redact` covers known secret paths as a fallback only.
+- Each request gets a validated or generated `requestId`, returned in the
+  `x-request-id` header for API and React Router responses. `log` adds it to every
+  event; access middleware adds `companyId` once the company is selected. Request
+  completion logs method, normalized route, status and `durationMs`.
+- The agent's privacy rules live in [`newrelic.cjs`](../apps/core/newrelic.cjs):
+  they exclude request URLs, parameters and headers, order UUIDs and response
+  headers, and strip exception messages. `apm-privacy.test.ts` checks them.
 
-1. [logger.ts](../apps/core/src/shared/infrastructure/logger.ts) configura un único Pino con JSON a stdout, nivel `info` por defecto y `LOG_LEVEL` para cambiarlo operativamente.
-2. `pnpm --dir apps/core start` precarga el agente de New Relic antes de importar el servidor. En desarrollo, `pnpm --dir apps/core dev` funciona sin el agente. `NEW_RELIC_ENABLED=false` permite arrancar sin licencia. Para habilitar APM y forwarding en producción, configurar `NEW_RELIC_ENABLED=true`, `NEW_RELIC_LICENSE_KEY` y `NEW_RELIC_APP_NAME` en el entorno; el repositorio no guarda la licencia.
-La configuración de privacidad del agente vive en `apps/core/newrelic.cjs` y se carga desde el comando `start`. Excluye URL, parámetros y cabeceras de solicitudes, UUID de pedido y cabeceras de respuesta; elimina mensajes de excepción y normaliza las transacciones de checkout/pedidos. La ofuscación de UUID en rutas es una defensa adicional. No habilitar `NEW_RELIC_NO_CONFIG_FILE=true` al desplegar: omitiría estas reglas. La prueba `apm-privacy.test.ts` valida la serialización local del agente sin conectarse al colector.
+## Running
 
-3. El *application log forwarding* del agente está configurado para enviar los eventos de Pino y stdout conserva los logs del contenedor. Si la infraestructura también reenvía stdout a New Relic, configurar `NEW_RELIC_APPLICATION_LOGGING_FORWARDING_ENABLED=false` para evitar duplicados. No hay transporte HTTP propio en Pino.
-4. El middleware de Express guarda por solicitud un `requestId` validado o generado y lo devuelve en `x-request-id`, tanto para API como para React Router. El logger `log` añade ese contexto a cada evento; los middleware de acceso de API y de rutas privadas de React Router añaden `companyId` tras seleccionar la empresa. Al terminar registra método, ruta normalizada, estado y `durationMs`. La correlación con transacciones y trazas requiere comprobación en staging.
-5. El servidor, adaptadores y rutas usan eventos estructurados en lugar de `console.*`. Un fallo técnico debe quedar registrado una vez en el límite que lo maneja; las respuestas esperadas mediante `Result` no son errores de infraestructura por sí solas.
+- `pnpm --dir apps/core start` preloads the agent; `pnpm --dir apps/core dev` runs without it.
+- `NEW_RELIC_ENABLED=false` (the default in `start`) runs without a license. To
+  enable APM and forwarding set `NEW_RELIC_ENABLED=true`, `NEW_RELIC_LICENSE_KEY`
+  and `NEW_RELIC_APP_NAME`. The license is never stored in the repository.
+- Never set `NEW_RELIC_NO_CONFIG_FILE=true`: it skips the privacy rules.
+- If the infrastructure also forwards stdout to New Relic, set
+  `NEW_RELIC_APPLICATION_LOGGING_FORWARDING_ENABLED=false` to avoid duplicates.
 
-## Contrato de cada evento
+## Writing a log
 
-Usar mensajes estables y campos planos para poder filtrar. Ejemplo ilustrativo:
+Use the shared logger in core server code with an object followed by a short,
+stable English message. Do not use `console.*` or another wrapper. The logger is
+server-only; never import it into browser or mobile code.
 
-```json
-{"level":50,"time":1780000000000,"service":"yoyos-core","event":"order_create_failed","requestId":"8c3d...","companyId":"6af1...","errorCode":"PERSISTENCE_UNAVAILABLE","err":{"type":"Error","message":"Database unavailable","stack":"..."}}
+```ts
+import { log } from "@core/src/shared/infrastructure/logger";
+
+log.error({
+  event: "unable_to_save_order",
+  orderId,
+  errorCode: "PERSISTENCE_UNAVAILABLE",
+  err: cause,
+}, "Unable to save order");
 ```
 
-| Campo | Uso |
+### Event name
+
+- A stable English `snake_case` name for the operation and outcome, such as
+  `product_create_persistence_failed`. Avoid vague names like `error`.
+- Search existing logs first and reuse the event for the same operation; keep
+  existing names so searches keep working.
+- Variable values go in fields, never in the event name or message.
+
+### Context
+
+Include only what was affected, what explains the outcome and what helps the
+investigation. Keep fields flat with consistent types, prefer identifiers over
+objects, select fields explicitly (never spread or stringify objects) and omit
+unavailable data instead of adding placeholders. Common fields: `requestId`,
+`companyId` (only once authenticated), `userId`, `orderId`, `errorCode`,
+`durationMs`, `statusCode`.
+
+Never log credentials, tokens, headers, cookies, connection strings, customer
+names, emails, phone numbers, message content, payment details, signed URLs,
+full URLs with sensitive parameters, or complete request/response bodies.
+
+Pass failures through `err`; the logger sanitizes message and stack. Do not copy
+`cause.message`, `cause.stack`, `String(cause)` or provider metadata into other
+fields, and do not copy arbitrary external error codes. Use a safe `errorCode`.
+
+### Level
+
+| Level | Use for |
 | --- | --- |
-| `event` | Nombre estable en `snake_case`, por ejemplo `order_create_failed`. |
-| `requestId` | Identificador de la solicitud; también aparece en la respuesta para soporte cuando sea útil. |
-| `companyId` | Solo cuando la empresa ya fue autenticada; nunca inferirla de un dato no validado. |
-| `userId`, `orderId` | Identificadores cuando ayudan a investigar; evitar objetos completos. |
-| `errorCode` | Código técnico o de aplicación estable, cuando exista. |
-| `err` | Error real para que Pino serialice tipo, mensaje y stack. Revisar el mensaje antes de emitirlo si puede contener secretos. |
-| `durationMs`, `statusCode` | Medición y resultado de solicitudes u operaciones relevantes. |
+| `debug` | Bounded diagnostic detail during an investigation. |
+| `info` | Useful completion summaries and process lifecycle events. |
+| `warn` | Degraded behavior or a failed attempt that will be retried. |
+| `error` | Unexpected operation failures, invalid stored data, or exhausted retries. |
+| `fatal` | Unrecoverable failures after which the process terminates. |
 
-Niveles: `debug` para diagnóstico temporal; `info` para hitos relevantes; `warn` para fallos recuperables o rechazos anómalos; `error` para operaciones fallidas que requieren investigación; `fatal` para un fallo que termina el proceso. No registrar cada consulta a la base de datos ni cada paso exitoso de una operación habitual.
+### Where
 
-## Datos sensibles y aislamiento
+- Expected validation failures, missing records, duplicates and business
+  rejections return a `Result` failure without a log.
+- Log a technical failure once, where it is handled with useful context: usually
+  an infrastructure adapter or the final request/worker boundary. If an adapter
+  logs and returns a failed `Result`, its caller does not log it again.
+- Keep logging out of pure domain code; do not log every query, loop item or
+  successful read, and do not duplicate HTTP completion logs.
+- For background work (for example emails sent after the HTTP response), handle
+  both rejected promises and failed `Result` values.
+- Logs keep `companyId` as diagnostic context only; they do not replace tenant
+  isolation and are not a business audit log.
 
-- Registrar campos permitidos de forma explícita. Nunca emitir cuerpos HTTP completos, cabeceras, cookies, tokens, contraseñas, correos, teléfonos, nombres de clientes, mensajes de WhatsApp ni datos de pago.
-- Configurar `redact` de Pino como defensa adicional para rutas conocidas de secretos, incluidas variantes anidadas. No confiar únicamente en esa lista: no cubre secretos incrustados en cadenas ni claves inesperadas.
-- Evitar URL completas cuando puedan contener parámetros sensibles. Registrar una ruta normalizada; no registrar `Authorization` ni el valor bruto de `x-request-id` sin validarlo.
-- Conservar `companyId` como contexto de diagnóstico sin mezclar datos entre empresas. Los logs no reemplazan las políticas de aislamiento de datos ni constituyen un registro de auditoría de acciones de negocio.
-- Para envíos de correo que continúan después de responder al HTTP, observar tanto un `Result` fallido como una promesa rechazada y registrar solamente un evento saneado; la respuesta HTTP no confirma la entrega del correo.
-
-## Validación local y del primer despliegue
-
-- Validado localmente: solicitudes exitosas y fallidas producen eventos JSON con nivel, `event`, `requestId`, estado y duración; los errores inesperados conservan stack saneado en el servidor sin devolverlo al cliente.
-- La prueba unitaria de `logger.ts` comprueba que valores señuelo de tokens, cabeceras y datos personales no aparecen en stdout. Una prueba local con el agente habilitado comprobó un evento por solicitud en su buffer, con `trace.id` y `span.id`, sin el valor señuelo. El servidor también respondió cuando el colector no estaba disponible.
-- En el primer despliegue, comprobar que ese evento aparece **una vez** en New Relic, asociado a la transacción/traza correspondiente (`trace.id` y `span.id`), y que los valores señuelo tampoco aparecen allí.
-
-## Referencias
-
-- [Pino: API, logger hijo y redacción](https://github.com/pinojs/pino/blob/main/docs/api.md) · [salida legible en desarrollo](https://github.com/pinojs/pino/blob/main/docs/pretty.md).
-- [New Relic: instalación del agente Node.js](https://docs.newrelic.com/docs/agents/nodejs-agent/installation-configuration/install-maintain-nodejs/) · [logs en contexto para Node.js y Pino](https://docs.newrelic.com/docs/logs/logs-context/configure-logs-context-nodejs/).
+When changing a log path, check its event, level, context, absence of sensitive
+data, and that the same failure is not logged twice.

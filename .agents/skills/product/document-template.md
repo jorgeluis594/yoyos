@@ -1,6 +1,6 @@
 # Product document template
 
-The document lives in `docs/<topic>.md`, written in English, and describes only the current product-level design. Sections marked as constant always go in; optional ones only when the feature needs them. No content is invented to fill a section: if it does not apply, it is omitted.
+The document is a draft in `docs/drafts/<concept>.md`, written in English following the [Documentation](../documentation/SKILL.md) skill, and describes only the current product-level design. Sections marked as constant always go in; optional ones only when the feature needs them. No content is invented to fill a section: if it does not apply, it is omitted.
 
 It contains no construction decisions: no data structure, no technical contracts, no code organization, no executable tests. Those are defined in the next phase, taking this document as the behavior definition.
 
@@ -56,7 +56,7 @@ Table `| User | Need | Surface |`. Users by situation, not demographics: "seller
 List of what goes in, bounded by types, channels, platforms and geography rather than by reliability. State what belongs to another task and which meeting point is left defined so that task only adds. If there are several slices, their order.
 
 ### Out of this version
-List of what is deferred, each item with its trigger: "when send-frequency control exists", "when rates are defined". Anything with real risk is recorded as a Todoist task and linked.
+List of what is deferred, each item with its trigger: "when send-frequency control exists", "when rates are defined". Anything with real risk is flagged so the founder can decide whether to create a Todoist task; if one exists, it is linked.
 
 ### Flow
 Numbered list of the usual end-to-end path, with the main action of each step and the default values. Then the alternative paths that matter (rejection, uncertain outcome, abandoning midway) as short sublists.

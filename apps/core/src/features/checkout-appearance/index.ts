@@ -5,7 +5,7 @@ export {
 export type {
   CheckoutAppearance, CheckoutAppearanceError, CheckoutBackground, CheckoutBrandColor, CompanyId, ImageId, UserId,
 } from "@core/src/features/checkout-appearance/domain/checkout-appearance";
-export { checkoutBrandColorCatalog, checkoutPalette } from "@core/src/features/checkout-appearance/domain/checkout-colors";
+export { catalogPalette, checkoutBrandColorCatalog, checkoutPalette } from "@core/src/features/checkout-appearance/domain/checkout-colors";
 export type { CheckoutPalette, CheckoutTokens } from "@core/src/features/checkout-appearance/domain/checkout-colors";
 export type {
   CheckoutAppearanceFailure, CheckoutAppearancePreview, PreviewPaymentMethod, PublicAppearance, PublicAppearanceResult,

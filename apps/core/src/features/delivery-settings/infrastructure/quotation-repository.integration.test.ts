@@ -62,6 +62,8 @@ test("quotations persist all overlapping rates, remain immutable, isolate tenant
       await prisma.deliveryRate.deleteMany();
       await prisma.quotation.deleteMany();
       await prisma.deliveryOption.deleteMany();
+      await prisma.deliveryZoneDepartment.deleteMany();
+      await prisma.deliveryZoneProvince.deleteMany();
       await prisma.deliveryZoneDistrict.deleteMany();
       await prisma.deliveryZone.deleteMany();
       await prisma.companyDeliverySettings.deleteMany();

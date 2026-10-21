@@ -1,6 +1,6 @@
 ---
 name: architecture
-description: Defines the architecture of a Yoyos feature (use cases, data structure, persistence, strong typing, contracts, transactions, observability and test titles) and writes the complete technical document in docs/ following the founder's architecture guide, deciding what is routine and grouping into one block the few questions that need the founder's answer. Use when asked to define, design or document the technical side of a feature, a refactor or an integration already defined at the behavior level. Do not use to define product, implement code or write executable tests.
+description: Defines the architecture of a Yoyos feature (use cases, data structure, persistence, strong typing, contracts, transactions, observability and test titles) and writes the complete technical draft in docs/drafts/ following the founder's architecture guide, deciding what is routine and grouping into one block the few questions that need the founder's answer. Use when asked to define, design or document the technical side of a feature, a refactor or an integration already defined at the behavior level. Do not use to define product, implement code or write executable tests.
 ---
 
 # Architecture
@@ -11,14 +11,14 @@ This skill contains only the method. The current state of the system (what exist
 
 ## Input
 
-A behavior definition: a product document in `docs/<topic>.md`, a Todoist task or a description from the founder. If the input does not say what each actor sees and does nor what happens when something fails, the agent designs with explicit assumptions marked as such; it does not define product.
+A behavior definition: a product draft in `docs/drafts/<concept>.md`, a Todoist task or a description from the founder. If the input does not say what each actor sees and does nor what happens when something fails, the agent designs with explicit assumptions marked as such; it does not define product.
 
 ## References
 
 | File | What it contains | When to read it |
 | --- | --- | --- |
 | [architecture-guide.md](architecture-guide.md) | Rules for starting from the code, designing use cases, typing, layers, persistence, integration, tests and observability, with illustrative examples and what the agent decides alone versus what requires the founder | Always, in full, before designing |
-| [technical-document-template.md](technical-document-template.md) | Skeleton of the technical document and the tasks document, style and per-section guide | When writing the documents |
+| [technical-document-template.md](technical-document-template.md) | Skeleton of the technical document, including its implementation plan, style and per-section guide | When writing the document |
 
 ## Steps
 
@@ -31,13 +31,13 @@ A behavior definition: a product document in `docs/<topic>.md`, a Todoist task o
 
 2. **Design by walking through the guide.** For each intention, a use case with input, access context, dependencies, output and errors. For each piece of data with rules, a validated type. For each write, its transaction and its lock if needed. For each integration between features, the event or public capability that connects them. For each new concept, one line saying why an existing one does not work; if there is none, it is not created. Never re-propose what memory or a current document records as discarded or deferred.
 
-3. **Write the complete technical document** in `docs/<topic>-technical.md` using [technical-document-template.md](technical-document-template.md). If a current technical document on the topic exists, update it without losing detail instead of creating another. Include the test titles per level and the observability per event. Do not implement, do not create migrations or code files, do not commit during definition.
+3. **Write the complete technical document** as a draft in `docs/drafts/<concept>-technical.md` using [technical-document-template.md](technical-document-template.md) and following the [Documentation](../documentation/SKILL.md) skill. If a technical draft on the concept exists, update it without losing detail instead of creating another. Include the test titles per level and the observability per event. Do not implement, do not create migrations or code files, do not commit during definition.
 
-4. **Write the tasks document** in `docs/<topic>-tasks.md` using the second part of the template: non-atomic tasks that cover a probable flow, parallelizable, with blockers isolated in small tasks, each with scope, out of scope and acceptance criteria.
+4. **Write the implementation plan** as the "Implementation plan" section of the same draft (no separate tasks document; tasks live in Todoist): non-atomic slices that cover a probable flow, parallelizable, with blockers isolated in small tasks, each with scope, out of scope and acceptance criteria.
 
-5. **Deliver in the chat** the absolute paths of the two documents, the "Questions" block in the guide's format (numbered, recommended option first, consequence of each alternative) and the "Decided unless objected" list with the routine decisions the founder should see. Nothing else: the content is in the documents.
+5. **Deliver in the chat** the absolute path of the draft, the "Questions" block in the guide's format (numbered, recommended option first, consequence of each alternative) and the "Decided unless objected" list with the routine decisions the founder should see. Nothing else: the content is in the documents.
 
-6. **Close with the answers.** On receiving the founder's adjustments, update the documents, remove the resolved questions, set the status to "design closed, pending implementation", create in Todoist the tasks for deferred items with real risk and record with [Happy Memory Maintainer](../happy-memory-maintainer/SKILL.md) the architecture decisions and conventions that should govern future features. If an answer contradicts a rule in the guide, apply it and propose to the founder updating the rule in [architecture-guide.md](architecture-guide.md).
+6. **Close with the answers.** On receiving the founder's adjustments, update the draft, remove the resolved questions, set the status to "design closed, pending implementation", list the deferred items with real risk so the founder can ask for their Todoist tasks (they are created only if the founder asks) and record with [Happy Memory Maintainer](../happy-memory-maintainer/SKILL.md) the architecture decisions and conventions that should govern future features. If an answer contradicts a rule in the guide, apply it and propose to the founder updating the rule in [architecture-guide.md](architecture-guide.md).
 
 ## Guardrails
 
@@ -50,4 +50,4 @@ A behavior definition: a product document in `docs/<topic>.md`, a Todoist task o
 
 ## After this skill
 
-Code, migrations, executable tests and commits are produced with the [Implementation](../implementation/SKILL.md) skill, which takes the technical document and the tasks document as the definition.
+Code, migrations, executable tests and commits are produced with the [Implementation](../implementation/SKILL.md) skill, which takes the technical draft and its implementation plan as the definition. Validation evidence goes in the pull request description. When the feature is merged, the draft is promoted into the permanent doc of the concept and deleted, following the [Documentation](../documentation/SKILL.md) skill.

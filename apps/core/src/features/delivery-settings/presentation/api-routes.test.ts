@@ -105,7 +105,7 @@ test("zone HTTP uses tenant context and rejects server-owned fields, missing pri
   expect(await request({ method: "PUT", headers: { "content-type": "text/plain" }, body: "input" }, "/zones"))
     .toMatchObject({ status: 415, body: { code: "UNSUPPORTED_MEDIA_TYPE" } });
   expect(await request(put(zoneInput), "/zones")).toMatchObject({ status: 200, body: { version: 1 } });
-  expect(save).toHaveBeenCalledWith(zoneInput, context);
+  expect(save).toHaveBeenCalledWith({ ...zoneInput, zones: [{ ...zoneInput.zones[0], departmentCodes: [], provinceCodes: [] }] }, context);
 });
 
 test("zone validation identifies the row and conflicts return the current version without exposing internal messages", async () => {

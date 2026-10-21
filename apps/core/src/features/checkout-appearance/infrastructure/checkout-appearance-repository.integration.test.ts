@@ -62,7 +62,7 @@ describe("loadCheckoutAppearance", () => {
       await withTenantIsolation(a.id, async () => {
         // The enum column cannot hold a retired catalog value, so the adapter's read is replaced with one.
         vi.spyOn(prisma.companyCheckoutAppearance, "findUnique").mockResolvedValueOnce(
-          { logoImageId: null, brandColor: "retired", background: "neutral" } as never);
+          { logoImageId: null, brandColor: "retired", background: "medium" } as never);
         expect(await loadCheckoutAppearance(a.id)).toMatchObject({ success: false, error: { code: "INVALID_STORED_DATA" } });
       });
       expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "invalid_stored_checkout_appearance", errorCode: "INVALID_STORED_DATA", invalidFields: ["brandColor"], companyId: a.id }), "invalid_stored_checkout_appearance");
@@ -84,8 +84,8 @@ describe("persistCheckoutAppearance", () => {
     await withCompanies(async (a) => {
       await withTenantIsolation(a.id, async () => {
         await persistCheckoutAppearance(a.id, appearance(a.imageId, "forest"));
-        await persistCheckoutAppearance(a.id, { logoImageId: null, brandColor: "plum", background: "white" });
-        expect(await loadCheckoutAppearance(a.id)).toEqual({ success: true, data: { logoImageId: null, brandColor: "plum", background: "white" } });
+        await persistCheckoutAppearance(a.id, { logoImageId: null, brandColor: "plum", background: "soft" });
+        expect(await loadCheckoutAppearance(a.id)).toEqual({ success: true, data: { logoImageId: null, brandColor: "plum", background: "soft" } });
       });
     });
   });
@@ -131,7 +131,16 @@ describe("persistCheckoutAppearance", () => {
   test("rejects a color outside the catalog at the database", async () => {
     await withCompanies(async (a) => {
       await withTenantIsolation(a.id, async () => {
-        await expect(prisma.$executeRaw`INSERT INTO "CompanyCheckoutAppearance" ("brandColor", "background", "updatedAt") VALUES ('#2F6B4F', 'neutral', now())`).rejects.toThrow();
+        await expect(prisma.$executeRaw`INSERT INTO "CompanyCheckoutAppearance" ("brandColor", "background", "updatedAt") VALUES ('#2F6B4F', 'medium', now())`).rejects.toThrow();
+        expect(await prisma.companyCheckoutAppearance.count()).toBe(0);
+      });
+    });
+  });
+
+  test("rejects the former white identifier at the database", async () => {
+    await withCompanies(async (a) => {
+      await withTenantIsolation(a.id, async () => {
+        await expect(prisma.$executeRaw`INSERT INTO "CompanyCheckoutAppearance" ("brandColor", "background", "updatedAt") VALUES ('forest', 'white', now())`).rejects.toThrow();
         expect(await prisma.companyCheckoutAppearance.count()).toBe(0);
       });
     });

@@ -35,7 +35,7 @@ function CheckoutSample({ brandColor, background, logoUrl = null, companyName = 
         </dl>
         <p className="text-sm text-muted-foreground">Incluye el código de país, por ejemplo +51987654321.</p>
         <label className="flex items-center gap-3 rounded-[var(--radius-card)] border border-primary bg-accent p-3 text-accent-foreground">
-          <input type="radio" name={`delivery-${id}`} defaultChecked /> Envío a domicilio
+          <input type="radio" name={`delivery-${id}`} defaultChecked className="size-4 accent-primary" /> Envío a domicilio
         </label>
         <Field><FieldLabel htmlFor={`name-${id}`}>Nombre</FieldLabel><Input id={`name-${id}`} defaultValue="Ana Pérez" /></Field>
         <div className="flex flex-wrap items-center gap-4">
@@ -59,13 +59,13 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 type Mode = "light" | "dark";
 
-const backgroundNames: Record<CheckoutBackground, string> = { white: "Blanco", neutral: "Neutro", brand_tint: "De marca" };
+const backgroundNames: Record<CheckoutBackground, string> = { soft: "Suave", medium: "Medio", brand_tint: "De marca" };
 
 /** One color combined with the three backgrounds, in the mode chosen in the toolbar. */
 function colorStory(brandColor: CheckoutBrandColor, theme: Mode): Story {
   return {
     name: `${checkoutBrandColorCatalog[brandColor].name} · ${theme === "light" ? "claro" : "oscuro"}`,
-    args: { brandColor, background: "neutral" },
+    args: { brandColor, background: "medium" },
     globals: { theme },
     render: ({ logoUrl }) => (
       <div className="grid gap-4 lg:grid-cols-3">

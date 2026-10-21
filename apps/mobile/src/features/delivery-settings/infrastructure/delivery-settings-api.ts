@@ -1,4 +1,4 @@
-import { getPeruDistrict } from "@shared/peru-geography";
+import { getPeruDistrict, parsePeruAreaSelection } from "@shared/peru-geography";
 import { agencyCatalogSchema, courierCatalogSchema, deliveryZonesApiErrorSchema, deliveryZonesSchema, saveDeliveryZonesSchema, type DeliveryZonesResponse, type SaveDeliveryZonesRequest, deliverySettingsApiErrorSchema, deliverySettingsSchema, saveDeliverySettingsSchema,
   type AgencyCatalogResponse, type CourierCatalogResponse, type DeliverySettingsResponse, type SaveDeliverySettingsRequest } from "@shared/contracts/delivery-settings";
 import { err, ok } from "@shared/functional";
@@ -56,7 +56,7 @@ function zonesResponse(raw: Result<unknown, TransportError>, saving: boolean): R
         option.price.amount > 9999999999999.99 || !/^\d+(?:\.\d{1,2})?$/.test(String(option.price.amount))) ||
         new Set(zone.options.map(option => option.id)).size !== zone.options.length ||
         zone.options.some(option => option.method === "agency" && (new Set(option.agencyIds).size !== option.agencyIds.length || !option.agencyIds.every(id => known.has(id)))) ||
-        new Set(zone.districtCodes).size !== zone.districtCodes.length || zone.districtCodes.some(code => !getPeruDistrict(code))))
+        !parsePeruAreaSelection(zone).success))
       return err({ code: "INVALID_RESPONSE", message: "Invalid delivery zones response" });
     return ok(parsed.data);
   }

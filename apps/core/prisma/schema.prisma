@@ -109,6 +109,8 @@ model Company {
   checkoutAppearance CompanyCheckoutAppearance?
   couriers CompanyCourier[]
   deliveryZones DeliveryZone[]
+  deliveryZoneDepartments DeliveryZoneDepartment[]
+  deliveryZoneProvinces DeliveryZoneProvince[]
   deliveryZoneDistricts DeliveryZoneDistrict[]
   deliveryOptions DeliveryOption[]
   deliveryOptionAgencies DeliveryOptionAgency[]
@@ -122,10 +124,32 @@ model DeliveryZone {
   company Company @relation(fields: [companyId], references: [id])
   name String @db.VarChar(120)
   enabled Boolean
+  departments DeliveryZoneDepartment[]
+  provinces DeliveryZoneProvince[]
   districts DeliveryZoneDistrict[]
   options DeliveryOption[]
 
   @@unique([companyId, id])
+}
+
+model DeliveryZoneDepartment {
+  companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company Company @relation(fields: [companyId], references: [id])
+  departmentCode String @db.VarChar(2)
+  zoneId String @db.Uuid
+  zone DeliveryZone @relation(fields: [companyId, zoneId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@id([companyId, zoneId, departmentCode])
+}
+
+model DeliveryZoneProvince {
+  companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company Company @relation(fields: [companyId], references: [id])
+  provinceCode String @db.VarChar(4)
+  zoneId String @db.Uuid
+  zone DeliveryZone @relation(fields: [companyId, zoneId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@id([companyId, zoneId, provinceCode])
 }
 
 model DeliveryZoneDistrict {
@@ -269,8 +293,8 @@ enum CheckoutBrandColor {
 }
 
 enum CheckoutBackground {
-  white
-  neutral
+  soft
+  medium
   brand_tint
 }
 

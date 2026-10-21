@@ -10,7 +10,7 @@ import { CheckoutPreviewFrame } from "@core/src/features/checkout-appearance/pre
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
-const draft: PublicCheckoutAppearance = { logoUrl: null, brandColor: "plum", background: "neutral" };
+const draft: PublicCheckoutAppearance = { logoUrl: null, brandColor: "plum", background: "medium" };
 const i18n = createInstance();
 void i18n.use(initReactI18next).init({ lng: "es", resources });
 

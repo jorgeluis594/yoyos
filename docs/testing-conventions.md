@@ -2,13 +2,13 @@
 
 ## Purpose
 
-Tests must follow the feature and layer boundaries defined in [Application Architecture](architecture.md). These conventions apply to both the API and the Expo mobile app, regardless of their test runner.
+Tests must follow the feature and layer boundaries defined in [Application Architecture](architecture.md). These conventions apply to both core and the Expo mobile app, regardless of their test runner.
 
 Keep each test close to the behavior it verifies. When a test fails, its location should identify the feature and layer responsible for that behavior.
 
 ## File Hierarchy
 
-Use this structure within either `apps/api/` or `apps/mobile/`:
+Use this structure within either `apps/core/` or `apps/mobile/`:
 
 ```text
 src/features/<feature>/
@@ -30,7 +30,7 @@ src/features/<feature>/
 Presentation tests follow the platform-specific files they exercise:
 
 ```text
-# API
+# Core
 src/features/orders/presentation/
 ├── routes.ts
 └── routes.test.ts
@@ -75,7 +75,7 @@ For mobile adapters, verify request construction, response mapping, local persis
 
 ### Presentation
 
-API tests should cover relevant request validation, authentication and authorization enforcement, response bodies, and status mapping. Test server-side access controls even if the mobile app hides the corresponding action.
+Core route tests should cover relevant request validation, authentication and authorization enforcement, response bodies, and status mapping. Test server-side access controls even if the mobile app hides the corresponding action.
 
 Mobile tests should exercise meaningful user interactions and visible outcomes, including loading, validation, success, and failure states where the feature owns them. Prefer accessible labels and roles over component internals or layout snapshots.
 
@@ -85,7 +85,7 @@ Test a hook separately when it has behavior that benefits from an isolated check
 
 Keep routing and bootstrap tests focused on wiring. A thin route that delegates to a feature screen does not need a duplicate screen suite.
 
-Use end-to-end tests for critical journeys and integration risks that smaller tests cannot establish. An API smoke test or a mobile test backed by fake responses must not be described as proof of the complete mobile-to-API flow.
+Use end-to-end tests for critical journeys and integration risks that smaller tests cannot establish. A core smoke test or a mobile test backed by fake responses must not be described as proof of the complete mobile-to-API flow.
 
 ## Determinism and Isolation
 
@@ -107,7 +107,7 @@ In `apps/core`, use Vitest for every unit, integration, and end-to-end test: def
 
 Test observable contracts, not implementation structure. Do not add tests solely for exports, trivial forwarding functions, or static markup. Avoid large snapshots and coverage targets that reward assertions without meaningful behavior.
 
-Use each application's configured tooling and scripts. Outside `apps/core`, these conventions do not prescribe a test framework or imply that runners, commands, or CI checks are already configured. Add tooling only when implementing runnable tests requires it.
+In `apps/mobile`, use Jest with React Native Testing Library. Use each application's configured tooling and scripts.
 
 Test scripts print `Todo OK` on success and failure diagnostics otherwise. Use
 `pnpm --silent --dir apps/core test:unit` or `pnpm --silent --dir apps/mobile test`

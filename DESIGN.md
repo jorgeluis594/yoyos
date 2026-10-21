@@ -11,8 +11,6 @@ description: Shared visual conventions for clear, compact sales management.
 
 A trustworthy, compact, warm interface for managing sales. Neutral surfaces, comparable rows, and subtle borders lead the design. Caramel identifies primary actions and selections, keeping the data in focus.
 
-**Status:** v1 specification. The user confirmed the Caramelo sobrio palette, dark mode, compact density, and a shared typeface across web and mobile. The web now consumes the color tokens and uses Inter; mobile and the proposed complementary semantic colors still need implementation and visual validation on devices.
-
 **Source of truth:** [docs/design-tokens.json](docs/design-tokens.json) defines values; this document defines their use. Names represent roles, not specific colors. Adjustments start in the tokens and then flow into their platform adapters.
 
 **Key Characteristics:**
@@ -22,11 +20,11 @@ A trustworthy, compact, warm interface for managing sales. Neutral surfaces, com
 - Flat surfaces and subtly rounded shapes.
 - Shared identity, with navigation and system controls adapted to each platform.
 
-At the initial review, `apps/core` had a minimal home page and no `components.json`; it now imports the JSON for its web theme. `apps/mobile` retains Expo sample components and colors.
+Web (`apps/core/app/design-theme.ts`) and mobile (`apps/mobile/src/constants/theme.ts`, `typography.ts`) consume the token file through their own adapters.
 
 ## Colors
 
-The approved foundation combines cream, charcoal, and caramel. Exact values for both themes live in `colors.light` and `colors.dark` in the token file.
+The palette combines cream, charcoal, and caramel. Exact values for both themes live in `colors.light` and `colors.dark` in the token file.
 
 | Token | Role |
 | --- | --- |
@@ -51,7 +49,7 @@ The approved foundation combines cream, charcoal, and caramel. Exact values for 
 
 Always pair `primary`, `secondary`, `muted`, `accent`, `card`, and `popover` with their corresponding `-foreground` token. For statuses, `success` is the text on `success-surface`; the same applies to warning/error/info. Do not automatically place white text on dark-mode colors.
 
-Selection includes an additional indicator, such as a checkmark or active position. A status includes text and, when helpful, an icon: color alone does not convey its meaning. Do not assign final order, payment, or delivery statuses before agreeing on their business rules.
+Selection includes an additional indicator, such as a checkmark or active position. A status includes text and, when helpful, an icon: color alone does not convey its meaning.
 
 The theme follows the system by default and supports an explicit light/dark/system preference. Both themes use the same roles. System controls may retain their native appearance.
 
@@ -59,11 +57,11 @@ This convention targets a contrast ratio of at least 4.5:1 for all functional te
 
 ## Typography
 
-**Proposed typeface: Inter**, for content, headings, fields, and buttons on both platforms. Use the same files and version, hosted with the product. Weights: regular (400), medium (500), and semibold (600). [Official typeface and license](https://rsms.me/inter/).
+**Typeface: Inter**, for content, headings, fields, and buttons on both platforms. Use the same files and version, hosted with the product. Weights: regular (400), medium (500), and semibold (600). [Official typeface and license](https://rsms.me/inter/).
 
 Typography in operating-system dialogs, pickers, or navigation may remain native. System fonts are the loading fallback, not a deliberate second identity.
 
-The native implementation resolves Inter weights through `apps/mobile/src/constants/typography.ts` and shared text/form components. SDK 57 Android did not render distinct weights from the variable font, so medium (500), semibold (600), and bold (700) use static cuts extracted at optical size 14 from the bundled OFL Inter font; regular retains the bundled Inter face. Native weights select the corresponding font family, while web retains CSS font weights. This preserves the typeface identity; verify visible weight differences on-device rather than relying on a `fontWeight` declaration alone.
+Mobile resolves Inter weights through `apps/mobile/src/constants/typography.ts` and shared text/form components: each native weight selects its own static Inter font family, because Android does not render distinct weights from the variable font. Web uses CSS font weights. Verify visible weight differences on a device rather than relying on a `fontWeight` declaration alone.
 
 | Role | Use |
 | --- | --- |
@@ -125,7 +123,7 @@ Use `radius` roles: subtle badges (4), controls (6), cards (8), and custom panel
 
 Borders are one unit wide. Achieve density through alignment and grouping, not by accumulating lines. System components retain their native shapes when controlled by the platform.
 
-Proposed iconography: Lucide outline icons for product icons on web and mobile, using the same symbol for each concept. Sizes and stroke width live in `sizing`. Do not mix icon families for equivalent actions. System navigation symbols are a deliberate exception. An icon-only button always has an accessible name and a full interaction area.
+Iconography: Lucide outline icons for product icons on web and mobile, using the same symbol for each concept. Sizes and stroke width live in `sizing`. Do not mix icon families for equivalent actions. System navigation symbols are a deliberate exception. An icon-only button always has an accessible name and a full interaction area.
 
 ## Components
 
@@ -147,19 +145,17 @@ The web catalog lives in `apps/core/app/components/ui/` (page layout, form primi
 
 ### Native orders list
 
-The implemented `apps/mobile/src/features/orders/presentation/order-history-screen.tsx` applies the shared light/dark palette through the native theme adapter. Its compact list recipe uses a neutral canvas, flat rows and subtle separators; caramel identifies the creation action and selected filters. Payment badges pair semantic text with matching surfaces, while delivery stays neutral and explicit. Completed/cancelled orders use a terminal label.
+`apps/mobile/src/features/orders/presentation/order-history-screen.tsx` applies the shared light/dark palette through the native theme adapter. Its compact list recipe uses a neutral canvas, flat rows and subtle separators; caramel identifies the creation action and selected filters. Payment badges pair semantic text with matching surfaces, while delivery stays neutral and explicit. Completed/cancelled orders use a terminal label.
 
 Keep customer and tabular amount prominent, order number/time secondary, and independent status words below. Allow headings, amounts and badges to wrap as text grows. Search and quick filters stay above the list; customer and creation-date fields live in a native modal with separate headings. Preserve 48dp minimum controls, safe areas, native symbols, tabs and back behavior. Rounded pills belong to this list's action/filter/status recipe, not a replacement for the standard control shape.
 
-Android light/dark and enlarged-text evidence is recorded in the [native orders surface brief](.impeccable/surfaces/apps-mobile-src-features-orders-presentation-order-history-screen-tsx.md), including exact surface measurements and review limits. iOS and tablet visual acceptance remain open. This recipe records the orders implementation only.
-
 ### Native order detail
 
-The implemented `apps/mobile/src/features/orders/presentation/order-detail-screen.tsx` uses the approved commercial-summary composition: identify the order and its independent states, inspect buyer/products and money, then consult delivery and secondary details. Flat token surfaces group coherent sections; semibold headings, product subtotals, total and balance establish hierarchy. Comparable amounts retain currency and tabular figures, with wrapping when space is limited.
+`apps/mobile/src/features/orders/presentation/order-detail-screen.tsx` uses a commercial-summary composition: identify the order and its independent states, inspect buyer/products and money, then consult delivery and secondary details. Flat token surfaces group coherent sections; semibold headings, product subtotals, total and balance establish hierarchy. Comparable amounts retain currency and tabular figures, with wrapping when space is limited.
 
 Keep payment registration beside the balance and open its form only on explicit action. The receipt notice opens payment history; reported receipts remain distinct from confirmed received amounts. History, saved delivery details, buyer confirmation and internal data use named disclosures with expanded semantics. Payment entry uses a native modal that respects the keyboard and safe areas. Buyer and recipient, customer delivery charge and internal delivery cost, and buyer confirmation and payment remain separate concepts.
 
-This is a surface recipe, not a new global layout or token scale. Its approved comp, implementation details, Android light/dark and enlarged-text evidence, and verification limits live in the [native order detail surface brief](.impeccable/surfaces/atures-orders-presentation-order-detail-screen-tsx.md). iOS/tablet acceptance and receipt-image viewing are not claimed by that evidence.
+This is a surface recipe, not a new global layout or token scale.
 
 ### States and interaction
 
@@ -174,7 +170,7 @@ This is a surface recipe, not a new global layout or token scale. Its approved c
 
 ### Language
 
-Proposed tone: direct, calm, and useful. Use concrete verbs: “Save changes”, “Create order”, “Retry”. Avoid “OK” when the action can be named. Use the same concepts and terminology on both platforms. Avoid internal jargon, blame, repeated celebrations, and unnecessary exclamation marks.
+Tone: direct, calm, and useful. Use concrete verbs: “Save changes”, “Create order”, “Retry”. Avoid “OK” when the action can be named. Use the same concepts and terminology on both platforms. Avoid internal jargon, blame, repeated celebrations, and unnecessary exclamation marks.
 
 ### Platform mapping
 
@@ -182,13 +178,11 @@ On the web, use the semantic pairs in [shadcn/ui theming](https://ui.shadcn.com/
 
 On mobile, adapt the same values and roles to the existing React Native/NativeWind theme and components. Share tokens, vocabulary, and recipes; maintain a separate implementation per platform. Web shadcn components are not imported as native controls.
 
-Do not create a package, generator, or new UI library just to share this file yet. During implementation, connect the JSON to minimal adapters for each application and verify their output; do not maintain independent copies of values by hand. Install fonts or icons only when used.
+There is no package, generator, or UI library for sharing tokens: each application reads the JSON through a minimal adapter, because one file is enough and copies would drift. Never maintain independent copies of values by hand. Install fonts or icons only when used.
 
-### Visual reference and acceptance
+### Visual reference and review
 
-The first implementation must include an internal reference screen on the web and another in the app, with the same demonstration content: typography scale, button variants, normal/error/disabled fields, a card, a row, semantic badges, and selection. Examples do not define business statuses.
-
-Compare both in light and dark themes, with enlarged text, web keyboard/focus behavior, and mobile touch targets. Verify the mobile reference on iOS and Android, not just in a browser. Reference screens have not yet been built during this definition phase.
+The web reference is the Storybook foundations story (`apps/core/app/stories/foundations.stories.tsx`) and each component's story. Review visual changes in light and dark themes, with enlarged text, web keyboard/focus behavior and mobile touch targets; verify mobile on a device, not only in a browser.
 
 ## Do's and Don'ts
 
