@@ -8,7 +8,7 @@ export type ImageId = string & { readonly __brand: "ImageId" };
 export type HexColor = string & { readonly __brand: "HexColor" };
 
 export const checkoutBrandColors = ["yoyos", "forest", "petrol", "ocean", "plum", "raspberry", "terracotta", "mustard", "graphite"] as const;
-export const checkoutBackgrounds = ["white", "neutral", "brand_tint"] as const;
+export const checkoutBackgrounds = ["soft", "medium", "brand_tint"] as const;
 export type CheckoutBrandColor = (typeof checkoutBrandColors)[number];
 export type CheckoutBackground = (typeof checkoutBackgrounds)[number];
 
@@ -25,7 +25,7 @@ export type CheckoutAppearanceError = Readonly<{
   invalidFields: readonly string[];
 }>;
 
-export const defaultCheckoutAppearance: CheckoutAppearance = { logoImageId: null, brandColor: "yoyos", background: "neutral" };
+export const defaultCheckoutAppearance: CheckoutAppearance = { logoImageId: null, brandColor: "yoyos", background: "medium" };
 
 const uuid = z.uuid();
 const appearanceSchema = z.strictObject({

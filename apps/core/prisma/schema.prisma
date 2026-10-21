@@ -293,8 +293,8 @@ enum CheckoutBrandColor {
 }
 
 enum CheckoutBackground {
-  white
-  neutral
+  soft
+  medium
   brand_tint
 }
 

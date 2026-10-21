@@ -27,7 +27,7 @@ describe("editor loader", () => {
 
   test("returns the Yoyos default when the company has no appearance", async () => {
     vi.spyOn(checkoutAppearance, "get").mockResolvedValue({ success: true, data: null });
-    expect(await load()).toEqual({ published: { logoImageId: null, brandColor: "yoyos", background: "neutral" }, logoUrl: null });
+    expect(await load()).toEqual({ published: { logoImageId: null, brandColor: "yoyos", background: "medium" }, logoUrl: null });
   });
 
   test("responds 503 when the appearance cannot be read", async () => {
@@ -47,7 +47,7 @@ describe("editor action", () => {
 
   test("responds 422 for an invalid appearance or a color outside the catalog", async () => {
     vi.spyOn(checkoutAppearance, "save").mockResolvedValue(failure("INVALID_CHECKOUT_APPEARANCE"));
-    const result = await save({ logoImageId: null, brandColor: "#FF0000", background: "white" });
+    const result = await save({ logoImageId: null, brandColor: "#FF0000", background: "soft" });
     expect(result.init?.status).toBe(422);
     expect(result.data).toEqual({ error: "INVALID_CHECKOUT_APPEARANCE" });
   });

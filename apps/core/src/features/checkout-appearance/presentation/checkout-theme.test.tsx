@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, test } from "vitest";
 import { checkoutBrandColors } from "@core/src/features/checkout-appearance/domain/checkout-appearance";
-import { checkoutBrandColorCatalog, checkoutPalette } from "@core/src/features/checkout-appearance/domain/checkout-colors";
+import { catalogPalette, checkoutColorPalettes, checkoutPalette } from "@core/src/features/checkout-appearance/domain/checkout-colors";
 import { CheckoutBrandHeader } from "@core/src/features/checkout-appearance/presentation/checkout-brand-header";
 import { CheckoutTheme } from "@core/src/features/checkout-appearance/presentation/checkout-theme";
 
@@ -24,8 +24,13 @@ describe("CheckoutTheme", () => {
   test("scopes light and dark variables to the checkout", () => {
     const html = renderToStaticMarkup(<CheckoutTheme appearance={appearance}><p>Pedido</p></CheckoutTheme>);
     const css = styleOf(html);
-    const { light, dark } = checkoutBrandColorCatalog.forest;
-    expect(css).toMatch(/^\[data-checkout-theme="([^"]+)"\]\{[^}]*--primary:#2F6B4F;[^}]*--background:#F1F6F2;[^}]*\}\.dark \[data-checkout-theme="\1"\]\{[^}]*--primary:#8FCBA8;[^}]*--background:#181E1B;[^}]*\}$/);
+    const { light, dark } = checkoutColorPalettes.forest;
+    const [lightCss, darkCss] = css.split(".dark ");
+    expect(css).toMatch(/^\[data-checkout-theme="([^"]+)"\]\{.*\}\.dark \[data-checkout-theme="\1"\]\{.*\}$/);
+    expect(lightCss).toContain("--primary:#2F6B4F;");
+    expect(lightCss).toContain("--background:#D8EEE2;");
+    expect(darkCss).toContain("--primary:#8FCBA8;");
+    expect(darkCss).toContain("--background:#19271F;");
     expect(scopeOf(html)).toBe(/^\[data-checkout-theme="([^"]+)"\]/.exec(css)?.[1]);
     expect(css).toContain(`--primary-foreground:${light["primary-foreground"]}`);
     expect(css).toContain(`--accent:${dark.accent}`);
@@ -34,7 +39,7 @@ describe("CheckoutTheme", () => {
 
   test("keeps each theme's colors inside its own checkout", () => {
     const html = renderToStaticMarkup(<>
-      <CheckoutTheme appearance={{ ...appearance, background: "white" }}><p /></CheckoutTheme>
+      <CheckoutTheme appearance={{ ...appearance, background: "soft" }}><p /></CheckoutTheme>
       <CheckoutTheme appearance={appearance}><p /></CheckoutTheme>
     </>);
     const styles = [...html.matchAll(/<style>(.*?)<\/style>/gs)].map((match) => match[1]);
@@ -44,18 +49,34 @@ describe("CheckoutTheme", () => {
     scopes.forEach((scope, index) => {
       expect([...styles[index].matchAll(/\[data-checkout-theme="([^"]+)"\]/g)].map((match) => match[1])).toEqual([scope, scope]);
     });
-    expect(styles[0]).toContain(`--background:${checkoutPalette("forest", "white").light.background}`);
-    expect(styles[1]).toContain("--background:#F1F6F2");
+    expect(styles[0]).toContain(`--background:${checkoutPalette("forest", "soft").light.background}`);
+    expect(styles[1]).toContain("--background:#D8EEE2");
   });
 
-  test("renders only catalog colors in the style tag", () => {
-    const catalogHex = new Set(checkoutBrandColors.flatMap((color) => [checkoutBrandColorCatalog[color].light, checkoutBrandColorCatalog[color].dark].flatMap((tokens) => Object.values(tokens))));
-    const allowed = new Set([...catalogHex, "#FFFFFF", "#F7F4EF", "#1C1B1D"]);
-    for (const color of checkoutBrandColors) {
-      const css = styleOf(renderToStaticMarkup(<CheckoutTheme appearance={{ ...appearance, brandColor: color }}><p /></CheckoutTheme>));
+  test("sets borders, fields, cards, muted areas and texts from the chosen palette", () => {
+    const css = styleOf(renderToStaticMarkup(<CheckoutTheme appearance={{ ...appearance, brandColor: "ocean", background: "medium" }}><p /></CheckoutTheme>));
+    const { light, dark } = checkoutPalette("ocean", "medium");
+    for (const [name, value] of [...Object.entries(light), ...Object.entries(dark)]) expect(css).toContain(`--${name}:${value};`);
+    for (const name of ["border", "input", "card", "muted", "foreground", "muted-foreground"]) expect(css).toContain(`--${name}:`);
+    expect(css).not.toMatch(/#DCD4C9|#484249/);
+    expect(css).not.toContain("--brand-background");
+  });
+
+  test("keeps the pre-adjustment colors and the global borders for the public catalog", () => {
+    const css = styleOf(renderToStaticMarkup(<CheckoutTheme appearance={{ ...appearance, background: "soft" }} surface="catalog"><p /></CheckoutTheme>));
+    const { light, dark } = catalogPalette("forest", "soft");
+    for (const [name, value] of [...Object.entries(light), ...Object.entries(dark)]) expect(css).toContain(`--${name}:${value};`);
+    expect(css).toContain("--background:#FFFFFF");
+    for (const name of ["border", "input", "card", "muted", "foreground", "muted-foreground", "popover", "secondary"]) expect(css).not.toMatch(new RegExp(`--${name}:`));
+  });
+
+  test("renders only palette colors in the style tag", () => {
+    const paletteHex = new Set(checkoutBrandColors.flatMap((color) => [checkoutColorPalettes[color].light, checkoutColorPalettes[color].dark].flatMap((tones) => Object.values(tones))));
+    for (const color of checkoutBrandColors) for (const background of ["soft", "medium", "brand_tint"] as const) {
+      const css = styleOf(renderToStaticMarkup(<CheckoutTheme appearance={{ ...appearance, brandColor: color, background }}><p /></CheckoutTheme>));
       const colors = css.match(/#[0-9A-Fa-f]{3,8}\b/g) ?? [];
       expect(colors.length).toBeGreaterThan(0);
-      for (const value of colors) expect(allowed.has(value)).toBe(true);
+      for (const value of colors) expect(paletteHex.has(value as never), `${color} · ${background} · ${value}`).toBe(true);
     }
   });
 });

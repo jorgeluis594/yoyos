@@ -5,6 +5,8 @@ import { products } from "@core/src/features/products/composition";
 import { orders } from "@core/src/features/orders/composition";
 import type { ContactId, OrderId, PositiveInteger, UserId, CompanyId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
+import { checkoutPalette } from "@core/src/features/checkout-appearance";
+import { rgb, usedBorderColors } from "@core/tests/e2e/checkout-appearance-fixtures";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==", "base64");
@@ -62,6 +64,16 @@ describe("checkout appearance editor", () => {
     await browserExpect(page.getByText("Cambios sin guardar", { exact: true })).toHaveCount(0);
   });
 
+  test("names the chosen color in the help line of each background", async ({ page }) => {
+    await openEditor(page);
+    await chooseColor(page, "Bosque");
+    await browserExpect(page.getByText("Usa un fondo claro de Bosque. En modo oscuro cambia solo.")).toBeVisible();
+    await page.getByRole("radio", { name: "Suave" }).click();
+    await browserExpect(page.getByText("Usa el fondo más claro de Bosque. En modo oscuro cambia solo.")).toBeVisible();
+    await page.getByRole("radio", { name: "De marca" }).click();
+    await browserExpect(page.getByText("Usa el fondo con más color de Bosque. En modo oscuro cambia solo.")).toBeVisible();
+  });
+
   test("offers only the nine catalog colors, with no free color field", async ({ page }) => {
     await openEditor(page);
     await page.getByRole("button", { name: /Cambiar$/ }).last().click();
@@ -112,10 +124,10 @@ describe("checkout appearance editor", () => {
   test("restores the published appearance when discarding", async ({ page }) => {
     await openEditor(page);
     await chooseColor(page, "Ciruela");
-    await page.getByRole("radio", { name: "Blanco" }).click();
+    await page.getByRole("radio", { name: "Suave" }).click();
     await page.getByRole("button", { name: "Descartar" }).click();
     await browserExpect(page.getByText("Cambios sin guardar", { exact: true })).toHaveCount(0);
-    await browserExpect(page.getByRole("radio", { name: "Neutro" })).toBeChecked();
+    await browserExpect(page.getByRole("radio", { name: "Medio" })).toBeChecked();
     await browserExpect(page.getByRole("button", { name: /Cambiar$/ }).last()).toContainText("Yoyos");
   });
 
@@ -129,7 +141,7 @@ describe("checkout appearance editor", () => {
     expect(await stored(companyId)).toMatchObject({ brandColor: "forest" });
     await page.getByRole("button", { name: "Guardar cambios" }).click();
     await browserExpect(page.getByText("Cambios sin guardar", { exact: true })).toHaveCount(0);
-    expect(await stored(companyId)).toMatchObject({ logoImageId: null, brandColor: "yoyos", background: "neutral" });
+    expect(await stored(companyId)).toMatchObject({ logoImageId: null, brandColor: "yoyos", background: "medium" });
   });
 
   test("keeps the draft and the published appearance when an upload fails", async ({ page }) => {
@@ -221,7 +233,7 @@ describe("checkout appearance editor", () => {
     await browserExpect(row).toContainText("Bosque");
     await browserExpect(page.getByText("Cambios sin guardar", { exact: true })).toBeVisible();
     await page.keyboard.press("Tab");
-    await browserExpect(page.getByRole("radio", { name: "Neutro" })).toBeFocused();
+    await browserExpect(page.getByRole("radio", { name: "Medio" })).toBeFocused();
     // The background picker is a toggle group: arrows move focus and Space selects.
     await page.keyboard.press("ArrowRight");
     await browserExpect(page.getByRole("radio", { name: "De marca" })).toBeFocused();
@@ -322,6 +334,8 @@ describe("checkout appearance editor with the live preview", () => {
     await browserExpect(page.getByRole("status").filter({ hasText: "Apariencia actualizada" })).toBeVisible();
     await buyer.reload();
     await browserExpect(confirm).toHaveCSS("background-color", "rgb(47, 107, 79)");
+    expect(await usedBorderColors(buyer)).toContain(rgb(checkoutPalette("forest", "medium").light.border));
+    expect(await usedBorderColors(buyer)).not.toContain(rgb("#DCD4C9"));
   });
 
   test("switches the preview between phone and desktop, light and dark, review and payment", async ({ page }) => {

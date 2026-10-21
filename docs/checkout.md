@@ -69,7 +69,7 @@ Each company can brand its checkout with a logo, a brand color and a background.
 | --- | --- |
 | Logo | Upload, replace or remove. PNG, JPG or WEBP up to 10 MB, validated by content. No SVG, crop or positioning. |
 | Brand color | One of a closed catalog of nine colors. No HEX input, spectrum picker or eyedropper. |
-| Background | White, Neutral or Brand (the soft background of the chosen color). |
+| Background | Soft, Medium or Brand: three tones of the chosen color's palette, from lightest to most tinted. None is pure white or neutral gray. |
 
 Everything else is fixed: structure, typography, texts, fields, validations and order. No CSS, HTML, scripts, custom domains or per-order settings. Reason: every option is accessible by construction and the buyer flow cannot be broken by configuration.
 
@@ -79,12 +79,19 @@ Everything else is fixed: structure, typography, texts, fields, validations and 
 - Only the color identifier is stored, not its tones. Reason: adjusting a color applies to every company that uses it without migrating data.
 - Adding, changing or removing a color is a reviewed code change, never a setting. Every color must meet WCAG contrast: 4.5:1 for normal text, 3:1 for large text and controls.
 - An unknown stored identifier is invalid data; the checkout falls back to the default appearance.
-- The brand color only applies to primary actions, links and selections. Semantic colors (errors, success, payment states), cards and fields keep the system colors. QR codes, receipts and payment images keep their original colors.
-- Dark mode follows the buyer's preference. White and Neutral map to the dark system background; Brand uses the dark brand background of the color.
+- Each color is a complete palette for light and dark mode: page background, text, cards, muted areas, secondary text, borders, fields, focus, primary action and highlights all take the hue of the chosen color. Reason: with only the button branded, the checkout looked like Yoyos with a different button.
+- Semantic colors (errors, warnings, success, info, payment states, destructive actions) keep the Yoyos colors with any brand color. The white surface behind the logo, QR codes, receipts and payment images keep their original colors.
+- The Yoyos palette is the global design tokens (`docs/design-tokens.json`) with Medium as the global background, so a company with the default appearance sees today's colors; only its Soft and Brand backgrounds are its own tones.
+- The other eight palettes follow one OKLCH criterion: each tone takes the hue of the color's main tone, a lightness from a scale shared by all colors, and chroma = min(scale maximum, main tone chroma), rounded to HEX. Main tones never change. Reason: every palette has the same elements in the same relative position, so all of them read alike.
+- The three backgrounds form a scale (Soft, Medium, Brand) that is distinguishable side by side in light and dark mode; cards stand out from all three by surface and border.
+- Contrast is checked automatically for the 54 variants (9 colors × 3 backgrounds × 2 modes): text, links and highlight text 4.5:1; field and control borders and focus 3:1 against cards and background. Decorative borders only need to be visible.
+- Dark mode follows the buyer's preference; the seller picks one color and one background, never separate light and dark tones.
+- The public catalog reuses the logo, color and background but not the palette: it keeps the global Yoyos tokens plus its former brand tones, with Soft shown as the former white and Medium as the former neutral (`CheckoutTheme` with `surface="catalog"`). Extending the palette to the catalog is a pending decision.
 
 ### Editing and publishing
 
 - The editor is in web settings (`settings/checkout-appearance`). Any user who can manage the company's settings can edit it; no new role exists.
+- The editor itself keeps the Yoyos identity; the chosen palette is only visible in the preview and the swatches. The background control explains the active option with the chosen color's name.
 - Changes stay in a session draft and are previewed live; nothing is published until **Guardar cambios**, which publishes logo, color and background together as one unit.
 - **Descartar cambios** restores the published appearance. **Restablecer apariencia** prepares the default in the draft and still requires saving. Leaving with unsaved changes asks to keep editing or discard.
 - A failed upload or save keeps the draft and the published appearance.
