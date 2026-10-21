@@ -9,26 +9,26 @@ Paths are relative to this skill. The agent running this skill is the **coordina
 
 The coordinator does not need the details (exact copy, field names, code). It must understand how the affected part of the system works and what is going to change, and it validates each output at that level with [System-level validation](#system-level-validation).
 
-This skill contains only the method. Feature state lives in the repository memory and in `docs/`.
+This skill contains only the method. Feature state lives in the repository memory and in `docs/`; where each document goes is set by the [Documentation](../documentation/SKILL.md) skill.
 
 ## References
 
 | File | What it contains | When to read it |
 | --- | --- | --- |
-| [worker-briefs.md](worker-briefs.md) | Spec templates for implementer, reviewer, fix round, final verifier and CI fixer | Before writing the first spec |
+| [worker-briefs.md](worker-briefs.md) | Spec templates for product and architecture writers, implementer, reviewer, fix round, final verifier, documentation and CI fixer | Before writing the first spec |
 | Orca guides: `orca skills get orca-cli`, `orca skills get orchestration` and `orca skills get orchestration --reference references/coordinator-loop.md` | Version-matched CLI and supervised-loop rules | Before the first `orca` command |
 
 ## Steps
 
 1. **Gather context and choose the phases.**
    - Use [Happy Memory Recall](../happy-memory-recall/SKILL.md) with the task as the goal. Read the Todoist task (`td`) and its siblings if there is one.
-   - Look in `docs/` for the chain `<topic>.md` (product), `<topic>-technical.md` and `<topic>-tasks.md` (architecture). Decide per phase: an existing document with status "definition ready to implement" or "design closed" is reused; a missing or open one is produced. A purely technical task (refactor, integration, infrastructure) skips product. Say in three lines which phases run and why.
+   - Look in `docs/drafts/` for `<topic>.md` (product) and `<topic>-technical.md` (architecture, with its implementation plan), and in `docs/` for the permanent doc of the concept. Decide per phase: an existing draft with status "definition ready to implement" or "design closed" is reused; a missing or open one is produced. A purely technical task (refactor, integration, infrastructure) skips product. Say in three lines which phases run and why.
 
 2. **Prepare the integration branch.** All work for the task lives on one branch, `jorgeluis594/<topic>`, in its own Orca worktree. If the session is not in it, create it with `orca worktree create --name <topic> --no-parent --json` and run every later command from that path. Commit the documents there as they are closed, so child worktrees see them, and push the branch so task PRs can target it.
 
 3. **Set up the run.**
    - `orca status --json`; kill any `orca orchestration check --wait` left from a previous session or `/clear`, since it steals deliveries.
-   - `orca orchestration run-create --objective "Implement <topic> per docs/<topic>-tasks.md" --json`.
+   - `orca orchestration run-create --objective "Implement <topic> per docs/drafts/<topic>-technical.md" --json`.
    - Give each task a test-port slot N (1, 2, 3…) used in its spec: `CORE_TEST_PORT=556N0 MAILPIT_SMTP_PORT=116N0 MAILPIT_UI_PORT=186N0 CORE_E2E_PORT=46N0`. Check the ports are free first (`lsof -i :<port>`); shift the block if another project holds them.
    - Write each spec to a file in the scratchpad from [worker-briefs.md](worker-briefs.md) and pass it as `--spec "$(cat <file>)"`. Never inline a spec with backticks.
 
@@ -49,17 +49,17 @@ This skill contains only the method. Feature state lives in the repository memor
 
 7. **Verify the whole branch through a worker.** Start a final verifier on the integration worktree that runs lint, typecheck, unit, integration and E2E in core and mobile, and walks every product acceptance criterion (web and mobile) against the code. Failures go to fix workers, then the verifier runs again. The coordinator never reports "not run" checks: it delegates them.
 
-8. **Ship.** Merge `origin/main` into the integration branch (conflicts through a worker), rerun the affected checks, push, open one PR to `main` following AGENTS.md and watch `gh pr checks <n> --watch`. A red CI goes to a CI-fixer worker in a new child worktree, merged back like a task; push and watch again, repeating until every check is green. The flow is not done, and nothing is reported as finished, while the final PR's CI is red or pending. Set `orca worktree set --worktree active --pr <n> --workspace-status in-review --json`. Merging to `main` deploys to testing, so only the founder authorizes it: the coordinator leaves the PR green and merges only on the founder's explicit yes.
+8. **Ship.** Start a documentation worker on the integration worktree with the documentation brief: it promotes the drafts into the permanent doc of the concept and deletes them, following the [Documentation](../documentation/SKILL.md) skill, and commits. Validate its output like any other. Merge `origin/main` into the integration branch (conflicts through a worker), rerun the affected checks, push, open one PR to `main` following AGENTS.md, with the validation evidence (checks run with results, the verifier's per-criterion evidence, screenshots and device results) in its description, and watch `gh pr checks <n> --watch`. A red CI goes to a CI-fixer worker in a new child worktree, merged back like a task; push and watch again, repeating until every check is green. The flow is not done, and nothing is reported as finished, while the final PR's CI is red or pending. Set `orca worktree set --worktree active --pr <n> --workspace-status in-review --json`. Merging to `main` deploys to testing, so only the founder authorizes it: the coordinator leaves the PR green and merges only on the founder's explicit yes.
 
-9. **Close.** Mark the documents' status as implemented, update the Todoist task, record durable decisions with [Happy Memory Maintainer](../happy-memory-maintainer/SKILL.md), and confirm `worker-list --run <run_id> --terminal-state reclaimable --json` returns none. Report: PR link and CI state, per task its outcome, review rounds and commits, checks run with results, what was left out and why, and the memory outcome.
+9. **Close.** Update the Todoist task, record durable decisions with [Happy Memory Maintainer](../happy-memory-maintainer/SKILL.md), and confirm `worker-list --run <run_id> --terminal-state reclaimable --json` returns none. Report: PR link and CI state, per task its outcome, review rounds and commits, checks run with results, what was left out and why, and the memory outcome.
 
 ## System-level validation
 
-Applied by the coordinator to every output: product document, technical and tasks documents, implementer report, reviewer verdict, verifier report.
+Applied by the coordinator to every output: product draft, technical draft, implementer report, reviewer verdict, verifier report.
 
 1. **Change map.** From the output alone, write in ten lines or fewer: how the affected part of the system works today, what changes (screens and flows, use cases, data and migrations, contracts between web and mobile, events and jobs, permissions) and what stays the same. If the output does not let you write it, it is unclear: reject. Keep the map in the scratchpad, update it with each validated output and show it to the founder at each gate.
 2. **Consistency.** Nothing contradicts the repository memory or current documents, nothing already discarded is re-proposed, and what the task leaves out stays out, with the meeting point defined.
-3. **Completeness.** Product: every actor, state and failure the task implies has its behavior. Architecture: every product behavior and acceptance criterion maps to a use case, a test title and a task. Implementation: the report matches the task's scope and the map, with checks run and their results; a change outside the map goes back to the worker, or into the technical document first if the design was wrong. Review: an approval with design findings or unchecked criteria is not an approval.
+3. **Completeness.** Product: every actor, state and failure the task implies has its behavior. Architecture: every product behavior and acceptance criterion maps to a use case, a test title and a slice of the implementation plan. Implementation: the report matches the task's scope and the map, with checks run and their results; a change outside the map goes back to the worker, or into the technical document first if the design was wrong. Review: an approval with design findings or unchecked criteria is not an approval. Documentation: the permanent doc follows the Documentation skill and keeps every still-valid rule of the drafts, and the drafts are deleted.
 4. **Verdict.** Approve, or send numbered observations to the same worker for another round. Each observation states what is missing or inconsistent, never how to word or code it. After three rounds without approval, report to the founder.
 
 ## Guardrails

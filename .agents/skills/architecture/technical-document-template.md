@@ -1,13 +1,13 @@
-# Template for the technical document and the tasks document
+# Template for the technical document
 
-The technical document lives in `docs/<topic>-technical.md`, written in English, and describes only the current design. Sections marked as constant always go in; optional ones only when the feature needs them. No content is invented to fill a section: if it does not apply, it is omitted.
+The technical document is a draft in `docs/drafts/<concept>-technical.md`, written in English following the [Documentation](../documentation/SKILL.md) skill, and describes only the current design. Sections marked as constant always go in; optional ones only when the feature needs them. No content is invented to fill a section: if it does not apply, it is omitted.
 
-It contains no product definition (what the user sees, screen texts, visible business rules): that is in `docs/<topic>.md` and is linked. It contains no implemented code: the snippets are design contracts.
+It contains no product definition (what the user sees, screen texts, visible business rules): that is in `docs/drafts/<concept>.md` and is linked. It contains no implemented code: the snippets are design contracts.
 
 ## Style
 
 - Title with the pattern "<Topic>: technical design".
-- Below the title, one **Status** line ("design closed, pending implementation" or "draft with open questions"), the product document it starts from, the base branch or commit and the link to the tasks document.
+- Below the title, one **Status** line ("design closed, pending implementation" or "draft with open questions"), the product document it starts from and the base branch or commit.
 - Impersonal voice, declarative present. Subjects: "core", "mobile", "the use case", "the repository".
 - Each decision asserts and closes the alternative: "The event carries `messageId`. It does not carry the image bytes."
 - Code names in backticks: `reportPayment`, `OrderBuyer`, `POST /api/messages`. File paths relative to the repo.
@@ -21,7 +21,7 @@ It contains no product definition (what the user sees, screen texts, visible bus
 ```markdown
 # <Topic>: technical design
 
-**Status:** <design closed, pending implementation | draft with open questions>. Based on `docs/<topic>.md`. Base: <branch or commit>. Tasks: `docs/<topic>-tasks.md`.
+**Status:** <design closed, pending implementation | draft with open questions>. Based on `docs/drafts/<concept>.md`. Base: <branch or commit>.
 
 ## 1. Technical goal                   (constant)
 ## 2. Decisions                        (constant)
@@ -38,7 +38,8 @@ It contains no product definition (what the user sees, screen texts, visible bus
 ## 13. Observability                   (constant)
 ## 14. Tests                           (constant)
 ## 15. Limits and checks during implementation (constant)
-## 16. Open items and questions        (only while they exist; removed when closed)
+## 16. Implementation plan            (constant)
+## 17. Open items and questions        (only while they exist; removed when closed)
 ```
 
 ## Section guide
@@ -47,7 +48,7 @@ It contains no product definition (what the user sees, screen texts, visible bus
 Five lines: what the system does when done, from which input to which effect. A `text` diagram of entities or of the flow between applications when there are more than two pieces.
 
 ### 2. Decisions
-Table `| Topic | Decision |` with everything the founder might want to change: technical scope, which branch resolves what, what is deferred to Todoist (with link), chosen libraries, initial values. It is the section read first.
+Table `| Topic | Decision |` with everything the founder might want to change: technical scope, which branch resolves what, what is deferred (with its Todoist link if the founder had one created), chosen libraries, initial values. It is the section read first.
 
 ### 3. Verified current state
 Table `| Piece | Location | State |` of what exists and is reused or modified: use cases, repositories, contracts, tables, migrations, events, screens. With file paths and, when it matters, the commit. What was not verified in the code is marked as an assumption.
@@ -88,38 +89,39 @@ Table `| Event | Level | Where | Fields |`. Fields as a JSON list of names. What
 ### 15. Limits and checks during implementation
 What the design explicitly leaves out and why; what must be verified when implementing (a library version, a database behavior, a device limit).
 
-### 16. Open items and questions
+### 16. Implementation plan
+The slices implementation agents take, in the format of the skeleton below. There is no separate tasks document.
+
+### 17. Open items and questions
 Only the open questions with the founder, in the format of Step 11 of the guide. Removed when closed.
 
 ---
 
-## Tasks document skeleton
+## Implementation plan skeleton
 
-Lives in `docs/<topic>-tasks.md`. Implementation agents take it with the Implementation skill.
+Section 16 of the technical draft. Implementation agents take it with the Implementation skill.
 
 ```markdown
-# <Topic>: implementation tasks
+## 16. Implementation plan
 
-**Status:** <pending | in progress | completed>. Design: `docs/<topic>-technical.md`.
-
-## Order and parallelism
+### Order and parallelism
 Diagram or list: which task blocks which; the rest in parallel.
 
-## T0. <Minimal blocker: schema, type or shared contract>
+### T0. <Minimal blocker: schema, type or shared contract>
 **Scope:** …
 **Out of scope:** …
 **Acceptance criteria:**
 1. <scenario with data and observable result>
 **Depends on:** nothing.
 
-## T1. <Complete verifiable flow>
+### T1. <Complete verifiable flow>
 **Scope:** …
 **Out of scope:** …
 **Acceptance criteria:** …
 **Depends on:** T0.
 
-## Final verification
-Manual or on-device tests that close the feature.
+### Final verification
+Manual or on-device tests that close the feature. Their results go in the pull request description, not in the draft.
 ```
 
-Rules: a task covers a probable end-to-end flow, not a file or a layer; blockers are isolated in the smallest possible task; each task names the tests from the technical document it must leave green; deferred items with risk link their Todoist task.
+Rules: a task covers a probable end-to-end flow, not a file or a layer; blockers are isolated in the smallest possible task; each task names the tests from the technical document it must leave green; deferred items with risk link their Todoist task when the founder had one created.

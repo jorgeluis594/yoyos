@@ -268,8 +268,8 @@ Buttons, titles, empty states, messages and confirmations with their exact text.
 Each deferred item says what unblocks it. An explicit limit is worth more than a half solution.
 - Example: "Closing the app between confirming and receiving the response leaves the sale in doubt; it is verified on return. An offline mode waits until deferred sync is defined."
 
-**10.2 Deferred items with real risk become tasks.**
-If what is left out can cause loss, duplication or blocking, a task is created in the backlog and the document links it. What is only an improvement is listed in the document.
+**10.2 Deferred items with real risk are flagged to the founder.**
+If what is left out can cause loss, duplication or blocking, the document marks it and the delivery lists it so the founder can ask for a Todoist task; the agent creates it only if asked, and the document links it. What is only an improvement is listed in the document.
 
 **10.3 What was already discarded or deferred is not proposed again.**
 What was discarded is recorded in the repository memory and in the documents' "Closed decisions". It is not rephrased under another name. If there is a new reason, it is raised as a question in the final block, once, with the reason.
