@@ -4,7 +4,7 @@
 # Usage: setup-worktree.sh   (Orca runs it after creating a worktree)
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
 cd "$repo_root"
 main_root="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
 
