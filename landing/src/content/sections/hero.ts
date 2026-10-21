@@ -1,7 +1,7 @@
 import { getImage } from "astro:assets";
 import type { PreloadImage } from "@landing/src/lib/seo";
 import { heroImage } from "@landing/src/content/sections/hero-image";
-import type { ScreenshotSlot } from "./screenshot-slot";
+import type { ScreenshotSlot } from "@landing/src/content/sections/screenshot-slot";
 
 export const heroContent = {
   eyebrow: "Hecho para vendedores de TikTok LIVE en Perú",
@@ -35,5 +35,3 @@ export async function buildHeroPreload(slot: ScreenshotSlot): Promise<PreloadIma
 
 /** Consumed by index.astro; undefined while the slot is provisional. */
 export const heroPreload: PreloadImage | undefined = await buildHeroPreload(heroImage);
-
-export { heroImage };

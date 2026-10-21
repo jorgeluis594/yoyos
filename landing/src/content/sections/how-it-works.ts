@@ -1,4 +1,4 @@
-import type { ScreenshotSlot } from "./screenshot-slot";
+import type { ScreenshotSlot } from "@landing/src/content/sections/screenshot-slot";
 
 type Step = Readonly<{ title: string; text: string; capture: ScreenshotSlot }>;
 

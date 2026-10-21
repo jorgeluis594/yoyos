@@ -1,4 +1,4 @@
-import type { ScreenshotSlot } from "./screenshot-slot";
+import type { ScreenshotSlot } from "@landing/src/content/sections/screenshot-slot";
 
 /** Switch `kind` to "image" with the real mockup (src/assets/screenshots/) when Marketing supplies it. */
 export const heroImage: ScreenshotSlot = {

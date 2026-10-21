@@ -2,18 +2,22 @@ import { fileURLToPath } from "node:url";
 import { build } from "astro";
 import { parse, type HTMLElement } from "node-html-parser";
 import { readFileSync } from "node:fs";
-import { beforeAll, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { variants } from "./variants";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const outDir = fileURLToPath(new URL("./.dist/hero-image", import.meta.url));
 const fixtureModule = fileURLToPath(new URL("./fixtures/hero-image.ts", import.meta.url));
 
+const buildTimeout = 120_000;
+const env = { ...variants.minimal, NODE_ENV: "production" };
+const previousEnv = Object.fromEntries(Object.keys(env).map((name) => [name, process.env[name]]));
+
 let page: HTMLElement;
 
 /** Builds the real home with the hero slot swapped for a fixture image, so no real screenshot is committed. */
 beforeAll(async () => {
-  Object.assign(process.env, variants.minimal, { NODE_ENV: "production" });
+  Object.assign(process.env, env);
   await build({
     root,
     outDir,
@@ -23,6 +27,13 @@ beforeAll(async () => {
     },
   });
   page = parse(readFileSync(`${outDir}/index.html`, "utf8"));
+}, buildTimeout);
+
+afterAll(() => {
+  for (const [name, value] of Object.entries(previousEnv)) {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
 });
 
 describe("hero with a real image", () => {

@@ -1,4 +1,4 @@
-import type { ScreenshotSlot } from "./screenshot-slot";
+import type { ScreenshotSlot } from "@landing/src/content/sections/screenshot-slot";
 
 /** The content gives no alt for the feature captures, so they are decorative: the card title and text carry the meaning. */
 const decorativeCapture: ScreenshotSlot = { kind: "provisional", aspectRatio: "16/10", alt: "" };
