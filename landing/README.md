@@ -1,6 +1,6 @@
 # Yoyos landing
 
-Public landing of Yoyos: an independent [Astro](https://astro.build) package that compiles to static files (`dist/`): `/`, `/privacidad`, the 404, `robots.txt`, the sitemap and the web manifest. It ships no JavaScript except two optional modules (the demo-form enhancement and the analytics listener). Design and plan: [`docs/drafts/landing-technical.md`](../docs/drafts/landing-technical.md); content: [`docs/drafts/landing.md`](../docs/drafts/landing.md).
+Public landing of Yoyos: an independent [Astro](https://astro.build) package that compiles to static files (`dist/`): `/`, `/privacidad`, the 404, `robots.txt`, the sitemap and the web manifest. It ships no JavaScript except two optional modules (the demo-form enhancement and the analytics listener). Rules, decisions and contracts: [`docs/landing.md`](../docs/landing.md); literal copy: `src/content/`.
 
 ## Requirements
 

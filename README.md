@@ -121,6 +121,7 @@ Images require the `R2_*` environment variables from [`apps/core/.env.example`](
 - [Persistence](docs/persistence.md) and [company data isolation](docs/rls-with-prisma.md).
 - [Images](docs/images.md).
 - [Event bus](docs/event-bus.md).
+- [Landing](docs/landing.md).
 
 Migration output records start/end, duration, each attempted migration identifier and aggregate order/buyer counts. Raw Prisma output is withheld because database errors can contain row values. On failure, inspect `_prisma_migrations` through administrative access, resolve the recorded cause and retry; do not expose its `logs` column to application logging. Keep order writes stopped through migration and deployment of the matching application.
 
