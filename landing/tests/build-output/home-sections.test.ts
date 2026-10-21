@@ -181,7 +181,7 @@ describe("home structure", () => {
   });
 
   test("every provisional screenshot shows «Imagen provisional» and carries its literal alt as accessible name", () => {
-    const slots = home("minimal").querySelectorAll('main [role="img"]');
+    const slots = home("minimal").querySelectorAll('main .screenshot[role="img"]');
     expect(slots.map((slot) => slot.getAttribute("aria-label"))).toEqual([heroAlt, ...stepAlts]);
     expect(slots.every((slot) => text(slot).includes("Imagen provisional"))).toBe(true);
   });
