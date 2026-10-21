@@ -15,7 +15,7 @@ Keep domain rules pure, application dependencies explicit, and persistence/netwo
 
 Use Node.js 24 and pnpm 12.5.1 to match CI; `mise.toml` currently pins Node 22. Install dependencies with `pnpm --dir <directory> install --frozen-lockfile`, first for `shared`, then each application.
 
-- `docker compose up --build`: start the web app and PostgreSQL at localhost:3000.
+- `docker compose up --build`: start the web app and PostgreSQL at `localhost:${WEB_PORT:-3000}` (`WEB_PORT` is set in the root `.env` of a worktree).
 - `pnpm --dir apps/core dev`: build and watch the server locally; requires configured services.
 - `pnpm --dir apps/core build`: create the web production build.
 - `pnpm --dir apps/mobile start`: start Expo.
