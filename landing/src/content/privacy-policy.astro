@@ -93,7 +93,8 @@ const email = siteConfig.contactEmail;
 <p>
   Para operar usamos proveedores que tratan tus datos por encargo nuestro, solo para las finalidades de esta política:
 </p>
-<div class="table-scroll">
+{/* eslint-disable-next-line astro/jsx-a11y/no-noninteractive-tabindex -- scrollable region must be keyboard-focusable (axe scrollable-region-focusable) */}
+<div class="table-scroll" role="region" aria-label="¿Quién más trata tus datos? (encargados y transferencias)" tabindex="0">
   <table>
     <thead>
       <tr><th scope="col">Proveedor</th><th scope="col">Para qué</th><th scope="col">Dónde</th></tr>
@@ -155,7 +156,8 @@ const email = siteConfig.contactEmail;
 <p>
   <strong>Plazos máximos de respuesta (Reglamento, art. 69), en días hábiles desde el día siguiente a tu solicitud:</strong>
 </p>
-<div class="table-scroll">
+{/* eslint-disable-next-line astro/jsx-a11y/no-noninteractive-tabindex -- scrollable region must be keyboard-focusable (axe scrollable-region-focusable) */}
+<div class="table-scroll" role="region" aria-label="Plazos máximos de respuesta" tabindex="0">
   <table>
     <thead>
       <tr><th scope="col">Derecho</th><th scope="col">Plazo</th></tr>
@@ -172,7 +174,7 @@ const email = siteConfig.contactEmail;
 </p>
 <p>
   Si no te respondemos o no estás de acuerdo con la respuesta, puedes presentar un reclamo ante la
-  <strong>Autoridad Nacional de Protección de Datos Personales</strong> (ANPD) del Ministerio de Justicia y Derechos
+  {" "}<strong>Autoridad Nacional de Protección de Datos Personales</strong> (ANPD) del Ministerio de Justicia y Derechos
   Humanos.
 </p>
 
@@ -233,6 +235,10 @@ const email = siteConfig.contactEmail;
   .table-scroll {
     overflow-x: auto;
     margin-block-end: var(--space-4);
+  }
+  .table-scroll:focus-visible {
+    outline: var(--focus-width) solid var(--ring);
+    outline-offset: var(--focus-offset);
   }
   table {
     width: 100%;

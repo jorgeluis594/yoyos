@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { readPage } from "./html";
-import { phoneDisplay } from "./variants";
+import { phoneDisplay, whatsappNumber, type VariantName } from "./variants";
 
 const sectionTitles = [
   "1. ¿Quién es responsable de tus datos?",
@@ -25,53 +25,61 @@ const placeholders = [
   "[UBICACIÓN DEL SERVIDOR DEL CRM]",
   "[PROVEEDOR DE ALOJAMIENTO DE LA WEB]",
   "[PAÍSES DE LOS SERVIDORES]",
-  "[NOMBRE DEL BANCO DE DATOS]",
+  "«[NOMBRE DEL BANCO DE DATOS]»",
   "[CÓDIGO DE INSCRIPCIÓN]",
 ];
 
 const email = "hola@example.test";
-const text = (node: { text: string } | null | undefined) => (node?.text ?? "").replace(/\s+/g, " ").trim();
+const minimalPhone = `+${whatsappNumber}`;
+const normalize = (text: string) => text.replace(/\s+/g, " ").trim();
 
-function section(variant: "minimal" | "full", number: number): string {
-  const policy = readPage(variant, "privacidad.html").querySelector("article");
-  const headings = policy?.querySelectorAll("h2") ?? [];
-  const start = headings[number - 1];
-  const next = headings[number];
-  const html = policy?.innerHTML ?? "";
-  const from = html.indexOf(start?.outerHTML ?? "");
-  const to = next ? html.indexOf(next.outerHTML) : html.length;
-  return html.slice(from, to).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+function readPolicy(variant: VariantName) {
+  const page = readPage(variant, "privacidad.html");
+  const article = page.querySelector("article");
+  const sections = (article?.innerHTML ?? "")
+    .split("<h2")
+    .slice(1)
+    .map((html) => normalize(html.replace(/<[^>]+>/g, " ")));
+  return { page, article, text: normalize(article?.text ?? ""), sections };
 }
+
+const minimal = readPolicy("minimal");
+const full = readPolicy("full");
 
 describe("privacy policy", () => {
   test("/privacidad renders the policy with the configured phone display and the email placeholder", () => {
-    const page = readPage("full", "privacidad.html");
-    expect(page.querySelectorAll("h1").map(text)).toEqual(["Política de privacidad"]);
-    expect(page.querySelectorAll("article h2").map(text)).toEqual(sectionTitles);
-    const tables = page.querySelectorAll("article table");
-    expect(tables.map((table) => table.querySelectorAll("thead th").map(text))).toEqual([
+    expect(full.page.querySelectorAll("h1").map((h1) => normalize(h1.text))).toEqual(["Política de privacidad"]);
+    expect(full.page.querySelectorAll("article h2").map((h2) => normalize(h2.text))).toEqual(sectionTitles);
+    const tables = full.page.querySelectorAll("article table");
+    expect(tables.map((table) => table.querySelectorAll("thead th").map((th) => normalize(th.text)))).toEqual([
       ["Proveedor", "Para qué", "Dónde"],
       ["Derecho", "Plazo"],
     ]);
     expect(tables.map((table) => table.querySelectorAll("tbody tr").length)).toEqual([3, 3]);
 
-    for (const number of [1, 7, 12]) {
-      expect(section("full", number)).toContain(phoneDisplay);
-      expect(section("full", number)).toContain(email);
-      expect(section("full", number)).not.toContain("[CORREO]");
-      expect(section("minimal", number)).toContain("[CORREO]");
-      expect(section("minimal", number)).toContain("+51912345678");
+    for (const number of [1, 4, 7, 12]) {
+      expect(full.sections[number - 1]).toContain(email);
+      expect(full.sections[number - 1]).not.toContain("[CORREO]");
+      expect(minimal.sections[number - 1]).toContain("[CORREO]");
     }
-    expect(section("minimal", 4)).toContain("[CORREO]");
-    expect(section("full", 4)).toContain(email);
-    expect(readPage("full", "privacidad.html").querySelector(`a[href="mailto:${email}"]`)).not.toBeNull();
+    for (const number of [1, 7, 12]) {
+      expect(full.sections[number - 1]).toContain(phoneDisplay);
+      expect(minimal.sections[number - 1]).toContain(minimalPhone);
+    }
+    expect(full.page.querySelector(`article a[href="mailto:${email}"]`)).not.toBeNull();
+    expect(minimal.page.querySelector('article a[href^="mailto:"]')).toBeNull();
+  });
+
+  test("/privacidad keeps the spaces around inline elements of the approved text", () => {
+    for (const { text } of [minimal, full]) {
+      expect(text).toContain("presentar un reclamo ante la Autoridad Nacional de Protección de Datos Personales (ANPD)");
+      expect(text).toContain("Correo para temas de privacidad: ");
+    }
   });
 
   test("/privacidad keeps every bracketed placeholder of the approved text visible", () => {
-    for (const variant of ["minimal", "full"] as const) {
-      const body = text(readPage(variant, "privacidad.html").querySelector("article"));
-      for (const placeholder of placeholders) expect(body).toContain(placeholder);
-      expect(body).toContain("«[NOMBRE DEL BANCO DE DATOS]»");
+    for (const { text } of [minimal, full]) {
+      for (const placeholder of placeholders) expect(text).toContain(placeholder);
     }
   });
 });
