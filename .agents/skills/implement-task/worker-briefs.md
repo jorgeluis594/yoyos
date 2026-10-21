@@ -18,10 +18,10 @@ Use only CONTEXT and the first two sentences of CONSTRAINTS from the common bloc
 ```text
 TASK: define <task, or Todoist task id> at the product level following the Product skill (.agents/skills/product/SKILL.md), and write docs/drafts/<topic>.md. Do not implement.
 KNOWN CONTEXT: <three-line summary of what the task asks, what exists and what is out of scope>.
-REPORT (worker_done): document path, the "Questions" block and the "Decided unless objected" list exactly as the skill delivers them. Do not ask the founder anything yourself; the coordinator relays the questions.
+REPORT (worker_done): document path, the "Questions" block and the "Decided unless objected" list exactly as the skill delivers them. Do not ask the founder anything yourself; the coordinator takes the questions to the review gate.
 ```
 
-Later rounds: `ROUND <K>: address these observations from the coordinator: <numbered list>. Report as before.` Closing: `FOUNDER ANSWERS: <answers>. Close the document as in step 6 of the Product skill (skip Todoist; the coordinator updates it) and commit it. Report the commit.`
+Later rounds: `ROUND <K>: address these observations from the coordinator: <numbered list>. Report as before.` Closing: `REVIEW ANSWERS (approved by the review gate, act on them as the founder's answers): <answers and accepted suggestions>. Close the document as in step 6 of the Product skill (skip Todoist; the coordinator updates it), keeping every question in "Questions decided by the review gate" with its answer, who decided it, the reason and the discarded alternatives, and commit it. Report the commit.`
 
 ## Architecture writer
 
@@ -34,6 +34,26 @@ REPORT (worker_done): the path, the "Questions" block and the "Decided unless ob
 ```
 
 Rounds and closing as for the product writer, following step 6 of the Architecture skill.
+
+## Gate reviewers
+
+All four use the same frame with their own FOCUS. Use only CONTEXT and the first two sentences of CONSTRAINTS from the common block.
+
+```text
+REVIEW-ONLY TASK: you are the <role> reviewer of <docs/drafts/<topic>.md | docs/drafts/<topic>-technical.md>. You replace the founder's approval, so review as the person accountable for the result. Do not edit or commit.
+Read the draft in full, the guide of its skill (<.agents/skills/product/product-guide.md | the Architecture skill and its guide>), the documents it builds on<, docs/drafts/<topic>.md for architecture> and the code it touches. Use happy-memory-recall for prior decisions.
+CHANGE MAP: <coordinator's change map>.
+QUESTIONS FROM THE WRITER: <block>. DECIDED UNLESS OBJECTED: <list>.
+FOCUS: <role focus below>.
+REPORT: write gate-<product|architecture>-<role>-rK.md with (1) numbered findings: section, blocker or suggestion, what is wrong or missing and why it matters, never the rewording; (2) per question: your answer and reason; (3) objections to the decided list. worker_done --outcome succeeded with "APPROVED" when there are no blockers, otherwise --outcome failed with "REJECTED"; --report-path <file>.
+```
+
+FOCUS per role:
+
+- **UX/UI:** every flow is complete for web and mobile, with entry points, empty, loading, error and success states; the user always knows what happened and what to do next; copy is clear and consistent with existing screens; reuses existing components and patterns; accessibility (labels, contrast, touch targets); nothing asks for more steps or data than the goal needs.
+- **Product:** the definition solves the task's problem for the business selling through social media; every actor, permission, state and failure has its behavior; acceptance criteria are verifiable; scope is the smallest that delivers value, with what is left out and its meeting point; no contradiction with memory, current docs or business rules; edge cases with money, stock and company isolation.
+- **Design:** every product behavior and acceptance criterion maps to a use case, test title and plan task; layering per docs/architecture.md and docs/programming-style.md (pure domain, explicit dependencies, infrastructure adapters, Zod at JSON boundaries, Result); contracts between web and mobile in shared/; transactions and idempotency; company isolation and RLS; migrations safe per the database-migrations skill; observability; the plan's waves and dependencies let tasks run in parallel without touching the same files.
+- **Performance:** for every read and write path, the queries it issues: N+1 patterns (queries inside loops, per-row lookups, lazy relations in lists), missing or wrong indexes for each filter, join, sort and uniqueness rule, including company_id leading composite indexes; unbounded lists without pagination; over-fetching; work inside transactions that holds locks; locking migrations on large tables; mobile payload size and request count per screen.
 
 ## Implementer
 
@@ -70,7 +90,8 @@ Then rerun: <exact commands>. REPORT as in the implementer task, per finding: fi
 ```text
 VERIFY the integration branch jorgeluis594/<topic> in this worktree. Do not edit application code.
 Run lint, typecheck and unit tests in core and mobile, `sh scripts/run-tests.sh integration` and `sh scripts/run-tests.sh e2e` in apps/core. Then walk every acceptance criterion of docs/drafts/<topic>.md (web and mobile) and say for each where it is satisfied or that it is missing.
-REPORT: each command with its result, each criterion with its evidence, and the failures with file:line, written so the coordinator can paste it into the PR description. --outcome failed if anything fails or is missing.
+<If the branch touches UI:> SCREENSHOTS: run the app with test data (docker compose for web, with the playwright-cli skill; Expo for mobile) and capture every new or changed screen and state (empty, error and success included), web and mobile, as PNG into <scratchpad>/screenshots/ named <platform>-<screen>-<state>.png. Do not commit them. Never show real customer data.
+REPORT: each command with its result, each criterion with its evidence, the screenshot files with a one-line caption each, and the failures with file:line, written so the coordinator can paste it into the PR description. --outcome failed if anything fails or is missing.
 ```
 
 ## Documentation
