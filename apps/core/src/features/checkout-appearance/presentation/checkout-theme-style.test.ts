@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { checkoutThemeIds, checkoutThemes, type CheckoutThemeDefinition } from "@core/src/features/checkout-appearance/domain/checkout-themes";
 import { checkoutFontStacks, checkoutThemeCss } from "@core/src/features/checkout-appearance/presentation/checkout-theme-style";
@@ -83,5 +84,29 @@ describe("checkoutFontStacks", () => {
     expect(checkoutFontStacks.nunito).toMatch(/^"Nunito Variable"/);
     expect(checkoutFontStacks.outfit).toMatch(/^"Outfit Variable"/);
     expect(checkoutFontStacks.inter).toMatch(/^"Inter Variable"/);
+  });
+});
+
+describe("checkout-theme.css", () => {
+  const stylesheet = readFileSync(new URL("./checkout-theme.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const selectors = [...stylesheet.matchAll(/([^{}]+)\{/g)].map((match) => match[1].trim());
+
+  test("styles only parts inside a themed checkout", () => {
+    expect(selectors.length).toBeGreaterThan(20);
+    for (const selector of selectors) expect(selector, selector).toMatch(/^\[data-checkout-theme\] /);
+  });
+
+  test("reads only variables that every theme writes", () => {
+    const [scoped] = rules(checkoutThemeCss("classic", scope));
+    const written = new Set(declarations(scoped.body).map((declaration) => declaration.name));
+    const read = [...stylesheet.matchAll(/var\((--[a-z0-9-]+)/g)].map((match) => match[1]);
+    expect(read.length).toBeGreaterThan(50);
+    for (const name of read) expect(written.has(name), name).toBe(true);
+  });
+
+  test("hooks only the closed list of checkout parts", () => {
+    const parts = new Set([...stylesheet.matchAll(/data-checkout-part="([a-z-]+)"/g)].map((match) => match[1]));
+    expect([...parts].sort()).toEqual(["card", "field", "field-group", "free", "header", "header-brand", "option", "option-cost", "option-group", "order-title",
+      "payment-image", "payment-method", "price", "product-meta", "product-name", "product-row", "section-title", "status", "total", "total-amount", "total-label"]);
   });
 });
