@@ -1,9 +1,10 @@
 import type { ImageMetadata } from "astro";
+import olva from "@landing/src/assets/logos/olva.svg";
+import plin from "@landing/src/assets/logos/plin.png";
+import shalom from "@landing/src/assets/logos/shalom.png";
+import yape from "@landing/src/assets/logos/yape.svg";
 
-export type PartnerLogo = Readonly<{ name: "Shalom" | "Olva" | "Yape" | "Plin"; alt: string } & (
-  | { kind: "provisional" }
-  | { kind: "image"; svg: ImageMetadata }
-)>;
+export type PartnerLogo = Readonly<{ name: "Shalom" | "Olva" | "Yape" | "Plin"; alt: string; image: ImageMetadata }>;
 
 export const integrationsContent = {
   heading: "Envíos por agencias Shalom y Olva, cobros con Yape y Plin",
@@ -33,10 +34,10 @@ export const integrationsContent = {
   note: "WhatsApp, Shalom, Olva, Yape y Plin son marcas de sus respectivos dueños. Yoyos no está afiliado a ellas.",
 } as const;
 
-/** The official SVGs are not in the repository yet: each logo renders as a provisional badge until they are supplied. */
+/** Official logos, authorized by the founder; they never change color or shape. */
 export const partnerLogos: readonly PartnerLogo[] = [
-  { name: "Shalom", alt: "Logo de Shalom", kind: "provisional" },
-  { name: "Olva", alt: "Logo de Olva", kind: "provisional" },
-  { name: "Yape", alt: "Logo de Yape", kind: "provisional" },
-  { name: "Plin", alt: "Logo de Plin", kind: "provisional" },
+  { name: "Shalom", alt: "Logo de Shalom", image: shalom },
+  { name: "Olva", alt: "Logo de Olva", image: olva },
+  { name: "Yape", alt: "Logo de Yape", image: yape },
+  { name: "Plin", alt: "Logo de Plin", image: plin },
 ];

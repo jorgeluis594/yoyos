@@ -34,7 +34,7 @@ These rules are non-negotiable for any new or changed text, metadata, Open Graph
 - **The seller shares** the checkout link; the customer does not receive it from Yoyos.
 - **Labels:** «Imprime los rótulos de tus envíos en lote desde la app», without printer models. The label does not replace the courier's guide.
 - No start-up time figures, no invented testimonials or metrics, no customer logos or invented social proof.
-- The WhatsApp brand appears as text or a generic chat icon: its logo is not authorized. Shalom, Olva, Yape and Plin logos are authorized by the founder, with the trademark notice «WhatsApp, Shalom, Olva, Yape y Plin son marcas de sus respectivos dueños.» (the integrations section adds «Yoyos no está afiliado a ellas.»).
+- The WhatsApp brand appears as text or a generic chat icon: its logo is not authorized. Shalom, Olva, Yape and Plin logos are authorized by the founder and live in `landing/src/assets/logos/` (Shalom and Plin PNG, Olva and Yape SVG, never recolored), with the trademark notice «WhatsApp, Shalom, Olva, Yape y Plin son marcas de sus respectivos dueños.» (the integrations section adds «Yoyos no está afiliado a ellas.»).
 
 ### Visibility rules
 
@@ -153,7 +153,8 @@ Events have fixed names and props. No event or log carries the name, phone, free
 | Inter Variable from the lockfile-pinned `@fontsource-variable/inter`, latin `wght` file only, `font-display: swap`, preloaded, with a metric-adjusted local fallback | Same package as core; Astro's fonts API downloads from a remote CDN instead. The fallback avoids layout shift on swap. |
 | Lucide icons through `@lucide/astro`, rendered to inline SVG at build | Icon set of `DESIGN.md`, with no JavaScript. |
 | Yoyos logos, favicon and apple-touch-icon copied from `apps/core` into the landing | The landing builds and deploys alone and does not reach into another app's tree. |
-| Screenshots and partner logos typed as provisional or real | A placeholder can never ship as if it were real. |
+| Screenshots typed as provisional or real | A placeholder can never ship as if it were real. |
+| Partner logos rendered through `astro:assets` at the control height | Images are hashed and sized without upscaling their intrinsic resolution. |
 | `public/_headers` sets `Cache-Control: public, max-age=31536000, immutable` for `/_astro/*` | Hashed assets are cacheable forever; applying the file is the host's job. |
 | `landing` in `.dockerignore`; no compose changes | The core image build context is not affected. |
 | ESLint 10 flat config with `eslint-plugin-astro` and its strict jsx-a11y rules | `eslint-plugin-astro@3` requires ESLint 10; core stays on its own version. |
@@ -187,6 +188,5 @@ Manual, with results in the pull request: Lighthouse mobile on the production bu
 These elements are placeholders, marked as such, until the founder or Marketing supplies the real ones:
 
 - App screenshots (hero, the five steps, the six feature cards) render a box with «Imagen provisional» and, where the content gives one, the literal alt as accessible name. Real captures go to `landing/src/assets/screenshots/`.
-- Shalom, Olva, Yape and Plin logos render as a provisional text badge with their literal alt («Logo de Shalom», …) until the official SVGs are added to `landing/src/assets/logos/`. Logos are never downloaded from the web.
 - The Open Graph image is rendered with a system font and awaits Marketing's approval or replacement.
 - Company data in `/privacidad` (bracketed placeholders), the contact email and the social URLs.

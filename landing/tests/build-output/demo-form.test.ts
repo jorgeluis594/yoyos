@@ -257,7 +257,7 @@ describe("pricing, integrations, FAQ and testimonials", () => {
     expect(readPage("minimal", "index.html").querySelector('#precio a[data-event="demo_form_open"]')).toBeNull();
   });
 
-  test("the integrations section lists the four items, the provisional logos with their alt and the trademark note", () => {
+  test("the integrations section lists the four items, the four real logos with their alt and the trademark note", () => {
     const section = readPage("minimal", "index.html").querySelector("#integraciones");
     expect(section?.querySelector("h2")?.text.trim()).toBe("Envíos por agencias Shalom y Olva, cobros con Yape y Plin");
     const text = section?.text.replace(/\s+/g, " ");
@@ -272,13 +272,16 @@ describe("pricing, integrations, FAQ and testimonials", () => {
       expect(text).toContain(copy);
     }
     const logos = section?.querySelectorAll("[data-partner-logo]") ?? [];
-    expect(logos.map((logo) => [logo.getAttribute("data-partner-logo"), logo.getAttribute("aria-label") ?? logo.getAttribute("alt")])).toEqual([
+    expect(logos.map((logo) => [logo.getAttribute("data-partner-logo"), logo.getAttribute("alt")])).toEqual([
       ["Shalom", "Logo de Shalom"],
       ["Olva", "Logo de Olva"],
       ["Yape", "Logo de Yape"],
       ["Plin", "Logo de Plin"],
     ]);
-    expect(logos.every((logo) => logo.getAttribute("data-provisional") === "true")).toBe(true);
+    expect(logos.every((logo) => logo.tagName.toLowerCase() === "img")).toBe(true);
+    expect(logos.every((logo) => /^\/_astro\/.+\.(png|svg|webp)$/.test(logo.getAttribute("src") ?? ""))).toBe(true);
+    expect(logos.every((logo) => Number(logo.getAttribute("width")) > 0 && Number(logo.getAttribute("height")) > 0)).toBe(true);
+    expect(section?.querySelectorAll("[data-provisional]").length).toBe(0);
   });
 
   test("the phone number shown in the final CTA is the configured display", () => {
