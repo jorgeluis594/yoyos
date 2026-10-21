@@ -1,0 +1,32 @@
+---
+import Benefits from "@landing/src/components/sections/benefits.astro";
+import Faq from "@landing/src/components/sections/faq.astro";
+import Features from "@landing/src/components/sections/features.astro";
+import FinalCta from "@landing/src/components/sections/final-cta.astro";
+import Hero from "@landing/src/components/sections/hero.astro";
+import HowItWorks from "@landing/src/components/sections/how-it-works.astro";
+import Integrations from "@landing/src/components/sections/integrations.astro";
+import Pricing from "@landing/src/components/sections/pricing.astro";
+import Problem from "@landing/src/components/sections/problem.astro";
+import Testimonials from "@landing/src/components/sections/testimonials.astro";
+import ValueStrip from "@landing/src/components/sections/value-strip.astro";
+import { siteConfig } from "@landing/src/config/site";
+import { faqEntries } from "@landing/src/content/faq";
+import { pageSeo } from "@landing/src/content/site";
+import BaseLayout from "@landing/src/layouts/base-layout.astro";
+import { buildHomeStructuredData } from "@landing/src/lib/json-ld";
+---
+
+<BaseLayout seo={pageSeo.home} structuredData={buildHomeStructuredData(siteConfig, faqEntries)}>
+  <Hero />
+  <ValueStrip />
+  <Problem />
+  <Benefits />
+  <HowItWorks />
+  <Features />
+  <Integrations />
+  <Testimonials />
+  <Pricing />
+  <Faq />
+  <FinalCta />
+</BaseLayout>

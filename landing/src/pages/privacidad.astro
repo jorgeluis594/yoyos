@@ -1,0 +1,21 @@
+---
+import PrivacyPolicy from "@landing/src/content/privacy-policy.astro";
+import { pageSeo } from "@landing/src/content/site";
+import BaseLayout from "@landing/src/layouts/base-layout.astro";
+---
+
+<BaseLayout seo={pageSeo.privacy}>
+  <article class="section reader">
+    <h1>Política de privacidad</h1>
+    <PrivacyPolicy />
+  </article>
+</BaseLayout>
+
+<style>
+  .reader {
+    width: 100%;
+    max-width: calc(var(--reader-max-width) + 2 * var(--page-gutter-mobile));
+    margin-inline: auto;
+    padding-inline: var(--page-gutter-mobile);
+  }
+</style>

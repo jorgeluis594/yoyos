@@ -1,0 +1,29 @@
+---
+// Included by the layout only when PUBLIC_ANALYTICS_ENABLED=true. It carries no copy and no personal data.
+---
+
+<script>
+  import { eventFromDataset, track } from "@landing/src/lib/analytics";
+
+  document.addEventListener("click", (event) => {
+    if (!(event.target instanceof Element)) return;
+    const element = event.target.closest<HTMLElement>("[data-event]");
+    const analyticsEvent = element && eventFromDataset(element.dataset);
+    if (analyticsEvent) track(analyticsEvent);
+  });
+
+  // `toggle` does not bubble, so it is captured on the document.
+  document.addEventListener(
+    "toggle",
+    (event) => {
+      if (!(event.target instanceof HTMLDetailsElement) || !event.target.open) return;
+      const analyticsEvent = eventFromDataset(event.target.dataset);
+      if (analyticsEvent?.name === "faq_open") track(analyticsEvent);
+    },
+    true,
+  );
+
+  if (window.location.hash === "#demo-error") {
+    track({ name: "demo_form_error", location: "cta_final", reason: "server" });
+  }
+</script>
