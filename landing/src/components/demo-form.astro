@@ -233,11 +233,12 @@ const outcomes = [
     color: var(--muted-foreground);
   }
 
+  /* The control is centered on the first text line of its label; the padding gives the row its touch target. */
   .choice {
     display: flex;
     align-items: start;
     gap: var(--space-3);
-    min-height: var(--touch-target-min-size);
+    padding-block: calc((var(--touch-target-min-size) - var(--text-body-line)) / 2);
     font-weight: var(--text-body-weight);
   }
 
@@ -245,12 +246,8 @@ const outcomes = [
     flex: none;
     width: var(--icon-action-size);
     height: var(--icon-action-size);
-    margin-block: var(--space-2) 0;
+    margin: calc((var(--text-body-line) - var(--icon-action-size)) / 2) 0 0;
     accent-color: var(--primary);
-  }
-
-  .consent {
-    align-items: start;
   }
 
   .field-error {
