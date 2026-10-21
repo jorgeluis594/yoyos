@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="es" data-theme="clasico">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Checkout · Tienda Ejemplo</title>
+<link rel="stylesheet" href="temas.css">
+</head>
+<body>
+<div class="page">
+  <header class="header">
+    <div class="logo">
+      <div class="logo-mark" aria-hidden="true"><span>TE</span></div>
+      <div class="logo-text">
+        <div class="store">Tienda Ejemplo</div>
+        <div class="store-sub">Pedido #1024 · Checkout seguro</div>
+      </div>
+    </div>
+  </header>
+
+  <main class="sections">
+    <!-- Tu pedido -->
+    <section class="card">
+      <h2 class="sec-title"><span class="num">01</span>Tu pedido</h2>
+      <ul class="products">
+        <li class="product">
+          <div class="thumb" style="--tb:#e9dfcc">
+            <svg viewBox="0 0 80 100" preserveAspectRatio="xMidYMid meet"><path d="M28 38 C28 22 52 22 52 38" fill="none" stroke="#8a6f4d" stroke-width="3.5"/><rect x="18" y="38" width="44" height="46" rx="2" fill="#d6c3a1"/><rect x="18" y="38" width="44" height="6" fill="#c7b08a"/><text x="40" y="67" text-anchor="middle" font-size="8" fill="#8a6f4d" font-family="Georgia">TE</text></svg>
+          </div>
+          <div class="p-info">
+            <div class="p-name">Tote bag de lona</div>
+            <div class="p-var">Color: Crudo</div>
+            <div class="p-qty">Cant. 1</div>
+          </div>
+          <div class="p-price">S/ 45.00</div>
+        </li>
+        <li class="product">
+          <div class="thumb" style="--tb:#f1d9cc">
+            <svg viewBox="0 0 80 100" preserveAspectRatio="xMidYMid meet"><path d="M54 46 h6 a9 9 0 0 1 0 18 h-6" fill="none" stroke="#b5583a" stroke-width="5"/><path d="M20 36 h36 v34 a8 8 0 0 1 -8 8 h-20 a8 8 0 0 1 -8 -8 z" fill="#c8674a"/><ellipse cx="38" cy="36" rx="18" ry="3" fill="#a94f34"/><path d="M32 24 q3 -6 0 -10 M42 24 q3 -6 0 -10" stroke="#b9a99b" stroke-width="2" fill="none"/></svg>
+          </div>
+          <div class="p-info">
+            <div class="p-name">Taza de cerámica</div>
+            <div class="p-var">Color: Terracota · 350 ml</div>
+            <div class="p-qty">Cant. 2 × S/ 32.00</div>
+          </div>
+          <div class="p-price">S/ 64.00</div>
+        </li>
+        <li class="product">
+          <div class="thumb" style="--tb:#e3def0">
+            <svg viewBox="0 0 80 100" preserveAspectRatio="xMidYMid meet"><path d="M40 22 q-6 8 0 14 q6 -6 0 -14z" fill="#f2a93b"/><line x1="40" y1="36" x2="40" y2="42" stroke="#333" stroke-width="1.5"/><rect x="22" y="42" width="36" height="40" rx="4" fill="#f4efe6"/><rect x="22" y="56" width="36" height="12" fill="#9b8cc4"/><ellipse cx="40" cy="42" rx="18" ry="3" fill="#e6dfd2"/></svg>
+          </div>
+          <div class="p-info">
+            <div class="p-name">Vela aromática</div>
+            <div class="p-var">Aroma: Lavanda · 200 g</div>
+            <div class="p-qty">Cant. 1</div>
+          </div>
+          <div class="p-price">S/ 38.00</div>
+        </li>
+      </ul>
+    </section>
+
+    <!-- Entrega -->
+    <section class="card">
+      <h2 class="sec-title"><span class="num">02</span>Entrega</h2>
+      <div class="opts">
+        <label class="opt selected"><span class="radio"></span>
+          <span class="opt-main"><span class="opt-name">Delivery a domicilio (Lima)</span><span class="opt-sub">Llega en 24–48 h</span></span>
+          <span class="opt-cost">S/ 10.00</span></label>
+        <label class="opt"><span class="radio"></span>
+          <span class="opt-main"><span class="opt-name">Envío por agencia Shalom</span><span class="opt-sub">Provincias · 2–4 días hábiles</span></span>
+          <span class="opt-cost">S/ 12.00</span></label>
+        <label class="opt"><span class="radio"></span>
+          <span class="opt-main"><span class="opt-name">Envío por agencia Olva</span><span class="opt-sub">Provincias · 3–5 días hábiles</span></span>
+          <span class="opt-cost">S/ 15.00</span></label>
+        <label class="opt"><span class="radio"></span>
+          <span class="opt-main"><span class="opt-name">Recojo en tienda</span><span class="opt-sub">Miraflores · desde mañana 10 a. m.</span></span>
+          <span class="opt-cost free">Gratis</span></label>
+      </div>
+    </section>
+
+    <!-- Tus datos -->
+    <section class="card">
+      <h2 class="sec-title"><span class="num">03</span>Tus datos</h2>
+      <div class="fields">
+        <div class="field"><label class="lbl" for="f1">Nombre</label><input id="f1" class="inp" value="María Quispe"></div>
+        <div class="field"><label class="lbl" for="f2">Celular (WhatsApp)</label><input id="f2" class="inp" value="987 654 321"></div>
+        <div class="field"><label class="lbl" for="f3">Dirección</label><input id="f3" class="inp" value="Av. Ejemplo 123, Dpto. 402, Miraflores"></div>
+        <div class="field"><label class="lbl" for="f4">Referencia <span class="opc">(opcional)</span></label><input id="f4" class="inp" placeholder="Ej.: frente al parque"></div>
+        <div class="field"><label class="lbl" for="f5">Correo electrónico <span class="opc">(opcional)</span></label><input id="f5" class="inp" placeholder="tucorreo@ejemplo.com"></div>
+      </div>
+    </section>
+
+    <!-- Pago -->
+    <section class="card">
+      <h2 class="sec-title"><span class="num">04</span>Pago</h2>
+      <div class="pays">
+        <label class="pay selected"><span class="pay-ico" style="--ic:#742284">Y</span><span class="pay-name">Yape</span></label>
+        <label class="pay"><span class="pay-ico" style="--ic:#00a6a6">P</span><span class="pay-name">Plin</span></label>
+        <label class="pay"><span class="pay-ico" style="--ic:#4a5568">
+          <svg viewBox="0 0 20 20" width="14" height="14"><path d="M10 2 L18 6 H2 Z M4 8 h2 v6 H4z M9 8 h2 v6 H9z M14 8 h2 v6 h-2z M2 16 h16 v2 H2z" fill="#fff"/></svg></span><span class="pay-name">Transferencia</span></label>
+      </div>
+      <p class="pay-note">Al confirmar te mostraremos el número de Yape para pagar y enviar tu constancia por WhatsApp.</p>
+    </section>
+
+    <!-- Resumen -->
+    <section class="card summary">
+      <h2 class="sec-title"><span class="num">05</span>Resumen</h2>
+      <div class="sum-row"><span>Subtotal (4 productos)</span><span class="amt">S/ 147.00</span></div>
+      <div class="sum-row"><span>Envío · Delivery Lima</span><span class="amt">S/ 10.00</span></div>
+      <div class="sum-row total"><span>Total</span><span class="amt">S/ 157.00</span></div>
+      <button class="btn">Confirmar pedido</button>
+      <p class="fine">Tienda de ejemplo · datos ficticios · Hecho con Yoyos</p>
+    </section>
+  </main>
+</div>
+</body>
+</html>
