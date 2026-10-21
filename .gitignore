@@ -9,3 +9,6 @@ debug-storybook.log
 
 # Local Obsidian content workspace (notes, assets and app settings)
 /contenido-local/
+
+# Orca worktree port registry
+.worktree-ports
