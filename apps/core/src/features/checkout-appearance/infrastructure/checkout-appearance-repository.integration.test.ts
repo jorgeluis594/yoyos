@@ -30,8 +30,8 @@ async function withCompanies(run: (a: { id: CompanyId; imageId: ImageId }, b: { 
   }
 }
 
-const appearance = (logoImageId: ImageId | null, brandColor: CheckoutAppearance["brandColor"] = "forest"): CheckoutAppearance =>
-  ({ logoImageId, brandColor, background: "brand_tint" });
+const appearance = (logoImageId: ImageId | null, theme: CheckoutAppearance["theme"] = "boutique"): CheckoutAppearance =>
+  ({ logoImageId, theme });
 
 describe("loadCheckoutAppearance", () => {
   test("returns null when the company has no appearance", async () => {
@@ -40,7 +40,7 @@ describe("loadCheckoutAppearance", () => {
     });
   });
 
-  test("returns the saved appearance of the company", async () => {
+  test("returns the saved theme and logo of the company", async () => {
     await withCompanies(async (a) => {
       await withTenantIsolation(a.id, async () => {
         await persistCheckoutAppearance(a.id, appearance(a.imageId));
@@ -60,12 +60,12 @@ describe("loadCheckoutAppearance", () => {
     await withCompanies(async (a) => {
       const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
       await withTenantIsolation(a.id, async () => {
-        // The enum column cannot hold a retired catalog value, so the adapter's read is replaced with one.
+        // The enum column cannot hold a theme outside the catalog, so the adapter's read is replaced with one.
         vi.spyOn(prisma.companyCheckoutAppearance, "findUnique").mockResolvedValueOnce(
-          { logoImageId: null, brandColor: "retired", background: "medium" } as never);
+          { logoImageId: null, theme: "retired" } as never);
         expect(await loadCheckoutAppearance(a.id)).toMatchObject({ success: false, error: { code: "INVALID_STORED_DATA" } });
       });
-      expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "invalid_stored_checkout_appearance", errorCode: "INVALID_STORED_DATA", invalidFields: ["brandColor"], companyId: a.id }), "invalid_stored_checkout_appearance");
+      expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "invalid_stored_checkout_appearance", errorCode: "INVALID_STORED_DATA", invalidFields: ["theme"], companyId: a.id }), "invalid_stored_checkout_appearance");
     });
   });
 });
@@ -83,9 +83,9 @@ describe("persistCheckoutAppearance", () => {
   test("replaces the whole appearance on later saves", async () => {
     await withCompanies(async (a) => {
       await withTenantIsolation(a.id, async () => {
-        await persistCheckoutAppearance(a.id, appearance(a.imageId, "forest"));
-        await persistCheckoutAppearance(a.id, { logoImageId: null, brandColor: "plum", background: "soft" });
-        expect(await loadCheckoutAppearance(a.id)).toEqual({ success: true, data: { logoImageId: null, brandColor: "plum", background: "soft" } });
+        await persistCheckoutAppearance(a.id, appearance(a.imageId, "boutique"));
+        await persistCheckoutAppearance(a.id, { logoImageId: null, theme: "noche" });
+        expect(await loadCheckoutAppearance(a.id)).toEqual({ success: true, data: { logoImageId: null, theme: "noche" } });
       });
     });
   });
@@ -93,8 +93,8 @@ describe("persistCheckoutAppearance", () => {
   test("keeps one appearance per company", async () => {
     await withCompanies(async (a, b) => {
       for (const company of [a, b]) await withTenantIsolation(company.id, async () => {
-        await persistCheckoutAppearance(company.id, appearance(null, "ocean"));
-        await persistCheckoutAppearance(company.id, appearance(null, "mustard"));
+        await persistCheckoutAppearance(company.id, appearance(null, "antojo"));
+        await persistCheckoutAppearance(company.id, appearance(null, "suave"));
         expect(await prisma.companyCheckoutAppearance.count()).toBe(1);
       });
     });
@@ -128,20 +128,20 @@ describe("persistCheckoutAppearance", () => {
     });
   });
 
-  test("rejects a color outside the catalog at the database", async () => {
+  test("rejects a theme outside the five at the database", async () => {
     await withCompanies(async (a) => {
       await withTenantIsolation(a.id, async () => {
-        await expect(prisma.$executeRaw`INSERT INTO "CompanyCheckoutAppearance" ("brandColor", "background", "updatedAt") VALUES ('#2F6B4F', 'medium', now())`).rejects.toThrow();
+        await expect(prisma.$executeRaw`INSERT INTO "CompanyCheckoutAppearance" ("theme", "updatedAt") VALUES ('neon', now())`).rejects.toThrow();
         expect(await prisma.companyCheckoutAppearance.count()).toBe(0);
       });
     });
   });
 
-  test("rejects the former white identifier at the database", async () => {
+  test("starts a row on Clásico when no theme is given", async () => {
     await withCompanies(async (a) => {
       await withTenantIsolation(a.id, async () => {
-        await expect(prisma.$executeRaw`INSERT INTO "CompanyCheckoutAppearance" ("brandColor", "background", "updatedAt") VALUES ('forest', 'white', now())`).rejects.toThrow();
-        expect(await prisma.companyCheckoutAppearance.count()).toBe(0);
+        await prisma.$executeRaw`INSERT INTO "CompanyCheckoutAppearance" ("updatedAt") VALUES (now())`;
+        expect(await loadCheckoutAppearance(a.id)).toEqual({ success: true, data: { logoImageId: null, theme: "classic" } });
       });
     });
   });

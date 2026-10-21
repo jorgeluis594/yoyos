@@ -1,19 +1,17 @@
 import { z } from "zod";
-import { checkoutBackgrounds, checkoutBrandColors } from "@core/src/features/checkout-appearance/domain/checkout-appearance";
+import { checkoutThemeIds } from "@core/src/features/checkout-appearance/domain/checkout-themes";
 
 // Server → buyer: visual data only, no identifiers or dates.
 export const publicCheckoutAppearanceSchema = z.strictObject({
   // `z.httpUrl()` rejects IP and localhost hosts, which local storage endpoints use.
   logoUrl: z.url({ protocol: /^https?$/ }).nullable(),
-  brandColor: z.enum(checkoutBrandColors),
-  background: z.enum(checkoutBackgrounds),
+  theme: z.enum(checkoutThemeIds),
 });
 
 // Editor → preview iframe.
 export const checkoutPreviewMessageSchema = z.strictObject({
   type: z.literal("checkout-appearance:update"),
   appearance: publicCheckoutAppearanceSchema,
-  mode: z.enum(["light", "dark"]),
   state: z.enum(["review", "payment"]),
 });
 
@@ -22,4 +20,3 @@ export const checkoutPreviewReadySchema = z.strictObject({ type: z.literal("chec
 
 export type PublicCheckoutAppearance = z.infer<typeof publicCheckoutAppearanceSchema>;
 export type CheckoutPreviewMessage = z.infer<typeof checkoutPreviewMessageSchema>;
-export type CheckoutPreviewMode = CheckoutPreviewMessage["mode"];

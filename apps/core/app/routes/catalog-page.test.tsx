@@ -25,7 +25,7 @@ const button = (name: string) => [...container.querySelectorAll("button")].find(
 const shows = (text: string) => vi.waitFor(() => expect(container.textContent).toContain(text));
 
 test("catalog page shows cards with initial, «Desde» and «Agotado», and an empty search offers «Borrar búsqueda» back to the empty store", async () => {
-  const page = (q: string, items: object[] = [], hasMore = false) => ({ storeName: "Moda Lucía", appearance: null, items, hasMore, q, pages: 1 });
+  const page = (q: string, items: object[] = [], hasMore = false) => ({ storeName: "Moda Lucía", logoUrl: null, items, hasMore, q, pages: 1 });
   const loader = vi.fn(({ request }: { request: Request }) => page(new URL(request.url).searchParams.get("q") ?? ""));
   loader.mockReturnValueOnce(page("", [
     card("polo básico", { price: { kind: "from", amount: pen(45) } }), card("Casaca negra", { soldOut: true })], true));
@@ -63,7 +63,7 @@ test("a sold-out variant is not selectable and the quantity stops at the availab
   const product = { id: crypto.randomUUID(), name: "Polo básico", description: null, imageUrl: null, price: { kind: "from", amount: pen(45) }, soldOut: false,
     attributes: [{ name: "Color", values: ["Negro"] }, { name: "Talla", values: ["M", "L"] }], variants: [variant("M", 45, 3), variant("L", 49, 0)] };
   await mount(`/catalogo/${companyId}/productos/${product.id}`, [{ path: "/catalogo/:companyId/productos/:productId", Component: CatalogProductPage,
-    loader: () => ({ storeName: "Moda Lucía", appearance: null, product }) }]);
+    loader: () => ({ storeName: "Moda Lucía", logoUrl: null, product }) }]);
   await shows("Polo básico");
   expect(button("L · Agotado").disabled).toBe(true);
   await act(async () => button("Negro").click());

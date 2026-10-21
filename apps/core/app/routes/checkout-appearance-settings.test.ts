@@ -8,7 +8,7 @@ import * as logger from "@core/src/shared/infrastructure/logger";
 const access = { company: { id: "00000000-0000-4000-8000-000000000001", name: "Lima Studio" }, user: { id: "user-1" } };
 const context = { get: () => access } as unknown as ActionFunctionArgs["context"];
 const logoId = "00000000-0000-4000-8000-0000000000aa" as ImageId;
-const appearance: CheckoutAppearance = { logoImageId: logoId, brandColor: "forest", background: "brand_tint" };
+const appearance: CheckoutAppearance = { logoImageId: logoId, theme: "antojo" };
 
 const load = () => loader({ context, request: new Request("http://localhost/settings/checkout-appearance") } as LoaderFunctionArgs);
 const save = (body: unknown) => action({ context, request: new Request("http://localhost/settings/checkout-appearance", { method: "POST", body: JSON.stringify(body) }) } as ActionFunctionArgs);
@@ -25,9 +25,9 @@ describe("editor loader", () => {
     expect(get).toHaveBeenCalledWith(access.company.id);
   });
 
-  test("returns the Yoyos default when the company has no appearance", async () => {
+  test("loads Clásico without logo for a company without appearance", async () => {
     vi.spyOn(checkoutAppearance, "get").mockResolvedValue({ success: true, data: null });
-    expect(await load()).toEqual({ published: { logoImageId: null, brandColor: "yoyos", background: "medium" }, logoUrl: null });
+    expect(await load()).toEqual({ published: { logoImageId: null, theme: "classic" }, logoUrl: null });
   });
 
   test("responds 503 when the appearance cannot be read", async () => {
@@ -45,9 +45,15 @@ describe("editor action", () => {
     expect(write).toHaveBeenCalledWith(access.company.id, access.user.id, body);
   });
 
-  test("responds 422 for an invalid appearance or a color outside the catalog", async () => {
-    vi.spyOn(checkoutAppearance, "save").mockResolvedValue(failure("INVALID_CHECKOUT_APPEARANCE"));
-    const result = await save({ logoImageId: null, brandColor: "#FF0000", background: "soft" });
+  test("rejects a theme outside the five with 422", async () => {
+    // Validation runs before any storage access, so the real use case answers without a database.
+    const result = await save({ logoImageId: null, theme: "neon" });
+    expect(result.init?.status).toBe(422);
+    expect(result.data).toEqual({ error: "INVALID_CHECKOUT_APPEARANCE" });
+  });
+
+  test("rejects a brand color or background sent with the theme with 422", async () => {
+    const result = await save({ logoImageId: null, theme: "classic", brandColor: "forest", background: "soft" });
     expect(result.init?.status).toBe(422);
     expect(result.data).toEqual({ error: "INVALID_CHECKOUT_APPEARANCE" });
   });

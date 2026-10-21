@@ -19,20 +19,20 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   if (!path.success) throw data(null, { status: 404, headers: catalogHeaders });
   const query = parseCatalogQuery(new URL(request.url).searchParams);
   // Appearance never fails and is only returned on success, so it can load alongside the products.
-  const appearance = catalogBrowse.appearance(path.data.companyId);
+  const logoUrl = catalogBrowse.appearance(path.data.companyId);
   const result = await catalogBrowse.browse({ search: query.search, pages: query.pages }, path.data);
   if (!result.success) {
     const missing = result.error.code === "CATALOG_UNAVAILABLE";
     bindRequestOperation({ outcome: missing ? "unavailable" : "technical_failure" });
     throw data(null, { status: missing ? 404 : 503, headers: catalogHeaders });
   }
-  return data({ ...result.data, appearance: await appearance, q: query.q, pages: query.pages }, { headers: catalogHeaders });
+  return data({ ...result.data, logoUrl: await logoUrl, q: query.q, pages: query.pages }, { headers: catalogHeaders });
 }
 
 const searchTerm = (value: string) => (value.trim().length >= 2 ? value.trim() : "");
 
 export default function Catalog() {
-  const { storeName, appearance, items, hasMore, q, pages } = useLoaderData<typeof loader>();
+  const { storeName, logoUrl, items, hasMore, q, pages } = useLoaderData<typeof loader>();
   const navigation = useNavigation();
   const location = useLocation();
   const submit = useSubmit();
@@ -49,7 +49,7 @@ export default function Catalog() {
   const searching = pending !== null && (new URLSearchParams(pending.search).get("q") ?? "") !== active;
   const more = new URLSearchParams({ ...(active ? { q: active } : {}), page: String(pages + 1) });
 
-  return <CatalogShell appearance={appearance} storeName={storeName} cart={<CatalogCartButton companyId={companyId} />}>
+  return <CatalogShell logoUrl={logoUrl} storeName={storeName} cart={<CatalogCartButton companyId={companyId} />}>
     <form role="search" onSubmit={(event) => event.preventDefault()}>
       <Input type="search" name="q" value={text} maxLength={80} onChange={(event) => setText(event.target.value)}
         placeholder="Buscar productos" aria-label="Buscar productos" autoComplete="off" />

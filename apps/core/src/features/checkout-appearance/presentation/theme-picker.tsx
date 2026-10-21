@@ -16,7 +16,7 @@ const isTheme = (value: string): value is CheckoutThemeId => (checkoutThemeIds a
 
 /** The five themes in catalog order, each with a sample made from its own values. Choosing the selected theme changes nothing. */
 export function ThemePicker({ value, onChange, label, descriptions }: ThemePickerProps) {
-  return <RadioGroup.Root value={value} aria-label={label} className="grid gap-3 sm:grid-cols-2"
+  return <RadioGroup.Root value={value} aria-label={label} className="grid gap-3"
     onValueChange={(next) => { if (isTheme(next) && next !== value) onChange(next); }}>
     {checkoutThemeIds.map((id) => <RadioGroup.Item key={id} value={id}
       className="relative flex min-h-touch w-full cursor-pointer items-center gap-3 rounded-[var(--radius-control)] border bg-card p-3 text-left outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring data-[state=checked]:border-primary data-[state=checked]:bg-accent">

@@ -6,15 +6,15 @@ import { orders } from "@core/src/features/orders/composition";
 import { deliverySettings } from "@core/src/features/delivery-settings";
 import { deleteAgencies, insertAgency, seededCatalogId } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
 import { companyPaymentSettings } from "@core/src/features/companies";
-import { checkoutPalette } from "@core/src/features/checkout-appearance";
+import { checkoutThemes } from "@core/src/features/checkout-appearance/domain/checkout-themes";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
-import { removeCompanyAppearance, rgb, saveCompanyAppearance, usedBorderColors } from "@core/tests/e2e/checkout-appearance-fixtures";
+import { removeCompanyAppearance, rgb, saveCompanyAppearance } from "@core/tests/e2e/checkout-appearance-fixtures";
 import type { CompanyId, ContactId, OrderId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
 const logoSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="40"><rect width="80" height="40" fill="#2F6B4F"/></svg>';
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==", "base64");
-const forest = checkoutPalette("forest", "brand_tint");
+const boutique = checkoutThemes.boutique;
 
 function requestLogs(requestId: string) {
   return readFileSync("test-results/server.jsonl", "utf8").trim().split("\n")
@@ -63,76 +63,96 @@ async function fixture({ delivery = true }: { delivery?: boolean } = {}) {
 
 const primary = (page: import("@playwright/test").Page) =>
   page.locator("[data-checkout-theme]").evaluate((element) => getComputedStyle(element).getPropertyValue("--primary").trim().toUpperCase());
+const themeId = (page: import("@playwright/test").Page) => page.locator("[data-checkout-theme]").getAttribute("data-checkout-theme-id");
+const isDark = (page: import("@playwright/test").Page) => page.evaluate(() => document.documentElement.classList.contains("dark"));
 
 test.describe("buyer checkout with appearance", () => {
-  test("shows the logo and brand colors in every order state", async ({ page }) => {
+  test("shows the logo and the theme in every order state", async ({ page }) => {
     const f = await fixture();
     const requestId = `appearance-${randomUUID()}`;
     try {
-      await saveCompanyAppearance(f.companyId, { brandColor: "forest", background: "brand_tint", withLogo: true });
+      await saveCompanyAppearance(f.companyId, { theme: "boutique", withLogo: true });
       await page.route("**/test-images/**", (route) => route.fulfill({ status: 200, contentType: "image/svg+xml", body: logoSvg }));
-      await page.setExtraHTTPHeaders({ "x-request-id": requestId });
       const html = await (await page.request.get(f.path, { headers: { "x-request-id": requestId } })).text();
       expect(html).toContain("<style>[data-checkout-theme=");
-      expect(html.toUpperCase()).toContain(forest.light.primary.toUpperCase());
+      expect(html.toUpperCase()).toContain(boutique.colors.primary.toUpperCase());
+      expect(html).toContain('data-color-scheme="fixed"');
       await page.emulateMedia({ colorScheme: "light" });
       await page.goto(f.path);
       await browserExpect(page.locator("[data-slot=brand-logo] img")).toBeVisible();
-      await browserExpect.poll(() => primary(page)).toBe(forest.light.primary.toUpperCase());
-      expect(await usedBorderColors(page)).toContain(rgb(forest.light.border));
-      expect(await usedBorderColors(page)).not.toContain(rgb("#DCD4C9"));
-      await page.emulateMedia({ colorScheme: "dark" });
-      await page.reload();
-      await browserExpect.poll(() => primary(page)).toBe(forest.dark.primary.toUpperCase());
-      expect(await usedBorderColors(page)).toContain(rgb(forest.dark.border));
-      expect(await usedBorderColors(page)).not.toContain(rgb("#484249"));
-      await page.emulateMedia({ colorScheme: "light" });
-      await page.reload();
+      await browserExpect.poll(() => primary(page)).toBe(boutique.colors.primary.toUpperCase());
+      expect(await themeId(page)).toBe("boutique");
       await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
       await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
       await browserExpect(page.locator("[data-slot=brand-logo] img")).toBeVisible();
-      await browserExpect.poll(() => primary(page)).toBe(forest.light.primary.toUpperCase());
+      await browserExpect.poll(() => primary(page)).toBe(boutique.colors.primary.toUpperCase());
       await f.cancel();
       await page.goto(f.path);
       await browserExpect(page.getByRole("heading", { name: "Pedido cancelado", exact: true })).toBeVisible();
       await browserExpect(page.locator("[data-slot=brand-logo] img")).toBeVisible();
-      await expect.poll(() => requestLogs(requestId).some((event) => event.event === "http_request_completed" && event.checkoutAppearance === "custom")).toBe(true);
+      await expect.poll(() => requestLogs(requestId).some((event) => event.event === "http_request_completed" && event.checkoutAppearance === "custom" && event.checkoutTheme === "boutique")).toBe(true);
       expect(JSON.stringify(requestLogs(requestId))).not.toContain("test-images");
+    } finally { await f.cleanup(); }
+  });
+
+  test("keeps the mode of each theme whatever the system prefers", async ({ page }) => {
+    const f = await fixture();
+    try {
+      await saveCompanyAppearance(f.companyId, { theme: "boutique", withLogo: false });
+      await page.emulateMedia({ colorScheme: "dark" });
+      await page.goto(f.path);
+      expect(await themeId(page)).toBe("boutique");
+      expect(await isDark(page)).toBe(false);
+      await browserExpect(page.locator("[data-checkout-theme]")).toHaveCSS("background-color", rgb(boutique.colors.background));
+      await saveCompanyAppearance(f.companyId, { theme: "noche", withLogo: false });
+      await page.emulateMedia({ colorScheme: "light" });
+      await page.reload();
+      expect(await themeId(page)).toBe("noche");
+      await browserExpect(page.locator("[data-checkout-theme]")).toHaveClass(/dark/);
+      expect(await isDark(page)).toBe(false);
+      await browserExpect(page.locator("[data-checkout-theme]")).toHaveCSS("background-color", rgb(checkoutThemes.noche.colors.background));
     } finally { await f.cleanup(); }
   });
 
   test("shows the company name when the logo fails to load", async ({ page }) => {
     const f = await fixture();
     try {
-      await saveCompanyAppearance(f.companyId, { brandColor: "forest", background: "brand_tint", withLogo: true });
+      await saveCompanyAppearance(f.companyId, { theme: "boutique", withLogo: true });
       await page.route("**/test-images/**", (route) => route.fulfill({ status: 404 }));
       await page.goto(f.path);
       await browserExpect(page.getByText("Tienda con marca", { exact: true })).toBeVisible();
       await browserExpect(page.locator("[data-slot=brand-logo]")).toHaveCount(0);
-      await browserExpect.poll(() => primary(page)).toBe(forest.light.primary.toUpperCase());
+      await browserExpect.poll(() => primary(page)).toBe(boutique.colors.primary.toUpperCase());
     } finally { await f.cleanup(); }
   });
 
-  test("keeps the Yoyos look for a company without appearance", async ({ page }) => {
+  test("shows Clásico for a company without appearance", async ({ page }) => {
     const f = await fixture();
     const requestId = `appearance-${randomUUID()}`;
     try {
       const html = await (await page.request.get(f.path, { headers: { "x-request-id": requestId } })).text();
-      expect(html).not.toContain("<style>[data-checkout-theme=");
-      await expect.poll(() => requestLogs(requestId).some((event) => event.event === "http_request_completed" && event.checkoutAppearance === "default")).toBe(true);
+      expect(html).toContain('data-checkout-theme-id="classic"');
+      expect(html.toUpperCase()).toContain(checkoutThemes.classic.colors.primary.toUpperCase());
+      await expect.poll(() => requestLogs(requestId).some((event) => event.event === "http_request_completed" && event.checkoutAppearance === "default" && event.checkoutTheme === "classic")).toBe(true);
+      await page.emulateMedia({ colorScheme: "dark" });
+      await page.goto(f.path);
+      expect(await isDark(page)).toBe(false);
     } finally { await f.cleanup(); }
   });
 
   test("shows the generic error without branding for an unauthorized link", async ({ page }) => {
     const f = await fixture();
     try {
-      await saveCompanyAppearance(f.companyId, { brandColor: "forest", background: "brand_tint", withLogo: false });
+      await saveCompanyAppearance(f.companyId, { theme: "noche", withLogo: false });
+      await page.emulateMedia({ colorScheme: "dark" });
       for (const path of [`/checkout/${f.companyId}/${randomUUID()}`, `/checkout/${randomUUID()}/${f.orderId}`, "/checkout/bad/1001"]) {
         const response = await page.goto(path);
         expect(response?.status()).toBe(404);
         await browserExpect(page.getByRole("heading", { name: "Enlace no disponible" })).toBeVisible();
         expect(await page.content()).not.toContain("data-checkout-theme");
         await browserExpect(page.getByText("Tienda con marca")).toHaveCount(0);
+        // «Enlace no disponible» keeps following the buyer's system preference, as before.
+        expect(await isDark(page)).toBe(true);
       }
     } finally { await f.cleanup(); }
   });
@@ -142,7 +162,7 @@ test.describe("buyer checkout with appearance", () => {
     const catalogId = await seededCatalogId();
     const agencies = [await insertAgency({ courierId: catalogId, name: "Sucursal Miraflores", districtCode: "150122" })];
     try {
-      await saveCompanyAppearance(f.companyId, { brandColor: "forest", background: "brand_tint", withLogo: true });
+      await saveCompanyAppearance(f.companyId, { theme: "boutique", withLogo: true });
       const receiptId = randomUUID();
       await withTenantIsolation(f.companyId, async () => {
         const access = { companyId: f.companyId, userId: f.userId };
@@ -158,7 +178,7 @@ test.describe("buyer checkout with appearance", () => {
       await page.route(`**/api/buyer/orders/${f.orderId}/images`, (route) => route.fulfill({ status: 201, contentType: "application/json",
         body: JSON.stringify({ id: receiptId, url: `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}/test-images/test%2F${receiptId}` }) }));
       await page.goto(f.path);
-      await browserExpect.poll(() => primary(page)).toBe(forest.light.primary.toUpperCase());
+      await browserExpect.poll(() => primary(page)).toBe(boutique.colors.primary.toUpperCase());
       await page.getByLabel("Departamento", { exact: true }).selectOption("15");
       await page.getByLabel("Provincia", { exact: true }).selectOption("1501");
       await page.getByLabel("Distrito", { exact: true }).selectOption("150122");
@@ -176,7 +196,7 @@ test.describe("buyer checkout with appearance", () => {
       await browserExpect(page.getByText("Captura lista para enviar.")).toBeVisible();
       await page.getByRole("button", { name: "Ya pagué" }).click();
       await browserExpect(page.getByRole("heading", { name: "Pago pendiente de revisión" })).toBeVisible();
-      await browserExpect.poll(() => primary(page)).toBe(forest.light.primary.toUpperCase());
+      await browserExpect.poll(() => primary(page)).toBe(boutique.colors.primary.toUpperCase());
       const stored = await f.read();
       expect(stored.deliveryCharge.toNumber()).toBe(8);
       expect(stored.delivery).toMatchObject({ method: "agency", destination: { districtCode: "150122" }, recordedBy: { kind: "buyer" } });

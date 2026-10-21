@@ -1,30 +1,23 @@
 import { useId, type ReactNode } from "react";
-import { catalogPalette, checkoutPalette } from "@core/src/features/checkout-appearance/domain/checkout-colors";
+import { checkoutThemes, defaultCheckoutTheme } from "@core/src/features/checkout-appearance/domain/checkout-themes";
 import type { PublicCheckoutAppearance } from "@core/src/features/checkout-appearance/presentation/checkout-appearance-schemas";
+import { checkoutThemeCss } from "@core/src/features/checkout-appearance/presentation/checkout-theme-style";
+import "@core/src/features/checkout-appearance/presentation/checkout-theme-fonts.css";
+import "@core/src/features/checkout-appearance/presentation/checkout-theme.css";
 
-type Surface = "checkout" | "catalog";
-type CheckoutThemeProps = Readonly<{ appearance: PublicCheckoutAppearance | null; surface?: Surface; children: ReactNode }>;
-
-const declarations = (tokens: Readonly<Record<string, string>>) =>
-  Object.entries(tokens).map(([name, value]) => `--${name}:${value};`).join("");
+type CheckoutThemeProps = Readonly<{ appearance: Pick<PublicCheckoutAppearance, "theme"> | null; children: ReactNode }>;
 
 /**
- * Values come only from the code catalog, never from seller data, so the CSS cannot carry user text.
- * `scope` comes from React's `useId` (no quotes or backslashes), so it is safe inside the attribute selector.
+ * Paints the checkout subtree with one fixed theme; a company without appearance gets Clásico.
+ * The mode is fixed by the theme: only Noche adds `.dark`, so `dark:` variants of shared components match inside it alone.
  */
-export function checkoutThemeCss(
-  { brandColor, background }: Pick<PublicCheckoutAppearance, "brandColor" | "background">, scope: string, surface: Surface = "checkout",
-): string {
-  const palette = (surface === "catalog" ? catalogPalette : checkoutPalette)(brandColor, background);
-  const selector = `[data-checkout-theme="${scope}"]`;
-  return `${selector}{${declarations(palette.light)}}.dark ${selector}{${declarations(palette.dark)}}`;
-}
-
-export function CheckoutTheme({ appearance, surface = "checkout", children }: CheckoutThemeProps) {
+export function CheckoutTheme({ appearance, children }: CheckoutThemeProps) {
   // Scoped per instance so two themes on one page never paint each other's subtree.
   const scope = useId();
+  const id = appearance?.theme ?? defaultCheckoutTheme;
+  const dark = checkoutThemes[id].mode === "dark";
   return <>
-    {appearance && <style dangerouslySetInnerHTML={{ __html: checkoutThemeCss(appearance, scope, surface) }} />}
-    <div data-checkout-theme={scope} className="min-h-screen bg-background text-foreground">{children}</div>
+    <style dangerouslySetInnerHTML={{ __html: checkoutThemeCss(id, scope) }} />
+    <div data-checkout-theme={scope} data-checkout-theme-id={id} className={dark ? "dark min-h-screen" : "min-h-screen"}>{children}</div>
   </>;
 }

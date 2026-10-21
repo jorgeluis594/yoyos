@@ -1,43 +1,39 @@
 import { describe, expect, test } from "vitest";
 import {
-  checkoutBrandColors, defaultCheckoutAppearance, isDefaultCheckoutAppearance, parseCheckoutAppearance, parseCompanyId, parseImageId, parseUserId,
+  defaultCheckoutAppearance, isDefaultCheckoutAppearance, parseCheckoutAppearance, parseCompanyId, parseImageId, parseUserId,
 } from "@core/src/features/checkout-appearance/domain/checkout-appearance";
+import { checkoutThemeIds } from "@core/src/features/checkout-appearance/domain/checkout-themes";
 
 const logoImageId = "0f4d2c3e-1b6a-4c5d-8e7f-9a0b1c2d3e4f";
 
 describe("parseCheckoutAppearance", () => {
-  test("accepts a complete appearance", () => {
-    expect(parseCheckoutAppearance({ logoImageId, brandColor: "forest", background: "brand_tint" }))
-      .toEqual({ success: true, data: { logoImageId, brandColor: "forest", background: "brand_tint" } });
+  test("accepts a logo with each of the five themes", () => {
+    for (const theme of checkoutThemeIds)
+      expect(parseCheckoutAppearance({ logoImageId, theme })).toEqual({ success: true, data: { logoImageId, theme } });
   });
 
   test("accepts an appearance without logo", () => {
-    expect(parseCheckoutAppearance({ logoImageId: null, brandColor: "yoyos", background: "soft" }))
+    expect(parseCheckoutAppearance({ logoImageId: null, theme: "classic" }))
       .toMatchObject({ success: true, data: { logoImageId: null } });
   });
 
-  test("accepts every color of the catalog", () => {
-    for (const brandColor of checkoutBrandColors)
-      expect(parseCheckoutAppearance({ logoImageId: null, brandColor, background: "medium" })).toMatchObject({ success: true });
-  });
-
-  test.each(["#2F6B4F", "green", "Bosque", "", null])("rejects %s as brand color", (brandColor) => {
-    expect(parseCheckoutAppearance({ logoImageId: null, brandColor, background: "medium" }))
-      .toMatchObject({ success: false, error: { code: "INVALID_CHECKOUT_APPEARANCE", invalidFields: ["brandColor"] } });
+  test.each(["neon", "Boutique", "#2F6B4F", "", null])("rejects an unknown theme naming the theme field (%s)", (theme) => {
+    expect(parseCheckoutAppearance({ logoImageId: null, theme }))
+      .toMatchObject({ success: false, error: { code: "INVALID_CHECKOUT_APPEARANCE", invalidFields: ["theme"] } });
   });
 
   test("rejects a logo id that is not a UUID", () => {
-    expect(parseCheckoutAppearance({ logoImageId: "logo.png", brandColor: "yoyos", background: "medium" }))
+    expect(parseCheckoutAppearance({ logoImageId: "logo.png", theme: "classic" }))
       .toMatchObject({ success: false, error: { invalidFields: ["logoImageId"] } });
   });
 
-  test("rejects a background outside the three options", () => {
-    expect(parseCheckoutAppearance({ logoImageId: null, brandColor: "yoyos", background: "black" }))
-      .toMatchObject({ success: false, error: { invalidFields: ["background"] } });
+  test("rejects a brand color or background sent with the appearance", () => {
+    expect(parseCheckoutAppearance({ logoImageId: null, theme: "classic", brandColor: "forest", background: "soft" }))
+      .toMatchObject({ success: false, error: { invalidFields: ["brandColor", "background"] } });
   });
 
   test("rejects unknown fields", () => {
-    expect(parseCheckoutAppearance({ logoImageId: null, brandColor: "yoyos", background: "medium", companyId: "other" }))
+    expect(parseCheckoutAppearance({ logoImageId: null, theme: "classic", companyId: "other" }))
       .toMatchObject({ success: false, error: { invalidFields: ["companyId"] } });
   });
 
@@ -47,17 +43,16 @@ describe("parseCheckoutAppearance", () => {
 });
 
 describe("isDefaultCheckoutAppearance", () => {
-  test("uses Yoyos with Medio as the default appearance", () => {
-    expect(defaultCheckoutAppearance).toEqual({ logoImageId: null, brandColor: "yoyos", background: "medium" });
+  test("uses Clásico without logo as the default appearance", () => {
+    expect(defaultCheckoutAppearance).toEqual({ logoImageId: null, theme: "classic" });
   });
 
-  test("recognizes the Yoyos default appearance", () => {
+  test("recognizes the default appearance", () => {
     expect(isDefaultCheckoutAppearance(defaultCheckoutAppearance)).toBe(true);
   });
 
-  test("treats a different color, background or logo as customized", () => {
-    expect(isDefaultCheckoutAppearance({ ...defaultCheckoutAppearance, brandColor: "forest" })).toBe(false);
-    expect(isDefaultCheckoutAppearance({ ...defaultCheckoutAppearance, background: "soft" })).toBe(false);
+  test("treats a different theme or a logo as customized", () => {
+    expect(isDefaultCheckoutAppearance({ ...defaultCheckoutAppearance, theme: "noche" })).toBe(false);
     const parsed = parseCheckoutAppearance({ ...defaultCheckoutAppearance, logoImageId });
     expect(parsed.success && isDefaultCheckoutAppearance(parsed.data)).toBe(false);
   });

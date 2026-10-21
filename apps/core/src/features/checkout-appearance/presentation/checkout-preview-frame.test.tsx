@@ -5,12 +5,12 @@ import { createInstance } from "i18next";
 import { I18nextProvider, initReactI18next } from "react-i18next";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import resources from "@core/app/locales";
-import type { CheckoutPreviewMode, PublicCheckoutAppearance } from "@core/src/features/checkout-appearance/presentation/checkout-appearance-schemas";
+import type { PublicCheckoutAppearance } from "@core/src/features/checkout-appearance/presentation/checkout-appearance-schemas";
 import { CheckoutPreviewFrame } from "@core/src/features/checkout-appearance/presentation/checkout-preview-frame";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
-const draft: PublicCheckoutAppearance = { logoUrl: null, brandColor: "plum", background: "medium" };
+const draft: PublicCheckoutAppearance = { logoUrl: null, theme: "boutique" };
 const i18n = createInstance();
 void i18n.use(initReactI18next).init({ lng: "es", resources });
 
@@ -18,20 +18,18 @@ describe("CheckoutPreviewFrame", () => {
   let root: Root | undefined;
   let container: HTMLElement;
   beforeEach(() => { container = document.body.appendChild(document.createElement("div")); });
-  const onModeChange = vi.fn();
-  beforeEach(() => onModeChange.mockClear());
   afterEach(() => { act(() => root?.unmount()); root = undefined; document.body.innerHTML = ""; vi.restoreAllMocks(); });
 
-  function mount(appearance: PublicCheckoutAppearance, mode: CheckoutPreviewMode = "light") {
+  function mount(appearance: PublicCheckoutAppearance) {
     root = createRoot(container);
-    render(appearance, mode);
+    render(appearance);
     const iframe = container.querySelector("iframe")!;
     const post = vi.fn();
     Object.defineProperty(iframe, "contentWindow", { value: { postMessage: post } });
     return { iframe, post };
   }
-  function render(appearance: PublicCheckoutAppearance, mode: CheckoutPreviewMode = "light") {
-    act(() => root!.render(<I18nextProvider i18n={i18n}><CheckoutPreviewFrame appearance={appearance} mode={mode} onModeChange={onModeChange} /></I18nextProvider>));
+  function render(appearance: PublicCheckoutAppearance) {
+    act(() => root!.render(<I18nextProvider i18n={i18n}><CheckoutPreviewFrame appearance={appearance} /></I18nextProvider>));
   }
   const announceReady = (source: unknown) => act(() => {
     window.dispatchEvent(new MessageEvent("message", { data: { type: "checkout-appearance:ready" }, origin: window.location.origin, source: source as MessageEventSource }));
@@ -41,26 +39,24 @@ describe("CheckoutPreviewFrame", () => {
   });
   const lastUpdate = (post: ReturnType<typeof vi.fn>) => post.mock.calls.at(-1)?.[0];
 
-  test("sends each draft change and resends the latest one when the preview announces it is ready", () => {
+  test("sends the theme draft and its own state to the preview", () => {
     const { iframe, post } = mount(draft);
-    render({ ...draft, brandColor: "ocean" });
-    expect(lastUpdate(post).appearance.brandColor).toBe("ocean");
+    render({ ...draft, theme: "antojo" });
+    expect(lastUpdate(post).appearance.theme).toBe("antojo");
     post.mockClear();
     announceReady(iframe.contentWindow);
-    expect(post).toHaveBeenCalledWith({ type: "checkout-appearance:update", appearance: { ...draft, brandColor: "ocean" }, mode: "light", state: "review" }, window.location.origin);
+    expect(post).toHaveBeenCalledWith({ type: "checkout-appearance:update", appearance: { ...draft, theme: "antojo" }, state: "review" }, window.location.origin);
+    press("Pago");
+    expect(lastUpdate(post)).toMatchObject({ appearance: { theme: "antojo" }, state: "payment" });
   });
 
-  test("applies the editor's mode and its own state to the preview", () => {
-    const { iframe, post } = mount(draft);
-    announceReady(iframe.contentWindow);
-    press("Oscuro");
-    expect(onModeChange).toHaveBeenCalledWith("dark");
-    expect(lastUpdate(post).mode).toBe("light");
-    render(draft, "dark");
-    expect(lastUpdate(post).mode).toBe("dark");
-    expect([...container.querySelectorAll("button")].find((button) => button.textContent === "Oscuro")?.getAttribute("aria-pressed")).toBe("true");
-    press("Pago");
-    expect(lastUpdate(post)).toMatchObject({ mode: "dark", state: "payment" });
+  test("offers phone and desktop and review and payment, and no light or dark switch", () => {
+    mount(draft);
+    const names = [...container.querySelectorAll("button")].map((button) => button.textContent);
+    expect(names).toEqual(expect.arrayContaining(["Celular", "Escritorio", "Revisión", "Pago"]));
+    expect(names).not.toContain("Claro");
+    expect(names).not.toContain("Oscuro");
+    expect(container.querySelector('[role="group"][aria-label="Modo"]')).toBeNull();
   });
 
   test("ignores readiness that does not come from its own frame", () => {
@@ -76,7 +72,6 @@ describe("CheckoutPreviewFrame", () => {
     expect(iframe.style.width).toBe("390px");
     press("Escritorio");
     expect(iframe.style.width).toBe("1280px");
-    press("Oscuro");
     expect(localStorage.getItem("yoyos-theme")).toBeNull();
     expect(document.documentElement.classList.contains("dark")).toBe(false);
   });

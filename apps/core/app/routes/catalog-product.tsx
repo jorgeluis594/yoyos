@@ -18,7 +18,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
   const company = catalogPathSchema.safeParse(params);
   if (!company.success) throw data(null, { status: 404, headers: catalogHeaders });
   const path = catalogProductPathSchema.safeParse(params);
-  const appearance = catalogBrowse.appearance(company.data.companyId);
+  const logoUrl = catalogBrowse.appearance(company.data.companyId);
   const result = await catalogBrowse.getProduct(path.success ? path.data.productId : null, company.data);
   if (!result.success) {
     const code = result.error.code;
@@ -26,7 +26,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
     if (code === "PRODUCT_UNAVAILABLE") throw data(productUnavailable, { status: 404, headers: catalogHeaders });
     throw data(null, { status: code === "CATALOG_UNAVAILABLE" ? 404 : 503, headers: catalogHeaders });
   }
-  return data({ ...result.data, appearance: await appearance }, { headers: catalogHeaders });
+  return data({ ...result.data, logoUrl: await logoUrl }, { headers: catalogHeaders });
 }
 
 /** Returns to the list entry when coming from it, so search, pages and scroll come back as they were. */
@@ -41,7 +41,7 @@ function BackToCatalog() {
 }
 
 export default function CatalogProductPage() {
-  const { storeName, appearance, product } = useLoaderData<typeof loader>();
+  const { storeName, logoUrl, product } = useLoaderData<typeof loader>();
   const { companyId = "" } = useParams();
   const [cart, updateCart] = useCatalogCart(companyId);
   // `id` changes on every add so the status region gets new content and screen readers repeat an identical message.
@@ -63,7 +63,7 @@ export default function CatalogProductPage() {
     notify(result.clamped ? "Agregado al carrito. Ya tienes el máximo disponible" : "Agregado al carrito");
   };
 
-  return <CatalogShell appearance={appearance} storeName={storeName} cart={<CatalogCartButton companyId={companyId} />}>
+  return <CatalogShell logoUrl={logoUrl} storeName={storeName} cart={<CatalogCartButton companyId={companyId} />}>
     <BackToCatalog />
     <article className="grid gap-6 md:grid-cols-2 md:gap-10">
       <CatalogProductImage name={product.name} url={product.imageUrl} />
