@@ -162,6 +162,11 @@ describe("checkout-theme.css", () => {
     expect(rule('[data-checkout-theme] [data-slot="button"][data-variant="default"]')).toMatch(/height[\s\S]*box-shadow/);
   });
 
+  test("leaves the header justification to the brand row, since the bar itself spans the full width", () => {
+    const header = stylesheet.match(/data-checkout-part="header"\] \{([^{}]*)\}/)?.[1] ?? "";
+    expect(header).not.toContain("justify-content");
+  });
+
   test("hooks only the closed list of checkout parts", () => {
     const parts = new Set([...stylesheet.matchAll(/data-checkout-part="([a-z-]+)"/g)].map((match) => match[1]));
     expect([...parts].sort()).toEqual(["card", "field", "field-group", "free", "header", "header-brand", "option", "option-cost", "option-group", "order-title",

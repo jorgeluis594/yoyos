@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { RotateCcw, Upload } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { data, useBlocker, useFetcher, useLoaderData, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
+import { data, isRouteErrorResponse, useBlocker, useFetcher, useLoaderData, type ActionFunctionArgs, type ClientActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
 import { imageResponseSchema } from "@shared/contracts/images";
 import { privateUserContext } from "@core/app/private-user-context";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
@@ -61,6 +61,16 @@ export async function action({ context, request }: ActionFunctionArgs) {
   const code = saved.error.code;
   bindRequestOperation({ operation: "save_checkout_appearance", outcome: code === "INVALID_STORED_DATA" || code === "PERSISTENCE_UNAVAILABLE" ? "technical_failure" : "invalid_input" });
   return data<EditorActionData>({ error: code }, { status: failureStatus[code] });
+}
+
+// A save that gets no response shows the save error with Reintentar instead of replacing the editor with the load error.
+export async function clientAction({ serverAction }: ClientActionFunctionArgs) {
+  try { return await serverAction<typeof action>(); }
+  catch (cause) {
+    if (cause instanceof Response || isRouteErrorResponse(cause)) throw cause;
+    // The 503 keeps the loader from revalidating, which would also fail offline and lose the draft.
+    return data<EditorActionData>({ error: "PERSISTENCE_UNAVAILABLE" }, { status: failureStatus.PERSISTENCE_UNAVAILABLE });
+  }
 }
 
 export function ErrorBoundary() {

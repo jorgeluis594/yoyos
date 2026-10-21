@@ -46,6 +46,17 @@ describe("CheckoutShell", () => {
     expect(header.querySelector("h1")?.textContent).toBe("Pedido #1001");
     act(() => root.unmount());
   });
+
+  test("places the brand with the theme's header justification inside the page width, not on the full-width bar", () => {
+    const container = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(container);
+    act(() => root.render(withI18n(<CheckoutShell appearance={null} checkout={pending}><p>Contenido</p></CheckoutShell>)));
+    const bar = container.querySelector('[data-checkout-part="header"]')!;
+    const row = bar.firstElementChild!;
+    expect((row as HTMLElement).getAttribute("style")).toContain("var(--checkout-header-justify");
+    expect(row.contains(container.querySelector('[data-checkout-part="header-brand"]'))).toBe(true);
+    act(() => root.unmount());
+  });
 });
 
 describe("CheckoutOrderSummary", () => {
