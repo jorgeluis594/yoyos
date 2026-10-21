@@ -82,7 +82,7 @@ export function CheckoutDeliveryFields({ orderId, checkout, options, onChange, r
   const changeMode = (mode: Draft["mode"]) => { form.setValue("mode", mode); form.setValue("rateId", ""); form.setValue("agencyId", ""); setReceived(null); };
   const changeDistrict = () => (districtRef.current?.querySelector<HTMLSelectElement>('select[id$="-district"]:not(:disabled)') ?? districtRef.current?.querySelector<HTMLSelectElement>('select[id$="-department"]'))?.focus();
   const input = (name: "name" | "phone" | "address" | "instructions" | "document", label: string, required = false) => <Controller key={name} name={name} control={form.control} render={({ field }) =>
-    <Field><FieldLabel htmlFor={`delivery-${name}`}>{label}</FieldLabel><Input {...field} name={undefined} id={`delivery-${name}`} required={required} type={name === "phone" ? "tel" : "text"} /></Field>} />;
+    <Field data-checkout-part="field"><FieldLabel htmlFor={`delivery-${name}`}>{label}</FieldLabel><Input {...field} name={undefined} id={`delivery-${name}`} required={required} type={name === "phone" ? "tel" : "text"} /></Field>} />;
   return <fieldset disabled={disabled || !ready} className="flex min-w-0 flex-col gap-4">
     <legend data-checkout-part="section-title" className="mb-4 text-lg font-semibold">{t("checkoutDelivery.title")}</legend>
     {!saved && !homeEnabled && !agencyEnabled && !options.store.enabled ? <p role="status" className="rounded-[var(--radius-control)] bg-muted p-4 text-sm text-muted-foreground">{t("checkoutDelivery.noModes")}</p>
@@ -104,15 +104,15 @@ export function CheckoutDeliveryFields({ orderId, checkout, options, onChange, r
       {draft.districtCode && !current && <p role="status" className="text-sm text-muted-foreground">{t("checkoutDelivery.loading")}</p>}
       {current && !current.success && <div className="flex flex-col items-start gap-2"><p role="alert" className="text-sm text-[var(--error)]">{t("checkoutDelivery.ratesError")}</p><Button type="button" variant="outline" onClick={() => setRevision(value => value + 1)}>{t("checkoutDelivery.retry")}</Button></div>}
       {draft.mode === "home" && current?.success && homeRates.length === 0 && <p role="status" className="rounded-[var(--radius-control)] bg-muted p-4 text-sm text-muted-foreground">{t(options.store.enabled ? "checkoutDelivery.noRatesOrStore" : "checkoutDelivery.noRates")}</p>}
-      {draft.mode === "home" && homeRates.length > 0 && <Controller name="rateId" control={form.control} render={({ field }) => <Field><FieldLabel htmlFor="delivery-rate">{t("checkoutDelivery.rate")}</FieldLabel><select id="delivery-rate" data-slot="select" className={controlClass} value={field.value} onBlur={field.onBlur} onChange={field.onChange}>
-        <option value="">{t("checkoutDelivery.selectRate")}</option>{homeRates.map(item => <option key={item.id} value={item.id}>{rateLabel(item, homeRates)} · {amount(item.price)}</option>)}</select></Field>} />}
+      {draft.mode === "home" && homeRates.length > 0 && <Controller name="rateId" control={form.control} render={({ field }) => <div data-checkout-part="field-group" className="flex flex-col gap-4"><Field data-checkout-part="field"><FieldLabel htmlFor="delivery-rate">{t("checkoutDelivery.rate")}</FieldLabel><select id="delivery-rate" data-slot="select" className={controlClass} value={field.value} onBlur={field.onBlur} onChange={field.onChange}>
+        <option value="">{t("checkoutDelivery.selectRate")}</option>{homeRates.map(item => <option key={item.id} value={item.id}>{rateLabel(item, homeRates)} · {amount(item.price)}</option>)}</select></Field></div>} />}
       {draft.mode === "agency" && current?.success && buyerDistrict && <CheckoutAgencyDestination choices={choices} buyerDistrict={buyerDistrict} value={draft.agencyId ?? ""} homeOffered={homeEnabled} disabled={disabled}
         onChange={agencyId => form.setValue("agencyId", agencyId)} onChangeDistrict={changeDistrict} onSwitchToHome={() => changeMode("home")} amount={amount} />}
     </>}
-    {draft.mode && draft.mode !== "keep" && <>
+    {draft.mode && draft.mode !== "keep" && <div data-checkout-part="field-group" className="flex flex-col gap-4">
       {input("name", t("checkoutDelivery.recipientName"), true)}{input("phone", t("checkoutDelivery.recipientPhone"), true)}
       {rate && <>{input("address", t("checkoutDelivery.address"), true)}{input("instructions", t("checkoutDelivery.instructions"))}</>}
-      {draft.mode === "agency" && <><Controller name="documentType" control={form.control} render={({ field }) => <Field><FieldLabel htmlFor="delivery-document-type">{t("checkoutDelivery.documentType")}</FieldLabel><select id="delivery-document-type" data-slot="select" className={controlClass} value={field.value} onChange={field.onChange} onBlur={field.onBlur}><option value="national_id">{t("checkoutDelivery.documentTypes.national_id")}</option><option value="passport">{t("checkoutDelivery.documentTypes.passport")}</option><option value="foreign_id">{t("checkoutDelivery.documentTypes.foreign_id")}</option></select></Field>} />{input("document", t("checkoutDelivery.document"), true)}</>}
-    </>}
+      {draft.mode === "agency" && <><Controller name="documentType" control={form.control} render={({ field }) => <Field data-checkout-part="field"><FieldLabel htmlFor="delivery-document-type">{t("checkoutDelivery.documentType")}</FieldLabel><select id="delivery-document-type" data-slot="select" className={controlClass} value={field.value} onChange={field.onChange} onBlur={field.onBlur}><option value="national_id">{t("checkoutDelivery.documentTypes.national_id")}</option><option value="passport">{t("checkoutDelivery.documentTypes.passport")}</option><option value="foreign_id">{t("checkoutDelivery.documentTypes.foreign_id")}</option></select></Field>} />{input("document", t("checkoutDelivery.document"), true)}</>}
+    </div>}
   </fieldset>;
 }

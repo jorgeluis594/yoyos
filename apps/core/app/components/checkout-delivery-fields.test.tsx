@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { renderToStaticMarkup } from "react-dom/server";
 import { createInstance } from "i18next";
 import { I18nextProvider, initReactI18next } from "react-i18next";
@@ -105,4 +106,16 @@ test("a saved agency delivery is summarized as Envío a agencia with courier, ag
   } });
   expect(html).toContain("Envío a agencia");
   expect(html).toContain("Shalom · Branch · Av. Test 123");
+});
+
+test("every text field and select of the delivery step sits in a field group, so each theme gives it the boundary of its buyer fields", () => {
+  const container = document.createElement("div");
+  container.innerHTML = render();
+  const controls = [...container.querySelectorAll("input:not([type=radio]):not([type=hidden]), select")];
+  expect(controls.map((control) => control.id)).toEqual(expect.arrayContaining(["delivery-name", "delivery-phone"]));
+  expect(controls.length).toBeGreaterThanOrEqual(6);
+  for (const control of controls) {
+    expect(control.closest("[data-checkout-part=field-group]"), control.id).not.toBeNull();
+    expect(control.closest("[data-checkout-part=field]"), control.id).not.toBeNull();
+  }
 });
