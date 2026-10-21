@@ -16,7 +16,10 @@ export function PeruDistrictSelect({ value, onChange, disabled = false, themed =
   const labelSlot = themed ? { "data-slot": "label" } : {};
   // The checkout themes lay these fields out as one group, like the buyer fields; the seller views keep their own layout.
   const fieldPart = themed ? { "data-checkout-part": "field" } : {};
-  const pair = (fields: ReactNode) => themed ? fields : <div className="grid min-w-0 gap-3 sm:grid-cols-2">{fields}</div>;
+  // Themed, the two columns are one field of the group, so its separator and padding stay one per row.
+  const pair = (fields: ReactNode) => themed
+    ? <div data-checkout-part="field" className="min-w-0"><div className="grid min-w-0 gap-3 sm:grid-cols-2">{fields}</div></div>
+    : <div className="grid min-w-0 gap-3 sm:grid-cols-2">{fields}</div>;
   const group = (fields: ReactNode) => themed ? <div data-checkout-part="field-group" className="flex min-w-0 flex-col gap-3">{fields}</div> : fields;
   const id = useId();
   const selected = value ? getPeruDistrict(value) : null;
@@ -33,12 +36,12 @@ export function PeruDistrictSelect({ value, onChange, disabled = false, themed =
     <legend className="mb-3 font-medium">{t("peruDistrict.deliveryTitle")}</legend>
     {group(<>
     {pair(<>
-      <div {...fieldPart} className="flex min-w-0 flex-col gap-1.5"><label htmlFor={`${id}-department`} {...labelSlot} className="text-sm font-medium">{t("peruDistrict.department")}</label>
+      <div className="flex min-w-0 flex-col gap-1.5"><label htmlFor={`${id}-department`} {...labelSlot} className="text-sm font-medium">{t("peruDistrict.department")}</label>
         <select id={`${id}-department`} {...selectSlot} className={controlClass} value={department?.code ?? ""} onChange={event => {
           setDepartmentCode(event.target.value); setProvinceCode(""); setQuery(""); onChange(null);
         }}><option value="">{t("peruDistrict.selectDepartment")}</option>{peruDepartments.map(item => <option key={item.code} value={item.code}>{item.name}</option>)}</select>
       </div>
-      <div {...fieldPart} className="flex min-w-0 flex-col gap-1.5"><label htmlFor={`${id}-province`} {...labelSlot} className="text-sm font-medium">{t("peruDistrict.province")}</label>
+      <div className="flex min-w-0 flex-col gap-1.5"><label htmlFor={`${id}-province`} {...labelSlot} className="text-sm font-medium">{t("peruDistrict.province")}</label>
         <select id={`${id}-province`} {...selectSlot} className={controlClass} value={province?.code ?? ""} disabled={!department} onChange={event => {
           setProvinceCode(event.target.value); setQuery(""); onChange(null);
         }}><option value="">{t("peruDistrict.selectProvince")}</option>{provinces.map(item => <option key={item.code} value={item.code}>{item.name}</option>)}</select>

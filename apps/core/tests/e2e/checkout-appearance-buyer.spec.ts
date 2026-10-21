@@ -6,6 +6,7 @@ import { orders } from "@core/src/features/orders/composition";
 import { deliverySettings } from "@core/src/features/delivery-settings";
 import { deleteAgencies, insertAgency, seededCatalogId } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
 import { companyPaymentSettings } from "@core/src/features/companies";
+import { checkoutFontStacks } from "@core/src/features/checkout-appearance/presentation/checkout-theme-style";
 import { checkoutThemeIds, checkoutThemes, type CheckoutThemeId } from "@core/src/features/checkout-appearance/domain/checkout-themes";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { removeCompanyAppearance, rgb, saveCompanyAppearance } from "@core/tests/e2e/checkout-appearance-fixtures";
@@ -23,6 +24,8 @@ function requestLogs(requestId: string) {
     .filter((event) => event.requestId === requestId);
 }
 
+type OrderLine = Readonly<{ variantId: VariantId; quantity: PositiveInteger }>;
+
 const photoSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="150"><rect width="120" height="150" fill="#C98B5B"/></svg>';
 
 /** `photos` builds the order of «Polo básico» (with a product photo) and «Taza blanca» (without one) instead of the single «Cuaderno». */
@@ -34,20 +37,22 @@ async function fixture({ delivery = true, photos = false }: { delivery?: boolean
   await withTenantIsolation(companyId, async () => {
     await prisma.company.create({ data: { id: companyId, name: "Tienda con marca", country: "PE" } });
     await systemPrisma.user.create({ data: { id: userId, name: "Seller", email: `${userId}@example.test`, companyId } });
-    const variantIds: VariantId[] = [];
-    for (const name of photos ? ["Polo básico", "Taza blanca"] : ["Cuaderno"]) {
+    const addLine = async (name: string, withPhoto: boolean): Promise<OrderLine> => {
       const product = await products.create({ name, currency: "PEN", variants: [{ attributes: { Color: "Azul" }, salePrice: 10, initialStock: 3 }] });
       if (!product.success) throw new Error("Product fixture failed");
       const variant = await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } });
-      variantIds.push(variant.id as VariantId);
-      if (photos && name === "Polo básico") {
+      if (withPhoto) {
         const imageId = randomUUID();
         await prisma.image.create({ data: { id: imageId, storageKey: `products/${imageId}.svg` } });
         await prisma.product.update({ where: { id: product.data }, data: { imageId } });
       }
-    }
+      return { variantId: variant.id as VariantId, quantity: 1 as PositiveInteger };
+    };
+    const lines: readonly [OrderLine, ...OrderLine[]] = photos
+      ? [await addLine("Polo básico", true), await addLine("Taza blanca", false)]
+      : [await addLine("Cuaderno", false)];
     await prisma.contact.create({ data: { id: contactId, whatsappAccountId: "1@lid", whatsappLid: "2@lid" } });
-    const created = await orders.create({ id: orderId, items: [variantIds[0], ...variantIds.slice(1)].map((variantId) => ({ variantId, quantity: 1 as PositiveInteger })) as [{ variantId: VariantId; quantity: PositiveInteger }] }, { companyId, userId });
+    const created = await orders.create({ id: orderId, items: lines }, { companyId, userId });
     if (!created.success) throw new Error("Order fixture failed");
     await prisma.orderBuyer.create({ data: { orderId, contactId, name: "Ana", phone: "+51987654321" } });
     if (delivery) await prisma.order.update({ where: { id: orderId }, data: { delivery: { method: "store",
@@ -111,11 +116,22 @@ async function expectThumbnails(page: Page, id: CheckoutThemeId) {
   for (const thumbnail of [photo, marker]) await browserExpect(thumbnail).toHaveCSS("border-top-left-radius", radius === "0" ? "0px" : radius);
 }
 
+/** The theme's font files are loaded and used, not only named in the stack: a failed file would still leave the family name in `font-family`. */
+async function expectFontsLoaded(page: Page, id: CheckoutThemeId) {
+  const families = [...new Set(Object.values(checkoutThemes[id].fonts))].filter((font) => font !== "system")
+    .map((font) => checkoutFontStacks[font].split(",")[0].replace(/"/g, "").trim());
+  await browserExpect.poll(() => page.evaluate(async (names) => {
+    await document.fonts.ready;
+    return names.every((name) => [...document.fonts].some((face) => face.family.replace(/"/g, "") === name && face.status === "loaded"));
+  }, families), { message: `${id}: ${families.join(", ")} loaded` }).toBe(true);
+}
+
 /** The whole checkout takes the theme: its page color and mode, and no theme id of another one. */
 async function expectTheme(page: Page, id: CheckoutThemeId) {
   expect(await themeId(page)).toBe(id);
   await browserExpect(page.locator("[data-checkout-theme]")).toHaveCSS("background-color", rgb(checkoutThemes[id].colors.background));
   await browserExpect.poll(() => primary(page)).toBe(checkoutThemes[id].colors.primary.toUpperCase());
+  await expectFontsLoaded(page, id);
 }
 
 const capture = (page: Page, name: string) => page.screenshot({ path: `${captureDir}/${name}.png`, fullPage: true });
@@ -332,6 +348,7 @@ test.describe("buyer checkout with appearance", () => {
       await saveCompanyAppearance(f.companyId, { theme: "boutique", withLogo: false });
       await page.route("**/test-images/**", (route) => route.fulfill({ status: 200, contentType: "image/svg+xml", body: photoSvg }));
       await page.goto(f.path);
+      await expectFontsLoaded(page, "boutique");
       const family = (locator: import("@playwright/test").Locator) => locator.first().evaluate((element) => getComputedStyle(element).fontFamily);
       const inter = /Inter/;
       const playfair = /Playfair Display/;

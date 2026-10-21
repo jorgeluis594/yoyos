@@ -139,6 +139,18 @@ describe("checkout-theme.css", () => {
     expect(checkoutThemes.noche.style["payment-selected-shadow"]).toBe("none");
   });
 
+  test("does not clip the field group, so a field touching its edge keeps the whole focus ring", () => {
+    const group = stylesheet.match(/data-checkout-part="field-group"\] \{([^{}]*)\}/)?.[1] ?? "";
+    expect(group).toContain("border-radius");
+    expect(group).not.toMatch(/overflow/);
+  });
+
+  test("keeps the total label on one line and lets a long amount move under it", () => {
+    const rule = (part: string) => stylesheet.match(new RegExp(`data-checkout-part="${part}"\\] \\{([^{}]*)\\}`))?.[1] ?? "";
+    expect(rule("total")).toContain("flex-wrap: wrap");
+    expect(rule("total-label")).toContain("white-space: nowrap");
+  });
+
   test("lets a native radio leave the focus ring to its option or payment chip", () => {
     expect(stylesheet).toContain('[data-slot="radio-group-item"]:not(input)):focus-visible');
     for (const part of ["option", "payment-method"]) expect(stylesheet).toMatch(new RegExp(`data-checkout-part="${part}"\\]:has\\(:focus-visible\\) \\{[^}]*outline-offset: ${part === "option" ? "-2px" : "2px"}`));
