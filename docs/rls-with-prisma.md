@@ -25,7 +25,7 @@ await withTenantIsolation(companyId, async () => {
 
 `systemPrisma` is the base client for authentication and global queries: it does not require company context and retains the native transactions used by Better Auth. `prisma` requires company context for all its operations and sets `app.company_id` within each transaction. The database applies RLS to `Company` even when `systemPrisma` is used.
 
-Migration `20260923150000_company_rls` applies `ENABLE ROW LEVEL SECURITY` and `FORCE ROW LEVEL SECURITY` to `Company`. Its `USING` and `WITH CHECK` policy compares `id` with `NULLIF(current_setting('app.company_id', true), '')::uuid`. Without context, no rows can be read or written. The `core_app` role has only DML permissions on application tables, with no `TRUNCATE`, table ownership, superuser privileges, or `BYPASSRLS`. The `migrate` service uses migration credentials; `web` uses only the restricted role.
+The `company_rls` migration applies `ENABLE ROW LEVEL SECURITY` and `FORCE ROW LEVEL SECURITY` to `Company`. Its `USING` and `WITH CHECK` policy compares `id` with `NULLIF(current_setting('app.company_id', true), '')::uuid`. Without context, no rows can be read or written. The `core_app` role has only DML permissions on application tables, with no `TRUNCATE`, table ownership, superuser privileges, or `BYPASSRLS`. The `migrate` service uses migration credentials; `web` uses only the restricted role.
 
 All persistence operations must be awaited within their context. A deferred task is not automatically part of a transaction that has already ended.
 

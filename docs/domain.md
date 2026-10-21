@@ -4,7 +4,7 @@
 
 Business rules belong to the feature that owns the business concept. Keep those rules pure, coordinate operations through application use cases, and leave technical data access and platform interaction at their respective boundaries.
 
-These conventions apply to both the API and the Expo mobile app. Follow [Application Architecture](architecture.md), keep adapters within [Persistence Conventions](persistence.md), and verify behavior according to [Testing Conventions](testing-conventions.md).
+These conventions apply to both core and the Expo mobile app. Follow [Application Architecture](architecture.md), keep adapters within [Persistence Conventions](persistence.md), and verify behavior according to [Testing Conventions](testing-conventions.md).
 
 ## File Hierarchy
 

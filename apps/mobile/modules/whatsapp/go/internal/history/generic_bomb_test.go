@@ -212,7 +212,7 @@ func peak(fn func()) uint64 {
 }
 
 // IT-HIS-09: the heap the parser holds, at the real bound, for the costliest shapes just under it. The
-// numbers are what README documents: the bound is estimated heap, not input bytes, and the measured
+// bound is the estimated parser heap of DefaultLimits (listed in the README), not input bytes, and the measured
 // peak must stay within twice of it.
 func TestPeakHeapAtTheRealBoundForTheCostliestShapes(t *testing.T) {
 	limits := DefaultLimits()

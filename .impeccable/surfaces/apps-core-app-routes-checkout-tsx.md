@@ -68,7 +68,7 @@ This documentation pass inspected the listed sources and captures; it does not c
 
 ## Per-color palette review (2026-10-20, T7)
 
-`CheckoutTheme` now redefines the 19 non-semantic tokens from the chosen color (docs/apariencia-del-checkout-implementacion.md §15.6): page, borders, fields, cards, muted areas, secondary text and focus follow the hue of the color in light and dark. Layout, components and classes are unchanged; the public catalog keeps its former palette through `surface="catalog"`.
+`CheckoutTheme` now redefines the 19 non-semantic tokens from the chosen color (docs/checkout.md, "Color catalog"): page, borders, fields, cards, muted areas, secondary text and focus follow the hue of the color in light and dark. Layout, components and classes are unchanged; the public catalog keeps its former palette through `surface="catalog"`.
 
 Reviewed with Impeccable: the 18 stories of `checkout-theme.stories.tsx` (nine colors × Suave, Medio and De marca × light and dark, side by side) and the real buyer checkout with Océano and Mostaza (three backgrounds, light and dark, desktop and mobile). Result: no open material findings. Suave, Medio and De marca read as three distinct tones in every color and mode; cards stay white in light; the selection highlight, muted areas and field borders carry the hue. Before/after captures of the default look and of Océano with Medio, on mobile (390 px) and desktop (1280 px), have identical element positions and sizes (57 elements compared per capture); the default look is pixel-identical.
 

@@ -110,7 +110,7 @@ const yoyosTones = (mode: "light" | "dark", soft: string, brandBackground: strin
 });
 
 /**
- * Yoyos takes the global design tokens. The other eight follow one OKLCH criterion (docs/apariencia-del-checkout-implementacion.md §15.6):
+ * Yoyos takes the global design tokens. The other eight follow one OKLCH criterion (docs/checkout.md, "Color catalog"):
  * the hue of the main tone, the lightness of the shared scale and chroma = min(scale maximum, main tone chroma), rounded to HEX.
  */
 export const checkoutColorPalettes: Readonly<Record<CheckoutBrandColor, Readonly<{ light: CheckoutPaletteTones; dark: CheckoutPaletteTones }>>> = {

@@ -6,7 +6,7 @@ import type { EmbedImage } from "@core/src/features/products/application/index-p
 import { parseEmbeddingModel, parseEmbeddingVector, type EmbeddingModel, type ImageBytes } from "@core/src/features/products/domain/image-identification";
 
 // OpenAI has no image embedding endpoint: a vision model describes the product and a text model embeds the description.
-// store: false keeps product photos and customer screenshots out of OpenAI's stored responses (design §15).
+// store: false keeps product photos and customer screenshots out of OpenAI's stored responses (docs/image-product-search.md).
 const dimensions = 1536;
 const describePrompt = "Describe the product shown in this image so it can be matched against catalog photos: "
   + "category, shape, colors, materials, patterns, printed text or logos and distinctive details. "
