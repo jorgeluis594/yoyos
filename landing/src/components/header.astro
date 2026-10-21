@@ -2,7 +2,6 @@
 import Menu from "@lucide/astro/icons/menu";
 import Phone from "@lucide/astro/icons/phone";
 import X from "@lucide/astro/icons/x";
-import logoDark from "@landing/src/assets/brand/yoyos-logo-dark.svg";
 import logoLight from "@landing/src/assets/brand/yoyos-logo-light.svg";
 import CtaLink from "@landing/src/components/cta-link.astro";
 import { siteConfig } from "@landing/src/config/site";
@@ -18,10 +17,7 @@ const anchorHref = (anchor: string) => `${isHome ? "" : "/"}#${anchor}`;
 <header class="site-header">
   <div class="container bar">
     <a class="logo" href="/">
-      <picture>
-        <source srcset={logoDark.src} media="(prefers-color-scheme: dark)" />
-        <img src={logoLight.src} width={logoLight.width} height={logoLight.height} alt={headerContent.logoAlt} />
-      </picture>
+      <img src={logoLight.src} width={logoLight.width} height={logoLight.height} alt={headerContent.logoAlt} />
     </a>
 
     <details class="menu">

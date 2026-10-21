@@ -3,12 +3,11 @@ import tokens from "@docs/design-tokens.json";
 import { themeCss } from "@landing/src/styles/design-theme";
 
 describe("themeCss", () => {
-  test("uses colors.light by default and colors.dark under the dark system preference", () => {
-    const [light, dark] = themeCss.split("@media (prefers-color-scheme:dark)");
-    expect(light).toContain(`--background:${tokens.colors.light.background};`);
-    expect(light).not.toContain(tokens.colors.dark.background);
-    expect(dark).toContain(`--background:${tokens.colors.dark.background};`);
-    expect(dark).toContain(`--primary:${tokens.colors.dark.primary};`);
+  test("emits only colors.light and declares the light color scheme", () => {
+    expect(themeCss).toContain("color-scheme:light;");
+    expect(themeCss).toContain(`--background:${tokens.colors.light.background};`);
+    expect(themeCss).not.toContain("prefers-color-scheme");
+    expect(themeCss).not.toContain(tokens.colors.dark.background);
   });
 
   test("exposes the landing typography, spacing and pill radius tokens", () => {

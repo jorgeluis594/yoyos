@@ -51,7 +51,7 @@ Every contact value, URL and switch comes from `PUBLIC_*` environment variables,
 - `src/config/`: environment schema and the resolved `siteConfig` (pages never read `import.meta.env` directly).
 - `src/lib/`: pure helpers (contact links, SEO, JSON-LD, manifest, analytics) with colocated tests.
 - `src/content/`: literal copy, one module per section; components contain no copy.
-- `src/styles/design-theme.ts`: the single token adapter. It builds CSS custom properties from `docs/design-tokens.json` (light, plus dark under `prefers-color-scheme`); never copy token values into CSS.
+- `src/styles/design-theme.ts`: the single token adapter. It builds CSS custom properties from `docs/design-tokens.json` (light values only; the landing has no dark mode); never copy token values into CSS.
 - `src/layouts/`, `src/components/`, `src/pages/`: presentation.
 - `assets-src/render-assets.mjs`: renders `public/icon-192.png`, `icon-512.png`, `logo-512.png` and `og/yoyos-1200x630.png` from the brand SVGs and `assets-src/og-image.svg` (`node assets-src/render-assets.mjs`).
 - `public/_headers`: immutable cache headers for `/_astro/*`; applying them is the deployment task.

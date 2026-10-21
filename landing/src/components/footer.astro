@@ -1,5 +1,4 @@
 ---
-import logoDark from "@landing/src/assets/brand/yoyos-logo-dark.svg";
 import logoLight from "@landing/src/assets/brand/yoyos-logo-light.svg";
 import { siteConfig } from "@landing/src/config/site";
 import { ctaLabels, footerContent } from "@landing/src/content/site";
@@ -20,10 +19,7 @@ const socialLinks = [
   <div class="container grid">
     <div class="brand">
       <a href="/">
-        <picture>
-          <source srcset={logoDark.src} media="(prefers-color-scheme: dark)" />
-          <img src={logoLight.src} width={logoLight.width} height={logoLight.height} alt={footerContent.logoAlt} loading="lazy" />
-        </picture>
+        <img src={logoLight.src} width={logoLight.width} height={logoLight.height} alt={footerContent.logoAlt} loading="lazy" />
       </a>
       <p class="lead">{footerContent.tagline}</p>
     </div>

@@ -151,3 +151,20 @@ describe("budgets", () => {
     expect(findUnreferencedScripts(pageSources, scripts)).toEqual([]);
   });
 });
+
+describe("light theme only", () => {
+  test("pages and stylesheets never follow a dark color-scheme preference and declare the light scheme", () => {
+    for (const variant of variantNames) {
+      const stylesheets = files(distPath(variant, "_astro")).filter((file) => file.endsWith(".css"));
+      for (const file of pages) {
+        const html = readDist(variant, file);
+        expect(html, `${variant}/${file}`).not.toContain("prefers-color-scheme");
+        expect(html, `${variant}/${file}`).toContain("color-scheme:light");
+        expect(meta(readPage(variant, file), "name", "color-scheme")).toBe("light");
+        expect(readPage(variant, file).querySelectorAll('meta[name="theme-color"]')).toHaveLength(1);
+        expect(html).not.toContain("<picture");
+      }
+      for (const stylesheet of stylesheets) expect(readFileSync(stylesheet, "utf8")).not.toContain("prefers-color-scheme");
+    }
+  });
+});

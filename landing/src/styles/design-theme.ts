@@ -36,9 +36,7 @@ const geometryVariables = {
   "motion-easing": tokens.motion.easing,
 };
 
-/** Static, class-less theme: light by default, dark under the system preference (no toggle). */
-export const themeCss =
-  `:root{color-scheme:light dark;${cssVariables({ ...tokens.colors.light, ...typographyVariables, ...geometryVariables })}}` +
-  `@media (prefers-color-scheme:dark){:root{${cssVariables(tokens.colors.dark)}}}`;
+/** Static, class-less theme: always light (founder decision: the landing has no dark mode). */
+export const themeCss = `:root{color-scheme:light;${cssVariables({ ...tokens.colors.light, ...typographyVariables, ...geometryVariables })}}`;
 
 export const designTokens = tokens;
