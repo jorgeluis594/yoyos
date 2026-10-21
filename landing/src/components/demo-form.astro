@@ -1,3 +1,287 @@
 ---
-// Stub created by T0: the task that owns this component implements it.
+import { siteConfig } from "@landing/src/config/site";
+import {
+  consentTextVersion,
+  contactMethodOptions,
+  demoFormContent as content,
+  rubroOptions,
+} from "@landing/src/content/demo-form";
+import { whatsappUrl } from "@landing/src/lib/contact";
+
+const { demoForm, contactEmail } = siteConfig;
+const whatsapp = whatsappUrl(siteConfig.whatsapp);
+const { fields } = content;
+const outcomes = [
+  { id: "demo-ok-whatsapp", kind: "success", via: content.success.via.whatsapp },
+  { id: "demo-ok-llamada", kind: "success", via: content.success.via.llamada },
+  { id: "demo-error", kind: "error", via: null },
+] as const;
 ---
+
+{
+  demoForm.kind === "enabled" && (
+    <div class="demo" data-demo-form>
+      {outcomes.map((outcome) => (
+        <div id={outcome.id} class={`outcome ${outcome.kind}`} role={outcome.kind === "error" ? "alert" : "status"}>
+          <p>
+            {outcome.kind === "success" ? content.success.start(outcome.via) : content.error.start}
+            <a href={whatsapp} target="_blank" rel="noopener" data-event="whatsapp_click" data-location="cta_final">
+              {outcome.kind === "success" ? content.success.whatsappLink : content.error.whatsappLink}
+            </a>
+            {outcome.kind === "success" ? content.success.end : content.error.end}
+          </p>
+        </div>
+      ))}
+
+      <form
+        class="form"
+        method="post"
+        action={demoForm.action}
+        enctype="application/x-www-form-urlencoded"
+        accept-charset="UTF-8"
+        data-sending-label={content.submit.sending}
+      >
+        <h3>{content.title}</h3>
+        <p class="lead">{content.intro}</p>
+
+        <div class="field">
+          <label for="nombre">{fields.nombre.label}</label>
+          <input
+            id="nombre"
+            name="nombre"
+            type="text"
+            autocomplete="name"
+            placeholder={fields.nombre.placeholder}
+            maxlength="100"
+            required
+            aria-describedby="nombre-error"
+            data-error={fields.nombre.error}
+          />
+          <p id="nombre-error" class="field-error" hidden />
+        </div>
+
+        <div class="field">
+          <label for="telefono">{fields.telefono.label}</label>
+          <div class="phone">
+            <span class="prefix">{fields.telefono.prefix}</span>
+            <input
+              id="telefono"
+              name="telefono"
+              type="tel"
+              inputmode="tel"
+              autocomplete="tel-national"
+              placeholder={fields.telefono.placeholder}
+              pattern={fields.telefono.pattern}
+              required
+              aria-describedby="telefono-error"
+              data-error={fields.telefono.error}
+              title={fields.telefono.error}
+            />
+          </div>
+          <p id="telefono-error" class="field-error" hidden />
+        </div>
+
+        <div class="field">
+          <label for="rubro">{fields.rubro.label}</label>
+          <select id="rubro" name="rubro" required aria-describedby="rubro-error" data-error={fields.rubro.error}>
+            <option value="" selected>{fields.rubro.placeholder}</option>
+            {rubroOptions.map((option) => <option value={option.value}>{option.label}</option>)}
+          </select>
+          <p id="rubro-error" class="field-error" hidden />
+        </div>
+
+        <fieldset class="field" aria-describedby="contacto_preferido-error">
+          <legend>{fields.contacto_preferido.label}</legend>
+          {
+            contactMethodOptions.map((option, index) => (
+              <label class="choice">
+                <input
+                  type="radio"
+                  name="contacto_preferido"
+                  value={option.value}
+                  checked={index === 0}
+                  required
+                  data-error={fields.contacto_preferido.error}
+                />
+                {option.label}
+              </label>
+            ))
+          }
+          <p id="contacto_preferido-error" class="field-error" hidden />
+        </fieldset>
+
+        <div class="field">
+          <div class="choice consent">
+            <input
+              id="consentimiento"
+              name="consentimiento"
+              type="checkbox"
+              value="acepto"
+              required
+              aria-describedby="consentimiento-error"
+              data-error={fields.consentimiento.error}
+            />
+            <label for="consentimiento">
+              {fields.consentimiento.beforeLink}<a href="/privacidad" target="_blank" rel="noopener">{fields.consentimiento.link}</a>{fields.consentimiento.afterLink}
+            </label>
+          </div>
+          <p id="consentimiento-error" class="field-error" hidden />
+        </div>
+
+        <input type="hidden" name="consent_text_version" value={consentTextVersion} />
+        <div class="visually-hidden" aria-hidden="true">
+          <input type="text" name="website" tabindex="-1" autocomplete="off" />
+        </div>
+
+        <button type="submit" class="submit">{content.submit.label}</button>
+
+        <p class="privacy-note">
+          {content.privacyNote.beforeContact}{contactEmail !== null && content.privacyNote.email(contactEmail)}{content.privacyNote.beforeLink}<a href="/privacidad">{content.privacyNote.link}</a>{content.privacyNote.end}
+        </p>
+      </form>
+
+      <script>
+        import "@landing/src/scripts/demo-form";
+      </script>
+    </div>
+  )
+}
+
+<style>
+  .demo {
+    display: grid;
+    gap: var(--space-4);
+    max-width: var(--form-max-width);
+    margin-inline: auto;
+    text-align: start;
+  }
+
+  /* The redirect fragments of the endpoint contract show their message with :target, with no JavaScript. */
+  .outcome {
+    display: none;
+    padding: var(--space-4) var(--space-6);
+    border-radius: var(--radius-overlay);
+  }
+
+  .outcome:target {
+    display: block;
+  }
+
+  .success {
+    background: var(--success-surface);
+    color: var(--success);
+  }
+
+  .error {
+    background: var(--error-surface);
+    color: var(--error);
+  }
+
+  .demo:has(.success:target) .form {
+    display: none;
+  }
+
+  .form {
+    display: grid;
+    gap: var(--space-4);
+    padding: var(--space-6);
+    border: var(--border-width) solid var(--border);
+    border-radius: var(--radius-overlay);
+    background: var(--card);
+  }
+
+  .field {
+    display: grid;
+    gap: var(--space-2);
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  label,
+  legend {
+    font-weight: var(--text-label-weight);
+  }
+
+  input[type="text"],
+  input[type="tel"],
+  select {
+    width: 100%;
+    min-height: var(--touch-target-min-size);
+    padding-inline: var(--space-3);
+    border: var(--border-width) solid var(--input);
+    border-radius: var(--radius-control);
+    background: var(--background);
+    color: var(--foreground);
+    font: inherit;
+  }
+
+  input[aria-invalid="true"],
+  select[aria-invalid="true"] {
+    border-color: var(--error);
+  }
+
+  .phone {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .prefix {
+    color: var(--muted-foreground);
+  }
+
+  .choice {
+    display: flex;
+    align-items: start;
+    gap: var(--space-3);
+    min-height: var(--touch-target-min-size);
+    font-weight: var(--text-body-weight);
+  }
+
+  .choice input {
+    flex: none;
+    width: var(--icon-action-size);
+    height: var(--icon-action-size);
+    margin-block: var(--space-2) 0;
+    accent-color: var(--primary);
+  }
+
+  .consent {
+    align-items: start;
+  }
+
+  .field-error {
+    color: var(--error);
+    font-size: var(--text-caption-size);
+    line-height: var(--text-caption-line);
+  }
+
+  .submit {
+    min-height: var(--touch-target-min-size);
+    padding-inline: var(--space-6);
+    border: 0;
+    border-radius: var(--radius-pill);
+    background: var(--primary);
+    color: var(--primary-foreground);
+    font: inherit;
+    font-weight: var(--text-label-weight);
+    cursor: pointer;
+  }
+
+  .submit:hover {
+    background: var(--primary-hover);
+  }
+
+  .submit:active {
+    background: var(--primary-pressed);
+  }
+
+  .privacy-note {
+    color: var(--muted-foreground);
+    font-size: var(--text-caption-size);
+    line-height: var(--text-caption-line);
+  }
+</style>
