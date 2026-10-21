@@ -1,0 +1,148 @@
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://landing.yoyos.lat/#organization",
+      "name": "Yoyos",
+      "url": "https://landing.yoyos.lat/",
+      "logo": "https://landing.yoyos.lat/logo-512.png",
+      "contactPoint": {
+        "@type": "ContactPoint",
+        "contactType": "sales",
+        "telephone": "+51977909427",
+        "areaServed": "PE",
+        "availableLanguage": "es"
+      }
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://landing.yoyos.lat/#website",
+      "url": "https://landing.yoyos.lat/",
+      "name": "Yoyos",
+      "inLanguage": "es-PE",
+      "publisher": {
+        "@id": "https://landing.yoyos.lat/#organization"
+      }
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://landing.yoyos.lat/#app",
+      "name": "Yoyos",
+      "url": "https://landing.yoyos.lat/",
+      "applicationCategory": "BusinessApplication",
+      "operatingSystem": "Android",
+      "description": "Sistema de pedidos por WhatsApp para emprendedores que venden por redes sociales en Perú: pedidos desde las fotos que te mandan por WhatsApp, catálogo, checkout con zonas, cobro con Yape, Plin o transferencia y rótulos para envíos por Shalom y Olva.",
+      "inLanguage": "es-PE",
+      "areaServed": "PE",
+      "publisher": {
+        "@id": "https://landing.yoyos.lat/#organization"
+      },
+      "offers": {
+        "@type": "Offer",
+        "price": "50.00",
+        "priceCurrency": "PEN",
+        "availability": "https://schema.org/InStock",
+        "url": "https://landing.yoyos.lat/#precio",
+        "priceSpecification": {
+          "@type": "UnitPriceSpecification",
+          "price": "50.00",
+          "priceCurrency": "PEN",
+          "billingDuration": "P1M",
+          "valueAddedTaxIncluded": false,
+          "referenceQuantity": {
+            "@type": "QuantitativeValue",
+            "value": 1,
+            "unitCode": "MON"
+          }
+        }
+      }
+    },
+    {
+      "@type": "FAQPage",
+      "@id": "https://landing.yoyos.lat/#preguntas",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "Ya lo manejo con WhatsApp y un Excel.",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "¡Perfecto, sigue usando WhatsApp! Yoyos no te cambia la forma de vender: tus clientes te escriben como siempre. Lo que te ahorras es pasar cada pedido del chat al Excel: cuando te mandan la foto del producto, Yoyos arma el pedido, y tu cliente completa su dirección y elige el envío en el link que tú le compartes."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "No tengo tiempo de aprender otra app.",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Lo entendemos: entre lives y despachos no te sobra tiempo. Por eso Yoyos se usa desde tu celular, junto al WhatsApp que ya tienes. En la demo te ayudamos a dejar Yoyos listo con tus productos."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "¿Cuánto cuesta?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "S/ 50 al mes + IGV. Es una suscripción mensual: no cobramos comisión por tus ventas ni hay pagos únicos. Escríbenos por WhatsApp y te mostramos cómo funciona con tus productos."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Hay herramientas gratis que hacen algo parecido.",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Hay opciones gratis que te dan un catálogo o una lista de pedidos. Yoyos va más allá: arma el pedido desde la foto que te manda tu cliente por WhatsApp, cotiza el envío por zona y distrito, te da un link para compartir con tu cliente donde elige agencia Shalom u Olva, domicilio o recojo y sube su comprobante de Yape o Plin, y te deja imprimir los rótulos. Te ahorra trabajo en todo el camino, del chat al despacho."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "¿Mis clientes tienen que bajar otra app?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Tus clientes no necesitan bajar nada. Te siguen escribiendo por WhatsApp y, cuando el pedido está listo, les mandas un link para confirmar sus datos y pagar desde el celular, sin crear cuenta."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Vendo poco, todavía no lo necesito.",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Justo cuando empiezas es el mejor momento para ordenarte. Cada pedido que copias a mano del chat al cuaderno, cada dirección que vuelves a pedir y cada captura de Yape que buscas te quitan tiempo que podrías usar para vender. Y cuando un live te va bien, ya tienes todo listo para atender más pedidos sin enredarte."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "¿Sirve con Yape y Plin?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Sí. Puedes cobrar con Yape, Plin o transferencia bancaria. Tu cliente ve tus datos de pago en el link del pedido y sube su comprobante, y tú lo verificas."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "¿Necesito una impresora especial para los rótulos?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yoyos imprime en impresoras de etiquetas y estamos sumando más modelos. En la demo te decimos cuál te conviene."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "¿Funciona en iPhone?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yoyos está disponible para Android y en la web, y la app para iPhone viene en camino."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "¿Me pueden bloquear el número?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Yoyos se conecta a tu WhatsApp como un dispositivo vinculado, igual que WhatsApp Web, y solo lee los mensajes que te llegan: no envía mensajes, no hace envíos masivos ni escribe en grupos. Yoyos no es un servicio de WhatsApp ni de Meta, así que no podemos garantizar que WhatsApp nunca aplique restricciones, pero Yoyos no hace las acciones que suelen motivarlas, como el spam o los mensajes masivos. Puedes desvincular Yoyos cuando quieras desde la app o desde WhatsApp > Dispositivos vinculados."
+          }
+        }
+      ]
+    }
+  ]
+}
