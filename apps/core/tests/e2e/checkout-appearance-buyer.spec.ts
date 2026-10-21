@@ -337,8 +337,8 @@ test.describe("buyer checkout with appearance", () => {
       const row = page.locator("[data-checkout-part=product-row]").filter({ hasText: "Polo básico" });
       await browserExpect(row.locator("[data-slot=product-thumbnail]")).toHaveText("P");
       await browserExpect(row.locator("img")).toHaveCount(0);
-      await browserExpect(row).toContainText(/1 × S\/ 10[.,]00/);
-      await browserExpect(row).toContainText(/S\/ 10[.,]00$/);
+      await browserExpect(row).toContainText(/1 × S\/\s?10[.,]00/);
+      await browserExpect(row).toContainText(/S\/\s?10[.,]00$/);
     } finally { await f.cleanup(); }
   });
 

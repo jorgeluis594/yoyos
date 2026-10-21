@@ -1,7 +1,7 @@
 import type { FrameLocator, Page } from "@playwright/test";
 import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
 import { checkoutThemes } from "@core/src/features/checkout-appearance/domain/checkout-themes";
-import { openEditor, rgb, sharedCheckoutPath } from "@core/tests/e2e/checkout-appearance-fixtures";
+import { openEditor, removeCompanyAppearance, rgb, sharedCheckoutPath } from "@core/tests/e2e/checkout-appearance-fixtures";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
 const previewPath = "/settings/checkout-appearance/preview";
@@ -100,7 +100,11 @@ test("paints the page and the thumbnail frame of each theme in the preview", asy
 test("fixes the mode of the preview by the theme and leaves the seller's saved preference untouched", async ({ page }) => {
   await withCompany(async () => {
     await page.emulateMedia({ colorScheme: "dark" });
+    // Storage belongs to an origin, so the preference is saved from a panel page, where it paints the panel dark.
+    await page.goto("/es-PE/dashboard");
     await page.evaluate(() => localStorage.setItem("yoyos-theme", "dark"));
+    await page.reload();
+    await browserExpect(page.locator("html")).toHaveClass(/dark/);
     await openPreview(page);
     await post(page, update({ appearance: { logoUrl: null, theme: "boutique" } }));
     await browserExpect(page.locator('[data-checkout-theme-id="boutique"]')).toBeAttached();
@@ -130,8 +134,17 @@ test("applies the theme draft to the preview without changing the public checkou
     await browserExpect(buyer.locator("[data-checkout-theme]")).toHaveAttribute("data-checkout-theme-id", "classic");
     await browserExpect(buyer.getByRole("button", { name: "Confirmar pedido" })).toHaveCSS("background-color", rgb(checkoutThemes.classic.colors.primary));
   } finally {
-    if (companyId) await systemPrisma.company.deleteMany({ where: { id: companyId } });
-    await systemPrisma.user.deleteMany({ where: { email } });
+    // The shared order references the seller, so it goes before the user, as in the other checkout specs.
+    if (companyId) {
+      await withTenantIsolation(companyId, async () => {
+        await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
+        await prisma.contact.deleteMany(); await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+      });
+      await removeCompanyAppearance(companyId);
+      await withTenantIsolation(companyId, async () => {
+        await systemPrisma.user.deleteMany({ where: { email } }); await prisma.company.delete({ where: { id: companyId! } });
+      });
+    } else await systemPrisma.user.deleteMany({ where: { email } });
   }
 });
 
