@@ -1,3 +1,58 @@
 ---
-// Stub created by T0 so that index.astro imports every section. The task that owns this section implements it.
+import { Image } from "astro:assets";
+import SectionHeading from "@landing/src/components/section-heading.astro";
+import { testimonials, testimonialsContent } from "@landing/src/content/sections/testimonials";
 ---
+
+{
+  testimonials.length > 0 && (
+    <section id="testimonios" class="section" aria-labelledby="testimonios-titulo">
+      <div class="container">
+        <SectionHeading id="testimonios-titulo" heading={testimonialsContent.heading} />
+        <ul class="list">
+          {testimonials.map((testimonial) => (
+            <li class="card">
+              <blockquote>{testimonial.quote}</blockquote>
+              <Image src={testimonial.photo} alt={testimonial.name} width={64} height={64} loading="lazy" class="photo" />
+              <p>
+                <strong>{testimonial.name}</strong>
+              </p>
+              <p class="lead">{`${testimonial.business} · ${testimonial.category} · ${testimonial.city}`}</p>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  )
+}
+
+<style>
+  .list {
+    display: grid;
+    gap: var(--space-4);
+    margin: var(--space-12) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .card {
+    padding: var(--space-6);
+    border: var(--border-width) solid var(--border);
+    border-radius: var(--radius-overlay);
+    background: var(--card);
+  }
+
+  blockquote {
+    margin: 0 0 var(--space-4);
+  }
+
+  .photo {
+    border-radius: var(--radius-avatar);
+  }
+
+  @media (min-width: 64em) {
+    .list {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+</style>

@@ -1,3 +1,83 @@
 ---
-// Stub created by T0 so that index.astro imports every section. The task that owns this section implements it.
+import ChevronDown from "@lucide/astro/icons/chevron-down";
+import SectionHeading from "@landing/src/components/section-heading.astro";
+import { faqEntries } from "@landing/src/content/faq";
+import { faqContent } from "@landing/src/content/sections/faq";
+import { navLinks } from "@landing/src/content/site";
+
+const label = navLinks.find((link) => link.anchor === "preguntas")?.label;
+const published = faqEntries.flatMap((entry) => (entry.visibility === "published" ? [entry] : []));
 ---
+
+<section id="preguntas" class="section" aria-labelledby="preguntas-titulo">
+  <div class="container">
+    <SectionHeading id="preguntas-titulo" label={label} heading={faqContent.heading} />
+
+    <div class="list">
+      {
+        published.map((entry) => (
+          <details data-event="faq_open" data-location="faq" data-q={entry.number}>
+            <summary>
+              <h3>{entry.question}</h3>
+              <ChevronDown class="icon" aria-hidden="true" />
+            </summary>
+            <p>{entry.answer}</p>
+          </details>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<style>
+  .list {
+    display: grid;
+    gap: var(--space-3);
+    max-width: var(--reader-max-width);
+    margin: var(--space-12) auto 0;
+  }
+
+  details {
+    border: var(--border-width) solid var(--border);
+    border-radius: var(--radius-overlay);
+    background: var(--card);
+  }
+
+  summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    min-height: var(--touch-target-min-size);
+    padding: var(--space-4) var(--space-6);
+    cursor: pointer;
+    list-style: none;
+  }
+
+  summary::-webkit-details-marker {
+    display: none;
+  }
+
+  summary h3 {
+    font-size: var(--text-body-size);
+    line-height: var(--text-body-line);
+    font-weight: var(--text-label-weight);
+  }
+
+  .icon {
+    flex: none;
+    width: var(--icon-action-size);
+    height: var(--icon-action-size);
+    stroke-width: var(--icon-stroke);
+    transition: transform var(--motion-feedback) var(--motion-easing);
+  }
+
+  details[open] .icon {
+    transform: rotate(180deg);
+  }
+
+  details p {
+    padding: 0 var(--space-6) var(--space-6);
+    color: var(--muted-foreground);
+  }
+</style>

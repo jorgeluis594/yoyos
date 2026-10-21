@@ -1,3 +1,46 @@
 ---
-// Stub created by T0: the task that owns this component implements it.
+import type { PartnerLogo } from "@landing/src/content/sections/integrations";
+
+type Props = Readonly<{ logo: PartnerLogo }>;
+
+const { logo } = Astro.props;
 ---
+
+{
+  logo.kind === "image" ? (
+    <img
+      class="partner-logo"
+      data-partner-logo={logo.name}
+      src={logo.svg.src}
+      width={logo.svg.width}
+      height={logo.svg.height}
+      alt={logo.alt}
+      loading="lazy"
+    />
+  ) : (
+    <span class="partner-logo badge" data-partner-logo={logo.name} data-provisional="true" role="img" aria-label={logo.alt}>
+      <span aria-hidden="true">{logo.name}</span>
+    </span>
+  )
+}
+
+<style>
+  .partner-logo {
+    height: var(--control-min-height);
+    width: auto;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: calc(var(--space-12) * 2);
+    min-height: var(--control-min-height);
+    padding-inline: var(--space-4);
+    border: var(--border-width) dashed var(--border);
+    border-radius: var(--radius-card);
+    background: var(--muted);
+    color: var(--muted-foreground);
+    font-weight: var(--text-label-weight);
+  }
+</style>
