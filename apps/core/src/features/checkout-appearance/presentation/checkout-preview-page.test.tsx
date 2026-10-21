@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { BuyerPaymentView } from "@shared/contracts/orders";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { createInstance } from "i18next";
@@ -117,7 +118,7 @@ describe("CheckoutPreviewPage", () => {
 
   test.each(checkoutThemeIds)("paints the receipts link and the copy buttons with the %s theme's link color", async (theme) => {
     const bank: PreviewPaymentMethod = { method: "bank_transfer", bank: "Banco de ejemplo", holder: "Lima Studio", accountNumber: "000-1", cci: "00000000000000000001", imageUrl: null };
-    const view = { ...previewPaymentView([bank]), payments: [{ id: "00000000-0000-4000-8000-000000000001", status: "reported", amount: null, method: null, receiptImageUrl: "https://cdn.example/recibo.png" }] } as const;
+    const view: BuyerPaymentView = { ...previewPaymentView([bank]), payments: [{ id: "00000000-0000-4000-8000-000000000001", status: "reported", amount: null, method: null, receiptImageUrl: "https://cdn.example/recibo.png" }] };
     const Stub = createRoutesStub([{ path: "/", Component: () =>
       <CheckoutShell appearance={{ logoUrl: null, theme }} checkout={previewCheckout("Lima Studio", "payment")}><CheckoutPayment view={view} /></CheckoutShell> }]);
     const container = document.body.appendChild(document.createElement("div"));
