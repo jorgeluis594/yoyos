@@ -3,7 +3,7 @@
 ---
 
 <script>
-  import { eventFromDataset, track } from "@landing/src/lib/analytics";
+  import { eventFromDataset, faqOpenEvent, track } from "@landing/src/lib/analytics";
 
   document.addEventListener("click", (event) => {
     if (!(event.target instanceof Element)) return;
@@ -17,8 +17,8 @@
     "toggle",
     (event) => {
       if (!(event.target instanceof HTMLDetailsElement) || !event.target.open) return;
-      const analyticsEvent = eventFromDataset(event.target.dataset);
-      if (analyticsEvent?.name === "faq_open") track(analyticsEvent);
+      const analyticsEvent = faqOpenEvent(event.target.dataset);
+      if (analyticsEvent) track(analyticsEvent);
     },
     true,
   );

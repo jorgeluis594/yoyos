@@ -16,7 +16,7 @@ const published = faqEntries.flatMap((entry) => (entry.visibility === "published
     <div class="list">
       {
         published.map((entry) => (
-          <details data-event="faq_open" data-location="faq" data-q={entry.number}>
+          <details data-faq-q={entry.number}>
             <summary>
               <h3>{entry.question}</h3>
               <ChevronDown class="icon" aria-hidden="true" />
