@@ -87,7 +87,6 @@
 /* Header */
 [data-checkout-theme] [data-checkout-part="header"] {
   display: flex;
-  justify-content: var(--checkout-header-justify);
   padding-block: var(--checkout-header-padding-y);
   padding-inline: var(--checkout-header-padding-x);
   border-bottom: var(--checkout-header-border);

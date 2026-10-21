@@ -40,7 +40,7 @@ export function CheckoutShell({ appearance, checkout, banner, summary, children 
   const { t } = useTranslation();
   return <CheckoutTheme appearance={appearance}>{banner}
     <header>
-      <div data-checkout-part="header" className="border-b bg-card"><div className={`${page} flex min-h-16 items-center py-3`}><CheckoutBrandHeader companyName={checkout.companyName} logoUrl={appearance?.logoUrl ?? null} /></div></div>
+      <div data-checkout-part="header" className="border-b bg-card"><div className={`${page} flex min-h-16 items-center justify-(--checkout-header-justify) py-3`}><CheckoutBrandHeader companyName={checkout.companyName} logoUrl={appearance?.logoUrl ?? null} /></div></div>
       <div className={`${page} pt-6 pb-5 sm:pt-10 sm:pb-8`}><h1 data-checkout-part="order-title" className="text-2xl font-semibold tracking-tight text-balance sm:text-3xl">{t("checkoutSections.order", { number: checkout.number })}</h1><p className="mt-1 text-muted-foreground">{t("checkoutSections.reviewHint")}</p><CheckoutStatus state={checkout.state} /></div>
     </header>
     <main className={`${page} grid gap-4 pb-12 [grid-template-areas:'products'_'main'_'totals'] lg:grid-cols-[minmax(0,1fr)_22rem] lg:grid-rows-[auto_1fr] lg:gap-x-10 lg:[grid-template-areas:'main_products'_'main_totals']`}>
