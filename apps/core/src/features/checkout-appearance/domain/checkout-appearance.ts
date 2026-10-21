@@ -1,21 +1,15 @@
 import { z } from "zod";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
+import { checkoutThemeIds, defaultCheckoutTheme, type CheckoutThemeId } from "@core/src/features/checkout-appearance/domain/checkout-themes";
 
 export type CompanyId = string & { readonly __brand: "CompanyId" };
 export type UserId = string & { readonly __brand: "UserId" };
 export type ImageId = string & { readonly __brand: "ImageId" };
-export type HexColor = string & { readonly __brand: "HexColor" };
-
-export const checkoutBrandColors = ["yoyos", "forest", "petrol", "ocean", "plum", "raspberry", "terracotta", "mustard", "graphite"] as const;
-export const checkoutBackgrounds = ["soft", "medium", "brand_tint"] as const;
-export type CheckoutBrandColor = (typeof checkoutBrandColors)[number];
-export type CheckoutBackground = (typeof checkoutBackgrounds)[number];
 
 export type CheckoutAppearance = Readonly<{
   logoImageId: ImageId | null;
-  brandColor: CheckoutBrandColor;
-  background: CheckoutBackground;
+  theme: CheckoutThemeId;
 }>;
 
 export type CheckoutAppearanceError = Readonly<{
@@ -25,13 +19,12 @@ export type CheckoutAppearanceError = Readonly<{
   invalidFields: readonly string[];
 }>;
 
-export const defaultCheckoutAppearance: CheckoutAppearance = { logoImageId: null, brandColor: "yoyos", background: "medium" };
+export const defaultCheckoutAppearance: CheckoutAppearance = { logoImageId: null, theme: defaultCheckoutTheme };
 
 const uuid = z.uuid();
 const appearanceSchema = z.strictObject({
   logoImageId: uuid.nullable(),
-  brandColor: z.enum(checkoutBrandColors),
-  background: z.enum(checkoutBackgrounds),
+  theme: z.enum(checkoutThemeIds),
 });
 
 export function parseCompanyId(value: unknown): Result<CompanyId, CheckoutAppearanceError> {
@@ -65,6 +58,5 @@ export function parseCheckoutAppearance(value: unknown): Result<CheckoutAppearan
 
 export function isDefaultCheckoutAppearance(appearance: CheckoutAppearance): boolean {
   return appearance.logoImageId === defaultCheckoutAppearance.logoImageId
-    && appearance.brandColor === defaultCheckoutAppearance.brandColor
-    && appearance.background === defaultCheckoutAppearance.background;
+    && appearance.theme === defaultCheckoutAppearance.theme;
 }

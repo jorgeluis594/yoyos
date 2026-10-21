@@ -4,7 +4,7 @@ import { defaultCheckoutAppearance } from "@core/src/features/checkout-appearanc
 export type EditorDraft = Readonly<{ appearance: CheckoutAppearance; logoUrl: string | null }>;
 
 export function sameAppearance(a: CheckoutAppearance, b: CheckoutAppearance): boolean {
-  return a.logoImageId === b.logoImageId && a.brandColor === b.brandColor && a.background === b.background;
+  return a.logoImageId === b.logoImageId && a.theme === b.theme;
 }
 
 export const resetDraft: EditorDraft = { appearance: defaultCheckoutAppearance, logoUrl: null };
