@@ -94,9 +94,9 @@ describe("editor action", () => {
 });
 
 describe("editor client action", () => {
-  test("turns a save that gets no response into the save error, keeping the editor and its draft", async () => {
+  test("turns a save that gets no response into the save error with status 503, so the loader is not revalidated and the draft stays", async () => {
     const serverAction = vi.fn(async () => { throw new TypeError("Failed to fetch"); });
-    expect(await clientAction({ serverAction } as unknown as ClientActionFunctionArgs)).toEqual({ error: "PERSISTENCE_UNAVAILABLE" });
+    expect(await clientAction({ serverAction } as unknown as ClientActionFunctionArgs)).toMatchObject({ data: { error: "PERSISTENCE_UNAVAILABLE" }, init: { status: 503 } });
   });
 
   test("passes the server answer through, including a failure status", async () => {

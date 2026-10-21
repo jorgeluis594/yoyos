@@ -68,7 +68,8 @@ export async function clientAction({ serverAction }: ClientActionFunctionArgs) {
   try { return await serverAction<typeof action>(); }
   catch (cause) {
     if (cause instanceof Response || isRouteErrorResponse(cause)) throw cause;
-    return { error: "PERSISTENCE_UNAVAILABLE" } satisfies EditorActionData;
+    // The 503 keeps the loader from revalidating, which would also fail offline and lose the draft.
+    return data<EditorActionData>({ error: "PERSISTENCE_UNAVAILABLE" }, { status: failureStatus.PERSISTENCE_UNAVAILABLE });
   }
 }
 
