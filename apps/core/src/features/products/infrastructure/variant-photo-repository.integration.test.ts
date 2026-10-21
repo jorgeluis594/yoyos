@@ -46,6 +46,27 @@ test("returns the product image of each variant, including inactive products", a
   }
 });
 
+test("returns the new image after the product image is replaced", async () => {
+  const company = randomUUID();
+  try {
+    await withTenantIsolation(company, async () => await prisma.company.create({ data: { id: company, name: company, country: "PE" } }));
+    const { variant, productId, replacement } = await withTenantIsolation(company, async () => {
+      const variant = await addProduct("Polo básico", "active", "active", await addImage());
+      const { productId } = await prisma.productVariant.findUniqueOrThrow({ where: { id: variant }, select: { productId: true } });
+      return { variant, productId, replacement: await addImage() };
+    });
+    await withTenantIsolation(company, () => prisma.product.update({ where: { id: productId }, data: { imageId: replacement } }));
+    expect(await withTenantIsolation(company, () => findVariantImages([variant]))).toEqual({ success: true, data: [{ variantId: variant, imageId: replacement }] });
+  } finally {
+    await withTenantIsolation(company, async () => {
+      await prisma.productVariant.deleteMany({});
+      await prisma.product.deleteMany({});
+      await prisma.image.deleteMany({});
+      await prisma.company.delete({ where: { id: company } });
+    });
+  }
+});
+
 test("does not return variants of another company", async () => {
   const [mine, other] = [randomUUID(), randomUUID()];
   try {

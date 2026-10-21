@@ -26,8 +26,8 @@ async function request() {
 }
 function authorize() {
   vi.spyOn(orders, "resolveBuyerAccess").mockResolvedValue(ok({ kind: "buyer", companyId, orderId }));
-  return vi.spyOn(orders, "getCheckout").mockResolvedValue(ok({ photos: new Map(), checkout: { companyName: "Shop", number: 1001 as OrderNumber, buyer: null, delivery: null, deliveryCharge: { amount: 0, currency: "PEN" }, items: [],
-    itemsTotal: { amount: 0, currency: "PEN" }, total: { amount: 0, currency: "PEN" }, state: { kind: "pending" } } }));
+  return vi.spyOn(orders, "getCheckoutView").mockResolvedValue(ok({ companyName: "Shop", number: 1001 as OrderNumber, buyer: null, delivery: null, deliveryCharge: { amount: 0, currency: "PEN" }, items: [],
+    itemsTotal: { amount: 0, currency: "PEN" }, total: { amount: 0, currency: "PEN" }, state: { kind: "pending" } }));
 }
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -82,4 +82,13 @@ test("agency rates are answered with their eligible agencies, courier and catalo
   expect(response.body.rates).toEqual([{ id: id(10), method: "agency", optionId: id(12), name: "Agency", zoneName: "Lima", price: { amount: 5, currency: "PEN" },
     agencies: [{ id: id(20), name: "Branch", address: "Av. Test 123", courier: { id: id(31), name: "Shalom" },
       location: { country: "PE", districtCode: "150122", district: "MIRAFLORES", province: "LIMA METROPOLITANA", department: "LIMA" } }] }]);
+});
+
+test("quotation authorization reads the checkout without looking up product photos", async () => {
+  authorize();
+  const withPhotos = vi.spyOn(orders, "getCheckout");
+  vi.spyOn(deliverySettings, "createQuotation").mockResolvedValue(err({ code: "SERVICE_UNAVAILABLE", message: "stop here" }));
+  await request();
+  expect(orders.getCheckoutView).toHaveBeenCalledOnce();
+  expect(withPhotos).not.toHaveBeenCalled();
 });

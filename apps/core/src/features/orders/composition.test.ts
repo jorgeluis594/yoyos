@@ -257,3 +257,19 @@ function parseOrderNumberForTest() {
   if (!number.success) throw new Error("Invalid order number");
   return number.data;
 }
+
+test("reads the checkout view without looking up or logging product photos", async () => {
+  const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  const access = { companyId: context.companyId, orderId: input.id };
+  const number = parseOrderNumberForTest();
+  vi.mocked(products.findVariantPhotos).mockClear();
+  vi.mocked(findCheckoutOrder).mockResolvedValueOnce(ok({ ...access, id: access.orderId, companyName: "Store", number, buyer: null,
+    items: [{ id: id(5), variantId: id(2), productName: "Product", variantAttributes: {}, sku: null, quantity: 1, unitPrice: { amount: 1, currency: "PEN" }, subtotal: { amount: 1, currency: "PEN" } }],
+    itemsTotal: { amount: 1, currency: "PEN" }, total: { amount: 1, currency: "PEN" }, delivery: null, deliveryCharge: { amount: 0, currency: "PEN" }, cancelled: false,
+    checkoutEnabledAt: new Date("2026-01-01T00:00:00Z"), checkoutConfirmedAt: null, fromCatalog: false } as never));
+  try {
+    expect(await orders.getCheckoutView(access)).toMatchObject({ success: true, data: { number, state: { kind: "pending" } } });
+    expect(products.findVariantPhotos).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+  } finally { error.mockRestore(); }
+});

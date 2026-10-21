@@ -8,7 +8,7 @@ import type { OrderAccess } from "@core/src/features/orders/application/create-o
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import { randomUUID } from "node:crypto";
 import { isPersistenceFailure } from "@core/src/shared/infrastructure/persistence-error";
-import { err, ok } from "@shared/functional";
+import { err, map, ok } from "@shared/functional";
 import type { AppError, Result } from "@shared/result";
 import { afterTransactionCommit, getCompanyId, requireNoActiveTransaction, withinTransaction, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { deliverySettings } from "@core/src/features/delivery-settings";
@@ -154,6 +154,15 @@ async function findItemPhotos(variantIds: readonly VariantId[]): Promise<Result<
   return err({ code: "PHOTOS_UNAVAILABLE" as const, message: "Unable to read product photos" });
 }
 const getCheckoutDependencies: GetOrderCheckoutDependencies = { findOrder: findCheckoutOrder, findItemPhotos };
+/** For callers that only need the checkout state: no photo lookup, so nothing is queried or logged about photos. */
+const getCheckoutViewDependencies: GetOrderCheckoutDependencies = { findOrder: findCheckoutOrder, findItemPhotos: async () => ok(new Map()) };
+async function readCheckout(access: CheckoutAccess, deps: GetOrderCheckoutDependencies) {
+  bindRequestOperation({ operation: "get_checkout" });
+  const result = await withTenantIsolation(access.companyId, () => getOrderCheckout(access, deps));
+  if (!result.success) rejectedCheckout(result.error);
+  else bindRequestOperation({ outcome: result.data.checkout.state.kind, orderNumber: result.data.checkout.number });
+  return result;
+}
 function rejectedCheckout(error: CheckoutError) {
   const outcomes = { CHECKOUT_UNAVAILABLE: "unavailable", ORDER_CANCELLED: "cancelled", INVALID_BUYER: "invalid_input",
     TOTAL_CHANGED: "total_changed", INVALID_CHECKOUT: "technical_failure", PERSISTENCE_UNAVAILABLE: "technical_failure",
@@ -287,13 +296,8 @@ export const orders = {
     if (result.data.changed) log.info({ event: "order_checkout_enabled", companyId: access.companyId, orderNumber: result.data.number, userId: access.userId }, "Order checkout enabled");
     return ok({ url: checkoutUrl(access.companyId, orderId) });
   },
-  getCheckout: async (access: CheckoutAccess) => {
-    bindRequestOperation({ operation: "get_checkout" });
-    const result = await withTenantIsolation(access.companyId, () => getOrderCheckout(access, getCheckoutDependencies));
-    if (!result.success) rejectedCheckout(result.error);
-    else bindRequestOperation({ outcome: result.data.checkout.state.kind, orderNumber: result.data.checkout.number });
-    return result;
-  },
+  getCheckout: (access: CheckoutAccess) => readCheckout(access, getCheckoutDependencies),
+  getCheckoutView: async (access: CheckoutAccess) => map(await readCheckout(access, getCheckoutViewDependencies), ({ checkout }) => checkout),
   confirmCheckout: async (input: ConfirmOrderCheckoutInput, access: CheckoutAccess) => {
     requireNoActiveTransaction();
     bindRequestOperation({ operation: "confirm_checkout" });
