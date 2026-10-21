@@ -25,12 +25,12 @@ export function PeruDistrictSelect({ value, onChange, disabled = false }: Readon
     <legend className="mb-3 font-medium">{t("peruDistrict.deliveryTitle")}</legend>
     <div className="grid min-w-0 gap-3 sm:grid-cols-2">
       <div className="flex min-w-0 flex-col gap-1.5"><label htmlFor={`${id}-department`} className="text-sm font-medium">{t("peruDistrict.department")}</label>
-        <select id={`${id}-department`} className={controlClass} value={department?.code ?? ""} onChange={event => {
+        <select id={`${id}-department`} data-slot="select" className={controlClass} value={department?.code ?? ""} onChange={event => {
           setDepartmentCode(event.target.value); setProvinceCode(""); setQuery(""); onChange(null);
         }}><option value="">{t("peruDistrict.selectDepartment")}</option>{peruDepartments.map(item => <option key={item.code} value={item.code}>{item.name}</option>)}</select>
       </div>
       <div className="flex min-w-0 flex-col gap-1.5"><label htmlFor={`${id}-province`} className="text-sm font-medium">{t("peruDistrict.province")}</label>
-        <select id={`${id}-province`} className={controlClass} value={province?.code ?? ""} disabled={!department} onChange={event => {
+        <select id={`${id}-province`} data-slot="select" className={controlClass} value={province?.code ?? ""} disabled={!department} onChange={event => {
           setProvinceCode(event.target.value); setQuery(""); onChange(null);
         }}><option value="">{t("peruDistrict.selectProvince")}</option>{provinces.map(item => <option key={item.code} value={item.code}>{item.name}</option>)}</select>
       </div>
@@ -39,7 +39,7 @@ export function PeruDistrictSelect({ value, onChange, disabled = false }: Readon
       <Input id={`${id}-search`} type="search" disabled={!province} value={query} onChange={event => setQuery(event.target.value)} placeholder={t("peruDistrict.searchPlaceholder")} />
     </div>
     <div className="flex flex-col gap-1.5"><label htmlFor={`${id}-district`} className="text-sm font-medium">{t("peruDistrict.district")}</label>
-      <select id={`${id}-district`} className={controlClass} value={value ?? ""} disabled={!province} aria-describedby={`${id}-hint`} onChange={event => {
+      <select id={`${id}-district`} data-slot="select" className={controlClass} value={value ?? ""} disabled={!province} aria-describedby={`${id}-hint`} onChange={event => {
         onChange(districts.find(item => item.code === event.target.value)?.code ?? null);
       }}><option value="">{t("peruDistrict.selectDistrict")}</option>{options.map(item => <option key={item.code} value={item.code}>{item.name} · {item.code}</option>)}</select>
       <p id={`${id}-hint`} className="text-sm text-muted-foreground" role="status">{!province ? t("peruDistrict.pickParents") : matches.length === 0 ? t("peruDistrict.noMatches") : t("peruDistrict.available", { count: matches.length, province: province.name })}</p>

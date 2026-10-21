@@ -24,7 +24,7 @@ export function CheckoutAgencyDestination({ choices, buyerDistrict, value, onCha
   return <>
     {notice && <p role="status" className={status}>{t(`checkoutDelivery.${notice}`, buyerDistrict)}</p>}
     <Field><FieldLabel htmlFor="delivery-agency">{t("checkoutDelivery.agency")}</FieldLabel>
-      <select id="delivery-agency" className={controlClass} value={selected} disabled={disabled} onChange={event => onChange(event.target.value)}>
+      <select id="delivery-agency" data-slot="select" className={controlClass} value={selected} disabled={disabled} onChange={event => onChange(event.target.value)}>
         <option value="">{t("checkoutDelivery.selectAgency")}</option>
         {choices.choices.map(choice => <option key={choice.agency.id} value={choice.agency.id}>{buyerAgencyLabel(choice, amount)}</option>)}
       </select></Field>
