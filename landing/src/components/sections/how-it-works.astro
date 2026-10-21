@@ -1,3 +1,83 @@
 ---
-// Stub created by T0 so that index.astro imports every section. The task that owns this section implements it.
+import Screenshot from "@landing/src/components/screenshot.astro";
+import SectionHeading from "@landing/src/components/section-heading.astro";
+import { howItWorksContent } from "@landing/src/content/sections/how-it-works";
+import { navLinks } from "@landing/src/content/site";
+
+const label = navLinks.find((link) => link.anchor === "como-funciona")?.label;
 ---
+
+<section id="como-funciona" class="section alt" aria-labelledby="como-funciona-titulo">
+  <div class="container stack">
+    <SectionHeading id="como-funciona-titulo" label={label} heading={howItWorksContent.heading} />
+    <ol class="steps">
+      {howItWorksContent.steps.map((step, index) => (
+        <li class="step">
+          <div class="capture"><Screenshot capture={step.capture} widths={[360, 540]} sizes="(min-width: 64em) 540px, 100vw" /></div>
+          <div class="body">
+            <span class="number" aria-hidden="true">{index + 1}</span>
+            <h3>{step.title}</h3>
+            <p class="card-text">{step.text}</p>
+          </div>
+        </li>
+      ))}
+    </ol>
+  </div>
+</section>
+
+<style>
+  .alt {
+    background: var(--secondary);
+  }
+
+  .stack {
+    display: grid;
+    gap: var(--space-12);
+  }
+
+  .steps {
+    display: grid;
+    gap: var(--space-12);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .step {
+    display: grid;
+    gap: var(--space-6);
+    align-items: center;
+  }
+
+  .body {
+    display: grid;
+    justify-items: start;
+    gap: var(--space-3);
+  }
+
+  .number {
+    display: grid;
+    place-items: center;
+    width: var(--touch-target-min-size);
+    height: var(--touch-target-min-size);
+    border-radius: var(--radius-pill);
+    background: var(--primary);
+    color: var(--primary-foreground);
+    font-weight: var(--text-label-weight);
+  }
+
+  .card-text {
+    color: var(--muted-foreground);
+  }
+
+  @media (min-width: 64em) {
+    .step {
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-16);
+    }
+
+    .step:nth-child(even) .capture {
+      order: 2;
+    }
+  }
+</style>

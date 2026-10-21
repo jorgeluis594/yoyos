@@ -1,3 +1,82 @@
 ---
-// Stub created by T0 so that index.astro imports every section. The task that owns this section implements it.
+import Camera from "@lucide/astro/icons/camera";
+import Link from "@lucide/astro/icons/link";
+import Truck from "@lucide/astro/icons/truck";
+import { valueStripContent } from "@landing/src/content/sections/value-strip";
+
+const icons = { camera: Camera, link: Link, truck: Truck } as const;
 ---
+
+<section id="valor" class="strip" aria-label="Propuesta de valor">
+  <div class="container">
+    <ul class="items">
+      {valueStripContent.items.map((item) => {
+        const Icon = icons[item.icon];
+        return (
+          <li class="item">
+            <span class="icon-box"><Icon aria-hidden="true" /></span>
+            <p class="item-title">{item.title}</p>
+            <p class="item-text">{item.text}</p>
+          </li>
+        );
+      })}
+    </ul>
+    <p class="closing">{valueStripContent.closing}</p>
+  </div>
+</section>
+
+<style>
+  .strip {
+    padding-block: var(--space-8);
+    border-block: var(--border-width) solid var(--border);
+  }
+
+  .items {
+    display: grid;
+    gap: var(--space-8);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .item {
+    display: grid;
+    justify-items: start;
+    gap: var(--space-2);
+  }
+
+  .icon-box {
+    display: grid;
+    place-items: center;
+    width: var(--touch-target-min-size);
+    height: var(--touch-target-min-size);
+    border-radius: var(--radius-overlay);
+    background: var(--accent);
+    color: var(--accent-foreground);
+  }
+
+  .item-title {
+    font-size: var(--text-section-title-size);
+    line-height: var(--text-section-title-line);
+    font-weight: var(--text-section-title-weight);
+  }
+
+  .item-text {
+    color: var(--muted-foreground);
+  }
+
+  .closing {
+    margin-block-start: var(--space-8);
+    font-size: var(--text-section-title-size);
+    line-height: var(--text-section-title-line);
+    font-weight: var(--text-section-title-weight);
+    text-align: center;
+  }
+
+  @media (min-width: 64em) {
+    .items {
+      grid-template-columns: repeat(3, 1fr);
+      gap: var(--space-12);
+    }
+  }
+</style>
