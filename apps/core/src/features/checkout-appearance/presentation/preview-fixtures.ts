@@ -23,7 +23,7 @@ export function previewCheckout(companyName: string, state: PreviewState): Publi
   return {
     companyName, number: 1001, buyer: { name: "Ana Pérez", phone: "+51987654321" },
     items: [
-      { productName: "Producto de ejemplo", variantAttributes: { Talla: "M" }, sku: null, imageUrl: null, quantity: 2, unitPrice: pen(49), subtotal: pen(98) },
+      { productName: "Producto de ejemplo", variantAttributes: { Talla: "M" }, sku: null, imageUrl: "/checkout-preview/sample-product.svg", quantity: 2, unitPrice: pen(49), subtotal: pen(98) },
       { productName: "Otro producto de ejemplo", variantAttributes: {}, sku: null, imageUrl: null, quantity: 1, unitPrice: pen(20), subtotal: pen(20) },
     ],
     itemsTotal: pen(118), deliveryCharge: pen(pending ? 0 : 10), total: pen(pending ? 118 : 128), delivery: null,

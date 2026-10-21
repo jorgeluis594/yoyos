@@ -86,4 +86,30 @@ describe("CheckoutPreviewPage", () => {
     expect(row("Total a pagar")).toContain("118");
     expect([...container.querySelectorAll("button")].find((button) => button.textContent === "Confirmar pedido")?.disabled).toBe(false);
   });
+
+  test("shows one sample photo and one marker in the review state", async () => {
+    const container = await mount("review", null);
+    const thumbnails = [...container.querySelectorAll("[data-slot=product-thumbnail]")];
+    expect(thumbnails).toHaveLength(2);
+    expect(thumbnails[0]?.querySelector("img")?.getAttribute("src")).toBe("/checkout-preview/sample-product.svg");
+    expect(thumbnails[1]?.querySelector("img")).toBeNull();
+    expect(thumbnails[1]?.textContent).toBe("O");
+  });
+
+  test("puts each payment image on a plate and keeps the method choice themable", async () => {
+    const withImage: PreviewPaymentMethod[] = [{ method: "digital_wallet", provider: "Plin Lima", holder: "Lima Studio", imageUrl: "https://cdn.example/qr.png" }];
+    const container = await mount("payment", withImage);
+    const plate = container.querySelector("[data-checkout-part=payment-image]");
+    expect(plate?.querySelector("img")?.getAttribute("src")).toBe("https://cdn.example/qr.png");
+    const method = container.querySelector("[data-checkout-part=payment-method]");
+    expect(method?.querySelector("input[type=radio]")?.getAttribute("data-slot")).toBe("radio-group-item");
+  });
+
+  test("gives the native selects and radios of the review the hooks the theme targets", async () => {
+    const container = await mount("review", null);
+    await act(async () => {});
+    expect(container.querySelector("[data-checkout-part=option-group]")).not.toBeNull();
+    for (const radio of container.querySelectorAll("input[type=radio]")) expect(radio.getAttribute("data-slot")).toBe("radio-group-item");
+    expect(container.querySelector("[data-checkout-part=option]")).not.toBeNull();
+  });
 });

@@ -6,7 +6,7 @@ import { I18nextProvider, initReactI18next } from "react-i18next";
 import resources from "@core/app/locales";
 import { describe, expect, test } from "vitest";
 import type { CheckoutDeliveryDraft } from "@core/app/components/checkout-delivery-fields";
-import { CheckoutShell, checkoutTotal } from "@core/app/components/checkout-sections";
+import { CheckoutBuyerDetails, CheckoutOrderSummary, CheckoutReviewFields, CheckoutShell, checkoutTotal } from "@core/app/components/checkout-sections";
 import { previewCheckout } from "@core/src/features/checkout-appearance/presentation/preview-fixtures";
 
 const i18n = createInstance();
@@ -44,5 +44,65 @@ describe("CheckoutShell", () => {
     expect(header.textContent).toContain("Lima Studio");
     expect(header.querySelector("h1")?.textContent).toBe("Pedido #1001");
     act(() => root.unmount());
+  });
+});
+
+describe("CheckoutOrderSummary", () => {
+  const withPhotos = {
+    ...pending,
+    items: [
+      { ...pending.items[0]!, productName: "Polo básico", imageUrl: "https://cdn.example/polo.png" },
+      { ...pending.items[1]!, productName: "Taza blanca", variantAttributes: {}, imageUrl: null },
+    ],
+  };
+
+  function render(element: React.ReactElement) {
+    const container = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(container);
+    act(() => root.render(withI18n(element)));
+    return { container, unmount: () => { act(() => root.unmount()); container.remove(); } };
+  }
+
+  test("shows a thumbnail at the left of each product row before name, variant, quantity and subtotal", () => {
+    const { container, unmount } = render(<CheckoutOrderSummary checkout={withPhotos} deliveryDraft={null} />);
+    const rows = [...container.querySelectorAll<HTMLElement>("[data-checkout-part=product-row]")];
+    expect(rows).toHaveLength(2);
+    const [polo, taza] = rows as [HTMLElement, HTMLElement];
+    expect(polo.firstElementChild?.getAttribute("data-slot")).toBe("product-thumbnail");
+    expect(polo.querySelector("img")?.getAttribute("src")).toBe("https://cdn.example/polo.png");
+    expect(taza.firstElementChild?.getAttribute("data-slot")).toBe("product-thumbnail");
+    expect(taza.querySelector("img")).toBeNull();
+    expect(taza.querySelector("[data-slot=product-thumbnail]")?.textContent).toBe("T");
+    expect(polo.querySelector("[data-checkout-part=product-name]")?.textContent).toBe("Polo básico");
+    expect(polo.querySelector("[data-checkout-part=product-meta]")?.textContent).toContain("M");
+    expect(polo.querySelector("[data-checkout-part=price]")?.textContent).toContain("98");
+    expect(polo.textContent).toContain("2 ×");
+    unmount();
+  });
+
+  test("marks the totals with their theme hooks", () => {
+    const { container, unmount } = render(<CheckoutOrderSummary checkout={withPhotos} deliveryDraft={null} />);
+    expect(container.querySelector("[data-checkout-part=total] [data-checkout-part=total-label]")?.textContent).toBe("Total a pagar");
+    expect(container.querySelector("[data-checkout-part=total-amount]")).not.toBeNull();
+    expect(container.querySelectorAll("[data-checkout-part=card]")).toHaveLength(2);
+    expect(container.querySelector("[data-checkout-part=section-title]")?.textContent).toBe("Productos");
+    unmount();
+  });
+
+  test("keeps the same sections, fields and texts in every theme", () => {
+    const { container, unmount } = render(<>
+      <CheckoutShell appearance={null} checkout={pending}>
+        <CheckoutReviewFields message={null} name={{ defaultValue: "Ana" }} phone={{ defaultValue: "+51987654321" }} delivery={null} />
+        <CheckoutBuyerDetails buyer={pending.buyer} />
+      </CheckoutShell>
+    </>);
+    const text = (container.textContent ?? "");
+    for (const expected of ["Pedido #1001", "Tus datos", "Nombre", "Teléfono", "Datos del comprador"]) expect(text).toContain(expected);
+    const group = container.querySelector("[data-checkout-part=field-group]")!;
+    expect(group.querySelectorAll("[data-checkout-part=field]")).toHaveLength(2);
+    expect(group.querySelectorAll("input")).toHaveLength(2);
+    expect(container.querySelector("[data-checkout-part=header]")?.querySelector("[data-checkout-part=header-brand]")).not.toBeNull();
+    expect(container.querySelector("h1[data-checkout-part=order-title]")?.textContent).toBe("Pedido #1001");
+    unmount();
   });
 });
