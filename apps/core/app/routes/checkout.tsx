@@ -17,6 +17,8 @@ import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance
 import { bindRequestOperation, log } from "@core/src/shared/infrastructure/logger";
 import { buyerPaymentViewSchema, type BuyerPaymentView } from "@shared/contracts/orders";
 import { checkoutAppearance, parseCompanyId } from "@core/src/features/checkout-appearance";
+import { defaultCheckoutTheme } from "@core/src/features/checkout-appearance/domain/checkout-themes";
+import type { ColorSchemeHandle } from "@core/app/color-scheme";
 import { publicCheckoutAppearanceSchema, type PublicCheckoutAppearance } from "@core/src/features/checkout-appearance/presentation/checkout-appearance-schemas";
 import { clearCartForOrder } from "@core/app/lib/catalog-cart-storage";
 import { checkoutBuyerSchema, checkoutPathSchema, checkoutDeliveryOptionsSchema, confirmCheckoutDeliverySchema, publicCheckoutSchema, type CheckoutDeliveryOptions, type PublicCheckoutResponse } from "@shared/contracts/order-checkout";
@@ -26,6 +28,8 @@ export const headers = () => privacyHeaders;
 // A rejected confirmation keeps the buyer's input; a successful one redirects here and needs the payment view.
 export const shouldRevalidate = ({ formMethod, actionResult, defaultShouldRevalidate }: ShouldRevalidateFunctionArgs) =>
   formMethod?.toUpperCase() === "POST" && actionResult !== undefined ? false : defaultShouldRevalidate;
+/** A checkout renders a fixed theme; an unavailable link (the loader threw) keeps following the buyer's system preference. */
+export const handle = { colorScheme: (data: unknown) => (data as Partial<PageData> | undefined)?.checkout ? "fixed" : "system" } satisfies ColorSchemeHandle;
 export const meta = () => [{ title: "Revisa tu pedido" }, { name: "robots", content: "noindex, nofollow" }];
 const unavailable = "Enlace no disponible";
 const retry = "No se pudo completar la solicitud. Inténtalo de nuevo.";
@@ -49,7 +53,7 @@ async function loadAppearance(companyId: string): Promise<PublicCheckoutAppearan
   const id = parseCompanyId(companyId);
   if (!id.success) {
     log.error({ event: "order_checkout_appearance_failed", errorCode: id.error.code }, "Checkout appearance unavailable");
-    bindRequestOperation({ checkoutAppearance: "fallback" });
+    bindRequestOperation({ checkoutAppearance: "fallback", checkoutTheme: defaultCheckoutTheme });
     return null;
   }
   let kind: "default" | "custom" | "fallback";
@@ -69,7 +73,7 @@ async function loadAppearance(companyId: string): Promise<PublicCheckoutAppearan
     kind = "fallback";
     log.error({ event: "order_checkout_appearance_failed", err: cause }, "Checkout appearance unavailable");
   }
-  bindRequestOperation({ checkoutAppearance: kind });
+  bindRequestOperation({ checkoutAppearance: kind, checkoutTheme: appearance?.theme ?? defaultCheckoutTheme });
   return appearance;
 }
 

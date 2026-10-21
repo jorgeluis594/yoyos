@@ -1,13 +1,13 @@
 import type { FrameLocator, Page } from "@playwright/test";
 import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
-import { checkoutPalette } from "@core/src/features/checkout-appearance";
-import { rgb, usedBorderColors } from "@core/tests/e2e/checkout-appearance-fixtures";
-import { systemPrisma } from "@core/src/shared/infrastructure/persistance";
+import { checkoutThemes } from "@core/src/features/checkout-appearance/domain/checkout-themes";
+import { openEditor, rgb, sharedCheckoutPath } from "@core/tests/e2e/checkout-appearance-fixtures";
+import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
 const previewPath = "/settings/checkout-appearance/preview";
 const update = (overrides: object = {}) => ({
-  type: "checkout-appearance:update", mode: "light", state: "review",
-  appearance: { logoUrl: null, brandColor: "forest", background: "brand_tint" }, ...overrides,
+  type: "checkout-appearance:update", state: "review",
+  appearance: { logoUrl: null, theme: "boutique" }, ...overrides,
 });
 
 const ready = (scope: Page | FrameLocator) => scope.locator("html[data-checkout-preview=ready]");
@@ -73,36 +73,66 @@ test("applies valid updates and ignores other origins or shapes", async ({ page 
   await withCompany(async () => {
     await openPreview(page);
     const initial = await primary(page);
-    await post(page, update({ appearance: { logoUrl: null, brandColor: "raspberry", background: "soft" } }), "https://evil.example");
-    await post(page, { ...update({ appearance: { logoUrl: null, brandColor: "raspberry", background: "soft" } }), extra: true });
-    await post(page, update({ appearance: { logoUrl: null, brandColor: "#ff0000", background: "soft" } }));
+    const antojo = update({ appearance: { logoUrl: null, theme: "antojo" } });
+    await post(page, antojo, "https://evil.example");
+    await post(page, { ...antojo, extra: true });
+    await post(page, { ...antojo, mode: "dark" });
+    await post(page, update({ appearance: { logoUrl: null, theme: "neon" } }));
+    await post(page, update({ appearance: { logoUrl: null, brandColor: "forest", background: "soft" } }));
     expect(await primary(page)).toBe(initial);
-    await post(page, update({ appearance: { logoUrl: null, brandColor: "raspberry", background: "soft" } }));
-    await browserExpect.poll(() => primary(page)).not.toBe(initial);
+    await post(page, antojo);
+    await browserExpect.poll(() => primary(page)).toBe(rgb(checkoutThemes.antojo.colors.primary));
   }, page);
 });
 
-test("changes borders and fields with the brand color in the preview", async ({ page }) => {
+test("paints the page and the thumbnail frame of each theme in the preview", async ({ page }) => {
   await withCompany(async () => {
     await openPreview(page);
-    const ocean = checkoutPalette("ocean", "medium");
-    for (const mode of ["light", "dark"] as const) {
-      await post(page, update({ mode, appearance: { logoUrl: null, brandColor: "ocean", background: "medium" } }));
-      await browserExpect.poll(() => usedBorderColors(page)).toContain(rgb(ocean[mode].border));
-      expect(await usedBorderColors(page)).not.toContain(rgb(mode === "light" ? "#DCD4C9" : "#484249"));
-      await browserExpect.poll(() => page.locator("[data-slot=input]").first().evaluate((node) => getComputedStyle(node).borderTopColor)).toBe(rgb(ocean[mode].input));
+    for (const theme of ["classic", "boutique", "antojo", "suave", "noche"] as const) {
+      await post(page, update({ appearance: { logoUrl: null, theme } }));
+      const scope = page.locator(`[data-checkout-theme-id="${theme}"]`);
+      await browserExpect(scope).toBeAttached();
+      await browserExpect(scope).toHaveCSS("background-color", rgb(checkoutThemes[theme].colors.background));
     }
   }, page);
 });
 
-test("dark mode leaves the seller's saved theme preference untouched", async ({ page }) => {
+test("fixes the mode of the preview by the theme and leaves the seller's saved preference untouched", async ({ page }) => {
   await withCompany(async () => {
+    await page.emulateMedia({ colorScheme: "dark" });
+    await page.evaluate(() => localStorage.setItem("yoyos-theme", "dark"));
     await openPreview(page);
-    await page.evaluate(() => localStorage.setItem("yoyos-theme", "light"));
-    await post(page, update({ mode: "dark" }));
-    await browserExpect(page.locator("html")).toHaveClass(/dark/);
-    expect(await page.evaluate(() => localStorage.getItem("yoyos-theme"))).toBe("light");
+    await post(page, update({ appearance: { logoUrl: null, theme: "boutique" } }));
+    await browserExpect(page.locator('[data-checkout-theme-id="boutique"]')).toBeAttached();
+    await browserExpect(page.locator("html")).not.toHaveClass(/dark/);
+    await browserExpect(page.locator("html")).toHaveAttribute("data-color-scheme", "fixed");
+    await post(page, update({ appearance: { logoUrl: null, theme: "noche" } }));
+    await browserExpect(page.locator('[data-checkout-theme-id="noche"]')).toHaveClass(/dark/);
+    await browserExpect(page.locator("html")).not.toHaveClass(/dark/);
+    expect(await page.evaluate(() => localStorage.getItem("yoyos-theme"))).toBe("dark");
   }, page);
+});
+
+test("applies the theme draft to the preview without changing the public checkout", async ({ page }) => {
+  const email = `appearance-${crypto.randomUUID()}@example.test`;
+  let companyId: string | undefined;
+  try {
+    companyId = await openEditor(page, email);
+    const path = await sharedCheckoutPath(companyId, email);
+    const frame = page.frameLocator('iframe[title="Vista previa del checkout"]');
+    const confirm = frame.getByRole("button", { name: "Confirmar pedido" });
+    await page.getByRole("radio", { name: /^Antojo/ }).click();
+    await browserExpect(confirm).toHaveCSS("background-color", rgb(checkoutThemes.antojo.colors.primary));
+    await browserExpect(page.getByText("Cambios sin guardar", { exact: true })).toBeVisible();
+    expect(await withTenantIsolation(companyId, async () => await prisma.companyCheckoutAppearance.findUnique({ where: { companyId: companyId! } }))).toBeNull();
+    const buyer = await page.context().newPage();
+    await buyer.goto(path);
+    await browserExpect(buyer.locator("[data-checkout-theme]")).toHaveAttribute("data-checkout-theme-id", "classic");
+    await browserExpect(buyer.getByRole("button", { name: "Confirmar pedido" })).toHaveCSS("background-color", rgb(checkoutThemes.classic.colors.primary));
+  } finally {
+    if (companyId) await systemPrisma.company.deleteMany({ where: { id: companyId } });
+    await systemPrisma.user.deleteMany({ where: { email } });
+  }
 });
 
 test("never confirms orders, registers payments or submits forms from the preview", async ({ page }) => {
@@ -143,10 +173,11 @@ test("embedded at 390 px the preview activates the phone breakpoints and cannot 
     await browserExpect(ready(preview)).toBeAttached();
     await page.evaluate(() => {
       const frame = document.querySelector<HTMLIFrameElement>("#preview")!;
-      frame.contentWindow!.postMessage({ type: "checkout-appearance:update", mode: "dark", state: "payment",
-        appearance: { logoUrl: null, brandColor: "ocean", background: "medium" } }, window.location.origin);
+      frame.contentWindow!.postMessage({ type: "checkout-appearance:update", state: "payment",
+        appearance: { logoUrl: null, theme: "noche" } }, window.location.origin);
     });
     await browserExpect(preview.getByRole("heading", { name: "Cómo pagar" })).toBeVisible();
-    await browserExpect(preview.locator("html")).toHaveClass(/dark/);
+    await browserExpect(preview.locator('[data-checkout-theme-id="noche"]')).toHaveClass(/dark/);
+    await browserExpect(preview.locator("html")).not.toHaveClass(/dark/);
   }, page);
 });

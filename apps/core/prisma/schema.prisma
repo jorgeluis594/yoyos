@@ -280,22 +280,12 @@ model CompanyPaymentSettings {
   settings Json
 }
 
-enum CheckoutBrandColor {
-  yoyos
-  forest
-  petrol
-  ocean
-  plum
-  raspberry
-  terracotta
-  mustard
-  graphite
-}
-
-enum CheckoutBackground {
-  soft
-  medium
-  brand_tint
+enum CheckoutTheme {
+  classic
+  boutique
+  antojo
+  suave
+  noche
 }
 
 model CompanyCheckoutAppearance {
@@ -303,8 +293,7 @@ model CompanyCheckoutAppearance {
   company     Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
   logoImageId String?            @db.Uuid
   logoImage   Image?             @relation(fields: [companyId, logoImageId], references: [companyId, id], onDelete: Restrict)
-  brandColor  CheckoutBrandColor
-  background  CheckoutBackground
+  theme       CheckoutTheme      @default(classic)
   updatedAt   DateTime           @updatedAt
 }
 

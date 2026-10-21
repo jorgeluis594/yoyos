@@ -4,8 +4,8 @@ import type { CheckoutPreviewMessage } from "@core/src/features/checkout-appeara
 import { announcePreviewReady, listenForPreviewReady, listenForPreviewUpdates, sendPreviewUpdate } from "@core/src/features/checkout-appearance/presentation/preview-protocol";
 
 const update: CheckoutPreviewMessage = {
-  type: "checkout-appearance:update", mode: "dark", state: "payment",
-  appearance: { logoUrl: null, brandColor: "forest", background: "brand_tint" },
+  type: "checkout-appearance:update", state: "payment",
+  appearance: { logoUrl: null, theme: "noche" },
 };
 
 const stops: Array<() => void> = [];
@@ -42,8 +42,8 @@ describe("preview messages", () => {
     const onUpdate = vi.fn();
     stops.push(listenForPreviewUpdates(window, onUpdate));
     const origin = window.location.origin;
-    deliver({ data: { ...update, mode: "sepia" }, origin, source: parent });
-    deliver({ data: { ...update, appearance: { ...update.appearance, brandColor: "#ff0000" } }, origin, source: parent });
+    deliver({ data: { ...update, mode: "dark" }, origin, source: parent });
+    deliver({ data: { ...update, appearance: { ...update.appearance, theme: "neon" } }, origin, source: parent });
     deliver({ data: { ...update, extra: true }, origin, source: parent });
     deliver({ data: "checkout-appearance:update", origin, source: parent });
     expect(onUpdate).not.toHaveBeenCalled();
@@ -81,7 +81,7 @@ describe("preview messages", () => {
 
   test("does not send a draft that does not match the schema", () => {
     const frame = { postMessage: vi.fn() } as unknown as Window;
-    const invalid = { ...update, appearance: { ...update.appearance, brandColor: "#ff0000" } } as unknown as CheckoutPreviewMessage;
+    const invalid = { ...update, appearance: { ...update.appearance, theme: "neon" } } as unknown as CheckoutPreviewMessage;
     expect(sendPreviewUpdate(frame, invalid).success).toBe(false);
     expect(frame.postMessage).not.toHaveBeenCalled();
   });
