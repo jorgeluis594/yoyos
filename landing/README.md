@@ -58,6 +58,10 @@ Every contact value, URL and switch comes from `PUBLIC_*` environment variables,
 
 Internal imports use `@landing/*` (this package, from its root), `@docs/*` and `@shared/*` (`../docs`, `../shared`, read only; both shared files import nothing, so CI does not install `shared`).
 
+## Text zoom check
+
+Pages must reflow without horizontal page scroll at 360 px with the browser default font size at 200%. Measure it on `dist` (`pnpm build`, then serve it) with a Chromium CDP session: `Page.setFontSizes` with `{ fontSizes: { standard: 32 } }`, load `/`, `/privacidad` and the 404, and compare `document.documentElement.scrollWidth` with `clientWidth` (both must be 360). `src/styles/global.css` sets `overflow-wrap: anywhere` on headings, paragraphs, list items, summaries and pill labels so long words wrap instead of widening grid tracks; `tests/source/text-zoom.test.ts` guards that rule.
+
 ## Provisional assets
 
 These are placeholders until the founder or Marketing supplies the real ones:

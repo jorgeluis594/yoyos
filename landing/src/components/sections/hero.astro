@@ -42,12 +42,15 @@ const { demoForm, phone, whatsapp } = siteConfig;
 
   .layout {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--space-12);
     align-items: center;
   }
 
   .copy {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
     justify-items: start;
     gap: var(--space-6);
   }
