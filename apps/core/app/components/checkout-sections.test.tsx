@@ -53,7 +53,7 @@ describe("CheckoutShell", () => {
     act(() => root.render(withI18n(<CheckoutShell appearance={null} checkout={pending}><p>Contenido</p></CheckoutShell>)));
     const bar = container.querySelector('[data-checkout-part="header"]')!;
     const row = bar.firstElementChild!;
-    expect(row.className).toContain("justify-(--checkout-header-justify)");
+    expect((row as HTMLElement).getAttribute("style")).toContain("var(--checkout-header-justify");
     expect(row.contains(container.querySelector('[data-checkout-part="header-brand"]'))).toBe(true);
     act(() => root.unmount());
   });
