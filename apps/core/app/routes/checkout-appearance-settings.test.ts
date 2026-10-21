@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
-import { action, loader } from "@core/app/routes/checkout-appearance-settings";
+import type { ActionFunctionArgs, ClientActionFunctionArgs, LoaderFunctionArgs } from "react-router";
+import { action, clientAction, loader } from "@core/app/routes/checkout-appearance-settings";
 import { checkoutAppearance, type CheckoutAppearance, type ImageId } from "@core/src/features/checkout-appearance";
 import * as images from "@core/src/shared/images";
 import * as logger from "@core/src/shared/infrastructure/logger";
@@ -90,5 +90,19 @@ describe("editor action", () => {
       { operation: "save_checkout_appearance", outcome: "invalid_input" },
       { operation: "save_checkout_appearance", outcome: "technical_failure" },
     ]);
+  });
+});
+
+describe("editor client action", () => {
+  test("turns a save that gets no response into the save error, keeping the editor and its draft", async () => {
+    const serverAction = vi.fn(async () => { throw new TypeError("Failed to fetch"); });
+    expect(await clientAction({ serverAction } as unknown as ClientActionFunctionArgs)).toEqual({ error: "PERSISTENCE_UNAVAILABLE" });
+  });
+
+  test("passes the server answer through, including a failure status", async () => {
+    const answer = { success: true, appearance };
+    expect(await clientAction({ serverAction: async () => answer } as unknown as ClientActionFunctionArgs)).toBe(answer);
+    const refused = new Response("nope", { status: 500 });
+    await expect(clientAction({ serverAction: async () => { throw refused; } } as unknown as ClientActionFunctionArgs)).rejects.toBe(refused);
   });
 });

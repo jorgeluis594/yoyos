@@ -171,6 +171,39 @@ describe("checkout appearance editor", () => {
     await browserExpect(page).toHaveURL(/\/products/);
   });
 
+  test("keeps Suave selected when choosing to keep editing after trying to leave", async ({ page }) => {
+    const companyId = await openEditor(page);
+    await themeOption(page, "Suave").click();
+    await page.getByRole("link", { name: "Productos" }).first().click();
+    await page.getByRole("button", { name: "Seguir editando" }).click();
+    await browserExpect(page).toHaveURL(/settings\/checkout-appearance/);
+    await browserExpect(themeOption(page, "Suave")).toBeChecked();
+    await browserExpect(unsaved(page)).toBeVisible();
+    expect(await stored(companyId)).toBeNull();
+  });
+
+  test("keeps Suave selected when the save gets no response and publishes it once on retry", async ({ page }) => {
+    const companyId = await openEditor(page);
+    await themeOption(page, "Suave").click();
+    let attempts = 0;
+    await page.route("**/settings/checkout-appearance*", (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      attempts += 1;
+      return attempts === 1 ? route.abort("failed") : route.continue();
+    });
+    await saveChanges(page).click();
+    const notice = page.getByRole("alert").filter({ hasText: "No pudimos guardar la apariencia" });
+    await browserExpect(notice).toBeVisible();
+    await browserExpect(notice.getByRole("button", { name: "Reintentar" })).toBeVisible();
+    await browserExpect(themeOption(page, "Suave")).toBeChecked();
+    expect(await stored(companyId)).toBeNull();
+    await notice.getByRole("button", { name: "Reintentar" }).click();
+    await browserExpect(savedNotice(page)).toBeVisible();
+    expect(attempts).toBe(2);
+    expect(await stored(companyId)).toMatchObject({ theme: "suave" });
+    await browserExpect(themeOption(page, "Suave")).toBeChecked();
+  });
+
   test("can be completed with the keyboard on a phone screen", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     const companyId = await openEditor(page);
