@@ -24,9 +24,13 @@ type Pair = Readonly<{ label: string; foreground: string; surface: string }>;
 function textPairs(theme: CheckoutThemeDefinition): Pair[] {
   const { colors } = theme;
   const pairs: Pair[] = [];
-  for (const token of ["foreground", "heading", "muted-foreground", "label", "placeholder", "free", "accent"] as const)
+  for (const token of ["foreground", "heading", "muted-foreground", "label", "placeholder", "free"] as const)
     for (const surface of cardAndPage(theme)) pairs.push({ label: `${token} on ${surface}`, foreground: colors[token], surface });
   for (const token of ["foreground", "placeholder"] as const) pairs.push({ label: `${token} on input-surface`, foreground: colors[token], surface: colors["input-surface"] });
+  pairs.push({ label: "link on card", foreground: colors.link, surface: colors.card });
+  // A checked option or payment method paints its text on the selected surface; the select highlight paints on accent.
+  for (const token of ["muted-foreground", "free"] as const) pairs.push({ label: `${token} on selected-surface`, foreground: colors[token], surface: colors["selected-surface"] });
+  pairs.push({ label: "foreground on accent", foreground: colors.foreground, surface: colors.accent });
   pairs.push({ label: "foreground on selected-surface", foreground: colors.foreground, surface: colors["selected-surface"] });
   for (const surface of ["primary", "primary-hover", "primary-pressed"] as const)
     pairs.push({ label: `primary-foreground on ${surface}`, foreground: colors["primary-foreground"], surface: colors[surface] });
@@ -46,6 +50,13 @@ function boundaryPairs(theme: CheckoutThemeDefinition): Pair[] {
   for (const surface of [colors["input-surface"], ...cardAndPage(theme)]) pairs.push({ label: `input on ${surface}`, foreground: colors.input, surface });
   for (const token of ["control", "selected", "ring"] as const)
     for (const surface of cardAndPage(theme)) pairs.push({ label: `${token} on ${surface}`, foreground: colors[token], surface });
+  // Radio dot, focus ring around a field, invalid-field border, and the selected border against its own fill.
+  for (const [token, surface] of [["accent-strong", colors["input-surface"]], ["ring", colors["input-surface"]], ["destructive", colors["input-surface"]], ["selected", colors["selected-surface"]]] as const)
+    pairs.push({ label: `${token} on ${surface}`, foreground: colors[token], surface });
+  for (const surface of cardAndPage(theme)) {
+    pairs.push({ label: `accent-strong on ${surface}`, foreground: colors["accent-strong"], surface });
+    pairs.push({ label: `destructive on ${surface}`, foreground: colors.destructive, surface });
+  }
   return pairs;
 }
 
@@ -78,6 +89,14 @@ describe("checkout themes", () => {
   test("meets 3:1 for field, control, selected and focus boundaries against card and background in every theme", () => {
     for (const theme of themes) for (const pair of boundaryPairs(theme))
       expect(contrast(pair.foreground, pair.surface), `${theme.id}: ${pair.label}`).toBeGreaterThanOrEqual(boundaryFloor);
+  });
+
+  test("keeps shadcn's soft accent and carries the strong accent of each theme in its own token", () => {
+    for (const theme of themes) {
+      expect(theme.colors.accent, theme.id).toBe(theme.colors["selected-surface"]);
+      expect(theme.colors["accent-foreground"], theme.id).toBe(theme.colors.foreground);
+    }
+    expect(themes.map((theme) => theme.colors["accent-strong"])).toEqual(["#111111", "#141210", "#F75348", "#1F1A1C", "#3CC8E8"]);
   });
 
   test("keeps Antojo's coral button with dark brown text", () => {

@@ -211,7 +211,9 @@ export const checkoutThemes: Readonly<Record<CheckoutThemeId, CheckoutThemeDefin
 | `selected`, `selected-surface` | Selected option boundary and surface | `--sel-border` (or `--accent` when transparent), `--sel-bg` |
 | `border` | Decorative separators and card borders | `--card-border`, `--row-sep`, `--header-border` |
 | `primary`, `primary-foreground`, `primary-hover`, `primary-pressed` | Main button | `--btn-bg`, `--btn-text`; hover and pressed one lightness step each |
-| `accent`, `accent-foreground` | Radio dot, links, highlights | `--accent` |
+| `accent`, `accent-foreground` | Soft highlight surface (select highlight, hover) and its text; they keep the shadcn meaning | `accent` is `selected-surface`; `accent-foreground` is `foreground` |
+| `accent-strong` | Radio dot | `--accent` |
+| `link` | Text links on the card (receipts link) | `--accent`, adjusted to 4.5:1 on `card` |
 | `ring` | Keyboard focus | `--accent` (or `--text` when the accent fails 3:1) |
 | `free` | «Gratis» | `--free` |
 | `thumbnail-surface` | Marker block | `--tb` |
@@ -230,14 +232,16 @@ export const checkoutThemes: Readonly<Record<CheckoutThemeId, CheckoutThemeDefin
 | Spacing | `page-padding-x`, `header-padding-y`, `section-gap`, `card-padding`, `title-gap`, `row-gap`, `row-separator-padding`, `field-gap`, `label-gap`, `field-padding`, `option-gap`, `option-padding`, `input-height`, `input-padding-x`, `button-height`, `button-gap` | `--page-pad`, `--header-pad`, `--section-gap`, `--card-pad`, `--title-mb`, `--row-gap`, `--row-sep-pad`, `--field-gap`, `--label-gap`, `--field-pad`, `--opt-gap`, `--opt-pad`, `--input-h`, `--input-pad`, `--btn-h`, `--btn-mt` |
 | Header | `header-justify` | `--header-justify` |
 
+Beyond the table, the catalog also holds the temas.css values the table omitted: `option-separator`, `option-separator-last` (`--opt-border-b`, `--opt-border-last`), `selected-outline` (`--sel-outline`), `button-border` (`--btn-border`), `option-surface` (`--opt-bg`), `group-surface` (`--group-bg`), `header-margin-bottom` (`--header-mb`) and `header-padding-x`. Where a temas.css decorative border has its own color (Clásico thumbnail, Noche header, option, field and thumbnail separators), the value is written as that opaque HEX instead of `border`. The logo definition also carries `direction` (`row` or `column`, Boutique stacks) and `padding` (pill plates need wider horizontal padding), and its plate `height` is the `--logo-size` of the theme.
+
 Logo plate and thumbnail values come from `--logo-*` and `--thumb-*` / `--radius-thumb`, except the plate color, which is always white (product rule). `name` comes from the product draft.
 
 **Contrast pairs** checked by the unit test for each theme (4.5:1 text, 3:1 non-text), against `background`, every gradient stop and `card` unless stated:
 
 | Kind | Pairs |
 | --- | --- |
-| Text 4.5:1 | `foreground`, `heading`, `muted-foreground`, `label`, `placeholder`, `free`, `accent` (as link) on background and card; `foreground` and `placeholder` on `input-surface`; `foreground` on `selected-surface`; `primary-foreground` on `primary`, `primary-hover`, `primary-pressed`; `accent-foreground` on `accent`; `muted-foreground` on `thumbnail-surface`; each semantic text on its surface and on card |
-| Non-text 3:1 | `input` on `input-surface`, card and background; `control` on card and background; `selected` on card and background; `ring` on card and background |
+| Text 4.5:1 | `foreground`, `heading`, `muted-foreground`, `label`, `placeholder`, `free`, `accent` (as link) on background and card; `foreground` and `placeholder` on `input-surface`; `foreground` on `selected-surface`; `primary-foreground` on `primary`, `primary-hover`, `primary-pressed`; `accent-foreground` on `accent`; `muted-foreground` on `thumbnail-surface`; `link` on card; `muted-foreground` and `free` on `selected-surface` (a checked option or payment method); `foreground` on `accent`; each semantic text on its surface and on card |
+| Non-text 3:1 | `input` on `input-surface`, card and background; `control` on card and background; `selected` on card, background and `selected-surface`; `ring` on card, background and `input-surface` (focus); `accent-strong` (radio dot) on card, background and `input-surface`; `destructive` (invalid field border) on card, background and `input-surface` |
 
 Decorative tokens (`border`, separators, shadows) are not checked.
 
@@ -392,24 +396,26 @@ No event. Cross-feature capabilities:
 
 | Hook | What it gets |
 | --- | --- |
-| `data-slot="button"` | height, radius, border, shadow, button font, size, weight, tracking, case |
+| `data-slot="button"` | radius and button font; with `data-variant="default"` also height, border, shadow, size, weight, tracking, case |
 | `data-slot="input"`, `data-slot="select-trigger"` | height, padding, radius, border (`input`), `input-shadow`, `input-surface`, placeholder color, body font at 16 px (prevents iOS zoom) |
 | `data-slot="field-label"`, `data-slot="label"` | label size, weight, tracking, case, color, body font |
-| `data-slot="radio-group-item"` | `control` border, `accent` dot |
+| `data-slot="radio-group-item"` | `control` border, `selected` border when checked, `accent-strong` dot |
+| `:focus-visible` of buttons, fields, selects and radios, and of an option or payment method that contains the focus | `outline: 2px solid var(--ring)` with offset; the unlayered rules would otherwise replace the utilities' ring |
+| `[aria-invalid="true"]` of fields and selects | `destructive` border and an inner `destructive` underline (themes without a field border) |
 | `data-checkout-part="header"` | header padding, border, justify |
-| `data-checkout-part="header-brand"` | placement, store name in heading font and `text-store` |
+| `data-checkout-part="header-brand"` | placement, store name in heading font and `text-store`; the store name element takes `--checkout-font-heading` and `--checkout-weight-heading` itself, with today's semibold as fallback |
 | `data-checkout-part="order-title"` | heading font, `text-order-title` |
 | `data-checkout-part="card"` | surface, border, top border, radius, shadow, padding |
 | `data-checkout-part="section-title"` | heading font, size, weight, tracking, `heading` color, gap |
 | `data-checkout-part="product-row"`, `"product-name"`, `"product-meta"`, `"price"` | row gap and separator; product-name font; small text; price weight in body font with tabular numbers |
 | `data-checkout-part="field-group"`, `"field"` | Noche's grouped fields: group border, radius, surface, field separator and padding; other themes set them to none |
-| `data-checkout-part="option-group"`, `"option"`, `"option-cost"`, `"free"` | option gap, padding, radius, border, selected border, surface and shadow (`[data-state=checked]` / `:has(:checked)`), «Gratis» color |
+| `data-checkout-part="option-group"`, `"option"`, `"option-cost"`, `"free"` | option gap, padding, radius, border, selected border, surface, shadow, outline and `foreground` text color (`[data-state=checked]` / `:has(:checked)`), «Gratis» color |
 | `data-checkout-part="total"`, `"total-label"`, `"total-amount"` | separator, label in heading font, amount size and weight in body font |
-| `data-checkout-part="payment-method"` | chip radius and border |
+| `data-checkout-part="payment-method"` | chip radius, border and surface; checked state as `.pay.selected` (selected border, surface, shadow, outline, `foreground` text) |
 | `data-checkout-part="payment-image"` | white background, padding, radius from the theme; image keeps its colors |
 | `data-checkout-part="status"` | semantic surfaces keep their tokens; radius from the theme |
 
-Semantic utilities (`bg-[var(--error-surface)]` and similar) need no hook: the theme writes the semantic tokens. The stylesheet never sets content, order or visibility.
+Semantic utilities (`bg-[var(--error-surface)]` and similar) need no hook: the theme writes the semantic tokens. Text links use the `--link` variable (`text-[var(--link)]`), which passes 4.5:1 on the card in every theme. The stylesheet never sets content, order or visibility.
 
 ### 12.3 Fixed mode
 
