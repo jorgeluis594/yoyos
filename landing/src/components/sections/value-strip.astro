@@ -7,7 +7,7 @@ import { valueStripContent } from "@landing/src/content/sections/value-strip";
 const icons = { camera: Camera, link: Link, truck: Truck } as const;
 ---
 
-<section id="valor" class="strip" aria-label="Propuesta de valor">
+<section class="strip" data-section="value-strip">
   <div class="container">
     <ul class="items">
       {valueStripContent.items.map((item) => {

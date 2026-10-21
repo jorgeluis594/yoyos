@@ -1,5 +1,6 @@
 import { getImage } from "astro:assets";
 import type { PreloadImage } from "@landing/src/lib/seo";
+import { heroImage } from "@landing/src/content/sections/hero-image";
 import type { ScreenshotSlot } from "./screenshot-slot";
 
 export const heroContent = {
@@ -10,23 +11,29 @@ export const heroContent = {
   microcopy: "Disponible para Android. iPhone próximamente. S/ 50 al mes + IGV, sin comisión por venta.",
 } as const;
 
-/** Switch `kind` to "image" with the real mockup (src/assets/screenshots/) when Marketing supplies it. */
-export const heroImage = {
-  kind: "provisional",
-  alt: "Chat de WhatsApp en el que un cliente envía la foto de unas zapatillas y Yoyos la convierte en un pedido con su total",
-  aspectRatio: "4/5",
-} as ScreenshotSlot;
+/**
+ * Responsive candidates of the hero LCP image; the preload below and the rendered <Picture> share them.
+ * `sizes` mirrors the hero layout: the front capture is about 464px wide from the desktop breakpoint and fills
+ * the capped media card (hero.astro) below it. `preloadWidth` is the candidate used as the preload `href`.
+ */
+export const heroImageSizing = {
+  widths: [320, 480, 640, 880],
+  sizes: "(min-width: 64em) 464px, min(100vw - 7rem, 20rem)",
+  preloadWidth: 480,
+} as const;
 
-/** Responsive candidates of the hero LCP image; the preload below and the rendered <Picture> share them. */
-export const heroImageSizing = { widths: [360, 540, 720], sizes: "(min-width: 64em) 540px, 100vw" } as const;
+/** Preload of the hero LCP image: AVIF only, so browsers without AVIF skip it, with `href` taken from `imagesrcset`. */
+export async function buildHeroPreload(slot: ScreenshotSlot): Promise<PreloadImage | undefined> {
+  if (slot.kind !== "image") return undefined;
+  const { widths, sizes, preloadWidth } = heroImageSizing;
+  const avif = await getImage({ src: slot.image, format: "avif", widths: [...widths], sizes });
+  const candidates = avif.srcSet.attribute.split(",").map((candidate) => candidate.trim().split(" "));
+  const fallback = candidates.find(([, descriptor]) => descriptor === `${preloadWidth}w`);
+  if (!fallback?.[0]) throw new Error(`Hero preload: no ${preloadWidth}w candidate in the AVIF srcset`);
+  return { href: fallback[0], type: "image/avif", imagesrcset: avif.srcSet.attribute, imagesizes: sizes };
+}
 
-/** Preload of the hero LCP image, consumed by index.astro; undefined while the slot is provisional. */
-export const heroPreload: PreloadImage | undefined =
-  heroImage.kind === "image"
-    ? await getImage({ src: heroImage.image, format: "avif", widths: [...heroImageSizing.widths], sizes: heroImageSizing.sizes }).then((avif) => ({
-        href: avif.src,
-        type: "image/avif",
-        imagesrcset: avif.srcSet.attribute,
-        imagesizes: heroImageSizing.sizes,
-      }))
-    : undefined;
+/** Consumed by index.astro; undefined while the slot is provisional. */
+export const heroPreload: PreloadImage | undefined = await buildHeroPreload(heroImage);
+
+export { heroImage };

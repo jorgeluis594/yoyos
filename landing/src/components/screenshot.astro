@@ -10,7 +10,7 @@ type Props = Readonly<{
   sizes?: string;
 }>;
 
-const { capture: slot, priority = false, widths = [360, 540, 720], sizes = "(min-width: 64em) 540px, 100vw" } = Astro.props;
+const { capture: slot, priority = false, widths = [360, 540, 720, 1080], sizes = "(min-width: 64em) 540px, 100vw" } = Astro.props;
 const decorative = slot.alt === "";
 const frameStyle = `--aspect-ratio:${slot.aspectRatio}`;
 ---

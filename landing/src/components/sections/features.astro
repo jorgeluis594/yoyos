@@ -13,7 +13,7 @@ const label = navLinks.find((link) => link.anchor === "funciones")?.label;
     <ul class="grid">
       {featuresContent.cards.map((card) => (
         <li class="card">
-          <Screenshot capture={card.capture} widths={[360, 540]} sizes="(min-width: 64em) 540px, 100vw" />
+          <Screenshot capture={card.capture} />
           <h3>{card.title}</h3>
           <p class="card-text">{card.text}</p>
         </li>

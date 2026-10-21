@@ -85,7 +85,7 @@ describe("hero", () => {
 
 describe("value strip", () => {
   test("shows the three items and the closing sentence without a heading", () => {
-    const strip = home("minimal").querySelector("#valor");
+    const strip = home("minimal").querySelector('[data-section="value-strip"]');
     expect(strip?.querySelectorAll("h2, h3")).toHaveLength(0);
     expect(strip?.querySelectorAll("li").map((item) => [text(item.querySelector(".item-title")), text(item.querySelector(".item-text"))])).toEqual([
       ["Te mandan la foto, Yoyos arma el pedido", "Tu cliente te manda la foto del producto por WhatsApp y Yoyos arma el pedido."],

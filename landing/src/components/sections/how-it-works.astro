@@ -13,7 +13,7 @@ const label = navLinks.find((link) => link.anchor === "como-funciona")?.label;
     <ol class="steps">
       {howItWorksContent.steps.map((step, index) => (
         <li class="step">
-          <div class="capture"><Screenshot capture={step.capture} widths={[360, 540]} sizes="(min-width: 64em) 540px, 100vw" /></div>
+          <div class="capture"><Screenshot capture={step.capture} /></div>
           <div class="body">
             <span class="number" aria-hidden="true">{index + 1}</span>
             <h3>{step.title}</h3>
@@ -60,7 +60,7 @@ const label = navLinks.find((link) => link.anchor === "como-funciona")?.label;
     place-items: center;
     width: var(--touch-target-min-size);
     height: var(--touch-target-min-size);
-    border-radius: var(--radius-pill);
+    border-radius: var(--radius-overlay);
     background: var(--primary);
     color: var(--primary-foreground);
     font-weight: var(--text-label-weight);
