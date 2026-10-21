@@ -1,0 +1,36 @@
+---
+import CtaLink from "@landing/src/components/cta-link.astro";
+import { siteConfig } from "@landing/src/config/site";
+import { notFoundContent } from "@landing/src/content/not-found";
+import { ctaLabels, pageSeo } from "@landing/src/content/site";
+import BaseLayout from "@landing/src/layouts/base-layout.astro";
+import { whatsappUrl } from "@landing/src/lib/contact";
+---
+
+<BaseLayout seo={pageSeo.notFound}>
+  <section class="section container not-found">
+    <h1>{notFoundContent.title}</h1>
+    <p class="lead">{notFoundContent.text}</p>
+    <div class="actions">
+      <CtaLink href="/">{notFoundContent.homeLabel}</CtaLink>
+      <CtaLink href={whatsappUrl(siteConfig.whatsapp)} variant="secondary" event="whatsapp_click" location="404" newTab>
+        {ctaLabels.whatsapp}
+      </CtaLink>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .not-found {
+    display: grid;
+    justify-items: start;
+    gap: var(--space-4);
+    max-width: var(--reader-max-width);
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+  }
+</style>

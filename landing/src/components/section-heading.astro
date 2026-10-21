@@ -1,0 +1,22 @@
+---
+type Props = Readonly<{ id?: string; label?: string; heading: string; lead?: string }>;
+
+const { id, label, heading, lead } = Astro.props;
+---
+
+<header class="section-heading">
+  {label && <p class="pill-label">{label}</p>}
+  <h2 id={id}>{heading}</h2>
+  {lead && <p class="lead">{lead}</p>}
+</header>
+
+<style>
+  .section-heading {
+    display: grid;
+    justify-items: center;
+    gap: var(--space-4);
+    max-width: var(--reader-max-width);
+    margin-inline: auto;
+    text-align: center;
+  }
+</style>

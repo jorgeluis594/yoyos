@@ -6,6 +6,7 @@ Yoyos manages sales for businesses selling through social media.
 
 - `apps/core/`: React web application and Express server; routes/components in `app/`, business features in `src/features/`, database schema and migrations in `prisma/`.
 - `apps/mobile/`: Expo/React Native application; routes in `src/app/`, features in `src/features/`, reusable UI in `src/components/ui/`, images/fonts in `assets/`.
+- `landing/`: Astro static marketing site (independent package with its own lockfile and CI job); pages in `src/pages/`, copy in `src/content/`, build-time configuration from `PUBLIC_*` variables.
 - `shared/`: cross-application contracts, money utilities, and Result helpers.
 - `docs/`: architecture, programming, persistence, and testing guidance. Older `apps/api/` references describe the current core backend.
 

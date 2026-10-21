@@ -70,3 +70,27 @@ jobs:
         working-directory: apps/mobile
       - run: pnpm test
         working-directory: apps/mobile
+
+  landing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12.5.1
+      - run: pnpm --dir landing install --frozen-lockfile
+      - run: cp .env.example .env
+        working-directory: landing
+      - run: pnpm lint
+        working-directory: landing
+      - run: pnpm typecheck
+        working-directory: landing
+      - run: pnpm test
+        working-directory: landing
+      - run: pnpm build
+        working-directory: landing
+      - run: pnpm test:build
+        working-directory: landing

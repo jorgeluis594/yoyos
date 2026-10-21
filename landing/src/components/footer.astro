@@ -1,0 +1,140 @@
+---
+import logoDark from "@landing/src/assets/brand/yoyos-logo-dark.svg";
+import logoLight from "@landing/src/assets/brand/yoyos-logo-light.svg";
+import { siteConfig } from "@landing/src/config/site";
+import { ctaLabels, footerContent } from "@landing/src/content/site";
+import { telUrl, whatsappUrl } from "@landing/src/lib/contact";
+
+type Props = Readonly<{ isHome: boolean }>;
+
+const { isHome } = Astro.props;
+const anchorHref = (anchor: string) => `${isHome ? "" : "/"}#${anchor}`;
+const phoneDisplay = siteConfig.phone.display;
+const socialLinks = [
+  { label: footerContent.socialLabels.tiktok, url: siteConfig.social.tiktok },
+  { label: footerContent.socialLabels.instagram, url: siteConfig.social.instagram },
+].flatMap(({ label, url }) => (url === null ? [] : [{ label, url }]));
+---
+
+<footer class="site-footer">
+  <div class="container grid">
+    <div class="brand">
+      <a href="/">
+        <picture>
+          <source srcset={logoDark.src} media="(prefers-color-scheme: dark)" />
+          <img src={logoLight.src} width={logoLight.width} height={logoLight.height} alt={footerContent.logoAlt} loading="lazy" />
+        </picture>
+      </a>
+      <p class="lead">{footerContent.tagline}</p>
+    </div>
+
+    <nav aria-label={footerContent.product.title}>
+      <p class="column-title">{footerContent.product.title}</p>
+      <ul>
+        {footerContent.product.links.map((link) => (
+          <li><a href={anchorHref(link.anchor)}>{link.label}</a></li>
+        ))}
+        {siteConfig.appLoginUrl && <li><a href={siteConfig.appLoginUrl}>{ctaLabels.login}</a></li>}
+      </ul>
+    </nav>
+
+    <div>
+      <p class="column-title">{footerContent.contact.title}</p>
+      <ul>
+        <li>
+          <a href={whatsappUrl(siteConfig.whatsapp)} target="_blank" rel="noopener" data-event="whatsapp_click" data-location="footer">
+            {footerContent.contact.whatsapp(phoneDisplay)}
+          </a>
+        </li>
+        <li>
+          <a href={telUrl(siteConfig.phone)} data-event="call_click" data-location="footer">
+            {footerContent.contact.call(phoneDisplay)}
+          </a>
+        </li>
+        {siteConfig.contactEmail && (
+          <li><a href={`mailto:${siteConfig.contactEmail}`}>{footerContent.contact.email(siteConfig.contactEmail)}</a></li>
+        )}
+        {socialLinks.map((link) => (
+          <li><a href={link.url} target="_blank" rel="noopener">{link.label}</a></li>
+        ))}
+      </ul>
+    </div>
+
+    <div class="legal">
+      <ul>
+        <li><a href="/privacidad">{footerContent.legal.privacy}</a></li>
+      </ul>
+      <p>{footerContent.copyright}</p>
+      <p class="lead small">{footerContent.trademarks}</p>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .site-footer {
+    border-block-start: var(--border-width) solid var(--border);
+    padding-block: var(--space-12);
+  }
+
+  .grid {
+    display: grid;
+    gap: var(--space-8);
+  }
+
+  @media (min-width: 64em) {
+    .grid {
+      grid-template-columns: 2fr 1fr 1fr;
+    }
+
+    .legal {
+      grid-column: 1 / -1;
+    }
+  }
+
+  .brand {
+    display: grid;
+    gap: var(--space-4);
+    align-content: start;
+  }
+
+  .brand img {
+    width: auto;
+    height: var(--space-8);
+  }
+
+  .column-title {
+    margin-block-end: var(--space-3);
+    font-size: var(--text-label-size);
+    line-height: var(--text-label-line);
+    font-weight: var(--text-section-title-weight);
+  }
+
+  ul {
+    display: grid;
+    gap: var(--space-2);
+    padding: 0;
+    list-style: none;
+  }
+
+  a {
+    color: var(--foreground);
+  }
+
+  a:hover {
+    color: var(--primary);
+  }
+
+  .legal {
+    display: grid;
+    gap: var(--space-2);
+    padding-block-start: var(--space-6);
+    border-block-start: var(--border-width) solid var(--border);
+    font-size: var(--text-body-compact-size);
+    line-height: var(--text-body-compact-line);
+  }
+
+  .small {
+    font-size: var(--text-caption-size);
+    line-height: var(--text-caption-line);
+  }
+</style>

@@ -1,0 +1,80 @@
+---
+import type { AnalyticsEvent, CtaLocation } from "@landing/src/lib/analytics";
+
+type Props = Readonly<{
+  href: string;
+  variant?: "primary" | "secondary" | "quiet";
+  event?: Extract<AnalyticsEvent["name"], "whatsapp_click" | "call_click" | "demo_form_open">;
+  location?: CtaLocation;
+  newTab?: boolean;
+  ariaLabel?: string;
+}>;
+
+const { href, variant = "primary", event, location, newTab = false, ariaLabel } = Astro.props;
+---
+
+<a
+  class={`button ${variant}`}
+  href={href}
+  data-event={event}
+  data-location={location}
+  target={newTab ? "_blank" : undefined}
+  rel={newTab ? "noopener" : undefined}
+  aria-label={ariaLabel}><slot /></a
+>
+
+<style>
+  .button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    min-height: var(--touch-target-min-size);
+    padding-inline: var(--space-6);
+    border: var(--border-width) solid transparent;
+    border-radius: var(--radius-pill);
+    font-size: var(--text-label-size);
+    line-height: var(--text-label-line);
+    font-weight: var(--text-label-weight);
+    text-align: center;
+    text-decoration: none;
+    transition:
+      background-color var(--motion-feedback) var(--motion-easing),
+      border-color var(--motion-feedback) var(--motion-easing);
+  }
+
+  .primary {
+    background: var(--primary);
+    color: var(--primary-foreground);
+  }
+
+  .primary:hover {
+    background: var(--primary-hover);
+    color: var(--primary-foreground);
+  }
+
+  .primary:active {
+    background: var(--primary-pressed);
+  }
+
+  .secondary {
+    border-color: var(--border);
+    background: var(--card);
+    color: var(--foreground);
+  }
+
+  .secondary:hover {
+    background: var(--secondary);
+    color: var(--foreground);
+  }
+
+  .quiet {
+    background: var(--secondary);
+    color: var(--secondary-foreground);
+  }
+
+  .quiet:hover {
+    background: var(--accent);
+    color: var(--accent-foreground);
+  }
+</style>

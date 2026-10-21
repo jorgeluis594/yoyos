@@ -180,6 +180,19 @@ On mobile, adapt the same values and roles to the existing React Native/NativeWi
 
 There is no package, generator, or UI library for sharing tokens: each application reads the JSON through a minimal adapter, because one file is enough and copies would drift. Never maintain independent copies of values by hand. Install fonts or icons only when used.
 
+### Landing
+
+The public landing (`landing/`) adapts these rules to a marketing page; app screens keep the roles above. It consumes the same tokens through its own adapter (`landing/src/styles/design-theme.ts`) and follows the approved visual reference for style only: clean, light, one accent color, generous space, medium-weight headings.
+
+| Aspect | Convention |
+| --- | --- |
+| Headings | H1 uses `display` (`display-wide` from the desktop breakpoint); section H2 uses `headline` (`headline-wide` from the desktop breakpoint). Weight 500, no heavy bold. These roles are landing-only. |
+| Section rhythm | Vertical space between sections uses spacing `16` (64) on mobile and `24` (96) on desktop. |
+| Container | `layout.landingMaxWidth` (1200), centered, with the page gutters. |
+| CTAs and pill labels | `radius.pill`, only on the landing's calls to action and section pill labels. App buttons keep the `control` radius. |
+| Cards | `overlay` radius (12), one-unit border, no shadow. |
+| Dark mode | Follows `prefers-color-scheme` with the `colors.dark` values; there is no toggle. |
+
 ### Visual reference and review
 
 The web reference is the Storybook foundations story (`apps/core/app/stories/foundations.stories.tsx`) and each component's story. Review visual changes in light and dark themes, with enlarged text, web keyboard/focus behavior and mobile touch targets; verify mobile on a device, not only in a browser.

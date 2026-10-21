@@ -1,0 +1,14 @@
+{
+  "extends": "astro/tsconfigs/strict",
+  "include": [".astro/types.d.ts", "**/*"],
+  "exclude": ["dist", "tests/build-output/.dist"],
+  "compilerOptions": {
+    "baseUrl": ".",
+    "resolveJsonModule": true,
+    "paths": {
+      "@docs/*": ["../docs/*"],
+      "@landing/*": ["./*"],
+      "@shared/*": ["../shared/*"]
+    }
+  }
+}
