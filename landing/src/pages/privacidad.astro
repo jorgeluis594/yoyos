@@ -1,12 +1,12 @@
 ---
 import PrivacyPolicy from "@landing/src/content/privacy-policy.astro";
-import { pageSeo } from "@landing/src/content/site";
+import { pageSeo, privacyContent } from "@landing/src/content/site";
 import BaseLayout from "@landing/src/layouts/base-layout.astro";
 ---
 
 <BaseLayout seo={pageSeo.privacy}>
   <article class="section reader">
-    <h1>Política de privacidad</h1>
+    <h1>{privacyContent.title}</h1>
     <PrivacyPolicy />
   </article>
 </BaseLayout>

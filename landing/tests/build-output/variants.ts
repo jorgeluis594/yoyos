@@ -2,18 +2,22 @@ export type VariantName = "minimal" | "full";
 
 export const siteUrl = "https://landing.example.test";
 
+export const whatsappNumber = "51912345678";
+export const demoText = "Hola, quiero una demo de Yoyos";
+export const phoneDisplay = "+51 912 345 678";
+
 const required = {
   PUBLIC_SITE_URL: siteUrl,
-  PUBLIC_WHATSAPP_NUMBER: "51912345678",
-  PUBLIC_WHATSAPP_DEMO_TEXT: "Hola, quiero una demo de Yoyos",
-  PUBLIC_PHONE_NUMBER: "+51912345678",
-  PUBLIC_PHONE_DISPLAY: "+51 912 345 678",
+  PUBLIC_WHATSAPP_NUMBER: whatsappNumber,
 };
 
 /** Every variable is set explicitly, so the builds do not depend on a local .env file. */
 export const variants: Record<VariantName, Record<string, string>> = {
   minimal: {
     ...required,
+    PUBLIC_WHATSAPP_DEMO_TEXT: "",
+    PUBLIC_PHONE_NUMBER: "",
+    PUBLIC_PHONE_DISPLAY: "",
     PUBLIC_INDEXING: "false",
     PUBLIC_ANALYTICS_ENABLED: "false",
     PUBLIC_APP_LOGIN_URL: "",
@@ -24,6 +28,9 @@ export const variants: Record<VariantName, Record<string, string>> = {
   },
   full: {
     ...required,
+    PUBLIC_WHATSAPP_DEMO_TEXT: demoText,
+    PUBLIC_PHONE_NUMBER: `+${whatsappNumber}`,
+    PUBLIC_PHONE_DISPLAY: phoneDisplay,
     PUBLIC_INDEXING: "true",
     PUBLIC_ANALYTICS_ENABLED: "true",
     PUBLIC_APP_LOGIN_URL: "https://app.example.test/login",

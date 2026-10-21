@@ -2,6 +2,8 @@ import type { SiteUrl } from "@landing/src/config/site-config";
 
 export type PagePath = "/" | `/${string}`;
 
+export type PreloadImage = Readonly<{ href: string; type?: string; imagesrcset?: string; imagesizes?: string }>;
+
 export type PageSeo = Readonly<{
   path: PagePath;
   title: string;

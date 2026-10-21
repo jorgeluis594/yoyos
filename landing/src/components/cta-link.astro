@@ -1,11 +1,11 @@
 ---
-import type { AnalyticsEvent } from "@landing/src/lib/analytics";
+import type { AnalyticsEvent, CtaLocation } from "@landing/src/lib/analytics";
 
 type Props = Readonly<{
   href: string;
   variant?: "primary" | "secondary" | "quiet";
   event?: Extract<AnalyticsEvent["name"], "whatsapp_click" | "call_click" | "demo_form_open">;
-  location?: string;
+  location?: CtaLocation;
   newTab?: boolean;
   ariaLabel?: string;
 }>;

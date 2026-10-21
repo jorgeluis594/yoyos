@@ -6,7 +6,7 @@ import Header from "@landing/src/components/header.astro";
 import { siteConfig } from "@landing/src/config/site";
 import { brandName, skipLinkLabel } from "@landing/src/content/site";
 import { serializeJsonLd, type JsonLdGraph } from "@landing/src/lib/json-ld";
-import { canonicalUrl, robotsMeta, type PageSeo } from "@landing/src/lib/seo";
+import { canonicalUrl, robotsMeta, type PageSeo, type PreloadImage } from "@landing/src/lib/seo";
 import "@landing/src/styles/fonts.css";
 import "@landing/src/styles/global.css";
 import { designTokens, themeCss } from "@landing/src/styles/design-theme";
@@ -14,7 +14,7 @@ import { designTokens, themeCss } from "@landing/src/styles/design-theme";
 type Props = Readonly<{
   seo: PageSeo;
   structuredData?: JsonLdGraph;
-  preloadImage?: Readonly<{ href: string; type?: string; imagesrcset?: string; imagesizes?: string }>;
+  preloadImage?: PreloadImage;
 }>;
 
 const { seo, structuredData, preloadImage } = Astro.props;

@@ -1,10 +1,10 @@
 import { describe, expect, test } from "vitest";
 import { pages, readPage } from "./html";
 
-const whatsapp = "https://wa.me/51912345678?text=Hola%2C%20quiero%20una%20demo%20de%20Yoyos";
+const whatsapp = "https://wa.me/51912345678";
 
 describe("header", () => {
-  test("shows the logo, the five anchors, the WhatsApp link and the call link with its aria-label", () => {
+  test("shows the logo, the five anchors, and the WhatsApp and call links with their fallbacks when the optional variables are empty", () => {
     const header = readPage("minimal", "index.html").querySelector("header.site-header");
     expect(header?.querySelector('a[href="/"] img')?.getAttribute("alt")).toBe("Yoyos");
     expect(header?.querySelectorAll("nav a").map((link) => [link.text, link.getAttribute("href")])).toEqual([
@@ -19,7 +19,23 @@ describe("header", () => {
     expect(chat?.text.trim()).toBe("Escríbenos por WhatsApp");
     const call = header?.querySelector('[data-event="call_click"]');
     expect(call?.getAttribute("href")).toBe("tel:+51912345678");
-    expect(call?.getAttribute("aria-label")).toBe("Llamar a Yoyos al +51 912 345 678");
+    expect(call?.getAttribute("aria-label")).toBe("Llamar a Yoyos al +51912345678");
+  });
+
+  test("uses the configured demo text, call number and display when they are set", () => {
+    const header = readPage("full", "index.html").querySelector("header.site-header");
+    expect(header?.querySelector('[data-event="whatsapp_click"]')?.getAttribute("href")).toBe(
+      "https://wa.me/51912345678?text=Hola%2C%20quiero%20una%20demo%20de%20Yoyos",
+    );
+    expect(header?.querySelector('[data-event="call_click"]')?.getAttribute("aria-label")).toBe("Llamar a Yoyos al +51 912 345 678");
+  });
+
+  test("names the menu summary exactly «Abrir menú» or «Cerrar menú» and the logo link by its alt", () => {
+    const header = readPage("minimal", "index.html").querySelector("header.site-header");
+    const summary = header?.querySelector("summary");
+    expect(summary?.querySelector(".menu-label")?.getAttribute("aria-hidden")).toBe("true");
+    expect(summary?.querySelectorAll(".visually-hidden").map((node) => node.text)).toEqual(["Abrir menú", "Cerrar menú"]);
+    expect(header?.querySelector('a[href="/"]')?.getAttribute("aria-label")).toBeUndefined();
   });
 
   test("points the anchors at the home from the other pages", () => {

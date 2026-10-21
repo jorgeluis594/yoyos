@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import {
   distHas,
@@ -125,6 +126,14 @@ describe("budgets", () => {
   test("the minimal variant ships no JavaScript and the analytics listener appears only in the full variant", () => {
     for (const file of pages) expect(scriptElements(readPage("minimal", file))).toHaveLength(0);
     expect(files(distPath("minimal")).filter((file) => file.endsWith(".js"))).toEqual([]);
-    expect(scriptElements(readPage("full", "index.html")).length).toBeGreaterThan(0);
+    const listener = (variant: VariantName) => {
+      const bundles = files(distPath(variant, "_astro"))
+        .filter((file) => file.endsWith(".js"))
+        .map((file) => readFileSync(file, "utf8"));
+      const inline = scriptElements(readPage(variant, "index.html")).map((script) => script.text);
+      return [...bundles, ...inline].filter((code) => code.includes("yoyosAnalytics"));
+    };
+    expect(listener("minimal")).toEqual([]);
+    expect(listener("full")).toHaveLength(1);
   });
 });

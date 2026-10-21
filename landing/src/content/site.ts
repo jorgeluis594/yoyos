@@ -11,6 +11,8 @@ export const navLinks = [
   { label: "Preguntas", anchor: "preguntas" },
 ] as const;
 
+export const privacyContent = { title: "Política de privacidad" } as const;
+
 export const ctaLabels = {
   whatsapp: "Escríbenos por WhatsApp",
   call: "Llámanos",
@@ -20,8 +22,6 @@ export const ctaLabels = {
 
 export const headerContent = {
   logoAlt: "Yoyos",
-  homeLinkLabel: "Yoyos, ir al inicio",
-  navigationLabel: "Principal",
   menu: { label: "Menú", open: "Abrir menú", close: "Cerrar menú" },
   callAriaLabel: (phoneDisplay: string) => `Llamar a Yoyos al ${phoneDisplay}`,
 } as const;

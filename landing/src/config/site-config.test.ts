@@ -118,6 +118,19 @@ describe("parseSiteConfig", () => {
     }
   });
 
+  test("accepts http localhost URLs only in development", () => {
+    const local = {
+      ...required,
+      PUBLIC_SITE_URL: "http://localhost:4321",
+      PUBLIC_APP_LOGIN_URL: "http://127.0.0.1:3000/login",
+      PUBLIC_DEMO_FORM_ACTION: "http://localhost:8787/demo",
+    };
+    expect(parseSiteConfig(local, { development: true }).success).toBe(true);
+    expect(failure(local).variables).toEqual(["PUBLIC_SITE_URL", "PUBLIC_APP_LOGIN_URL", "PUBLIC_DEMO_FORM_ACTION"]);
+    expect(failure({ ...required, PUBLIC_SITE_URL: "http://landing.example.test" }).variables).toEqual(["PUBLIC_SITE_URL"]);
+    expect(parseSiteConfig({ ...required, PUBLIC_SITE_URL: "http://landing.example.test" }, { development: true }).success).toBe(false);
+  });
+
   test("lists every invalid variable in one error", () => {
     const error = failure({
       PUBLIC_SITE_URL: "nope",

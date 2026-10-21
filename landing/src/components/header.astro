@@ -17,7 +17,7 @@ const anchorHref = (anchor: string) => `${isHome ? "" : "/"}#${anchor}`;
 
 <header class="site-header">
   <div class="container bar">
-    <a class="logo" href="/" aria-label={headerContent.homeLinkLabel}>
+    <a class="logo" href="/">
       <picture>
         <source srcset={logoDark.src} media="(prefers-color-scheme: dark)" />
         <img src={logoLight.src} width={logoLight.width} height={logoLight.height} alt={headerContent.logoAlt} />
@@ -28,12 +28,12 @@ const anchorHref = (anchor: string) => `${isHome ? "" : "/"}#${anchor}`;
       <summary>
         <Menu class="when-closed icon" aria-hidden="true" />
         <X class="when-open icon" aria-hidden="true" />
-        <span class="menu-label">{headerContent.menu.label}</span>
+        <span class="menu-label" aria-hidden="true">{headerContent.menu.label}</span>
         <span class="visually-hidden when-closed">{headerContent.menu.open}</span>
         <span class="visually-hidden when-open">{headerContent.menu.close}</span>
       </summary>
       <div class="panel">
-        <nav aria-label={headerContent.navigationLabel}>
+        <nav>
           <ul>
             {navLinks.map((link) => (
               <li><a href={anchorHref(link.anchor)}>{link.label}</a></li>

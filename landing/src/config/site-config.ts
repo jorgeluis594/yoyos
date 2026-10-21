@@ -52,38 +52,37 @@ function isSecureUrl(value: string, allowLocalHttp: boolean): boolean {
   return allowLocalHttp && url.protocol === "http:" && localhostHosts.has(url.hostname);
 }
 
-const secureUrl = z.string().refine((value) => isSecureUrl(value, false));
-const secureOrLocalUrl = z.string().refine((value) => isSecureUrl(value, true));
-
-function isSiteOrigin(value: string): boolean {
-  if (!isSecureUrl(value, true)) return false;
+function isSiteOrigin(value: string, allowLocalHttp: boolean): boolean {
+  if (!isSecureUrl(value, allowLocalHttp)) return false;
   const url = new URL(value);
   return url.pathname === "/" && url.search === "" && url.hash === "";
 }
 
-const siteUrl = z
-  .string()
-  .refine(isSiteOrigin)
-  .transform((value) => new URL(value).origin as SiteUrl);
-
 const flag = z.enum(["true", "false"]).transform((value) => value === "true");
 
-const siteEnvSchema = z.object({
-  PUBLIC_SITE_URL: siteUrl,
-  PUBLIC_INDEXING: flag.optional(),
-  PUBLIC_WHATSAPP_NUMBER: z.string().regex(/^[1-9]\d{7,14}$/).transform((value) => value as WhatsappNumber),
-  PUBLIC_WHATSAPP_DEMO_TEXT: z.string().optional(),
-  PUBLIC_PHONE_NUMBER: z.string().regex(internationalPhonePattern).optional(),
-  PUBLIC_PHONE_DISPLAY: z.string().optional(),
-  PUBLIC_APP_LOGIN_URL: secureOrLocalUrl.optional(),
-  PUBLIC_DEMO_FORM_ACTION: secureOrLocalUrl.optional(),
-  PUBLIC_CONTACT_EMAIL: z.email().optional(),
-  PUBLIC_TIKTOK_URL: secureUrl.optional(),
-  PUBLIC_INSTAGRAM_URL: secureUrl.optional(),
-  PUBLIC_ANALYTICS_ENABLED: flag.optional(),
-});
+function createSiteEnvSchema(allowLocalHttp: boolean) {
+  const secureUrl = z.string().refine((value) => isSecureUrl(value, false));
+  const secureOrLocalUrl = z.string().refine((value) => isSecureUrl(value, allowLocalHttp));
+  return z.object({
+    PUBLIC_SITE_URL: z
+      .string()
+      .refine((value) => isSiteOrigin(value, allowLocalHttp))
+      .transform((value) => new URL(value).origin as SiteUrl),
+    PUBLIC_INDEXING: flag.optional(),
+    PUBLIC_WHATSAPP_NUMBER: z.string().regex(/^[1-9]\d{7,14}$/).transform((value) => value as WhatsappNumber),
+    PUBLIC_WHATSAPP_DEMO_TEXT: z.string().optional(),
+    PUBLIC_PHONE_NUMBER: z.string().regex(internationalPhonePattern).optional(),
+    PUBLIC_PHONE_DISPLAY: z.string().optional(),
+    PUBLIC_APP_LOGIN_URL: secureOrLocalUrl.optional(),
+    PUBLIC_DEMO_FORM_ACTION: secureOrLocalUrl.optional(),
+    PUBLIC_CONTACT_EMAIL: z.email().optional(),
+    PUBLIC_TIKTOK_URL: secureUrl.optional(),
+    PUBLIC_INSTAGRAM_URL: secureUrl.optional(),
+    PUBLIC_ANALYTICS_ENABLED: flag.optional(),
+  });
+}
 
-type SiteEnv = z.output<typeof siteEnvSchema>;
+type SiteEnv = z.output<ReturnType<typeof createSiteEnvSchema>>;
 
 function trimmedValues(env: Readonly<Record<string, string | undefined>>): Record<string, string | undefined> {
   return Object.fromEntries(
@@ -115,9 +114,17 @@ function buildConfig(env: SiteEnv): SiteConfig {
   };
 }
 
+export type ParseOptions = Readonly<{
+  /** `astro dev` only: accepts http://localhost URLs. Production builds require https everywhere. */
+  development?: boolean;
+}>;
+
 /** Parses the PUBLIC_* build variables once; values are never echoed, only names. */
-export function parseSiteConfig(env: Readonly<Record<string, string | undefined>>): Result<SiteConfig, SiteConfigError> {
-  const parsed = siteEnvSchema.safeParse(trimmedValues(env));
+export function parseSiteConfig(
+  env: Readonly<Record<string, string | undefined>>,
+  options: ParseOptions = {},
+): Result<SiteConfig, SiteConfigError> {
+  const parsed = createSiteEnvSchema(options.development === true).safeParse(trimmedValues(env));
   if (!parsed.success) {
     const variables = invalidVariables(parsed.error);
     return err({

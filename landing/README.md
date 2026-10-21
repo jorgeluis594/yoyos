@@ -32,7 +32,7 @@ Every contact value, URL and switch comes from `PUBLIC_*` environment variables,
 
 | Variable | Required | Default when empty | Use |
 | --- | --- | --- | --- |
-| `PUBLIC_SITE_URL` | Yes | — | Absolute `https` origin without path (`http` only for localhost). Canonical, hreflang, Open Graph, JSON-LD, sitemap and robots. |
+| `PUBLIC_SITE_URL` | Yes | — | Absolute `https` origin without path (`http://localhost` only in `astro dev`). Canonical, hreflang, Open Graph, JSON-LD, sitemap and robots. |
 | `PUBLIC_INDEXING` | No | `false` | `true`: `index, follow` and `robots.txt` allows crawling. `false`: every page carries `noindex, nofollow` and `robots.txt` disallows all. The 404 is always `noindex`. |
 | `PUBLIC_WHATSAPP_NUMBER` | Yes | — | Digits only, country code without `+` (`wa.me` link). |
 | `PUBLIC_WHATSAPP_DEMO_TEXT` | No | `wa.me` link without text | Text prefilled in the WhatsApp chat. |

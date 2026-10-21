@@ -1,7 +1,7 @@
 import { parseSiteConfig, type SiteConfig } from "@landing/src/config/site-config";
 
 function resolveSiteConfig(): SiteConfig {
-  const result = parseSiteConfig(import.meta.env);
+  const result = parseSiteConfig(import.meta.env, { development: import.meta.env.DEV });
   if (!result.success) {
     console.error(JSON.stringify({ event: "invalid_site_config", code: result.error.code, variables: result.error.variables }));
     throw new Error(result.error.message);

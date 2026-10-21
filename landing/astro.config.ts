@@ -4,9 +4,10 @@ import { defineConfig } from "astro/config";
 import { loadEnv } from "vite";
 import { parseSiteConfig } from "./src/config/site-config";
 
-const mode = process.argv.includes("dev") ? "development" : "production";
+const development = process.argv.includes("dev");
+const mode = development ? "development" : "production";
 // Process variables win over .env files, so the build-output suite can pass explicit values.
-const result = parseSiteConfig({ ...loadEnv(mode, process.cwd(), "PUBLIC_"), ...process.env });
+const result = parseSiteConfig({ ...loadEnv(mode, process.cwd(), "PUBLIC_"), ...process.env }, { development });
 if (!result.success) {
   console.error(JSON.stringify({ event: "invalid_site_config", code: result.error.code, variables: result.error.variables }));
   throw new Error(result.error.message);
