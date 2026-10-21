@@ -2,21 +2,21 @@
 
 ## Purpose
 
-Organize the API and Expo mobile app by business features with the same responsibility boundaries, dependency rules, and feature hierarchy. Framework entry points and technical adapters differ by platform; business logic remains independent of them. Read these guidelines when planning, implementing, or refactoring. They define the target architecture, not the current scaffolds.
+Organize the core backend and web app (`apps/core`) and the Expo mobile app (`apps/mobile`) by business features with the same responsibility boundaries, dependency rules, and feature hierarchy. Framework entry points and technical adapters differ by platform; business logic remains independent of them. Read these guidelines when planning, implementing, or refactoring.
 
 ## Repository Hierarchy
 
 ```text
-docs/
-└── architecture.md                  # Shared architecture guidelines
-shared/
-├── result.ts                       # Cross-app Result types
-└── result.test.ts                  # Shared type contract checks
+shared/                              # Cross-app contracts, Result, money and other helpers
 apps/
-├── api/
+├── core/
+│   ├── app/                         # React Router web routes and components
+│   ├── prisma/                      # Database schema and migrations
 │   └── src/
 │       ├── app.ts                   # Application creation and composition
 │       ├── server.ts                # Process startup and shutdown
+│       ├── worker.ts                # Background job worker (see event-bus.md)
+│       ├── composition/             # Cross-feature wiring (event handlers, scheduled jobs)
 │       ├── features/                # Business features
 │       └── shared/                  # Reused code without a business owner
 │           └── infrastructure/      # Shared connections and client setup
@@ -83,7 +83,7 @@ Application code must not construct concrete repositories or import HTTP request
 `features/<feature>/infrastructure/` implements the data access and external capabilities required by that feature. It owns queries, persistence, remote requests, serialization, source-specific mapping, and technical error translation.
 
 ```text
-# API implementation
+# Core implementation
 features/orders/infrastructure/
 └── order-repository.ts              # Database access
 
@@ -101,7 +101,7 @@ Application-wide `src/shared/infrastructure/` configures shared technical resour
 `presentation/` adapts platform input to use-case input and maps outcomes to platform output. It owns boundary validation and platform interaction, with different files in each application:
 
 ```text
-# API presentation
+# Core presentation
 features/orders/presentation/
 ├── routes.ts                        # HTTP handlers and response mapping
 └── schemas.ts                       # Request and response validation
@@ -121,7 +121,7 @@ Screens, hooks, and handlers must invoke application operations for business beh
 
 ### Application Entry Points and Composition
 
-API `app.ts` creates the application, configures infrastructure, and registers feature routes. `server.ts` owns process lifecycle. Framework plugins may implement registration and resource lifecycle without moving business logic into plugins.
+Core `app.ts` creates the application, configures infrastructure, and registers feature routes. `server.ts` owns process lifecycle. Framework plugins may implement registration and resource lifecycle without moving business logic into plugins.
 
 Mobile `src/app/` owns Expo routes and layouts; `src/composition/` holds startup wiring imported by the root layout, because Expo Router treats TypeScript files inside its route directory as routes. Feature providers and screens live in their presentation layer. Route files delegate feature-specific UI to those screens.
 

@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { initialDeliverySettings, type Courier, type DeliverySettings } from "@core/src/features/delivery-settings/domain/delivery-settings";
 import type { DeliveryAgency } from "@core/src/features/delivery-settings/domain/delivery-agency";
 import { parseDeliveryZone, type DeliveryZone } from "@core/src/features/delivery-settings/domain/delivery-zone";
-import { applicableDeliveryOptions, buildQuotationWithRates, parseQuotationDestination, parseRateWithQuotation, type DeliveryConfiguration } from "@core/src/features/delivery-settings/domain/quotation";
+import { applicableDeliveryOptions, buildQuotationWithRates, hasAgencyCoverage, parseQuotationDestination, parseRateWithQuotation, type DeliveryConfiguration } from "@core/src/features/delivery-settings/domain/quotation";
 import type { PeruDistrictCode } from "@shared/peru-geography";
 
 const id = (value: number) => `00000000-0000-4000-8000-${String(value).padStart(12, "0")}`;
@@ -107,4 +107,57 @@ test("stored rates validate the immutable destination and quotation relationship
     { ...value.quotation.destination, districtCode: "999999" }, { ...value.quotation.destination, kind: "home" }]) {
     expect(parseRateWithQuotation({ ...value, quotation: { ...value.quotation, destination } }, "PEN").success).toBe(false);
   }
+});
+
+const unitZone = (value: number, units: object, name = "Zona sur") => {
+  const parsed = parseDeliveryZone({ id: id(value), name, enabled: true, departmentCodes: [], provinceCodes: [], districtCodes: [], ...units,
+    options: [{ id: id(value + 100), method: "home", name: `Option ${value}`, enabled: true, price: { amount: 15, currency: "PEN" } }] }, "PEN");
+  if (!parsed.success) throw new Error(parsed.error.message);
+  return parsed.data;
+};
+const applicableIds = (zones: readonly DeliveryZone[], district: string) =>
+  applicableDeliveryOptions(configuration(zones), district as PeruDistrictCode).map(value => value.option.id);
+
+test("applicableDeliveryOptions applies a zone to a district of its complete department", () => {
+  const zones = [unitZone(1, { departmentCodes: ["04", "08"] })];
+  expect(applicableIds(zones, "040103")).toEqual([id(101)]);
+  expect(applicableIds(zones, "080101")).toEqual([id(101)]);
+  expect(applicableIds(zones, "150122")).toEqual([]);
+});
+
+test("applicableDeliveryOptions applies a zone to a district of its complete province and not to another province of the department", () => {
+  const zones = [unitZone(1, { provinceCodes: ["1501"] })];
+  expect(applicableIds(zones, "150122")).toEqual([id(101)]);
+  expect(applicableIds(zones, "150601")).toEqual([]);
+});
+
+test("applicableDeliveryOptions keeps applying district-by-district zones", () => {
+  expect(applicableIds([unitZone(1, { districtCodes: ["150122"] })], "150122")).toEqual([id(101)]);
+});
+
+test("applicableDeliveryOptions yields one rate per zone when a whole department overlaps a loose district", () => {
+  const zones = [unitZone(1, { departmentCodes: ["04"] }), unitZone(2, { districtCodes: ["040103"] }, "Cayma")];
+  expect(applicableIds(zones, "040103")).toEqual([id(101), id(102)]);
+});
+
+const agencyOption = (amount = 5, enabled = true): OptionSpec => ({ id: 11, amount, method: "agency", agencyIds: [id(60)], enabled });
+const covered = { settings: agencySettings(), agencies: [catalogAgency()] };
+
+test("agency coverage exists when an enabled zone has an enabled agency option with an eligible agency", () => {
+  expect(hasAgencyCoverage(configuration([zone(1, [agencyOption()])], covered))).toBe(true);
+  expect(hasAgencyCoverage(configuration([zone(1, [{ id: 12, amount: 8 }]), zone(2, [agencyOption()], "040103")], covered))).toBe(true);
+});
+
+test("agency coverage is absent when every agency option is disabled, in a disabled zone or has only disabled agencies or couriers", () => {
+  for (const config of [configuration([zone(1, [agencyOption(5, false)])], covered), configuration([zone(1, [agencyOption()], "150122", false)], covered),
+    configuration([zone(1, [agencyOption()])], { ...covered, agencies: [catalogAgency(false)] }),
+    configuration([zone(1, [agencyOption()])], { ...covered, agencies: [catalogAgency(true, false)] }),
+    configuration([zone(1, [agencyOption()])], { ...covered, settings: agencySettings({ enabled: false }) }),
+    configuration([zone(1, [agencyOption()])], { ...covered, settings: agencySettings({ catalogEnabled: false }) }),
+    configuration([zone(1, [{ id: 11, amount: 5, method: "agency", agencyIds: [] }])], covered)]) expect(hasAgencyCoverage(config)).toBe(false);
+});
+
+test("agency coverage is absent for a business with only home options or no zones", () => {
+  expect(hasAgencyCoverage(configuration([zone(1, [{ id: 12, amount: 8 }])], covered))).toBe(false);
+  expect(hasAgencyCoverage(configuration([], covered))).toBe(false);
 });

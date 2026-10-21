@@ -8,7 +8,7 @@ import { deleteAgencies, insertAgency, seededCatalogId } from "@core/src/feature
 import { companyPaymentSettings } from "@core/src/features/companies";
 import { checkoutPalette } from "@core/src/features/checkout-appearance";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
-import { removeCompanyAppearance, saveCompanyAppearance } from "@core/tests/e2e/checkout-appearance-fixtures";
+import { removeCompanyAppearance, rgb, saveCompanyAppearance, usedBorderColors } from "@core/tests/e2e/checkout-appearance-fixtures";
 import type { CompanyId, ContactId, OrderId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
@@ -79,9 +79,13 @@ test.describe("buyer checkout with appearance", () => {
       await page.goto(f.path);
       await browserExpect(page.locator("[data-slot=brand-logo] img")).toBeVisible();
       await browserExpect.poll(() => primary(page)).toBe(forest.light.primary.toUpperCase());
+      expect(await usedBorderColors(page)).toContain(rgb(forest.light.border));
+      expect(await usedBorderColors(page)).not.toContain(rgb("#DCD4C9"));
       await page.emulateMedia({ colorScheme: "dark" });
       await page.reload();
       await browserExpect.poll(() => primary(page)).toBe(forest.dark.primary.toUpperCase());
+      expect(await usedBorderColors(page)).toContain(rgb(forest.dark.border));
+      expect(await usedBorderColors(page)).not.toContain(rgb("#484249"));
       await page.emulateMedia({ colorScheme: "light" });
       await page.reload();
       await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
@@ -158,9 +162,7 @@ test.describe("buyer checkout with appearance", () => {
       await page.getByLabel("Departamento", { exact: true }).selectOption("15");
       await page.getByLabel("Provincia", { exact: true }).selectOption("1501");
       await page.getByLabel("Distrito", { exact: true }).selectOption("150122");
-      const rates = page.getByLabel("Tarifa de envío");
-      await browserExpect(rates.locator("option")).toHaveCount(2);
-      await rates.selectOption({ index: 1 });
+      await browserExpect(page.getByLabel("Agencia de destino")).toHaveValue(agencies[0]);
       await page.getByLabel("Nombre", { exact: true }).fill("Ana");
       await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
       await page.getByLabel("Nombre del destinatario").fill("Recipient");

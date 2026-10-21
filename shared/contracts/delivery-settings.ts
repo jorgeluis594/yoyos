@@ -52,6 +52,8 @@ export const agencyCatalogSchema = z.strictObject({ agencies: z.array(catalogAge
 export type CatalogAgencyContract = z.infer<typeof catalogAgencySchema>;
 export type AgencyCatalogResponse = z.infer<typeof agencyCatalogSchema>;
 
+const peruDepartmentCodeSchema = z.string().regex(/^\d{2}$/);
+const peruProvinceCodeSchema = z.string().regex(/^\d{4}$/);
 const peruDistrictCodeSchema = z.string().regex(/^\d{6}$/);
 const optionFields = { name: z.string().trim().min(1).max(120), enabled: z.boolean(), price: moneySchema };
 export const deliveryOptionSchema = z.discriminatedUnion("method", [
@@ -60,8 +62,9 @@ export const deliveryOptionSchema = z.discriminatedUnion("method", [
 ]);
 export const deliveryZoneSchema = z.strictObject({
   id: z.uuid(), name: z.string().min(1).max(120), enabled: z.boolean(),
-  districtCodes: z.array(peruDistrictCodeSchema).min(1), options: z.array(deliveryOptionSchema),
-});
+  departmentCodes: z.array(peruDepartmentCodeSchema), provinceCodes: z.array(peruProvinceCodeSchema),
+  districtCodes: z.array(peruDistrictCodeSchema), options: z.array(deliveryOptionSchema),
+}).refine(zone => zone.departmentCodes.length + zone.provinceCodes.length + zone.districtCodes.length > 0);
 export const deliveryZonesSchema = z.object({ // not strict at the root: older mobile builds must ignore fields added later
   home: z.strictObject({ enabled: z.boolean() }), agency: z.strictObject({ enabled: z.boolean() }),
   version: z.number().int().min(0).max(2147483647), currency: z.enum(currencies), zones: z.array(deliveryZoneSchema),
@@ -76,7 +79,8 @@ export const deliveryOptionInputSchema = z.union([
   z.strictObject({ kind: z.literal("existing"), id: z.uuid(), ...homeOptionInput }),
   z.strictObject({ kind: z.literal("existing"), id: z.uuid(), ...agencyOptionInput }),
 ]);
-const zoneInputFields = { name: z.string(), enabled: z.boolean(), districtCodes: z.array(peruDistrictCodeSchema), options: z.array(deliveryOptionInputSchema) };
+const zoneInputFields = { name: z.string(), enabled: z.boolean(),
+  departmentCodes: z.array(peruDepartmentCodeSchema).default([]), provinceCodes: z.array(peruProvinceCodeSchema).default([]), districtCodes: z.array(peruDistrictCodeSchema), options: z.array(deliveryOptionInputSchema) };
 export const deliveryZoneInputSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("new"), ...zoneInputFields }),
   z.strictObject({ kind: z.literal("existing"), id: z.uuid(), ...zoneInputFields }),
@@ -87,13 +91,13 @@ export const saveDeliveryZonesSchema = z.strictObject({
 export type DeliveryOptionContract = z.infer<typeof deliveryOptionSchema>;
 export type DeliveryOptionInputContract = z.infer<typeof deliveryOptionInputSchema>;
 export type DeliveryZonesResponse = z.infer<typeof deliveryZonesSchema>;
-export type SaveDeliveryZonesRequest = z.infer<typeof saveDeliveryZonesSchema>;
+export type SaveDeliveryZonesRequest = z.input<typeof saveDeliveryZonesSchema>;
 export const deliveryZonesApiErrorSchema = z.strictObject({
   code: z.enum(["INVALID_INPUT", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE", "INVALID_DELIVERY_ZONE", "INVALID_DELIVERY_OPTION", "INVALID_DELIVERY_SETTINGS",
     "DELIVERY_SETTINGS_CONFLICT", "UNSUPPORTED_COUNTRY", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR"]),
   error: z.string(), currentVersion: z.number().int().min(0).max(2147483647).optional(),
   reason: z.enum(["stale_version", "concurrent_creation"]).optional(),
-  field: z.enum(["id", "name", "enabled", "districtCodes", "zones", "options", "method", "price", "agencyIds"]).optional(),
+  field: z.enum(["id", "name", "enabled", "departmentCodes", "provinceCodes", "districtCodes", "zones", "options", "method", "price", "agencyIds"]).optional(),
   index: z.number().int().nonnegative().safe().optional(),
   optionIndex: z.number().int().nonnegative().safe().optional(),
 });

@@ -2,10 +2,11 @@ import { readFileSync } from "node:fs";
 import { createOrderApi } from "@mobile/features/orders/infrastructure/order-api";
 import { ok, err } from "@shared/functional";
 import { randomUUID } from "node:crypto";
+import type { Page } from "@playwright/test";
 import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
 import { products } from "@core/src/features/products/composition";
 import { deliverySettings } from "@core/src/features/delivery-settings";
-import { deleteAgencies, insertAgency, seededCatalogId } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
+import { deleteAgencies, insertAgency, seededCatalogId, withCatalogAdmin } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
 import { orders } from "@core/src/features/orders/composition";
 import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
@@ -411,56 +412,164 @@ test("buyer pickup confirms explicit zero without district or quotation", async 
 });
 
 
-test("buyer chooses an agency rate and its catalog agency and reaches payment with courier and agency in the snapshot", async ({ page }) => {
+type ZoneOption = Readonly<{ name: string; price: number; agencyIds?: readonly string[] }>;
+type AgencyZone = Readonly<{ districtCodes: readonly string[]; options: readonly ZoneOption[] }>;
+
+/** One zone per entry; an option with agencyIds is an agency option, any other is a home option. */
+async function configureDelivery(f: Awaited<ReturnType<typeof fixture>>, zones: readonly AgencyZone[], home = false) {
+  await withTenantIsolation(f.companyId, async () => {
+    const access = { companyId: f.companyId, userId: f.userId };
+    expect((await deliverySettings.save({ expectedVersion: 0, home: { enabled: home }, agency: { enabled: true },
+      store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
+    expect((await deliverySettings.saveZones({ expectedVersion: 1, zones: zones.map((zone, index) => ({ kind: "new" as const, name: `Zone ${index}`, enabled: true,
+      districtCodes: [...zone.districtCodes], options: zone.options.map(option => option.agencyIds
+        ? { kind: "new" as const, method: "agency" as const, name: option.name, enabled: true, price: { amount: option.price, currency: "PEN" as const }, agencyIds: [...option.agencyIds] }
+        : { kind: "new" as const, method: "home" as const, name: option.name, enabled: true, price: { amount: option.price, currency: "PEN" as const } }) })) }, access)).success).toBe(true);
+  });
+}
+
+async function pickDistrict(page: Page, department: string, province: string, district: string) {
+  await page.getByLabel("Departamento", { exact: true }).selectOption(department);
+  await page.getByLabel("Provincia", { exact: true }).selectOption(province);
+  await page.getByLabel("Distrito", { exact: true }).selectOption(district);
+}
+
+async function fillRecipient(page: Page, document?: string) {
+  await page.getByLabel("Nombre", { exact: true }).fill("Ana");
+  await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
+  await page.getByLabel("Nombre del destinatario").fill("Recipient");
+  await page.getByLabel("Teléfono del destinatario").fill("999");
+  if (document) await page.getByLabel("Documento del destinatario").fill(document);
+}
+
+const mode = (page: Page, value: string) => page.getByRole("radiogroup", { name: "Forma de entrega" }).locator(`input[value="${value}"]`);
+
+test("buyer in Cayma chooses Envío a agencia, picks the cheaper Cayma agency and reaches payment with courier and agency in the snapshot", async ({ page }) => {
   const f = await fixture("none", true, false);
-  const catalogId = await seededCatalogId();
-  const agencies = await Promise.all([insertAgency({ courierId: catalogId, name: "Sucursal Centro", districtCode: "150101" }),
-    insertAgency({ courierId: catalogId, name: "Sucursal Miraflores", districtCode: "150122" })]);
+  const [shalom, olva] = [await seededCatalogId("shalom"), await seededCatalogId("olva")];
+  const agencies = await Promise.all([insertAgency({ courierId: shalom, name: "Agencia Cayma", districtCode: "040103" }),
+    insertAgency({ courierId: shalom, name: "Agencia Yanahuara", districtCode: "040126" }),
+    insertAgency({ courierId: olva, name: "Olva Cayma", districtCode: "040103" })]);
   try {
-    await withTenantIsolation(f.companyId, async () => {
-      const access = { companyId: f.companyId, userId: f.userId };
-      expect((await deliverySettings.save({ expectedVersion: 0, home: { enabled: false }, agency: { enabled: true },
-        store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
-      expect((await deliverySettings.saveZones({ expectedVersion: 1,
-        zones: [{ kind: "new", name: "Agency zone", enabled: true, districtCodes: ["150122"], options: [
-          { kind: "new", method: "agency", name: "Retiro en agencia", enabled: true, price: { amount: 8, currency: "PEN" }, agencyIds: agencies }] }] }, access)).success).toBe(true);
-    });
+    await configureDelivery(f, [{ districtCodes: ["040103", "040105"], options: [
+      { name: "Shalom", price: 12, agencyIds: [agencies[0], agencies[1]] }, { name: "Olva", price: 10, agencyIds: [agencies[2]] }] }], true);
     await page.goto(f.path);
-    await page.getByLabel("Departamento", { exact: true }).selectOption("15");
-    await page.getByLabel("Provincia", { exact: true }).selectOption("1501");
-    await page.getByLabel("Distrito", { exact: true }).selectOption("150122");
-    const rates = page.getByLabel("Tarifa de envío");
-    await browserExpect(rates.locator("option")).toHaveCount(2);
-    await browserExpect(rates.locator("option").nth(1)).toContainText("Retiro en agencia");
-    await rates.selectOption({ index: 1 });
-    await page.getByLabel("Nombre", { exact: true }).fill("Ana");
-    await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
-    await page.getByLabel("Nombre del destinatario").fill("Recipient");
-    await page.getByLabel("Teléfono del destinatario").fill("999");
-    await page.getByLabel("Documento del destinatario").fill("12345678");
-    // Two agencies are eligible: the buyer must choose one before confirming.
+    await browserExpect(mode(page, "home")).toBeChecked();
+    await mode(page, "agency").check();
+    await pickDistrict(page, "04", "0401", "040103");
     const agency = page.getByLabel("Agencia de destino");
     await browserExpect(agency.locator("option")).toHaveCount(3);
-    await browserExpect(agency.locator("option").nth(1)).toContainText("Shalom");
+    await browserExpect(agency.locator("option").nth(1)).toContainText("Olva Cayma");
+    await browserExpect(agency.locator("option").nth(2)).toContainText("Agencia Cayma");
+    await browserExpect(page.getByLabel("Tarifa de envío")).toHaveCount(0);
+    await browserExpect(page.getByText("No hay agencias en", { exact: false })).toHaveCount(0);
+    await fillRecipient(page, "12345678");
     await browserExpect(page.getByRole("button", { name: "Confirmar pedido", exact: true })).toBeDisabled();
-    await agency.selectOption(agencies[1]);
+    await agency.selectOption(agencies[2]);
     await browserExpect(page.getByLabel("Dirección de entrega", { exact: true })).toHaveCount(0);
-    const total = page.locator("dl > div").filter({ has: page.getByText("Total a pagar", { exact: true }) });
-    await browserExpect(total).toContainText(/18[.,]00/);
+    await browserExpect(page.locator("dl > div").filter({ has: page.getByText("Total a pagar", { exact: true }) })).toContainText(/20[.,]00/);
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
     await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
-    await browserExpect(page.getByText("Total del pedido", { exact: true }).locator("..")).toContainText(/18[.,]00/);
-    await browserExpect(page.getByText("Saldo pendiente", { exact: true }).locator("..")).toContainText(/18[.,]00/);
     const stored = await f.read();
-    expect(stored.total.toNumber()).toBe(18);
-    expect(stored.deliveryCharge.toNumber()).toBe(8);
-    expect(stored.delivery).toMatchObject({ method: "agency", courier: { name: "Shalom" },
-      agency: { id: agencies[1], name: "Sucursal Miraflores", address: "Av. Test 123", location: { districtCode: "150122" } },
+    expect(stored.total.toNumber()).toBe(20);
+    expect(stored.deliveryCharge.toNumber()).toBe(10);
+    expect(stored.delivery).toMatchObject({ method: "agency", courier: { name: "Olva Courier" },
+      agency: { id: agencies[2], name: "Olva Cayma", location: { districtCode: "040103" } },
       recipient: { identity: { kind: "document", documentType: "national_id", document: "12345678" } },
-      destination: { districtCode: "150122" }, recordedBy: { kind: "buyer" } });
-    expect(stored.checkoutConfirmedAt).not.toBeNull();
-    expect(stored.payments).toEqual([]);
-    expect(stored.stockDeducted).toBe(false);
+      destination: { districtCode: "040103" }, recordedBy: { kind: "buyer" } });
+  } finally { await f.cleanup(); await deleteAgencies(agencies); }
+});
+
+test("buyer moves from Cayma to Characato, sees the province agencies and switches to home delivery keeping the district", async ({ page }) => {
+  const f = await fixture("none", true, false);
+  const [shalom, olva] = [await seededCatalogId("shalom"), await seededCatalogId("olva")];
+  const agencies = await Promise.all([insertAgency({ courierId: shalom, name: "Agencia Cayma", districtCode: "040103" }),
+    insertAgency({ courierId: shalom, name: "Agencia Yanahuara", districtCode: "040126" }),
+    insertAgency({ courierId: olva, name: "Olva Cayma", districtCode: "040103" })]);
+  try {
+    await configureDelivery(f, [{ districtCodes: ["040103", "040105"], options: [{ name: "Home", price: 5 },
+      { name: "Shalom", price: 12, agencyIds: [agencies[0], agencies[1]] }, { name: "Olva", price: 10, agencyIds: [agencies[2]] }] }], true);
+    await page.goto(f.path);
+    await mode(page, "agency").check();
+    await pickDistrict(page, "04", "0401", "040103");
+    const agency = page.getByLabel("Agencia de destino");
+    await browserExpect(agency.locator("option")).toHaveCount(3);
+    await agency.selectOption(agencies[0]);
+    await page.getByLabel("Distrito", { exact: true }).selectOption("040105");
+    await browserExpect(page.getByText("No hay agencias en CHARACATO; te mostramos las de la provincia de AREQUIPA", { exact: true })).toBeVisible();
+    await browserExpect(agency.locator("option")).toHaveCount(4);
+    await browserExpect(agency).toHaveValue("");
+    await mode(page, "home").check();
+    await browserExpect(page.getByLabel("Distrito", { exact: true })).toHaveValue("040105");
+    await browserExpect(agency).toHaveCount(0);
+    const rates = page.getByLabel("Tarifa de envío");
+    await browserExpect(rates.locator("option")).toHaveCount(2);
+    await browserExpect(rates).toContainText(/5[.,]00/);
+  } finally { await f.cleanup(); await deleteAgencies(agencies); }
+});
+
+test("buyer without agencies in the department switches to home delivery from the no-agencies message", async ({ page }) => {
+  const f = await fixture("none", true, false);
+  const agencies = [await insertAgency({ courierId: await seededCatalogId("shalom"), name: "Agencia Miraflores", districtCode: "150122" })];
+  try {
+    await configureDelivery(f, [{ districtCodes: ["150122"], options: [{ name: "Shalom", price: 12, agencyIds: agencies }] },
+      { districtCodes: ["040701"], options: [{ name: "Home Mollendo", price: 6 }] }], true);
+    await page.goto(f.path);
+    await mode(page, "agency").check();
+    await pickDistrict(page, "04", "0407", "040701");
+    await browserExpect(page.getByText("No hay agencias disponibles para envío a MOLLENDO.", { exact: true })).toBeVisible();
+    await browserExpect(page.getByLabel("Agencia de destino")).toHaveCount(0);
+    await page.getByRole("button", { name: "Cambiar distrito" }).click();
+    await browserExpect(page.getByLabel("Distrito", { exact: true })).toBeFocused();
+    await page.getByRole("button", { name: "Pasar a Entrega a domicilio" }).click();
+    await browserExpect(mode(page, "home")).toBeChecked();
+    await browserExpect(page.getByLabel("Distrito", { exact: true })).toHaveValue("040701");
+    await browserExpect(page.getByLabel("Tarifa de envío").locator("option")).toHaveCount(2);
+    await browserExpect(page.getByLabel("Tarifa de envío")).toContainText("Home Mollendo");
+  } finally { await f.cleanup(); await deleteAgencies(agencies); }
+});
+
+test("buyer picks another agency after the seller disables the chosen one before confirming", async ({ page }) => {
+  const f = await fixture("none", true, false);
+  const shalom = await seededCatalogId("shalom");
+  const agencies = await Promise.all([insertAgency({ courierId: shalom, name: "Agencia Cayma", districtCode: "040103" }),
+    insertAgency({ courierId: shalom, name: "Agencia Yanahuara", districtCode: "040103" })]);
+  try {
+    await configureDelivery(f, [{ districtCodes: ["040103"], options: [{ name: "Shalom", price: 12, agencyIds: agencies }] }]);
+    await page.goto(f.path);
+    await pickDistrict(page, "04", "0401", "040103");
+    await fillRecipient(page, "12345678");
+    const agency = page.getByLabel("Agencia de destino");
+    await browserExpect(agency.locator("option")).toHaveCount(3);
+    await agency.selectOption(agencies[0]);
+    await withCatalogAdmin(query => query('UPDATE "DeliveryAgency" SET enabled = false WHERE id = $1', [agencies[0]]));
+    await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
+    await browserExpect(page.getByRole("alert")).toBeVisible();
+    await browserExpect(agency.locator("option")).toHaveCount(2);
+    await browserExpect(agency).toHaveValue(agencies[1]);
+    await browserExpect(page.getByLabel("Nombre del destinatario")).toHaveValue("Recipient");
+    await browserExpect(page.getByLabel("Distrito", { exact: true })).toHaveValue("040103");
+    await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
+    await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
+    expect((await f.read()).delivery).toMatchObject({ agency: { id: agencies[1] } });
+  } finally { await f.cleanup(); await deleteAgencies(agencies); }
+});
+
+test("mobile buyer at 390 px confirms Envío a agencia with a province agency", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const f = await fixture("none", true, false);
+  const agencies = [await insertAgency({ courierId: await seededCatalogId("shalom"), name: "Agencia Cayma", districtCode: "040103" })];
+  try {
+    await configureDelivery(f, [{ districtCodes: ["040105"], options: [{ name: "Shalom", price: 12, agencyIds: agencies }] }]);
+    await page.goto(f.path);
+    await pickDistrict(page, "04", "0401", "040105");
+    await browserExpect(page.getByText("No hay agencias en CHARACATO; te mostramos las de la provincia de AREQUIPA", { exact: true })).toBeVisible();
+    await fillRecipient(page, "12345678");
+    await browserExpect(page.getByLabel("Agencia de destino")).toHaveValue(agencies[0]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
+    await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
+    expect((await f.read()).delivery).toMatchObject({ method: "agency", agency: { id: agencies[0] }, destination: { districtCode: "040105" } });
   } finally { await f.cleanup(); await deleteAgencies(agencies); }
 });
 
@@ -548,7 +657,7 @@ test("buyer distinguishes uncovered shipping from an explicit free home rate", a
     await browserExpect(confirm).toBeEnabled();
     await browserExpect(page.getByText("Pickup address", { exact: true })).toBeVisible();
     await browserExpect(page.getByText("Door 2", { exact: true })).toBeVisible();
-    await page.getByRole("radiogroup", { name: "Forma de entrega" }).locator('input[value="ship"]').check();
+    await page.getByRole("radiogroup", { name: "Forma de entrega" }).locator('input[value="home"]').check();
     await page.getByLabel("Departamento", { exact: true }).selectOption("15");
     await page.getByLabel("Provincia", { exact: true }).selectOption("1501");
     await page.getByLabel("Distrito", { exact: true }).selectOption("150122");
@@ -677,7 +786,7 @@ test("buyer pickup removes the shipping rate and ignores a quotation still in fl
     await browserExpect(page.getByText("Total a pagar", { exact: true }).locator("..")).toContainText(/10[.,]00/);
     await browserExpect(rate).toHaveCount(0);
     expect(attempts).toBe(1);
-    await mode("ship").check();
+    await mode("home").check();
     await heldResponse;
     await browserExpect(page.getByRole("button", { name: "Confirmar pedido", exact: true })).toBeDisabled();
     await mode("store").check();
@@ -687,7 +796,7 @@ test("buyer pickup removes the shipping rate and ignores a quotation still in fl
     await browserExpect(rate).toHaveCount(0);
     await browserExpect(page.getByText("Gratis", { exact: true })).toBeVisible();
     await browserExpect(page.getByText("Total a pagar", { exact: true }).locator("..")).toContainText(/10[.,]00/);
-    await mode("ship").check();
+    await mode("home").check();
     await browserExpect(rate.locator("option")).toHaveCount(2);
     await browserExpect(rate).toHaveValue("");
     expect(attempts).toBe(3);
@@ -777,7 +886,7 @@ test("buyer keeps a historical rate after its zone changes or replaces it with a
         await page.getByLabel("Nombre", { exact: true }).fill("Ana");
         await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
         if (replace) {
-          await page.getByRole("radiogroup", { name: "Forma de entrega" }).locator('input[value="ship"]').check();
+          await page.getByRole("radiogroup", { name: "Forma de entrega" }).locator('input[value="home"]').check();
           const rates = page.getByLabel("Tarifa de envío");
           await browserExpect(rates.locator("option")).toHaveCount(2);
           await browserExpect(rates).toContainText(/12[.,]00/);

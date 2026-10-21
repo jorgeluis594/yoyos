@@ -12,7 +12,7 @@ import type { PreviewState } from "@core/src/features/checkout-appearance/presen
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
-const appearance = { logoUrl: null, brandColor: "forest", background: "white" } as const;
+const appearance = { logoUrl: null, brandColor: "forest", background: "soft" } as const;
 const own: PreviewPaymentMethod[] = [{ method: "digital_wallet", provider: "Plin Lima", holder: "Lima Studio", imageUrl: null }];
 const i18n = createInstance();
 void i18n.use(initReactI18next).init({ lng: "es", resources });

@@ -71,6 +71,8 @@ async function fixture(withCompany = true, country = "PE") {
       await prisma.quotation.deleteMany();
       await prisma.deliveryOptionAgency.deleteMany();
       await prisma.deliveryOption.deleteMany();
+      await prisma.deliveryZoneDepartment.deleteMany();
+      await prisma.deliveryZoneProvince.deleteMany();
       await prisma.deliveryZoneDistrict.deleteMany();
       await prisma.deliveryZone.deleteMany();
       await prisma.companyCourier.deleteMany();
@@ -437,4 +439,25 @@ test("an agency with a district missing from the Peru catalog answers 500 INTERN
     expect(await response.json()).toMatchObject({ code: "INTERNAL_ERROR" });
     expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "agency_catalog_stored_data_invalid", agencyId: broken }), expect.any(String));
   } finally { error.mockRestore(); }
+});
+
+const unitZone = (extra: object) => ({ kind: "new", name: "Zona sur", enabled: true, districtCodes: [],
+  options: [{ kind: "new", method: "home", name: "Domicilio", enabled: true, price: { amount: 15, currency: "PEN" } }], ...extra });
+
+test("PUT /api/delivery-settings/zones saves Arequipa and Cusco complete and returns them unexpanded", async () => {
+  const seller = await fixture();
+  const saved = await request("/api/delivery-settings/zones", seller.cookie, { expectedVersion: 0, zones: [unitZone({ departmentCodes: ["04", "08"] })] }, "PUT");
+  expect(saved.status).toBe(200);
+  const body = deliveryZonesSchema.parse(await saved.json());
+  expect(body.zones).toMatchObject([{ departmentCodes: ["04", "08"], provinceCodes: [], districtCodes: [] }]);
+  const read = await request("/api/delivery-settings/zones", seller.cookie);
+  expect(deliveryZonesSchema.parse(await read.json())).toEqual(body);
+});
+
+test("PUT /api/delivery-settings/zones rejects a district inside a complete department with 422 and field districtCodes", async () => {
+  const seller = await fixture();
+  const rejected = await request("/api/delivery-settings/zones", seller.cookie,
+    { expectedVersion: 0, zones: [unitZone({ departmentCodes: ["04"], districtCodes: ["040103"] })] }, "PUT");
+  expect(rejected.status).toBe(422);
+  expect(await rejected.json()).toMatchObject({ code: "INVALID_DELIVERY_ZONE", field: "districtCodes", index: 0 });
 });

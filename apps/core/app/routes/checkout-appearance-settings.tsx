@@ -159,8 +159,9 @@ export default function CheckoutAppearanceSettings() {
   }
 
   const backgrounds: Record<CheckoutBackground, string> = {
-    white: t("checkoutAppearance.backgroundWhite"), neutral: t("checkoutAppearance.backgroundNeutral"), brand_tint: t("checkoutAppearance.backgroundBrandTint"),
+    soft: t("checkoutAppearance.backgroundSoft"), medium: t("checkoutAppearance.backgroundMedium"), brand_tint: t("checkoutAppearance.backgroundBrandTint"),
   };
+  const backgroundHints = { soft: "checkoutAppearance.backgroundSoftHint", medium: "checkoutAppearance.backgroundMediumHint", brand_tint: "checkoutAppearance.backgroundBrandTintHint" } as const;
   const uploadMessage = uploadFailure && t(uploadFailure.reason === "type" ? "checkoutAppearance.uploadTypeError"
     : uploadFailure.reason === "size" ? "checkoutAppearance.uploadSizeError" : "checkoutAppearance.uploadError");
   const saveMessage = saveFailure && t(saveFailure === "INVALID_IMAGE" ? "checkoutAppearance.invalidLogo"
@@ -216,7 +217,7 @@ export default function CheckoutAppearanceSettings() {
               {draft.appearance.background === background && <Check className="size-3.5" aria-hidden="true" />}{backgrounds[background]}
             </ToggleGroupItem>)}
           </ToggleGroup>
-          {draft.appearance.background === "brand_tint" && <p className="text-xs text-muted-foreground">{t("checkoutAppearance.backgroundBrandTintHint", { color: colorName })}</p>}
+          <p className="text-xs text-muted-foreground">{t(backgroundHints[draft.appearance.background], { color: colorName })}</p>
         </CardContent>
 
         <CardContent className="flex flex-col gap-1 p-5">

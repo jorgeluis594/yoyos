@@ -5,7 +5,7 @@ import { compare, type Currency, type Money } from "@shared/money";
 import { parsePeruDistrictCode, type PeruDistrictCode } from "@shared/peru-geography";
 import type { Result } from "@shared/result";
 import { parseDeliverySettings, type Courier, type DeliverySettings } from "@core/src/features/delivery-settings/domain/delivery-settings";
-import { parseDeliveryZone, type AgencyDeliveryOption, type DeliveryMethodWithRate, type DeliveryOptionId, type DeliveryZone,
+import { parseDeliveryZone, zoneCoversDistrict, type AgencyDeliveryOption, type DeliveryMethodWithRate, type DeliveryOptionId, type DeliveryZone,
   type HomeDeliveryOption } from "@core/src/features/delivery-settings/domain/delivery-zone";
 import type { DeliveryAgency } from "@core/src/features/delivery-settings/domain/delivery-agency";
 import { parseDeliveryPrice } from "@core/src/features/delivery-settings/domain/delivery-price";
@@ -105,9 +105,14 @@ function eligibleAgencies(configuration: DeliveryConfiguration, option: AgencyDe
   });
 }
 
+export function hasAgencyCoverage(configuration: DeliveryConfiguration): boolean {
+  return configuration.zones.some(zone => zone.enabled && zone.options.some(option =>
+    option.enabled && option.method === "agency" && eligibleAgencies(configuration, option).length > 0));
+}
+
 export function applicableDeliveryOptions(configuration: DeliveryConfiguration, districtCode: PeruDistrictCode): readonly ApplicableDeliveryOption[] {
   const { settings } = configuration;
-  const applicable = configuration.zones.filter(zone => zone.enabled && zone.districtCodes.includes(districtCode)).flatMap((zone): ApplicableDeliveryOption[] =>
+  const applicable = configuration.zones.filter(zone => zone.enabled && zoneCoversDistrict(zone, districtCode)).flatMap((zone): ApplicableDeliveryOption[] =>
     zone.options.flatMap((option): ApplicableDeliveryOption[] => {
       if (!option.enabled) return [];
       if (option.method === "home") return settings.home.enabled ? [{ zone, option }] : [];

@@ -4,7 +4,7 @@
 
 Persistence adapters translate between application data and a data source. They may read, write, map, scope, transact, and translate expected technical failures. They must not decide business behavior.
 
-These conventions apply to database repositories in the API and to remote or local data adapters in the Expo mobile app. Follow the boundaries in [Application Architecture](architecture.md) and verify behavior according to [Testing Conventions](testing-conventions.md).
+These conventions apply to database repositories in core and to remote or local data adapters in the Expo mobile app. Follow the boundaries in [Application Architecture](architecture.md) and verify behavior according to [Testing Conventions](testing-conventions.md).
 
 ## File Hierarchy
 
@@ -24,7 +24,7 @@ src/features/<feature>/
     └── order-mapper.test.ts        # Mapping behavior, when needed
 ```
 
-Use the same hierarchy within `apps/api/` and `apps/mobile/`. An API adapter may use a database; a mobile adapter may use an API or local storage. Separate adapter files or source-specific subdirectories only when multiple real implementations require them.
+Use the same hierarchy within `apps/core/` and `apps/mobile/`. A core adapter may use a database; a mobile adapter may use an API or local storage. Separate adapter files or source-specific subdirectories only when multiple real implementations require them.
 
 Keep small mapper helpers local to the repository. Extract them when size or reuse justifies it. A small dependency contract may remain inline with its use case instead of requiring a separate port file.
 

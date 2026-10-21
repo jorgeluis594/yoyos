@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { checkoutPathSchema, publicCheckoutDeliverySchema, confirmCheckoutDeliverySchema, confirmCheckoutSchema, publicCheckoutSchema } from "@shared/contracts/order-checkout";
+import { checkoutPathSchema, publicCheckoutDeliverySchema, confirmCheckoutDeliverySchema, confirmCheckoutSchema, publicCheckoutSchema, checkoutDeliveryOptionsSchema } from "@shared/contracts/order-checkout";
 
 const valid = { buyer: { name: "Ana", phone: "+51987654321" }, expectedTotal: { amount: 10.5, currency: "PEN" } };
 
@@ -60,4 +60,12 @@ test("accepts a checkout buyer with a null phone", () => {
     items: [{ productName: "Product", variantAttributes: {}, sku: null, quantity: 1, unitPrice: valid.expectedTotal, subtotal: valid.expectedTotal }], state: { kind: "pending" } };
   expect(publicCheckoutSchema.safeParse(view).success).toBe(true);
   expect(confirmCheckoutSchema.safeParse({ ...valid, buyer: { name: "Ana", phone: null } }).success).toBe(false);
+});
+
+test("checkout delivery options require an agency coverage flag and reject extra fields", () => {
+  const options = { home: { enabled: true }, agency: { enabled: true, covered: false }, store: { enabled: false, pickupPoint: null } };
+  expect(checkoutDeliveryOptionsSchema.safeParse(options).success).toBe(true);
+  expect(checkoutDeliveryOptionsSchema.safeParse({ ...options, agency: { enabled: true } }).success).toBe(false);
+  expect(checkoutDeliveryOptionsSchema.safeParse({ ...options, agency: { ...options.agency, zones: [] } }).success).toBe(false);
+  expect(checkoutDeliveryOptionsSchema.safeParse({ ...options, agency: { ...options.agency, covered: "yes" } }).success).toBe(false);
 });

@@ -24,7 +24,7 @@ describe("createOpenAIProductChooser", () => {
     const client = new OpenAI({ apiKey: "test-key", fetch: async (url, init) => {
       if (String(url).endsWith("/decisions")) {
         const body = JSON.parse(String(init?.body)) as DecisionBody;
-        // Decisions has no store flag and keeps no response state; pin the body so no retention option slips in (design §15).
+        // Decisions has no store flag and keeps no response state; pin the body so no retention option slips in (docs/image-product-search.md).
         expect(Object.keys(body).sort()).toEqual(["input", "model", "questions"]);
         sent.push(body.input.flatMap(({ content }) => content).filter(({ type }) => type === "input_image").length);
       }

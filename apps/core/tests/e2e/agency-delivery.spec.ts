@@ -29,8 +29,7 @@ test("rated agency requires a document and a catalog agency, preserves its snaps
     await page.goto(`/es-PE/orders/${orderId}`);
     await page.getByRole("link", { name: "Configurar modalidades de entrega" }).click();
     await page.getByLabel("Ofrecer envío a agencia").check();
-    await page.getByRole("button", { name: "Guardar configuración" }).click();
-    await browserExpect(page.getByRole("status").filter({ hasText: "Configuración guardada." })).toHaveText("Configuración guardada.");
+    await browserExpect(page.getByText("Guardado", { exact: true })).toBeVisible();
     const initial = deliverySettingsSchema.parse(await (await page.request.get("/api/delivery-settings")).json());
     expect(initial).toMatchObject({ agency: { enabled: true }, couriers: [] });
     const shalom = await seededCourier("shalom");

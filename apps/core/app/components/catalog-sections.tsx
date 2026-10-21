@@ -20,7 +20,7 @@ export const formatCatalogPrice = ({ kind, amount }: CatalogProduct["price"]) =>
 export function CatalogShell({ appearance, storeName, cart, children }: Readonly<{
   appearance: PublicCheckoutAppearance | null; storeName: string; cart?: ReactNode; children: ReactNode;
 }>) {
-  return <CheckoutTheme appearance={appearance}>
+  return <CheckoutTheme appearance={appearance} surface="catalog">
     <header className="border-b bg-card"><div className={`${catalogPage} flex min-h-16 items-center justify-between gap-3 py-3`}>
       <CheckoutBrandHeader companyName={storeName} logoUrl={appearance?.logoUrl ?? null} />{cart}
     </div></header>
