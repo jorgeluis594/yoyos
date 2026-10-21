@@ -1,0 +1,35 @@
+name: Todoist done
+
+# Moves the Todoist task named in a merged PR title as [td:<task-id>] to "Terminado".
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  move-task:
+    if: github.event.pull_request.merged == true && contains(github.event.pull_request.title, '[td:')
+    runs-on: ubuntu-latest
+    env:
+      TODOIST_API: https://api.todoist.com/api/v1
+      # Section "Terminado" of the Yoyos project.
+      DONE_SECTION_ID: 6hpMprWQxGxJJ6p3
+      TODOIST_API_TOKEN: ${{ secrets.TODOIST_API_TOKEN }}
+      PR_TITLE: ${{ github.event.pull_request.title }}
+      PR_URL: ${{ github.event.pull_request.html_url }}
+    steps:
+      - name: Move task to Terminado
+        run: |
+          set -euo pipefail
+          task_id="$(printf '%s' "$PR_TITLE" | grep -oE '\[td:[A-Za-z0-9]+\]' | head -n1 | sed 's/^\[td://; s/\]$//')"
+          [ -n "$task_id" ] || { echo "No [td:<id>] in the title"; exit 0; }
+
+          curl -fsS -X POST "$TODOIST_API/tasks/$task_id/move" \
+            -H "Authorization: Bearer $TODOIST_API_TOKEN" -H "Content-Type: application/json" \
+            -d "$(jq -n --arg section "$DONE_SECTION_ID" '{section_id: $section}')" >/dev/null
+          curl -fsS -X POST "$TODOIST_API/comments" \
+            -H "Authorization: Bearer $TODOIST_API_TOKEN" -H "Content-Type: application/json" \
+            -d "$(jq -n --arg task "$task_id" --arg url "$PR_URL" '{task_id: $task, content: "PR con merge a main: \($url)"}')" >/dev/null
+          echo "Moved Todoist task $task_id to Terminado"
