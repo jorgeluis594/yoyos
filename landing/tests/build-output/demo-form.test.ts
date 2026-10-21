@@ -1,4 +1,5 @@
 import { readFileSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { files, distPath, readPage } from "./html";
 import { demoText, phoneDisplay } from "./variants";
@@ -170,12 +171,20 @@ describe("demo form", () => {
     for (const copy of ["Ropa", "Por WhatsApp", "Enviando", "Escribe", "Elige"]) expect(bundle).not.toContain(copy);
   });
 
-  test("the enhancement script stays within 2 KB", () => {
-    const sizes = files(distPath("full", "_astro"))
-      .filter((file) => file.includes("demo-form") && file.endsWith(".js"))
-      .map((file) => statSync(file).size);
-    expect(sizes).toHaveLength(1);
-    expect(sizes[0]).toBeLessThanOrEqual(2048);
+  test("the enhancement script stays within 2 KB, counting the chunks it imports", () => {
+    const entries = files(distPath("full", "_astro")).filter((file) => file.includes("demo-form") && file.endsWith(".js"));
+    expect(entries).toHaveLength(1);
+    const reachable = new Set<string>();
+    const visit = (file: string): void => {
+      if (reachable.has(file)) return;
+      reachable.add(file);
+      const imports = readFileSync(file, "utf8").matchAll(/(?:from|import)\s*["'](\.\/[^"']+\.js)["']/g);
+      for (const [, specifier] of imports) visit(join(dirname(file), specifier ?? ""));
+    };
+    visit(entries[0] ?? "");
+    expect(reachable.size).toBeGreaterThan(1);
+    const bytes = [...reachable].reduce((total, file) => total + statSync(file).size, 0);
+    expect(bytes).toBeLessThanOrEqual(2048);
   });
 
   test("the integrations logo list carries no invented accessible name", () => {

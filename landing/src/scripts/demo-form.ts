@@ -29,6 +29,7 @@ const isRubro = (value: string): value is Rubro => rubroValues.some((option) => 
 const isContactMethod = (value: string): value is ContactMethod => contactMethodValues.some((option) => option === value);
 
 if (form && button) {
+  const label = button.textContent;
   let submitting = false;
   const fields = [...form.querySelectorAll<Field>("[data-error]")];
   form.noValidate = true;
@@ -55,6 +56,13 @@ if (form && button) {
     if (isRubro(rubro) && isContactMethod(contacto)) {
       track({ name: "demo_form_submit", location: "cta_final", rubro, contacto_preferido: contacto });
     }
+  });
+
+  // Coming back to a page restored from the back/forward cache must not leave the form stuck on «Enviando…».
+  window.addEventListener("pageshow", (event) => {
+    if (!event.persisted) return;
+    submitting = false;
+    button.textContent = label;
   });
 
   for (const type of ["input", "change"]) {
