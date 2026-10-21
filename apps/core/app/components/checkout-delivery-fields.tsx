@@ -87,7 +87,7 @@ export function CheckoutDeliveryFields({ orderId, checkout, options, onChange, r
     <legend data-checkout-part="section-title" className="mb-4 text-lg font-semibold">{t("checkoutDelivery.title")}</legend>
     {!saved && !homeEnabled && !agencyEnabled && !options.store.enabled ? <p role="status" className="rounded-[var(--radius-control)] bg-muted p-4 text-sm text-muted-foreground">{t("checkoutDelivery.noModes")}</p>
       : <Controller name="mode" control={form.control} render={({ field }) => <div role="radiogroup" aria-labelledby="delivery-mode-label" className="flex flex-col gap-2">
-        <span id="delivery-mode-label" className="text-sm font-medium">{t("checkoutDelivery.mode")}</span>
+        <span id="delivery-mode-label" data-slot="label" className="text-sm font-medium">{t("checkoutDelivery.mode")}</span>
         <div data-checkout-part="option-group" className="flex flex-col divide-y overflow-hidden rounded-[var(--radius-control)] border border-input">
           {([saved && ["keep", t("checkoutDelivery.keep")], homeEnabled && ["home", t("checkoutDelivery.method.home")], agencyEnabled && ["agency", t("checkoutDelivery.method.agency")], options.store.enabled && ["store", t("checkoutDelivery.storeFree")]]
             .filter((option): option is [Draft["mode"], string] => Boolean(option))).map(([value, label]) =>
@@ -100,7 +100,7 @@ export function CheckoutDeliveryFields({ orderId, checkout, options, onChange, r
       <p>{saved.method === "home" ? `${saved.destination.address}, ${saved.destination.district}` : saved.method === "store" ? saved.pickupPoint.address : `${saved.courier.name} · ${saved.agency.name} · ${saved.agency.address}`}</p><p className="text-muted-foreground">{t("checkoutDelivery.kept")}</p></div>}
     {draft.mode === "store" && options.store.enabled && <div className="space-y-1 rounded-[var(--radius-control)] bg-muted p-4 text-sm"><p className="font-medium">{options.store.pickupPoint.name} · {t("checkoutDelivery.free")}</p><p>{options.store.pickupPoint.address}</p>{options.store.pickupPoint.instructions && <p>{options.store.pickupPoint.instructions}</p>}</div>}
     {quoting && <>
-      <div ref={districtRef}><PeruDistrictSelect value={draft.districtCode ? getPeruDistrict(draft.districtCode)?.code ?? null : null} disabled={disabled} onChange={code => { form.setValue("districtCode", code); form.setValue("rateId", ""); form.setValue("agencyId", ""); }} /></div>
+      <div ref={districtRef}><PeruDistrictSelect themed value={draft.districtCode ? getPeruDistrict(draft.districtCode)?.code ?? null : null} disabled={disabled} onChange={code => { form.setValue("districtCode", code); form.setValue("rateId", ""); form.setValue("agencyId", ""); }} /></div>
       {draft.districtCode && !current && <p role="status" className="text-sm text-muted-foreground">{t("checkoutDelivery.loading")}</p>}
       {current && !current.success && <div className="flex flex-col items-start gap-2"><p role="alert" className="text-sm text-[var(--error)]">{t("checkoutDelivery.ratesError")}</p><Button type="button" variant="outline" onClick={() => setRevision(value => value + 1)}>{t("checkoutDelivery.retry")}</Button></div>}
       {draft.mode === "home" && current?.success && homeRates.length === 0 && <p role="status" className="rounded-[var(--radius-control)] bg-muted p-4 text-sm text-muted-foreground">{t(options.store.enabled ? "checkoutDelivery.noRatesOrStore" : "checkoutDelivery.noRates")}</p>}

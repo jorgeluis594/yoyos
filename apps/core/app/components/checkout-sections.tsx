@@ -52,8 +52,8 @@ export function CheckoutShell({ appearance, checkout, banner, summary, children 
 
 function CheckoutStatus({ state }: Readonly<{ state: PublicCheckoutResponse["state"] }>) {
   const { t } = useTranslation();
-  if (state.kind === "cancelled") return <section role="status" data-checkout-part="status" className="mt-5 flex flex-col gap-1 rounded-[var(--radius-card)] border border-transparent bg-[var(--error-surface)] p-4 text-[var(--error)] sm:p-6"><h2 className={sectionTitle} data-checkout-part="section-title">{t("checkoutSections.cancelledTitle")}</h2><p>{t("checkoutSections.cancelledBody")}</p></section>;
-  if (state.kind === "confirmed") return <section role="status" data-checkout-part="status" className="mt-5 flex flex-col gap-1 rounded-[var(--radius-card)] border border-transparent bg-[var(--success-surface)] p-4 text-[var(--success)] sm:p-6"><h2 data-checkout-part="section-title" className={`${sectionTitle} flex items-center gap-2`}><CircleCheck className="size-5" aria-hidden="true" />{t("checkoutSections.confirmedTitle")}</h2><p>{t("checkoutSections.confirmedBody")}</p><p>{t("checkoutSections.confirmedChanges")}</p></section>;
+  if (state.kind === "cancelled") return <section role="status" data-checkout-part="status" className="mt-5 flex flex-col gap-1 rounded-[var(--radius-card)] border border-transparent bg-[var(--error-surface)] p-4 text-[var(--error)] sm:p-6"><h2 className={sectionTitle}>{t("checkoutSections.cancelledTitle")}</h2><p>{t("checkoutSections.cancelledBody")}</p></section>;
+  if (state.kind === "confirmed") return <section role="status" data-checkout-part="status" className="mt-5 flex flex-col gap-1 rounded-[var(--radius-card)] border border-transparent bg-[var(--success-surface)] p-4 text-[var(--success)] sm:p-6"><h2 className={`${sectionTitle} flex items-center gap-2`}><CircleCheck className="size-5" aria-hidden="true" />{t("checkoutSections.confirmedTitle")}</h2><p>{t("checkoutSections.confirmedBody")}</p><p>{t("checkoutSections.confirmedChanges")}</p></section>;
   return null;
 }
 

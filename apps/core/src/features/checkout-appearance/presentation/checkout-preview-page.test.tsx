@@ -87,7 +87,7 @@ describe("CheckoutPreviewPage", () => {
     expect([...container.querySelectorAll("button")].find((button) => button.textContent === "Confirmar pedido")?.disabled).toBe(false);
   });
 
-  test("shows one sample photo and one marker in the review state", async () => {
+  test("shows one sample product with photo and one with the marker", async () => {
     const container = await mount("review", null);
     const thumbnails = [...container.querySelectorAll("[data-slot=product-thumbnail]")];
     expect(thumbnails).toHaveLength(2);

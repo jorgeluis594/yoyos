@@ -90,14 +90,20 @@ describe("CheckoutOrderSummary", () => {
   });
 
   test("keeps the same sections, fields and texts in every theme", () => {
-    const { container, unmount } = render(<>
-      <CheckoutShell appearance={null} checkout={pending}>
+    const { container, unmount } = render(
+      <CheckoutShell appearance={null} checkout={withPhotos} summary={<CheckoutOrderSummary checkout={withPhotos} deliveryDraft={null} />}>
         <CheckoutReviewFields message={null} name={{ defaultValue: "Ana" }} phone={{ defaultValue: "+51987654321" }} delivery={null} />
-        <CheckoutBuyerDetails buyer={pending.buyer} />
-      </CheckoutShell>
-    </>);
-    const text = (container.textContent ?? "");
-    for (const expected of ["Pedido #1001", "Tus datos", "Nombre", "Teléfono", "Datos del comprador"]) expect(text).toContain(expected);
+        <CheckoutBuyerDetails buyer={withPhotos.buyer} />
+      </CheckoutShell>);
+    // The thumbnails are the only content a theme adds, so their initials are left out.
+    const clone = container.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll("[data-slot=product-thumbnail]").forEach((thumbnail) => thumbnail.remove());
+    expect(clone.textContent?.replaceAll("\u00a0", " ")).toBe([
+      "Lima Studio", "Pedido #1001", "Revisa los productos y el total de tu pedido.", "Tus datos", "Nombre", "Teléfono",
+      "Incluye el código de país, por ejemplo +51987654321.", "Datos del comprador", "Ana Pérez", "+51987654321", "Productos",
+      "Polo básico", "M", "2 × S/ 49.00", "S/ 98.00", "Taza blanca", "1 × S/ 20.00", "S/ 20.00", "Subtotal de productos", "S/ 118.00",
+      "Entrega", "Selecciona una opción", "Total a pagar", "Selecciona entrega",
+    ].join(""));
     const group = container.querySelector("[data-checkout-part=field-group]")!;
     expect(group.querySelectorAll("[data-checkout-part=field]")).toHaveLength(2);
     expect(group.querySelectorAll("input")).toHaveLength(2);
