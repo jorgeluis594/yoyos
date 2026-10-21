@@ -3,8 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Button } from "@core/app/components/ui/button";
 import { Field, FieldLabel } from "@core/app/components/ui/field";
 import { Input } from "@core/app/components/ui/input";
-import { checkoutBackgrounds, type CheckoutBackground, type CheckoutBrandColor } from "@core/src/features/checkout-appearance/domain/checkout-appearance";
-import { checkoutBrandColorCatalog } from "@core/src/features/checkout-appearance/domain/checkout-colors";
+import { checkoutThemes, type CheckoutThemeId } from "@core/src/features/checkout-appearance/domain/checkout-themes";
 import { CheckoutBrandHeader } from "@core/src/features/checkout-appearance/presentation/checkout-brand-header";
 import { CheckoutTheme } from "@core/src/features/checkout-appearance/presentation/checkout-theme";
 
@@ -16,13 +15,13 @@ const logos = {
   broken: "/missing-logo.png",
 } as const;
 
-type SampleProps = Readonly<{ brandColor: CheckoutBrandColor; background: CheckoutBackground; logoUrl?: string | null; companyName?: string }>;
+type SampleProps = Readonly<{ theme: CheckoutThemeId; logoUrl?: string | null; companyName?: string }>;
 
 /** A compact version of the buyer checkout: header, totals, form, selection and links. */
-function CheckoutSample({ brandColor, background, logoUrl = null, companyName = "Lima Studio" }: SampleProps) {
+function CheckoutSample({ theme, logoUrl = null, companyName = "Lima Studio" }: SampleProps) {
   const id = useId();
   return (
-    <CheckoutTheme appearance={{ logoUrl: null, brandColor, background }}>
+    <CheckoutTheme appearance={{ theme }}>
       <div className="mx-auto flex max-w-lg flex-col gap-5 p-5">
         <CheckoutBrandHeader companyName={companyName} logoUrl={logoUrl} />
         <header>
@@ -51,73 +50,43 @@ const meta = {
   title: "Checkout/Apariencia",
   component: CheckoutSample,
   parameters: { layout: "fullscreen" },
-  // The color stories show every background of one color; these controls would change nothing.
-  argTypes: { brandColor: { table: { disable: true } }, background: { table: { disable: true } } },
+  // Each story fixes its own theme; this control would change nothing.
+  argTypes: { theme: { table: { disable: true } } },
 } satisfies Meta<typeof CheckoutSample>;
 export default meta;
 
 type Story = StoryObj<typeof meta>;
-type Mode = "light" | "dark";
 
-const backgroundNames: Record<CheckoutBackground, string> = { soft: "Suave", medium: "Medio", brand_tint: "De marca" };
+/** One story per theme: the mode is fixed by the theme, so there is no light and dark variant. */
+function themeStory(theme: CheckoutThemeId): Story {
+  return { name: checkoutThemes[theme].name, args: { theme }, render: ({ logoUrl }) => <CheckoutSample theme={theme} logoUrl={logoUrl} /> };
+}
 
-/** One color combined with the three backgrounds, in the mode chosen in the toolbar. */
-function colorStory(brandColor: CheckoutBrandColor, theme: Mode): Story {
+export const Classic = themeStory("classic");
+export const Boutique = themeStory("boutique");
+export const Antojo = themeStory("antojo");
+export const Suave = themeStory("suave");
+export const Noche = themeStory("noche");
+
+/** The three test logos on one theme, to check the plate keeps the full image. */
+function logoStory(theme: CheckoutThemeId): Story {
   return {
-    name: `${checkoutBrandColorCatalog[brandColor].name} · ${theme === "light" ? "claro" : "oscuro"}`,
-    args: { brandColor, background: "medium" },
-    globals: { theme },
-    render: ({ logoUrl }) => (
+    name: `Logos · ${checkoutThemes[theme].name}`,
+    args: { theme },
+    render: () => (
       <div className="grid gap-4 lg:grid-cols-3">
-        {checkoutBackgrounds.map((background) => (
-          <section key={background} aria-label={`Fondo ${backgroundNames[background]}`} className="overflow-hidden rounded-lg border [&_[data-checkout-theme]]:min-h-0">
-            <CheckoutSample brandColor={brandColor} background={background} logoUrl={logoUrl} />
-          </section>
-        ))}
-      </div>
-    ),
-  };
-}
-
-export const YoyosLight = colorStory("yoyos", "light");
-export const YoyosDark = colorStory("yoyos", "dark");
-export const ForestLight = colorStory("forest", "light");
-export const ForestDark = colorStory("forest", "dark");
-export const PetrolLight = colorStory("petrol", "light");
-export const PetrolDark = colorStory("petrol", "dark");
-export const OceanLight = colorStory("ocean", "light");
-export const OceanDark = colorStory("ocean", "dark");
-export const PlumLight = colorStory("plum", "light");
-export const PlumDark = colorStory("plum", "dark");
-export const RaspberryLight = colorStory("raspberry", "light");
-export const RaspberryDark = colorStory("raspberry", "dark");
-export const TerracottaLight = colorStory("terracotta", "light");
-export const TerracottaDark = colorStory("terracotta", "dark");
-export const MustardLight = colorStory("mustard", "light");
-export const MustardDark = colorStory("mustard", "dark");
-export const GraphiteLight = colorStory("graphite", "light");
-export const GraphiteDark = colorStory("graphite", "dark");
-
-/** Every logo shape on the same brand, to check the header box keeps the full image. */
-function logoStory(name: string, theme: Mode): Story {
-  return {
-    name,
-    args: { brandColor: "forest", background: "brand_tint" },
-    globals: { theme },
-    render: ({ brandColor, background }) => (
-      <div className="grid gap-4 lg:grid-cols-2">
-        {([["Cuadrado", logos.square], ["Horizontal", logos.horizontal], ["Transparente", logos.transparent], ["Roto", logos.broken], ["Sin logo", null]] as const).map(([label, logoUrl]) => (
+        {([["Cuadrado", logos.square], ["Horizontal", logos.horizontal], ["Transparente", logos.transparent]] as const).map(([label, logoUrl]) => (
           <section key={label} aria-label={`Logo ${label}`} className="overflow-hidden rounded-lg border [&_[data-checkout-theme]]:min-h-0">
-            <CheckoutSample brandColor={brandColor} background={background} logoUrl={logoUrl} />
+            <CheckoutSample theme={theme} logoUrl={logoUrl} />
           </section>
         ))}
-        <section aria-label="Nombre largo" className="overflow-hidden rounded-lg border [&_[data-checkout-theme]]:min-h-0">
-          <CheckoutSample brandColor={brandColor} background={background} logoUrl={logos.horizontal} companyName="Taller de cerámica y accesorios artesanales Lima Studio" />
-        </section>
       </div>
     ),
   };
 }
 
-export const LogosLight = logoStory("Logos · claro", "light");
-export const LogosDark = logoStory("Logos · oscuro", "dark");
+export const LogosClassic = logoStory("classic");
+export const LogosBoutique = logoStory("boutique");
+export const LogosAntojo = logoStory("antojo");
+export const LogosSuave = logoStory("suave");
+export const LogosNoche = logoStory("noche");

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
-import { action, headers, loader } from "@core/app/routes/checkout";
+import { action, handle, headers, loader } from "@core/app/routes/checkout";
 import { orders } from "@core/src/features/orders/composition";
 import { deliverySettings } from "@core/src/features/delivery-settings";
 import { checkoutAppearance, parseCompanyId } from "@core/src/features/checkout-appearance";
@@ -209,7 +209,7 @@ test("confirmed checkout logs and answers 503 for an invalid payment view", asyn
 });
 
 describe("checkout appearance", () => {
-  const custom = { logoUrl: "https://images.example.test/logo.png", brandColor: "forest" as const, background: "brand_tint" as const };
+  const custom = { logoUrl: "https://images.example.test/logo.png", theme: "boutique" as const };
   const pendingSettings = () => vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions").mockResolvedValue(ok({ settings: { version: 0, home: { enabled: false }, agency: { enabled: false }, couriers: [], store: { enabled: false, pickupPoint: null } }, agencyCovered: false }));
   const load = () => loader({ params } as unknown as LoaderFunctionArgs);
 
@@ -221,14 +221,14 @@ describe("checkout appearance", () => {
     expect(getPublic).toHaveBeenCalledWith(params.companyId);
   });
 
-  test("exposes only logo, color and background", async () => {
+  test("exposes only the logo URL and the theme", async () => {
     pendingSettings();
     const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
     vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
     vi.mocked(checkoutAppearance.getPublic).mockResolvedValue({ kind: "custom", appearance: { ...custom, logoImageId: "private" } as never });
     expect(await load()).toMatchObject({ data: { appearance: null } });
     expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "order_checkout_data_invalid", errorCode: "INVALID_APPEARANCE_RESPONSE" }), expect.any(String));
-    expect(bindRequestOperation).toHaveBeenCalledWith({ checkoutAppearance: "fallback" });
+    expect(bindRequestOperation).toHaveBeenCalledWith({ checkoutAppearance: "fallback", checkoutTheme: "classic" });
   });
 
   test("logs and falls back when the company id cannot be parsed", async () => {
@@ -239,7 +239,7 @@ describe("checkout appearance", () => {
     expect(await load()).toMatchObject({ data: { checkout: publicView, appearance: null } });
     expect(checkoutAppearance.getPublic).not.toHaveBeenCalled();
     expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "order_checkout_appearance_failed", errorCode: "INVALID_CHECKOUT_APPEARANCE" }), expect.any(String));
-    expect(bindRequestOperation).toHaveBeenCalledWith({ checkoutAppearance: "fallback" });
+    expect(bindRequestOperation).toHaveBeenCalledWith({ checkoutAppearance: "fallback", checkoutTheme: "classic" });
   });
 
   test("does not read the appearance for an unauthorized link", async () => {
@@ -287,5 +287,27 @@ describe("checkout appearance", () => {
     expect(await tagged({ kind: "default" })).toEqual(["default"]);
     expect(await tagged({ kind: "custom", appearance: custom })).toEqual(["custom"]);
     expect(await tagged({ kind: "fallback" })).toEqual(["fallback"]);
+  });
+});
+
+describe("checkout theme tag and color scheme", () => {
+  test("tags the request with the checkout theme", async () => {
+    vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions").mockResolvedValue(ok({ settings: { version: 0, home: { enabled: false }, agency: { enabled: false }, couriers: [], store: { enabled: false, pickupPoint: null } }, agencyCovered: false }));
+    vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
+    const tagged = async (result: Awaited<ReturnType<typeof checkoutAppearance.getPublic>>) => {
+      vi.mocked(checkoutAppearance.getPublic).mockResolvedValue(result);
+      vi.mocked(bindRequestOperation).mockClear();
+      await loader({ params } as unknown as LoaderFunctionArgs);
+      return vi.mocked(bindRequestOperation).mock.calls.flatMap(([fields]) => fields.checkoutTheme ?? []);
+    };
+    expect(await tagged({ kind: "custom", appearance: { logoUrl: null, theme: "noche" } })).toEqual(["noche"]);
+    expect(await tagged({ kind: "default" })).toEqual(["classic"]);
+    expect(await tagged({ kind: "fallback" })).toEqual(["classic"]);
+  });
+
+  test("renders a fixed scheme only when the loader produced a checkout", () => {
+    expect(handle.colorScheme({ checkout: publicView, message: null })).toBe("fixed");
+    expect(handle.colorScheme(undefined)).toBe("system");
+    expect(handle.colorScheme({ checkout: null, message: "x" })).toBe("system");
   });
 });
