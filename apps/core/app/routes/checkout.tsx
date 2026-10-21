@@ -8,9 +8,9 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@core/app/components/ui/button";
 import { CheckoutBuyerDetails, CheckoutConfirmAction, CheckoutOrderSummary, CheckoutPayment, CheckoutReviewFields, CheckoutShell, checkoutTotal } from "@core/app/components/checkout-sections";
 import { orders } from "@core/src/features/orders/composition";
-import { parseBuyer, type CheckoutAccess, type CheckoutView } from "@core/src/features/orders/domain/checkout";
+import { parseBuyer, type CheckoutAccess } from "@core/src/features/orders/domain/checkout";
 import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
-import type { CheckoutDeliveryChange } from "@core/src/features/orders/application/checkout";
+import type { CheckoutDeliveryChange, CheckoutPage } from "@core/src/features/orders/application/checkout";
 import type { Money } from "@shared/money";
 import { deliverySettings } from "@core/src/features/delivery-settings";
 import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
@@ -32,9 +32,10 @@ const retry = "No se pudo completar la solicitud. Inténtalo de nuevo.";
 type PageData = { checkout: PublicCheckoutResponse | null; payment?: BuyerPaymentView; appearance?: PublicCheckoutAppearance | null; deliveryOptions?: CheckoutDeliveryOptions; message: string | null; fieldErrors?: { name?: string; phone?: string }; unavailable?: boolean; code?: string; currentPrice?: Money };
 const response = (value: PageData, status = 200) => data(value, { status, headers: privacyHeaders });
 
-function serialize(checkout: CheckoutView): PublicCheckoutResponse {
-  const parsed = publicCheckoutSchema.safeParse({ ...checkout, state: checkout.state.kind === "confirmed"
-    ? { kind: "confirmed", confirmedAt: checkout.state.confirmedAt.toISOString() } : checkout.state });
+function serialize({ checkout, photos }: CheckoutPage): PublicCheckoutResponse {
+  const parsed = publicCheckoutSchema.safeParse({ ...checkout,
+    items: checkout.items.map(({ variantId, ...item }) => ({ ...item, imageUrl: photos.get(variantId) ?? null })),
+    state: checkout.state.kind === "confirmed" ? { kind: "confirmed", confirmedAt: checkout.state.confirmedAt.toISOString() } : checkout.state });
   if (!parsed.success) {
     log.error({ event: "order_checkout_data_invalid", errorCode: "INVALID_CHECKOUT_RESPONSE" }, "Invalid checkout response");
     bindRequestOperation({ outcome: "technical_failure" });
@@ -93,11 +94,11 @@ export async function loader({ params }: LoaderFunctionArgs) {
   if (!result.success) throw new Response(result.error.code === "CHECKOUT_UNAVAILABLE" ? unavailable : retry,
     { status: result.error.code === "CHECKOUT_UNAVAILABLE" ? 404 : 503, headers: privacyHeaders });
   const appearance = loadAppearance(path.data.companyId);
-  if (result.data.state.kind === "confirmed") {
+  if (result.data.checkout.state.kind === "confirmed") {
     const [payment, branded] = await Promise.all([loadPayment(path.data.orderId), appearance]);
     return response({ checkout: serialize(result.data), payment, appearance: branded, message: null });
   }
-  if (result.data.state.kind !== "pending") return response({ checkout: serialize(result.data), appearance: await appearance, message: null });
+  if (result.data.checkout.state.kind !== "pending") return response({ checkout: serialize(result.data), appearance: await appearance, message: null });
   const [settings, branded] = await Promise.all([withTenantIsolation(path.data.companyId, () => deliverySettings.getCheckoutDeliveryOptions(path.data.companyId)), appearance]);
   if (!settings.success) {
     bindRequestOperation({ outcome: "technical_failure" });

@@ -13,7 +13,7 @@ const withI18n = (element: React.ReactElement) => <I18nextProvider i18n={i18n}>{
 const total = { amount: 10, currency: "PEN" as const };
 const checkout: PublicCheckoutResponse = { companyName: "Shop", number: 1001, buyer: null, delivery: null,
   deliveryCharge: { amount: 0, currency: "PEN" }, itemsTotal: total, total,
-  items: [{ productName: "Product", variantAttributes: {}, sku: null, quantity: 1, unitPrice: total, subtotal: total }], state: { kind: "pending" } };
+  items: [{ productName: "Product", variantAttributes: {}, sku: null, imageUrl: null, quantity: 1, unitPrice: total, subtotal: total }], state: { kind: "pending" } };
 const options = { home: { enabled: true }, agency: { enabled: false, covered: false }, store: { enabled: false as const, pickupPoint: null } };
 const pickup = { enabled: true as const, pickupPoint: { name: "Shop", address: "Street", instructions: null } };
 const render = (value = checkout, settings: CheckoutDeliveryOptions = options) => renderToStaticMarkup(withI18n(<CheckoutDeliveryFields orderId="00000000-0000-4000-8000-000000000001" checkout={value} options={settings} onChange={() => undefined} />));
